@@ -17,6 +17,8 @@ import {
   emitWorkflowFinishSummary,
   emitWorkflowJobToasts,
   emitWorkflowStartToast,
+  selectWorkflowJobOutcomesForToasts,
+  shouldEmitWorkflowFinishSummaryToast,
 } from "./workflowExecution/feedbackSeam";
 import { createLocalizedMessageFormatter } from "./workflowExecution/messageFormatter";
 import { shouldShowWorkflowNotifications } from "./workflowExecution/feedbackPolicy";
@@ -276,11 +278,16 @@ export async function executeWorkflowFromCurrentSelection(args: {
   }
 
   if (showWorkflowNotifications) {
-    if (applySummary.jobOutcomes.length > 0) {
+    const jobToastOutcomes = selectWorkflowJobOutcomesForToasts({
+      outcomes: applySummary.jobOutcomes,
+      totalJobs: runState.totalJobs,
+      skipped: totalSkipped,
+    });
+    if (jobToastOutcomes.length > 0) {
       emitWorkflowJobToasts({
         workflowLabel: args.workflow.manifest.label,
         totalJobs: runState.totalJobs,
-        outcomes: applySummary.jobOutcomes,
+        outcomes: jobToastOutcomes,
         messageFormatter,
       });
     }
@@ -305,7 +312,14 @@ export async function executeWorkflowFromCurrentSelection(args: {
   });
 
   if (showWorkflowNotifications) {
-    if (applySummary.pending === 0) {
+    if (
+      applySummary.pending === 0 &&
+      shouldEmitWorkflowFinishSummaryToast({
+        outcomes: applySummary.jobOutcomes,
+        totalJobs: runState.totalJobs,
+        skipped: totalSkipped,
+      })
+    ) {
       emitWorkflowFinishSummary({
         win: args.win,
         workflowLabel: args.workflow.manifest.label,

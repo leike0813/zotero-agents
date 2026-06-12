@@ -1,0 +1,579 @@
+{
+  "schema_version": "literature-deep-reading.concept-overlay-view.v0",
+  "source": "topic_synthesis_artifacts",
+  "enabled": true,
+  "concepts": [
+    {
+      "id": "concept:ablation",
+      "label": "ablation",
+      "aliases": [
+        "ablation",
+        "ablation study"
+      ],
+      "kind": "reader_concept",
+      "definition": "通过移除或替换组件来判断它们对性能的贡献。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:anchor",
+      "label": "anchor",
+      "aliases": [
+        "anchor",
+        "anchors"
+      ],
+      "kind": "reader_concept",
+      "definition": "预设在图像位置和尺度上的候选框先验，许多单阶段检测器会相对于 anchor 预测目标框。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:ap",
+      "label": "AP",
+      "aliases": [
+        "AP",
+        "average precision"
+      ],
+      "kind": "reader_concept",
+      "definition": "COCO 目标检测的核心指标，综合多个 IoU 阈值下的检测精度。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:apl",
+      "label": "APl",
+      "aliases": [
+        "APl",
+        "large object AP"
+      ],
+      "kind": "reader_concept",
+      "definition": "COCO 中大目标的 AP 指标；初版 DETR 在这里相对传统检测器更有优势。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:aps",
+      "label": "APs",
+      "aliases": [
+        "APs",
+        "small object AP"
+      ],
+      "kind": "reader_concept",
+      "definition": "COCO 中小目标的 AP 指标；初版 DETR 在这里明显弱于强基线。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:assignment",
+      "label": "assignment",
+      "aliases": [
+        "assignment",
+        "matching assignment"
+      ],
+      "kind": "reader_concept",
+      "definition": "把预测槽位分配给真实目标的过程；DETR 用最优二分匹配替代传统检测器中的启发式分配。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:backbone",
+      "label": "backbone",
+      "aliases": [
+        "backbone",
+        "CNN backbone"
+      ],
+      "kind": "reader_concept",
+      "definition": "检测器前端的特征提取网络；DETR 使用 ResNet 提取图像特征。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:bipartite-matching",
+      "label": "bipartite matching",
+      "aliases": [
+        "bipartite matching",
+        "Hungarian matching"
+      ],
+      "kind": "reader_concept",
+      "definition": "在预测集合和真实目标集合之间寻找一对一分配，是 DETR 取消重复预测和 NMS 的训练基础。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:box-loss",
+      "label": "box loss",
+      "aliases": [
+        "box loss",
+        "bounding box loss"
+      ],
+      "kind": "reader_concept",
+      "definition": "用于优化预测框位置和大小的损失，DETR 结合 L1 与 GIoU。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:coco",
+      "label": "COCO",
+      "aliases": [
+        "COCO",
+        "MS COCO"
+      ],
+      "kind": "reader_concept",
+      "definition": "目标检测和全景分割常用基准数据集，DETR 的主要实验结果在 COCO 上报告。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:convergence",
+      "label": "convergence",
+      "aliases": [
+        "convergence",
+        "training convergence"
+      ],
+      "kind": "reader_concept",
+      "definition": "训练过程从不稳定预测逐步达到可用性能的过程；初版 DETR 的主要代价之一就是收敛较慢。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:decoder",
+      "label": "decoder",
+      "aliases": [
+        "decoder",
+        "Transformer decoder"
+      ],
+      "kind": "reader_concept",
+      "definition": "接收 object queries，并从 encoder 输出中提取对象表示的模块。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:deformable-attention",
+      "label": "deformable attention",
+      "aliases": [
+        "deformable attention"
+      ],
+      "kind": "method_concept",
+      "definition": "Sparse multi-scale attention used by Deformable DETR.",
+      "source": "topic_synthesis_kg_enrichment",
+      "status": "defined"
+    },
+    {
+      "id": "concept:deformable-detr",
+      "label": "Deformable DETR",
+      "aliases": [
+        "Deformable DETR",
+        "deformable attention"
+      ],
+      "kind": "reader_concept",
+      "definition": "DETR 后续代表工作之一，通过稀疏可变形注意力改善收敛速度和多尺度建模。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:denoising-training",
+      "label": "denoising training",
+      "aliases": [
+        "denoising training"
+      ],
+      "kind": "training_strategy",
+      "definition": "DINO-style auxiliary denoising to stabilize DETR training.",
+      "source": "topic_synthesis_kg_enrichment",
+      "status": "defined"
+    },
+    {
+      "id": "concept:detr",
+      "label": "DETR",
+      "aliases": [
+        "DETR",
+        "DETR-family"
+      ],
+      "kind": "topic_root",
+      "definition": "End-to-end object detection with transformers.",
+      "source": "topic_synthesis_kg_enrichment",
+      "status": "defined"
+    },
+    {
+      "id": "concept:detr-family",
+      "label": "DETR-family",
+      "aliases": [
+        "DETR-family",
+        "DETR variants"
+      ],
+      "kind": "reader_concept",
+      "definition": "围绕 DETR 范式发展的后续工作，主要解决收敛慢、小目标弱、多尺度和实时化问题。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:encoder",
+      "label": "encoder",
+      "aliases": [
+        "encoder",
+        "Transformer encoder"
+      ],
+      "kind": "reader_concept",
+      "definition": "对展平后的图像特征做全局 self-attention 的模块。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:encoder-decoder",
+      "label": "encoder-decoder",
+      "aliases": [
+        "encoder-decoder",
+        "Transformer encoder-decoder"
+      ],
+      "kind": "reader_concept",
+      "definition": "DETR 的 Transformer 主体结构：encoder 处理图像特征，decoder 用 object queries 产生预测。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:end-to-end",
+      "label": "end-to-end",
+      "aliases": [
+        "end-to-end",
+        "end-to-end training"
+      ],
+      "kind": "reader_concept",
+      "definition": "尽量让模型从输入到最终输出都由统一目标训练，减少独立后处理或手工规则。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:faster-r-cnn",
+      "label": "Faster R-CNN",
+      "aliases": [
+        "Faster R-CNN",
+        "two-stage detector"
+      ],
+      "kind": "reader_concept",
+      "definition": "经典两阶段目标检测器，是 DETR 论文中最重要的强基线之一。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:ffn",
+      "label": "FFN",
+      "aliases": [
+        "FFN",
+        "feed-forward network"
+      ],
+      "kind": "reader_concept",
+      "definition": "Transformer 层和预测头中的前馈网络，用于对特征进行逐位置变换或输出类别与边界框。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:fpn",
+      "label": "FPN",
+      "aliases": [
+        "FPN",
+        "Feature Pyramid Network"
+      ],
+      "kind": "reader_concept",
+      "definition": "多尺度特征金字塔，是传统检测器改善小目标检测的重要技术路线。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:hungarian-algorithm",
+      "label": "Hungarian algorithm",
+      "aliases": [
+        "Hungarian algorithm",
+        "Hungarian matching"
+      ],
+      "kind": "reader_concept",
+      "definition": "求解二分图最优分配的算法；DETR 用它确定哪个预测负责哪个真实目标。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:hungarian-matching",
+      "label": "Hungarian matching",
+      "aliases": [
+        "Hungarian matching"
+      ],
+      "kind": "candidate",
+      "definition": "",
+      "source": "concept_candidate_context",
+      "status": "label_only"
+    },
+    {
+      "id": "concept:mask-head",
+      "label": "mask head",
+      "aliases": [
+        "mask head",
+        "segmentation head"
+      ],
+      "kind": "reader_concept",
+      "definition": "在 DETR decoder 输出上增加的分割预测头，用于为每个对象生成 mask。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:multi-scale",
+      "label": "multi-scale",
+      "aliases": [
+        "multi-scale",
+        "multi-scale features"
+      ],
+      "kind": "reader_concept",
+      "definition": "同时利用不同分辨率特征来处理大小不同的对象，是改善小目标检测的重要手段。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:nms",
+      "label": "NMS",
+      "aliases": [
+        "NMS",
+        "non-maximum suppression"
+      ],
+      "kind": "reader_concept",
+      "definition": "传统检测器常用的后处理规则，用来从一组高度重叠的候选框中保留最可信的预测。DETR 的目标之一是在训练目标中学习去重，而不是推理后再用 NMS 清理。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:no-object",
+      "label": "no-object",
+      "aliases": [
+        "no-object",
+        "background class"
+      ],
+      "kind": "reader_concept",
+      "definition": "DETR 中表示某个预测槽位没有对应真实目标的类别。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:object-detection",
+      "label": "object detection",
+      "aliases": [
+        "object detection",
+        "detection"
+      ],
+      "kind": "reader_concept",
+      "definition": "为图像中的对象预测类别标签和边界框的任务。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:object-queries",
+      "label": "object queries",
+      "aliases": [
+        "object queries"
+      ],
+      "kind": "method_concept",
+      "definition": "Decoder queries representing predicted objects.",
+      "source": "topic_synthesis_kg_enrichment",
+      "status": "defined"
+    },
+    {
+      "id": "concept:object-query",
+      "label": "object query",
+      "aliases": [
+        "object query",
+        "object queries"
+      ],
+      "kind": "reader_concept",
+      "definition": "DETR decoder 的可学习查询向量，每个 query 对应一个预测槽位；它不是 anchor，也不是候选框。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:panoptic-segmentation",
+      "label": "panoptic segmentation",
+      "aliases": [
+        "panoptic segmentation",
+        "panoptic prediction"
+      ],
+      "kind": "reader_concept",
+      "definition": "同时处理可数对象 things 和不可数区域 stuff 的像素级识别任务。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:paradigm",
+      "label": "paradigm",
+      "aliases": [
+        "paradigm",
+        "detection paradigm"
+      ],
+      "kind": "reader_concept",
+      "definition": "对检测问题的基本建模方式；DETR 的范式变化是从候选框筛选转向直接集合预测。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:parallel-decoding",
+      "label": "parallel decoding",
+      "aliases": [
+        "parallel decoding",
+        "non-autoregressive decoding"
+      ],
+      "kind": "reader_concept",
+      "definition": "一次性并行生成多个输出，而不是按顺序逐个生成；DETR 用它并行产生固定数量的预测槽位。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:permutation",
+      "label": "permutation",
+      "aliases": [
+        "permutation",
+        "permutation invariance"
+      ],
+      "kind": "reader_concept",
+      "definition": "集合元素没有固定顺序，因此训练目标不能依赖某个任意排列。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:positional-encoding",
+      "label": "positional encoding",
+      "aliases": [
+        "positional encoding",
+        "position encoding"
+      ],
+      "kind": "reader_concept",
+      "definition": "向 Transformer 输入中注入空间位置信息，使模型知道特征来自图像中的哪个位置。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:post-processing",
+      "label": "post-processing",
+      "aliases": [
+        "post-processing",
+        "NMS"
+      ],
+      "kind": "reader_concept",
+      "definition": "模型输出之后再用规则修正、过滤或合并预测的步骤；DETR 试图把去重能力前移到训练目标和模型结构中。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:pq",
+      "label": "PQ",
+      "aliases": [
+        "PQ",
+        "panoptic quality"
+      ],
+      "kind": "reader_concept",
+      "definition": "全景分割的核心评价指标，综合分割质量和识别质量。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:proposal",
+      "label": "proposal",
+      "aliases": [
+        "proposal",
+        "proposals"
+      ],
+      "kind": "reader_concept",
+      "definition": "两阶段检测器中的候选区域，后续分类和框回归都围绕这些候选区域展开。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:real-time-detection-transformer",
+      "label": "real-time detection transformer",
+      "aliases": [
+        "real-time detection transformer"
+      ],
+      "kind": "candidate",
+      "definition": "",
+      "source": "concept_candidate_context",
+      "status": "label_only"
+    },
+    {
+      "id": "concept:retinanet",
+      "label": "RetinaNet",
+      "aliases": [
+        "RetinaNet",
+        "Focal Loss"
+      ],
+      "kind": "reader_concept",
+      "definition": "代表性的单阶段 anchor-based 检测器，DETR 用它作为现代检测范式的对照。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:rt-detr",
+      "label": "RT-DETR",
+      "aliases": [
+        "RT-DETR",
+        "real-time detection transformer"
+      ],
+      "kind": "reader_concept",
+      "definition": "将 DETR 范式推向实时目标检测的后续路线。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:self-attention",
+      "label": "self-attention",
+      "aliases": [
+        "self-attention",
+        "attention"
+      ],
+      "kind": "reader_concept",
+      "definition": "让序列中的每个元素根据其他元素更新自身表示；在 DETR 中用于全局图像特征和预测之间的关系建模。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:set-loss",
+      "label": "set loss",
+      "aliases": [
+        "set loss",
+        "Hungarian loss"
+      ],
+      "kind": "reader_concept",
+      "definition": "基于集合匹配的训练损失，使预测与真实目标形成唯一配对。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:set-prediction",
+      "label": "set prediction",
+      "aliases": [
+        "set prediction",
+        "direct set prediction"
+      ],
+      "kind": "reader_concept",
+      "definition": "直接预测一个无序对象集合；监督时需要处理预测与真实目标之间的匹配，而不能按固定顺序逐项比较。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:training-schedule",
+      "label": "training schedule",
+      "aliases": [
+        "training schedule",
+        "long training schedule"
+      ],
+      "kind": "reader_concept",
+      "definition": "训练轮数和学习率安排；初版 DETR 需要比常规检测器更长的训练。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    },
+    {
+      "id": "concept:transformer",
+      "label": "Transformer",
+      "aliases": [
+        "Transformer",
+        "self-attention"
+      ],
+      "kind": "reader_concept",
+      "definition": "由 self-attention 组成的编码器-解码器架构，在 DETR 中用于建模图像区域和预测槽位之间的全局关系。",
+      "source": "literature_deep_reading_sample",
+      "status": "defined"
+    }
+  ],
+  "diagnostics": []
+}

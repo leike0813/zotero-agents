@@ -120,22 +120,22 @@ UI/dialog/editor capabilities are host interactions, not agent defaults. They sh
 
 The MCP server name is `zotero`, so individual tool names must not repeat that namespace. MCP tool names must describe user-facing tasks, not internal implementation names. Prefer short names like:
 
-- `get_current_view`
-- `get_selected_items`
-- `search_items`
-- `list_library_items`
-- `get_item_detail`
-- `get_item_notes`
-- `get_note_detail`
-- `get_item_attachments`
-- `preview_mutation`
-- `update_item_fields`
-- `add_item_tags`
-- `remove_item_tags`
-- `create_child_note`
-- `update_note`
-- `add_items_to_collection`
-- `remove_items_from_collection`
+Core read/context tools:
+- `get_current_view`, `get_selected_items`, `search_items`, `list_library_items`
+- `get_item_detail`, `get_item_notes`, `get_note_detail`, `get_item_attachments`
+- `list_note_payloads`, `get_note_payload`, `prepare_paper_reading_context`, `get_mcp_status`
+
+Synthesis tools:
+- `topics.list`, `topics.get_context`, `topics.get_review_input`, `schemas.get`, `concepts.query`
+- `citation_graph.query_cluster`, `citation_graph.get_overview`, `citation_graph.get_slice`, `citation_graph.get_metrics`, `citation_graph.rank_external_references`, `citation_graph.rank_library_papers`
+- `library_index.get`, `resolvers.resolve`, `reference_index.get`
+- `paper_artifacts.get_manifest`, `paper_artifacts.read`, `paper_artifacts.export_filtered`, `paper_artifacts.resolve_topic_digest`
+- `insights.get_attention_queue`
+
+Write tools:
+- `preview_mutation`, `update_item_fields`, `add_item_tags`, `remove_item_tags`
+- `create_child_note`, `update_note`, `create_markdown_note`, `update_markdown_note`
+- `ingest_paper`, `add_items_to_collection`, `remove_items_from_collection`
 
 Avoid names like:
 
@@ -183,7 +183,7 @@ The current embedded localhost server may return `access.mode = "local-path"` an
 
 ## Formal MCP Tool Suite
 
-The first formal read/context tools are:
+Read/Context tools (15):
 
 1. `get_current_view`
 2. `get_selected_items`
@@ -193,8 +193,34 @@ The first formal read/context tools are:
 6. `get_item_notes`
 7. `get_note_detail`
 8. `get_item_attachments`
+9. `list_note_payloads`
+10. `get_note_payload`
+11. `prepare_paper_reading_context`
+12. `get_mcp_status`
+13. `topics.list`
+14. `topics.get_context`
+15. `topics.get_review_input`
 
-The first formal write tools are:
+Synthesis tools (16):
+
+1. `schemas.get`
+2. `concepts.query`
+3. `library_index.get`
+4. `resolvers.resolve`
+5. `reference_index.get`
+6. `citation_graph.query_cluster`
+7. `citation_graph.get_overview`
+8. `citation_graph.get_slice`
+9. `citation_graph.get_metrics`
+10. `citation_graph.rank_external_references`
+11. `citation_graph.rank_library_papers`
+12. `paper_artifacts.get_manifest`
+13. `paper_artifacts.read`
+14. `paper_artifacts.export_filtered`
+15. `paper_artifacts.resolve_topic_digest`
+16. `insights.get_attention_queue`
+
+Write tools (11):
 
 1. `preview_mutation`
 2. `update_item_fields`

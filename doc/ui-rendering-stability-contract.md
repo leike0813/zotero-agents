@@ -9,7 +9,7 @@ interaction state during background updates.
 High-frequency updates must patch only the region they own. They must not
 rebuild the main content area that the user is reading or manipulating.
 
-Separate every live UI surface into three state classes:
+Separate every live UI surface into three state classes. Current enforcement covers `synthesisWorkbenchApp.ts`; other surfaces are expected to adopt the same contract incrementally:
 
 - **Content state**: rows, cards, graph nodes, transcript items, form schema, and
   other data that changes the main content.

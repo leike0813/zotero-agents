@@ -549,6 +549,44 @@ describe("Synthesis repository foundation", function () {
     );
   });
 
+  it("cancels running operations during startup reconciliation", function () {
+    const repository = createSynthesisRepository({
+      now: () => "2026-05-28T00:00:00.000Z",
+    });
+    const service = createSynthesisService({
+      root: "C:/synthesis-startup-reconcile",
+      runtimeRoot: "C:/synthesis-startup-reconcile",
+      libraryId: 1,
+      now: () => "2026-05-28T00:00:00.000Z",
+      synthesisRepository: repository,
+    });
+    repository.upsertOperation({
+      operationId: "operation:stale-running",
+      operationType: "reference_sidecar_refresh",
+      label: "Stale operation",
+      status: "running",
+      phase: "scan",
+      phaseLabel: "Scanning",
+      updatedAt: "2026-05-28T00:00:00.000Z",
+    });
+
+    const result = service.reconcileSynthesisRuntimeWorkStateOnStartup();
+
+    assert.deepEqual(result.canceledOperationIds, ["operation:stale-running"]);
+    const operation = repository.getOperation("operation:stale-running");
+    assert.equal(operation?.status, "canceled");
+    assert.include(
+      operation?.diagnosticsJson || "",
+      "synthesis_operation_stale_after_restart",
+    );
+    assert.deepEqual(
+      service
+        .getSynthesisBackgroundJobRows()
+        .filter((row) => row.status === "running"),
+      [],
+    );
+  });
+
   it("requires the reset confirmation phrase before service reset", async function () {
     const repository = createSynthesisRepository({
       now: () => "2026-05-28T00:00:00.000Z",
@@ -1257,5 +1295,4 @@ describe("Synthesis repository foundation", function () {
       sourceStructureVersion: 1,
     });
   });
-
 });

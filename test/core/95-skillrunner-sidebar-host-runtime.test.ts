@@ -55,7 +55,11 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(ts, "subscribeWorkflowTasks");
     assert.include(ts, "maybeShowAcpSkillWaitingToasts");
     assert.include(ts, "showWorkflowToast");
-    assert.include(ts, "updateSidebarBadges");
+    assert.include(ts, "updateAssistantAttentionIndicator");
+    assert.include(ts, "updateAssistantToolbarAttention");
+    assert.include(ts, "countDashboardHumanAttentionTasks");
+    assert.notInclude(ts, "installWorkspaceToolbarTaskPopover");
+    assert.notInclude(ts, "uninstallWorkspaceToolbarTaskPopover");
     assert.include(
       en,
       "task-dashboard-run-sidebar-toast-waiting-user = SkillRunner run needs your input",
@@ -114,6 +118,14 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(sidebarTs, "SKILLRUNNER_ICON_URI");
     assert.include(sidebarTs, "applyToolbarButtonStyling");
     assert.include(sidebarTs, "syncToolbarButtonIconFill");
+    assert.include(
+      sidebarTs,
+      "updateAssistantToolbarAttention(host.win, waitingCount)",
+    );
+    assert.notInclude(sidebarTs, "setButtonBadge(");
+    assert.include(sidebarTs, "assistant-sidebar-entry");
+    assert.notInclude(sidebarTs, "assistant-sidebar-badge");
+    assert.notInclude(sidebarTs, "updateSkillRunnerToolbarButtonBadge");
     assert.include(sidebarTs, "close-sidebar");
     assert.include(sidebarTs, "closeActiveSidebarHost");
     assert.include(sidebarTs, "applySidebarPaneContainerStyles");
@@ -130,11 +142,19 @@ describe("skillrunner sidebar host runtime", function () {
     );
     assert.include(
       paneCss,
-      "#zotero-context-pane-sidenav .zs-skillrunner-sidebar-button",
+      "#zotero-context-pane-sidenav .zs-assistant-sidebar-button",
     );
     assert.include(
       paneCss,
-      "#zotero-context-pane-sidenav .zs-skillrunner-sidebar-button > .toolbarbutton-icon",
+      "#zotero-context-pane-sidenav .zs-assistant-sidebar-button > .toolbarbutton-icon",
+    );
+    assert.notInclude(paneCss, ".zs-skillrunner-toolbar-button[data-attention");
+    assert.notInclude(paneCss, ".zs-skillrunner-attention-button");
+    assert.notInclude(paneCss, ".zs-skillrunner-attention-led");
+    assert.notInclude(paneCss, ".zs-assistant-sidebar-badge");
+    assert.notInclude(
+      paneCss,
+      ".zs-skillrunner-sidebar-button[data-badge]::after",
     );
   });
 

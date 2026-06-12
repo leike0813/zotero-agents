@@ -1023,6 +1023,44 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(after, before);
   });
 
+  it("reads topic context from current artifact files when the topic graph cache is missing", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-12T00:00:00.000Z",
+      registryInputs: [registryInput({ itemKey: "A" })],
+      mirrorAdapter: createMirrorRecorder().adapter,
+    });
+
+    await service.applyTopicSynthesisResult(validBundle());
+    createSynthesisRepository({ root }).replaceTopicGraphState({
+      nodes: [],
+      edges: [],
+      reviewItems: [],
+    });
+
+    const topicContext = (await service.getTopicContext({
+      topicId: "topic-alpha",
+      includeMarkdown: true,
+    })) as {
+      status?: string;
+      topic_id?: string;
+      markdown?: string;
+      current_metadata?: { topic_id?: string };
+      diagnostics?: { message?: string };
+    };
+
+    assert.notEqual(topicContext.status, "not_found");
+    assert.equal(topicContext.topic_id, "topic-alpha");
+    assert.equal(topicContext.current_metadata?.topic_id, "topic-alpha");
+    assert.include(topicContext.markdown || "", "The topic source set");
+    assert.notInclude(
+      topicContext.diagnostics?.message || "",
+      "synthesis database",
+    );
+  });
+
   it("lists topics as a small semantic inventory for create-mode de-duplication", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
@@ -1501,6 +1539,95 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(await exists(paths.unifiedCitationGraph), false);
     assert.equal(await exists(paths.unifiedCitationLayouts), false);
     assert.equal(await exists(paths.unifiedCitationGraphMetrics), false);
+  });
+
+  it("requires explicit scope or selectors for citation graph layout reads", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({ root, libraryId: 1 });
+
+    const result = await service.getCitationGraphLayout({});
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, "invalid_request");
+    assert.equal(result.scope, "none");
+    assert.include(result.diagnostics.warnings.join("\n"), "scope");
+  });
+
+  it("returns persisted citation graph layout for full, slice, and explicit node queries", async function () {
+    const root = await makeRoot();
+    await writeDbGraphState(root);
+    const service = createSynthesisService({ root, libraryId: 1 });
+
+    await service.recomputeCitationGraphLayout({
+      algorithm: "force",
+      force: true,
+      timeBudgetMs: 1000,
+    });
+    const full = await service.getCitationGraphLayout({ scope: "full" });
+    const slice = await service.getCitationGraphLayout({
+      paperRef: "1:A",
+      maxNodes: 10,
+      maxEdges: 10,
+    });
+    const explicit = await service.getCitationGraphLayout({
+      paperRefs: ["1:A", "1:B"],
+    });
+
+    assert.equal(full.ok, true);
+    assert.equal(full.status, "ready");
+    assert.equal(full.scope, "full");
+    assert.equal(full.layout_status, "ready");
+    assert.isNumber(full.nodes.find((node) => node.node_id === "zotero:item:A")?.x);
+    assert.include(
+      slice.nodes.map((node) => node.node_id),
+      "zotero:item:B",
+    );
+    assert.deepEqual(
+      explicit.nodes.map((node) => node.node_id),
+      ["zotero:item:A", "zotero:item:B"],
+    );
+    assert.deepEqual(
+      explicit.edges.map((edge) => edge.edge_id),
+      ["edge-a-b"],
+    );
+  });
+
+  it("reports missing and oversized citation graph layout reads without recomputing", async function () {
+    const root = await makeRoot();
+    await writeDbGraphState(root);
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+    });
+    const beforeLayouts = repository.listCitationGraphLayoutStates();
+
+    const missing = await service.getCitationGraphLayout({ scope: "full" });
+    assert.equal(missing.ok, false);
+    assert.equal(missing.status, "missing");
+    assert.deepEqual(repository.listCitationGraphLayoutStates(), beforeLayouts);
+
+    await service.recomputeCitationGraphLayout({
+      algorithm: "force",
+      force: true,
+      timeBudgetMs: 1000,
+    });
+    const tooLarge = await service.getCitationGraphLayout({
+      scope: "full",
+      maxNodes: 1,
+    });
+    const truncated = await service.getCitationGraphLayout({
+      scope: "full",
+      maxNodes: 1,
+      allowTruncated: true,
+    });
+
+    assert.equal(tooLarge.ok, false);
+    assert.equal(tooLarge.status, "too_large");
+    assert.equal(truncated.ok, true);
+    assert.equal(truncated.diagnostics.truncated, true);
+    assert.isAtMost(truncated.nodes.length, 1);
   });
 
   it("serves Workbench graph snapshots from DB graph and layout state", async function () {

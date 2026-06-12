@@ -144,7 +144,7 @@ function resolveDialogPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/dashboard/workflow-settings-dialog.html?ui=20260521-submit-v1`;
+  return `chrome://${addonRef}/content/dashboard/workflow-settings-dialog.html?ui=20260612-provider-split-v2`;
 }
 
 function createDialogFrame(doc: Document, pageUrl: string) {
@@ -228,6 +228,7 @@ function isStructuralDraftChange(args: {
     (args.changedKey === "engine" ||
       args.changedKey === "provider_id" ||
       args.changedKey === "model" ||
+      args.changedKey === "acpModelProvider" ||
       args.changedKey === "acpModelId")
   ) {
     return true;

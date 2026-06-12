@@ -629,39 +629,845 @@ Text disclosure requirements:
 - recent failure or circuit-breaker summary when present
 - retry guidance for queue/timeout/circuit errors
 
-## Synthesis MCP Boundaries
+## Synthesis Tools
 
-Synthesis tools are job-time host capabilities. They should return compact
-navigation and diagnostics to the agent, while large paper artifacts flow through
-run-workspace bundle files.
-
-Registry, reference, library-index, and citation-graph tools expose Synthesis
-sidecar cache views. They are not synchronized Zotero Library truth. Clients
-that need current item metadata, tags, collections, notes, attachments, or
-native related-item state must use Zotero library/note tools. Clients that need
-current generated digest or topic artifacts must use artifact-oriented Synthesis
-reads.
+Synthesis tools expose Synthesis sidecar cache views. They are not synchronized
+Zotero Library truth. Clients that need current item metadata, tags, collections,
+notes, attachments, or native related-item state must use Zotero library/note
+tools. Clients that need current generated digest or topic artifacts must use
+artifact-oriented Synthesis reads.
 
 Bounded behavior:
 
-- `reference_index.get` supports `sourceRefs`, `cursor`, and
-  `limit`. Responses include cache diagnostics and do not imply Zotero Library
-  sync.
-- `resolvers.resolve` supports `cursor` and `limit` and returns
-  `next_cursor`, `has_more`, `returned`, and `total`.
-  Its input must contain a top-level `resolver` object; `topic_resolver` is a
-  workflow bundle field and is not accepted by the MCP/Host Bridge tool.
-- `library_index.get` returns a bounded paper page by default.
-  `includeTags`, `includeCollections`, and `includeItems` opt into larger
-  sections. The result is a cache view and may be stale or empty.
-- `topics.get_context` is summary-first. Full markdown, manifest, or
-  structured artifact bodies require explicit include flags.
-- `topics.get_review_input` enforces graph/text bounds and records truncation
-  diagnostics.
+- These tools return compact navigation and diagnostics to the agent, while
+  large paper artifacts flow through run-workspace bundle files.
+- Read tools must not start sidecar refresh, enqueue background work, or write
+  operation rows when cache is missing or stale. They return bounded data plus
+  diagnostics instead.
+- All tools return structured content wrapped in `{ result: ... }`.
+- Where pagination is supported, the pattern is `cursor` + `limit` with
+  `next_cursor` / `has_more` in the response.
+- Where both `camelCase` and `snake_case` parameter names are listed, they are
+  aliases — either form is accepted by the tool.
 
-Read tools must not start sidecar refresh, enqueue background work, or write
-operation rows when cache is missing or stale. They return bounded data plus
-diagnostics instead.
+### `topics.list`
+
+Purpose: list all known Synthesis topics with summary metadata.
+
+Input:
+
+```json
+{}
+```
+
+Structured content:
+
+```json
+{
+  "result": {
+    "topics": [
+      {
+        "topicId": "...",
+        "label": "..."
+      }
+    ],
+    "total": 5
+  }
+}
+```
+
+Behavior notes:
+
+- Returns only topic identity and labels, not full context or markdown.
+- Read-only — does not trigger sidecar refresh.
+
+### `topics.get_context`
+
+Purpose: retrieve the full context for one Synthesis topic, including workset
+papers, concept associations, and discovery hints.
+
+Input:
+
+```json
+{
+  "topicId": "abc123",
+  "mode": "create",
+  "language": "zh-CN",
+  "updateScope": "papers",
+  "updateMode": "enrichment",
+  "updateReason": "new_literature",
+  "includeFull": true,
+  "includeMarkdown": false,
+  "includeArtifact": false,
+  "includeManifest": false
+}
+```
+
+Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `topicId` | string | Topic identifier (optional) |
+| `mode` | `"create"` \| `"update"` | Context mode |
+| `language` | string | Language hint for topic materials |
+| `updateScope` | string | Scope of update (when mode=update) |
+| `updateMode` | string | Update strategy |
+| `updateReason` | string | Reason for update trigger |
+| `includeFull` | boolean | Include full context payload |
+| `includeMarkdown` | boolean | Include rendered markdown |
+| `includeArtifact` | boolean | Include structured artifact body |
+| `includeManifest` | boolean | Include artifact manifest |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "topicId": "abc123",
+    "label": "...",
+    "summary": "...",
+    "worksetSummary": "...",
+    "papers": [...],
+    "concepts": [...],
+    "discoveryHints": [...]
+  }
+}
+```
+
+Behavior notes:
+
+- Summary-first by default. Full markdown, manifest, or structured artifact
+  bodies require explicit include flags.
+- Read-only — returns sidecar cache view.
+
+### `topics.get_review_input`
+
+Purpose: assemble a bounded review package for one topic, including graph
+snapshot and paper artifact texts.
+
+Input:
+
+```json
+{
+  "topicId": "abc123",
+  "maxGraphNodes": 200,
+  "maxGraphEdges": 1000,
+  "includePaperArtifacts": true,
+  "maxChars": 50000
+}
+```
+
+Fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `topicId` | string | **yes** | Topic identifier |
+| `maxGraphNodes` | number/string | no (1–1000) | Max graph nodes |
+| `maxGraphEdges` | number/string | no (0–2000) | Max graph edges |
+| `includePaperArtifacts` | boolean | no | Include paper artifact texts |
+| `maxChars` | number/string | no (1–200000) | Max characters for artifact texts |
+
+Structured content:
+
+```json
+{
+  "result": {
+    "topicId": "...",
+    "label": "...",
+    "graph": { "nodes": [...], "edges": [...] },
+    "paperArtifacts": { "...": "..." },
+    "truncationDiagnostics": [...]
+  }
+}
+```
+
+Behavior notes:
+
+- `topicId` is required; all other fields are optional.
+- Graph and text bounds are enforced server-side; truncation diagnostics are
+  returned when limits are hit.
+- Read-only — does not trigger cache refresh.
+
+### `schemas.get`
+
+Purpose: retrieve a Synthesis schema definition (e.g., tag vocabulary, topic
+schema) by kind.
+
+Input:
+
+```json
+{
+  "kind": "tag_vocabulary"
+}
+```
+
+Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `kind` | string | Schema kind identifier |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": { "kind": "tag_vocabulary", "schema": { ... } }
+}
+```
+
+Behavior notes:
+
+- When `kind` is omitted, returns available schema kinds.
+- Read-only cache view.
+
+### `concepts.query`
+
+Purpose: query the Synthesis concept knowledge base by label or search terms.
+
+Input:
+
+```json
+{
+  "labels": ["machine learning", "nlp"],
+  "query": "transformer architectures",
+  "limit": 20
+}
+```
+
+Fields:
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `concept_candidate_labels` / `conceptCandidateLabels` | string array | maxItems: 100 |
+| `labels` | string array | maxItems: 100 |
+| `label` | string | — |
+| `query` | string | — |
+| `limit` | number/string | 1–100 |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "concepts": [
+      { "label": "...", "definition": "...", "relatedLabels": [...] }
+    ]
+  }
+}
+```
+
+Behavior notes:
+
+- Supports multiple query modes: by label list, by text query, or both.
+- Returns bounded results; use `limit` to control page size.
+- Read-only — does not modify concept KB.
+
+### `citation_graph.query_cluster`
+
+Purpose: query the citation graph cluster around one or more source papers.
+
+Input:
+
+```json
+{
+  "source_paper_refs": ["DOI:10.1000/xyz123"],
+  "cluster_policy": "include_external",
+  "max_external_nodes": 50
+}
+```
+
+Fields:
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `source_paper_refs` / `sourcePaperRefs` | string array | maxItems: 250 |
+| `paper_refs` / `paperRefs` | string array | maxItems: 250 |
+| `paper_ref` / `paperRef` | string | — |
+| `max_external_nodes` / `maxExternalNodes` | number/string | 0–250 |
+| `cluster_policy` / `clusterPolicy` | `"source_only"` \| `"include_external"` \| `"bounded_external"` | — |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "nodes": [...],
+    "edges": [...],
+    "externalRefs": [...],
+    "diagnostics": [...]
+  }
+}
+```
+
+Behavior notes:
+
+- `source_only` returns only edges between the specified papers.
+- `include_external` includes external references without a node cap.
+- `bounded_external` limits external nodes to `max_external_nodes`.
+- Read-only cache view.
+
+### `citation_graph.get_overview`
+
+Purpose: get a high-level overview of the citation graph for the current
+library, including node counts, edge counts, and freshness metadata.
+
+Input:
+
+```json
+{}
+```
+
+Structured content:
+
+```json
+{
+  "result": {
+    "totalNodes": 500,
+    "totalEdges": 1200,
+    "lastRefreshedAt": "..."
+  }
+}
+```
+
+Behavior notes:
+
+- No input parameters required.
+- Returns aggregate statistics, not individual refs.
+
+### `citation_graph.get_slice`
+
+Purpose: extract a bounded subgraph slice starting from a specified node.
+
+Input:
+
+```json
+{
+  "startNodeId": "ref:abc123",
+  "depth": 2,
+  "maxNodes": 100,
+  "maxEdges": 500,
+  "direction": "both",
+  "includeLowSignal": false,
+  "roleFilter": ["foundation", "frontier"]
+}
+```
+
+Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `startNodeId` | string | Starting node identifier |
+| `paperRef` | string | Alternative paper ref for the start node |
+| `depth` | number/string | Traversal depth |
+| `maxNodes` | number/string | Max nodes to return |
+| `maxEdges` | number/string | Max edges to return |
+| `direction` | `"incoming"` \| `"outgoing"` \| `"both"` | Edge direction filter |
+| `includeLowSignal` | boolean | Include low-signal edges |
+| `roleFilter` | array | Filter by citation role |
+
+All fields except `startNodeId`/`paperRef` are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "nodes": [...],
+    "edges": [...],
+    "truncated": false
+  }
+}
+```
+
+### `citation_graph.get_metrics`
+
+Purpose: compute citation graph metrics (foundation, frontier, pagerank,
+in-degree) for a set of papers.
+
+Input:
+
+```json
+{
+  "paperRefs": ["DOI:10.1000/xyz123"],
+  "limit": 20,
+  "sortBy": "pagerank"
+}
+```
+
+Fields:
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `paperRefs` / `paper_refs` | string array | maxItems: 250 |
+| `limit` | number/string | 1–100 |
+| `sortBy` / `sort_by` | `"foundation"` \| `"frontier"` \| `"pagerank"` \| `"in_degree"` | Sort order |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "metrics": [
+      { "paperRef": "...", "foundation": 0.8, "frontier": 0.2,
+        "pagerank": 0.05, "inDegree": 12 }
+    ]
+  }
+}
+```
+
+### `citation_graph.rank_external_references`
+
+Purpose: rank external (non-library) references by impact metrics.
+
+Input:
+
+```json
+{
+  "limit": 30,
+  "sortBy": "external_degree"
+}
+```
+
+Fields:
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `limit` | number/string | 1–100 |
+| `sortBy` / `sort_by` | `"external_degree"` \| `"shared_source_count"` \| `"year"` | Sort order |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "references": [
+      { "ref": "...", "externalDegree": 15,
+        "sharedSourceCount": 3, "year": 2023 }
+    ]
+  }
+}
+```
+
+### `citation_graph.rank_library_papers`
+
+Purpose: rank library papers by citation graph impact metrics.
+
+Input:
+
+```json
+{
+  "paperRefs": ["DOI:10.1000/xyz123"],
+  "limit": 20,
+  "sortBy": "foundation"
+}
+```
+
+Fields:
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `paperRefs` / `paper_refs` | string array | maxItems: 250 |
+| `limit` | number/string | 1–100 |
+| `sortBy` / `sort_by` | `"foundation"` \| `"frontier"` \| `"pagerank"` \| `"in_degree"` | Sort order |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "papers": [
+      { "paperRef": "...", "foundation": 0.7, "frontier": 0.3,
+        "pagerank": 0.04, "inDegree": 8 }
+    ]
+  }
+}
+```
+
+### `library_index.get`
+
+Purpose: retrieve a bounded page of the library index from the Synthesis
+sidecar cache.
+
+Input:
+
+```json
+{
+  "libraryId": 1,
+  "cursor": 0,
+  "limit": 50,
+  "includeTags": true,
+  "includeCollections": false,
+  "includeItems": false
+}
+```
+
+Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `libraryId` | number/string | Target library |
+| `cursor` | number/string | Pagination cursor |
+| `limit` | number/string | 1–250 |
+| `includeTags` | boolean | Include tag index |
+| `includeCollections` | boolean | Include collection index |
+| `includeItems` | boolean | Include item index |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "libraryId": 1,
+    "cursor": 50,
+    "hasMore": true,
+    "tags": [...],
+    "collections": [...],
+    "items": [...]
+  }
+}
+```
+
+Behavior notes:
+
+- Default returns a bounded paper page (no flags).
+- `includeTags`, `includeCollections`, and `includeItems` opt into larger
+  sections.
+- The result is a cache view and may be stale or empty.
+
+### `resolvers.resolve`
+
+Purpose: resolve a resolver object (e.g., reference resolver, topic resolver)
+into structured results.
+
+Input:
+
+```json
+{
+  "resolver": { "type": "reference_resolver", "ref": "DOI:10.1000/xyz123" },
+  "cursor": 0,
+  "limit": 50
+}
+```
+
+Fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `resolver` | object | **yes** | Resolver configuration |
+| `cursor` | number/string | no | Pagination cursor |
+| `limit` | number/string | no (1–250) | Page size |
+
+Structured content:
+
+```json
+{
+  "result": {
+    "next_cursor": 50,
+    "has_more": true,
+    "returned": 50,
+    "total": 120,
+    "results": [...]
+  }
+}
+```
+
+Behavior notes:
+
+- `resolver` is required. The resolver object must contain a top-level resolver
+  configuration; `topic_resolver` is a workflow bundle field and is not accepted
+  by the MCP/Host Bridge tool.
+- Pagination uses `cursor`/`limit` with `next_cursor`/`has_more`/`returned`/`total`.
+
+### `reference_index.get`
+
+Purpose: retrieve the reference sidecar index (canonical references, raw
+references, and bindings) for specified source papers.
+
+Input:
+
+```json
+{
+  "sourceRefs": ["item:ABC123"],
+  "cursor": 0,
+  "limit": 50,
+  "artifactCoverage": "all"
+}
+```
+
+Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sourceRefs` | string array (max 250) | Source paper references |
+| `cursor` | number/string | Pagination cursor |
+| `limit` | number/string | 1–250 |
+| `artifactCoverage` | string | Artifact coverage filter |
+
+All fields except `sourceRefs` are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "references": [...],
+    "diagnostics": [...]
+  }
+}
+```
+
+Behavior notes:
+
+- Responses include cache diagnostics and do not imply Zotero Library sync.
+- Read-only cache view.
+
+### `paper_artifacts.get_manifest`
+
+Purpose: return available Synthesis paper artifact descriptors for selected
+paper references, without artifact payload bodies.
+
+Input:
+
+```json
+{
+  "paper_refs": ["DOI:10.1000/xyz123"]
+}
+```
+
+Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `paper_refs` / `paperRefs` | array | Paper references |
+| `paper_ref` / `paperRef` | string | Single paper reference |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "artifacts": [
+      {
+        "paperRef": "...",
+        "kind": "digest",
+        "label": "...",
+        "updatedAt": "..."
+      }
+    ],
+    "diagnostics": [...],
+    "total": 5
+  }
+}
+```
+
+Behavior notes:
+
+- Returns manifest metadata only (no payload text or markdown bodies).
+- Use `paper_artifacts.read` to retrieve artifact content.
+
+### `paper_artifacts.read`
+
+Purpose: read bounded Synthesis paper artifacts (including payload text,
+markdown bodies) for selected paper references.
+
+Input:
+
+```json
+{
+  "paper_refs": ["DOI:10.1000/xyz123"],
+  "artifact_types": ["digest", "note"]
+}
+```
+
+Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `paper_refs` / `paperRefs` | string array | Paper references to read artifacts for |
+| `paper_ref` / `paperRef` | string | Single paper reference |
+| `artifact_types` / `artifactTypes` | string array | Artifact type filter |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "artifacts": [
+      {
+        "paperRef": "...",
+        "kind": "digest",
+        "payload": "...",
+        "markdown": "..."
+      }
+    ],
+    "diagnostics": [...]
+  }
+}
+```
+
+Behavior notes:
+
+- Returns artifact payload bodies. For large artifacts, content may be
+  truncated; check diagnostics for truncation notes.
+- Read-only — does not modify artifact state.
+
+### `paper_artifacts.export_filtered`
+
+Purpose: export bounded filtered paper artifacts into the ACP run workspace.
+
+Input:
+
+```json
+{
+  "run_root": "/path/to/workspace",
+  "paper_refs": ["DOI:10.1000/xyz123"],
+  "artifact_types": ["digest", "note"]
+}
+```
+
+Fields:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `run_root` / `runRoot` | string | **yes** | Run workspace root path |
+| `paper_refs` / `paperRefs` | string array | no | Paper references |
+| `paper_ref` / `paperRef` | string | no | Single paper reference |
+| `artifact_types` / `artifactTypes` | string array | no | Artifact type filter |
+
+Structured content:
+
+```json
+{
+  "result": {
+    "exported": 3,
+    "targetDir": "...",
+    "diagnostics": []
+  }
+}
+```
+
+Behavior notes:
+
+- `run_root` is required — this is the workspace directory where artifacts will
+  be written.
+- Writes artifact files to the run workspace rather than returning content inline.
+
+### `paper_artifacts.resolve_topic_digest`
+
+Purpose: resolve one topic paper digest artifact for reading or diagnostics.
+
+Input:
+
+```json
+{
+  "topicId": "abc123",
+  "paperEvidenceId": "evt456",
+  "paper_ref": "DOI:10.1000/xyz123"
+}
+```
+
+Fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `topicId` | string | Topic identifier |
+| `paperEvidenceId` | string | Paper evidence identifier |
+| `paper_ref` / `paperRef` | string | Paper reference |
+| `digest_ref` / `digestRef` | object | Digest reference object |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "digest": { "content": "...", "format": "markdown" },
+    "diagnostics": [...]
+  }
+}
+```
+
+### `insights.get_attention_queue`
+
+Purpose: retrieve the attention queue — papers that need user attention based
+on recent synthesis activity (e.g., new discovery hints, stale artifacts,
+unresolved references).
+
+Input:
+
+```json
+{
+  "sourceRefs": ["item:ABC123"],
+  "limit": 20
+}
+```
+
+Fields:
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `paperRefs` / `paper_refs` | string array | maxItems: 250 |
+| `sourceRefs` / `source_refs` | string array | maxItems: 250 |
+| `limit` | number/string | 1–100 |
+
+All fields are optional.
+
+Structured content:
+
+```json
+{
+  "result": {
+    "queue": [
+      {
+        "paperRef": "...",
+        "reason": "stale_artifact",
+        "priority": "high"
+      }
+    ],
+    "total": 5
+  }
+}
+```
+
+Behavior notes:
+
+- Returns items requiring attention, sorted by priority.
+- Read-only — does not modify queue state.
+- When specific `sourceRefs` are given, returns attention items scoped to those
+  sources.
+
+### Additional Host Bridge Capabilities
+
+The following synthesis tools are available through the Host Bridge capability
+system (not in the static tool registry):
+
+- `topics.get_report` — retrieve a topic synthesis report markdown body.
+- `citation_graph.refresh_metrics` — refresh persisted citation graph
+  metrics from the current graph cache.
+
+These capabilities follow the same data contracts as the synthesis tools above
+and are exposed as MCP tools when the Host Bridge server is active.
 
 ## Permission-Gated Write Tools
 

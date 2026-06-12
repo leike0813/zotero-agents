@@ -292,6 +292,13 @@ describe("backend manager risk regression", function () {
     ]);
     assert.equal(gemini.acp?.agentFamily, "gemini-cli");
 
+    const claude = createAcpBackendFromPreset("claude-code");
+    assert.equal(claude.command, "npx");
+    assert.deepEqual(claude.args, [
+      "@agentclientprotocol/claude-agent-acp@latest",
+    ]);
+    assert.equal(claude.acp?.agentFamily, "claude-code");
+
     const hermes = createAcpBackendFromPreset("hermes");
     assert.deepEqual(hermes, {
       id: "acp-hermes",

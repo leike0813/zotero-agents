@@ -1,0 +1,6 @@
+- [x] 1. Add OpenSpec delta specs for surface generation, transient busy handling, and harness protocol parity.
+- [x] 2. Add transient SQLite busy classification helper without changing busy timeout or WAL policy.
+- [x] 3. Add per-runtime surface request generation and stale host response suppression in `synthesisWorkbenchTab.ts`.
+- [x] 4. Add iframe-side stale response discard, last-known-good surface snapshots, and transient diagnostic rendering in `synthesisWorkbenchApp.ts`.
+- [x] 5. Add focused tests for stale response handling, transient busy detection, and source-level protocol safeguards.
+- [x] 6. Run OpenSpec validation, focused Synthesis tests, and `npm run build`.

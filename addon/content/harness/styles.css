@@ -11,11 +11,61 @@ body {
   background: #eef2f6;
 }
 
+body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.harness-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 40px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+  font:
+    13px/1.4 system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+.harness-toolbar-title {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.harness-locale-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  color: #334155;
+}
+
+.harness-locale-control select {
+  min-width: 132px;
+  height: 28px;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+}
+
 .harness-frame-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(360px, 28vw);
   width: 100vw;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   gap: 1px;
   background: #cbd5e1;
 }

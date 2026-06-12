@@ -33,7 +33,8 @@
   function hostBridge() {
     return [
       window.__zsAssistantWorkspaceBridge,
-      window.wrappedJSObject && window.wrappedJSObject.__zsAssistantWorkspaceBridge,
+      window.wrappedJSObject &&
+        window.wrappedJSObject.__zsAssistantWorkspaceBridge,
     ].find((entry) => entry && typeof entry.postMessage === "function");
   }
 
@@ -68,7 +69,8 @@
     }
     window.__zsAssistantWorkspaceActionTrace = state.actionTrace.slice();
     if (window.wrappedJSObject) {
-      window.wrappedJSObject.__zsAssistantWorkspaceActionTrace = state.actionTrace.slice();
+      window.wrappedJSObject.__zsAssistantWorkspaceActionTrace =
+        state.actionTrace.slice();
     }
     return entry;
   }
@@ -106,12 +108,17 @@
     });
     postToHost("assistant-workspace:child-action", envelope)
       .then(function (result) {
-        traceAction(result && result.ok === false ? "host-action-failed" : "host-action-acked", {
-          tab,
-          action,
-          actionId,
-          error: result && result.error ? String(result.error) : "",
-        });
+        traceAction(
+          result && result.ok === false
+            ? "host-action-failed"
+            : "host-action-acked",
+          {
+            tab,
+            action,
+            actionId,
+            error: result && result.error ? String(result.error) : "",
+          },
+        );
       })
       .catch(function (error) {
         traceAction("host-action-failed", {
@@ -146,7 +153,9 @@
     const frameWindow = frame && frame.contentWindow;
     if (!frameWindow) return;
     const normalizedPayload =
-      tab === "skillrunner" ? normalizeSkillRunnerSidebarPayload(payload) : payload || {};
+      tab === "skillrunner"
+        ? normalizeSkillRunnerSidebarPayload(payload)
+        : payload || {};
     installChildBridge(tab);
     frameWindow.postMessage(
       {
@@ -174,7 +183,9 @@
     if (tabs.indexOf(tab) < 0) return;
     const current = state.latestChildPayloads.get(tab) || {};
     current[phase || "snapshot"] =
-      tab === "skillrunner" ? normalizeSkillRunnerSidebarPayload(payload) : payload || {};
+      tab === "skillrunner"
+        ? normalizeSkillRunnerSidebarPayload(payload)
+        : payload || {};
     state.latestChildPayloads.set(tab, current);
     return current[phase || "snapshot"];
   }
@@ -209,7 +220,8 @@
   }
 
   function setActiveTab(tab, options) {
-    const fallback = options && options.fallback ? options.fallback : state.activeTab;
+    const fallback =
+      options && options.fallback ? options.fallback : state.activeTab;
     const nextTab = normalizeTab(tab, fallback);
     const previousTab = state.activeTab;
     state.activeTab = nextTab;
@@ -222,11 +234,6 @@
       if (frame) frame.classList.toggle("hidden", entry !== nextTab);
       if (button) button.classList.toggle("is-active", entry === nextTab);
     });
-    try {
-      window.localStorage.setItem("zs.assistantWorkspace.activeTab", nextTab);
-    } catch {
-      // ignored
-    }
     if (!options || options.notify !== false) {
       postToHost("assistant-workspace:action", {
         action: "set-tab",
@@ -304,12 +311,6 @@
   });
 
   document.addEventListener("DOMContentLoaded", function () {
-    let initialTab = "acp-chat";
-    try {
-      initialTab = window.localStorage.getItem("zs.assistantWorkspace.activeTab") || initialTab;
-    } catch {
-      // ignored
-    }
     tabs.forEach(function (tab) {
       const button = $("assistant-tab-" + tab);
       const frame = frameForTab(tab);
@@ -325,9 +326,11 @@
       }
     });
     $("assistant-workspace-close")?.addEventListener("click", function () {
-      void postToHost("assistant-workspace:action", { action: "close-sidebar" });
+      void postToHost("assistant-workspace:action", {
+        action: "close-sidebar",
+      });
     });
-    setActiveTab(initialTab, { notify: false, fallback: "acp-chat" });
+    setActiveTab("acp-chat", { notify: false, fallback: "acp-chat" });
     void postToHost("assistant-workspace:action", { action: "ready" });
   });
 })();

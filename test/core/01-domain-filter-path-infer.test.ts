@@ -12,7 +12,9 @@ describe("domain filter path inference", function () {
   });
 
   it("infers ui domain from relative path", function () {
-    const domain = inferDomainFromFilePath("test/ui/01-startup-workflow-menu-init.test.ts");
+    const domain = inferDomainFromFilePath(
+      "test/ui/01-startup-workflow-menu-init.test.ts",
+    );
     assert.equal(domain, "ui");
   });
 
@@ -74,11 +76,17 @@ describe("domain filter path inference", function () {
 
   it("allows full-only core parity files only in Zotero full", function () {
     assert.equal(
-      isZoteroRoutineAllowedFile("test/core/63-job-queue-progress.test.ts", "lite"),
+      isZoteroRoutineAllowedFile(
+        "test/core/63-job-queue-progress.test.ts",
+        "lite",
+      ),
       false,
     );
     assert.equal(
-      isZoteroRoutineAllowedFile("test/core/63-job-queue-progress.test.ts", "full"),
+      isZoteroRoutineAllowedFile(
+        "test/core/63-job-queue-progress.test.ts",
+        "full",
+      ),
       true,
     );
   });
@@ -107,7 +115,7 @@ describe("domain filter path inference", function () {
   it("prunes non-retained workflow files from Zotero routine suite", function () {
     assert.equal(
       isZoteroRoutineAllowedFile(
-        "test/workflow-tag-manager/63-tag-manager-import-protocol.test.ts",
+        "test/workflow-custom-legacy/63-custom-import-protocol.test.ts",
         "lite",
       ),
       false,
@@ -168,7 +176,8 @@ describe("domain filter path inference", function () {
       isZoteroRoutineAllowedTitle({
         selectedDomain: "core",
         testDomain: "all",
-        fullTitle: "task runtime captures provider requestId from job execution result",
+        fullTitle:
+          "task runtime captures provider requestId from job execution result",
         mode: "lite",
       }),
       false,
@@ -177,7 +186,8 @@ describe("domain filter path inference", function () {
       isZoteroRoutineAllowedTitle({
         selectedDomain: "core",
         testDomain: "all",
-        fullTitle: "task runtime captures provider requestId from job execution result",
+        fullTitle:
+          "task runtime captures provider requestId from job execution result",
         mode: "full",
       }),
       true,
@@ -230,7 +240,7 @@ describe("domain filter path inference", function () {
         selectedDomain: "workflow",
         testDomain: "all",
         fullTitle:
-          "workflow: tag-manager panel usability builds deterministic export text and excludes deprecated tags",
+          "workflow: custom legacy panel builds deterministic export text",
         mode: "full",
       }),
       false,

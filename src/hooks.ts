@@ -17,7 +17,6 @@ import { openBackendManagerDialog } from "./modules/backendManager";
 import { openTaskManagerDialog } from "./modules/taskManagerDialog";
 import {
   notifySynthesisWorkbenchLibraryItemsChanged,
-  openSynthesisWorkbenchTab,
   prewarmSynthesisWorkbenchSurfaces,
 } from "./modules/synthesisWorkbenchTab";
 import { openZoteroSkillsWorkspaceTab } from "./modules/workspaceTab";
@@ -65,8 +64,12 @@ import {
   toggleAssistantWorkspaceSidebar,
 } from "./modules/assistantWorkspaceSidebar";
 import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
-import { shutdownAcpSkillRunConversations } from "./modules/acpSkillRunStore";
 import {
+  reconcileAcpSkillRunWorkflowTasksOnStartup,
+  shutdownAcpSkillRunConversations,
+} from "./modules/acpSkillRunStore";
+import {
+  cleanupRuntimePersistenceRetention,
   cleanupRuntimePersistenceCategory,
   getRuntimePersistencePaths,
   scanRuntimePersistenceUsage,
@@ -100,17 +103,102 @@ import {
   isSynthesisLibraryReadModelInvalidationEvent,
   recordSynthesisZoteroItemNotifications,
 } from "./modules/synthesis/itemObserver";
+import { reconcileWorkflowTaskProjectionsOnStartup } from "./modules/taskRuntime";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
 const LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID = "skillrunner-local";
 const SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS = 1500;
 
+let registeredZoteroPaneStylesheet:
+  | {
+      uri: unknown;
+      type: number;
+      service: {
+        unregisterSheet?: (uri: unknown, type: number) => void;
+      };
+    }
+  | undefined;
+
+function resolveRuntimeRootURI() {
+  return typeof rootURI === "string" && rootURI
+    ? rootURI
+    : `chrome://${addon.data.config.addonRef}/`;
+}
+
+function registerZoteroPaneStylesheet() {
+  if (registeredZoteroPaneStylesheet) {
+    return;
+  }
+  try {
+    const runtime = globalThis as {
+      Services?: {
+        io?: {
+          newURI?: (spec: string) => unknown;
+        };
+      };
+      Components?: {
+        classes?: Record<
+          string,
+          {
+            getService?: (iface: unknown) => {
+              AUTHOR_SHEET?: number;
+              sheetRegistered?: (uri: unknown, type: number) => boolean;
+              loadAndRegisterSheet?: (uri: unknown, type: number) => void;
+              unregisterSheet?: (uri: unknown, type: number) => void;
+            };
+          }
+        >;
+        interfaces?: {
+          nsIStyleSheetService?: unknown;
+        };
+      };
+    };
+    const styleService = runtime.Components?.classes?.[
+      "@mozilla.org/content/style-sheet-service;1"
+    ]?.getService?.(runtime.Components.interfaces?.nsIStyleSheetService);
+    const uri = runtime.Services?.io?.newURI?.(
+      `${resolveRuntimeRootURI()}content/zoteroPane.css`,
+    );
+    const sheetType = styleService?.AUTHOR_SHEET;
+    if (!styleService || !uri || typeof sheetType !== "number") {
+      return;
+    }
+    if (!styleService.sheetRegistered?.(uri, sheetType)) {
+      styleService.loadAndRegisterSheet?.(uri, sheetType);
+    }
+    registeredZoteroPaneStylesheet = {
+      uri,
+      type: sheetType,
+      service: styleService,
+    };
+  } catch (error) {
+    if (typeof console !== "undefined") {
+      console.warn("[zotero-pane-css] stylesheet registration failed", error);
+    }
+  }
+}
+
+function unregisterZoteroPaneStylesheet() {
+  if (!registeredZoteroPaneStylesheet) {
+    return;
+  }
+  try {
+    registeredZoteroPaneStylesheet.service.unregisterSheet?.(
+      registeredZoteroPaneStylesheet.uri,
+      registeredZoteroPaneStylesheet.type,
+    );
+  } catch (error) {
+    if (typeof console !== "undefined") {
+      console.warn("[zotero-pane-css] stylesheet cleanup failed", error);
+    }
+  } finally {
+    registeredZoteroPaneStylesheet = undefined;
+  }
+}
+
 function registerPrefsPane() {
-  const runtimeRootURI =
-    typeof rootURI === "string" && rootURI
-      ? rootURI
-      : `chrome://${addon.data.config.addonRef}/`;
+  const runtimeRootURI = resolveRuntimeRootURI();
   Zotero.PreferencePanes.register({
     pluginID: addon.data.config.addonID,
     src: runtimeRootURI + "content/preferences.xhtml",
@@ -162,6 +250,27 @@ function prewarmSynthesisWorkbenchAfterStartup() {
     await delay(SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS);
     await prewarmSynthesisWorkbenchSurfaces({ surfaces: [] });
   })().catch(() => undefined);
+}
+
+function reconcileRecoveredRuntimeTasksOnStartup() {
+  try {
+    getDefaultSynthesisService().reconcileSynthesisRuntimeWorkStateOnStartup();
+  } catch (error) {
+    if (typeof console !== "undefined") {
+      console.warn("[startup-reconcile] synthesis runtime work failed", error);
+    }
+  }
+  try {
+    reconcileAcpSkillRunWorkflowTasksOnStartup();
+    reconcileWorkflowTaskProjectionsOnStartup();
+  } catch (error) {
+    if (typeof console !== "undefined") {
+      console.warn(
+        "[startup-reconcile] provider task projections failed",
+        error,
+      );
+    }
+  }
 }
 
 function getRuntimeToolkit() {
@@ -241,11 +350,9 @@ async function onStartup() {
   installWorkflowRuntimeBridge();
   installWorkflowDebugProbeBridge();
   enableWorkflowPackageDiagnosticsForDebugMode();
+  registerZoteroPaneStylesheet();
 
-  const runtimeRootURI =
-    typeof rootURI === "string" && rootURI
-      ? rootURI
-      : `chrome://${addon.data.config.addonRef}/`;
+  const runtimeRootURI = resolveRuntimeRootURI();
   const runtimeResourceURI =
     typeof resourceURI === "string" && resourceURI ? resourceURI : "";
   const runtimeRootPath =
@@ -268,10 +375,16 @@ async function onStartup() {
 
   await ensureDefaultWorkflowDirExistsOnStartup();
   await rescanWorkflowRegistry();
+  reconcileRecoveredRuntimeTasksOnStartup();
   purgeSkillRunnerBackendReconcileState(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   untrackSkillRunnerBackendHealth(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   startSkillRunnerModelCacheAutoRefresh();
   startSkillRunnerTaskReconciler();
+  void cleanupRuntimePersistenceRetention().catch((error) => {
+    if (typeof console !== "undefined") {
+      console.warn("[runtime-persistence] retention cleanup failed", error);
+    }
+  });
   void startupSkillRunnerBackendReconcileRunner();
   hydrateLocalRuntimeAutoStartSessionStateFromPersistedState();
   if (!isLocalRuntimeAutoStartPaused()) {
@@ -363,6 +476,7 @@ async function onShutdown(): Promise<void> {
     removeAssistantWorkspaceSidebarShell(win);
   }
   unregisterToolkitSafely();
+  unregisterZoteroPaneStylesheet();
   addon.data.dialog?.window?.close();
   // Remove addon object
   addon.data.alive = false;
@@ -481,7 +595,6 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
     case "openDashboard":
       await openZoteroSkillsWorkspaceTab({
         window: data.window,
-        initialView: "dashboard",
       });
       break;
     case "listDashboardActiveTasksForPopover": {
@@ -501,7 +614,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         ]),
       );
       return filter
-        .filterDashboardActiveTasks({
+        .projectDashboardActiveTasks({
           activeTasks: activeTasks.listActiveWorkflowTasks(),
           acpSkillRuns: acpSkillRuns.listAcpSkillRuns(),
         })
@@ -522,8 +635,9 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         });
     }
     case "openSynthesisWorkbench":
-      await openSynthesisWorkbenchTab({
+      await openZoteroSkillsWorkspaceTab({
         window: data.window,
+        initialView: "synthesis",
       });
       break;
     case "openSkillRunnerSidebar":
@@ -539,7 +653,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           : undefined;
         await openAssistantWorkspaceSidebar({
           window: data.window,
-          tab: "skillrunner",
+          tab: requestId || backend ? "skillrunner" : undefined,
           backend,
           requestId: requestId || undefined,
         });
@@ -564,7 +678,6 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
     case "toggleSkillRunnerSidebar":
       await toggleAssistantWorkspaceSidebar({
         window: data.window,
-        tab: "skillrunner",
       });
       break;
     case "openLogViewer":

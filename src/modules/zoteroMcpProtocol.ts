@@ -81,6 +81,8 @@ export const ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_OVERVIEW =
   "citation_graph.get_overview";
 export const ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_SLICE =
   "citation_graph.get_slice";
+export const ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_LAYOUT =
+  "citation_graph.get_layout";
 export const ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_METRICS =
   "citation_graph.get_metrics";
 export const ZOTERO_MCP_TOOL_CITATION_GRAPH_RANK_EXTERNAL_REFERENCES =
@@ -2697,6 +2699,38 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       direction: { type: "string", enum: ["incoming", "outgoing", "both"] },
       includeLowSignal: { type: "boolean" },
       roleFilter: { type: "array" },
+    },
+  }),
+  synthesisTool({
+    name: ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_LAYOUT,
+    title: "Get Synthesis citation graph layout",
+    description:
+      "Read persisted citation graph layout coordinates for an explicit full graph or bounded subgraph query. This tool never rebuilds the graph or recomputes layout; use scope:\"full\" for full graph layout.",
+    method: "getCitationGraphLayout",
+    properties: {
+      scope: { type: "string", enum: ["full"] },
+      preset: { type: "string", enum: ["force", "radial", "components"] },
+      algorithm: { type: "string", enum: ["force", "radial", "components"] },
+      viewKey: { type: "string" },
+      view_key: { type: "string" },
+      startNodeId: { type: "string" },
+      start_node_id: { type: "string" },
+      paperRef: { type: "string" },
+      paper_ref: { type: "string" },
+      nodeIds: { type: "array" },
+      node_ids: { type: "array" },
+      paperRefs: { type: "array" },
+      paper_refs: { type: "array" },
+      depth: { type: ["number", "string"] },
+      maxNodes: { type: ["number", "string"] },
+      max_nodes: { type: ["number", "string"] },
+      maxEdges: { type: ["number", "string"] },
+      max_edges: { type: ["number", "string"] },
+      direction: { type: "string", enum: ["incoming", "outgoing", "both"] },
+      includeLowSignal: { type: "boolean" },
+      roleFilter: { type: "array" },
+      allowTruncated: { type: "boolean" },
+      allow_truncated: { type: "boolean" },
     },
   }),
   synthesisTool({

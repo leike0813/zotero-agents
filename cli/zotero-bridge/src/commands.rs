@@ -288,6 +288,7 @@ fn citation_graph_capability(command: &CitationGraphCommand) -> &'static str {
         CitationGraphCommand::Overview(_) => "citation_graph.get_overview",
         CitationGraphCommand::QueryCluster(_) => "citation_graph.query_cluster",
         CitationGraphCommand::GetSlice(_) => "citation_graph.get_slice",
+        CitationGraphCommand::GetLayout(_) => "citation_graph.get_layout",
         CitationGraphCommand::GetMetrics(_) => "citation_graph.get_metrics",
         CitationGraphCommand::RankExternalReferences(_) => {
             "citation_graph.rank_external_references"
@@ -302,6 +303,7 @@ fn citation_graph_input(command: CitationGraphCommand) -> BridgeInputArgs {
         CitationGraphCommand::Overview(args)
         | CitationGraphCommand::QueryCluster(args)
         | CitationGraphCommand::GetSlice(args)
+        | CitationGraphCommand::GetLayout(args)
         | CitationGraphCommand::GetMetrics(args)
         | CitationGraphCommand::RankExternalReferences(args)
         | CitationGraphCommand::RankLibraryPapers(args)
@@ -835,6 +837,12 @@ mod tests {
                 input: None
             })),
             "citation_graph.get_slice"
+        );
+        assert_eq!(
+            citation_graph_capability(&CitationGraphCommand::GetLayout(BridgeInputArgs {
+                input: None
+            })),
+            "citation_graph.get_layout"
         );
         assert_eq!(
             citation_graph_capability(&CitationGraphCommand::GetMetrics(BridgeInputArgs {

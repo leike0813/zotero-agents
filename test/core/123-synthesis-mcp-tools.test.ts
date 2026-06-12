@@ -55,6 +55,7 @@ describe("Synthesis MCP tools", function () {
       "resolvers.resolve",
       "reference_index.get",
       "citation_graph.get_slice",
+      "citation_graph.get_layout",
       "citation_graph.get_metrics",
       "citation_graph.rank_external_references",
       "citation_graph.rank_library_papers",
@@ -208,6 +209,43 @@ describe("Synthesis MCP tools", function () {
           },
         };
       },
+      getCitationGraphLayout(args) {
+        return {
+          ok: true,
+          status: "ready",
+          scope: args.scope || "slice",
+          graph_hash: "sha256:graph",
+          layout_hash: "sha256:layout",
+          layout_status: "ready",
+          preset: "force",
+          view_key: "workbench_overview",
+          nodes: [
+            {
+              node_id: "zotero:item:ABCD1234",
+              node_type: "library_paper",
+              paper_ref: "1:ABCD1234",
+              title: "Alpha Paper",
+              x: 1,
+              y: 2,
+            },
+          ],
+          edges: [],
+          diagnostics: {
+            snapshot_found: true,
+            layout_found: true,
+            node_count: 1,
+            edge_count: 0,
+            truncated: false,
+            limits: {
+              maxNodes: 200,
+              maxEdges: 500,
+              hardMaxNodes: 5000,
+              hardMaxEdges: 20000,
+            },
+            warnings: [],
+          },
+        };
+      },
       getCitationGraphMetrics() {
         return {
           ok: true,
@@ -265,6 +303,7 @@ describe("Synthesis MCP tools", function () {
         { sourceRefs: ["1:ABCD1234"] },
       ],
       [2, "citation_graph.get_slice", { paperRef: "1:ABCD1234" }],
+      [6, "citation_graph.get_layout", { scope: "full" }],
       [
         3,
         "citation_graph.get_metrics",

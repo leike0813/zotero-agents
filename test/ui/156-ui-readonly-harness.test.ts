@@ -13,6 +13,10 @@ import { createDashboardReadonlyModel } from "../../src/modules/harness/dashboar
 import { createAssistantReadonlyModel } from "../../src/modules/harness/assistantReadonlyModel";
 import { createReadonlySqliteAdapter } from "../../src/modules/harness/sqliteReadonly";
 import { createZoteroReadonlyLibraryAdapter } from "../../src/modules/harness/zoteroReadonlyLibraryAdapter";
+import {
+  buildHarnessSynthesisI18nEnvelope,
+  resolveHarnessSynthesisLocale,
+} from "../../src/modules/harness/synthesisWorkbenchI18nEnvelope";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 
 async function createDatabase(filePath: string) {
@@ -309,6 +313,36 @@ describe("UI readonly harness", function () {
     }
   });
 
+  it("opens readonly SQLite adapters through a stable backup snapshot", async function () {
+    const dir = await mkdtemp(path.join(tmpdir(), "zs-harness-"));
+    const dbPath = path.join(dir, "live.db");
+    const writer = await createDatabase(dbPath);
+    writer.exec("PRAGMA journal_mode=WAL");
+    writer.exec("CREATE TABLE rows(id INTEGER PRIMARY KEY, name TEXT)");
+    writer.exec("INSERT INTO rows(name) VALUES ('committed')");
+    writer.exec("BEGIN IMMEDIATE");
+    writer
+      .prepare("INSERT INTO rows(name) VALUES (@name)")
+      .run({ name: "pending" });
+
+    const adapter = await createReadonlySqliteAdapter(dbPath);
+    try {
+      assert.deepEqual(
+        adapter.all("SELECT name FROM rows ORDER BY id").map((row) => row.name),
+        ["committed"],
+      );
+      writer.exec("COMMIT");
+      assert.deepEqual(
+        adapter.all("SELECT name FROM rows ORDER BY id").map((row) => row.name),
+        ["committed"],
+      );
+    } finally {
+      adapter.close();
+      writer.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("builds aligned readonly Dashboard and Assistant snapshots from plugin state DB", async function () {
     const fixture = await createPluginStateFixture();
     const dashboard = await createDashboardReadonlyModel(fixture.dbPath);
@@ -430,5 +464,40 @@ describe("UI readonly harness", function () {
     assert.equal(source.includes('type: "synthesis:artifact"'), false);
     assert.ok(source.includes("readonlyReasonForAction(command)"));
     assert.ok(source.includes('action.includes("apply")'));
+  });
+
+  it("builds Synthesis readonly harness i18n envelopes from locale FTL files", function () {
+    assert.equal(resolveHarnessSynthesisLocale("zh-CN,zh;q=0.9"), "zh-CN");
+    assert.equal(resolveHarnessSynthesisLocale("fr-FR,fr;q=0.9"), "fr-FR");
+    assert.equal(resolveHarnessSynthesisLocale("es-ES,es;q=0.9"), "en-US");
+
+    const zh = buildHarnessSynthesisI18nEnvelope("zh-CN");
+    assert.equal(zh.locale, "zh-CN");
+    assert.equal(zh.messages["synthesis-page-title"], "Synthesis 工作台");
+    assert.equal(zh.messages["synthesis-action-clear"], "清除");
+
+    const unknown = buildHarnessSynthesisI18nEnvelope("es-ES");
+    assert.equal(unknown.locale, "en-US");
+    assert.equal(
+      unknown.messages["synthesis-page-title"],
+      "Synthesis Workbench",
+    );
+  });
+
+  it("keeps the Synthesis locale switch in the harness shell and transport boundary", async function () {
+    const html = await readFile("addon/content/harness/index.html", "utf8");
+    const host = await readFile(
+      "addon/content/harness/harness-host.js",
+      "utf8",
+    );
+    const server = await readFile("scripts/ui-harness-serve.ts", "utf8");
+
+    assert.ok(html.includes('id="harness-locale-select"'));
+    assert.ok(host.includes("zsReadonlyHarnessLocale"));
+    assert.ok(host.includes('"x-zs-harness-locale": state.locale'));
+    assert.ok(host.includes('handleSynthesisAction(frame, "ready", {})'));
+    assert.ok(server.includes("decorateSynthesisHarnessResult"));
+    assert.ok(server.includes("SYNTHESIS_I18N_MESSAGE_TYPES"));
+    assert.ok(server.includes("buildHarnessSynthesisI18nEnvelope"));
   });
 });

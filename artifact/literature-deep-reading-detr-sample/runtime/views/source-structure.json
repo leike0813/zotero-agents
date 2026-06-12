@@ -1,0 +1,126 @@
+{
+  "headings": [
+    {
+      "level": 1,
+      "title": "End-to-End Object Detection with Transformers",
+      "start": 0,
+      "line": 1,
+      "end": 1779,
+      "line_end": 8
+    },
+    {
+      "level": 1,
+      "title": "1 Introduction",
+      "start": 1779,
+      "line": 9,
+      "end": 6000,
+      "line_end": 27
+    },
+    {
+      "level": 1,
+      "title": "2 Related Work",
+      "start": 6000,
+      "line": 28,
+      "end": 6219,
+      "line_end": 31
+    },
+    {
+      "level": 1,
+      "title": "2.1 Set Prediction",
+      "start": 6219,
+      "line": 32,
+      "end": 7667,
+      "line_end": 35
+    },
+    {
+      "level": 1,
+      "title": "2.2 Transformers and Parallel Decoding",
+      "start": 7667,
+      "line": 36,
+      "end": 9057,
+      "line_end": 41
+    },
+    {
+      "level": 1,
+      "title": "2.3 Object Detection",
+      "start": 9057,
+      "line": 42,
+      "end": 11113,
+      "line_end": 51
+    },
+    {
+      "level": 1,
+      "title": "3 The DETR Model",
+      "start": 11113,
+      "line": 52,
+      "end": 11449,
+      "line_end": 57
+    },
+    {
+      "level": 1,
+      "title": "3.1 Object Detection Set Prediction Loss",
+      "start": 11449,
+      "line": 58,
+      "end": 17638,
+      "line_end": 86
+    },
+    {
+      "level": 1,
+      "title": "3.2 DETR Architecture",
+      "start": 17638,
+      "line": 87,
+      "end": 22004,
+      "line_end": 102
+    },
+    {
+      "level": 1,
+      "title": "4 Experiments",
+      "start": 22004,
+      "line": 103,
+      "end": 27838,
+      "line_end": 116
+    },
+    {
+      "level": 1,
+      "title": "4.1 Comparison with Faster R-CNN and RetinaNet",
+      "start": 27838,
+      "line": 117,
+      "end": 29888,
+      "line_end": 123
+    },
+    {
+      "level": 1,
+      "title": "4.2 Ablations",
+      "start": 29888,
+      "line": 124,
+      "end": 36519,
+      "line_end": 153
+    },
+    {
+      "level": 1,
+      "title": "4.3 DETR for Panoptic Segmentation",
+      "start": 36519,
+      "line": 154,
+      "end": 42152,
+      "line_end": 174
+    },
+    {
+      "level": 1,
+      "title": "5 Conclusion",
+      "start": 42152,
+      "line": 175,
+      "end": 43022,
+      "line_end": 180
+    },
+    {
+      "level": 1,
+      "title": "References",
+      "start": 43022,
+      "line": 181,
+      "end": 49704,
+      "line_end": 234
+    }
+  ],
+  "section_count": 15,
+  "reading_block_count": 84
+}

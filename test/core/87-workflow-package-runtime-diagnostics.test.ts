@@ -76,18 +76,19 @@ describe("workflow package runtime diagnostics", function () {
     emitWorkflowPackageDiagnostic({
       level: "debug",
       scope: "system",
-      workflowId: "tag-manager",
-      packageId: "tag-vocabulary-package",
+      workflowId: "tag-regulator",
+      packageId: "literature-workbench-package",
       hook: "applyResult",
       stage: "workflow-package-debug-test",
       message: "diagnostic message",
-      filePath: "workflows_builtin/tag-vocabulary-package/tag-manager/hooks/applyResult.mjs",
+      filePath:
+        "workflows_builtin/literature-workbench-package/tag-regulator/hooks/applyResult.mjs",
       moduleSpecifier:
-        "resource://zotero-skills-builtin-workflows/tag-vocabulary-package/tag-manager/hooks/applyResult.mjs",
+        "resource://zotero-skills-builtin-workflows/literature-workbench-package/tag-regulator/hooks/applyResult.mjs",
     });
 
     const entries = listRuntimeLogs({
-      workflowId: "tag-manager",
+      workflowId: "tag-regulator",
     });
     assert.lengthOf(entries, 1);
     assert.isOk(

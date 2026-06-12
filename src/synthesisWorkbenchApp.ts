@@ -1,6 +1,12 @@
 import Graph from "graphology";
 import Sigma from "sigma";
 import { drawDiscNodeHover } from "sigma/rendering";
+import {
+  SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
+  formatSynthesisWorkbenchMessage,
+  type SynthesisWorkbenchI18nEnvelope,
+  type SynthesisWorkbenchMessageKey,
+} from "./synthesisWorkbenchI18n";
 
 declare const window: Window &
   typeof globalThis & {
@@ -27,6 +33,8 @@ type SynthesisWorkbenchBridge = {
     payload?: Record<string, unknown>,
   ) => Promise<unknown> | unknown;
 };
+
+type SynthesisI18nPayload = Partial<SynthesisWorkbenchI18nEnvelope>;
 
 type GraphNodeKind = "library_paper" | "external_reference";
 
@@ -243,6 +251,7 @@ type Snapshot = {
     filters: {
       search: string;
       role: string;
+      topicId: string;
       layoutAlgorithm: string;
       layoutPreset?: string;
       nodeKinds: GraphNodeKind[];
@@ -253,6 +262,18 @@ type Snapshot = {
     layoutAlgorithm: string;
     layoutPreset?: string;
     selectedElement?: { kind: "node" | "edge"; id: string };
+    topicScopes: Array<{
+      topicId: string;
+      title: string;
+      paperRefs: string[];
+      nodeIds: string[];
+    }>;
+    selectedTopicScope?: {
+      topicId: string;
+      title: string;
+      paperRefs: string[];
+      nodeIds: string[];
+    };
     nodes: GraphNode[];
     edges: GraphEdge[];
     hoverOnlyNodes: GraphNode[];
@@ -458,6 +479,9 @@ type WorkbenchSurfaceRuntime = {
   status: "missing" | "loading" | "ready" | "stale" | "failed";
   revision: number;
   error?: string;
+  errorCode?: string;
+  transient?: boolean;
+  requestId?: number;
   snapshot?: Snapshot;
 };
 
@@ -503,6 +527,7 @@ const state: {
   hoverLabelNode?: string;
   hoverClearTimer?: number;
   graphSearchDraft?: string;
+  graphReturnTopicId?: string;
   dynamicHoverNodeIds: Set<string>;
   dynamicHoverEdgeIds: Set<string>;
   localPendingActions: Map<string, ActionOperation>;
@@ -526,6 +551,7 @@ const state: {
   conceptReviewPanel: LocalReviewPanelState;
   expandedConceptReviewMergeRows: Set<string>;
   surfaces: Record<string, WorkbenchSurfaceRuntime>;
+  acceptedSurfaceRequestIds: Record<string, number>;
   lastLocalAction?: ActionOperation;
   statusbarExpirations: Map<string, number>;
   statusbarTimer?: number;
@@ -537,6 +563,8 @@ const state: {
   registryLoadingReferenceRows: Set<string>;
   canonicalDetailTab: "overview" | "redirects" | "reviews";
   canonicalDetailCollapsed: boolean;
+  locale: string;
+  messages: Record<SynthesisWorkbenchMessageKey, string>;
 } = {
   snapshot: null,
   topicDetailSection: "overview",
@@ -557,6 +585,7 @@ const state: {
   conceptReviewPanel: { collapsed: false, index: 0 },
   expandedConceptReviewMergeRows: new Set(),
   surfaces: {},
+  acceptedSurfaceRequestIds: {},
   statusbarExpirations: new Map(),
   jobPopoverOpen: false,
   tagImportOpen: false,
@@ -567,6 +596,8 @@ const state: {
   canonicalDetailCollapsed: false,
   dynamicHoverNodeIds: new Set(),
   dynamicHoverEdgeIds: new Set(),
+  locale: "en-US",
+  messages: { ...SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES },
 };
 
 const colors: Record<GraphNodeKind, string> = {
@@ -581,7 +612,231 @@ const CITATION_GRAPH_OUTGOING_EDGE_COLOR = "#7c3aed";
 let conceptBubbleCleanup: (() => void) | undefined;
 let conceptBubbleCloseTimer: number | undefined;
 
+const SYNTHESIS_DEFAULT_TEXT_TO_KEY = new Map<
+  string,
+  SynthesisWorkbenchMessageKey
+>(
+  (
+    Object.entries(SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES) as Array<
+      [SynthesisWorkbenchMessageKey, string]
+    >
+  ).map(([key, value]) => [value, key]),
+);
+
+function t(
+  key: SynthesisWorkbenchMessageKey,
+  args: Record<string, unknown> = {},
+) {
+  return formatSynthesisWorkbenchMessage(
+    state.messages[key] || SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES[key],
+    args,
+  );
+}
+
+function uiText(value: string, args: Record<string, unknown> = {}) {
+  const key = SYNTHESIS_DEFAULT_TEXT_TO_KEY.get(value);
+  return key ? t(key, args) : value;
+}
+
+const CONTROLLED_ENUM_DOMAINS = [
+  "status",
+  "kind",
+  "reason",
+  "relation",
+  "action",
+  "confidence",
+  "coverage",
+  "freshness",
+  "binding-status",
+  "graph-node-kind",
+  "graph-layout",
+  "tag-status",
+  "tag-density",
+  "concept-type",
+  "review-tab",
+  "sync-status",
+  "scope",
+] as const;
+
+type ControlledEnumDomain = (typeof CONTROLLED_ENUM_DOMAINS)[number];
+
+function enumKeyPart(value: unknown) {
+  return textValue(value)
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/[_\s/]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
+}
+
+function humanizeEnumValue(value: unknown) {
+  const text = textValue(value);
+  if (!text) return "";
+  return text
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function enumMessageKey(domain: ControlledEnumDomain, value: unknown) {
+  const keyPart = enumKeyPart(value);
+  if (!keyPart) return undefined;
+  const key =
+    `synthesis-enum-${domain}-${keyPart}` as SynthesisWorkbenchMessageKey;
+  return key in SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES ? key : undefined;
+}
+
+function enumLabel(
+  domain: ControlledEnumDomain,
+  value: unknown,
+  fallback?: string,
+) {
+  const key = enumMessageKey(domain, value);
+  if (key) return t(key);
+  const fallbackText = textValue(fallback);
+  if (fallbackText) return uiText(fallbackText);
+  return humanizeEnumValue(value);
+}
+
+function filterOptionLabel(
+  filterKey: SynthesisWorkbenchMessageKey,
+  domain: ControlledEnumDomain,
+  value: unknown,
+) {
+  return `${t(filterKey)}: ${enumLabel(domain, value)}`;
+}
+
+function maybeLocalizedValue(value: unknown) {
+  const text = textValue(value);
+  if (!text) return "";
+  const normalized = text.replace(/_/g, "-").toLowerCase();
+  const statusKey =
+    `synthesis-status-${normalized}` as SynthesisWorkbenchMessageKey;
+  if (statusKey in SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES) {
+    return t(statusKey);
+  }
+  const relationKey =
+    `synthesis-relation-${normalized}` as SynthesisWorkbenchMessageKey;
+  if (relationKey in SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES) {
+    return t(relationKey);
+  }
+  for (const domain of CONTROLLED_ENUM_DOMAINS) {
+    const enumKey = enumMessageKey(domain, text);
+    if (enumKey) {
+      return t(enumKey);
+    }
+  }
+  return uiText(text);
+}
+
+function applyI18nEnvelope(payload: unknown) {
+  const envelope = recordValue((payload as Record<string, unknown>)?.i18n);
+  const locale = textValue(envelope.locale, state.locale || "en-US");
+  const incomingMessages = recordValue(envelope.messages);
+  const nextMessages: Record<SynthesisWorkbenchMessageKey, string> = {
+    ...SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
+  };
+  Object.keys(nextMessages).forEach((key) => {
+    const message = textValue(incomingMessages[key]);
+    if (message) {
+      nextMessages[key as SynthesisWorkbenchMessageKey] = message;
+    }
+  });
+  const changed =
+    locale !== state.locale ||
+    JSON.stringify(nextMessages) !== JSON.stringify(state.messages);
+  state.locale = locale;
+  state.messages = nextMessages;
+  const html = document.documentElement as HTMLHtmlElement | null;
+  if (html) {
+    html.lang = locale;
+  }
+  document.title = t("synthesis-page-title");
+  return changed;
+}
+
+function stripI18nFromSnapshotPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload;
+  }
+  const { i18n: _i18n, ...snapshot } = payload as Record<string, unknown>;
+  return snapshot;
+}
+
+function localizeWorkbenchDom(root: ParentNode & Node) {
+  const excludedSelector = [
+    ".markdown-body",
+    ".report-card",
+    ".paper-digest-body",
+    ".digest-scroll-body",
+    ".evidence-explorer-content",
+    ".topic-report-concept-nav",
+    ".concept-mention",
+    ".concept-bubble",
+  ].join(",");
+  const translateAttribute = (node: Element, attr: string) => {
+    const value = node.getAttribute(attr);
+    if (!value) return;
+    const localized = uiText(value);
+    if (localized !== value) {
+      node.setAttribute(attr, localized);
+    }
+  };
+
+  const elements = Array.from(root.querySelectorAll("*")) as Element[];
+  elements.forEach((node) => {
+    if (!(node instanceof Element) || node.closest(excludedSelector)) {
+      return;
+    }
+    ["placeholder", "title", "aria-label", "alt"].forEach((attr) =>
+      translateAttribute(node, attr),
+    );
+  });
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || parent.closest(excludedSelector)) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes: Text[] = [];
+  while (walker.nextNode()) {
+    nodes.push(walker.currentNode as Text);
+  }
+  nodes.forEach((node) => {
+    const value = node.nodeValue || "";
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    const localized = uiText(trimmed);
+    if (localized !== trimmed) {
+      node.nodeValue = value.replace(trimmed, localized);
+    }
+  });
+}
+
 function sendAction(action: string, payload: Record<string, unknown> = {}) {
+  if (action === "openTopicCitationSubgraph") {
+    const topicId = textValue(payload.topicId);
+    if (topicId) {
+      state.graphReturnTopicId = topicId;
+      sendAction("setGraphView", { topicId, selectedElement: null });
+      sendAction("selectTab", { tab: "graph" });
+    }
+    return;
+  }
+  if (action === "backToTopicDetail") {
+    const topicId = textValue(payload.topicId || state.graphReturnTopicId);
+    state.graphReturnTopicId = undefined;
+    if (topicId) {
+      sendAction("showArtifactReader", { topicId, previousTab: "graph" });
+    }
+    return;
+  }
   if (action === "selectTab" && state.snapshot) {
     const tab = textValue(payload.tab) as SynthesisTab;
     if (
@@ -594,6 +849,9 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
       tab === "graph" ||
       tab === "reader"
     ) {
+      if (tab !== "graph") {
+        state.graphReturnTopicId = undefined;
+      }
       state.snapshot = {
         ...state.snapshot,
         selectedTab: tab,
@@ -757,53 +1015,8 @@ function operationKey(command: string, args: Record<string, unknown> = {}) {
 }
 
 function operationLabel(command: string) {
-  const labels: Record<string, string> = {
-    manualRecomputeLayout: "Rebuilding graph layout",
-    validateTagVocabulary: "Validating tags",
-    previewTagVocabularyImport: "Previewing tag import",
-    applyTagVocabularyImport: "Applying tag import",
-    exportTagVocabulary: "Exporting tags",
-    updateStagedTagSuggestion: "Updating staged tag",
-    updateTagVocabularyEntry: "Updating vocabulary tag",
-    deleteTagVocabularyEntry: "Deleting vocabulary tag",
-    promoteStagedTagSuggestions: "Promoting staged tags",
-    discardStagedTagSuggestions: "Discarding staged tags",
-    clearStagedTagSuggestions: "Clearing staged tags",
-    rebuildTagVocabularyIndex: "Rebuilding tag index",
-    rebuildConceptKbIndex: "Rebuilding concept index",
-    deleteConceptEntry: "Deleting concept",
-    applyConceptReviewAction: "Applying concept review",
-    updateConceptDisplayText: "Updating concept text",
-    acceptTopicGraphRelation: "Accepting topic relation",
-    rejectTopicGraphRelation: "Rejecting topic relation",
-    applyTopicGraphReviewAction: "Applying topic graph review",
-    refreshReferenceSidecarNow: "Refreshing reference sidecar",
-    retryReferenceSidecarRefresh: "Retrying reference sidecar refresh",
-    runAdvancedReferenceMatchingNow: "Running advanced reference matching",
-    retryAdvancedReferenceMatching: "Retrying advanced reference matching",
-    applyReferenceMatchProposalAction: "Applying reference match proposal",
-    applyReferenceMatchProposalActions: "Applying reference match proposals",
-    applyCanonicalRevisionReviewAction: "Applying canonical revision review",
-    mergeEffectiveCanonicalReference: "Merging canonical reference",
-    applyCanonicalRevisionMergeRequests: "Applying canonical merge requests",
-    updateCanonicalReferenceMetadata: "Updating canonical reference",
-    archiveCanonicalReference: "Archiving canonical reference",
-    refreshCitationGraphCacheIncrementalNow:
-      "Refreshing citation graph cache incrementally",
-    rebuildCitationGraphCacheNow: "Rebuilding citation graph cache",
-    retryCitationGraphCacheRebuild: "Retrying citation graph cache rebuild",
-    runSynthesizeTopic: "Starting topic synthesis",
-    submitTopicSynthesisUpdate: "Starting topic update",
-    exportTopicSynthesisReport: "Exporting synthesis report",
-    syncNow: "Running sync",
-    pauseGitSync: "Pausing sync",
-    resumeGitSync: "Resuming sync",
-    retryGitSync: "Retrying sync",
-    resolveGitSyncConflict: "Resolving sync conflict",
-    deleteTopicArtifact: "Deleting topic artifact",
-    purgeDeletedTopicArtifacts: "Purging deleted artifacts",
-  };
-  return labels[command] || command;
+  const key = `synthesis-operation-${command}` as SynthesisWorkbenchMessageKey;
+  return key in SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES ? t(key) : command;
 }
 
 function snapshotInFlightKeys(snapshot = state.snapshot) {
@@ -937,6 +1150,18 @@ function el<K extends keyof HTMLElementTagNameMap>(
     node.className = className;
   }
   if (typeof text === "string") {
+    node.textContent = uiText(text);
+  }
+  return node;
+}
+
+function elRawText<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className = "",
+  text?: string,
+) {
+  const node = el(tag, className);
+  if (typeof text === "string") {
     node.textContent = text;
   }
   return node;
@@ -1030,7 +1255,7 @@ function clear(node: Element) {
 }
 
 function badge(text: unknown, tone = "") {
-  return el("span", `badge ${tone}`, String(text || "-"));
+  return el("span", `badge ${tone}`, maybeLocalizedValue(text) || "-");
 }
 
 function renderEmptyState({
@@ -1045,9 +1270,9 @@ function renderEmptyState({
   tone?: "default" | "info" | "warning";
 }) {
   const empty = el("div", `empty-state empty-state-${tone}`);
-  empty.appendChild(el("strong", "empty-state-title", title));
+  empty.appendChild(el("strong", "empty-state-title", uiText(title)));
   if (message) {
-    empty.appendChild(el("p", "empty-state-message", message));
+    empty.appendChild(el("p", "empty-state-message", uiText(message)));
   }
   if (action) {
     const actions = el("div", "empty-state-actions");
@@ -1061,8 +1286,10 @@ function renderDetailList(fields: Array<[string, unknown]>) {
   const list = el("div", "detail-list");
   fields.forEach(([label, value]) => {
     const row = el("div", "detail-row");
-    row.appendChild(el("span", "muted", label));
-    row.appendChild(el("strong", "", textValue(value, "-") || "-"));
+    row.appendChild(el("span", "muted", uiText(label)));
+    row.appendChild(
+      el("strong", "", maybeLocalizedValue(value) || textValue(value, "-")),
+    );
     list.appendChild(row);
   });
   return list;
@@ -1097,13 +1324,15 @@ function makeButton(
   const button = el(
     "button",
     `${active ? "active" : ""}${pending ? " is-busy" : ""}`.trim(),
-    label,
+    uiText(label),
   );
   button.type = "button";
   button.disabled = disabled || pending;
   if (pending) {
     button.setAttribute("aria-busy", "true");
-    button.title = `${operationLabel(hostCommand)} is in progress`;
+    button.title = t("synthesis-operation-in-progress", {
+      operation: operationLabel(hostCommand),
+    });
     const spinner = el("span", "button-spinner");
     spinner.setAttribute("aria-hidden", "true");
     button.prepend(spinner);
@@ -1117,7 +1346,7 @@ function makeLocalButton(
   onClick: (event: MouseEvent) => void,
   active = false,
 ) {
-  const button = el("button", active ? "active" : "", label);
+  const button = el("button", active ? "active" : "", uiText(label));
   button.type = "button";
   button.addEventListener("click", (event) => {
     event.preventDefault();
@@ -1129,16 +1358,18 @@ function makeLocalButton(
 function titleForTab(tab: Snapshot["selectedTab"]) {
   if (tab === "reader") {
     return (
-      state.topicDetail?.title || state.artifactReader?.title || "Topic Detail"
+      state.topicDetail?.title ||
+      state.artifactReader?.title ||
+      t("synthesis-tab-topic-detail")
     );
   }
-  if (tab === "artifacts") return "Topics";
-  if (tab === "registry") return "Index";
-  if (tab === "tags") return "Tags";
-  if (tab === "concepts") return "Concepts";
-  if (tab === "graph") return "Citation Graph";
-  if (tab === "reviews") return "Review";
-  return "Home";
+  if (tab === "artifacts") return t("synthesis-tab-topics");
+  if (tab === "registry") return t("synthesis-tab-index");
+  if (tab === "tags") return t("synthesis-tab-tags");
+  if (tab === "concepts") return t("synthesis-tab-concepts");
+  if (tab === "graph") return t("synthesis-tab-citation-graph");
+  if (tab === "reviews") return t("synthesis-tab-review");
+  return t("synthesis-tab-home");
 }
 
 function surfaceForTab(tab: Snapshot["selectedTab"]): WorkbenchSurfaceName {
@@ -1166,11 +1397,56 @@ function surfaceRuntime(surface: WorkbenchSurfaceName) {
   return state.surfaces[surfaceRuntimeKey(surface)];
 }
 
+function normalizeSurfaceRequestId(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined;
+}
+
+function surfacePayloadRequestId(payload: Record<string, unknown>) {
+  const direct = normalizeSurfaceRequestId(payload.requestId);
+  if (direct !== undefined) {
+    return direct;
+  }
+  const request =
+    payload.request && typeof payload.request === "object"
+      ? (payload.request as Record<string, unknown>)
+      : null;
+  return normalizeSurfaceRequestId(request?.requestId);
+}
+
+function isStaleSurfacePayload(
+  surface: WorkbenchSurfaceName,
+  requestId?: number,
+) {
+  if (requestId === undefined) {
+    return false;
+  }
+  return requestId < (state.acceptedSurfaceRequestIds[surface] || 0);
+}
+
+function acceptSurfacePayload(
+  surface: WorkbenchSurfaceName,
+  requestId?: number,
+) {
+  if (requestId === undefined) {
+    return;
+  }
+  state.acceptedSurfaceRequestIds[surface] = Math.max(
+    state.acceptedSurfaceRequestIds[surface] || 0,
+    requestId,
+  );
+}
+
 function markSurfaceRuntime(
   surface: WorkbenchSurfaceName,
   status: WorkbenchSurfaceRuntime["status"],
   error?: string,
   snapshot?: Snapshot,
+  details: {
+    errorCode?: string;
+    transient?: boolean;
+    requestId?: number;
+  } = {},
 ) {
   const key = surfaceRuntimeKey(surface, snapshot || state.snapshot);
   const previous = state.surfaces[key];
@@ -1178,6 +1454,9 @@ function markSurfaceRuntime(
     status,
     revision: (previous?.revision || 0) + 1,
     error,
+    errorCode: details.errorCode,
+    transient: details.transient,
+    requestId: details.requestId ?? previous?.requestId,
     snapshot: snapshot || previous?.snapshot,
   };
 }
@@ -1199,6 +1478,21 @@ function restoreCachedSurfaceSnapshot(
     sync: state.snapshot.sync || cached.sync,
   };
   return true;
+}
+
+function restoreSurfaceSnapshotForError(surface: WorkbenchSurfaceName) {
+  const cached = surfaceRuntime(surface)?.snapshot;
+  if (!cached) {
+    return false;
+  }
+  if (!state.snapshot) {
+    state.snapshot = cached;
+    return true;
+  }
+  if (surfaceForTab(state.snapshot.selectedTab) !== surface) {
+    return false;
+  }
+  return restoreCachedSurfaceSnapshot(surface, state.snapshot.selectedTab);
 }
 
 function actionStatusbarKey(
@@ -1484,8 +1778,8 @@ function renderActionStatusbar(snapshot: Snapshot) {
   const appendJobButton = () => {
     const button = el("button", "action-statusbar-job-button");
     button.type = "button";
-    button.title = "Show Synthesis jobs";
-    button.setAttribute("aria-label", "Show Synthesis jobs");
+    button.title = t("synthesis-jobs-show");
+    button.setAttribute("aria-label", t("synthesis-jobs-show"));
     button.setAttribute(
       "aria-expanded",
       state.jobPopoverOpen ? "true" : "false",
@@ -1546,7 +1840,9 @@ function renderActionStatusbar(snapshot: Snapshot) {
       el(
         "span",
         "action-statusbar-state",
-        latest.status === "running" ? "Running" : "Pending",
+        latest.status === "running"
+          ? t("synthesis-status-running")
+          : t("synthesis-status-queued"),
       ),
     );
     statusbar.appendChild(
@@ -1563,7 +1859,9 @@ function renderActionStatusbar(snapshot: Snapshot) {
 
   if (failedJob) {
     statusbar.className = "action-statusbar is-danger";
-    statusbar.appendChild(el("span", "action-statusbar-state", "Failed"));
+    statusbar.appendChild(
+      el("span", "action-statusbar-state", t("synthesis-status-failed")),
+    );
     statusbar.appendChild(
       el(
         "span",
@@ -1579,7 +1877,9 @@ function renderActionStatusbar(snapshot: Snapshot) {
     shouldShowTimedStatusbarEntry(failed, STATUSBAR_FAILED_TIMEOUT_MS, "failed")
   ) {
     statusbar.className = "action-statusbar is-danger";
-    statusbar.appendChild(el("span", "action-statusbar-state", "Failed"));
+    statusbar.appendChild(
+      el("span", "action-statusbar-state", t("synthesis-status-failed")),
+    );
     statusbar.appendChild(
       el("span", "action-statusbar-message", statusbarMessage(failed!)),
     );
@@ -1595,7 +1895,9 @@ function renderActionStatusbar(snapshot: Snapshot) {
     )
   ) {
     statusbar.className = "action-statusbar is-warn";
-    statusbar.appendChild(el("span", "action-statusbar-state", "Warning"));
+    statusbar.appendChild(
+      el("span", "action-statusbar-state", t("synthesis-status-warning")),
+    );
     statusbar.appendChild(
       el("span", "action-statusbar-message", statusbarMessage(latestWarning!)),
     );
@@ -1611,7 +1913,9 @@ function renderActionStatusbar(snapshot: Snapshot) {
     )
   ) {
     statusbar.className = "action-statusbar is-ok";
-    statusbar.appendChild(el("span", "action-statusbar-state", "Completed"));
+    statusbar.appendChild(
+      el("span", "action-statusbar-state", t("synthesis-status-completed")),
+    );
     statusbar.appendChild(
       el("span", "action-statusbar-message", statusbarMessage(completed!)),
     );
@@ -1619,7 +1923,9 @@ function renderActionStatusbar(snapshot: Snapshot) {
     return statusbar;
   }
 
-  statusbar.appendChild(el("span", "action-statusbar-state", "Ready"));
+  statusbar.appendChild(
+    el("span", "action-statusbar-state", t("synthesis-status-ready")),
+  );
   if (jobs.length || state.jobPopoverOpen) {
     appendJobButton();
   }
@@ -1635,13 +1941,13 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   const brand = el("div", "brand brand-icon-only");
   const logo = document.createElement("img");
   logo.src = "../icons/favicon.png";
-  logo.alt = "Zotero Skills";
+  logo.alt = t("synthesis-brand-alt");
   brand.appendChild(logo);
   const sidebarToggle = el("button", "sidebar-collapse-toggle icon-only");
   sidebarToggle.type = "button";
   sidebarToggle.title = state.sidebarExpanded
-    ? "Collapse navigation"
-    : "Expand navigation";
+    ? t("synthesis-nav-collapse")
+    : t("synthesis-nav-expand");
   sidebarToggle.setAttribute("aria-label", sidebarToggle.title);
   sidebarToggle.setAttribute(
     "aria-expanded",
@@ -1659,18 +1965,18 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   const libraryLabel = el(
     "div",
     "muted sidebar-library",
-    `Library ${snapshot.libraryId}`,
+    t("synthesis-library-label", { libraryId: snapshot.libraryId }),
   );
   sidebar.appendChild(libraryLabel);
   const nav = el("div", "nav");
   [
-    ["overview", "Home", "home"],
-    ["artifacts", "Topics", "topics"],
-    ["concepts", "Concepts", "concepts"],
-    ["graph", "Graph", "graph"],
-    ["registry", "Index", "index"],
-    ["tags", "Tags", "tags"],
-    ["reviews", "Review", "review"],
+    ["overview", t("synthesis-tab-home"), "home"],
+    ["artifacts", t("synthesis-tab-topics"), "topics"],
+    ["concepts", t("synthesis-tab-concepts"), "concepts"],
+    ["graph", t("synthesis-tab-graph"), "graph"],
+    ["registry", t("synthesis-tab-index"), "index"],
+    ["tags", t("synthesis-tab-tags"), "tags"],
+    ["reviews", t("synthesis-tab-review"), "review"],
   ].forEach(([tab, label, iconName]) => {
     const button = makeButton(
       "",
@@ -1748,38 +2054,73 @@ function renderSelectedTabShell() {
   const surface = surfaceForTab(state.snapshot.selectedTab);
   main.dataset.synthesisSurface = surface;
   clear(main);
-  if (surfaceRuntime(surface)?.status === "ready") {
+  const runtime = surfaceRuntime(surface);
+  if (
+    runtime?.status === "ready" ||
+    (runtime?.status === "failed" && runtime.snapshot)
+  ) {
     renderCurrentView(main, state.snapshot);
     maybeRequestGraphLayoutRefresh(state.snapshot);
   } else {
     main.appendChild(renderSurfaceLoading(surface));
   }
+  localizeWorkbenchDom(root);
   state.lastContentSignature = "";
 }
 
 function renderSurfaceLoading(surface: WorkbenchSurfaceName) {
+  const runtime = surfaceRuntime(surface);
   const wrap = el("div", "surface-loading");
   wrap.dataset.synthesisSurface = `${surface}-loading`;
-  wrap.appendChild(el("div", "loading-spinner"));
+  if (runtime?.status !== "failed") {
+    wrap.appendChild(el("div", "loading-spinner"));
+  }
   wrap.appendChild(
-    el("div", "loading-title", `Loading ${surfaceLabel(surface)}`),
+    el(
+      "div",
+      "loading-title",
+      runtime?.status === "failed"
+        ? t("synthesis-surface-error-label")
+        : t("synthesis-surface-loading-title", {
+            surface: surfaceLabel(surface),
+          }),
+    ),
   );
   wrap.appendChild(
-    el("div", "loading-subtitle", "Preparing this Workbench view..."),
+    el(
+      "div",
+      "loading-subtitle",
+      runtime?.status === "failed"
+        ? runtime.error || t("synthesis-surface-error-message")
+        : t("synthesis-surface-loading-subtitle"),
+    ),
   );
   return wrap;
 }
 
 function surfaceLabel(surface: WorkbenchSurfaceName) {
-  if (surface === "home") return "Home";
-  if (surface === "topics") return "Topics";
-  if (surface === "index") return "Index";
-  if (surface === "review") return "Review";
-  if (surface === "graph") return "Citation Graph";
-  if (surface === "tags") return "Tags";
-  if (surface === "concepts") return "Concepts";
-  if (surface === "reader") return "Reader";
-  return "Synthesis";
+  if (surface === "home") return t("synthesis-tab-home");
+  if (surface === "topics") return t("synthesis-tab-topics");
+  if (surface === "index") return t("synthesis-tab-index");
+  if (surface === "review") return t("synthesis-tab-review");
+  if (surface === "graph") return t("synthesis-tab-citation-graph");
+  if (surface === "tags") return t("synthesis-tab-tags");
+  if (surface === "concepts") return t("synthesis-tab-concepts");
+  if (surface === "reader") return t("synthesis-tab-reader");
+  return t("synthesis-page-title");
+}
+
+function isWorkbenchSurfaceName(value: unknown): value is WorkbenchSurfaceName {
+  return (
+    value === "home" ||
+    value === "topics" ||
+    value === "index" ||
+    value === "review" ||
+    value === "graph" ||
+    value === "tags" ||
+    value === "concepts" ||
+    value === "reader"
+  );
 }
 
 function renderWorkbenchChrome() {
@@ -1790,6 +2131,7 @@ function renderWorkbenchChrome() {
   const existingStatusbar = root.querySelector(".action-statusbar");
   if (existingStatusbar) {
     existingStatusbar.replaceWith(renderActionStatusbar(state.snapshot));
+    localizeWorkbenchDom(root);
     return;
   }
   render();
@@ -1818,6 +2160,7 @@ function renderSurface(surface: WorkbenchSurfaceName) {
   clear(main);
   renderCurrentView(main, state.snapshot);
   restoreWorkbenchRenderState(root, renderState);
+  localizeWorkbenchDom(root);
   state.lastContentSignature = snapshotContentSignature(state.snapshot);
   maybeRequestGraphLayoutRefresh(state.snapshot);
 }
@@ -1854,6 +2197,12 @@ function scheduleSigmaResize(renderer: Sigma, container: HTMLElement) {
 }
 
 function renderCurrentView(main: HTMLElement, snapshot: Snapshot) {
+  const diagnostic = renderSurfaceRefreshDiagnostic(
+    surfaceForTab(snapshot.selectedTab),
+  );
+  if (diagnostic) {
+    main.appendChild(diagnostic);
+  }
   if (snapshot.selectedTab === "reader") {
     if (state.topicDetail) {
       renderTopicDetail(main, snapshot);
@@ -1875,6 +2224,31 @@ function renderCurrentView(main: HTMLElement, snapshot: Snapshot) {
   } else {
     renderHome(main, snapshot);
   }
+}
+
+function renderSurfaceRefreshDiagnostic(surface: WorkbenchSurfaceName) {
+  const runtime = surfaceRuntime(surface);
+  if (runtime?.status !== "failed" || !runtime.snapshot) {
+    return null;
+  }
+  const wrap = el(
+    "div",
+    `surface-refresh-diagnostic${runtime.transient ? " is-transient" : ""}`,
+  );
+  wrap.dataset.synthesisSurfaceDiagnostic = surface;
+  wrap.appendChild(
+    el(
+      "strong",
+      "",
+      runtime.transient
+        ? t("synthesis-surface-refreshing-label")
+        : t("synthesis-surface-error-label"),
+    ),
+  );
+  wrap.appendChild(
+    el("span", "", runtime.error || t("synthesis-surface-error-message")),
+  );
+  return wrap;
 }
 
 function topicPaperCount(row: Record<string, unknown>) {
@@ -2342,7 +2716,9 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
     const deleted = el(
       "p",
       "muted",
-      `${snapshot.deletedArtifacts.count} deleted artifact(s) waiting for purge.`,
+      t("synthesis-deleted-artifacts-waiting", {
+        count: snapshot.deletedArtifacts.count,
+      }),
     );
     panel.appendChild(deleted);
   }
@@ -2379,10 +2755,20 @@ function renderTopicsGraph(snapshot: Snapshot) {
 
   const summary = el("div", "topic-graph-summary");
   summary.appendChild(
-    badge(`${snapshot.topicGraph.visibleNodes.length} topics`, "ok"),
+    badge(
+      t("synthesis-topic-count", {
+        count: snapshot.topicGraph.visibleNodes.length,
+      }),
+      "ok",
+    ),
   );
   summary.appendChild(
-    badge(`${snapshot.topicGraph.visibleEdges.length} relations`, "warn"),
+    badge(
+      t("synthesis-relation-count", {
+        count: snapshot.topicGraph.visibleEdges.length,
+      }),
+      "warn",
+    ),
   );
   summary.appendChild(badge(snapshot.topicGraph.filters.mode));
   board.appendChild(summary);
@@ -2675,7 +3061,9 @@ function renderTopicGraphNode(
   const meta = el(
     "span",
     "topic-node-meta",
-    `${numberValue(node.paper_count, 0)} papers`,
+    t("synthesis-topic-paper-count", {
+      count: numberValue(node.paper_count, 0),
+    }),
   );
   card.appendChild(meta);
   const badges = el("span", "tag-row");
@@ -2757,7 +3145,7 @@ function renderTopicInspector(snapshot: Snapshot) {
 
 function humanizeReviewLabel(value: unknown, fallback = "-") {
   const normalized = textValue(value, fallback);
-  return normalized.replace(/[_-]+/g, " ");
+  return maybeLocalizedValue(normalized) || humanizeEnumValue(normalized);
 }
 
 function wrapReviewIndex(index: number, total: number) {
@@ -3049,7 +3437,7 @@ function renderReviewMetadata(fields: Array<[string, unknown]>) {
   const list = el("div", "review-card-details review-card-metadata");
   details.forEach(([label, value]) => {
     const row = el("div", "detail-row");
-    row.appendChild(el("span", "muted", label));
+    row.appendChild(el("span", "muted", uiText(label)));
     row.appendChild(el("strong", "", compactReviewValue(value)));
     list.appendChild(row);
   });
@@ -3063,7 +3451,7 @@ function renderReviewCard(options: ReviewCardOptions) {
   if (options.showKindBadge !== false) {
     title.appendChild(badge(options.kind, options.tone || "warn"));
   }
-  title.appendChild(el("strong", "", options.title));
+  title.appendChild(el("strong", "", uiText(options.title)));
   header.appendChild(title);
   if (options.meta) {
     header.appendChild(el("span", "muted", options.meta));
@@ -3076,7 +3464,7 @@ function renderReviewCard(options: ReviewCardOptions) {
     card.appendChild(row);
   }
   if (options.body) {
-    card.appendChild(el("p", "review-card-body", options.body));
+    card.appendChild(el("p", "review-card-body", uiText(options.body)));
   }
   (options.primaryChildren || []).forEach((child) => card.appendChild(child));
   const metadata = renderReviewMetadata(options.details || []);
@@ -3100,7 +3488,7 @@ function compactReviewValue(value: unknown) {
             JSON.stringify(entry)
           );
         }
-        return textValue(entry);
+        return maybeLocalizedValue(entry) || textValue(entry);
       })
       .filter(Boolean)
       .slice(0, 4)
@@ -3218,12 +3606,14 @@ function applyConceptOverlay(root: HTMLElement, snapshot?: Snapshot | null) {
       fragment.appendChild(
         document.createTextNode(text.slice(lastIndex, offset)),
       );
-      const link = el("span", "concept-mention", match);
+      const link = elRawText("span", "concept-mention", match);
       link.tabIndex = 0;
       link.setAttribute("data-concept-id", textValue(entry.concept_id));
       link.setAttribute(
         "aria-label",
-        `Concept preview: ${textValue(entry.label || entry.alias)}`,
+        t("synthesis-concept-preview-label", {
+          label: textValue(entry.label || entry.alias),
+        }),
       );
       const openBubble = () => {
         showConceptBubble(link, entry);
@@ -3273,21 +3663,26 @@ function showConceptBubble(
   closeConceptBubble();
   const bubble = el("div", "concept-bubble");
   bubble.setAttribute("role", "dialog");
-  bubble.setAttribute("aria-label", "Concept preview");
-  bubble.appendChild(el("strong", "", textValue(entry.label || entry.alias)));
+  bubble.setAttribute("aria-label", t("synthesis-concept-preview"));
+  bubble.appendChild(
+    elRawText("strong", "", textValue(entry.label || entry.alias)),
+  );
   const alias = textValue(entry.alias);
   const confidence = textValue(entry.confidence);
   if (alias || confidence) {
     const meta = el("div", "concept-bubble-meta");
-    if (alias) meta.appendChild(badge(alias, "blue"));
+    if (alias) meta.appendChild(elRawText("span", "badge blue", alias));
     if (confidence) meta.appendChild(badge(confidence, toneFor(confidence)));
     bubble.appendChild(meta);
   }
   bubble.appendChild(
-    el(
+    elRawText(
       "p",
       "muted",
-      textValue(entry.short_definition || entry.definition, "No definition."),
+      textValue(
+        entry.short_definition || entry.definition,
+        t("synthesis-concept-no-definition"),
+      ),
     ),
   );
   const rect = anchor.getBoundingClientRect();
@@ -3351,7 +3746,9 @@ function topicReportConceptEntries(
       const concept = conceptsById.get(conceptId) || {};
       const senseId = textValue(sense.sense_id);
       const overlay =
-        overlayBySenseId.get(senseId) || overlayByConceptId.get(conceptId) || {};
+        overlayBySenseId.get(senseId) ||
+        overlayByConceptId.get(conceptId) ||
+        {};
       const label =
         textValue(overlay.label) ||
         textValue(concept.label) ||
@@ -3403,10 +3800,10 @@ function renderTopicReportConceptNav(
     return undefined;
   }
   const nav = el("aside", "topic-report-concept-nav");
-  nav.setAttribute("aria-label", "Topic concepts");
+  nav.setAttribute("aria-label", t("synthesis-topic-concepts"));
   const header = el("div", "topic-report-concept-nav-header");
-  header.appendChild(el("strong", "", "Concepts"));
-  header.appendChild(el("span", "muted", String(entries.length)));
+  header.appendChild(el("strong", "", t("synthesis-tab-concepts")));
+  header.appendChild(elRawText("span", "muted", String(entries.length)));
   nav.appendChild(header);
   const list = el("div", "topic-report-concept-nav-list");
   list.setAttribute("role", "list");
@@ -3415,8 +3812,11 @@ function renderTopicReportConceptNav(
     item.tabIndex = 0;
     item.setAttribute("role", "listitem");
     item.setAttribute("data-concept-id", entry.conceptId);
-    item.setAttribute("aria-label", `Concept preview: ${entry.label}`);
-    item.appendChild(el("strong", "", entry.label));
+    item.setAttribute(
+      "aria-label",
+      t("synthesis-concept-preview-label", { label: entry.label }),
+    );
+    item.appendChild(elRawText("strong", "", entry.label));
     const openBubble = () => showConceptBubble(item, entry.preview);
     item.addEventListener("mouseenter", openBubble);
     item.addEventListener("focus", openBubble);
@@ -3696,7 +4096,7 @@ function renderParagraphs(value: unknown) {
       .map((entry) => textValue(entry))
       .filter(Boolean)
       .forEach((entry) => {
-        box.appendChild(el("p", "", entry));
+        box.appendChild(elRawText("p", "", entry));
       });
     return box;
   }
@@ -3707,7 +4107,7 @@ function renderParagraphs(value: unknown) {
       .map((entry) => entry.trim())
       .filter(Boolean)
       .forEach((entry) => {
-        box.appendChild(el("p", "", entry));
+        box.appendChild(elRawText("p", "", entry));
       });
   }
   return box;
@@ -3719,13 +4119,13 @@ function renderKeyValueList(value: Record<string, unknown>): HTMLElement {
     const row = el("div", "topic-kv-row");
     row.appendChild(el("span", "muted", key.replace(/_/g, " ")));
     if (raw === null || raw === undefined) {
-      row.appendChild(el("strong", "", "-"));
+      row.appendChild(elRawText("strong", "", "-"));
     } else if (
       typeof raw === "string" ||
       typeof raw === "number" ||
       typeof raw === "boolean"
     ) {
-      row.appendChild(el("strong", "", String(raw)));
+      row.appendChild(elRawText("strong", "", String(raw)));
     } else if (Array.isArray(raw)) {
       const arrWrap = el("div", "kv-array-wrap");
       raw.forEach((item) => {
@@ -3947,11 +4347,14 @@ function renderReviewOutlineGroups(detail: TopicDetailDto) {
     return undefined;
   const recommendedId = textValue(outline.recommended_strategy_id);
   const outlineSection = el("div", "overview-outline-section");
-  outlineSection.appendChild(el("h3", "", "Review Blueprint"));
+  outlineSection.appendChild(el("h3", "", t("synthesis-review-blueprint")));
   const importance = textValue(outline.topic_importance);
   if (importance) {
     outlineSection.appendChild(
-      renderContentCard("Topic Importance", renderParagraphs(importance)),
+      renderContentCard(
+        t("synthesis-topic-importance"),
+        renderParagraphs(importance),
+      ),
     );
   }
   const grid = el("div", "outline-group-grid");
@@ -3959,21 +4362,25 @@ function renderReviewOutlineGroups(detail: TopicDetailDto) {
     const card = el("article", "outline-blueprint-card");
     const titleWrap = el("div", "claim-header");
     titleWrap.appendChild(
-      el(
+      elRawText(
         "strong",
         "",
-        firstText(strategy, ["title", "id"], `Writing Strategy ${index + 1}`),
+        firstText(
+          strategy,
+          ["title", "id"],
+          t("synthesis-writing-strategy", { count: index + 1 }),
+        ),
       ),
     );
     if (firstText(strategy, ["id"]) === recommendedId) {
-      titleWrap.appendChild(badge("Recommended", "green"));
+      titleWrap.appendChild(badge(t("synthesis-recommended"), "green"));
     }
     card.appendChild(titleWrap);
     const thesis = firstText(strategy, ["review_thesis"]);
     if (thesis)
       card.appendChild(
         renderContentCard(
-          "Thesis",
+          t("synthesis-thesis"),
           renderParagraphs(thesis),
           "outline-strategy-field",
         ),
@@ -3982,7 +4389,7 @@ function renderReviewOutlineGroups(detail: TopicDetailDto) {
     if (writing)
       card.appendChild(
         renderContentCard(
-          "Strategy",
+          t("synthesis-strategy"),
           renderParagraphs(writing),
           "outline-strategy-field",
         ),
@@ -3992,14 +4399,18 @@ function renderReviewOutlineGroups(detail: TopicDetailDto) {
       const list = el("ul", "outline-key-point-list");
       sectionPlan.forEach((point) => list.appendChild(el("li", "", point)));
       card.appendChild(
-        renderContentCard("Section Plan", list, "outline-strategy-field"),
+        renderContentCard(
+          t("synthesis-section-plan"),
+          list,
+          "outline-strategy-field",
+        ),
       );
     }
     const bestFor = firstText(strategy, ["best_for"]);
     if (bestFor)
       card.appendChild(
         renderContentCard(
-          "Best For",
+          t("synthesis-best-for"),
           renderParagraphs(bestFor),
           "outline-strategy-field",
         ),
@@ -4008,7 +4419,7 @@ function renderReviewOutlineGroups(detail: TopicDetailDto) {
     if (risks)
       card.appendChild(
         renderContentCard(
-          "Risks",
+          t("synthesis-risks"),
           renderParagraphs(risks),
           "outline-strategy-field",
         ),
@@ -4023,14 +4434,16 @@ function renderReviewOutlineGroups(detail: TopicDetailDto) {
 
 function renderTopicOverviewSection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
-  section.appendChild(el("h2", "", "Overview"));
+  section.appendChild(el("h2", "", t("synthesis-topic-tab-overview")));
 
   const summaryText =
     detail.summary?.text || detail.summary?.brief || detail.summary?.summary;
 
   if (summaryText) {
     const summaryCard = el("div", "overview-summary-hero");
-    summaryCard.appendChild(el("h3", "hero-title", "Synthesis Summary"));
+    summaryCard.appendChild(
+      el("h3", "hero-title", t("synthesis-synthesis-summary")),
+    );
     summaryCard.appendChild(renderParagraphs(summaryText));
     section.appendChild(summaryCard);
   }
@@ -4039,14 +4452,14 @@ function renderTopicOverviewSection(detail: TopicDetailDto) {
   if (takeaways.length) {
     const list = el("ul", "outline-key-point-list");
     takeaways.forEach((takeaway) => list.appendChild(el("li", "", takeaway)));
-    section.appendChild(renderContentCard("Key Takeaways", list));
+    section.appendChild(renderContentCard(t("synthesis-key-takeaways"), list));
   }
 
   const topicBoundary = detail.topic?.scope_boundary;
   if (hasStructuredContent(topicBoundary)) {
     section.appendChild(
       renderContentCard(
-        "Scope Boundary",
+        t("synthesis-scope-boundary"),
         renderKeyValueList(topicBoundary as Record<string, unknown>),
       ),
     );
@@ -4056,20 +4469,25 @@ function renderTopicOverviewSection(detail: TopicDetailDto) {
   if (outline) section.appendChild(outline);
 
   if (section.childElementCount <= 1) {
-    section.appendChild(renderEmptyStructuredState("No overview data"));
+    section.appendChild(
+      renderEmptyStructuredState(t("synthesis-empty-overview")),
+    );
   }
   return section;
 }
 
 function renderTopicTaxonomySection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
-  section.appendChild(el("h2", "", "Taxonomy"));
+  section.appendChild(el("h2", "", t("synthesis-topic-tab-taxonomy")));
   const taxonomy = detail.taxonomy || {};
   const summary = recordValue(taxonomy.summary);
   const summaryText = firstText(summary, ["text", "analysis", "overview"]);
   if (summaryText) {
     section.appendChild(
-      renderContentCard("Route Synthesis", renderParagraphs(summaryText)),
+      renderContentCard(
+        t("synthesis-route-synthesis"),
+        renderParagraphs(summaryText),
+      ),
     );
   }
   const axis = firstText(taxonomy, [
@@ -4086,7 +4504,9 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
     const head = el("div", "taxonomy-head");
     if (axis) head.appendChild(badge(axis, "blue"));
     if (rationale) head.appendChild(renderParagraphs(rationale));
-    section.appendChild(renderContentCard("Classification Axis", head));
+    section.appendChild(
+      renderContentCard(t("synthesis-classification-axis"), head),
+    );
   }
   const nodes = recordArray(
     taxonomy.nodes || taxonomy.categories || taxonomy.taxonomy_nodes,
@@ -4100,13 +4520,13 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
       const titleWrap = el("div", "taxonomy-item-title");
       titleWrap.appendChild(el("span", "claim-index", `T${index + 1}`));
       titleWrap.appendChild(
-        el(
+        elRawText(
           "h3",
           "",
           firstText(
             node,
             ["title", "label", "name", "id"],
-            `Node ${index + 1}`,
+            t("synthesis-taxonomy-node", { count: index + 1 }),
           ),
         ),
       );
@@ -4126,7 +4546,7 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
         "rationale",
         "definition",
       ]);
-      if (text) card.appendChild(el("p", "taxonomy-item-desc", text));
+      if (text) card.appendChild(elRawText("p", "taxonomy-item-desc", text));
 
       const detailsWrap = el("div", "taxonomy-item-details");
 
@@ -4138,8 +4558,8 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
       ]);
       if (prob) {
         const pDiv = el("div", "taxonomy-detail-row");
-        pDiv.appendChild(el("span", "muted", "Problem"));
-        pDiv.appendChild(el("strong", "", prob));
+        pDiv.appendChild(el("span", "muted", t("synthesis-detail-problem")));
+        pDiv.appendChild(elRawText("strong", "", prob));
         probMech.appendChild(pDiv);
       }
       const mech = firstText(node, [
@@ -4149,8 +4569,8 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
       ]);
       if (mech) {
         const mDiv = el("div", "taxonomy-detail-row");
-        mDiv.appendChild(el("span", "muted", "Mechanism"));
-        mDiv.appendChild(el("strong", "", mech));
+        mDiv.appendChild(el("span", "muted", t("synthesis-detail-mechanism")));
+        mDiv.appendChild(elRawText("strong", "", mech));
         probMech.appendChild(mDiv);
       }
       if (probMech.childElementCount) detailsWrap.appendChild(probMech);
@@ -4159,18 +4579,24 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
       const strengths = stringArray(node.strengths || node.advantages);
       if (strengths.length) {
         const sDiv = el("div", "taxonomy-detail-row");
-        sDiv.appendChild(el("span", "muted", "Strengths"));
+        sDiv.appendChild(el("span", "muted", t("synthesis-detail-strengths")));
         const sList = el("ul", "taxonomy-bullet-list");
-        strengths.forEach((st) => sList.appendChild(el("li", "pro-item", st)));
+        strengths.forEach((st) =>
+          sList.appendChild(elRawText("li", "pro-item", st)),
+        );
         sDiv.appendChild(sList);
         prosCons.appendChild(sDiv);
       }
       const limits = stringArray(node.limitations || node.weaknesses);
       if (limits.length) {
         const lDiv = el("div", "taxonomy-detail-row");
-        lDiv.appendChild(el("span", "muted", "Limitations"));
+        lDiv.appendChild(
+          el("span", "muted", t("synthesis-detail-limitations")),
+        );
         const lList = el("ul", "taxonomy-bullet-list");
-        limits.forEach((lt) => lList.appendChild(el("li", "con-item", lt)));
+        limits.forEach((lt) =>
+          lList.appendChild(elRawText("li", "con-item", lt)),
+        );
         lDiv.appendChild(lList);
         prosCons.appendChild(lDiv);
       }
@@ -4188,7 +4614,9 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
     });
     section.appendChild(list);
   } else {
-    section.appendChild(renderEmptyStructuredState("No taxonomy data"));
+    section.appendChild(
+      renderEmptyStructuredState(t("synthesis-empty-taxonomy")),
+    );
   }
   return section;
 }
@@ -4208,10 +4636,10 @@ function topicTimelineSummary(detail: TopicDetailDto) {
 
 function renderTopicClaimsSection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
-  section.appendChild(el("h2", "", "Claims"));
+  section.appendChild(el("h2", "", t("synthesis-topic-tab-claims")));
   const claims = recordArray(detail.claims);
   if (!claims.length) {
-    section.appendChild(renderEmptyStructuredState("No claim data"));
+    section.appendChild(renderEmptyStructuredState(t("synthesis-empty-claim")));
     return section;
   }
   const list = el("div", "claims-list");
@@ -4240,13 +4668,13 @@ function renderTopicClaimsSection(detail: TopicDetailDto) {
     }
     leftCol.appendChild(header);
     leftCol.appendChild(
-      el(
+      elRawText(
         "h3",
         "",
         firstText(
           claim,
           ["text", "claim", "title", "id"],
-          `Claim ${index + 1}`,
+          t("synthesis-claim-title", { count: index + 1 }),
         ),
       ),
     );
@@ -4258,13 +4686,15 @@ function renderTopicClaimsSection(detail: TopicDetailDto) {
       "summary",
       "explanation",
     ]);
-    if (rationale) leftCol.appendChild(el("p", "", rationale));
+    if (rationale) leftCol.appendChild(elRawText("p", "", rationale));
     card.appendChild(leftCol);
 
     const rightCol = el("div", "claim-evidence");
     const eRefs = stringArray(claim.source_paper_refs);
     if (eRefs.length) {
-      rightCol.appendChild(el("h4", "evidence-group-title", "Source Papers"));
+      rightCol.appendChild(
+        el("h4", "evidence-group-title", t("synthesis-source-papers")),
+      );
       const eList = el("div", "claim-evidence-list");
       eRefs.forEach((ref) => {
         const rows = evidenceRows(detail);
@@ -4294,8 +4724,8 @@ function renderTopicClaimsSection(detail: TopicDetailDto) {
               rows.findIndex((r) => evidenceId(r) === id),
             ),
           );
-          eCard.appendChild(el("span", "evidence-code", code));
-          eCard.appendChild(el("span", "evidence-title", title));
+          eCard.appendChild(elRawText("span", "evidence-code", code));
+          eCard.appendChild(elRawText("span", "evidence-title", title));
           eList.appendChild(eCard);
         } else {
           eList.appendChild(badge(ref, "green"));
@@ -4319,14 +4749,20 @@ function renderTopicReferencesSection(detail: TopicDetailDto) {
 
   const titleContainer = el("div", "references-title-row");
   titleContainer.appendChild(
-    el("h3", "", `Associated Literature References (${rows.length})`),
+    el(
+      "h3",
+      "",
+      t("synthesis-associated-literature-references", {
+        count: rows.length,
+      }),
+    ),
   );
   header.appendChild(titleContainer);
 
   const searchBar = el("div", "references-search-bar");
   const input = el("input", "references-search-input") as HTMLInputElement;
   input.type = "text";
-  input.placeholder = "Search references by title, author, key, or summary...";
+  input.placeholder = t("synthesis-search-references");
   searchBar.appendChild(input);
   header.appendChild(searchBar);
   container.appendChild(header);
@@ -4371,7 +4807,7 @@ function renderTopicReferencesSection(detail: TopicDetailDto) {
       const badgeContainer = el("div", "ref-badge-container");
 
       // Code Badge
-      const codeEl = el("span", "ref-code-badge", code);
+      const codeEl = elRawText("span", "ref-code-badge", code);
       badgeContainer.appendChild(codeEl);
       if (status) {
         badgeContainer.appendChild(badge(status, toneFor(status)));
@@ -4379,20 +4815,20 @@ function renderTopicReferencesSection(detail: TopicDetailDto) {
       cardHead.appendChild(badgeContainer);
 
       if (year) {
-        cardHead.appendChild(el("span", "ref-year-label", year));
+        cardHead.appendChild(elRawText("span", "ref-year-label", year));
       }
       card.appendChild(cardHead);
 
-      card.appendChild(el("h4", "ref-title", title));
+      card.appendChild(elRawText("h4", "ref-title", title));
 
       if (refKey) {
-        card.appendChild(el("div", "ref-key-badge", refKey));
+        card.appendChild(elRawText("div", "ref-key-badge", refKey));
       }
 
       if (summary) {
         const sumText =
           summary.length > 130 ? summary.substring(0, 127) + "..." : summary;
-        card.appendChild(el("p", "ref-summary", sumText));
+        card.appendChild(elRawText("p", "ref-summary", sumText));
       }
 
       card.addEventListener("click", () => {
@@ -4404,7 +4840,7 @@ function renderTopicReferencesSection(detail: TopicDetailDto) {
 
     if (!grid.childElementCount) {
       grid.appendChild(
-        renderEmptyStructuredState("No matching references found"),
+        renderEmptyStructuredState(t("synthesis-empty-matching-references")),
       );
     }
   }
@@ -4465,20 +4901,20 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
   const improvementDimensions = improvementDimensionRows(detail);
   if (improvementDimensions.length) {
-    section.appendChild(el("h2", "", "Improvement / Dimensions"));
+    section.appendChild(el("h2", "", t("synthesis-improvement-dimensions")));
     const summary = improvementDimensionSummary(detail);
     if (summary) section.appendChild(renderParagraphs(summary));
     improvementDimensions.forEach((dimension, index) => {
       const card = el("article", "debate-card");
       card.appendChild(el("span", "claim-index", `I${index + 1}`));
       card.appendChild(
-        el(
+        elRawText(
           "h3",
           "",
           firstText(
             dimension,
             ["title", "dimension", "name", "id"],
-            `Dimension ${index + 1}`,
+            t("synthesis-dimension-title", { count: index + 1 }),
           ),
         ),
       );
@@ -4494,14 +4930,14 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
         "progression",
         "improvement_pattern",
       ]);
-      if (trajectory) card.appendChild(el("p", "muted", trajectory));
+      if (trajectory) card.appendChild(elRawText("p", "muted", trajectory));
       if (stringArray(dimension.source_paper_refs).length) {
         card.appendChild(evidenceRefChips(detail, dimension.source_paper_refs));
       }
       section.appendChild(card);
     });
   } else {
-    section.appendChild(el("h2", "", "Compare"));
+    section.appendChild(el("h2", "", t("synthesis-topic-tab-compare")));
   }
   const matrix = detail.comparison_matrix || {};
   const rows = comparisonRows(matrix);
@@ -4523,9 +4959,11 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
     // Header
     const thead = el("thead");
     const trHead = el("tr");
-    trHead.appendChild(el("th", "matrix-th matrix-dim-col", "Dimension"));
+    trHead.appendChild(
+      el("th", "matrix-th matrix-dim-col", t("synthesis-column-dimension")),
+    );
     routes.forEach((route) => {
-      trHead.appendChild(el("th", "matrix-th", route));
+      trHead.appendChild(elRawText("th", "matrix-th", route));
     });
     thead.appendChild(trHead);
     table.appendChild(thead);
@@ -4539,19 +4977,19 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
       const dimTitle = el("div", "matrix-dim-title");
       dimTitle.appendChild(el("span", "claim-index", `M${i + 1}`));
       dimTitle.appendChild(
-        el(
+        elRawText(
           "strong",
           "",
           firstText(
             r,
             ["name", "title", "dimension", "label", "id"],
-            `Dimension ${i + 1}`,
+            t("synthesis-dimension-title", { count: i + 1 }),
           ),
         ),
       );
       tdDim.appendChild(dimTitle);
       const desc = firstText(r, ["description", "summary", "rationale"]);
-      if (desc) tdDim.appendChild(el("p", "matrix-dim-desc", desc));
+      if (desc) tdDim.appendChild(elRawText("p", "matrix-dim-desc", desc));
 
       const methodTable = renderMethodComparisonCard(r);
       if (methodTable) {
@@ -4601,11 +5039,13 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
     tableWrap.appendChild(table);
     section.appendChild(tableWrap);
   } else if (!improvementDimensions.length) {
-    section.appendChild(renderEmptyStructuredState("No comparison matrix"));
+    section.appendChild(
+      renderEmptyStructuredState(t("synthesis-empty-comparison")),
+    );
   }
   const debates = recordArray(detail.debates);
   if (debates.length) {
-    section.appendChild(el("h3", "", "Debates"));
+    section.appendChild(el("h3", "", t("synthesis-debates")));
     debates.forEach((debate, index) => {
       const card = el("article", "debate-card");
       card.appendChild(el("span", "claim-index", `D${index + 1}`));
@@ -4616,7 +5056,7 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
           firstText(
             debate,
             ["name", "title", "text", "debate", "topic", "id"],
-            `Debate ${index + 1}`,
+            t("synthesis-debate-title", { count: index + 1 }),
           ),
         ),
       );
@@ -4631,7 +5071,7 @@ function renderTopicCompareSection(detail: TopicDetailDto) {
         "tension",
         "rationale",
       ]);
-      if (text) card.appendChild(el("p", "", text));
+      if (text) card.appendChild(elRawText("p", "", text));
       if (stringArray(debate.source_paper_refs).length)
         card.appendChild(
           evidenceRefChips(detail, debate.source_paper_refs, "orange"),
@@ -4660,7 +5100,7 @@ function renderStructuredRecordCards(args: {
       args.titleKeys || ["title", "direction", "theme", "label", "type", "id"],
       `${args.title} ${index + 1}`,
     );
-    card.appendChild(el("strong", "", title));
+    card.appendChild(elRawText("strong", "", title));
     const body = firstText(
       row,
       args.bodyKeys || [
@@ -4672,15 +5112,23 @@ function renderStructuredRecordCards(args: {
         "caveat",
       ],
     );
-    if (body) card.appendChild(el("p", "", body));
+    if (body) card.appendChild(elRawText("p", "", body));
     const priority = firstText(row, ["priority", "urgency", "severity"]);
-    if (priority) card.appendChild(badge(priority, toneFor(priority)));
+    if (priority) {
+      const priorityBadge = badge(priority, toneFor(priority));
+      priorityBadge.classList.add("coverage-priority-badge");
+      card.appendChild(priorityBadge);
+    }
     const examples = stringArray(
       row.example_titles_or_terms || row.examples || row.terms,
     );
     if (examples.length) {
       const exampleWrap = el("div", "coverage-examples");
-      examples.forEach((example) => exampleWrap.appendChild(badge(example)));
+      examples.forEach((example) => {
+        const exampleBadge = badge(example);
+        exampleBadge.classList.add("coverage-example-pill");
+        exampleWrap.appendChild(exampleBadge);
+      });
       card.appendChild(exampleWrap);
     }
     grid.appendChild(card);
@@ -4719,7 +5167,9 @@ function renderTopicExternalCoverageSection(detail: TopicDetailDto) {
   const summary = firstText(coverage, ["external_context_summary"]);
   if (summary) {
     const hero = el("div", "overview-summary-hero");
-    hero.appendChild(el("h3", "hero-title", "External Literature Context"));
+    hero.appendChild(
+      el("h3", "hero-title", t("synthesis-external-literature-context")),
+    );
     hero.appendChild(renderParagraphs(summary));
     section.appendChild(hero);
   }
@@ -4740,7 +5190,7 @@ function renderCoverageSummary(detail: TopicDetailDto) {
     const card = el("div", "coverage-verdict-card");
     if (verdict) {
       const line = el("div", "verdict-line");
-      line.appendChild(el("strong", "", "Coverage Verdict:"));
+      line.appendChild(el("strong", "", `${t("synthesis-coverage-verdict")}:`));
       line.appendChild(badge(verdict, toneFor(verdict)));
       card.appendChild(line);
     }
@@ -4749,7 +5199,7 @@ function renderCoverageSummary(detail: TopicDetailDto) {
   }
   const caveats = recordArray(coverage.coverage_caveats);
   const caveatBlock = renderStructuredRecordCards({
-    title: "Coverage Caveats",
+    title: t("synthesis-coverage-caveats"),
     rows: caveats,
     className: "coverage-caveat-card",
     titleKeys: ["type", "title", "label", "id"],
@@ -4765,7 +5215,7 @@ function renderMergedCollectionDirections(detail: TopicDetailDto) {
     recordArray(coverage.suggested_collection_directions),
   );
   return renderStructuredRecordCards({
-    title: "Suggested Collection Directions",
+    title: t("synthesis-suggested-collection-directions"),
     rows,
     className: "coverage-direction-card",
     titleKeys: ["direction", "title", "label", "id"],
@@ -4777,7 +5227,7 @@ function routeCoverageCount(value: unknown) {
   if (isRecord(value)) {
     return firstText(value, ["routes", "route_count", "count"]);
   }
-  return textValue(value);
+  return maybeLocalizedValue(value) || textValue(value);
 }
 
 function renderCoverageStatistics(detail: TopicDetailDto) {
@@ -4790,10 +5240,10 @@ function renderCoverageStatistics(detail: TopicDetailDto) {
     firstText(stats, ["coverage_verdict"]) ||
     firstText(coverage, ["coverage_verdict", "verdict", "status"]);
   const metrics = [
-    ["Papers", paperVal],
-    ["Time span", timeSpanVal],
-    ["Coverage Verdict", verdict],
-    ["Routes", routeVal],
+    [t("synthesis-stat-papers"), paperVal],
+    [t("synthesis-stat-time-span"), timeSpanVal],
+    [t("synthesis-coverage-verdict"), verdict],
+    [t("synthesis-stat-routes"), routeVal],
   ].filter(([, value]) => textValue(value));
   if (!metrics.length) return undefined;
   const dash = el("div", "overview-dashboard coverage-statistics-dashboard");
@@ -4808,7 +5258,7 @@ function renderCoverageStatistics(detail: TopicDetailDto) {
 
 function renderTopicCoverageSection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
-  section.appendChild(el("h2", "", "Coverage"));
+  section.appendChild(el("h2", "", t("synthesis-topic-tab-coverage")));
   const coverageStats = renderCoverageStatistics(detail);
   if (coverageStats) section.appendChild(coverageStats);
   const coverageSummary = renderCoverageSummary(detail);
@@ -4820,7 +5270,7 @@ function renderTopicCoverageSection(detail: TopicDetailDto) {
   if (hasStructuredContent(detail.diagnostics)) {
     section.appendChild(
       renderContentCard(
-        "Diagnostics",
+        t("synthesis-diagnostics"),
         renderKeyValueList(
           isRecord(detail.diagnostics)
             ? detail.diagnostics
@@ -4830,7 +5280,9 @@ function renderTopicCoverageSection(detail: TopicDetailDto) {
     );
   }
   if (section.childElementCount <= 2) {
-    section.appendChild(renderEmptyStructuredState("No coverage data"));
+    section.appendChild(
+      renderEmptyStructuredState(t("synthesis-empty-coverage")),
+    );
   }
   return section;
 }
@@ -4888,7 +5340,7 @@ function stripDuplicateReportHeadings(markdown: string, reportTitle = "") {
 
 function renderTopicFutureDirectionsSection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
-  section.appendChild(el("h2", "", "Future Directions"));
+  section.appendChild(el("h2", "", t("synthesis-topic-tab-future-directions")));
   const rows = recordArray(detail.future_directions);
   if (rows.length) {
     const list = el("div", "claims-list");
@@ -4901,34 +5353,34 @@ function renderTopicFutureDirectionsSection(detail: TopicDetailDto) {
       if (directionType) header.appendChild(badge(directionType, "blue"));
       leftCol.appendChild(header);
       leftCol.appendChild(
-        el(
+        elRawText(
           "h3",
           "",
           firstText(
             direction,
             ["title", "id"],
-            `Future Direction ${index + 1}`,
+            t("synthesis-future-direction-title", { count: index + 1 }),
           ),
         ),
       );
       const limitation = firstText(direction, ["current_limitation"]);
       if (limitation) {
         const block = el("div", "future-direction-field");
-        block.appendChild(el("strong", "", "Current Limitation"));
+        block.appendChild(el("strong", "", t("synthesis-current-limitation")));
         block.appendChild(renderParagraphs(limitation));
         leftCol.appendChild(block);
       }
       const future = firstText(direction, ["future_direction"]);
       if (future) {
         const block = el("div", "future-direction-field");
-        block.appendChild(el("strong", "", "Future Direction"));
+        block.appendChild(el("strong", "", t("synthesis-future-direction")));
         block.appendChild(renderParagraphs(future));
         leftCol.appendChild(block);
       }
       const rationale = firstText(direction, ["rationale"]);
       if (rationale) {
         const block = el("div", "future-direction-field");
-        block.appendChild(el("strong", "", "Rationale"));
+        block.appendChild(el("strong", "", t("synthesis-rationale")));
         block.appendChild(renderParagraphs(rationale));
         leftCol.appendChild(block);
       }
@@ -4942,7 +5394,9 @@ function renderTopicFutureDirectionsSection(detail: TopicDetailDto) {
     section.appendChild(list);
   }
   if (section.childElementCount <= 1) {
-    section.appendChild(renderEmptyStructuredState("No future directions"));
+    section.appendChild(
+      renderEmptyStructuredState(t("synthesis-empty-future-directions")),
+    );
   }
   return section;
 }
@@ -4953,13 +5407,13 @@ function renderTopicReportSection(
 ) {
   const section = el("div", "topic-section topic-report-section");
   const header = el("div", "topic-report-header");
-  header.appendChild(el("h2", "", "Synthesis Report"));
+  header.appendChild(el("h2", "", t("synthesis-report-title")));
   const report = detail.synthesis_report || {};
   const title = firstText(report, ["title", "heading"]);
   const body = firstText(report, ["body"]);
   if (body) {
     const actions = el("div", "topic-report-actions");
-    const copy = el("button", "", "Copy");
+    const copy = el("button", "", t("synthesis-action-copy"));
     copy.type = "button";
     let copyFeedbackTimer: number | undefined;
     copy.addEventListener("click", () => {
@@ -4976,22 +5430,28 @@ function renderTopicReportSection(
           window.clearTimeout(copyFeedbackTimer);
         }
         copyFeedbackTimer = window.setTimeout(() => {
-          copy.textContent = "Copy";
+          copy.textContent = t("synthesis-action-copy");
           copy.classList.remove("is-confirmed", "is-error");
         }, 1400);
       };
       if (!writeText) {
-        setFeedback("Copy failed", "is-error");
+        setFeedback(t("synthesis-action-copy-failed"), "is-error");
         return;
       }
       void writeText(body)
-        .then(() => setFeedback("Copied", "is-confirmed"))
-        .catch(() => setFeedback("Copy failed", "is-error"));
+        .then(() => setFeedback(t("synthesis-action-copied"), "is-confirmed"))
+        .catch(() =>
+          setFeedback(t("synthesis-action-copy-failed"), "is-error"),
+        );
     });
-    const exportButton = makeButton("Export", "hostCommand", {
-      command: "exportTopicSynthesisReport",
-      args: { topicId: detail.topicId },
-    });
+    const exportButton = makeButton(
+      t("synthesis-action-export"),
+      "hostCommand",
+      {
+        command: "exportTopicSynthesisReport",
+        args: { topicId: detail.topicId },
+      },
+    );
     actions.appendChild(copy);
     actions.appendChild(exportButton);
     header.appendChild(actions);
@@ -5030,12 +5490,17 @@ function renderTopicReportSection(
     section.appendChild(header);
   }
   if (!body) {
-    section.appendChild(renderEmptyStructuredState("No synthesis report"));
+    section.appendChild(
+      renderEmptyStructuredState(t("synthesis-report-empty")),
+    );
   }
   return section;
 }
 
-function renderTopicSection(detail: TopicDetailDto, snapshot?: Snapshot | null) {
+function renderTopicSection(
+  detail: TopicDetailDto,
+  snapshot?: Snapshot | null,
+) {
   if (
     state.topicDetailSection === "external" ||
     state.topicDetailSection === "statistics"
@@ -5061,21 +5526,21 @@ function renderTopicSection(detail: TopicDetailDto, snapshot?: Snapshot | null) 
 
 function renderTopicTabs() {
   const tabs = el("nav", "topic-detail-tabs");
-  const entries: Array<[TopicDetailSection, string]> = [
-    ["overview", "Overview"],
-    ["taxonomy", "Taxonomy"],
-    ["claims", "Claims"],
-    ["compare", "Compare"],
-    ["future_directions", "Future Directions"],
-    ["coverage", "Coverage"],
-    ["references", "References"],
-    ["report", "Report"],
+  const entries: Array<[TopicDetailSection, SynthesisWorkbenchMessageKey]> = [
+    ["overview", "synthesis-topic-tab-overview"],
+    ["taxonomy", "synthesis-topic-tab-taxonomy"],
+    ["claims", "synthesis-topic-tab-claims"],
+    ["compare", "synthesis-topic-tab-compare"],
+    ["future_directions", "synthesis-topic-tab-future-directions"],
+    ["coverage", "synthesis-topic-tab-coverage"],
+    ["references", "synthesis-topic-tab-references"],
+    ["report", "synthesis-topic-tab-report"],
   ];
-  entries.forEach(([id, label]) => {
+  entries.forEach(([id, labelKey]) => {
     const button = el(
       "button",
       state.topicDetailSection === id ? "active" : "",
-      label,
+      t(labelKey),
     );
     button.type = "button";
     button.addEventListener("click", () => {
@@ -5141,7 +5606,7 @@ function renderSelectedEvidenceCard(
     rows.findIndex((row) => evidenceId(row) === evidenceId(selected)),
   );
   const chipRow = el("div", "chip-row");
-  chipRow.appendChild(badge("selected evidence", "blue"));
+  chipRow.appendChild(badge(t("synthesis-evidence-selected"), "blue"));
   const status = firstText(selected, ["status", "freshness", "source_status"]);
   if (status) chipRow.appendChild(badge(status, toneFor(status)));
   card.appendChild(chipRow);
@@ -5166,12 +5631,16 @@ function renderSelectedEvidenceCard(
   Object.entries(links).forEach(([kind, refs]) => {
     if (!refs.length) return;
     const row = el("div", "evidence-row");
-    row.appendChild(el("strong", "", kind));
+    row.appendChild(el("strong", "", enumLabel("kind", kind)));
     row.appendChild(el("span", "muted", refs.join(", ")));
     linkList.appendChild(row);
   });
   if (linkList.childElementCount) card.appendChild(linkList);
-  const open = el("button", "primary", "Open Digest Artifact");
+  const open = el(
+    "button",
+    "primary",
+    t("synthesis-action-open-digest-artifact"),
+  );
   open.type = "button";
   open.addEventListener("click", () => openDigestModal(selected));
   card.appendChild(open);
@@ -5181,10 +5650,14 @@ function renderSelectedEvidenceCard(
 function renderEvidenceExplorer(detail: TopicDetailDto) {
   const explorer = el("aside", "evidence-explorer");
   const header = el("div", "explorer-head");
-  header.appendChild(el("h2", "", "Evidence Explorer"));
-  const close = el("button", "icon-button evidence-drawer-close", "Close");
+  header.appendChild(el("h2", "", t("synthesis-evidence-explorer")));
+  const close = el(
+    "button",
+    "icon-button evidence-drawer-close",
+    t("synthesis-action-close"),
+  );
   close.type = "button";
-  close.title = "Close Evidence Explorer";
+  close.title = t("synthesis-evidence-explorer");
   close.addEventListener("click", () => {
     state.evidenceExplorerOpen = false;
     render();
@@ -5193,20 +5666,16 @@ function renderEvidenceExplorer(detail: TopicDetailDto) {
   explorer.appendChild(header);
   const rows = evidenceRows(detail);
   if (!rows.length) {
-    explorer.appendChild(el("div", "empty", "No source paper is linked."));
+    explorer.appendChild(
+      el("div", "empty", t("synthesis-evidence-none-linked")),
+    );
     return explorer;
   }
   const selected = selectedEvidence(detail);
   if (!selected) {
     const empty = el("div", "explorer-empty");
-    empty.appendChild(el("strong", "", "No evidence selected"));
-    empty.appendChild(
-      el(
-        "p",
-        "muted",
-        "Select evidence from a claim, taxonomy node, comparison row, or timeline marker.",
-      ),
-    );
+    empty.appendChild(el("strong", "", t("synthesis-evidence-none-selected")));
+    empty.appendChild(el("p", "muted", t("synthesis-evidence-select-hint")));
     explorer.appendChild(empty);
     return explorer;
   }
@@ -5231,7 +5700,7 @@ function renderEvidenceDrawer(detail: TopicDetailDto) {
   });
   const panel = el("div", "evidence-drawer-panel");
   panel.setAttribute("role", "complementary");
-  panel.setAttribute("aria-label", "Evidence Explorer");
+  panel.setAttribute("aria-label", t("synthesis-evidence-explorer"));
   panel.appendChild(renderEvidenceExplorer(detail));
   drawer.appendChild(panel);
   return drawer;
@@ -5343,7 +5812,9 @@ function timelineYearCounts(items: TimelineItem[]): Map<number, number> {
   return counts;
 }
 
-function timelineLayoutFromItems(items: TimelineItem[]): TimelineLayout | undefined {
+function timelineLayoutFromItems(
+  items: TimelineItem[],
+): TimelineLayout | undefined {
   const counts = timelineYearCounts(items);
   const years = Array.from(counts.keys()).sort((left, right) => left - right);
   if (!years.length) return undefined;
@@ -5642,7 +6113,10 @@ function timelineEventGroups(detail: TopicDetailDto): TimelineItem[] {
 }
 
 function renderTimelineEventPopover(item: TimelineItem) {
-  const popover = el("div", "timeline-hover-popover timeline-milestone-popover");
+  const popover = el(
+    "div",
+    "timeline-hover-popover timeline-milestone-popover",
+  );
   const lines = timelineTooltipLines(item);
   lines.forEach((line) => {
     popover.appendChild(el("span", "timeline-milestone-row", line));
@@ -5815,7 +6289,7 @@ function renderTopicTimeline(detail: TopicDetailDto) {
   });
   const rail = el("section", "topic-timeline");
   const head = el("div", "timeline-head");
-  head.appendChild(el("strong", "", "Timeline"));
+  head.appendChild(el("strong", "", t("synthesis-timeline")));
 
   // Legend
   const legend = el("div", "timeline-legend");
@@ -5823,13 +6297,17 @@ function renderTopicTimeline(detail: TopicDetailDto) {
   const legEvent = el("div", "legend-item");
   const dotEvent = el("span", "legend-icon legend-icon-event");
   legEvent.appendChild(dotEvent);
-  legEvent.appendChild(el("span", "legend-label", "Key Milestones"));
+  legEvent.appendChild(
+    el("span", "legend-label", t("synthesis-timeline-key-milestones")),
+  );
   legend.appendChild(legEvent);
 
   const legPaper = el("div", "legend-item");
   const dotPaper = el("span", "legend-icon legend-icon-paper");
   legPaper.appendChild(dotPaper);
-  legPaper.appendChild(el("span", "legend-label", "Literature Papers"));
+  legPaper.appendChild(
+    el("span", "legend-label", t("synthesis-timeline-literature-papers")),
+  );
   legend.appendChild(legPaper);
 
   head.appendChild(legend);
@@ -5847,7 +6325,9 @@ function renderTopicTimeline(detail: TopicDetailDto) {
   }
 
   if (!layout || !paperItems.length) {
-    rail.appendChild(renderEmptyStructuredState("No dated source papers"));
+    rail.appendChild(
+      renderEmptyStructuredState(t("synthesis-timeline-empty-dated-papers")),
+    );
     return rail;
   }
 
@@ -5881,7 +6361,14 @@ function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {
   const toolbar = el("div", "toolbar topic-detail-toolbar");
   const meta = el("div", "topic-detail-toolbar-meta");
   meta.appendChild(badge(detail.language || "auto", "blue"));
-  meta.appendChild(badge(`${numberValue(detail.paper_count)} papers`, "green"));
+  meta.appendChild(
+    badge(
+      t("synthesis-topic-paper-count", {
+        count: numberValue(detail.paper_count),
+      }),
+      "green",
+    ),
+  );
   const coverageVerdict = firstText(detail.coverage || {}, [
     "coverage_verdict",
     "coverage_judgment",
@@ -5893,7 +6380,9 @@ function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {
 
   const actions = el("div", "topic-detail-toolbar-actions");
   actions.appendChild(
-    makeButton("Back to Topics", "selectTab", { tab: "artifacts" }),
+    makeButton(t("synthesis-action-back-to-topics"), "selectTab", {
+      tab: "artifacts",
+    }),
   );
   actions.appendChild(
     makeButton(
@@ -5907,7 +6396,16 @@ function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {
       !updateIntent,
     ),
   );
-  const copySummary = el("button", "", "Copy Summary");
+  actions.appendChild(
+    makeButton(
+      t("synthesis-action-open-citation-subgraph"),
+      "openTopicCitationSubgraph",
+      {
+        topicId,
+      },
+    ),
+  );
+  const copySummary = el("button", "", t("synthesis-action-copy-summary"));
   copySummary.type = "button";
   copySummary.addEventListener("click", () => {
     const summary = textValue(
@@ -5930,8 +6428,8 @@ function renderTopicDetailShell(root: HTMLElement, snapshot: Snapshot) {
   if (!detail) {
     app.appendChild(
       renderEmptyState({
-        title: "No structured topic selected",
-        message: "Open a topic from the Topics tab to inspect its synthesis.",
+        title: t("synthesis-empty-no-topics"),
+        message: t("synthesis-topic-open-from-topics"),
         tone: "info",
       }),
     );
@@ -6025,9 +6523,9 @@ function registryReferencePrimaryTitle(reference: Record<string, unknown>) {
     textValue(reference.target_title) ||
     textValue(reference.title) ||
     textValue(reference.raw_reference) ||
+    textValue(reference.reference_instance_id) ||
     textValue(reference.target_paper_ref) ||
     textValue(reference.target_literature_item_id) ||
-    textValue(reference.reference_instance_id) ||
     "Untitled reference"
   );
 }
@@ -6160,7 +6658,10 @@ function referenceMatchProposalContext(
     sourceRowTitle === textValue(proposal.source_canonical_reference_id) ||
     sourceRowTitle.endsWith("(fallback id)");
   const parentItemTitle = sourceRowTitleIsFallback
-    ? sourceBindingTitle || sourceEvidenceTitle || sourceRowTitle || "Unknown parent item"
+    ? sourceBindingTitle ||
+      sourceEvidenceTitle ||
+      sourceRowTitle ||
+      "Unknown parent item"
     : sourceRowTitle;
   return {
     proposal,
@@ -6438,17 +6939,16 @@ function pruneReferenceProposalUiState(snapshot: Snapshot) {
 }
 
 function referenceProposalActionLabel(action: ReferenceProposalAction) {
-  return action === "accept"
-    ? "Accept"
-    : action === "reverse_accept"
-      ? "Reverse & accept"
-      : action === "reject"
-        ? "Reject"
-      : action === "reopen"
-        ? "Reopen"
-        : action === "manual_target"
-          ? "Manual target"
-          : "Delete";
+  const labels: Record<ReferenceProposalAction, SynthesisWorkbenchMessageKey> =
+    {
+      accept: "synthesis-action-accept",
+      reverse_accept: "synthesis-action-reverse-accept",
+      reject: "synthesis-action-reject",
+      reopen: "synthesis-action-reopen",
+      delete: "synthesis-action-delete",
+      manual_target: "synthesis-action-manual-target",
+    };
+  return t(labels[action] || "synthesis-action-delete");
 }
 
 function referenceProposalPendingLabel(
@@ -6465,14 +6965,16 @@ function renderReferenceProposalPendingControls() {
   const submitting = isReferenceProposalDecisionSubmitting();
   const controls = el("div", "reference-review-pending-controls");
   const apply = makeLocalButton(
-    submitting ? "Applying pending" : "Apply pending",
+    submitting
+      ? t("synthesis-action-applying-pending")
+      : t("synthesis-action-apply-pending"),
     () => applyPendingReferenceProposalDecisions(),
   );
   apply.disabled = pendingCount === 0 || submitting;
   if (submitting) {
     apply.classList.add("is-busy");
     apply.setAttribute("aria-busy", "true");
-    apply.title = "Applying pending reference review decisions";
+    apply.title = t("synthesis-reference-review-applying-pending");
     const spinner = el("span", "button-spinner");
     spinner.setAttribute("aria-hidden", "true");
     apply.prepend(spinner);
@@ -6483,7 +6985,7 @@ function renderReferenceProposalPendingControls() {
   controls.appendChild(apply);
   if (pendingCount) {
     controls.appendChild(
-      makeLocalButton("Clear pending", () => {
+      makeLocalButton(t("synthesis-action-clear-pending"), () => {
         state.pendingReferenceProposalDecisions.clear();
         refreshReferenceReviewSurfaces();
       }),
@@ -6530,10 +7032,10 @@ function renderRegistryHeader(
   options: { subtitle?: string; className?: string } = {},
 ) {
   const th = el("th", options.className || "");
-  th.appendChild(el("span", "registry-column-header-label", label));
+  th.appendChild(el("span", "registry-column-header-label", uiText(label)));
   if (options.subtitle) {
     th.appendChild(
-      el("span", "registry-column-header-subtitle", options.subtitle),
+      el("span", "registry-column-header-subtitle", uiText(options.subtitle)),
     );
   }
   return th;
@@ -6864,7 +7366,10 @@ function renderRegistryParentRow(row: Record<string, unknown>) {
       "registry-center-cell",
     ],
     [renderRegistryArtifacts(row), "registry-artifacts-cell"],
-    [badge(textValue(row.index_scope, "library"), "ok"), "registry-center-cell"],
+    [
+      badge(textValue(row.index_scope, "library"), "ok"),
+      "registry-center-cell",
+    ],
     [renderRegistryReferenceSummary(row), "registry-references-cell"],
     [registryRowDisplayId(row)],
   ];
@@ -6997,14 +7502,16 @@ function renderReferenceMatchReviewCard(
     );
   }
   if (!pending) {
-    const manualTarget = makeLocalButton("Manual target", (event) =>
-      openReferenceManualTargetPicker(
-        proposalId,
-        context.sourceReferenceTitle,
-        event.currentTarget instanceof HTMLElement
-          ? event.currentTarget
-          : undefined,
-      ),
+    const manualTarget = makeLocalButton(
+      "Manual target",
+      (event) =>
+        openReferenceManualTargetPicker(
+          proposalId,
+          context.sourceReferenceTitle,
+          event.currentTarget instanceof HTMLElement
+            ? event.currentTarget
+            : undefined,
+        ),
       state.manualTargetPicker?.proposalId === proposalId,
     );
     actions.push(manualTarget);
@@ -7024,7 +7531,9 @@ function renderReferenceMatchReviewCard(
     title: "Review proposal",
     showKindBadge: false,
     body: pending
-      ? `Pending: ${referenceProposalPendingLabel(pending)}`
+      ? t("synthesis-review-pending-body", {
+          action: referenceProposalPendingLabel(pending),
+        })
       : undefined,
     details: [
       ["parent item", context.parentItemTitle],
@@ -7039,7 +7548,14 @@ function renderReferenceMatchReviewCard(
       }),
     ].filter(Boolean) as HTMLElement[],
     badges: pending
-      ? [[`Pending ${referenceProposalPendingLabel(pending)}`, "warn"]]
+      ? [
+          [
+            t("synthesis-review-pending-action", {
+              action: referenceProposalPendingLabel(pending),
+            }),
+            "warn",
+          ],
+        ]
       : undefined,
     actions,
   });
@@ -7183,7 +7699,7 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
   if (activeIndexTool === "revise_canonicals") {
     const filters = el("div", "filters");
     filters.appendChild(
-      makeLocalButton("Back to Index", () =>
+      makeLocalButton(t("synthesis-action-back-to-index"), () =>
         sendAction("setFilters", {
           registry: { activeIndexTool: "none", selectedCanonicalRowId: "" },
         }),
@@ -7191,13 +7707,17 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
     );
     filters.appendChild(
       badge(
-        `Reference sidecar: ${textValue(snapshot.registry.cacheStatus?.status, "missing")}`,
+        t("synthesis-index-reference-sidecar", {
+          status: maybeLocalizedValue(
+            textValue(snapshot.registry.cacheStatus?.status, "missing"),
+          ),
+        }),
         toneFor(snapshot.registry.cacheStatus?.status),
       ),
     );
     filters.appendChild(
       makeButton(
-        "Refresh",
+        t("synthesis-action-refresh"),
         "hostCommand",
         {
           command: "refreshReferenceSidecarNow",
@@ -7208,7 +7728,7 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
     );
     filters.appendChild(
       makeButton(
-        "Advanced Matching",
+        t("synthesis-action-advanced-matching"),
         "hostCommand",
         {
           command: "runAdvancedReferenceMatchingNow",
@@ -7224,7 +7744,7 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
   }
   const filters = el("div", "filters");
   const search = el("input");
-  search.placeholder = "Search";
+  search.placeholder = t("synthesis-search");
   search.value = textValue(snapshot.registry.filters.search);
   search.addEventListener("input", () =>
     sendAction("setFilters", { registry: { search: search.value } }),
@@ -7233,9 +7753,15 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
   filters.appendChild(
     selectControlWithLabels(
       [
-        ["library", "Scope: Library items"],
-        ["referenced", "Scope: Referenced only"],
-        ["all", "Scope: All"],
+        [
+          "library",
+          filterOptionLabel("synthesis-filter-scope", "scope", "library"),
+        ],
+        [
+          "referenced",
+          filterOptionLabel("synthesis-filter-scope", "scope", "referenced"),
+        ],
+        ["all", filterOptionLabel("synthesis-filter-scope", "scope", "all")],
       ],
       textValue(snapshot.registry.filters.scope, "library"),
       (scope) => sendAction("setFilters", { registry: { scope } }),
@@ -7245,10 +7771,34 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
     filters.appendChild(
       selectControlWithLabels(
         [
-          ["all", "Coverage: All"],
-          ["complete", "Coverage: Complete"],
-          ["partial", "Coverage: Partial"],
-          ["missing", "Coverage: Missing"],
+          [
+            "all",
+            filterOptionLabel("synthesis-filter-coverage", "coverage", "all"),
+          ],
+          [
+            "complete",
+            filterOptionLabel(
+              "synthesis-filter-coverage",
+              "coverage",
+              "complete",
+            ),
+          ],
+          [
+            "partial",
+            filterOptionLabel(
+              "synthesis-filter-coverage",
+              "coverage",
+              "partial",
+            ),
+          ],
+          [
+            "missing",
+            filterOptionLabel(
+              "synthesis-filter-coverage",
+              "coverage",
+              "missing",
+            ),
+          ],
         ],
         textValue(snapshot.registry.filters.artifactCoverage, "all"),
         (artifactCoverage) =>
@@ -7260,12 +7810,46 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
     filters.appendChild(
       selectControlWithLabels(
         [
-          ["all", "Binding: All"],
-          ["unbound", "Binding: Unbound"],
-          ["candidate", "Binding: Candidate"],
-          ["accepted", "Binding: Accepted"],
-          ["rejected", "Binding: Rejected"],
-          ["stale_target", "Binding: Stale target"],
+          [
+            "all",
+            filterOptionLabel("synthesis-filter-binding", "status", "all"),
+          ],
+          [
+            "unbound",
+            filterOptionLabel("synthesis-filter-binding", "status", "unbound"),
+          ],
+          [
+            "candidate",
+            filterOptionLabel(
+              "synthesis-filter-binding",
+              "binding-status",
+              "candidate",
+            ),
+          ],
+          [
+            "accepted",
+            filterOptionLabel(
+              "synthesis-filter-binding",
+              "binding-status",
+              "accepted",
+            ),
+          ],
+          [
+            "rejected",
+            filterOptionLabel(
+              "synthesis-filter-binding",
+              "binding-status",
+              "rejected",
+            ),
+          ],
+          [
+            "stale_target",
+            filterOptionLabel(
+              "synthesis-filter-binding",
+              "binding-status",
+              "stale_target",
+            ),
+          ],
         ],
         textValue(snapshot.registry.filters.bindingStatus, "all"),
         (bindingStatus) =>
@@ -7275,13 +7859,17 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
   }
   filters.appendChild(
     badge(
-      `Reference sidecar: ${textValue(snapshot.registry.cacheStatus?.status, "missing")}`,
+      t("synthesis-index-reference-sidecar", {
+        status: maybeLocalizedValue(
+          textValue(snapshot.registry.cacheStatus?.status, "missing"),
+        ),
+      }),
       toneFor(snapshot.registry.cacheStatus?.status),
     ),
   );
   filters.appendChild(
     makeButton(
-      "Refresh",
+      t("synthesis-action-refresh"),
       "hostCommand",
       {
         command: "refreshReferenceSidecarNow",
@@ -7292,7 +7880,7 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
   );
   filters.appendChild(
     makeButton(
-      "Advanced Matching",
+      t("synthesis-action-advanced-matching"),
       "hostCommand",
       {
         command: "runAdvancedReferenceMatchingNow",
@@ -7302,7 +7890,7 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
     ),
   );
   filters.appendChild(
-    makeLocalButton("Revise Canonicals", () =>
+    makeLocalButton(t("synthesis-canonical-revise-title"), () =>
       sendAction("setFilters", {
         registry: { activeIndexTool: "revise_canonicals" },
       }),
@@ -7310,7 +7898,7 @@ function renderIndex(main: HTMLElement, snapshot: Snapshot) {
   );
   if (snapshot.registry.cacheStatus?.status === "failed") {
     filters.appendChild(
-      makeButton("Retry", "hostCommand", {
+      makeButton(t("synthesis-action-retry"), "hostCommand", {
         command: "retryReferenceSidecarRefresh",
       }),
     );
@@ -7336,7 +7924,9 @@ function canonicalRows(snapshot: Snapshot) {
 }
 
 function allCanonicalRows(snapshot: Snapshot) {
-  return (snapshot.registry.canonicalRows || []) as Array<Record<string, unknown>>;
+  return (snapshot.registry.canonicalRows || []) as Array<
+    Record<string, unknown>
+  >;
 }
 
 function pendingCanonicalMergeSourceIds() {
@@ -7367,7 +7957,9 @@ function visibleCanonicalRowsForRevision(snapshot: Snapshot) {
 }
 
 function canonicalRowByRowId(snapshot: Snapshot, rowId: string) {
-  return allCanonicalRows(snapshot).find((row) => canonicalRowId(row) === rowId);
+  return allCanonicalRows(snapshot).find(
+    (row) => canonicalRowId(row) === rowId,
+  );
 }
 
 function canonicalPendingMergeKey(source: string, target: string) {
@@ -7402,7 +7994,10 @@ function queueCanonicalMergeTarget(
       return;
     }
     state.pendingCanonicalMergeRequests.set(
-      canonicalPendingMergeKey(sourceEffectiveCanonicalId, targetEffectiveCanonicalId),
+      canonicalPendingMergeKey(
+        sourceEffectiveCanonicalId,
+        targetEffectiveCanonicalId,
+      ),
       {
         sourceEffectiveCanonicalId,
         targetEffectiveCanonicalId,
@@ -7526,7 +8121,9 @@ function canonicalEditIsDirty(row: Record<string, unknown>) {
   }
   return (
     JSON.stringify(canonicalEditComparableDraft(draft)) !==
-    JSON.stringify(canonicalEditComparableDraft(canonicalEditDraftFromRecord(row)))
+    JSON.stringify(
+      canonicalEditComparableDraft(canonicalEditDraftFromRecord(row)),
+    )
   );
 }
 
@@ -7570,7 +8167,9 @@ function canonicalActionAllowed(
   row: Record<string, unknown>,
   action: "merge" | "edit" | "archive",
 ) {
-  const availability = recordValue(recordValue(row.action_availability)[action]);
+  const availability = recordValue(
+    recordValue(row.action_availability)[action],
+  );
   return Boolean(availability.allowed);
 }
 
@@ -7578,10 +8177,14 @@ function canonicalActionBlockers(
   row: Record<string, unknown>,
   action: "merge" | "edit" | "archive",
 ) {
-  const availability = recordValue(recordValue(row.action_availability)[action]);
-  return normalizeStringArray(availability.blockers).join(", ") ||
+  const availability = recordValue(
+    recordValue(row.action_availability)[action],
+  );
+  return (
+    normalizeStringArray(availability.blockers).join(", ") ||
     textValue(availability.reason) ||
-    "Unavailable";
+    "Unavailable"
+  );
 }
 
 function normalizeStringArray(value: unknown) {
@@ -7596,7 +8199,9 @@ function renderCanonicalRevisionWorkbench(snapshot: Snapshot) {
   const wrap = el("div", "canonical-revision-workbench");
   const rows = visibleCanonicalRowsForRevision(snapshot);
   const allRows = allCanonicalRows(snapshot);
-  const boundCount = allRows.filter((row) => recordValue(row.binding).itemKey).length;
+  const boundCount = allRows.filter(
+    (row) => recordValue(row.binding).itemKey,
+  ).length;
   const duplicateCount = allRows.filter((row) =>
     textValue(row.possible_duplicate_group),
   ).length;
@@ -7608,26 +8213,30 @@ function renderCanonicalRevisionWorkbench(snapshot: Snapshot) {
   ).length;
   const header = el("div", "canonical-revision-header");
   const title = el("div", "canonical-revision-title");
-  title.appendChild(el("strong", "", "Revise Canonicals"));
+  title.appendChild(el("strong", "", t("synthesis-canonical-revise-title")));
   title.appendChild(
-    el(
-      "span",
-      "muted",
-      "Inspect effective canonical references and manage safe sidecar facts.",
-    ),
+    el("span", "muted", t("synthesis-canonical-revise-subtitle")),
   );
   header.appendChild(title);
   const summary = el("div", "canonical-summary-strip");
   [
-    [`${rows.length}/${allRows.length}`, "Shown"],
-    [`${allRows.length}`, "Effective"],
-    [`${boundCount}`, "Bound"],
-    [`${Math.max(0, allRows.length - boundCount)}`, "External"],
-    [`${duplicateCount}`, "Possible dupes"],
-    [`${blockedCount}`, "Blocked"],
     [
-      textValue(snapshot.registry.cacheStatus?.status, "missing"),
-      "Sidecar",
+      `${rows.length}/${allRows.length}`,
+      t("synthesis-canonical-summary-shown"),
+    ],
+    [`${allRows.length}`, t("synthesis-canonical-summary-effective")],
+    [`${boundCount}`, t("synthesis-canonical-summary-bound")],
+    [
+      `${Math.max(0, allRows.length - boundCount)}`,
+      t("synthesis-canonical-summary-external"),
+    ],
+    [`${duplicateCount}`, t("synthesis-canonical-summary-possible-dupes")],
+    [`${blockedCount}`, t("synthesis-canonical-summary-blocked")],
+    [
+      maybeLocalizedValue(
+        textValue(snapshot.registry.cacheStatus?.status, "missing"),
+      ),
+      t("synthesis-canonical-summary-sidecar"),
     ],
   ].forEach(([value, label]) => {
     const item = el("div", "canonical-summary-item");
@@ -7639,7 +8248,7 @@ function renderCanonicalRevisionWorkbench(snapshot: Snapshot) {
   wrap.appendChild(header);
   const filters = el("div", "filters canonical-filters");
   const search = el("input");
-  search.placeholder = "Search canonicals";
+  search.placeholder = t("synthesis-canonical-search");
   search.value = textValue(snapshot.registry.filters.canonicalSearch);
   search.addEventListener("input", () =>
     sendAction("setFilters", {
@@ -7650,9 +8259,19 @@ function renderCanonicalRevisionWorkbench(snapshot: Snapshot) {
   filters.appendChild(
     selectControlWithLabels(
       [
-        ["all", "Binding: All"],
-        ["bound", "Binding: Bound"],
-        ["external", "Binding: External"],
+        ["all", filterOptionLabel("synthesis-filter-binding", "status", "all")],
+        [
+          "bound",
+          filterOptionLabel(
+            "synthesis-filter-binding",
+            "binding-status",
+            "accepted",
+          ),
+        ],
+        [
+          "external",
+          `${t("synthesis-filter-binding")}: ${t("synthesis-canonical-summary-external")}`,
+        ],
       ],
       textValue(snapshot.registry.filters.canonicalBinding, "all"),
       (canonicalBinding) =>
@@ -7662,9 +8281,15 @@ function renderCanonicalRevisionWorkbench(snapshot: Snapshot) {
   filters.appendChild(
     selectControlWithLabels(
       [
-        ["all", "Graph: All"],
-        ["visible", "Graph: Visible"],
-        ["not_in_graph", "Graph: Not in graph"],
+        ["all", filterOptionLabel("synthesis-filter-graph", "status", "all")],
+        [
+          "visible",
+          `${t("synthesis-filter-graph")}: ${t("synthesis-canonical-visible")}`,
+        ],
+        [
+          "not_in_graph",
+          `${t("synthesis-filter-graph")}: ${t("synthesis-canonical-not-in-graph")}`,
+        ],
       ],
       textValue(snapshot.registry.filters.canonicalGraph, "all"),
       (canonicalGraph) =>
@@ -7674,8 +8299,14 @@ function renderCanonicalRevisionWorkbench(snapshot: Snapshot) {
   filters.appendChild(
     selectControlWithLabels(
       [
-        ["all", "Duplicates: All"],
-        ["possible_duplicate", "Duplicates: Possible"],
+        [
+          "all",
+          filterOptionLabel("synthesis-filter-duplicates", "status", "all"),
+        ],
+        [
+          "possible_duplicate",
+          `${t("synthesis-filter-duplicates")}: ${t("synthesis-canonical-summary-possible-dupes")}`,
+        ],
       ],
       textValue(snapshot.registry.filters.canonicalDuplicates, "all"),
       (canonicalDuplicates) =>
@@ -7719,13 +8350,15 @@ function setAllCanonicalRowSelection(
   checked: boolean,
 ) {
   if (checked) {
-    rows.map(canonicalRowId).filter(Boolean).forEach((rowId) =>
-      state.selectedCanonicalRowIds.add(rowId),
-    );
+    rows
+      .map(canonicalRowId)
+      .filter(Boolean)
+      .forEach((rowId) => state.selectedCanonicalRowIds.add(rowId));
   } else {
-    rows.map(canonicalRowId).filter(Boolean).forEach((rowId) =>
-      state.selectedCanonicalRowIds.delete(rowId),
-    );
+    rows
+      .map(canonicalRowId)
+      .filter(Boolean)
+      .forEach((rowId) => state.selectedCanonicalRowIds.delete(rowId));
   }
   render();
 }
@@ -7748,11 +8381,12 @@ function renderCanonicalMergeBar(
   const pending = Array.from(state.pendingCanonicalMergeRequests.values());
   const applying = Boolean(
     state.canonicalMergeSubmission ||
-      isOperationPending("applyCanonicalRevisionMergeRequests"),
+    isOperationPending("applyCanonicalRevisionMergeRequests"),
   );
   const bar = el("div", "canonical-merge-bar");
-  const mergeSelected = makeLocalButton("Merge Selected", () =>
-    setCanonicalMergeSources(selectedIds),
+  const mergeSelected = makeLocalButton(
+    t("synthesis-action-merge-selected"),
+    () => setCanonicalMergeSources(selectedIds),
   );
   mergeSelected.disabled =
     applying ||
@@ -7763,7 +8397,12 @@ function renderCanonicalMergeBar(
     bar.appendChild(
       badge(`${state.canonicalMergeSourceRowIds.size} source(s)`, "warn"),
     );
-    bar.appendChild(makeLocalButton("Cancel target picking", clearCanonicalMergeMode));
+    bar.appendChild(
+      makeLocalButton(
+        t("synthesis-action-cancel-target-picking"),
+        clearCanonicalMergeMode,
+      ),
+    );
   }
   if (pending.length) {
     const label = el(
@@ -7780,7 +8419,10 @@ function renderCanonicalMergeBar(
     const apply = makeLocalButton("Apply pending", applyPendingCanonicalMerges);
     apply.disabled = applying;
     bar.appendChild(apply);
-    const clear = makeLocalButton("Clear pending", clearPendingCanonicalMerges);
+    const clear = makeLocalButton(
+      t("synthesis-action-clear-pending"),
+      clearPendingCanonicalMerges,
+    );
     clear.disabled = applying;
     bar.appendChild(clear);
   }
@@ -7796,8 +8438,8 @@ function renderCanonicalRevisionTable(
 ) {
   if (!rows.length) {
     return renderEmptyState({
-      title: "No canonical references",
-      message: "Adjust filters or refresh the reference sidecar.",
+      title: t("synthesis-canonical-no-references"),
+      message: t("synthesis-canonical-no-references-message"),
       tone: "info",
     });
   }
@@ -7833,17 +8475,26 @@ function renderCanonicalRevisionTable(
   const selectAllCell = el("th", "registry-center-cell");
   const selectAll = el("input") as HTMLInputElement;
   selectAll.type = "checkbox";
-  selectAll.checked = selectedIds.length > 0 && selectedIds.length === rows.length;
-  selectAll.indeterminate = selectedIds.length > 0 && selectedIds.length < rows.length;
-  selectAll.setAttribute("aria-label", "Select all visible canonicals");
+  selectAll.checked =
+    selectedIds.length > 0 && selectedIds.length === rows.length;
+  selectAll.indeterminate =
+    selectedIds.length > 0 && selectedIds.length < rows.length;
+  selectAll.setAttribute("aria-label", t("synthesis-canonical-select-all"));
   selectAll.addEventListener("change", () =>
     setAllCanonicalRowSelection(rows, selectAll.checked),
   );
   selectAllCell.appendChild(selectAll);
   head.appendChild(selectAllCell);
-  ["Title", "Year", "Binding", "Graph", "Raw refs", "Pointed by", "Reviews", "Actions"].forEach(
-    (label) => head.appendChild(renderRegistryHeader(label)),
-  );
+  [
+    "Title",
+    "Year",
+    "Binding",
+    "Graph",
+    "Raw refs",
+    "Pointed by",
+    "Reviews",
+    "Actions",
+  ].forEach((label) => head.appendChild(renderRegistryHeader(label)));
   thead.appendChild(head);
   table.appendChild(thead);
   const tbody = el("tbody");
@@ -7897,14 +8548,24 @@ function renderCanonicalRevisionTable(
     title.title = label;
     title.appendChild(el("span", "registry-reference-parent-title", label));
     title.appendChild(
-      el("span", "registry-reference-muted", textValue(row.projected_literature_item_id)),
+      el(
+        "span",
+        "registry-reference-muted",
+        textValue(row.projected_literature_item_id),
+      ),
     );
-    const selectionCell = el("td", "registry-center-cell canonical-select-cell");
+    const selectionCell = el(
+      "td",
+      "registry-center-cell canonical-select-cell",
+    );
     const checkbox = el("input") as HTMLInputElement;
     checkbox.type = "checkbox";
     checkbox.checked = state.selectedCanonicalRowIds.has(rowId);
     checkbox.disabled = state.canonicalMergeSourceRowIds.size > 0;
-    checkbox.setAttribute("aria-label", `Select ${label || rowId}`);
+    checkbox.setAttribute(
+      "aria-label",
+      t("synthesis-canonical-select-row", { label: label || rowId }),
+    );
     checkbox.addEventListener("click", (event) => event.stopPropagation());
     checkbox.addEventListener("change", () =>
       toggleCanonicalRowSelection(rowId, checkbox.checked),
@@ -7914,10 +8575,18 @@ function renderCanonicalRevisionTable(
     [
       [title],
       [textValue(row.year, "-"), "registry-center-cell"],
-      [badge(canonicalRowBindingLabel(row), recordValue(row.binding).itemKey ? "ok" : "orange"), "registry-center-cell"],
       [
         badge(
-          textValue(row.graph_node_id) ? "Visible" : "Not in graph",
+          canonicalRowBindingLabel(row),
+          recordValue(row.binding).itemKey ? "ok" : "orange",
+        ),
+        "registry-center-cell",
+      ],
+      [
+        badge(
+          textValue(row.graph_node_id)
+            ? t("synthesis-canonical-visible")
+            : t("synthesis-canonical-not-in-graph"),
           textValue(row.graph_node_id) ? "ok" : "danger",
         ),
         "registry-center-cell",
@@ -7947,25 +8616,30 @@ function renderCanonicalRowActions(
   const mergeSourceActive = state.canonicalMergeSourceRowIds.size > 0;
   if (mergeSourceActive) {
     const isSource = state.canonicalMergeSourceRowIds.has(rowId);
-    const target = makeLocalButton(isSource ? "Source" : "Target", () =>
-      queueCanonicalMergeTarget(snapshot, row),
+    const target = makeLocalButton(
+      isSource ? t("synthesis-action-source") : t("synthesis-action-target"),
+      () => queueCanonicalMergeTarget(snapshot, row),
     );
     target.disabled = isSource || !canonicalActionAllowed(row, "merge");
     target.title = isSource
-      ? "This row is selected as merge source"
+      ? t("synthesis-canonical-merge-source-selected")
       : target.disabled
         ? canonicalActionBlockers(row, "merge")
-        : "Use this canonical as merge target";
+        : t("synthesis-canonical-use-merge-target");
     controls.appendChild(target);
   } else {
-    const merge = makeLocalButton("Merge", () => setCanonicalMergeSources([rowId]));
+    const merge = makeLocalButton(t("synthesis-action-merge"), () =>
+      setCanonicalMergeSources([rowId]),
+    );
     merge.disabled = !canonicalActionAllowed(row, "merge");
     merge.title = merge.disabled
       ? canonicalActionBlockers(row, "merge")
-      : "Select this row as merge source";
+      : t("synthesis-canonical-select-merge-source");
     controls.appendChild(merge);
   }
-  const edit = makeLocalButton("Edit", () => toggleCanonicalEdit(row));
+  const edit = makeLocalButton(t("synthesis-action-edit"), () =>
+    toggleCanonicalEdit(row),
+  );
   edit.disabled = !canonicalActionAllowed(row, "edit");
   edit.dataset.canonicalEditRowId = rowId;
   edit.classList.toggle("is-dirty", canonicalEditIsDirty(row));
@@ -7976,10 +8650,10 @@ function renderCanonicalRowActions(
   edit.title = edit.disabled
     ? canonicalActionBlockers(row, "edit")
     : canonicalEditIsDirty(row)
-      ? "Metadata draft has unsaved changes"
-      : "Edit external canonical metadata";
+      ? t("synthesis-canonical-unsaved-metadata")
+      : t("synthesis-canonical-edit-metadata");
   controls.appendChild(edit);
-  const archive = makeLocalButton("Archive", () =>
+  const archive = makeLocalButton(t("synthesis-action-archive"), () =>
     sendAction("hostCommand", {
       command: "archiveCanonicalReference",
       args: { canonicalReferenceId: textValue(row.effective_canonical_id) },
@@ -7988,7 +8662,7 @@ function renderCanonicalRowActions(
   archive.disabled = !canonicalActionAllowed(row, "archive");
   archive.title = archive.disabled
     ? canonicalActionBlockers(row, "archive")
-    : "Archive empty canonical";
+    : t("synthesis-canonical-archive-empty");
   controls.appendChild(archive);
   return controls;
 }
@@ -8014,7 +8688,7 @@ function renderCanonicalIdentifierList(row: Record<string, unknown>) {
     });
   }
   if (!identifiers.length) {
-    return el("span", "muted", "No identifiers recorded");
+    return el("span", "muted", t("synthesis-canonical-no-identifiers"));
   }
   const list = el("div", "canonical-chip-list");
   identifiers.forEach((identifier) => {
@@ -8031,7 +8705,7 @@ function renderCanonicalIdentifierList(row: Record<string, unknown>) {
 function renderCanonicalBinding(row: Record<string, unknown>) {
   const binding = recordValue(row.binding);
   if (!binding.itemKey) {
-    return el("span", "muted", "External canonical, not bound to Zotero");
+    return el("span", "muted", t("synthesis-canonical-external-unbound"));
   }
   const block = el("div", "canonical-readable-block");
   block.appendChild(
@@ -8043,7 +8717,9 @@ function renderCanonicalBinding(row: Record<string, unknown>) {
       "muted",
       [
         textValue(binding.paperRef),
-        textValue(binding.status) ? `status ${textValue(binding.status)}` : "",
+        textValue(binding.status)
+          ? `${t("synthesis-filter-status")} ${maybeLocalizedValue(binding.status)}`
+          : "",
       ]
         .filter(Boolean)
         .join(" · "),
@@ -8074,19 +8750,25 @@ function renderCanonicalRedirectList(
     const item = el("div", "canonical-readable-block");
     item.appendChild(
       withHoverTitle(
-        el("strong", "", textValue(endpoint.title, "Untitled canonical")),
+        el(
+          "strong",
+          "",
+          textValue(endpoint.title, t("synthesis-canonical-untitled")),
+        ),
         endpoint.title,
       ),
     );
-    item.title = textValue(endpoint.title, "Untitled canonical");
+    item.title = textValue(endpoint.title, t("synthesis-canonical-untitled"));
     item.appendChild(
       withHoverTitle(
         el(
           "span",
           "muted",
           [
-          textValue(endpoint.year),
-          textValue(redirect.reason) ? `reason ${textValue(redirect.reason)}` : "",
+            textValue(endpoint.year),
+            textValue(redirect.reason)
+              ? `${t("synthesis-field-reason")} ${enumLabel("reason", redirect.reason)}`
+              : "",
           ]
             .filter(Boolean)
             .join(" · "),
@@ -8094,7 +8776,9 @@ function renderCanonicalRedirectList(
         [
           textValue(endpoint.title),
           textValue(endpoint.year),
-          textValue(redirect.reason) ? `reason ${textValue(redirect.reason)}` : "",
+          textValue(redirect.reason)
+            ? `${t("synthesis-field-reason")} ${enumLabel("reason", redirect.reason)}`
+            : "",
         ]
           .filter(Boolean)
           .join(" · "),
@@ -8103,7 +8787,13 @@ function renderCanonicalRedirectList(
     list.appendChild(item);
   });
   if (rows.length > 12) {
-    list.appendChild(el("span", "muted", `${rows.length - 12} more...`));
+    list.appendChild(
+      el(
+        "span",
+        "muted",
+        t("synthesis-canonical-more-items", { count: rows.length - 12 }),
+      ),
+    );
   }
   return list;
 }
@@ -8111,15 +8801,19 @@ function renderCanonicalRedirectList(
 function renderCanonicalDuplicatePeers(row: Record<string, unknown>) {
   const peers = canonicalRecordArray(row.duplicate_peers);
   if (!peers.length) {
-    return el("span", "muted", "No possible duplicate group");
+    return el("span", "muted", t("synthesis-canonical-no-duplicate-group"));
   }
   const list = el("div", "canonical-readable-list");
   peers.slice(0, 10).forEach((peer) => {
     const item = el("div", "canonical-readable-block");
-    item.title = textValue(peer.title, "Untitled canonical");
+    item.title = textValue(peer.title, t("synthesis-canonical-untitled"));
     item.appendChild(
       withHoverTitle(
-        el("strong", "", textValue(peer.title, "Untitled canonical")),
+        el(
+          "strong",
+          "",
+          textValue(peer.title, t("synthesis-canonical-untitled")),
+        ),
         peer.title,
       ),
     );
@@ -8128,7 +8822,9 @@ function renderCanonicalDuplicatePeers(row: Record<string, unknown>) {
         el(
           "span",
           "muted",
-          [textValue(peer.year), textValue(peer.binding)].filter(Boolean).join(" · "),
+          [textValue(peer.year), textValue(peer.binding)]
+            .filter(Boolean)
+            .join(" · "),
         ),
         [textValue(peer.title), textValue(peer.year), textValue(peer.binding)]
           .filter(Boolean)
@@ -8143,15 +8839,15 @@ function renderCanonicalDuplicatePeers(row: Record<string, unknown>) {
 function renderCanonicalProposalList(row: Record<string, unknown>) {
   const proposals = canonicalRecordArray(row.related_proposals);
   if (!proposals.length) {
-    return el("span", "muted", "No related review proposals");
+    return el("span", "muted", t("synthesis-canonical-no-related-proposals"));
   }
   const list = el("div", "canonical-readable-list");
   proposals.slice(0, 12).forEach((proposal) => {
     const source = recordValue(proposal.source);
     const target = recordValue(proposal.target);
     const item = el("div", "canonical-readable-block");
-    const proposalTitle = `${textValue(proposal.kind, "proposal")} · ${textValue(proposal.status, "unknown")}`;
-    const proposalMeta = `${textValue(source.title, "Source")} -> ${textValue(target.title, "Target")}`;
+    const proposalTitle = `${enumLabel("kind", proposal.kind, "proposal")} · ${maybeLocalizedValue(proposal.status) || textValue(proposal.status, t("synthesis-status-unknown"))}`;
+    const proposalMeta = `${textValue(source.title, t("synthesis-column-source"))} -> ${textValue(target.title, t("synthesis-column-target"))}`;
     item.title = `${proposalTitle}\n${proposalMeta}`;
     item.appendChild(
       withHoverTitle(el("strong", "", proposalTitle), proposalTitle),
@@ -8167,15 +8863,21 @@ function renderCanonicalProposalList(row: Record<string, unknown>) {
 function renderCanonicalRawReferenceList(row: Record<string, unknown>) {
   const refs = canonicalRecordArray(row.raw_reference_samples);
   if (!refs.length) {
-    return el("span", "muted", "No raw reference samples available");
+    return el("span", "muted", t("synthesis-canonical-no-raw-references"));
   }
   const list = el("div", "canonical-readable-list");
   refs.slice(0, 10).forEach((ref) => {
     const item = el("div", "canonical-readable-block");
-    item.title = textValue(ref.raw_reference) || textValue(ref.title, "Untitled reference");
+    item.title =
+      textValue(ref.raw_reference) ||
+      textValue(ref.title, "Untitled reference");
     item.appendChild(
       withHoverTitle(
-        el("strong", "", textValue(ref.title, "Untitled reference")),
+        el(
+          "strong",
+          "",
+          textValue(ref.title, t("synthesis-reference-untitled")),
+        ),
         ref.title,
       ),
     );
@@ -8185,11 +8887,11 @@ function renderCanonicalRawReferenceList(row: Record<string, unknown>) {
           "span",
           "muted",
           [
-          textValue(ref.year),
-          textValue(ref.source_ref),
-          textValue(ref.reference_index)
-            ? `#${textValue(ref.reference_index)}`
-            : "",
+            textValue(ref.year),
+            textValue(ref.source_ref),
+            textValue(ref.reference_index)
+              ? `#${textValue(ref.reference_index)}`
+              : "",
           ]
             .filter(Boolean)
             .join(" · "),
@@ -8217,17 +8919,16 @@ function renderCanonicalRawReferenceList(row: Record<string, unknown>) {
       el(
         "span",
         "muted",
-        `${Number(row.raw_reference_count || 0) - refs.length} more raw reference(s)`,
+        t("synthesis-canonical-more-raw-references", {
+          count: Number(row.raw_reference_count || 0) - refs.length,
+        }),
       ),
     );
   }
   return list;
 }
 
-function renderCanonicalDetailSection(
-  title: string,
-  content: Node,
-) {
+function renderCanonicalDetailSection(title: string, content: Node) {
   const section = el("section", "canonical-detail-section");
   section.appendChild(el("h3", "", title));
   section.appendChild(content);
@@ -8244,8 +8945,8 @@ function updateCanonicalEditButtons(row: Record<string, unknown>) {
       if (node.dataset.canonicalEditRowId !== rowId) return;
       node.classList.toggle("is-dirty", dirty);
       node.title = dirty
-        ? "Metadata draft has unsaved changes"
-        : "Edit external canonical metadata";
+        ? t("synthesis-canonical-unsaved-metadata")
+        : t("synthesis-canonical-edit-metadata");
     });
   document
     .querySelectorAll("button[data-canonical-edit-save-row-id]")
@@ -8263,7 +8964,7 @@ function canonicalEditTextInput(args: {
   onInput?: (value: string) => void;
 }) {
   const field = el("label", "canonical-edit-field");
-  field.appendChild(el("span", "muted", args.label));
+  field.appendChild(el("span", "muted", uiText(args.label)));
   const input = el("input") as HTMLInputElement;
   input.value = args.value;
   input.disabled = Boolean(args.readOnly);
@@ -8278,12 +8979,12 @@ function canonicalEditAuthorsInput(args: {
   onInput?: (value: string) => void;
 }) {
   const field = el("label", "canonical-edit-field");
-  field.appendChild(el("span", "muted", "Authors"));
+  field.appendChild(el("span", "muted", t("synthesis-field-authors")));
   const input = el("textarea") as HTMLTextAreaElement;
   input.rows = 4;
   input.value = args.value;
   input.disabled = Boolean(args.readOnly);
-  input.placeholder = "One author per line";
+  input.placeholder = t("synthesis-placeholder-one-author-per-line");
   input.addEventListener("input", () => args.onInput?.(input.value));
   field.appendChild(input);
   return field;
@@ -8302,11 +9003,11 @@ function renderCanonicalEditIdentifierRows(args: {
     const line = el("div", "canonical-edit-identifier-row");
     const kind = el("input") as HTMLInputElement;
     kind.value = identifier.kind;
-    kind.placeholder = "Kind";
+    kind.placeholder = t("synthesis-column-kind");
     kind.disabled = Boolean(args.readOnly);
     const value = el("input") as HTMLInputElement;
     value.value = identifier.value;
-    value.placeholder = "Value";
+    value.placeholder = t("synthesis-field-value");
     value.disabled = Boolean(args.readOnly);
     const updateIdentifier = () => {
       const next = {
@@ -8326,10 +9027,12 @@ function renderCanonicalEditIdentifierRows(args: {
     line.appendChild(kind);
     line.appendChild(value);
     if (!args.readOnly) {
-      const remove = makeLocalButton("Remove", () => {
+      const remove = makeLocalButton(t("synthesis-action-remove"), () => {
         const next = {
           ...args.draft,
-          identifiers: args.draft.identifiers.filter((_, rowIndex) => rowIndex !== index),
+          identifiers: args.draft.identifiers.filter(
+            (_, rowIndex) => rowIndex !== index,
+          ),
         };
         setCanonicalEditDraft(args.row, next);
       });
@@ -8340,7 +9043,7 @@ function renderCanonicalEditIdentifierRows(args: {
   });
   if (!args.readOnly) {
     wrap.appendChild(
-      makeLocalButton("Add identifier", () =>
+      makeLocalButton(t("synthesis-action-add-identifier"), () =>
         setCanonicalEditDraft(args.row, {
           ...args.draft,
           identifiers: [...args.draft.identifiers, { kind: "", value: "" }],
@@ -8396,7 +9099,9 @@ function renderCanonicalEditFields(args: {
     }),
   );
   const identifiersLabel = el("div", "canonical-edit-label");
-  identifiersLabel.appendChild(el("span", "muted", "Identifiers"));
+  identifiersLabel.appendChild(
+    el("span", "muted", t("synthesis-field-identifiers")),
+  );
   form.appendChild(identifiersLabel);
   form.appendChild(renderCanonicalEditIdentifierRows(args));
   return form;
@@ -8412,21 +9117,33 @@ function renderCanonicalEditDrawer(row: Record<string, unknown>) {
   );
   const header = el("div", "review-card-header");
   const title = el("div", "canonical-detail-title");
-  title.appendChild(el("strong", "", "Edit canonical metadata"));
+  title.appendChild(el("strong", "", t("synthesis-canonical-edit-title")));
   title.appendChild(
-    el("span", "muted", textValue(row.title, "Untitled canonical")),
+    el(
+      "span",
+      "muted",
+      textValue(row.title, t("synthesis-canonical-untitled")),
+    ),
   );
   header.appendChild(title);
   const mode = el("div", "canonical-detail-tabs segmented-control");
-  mode.appendChild(el("span", "canonical-edit-mode-label", "Metadata editor"));
+  mode.appendChild(
+    el(
+      "span",
+      "canonical-edit-mode-label",
+      t("synthesis-canonical-metadata-editor"),
+    ),
+  );
   header.appendChild(mode);
   const headerActions = el("div", "canonical-detail-header-actions");
   if (canonicalEditIsDirty(row)) {
-    headerActions.appendChild(badge("Unsaved", "warn"));
+    headerActions.appendChild(badge(t("synthesis-status-unsaved"), "warn"));
   }
   headerActions.appendChild(
     makeLocalButton(
-      state.canonicalDetailCollapsed ? "Expand" : "Collapse",
+      state.canonicalDetailCollapsed
+        ? t("synthesis-action-expand")
+        : t("synthesis-action-collapse"),
       () => {
         state.canonicalDetailCollapsed = !state.canonicalDetailCollapsed;
         render();
@@ -8448,12 +9165,12 @@ function renderCanonicalEditDrawer(row: Record<string, unknown>) {
   const compareSource = compareSources[currentIndex];
   const body = el("div", "canonical-edit-body");
   const editor = renderCanonicalDetailSection(
-    "Current canonical",
+    t("synthesis-canonical-current"),
     (() => {
       const panel = el("div", "canonical-edit-panel");
       panel.appendChild(renderCanonicalEditFields({ row, draft }));
       const actions = el("div", "canonical-edit-actions");
-      const save = makeLocalButton("Save", () => {
+      const save = makeLocalButton(t("synthesis-action-save"), () => {
         sendAction("hostCommand", {
           command: "updateCanonicalReferenceMetadata",
           args: {
@@ -8469,7 +9186,7 @@ function renderCanonicalEditDrawer(row: Record<string, unknown>) {
       save.disabled = !canonicalEditIsDirty(row);
       actions.appendChild(save);
       actions.appendChild(
-        makeLocalButton("Revert", () => {
+        makeLocalButton(t("synthesis-action-revert"), () => {
           state.canonicalEditDrafts.delete(rowId);
           render();
         }),
@@ -8480,9 +9197,12 @@ function renderCanonicalEditDrawer(row: Record<string, unknown>) {
   );
   body.appendChild(editor);
   const compare = renderCanonicalDetailSection(
-    "Pointing canonical",
+    t("synthesis-canonical-pointing"),
     (() => {
-      const panel = el("div", "canonical-edit-panel canonical-edit-compare-panel");
+      const panel = el(
+        "div",
+        "canonical-edit-panel canonical-edit-compare-panel",
+      );
       const nav = el("div", "canonical-edit-compare-nav");
       nav.appendChild(
         el(
@@ -8490,7 +9210,7 @@ function renderCanonicalEditDrawer(row: Record<string, unknown>) {
           "muted",
           compareSources.length
             ? `${currentIndex + 1} / ${compareSources.length}`
-            : "No incoming redirect source",
+            : t("synthesis-canonical-no-incoming-redirect-source"),
         ),
       );
       const prev = makeLocalButton("↑", () => {
@@ -8505,7 +9225,7 @@ function renderCanonicalEditDrawer(row: Record<string, unknown>) {
       next.disabled = currentIndex >= compareSources.length - 1;
       nav.appendChild(prev);
       nav.appendChild(next);
-      const copy = makeLocalButton("Copy to draft", () => {
+      const copy = makeLocalButton(t("synthesis-action-copy-to-draft"), () => {
         if (!compareSource) return;
         setCanonicalEditDraft(row, canonicalEditDraftFromRecord(compareSource));
       });
@@ -8523,8 +9243,8 @@ function renderCanonicalEditDrawer(row: Record<string, unknown>) {
       } else {
         panel.appendChild(
           renderEmptyState({
-            title: "No source canonical",
-            message: "No redirect source points to this canonical.",
+            title: t("synthesis-canonical-no-source"),
+            message: t("synthesis-canonical-no-source-message"),
             tone: "info",
           }),
         );
@@ -8549,7 +9269,9 @@ function renderCanonicalDetailDrawer(row: Record<string, unknown>) {
   );
   const header = el("div", "review-card-header");
   const title = el("div", "canonical-detail-title");
-  title.appendChild(el("strong", "", textValue(row.title, "Canonical details")));
+  title.appendChild(
+    el("strong", "", textValue(row.title, t("synthesis-canonical-details"))),
+  );
   title.appendChild(
     el(
       "span",
@@ -8559,30 +9281,39 @@ function renderCanonicalDetailDrawer(row: Record<string, unknown>) {
   );
   header.appendChild(title);
   const tabs = el("div", "canonical-detail-tabs segmented-control");
-  ([
-    ["overview", "Overview"],
-    ["redirects", "Redirects"],
-    ["reviews", "Reviews"],
-  ] as const).forEach(([tab, label]) => {
+  (
+    [
+      ["overview", t("synthesis-topic-tab-overview")],
+      ["redirects", t("synthesis-canonical-tab-redirects")],
+      ["reviews", t("synthesis-canonical-tab-reviews")],
+    ] as const
+  ).forEach(([tab, label]) => {
     const button = makeLocalButton(label, () => {
       state.canonicalDetailTab = tab;
       render();
     });
     button.classList.toggle("active", state.canonicalDetailTab === tab);
-    button.setAttribute("aria-selected", String(state.canonicalDetailTab === tab));
+    button.setAttribute(
+      "aria-selected",
+      String(state.canonicalDetailTab === tab),
+    );
     tabs.appendChild(button);
   });
   header.appendChild(tabs);
   const headerActions = el("div", "canonical-detail-header-actions");
   headerActions.appendChild(
     badge(
-      recordValue(row.binding).itemKey ? "Bound" : "External",
+      recordValue(row.binding).itemKey
+        ? t("synthesis-canonical-summary-bound")
+        : t("synthesis-canonical-summary-external"),
       recordValue(row.binding).itemKey ? "ok" : "muted",
     ),
   );
   headerActions.appendChild(
     makeLocalButton(
-      state.canonicalDetailCollapsed ? "Expand" : "Collapse",
+      state.canonicalDetailCollapsed
+        ? t("synthesis-action-expand")
+        : t("synthesis-action-collapse"),
       () => {
         state.canonicalDetailCollapsed = !state.canonicalDetailCollapsed;
         render();
@@ -8601,42 +9332,74 @@ function renderCanonicalDetailDrawer(row: Record<string, unknown>) {
   if (state.canonicalDetailTab === "redirects") {
     body.appendChild(
       renderCanonicalDetailSection(
-        `Pointing here (${textValue(row.incoming_redirect_count, "0")})`,
+        t("synthesis-canonical-pointing-here", {
+          count: textValue(row.incoming_redirect_count, "0"),
+        }),
         renderCanonicalRedirectList(
           canonicalRecordArray(row.incoming_redirects),
-          "No canonical redirects point to this row",
+          t("synthesis-canonical-no-redirects-here"),
           "from",
         ),
       ),
     );
     body.appendChild(
-      renderCanonicalDetailSection("Raw references", renderCanonicalRawReferenceList(row)),
+      renderCanonicalDetailSection(
+        t("synthesis-canonical-raw-references"),
+        renderCanonicalRawReferenceList(row),
+      ),
     );
   } else if (state.canonicalDetailTab === "reviews") {
     body.appendChild(
       renderCanonicalDetailSection(
-        `Related proposals (${textValue(row.proposal_count, "0")})`,
+        t("synthesis-canonical-related-proposals", {
+          count: textValue(row.proposal_count, "0"),
+        }),
         renderCanonicalProposalList(row),
       ),
     );
     body.appendChild(
-      renderCanonicalDetailSection("Possible duplicates", renderCanonicalDuplicatePeers(row)),
+      renderCanonicalDetailSection(
+        t("synthesis-canonical-possible-duplicates"),
+        renderCanonicalDuplicatePeers(row),
+      ),
     );
   } else {
-    body.appendChild(renderCanonicalDetailSection("Binding", renderCanonicalBinding(row)));
     body.appendChild(
-      renderCanonicalDetailSection("Identifiers", renderCanonicalIdentifierList(row)),
+      renderCanonicalDetailSection(
+        t("synthesis-column-binding"),
+        renderCanonicalBinding(row),
+      ),
     );
     body.appendChild(
       renderCanonicalDetailSection(
-        "Signals",
+        t("synthesis-field-identifiers"),
+        renderCanonicalIdentifierList(row),
+      ),
+    );
+    body.appendChild(
+      renderCanonicalDetailSection(
+        t("synthesis-canonical-signals"),
         (() => {
           const grid = el("div", "canonical-signal-grid");
           [
-            ["Raw refs", row.raw_reference_count],
-            ["Redirect targets", textValue(row.incoming_redirect_count, "0")],
-            ["Graph", textValue(row.graph_node_id) ? "Visible" : "Not in graph"],
-            ["Reviews", `${textValue(row.open_proposal_count, "0")} open / ${textValue(row.proposal_count, "0")} total`],
+            [t("synthesis-column-raw-refs"), row.raw_reference_count],
+            [
+              t("synthesis-canonical-redirect-targets"),
+              textValue(row.incoming_redirect_count, "0"),
+            ],
+            [
+              t("synthesis-column-graph"),
+              textValue(row.graph_node_id)
+                ? t("synthesis-canonical-visible")
+                : t("synthesis-canonical-not-in-graph"),
+            ],
+            [
+              t("synthesis-column-reviews"),
+              t("synthesis-canonical-review-counts", {
+                open: textValue(row.open_proposal_count, "0"),
+                total: textValue(row.proposal_count, "0"),
+              }),
+            ],
           ].forEach(([label, value]) => {
             const item = el("div", "canonical-signal-item");
             item.appendChild(el("span", "muted", textValue(label)));
@@ -8684,16 +9447,24 @@ function openCanonicalMergePicker(
       const button = el("button", "reference-target-row");
       button.type = "button";
       button.title = `${textValue(row.title)}\n${textValue(row.projected_literature_item_id)}`;
-      button.appendChild(el("span", "reference-target-title", textValue(row.title)));
       button.appendChild(
-        el("span", "reference-target-meta", textValue(row.projected_literature_item_id)),
+        el("span", "reference-target-title", textValue(row.title)),
+      );
+      button.appendChild(
+        el(
+          "span",
+          "reference-target-meta",
+          textValue(row.projected_literature_item_id),
+        ),
       );
       button.addEventListener("click", () => {
         overlay.remove();
         sendAction("hostCommand", {
           command: "mergeEffectiveCanonicalReference",
           args: {
-            sourceEffectiveCanonicalId: textValue(source.effective_canonical_id),
+            sourceEffectiveCanonicalId: textValue(
+              source.effective_canonical_id,
+            ),
             targetEffectiveCanonicalId: textValue(row.effective_canonical_id),
             confirmRetargetGroup: true,
           },
@@ -8743,9 +9514,9 @@ function renderReviewCenterToolbar(snapshot: Snapshot) {
   const toolbar = el("div", "filters review-center-toolbar");
   const tabs = el("div", "segmented");
   [
-    ["reference_matching", "Index"],
-    ["concepts", "Concepts"],
-    ["topic_graph", "Topic Graph"],
+    ["reference_matching", enumLabel("review-tab", "reference_matching")],
+    ["concepts", enumLabel("review-tab", "concepts")],
+    ["topic_graph", enumLabel("review-tab", "topic_graph")],
   ].forEach(([tab, label]) => {
     tabs.appendChild(
       makeButton(
@@ -8758,7 +9529,7 @@ function renderReviewCenterToolbar(snapshot: Snapshot) {
   });
   toolbar.appendChild(tabs);
   const search = el("input");
-  search.placeholder = "Search reviews";
+  search.placeholder = t("synthesis-search-reviews");
   search.value = textValue(filters.search);
   search.addEventListener("input", () =>
     sendAction("setFilters", { reviews: { search: search.value } }),
@@ -8767,12 +9538,27 @@ function renderReviewCenterToolbar(snapshot: Snapshot) {
   toolbar.appendChild(
     selectControlWithLabels(
       [
-        ["open", "Status: Open"],
-        ["all", "Status: All"],
-        ["accepted", "Status: Accepted"],
-        ["rejected", "Status: Rejected"],
-        ["superseded", "Status: Superseded"],
-        ["retargeted", "Status: Retargeted"],
+        [
+          "open",
+          filterOptionLabel("synthesis-filter-status", "status", "open"),
+        ],
+        ["all", filterOptionLabel("synthesis-filter-status", "status", "all")],
+        [
+          "accepted",
+          filterOptionLabel("synthesis-filter-status", "status", "accepted"),
+        ],
+        [
+          "rejected",
+          filterOptionLabel("synthesis-filter-status", "status", "rejected"),
+        ],
+        [
+          "superseded",
+          filterOptionLabel("synthesis-filter-status", "status", "superseded"),
+        ],
+        [
+          "retargeted",
+          filterOptionLabel("synthesis-filter-status", "status", "retargeted"),
+        ],
       ],
       textValue(filters.status, "open"),
       (status) => sendAction("setFilters", { reviews: { status } }),
@@ -8782,9 +9568,23 @@ function renderReviewCenterToolbar(snapshot: Snapshot) {
     toolbar.appendChild(
       selectControlWithLabels(
         [
-          ["all", "Kind: All"],
-          ["zotero_binding", "Kind: Zotero binding"],
-          ["canonical_merge", "Kind: Canonical merge"],
+          ["all", filterOptionLabel("synthesis-filter-kind", "status", "all")],
+          [
+            "zotero_binding",
+            filterOptionLabel(
+              "synthesis-filter-kind",
+              "kind",
+              "zotero_binding",
+            ),
+          ],
+          [
+            "canonical_merge",
+            filterOptionLabel(
+              "synthesis-filter-kind",
+              "kind",
+              "canonical_merge",
+            ),
+          ],
         ],
         textValue(filters.kind, "all"),
         (kind) => sendAction("setFilters", { reviews: { kind } }),
@@ -8793,12 +9593,50 @@ function renderReviewCenterToolbar(snapshot: Snapshot) {
     toolbar.appendChild(
       selectControlWithLabels(
         [
-          ["all", "Confidence: All"],
-          ["deterministic", "Confidence: Deterministic"],
-          ["high", "Confidence: High"],
-          ["medium", "Confidence: Medium"],
-          ["low", "Confidence: Low"],
-          ["review", "Confidence: Review"],
+          [
+            "all",
+            filterOptionLabel("synthesis-filter-confidence", "status", "all"),
+          ],
+          [
+            "deterministic",
+            filterOptionLabel(
+              "synthesis-filter-confidence",
+              "confidence",
+              "deterministic",
+            ),
+          ],
+          [
+            "high",
+            filterOptionLabel(
+              "synthesis-filter-confidence",
+              "confidence",
+              "high",
+            ),
+          ],
+          [
+            "medium",
+            filterOptionLabel(
+              "synthesis-filter-confidence",
+              "confidence",
+              "medium",
+            ),
+          ],
+          [
+            "low",
+            filterOptionLabel(
+              "synthesis-filter-confidence",
+              "confidence",
+              "low",
+            ),
+          ],
+          [
+            "review",
+            filterOptionLabel(
+              "synthesis-filter-confidence",
+              "confidence",
+              "review",
+            ),
+          ],
         ],
         textValue(filters.confidence, "all"),
         (confidence) => sendAction("setFilters", { reviews: { confidence } }),
@@ -8809,7 +9647,10 @@ function renderReviewCenterToolbar(snapshot: Snapshot) {
 }
 
 function reviewCenterActiveTab(snapshot: Snapshot) {
-  const activeTab = textValue(reviewFilters(snapshot).activeTab, "reference_matching");
+  const activeTab = textValue(
+    reviewFilters(snapshot).activeTab,
+    "reference_matching",
+  );
   return activeTab === "concepts" || activeTab === "topic_graph"
     ? activeTab
     : "reference_matching";
@@ -8830,7 +9671,7 @@ function appendReviewTableCell(
   if (value instanceof Node) {
     cell.appendChild(value);
   } else {
-    cell.textContent = textValue(value, "-");
+    cell.textContent = maybeLocalizedValue(value) || textValue(value, "-");
   }
   row.appendChild(cell);
 }
@@ -8841,7 +9682,9 @@ function referenceTargetCandidateKey(candidate: Record<string, unknown>) {
     : `zotero:${Math.max(0, Math.floor(Number(candidate.libraryId || candidate.library_id) || 0))}:${textValue(candidate.itemKey || candidate.item_key)}`;
 }
 
-function referenceTargetCandidateProjectedId(candidate: Record<string, unknown>) {
+function referenceTargetCandidateProjectedId(
+  candidate: Record<string, unknown>,
+) {
   if (textValue(candidate.kind) === "canonical_reference") {
     const bindingTarget = candidate.bindingTarget || candidate.binding_target;
     if (bindingTarget && typeof bindingTarget === "object") {
@@ -8874,10 +9717,13 @@ function referenceTargetCandidateLabel(candidate: Record<string, unknown>) {
 
 function referenceTargetBindingLabel(status: unknown) {
   const normalized = textValue(status);
-  if (normalized === "accepted") return "Bound";
-  if (normalized === "candidate") return "Candidate binding";
-  if (normalized === "stale_target") return "Stale binding";
-  if (normalized === "rejected") return "Rejected binding";
+  if (normalized === "accepted") return enumLabel("binding-status", "accepted");
+  if (normalized === "candidate")
+    return enumLabel("binding-status", "candidate");
+  if (normalized === "stale_target") {
+    return enumLabel("binding-status", "stale_target");
+  }
+  if (normalized === "rejected") return enumLabel("binding-status", "rejected");
   return "";
 }
 
@@ -8927,7 +9773,9 @@ function referenceManualTargetCandidates(
   const currentTargetProjected = textValue(
     proposal.target_projected_literature_item_id,
   );
-  const sourceProjected = textValue(proposal.source_projected_literature_item_id);
+  const sourceProjected = textValue(
+    proposal.source_projected_literature_item_id,
+  );
   return candidates
     .filter((candidate) => {
       const candidateProjected = referenceTargetCandidateProjectedId(candidate);
@@ -8953,10 +9801,10 @@ function referenceManualTargetCandidates(
       const itemKey = textValue(candidate.itemKey || candidate.item_key);
       return Boolean(
         itemKey &&
-          itemKey !== currentTargetItem &&
-          (!candidateProjected ||
-            (candidateProjected !== sourceProjected &&
-              candidateProjected !== currentTargetProjected)),
+        itemKey !== currentTargetItem &&
+        (!candidateProjected ||
+          (candidateProjected !== sourceProjected &&
+            candidateProjected !== currentTargetProjected)),
       );
     })
     .sort((left, right) =>
@@ -8968,17 +9816,12 @@ function referenceManualTargetCandidates(
     );
 }
 
-function scrollReferenceTargetListToGroup(
-  list: HTMLElement,
-  group: string,
-) {
+function scrollReferenceTargetListToGroup(list: HTMLElement, group: string) {
   const target =
     list.querySelector<HTMLElement>(
       `[data-reference-target-group-start="${group}"]`,
     ) ||
-    list.querySelector<HTMLElement>(
-      `[data-reference-target-group="${group}"]`,
-    );
+    list.querySelector<HTMLElement>(`[data-reference-target-group="${group}"]`);
   if (!target) {
     return;
   }
@@ -9032,10 +9875,7 @@ function closeReferenceManualTargetPicker() {
   refreshReferenceReviewSurfaces();
 }
 
-function referenceMatchProposalById(
-  snapshot: Snapshot,
-  proposalId: string,
-) {
+function referenceMatchProposalById(snapshot: Snapshot, proposalId: string) {
   return (snapshot.registry.matchProposals || []).find(
     (proposal) => referenceProposalId(proposal) === proposalId,
   );
@@ -9048,7 +9888,8 @@ function positionReferenceManualTargetPopover(
   const margin = 16;
   const gap = 8;
   const documentElement = document.documentElement;
-  const viewportWidth = window.innerWidth || documentElement?.clientWidth || 1024;
+  const viewportWidth =
+    window.innerWidth || documentElement?.clientWidth || 1024;
   const viewportHeight =
     window.innerHeight || documentElement?.clientHeight || 768;
   const width = popover.offsetWidth || 560;
@@ -9065,7 +9906,10 @@ function positionReferenceManualTargetPopover(
     anchorRect && rawTop + height > viewportHeight - margin
       ? Math.max(
           margin,
-          Math.min(anchorRect.top - height - gap, viewportHeight - height - margin),
+          Math.min(
+            anchorRect.top - height - gap,
+            viewportHeight - height - margin,
+          ),
         )
       : rawTop;
   const clampedTop = Math.max(
@@ -9089,8 +9933,10 @@ function renderReferenceManualTargetPicker(args: {
   const popover = el("div", "reference-target-popover");
   popover.dataset.proposalId = proposalId;
   const header = el("div", "reference-target-popover-header");
-  header.appendChild(el("strong", "", "Manual target"));
-  header.appendChild(makeLocalButton("Close", closeReferenceManualTargetPicker));
+  header.appendChild(el("strong", "", t("synthesis-action-manual-target")));
+  header.appendChild(
+    makeLocalButton("Close", closeReferenceManualTargetPicker),
+  );
   popover.appendChild(header);
   if (!candidates.length) {
     popover.appendChild(
@@ -9159,14 +10005,14 @@ function renderReferenceManualTargetPicker(args: {
         const title = el("span", "reference-target-title");
         title.textContent = labelText;
         row.appendChild(title);
-        const meta = el(
-          "span",
-          "reference-target-meta",
-          metaText,
-        );
+        const meta = el("span", "reference-target-meta", metaText);
         if (bindingLabel) {
           meta.appendChild(
-            el("span", `reference-target-binding-pill ${bindingStatus}`, bindingLabel),
+            el(
+              "span",
+              `reference-target-binding-pill ${bindingStatus}`,
+              bindingLabel,
+            ),
           );
         }
         row.appendChild(meta);
@@ -9310,7 +10156,7 @@ function renderReferenceProposalBulkActions(
   controls.appendChild(renderReferenceProposalPendingControls());
   if (status !== "all" && status !== "superseded" && status !== "retargeted") {
     if (status !== "accepted") {
-      const acceptAll = makeLocalButton("Accept all", () =>
+      const acceptAll = makeLocalButton(t("synthesis-action-accept-all"), () =>
         queueReferenceProposalDecisions(visibleRows, "accept"),
       );
       acceptAll.disabled =
@@ -9318,7 +10164,7 @@ function renderReferenceProposalBulkActions(
       controls.appendChild(acceptAll);
     }
     if (status !== "rejected") {
-      const rejectAll = makeLocalButton("Reject all", () =>
+      const rejectAll = makeLocalButton(t("synthesis-action-reject-all"), () =>
         queueReferenceProposalDecisions(visibleRows, "reject"),
       );
       rejectAll.disabled =
@@ -9326,16 +10172,18 @@ function renderReferenceProposalBulkActions(
       controls.appendChild(rejectAll);
     }
     if (status !== "accepted") {
-      const acceptSelected = makeLocalButton("Accept selected", () =>
-        queueReferenceProposalDecisions(selectedRows, "accept"),
+      const acceptSelected = makeLocalButton(
+        t("synthesis-action-accept-selected"),
+        () => queueReferenceProposalDecisions(selectedRows, "accept"),
       );
       acceptSelected.disabled =
         !selectedRows.length || isReferenceProposalDecisionSubmitting();
       controls.appendChild(acceptSelected);
     }
     if (status !== "rejected") {
-      const rejectSelected = makeLocalButton("Reject selected", () =>
-        queueReferenceProposalDecisions(selectedRows, "reject"),
+      const rejectSelected = makeLocalButton(
+        t("synthesis-action-reject-selected"),
+        () => queueReferenceProposalDecisions(selectedRows, "reject"),
       );
       rejectSelected.disabled =
         !selectedRows.length || isReferenceProposalDecisionSubmitting();
@@ -9353,7 +10201,10 @@ function renderReferenceProposalBulkActions(
     el(
       "span",
       "muted",
-      `${selectedRows.length} selected / ${state.pendingReferenceProposalDecisions.size} pending`,
+      t("synthesis-review-selection-pending", {
+        selected: selectedRows.length,
+        pending: state.pendingReferenceProposalDecisions.size,
+      }),
     ),
   );
   return controls;
@@ -9429,7 +10280,11 @@ function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
     appendReviewTableCell(row, context.sourceReferenceTitle);
     appendReviewTableCell(row, context.targetPaperTitle);
     appendReviewTableCell(row, context.parentItemTitle);
-    appendReviewTableCell(row, proposal.kind, "review-cell-center review-kind-cell");
+    appendReviewTableCell(
+      row,
+      proposal.kind,
+      "review-cell-center review-kind-cell",
+    );
     appendReviewTableCell(
       row,
       proposal.reasons,
@@ -9443,7 +10298,9 @@ function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
     if (pending) {
       statusCell.appendChild(
         badge(
-          `Pending ${referenceProposalPendingLabel(pending)}`,
+          t("synthesis-review-pending-action", {
+            action: referenceProposalPendingLabel(pending),
+          }),
           "warn",
         ),
       );
@@ -9556,7 +10413,9 @@ function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
     appendReviewTableCell(row, "");
     appendReviewTableCell(
       row,
-      proposal.reference_title || proposal.reference_raw || proposal.source_paper_ref,
+      proposal.reference_title ||
+        proposal.reference_raw ||
+        proposal.source_paper_ref,
     );
     appendReviewTableCell(
       row,
@@ -9577,7 +10436,9 @@ function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
       "review-cell-center review-reason-cell",
     );
     const statusCell = el("div", "review-status-stack");
-    statusCell.appendChild(badge(proposal.status, registryStatusTone(proposal.status)));
+    statusCell.appendChild(
+      badge(proposal.status, registryStatusTone(proposal.status)),
+    );
     appendReviewTableCell(
       row,
       statusCell,
@@ -9592,7 +10453,10 @@ function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
       textValue(proposal.review_kind || proposal.kind) ===
         "canonical_revision" &&
       textValue(proposal.status, "open") === "open" &&
-      !isReviewOptimisticallyResolved("canonical-revision", proposal.proposal_id)
+      !isReviewOptimisticallyResolved(
+        "canonical-revision",
+        proposal.proposal_id,
+      )
     ) {
       const actions = el("div", "review-table-actions");
       actions.appendChild(
@@ -9616,7 +10480,8 @@ function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
       el(
         "span",
         "muted",
-        textValue(proposal.review_kind || proposal.kind) === "canonical_revision"
+        textValue(proposal.review_kind || proposal.kind) ===
+          "canonical_revision"
           ? "Managed by Canonical Revision"
           : "Managed in Index Review",
       ),
@@ -9709,7 +10574,9 @@ function renderGenericReviewTable(
   const thead = el("thead");
   const header = el("tr");
   columns.forEach((column) =>
-    header.appendChild(renderRegistryHeader(column.label, { className: column.className })),
+    header.appendChild(
+      renderRegistryHeader(column.label, { className: column.className }),
+    ),
   );
   thead.appendChild(header);
   table.appendChild(thead);
@@ -9773,7 +10640,8 @@ function renderPillList(values: unknown, className = "review-pill") {
     return wrap;
   }
   items.forEach((item) => {
-    const pill = el("span", className, item);
+    const label = maybeLocalizedValue(item) || item;
+    const pill = el("span", className, label);
     pill.title = item;
     wrap.appendChild(pill);
   });
@@ -9879,7 +10747,10 @@ function conceptReviewCandidateIds(row: Record<string, unknown>) {
     : [];
 }
 
-function renderConceptCandidatePills(snapshot: Snapshot, candidateIds: string[]) {
+function renderConceptCandidatePills(
+  snapshot: Snapshot,
+  candidateIds: string[],
+) {
   const pills = el("div", "concept-candidate-pills");
   if (!candidateIds.length) {
     pills.appendChild(el("span", "muted", "-"));
@@ -10053,12 +10924,18 @@ function renderReviewCenter(main: HTMLElement, snapshot: Snapshot) {
       renderGenericReviewTable(
         rows,
         [
-          { label: "Source", get: (row) => row.source_title || row.source_topic_id },
+          {
+            label: "Source",
+            get: (row) => row.source_title || row.source_topic_id,
+          },
           {
             label: "Relation",
             get: (row) => humanizeReviewLabel(row.relation),
           },
-          { label: "Target", get: (row) => row.target_title || row.target_topic_id },
+          {
+            label: "Target",
+            get: (row) => row.target_title || row.target_topic_id,
+          },
           { label: "Reason", get: (row) => row.reason },
           {
             label: "Confidence",
@@ -10068,7 +10945,9 @@ function renderReviewCenter(main: HTMLElement, snapshot: Snapshot) {
           {
             label: "Evidence",
             get: (row) =>
-              renderPillList(row.evidence_refs || row.evidence || row.provenance),
+              renderPillList(
+                row.evidence_refs || row.evidence || row.provenance,
+              ),
           },
           {
             label: "Status",
@@ -10116,7 +10995,7 @@ function renderTagsWorkbenchShell(snapshot: Snapshot) {
       ? "comfortable"
       : "compact";
   const shell = el("section", `tags-workbench density-${density}`);
-  shell.setAttribute("aria-label", "Synthesis tag management");
+  shell.setAttribute("aria-label", t("synthesis-tags-management"));
   return shell;
 }
 
@@ -10132,21 +11011,29 @@ function renderTagsSummaryBar(snapshot: Snapshot, view: string) {
   const primary = el("div", "tags-summary-primary");
   const metrics = el("div", "tags-summary-metrics");
   metrics.appendChild(
-    renderTagsSummaryMetric("Canonical", snapshot.tags.rows.length, "ok"),
-  );
-  metrics.appendChild(
-    renderTagsSummaryMetric("Staged", snapshot.tags.stagedCount || 0, "warn"),
+    renderTagsSummaryMetric(
+      t("synthesis-tags-summary-canonical"),
+      snapshot.tags.rows.length,
+      "ok",
+    ),
   );
   metrics.appendChild(
     renderTagsSummaryMetric(
-      "Warnings",
+      t("synthesis-tags-summary-staged"),
+      snapshot.tags.stagedCount || 0,
+      "warn",
+    ),
+  );
+  metrics.appendChild(
+    renderTagsSummaryMetric(
+      t("synthesis-tags-summary-warnings"),
       snapshot.tags.validationWarnings.length,
       snapshot.tags.validationWarnings.length ? "warn" : "ok",
     ),
   );
   metrics.appendChild(
     renderTagsSummaryMetric(
-      "Cache",
+      t("synthesis-tags-summary-cache"),
       snapshot.tags.projection.stale ? "stale" : "ready",
       snapshot.tags.projection.stale ? "warn" : "ok",
     ),
@@ -10155,17 +11042,17 @@ function renderTagsSummaryBar(snapshot: Snapshot, view: string) {
   primary.appendChild(renderTagsSubviewTabs(snapshot, view));
   const actions = el("div", "tags-summary-actions");
   actions.appendChild(
-    makeButton("Validate", "hostCommand", {
+    makeButton(t("synthesis-action-validate"), "hostCommand", {
       command: "validateTagVocabulary",
     }),
   );
   actions.appendChild(
-    makeButton("Export", "hostCommand", {
+    makeButton(t("synthesis-action-export"), "hostCommand", {
       command: "exportTagVocabulary",
     }),
   );
   actions.appendChild(
-    makeLocalButton("Import", () => {
+    makeLocalButton(t("synthesis-action-import"), () => {
       state.tagImportOpen = true;
       state.dismissedTagImportPreviewSignature = undefined;
       render();
@@ -10186,14 +11073,16 @@ function renderTagsSubviewTabs(snapshot: Snapshot, view: string) {
   tabs.setAttribute("role", "tablist");
   tabs.appendChild(el("span", "segmented-thumb"));
   const vocabulary = makeLocalButton(
-    `Vocabulary (${snapshot.tags.rows.length})`,
+    t("synthesis-tags-tab-vocabulary", { count: snapshot.tags.rows.length }),
     () => switchTagsSubview("vocabulary"),
     view === "vocabulary",
   );
   vocabulary.setAttribute("role", "tab");
   vocabulary.setAttribute("aria-selected", String(view === "vocabulary"));
   const staged = makeLocalButton(
-    `Staged (${snapshot.tags.stagedCount || 0})`,
+    t("synthesis-tags-tab-staged", {
+      count: snapshot.tags.stagedCount || 0,
+    }),
     () => switchTagsSubview("staged"),
     view === "staged",
   );
@@ -10236,7 +11125,9 @@ function renderTagsTable(args: {
   const table = el("table", "tags-table");
   const thead = el("thead");
   const tr = el("tr");
-  args.headers.forEach((header) => tr.appendChild(el("th", "", header)));
+  args.headers.forEach((header) =>
+    tr.appendChild(el("th", "", uiText(header))),
+  );
   thead.appendChild(tr);
   table.appendChild(thead);
   const tbody = el("tbody");
@@ -10247,7 +11138,7 @@ function renderTagsTable(args: {
       if (cell instanceof Node) {
         td.appendChild(cell);
       } else {
-        td.textContent = String(cell ?? "");
+        td.textContent = maybeLocalizedValue(cell) || String(cell ?? "");
       }
       rowNode.appendChild(td);
     });
@@ -10362,6 +11253,10 @@ function renderTagFacetSelect(args: {
     tagFacetOptions(args.snapshot, args.fallback),
     args.value,
     args.onChange,
+    (value) =>
+      value === "all"
+        ? t("synthesis-filter-all")
+        : enumLabel("concept-type", value),
   );
 }
 
@@ -10400,8 +11295,9 @@ function renderTagPillList(values: unknown, empty = "-") {
 
 function renderRowExpandButton(snapshot: Snapshot, key: string) {
   const expanded = isTagRowExpanded(snapshot, key);
-  const button = makeLocalButton(expanded ? "Hide" : "Details", () =>
-    toggleTagExpandedRow(snapshot, key),
+  const button = makeLocalButton(
+    expanded ? t("synthesis-action-hide") : t("synthesis-action-details"),
+    () => toggleTagExpandedRow(snapshot, key),
   );
   button.classList.add("tags-expand-button");
   button.setAttribute("aria-expanded", String(expanded));
@@ -10413,7 +11309,7 @@ function renderVocabularySubview(snapshot: Snapshot) {
   const vocabularyFilters = el("div", "filters");
   const search = el("input");
   search.dataset.synthesisControlKey = "tags.search";
-  search.placeholder = "Search tags";
+  search.placeholder = t("synthesis-search-tags");
   search.value = textValue(snapshot.tags.filters.search);
   search.addEventListener("input", () =>
     sendAction("setFilters", { tags: { search: search.value } }),
@@ -10455,7 +11351,10 @@ function renderVocabularySubview(snapshot: Snapshot) {
     const checkbox = el("input") as HTMLInputElement;
     checkbox.type = "checkbox";
     checkbox.checked = allSelected;
-    checkbox.setAttribute("aria-label", "Select all visible vocabulary tags");
+    checkbox.setAttribute(
+      "aria-label",
+      t("synthesis-tags-select-all-vocabulary"),
+    );
     checkbox.addEventListener("change", () =>
       setAllTagSelection(
         "selectedVocabularyTags",
@@ -10469,8 +11368,10 @@ function renderVocabularySubview(snapshot: Snapshot) {
         "span",
         "muted",
         selectedVocabularyTags.length
-          ? `${selectedVocabularyTags.length} vocabulary tag(s) selected`
-          : "Vocabulary selection is visual only",
+          ? t("synthesis-tags-vocabulary-selected", {
+              count: selectedVocabularyTags.length,
+            })
+          : t("synthesis-tags-selection-visual-only"),
       ),
     );
     panel.appendChild(vocabularyBulk);
@@ -10478,7 +11379,9 @@ function renderVocabularySubview(snapshot: Snapshot) {
   const status = el("div", "details");
   status.appendChild(
     badge(
-      snapshot.tags.projection.stale ? "Tag cache stale" : "Tag cache ready",
+      snapshot.tags.projection.stale
+        ? t("synthesis-tags-cache-stale")
+        : t("synthesis-tags-cache-ready"),
       snapshot.tags.projection.stale ? "warn" : "ok",
     ),
   );
@@ -10486,7 +11389,10 @@ function renderVocabularySubview(snapshot: Snapshot) {
     el(
       "span",
       "muted",
-      `${snapshot.tags.rows.length} tags, ${snapshot.tags.validationWarnings.length} warning(s)`,
+      t("synthesis-tags-count-warning", {
+        count: snapshot.tags.rows.length,
+        warnings: snapshot.tags.validationWarnings.length,
+      }),
     ),
   );
   panel.appendChild(status);
@@ -10582,7 +11488,7 @@ function renderVocabularySubview(snapshot: Snapshot) {
           facetCell = facetSelect;
           noteCell = noteInput;
           actions.appendChild(
-            makeLocalButton("Apply", () =>
+            makeLocalButton(t("synthesis-action-apply"), () =>
               applyVocabularyDraft({
                 snapshot,
                 row,
@@ -10596,7 +11502,7 @@ function renderVocabularySubview(snapshot: Snapshot) {
           );
         } else {
           actions.appendChild(
-            makeLocalButton("Edit", () =>
+            makeLocalButton(t("synthesis-action-edit"), () =>
               setVocabularyDraft({
                 snapshot,
                 row,
@@ -10608,7 +11514,7 @@ function renderVocabularySubview(snapshot: Snapshot) {
           );
         }
         actions.appendChild(
-          makeLocalButton("Delete", () => {
+          makeLocalButton(t("synthesis-action-delete"), () => {
             if (!window.confirm(`Delete vocabulary tag "${tag}"?`)) {
               return;
             }
@@ -10675,11 +11581,11 @@ function renderVocabularySubview(snapshot: Snapshot) {
       },
       emptyState: renderEmptyState({
         title: snapshot.tags.rows.length
-          ? "No tags match the current filters"
-          : "No tag vocabulary indexed yet",
+          ? t("synthesis-tags-empty-filtered")
+          : t("synthesis-tags-empty"),
         message: snapshot.tags.rows.length
-          ? "Adjust the search, facet, or status filters to show more tags."
-          : "Import tags to make them available here.",
+          ? t("synthesis-tags-empty-filtered-message")
+          : t("synthesis-tags-empty-message"),
         tone: snapshot.tags.rows.length ? "default" : "info",
       }),
     }),
@@ -10793,7 +11699,10 @@ function setVocabularyDraft(args: {
       editingVocabularyTag: {
         originalTag: textValue(args.row.tag),
         draftTag: textValue(args.tagValue),
-        draftFacet: textValue(args.facetValue, textValue(args.row.facet, "topic")),
+        draftFacet: textValue(
+          args.facetValue,
+          textValue(args.row.facet, "topic"),
+        ),
         draftNote: args.noteValue,
         status: args.status || "idle",
       },
@@ -10903,7 +11812,7 @@ function renderStagedEditState(
   const node = el(
     "span",
     `staged-edit-state ${failed ? "failed" : pending ? "pending" : "saved"}`,
-    stateText,
+    maybeLocalizedValue(stateText) || stateText,
   );
   if (failed && snapshot.actions?.lastFailed?.message) {
     node.title = snapshot.actions.lastFailed.message;
@@ -10923,10 +11832,7 @@ function renderTagBulkActionBar(args: {
     const checkbox = el("input") as HTMLInputElement;
     checkbox.type = "checkbox";
     checkbox.checked = allSelected;
-    checkbox.setAttribute(
-      "aria-label",
-      "Select all visible staged suggestions",
-    );
+    checkbox.setAttribute("aria-label", t("synthesis-tags-select-all-staged"));
     checkbox.addEventListener("change", () =>
       setAllTagSelection(
         "selectedStagedTags",
@@ -10941,12 +11847,12 @@ function renderTagBulkActionBar(args: {
       "span",
       "muted",
       selectedCount
-        ? `${selectedCount} staged suggestion(s) selected`
-        : "Select staged suggestions for bulk actions",
+        ? t("synthesis-tags-staged-selected", { count: selectedCount })
+        : t("synthesis-tags-select-staged-bulk"),
     ),
   );
   const promote = makeButton(
-    "Promote selected",
+    t("synthesis-action-promote-selected"),
     "hostCommand",
     {
       command: "promoteStagedTagSuggestions",
@@ -10956,7 +11862,7 @@ function renderTagBulkActionBar(args: {
     selectedCount === 0,
   );
   const discard = makeButton(
-    "Discard selected",
+    t("synthesis-action-discard-selected"),
     "hostCommand",
     {
       command: "discardStagedTagSuggestions",
@@ -10965,8 +11871,9 @@ function renderTagBulkActionBar(args: {
     false,
     selectedCount === 0,
   );
-  const clearSelection = makeLocalButton("Clear selection", () =>
-    setAllTagSelection("selectedStagedTags", [], false),
+  const clearSelection = makeLocalButton(
+    t("synthesis-action-clear-selection"),
+    () => setAllTagSelection("selectedStagedTags", [], false),
   );
   clearSelection.disabled = selectedCount === 0;
   bar.appendChild(promote);
@@ -10980,7 +11887,7 @@ function renderStagedInboxSubview(snapshot: Snapshot) {
   const filters = el("div", "filters");
   const search = el("input");
   search.dataset.synthesisControlKey = "tags.stagedSearch";
-  search.placeholder = "Search staged tags";
+  search.placeholder = t("synthesis-search-staged-tags");
   search.value = textValue(snapshot.tags.filters.stagedSearch);
   search.addEventListener("input", () =>
     sendAction("setFilters", { tags: { stagedSearch: search.value } }),
@@ -10993,15 +11900,18 @@ function renderStagedInboxSubview(snapshot: Snapshot) {
       (value) => sendAction("setFilters", { tags: { stagedFacet: value } }),
     ),
   );
-  const clearButton = makeLocalButton("Clear Staged", () => {
-    if (!window.confirm("Clear all staged tag suggestions?")) {
-      return;
-    }
-    sendAction("hostCommand", {
-      command: "clearStagedTagSuggestions",
-      args: {},
-    });
-  });
+  const clearButton = makeLocalButton(
+    t("synthesis-action-clear-staged"),
+    () => {
+      if (!window.confirm("Clear all staged tag suggestions?")) {
+        return;
+      }
+      sendAction("hostCommand", {
+        command: "clearStagedTagSuggestions",
+        args: {},
+      });
+    },
+  );
   clearButton.disabled = !(snapshot.tags.stagedCount || 0);
   filters.appendChild(clearButton);
   panel.appendChild(renderPanelToolbar(filters));
@@ -11055,13 +11965,13 @@ function renderStagedInboxSubview(snapshot: Snapshot) {
         });
         const actions = el("div", "row-actions");
         actions.appendChild(
-          makeButton("Promote", "hostCommand", {
+          makeButton(t("synthesis-action-promote"), "hostCommand", {
             command: "promoteStagedTagSuggestions",
             args: { tag, tags: [tag] },
           }),
         );
         actions.appendChild(
-          makeButton("Discard", "hostCommand", {
+          makeButton(t("synthesis-action-discard"), "hostCommand", {
             command: "discardStagedTagSuggestions",
             args: { tag, tags: [tag] },
           }),
@@ -11109,11 +12019,11 @@ function renderStagedInboxSubview(snapshot: Snapshot) {
       },
       emptyState: renderEmptyState({
         title: snapshot.tags.stagedCount
-          ? "No staged tags match the current filters"
-          : "No staged tag suggestions",
+          ? t("synthesis-tags-staged-empty-filtered")
+          : t("synthesis-tags-staged-empty"),
         message: snapshot.tags.stagedCount
-          ? "Adjust the staged search or facet filter to show more suggestions."
-          : "Tag-regulator suggestions staged for review will appear here.",
+          ? t("synthesis-tags-staged-empty-filtered-message")
+          : t("synthesis-tags-staged-empty-message"),
         tone: snapshot.tags.stagedCount ? "default" : "info",
       }),
     }),
@@ -11151,13 +12061,13 @@ function renderTagImportPanel(snapshot: Snapshot) {
   const draft = snapshot.tags.importDraft || "";
   const importDraft = document.createElement("textarea");
   importDraft.rows = 5;
-  importDraft.placeholder = "Paste Tag Vocabulary JSON";
+  importDraft.placeholder = t("synthesis-placeholder-tag-vocabulary-json");
   importDraft.value = draft;
   importDraft.addEventListener("input", () => {
     state.dismissedTagImportPreviewSignature = undefined;
     sendAction("setFilters", { tags: { importDraft: importDraft.value } });
   });
-  const close = makeLocalButton("Close", () => {
+  const close = makeLocalButton(t("synthesis-action-close"), () => {
     state.tagImportOpen = false;
     state.dismissedTagImportPreviewSignature = signature || undefined;
     render();
@@ -11165,7 +12075,7 @@ function renderTagImportPanel(snapshot: Snapshot) {
   const children: HTMLElement[] = [importDraft];
   const actions = [
     makeButton(
-      "Preview Import",
+      t("synthesis-action-preview-import"),
       "hostCommand",
       {
         command: "previewTagVocabularyImport",
@@ -11185,13 +12095,18 @@ function renderTagImportPanel(snapshot: Snapshot) {
         "p",
         "review-card-body",
         conflict
-          ? `First conflict: ${textValue(conflict.tag || importedConflict.tag || localConflict.tag, "unknown tag")}`
-          : "No conflicts detected in the current import preview.",
+          ? t("synthesis-tags-import-first-conflict", {
+              tag: textValue(
+                conflict.tag || importedConflict.tag || localConflict.tag,
+                t("synthesis-tags-import-unknown-tag"),
+              ),
+            })
+          : t("synthesis-tags-import-no-conflicts"),
       ),
     );
     actions.unshift(
       makeButton(
-        "Merge Non-conflicting",
+        t("synthesis-action-merge-non-conflicting"),
         "hostCommand",
         {
           command: "applyTagVocabularyImport",
@@ -11204,7 +12119,7 @@ function renderTagImportPanel(snapshot: Snapshot) {
         !draft.trim(),
       ),
       makeButton(
-        "Use Imported",
+        t("synthesis-action-use-imported"),
         "hostCommand",
         {
           command: "applyTagVocabularyImport",
@@ -11220,14 +12135,19 @@ function renderTagImportPanel(snapshot: Snapshot) {
   }
   return renderReviewPanel(
     renderReviewCard({
-      kind: "Tag import",
-      title: preview ? "Review tag import preview" : "Import tag vocabulary",
+      kind: t("synthesis-tags-import-kind"),
+      title: preview
+        ? t("synthesis-tags-import-preview-title")
+        : t("synthesis-tags-import-title"),
       meta: preview
-        ? `${preview.additions?.length || 0} addition(s), ${preview.conflicts?.length || 0} conflict(s)`
-        : "Paste TagVocab JSON to preview changes",
+        ? t("synthesis-tags-import-preview-meta", {
+            additions: preview.additions?.length || 0,
+            conflicts: preview.conflicts?.length || 0,
+          })
+        : t("synthesis-tags-import-meta"),
       body: preview
-        ? "Review additions, unchanged tags, conflicts, and warnings before applying this vocabulary to the canonical store."
-        : "Import is preview-first. The pasted vocabulary will not change canonical tags until you choose an explicit apply action.",
+        ? t("synthesis-tags-import-preview-body")
+        : t("synthesis-tags-import-body"),
       details: preview
         ? [
             ["additions", preview.additions],
@@ -11248,7 +12168,7 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
   const filters = el("div", "filters");
   const search = el("input");
   search.dataset.synthesisControlKey = "concepts.search";
-  search.placeholder = "Search concepts";
+  search.placeholder = t("synthesis-search-concepts");
   search.value = snapshot.concepts.filters.search || "";
   search.addEventListener("input", () =>
     sendAction("setFilters", { concepts: { search: search.value } }),
@@ -11259,6 +12179,10 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
       ["all", ...snapshot.concepts.conceptTypes],
       snapshot.concepts.filters.conceptType || "all",
       (value) => sendAction("setFilters", { concepts: { conceptType: value } }),
+      (value) =>
+        value === "all"
+          ? t("synthesis-filter-all")
+          : enumLabel("concept-type", value),
     ),
   );
   filters.appendChild(
@@ -11266,11 +12190,14 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
       ["all", "active", "review", "deprecated"],
       snapshot.concepts.filters.status || "all",
       (value) => sendAction("setFilters", { concepts: { status: value } }),
+      (value) => enumLabel("status", value),
     ),
   );
   filters.appendChild(
     makeButton(
-      snapshot.concepts.filters.overlayEnabled ? "Overlay On" : "Overlay Off",
+      snapshot.concepts.filters.overlayEnabled
+        ? t("synthesis-concepts-overlay-on")
+        : t("synthesis-concepts-overlay-off"),
       "setConceptOverlay",
       { enabled: !snapshot.concepts.filters.overlayEnabled },
       snapshot.concepts.filters.overlayEnabled,
@@ -11281,13 +12208,17 @@ function renderConcepts(main: HTMLElement, snapshot: Snapshot) {
   status.appendChild(
     badge(
       snapshot.concepts.projection.stale
-        ? "Concept cache stale"
-        : "Concept cache ready",
+        ? t("synthesis-concepts-cache-stale")
+        : t("synthesis-concepts-cache-ready"),
       snapshot.concepts.projection.stale ? "warn" : "ok",
     ),
   );
   status.appendChild(
-    el("span", "muted", `${snapshot.concepts.rows.length} concepts`),
+    el(
+      "span",
+      "muted",
+      t("synthesis-concepts-count", { count: snapshot.concepts.rows.length }),
+    ),
   );
   panel.appendChild(status);
   const conceptBulkBar = renderConceptBulkActionBar(snapshot);
@@ -11385,7 +12316,7 @@ function renderConceptBulkActionBar(snapshot: Snapshot) {
   const checkbox = el("input") as HTMLInputElement;
   checkbox.type = "checkbox";
   checkbox.checked = selectedIds.length === visibleIds.length;
-  checkbox.setAttribute("aria-label", "Select all visible concepts");
+  checkbox.setAttribute("aria-label", t("synthesis-concepts-select-all"));
   checkbox.addEventListener("change", () =>
     setAllConceptSelection(snapshot, checkbox.checked),
   );
@@ -11395,12 +12326,13 @@ function renderConceptBulkActionBar(snapshot: Snapshot) {
       "span",
       "muted",
       selectedIds.length
-        ? `${selectedIds.length} concept(s) selected`
-        : "Select concepts for bulk actions",
+        ? t("synthesis-concepts-selected", { count: selectedIds.length })
+        : t("synthesis-concepts-select-bulk"),
     ),
   );
-  const deleteSelected = makeLocalButton("Delete Selected", () =>
-    deleteConcepts(selectedIds),
+  const deleteSelected = makeLocalButton(
+    t("synthesis-action-delete-selected"),
+    () => deleteConcepts(selectedIds),
   );
   deleteSelected.disabled = selectedIds.length === 0;
   bar.appendChild(deleteSelected);
@@ -11411,11 +12343,11 @@ function renderConceptTable(snapshot: Snapshot) {
   if (!snapshot.concepts.visibleRows.length) {
     return renderEmptyState({
       title: snapshot.concepts.rows.length
-        ? "No concepts match the current filters"
-        : "No concepts indexed yet",
+        ? t("synthesis-concepts-empty-filtered")
+        : t("synthesis-concepts-empty"),
       message: snapshot.concepts.rows.length
-        ? "Adjust the search, concept type, or status filters to show more concepts."
-        : "Add concept knowledge to make it available here.",
+        ? t("synthesis-concepts-empty-filtered-message")
+        : t("synthesis-concepts-empty-message"),
       tone: snapshot.concepts.rows.length ? "default" : "info",
     });
   }
@@ -11425,13 +12357,13 @@ function renderConceptTable(snapshot: Snapshot) {
   const head = el("tr");
   [
     "",
-    "Concept",
-    "Definition",
-    "Type",
-    "Domain",
-    "Aliases",
-    "Status",
-    "Actions",
+    t("synthesis-column-concept"),
+    t("synthesis-column-definition"),
+    t("synthesis-column-type"),
+    t("synthesis-column-domain"),
+    t("synthesis-column-aliases"),
+    t("synthesis-column-status"),
+    t("synthesis-column-actions"),
   ].forEach((header) => head.appendChild(el("th", "", header)));
   thead.appendChild(head);
   table.appendChild(thead);
@@ -11465,7 +12397,11 @@ function renderConceptTable(snapshot: Snapshot) {
       el("td", "concept-definition-cell", conceptDefinitionSummary(row) || "-"),
     );
     tr.appendChild(
-      el("td", "concept-cell-center", textValue(row.concept_type, "-")),
+      el(
+        "td",
+        "concept-cell-center",
+        enumLabel("concept-type", row.concept_type, "-"),
+      ),
     );
     tr.appendChild(el("td", "concept-cell-center", textValue(row.domain, "-")));
     const aliasesCell = el("td", "concept-alias-cell");
@@ -11475,7 +12411,9 @@ function renderConceptTable(snapshot: Snapshot) {
     statusCell.appendChild(badge(row.status || "active", toneFor(row.status)));
     tr.appendChild(statusCell);
     const actions = actionGroup([
-      makeLocalButton("Delete", () => deleteConcepts([conceptId])),
+      makeLocalButton(t("synthesis-action-delete"), () =>
+        deleteConcepts([conceptId]),
+      ),
     ]);
     actions.addEventListener("click", (event) => event.stopPropagation());
     const actionsCell = el("td", "concept-action-cell");
@@ -11502,14 +12440,14 @@ function renderConceptReviewPanel(
   const selectedTarget =
     snapshot.concepts.filters.reviewMergeTargets?.[reviewId] || "";
   const actions = [
-    makeButton("Approve as New", "hostCommand", {
+    makeButton(t("synthesis-action-approve-as-new"), "hostCommand", {
       command: "applyConceptReviewAction",
       args: {
         reviewId,
         action: "approve_create",
       },
     }),
-    makeButton("Reject", "hostCommand", {
+    makeButton(t("synthesis-action-reject"), "hostCommand", {
       command: "applyConceptReviewAction",
       args: { reviewId, action: "reject" },
     }),
@@ -11528,7 +12466,7 @@ function renderConceptReviewPanel(
       1,
       0,
       makeButton(
-        "Merge",
+        t("synthesis-action-merge"),
         "hostCommand",
         {
           command: "applyConceptReviewAction",
@@ -11545,7 +12483,7 @@ function renderConceptReviewPanel(
   }
   const panel = renderReviewPanel(
     renderLocalReviewPanelHeader({
-      title: "Concept review",
+      title: t("synthesis-concept-review-title"),
       state: state.conceptReviewPanel,
       total,
       onChange: render,
@@ -11558,18 +12496,18 @@ function renderConceptReviewPanel(
   }
   panel.appendChild(
     renderReviewCard({
-      kind: "Concept review",
-      title: "Review proposal",
+      kind: t("synthesis-concept-review-title"),
+      title: t("synthesis-review-proposal-title"),
       showKindBadge: false,
       meta: `${state.conceptReviewPanel.index + 1} / ${total}`,
       primaryChildren,
       details: [
-        ["confidence", item.confidence],
-        ["type", item.concept_type],
-        ["domain", item.domain],
-        ["topic", item.topic_id],
-        ["topic relevance", item.topic_relevance],
-        ["reason", item.reason],
+        [t("synthesis-column-confidence"), item.confidence],
+        [t("synthesis-column-type"), item.concept_type],
+        [t("synthesis-column-domain"), item.domain],
+        [t("synthesis-column-topic"), item.topic_id],
+        [t("synthesis-detail-topic-relevance"), item.topic_relevance],
+        [t("synthesis-column-reason"), item.reason],
       ],
       actions,
     }),
@@ -11608,10 +12546,16 @@ function renderConceptReviewDecisionSummary(
 ) {
   const summary = el("div", "reference-review-summary concept-review-summary");
   const source = el("div", "reference-review-summary-row");
-  source.appendChild(el("span", "reference-review-summary-label", "Source:"));
+  source.appendChild(
+    el(
+      "span",
+      "reference-review-summary-label",
+      t("synthesis-review-source-label"),
+    ),
+  );
   const sourceValue = el("div", "concept-review-summary-value");
   sourceValue.appendChild(
-    el("strong", "", textValue(item.label, "Concept proposal")),
+    el("strong", "", textValue(item.label, t("synthesis-concept-proposal"))),
   );
   const definition = textValue(item.short_definition || item.definition);
   if (definition) {
@@ -11621,21 +12565,32 @@ function renderConceptReviewDecisionSummary(
   summary.appendChild(source);
 
   const targets = el("div", "reference-review-summary-row");
-  targets.appendChild(el("span", "reference-review-summary-label", "Target:"));
+  targets.appendChild(
+    el(
+      "span",
+      "reference-review-summary-label",
+      t("synthesis-review-target-label"),
+    ),
+  );
   targets.appendChild(renderConceptCandidatePills(snapshot, candidateIds));
   summary.appendChild(targets);
 
   if (candidateIds.length) {
     const merge = el("div", "reference-review-summary-row");
-    merge.appendChild(el("span", "reference-review-summary-label", "Merge:"));
+    merge.appendChild(
+      el(
+        "span",
+        "reference-review-summary-label",
+        t("synthesis-review-merge-label"),
+      ),
+    );
     merge.appendChild(
       selectControlWithLabels(
         [
-          ["", "Select target"],
-          ...candidateIds.map((id) => [
-            id,
-            conceptDisplayName(snapshot, id),
-          ] as [string, string]),
+          ["", t("synthesis-review-select-target")],
+          ...candidateIds.map(
+            (id) => [id, conceptDisplayName(snapshot, id)] as [string, string],
+          ),
         ],
         selectedTarget,
         (value) => setConceptReviewMergeTarget(snapshot, reviewId, value),
@@ -11656,6 +12611,39 @@ function roleOptions(snapshot: Snapshot) {
   ).sort((left, right) => left.localeCompare(right));
 }
 
+function graphTopicScopeOptions(snapshot: Snapshot): Array<[string, string]> {
+  return [
+    ["all", t("synthesis-graph-topic-all")],
+    ...(snapshot.graph.topicScopes || []).map(
+      (scope) =>
+        [
+          textValue(scope.topicId),
+          textValue(scope.title) || textValue(scope.topicId),
+        ] as [string, string],
+    ),
+  ];
+}
+
+function selectedGraphTopicTitle(snapshot: Snapshot) {
+  if ((snapshot.graph.filters.topicId || "all") === "all") {
+    return "";
+  }
+  return (
+    textValue(snapshot.graph.selectedTopicScope?.title) ||
+    textValue(snapshot.graph.filters.topicId)
+  );
+}
+
+function graphScopeLabel(snapshot: Snapshot) {
+  const selectedTopicTitle = selectedGraphTopicTitle(snapshot);
+  if (selectedTopicTitle) {
+    return t("synthesis-graph-scope-topic", {
+      topic: selectedTopicTitle,
+    });
+  }
+  return t("synthesis-graph-scope-all");
+}
+
 function graphDiagnosticSummary(
   diagnostics: Record<string, unknown>,
   layoutStatus: Snapshot["graph"]["layoutStatus"],
@@ -11663,18 +12651,18 @@ function graphDiagnosticSummary(
   const entries = objectEntries(diagnostics);
   if (!entries.length) {
     if (layoutStatus === "refreshing") {
-      return "The citation graph layout is still being computed.";
+      return t("synthesis-graph-diagnostic-refreshing");
     }
     if (layoutStatus === "missing") {
-      return "No graph layout has been generated for the current graph cache.";
+      return t("synthesis-graph-diagnostic-missing");
     }
     if (layoutStatus === "stale") {
-      return "The graph layout is stale and should be rebuilt.";
+      return t("synthesis-graph-diagnostic-stale");
     }
     if (layoutStatus === "failed") {
-      return "The last graph layout attempt failed. Rebuild to retry.";
+      return t("synthesis-graph-diagnostic-failed");
     }
-    return "The citation graph is not ready yet.";
+    return t("synthesis-graph-diagnostic-not-ready");
   }
   return entries
     .slice(0, 3)
@@ -11693,11 +12681,11 @@ function graphDiagnosticSummary(
 
 function renderCitationGraphLegend() {
   const legend = el("div", "citation-graph-legend");
-  legend.setAttribute("aria-label", "Citation graph legend");
-  legend.appendChild(el("strong", "", "Citation direction"));
+  legend.setAttribute("aria-label", t("synthesis-graph-legend"));
+  legend.appendChild(el("strong", "", t("synthesis-graph-legend-direction")));
   const rows: Array<[string, string]> = [
-    ["Incoming to selected", CITATION_GRAPH_INCOMING_EDGE_COLOR],
-    ["Outgoing from selected", CITATION_GRAPH_OUTGOING_EDGE_COLOR],
+    [t("synthesis-graph-legend-incoming"), CITATION_GRAPH_INCOMING_EDGE_COLOR],
+    [t("synthesis-graph-legend-outgoing"), CITATION_GRAPH_OUTGOING_EDGE_COLOR],
   ];
   rows.forEach(([label, color]) => {
     const row = el("div", "citation-graph-legend-row");
@@ -11708,13 +12696,13 @@ function renderCitationGraphLegend() {
     row.appendChild(el("span", "", label));
     legend.appendChild(row);
   });
-  legend.appendChild(el("strong", "", "Citation importance"));
+  legend.appendChild(el("strong", "", t("synthesis-graph-legend-importance")));
   const sizeRow = el("div", "citation-graph-legend-row");
   const sizeSwatch = el("span", "citation-graph-legend-node-size");
   sizeSwatch.appendChild(el("span", "citation-graph-legend-node is-small"));
   sizeSwatch.appendChild(el("span", "citation-graph-legend-node is-large"));
   sizeRow.appendChild(sizeSwatch);
-  sizeRow.appendChild(el("span", "", "Node size = incoming citations"));
+  sizeRow.appendChild(el("span", "", t("synthesis-graph-legend-node-size")));
   legend.appendChild(sizeRow);
   const haloRow = el("div", "citation-graph-legend-row");
   const haloSwatch = el("span", "citation-graph-legend-node-size");
@@ -11725,7 +12713,7 @@ function renderCitationGraphLegend() {
     el("span", "citation-graph-legend-node is-large is-halo is-external"),
   );
   haloRow.appendChild(haloSwatch);
-  haloRow.appendChild(el("span", "", "Halo = top cited visible nodes"));
+  haloRow.appendChild(el("span", "", t("synthesis-graph-legend-halo")));
   legend.appendChild(haloRow);
   return legend;
 }
@@ -11736,25 +12724,44 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   const canvas = el("div", "sigma-stage");
   stage.appendChild(canvas);
   stage.appendChild(renderGraphZoomOverlay());
+  stage.appendChild(el("div", "graph-scope-badge", graphScopeLabel(snapshot)));
   shell.appendChild(stage);
 
   const detail = el("aside", "panel details graph-control-drawer");
   detail.tabIndex = 0;
-  detail.setAttribute("aria-label", "Graph controls");
+  detail.setAttribute("aria-label", t("synthesis-graph-controls"));
   const header = el("div", "panel-header");
   const controlIcon = el("span", "graph-control-icon");
   controlIcon.appendChild(iconSvg("controls"));
   header.appendChild(controlIcon);
-  header.appendChild(el("strong", "graph-control-title", "Graph Controls"));
+  header.appendChild(
+    el("strong", "graph-control-title", t("synthesis-graph-controls")),
+  );
   detail.appendChild(header);
   const controls = el("div", "details");
   controls.dataset.synthesisScrollKey = "graph.controls";
   controls.appendChild(renderGraphControls(snapshot));
+  const selectedTopicTitle = selectedGraphTopicTitle(snapshot);
+  if (
+    state.graphReturnTopicId &&
+    snapshot.graph.filters.topicId === state.graphReturnTopicId
+  ) {
+    controls.appendChild(
+      makeLocalButton(t("synthesis-action-back-to-topic-details"), () =>
+        sendAction("backToTopicDetail", {
+          topicId: state.graphReturnTopicId,
+        }),
+      ),
+    );
+  }
   controls.appendChild(
     el(
       "p",
       "muted",
-      `${snapshot.graph.visibleNodes.length} shown nodes, ${snapshot.graph.visibleEdges.length} shown edges`,
+      t("synthesis-graph-shown-count", {
+        nodes: snapshot.graph.visibleNodes.length,
+        edges: snapshot.graph.visibleEdges.length,
+      }),
     ),
   );
   const libraryCount = Number(
@@ -11772,7 +12779,11 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     el(
       "p",
       "muted",
-      `${libraryCount} library, ${sharedExternalCount} shared external, ${hoverOnlyExternalCount} hover-only external hidden`,
+      t("synthesis-graph-node-counts", {
+        library: libraryCount,
+        shared: sharedExternalCount,
+        hoverOnly: hoverOnlyExternalCount,
+      }),
     ),
   );
   detail.appendChild(controls);
@@ -11781,9 +12792,11 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   if (snapshot.graph.selectedElement) {
     const selection = el("aside", "panel details graph-selection-drawer");
     selection.tabIndex = 0;
-    selection.setAttribute("aria-label", "Graph selection");
+    selection.setAttribute("aria-label", t("synthesis-graph-selection"));
     const selectionHeader = el("div", "panel-header");
-    selectionHeader.appendChild(el("strong", "", "Selection"));
+    selectionHeader.appendChild(
+      el("strong", "", t("synthesis-graph-selection")),
+    );
     selection.appendChild(selectionHeader);
     const selectionBody = el("div", "graph-selection-content");
     selectionBody.dataset.synthesisScrollKey = "graph.selection";
@@ -11805,18 +12818,36 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     const empty = el("div", "graph-empty");
     empty.appendChild(
       renderEmptyState({
-        title: "No citation graph data",
+        title: t("synthesis-graph-no-data"),
         message: graphDiagnosticSummary(
           snapshot.graph.diagnostics || {},
           snapshot.graph.layoutStatus,
         ),
-        action: makeButton("Rebuild graph cache", "hostCommand", {
-          command: "rebuildCitationGraphCacheNow",
-          args: {
-            reason: "graph_tab",
+        action: makeButton(
+          t("synthesis-action-rebuild-graph-cache"),
+          "hostCommand",
+          {
+            command: "rebuildCitationGraphCacheNow",
+            args: {
+              reason: "graph_tab",
+            },
           },
-        }),
+        ),
         tone: snapshot.graph.layoutStatus === "failed" ? "warning" : "info",
+      }),
+    );
+    stage.appendChild(empty);
+    return;
+  }
+  if (selectedTopicTitle && !snapshot.graph.visibleNodes.length) {
+    const empty = el("div", "graph-empty");
+    empty.appendChild(
+      renderEmptyState({
+        title: t("synthesis-graph-empty-topic-title", {
+          topic: selectedTopicTitle,
+        }),
+        message: t("synthesis-graph-empty-topic-message"),
+        tone: "info",
       }),
     );
     stage.appendChild(empty);
@@ -11829,8 +12860,8 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
         "strong",
         "",
         graphCacheStatus === "failed"
-          ? "Graph cache failed"
-          : "Graph cache stale",
+          ? t("synthesis-graph-cache-failed")
+          : t("synthesis-graph-cache-stale-title"),
       ),
     );
     banner.appendChild(
@@ -11838,14 +12869,14 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
         "span",
         "muted",
         graphCacheStatus === "failed"
-          ? "Showing latest available graph data. Rebuild the graph cache to repair it."
-          : "Showing latest available graph data. Refresh stale graph to update it.",
+          ? t("synthesis-graph-cache-failed-body")
+          : t("synthesis-graph-cache-stale-body"),
       ),
     );
     banner.appendChild(
       graphCacheStatus === "stale"
         ? makeGraphIncrementalRefreshButton(snapshot)
-        : makeButton("Rebuild graph cache", "hostCommand", {
+        : makeButton(t("synthesis-action-rebuild-graph-cache"), "hostCommand", {
             command: "rebuildCitationGraphCacheNow",
             args: {
               reason: "graph_tab_failed",
@@ -11861,8 +12892,8 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
         "strong",
         "",
         snapshot.graph.layoutStatus === "refreshing"
-          ? "Drawing graph"
-          : "Refreshing graph layout",
+          ? t("synthesis-graph-drawing")
+          : t("synthesis-graph-refreshing-layout"),
       ),
     );
     banner.appendChild(
@@ -11870,8 +12901,8 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
         "span",
         "muted",
         snapshot.graph.layoutStatus === "failed"
-          ? "The latest layout attempt failed. Showing available graph data."
-          : "The citation graph is available; layout is being refreshed.",
+          ? t("synthesis-graph-layout-failed-body")
+          : t("synthesis-graph-layout-refreshing-body"),
       ),
     );
     stage.appendChild(banner);
@@ -11880,9 +12911,8 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     const pending = el("div", "graph-empty");
     pending.appendChild(
       renderEmptyState({
-        title: "Drawing graph",
-        message:
-          "The citation graph data is ready. Layout coordinates are being computed.",
+        title: t("synthesis-graph-drawing"),
+        message: t("synthesis-graph-layout-computing"),
         tone: snapshot.graph.layoutStatus === "failed" ? "warning" : "info",
       }),
     );
@@ -11901,7 +12931,7 @@ function renderGraphZoomOverlay() {
   slider.max = String(GRAPH_ZOOM_SLIDER_MAX);
   slider.step = "1";
   slider.value = "50";
-  slider.setAttribute("aria-label", "Graph zoom");
+  slider.setAttribute("aria-label", t("synthesis-graph-zoom"));
   slider.className = "graph-zoom-slider";
   slider.addEventListener("input", () => {
     const renderer = state.sigma;
@@ -11989,7 +13019,7 @@ function renderGraphControls(snapshot: Snapshot) {
   const filters = el("div", "filters");
   const search = el("input");
   search.dataset.synthesisControlKey = "graph.search";
-  search.placeholder = "Search node";
+  search.placeholder = t("synthesis-search-node");
   search.value = state.graphSearchDraft ?? snapshot.graph.filters.search ?? "";
   search.addEventListener("input", () => {
     state.graphSearchDraft = search.value;
@@ -12002,12 +13032,12 @@ function renderGraphControls(snapshot: Snapshot) {
   });
   filters.appendChild(search);
   filters.appendChild(
-    makeLocalButton("Search", () => {
+    makeLocalButton(t("synthesis-action-search"), () => {
       submitGraphSearch(search.value);
     }),
   );
   filters.appendChild(
-    makeLocalButton("Clear", () => {
+    makeLocalButton(t("synthesis-action-clear"), () => {
       search.value = "";
       state.graphSearchDraft = "";
       sendAction("setFilters", { graph: { search: "" } });
@@ -12019,8 +13049,20 @@ function renderGraphControls(snapshot: Snapshot) {
     ["all", ...roleOptions(snapshot)],
     snapshot.graph.filters.role,
     (value) => sendAction("setFilters", { graph: { role: value } }),
+    (value) =>
+      value === "all" ? t("synthesis-filter-all") : humanizeEnumValue(value),
   );
   filters.appendChild(role);
+  filters.appendChild(
+    selectControlWithLabels(
+      graphTopicScopeOptions(snapshot),
+      snapshot.graph.filters.topicId || "all",
+      (value) => {
+        state.graphReturnTopicId = undefined;
+        sendAction("setGraphView", { topicId: value || "all" });
+      },
+    ),
+  );
   const graphCacheStatus = textValue(
     snapshot.graph.diagnostics?.cache_status,
     snapshot.graph.graph_hash ? "ready" : "missing",
@@ -12028,7 +13070,7 @@ function renderGraphControls(snapshot: Snapshot) {
   filters.appendChild(makeGraphIncrementalRefreshButton(snapshot));
   filters.appendChild(
     makeButton(
-      "Rebuild graph cache",
+      t("synthesis-action-rebuild-graph-cache"),
       "hostCommand",
       {
         command: "rebuildCitationGraphCacheNow",
@@ -12040,7 +13082,7 @@ function renderGraphControls(snapshot: Snapshot) {
   );
   filters.appendChild(
     makeButton(
-      "Redraw layout",
+      t("synthesis-action-redraw-layout"),
       "hostCommand",
       {
         command: "manualRecomputeLayout",
@@ -12072,7 +13114,7 @@ function renderGraphControls(snapshot: Snapshot) {
       });
       label.appendChild(input);
       label.appendChild(
-        document.createTextNode(kind.replace("_reference", "")),
+        document.createTextNode(enumLabel("graph-node-kind", kind)),
       );
       kinds.appendChild(label);
     },
@@ -12087,16 +13129,20 @@ function renderGraphControls(snapshot: Snapshot) {
     }),
   );
   lowSignal.appendChild(lowSignalInput);
-  lowSignal.appendChild(document.createTextNode("low-signal external"));
+  lowSignal.appendChild(
+    document.createTextNode(
+      enumLabel("graph-node-kind", "low_signal_external"),
+    ),
+  );
   kinds.appendChild(lowSignal);
   wrap.appendChild(kinds);
 
   const algorithms = el("div", "filters");
   (
     [
-      ["force", "Force"],
-      ["radial", "Radial"],
-      ["components", "Components"],
+      ["force", enumLabel("graph-layout", "force")],
+      ["radial", enumLabel("graph-layout", "radial")],
+      ["components", enumLabel("graph-layout", "components")],
     ] as Array<[string, string]>
   ).forEach(([algorithm, label]) => {
     algorithms.appendChild(
@@ -12155,7 +13201,7 @@ function makeGraphIncrementalRefreshButton(snapshot: Snapshot) {
   const hasDelta = graphCacheHasIncrementalDelta(snapshot);
   const disabled = graphCacheStatus !== "stale" || !hasDelta;
   const button = makeButton(
-    "Refresh stale graph",
+    t("synthesis-action-refresh-stale-graph"),
     "hostCommand",
     {
       command: "refreshCitationGraphCacheIncrementalNow",
@@ -12167,8 +13213,8 @@ function makeGraphIncrementalRefreshButton(snapshot: Snapshot) {
   if (disabled) {
     button.title =
       graphCacheStatus !== "stale"
-        ? "Incremental graph refresh is available only when the graph cache is stale."
-        : "This stale graph cache has no recorded incremental refresh scope; use full rebuild.";
+        ? t("synthesis-graph-refresh-only-stale")
+        : t("synthesis-graph-cache-no-scope");
   }
   return button;
 }
@@ -12837,7 +13883,7 @@ function matrixTableView(
       if (cell instanceof Node) {
         td.appendChild(cell);
       } else {
-        td.textContent = String(cell ?? "");
+        td.textContent = maybeLocalizedValue(cell) || String(cell ?? "");
       }
       rowNode.appendChild(td);
     });
@@ -12890,7 +13936,7 @@ function tableView(
       if (cell instanceof Node) {
         td.appendChild(cell);
       } else {
-        td.textContent = String(cell ?? "");
+        td.textContent = maybeLocalizedValue(cell) || String(cell ?? "");
       }
       rowNode.appendChild(td);
     });
@@ -13097,6 +14143,11 @@ function snapshotContentSignature(snapshot: Snapshot | null) {
       layoutStatus: snapshot.graph.layoutStatus,
       layoutAlgorithm: snapshot.graph.layoutAlgorithm,
       selectedElement: snapshot.graph.selectedElement,
+      topicScopes: (snapshot.graph.topicScopes || []).map((scope) => [
+        scope.topicId,
+        scope.title,
+        scope.nodeIds,
+      ]),
       counts: graphCountSignature(snapshot),
     });
   }
@@ -13310,10 +14361,11 @@ function selectControl(
   options: string[],
   value: string,
   onChange: (value: string) => void,
+  labelFor: (value: string) => string = (option) => maybeLocalizedValue(option),
 ) {
   const select = el("select");
   options.forEach((option) => {
-    const node = el("option", "", option);
+    const node = el("option", "", labelFor(option));
     node.value = option;
     node.selected = option === value;
     select.appendChild(node);
@@ -13329,7 +14381,7 @@ function selectControlWithLabels(
 ) {
   const select = el("select");
   options.forEach(([optionValue, label]) => {
-    const node = el("option", "", label);
+    const node = el("option", "", uiText(label));
     node.value = optionValue;
     node.selected = optionValue === value;
     select.appendChild(node);
@@ -13346,16 +14398,13 @@ function render() {
     const loading = el("div", "loading-shell");
     loading.appendChild(el("div", "loading-spinner"));
     loading.appendChild(
-      el("div", "loading-title", "Loading Synthesis Workbench"),
+      el("div", "loading-title", t("synthesis-loading-title")),
     );
     loading.appendChild(
-      el(
-        "div",
-        "loading-subtitle",
-        "Preparing Zotero bridge and library state...",
-      ),
+      el("div", "loading-subtitle", t("synthesis-loading-subtitle")),
     );
     root.appendChild(loading);
+    localizeWorkbenchDom(root);
     return;
   }
   const renderState = captureWorkbenchRenderState(root as HTMLElement);
@@ -13364,6 +14413,7 @@ function render() {
   restoreWorkbenchRenderState(root as HTMLElement, renderState);
   renderDigestModal(root as HTMLElement);
   syncReferenceManualTargetOverlay(state.snapshot);
+  localizeWorkbenchDom(root as HTMLElement);
   state.lastContentSignature = snapshotContentSignature(state.snapshot);
   state.lastChromeSignature = snapshotChromeSignature(state.snapshot);
   maybeRequestGraphLayoutRefresh(state.snapshot);
@@ -13543,7 +14593,10 @@ window.addEventListener("message", (event: MessageEvent) => {
     return;
   }
   if (data.type === "synthesis:chrome") {
-    const nextSnapshot = (data.payload || null) as Snapshot | null;
+    const i18nChanged = applyI18nEnvelope(data.payload);
+    const nextSnapshot = stripI18nFromSnapshotPayload(
+      data.payload || null,
+    ) as Snapshot | null;
     state.snapshot = nextSnapshot;
     clearResolvedLocalPending(state.snapshot);
     if (!state.snapshot) {
@@ -13551,6 +14604,11 @@ window.addEventListener("message", (event: MessageEvent) => {
       return;
     }
     const nextChromeSignature = snapshotChromeSignature(state.snapshot);
+    if (i18nChanged) {
+      state.lastChromeSignature = nextChromeSignature;
+      render();
+      return;
+    }
     if (nextChromeSignature !== state.lastChromeSignature) {
       state.lastChromeSignature = nextChromeSignature;
       renderWorkbenchChrome();
@@ -13562,34 +14620,45 @@ window.addEventListener("message", (event: MessageEvent) => {
       data.payload && typeof data.payload === "object"
         ? (data.payload as Record<string, unknown>)
         : {};
-    const surface = String(payload.surface || "") as WorkbenchSurfaceName;
-    const nextSnapshot = (payload.snapshot || null) as Snapshot | null;
-    state.snapshot = nextSnapshot;
-    clearResolvedLocalPending(state.snapshot);
-    if (!state.snapshot) {
+    const i18nChanged = applyI18nEnvelope(payload);
+    const surface = String(payload.surface || "");
+    if (!isWorkbenchSurfaceName(surface)) {
       render();
       return;
     }
-    const nextChromeSignature = snapshotChromeSignature(state.snapshot);
-    const chromeChanged = nextChromeSignature !== state.lastChromeSignature;
-    if (
-      surface === "home" ||
-      surface === "topics" ||
-      surface === "index" ||
-      surface === "review" ||
-      surface === "graph" ||
-      surface === "tags" ||
-      surface === "concepts" ||
-      surface === "reader"
-    ) {
-      markSurfaceRuntime(surface, "ready", undefined, state.snapshot);
-      if (surface === "index") {
-        state.registryLoadingReferenceRows.clear();
-      }
-      renderSurface(surface);
-    } else {
+    const requestId = surfacePayloadRequestId(payload);
+    if (isStaleSurfacePayload(surface, requestId)) {
+      return;
+    }
+    acceptSurfacePayload(surface, requestId);
+    const nextSnapshot = stripI18nFromSnapshotPayload(
+      payload.snapshot || null,
+    ) as Snapshot | null;
+    if (!nextSnapshot) {
       render();
       return;
+    }
+    const visibleSurface = state.snapshot
+      ? surfaceForTab(state.snapshot.selectedTab)
+      : surface;
+    markSurfaceRuntime(surface, "ready", undefined, nextSnapshot, {
+      requestId,
+    });
+    if (visibleSurface !== surface) {
+      return;
+    }
+    state.snapshot = nextSnapshot;
+    clearResolvedLocalPending(state.snapshot);
+    const nextChromeSignature = snapshotChromeSignature(state.snapshot);
+    const chromeChanged =
+      i18nChanged || nextChromeSignature !== state.lastChromeSignature;
+    if (surface === "index") {
+      state.registryLoadingReferenceRows.clear();
+    }
+    if (i18nChanged) {
+      render();
+    } else {
+      renderSurface(surface);
     }
     if (chromeChanged) {
       state.lastChromeSignature = nextChromeSignature;
@@ -13602,38 +14671,61 @@ window.addEventListener("message", (event: MessageEvent) => {
       data.payload && typeof data.payload === "object"
         ? (data.payload as Record<string, unknown>)
         : {};
+    applyI18nEnvelope(payload);
+    const surface = String(payload.surface || "");
+    if (!isWorkbenchSurfaceName(surface)) {
+      renderWorkbenchChrome();
+      return;
+    }
+    const requestId = surfacePayloadRequestId(payload);
+    if (isStaleSurfacePayload(surface, requestId)) {
+      return;
+    }
+    acceptSurfacePayload(surface, requestId);
+    const transient = payload.transient === true;
+    const message = String(
+      payload.message || t("synthesis-surface-error-message"),
+    );
     state.lastLocalAction = {
-      key: `surface-error:${String(payload.surface || "unknown")}`,
+      key: `surface-error:${surface}`,
       command: "refresh",
       status: "failed",
-      label: "Loading Synthesis surface",
+      label: transient
+        ? t("synthesis-surface-refreshing-label")
+        : t("synthesis-surface-error-label"),
       completed_at: new Date().toISOString(),
-      message: String(payload.message || "Surface failed to load."),
+      message,
     };
-    const surface = String(payload.surface || "") as WorkbenchSurfaceName;
-    if (
-      surface === "home" ||
-      surface === "topics" ||
-      surface === "index" ||
-      surface === "review" ||
-      surface === "graph" ||
-      surface === "tags" ||
-      surface === "concepts" ||
-      surface === "reader"
-    ) {
-      markSurfaceRuntime(
-        surface,
-        "failed",
-        String(payload.message || "Surface failed to load."),
-      );
+    const restored = restoreSurfaceSnapshotForError(surface);
+    const cachedSnapshot = restored
+      ? state.snapshot || undefined
+      : surfaceRuntime(surface)?.snapshot;
+    markSurfaceRuntime(surface, "failed", message, cachedSnapshot, {
+      errorCode: String(payload.code || ""),
+      transient,
+      requestId,
+    });
+    const visibleSurface = state.snapshot
+      ? surfaceForTab(state.snapshot.selectedTab)
+      : surface;
+    if (visibleSurface === surface) {
+      if (restored || cachedSnapshot) {
+        renderSurface(surface);
+      } else {
+        renderSelectedTabShell();
+      }
     }
     renderWorkbenchChrome();
     return;
   }
   if (data.type === "synthesis:init" || data.type === "synthesis:snapshot") {
-    const nextSnapshot = (data.payload || null) as Snapshot | null;
+    const i18nChanged = applyI18nEnvelope(data.payload);
+    const nextSnapshot = stripI18nFromSnapshotPayload(
+      data.payload || null,
+    ) as Snapshot | null;
     const nextContentSignature = snapshotContentSignature(nextSnapshot);
-    const contentChanged = nextContentSignature !== state.lastContentSignature;
+    const contentChanged =
+      i18nChanged || nextContentSignature !== state.lastContentSignature;
     state.snapshot = nextSnapshot;
     clearResolvedLocalPending(state.snapshot);
     const nextChromeSignature = snapshotChromeSignature(state.snapshot);

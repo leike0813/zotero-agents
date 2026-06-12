@@ -5,6 +5,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
+  cleanupRuntimePersistenceRetention,
   cleanupRuntimePersistenceCategory,
   getRuntimePersistencePaths,
   scanRuntimePersistenceUsage,
@@ -12,6 +13,12 @@ import {
   validateManagedRelativePath,
   validateManagedRelativePathSet,
 } from "../../src/modules/runtimePersistence";
+import { getTaskHistoryRetentionConfig } from "../../src/modules/taskRetentionPolicy";
+import {
+  getAcpSkillRunRecord,
+  resetAcpSkillRunsForTests,
+  upsertAcpSkillRun,
+} from "../../src/modules/acpSkillRunStore";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
   cleanupPersistenceIssues,
@@ -41,6 +48,15 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+async function pathExists(pathRaw: string) {
+  try {
+    await fs.stat(pathRaw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe("runtime persistence governance", function () {
   let previousRoot: string | undefined;
   let tempRoot: string;
@@ -50,6 +66,7 @@ describe("runtime persistence governance", function () {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "zs-runtime-root-"));
     process.env.ZOTERO_SKILLS_RUNTIME_ROOT = tempRoot;
     resetPluginStateStoreForTests();
+    resetAcpSkillRunsForTests();
     clearRuntimeLogs();
     setDebugModeOverrideForTests(true);
   });
@@ -60,6 +77,7 @@ describe("runtime persistence governance", function () {
     clearPluginTaskDomain(PLUGIN_TASK_DOMAIN_ACP);
     clearPluginTaskDomain(PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS);
     resetPluginStateStoreForTests();
+    resetAcpSkillRunsForTests();
     setDebugModeOverrideForTests();
     if (typeof previousRoot === "undefined") {
       delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
@@ -146,8 +164,7 @@ describe("runtime persistence governance", function () {
     delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
     const previousDataDirectory = (globalThis as any).Zotero?.DataDirectory;
     const dataDirectory = path.join(tempRoot, "zotero-data");
-    const zotero = ((globalThis as any).Zotero =
-      (globalThis as any).Zotero || {});
+    const zotero = (globalThis as any).Zotero || {};
     zotero.DataDirectory = { dir: dataDirectory };
     try {
       const paths = getRuntimePersistencePaths();
@@ -262,8 +279,7 @@ describe("runtime persistence governance", function () {
     const dataDirectory = path.join(tempRoot, "zotero-data");
     const currentRoot = path.join(dataDirectory, "zotero-agents");
     process.env.ZOTERO_SKILLS_RUNTIME_ROOT = currentRoot;
-    const zotero = ((globalThis as any).Zotero =
-      (globalThis as any).Zotero || {});
+    const zotero = (globalThis as any).Zotero || {};
     zotero.DataDirectory = { dir: dataDirectory };
     try {
       const legacyRoot = path.join(dataDirectory, "zotero-skills");
@@ -412,6 +428,73 @@ describe("runtime persistence governance", function () {
       listPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, "skill-runs"),
       0,
     );
+  });
+
+  it("cleans expired terminal ACP skill run rows and workspaces by retention", async function () {
+    const paths = getRuntimePersistencePaths();
+    const retention = getTaskHistoryRetentionConfig();
+    const nowMs = Date.parse("2026-06-11T00:00:00.000Z");
+    const expiredAt = new Date(
+      nowMs - retention.retentionMs - 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const freshAt = new Date(nowMs - 60 * 60 * 1000).toISOString();
+    const expiredWorkspace = path.join(paths.acpSkillRunsDir, "expired-run");
+    const freshWorkspace = path.join(paths.acpSkillRunsDir, "fresh-run");
+    const activeWorkspace = path.join(paths.acpSkillRunsDir, "active-run");
+    for (const workspace of [
+      expiredWorkspace,
+      freshWorkspace,
+      activeWorkspace,
+    ]) {
+      await fs.mkdir(path.join(workspace, "result"), { recursive: true });
+      await fs.writeFile(
+        path.join(workspace, "result", "result.json"),
+        "{}",
+        "utf8",
+      );
+    }
+
+    upsertAcpSkillRun({
+      requestId: "expired-terminal",
+      status: "succeeded",
+      backendId: "backend-acp",
+      backendType: "acp",
+      workspaceDir: expiredWorkspace,
+      removedAt: expiredAt,
+      archivedAt: expiredAt,
+      updatedAt: expiredAt,
+    });
+    upsertAcpSkillRun({
+      requestId: "fresh-terminal",
+      status: "failed",
+      backendId: "backend-acp",
+      backendType: "acp",
+      workspaceDir: freshWorkspace,
+      removedAt: freshAt,
+      archivedAt: freshAt,
+      updatedAt: freshAt,
+    });
+    upsertAcpSkillRun({
+      requestId: "stale-active",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      workspaceDir: activeWorkspace,
+      updatedAt: expiredAt,
+    });
+
+    const cleanup = await cleanupRuntimePersistenceRetention({ nowMs });
+
+    assert.isNull(getAcpSkillRunRecord("expired-terminal"));
+    assert.isNotNull(getAcpSkillRunRecord("fresh-terminal"));
+    assert.isNotNull(getAcpSkillRunRecord("stale-active"));
+    assert.isFalse(await pathExists(expiredWorkspace));
+    assert.isTrue(await pathExists(freshWorkspace));
+    assert.isTrue(await pathExists(activeWorkspace));
+    assert.equal((cleanup.details as any).acpSkillRunRowsDeleted, 1);
+    assert.deepEqual((cleanup.details as any).acpSkillRunRequestIds, [
+      "expired-terminal",
+    ]);
   });
 
   it("keeps durable synthesis data outside runtime cleanup", async function () {

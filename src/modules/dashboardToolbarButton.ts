@@ -8,6 +8,7 @@ import {
 
 const DASHBOARD_BUTTON_ID = `${config.addonRef}-tb-dashboard`;
 const SKILLRUNNER_BUTTON_ID = `${config.addonRef}-tb-skillrunner`;
+const LEGACY_SKILLRUNNER_ATTENTION_BUTTON_ID = `${config.addonRef}-tb-skillrunner-attention`;
 const EXECUTE_WORKFLOW_BUTTON_ID = `${config.addonRef}-tb-execute-workflow`;
 const EXECUTE_WORKFLOW_POPUP_ID = `${config.addonRef}-tb-execute-workflow-popup`;
 const NOTE_ADD_BUTTON_ID = "zotero-tb-note-add";
@@ -15,6 +16,7 @@ const PRIMARY_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_workben
 const FALLBACK_ICON_URI = `chrome://${config.addonRef}/content/icons/favicon.png`;
 const EXECUTE_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_play_32.png`;
 export const SKILLRUNNER_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_sidebar_32.png`;
+const SKILLRUNNER_ATTENTION_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_sidebar_glow_32.png`;
 
 const localize = getStringOrFallback;
 
@@ -176,6 +178,10 @@ function insertWithAnchor(
   }
 }
 
+function removeLegacySkillRunnerAttentionButton(doc: Document) {
+  doc.getElementById(LEGACY_SKILLRUNNER_ATTENTION_BUTTON_ID)?.remove();
+}
+
 function ensureExecuteWorkflowToolbarButton(
   win: _ZoteroTypes.MainWindow,
   host: Element,
@@ -254,10 +260,6 @@ function ensureDashboardOnlyToolbarButton(
   const doc = win.document;
   const existing = doc.getElementById(DASHBOARD_BUTTON_ID);
   if (existing) {
-    installWorkspaceToolbarTaskPopover({
-      window: win,
-      anchor: existing,
-    });
     return;
   }
 
@@ -285,10 +287,6 @@ function ensureDashboardOnlyToolbarButton(
   button.addEventListener("command", () => {
     void addon.hooks.onPrefsEvent("openDashboard", { window: win });
   });
-  installWorkspaceToolbarTaskPopover({
-    window: win,
-    anchor: button,
-  });
   const anchor = resolveInsertAnchor(host, doc);
   insertWithAnchor(
     host,
@@ -312,6 +310,10 @@ function ensureSkillRunnerToolbarButton(
   const doc = win.document;
   const existing = doc.getElementById(SKILLRUNNER_BUTTON_ID);
   if (existing) {
+    installWorkspaceToolbarTaskPopover({
+      window: win,
+      anchor: existing,
+    });
     return;
   }
 
@@ -328,6 +330,8 @@ function ensureSkillRunnerToolbarButton(
   button.setAttribute("tooltiptext", tooltip);
   button.setAttribute("aria-label", tooltip);
   button.setAttribute("image", SKILLRUNNER_ICON_URI);
+  button.setAttribute("data-attention", "false");
+  button.setAttribute("data-attention-count", "0");
   applyToolbarButtonStyling(
     button as Element & { style?: CSSStyleDeclaration },
     SKILLRUNNER_ICON_URI,
@@ -356,6 +360,36 @@ function ensureSkillRunnerToolbarButton(
     },
     win,
   );
+  installWorkspaceToolbarTaskPopover({
+    window: win,
+    anchor: button,
+  });
+}
+
+export function updateAssistantToolbarAttention(
+  win: Window | _ZoteroTypes.MainWindow,
+  waitingCount: number,
+) {
+  const doc = (win as _ZoteroTypes.MainWindow)?.document;
+  if (!doc) {
+    return;
+  }
+  const button = doc.getElementById(SKILLRUNNER_BUTTON_ID);
+  if (!button) {
+    return;
+  }
+  const count = Math.max(0, Math.floor(Number(waitingCount) || 0));
+  const hasAttention = count > 0;
+  button.setAttribute("data-attention", hasAttention ? "true" : "false");
+  button.setAttribute("data-attention-count", String(count));
+  const iconUri = hasAttention
+    ? SKILLRUNNER_ATTENTION_ICON_URI
+    : SKILLRUNNER_ICON_URI;
+  button.setAttribute("image", iconUri);
+  applyToolbarButtonStyling(
+    button as Element & { style?: CSSStyleDeclaration },
+    iconUri,
+  );
 }
 
 export function ensureDashboardToolbarButton(win: _ZoteroTypes.MainWindow) {
@@ -363,30 +397,10 @@ export function ensureDashboardToolbarButton(win: _ZoteroTypes.MainWindow) {
   if (!host) {
     return;
   }
+  removeLegacySkillRunnerAttentionButton(win.document);
   ensureExecuteWorkflowToolbarButton(win, host);
   ensureDashboardOnlyToolbarButton(win, host);
   ensureSkillRunnerToolbarButton(win, host);
-}
-
-export function updateSkillRunnerToolbarButtonBadge(
-  win: Window | _ZoteroTypes.MainWindow,
-  waitingCount: number,
-) {
-  const doc = (win as _ZoteroTypes.MainWindow)?.document;
-  const button = doc?.getElementById(SKILLRUNNER_BUTTON_ID) as
-    | (Element & {
-        setAttribute: (name: string, value: string) => void;
-        removeAttribute: (name: string) => void;
-      })
-    | null;
-  if (!button) {
-    return;
-  }
-  if (waitingCount > 0) {
-    button.setAttribute("data-badge", String(waitingCount));
-  } else {
-    button.removeAttribute("data-badge");
-  }
 }
 
 export function removeDashboardToolbarButton(
@@ -399,8 +413,11 @@ export function removeDashboardToolbarButton(
   const execute = doc.getElementById(EXECUTE_WORKFLOW_BUTTON_ID);
   execute?.remove();
   const skillRunner = doc.getElementById(SKILLRUNNER_BUTTON_ID);
+  if (skillRunner) {
+    uninstallWorkspaceToolbarTaskPopover({ anchor: skillRunner });
+  }
   skillRunner?.remove();
+  removeLegacySkillRunnerAttentionButton(doc);
   const existing = doc.getElementById(DASHBOARD_BUTTON_ID);
-  uninstallWorkspaceToolbarTaskPopover({ anchor: existing });
   existing?.remove();
 }

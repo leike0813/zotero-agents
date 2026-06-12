@@ -25,13 +25,14 @@ Synthesis runtime DB uses typed `synt_*` tables for normal UI, Host Bridge, expl
 | Artifact sidecar | One lightweight row per `source_ref` that has been seen by Synthesis; stores artifact existence, locators, hashes/fingerprints, diagnostics, and scan timing. It does not store Zotero item metadata. |
 | Raw references | Reference occurrences extracted from references artifacts, keyed by `source_ref`, `references_artifact_hash`, reference index, and raw/reference hash; old rows are marked `stale` when the artifact hash changes. |
 | Canonical references and redirects | Dedupe representatives for raw references plus redirect/merge facts. These are Synthesis sidecar reference identities, not Zotero item rows. |
-| Reference bindings | Canonical-reference-to-Zotero binding rows with status, confidence, method, evidence, and durable user decisions. |
-| Citation graph cache | Nodes, edges, incoming groups, metrics, layout state, cache-basis metadata, staging/active pointers for derived graph outputs, related-items sync effect/provenance state. Built from active raw references, effective canonical references, and bindings. |
-| Topic artifacts/discovery | Topic definitions/artifact state, source dependency baselines, source-check diagnostics, topic interest metadata, discovery hints. |
+| Reference bindings | `synt_reference_binding`, `synt_reference_match_proposal`. Canonical-reference-to-Zotero binding rows with status, confidence, method, evidence, and durable user decisions (`synt_reference_binding`). Match proposals linking canonical references to Zotero items by confidence and score (`synt_reference_match_proposal`). |
+| Citation graph cache | `synt_citation_node`, `synt_citation_edge`, `synt_citation_source_ownership`, `synt_citation_incoming_group`, `synt_citation_metrics_light`, `synt_citation_metrics_complex`, `synt_citation_layout_state`, `synt_cache_basis`, `synt_related_items_sync_effect`. Nodes, edges, incoming groups, metrics, layout state, cache-basis metadata (`synt_cache_basis` tracks freshness per cache key), staging/active pointers for derived graph outputs, related-items sync effect/provenance state. Built from active raw references, effective canonical references, and bindings. |
+| Topic artifacts/discovery | `synt_topic_interest_metadata`, `synt_topic_discovery_hint`, `synt_literature_matching_metadata`. Topic definitions/artifact state, source dependency baselines, source-check diagnostics, topic interest metadata, discovery hints, per-paper literature matching metadata (key terms, methods, problems, datasets). |
 | Topic graph | Topic graph nodes/edges, proposals, accepted/rejected relation facts, review rows. |
 | Concepts | Concept records, senses, aliases, relations, topic links, proposal/review state. |
 | Tags | Vocabulary entries, aliases, abbreviations, protocols, validation/import state. |
 | Review/overrides | Cross-domain current review items plus optional receipts; long-lived effects remain in domain-local tables. |
+| Operation progress | `synt_operation`. Cross-cutting runtime operation tracking — long-running background operation progress (phase, message, processed/skipped/failed/total counts). Runtime command progress has one source: `synt_operation`. |
 | Removed runtime queue/jobs and old library index | Dirty events, job progress rows, WorkItems, WorkRuns, queue meta, Registry rebuild runs, and old library-fact projection tables must not be part of active sidecar persistence. |
 
 Graph-derived rows that replace visible state must either be scoped by run/basis until promotion or be guarded by an equivalent active pointer. Workbench hot reads must not read staged rows from an unpromoted run.
@@ -40,7 +41,7 @@ Do not store Synthesis sidecar facts in generic plugin task rows or `data/synthe
 
 Do not use SQLite sidecar rows as proof that Zotero Library is synchronized. Correctness-sensitive reads must go back to Zotero Library and artifact notes. The only stable source item key stored by the reference sidecar is `source_ref = <libraryId>:<itemKey>`.
 
-Runtime readiness has one source: `synt_cache_basis`. Runtime command progress has one source: `synt_operation`. Legacy sidecar state files, sidecar index files, graph index files, and graph manifests may exist only as old exports, checkpoints, debug/import material, or cleanup residue. They must not drive Workbench readiness, background job rows, Index status, or Graph status.
+Runtime readiness has one source: `synt_cache_basis` (citation graph cache family). Runtime command progress has one source: `synt_operation` (operation progress family). Legacy sidecar state files, sidecar index files, graph index files, and graph manifests may exist only as old exports, checkpoints, debug/import material, or cleanup residue. They must not drive Workbench readiness, background job rows, Index status, or Graph status.
 
 ## `data/synthesis` Boundary
 

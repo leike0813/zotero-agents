@@ -18,6 +18,7 @@ import {
   ACP_PROTOCOL_VERSION,
   type AcpSessionConfigCategory,
   type AcpSessionConfigOption,
+  type JsonRpcNotification,
   type NewSessionResponse,
   type RequestPermissionOutcome,
   RequestError,
@@ -144,6 +145,10 @@ function compactError(error: unknown) {
     .trim();
 }
 
+function normalizeString(value: unknown) {
+  return String(value || "").trim();
+}
+
 function compactText(value: unknown, limit = 360) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
   if (!text) {
@@ -157,6 +162,15 @@ function safeJson(value: unknown, limit = 4000) {
     return compactText(JSON.stringify(value, null, 2), limit);
   } catch {
     return compactText(value, limit);
+  }
+}
+
+function safeJsonRaw(value: unknown, limit = 4000) {
+  try {
+    const text = JSON.stringify(value);
+    return text.length > limit ? `${text.slice(0, limit)}...` : text;
+  } catch {
+    return String(value || "");
   }
 }
 
@@ -258,6 +272,10 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   private canUseSseMcp = false;
   private currentSessionId = "";
   private latestConfigOptions: AcpSessionConfigOption[] = [];
+  private claudeRawSdkMetaDisabled = false;
+  private readonly activePromptSessions = new Set<string>();
+  private readonly standardAssistantTextSessions = new Set<string>();
+  private readonly rawAssistantTextBySession = new Map<string, string[]>();
   private closing = false;
   private unsubscribeZoteroMcpDiagnostics: () => void = () => undefined;
   private readonly zoteroMcpDiagnosticListener = (event: ZoteroMcpDiagnosticEvent) => {
@@ -349,6 +367,180 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       detail: JSON.stringify(event),
       raw: event,
     });
+  }
+
+  private isClaudeFamilyBackend() {
+    return (
+      normalizeString(this.args.backend.acp?.agentFamily).toLowerCase() ===
+      "claude-code"
+    );
+  }
+
+  private shouldRequestClaudeRawSdkMessages() {
+    return this.isClaudeFamilyBackend() && !this.claudeRawSdkMetaDisabled;
+  }
+
+  private buildClaudeRawSdkMeta() {
+    return {
+      claudeCode: {
+        emitRawSDKMessages: [
+          {
+            type: "assistant",
+          },
+        ],
+      },
+    };
+  }
+
+  private withClaudeRawSdkMeta<T extends Record<string, unknown>>(
+    params: T,
+  ): T & { _meta?: unknown } {
+    if (!this.shouldRequestClaudeRawSdkMessages()) {
+      return params;
+    }
+    return {
+      ...params,
+      _meta: this.buildClaudeRawSdkMeta(),
+    };
+  }
+
+  private isClaudeRawSdkMetaUnsupportedError(error: unknown) {
+    if (!isRequestError(error)) {
+      return false;
+    }
+    if (error.code !== -32600 && error.code !== -32602 && error.code !== -32603) {
+      return false;
+    }
+    const detail = `${error.message} ${safeJsonRaw(error.data, 2000)}`;
+    return /(?:_meta|meta|invalid params|unknown|unexpected|unrecognized|deserialize|schema)/i.test(
+      detail,
+    );
+  }
+
+  private disableClaudeRawSdkMeta(stage: string, error: unknown) {
+    this.claudeRawSdkMetaDisabled = true;
+    this.emitDiagnostic({
+      kind: "claude_raw_sdk_extension_disabled",
+      level: "warn",
+      message:
+        "Claude raw SDK message extension was rejected; retrying without provider extension metadata.",
+      detail: compactError(error),
+      stage,
+    });
+  }
+
+  private extractClaudeRawSdkAssistantText(notification: JsonRpcNotification) {
+    if (notification.method !== "_claude/sdkMessage") {
+      return [] as string[];
+    }
+    const params = notification.params as
+      | {
+          sessionId?: unknown;
+          message?: {
+            type?: unknown;
+            message?: {
+              content?: unknown;
+            };
+          };
+        }
+      | undefined;
+    if (normalizeString(params?.message?.type) !== "assistant") {
+      return [];
+    }
+    const content = params?.message?.message?.content;
+    if (!Array.isArray(content)) {
+      return [];
+    }
+    return content
+      .filter((entry) => normalizeString(entry?.type) === "text")
+      .map((entry) => String(entry?.text || ""))
+      .filter((text) => text.length > 0);
+  }
+
+  private bufferClaudeRawSdkAssistantText(notification: JsonRpcNotification) {
+    if (!this.isClaudeFamilyBackend()) {
+      return;
+    }
+    const params = notification.params as { sessionId?: unknown } | undefined;
+    const sessionId = normalizeString(params?.sessionId);
+    if (!sessionId || !this.activePromptSessions.has(sessionId)) {
+      return;
+    }
+    const chunks = this.extractClaudeRawSdkAssistantText(notification);
+    if (chunks.length === 0) {
+      return;
+    }
+    const existing = this.rawAssistantTextBySession.get(sessionId) || [];
+    this.rawAssistantTextBySession.set(sessionId, [...existing, ...chunks]);
+  }
+
+  private async emitSessionUpdate(params: SessionNotification) {
+    const update = params?.update as
+      | {
+          sessionUpdate?: string;
+          configOptions?: unknown;
+          content?: { type?: string | null; text?: string | null };
+        }
+      | undefined;
+    if (String(update?.sessionUpdate || "").trim() === "config_option_update") {
+      this.updateLatestConfigOptions(update?.configOptions);
+    }
+    if (
+      String(update?.sessionUpdate || "").trim() === "agent_message_chunk" &&
+      normalizeString(update?.content?.type) === "text" &&
+      String(update?.content?.text || "").length > 0
+    ) {
+      this.standardAssistantTextSessions.add(
+        normalizeString(params.sessionId),
+      );
+    }
+    for (const listener of this.updateListeners) {
+      await listener(params);
+    }
+  }
+
+  private async flushClaudeRawSdkAssistantText(sessionIdRaw: string) {
+    const sessionId = normalizeString(sessionIdRaw);
+    if (!sessionId) {
+      return;
+    }
+    const chunks = this.rawAssistantTextBySession.get(sessionId) || [];
+    if (chunks.length === 0 || this.standardAssistantTextSessions.has(sessionId)) {
+      return;
+    }
+    this.emitDiagnostic({
+      kind: "claude_raw_sdk_assistant_fallback",
+      message:
+        "Projected Claude raw SDK assistant text because the standard ACP assistant stream was empty.",
+      detail: JSON.stringify({
+        sessionId,
+        chunks: chunks.length,
+        totalTextLength: chunks.join("").length,
+      }),
+      stage: "session_prompt",
+    });
+    for (const text of chunks) {
+      await this.emitSessionUpdate({
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text,
+          },
+        },
+      });
+    }
+  }
+
+  private clearPromptCapture(sessionIdRaw: string) {
+    const sessionId = normalizeString(sessionIdRaw);
+    if (!sessionId) {
+      return;
+    }
+    this.activePromptSessions.delete(sessionId);
+    this.standardAssistantTextSessions.delete(sessionId);
+    this.rawAssistantTextBySession.delete(sessionId);
   }
 
   private async resolveMcpServers(stage: string) {
@@ -566,15 +758,10 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         };
       },
       sessionUpdate: async (params) => {
-        const update = params?.update as
-          | { sessionUpdate?: string; configOptions?: unknown }
-          | undefined;
-        if (String(update?.sessionUpdate || "").trim() === "config_option_update") {
-          this.updateLatestConfigOptions(update?.configOptions);
-        }
-        for (const listener of this.updateListeners) {
-          await listener(params);
-        }
+        await this.emitSessionUpdate(params);
+      },
+      providerNotification: async (notification) => {
+        this.bufferClaudeRawSdkAssistantText(notification);
       },
     };
   }
@@ -747,11 +934,15 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     if (!this.connection) {
       await this.initialize();
     }
+    const cwd = this.args.agentWorkspaceDir || this.args.sessionCwd;
+    const mcpServers = await this.resolveMcpServers("session_new");
     try {
-      const response = (await this.connection!.newSession({
-        cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
-        mcpServers: await this.resolveMcpServers("session_new"),
-      })) as NewSessionResponse & {
+      const response = (await this.connection!.newSession(
+        this.withClaudeRawSdkMeta({
+          cwd,
+          mcpServers,
+        }),
+      )) as NewSessionResponse & {
         title?: string | null;
         updatedAt?: string | null;
       };
@@ -772,6 +963,35 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         models: response.models || null,
       };
     } catch (error) {
+      if (
+        this.shouldRequestClaudeRawSdkMessages() &&
+        this.isClaudeRawSdkMetaUnsupportedError(error)
+      ) {
+        this.disableClaudeRawSdkMeta("session_new", error);
+        const response = (await this.connection!.newSession({
+          cwd,
+          mcpServers,
+        })) as NewSessionResponse & {
+          title?: string | null;
+          updatedAt?: string | null;
+        };
+        const configOptions = this.updateLatestConfigOptions(
+          response.configOptions,
+        );
+        this.emitDiagnostic({
+          kind: "session_created",
+          message: `Created ACP session ${String(response.sessionId || "").trim()}`,
+        });
+        this.currentSessionId = String(response.sessionId || "").trim();
+        return {
+          sessionId: this.currentSessionId,
+          sessionTitle: String(response.title || "").trim() || undefined,
+          sessionUpdatedAt: String(response.updatedAt || "").trim() || undefined,
+          configOptions,
+          modes: response.modes || null,
+          models: response.models || null,
+        };
+      }
       if (
         (isRequestError(error) && error.code === -32000) ||
         /authentication required/i.test(compactError(error))
@@ -805,12 +1025,16 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       kind: "session_load_attempted",
       message: `Loading ACP session ${sessionId}`,
     });
+    const cwd = this.args.agentWorkspaceDir || this.args.sessionCwd;
+    const mcpServers = await this.resolveMcpServers("session_load");
     try {
-      const response = await this.connection!.loadSession({
-        sessionId,
-        cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
-        mcpServers: await this.resolveMcpServers("session_load"),
-      });
+      const response = await this.connection!.loadSession(
+        this.withClaudeRawSdkMeta({
+          sessionId,
+          cwd,
+          mcpServers,
+        }),
+      );
       this.emitDiagnostic({
         kind: "session_load_succeeded",
         message: `Loaded ACP session ${sessionId}`,
@@ -826,6 +1050,33 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         models: response?.models || null,
       };
     } catch (error) {
+      if (
+        this.shouldRequestClaudeRawSdkMessages() &&
+        this.isClaudeRawSdkMetaUnsupportedError(error)
+      ) {
+        this.disableClaudeRawSdkMeta("session_load", error);
+        const response = await this.connection!.loadSession({
+          sessionId,
+          cwd,
+          mcpServers,
+        });
+        this.emitDiagnostic({
+          kind: "session_load_succeeded",
+          message: `Loaded ACP session ${sessionId}`,
+        });
+        this.currentSessionId = sessionId;
+        const configOptions = this.updateLatestConfigOptions(
+          response?.configOptions,
+        );
+        return {
+          sessionId,
+          sessionTitle: String(response?.title || "").trim() || undefined,
+          sessionUpdatedAt: String(response?.updatedAt || "").trim() || undefined,
+          configOptions,
+          modes: response?.modes || null,
+          models: response?.models || null,
+        };
+      }
       this.emitErrorDiagnostic({
         kind: "session_restore_failed",
         message: "Failed to load ACP session",
@@ -845,12 +1096,16 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       kind: "session_resume_attempted",
       message: `Resuming ACP session ${sessionId}`,
     });
+    const cwd = this.args.agentWorkspaceDir || this.args.sessionCwd;
+    const mcpServers = await this.resolveMcpServers("session_resume");
     try {
-      const response = await this.connection!.resumeSession({
-        sessionId,
-        cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
-        mcpServers: await this.resolveMcpServers("session_resume"),
-      });
+      const response = await this.connection!.resumeSession(
+        this.withClaudeRawSdkMeta({
+          sessionId,
+          cwd,
+          mcpServers,
+        }),
+      );
       this.emitDiagnostic({
         kind: "session_resume_succeeded",
         message: `Resumed ACP session ${sessionId}`,
@@ -866,6 +1121,33 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         models: response?.models || null,
       };
     } catch (error) {
+      if (
+        this.shouldRequestClaudeRawSdkMessages() &&
+        this.isClaudeRawSdkMetaUnsupportedError(error)
+      ) {
+        this.disableClaudeRawSdkMeta("session_resume", error);
+        const response = await this.connection!.resumeSession({
+          sessionId,
+          cwd,
+          mcpServers,
+        });
+        this.emitDiagnostic({
+          kind: "session_resume_succeeded",
+          message: `Resumed ACP session ${sessionId}`,
+        });
+        this.currentSessionId = sessionId;
+        const configOptions = this.updateLatestConfigOptions(
+          response?.configOptions,
+        );
+        return {
+          sessionId,
+          sessionTitle: String(response?.title || "").trim() || undefined,
+          sessionUpdatedAt: String(response?.updatedAt || "").trim() || undefined,
+          configOptions,
+          modes: response?.modes || null,
+          models: response?.models || null,
+        };
+      }
       this.emitErrorDiagnostic({
         kind: "session_restore_failed",
         message: "Failed to resume ACP session",
@@ -887,6 +1169,11 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       kind: "prompt_started",
       message: `Prompt started for ${args.sessionId}`,
     });
+    const sessionId = normalizeString(args.sessionId);
+    this.clearPromptCapture(sessionId);
+    if (sessionId) {
+      this.activePromptSessions.add(sessionId);
+    }
     try {
       const response = await this.connection!.prompt({
         sessionId: args.sessionId,
@@ -900,6 +1187,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           },
         ],
       });
+      await this.flushClaudeRawSdkAssistantText(args.sessionId);
       this.emitDiagnostic({
         kind: "prompt_finished",
         message: `Prompt finished with ${String(response.stopReason || "").trim() || "unknown"}`,
@@ -915,6 +1203,8 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         stage: "session_prompt",
       });
       throw error;
+    } finally {
+      this.clearPromptCapture(args.sessionId);
     }
   }
 

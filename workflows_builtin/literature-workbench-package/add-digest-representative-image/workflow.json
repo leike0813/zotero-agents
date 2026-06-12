@@ -3,6 +3,7 @@
   "label": "Add Digest Representative Image",
   "version": "1.0.0",
   "provider": "pass-through",
+  "debug_only": true,
   "parameters": {
     "markdown_src": {
       "type": "string",

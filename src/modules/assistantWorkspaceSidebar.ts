@@ -9,7 +9,7 @@ import {
   SKILLRUNNER_ICON_URI,
   applyToolbarButtonStyling,
   syncToolbarButtonIconFill,
-  updateSkillRunnerToolbarButtonBadge,
+  updateAssistantToolbarAttention,
 } from "./dashboardToolbarButton";
 import { buildAcpHostContext } from "./acpContextBuilder";
 import { buildAcpSidebarViewSnapshot } from "./acpSidebarModel";
@@ -69,6 +69,7 @@ import {
 } from "./skillRunnerSidebarModel";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { listActiveWorkflowTasks, subscribeWorkflowTasks } from "./taskRuntime";
+import { countDashboardHumanAttentionTasks } from "./dashboardActiveTasks";
 import { normalizeStatus } from "./skillRunnerProviderStateMachine";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import {
@@ -126,7 +127,10 @@ type AssistantWorkspaceBridge = {
   ) => Promise<AssistantWorkspaceBridgeResult>;
 };
 
-const hosts = new WeakMap<_ZoteroTypes.MainWindow, AssistantWorkspaceHostRuntime>();
+const hosts = new WeakMap<
+  _ZoteroTypes.MainWindow,
+  AssistantWorkspaceHostRuntime
+>();
 const FRAME_WINDOW_WAIT_TIMEOUT_MS = 2000;
 const DEFAULT_TAB: AssistantWorkspaceTab = "acp-chat";
 const ASSISTANT_WORKSPACE_BRIDGE_KEY = "__zsAssistantWorkspaceBridge";
@@ -140,10 +144,13 @@ function resolveSidebarPageUrl() {
   return `chrome://${addonRef}/content/dashboard/assistant-workspace.html`;
 }
 
-function resolvePreferredTarget(win: _ZoteroTypes.MainWindow): AcpSidebarTarget {
+function resolvePreferredTarget(
+  win: _ZoteroTypes.MainWindow,
+): AcpSidebarTarget {
   const tabs = (win as any).Zotero_Tabs;
   const selectedIndex = Number(tabs?.selectedIndex || 0);
-  return selectedIndex > 0 || String(tabs?.selectedType || "").trim() === "reader"
+  return selectedIndex > 0 ||
+    String(tabs?.selectedType || "").trim() === "reader"
     ? "reader"
     : "library";
 }
@@ -180,9 +187,9 @@ async function waitForPaneFrameWindow(
 function getLibraryRoots(win: _ZoteroTypes.MainWindow) {
   const itemPane = win.document.getElementById("zotero-item-pane");
   const defaultDeck = itemPane?.querySelector("#zotero-item-pane-content");
-  const sidenav = itemPane?.querySelector("#zotero-view-item-sidenav") as
-    | XULElement
-    | null;
+  const sidenav = itemPane?.querySelector(
+    "#zotero-view-item-sidenav",
+  ) as XULElement | null;
   return { itemPane, defaultDeck, sidenav };
 }
 
@@ -226,10 +233,15 @@ function buildSidebarButton(
   const button = doc.createXULElement("toolbarbutton") as SidebarButtonElement;
   button.id = id;
   button.setAttribute("class", "zotero-tb-button zs-assistant-sidebar-button");
+  button.setAttribute("data-zs-role", "assistant-sidebar-entry");
   button.setAttribute("tooltiptext", label);
   button.setAttribute("aria-label", label);
   button.setAttribute("image", SKILLRUNNER_ICON_URI);
-  applyToolbarButtonStyling(button as Element & { style?: CSSStyleDeclaration }, SKILLRUNNER_ICON_URI, 26);
+  applyToolbarButtonStyling(
+    button as Element & { style?: CSSStyleDeclaration },
+    SKILLRUNNER_ICON_URI,
+    26,
+  );
   syncToolbarButtonIconFill(
     button as Element & {
       style?: CSSStyleDeclaration;
@@ -242,7 +254,10 @@ function buildSidebarButton(
   return button;
 }
 
-function setButtonSelected(button: SidebarButtonElement | null, selected: boolean) {
+function setButtonSelected(
+  button: SidebarButtonElement | null,
+  selected: boolean,
+) {
   if (!button) {
     return;
   }
@@ -254,33 +269,21 @@ function setButtonSelected(button: SidebarButtonElement | null, selected: boolea
   }
 }
 
-function setButtonBadge(button: SidebarButtonElement | null, waitingCount: number) {
-  if (!button) {
-    return;
-  }
-  if (waitingCount > 0) {
-    button.setAttribute("data-badge", String(waitingCount));
-  } else {
-    button.removeAttribute("data-badge");
-  }
-}
-
 function countWaitingTasks() {
-  const workflowWaiting = listActiveWorkflowTasks().filter((task) => {
-    const normalized = normalizeStatus(task.state, "running");
-    return normalized === "waiting_user" || normalized === "waiting_auth";
-  }).length;
-  const acpSkillWaiting = listAcpSkillRuns().filter((run) => {
-    const normalized = normalizeStatus(run.status, "running");
-    return normalized === "waiting_user" || normalized === "waiting_auth" || !!run.pendingPermission;
-  }).length;
-  return workflowWaiting + acpSkillWaiting;
+  return countDashboardHumanAttentionTasks({
+    activeTasks: listActiveWorkflowTasks(),
+    acpSkillRuns: listAcpSkillRuns(),
+  });
 }
 
 function maybeShowAcpSkillWaitingToasts(host: AssistantWorkspaceHostRuntime) {
   const waitingRuns = listAcpSkillRuns().filter((run) => {
     const normalized = normalizeStatus(run.status, "running");
-    return normalized === "waiting_user" || normalized === "waiting_auth" || !!run.pendingPermission;
+    return (
+      normalized === "waiting_user" ||
+      normalized === "waiting_auth" ||
+      !!run.pendingPermission
+    );
   });
   const nextKeys = new Set<string>();
   for (const run of waitingRuns) {
@@ -293,16 +296,17 @@ function maybeShowAcpSkillWaitingToasts(host: AssistantWorkspaceHostRuntime) {
     showWorkflowToast({
       text: `${run.workflowLabel || run.taskName || run.skillId || "ACP Skill"} needs your input.`,
       type: "default",
+      semantic: "waiting",
     });
   }
   host.lastAcpSkillWaitingToastKeys = nextKeys;
 }
 
-function updateSidebarBadges(host: AssistantWorkspaceHostRuntime) {
+function updateAssistantAttentionIndicator(
+  host: AssistantWorkspaceHostRuntime,
+) {
   const waitingCount = countWaitingTasks();
-  setButtonBadge(host.library.button, waitingCount);
-  setButtonBadge(host.reader.button, waitingCount);
-  updateSkillRunnerToolbarButtonBadge(host.win, waitingCount);
+  updateAssistantToolbarAttention(host.win, waitingCount);
 }
 
 function deactivateTarget(
@@ -380,8 +384,13 @@ function buildDecoratedSkillRunnerSnapshot(
   return decorated;
 }
 
-function createSkillRunnerHostActionHandler(host: AssistantWorkspaceHostRuntime) {
-  return async (envelope: { action?: string; payload?: Record<string, unknown> }) => {
+function createSkillRunnerHostActionHandler(
+  host: AssistantWorkspaceHostRuntime,
+) {
+  return async (envelope: {
+    action?: string;
+    payload?: Record<string, unknown>;
+  }) => {
     const action = String(envelope.action || "").trim();
     if (action === "toggle-drawer") {
       host.drawerOpen = !host.drawerOpen;
@@ -632,35 +641,36 @@ async function handleAssistantWorkspaceMessage(
   const action = String(actionPayload.action || "").trim();
   const tab = normalizeTab(actionPayload.tab);
   try {
-  if (data.type === "assistant-workspace:action") {
-    await handleShellAction(host, target, data.payload || {});
-    logAssistantShellAction({
-      host,
-      target,
-      type: data.type,
-      tab,
-      action,
-      actionId,
-      result: "ok",
-    });
+    if (data.type === "assistant-workspace:action") {
+      await handleShellAction(host, target, data.payload || {});
+      logAssistantShellAction({
+        host,
+        target,
+        type: data.type,
+        tab,
+        action,
+        actionId,
+        result: "ok",
+      });
+      return { ok: true, actionId };
+    }
+    if (data.type === "assistant-workspace:child-action") {
+      await handleChildAction(host, target, data.payload || {});
+      logAssistantShellAction({
+        host,
+        target,
+        type: data.type,
+        tab,
+        action,
+        actionId,
+        result: "ok",
+      });
+      return { ok: true, actionId };
+    }
     return { ok: true, actionId };
-  }
-  if (data.type === "assistant-workspace:child-action") {
-    await handleChildAction(host, target, data.payload || {});
-    logAssistantShellAction({
-      host,
-      target,
-      type: data.type,
-      tab,
-      action,
-      actionId,
-      result: "ok",
-    });
-    return { ok: true, actionId };
-  }
-  return { ok: true, actionId };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || "unknown error");
+    const message =
+      error instanceof Error ? error.message : String(error || "unknown error");
     logAssistantShellAction({
       host,
       target,
@@ -720,7 +730,10 @@ async function handleShellAction(
       target,
       "init",
     );
-    postAcpSkillRunSnapshot(target === "reader" ? host.reader : host.library, "init");
+    postAcpSkillRunSnapshot(
+      target === "reader" ? host.reader : host.library,
+      "init",
+    );
     return;
   }
   if (action === "set-tab") {
@@ -753,7 +766,9 @@ async function handleChildAction(
   const tab = normalizeTab(payload.tab);
   const action = String(payload.action || "").trim();
   const childPayload =
-    payload.payload && typeof payload.payload === "object" && !Array.isArray(payload.payload)
+    payload.payload &&
+    typeof payload.payload === "object" &&
+    !Array.isArray(payload.payload)
       ? (payload.payload as Record<string, unknown>)
       : {};
   if (tab === "skillrunner") {
@@ -798,7 +813,9 @@ async function handleAcpSkillRunAction(
       return;
     }
     if (action === "interrupt-run-turn") {
-      await interruptAcpSkillRunCurrentTurn(String(payload.requestId || "").trim());
+      await interruptAcpSkillRunCurrentTurn(
+        String(payload.requestId || "").trim(),
+      );
       return;
     }
     if (action === "archive-run") {
@@ -848,7 +865,9 @@ async function handleAcpSkillRunAction(
     }
     if (action === "copy-diagnostics") {
       const requestId = String(payload.requestId || "").trim();
-      const snapshot = buildAcpSkillRunPanelSnapshot({ selectedRequestId: requestId });
+      const snapshot = buildAcpSkillRunPanelSnapshot({
+        selectedRequestId: requestId,
+      });
       copyText(JSON.stringify(snapshot, null, 2));
       return;
     }
@@ -919,13 +938,15 @@ async function handleAcpChatAction(
       const title = String(payload.title || "").trim();
       const conversationId = String(payload.conversationId || "").trim();
       const backendId = String(payload.backendId || "").trim();
-      if (title) await renameAcpConversation({ title, conversationId, backendId });
+      if (title)
+        await renameAcpConversation({ title, conversationId, backendId });
       return;
     }
     if (action === "archive-conversation") {
       const conversationId = String(payload.conversationId || "").trim();
       const backendId = String(payload.backendId || "").trim();
-      if (conversationId) await archiveAcpConversation({ conversationId, backendId });
+      if (conversationId)
+        await archiveAcpConversation({ conversationId, backendId });
       return;
     }
     if (action === "reconnect") {
@@ -933,11 +954,15 @@ async function handleAcpChatAction(
       return;
     }
     if (action === "connect") {
-      await connectAcpConversation({ backendId: String(payload.backendId || "").trim() });
+      await connectAcpConversation({
+        backendId: String(payload.backendId || "").trim(),
+      });
       return;
     }
     if (action === "disconnect") {
-      await disconnectAcpConversation({ backendId: String(payload.backendId || "").trim() });
+      await disconnectAcpConversation({
+        backendId: String(payload.backendId || "").trim(),
+      });
       return;
     }
     if (action === "cancel") {
@@ -953,7 +978,10 @@ async function handleAcpChatAction(
     }
     if (action === "resolve-permission") {
       await resolveAcpConversationPermission({
-        outcome: String(payload.outcome || "").trim() === "selected" ? "selected" : "cancelled",
+        outcome:
+          String(payload.outcome || "").trim() === "selected"
+            ? "selected"
+            : "cancelled",
         optionId: String(payload.optionId || "").trim(),
       });
       return;
@@ -975,19 +1003,26 @@ async function handleAcpChatAction(
     }
     if (action === "toggle-diagnostics") {
       toggleAcpConversationDiagnostics({
-        visible: typeof payload.visible === "boolean" ? Boolean(payload.visible) : undefined,
+        visible:
+          typeof payload.visible === "boolean"
+            ? Boolean(payload.visible)
+            : undefined,
       });
       return;
     }
     if (action === "toggle-status-details") {
       toggleAcpConversationStatusDetails({
-        expanded: typeof payload.expanded === "boolean" ? Boolean(payload.expanded) : undefined,
+        expanded:
+          typeof payload.expanded === "boolean"
+            ? Boolean(payload.expanded)
+            : undefined,
       });
       return;
     }
     if (action === "set-chat-display-mode") {
       setAcpConversationChatDisplayMode({
-        mode: String(payload.mode || "").trim() === "bubble" ? "bubble" : "plain",
+        mode:
+          String(payload.mode || "").trim() === "bubble" ? "bubble" : "plain",
       });
       return;
     }
@@ -1072,10 +1107,7 @@ function mountLibraryPane(host: AssistantWorkspaceHostRuntime) {
     (event: Event) => {
       const target = event.target as Element | null;
       if (!target) return;
-      if (
-        target === button ||
-        target.closest(`#${button.id}`)
-      ) {
+      if (target === button || target.closest(`#${button.id}`)) {
         return;
       }
       if (host.activeTarget === "library") deactivateTarget(host, "library");
@@ -1093,7 +1125,12 @@ function mountLibraryPane(host: AssistantWorkspaceHostRuntime) {
 
 function mountReaderPane(host: AssistantWorkspaceHostRuntime) {
   const roots = getReaderRoots(host.win);
-  if (!roots.contextPane || !roots.contextInner || !roots.sidenav || host.reader.container) {
+  if (
+    !roots.contextPane ||
+    !roots.contextInner ||
+    !roots.sidenav ||
+    host.reader.container
+  ) {
     return;
   }
   const doc = host.win.document;
@@ -1129,10 +1166,7 @@ function mountReaderPane(host: AssistantWorkspaceHostRuntime) {
     (event: Event) => {
       const target = event.target as Element | null;
       if (!target) return;
-      if (
-        target === button ||
-        target.closest(`#${button.id}`)
-      ) {
+      if (target === button || target.closest(`#${button.id}`)) {
         return;
       }
       if (host.activeTarget === "reader") deactivateTarget(host, "reader");
@@ -1162,7 +1196,10 @@ async function activateTarget(
     host.library.frameWindow = frameWindow;
     installShellBridge(host, host.library, "library");
     deactivateTarget(host, "reader");
-    (libraryRoots.defaultDeck as Element | null)?.setAttribute("hidden", "true");
+    (libraryRoots.defaultDeck as Element | null)?.setAttribute(
+      "hidden",
+      "true",
+    );
     setSidebarContainerVisible(host.library.container, true);
     setButtonSelected(host.library.button, true);
     host.activeTarget = "library";
@@ -1189,7 +1226,9 @@ async function activateTarget(
   return true;
 }
 
-export function installAssistantWorkspaceSidebarShell(win: _ZoteroTypes.MainWindow) {
+export function installAssistantWorkspaceSidebarShell(
+  win: _ZoteroTypes.MainWindow,
+) {
   const existing = hosts.get(win);
   if (existing) {
     return existing;
@@ -1212,12 +1251,12 @@ export function installAssistantWorkspaceSidebarShell(win: _ZoteroTypes.MainWind
   host.removeAcpSkillRunSubscription = subscribeAcpSkillRunSnapshots(() => {
     maybeShowAcpSkillWaitingToasts(host);
     schedulePostSnapshot(host);
-    updateSidebarBadges(host);
+    updateAssistantAttentionIndicator(host);
   });
   host.removeTaskSubscription = subscribeWorkflowTasks(() => {
-    updateSidebarBadges(host);
+    updateAssistantAttentionIndicator(host);
   });
-  updateSidebarBadges(host);
+  updateAssistantAttentionIndicator(host);
   hosts.set(win, host);
   return host;
 }
@@ -1237,7 +1276,10 @@ export function removeAssistantWorkspaceSidebarShell(
     host.postSnapshotTimer = null;
   }
   if (host.library.frame && host.library.frameLoadHandler) {
-    host.library.frame.removeEventListener("load", host.library.frameLoadHandler);
+    host.library.frame.removeEventListener(
+      "load",
+      host.library.frameLoadHandler,
+    );
   }
   if (host.reader.frame && host.reader.frameLoadHandler) {
     host.reader.frame.removeEventListener("load", host.reader.frameLoadHandler);
@@ -1248,7 +1290,6 @@ export function removeAssistantWorkspaceSidebarShell(
   host.library.container?.remove();
   host.reader.button?.remove();
   host.reader.container?.remove();
-  updateSkillRunnerToolbarButtonBadge(typedWin, 0);
   hosts.delete(typedWin);
 }
 
@@ -1257,17 +1298,20 @@ export async function openAssistantWorkspaceSidebar(args?: {
   tab?: AssistantWorkspaceTab;
   backend?: BackendInstance;
   requestId?: string;
+  target?: AcpSidebarTarget;
 }) {
   const win =
     args?.window ||
     (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
   if (!win) return false;
   const host = installAssistantWorkspaceSidebarShell(win);
-  host.activeTab = normalizeTab(args?.tab || host.activeTab);
+  if (args && "tab" in args && args.tab) {
+    host.activeTab = normalizeTab(args.tab);
+  }
   if (host.activeTab === "acp-skills" && args?.requestId) {
     selectAcpSkillRun(args.requestId);
   }
-  const target = resolvePreferredTarget(win);
+  const target = args?.target || resolvePreferredTarget(win);
   const activated = await activateTarget(host, target);
   if (activated && host.activeTab === "skillrunner") {
     await focusSkillRunnerWorkspace({
@@ -1277,7 +1321,10 @@ export async function openAssistantWorkspaceSidebar(args?: {
     });
   }
   if (activated) {
-    postShellInit(target === "reader" ? host.reader : host.library, host.activeTab);
+    postShellInit(
+      target === "reader" ? host.reader : host.library,
+      host.activeTab,
+    );
   }
   return activated;
 }
@@ -1307,6 +1354,7 @@ export function isAssistantWorkspaceSidebarOpen(args?: {
 export async function toggleAssistantWorkspaceSidebar(args?: {
   window?: _ZoteroTypes.MainWindow;
   tab?: AssistantWorkspaceTab;
+  target?: AcpSidebarTarget;
 }) {
   const win =
     args?.window ||
@@ -1314,9 +1362,17 @@ export async function toggleAssistantWorkspaceSidebar(args?: {
   if (!win) return false;
   const host = installAssistantWorkspaceSidebarShell(win);
   if (host.activeTarget) {
+    if (args?.target && host.activeTarget !== args.target) {
+      await activateTarget(host, args.target);
+      return true;
+    }
     closeActiveSidebarHost(host);
     return false;
   }
-  await openAssistantWorkspaceSidebar({ window: win, tab: args?.tab });
+  await openAssistantWorkspaceSidebar({
+    window: win,
+    tab: args?.tab,
+    target: args?.target,
+  });
   return true;
 }

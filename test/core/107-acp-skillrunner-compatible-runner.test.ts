@@ -22,6 +22,7 @@ import {
   interruptAcpSkillRunCurrentTurn,
   listAcpSkillRuns,
   recordAcpSkillRunSessionUpdate,
+  reconcileAcpSkillRunWorkflowTasksOnStartup,
   registerAcpSkillRunController,
   replyAcpSkillRun,
   resolveAcpSkillRunPermissionRequest,
@@ -32,6 +33,7 @@ import {
   setAcpSkillRunPermissionRequest,
   setAcpSkillRunReasoningEffort,
   setAcpSkillRunRuntimeOptions,
+  shutdownAcpSkillRunConversations,
   subscribeAcpSkillRunSnapshots,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
@@ -42,6 +44,7 @@ import {
   wrapAcpBackendWithUv,
 } from "../../src/modules/acpRuntimeDependencyWrapper";
 import {
+  type AcpSkillRunnerDependencies,
   executeAcpSkillRunnerJob,
   recoverAcpSkillRunConversation,
 } from "../../src/modules/acpSkillRunnerOrchestrator";
@@ -73,6 +76,7 @@ import { resolveAcpSkillResultFileFallback } from "../../src/modules/acpSkillRes
 import { createAcpSkillRunnerWorkspace } from "../../src/modules/acpSkillRunnerWorkspace";
 import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
+import { RequestError } from "../../src/modules/acpProtocol";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import {
   listActiveWorkflowTasks,
@@ -309,6 +313,225 @@ function createFinalOutputAdapter(resultJson: Record<string, unknown>) {
   } satisfies AcpConnectionAdapter;
 }
 
+function createPromptStopAdapter(args: {
+  stopReason?: string;
+  assistantText?: string | ((promptCount: number) => string | undefined);
+  updates?: any[] | ((promptCount: number) => any[]);
+  promptError?: Error;
+}) {
+  let updateListener: ((event: any) => void | Promise<void>) | null = null;
+  let promptCount = 0;
+  const adapter = {
+    initialize: async () => ({
+      authMethods: [],
+      agentName: "fake",
+      agentVersion: "1",
+      commandLabel: "fake",
+      commandLine: "fake",
+      canLoadSession: true,
+      canResumeSession: true,
+      canUseHttpMcp: true,
+      canUseSseMcp: false,
+    }),
+    onUpdate: (listener: (event: any) => void | Promise<void>) => {
+      updateListener = listener;
+      return () => {
+        updateListener = null;
+      };
+    },
+    onClose: () => () => undefined,
+    onDiagnostics: () => () => undefined,
+    onPermissionRequest: () => () => undefined,
+    newSession: async () => ({ sessionId: "session-prompt-stop" }),
+    loadSession: async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+    }),
+    resumeSession: async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+    }),
+    prompt: async ({ sessionId }: { sessionId: string }) => {
+      promptCount += 1;
+      if (args.promptError) {
+        throw args.promptError;
+      }
+      const updates =
+        typeof args.updates === "function"
+          ? args.updates(promptCount)
+          : args.updates || [];
+      for (const update of updates) {
+        await updateListener?.({
+          sessionId,
+          update,
+        });
+      }
+      const assistantText =
+        typeof args.assistantText === "function"
+          ? args.assistantText(promptCount)
+          : args.assistantText;
+      if (typeof assistantText === "string") {
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: assistantText,
+            },
+          },
+        });
+      }
+      return { stopReason: args.stopReason || "end_turn" };
+    },
+    cancel: async () => undefined,
+    setMode: async () => undefined,
+    setModel: async () => undefined,
+    authenticate: async () => undefined,
+    close: async () => undefined,
+  } satisfies AcpConnectionAdapter;
+  return {
+    adapter,
+    getPromptCount: () => promptCount,
+  };
+}
+
+async function runDemoAcpSkill(args: {
+  root: string;
+  entry: Awaited<ReturnType<typeof createSkill>>["entry"];
+  adapter: AcpConnectionAdapter;
+  backend?: BackendInstance;
+  providerOptions?: Record<string, unknown>;
+  createWorkspace?: AcpSkillRunnerDependencies["createWorkspace"];
+}) {
+  return executeAcpSkillRunnerJob({
+    requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+    backend: args.backend || createBackend(),
+    providerOptions: args.providerOptions,
+    request: {
+      kind: ACP_SKILL_RUN_REQUEST_KIND,
+      skill_id: "demo-skill",
+      fetch_type: "bundle",
+    },
+    dependencies: {
+      scanRegistry: async () => ({
+        entries: [args.entry],
+        entriesById: { "demo-skill": args.entry },
+        diagnostics: [],
+      }),
+      createWorkspace:
+        args.createWorkspace ||
+        ((workspaceArgs) =>
+          createAcpSkillRunnerWorkspace({
+            ...workspaceArgs,
+            rootDir: args.root,
+          })),
+      createAdapter: async () => args.adapter,
+      sharedSkillCatalogRootDir: path.join(args.root, "shared-catalog"),
+    },
+  });
+}
+
+function createRuntimeModelAdapter(args: {
+  currentModelId?: string;
+  setModelCalls: string[];
+}) {
+  let updateListener: ((event: any) => void | Promise<void>) | null = null;
+  return {
+    initialize: async () => ({
+      authMethods: [],
+      agentName: "fake",
+      agentVersion: "1",
+      commandLabel: "fake",
+      commandLine: "fake",
+      canLoadSession: true,
+      canResumeSession: true,
+      canUseHttpMcp: true,
+      canUseSseMcp: false,
+    }),
+    onUpdate: (listener: (event: any) => void | Promise<void>) => {
+      updateListener = listener;
+      return () => {
+        updateListener = null;
+      };
+    },
+    onClose: () => () => undefined,
+    onDiagnostics: () => () => undefined,
+    onPermissionRequest: () => () => undefined,
+    newSession: async () => ({
+      sessionId: "session-runtime-model",
+      models: {
+        currentModelId: args.currentModelId || "",
+        availableModels: [],
+      },
+    }),
+    loadSession: async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+    }),
+    resumeSession: async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+    }),
+    prompt: async ({ sessionId }: { sessionId: string }) => {
+      await updateListener?.({
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+          },
+        },
+      });
+      return { stopReason: "end_turn" };
+    },
+    cancel: async () => undefined,
+    setMode: async () => undefined,
+    setModel: async ({ modelId }: { sessionId: string; modelId: string }) => {
+      args.setModelCalls.push(modelId);
+    },
+    authenticate: async () => undefined,
+    close: async () => undefined,
+  } satisfies AcpConnectionAdapter;
+}
+
+function createBackendWithRuntimeModels(args: {
+  currentRawModelId: string;
+  currentDisplayModelId?: string;
+}) {
+  return createBackend({
+    acp: {
+      runtimeOptionsCache: {
+        refreshedAt: "2026-06-12T00:00:00.000Z",
+        modes: [],
+        currentModeId: "",
+        rawModels: [
+          {
+            id: args.currentRawModelId,
+            label: args.currentRawModelId,
+          },
+          {
+            id: "alibaba-coding-plan:qwen3.6-plus",
+            label: "qwen3.6-plus",
+          },
+        ],
+        currentRawModelId: args.currentRawModelId,
+        displayModels: [
+          {
+            id: args.currentDisplayModelId || args.currentRawModelId,
+            label: args.currentDisplayModelId || args.currentRawModelId,
+          },
+          {
+            id: "alibaba-coding-plan:qwen3.6-plus",
+            label: "qwen3.6-plus",
+          },
+        ],
+        currentDisplayModelId:
+          args.currentDisplayModelId || args.currentRawModelId,
+        reasoningEfforts: [],
+        currentReasoningEffortId: "",
+      },
+    },
+  });
+}
+
 async function createHostBridgeWrapperSkill(root: string) {
   const skillId = "zotero-bridge-cli";
   const skillDir = path.join(root, "skills_builtin", skillId);
@@ -402,9 +625,16 @@ describe("ACP SkillRunner-compatible runner", function () {
     const claude = createBackend({
       id: "backend-acp-claude-code",
       command: "npx",
-      args: ["@zed-industries/claude-code-acp@latest"],
+      args: ["@agentclientprotocol/claude-agent-acp@latest"],
     });
     assert.equal(resolveAcpAgentFamily(claude), "claude-code");
+
+    const legacyClaude = createBackend({
+      id: "backend-acp-legacy-claude-code",
+      command: "npx",
+      args: ["@zed-industries/claude-code-acp@latest"],
+    });
+    assert.equal(resolveAcpAgentFamily(legacyClaude), "claude-code");
 
     const overridden = createBackend({
       acp: {
@@ -418,6 +648,57 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
     assert.equal(plan.family, "qwen-code");
     assert.match(plan.skillRoots[0].replace(/\\/g, "/"), /\.custom\/skills$/);
+  });
+
+  it("skips initial ACP model setting when the session already reports the target raw model", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const setModelCalls: string[] = [];
+    const currentModelId = "alibaba-coding-plan:qwen3.7-plus";
+    const adapter = createRuntimeModelAdapter({
+      currentModelId,
+      setModelCalls,
+    });
+
+    const result = await runDemoAcpSkill({
+      root,
+      entry,
+      adapter,
+      backend: createBackendWithRuntimeModels({
+        currentRawModelId: currentModelId,
+      }),
+      providerOptions: {
+        acpModelId: currentModelId,
+      },
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(setModelCalls, []);
+  });
+
+  it("keeps initial ACP model setting when the requested raw model differs from the session current model", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const setModelCalls: string[] = [];
+    const adapter = createRuntimeModelAdapter({
+      currentModelId: "alibaba-coding-plan:qwen3.7-plus",
+      setModelCalls,
+    });
+
+    const result = await runDemoAcpSkill({
+      root,
+      entry,
+      adapter,
+      backend: createBackendWithRuntimeModels({
+        currentRawModelId: "alibaba-coding-plan:qwen3.7-plus",
+      }),
+      providerOptions: {
+        acpModelId: "alibaba-coding-plan:qwen3.6-plus",
+      },
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(setModelCalls, ["alibaba-coding-plan:qwen3.6-plus"]);
   });
 
   it("keeps workflow active task rows synchronized with terminal ACP skill runs", function () {
@@ -473,6 +754,68 @@ describe("ACP SkillRunner-compatible runner", function () {
         (entry) => entry.requestId === "acp-archived-sync",
       ),
     );
+  });
+
+  it("preserves recoverable ACP skill run workflow tasks on startup", function () {
+    recordWorkflowTaskUpdate(
+      makeAcpWorkflowTaskJob({
+        requestId: "acp-recoverable-startup",
+        state: "running",
+      }),
+    );
+    upsertAcpSkillRun({
+      requestId: "acp-recoverable-startup",
+      backendId: "backend-acp",
+      backendType: "acp",
+      status: "running",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      activePrompt: true,
+    });
+
+    const result = reconcileAcpSkillRunWorkflowTasksOnStartup();
+
+    assert.equal(result.recoverableCount, 1);
+    assert.equal(result.failedCount, 0);
+    assert.sameMembers(
+      listActiveWorkflowTasks().map((entry) => entry.requestId),
+      ["acp-recoverable-startup"],
+    );
+    const run = getAcpSkillRunRecord("acp-recoverable-startup");
+    assert.equal(run?.status, "running");
+    assert.equal(run?.conversationState, "closed");
+    assert.equal(run?.conversationRecoveryState, "available");
+    assert.equal(run?.activePrompt, false);
+  });
+
+  it("fails non-recoverable ACP skill run workflow tasks on startup", function () {
+    recordWorkflowTaskUpdate(
+      makeAcpWorkflowTaskJob({
+        requestId: "acp-nonrecoverable-startup",
+        state: "running",
+      }),
+    );
+    upsertAcpSkillRun({
+      requestId: "acp-nonrecoverable-startup",
+      backendId: "backend-acp",
+      backendType: "acp",
+      status: "running",
+      conversationRecoveryState: "unavailable",
+    });
+
+    const result = reconcileAcpSkillRunWorkflowTasksOnStartup();
+
+    assert.equal(result.failedCount, 1);
+    assert.deepEqual(
+      listActiveWorkflowTasks().map((entry) => entry.requestId),
+      [],
+    );
+    const run = getAcpSkillRunRecord("acp-nonrecoverable-startup");
+    assert.equal(run?.status, "failed");
+    const task = listWorkflowTasks().find(
+      (entry) => entry.requestId === "acp-nonrecoverable-startup",
+    );
+    assert.equal(task?.state, "failed");
   });
 
   it("keeps ACP skill run listing stable by creation time and interrupts without canceling the run", async function () {
@@ -751,6 +1094,283 @@ describe("ACP SkillRunner-compatible runner", function () {
       });
       assert.equal(promptCalls, 2);
       assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "idle");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails recoverably without output repair when end_turn returns no assistant output", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+    });
+    try {
+      let caught: unknown;
+      try {
+        await runDemoAcpSkill({ root, entry, adapter });
+      } catch (error) {
+        caught = error;
+      }
+      const record = listAcpSkillRuns()[0];
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.instanceOf(caught, Error);
+      assert.equal(getPromptCount(), 1);
+      assert.equal(record?.status, "failed");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.equal(record?.repairRounds, 0);
+      assert.deepEqual(record?.outputRevisions, []);
+      assert.include(stages, "acp-prompt-no-output");
+      assert.notInclude(stages, "output-validation-failed");
+      assert.notInclude(stages, "repair-started");
+      assert.isTrue(
+        (record?.transcriptItems || []).some(
+          (item) =>
+            item.kind === "status" && item.label === "acp-prompt-no-output",
+        ),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts adapter-projected Claude raw SDK assistant text after empty standard chunks", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+      updates: [
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "",
+          },
+        },
+      ],
+      assistantText: JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+    });
+    try {
+      const result = await runDemoAcpSkill({ root, entry, adapter });
+      const record = listAcpSkillRuns()[0];
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.equal(result.status, "succeeded");
+      assert.equal(getPromptCount(), 1);
+      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.repairRounds, 0);
+      assert.equal(record?.validationStatus, "valid");
+      assert.notInclude(stages, "acp-prompt-no-output");
+      assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs invalid adapter-projected Claude raw SDK assistant text", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+      updates: [
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "",
+          },
+        },
+      ],
+      assistantText: (promptCount) =>
+        promptCount === 1
+          ? "non-contract fallback text"
+          : JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+    });
+    try {
+      const result = await runDemoAcpSkill({ root, entry, adapter });
+      const record = listAcpSkillRuns()[0];
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.equal(result.status, "succeeded");
+      assert.equal(getPromptCount(), 2);
+      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.repairRounds, 1);
+      assert.include(stages, "output-validation-failed");
+      assert.include(stages, "repair-started");
+      assert.notInclude(stages, "acp-prompt-no-output");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uses output repair when empty end_turn had observable ACP activity", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+      updates: (promptCount) =>
+        promptCount === 1
+          ? [
+              {
+                sessionUpdate: "agent_thought_chunk",
+                content: {
+                  type: "text",
+                  text: "I inspected the source material.",
+                },
+              },
+              {
+                sessionUpdate: "plan",
+                entries: [
+                  {
+                    content: "Confirm next step with structured output",
+                    status: "in_progress",
+                  },
+                ],
+              },
+            ]
+          : [],
+      assistantText: (promptCount) =>
+        promptCount === 2
+          ? JSON.stringify({ __SKILL_DONE__: true, ok: true })
+          : undefined,
+    });
+    try {
+      const result = await runDemoAcpSkill({ root, entry, adapter });
+      const record = listAcpSkillRuns()[0];
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.equal(result.status, "succeeded");
+      assert.equal(getPromptCount(), 2);
+      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.repairRounds, 1);
+      assert.include(stages, "output-validation-failed");
+      assert.include(stages, "repair-started");
+      assert.notInclude(stages, "acp-prompt-no-output");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const stopReason of [
+    "max_tokens",
+    "max_turn_requests",
+    "refusal",
+    "cancelled",
+  ]) {
+    it(`fails recoverably without output repair when ACP stopReason is ${stopReason}`, async function () {
+      const root = await mkTempRoot();
+      const { entry } = await createSkill(root);
+      const { adapter, getPromptCount } = createPromptStopAdapter({
+        stopReason,
+        assistantText: "partial non-contract output",
+      });
+      try {
+        let caught: unknown;
+        try {
+          await runDemoAcpSkill({ root, entry, adapter });
+        } catch (error) {
+          caught = error;
+        }
+        const record = listAcpSkillRuns()[0];
+        const stages = (record?.events || []).map((event) => event.stage);
+
+        assert.instanceOf(caught, Error);
+        assert.equal(getPromptCount(), 1);
+        assert.equal(record?.status, "failed");
+        assert.equal(record?.conversationState, "closed");
+        assert.equal(record?.conversationRecoveryState, "available");
+        assert.equal(record?.repairRounds, 0);
+        assert.deepEqual(record?.outputRevisions, []);
+        assert.include(stages, "acp-prompt-stopped");
+        assert.notInclude(stages, "output-validation-failed");
+        assert.notInclude(stages, "repair-started");
+        assert.equal(
+          (record?.events || []).find(
+            (event) => event.stage === "acp-prompt-stopped",
+          )?.details?.stopReason,
+          stopReason,
+        );
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("fails recoverably without output repair when ACP prompt raises a request error", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      promptError: new RequestError(-32000, "backend prompt failed", {
+        reason: "provider",
+      }),
+    });
+    try {
+      let caught: unknown;
+      try {
+        await runDemoAcpSkill({ root, entry, adapter });
+      } catch (error) {
+        caught = error;
+      }
+      const record = listAcpSkillRuns()[0];
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.instanceOf(caught, Error);
+      assert.equal(getPromptCount(), 1);
+      assert.equal(record?.status, "failed");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.equal(record?.repairRounds, 0);
+      assert.deepEqual(record?.outputRevisions, []);
+      assert.include(stages, "acp-prompt-failed");
+      assert.notInclude(stages, "output-validation-failed");
+      assert.notInclude(stages, "repair-started");
+      assert.equal(
+        (record?.events || []).find(
+          (event) => event.stage === "acp-prompt-failed",
+        )?.details?.code,
+        -32000,
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers valid result files before failing an empty end_turn prompt", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+    });
+    try {
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter,
+        createWorkspace: async (workspaceArgs) => {
+          const workspace = await createAcpSkillRunnerWorkspace({
+            ...workspaceArgs,
+            rootDir: root,
+          });
+          await fs.writeFile(
+            path.join(workspace.workspaceDir, "demo-skill.result.json"),
+            JSON.stringify({ ok: true }),
+            "utf8",
+          );
+          return workspace;
+        },
+      });
+      const record = listAcpSkillRuns()[0];
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.equal(result.status, "succeeded");
+      assert.equal(getPromptCount(), 1);
+      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.repairRounds, 0);
+      assert.include(stages, "result-file-fallback-succeeded");
+      assert.notInclude(stages, "acp-prompt-no-output");
+      assert.notInclude(stages, "repair-started");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -3320,6 +3940,177 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  it("fails recovered workflow replies recoverably without repair on empty end_turn", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      workflowId: "demo-skill",
+      jobId: "job",
+    });
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+    });
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "running",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-empty",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: {
+          execution_modes: ["interactive"],
+          schemas: { output: "assets/output.schema.json" },
+        },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+      });
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          createAdapter: async () => adapter,
+          dependencyProbe: async () => ({ ok: true }),
+          maxRepairRounds: 3,
+        },
+      });
+
+      let caught: unknown;
+      try {
+        await replyAcpSkillRun({
+          requestId: workspace.requestId,
+          message: "continue after restart",
+        });
+      } catch (error) {
+        caught = error;
+      }
+
+      const recovered = getAcpSkillRunRecord(workspace.requestId);
+      const stages = (recovered?.events || []).map((event) => event.stage);
+      assert.instanceOf(caught, Error);
+      assert.equal(getPromptCount(), 1);
+      assert.equal(recovered?.status, "failed");
+      assert.equal(recovered?.conversationState, "closed");
+      assert.equal(recovered?.conversationRecoveryState, "available");
+      assert.equal(recovered?.repairRounds, 0);
+      assert.deepEqual(recovered?.outputRevisions, []);
+      assert.include(stages, "acp-prompt-no-output");
+      assert.notInclude(stages, "recovered-output-validation-failed");
+      assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs recovered workflow replies when empty end_turn had observable ACP activity", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      workflowId: "demo-skill",
+      jobId: "job",
+    });
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+      updates: (promptCount) =>
+        promptCount === 1
+          ? [
+              {
+                sessionUpdate: "tool_call",
+                toolCallId: "tool-1",
+                title: "Inspect source",
+                status: "pending",
+                name: "inspect_source",
+                input: {},
+              },
+              {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tool-1",
+                title: "Inspect source",
+                status: "completed",
+                output: { ok: true },
+              },
+            ]
+          : [],
+      assistantText: (promptCount) =>
+        promptCount === 2
+          ? JSON.stringify({
+              __SKILL_DONE__: false,
+              message: "Need one more recovered answer.",
+              ui_hints: {
+                prompt: "Continue recovered task?",
+                options: ["continue"],
+              },
+            })
+          : undefined,
+    });
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "running",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-empty-with-activity",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: {
+          execution_modes: ["interactive"],
+          schemas: { output: "assets/output.schema.json" },
+        },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+      });
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          createAdapter: async () => adapter,
+          dependencyProbe: async () => ({ ok: true }),
+          maxRepairRounds: 3,
+        },
+      });
+
+      await replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "continue after restart",
+      });
+
+      const recovered = getAcpSkillRunRecord(workspace.requestId);
+      const stages = (recovered?.events || []).map((event) => event.stage);
+      assert.equal(getPromptCount(), 2);
+      assert.equal(recovered?.status, "waiting_user");
+      assert.equal(recovered?.repairRounds, 1);
+      assert.equal(recovered?.validationStatus, "pending");
+      assert.include(stages, "recovered-output-validation-failed");
+      assert.include(stages, "repair-started");
+      assert.notInclude(stages, "acp-prompt-no-output");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("records parent workflow identity from host orchestration context for sequence steps", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
@@ -3866,7 +4657,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       const record = getAcpSkillRunRecord(requestId);
       const stages = (record?.events || []).map((event) => event.stage);
 
-      assert.equal(result.status, "succeeded");
+      assert.equal(result.status, "deferred");
+      assert.equal(result.backendStatus, "running");
       assert.deepInclude(result.responseJson as Record<string, unknown>, {
         status: "disconnected",
       });
@@ -4497,6 +5289,142 @@ describe("ACP SkillRunner-compatible runner", function () {
         .then(() => true)
         .catch(() => false),
     );
+  });
+
+  it("keeps a waiting interactive ACP skill run deferred when Zotero shutdown detaches the session", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-shutdown-pending" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({
+                __SKILL_DONE__: false,
+                message: "Need user confirmation before final output.",
+                ui_hints: {
+                  kind: "confirm",
+                  prompt: "Confirm?",
+                  hint: "Reply to continue.",
+                },
+              }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    let capturedWaiting: NonNullable<
+      ReturnType<typeof buildAcpSkillRunPanelSnapshot>["selectedRun"]
+    > | null = null;
+    let shutdownStarted = false;
+    let shutdownError: Error | null = null;
+    try {
+      resetAcpSkillRunsForTests();
+      const unsubscribe = subscribeAcpSkillRunSnapshots(() => {
+        const snapshot = buildAcpSkillRunPanelSnapshot({});
+        const waitingSummary = snapshot.runs.find(
+          (entry) => entry.status === "waiting_user",
+        );
+        if (!waitingSummary || shutdownStarted) {
+          return;
+        }
+        const waiting = buildAcpSkillRunPanelSnapshot({
+          selectedRequestId: waitingSummary.requestId,
+        }).selectedRun;
+        if (waiting?.status !== "waiting_user") {
+          return;
+        }
+        shutdownStarted = true;
+        capturedWaiting = waiting;
+        void shutdownAcpSkillRunConversations().catch((error) => {
+          shutdownError =
+            error instanceof Error ? error : new Error(String(error));
+        });
+      });
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: { execution_mode: "interactive" },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      }).finally(() => unsubscribe());
+      if (shutdownError) throw shutdownError;
+
+      const record = getAcpSkillRunRecord(result.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(result.status, "deferred");
+      assert.equal(result.requestId, record?.requestId);
+      assert.equal(result.backendStatus, "waiting_user");
+      assert.equal(record?.status, "waiting_user");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.equal(record?.activePrompt, false);
+      assert.equal(record?.replyState, "idle");
+      assert.equal(record?.outputConvergenceState, "pending");
+      assert.equal(record?.applyResultState, undefined);
+      assert.equal(
+        record?.pendingInteraction?.message,
+        "Need user confirmation before final output.",
+      );
+      assert.equal(capturedWaiting?.status, "waiting_user");
+      assert.include(stages, "conversation-detached");
+      assert.notInclude(stages, "succeeded");
+      assert.notInclude(stages, "apply-succeeded");
+    } finally {
+      await shutdownAcpSkillRunConversations().catch(() => undefined);
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("allows a repair round to converge to pending without completing the workflow", async function () {

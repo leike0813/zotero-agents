@@ -19,6 +19,10 @@ describe("workspace toolbar running tasks popover", function () {
     );
 
     assert.include(helper, "filterDashboardActiveTasks");
+    assert.include(helper, "projectDashboardActiveTasks");
+    assert.include(helper, "countDashboardHumanAttentionTasks");
+    assert.include(helper, "resolveAcpSkillRunTaskState");
+    assert.include(helper, "run.pendingPermission");
     assert.include(helper, "PASS_THROUGH_BACKEND_TYPE");
     assert.include(helper, "getVisibleAcpSkillRunRequestIds");
     assert.include(helper, 'run.status !== "succeeded"');
@@ -29,9 +33,17 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(popover, "listDashboardActiveTasksForPopover");
   });
 
-  it("wires the Workspace toolbar button to a hover-only popover without changing click behavior", async function () {
+  it("wires the toolbar Assistant Sidebar entry to a hover-only active task popover without changing click behavior", async function () {
     const toolbar = await readProjectFile(
       "src/modules/dashboardToolbarButton.ts",
+    );
+    const workspace = await readProjectFile("src/modules/workspaceTab.ts");
+    const workspaceApp = await readProjectFile("src/workspaceApp.ts");
+    const workspaceCss = await readProjectFile(
+      "addon/content/workspace/styles.css",
+    );
+    const sidebar = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
     );
     const popover = await readProjectFile(
       "src/modules/workspaceToolbarTaskPopover.ts",
@@ -39,10 +51,41 @@ describe("workspace toolbar running tasks popover", function () {
 
     assert.include(toolbar, "installWorkspaceToolbarTaskPopover");
     assert.include(toolbar, "uninstallWorkspaceToolbarTaskPopover");
+    assert.include(workspace, "installWorkspaceToolbarTaskPopover");
+    assert.include(workspace, "uninstallWorkspaceToolbarTaskPopover");
+    assert.include(workspace, 'querySelector(".sidebar-toggle")');
+    assert.include(workspace, 'target: "reader"');
+    assert.include(workspace, "syncWorkspaceSidebarEntry");
+    assert.include(workspace, "workspace:attention");
+    assert.include(workspace, "countDashboardHumanAttentionTasks");
+    assert.include(workspace, "subscribeWorkflowTasks");
+    assert.include(workspace, "subscribeAcpSkillRunSnapshots");
+    assert.include(workspaceApp, "workspace:attention");
+    assert.include(workspaceApp, "updateWorkspaceSidebarAttention");
+    assert.include(workspaceApp, "data-attention-count");
+    assert.include(workspaceApp, "formatAttentionCount");
+    assert.include(workspaceApp, '"toggle-sidebar"');
+    assert.include(
+      workspaceCss,
+      '.sidebar-toggle[data-attention="true"]::after',
+    );
+    assert.include(workspaceCss, "attr(data-attention-count)");
+    assert.notInclude(workspaceCss, "data-badge");
+    assert.notInclude(sidebar, "installWorkspaceToolbarTaskPopover");
+    assert.notInclude(sidebar, "uninstallWorkspaceToolbarTaskPopover");
+    assert.include(sidebar, "target?: AcpSidebarTarget");
+    assert.include(sidebar, "host.activeTarget !== args.target");
+    assert.include(sidebar, "await activateTarget(host, args.target)");
+    assert.include(sidebar, "zs-assistant-sidebar-button");
+    assert.include(toolbar, "zs-skillrunner-toolbar-button");
+    assert.notInclude(toolbar, "zs-skillrunner-attention-button");
     assert.include(toolbar, "openDashboard");
     assert.include(toolbar, "zs-workspace-toolbar-button");
     assert.include(popover, "mouseenter");
     assert.include(popover, "mouseleave");
+    assert.include(popover, "mouseover");
+    assert.include(popover, "mouseout");
+    assert.include(popover, "isRelatedTargetInsideAnchor");
     assert.notInclude(popover, 'addListener(args.anchor, "focus"');
     assert.notInclude(popover, 'addListener(args.anchor, "blur"');
     assert.include(popover, 'addListener(args.anchor, "mousedown"');
@@ -78,11 +121,17 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(popover, "forceXulBoxWidth");
     assert.include(popover, "clampForColumn");
     assert.include(popover, "xulLed");
-    assert.include(popover, "isPlainRunningState");
-    assert.include(
-      popover,
-      'background-color: ${isPlainRunning ? "#2563eb" : "#f59e0b"}',
-    );
+    assert.include(popover, "resolveTaskLedTone");
+    assert.include(popover, "normalizeTaskState");
+    assert.include(popover, 'state === "waiting_user"');
+    assert.include(popover, 'state === "waiting_auth"');
+    assert.include(popover, 'state === "queued"');
+    assert.include(popover, 'state === "failed"');
+    assert.include(popover, 'state === "succeeded"');
+    assert.include(popover, 'cell.setAttribute("align", "center")');
+    assert.include(popover, 'cell.setAttribute("pack", "center")');
+    assert.include(popover, '"margin: 0 5px 0 2px !important"');
+    assert.include(popover, "`background-color: ${tone.color} !important`");
     assert.include(popover, "TASK_NAME_WIDTH");
     assert.include(popover, 'item.setAttribute("role", "button")');
     assert.notInclude(popover, "htmlElement");
@@ -90,6 +139,40 @@ describe("workspace toolbar running tasks popover", function () {
     assert.notInclude(popover, "resolveStatusLabel");
     assert.notInclude(popover, "View all");
     assert.notInclude(popover, "Open Dashboard");
+  });
+
+  it("keeps waiting attention on the toolbar sidebar button instead of sidebar badges", async function () {
+    const toolbar = await readProjectFile(
+      "src/modules/dashboardToolbarButton.ts",
+    );
+    const workspace = await readProjectFile("src/modules/workspaceTab.ts");
+    const workspaceApp = await readProjectFile("src/workspaceApp.ts");
+    const sidebar = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+
+    assert.notInclude(toolbar, "updateSkillRunnerToolbarButtonBadge");
+    assert.notInclude(sidebar, "updateSkillRunnerToolbarButtonBadge");
+    assert.include(toolbar, "updateAssistantToolbarAttention");
+    assert.include(toolbar, "doc.getElementById(SKILLRUNNER_BUTTON_ID)");
+    assert.include(toolbar, "SKILLRUNNER_ATTENTION_ICON_URI");
+    assert.include(toolbar, "icon_sidebar_glow_32.png");
+    assert.include(toolbar, "data-attention");
+    assert.include(toolbar, "data-attention-count");
+    assert.include(
+      sidebar,
+      "updateAssistantToolbarAttention(host.win, waitingCount)",
+    );
+    assert.include(workspace, "postAttention(runtime)");
+    assert.include(workspace, "countWorkspaceHumanAttentionTasks");
+    assert.include(workspaceApp, "normalizeWaitingCount");
+    assert.include(workspaceApp, 'button.setAttribute("data-attention"');
+    assert.include(workspaceApp, '"data-attention-count"');
+    assert.notInclude(sidebar, "setButtonBadge(");
+    assert.notInclude(sidebar, "assistant-sidebar-badge");
+    assert.include(sidebar, 'normalized === "waiting_user"');
+    assert.include(sidebar, 'normalized === "waiting_auth"');
+    assert.include(sidebar, "!!run.pendingPermission");
   });
 
   it("keeps the empty task popover free of the running title chrome", async function () {
@@ -129,6 +212,8 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(popover, "EMPTY_POPOVER_HEIGHT");
     assert.include(popover, "RUNNING_POPOVER_CHROME_HEIGHT");
     assert.include(popover, "RUNNING_POPOVER_TASK_ROW_HEIGHT");
+    assert.include(popover, "const EMPTY_POPOVER_HEIGHT = 68");
+    assert.include(popover, "const RUNNING_POPOVER_CHROME_HEIGHT = 54");
     assert.include(popover, "Math.min(rowCount, MAX_VISIBLE_TASKS)");
     assert.notInclude(popover, "return 34 + rowCount * 30");
   });
@@ -142,7 +227,7 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(popover, 'onPrefsEvent("openSkillRunnerSidebar"');
     assert.include(popover, 'onPrefsEvent("openDashboard"');
     assert.include(hooks, 'case "listDashboardActiveTasksForPopover":');
-    assert.include(hooks, "filterDashboardActiveTasks");
+    assert.include(hooks, "projectDashboardActiveTasks");
     assert.include(hooks, "resolveBackendDisplayName");
     assert.include(hooks, "backendLabel");
     assert.include(hooks, 'case "openSkillRunnerSidebar":');
@@ -160,12 +245,24 @@ describe("workspace toolbar running tasks popover", function () {
 
     assert.include(css, ".zs-workspace-running-popover");
     assert.include(css, ".zs-workspace-running-popover-panel");
+    assert.match(
+      css,
+      /\.zs-workspace-running-popover\s*\{[\s\S]*?border:\s*0;[\s\S]*?border-radius:\s*0;[\s\S]*?box-shadow:\s*none;/,
+    );
+    assert.include(css, "padding: 5px 8px 10px");
+    assert.include(css, "transform: translateY(-3px)");
     assert.include(css, ".zs-workspace-running-popover-separator");
     assert.include(css, ".zs-workspace-running-popover-led-cell");
     assert.include(css, ".zs-workspace-running-popover-led");
     assert.include(css, ".zs-workspace-running-popover-task");
+    assert.include(css, ".zs-assistant-sidebar-button");
+    assert.notInclude(css, ".zs-skillrunner-toolbar-button[data-attention");
+    assert.notInclude(css, ".zs-skillrunner-attention-button");
+    assert.notInclude(css, ".zs-skillrunner-attention-led");
+    assert.notInclude(css, ".zs-assistant-sidebar-badge");
+    assert.notInclude(css, ".zs-skillrunner-sidebar-button[data-badge]::after");
     assert.include(css, "font-family: Georgia");
-    assert.include(css, "font-size: 10px");
+    assert.include(css, "font-size: 9px");
     assert.include(css, "white-space: nowrap");
     assert.include(css, "text-overflow: ellipsis");
     assert.notInclude(css, "grid-template-columns");

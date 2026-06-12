@@ -173,6 +173,7 @@ let backendReconcileFailureToastEmitter: (
   showWorkflowToast({
     text: payload.text,
     type: "error",
+    semantic: "error",
   });
 };
 
@@ -182,6 +183,14 @@ let skillRunnerTaskLifecycleToastEmitter: (
   showWorkflowToast({
     text: payload.text,
     type: payload.type,
+    semantic:
+      payload.state === "waiting_user" || payload.state === "waiting_auth"
+        ? "waiting"
+        : payload.state === "canceled"
+          ? "canceled"
+          : payload.state === "succeeded"
+            ? "success"
+            : "error",
   });
 };
 
@@ -192,6 +201,7 @@ export function setSkillRunnerBackendReconcileFailureToastEmitterForTests(
     showWorkflowToast({
       text: payload.text,
       type: "error",
+      semantic: "error",
     });
   });
 }
@@ -203,6 +213,14 @@ export function setSkillRunnerTaskLifecycleToastEmitterForTests(
     showWorkflowToast({
       text: payload.text,
       type: payload.type,
+      semantic:
+        payload.state === "waiting_user" || payload.state === "waiting_auth"
+          ? "waiting"
+          : payload.state === "canceled"
+            ? "canceled"
+            : payload.state === "succeeded"
+              ? "success"
+              : "error",
     });
   });
 }
@@ -1173,6 +1191,7 @@ export class SkillRunnerTaskReconciler {
       });
       showWorkflowToast({
         type: "default",
+        semantic: "waiting",
         text: localizeWorkflowText(
           "workflow-execute-toast-missing-context-apply-skipped",
           "Task completed, but context was missing after restart so result could not be applied automatically. Please rerun this task.",

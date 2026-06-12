@@ -1,0 +1,82 @@
+{
+  "$id": "literature-deep-reading.context-request.v0",
+  "type": "object",
+  "properties": {
+    "main_task": {
+      "type": "string"
+    },
+    "method_family": {
+      "type": "string"
+    },
+    "external_context_section_anchors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "request_topic_context": {
+      "type": "boolean",
+      "default": false
+    },
+    "topic_context_reason": {
+      "type": "string"
+    },
+    "request_concept_context": {
+      "type": "boolean",
+      "default": false
+    },
+    "concept_labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "request_citation_graph": {
+      "type": "boolean",
+      "default": false
+    },
+    "citation_graph_depth": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "default": 2
+    },
+    "citation_graph_direction": {
+      "type": "string",
+      "enum": ["incoming", "outgoing", "both"],
+      "default": "both"
+    },
+    "citation_graph_max_nodes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000,
+      "default": 80
+    },
+    "citation_graph_max_edges": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20000,
+      "default": 160
+    },
+    "citation_graph_include_low_signal": {
+      "type": "boolean",
+      "default": false
+    },
+    "reference_digest_policy": {
+      "type": "string",
+      "enum": ["all_library_references", "priority_only", "none"],
+      "default": "none"
+    },
+    "priority_reference_indices": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": false
+}

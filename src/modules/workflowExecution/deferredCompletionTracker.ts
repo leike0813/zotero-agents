@@ -2,6 +2,8 @@ import { appendRuntimeLog } from "../runtimeLogManager";
 import {
   emitWorkflowFinishSummary,
   emitWorkflowJobToasts,
+  selectWorkflowJobOutcomesForToasts,
+  shouldEmitWorkflowFinishSummaryToast,
 } from "./feedbackSeam";
 import type { WorkflowJobOutcome } from "./contracts";
 import type { WorkflowMessageFormatter } from "../workflowExecuteMessage";
@@ -120,21 +122,36 @@ function finalizeDeferredWorkflowRun(tracked: DeferredWorkflowRun) {
   const orderedDeferredOutcomes = [...tracked.deferredOutcomes].sort(
     (left, right) => left.index - right.index,
   );
-  deps.emitWorkflowJobToasts({
-    workflowLabel: tracked.workflowLabel,
-    totalJobs: tracked.totalJobs,
+  const jobToastOutcomes = selectWorkflowJobOutcomesForToasts({
     outcomes: orderedDeferredOutcomes,
-    messageFormatter: tracked.messageFormatter,
-  });
-  deps.emitWorkflowFinishSummary({
-    win: tracked.win,
-    workflowLabel: tracked.workflowLabel,
-    succeeded: tracked.succeeded,
-    failed: tracked.failed,
+    totalJobs: tracked.totalJobs,
     skipped: tracked.skipped,
-    failureReasons: tracked.failureReasons,
-    messageFormatter: tracked.messageFormatter,
   });
+  if (jobToastOutcomes.length > 0) {
+    deps.emitWorkflowJobToasts({
+      workflowLabel: tracked.workflowLabel,
+      totalJobs: tracked.totalJobs,
+      outcomes: jobToastOutcomes,
+      messageFormatter: tracked.messageFormatter,
+    });
+  }
+  if (
+    shouldEmitWorkflowFinishSummaryToast({
+      outcomes: orderedDeferredOutcomes,
+      totalJobs: tracked.totalJobs,
+      skipped: tracked.skipped,
+    })
+  ) {
+    deps.emitWorkflowFinishSummary({
+      win: tracked.win,
+      workflowLabel: tracked.workflowLabel,
+      succeeded: tracked.succeeded,
+      failed: tracked.failed,
+      skipped: tracked.skipped,
+      failureReasons: tracked.failureReasons,
+      messageFormatter: tracked.messageFormatter,
+    });
+  }
   deps.appendRuntimeLog({
     level: tracked.failed > 0 ? "warn" : "info",
     scope: "workflow-trigger",

@@ -158,7 +158,7 @@ Each invariant below is normative and machine-referenced by ID.
 
 Ledger persistence is plugin-scope SQLite:
 
-- DB path: `<Zotero.DataDirectory>/zotero-skills/state/zotero-skills.db`
+- DB path: `<Zotero.DataDirectory>/zotero-agents/state/zotero-agents.db`
 - Store entry: `pluginStateStore`
 - Tables:
   - `plugin_task_requests`

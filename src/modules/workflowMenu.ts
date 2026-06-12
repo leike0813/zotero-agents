@@ -24,6 +24,7 @@ export type WorkflowActionPopupBuildOptions = {
   includeSkillRunnerSidebarItem?: boolean;
   includeTaskManagerItem?: boolean;
   includeSynthesisWorkbenchItem?: boolean;
+  includeWorkspaceItem?: boolean;
 };
 
 function getMenuLabel(id: string, fallback: string) {
@@ -53,14 +54,17 @@ function appendDisabledItem(
   popup.appendChild(item);
 }
 
-function appendTaskManagerItem(
+function appendWorkspaceItem(
   win: _ZoteroTypes.MainWindow,
   popup: XULElement,
 ) {
   const item = win.document.createXULElement("menuitem");
   item.setAttribute(
     "label",
-    getMenuLabel("menu-workflows-task-manager", "Open Dashboard..."),
+    getMenuLabel(
+      "menu-workflows-open-workspace",
+      "Open Dashboard / Synthesis Workspace",
+    ),
   );
   item.addEventListener("command", () => {
     void addon.hooks.onPrefsEvent("openDashboard", { window: win });
@@ -68,7 +72,7 @@ function appendTaskManagerItem(
   popup.appendChild(item);
 }
 
-function appendSynthesisWorkbenchItem(
+function appendAssistantSidebarItem(
   win: _ZoteroTypes.MainWindow,
   popup: XULElement,
 ) {
@@ -76,26 +80,8 @@ function appendSynthesisWorkbenchItem(
   item.setAttribute(
     "label",
     getMenuLabel(
-      "menu-workflows-open-synthesis-workbench",
-      "Open Synthesis Workbench...",
-    ),
-  );
-  item.addEventListener("command", () => {
-    void addon.hooks.onPrefsEvent("openSynthesisWorkbench", { window: win });
-  });
-  popup.appendChild(item);
-}
-
-function appendSkillRunnerSidebarItem(
-  win: _ZoteroTypes.MainWindow,
-  popup: XULElement,
-) {
-  const item = win.document.createXULElement("menuitem");
-  item.setAttribute(
-    "label",
-    getMenuLabel(
-      "menu-workflows-open-skillrunner-sidebar",
-      "Open SkillRunner Sidebar...",
+      "menu-workflows-open-assistant-sidebar",
+      "Open Sidebar",
     ),
   );
   item.addEventListener("command", () => {
@@ -205,27 +191,19 @@ export async function rebuildWorkflowActionPopup(
   popup: XULElement,
   options?: WorkflowActionPopupBuildOptions,
 ) {
-  const includeTaskManagerItem = options?.includeTaskManagerItem !== false;
+  const includeWorkspaceItem =
+    options?.includeWorkspaceItem ?? options?.includeTaskManagerItem !== false;
   const includeSkillRunnerSidebarItem =
     options?.includeSkillRunnerSidebarItem !== false;
-  const includeSynthesisWorkbenchItem =
-    options?.includeSynthesisWorkbenchItem !== false;
   clearPopupChildren(popup);
   const workflows = getVisibleLoadedWorkflowEntries();
+  if (includeWorkspaceItem) {
+    appendWorkspaceItem(win, popup);
+  }
   if (includeSkillRunnerSidebarItem) {
-    appendSkillRunnerSidebarItem(win, popup);
+    appendAssistantSidebarItem(win, popup);
   }
-  if (includeTaskManagerItem) {
-    appendTaskManagerItem(win, popup);
-  }
-  if (includeSynthesisWorkbenchItem) {
-    appendSynthesisWorkbenchItem(win, popup);
-  }
-  if (
-    includeSkillRunnerSidebarItem ||
-    includeTaskManagerItem ||
-    includeSynthesisWorkbenchItem
-  ) {
+  if (includeWorkspaceItem || includeSkillRunnerSidebarItem) {
     appendMenuSeparator(win, popup);
   }
   if (workflows.length === 0) {

@@ -187,9 +187,9 @@ describe("pass-through provider", function () {
       toasts.some((entry) => /job 1\/1 succeeded/i.test(entry)),
       `missing per-job toast in: ${JSON.stringify(toasts)}`,
     );
-    assert.isTrue(
+    assert.isFalse(
       toasts.some((entry) => /succeeded=1, failed=0/i.test(entry)),
-      `missing summary toast in: ${JSON.stringify(toasts)}`,
+      `single-job success should not also emit summary toast: ${JSON.stringify(toasts)}`,
     );
   });
 
@@ -295,14 +295,14 @@ describe("pass-through provider", function () {
       ),
       `missing per-job toast in fallback mode: ${JSON.stringify(toasts)}`,
     );
-    assert.isTrue(
+    assert.isFalse(
       toasts.some(
         (entry) =>
           /succeeded=1, failed=0/i.test(entry) ||
           /成功=1，失败=0/.test(entry) ||
           /workflow-execute-summary/i.test(entry),
       ),
-      `missing summary toast in fallback mode: ${JSON.stringify(toasts)}`,
+      `single-job fallback should not also emit summary toast: ${JSON.stringify(toasts)}`,
     );
   });
 });

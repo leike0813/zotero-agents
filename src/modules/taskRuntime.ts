@@ -1,4 +1,9 @@
 import type { JobRecord, JobState } from "../jobQueue/manager";
+import {
+  ACP_BACKEND_TYPE,
+  DEFAULT_BACKEND_TYPE,
+  PASS_THROUGH_BACKEND_TYPE,
+} from "../config/defaults";
 import { isActive, isTerminal } from "./skillRunnerProviderStateMachine";
 import {
   PLUGIN_TASK_DOMAIN_SKILLRUNNER,
@@ -35,6 +40,9 @@ const taskRecords = new Map<string, WorkflowTaskRecord>();
 const listeners = new Set<TaskListener>();
 let hydratedFromStore = false;
 
+const PREVIOUS_SESSION_INTERRUPTED_ERROR =
+  "Task was left active by a previous Zotero plugin session and is no longer running in this session.";
+
 function normalizeMetaString(meta: Record<string, unknown>, key: string) {
   const value = meta[key];
   return typeof value === "string" ? value.trim() : "";
@@ -53,7 +61,8 @@ function resolveRequestIdFromJob(job: JobRecord) {
   if (fromMeta) {
     return fromMeta;
   }
-  const candidate = (job.result as { requestId?: unknown } | undefined)?.requestId;
+  const candidate = (job.result as { requestId?: unknown } | undefined)
+    ?.requestId;
   if (typeof candidate === "string" && candidate.trim()) {
     return candidate.trim();
   }
@@ -154,7 +163,8 @@ function parsePersistedTaskRecord(raw: unknown): WorkflowTaskRecord | null {
     requestId: String(raw.requestId || "").trim() || undefined,
     engine: String(raw.engine || "").trim() || undefined,
     targetParentID:
-      typeof raw.targetParentID === "number" && Number.isFinite(raw.targetParentID)
+      typeof raw.targetParentID === "number" &&
+      Number.isFinite(raw.targetParentID)
         ? Math.floor(raw.targetParentID)
         : undefined,
     workflowId,
@@ -184,7 +194,9 @@ function ensureHydratedFromStore() {
     "active",
   )) {
     try {
-      const parsed = parsePersistedTaskRecord(JSON.parse(String(row.payload || "{}")));
+      const parsed = parsePersistedTaskRecord(
+        JSON.parse(String(row.payload || "{}")),
+      );
       if (!parsed) {
         continue;
       }
@@ -297,7 +309,8 @@ export function updateWorkflowTaskStateByRequest(args: {
   const backendId = String(args.backendId || "").trim();
   const nextState = args.state;
   const nextError = String(args.error || "").trim() || undefined;
-  const nextUpdatedAt = String(args.updatedAt || "").trim() || new Date().toISOString();
+  const nextUpdatedAt =
+    String(args.updatedAt || "").trim() || new Date().toISOString();
   let updated = 0;
   for (const [id, record] of taskRecords.entries()) {
     if (String(record.requestId || "").trim() !== requestId) {
@@ -325,6 +338,68 @@ export function updateWorkflowTaskStateByRequest(args: {
     emitTasksChanged();
   }
   return updated;
+}
+
+function isRecoverableSkillRunnerProjection(record: WorkflowTaskRecord) {
+  return (
+    String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE &&
+    !!String(record.backendId || "").trim() &&
+    !!String(record.requestId || "").trim()
+  );
+}
+
+function isAcpProjectionWithRequest(record: WorkflowTaskRecord) {
+  return (
+    String(record.backendType || "").trim() === ACP_BACKEND_TYPE &&
+    !!String(record.requestId || "").trim()
+  );
+}
+
+function shouldFailRecoveredProjection(record: WorkflowTaskRecord) {
+  const backendType = String(record.backendType || "").trim();
+  if (backendType === PASS_THROUGH_BACKEND_TYPE) {
+    return true;
+  }
+  if (isRecoverableSkillRunnerProjection(record)) {
+    return false;
+  }
+  if (isAcpProjectionWithRequest(record)) {
+    return false;
+  }
+  return true;
+}
+
+export function reconcileWorkflowTaskProjectionsOnStartup() {
+  ensureHydratedFromStore();
+  const now = new Date().toISOString();
+  const failedTaskIds: string[] = [];
+  const preservedTaskIds: string[] = [];
+  for (const [id, record] of taskRecords.entries()) {
+    if (!isActive(record.state)) {
+      continue;
+    }
+    if (!shouldFailRecoveredProjection(record)) {
+      preservedTaskIds.push(id);
+      continue;
+    }
+    taskRecords.set(id, {
+      ...record,
+      state: "failed",
+      error: record.error || PREVIOUS_SESSION_INTERRUPTED_ERROR,
+      updatedAt: now,
+    });
+    failedTaskIds.push(id);
+  }
+  if (failedTaskIds.length > 0) {
+    persistTaskRecordsToStore();
+    emitTasksChanged();
+  }
+  return {
+    failedCount: failedTaskIds.length,
+    preservedCount: preservedTaskIds.length,
+    failedTaskIds,
+    preservedTaskIds,
+  };
 }
 
 export function subscribeWorkflowTasks(listener: TaskListener) {

@@ -88,7 +88,6 @@ describe("workflow settings execution", function () {
     clearWorkflowSettings("literature-digest");
     clearWorkflowSettings("literature-explainer");
     clearWorkflowSettings("tag-regulator");
-    clearWorkflowSettings("tag-manager");
     clearWorkflowSettings("pass-through-settings");
     if (typeof prevBackendsConfigPref === "undefined") {
       Zotero.Prefs.clear(backendsConfigPrefKey, true);
@@ -611,8 +610,9 @@ describe("workflow settings execution", function () {
         },
       });
 
-      const defaults =
-        resetRunOnceOverridesForSettingsOpen("literature-explainer");
+      const defaults = resetRunOnceOverridesForSettingsOpen(
+        "literature-explainer",
+      );
       assert.equal(defaults.backendId, "skillrunner-primary");
       assert.equal(defaults.workflowParams?.language, "zh-CN");
       assert.equal(defaults.providerOptions?.model, "");
@@ -887,6 +887,9 @@ describe("workflow settings execution", function () {
       const modelEntry = descriptor.providerSchemaEntries.find(
         (entry) => entry.key === "acpModelId",
       );
+      const providerEntry = descriptor.providerSchemaEntries.find(
+        (entry) => entry.key === "acpModelProvider",
+      );
       const effortEntry = descriptor.providerSchemaEntries.find(
         (entry) => entry.key === "acpReasoningEffort",
       );
@@ -894,6 +897,7 @@ describe("workflow settings execution", function () {
         (entry) => entry.key === "autoApproveAcpPermissions",
       );
 
+      assert.isUndefined(providerEntry);
       assert.deepEqual(modelEntry?.enumValues, ["sonnet", "opus", "gpt-5"]);
       assert.equal(descriptor.providerOptions.acpModelId, "opus");
       assert.deepEqual(effortEntry?.enumValues, ["default"]);
@@ -959,6 +963,7 @@ describe("workflow settings execution", function () {
                       options: [
                         { value: "openai/gpt-5", name: "GPT-5" },
                         { value: "anthropic/claude", name: "Claude" },
+                        { value: "local-model", name: "Local Model" },
                       ],
                     },
                     {
@@ -1002,22 +1007,100 @@ describe("workflow settings execution", function () {
       const modelEntry = descriptor.providerSchemaEntries.find(
         (entry) => entry.key === "acpModelId",
       );
+      const providerEntry = descriptor.providerSchemaEntries.find(
+        (entry) => entry.key === "acpModelProvider",
+      );
       const effortEntry = descriptor.providerSchemaEntries.find(
         (entry) => entry.key === "acpReasoningEffort",
       );
 
       assert.deepEqual(modeEntry?.enumValues, ["ask", "build"]);
-      assert.deepEqual(modelEntry?.enumValues, [
-        "openai/gpt-5",
-        "anthropic/claude",
+      assert.deepEqual(providerEntry?.enumValues, [
+        "openai",
+        "anthropic",
+        "Unscoped",
       ]);
+      assert.deepEqual(modelEntry?.enumValues, ["claude"]);
       assert.deepEqual(effortEntry?.enumValues, ["low", "high"]);
       assert.isFalse(effortEntry?.disabled);
       assert.deepEqual(descriptor.providerOptions, {
         acpModeId: "ask",
+        acpModelProvider: "anthropic",
+        acpModelId: "claude",
+        acpReasoningEffort: "high",
+      });
+
+      const defaultContext = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.deepEqual(defaultContext.providerOptions, {
+        acpModeId: "ask",
         acpModelId: "anthropic/claude",
         acpReasoningEffort: "high",
       });
+
+      updateWorkflowSettings("literature-digest", {
+        backendId: "acp-config-options",
+        providerOptions: {
+          acpModelProvider: "openai",
+          acpModelId: "gpt-5",
+          acpReasoningEffort: "high",
+        },
+      });
+
+      const openaiDescriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: registry.backends,
+      });
+      const openaiModelEntry = openaiDescriptor.providerSchemaEntries.find(
+        (entry) => entry.key === "acpModelId",
+      );
+      assert.deepEqual(openaiModelEntry?.enumValues, ["gpt-5"]);
+      assert.deepEqual(openaiDescriptor.providerOptions, {
+        acpModeId: "ask",
+        acpModelProvider: "openai",
+        acpModelId: "gpt-5",
+        acpReasoningEffort: "high",
+      });
+
+      const openaiContext = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.deepEqual(openaiContext.providerOptions, {
+        acpModeId: "ask",
+        acpModelId: "openai/gpt-5",
+        acpReasoningEffort: "high",
+      });
+      assert.notProperty(openaiContext.providerOptions, "acpModelProvider");
+
+      updateWorkflowSettings("literature-digest", {
+        backendId: "acp-config-options",
+        providerOptions: {
+          acpModelProvider: "Unscoped",
+          acpModelId: "local-model",
+        },
+      });
+
+      const unscopedDescriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: registry.backends,
+      });
+      const unscopedModelEntry = unscopedDescriptor.providerSchemaEntries.find(
+        (entry) => entry.key === "acpModelId",
+      );
+      assert.deepEqual(unscopedModelEntry?.enumValues, ["local-model"]);
+      assert.deepEqual(unscopedDescriptor.providerOptions, {
+        acpModeId: "ask",
+        acpModelProvider: "Unscoped",
+        acpModelId: "local-model",
+        acpReasoningEffort: "high",
+      });
+
+      const unscopedContext = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(unscopedContext.providerOptions.acpModelId, "local-model");
+      assert.notProperty(unscopedContext.providerOptions, "acpModelProvider");
     },
   );
 
@@ -1064,7 +1147,9 @@ describe("workflow settings execution", function () {
           no_cache: false,
         },
       });
-      const first = resetRunOnceOverridesForSettingsOpen("literature-explainer");
+      const first = resetRunOnceOverridesForSettingsOpen(
+        "literature-explainer",
+      );
       assert.equal(first.workflowParams?.language, "zh-CN");
 
       updateWorkflowSettings("literature-explainer", {
@@ -1076,7 +1161,9 @@ describe("workflow settings execution", function () {
           no_cache: true,
         },
       });
-      const second = resetRunOnceOverridesForSettingsOpen("literature-explainer");
+      const second = resetRunOnceOverridesForSettingsOpen(
+        "literature-explainer",
+      );
       assert.equal(second.backendId, "skillrunner-alt");
       assert.equal(second.workflowParams?.language, "en-US");
       assert.equal(second.providerOptions?.model, "gemini-2.5-flash");

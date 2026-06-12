@@ -6,7 +6,7 @@ type BuiltinManifest = {
   files: string[];
 };
 
-const UNSHIPPED_BUILTIN_PATH_PREFIXES = ["tag-vocabulary-package/"];
+const UNSHIPPED_BUILTIN_PATH_PREFIXES = [];
 
 function normalizeRelativePath(input: string) {
   return String(input || "")

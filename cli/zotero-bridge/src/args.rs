@@ -336,6 +336,12 @@ pub enum CitationGraphCommand {
     GetSlice(BridgeInputArgs),
 
     #[command(
+        about = "Read persisted citation graph layout coordinates",
+        long_about = "Map to Host Bridge capability citation_graph.get_layout. Use --input with scope:\"full\" for an explicit full graph layout, or with startNodeId/paperRef/nodeIds/paperRefs for a bounded subgraph layout."
+    )]
+    GetLayout(BridgeInputArgs),
+
+    #[command(
         about = "Read citation graph metrics for selected papers",
         long_about = "Map to Host Bridge capability citation_graph.get_metrics. Complex metrics are maintained automatically after citation graph rebuilds and incremental refreshes; if diagnostics report missing metrics, use citation-graph refresh-metrics."
     )]
@@ -777,6 +783,7 @@ mod tests {
             "overview",
             "query-cluster",
             "get-slice",
+            "get-layout",
             "get-metrics",
             "rank-external-references",
             "rank-library-papers",

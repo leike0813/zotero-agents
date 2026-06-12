@@ -1,0 +1,35 @@
+{
+  "skill_id": "literature-deep-reading",
+  "stages": [
+    {
+      "id": "stage_00_bootstrap",
+      "runtime_command": "bootstrap",
+      "runtime_only": true,
+      "description": "Unpack source_bundle.zip, parse deterministic source structure, initialize SQLite, and write bootstrap runtime views."
+    },
+    {
+      "id": "stage_10_source_reading_context_request",
+      "runtime_command": "submit-context-request",
+      "payload_path": "runtime/payloads/context-request.json",
+      "schema": "assets/schemas/context-request.schema.json",
+      "runtime_only": false,
+      "description": "Validate the agent-authored context request and collect best-effort Host context views through the single runtime script."
+    },
+    {
+      "id": "stage_20_reading_enrichment",
+      "runtime_command": "submit-reading-enrichment",
+      "payload_path": "runtime/payloads/reading-enrichment.json",
+      "schema": "assets/schemas/reading-enrichment.schema.json",
+      "runtime_only": false,
+      "description": "Validate the agent-authored reading enrichment payload and normalize Analysis Layer views through the single runtime script."
+    },
+    {
+      "id": "stage_30_block_translation",
+      "runtime_command": "submit-block-translations",
+      "payload_path": "runtime/payloads/block-translations.json",
+      "schema": "assets/schemas/block-translations.schema.json",
+      "runtime_only": false,
+      "description": "Validate the agent-authored block translations and normalize Translation Layer views through the single runtime script."
+    }
+  ]
+}

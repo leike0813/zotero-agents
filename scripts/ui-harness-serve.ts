@@ -20,6 +20,7 @@ import {
 } from "../src/modules/synthesis/uiModel";
 import { parseHarnessEnv } from "../src/modules/harness/env";
 import { createSynthesisReadonlyService } from "../src/modules/harness/synthesisReadonlyService";
+import { buildHarnessSynthesisI18nEnvelope } from "../src/modules/harness/synthesisWorkbenchI18nEnvelope";
 import {
   installReadonlyZoteroPrefs,
   readZoteroPrefsStore,
@@ -32,6 +33,14 @@ const contentRoot = path.join(root, "addon", "content");
 const envPath = path.join(root, ".env");
 
 type HarnessMessage = { type: string; payload: unknown };
+
+const SYNTHESIS_I18N_MESSAGE_TYPES = new Set([
+  "synthesis:init",
+  "synthesis:snapshot",
+  "synthesis:chrome",
+  "synthesis:surface",
+  "synthesis:surface-error",
+]);
 
 type SynthesisRuntime = {
   state: SynthesisUiState;
@@ -342,6 +351,47 @@ function snapshot(runtime: SynthesisRuntime) {
   );
 }
 
+function localeFromRequest(
+  req: IncomingMessage,
+  body?: Record<string, unknown>,
+) {
+  return String(
+    body?.locale ||
+      req.headers["x-zs-harness-locale"] ||
+      req.headers["accept-language"] ||
+      "",
+  );
+}
+
+function withSynthesisHarnessI18n(payload: unknown, localeInput: string) {
+  const i18n = buildHarnessSynthesisI18nEnvelope(localeInput, {
+    rootDir: root,
+  });
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    return {
+      ...(payload as Record<string, unknown>),
+      i18n,
+    };
+  }
+  return { value: payload, i18n };
+}
+
+function decorateSynthesisHarnessResult<
+  T extends { messages?: HarnessMessage[] },
+>(result: T, localeInput: string): T {
+  return {
+    ...result,
+    messages: (result.messages || []).map((message) =>
+      SYNTHESIS_I18N_MESSAGE_TYPES.has(message.type)
+        ? {
+            ...message,
+            payload: withSynthesisHarnessI18n(message.payload, localeInput),
+          }
+        : message,
+    ),
+  };
+}
+
 function surfaceForTab(tab: string): SynthesisWorkbenchSurfaceName {
   if (tab === "overview") return "home";
   if (tab === "artifacts") return "topics";
@@ -576,14 +626,17 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       url.pathname === "/api/harness/synthesis/action"
     ) {
       const body = await readJsonBody(req);
-      json(
-        res,
-        200,
-        await handleSynthesisAction(
-          String(body.action || ""),
-          body.payload || {},
-        ),
+      const localeInput = localeFromRequest(
+        req,
+        body && typeof body === "object" && !Array.isArray(body)
+          ? (body as Record<string, unknown>)
+          : {},
       );
+      const result = await handleSynthesisAction(
+        String(body.action || ""),
+        body.payload || {},
+      );
+      json(res, 200, decorateSynthesisHarnessResult(result, localeInput));
       return;
     }
     if (url.pathname.startsWith("/content/")) {

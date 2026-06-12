@@ -330,6 +330,73 @@ describe("workflow apply seam risk regression", function () {
     assert.include(runtimeStages, "apply-succeeded");
   });
 
+  it("keeps ACP disconnected skill runs pending instead of applying workflow results", async function () {
+    const runtimeStages: string[] = [];
+    let applyCalls = 0;
+
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: createRunState({
+          requests: [
+            {
+              kind: "acp.skill.run.v1",
+              targetParentID: 3,
+              skill_id: "demo-skill",
+            },
+          ],
+          jobIds: ["job-acp-disconnected-1"],
+          jobsById: {
+            "job-acp-disconnected-1": {
+              id: "job-acp-disconnected-1",
+              state: "succeeded",
+              meta: {
+                requestId: "acp-disconnected-1",
+                targetParentID: 3,
+                providerId: "acp",
+                backendType: "acp",
+              },
+              result: {
+                status: "succeeded",
+                requestId: "acp-disconnected-1",
+                fetchType: "result",
+                responseJson: {
+                  provider: "acp",
+                  requestId: "acp-disconnected-1",
+                  status: "disconnected",
+                },
+              },
+            },
+          },
+          workflowManifest: {
+            provider: "acp",
+            request: {
+              kind: "acp.skill.run.v1",
+            },
+          },
+        }),
+        messageFormatter: createMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: (entry) => {
+          runtimeStages.push(entry.stage);
+        },
+        executeApplyResult: async () => {
+          applyCalls += 1;
+          return { ok: true };
+        },
+      },
+    );
+
+    assert.equal(applyCalls, 0);
+    assert.equal(summary.succeeded, 0);
+    assert.equal(summary.failed, 0);
+    assert.equal(summary.pending, 1);
+    assert.lengthOf(summary.jobOutcomes, 0);
+    assert.include(runtimeStages, "foreground-apply-skipped-acp-recoverable");
+    assert.notInclude(runtimeStages, "apply-start");
+    assert.notInclude(runtimeStages, "apply-succeeded");
+  });
+
   it("keeps request-created skillrunner auto job pending when local dispatch fails after request creation", async function () {
     const runtimeStages: string[] = [];
 

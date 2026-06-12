@@ -166,6 +166,7 @@ let localRuntimeToastEmitter: (payload: LocalRuntimeToastPayload) => void = (
   showWorkflowToast({
     text: payload.text,
     type: payload.type as any,
+    semantic: "runtime",
   });
 };
 
@@ -320,6 +321,7 @@ export function setLocalRuntimeToastEmitterForTests(
     showWorkflowToast({
       text: payload.text,
       type: payload.type as any,
+      semantic: "runtime",
     });
   });
 }

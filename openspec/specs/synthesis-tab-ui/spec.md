@@ -351,3 +351,102 @@ Revise Canonicals SHALL not act as a second approval workflow for Canonical Revi
 - **THEN** Revise Canonicals SHALL show the row as Review-managed
 - **AND** SHALL NOT expose a second stale lifecycle approve/reject action for that row.
 
+### Requirement: Topic-scoped citation graph UI
+
+The Synthesis Workbench SHALL let users scope the Citation Graph to an existing materialized topic.
+
+#### Scenario: Select topic scope from graph controls
+
+- **GIVEN** the graph snapshot contains topic scope rows
+- **WHEN** the user selects a topic in Citation Graph controls
+- **THEN** the graph view SHALL display that topic's fixed 1-hop citation subgraph
+- **AND** selecting `All topics` SHALL restore the full citation graph.
+
+#### Scenario: Jump from topic details
+
+- **GIVEN** a topic detail page is open
+- **WHEN** the user clicks `Open Citation Subgraph`
+- **THEN** the workbench SHALL switch to Citation Graph scoped to that topic
+- **AND** the graph view SHALL expose `Back to Topic Details`.
+
+### Requirement: Topic scope read model
+
+The graph snapshot SHALL expose topic scope rows built from real topic artifact paper refs and citation graph node ids.
+
+#### Scenario: Missing graph nodes
+
+- **GIVEN** a topic has source paper refs that are absent from the citation graph cache
+- **WHEN** the user selects that topic scope
+- **THEN** the graph SHALL show an empty scoped state with diagnostics
+- **AND** it SHALL NOT fall back to the full graph.
+
+### Requirement: Synthesis Workbench SHALL localize fixed UI through host-provided messages
+
+The Synthesis Workbench page SHALL render user-visible fixed UI text through a
+Synthesis i18n message dictionary supplied by the host bridge.
+
+#### Scenario: Host initializes Workbench locale
+
+- **WHEN** the host sends `synthesis:init`, `synthesis:snapshot`,
+  `synthesis:chrome`, `synthesis:surface`, or `synthesis:surface-error`
+- **THEN** the payload MAY include `i18n.locale` and `i18n.messages`
+- **AND** the Workbench SHALL apply those messages before rendering the affected
+  chrome or surface
+- **AND** the i18n envelope SHALL NOT become part of the business snapshot DTO.
+
+#### Scenario: Fixed UI text is rendered
+
+- **WHEN** Workbench renders navigation, tabs, table headers, buttons, status
+  labels, placeholders, titles, aria labels, empty states, or loading/error text
+- **THEN** it SHALL resolve the displayed text from the Synthesis i18n
+  dictionary or the default English fallback.
+
+### Requirement: Synthesis Workbench MUST preserve protocol values while localizing controlled enum labels
+
+Controlled enum labels SHALL display localized text while preserving their original protocol values.
+
+#### Scenario: Controlled enum is known
+
+- **WHEN** a controlled enum value such as `canonical_merge`,
+  `reference_matching`, `not_in_graph`, `library_paper`, `external_reference`,
+  `low_signal`, `stale_target`, or `manual_target` is displayed
+- **THEN** the UI SHALL show the localized label for that domain/value
+- **AND** the underlying DTO, action payload, command name, and operation key
+  SHALL keep the original value.
+
+#### Scenario: Controlled enum is unknown
+
+- **WHEN** Workbench receives an unknown controlled enum value
+- **THEN** it SHALL render a humanized fallback label without throwing
+- **AND** it SHALL preserve the original value for protocol/debug purposes.
+
+### Requirement: Synthesis Workbench SHALL keep user and generated content raw
+
+Synthesis localization SHALL NOT translate or rewrite user-provided or
+generated research content.
+
+#### Scenario: Research content is rendered
+
+- **WHEN** Workbench renders topic text, literature titles, topic detail prose,
+  report markdown, digest markdown, artifact payloads, or diagnostic free text
+- **THEN** that content SHALL be rendered in its source language
+- **AND** localization helpers SHALL only translate surrounding fixed UI labels
+  and fixed prefixes/suffixes.
+
+### Requirement: Temporary backend read failures SHALL be visible diagnostics
+
+The Synthesis Workbench UI SHALL distinguish temporary backend read failures
+from genuine empty data states.
+
+#### Scenario: Transient storage busy occurs during surface refresh
+
+- **WHEN** a surface refresh fails with a transient storage-busy diagnostic
+- **THEN** the UI SHALL display a refresh/busy diagnostic
+- **AND** it SHALL NOT render the normal empty state as if the backend returned no rows.
+
+#### Scenario: No previous surface data exists
+
+- **WHEN** a transient surface error occurs before any last-known-good snapshot exists
+- **THEN** the UI SHALL render an explicit diagnostic panel
+- **AND** it SHALL explain that data could not be read temporarily.
+

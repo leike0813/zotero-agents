@@ -51,7 +51,8 @@ function makePassThroughWorkflow(args: {
     rootDir: `workflows/${args.id}`,
     packageId: args.packageId,
     hooks,
-    buildStrategy: args.buildRequest || args.filterInputs ? "hook" : "declarative",
+    buildStrategy:
+      args.buildRequest || args.filterInputs ? "hook" : "declarative",
   };
 }
 
@@ -183,9 +184,9 @@ describe("workflow debug probe", function () {
       },
       workflowChecks: [
         {
-          workflowId: "tag-manager",
-          workflowLabel: "Tag Manager",
-          packageId: "tag-vocabulary-package",
+          workflowId: "tag-regulator",
+          workflowLabel: "Tag Regulator",
+          packageId: "literature-workbench-package",
           workflowSource: "builtin",
           executionMode: "precompiled-host-hook",
           canRun: false,
@@ -210,7 +211,7 @@ describe("workflow debug probe", function () {
     assert.include(texts, "Source");
     assert.include(texts, "Preflight");
     assert.include(texts, "Reason");
-    assert.include(texts, "Tag Manager");
+    assert.include(texts, "Tag Regulator");
   });
 
   it("records hook failure logs with message, stack and hook metadata", async function () {
@@ -249,7 +250,10 @@ describe("workflow debug probe", function () {
     assert.equal(failedLog?.error?.message, "build log boom");
     assert.equal((failedLog?.details as any)?.hookName, "buildRequest");
     assert.equal((failedLog?.details as any)?.packageId, "debug-package");
-    assert.include(String((failedLog?.details as any)?.errorMessage || ""), "build log boom");
+    assert.include(
+      String((failedLog?.details as any)?.errorMessage || ""),
+      "build log boom",
+    );
   });
 
   it("reports hostApi summary for precompiled-host-hook workflows", async function () {
@@ -296,7 +300,8 @@ describe("workflow debug probe", function () {
       };
     };
     const previousAddon = runtime.addon;
-    const captured: Array<{ selectionContext: unknown; workflowId?: string }> = [];
+    const captured: Array<{ selectionContext: unknown; workflowId?: string }> =
+      [];
     runtime.addon = {
       data: {
         workflowDebugProbe: {

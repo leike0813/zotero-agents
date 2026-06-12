@@ -44,8 +44,8 @@ tools using the exact current Host Bridge capability names.
 - **THEN** the listed Host Bridge tools SHALL include renamed domain capability
   names such as `topics.list`, `citation_graph.get_metrics`,
   `paper_artifacts.export_filtered`, and `insights.get_attention_queue`
-- **AND** the tool list SHALL NOT include old public `synthesis.*` capability
-  names.
+- **AND** the tool list SHALL NOT include the old public synthesis-prefixed
+  capability namespace.
 ### Requirement: ACP session setup SHALL inject the MCP server descriptor when available
 
 

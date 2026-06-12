@@ -1,0 +1,268 @@
+---
+name: literature-deep-reading
+description: Generate a literature deep-reading artifact from a source bundle. Current package bootstraps source structure, collects requested Host context, and builds reading analysis views for later stages.
+---
+
+# Literature Deep Reading
+
+本 skill 用于从 `source_bundle.zip` 启动文献精读运行。当前内置包实现：
+
+- `stage_00_bootstrap`：解包 source bundle、解析 Markdown 结构、建立 SQLite 和生成 bootstrap runtime views。
+- `stage_10_source_reading_context_request`：agent 读取原文结构后写入 `context-request.json`，runtime 通过 Host Bridge best-effort 收集后续精读需要的上下文。
+- `stage_20_reading_enrichment`：agent 读取原文、Host context 和 artifact views 后写入 `reading-enrichment.json`，runtime 归一化为 Preface、章节说明、概念、参考文献、总结和扩展阅读 views。
+- `stage_30_block_translation`：agent 按稳定 block id 写入 `block-translations.json`，runtime 归一化为翻译 view。
+
+当前阶段不会生成最终 `deep-reading.html`，也不会渲染浏览器页面。
+
+## 输入
+
+`input.source_bundle_path` 必须指向一个本地 `source_bundle.zip`。bundle 预期包含：
+
+- `source.md`
+- `source-manifest.json`
+- `images/`
+- 可选 `original.pdf`
+- 可选 `artifacts/artifact-manifest.json`
+- 可选 `artifacts/references.json`
+- 可选 `artifacts/digest.md`
+- 可选 `artifacts/citation-analysis.md`
+
+参数：
+
+- `target_language`：目标语言，默认 `zh-CN`。
+
+## Runtime model
+
+唯一面向 agent 的 CLI 是：
+
+```powershell
+python scripts/deep_reading_runtime.py bootstrap --input runtime/input.json
+python scripts/deep_reading_runtime.py status
+python scripts/deep_reading_runtime.py validate-bootstrap
+python scripts/deep_reading_runtime.py submit-context-request --payload runtime/payloads/context-request.json
+python scripts/deep_reading_runtime.py validate-context-request
+python scripts/deep_reading_runtime.py submit-reading-enrichment --payload runtime/payloads/reading-enrichment.json
+python scripts/deep_reading_runtime.py validate-reading-enrichment
+python scripts/deep_reading_runtime.py submit-block-translations --payload runtime/payloads/block-translations.json
+python scripts/deep_reading_runtime.py validate-block-translations
+```
+
+不要调用其他脚本入口。
+
+## Bootstrap 输出
+
+`bootstrap` 成功后会生成：
+
+- `runtime/literature-deep-reading.sqlite`
+- `runtime/views/source-structure.json`
+- `runtime/views/reading-blocks.json`
+- `runtime/views/image-manifest.json`
+- `runtime/views/source-reading-view.json`
+- `runtime/views/target-artifacts-view.json`
+- `runtime/views/references-seed-view.json`
+- `runtime/views/diagnostics-bootstrap.json`
+- `literature-deep-reading.result.json`
+
+## Stage 10 Context Request
+
+`bootstrap` 成功后，先阅读：
+
+- `runtime/views/source-reading-view.json`
+- `runtime/views/source-structure.json`
+- `runtime/views/references-seed-view.json`
+- `runtime/views/target-artifacts-view.json`
+- `runtime/views/diagnostics-bootstrap.json`
+
+然后手写且只手写：
+
+```text
+runtime/payloads/context-request.json
+```
+
+按下面的字段组织 `context-request.json`：
+
+```json
+{
+  "main_task": "object detection",
+  "method_family": "transformer-based direct set prediction",
+  "external_context_section_anchors": ["sec-1-introduction"],
+  "request_topic_context": false,
+  "topic_context_reason": "",
+  "request_concept_context": true,
+  "concept_labels": ["DETR", "object queries", "bipartite matching"],
+  "request_citation_graph": true,
+  "citation_graph_depth": 2,
+  "citation_graph_direction": "both",
+  "citation_graph_max_nodes": 80,
+  "citation_graph_max_edges": 160,
+  "citation_graph_include_low_signal": false,
+  "reference_digest_policy": "all_library_references",
+  "priority_reference_indices": []
+}
+```
+
+提交后 runtime 会生成：
+
+- `runtime/views/host-context-view.json`
+- `runtime/views/reference-bindings-view.json`
+- `runtime/views/reference-digests-view.json`
+- `runtime/views/citation-graph-snapshot.json`
+- `runtime/views/citation-graph-layout.json`
+- `runtime/views/topic-context.json`
+- `runtime/views/graph-context.json`
+- `runtime/views/concept-candidates-view.json`
+- `runtime/views/diagnostics-host-context.json`
+
+Host Bridge 不可用或单项能力失败时，runtime 会写入 diagnostics 和空/部分 view，后续阶段仍可继续读取已有内容。
+
+## Stage 20 Reading Enrichment
+
+Stage 10 完成后，继续阅读：
+
+- `runtime/views/source-reading-view.json`
+- `runtime/views/source-structure.json`
+- `runtime/views/references-seed-view.json`
+- `runtime/views/target-artifacts-view.json`
+- `runtime/views/host-context-view.json`
+- `runtime/views/reference-bindings-view.json`
+- `runtime/views/reference-digests-view.json`
+- `runtime/views/topic-context.json`
+- `runtime/views/graph-context.json`
+- `runtime/views/concept-candidates-view.json`
+
+然后手写：
+
+```text
+runtime/payloads/reading-enrichment.json
+```
+
+按下面的字段组织 `reading-enrichment.json`：
+
+```json
+{
+  "preface_title": "阅读前导读",
+  "preface_cards": [
+    {
+      "title": "研究问题",
+      "body": "这篇论文要解决什么问题，以及它为什么重要。"
+    }
+  ],
+  "preface_reading_path": ["先看问题设定", "再看方法结构", "最后看实验和局限"],
+  "preface_goal": "帮助读者带着问题进入正文。",
+  "preface_concepts": ["DETR", "object queries"],
+  "preface_warnings": ["不要把 object queries 直接理解为传统 anchor。"],
+  "preface_questions": [
+    {
+      "question": "这篇论文的关键突破是什么？",
+      "answer": "它把目标检测建模为直接集合预测，减少了手工后处理。"
+    }
+  ],
+  "section_notes": [
+    {
+      "section_anchor": "sec-1-introduction",
+      "reading_goal": "理解论文为什么要重新表述目标检测问题。",
+      "concepts": ["set prediction"],
+      "misread_warnings": ["这里的 end-to-end 不等于没有训练损失设计。"],
+      "questions": [
+        {
+          "question": "作者为什么强调 NMS？",
+          "answer": "因为传统检测流程依赖重复候选框的后处理。"
+        }
+      ],
+      "citation_note_body": "本节引用主要用于说明传统检测流程的背景。",
+      "citation_reference_roles": [
+        {
+          "reference_id": "ref-1",
+          "role": "background"
+        }
+      ]
+    }
+  ],
+  "concepts": [
+    {
+      "label": "object queries",
+      "aliases": ["object query"],
+      "kind": "method component",
+      "definition": "DETR decoder 中用于预测一组目标的可学习查询。"
+    }
+  ],
+  "reference_digest_notes": [
+    {
+      "reference_id": "ref-1",
+      "role_in_current_paper": "背景方法",
+      "why_open": "用于理解本文反对的传统检测流程。"
+    }
+  ],
+  "summary_fallback_enabled": true,
+  "summary_fallback_sections": [
+    {
+      "title": "TL;DR",
+      "body": "如果没有 digest artifact，使用这里的简短总结。"
+    }
+  ],
+  "extensions": [
+    {
+      "title": "读后延伸",
+      "body": "围绕后续改进方向继续阅读。"
+    }
+  ]
+}
+```
+
+提交后 runtime 会生成：
+
+- `runtime/views/preface-view.json`
+- `runtime/views/section-insights-view.json`
+- `runtime/views/concept-overlay-view.json`
+- `runtime/views/references-view.json`
+- `runtime/views/summary-view.json`
+- `runtime/views/extensions-view.json`
+- `runtime/views/diagnostics-enrichment.json`
+
+## Stage 30 Block Translation
+
+Stage 20 完成后，继续阅读：
+
+- `runtime/views/reading-blocks.json`
+- `runtime/views/source-structure.json`
+- `runtime/views/concept-overlay-view.json`
+- `runtime/views/section-insights-view.json`
+
+然后手写：
+
+```text
+runtime/payloads/block-translations.json
+```
+
+按下面的字段组织 `block-translations.json`：
+
+```json
+{
+  "translations": [
+    {
+      "block_id": "block-0001",
+      "translated_markdown": "# 论文标题",
+      "quality_notes": []
+    },
+    {
+      "block_id": "block-0002",
+      "translated_markdown": "这一段的中文译文。",
+      "quality_notes": ["术语按 concept glossary 统一。"]
+    }
+  ]
+}
+```
+
+提交后 runtime 会生成：
+
+- `runtime/views/translation-view.json`
+- `runtime/views/diagnostics-translation.json`
+
+## Final output
+
+当前阶段完成后，读取 `literature-deep-reading.result.json`，并输出一个 JSON object。该 JSON 必须包含：
+
+- `"__SKILL_DONE__": true`
+- `literature-deep-reading.result.json` 中的全部业务字段
+
+不要输出 Markdown fence、解释性文字或最终 HTML 路径。

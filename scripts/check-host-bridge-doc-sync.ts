@@ -33,6 +33,10 @@ const DOCS = [
 ];
 
 const FORBIDDEN_TEXT = [
+  "synthesis <subcommand>",
+  "synthesis <subcommand> --input",
+  "call synthesis.*",
+  "synthesis.* capability",
   "synthesis.list_topics",
   "synthesis.get_topic_context",
   "synthesis.get_schemas",
@@ -56,6 +60,13 @@ const FORBIDDEN_TEXT = [
   "zotero.get_current_view",
   "zotero.get_selected_items",
   "zotero.search_items",
+];
+
+const FORBIDDEN_REGEX: Array<[RegExp, string]> = [
+  [/\bsynthesis\.(?!cache\.|diff\b|debug\b|jobs\.|maintenance\.|operations\.|paper\.|profiler\.|queue\.|snapshot\b|topic\.|worker\.|cleanInstallReset\b)/, "public synthesis.* capability namespace"],
+  [/\bget-reference-sidecar-index\b/, "legacy reference sidecar CLI command"],
+  [/\bget-library-index\b/, "legacy library index CLI command"],
+  [/\bresolve-resolver\b/, "legacy resolver CLI command"],
 ];
 
 const REMOVED_PATHS = [
@@ -106,6 +117,12 @@ for (const docPath of DOCS) {
   for (const forbidden of FORBIDDEN_TEXT) {
     if (text.includes(forbidden)) {
       fail(`${docPath} contains stale Host Bridge surface text: ${forbidden}`);
+    }
+  }
+  for (const [pattern, label] of FORBIDDEN_REGEX) {
+    const match = text.match(pattern);
+    if (match) {
+      fail(`${docPath} contains stale Host Bridge surface text (${label}): ${match[0]}`);
     }
   }
 }

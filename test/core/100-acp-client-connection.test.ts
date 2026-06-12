@@ -1,5 +1,13 @@
 import { assert } from "chai";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { AcpClientConnection } from "../../src/modules/acpClientConnection";
+import {
+  createAcpConnectionAdapter,
+  type AcpConnectionUpdate,
+} from "../../src/modules/acpConnectionAdapter";
+import type { BackendInstance } from "../../src/backends/types";
 import {
   ACP_CLIENT_METHODS,
   ACP_PROTOCOL_VERSION,
@@ -119,6 +127,68 @@ function createMessageHarness() {
       return new Promise<JsonRpcMessage>((resolve) => {
         waitingOutbound.push(resolve);
       });
+    },
+  };
+}
+
+async function createFakeClaudeAcpServerScript(root: string) {
+  const scriptPath = path.join(root, "fake-claude-acp-server.mjs");
+  await fs.writeFile(
+    scriptPath,
+    [
+      'import readline from "node:readline";',
+      "let rawEnabled = false;",
+      "let newSessionAttempts = 0;",
+      "const rejectMeta = process.env.REJECT_META === '1';",
+      "function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); }",
+      "const rl = readline.createInterface({ input: process.stdin });",
+      "rl.on('line', (line) => {",
+      "  if (!line.trim()) return;",
+      "  const request = JSON.parse(line);",
+      "  if (request.method === 'initialize') {",
+      "    send({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: 1, agentInfo: { name: 'fake', version: '1' }, agentCapabilities: { sessionCapabilities: { resume: {} }, loadSession: true, mcpCapabilities: { http: true } }, authMethods: [] } });",
+      "    return;",
+      "  }",
+      "  if (request.method === 'session/new') {",
+      "    newSessionAttempts += 1;",
+      "    if (rejectMeta && request.params && request.params._meta) {",
+      "      send({ jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'Invalid params: unknown _meta' } });",
+      "      return;",
+      "    }",
+      "    rawEnabled = !!(request.params && request.params._meta && request.params._meta.claudeCode && request.params._meta.claudeCode.emitRawSDKMessages);",
+      "    send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'session-1', title: `attempts:${newSessionAttempts}` } });",
+      "    return;",
+      "  }",
+      "  if (request.method === 'session/prompt') {",
+      "    send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: request.params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '' } } } });",
+      "    if (rawEnabled) {",
+      "      send({ jsonrpc: '2.0', method: '_claude/sdkMessage', params: { sessionId: request.params.sessionId, message: { type: 'assistant', message: { content: [{ type: 'text', text: '{\"probe\":\"raw\",\"ok\":true}' }] } } } });",
+      "    }",
+      "    send({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } });",
+      "    return;",
+      "  }",
+      "  send({ jsonrpc: '2.0', id: request.id, result: {} });",
+      "});",
+    ].join("\n"),
+    "utf8",
+  );
+  return scriptPath;
+}
+
+function createClaudeBackend(
+  scriptPath: string,
+  env?: Record<string, string>,
+): BackendInstance {
+  return {
+    id: "fake-claude-acp",
+    displayName: "Fake Claude ACP",
+    type: "acp",
+    baseUrl: "local://fake-claude-acp",
+    command: process.execPath,
+    args: [scriptPath],
+    env,
+    acp: {
+      agentFamily: "claude-code",
     },
   };
 }
@@ -374,6 +444,176 @@ describe("acp client connection", function () {
       await connection.closed;
     } finally {
       restoreGlobalProperty("AbortController", previousAbortController);
+    }
+  });
+
+  it("routes provider extension notifications to the optional handler", async function () {
+    const harness = createMessageHarness();
+    const providerNotifications: JsonRpcMessage[] = [];
+    const connection = new AcpClientConnection(
+      () => ({
+        requestPermission: async () => ({ outcome: "cancelled" }),
+        sessionUpdate: async () => undefined,
+        providerNotification: async (notification) => {
+          providerNotifications.push(notification);
+        },
+      }),
+      harness.stream,
+    );
+
+    harness.pushInbound({
+      jsonrpc: "2.0",
+      method: "_claude/sdkMessage",
+      params: {
+        sessionId: "session-1",
+        message: {
+          type: "assistant",
+          message: {
+            content: [{ type: "text", text: "fallback text" }],
+          },
+        },
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.lengthOf(providerNotifications, 1);
+    assert.equal(providerNotifications[0].method, "_claude/sdkMessage");
+
+    harness.closeInbound();
+    await connection.closed;
+  });
+
+  it("keeps receiving session updates when provider notifications are ignored or fail", async function () {
+    const harness = createMessageHarness();
+    const updates: SessionNotification[] = [];
+    const previousConsoleError = console.error;
+    const connection = new AcpClientConnection(
+      () => ({
+        requestPermission: async () => ({ outcome: "cancelled" }),
+        sessionUpdate: async (event) => {
+          updates.push(event);
+        },
+        providerNotification: async () => {
+          throw new Error("extension handler failed");
+        },
+      }),
+      harness.stream,
+    );
+
+    try {
+      console.error = () => undefined;
+      harness.pushInbound({
+        jsonrpc: "2.0",
+        method: "_claude/sdkMessage",
+        params: {
+          sessionId: "session-1",
+        },
+      });
+      harness.pushInbound({
+        jsonrpc: "2.0",
+        method: ACP_CLIENT_METHODS.session_update,
+        params: {
+          sessionId: "session-1",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "standard text",
+            },
+          },
+        },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.lengthOf(updates, 1);
+      assert.equal(
+        (updates[0].update as { content?: { text?: string } }).content?.text,
+        "standard text",
+      );
+    } finally {
+      console.error = previousConsoleError;
+    }
+
+    harness.closeInbound();
+    await connection.closed;
+  });
+
+  it("projects Claude raw SDK assistant text when the standard assistant stream is empty", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-client-"));
+    let adapter: Awaited<ReturnType<typeof createAcpConnectionAdapter>> | null =
+      null;
+    try {
+      const scriptPath = await createFakeClaudeAcpServerScript(root);
+      adapter = await createAcpConnectionAdapter({
+        backend: createClaudeBackend(scriptPath),
+        agentWorkspaceDir: root,
+        sessionCwd: root,
+        workspaceDir: root,
+        runtimeDir: root,
+      });
+      const updates: AcpConnectionUpdate[] = [];
+      adapter.onUpdate((event) => {
+        updates.push(event);
+      });
+
+      await adapter.initialize();
+      const session = await adapter.newSession();
+      const response = await adapter.prompt({
+        sessionId: session.sessionId,
+        message: "return JSON",
+      });
+
+      assert.equal(response.stopReason, "end_turn");
+      assert.deepEqual(
+        updates.map(
+          (event) =>
+            (event.update as { content?: { text?: string } }).content?.text ||
+            "",
+        ),
+        ["", '{"probe":"raw","ok":true}'],
+      );
+    } finally {
+      await adapter?.close().catch(() => undefined);
+      await fs.rm(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
+    }
+  });
+
+  it("retries Claude session creation without raw SDK metadata when the backend rejects it", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-client-"));
+    let adapter: Awaited<ReturnType<typeof createAcpConnectionAdapter>> | null =
+      null;
+    try {
+      const scriptPath = await createFakeClaudeAcpServerScript(root);
+      adapter = await createAcpConnectionAdapter({
+        backend: createClaudeBackend(scriptPath, { REJECT_META: "1" }),
+        agentWorkspaceDir: root,
+        sessionCwd: root,
+        workspaceDir: root,
+        runtimeDir: root,
+      });
+      const diagnostics: string[] = [];
+      adapter.onDiagnostics((entry) => {
+        diagnostics.push(entry.kind);
+      });
+
+      await adapter.initialize();
+      const session = await adapter.newSession();
+
+      assert.equal(session.sessionId, "session-1");
+      assert.include(diagnostics, "claude_raw_sdk_extension_disabled");
+    } finally {
+      await adapter?.close().catch(() => undefined);
+      await fs.rm(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
     }
   });
 });

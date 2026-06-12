@@ -61,6 +61,7 @@ export type AcpClientHandler = {
     params: RequestPermissionRequest,
   ) => Promise<{ outcome: RequestPermissionOutcome }>;
   sessionUpdate: (params: SessionNotification) => Promise<void>;
+  providerNotification?: (notification: JsonRpcNotification) => Promise<void>;
 };
 
 export class AcpClientConnection {
@@ -163,7 +164,8 @@ export class AcpClientConnection {
           );
           return;
         default:
-          throw RequestError.methodNotFound(notification.method);
+          await this.client.providerNotification?.(notification);
+          return;
       }
     } catch (error) {
       console.error("ACP notification handling failed:", error);
@@ -285,6 +287,7 @@ export class AcpClientConnection {
   async newSession(params: {
     cwd: string;
     mcpServers: unknown[];
+    _meta?: unknown;
   }) {
     return await this.sendRequest<NewSessionResponse>(
       ACP_AGENT_METHODS.session_new,
@@ -296,6 +299,7 @@ export class AcpClientConnection {
     sessionId: string;
     cwd: string;
     mcpServers: unknown[];
+    _meta?: unknown;
   }) {
     return await this.sendRequest<SessionAttachResponse>(
       ACP_AGENT_METHODS.session_load,
@@ -307,6 +311,7 @@ export class AcpClientConnection {
     sessionId: string;
     cwd: string;
     mcpServers: unknown[];
+    _meta?: unknown;
   }) {
     return await this.sendRequest<SessionAttachResponse>(
       ACP_AGENT_METHODS.session_resume,

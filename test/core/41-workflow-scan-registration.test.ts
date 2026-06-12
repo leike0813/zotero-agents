@@ -134,7 +134,9 @@ describe("workflow scan + registry integration", function () {
       workflow,
       `workflows=${state.loaded.workflows.map((entry) => entry.manifest.id).join(",")} warnings=${JSON.stringify(state.loaded.warnings)} errors=${JSON.stringify(state.loaded.errors)}`,
     );
-    const workflowIds = state.loaded.workflows.map((entry) => entry.manifest.id);
+    const workflowIds = state.loaded.workflows.map(
+      (entry) => entry.manifest.id,
+    );
     assert.notInclude(workflowIds, "reference-matching");
     assert.notInclude(workflowIds, "reference-note-editor");
     assert.equal(workflow?.manifest.label, "Literature Digest");

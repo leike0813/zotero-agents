@@ -117,9 +117,8 @@ describe("deferred workflow completion tracker", function () {
       completed: true,
     });
     assert.lengthOf(deferredJobToasts, 1);
-    assert.lengthOf(deferredJobToasts[0].outcomes, 2);
-    assert.equal(deferredJobToasts[0].outcomes[0].requestId, "req-1");
-    assert.equal(deferredJobToasts[0].outcomes[1].requestId, "req-2");
+    assert.lengthOf(deferredJobToasts[0].outcomes, 1);
+    assert.equal(deferredJobToasts[0].outcomes[0].requestId, "req-2");
     assert.lengthOf(summaries, 1);
     assert.include(summaries[0], "succeeded=1");
     assert.include(summaries[0], "failed=1");
@@ -206,8 +205,7 @@ describe("deferred workflow completion tracker", function () {
     assert.lengthOf(deferredJobToasts, 1);
     assert.lengthOf(deferredJobToasts[0].outcomes, 1);
     assert.equal(deferredJobToasts[0].outcomes[0].requestId, "req-buffered-1");
-    assert.lengthOf(summaries, 1);
-    assert.include(summaries[0], "succeeded=1");
+    assert.lengthOf(summaries, 0);
     assert.include(runtimeStages, "deferred-outcome-replayed-after-register");
     assert.include(runtimeStages, "deferred-run-summary-emitted");
   });
@@ -291,7 +289,7 @@ describe("deferred workflow completion tracker", function () {
     assert.lengthOf(deferredJobToasts, 1);
     assert.deepEqual(
       deferredJobToasts[0].outcomes.map((entry: { requestId: string }) => entry.requestId),
-      ["req-live-1", "req-buffered-2"],
+      ["req-buffered-2"],
     );
     assert.lengthOf(summaries, 1);
     assert.include(summaries[0], "succeeded=1");
@@ -368,8 +366,7 @@ describe("deferred workflow completion tracker", function () {
     );
     assert.lengthOf(deferredJobToasts, 1);
     assert.lengthOf(deferredJobToasts[0].outcomes, 1);
-    assert.lengthOf(summaries, 1);
-    assert.include(summaries[0], "succeeded=1");
+    assert.lengthOf(summaries, 0);
 
     const settledAfterCompletion = settleDeferredWorkflowCompletion({
       runId: "run-idempotent-1",
@@ -382,7 +379,7 @@ describe("deferred workflow completion tracker", function () {
       completed: false,
     });
     assert.lengthOf(deferredJobToasts, 1);
-    assert.lengthOf(summaries, 1);
+    assert.lengthOf(summaries, 0);
   });
 
   it("drops orphan buffered outcomes that do not match registered pending jobs", function () {
@@ -454,8 +451,6 @@ describe("deferred workflow completion tracker", function () {
       completed: true,
     });
     assert.lengthOf(deferredJobToasts, 1);
-    assert.lengthOf(summaries, 1);
-    assert.include(summaries[0], "succeeded=1");
-    assert.include(summaries[0], "failed=0");
+    assert.lengthOf(summaries, 0);
   });
 });

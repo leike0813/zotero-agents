@@ -5,6 +5,7 @@ import {
   listActiveWorkflowTasks,
   listWorkflowTasks,
   recordWorkflowTaskUpdate,
+  reconcileWorkflowTaskProjectionsOnStartup,
   resetWorkflowTasks,
 } from "../../src/modules/taskRuntime";
 
@@ -284,5 +285,53 @@ describe("task runtime", function () {
     assert.lengthOf(tasks, 1);
     assert.equal(tasks[0].requestId, "request-running-1");
     assert.equal(tasks[0].state, "running");
+  });
+
+  it("fails orphan active projections restored on startup", function () {
+    recordWorkflowTaskUpdate(
+      makeJob({
+        id: "job-orphan",
+        state: "running",
+        createdAt: "2026-02-10T01:00:00.000Z",
+        updatedAt: "2026-02-10T01:00:01.000Z",
+        runId: "run-orphan",
+        taskName: "orphan.md",
+        backendId: "",
+        backendType: "",
+      }),
+    );
+
+    const result = reconcileWorkflowTaskProjectionsOnStartup();
+
+    assert.equal(result.failedCount, 1);
+    assert.deepEqual(listActiveWorkflowTasks(), []);
+    const task = listWorkflowTasks()[0];
+    assert.equal(task.state, "failed");
+    assert.include(task.error || "", "previous Zotero plugin session");
+  });
+
+  it("preserves SkillRunner request projections for backend ledger reconciliation", function () {
+    recordWorkflowTaskUpdate(
+      makeJob({
+        id: "job-skillrunner",
+        state: "running",
+        createdAt: "2026-02-10T01:00:00.000Z",
+        updatedAt: "2026-02-10T01:00:01.000Z",
+        runId: "run-skillrunner",
+        taskName: "backend.md",
+        backendId: "skillrunner-backend",
+        backendType: "skillrunner",
+        requestId: "request-skillrunner",
+      }),
+    );
+
+    const result = reconcileWorkflowTaskProjectionsOnStartup();
+
+    assert.equal(result.failedCount, 0);
+    assert.equal(result.preservedCount, 1);
+    assert.equal(
+      listActiveWorkflowTasks()[0]?.requestId,
+      "request-skillrunner",
+    );
   });
 });

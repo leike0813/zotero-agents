@@ -1,0 +1,60 @@
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "literature_deep_reading_bootstrap",
+        "literature_deep_reading_context_ready",
+        "literature_deep_reading_enriched",
+        "literature_deep_reading_translated",
+        "literature_deep_reading_error"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "bootstrapped",
+        "context_ready",
+        "enriched",
+        "translated",
+        "failed"
+      ]
+    },
+    "db_path": {
+      "type": "string"
+    },
+    "views": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "diagnostics_path": {
+      "type": "string"
+    },
+    "final_html_available": {
+      "const": false
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "error": {
+      "type": ["object", "null"]
+    }
+  },
+  "required": [
+    "kind",
+    "status",
+    "db_path",
+    "views",
+    "diagnostics_path",
+    "final_html_available",
+    "warnings",
+    "error"
+  ],
+  "additionalProperties": false
+}

@@ -6,7 +6,7 @@ The SSOT boundary is defined in [Library SSOT and Sidecar Cache](./library-ssot-
 
 ## Data Model
 
-The reference layer has four active table families.
+The reference layer has six active table families.
 
 ### Artifact Sidecar
 

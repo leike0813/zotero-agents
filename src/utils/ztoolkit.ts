@@ -73,10 +73,10 @@ function initZToolkit(_ztoolkit: ReturnType<typeof createZToolkit>) {
   // _ztoolkit.basicOptions.debug.disableDebugBridgePassword =
   //   __env__ === "development";
   _ztoolkit.basicOptions.api.pluginID = config.addonID;
-  _ztoolkit.ProgressWindow.setIconURI(
-    "default",
-    `chrome://${config.addonRef}/content/icons/favicon.png`,
-  );
+  const pluginToastIconURI = `chrome://${config.addonRef}/content/icons/favicon.png`;
+  for (const type of ["default", "success", "error"]) {
+    _ztoolkit.ProgressWindow.setIconURI(type, pluginToastIconURI);
+  }
   _ztoolkit.ProgressWindow.setIconURI(
     "skillrunner-backend",
     `chrome://${config.addonRef}/content/icons/icon_sidebar_32.png`,

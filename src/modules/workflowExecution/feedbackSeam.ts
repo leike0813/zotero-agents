@@ -5,8 +5,10 @@ import {
   buildWorkflowWaitingToastMessage,
   type WorkflowMessageFormatter,
 } from "../workflowExecuteMessage";
+import { config } from "../../../package.json";
 import {
   resolveAddonName,
+  resolveAddonRef,
   resolveToolkitMember,
 } from "../../utils/runtimeBridge";
 import type { WorkflowJobOutcome, WorkflowToastPayload } from "./contracts";
@@ -15,17 +17,21 @@ type ProgressWindowInstance = {
   createLine: (args: {
     text: string;
     type?: string;
+    icon?: string;
     progress?: number;
   }) => ProgressWindowInstance;
   show: (closeTime?: number) => ProgressWindowInstance;
   startCloseTimer?: (delayMs: number) => unknown;
+  updateIcons?: () => unknown;
   close?: () => unknown;
 };
 
-type ProgressWindowCtor = new (
+type ProgressWindowCtor = (new (
   title: string,
   options?: Record<string, unknown>,
-) => ProgressWindowInstance;
+) => ProgressWindowInstance) & {
+  setIconURI?: (key: string, uri: string) => unknown;
+};
 
 const WORKFLOW_TOAST_CLOSE_DELAY_MS = 2000;
 const MAX_VISIBLE_WORKFLOW_TOASTS = 3;
@@ -66,8 +72,90 @@ const STICKY_BOUNDED_TOAST_OPTIONS: WorkflowToastOptions = {
   bounded: true,
 };
 
+const BOUNDED_TOAST_OPTIONS: WorkflowToastOptions = {
+  bounded: true,
+};
+
+const WORKFLOW_TOAST_EMOJI_PREFIXES = ["🚀", "⏳", "✅", "❌", "⏹️", "🔌"];
+
 export function resetWorkflowToastStateForTests() {
   visibleWorkflowToasts.splice(0, visibleWorkflowToasts.length);
+}
+
+function resolveWorkflowToastEmoji(payload: WorkflowToastPayload) {
+  if (payload.semantic === "start") {
+    return "🚀";
+  }
+  if (payload.semantic === "waiting") {
+    return "⏳";
+  }
+  if (payload.semantic === "canceled") {
+    return "⏹️";
+  }
+  if (
+    payload.semantic === "runtime" ||
+    String(payload.type) === "skillrunner-backend"
+  ) {
+    return "🔌";
+  }
+  if (payload.semantic === "success" || payload.type === "success") {
+    return "✅";
+  }
+  if (payload.semantic === "error" || payload.type === "error") {
+    return "❌";
+  }
+  return "";
+}
+
+function formatWorkflowToastText(payload: WorkflowToastPayload) {
+  const text = String(payload.text || "").trim();
+  if (
+    !text ||
+    WORKFLOW_TOAST_EMOJI_PREFIXES.some((prefix) => text.startsWith(prefix))
+  ) {
+    return text;
+  }
+  const emoji = resolveWorkflowToastEmoji(payload);
+  return emoji ? `${emoji} ${text}` : text;
+}
+
+function resolveWorkflowToastIconURI() {
+  const addonRef = resolveAddonRef(config.addonRef);
+  return addonRef
+    ? `chrome://${addonRef}/content/icons/favicon.png`
+    : undefined;
+}
+
+function configureWorkflowToastIcon(
+  ProgressWindow: ProgressWindowCtor,
+  iconURI?: string,
+) {
+  if (!iconURI || typeof ProgressWindow.setIconURI !== "function") {
+    return;
+  }
+  try {
+    for (const type of ["default", "success", "error"]) {
+      ProgressWindow.setIconURI(type, iconURI);
+    }
+  } catch {
+    // ignore icon registration failures
+  }
+}
+
+function refreshWorkflowToastIcons(win: ProgressWindowInstance) {
+  if (typeof win.updateIcons !== "function") {
+    return;
+  }
+  const refresh = () => {
+    try {
+      win.updateIcons?.();
+    } catch {
+      // ignore toast icon refresh failures
+    }
+  };
+  refresh();
+  setTimeout(refresh, 100);
+  setTimeout(refresh, 500);
 }
 
 export function showWorkflowToast(
@@ -79,6 +167,7 @@ export function showWorkflowToast(
     return undefined;
   }
   const addonName = resolveAddonName("Zotero Skills");
+  const iconURI = resolveWorkflowToastIconURI();
   const sticky = options.sticky === true;
   const closeTime = sticky ? 0 : WORKFLOW_TOAST_CLOSE_DELAY_MS;
   const maxVisible = Math.max(
@@ -89,17 +178,21 @@ export function showWorkflowToast(
     if (options.bounded) {
       enforceVisibleWorkflowToastLimit(maxVisible);
     }
+    configureWorkflowToastIcon(ProgressWindow, iconURI);
     const win = new ProgressWindow(addonName, {
       closeOnClick: true,
       closeTime,
     });
+    const text = formatWorkflowToastText(payload);
     const shown = win
       .createLine({
-        text: payload.text,
-        type: payload.type,
+        text,
+        type: payload.type || "default",
+        icon: iconURI,
         progress: 100,
       })
       .show(closeTime);
+    refreshWorkflowToastIcons(shown);
     if (!sticky && typeof shown.startCloseTimer === "function") {
       shown.startCloseTimer(WORKFLOW_TOAST_CLOSE_DELAY_MS);
     }
@@ -159,8 +252,9 @@ export function emitWorkflowStartToast(
         args.messageFormatter,
       ),
       type: "default",
+      semantic: "start",
     },
-    STICKY_BOUNDED_TOAST_OPTIONS,
+    BOUNDED_TOAST_OPTIONS,
   );
 }
 
@@ -186,6 +280,7 @@ export function emitWorkflowWaitingToast(
         args.messageFormatter,
       ),
       type: "default",
+      semantic: "waiting",
     },
     STICKY_BOUNDED_TOAST_OPTIONS,
   );
@@ -219,10 +314,33 @@ export function emitWorkflowJobToasts(
           args.messageFormatter,
         ),
         type: outcome.succeeded ? "success" : "error",
+        semantic:
+          outcome.terminalState === "canceled"
+            ? "canceled"
+            : outcome.succeeded
+              ? "success"
+              : "error",
       },
       STICKY_BOUNDED_TOAST_OPTIONS,
     );
   }
+}
+
+export function selectWorkflowJobOutcomesForToasts(args: {
+  outcomes: WorkflowJobOutcome[];
+  totalJobs: number;
+  skipped: number;
+}) {
+  return args.outcomes.filter((outcome) => !outcome.succeeded);
+}
+
+export function shouldEmitWorkflowFinishSummaryToast(args: {
+  outcomes: WorkflowJobOutcome[];
+  totalJobs: number;
+  skipped: number;
+}) {
+  void args;
+  return true;
 }
 
 export function emitWorkflowFinishSummary(
@@ -255,6 +373,7 @@ export function emitWorkflowFinishSummary(
         args.messageFormatter,
       ),
       type: args.failed > 0 ? "error" : "success",
+      semantic: args.failed > 0 ? "error" : "success",
     },
     STICKY_BOUNDED_TOAST_OPTIONS,
   );

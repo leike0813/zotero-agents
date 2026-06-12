@@ -1,0 +1,30 @@
+{
+  "$id": "literature-deep-reading.block-translations.v0",
+  "type": "object",
+  "properties": {
+    "translations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "block_id": {
+            "type": "string"
+          },
+          "translated_markdown": {
+            "type": "string"
+          },
+          "quality_notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["block_id", "translated_markdown"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["translations"],
+  "additionalProperties": false
+}

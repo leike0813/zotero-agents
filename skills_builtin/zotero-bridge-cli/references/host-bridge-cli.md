@@ -59,6 +59,7 @@ zotero-bridge file --help
 | `topics list` | `topics.list` | capability | - |
 | `schemas get` | `schemas.get` | capability | - |
 | `concepts query` | `concepts.query` | capability | - |
+| `citation-graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
 | `citation-graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
 | `citation-graph get-slice` | `citation_graph.get_slice` | capability | cache-view |
 | `citation-graph overview` | `citation_graph.get_overview` | capability | cache-view |

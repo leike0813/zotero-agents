@@ -9,6 +9,7 @@
 - Provider 注册中心：`src/providers/registry.ts`
 - 内置 Provider：
   - `skillrunner`：`src/providers/skillrunner/provider.ts`
+  - `acp`：`src/providers/acp/provider.ts`
   - `generic-http`：`src/providers/generic-http/provider.ts`
   - `pass-through`：`src/providers/pass-through/provider.ts`
 - Backend 兼容性：先由 workflow `provider` 派生候选 backend type；`request.kind` 不参与兼容性推断。
@@ -35,7 +36,7 @@
 
 ## Runtime 选项能力
 
-- Provider 可声明可调选项 schema（如 skillrunner 的 `engine/model/no_cache`）
+- Provider 可声明可调选项 schema（如 skillrunner 的 `engine/provider_id/model/effort/no_cache/interactive_auto_reply/hard_timeout_seconds`）
 - Provider 可返回动态枚举（如 `model` 随 `engine` 变化）
 - Provider 负责对 runtime options 做 normalize
 - SkillRunner 的 engine/model 枚举来源：
@@ -47,6 +48,14 @@
 
 - 支持 request kind：
   - `skillrunner.job.v1`
+- 当前支持的运行时选项：
+  - `engine` — 推理引擎
+  - `provider_id` — 引擎内提供者选择
+  - `model` — 模型选择（随 engine/provider 动态刷新）
+  - `effort` — 推理努力度（如 `"default"` / `"high"`）
+  - `no_cache` — 是否绕过缓存
+  - `interactive_auto_reply` — 交互模式自动回复
+  - `hard_timeout_seconds` — 任务硬超时
 - 执行链分两阶段：
   - 提交阶段（Provider/Queue）：`POST /v1/jobs` -> `POST /v1/jobs/{request_id}/upload` -> 首轮轮询
   - 收敛阶段（Reconciler）：对 deferred 任务持续轮询后端状态，直至终态
@@ -111,6 +120,29 @@
   - `selectionContext`（完整选择上下文）
   - `parameter`（workflow 参数）
   - `requestMeta`（`targetParentID/taskName/sourceAttachmentPaths`）
+
+## acp 语义
+
+- 支持 request kind：
+  - `acp.prompt.v1`：向 ACP agent 发送单轮 prompt
+  - `acp.skill.run.v1`：在 ACP 后端执行 skill run
+  - `skillrunner.sequence.v1`：在 ACP 后端执行多步序列（由 workflow 运行时编排，provider 层不直接处理）
+- `acp.prompt.v1` 语义：
+  - 通过 sidecar global chat surface 处理
+  - 支持 `hostContext` 传递上下文
+- `acp.skill.run.v1` 语义：
+  - 委托给 `executeAcpSkillRunnerJob` 处理
+  - 支持 `input`、`parameter`、`runtime_options` 等标准负载字段
+  - 支持 `workflow_workspace` 模式（`"new"` / `"reuse"`）
+- `skillrunner.sequence.v1` 语义：
+  - 作为 ACP 兼容工作流编排的序列提供者
+  - provider 执行层对此 request kind 抛出错误（必须由 workflow 运行时编排处理）
+  - 详细合同见 `doc/skillrunner-sequence-recovery-state-machine.md`
+- Runtime options：
+  - `acpModeId`：ACP 模式选择
+  - `acpModelId`：ACP 模型选择
+  - `acpReasoningEffort`：推理努力度
+  - `autoApproveAcpPermissions`：是否自动审批 ACP 权限请求
 
 ## Backend 兼容性
 

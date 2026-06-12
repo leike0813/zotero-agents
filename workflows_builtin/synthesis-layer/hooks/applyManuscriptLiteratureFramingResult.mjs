@@ -10,7 +10,9 @@ export async function applyResult(context = {}) {
       title: resultJson.title || "Manuscript Literature Framing",
       metadata: {
         language: resultJson.language || "",
-        topic_ids: Array.isArray(resultJson.topic_ids) ? resultJson.topic_ids : [],
+        topic_ids: Array.isArray(resultJson.topic_ids)
+          ? resultJson.topic_ids
+          : [],
         diagnostics_summary: resultJson.diagnostics_summary || {},
         product_metadata: resultJson.product_metadata || {},
       },
@@ -100,5 +102,3 @@ export async function applyResult(context = {}) {
       : null,
   };
 }
-
-export default applyResult;

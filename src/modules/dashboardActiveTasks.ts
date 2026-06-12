@@ -5,6 +5,8 @@ import {
 import type { AcpSkillRunRecord } from "./acpSkillRunStore";
 import type { WorkflowTaskRecord } from "./taskRuntime";
 
+export type DashboardActiveTaskRow = WorkflowTaskRecord;
+
 export function isAcpSkillRunTask(entry: {
   backendType?: string;
   requestKind?: string;
@@ -64,4 +66,51 @@ export function filterDashboardActiveTasks(args: {
   return (Array.isArray(args.activeTasks) ? args.activeTasks : []).filter((entry) =>
     isVisibleDashboardActiveTask(entry, visibleAcpRequestIds),
   );
+}
+
+function normalizeText(value: unknown) {
+  return String(value || "").trim();
+}
+
+function resolveAcpSkillRunTaskState(run: AcpSkillRunRecord) {
+  if (run.pendingPermission) {
+    return "waiting_user";
+  }
+  return normalizeText(run.status) || "running";
+}
+
+export function projectDashboardActiveTasks(args: {
+  activeTasks: WorkflowTaskRecord[];
+  acpSkillRuns: AcpSkillRunRecord[];
+}) {
+  const acpRunByRequestId = new Map(
+    (Array.isArray(args.acpSkillRuns) ? args.acpSkillRuns : [])
+      .map((run) => [normalizeText(run.requestId), run] as const)
+      .filter(([requestId]) => !!requestId),
+  );
+  return filterDashboardActiveTasks(args).map((entry): DashboardActiveTaskRow => {
+    if (!isAcpSkillRunTask(entry)) {
+      return { ...entry };
+    }
+    const run = acpRunByRequestId.get(normalizeText(entry.requestId));
+    if (!run) {
+      return { ...entry };
+    }
+    return {
+      ...entry,
+      state: resolveAcpSkillRunTaskState(run) as WorkflowTaskRecord["state"],
+      error: run.error || entry.error,
+      updatedAt: normalizeText(run.updatedAt) || entry.updatedAt,
+    };
+  });
+}
+
+export function countDashboardHumanAttentionTasks(args: {
+  activeTasks: WorkflowTaskRecord[];
+  acpSkillRuns: AcpSkillRunRecord[];
+}) {
+  return projectDashboardActiveTasks(args).filter((entry) => {
+    const state = normalizeText(entry.state).toLowerCase().replace(/[-\s]+/g, "_");
+    return state === "waiting_user" || state === "waiting_auth";
+  }).length;
 }

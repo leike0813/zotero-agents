@@ -13,8 +13,7 @@ import {
   listPluginTaskRowEntries,
   replacePluginTaskRowEntries,
 } from "./pluginStateStore";
-const RETENTION_DAYS = 30;
-const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
+import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
 
 export type TaskDashboardHistoryRecord = WorkflowTaskRecord & {
   archivedAt: string;
@@ -75,7 +74,8 @@ function parseHistoryRecord(raw: unknown): TaskDashboardHistoryRecord | null {
     requestId: String(raw.requestId || "").trim() || undefined,
     engine: String(raw.engine || "").trim() || undefined,
     targetParentID:
-      typeof raw.targetParentID === "number" && Number.isFinite(raw.targetParentID)
+      typeof raw.targetParentID === "number" &&
+      Number.isFinite(raw.targetParentID)
         ? Math.floor(raw.targetParentID)
         : undefined,
     inputUnitIdentity: String(raw.inputUnitIdentity || "").trim() || undefined,
@@ -99,7 +99,9 @@ function readHistoryRecords(): TaskDashboardHistoryRecord[] {
     "history",
   )) {
     try {
-      const parsedRecord = parseHistoryRecord(JSON.parse(String(row.payload || "{}")));
+      const parsedRecord = parseHistoryRecord(
+        JSON.parse(String(row.payload || "{}")),
+      );
       if (!parsedRecord) {
         continue;
       }
@@ -127,7 +129,7 @@ function writeHistoryRecords(records: TaskDashboardHistoryRecord[]) {
 }
 
 function pruneExpiredRecords(records: TaskDashboardHistoryRecord[]) {
-  const threshold = Date.now() - RETENTION_MS;
+  const threshold = Date.now() - getTaskHistoryRetentionConfig().retentionMs;
   return records.filter((record) => {
     const ts = Date.parse(record.updatedAt || record.archivedAt || "");
     if (!Number.isFinite(ts)) {
@@ -138,10 +140,7 @@ function pruneExpiredRecords(records: TaskDashboardHistoryRecord[]) {
 }
 
 export function getTaskDashboardHistoryRetentionConfig() {
-  return {
-    retentionDays: RETENTION_DAYS,
-    retentionMs: RETENTION_MS,
-  };
+  return getTaskHistoryRetentionConfig();
 }
 
 export function listTaskDashboardHistory(args?: {
@@ -231,7 +230,8 @@ export function updateTaskDashboardHistoryStateByRequest(args: {
   const backendId = String(args.backendId || "").trim();
   const nextState = normalizeStatus(args.state) as WorkflowTaskRecord["state"];
   const nextError = String(args.error || "").trim() || undefined;
-  const nextUpdatedAt = String(args.updatedAt || "").trim() || new Date().toISOString();
+  const nextUpdatedAt =
+    String(args.updatedAt || "").trim() || new Date().toISOString();
   const before = readHistoryRecords();
   let updated = 0;
   const after = before.map((record) => {

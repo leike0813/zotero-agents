@@ -73,3 +73,60 @@ The readonly UI harness SHALL surface Revise Canonicals data from the synthesis 
 
 - **WHEN** harness status is requested
 - **THEN** synthesis diagnostics SHALL include available canonical revision proposal and mock action counts where available.
+
+### Requirement: Readonly UI Harness SHALL emulate Synthesis host localization
+
+The readonly UI harness SHALL provide the same Synthesis i18n envelope shape as
+the real Zotero host while continuing to load the original Workbench UI pages.
+
+#### Scenario: Harness sends Synthesis UI messages
+
+- **WHEN** the harness sends `synthesis:init`, `synthesis:snapshot`,
+  `synthesis:chrome`, `synthesis:surface`, or `synthesis:surface-error`
+- **THEN** it SHALL include a top-level `payload.i18n` envelope with the active
+  locale and Synthesis messages
+- **AND** it SHALL NOT require test fixtures or readonly service callers to
+  manually include localization messages.
+
+#### Scenario: Developer changes harness locale
+
+- **WHEN** the developer changes the harness locale selector
+- **THEN** the selector SHALL remain in the harness shell outside the real
+  Workbench iframe
+- **AND** the harness SHALL replay standard Synthesis Workbench messages with
+  the new locale envelope
+- **AND** it SHALL NOT modify or fork the Synthesis page implementation.
+
+### Requirement: Readonly UI Harness SHALL read Synthesis data from stable SQLite snapshots
+
+The readonly UI harness SHALL avoid direct long-lived reads from Zotero/plugin
+live SQLite databases when building Synthesis surfaces.
+
+#### Scenario: Zotero is running while harness reads Index or Tags
+
+- **WHEN** Zotero or the plugin has the live SQLite database open
+- **AND** the harness opens readonly adapters for Synthesis data
+- **THEN** the harness SHOULD create a stable readonly database snapshot before
+  issuing surface queries
+- **AND** Index, Tags, Concepts, Review, and Graph reads SHALL use the snapshot
+  through the shared readonly adapter helper
+- **AND** the harness SHALL NOT write Zotero DB, plugin DB, filesystem-backed
+  Synthesis data, clipboard, or backend state.
+
+### Requirement: Harness SHALL preserve Workbench surface refresh protocol semantics
+
+The readonly UI harness SHALL preserve Synthesis Workbench surface generation
+and transient-error semantics when it relays or mocks surface messages.
+
+#### Scenario: Harness surface response is stale
+
+- **WHEN** the harness sends a Synthesis surface response with older request
+  metadata than the latest accepted response
+- **THEN** the original Workbench frontend SHALL ignore it
+- **AND** the harness SHALL NOT compensate by injecting fake data.
+
+#### Scenario: Harness read fails transiently
+
+- **WHEN** a harness-backed readonly surface read fails transiently
+- **THEN** the page SHALL show the same diagnostic/last-known-good behavior as
+  the plugin-hosted Workbench.

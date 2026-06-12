@@ -1,0 +1,425 @@
+{
+  "schema_version": "literature-deep-reading.citation-graph-layout.v0",
+  "layout": "local-persisted-force-layout",
+  "source": "local_persisted_force_layout",
+  "start_node_id": "zotero:item:EIMSDEU3",
+  "view_box": {
+    "min_x": 0,
+    "min_y": 0,
+    "width": 460,
+    "height": 460
+  },
+  "host_layout": {
+    "status": "available",
+    "layout_key": "local_synthesis_state:balanced",
+    "graph_hash": "sha256:fdd2127adfd6cccc99362577adab73b850198851ce0b08295c4614dae685f057",
+    "layout_hash": "sha256:72165dcce696e14bd1b64db9f28c204b256d295ddc0df34f2a20e048b51af54a",
+    "updated_at": null,
+    "matched_node_count": 80,
+    "diagnostics": [
+      "force layout command failed: {\"ok\":false,\"error\":{\"code\":\"bridge_unavailable\",\"category\":\"connection\",\"message\":\"Cannot connect to Host Bridge\",\"details\":{\"message\":\"由于目标计算机积极拒绝，无法连接。 (os error 10061)\"}},\"meta\":{\"cli\":\"zotero-bridge\",\"schema\":\"zotero-bridge.cli.v1\"}}"
+    ]
+  },
+  "nodes": {
+    "zotero:item:EIMSDEU3": {
+      "x": 317.475,
+      "y": 286.526,
+      "depth": 0
+    },
+    "zotero:item:S86GB385": {
+      "x": 363.48,
+      "y": 390.678,
+      "depth": 1
+    },
+    "zotero:item:MERSIDHN": {
+      "x": 325.288,
+      "y": 169.67,
+      "depth": 2
+    },
+    "zotero:item:IY3FMWQM": {
+      "x": 310.055,
+      "y": 311.723,
+      "depth": 1
+    },
+    "zotero:item:5HBHAWIV": {
+      "x": 235.833,
+      "y": 260.048,
+      "depth": 1
+    },
+    "zotero:item:I4ZU2PCY": {
+      "x": 317.233,
+      "y": 364.674,
+      "depth": 1
+    },
+    "zotero:item:3JUY9GBQ": {
+      "x": 28.0,
+      "y": 399.33,
+      "depth": 1
+    },
+    "zotero:item:CBJWE4JX": {
+      "x": 354.819,
+      "y": 316.795,
+      "depth": 1
+    },
+    "zotero:item:7AERRYC7": {
+      "x": 296.004,
+      "y": 432.0,
+      "depth": 1
+    },
+    "zotero:item:HPLZ65Z2": {
+      "x": 317.685,
+      "y": 309.478,
+      "depth": 1
+    },
+    "zotero:item:NXLIGKF5": {
+      "x": 301.198,
+      "y": 319.891,
+      "depth": 1
+    },
+    "zotero:item:CGJBFE6C": {
+      "x": 260.067,
+      "y": 203.89,
+      "depth": 1
+    },
+    "zotero:item:DBYQ4LWE": {
+      "x": 250.968,
+      "y": 204.809,
+      "depth": 1
+    },
+    "zotero:item:UVI9ULI2": {
+      "x": 270.808,
+      "y": 275.675,
+      "depth": 1
+    },
+    "zotero:item:53A2WXX8": {
+      "x": 165.908,
+      "y": 167.269,
+      "depth": 1
+    },
+    "zotero:item:USRNFHXP": {
+      "x": 179.423,
+      "y": 134.054,
+      "depth": 1
+    },
+    "zotero:item:3YG8UNCI": {
+      "x": 258.474,
+      "y": 403.786,
+      "depth": 1
+    },
+    "zotero:item:VI9JURUB": {
+      "x": 432.0,
+      "y": 363.166,
+      "depth": 2
+    },
+    "zotero:item:8PP8HQMY": {
+      "x": 319.645,
+      "y": 314.228,
+      "depth": 1
+    },
+    "zotero:item:GHWYS7AF": {
+      "x": 313.106,
+      "y": 392.762,
+      "depth": 1
+    },
+    "zotero:item:HDDAIKQQ": {
+      "x": 106.94,
+      "y": 204.926,
+      "depth": 1
+    },
+    "zotero:item:8WM66ZL3": {
+      "x": 66.909,
+      "y": 104.801,
+      "depth": 1
+    },
+    "zotero:item:29IBKEUR": {
+      "x": 327.744,
+      "y": 363.337,
+      "depth": 2
+    },
+    "ref:titleyearauthor:doi-org-10-1007-978-3-319-10602-1-48:2014:springer-cham": {
+      "x": 308.601,
+      "y": 299.554,
+      "depth": 1
+    },
+    "ref:titleyearauthor:doi-org-10-1007-978-3-319-46448-0-2:2016:springer-cham": {
+      "x": 307.532,
+      "y": 293.81,
+      "depth": 1
+    },
+    "ref:titleyearauthor:doi-org-10-1007-978-3-319-46466-4-19:2016:springer-cham": {
+      "x": 305.835,
+      "y": 278.373,
+      "depth": 1
+    },
+    "ref:titleyearauthor:attention-augmented-convolutional-networks:2019:bello-i": {
+      "x": 348.577,
+      "y": 276.609,
+      "depth": 1
+    },
+    "ref:titleyearauthor:attention-is-all-you-need:2017:vaswani-a": {
+      "x": 328.484,
+      "y": 280.654,
+      "depth": 1
+    },
+    "ref:titleyearauthor:bert-pre-training-of-deep-bidirectional-transformers-for-language-understanding:2019:chang-m-w": {
+      "x": 353.167,
+      "y": 266.111,
+      "depth": 1
+    },
+    "ref:titleyearauthor:bridging-the-gap-between-anchor-based-and-anchor-free-detection-via-adaptive-training-sample-selection-arxiv-1912-02424:2019:chi-c": {
+      "x": 312.953,
+      "y": 298.741,
+      "depth": 1
+    },
+    "ref:titleyearauthor:cascade-r-cnn-high-quality-object-detection-and-instance-segmentation-pami:2019:cai-z": {
+      "x": 303.826,
+      "y": 291.623,
+      "depth": 1
+    },
+    "ref:titleyearauthor:character-level-language-modeling-with-deeper-self-attention:2019:al-rfou-r": {
+      "x": 347.107,
+      "y": 270.535,
+      "depth": 1
+    },
+    "ref:titleyearauthor:decoupled-weight-decay-regularization:2017:hutter-f": {
+      "x": 344.369,
+      "y": 287.622,
+      "depth": 2
+    },
+    "ref:titleyearauthor:deep-perm-set-net-learn-to-predict-sets-with-unknown-permutation-and-cardinality-using-deep-neural-networks-arxiv-1805-00613:2018:rezatofighi-s-h": {
+      "x": 310.055,
+      "y": 297.193,
+      "depth": 1
+    },
+    "ref:titleyearauthor:deep-residual-learning-for-image-recognition:2016:he-k": {
+      "x": 380.097,
+      "y": 317.657,
+      "depth": 2
+    },
+    "ref:titleyearauthor:deepsetnet-predicting-sets-with-deep-neural-networks:2017:rezatofighi-s-h": {
+      "x": 304.266,
+      "y": 281.982,
+      "depth": 1
+    },
+    "ref:titleyearauthor:detectron2-2019-https-github-com-facebookresearch-detectron2:2019:girshick-r": {
+      "x": 312.203,
+      "y": 276.552,
+      "depth": 1
+    },
+    "ref:titleyearauthor:elucidating-image-to-set-prediction-an-analysis-of-models-losses-and-datasets-arxiv-1904-05709:2019:drozdzal-m": {
+      "x": 329.936,
+      "y": 291.303,
+      "depth": 1
+    },
+    "ref:titleyearauthor:end-to-end-asr-from-supervised-to-semi-supervised-learning-with-modern-architectures-arxiv-1911-08460:2019:synnaeve-g": {
+      "x": 316.321,
+      "y": 273.713,
+      "depth": 1
+    },
+    "ref:titleyearauthor:end-to-end-instance-segmentation-with-recurrent-attention:2017:ren-m": {
+      "x": 354.065,
+      "y": 273.187,
+      "depth": 1
+    },
+    "ref:titleyearauthor:end-to-end-people-detection-in-crowded-scenes:2015:andriluka-m": {
+      "x": 347.883,
+      "y": 273.211,
+      "depth": 1
+    },
+    "ref:titleyearauthor:faster-r-cnn-towards-real-time-object-detection-with-region-proposal-networks-pami:2015:girshick-r-b": {
+      "x": 307.499,
+      "y": 281.84,
+      "depth": 1
+    },
+    "ref:titleyearauthor:fcos-fully-convolutional-one-stage-object-detection:2019:chen-h": {
+      "x": 348.56,
+      "y": 332.179,
+      "depth": 1
+    },
+    "ref:titleyearauthor:feature-pyramid-networks-for-object-detection:2017:belongie-s": {
+      "x": 369.112,
+      "y": 340.552,
+      "depth": 1
+    },
+    "ref:titleyearauthor:focal-loss-for-dense-object-detection:2017:girshick-r-b": {
+      "x": 305.954,
+      "y": 297.27,
+      "depth": 1
+    },
+    "ref:titleyearauthor:fully-convolutional-instance-aware-semantic-segmentation:2017:dai-j": {
+      "x": 350.787,
+      "y": 270.623,
+      "depth": 1
+    },
+    "ref:titleyearauthor:generalized-intersection-over-union:2019:gwak-j": {
+      "x": 351.573,
+      "y": 263.338,
+      "depth": 1
+    },
+    "ref:titleyearauthor:image-transformer:2018:parmar-n": {
+      "x": 330.66,
+      "y": 287.247,
+      "depth": 1
+    },
+    "ref:titleyearauthor:imputer-sequence-modelling-via-imputation-and-dynamic-programming-arxiv-2002-08926:2020:chan-w": {
+      "x": 318.902,
+      "y": 275.499,
+      "depth": 1
+    },
+    "ref:titleyearauthor:language-models-are-unsupervised-multitask-learners:2019:amodei-d": {
+      "x": 353.279,
+      "y": 270.101,
+      "depth": 1
+    },
+    "ref:titleyearauthor:learning-non-maximum-suppression:2017:benenson-r": {
+      "x": 368.336,
+      "y": 278.617,
+      "depth": 1
+    },
+    "ref:titleyearauthor:learning-to-decompose-for-object-detection-and-instance-segmentation-arxiv-1511-06449:2015:berg-a-c": {
+      "x": 314.968,
+      "y": 300.827,
+      "depth": 1
+    },
+    "ref:titleyearauthor:mask-predict-parallel-decoding-of-conditional-masked-language-models-arxiv-1904-09324:2019:ghazvininejad-m": {
+      "x": 317.265,
+      "y": 299.656,
+      "depth": 2
+    },
+    "ref:titleyearauthor:microsoft-coco-common-objects-in-context-in-fleet-d-pajdla-t-schiele-b-tuytelaars-t-eds-eccv-2014:2014:lin-t-y": {
+      "x": 306.333,
+      "y": 285.554,
+      "depth": 1
+    },
+    "ref:titleyearauthor:neural-machine-translation-by-jointly-learning-to-align-and-translate:2015:bahdanau-d": {
+      "x": 350.64,
+      "y": 278.839,
+      "depth": 2
+    },
+    "ref:titleyearauthor:non-autoregressive-neural-machine-translation:2018:bradbury-j": {
+      "x": 350.732,
+      "y": 267.131,
+      "depth": 1
+    },
+    "ref:titleyearauthor:non-local-neural-networks:2018:girshick-r-b": {
+      "x": 352.009,
+      "y": 275.696,
+      "depth": 1
+    },
+    "ref:titleyearauthor:objects-as-points-arxiv-1904-07850:2019:wang-d": {
+      "x": 303.25,
+      "y": 285.494,
+      "depth": 1
+    },
+    "ref:titleyearauthor:order-matters-sequence-to-sequence-for-sets:2016:bengio-s": {
+      "x": 348.233,
+      "y": 267.688,
+      "depth": 1
+    },
+    "ref:titleyearauthor:panoptic-feature-pyramid-networks:2019:girshick-r": {
+      "x": 322.887,
+      "y": 275.804,
+      "depth": 1
+    },
+    "ref:titleyearauthor:panoptic-segmentation:2019:dollar-p": {
+      "x": 354.8,
+      "y": 276.319,
+      "depth": 1
+    },
+    "ref:titleyearauthor:parallel-wavenet-fast-high-fidelity-speech-synthesis-arxiv-1711-10433:2017:oord-a": {
+      "x": 308.872,
+      "y": 278.202,
+      "depth": 1
+    },
+    "ref:titleyearauthor:pytorch-an-imperative-style-high-performance-deep-learning-library:2019:paszke-a": {
+      "x": 323.174,
+      "y": 297.964,
+      "depth": 1
+    },
+    "ref:titleyearauthor:recurrent-instance-segmentation-in-leibe-b-matas-j-sebe-n-welling-m-eds-eccv-2016:2016:romera-paredes-b": {
+      "x": 327.005,
+      "y": 295.764,
+      "depth": 2
+    },
+    "ref:titleyearauthor:recurrent-neural-networks-for-semantic-instance-segmentation-arxiv-1712-00617:2017:baradad-m": {
+      "x": 304.288,
+      "y": 294.571,
+      "depth": 1
+    },
+    "ref:titleyearauthor:relation-networks-for-object-detection:2018:dai-j": {
+      "x": 349.289,
+      "y": 329.985,
+      "depth": 1
+    },
+    "ref:titleyearauthor:rethinking-imagenet-pre-training:2019:girshick-r": {
+      "x": 309.164,
+      "y": 274.776,
+      "depth": 1
+    },
+    "ref:titleyearauthor:rwth-asr-systems-for-librispeech-hybrid-vs-attention-w-o-data-augmentation-arxiv-1905-03072:2019:l-uscher-c-et-al": {
+      "x": 303.277,
+      "y": 288.674,
+      "depth": 1
+    },
+    "ref:titleyearauthor:scalable-object-detection-using-deep-neural-networks:2014:anguelov-d": {
+      "x": 310.729,
+      "y": 293.674,
+      "depth": 1
+    },
+    "ref:titleyearauthor:sequence-to-sequence-learning-with-neural-networks:2014:le-q-v": {
+      "x": 349.05,
+      "y": 264.253,
+      "depth": 1
+    },
+    "ref:titleyearauthor:soft-nms-improving-object-detection-with-one-line-of-code:2017:bodla-n": {
+      "x": 342.716,
+      "y": 307.398,
+      "depth": 1
+    },
+    "ref:titleyearauthor:ssd-single-shot-multibox-detector-in-leibe-b-matas-j-sebe-n-welling-m-eds-eccv-2016:2016:liu-w": {
+      "x": 306.789,
+      "y": 289.68,
+      "depth": 1
+    },
+    "ref:titleyearauthor:the-hungarian-method-for-the-assignment-problem:1955:kuhn-h-w": {
+      "x": 353.332,
+      "y": 279.052,
+      "depth": 1
+    },
+    "ref:titleyearauthor:understanding-the-difficulty-of-training-deep-feedforward-neural-networks:2010:bengio-y": {
+      "x": 341.367,
+      "y": 263.244,
+      "depth": 1
+    },
+    "ref:titleyearauthor:upsnet-a-unified-panoptic-segmentation-network:2019:xiong-y": {
+      "x": 312.841,
+      "y": 273.317,
+      "depth": 1
+    },
+    "ref:titleyearauthor:v-net-fully-convolutional-neural-networks-for-volumetric-medical-image-segmentation:2016:ahmadi-s-a": {
+      "x": 350.322,
+      "y": 273.673,
+      "depth": 1
+    },
+    "ref:titleyearauthor:you-only-look-once-unified-real-time-object-detection:2016:divvala-s": {
+      "x": 352.442,
+      "y": 304.259,
+      "depth": 1
+    },
+    "zotero:item:J6DSFFBH": {
+      "x": 211.101,
+      "y": 28.0,
+      "depth": 2
+    },
+    "zotero:item:8AXAW2GX": {
+      "x": 169.394,
+      "y": 214.81,
+      "depth": 2
+    },
+    "zotero:item:W4CDLU28": {
+      "x": 309.573,
+      "y": 255.48,
+      "depth": 2
+    }
+  }
+}

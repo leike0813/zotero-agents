@@ -83,7 +83,11 @@ export function resolveAcpAgentFamily(
   if (/\bopencode\b|opencode-ai/.test(source)) {
     return "opencode";
   }
-  if (/claude(?:-code)?|zed-industries\/claude-code-acp/.test(source)) {
+  if (
+    /claude(?:-code)?|zed-industries\/claude-code-acp|agentclientprotocol\/claude-agent-acp/.test(
+      source,
+    )
+  ) {
     return "claude-code";
   }
   if (/\bcodex\b|openai\/codex/.test(source)) {

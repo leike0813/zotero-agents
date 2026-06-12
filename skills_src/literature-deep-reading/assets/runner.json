@@ -1,0 +1,26 @@
+{
+  "id": "literature-deep-reading",
+  "name": "Literature Deep Reading",
+  "description": "Bootstrap a literature deep-reading run from a source bundle, collect requested Host context, build analysis views, and normalize block translations for later stages.",
+  "version": "0.1.0",
+  "execution_modes": ["auto", "interactive"],
+  "runtime": {
+    "language": "python",
+    "version": "3.11",
+    "dependencies": [],
+    "default_options": {
+      "hard_timeout_seconds": 900
+    }
+  },
+  "schemas": {
+    "input": "assets/input.schema.json",
+    "parameter": "assets/parameter.schema.json",
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "result_json_filename": "literature-deep-reading.result.json",
+    "prompts": {
+      "common": "Use literature-deep-reading for source_bundle_path={{ input.source_bundle_path }}, target_language={{ parameter.target_language }}. Run `python scripts/deep_reading_runtime.py bootstrap --input runtime/input.json`, then read runtime/views/source-reading-view.json, source-structure.json, references-seed-view.json, target-artifacts-view.json, and diagnostics-bootstrap.json. Write runtime/payloads/context-request.json using assets/schemas/context-request.schema.json, then run `python scripts/deep_reading_runtime.py submit-context-request --payload runtime/payloads/context-request.json` and `python scripts/deep_reading_runtime.py validate-context-request`. Next read the Host context views, write runtime/payloads/reading-enrichment.json using assets/schemas/reading-enrichment.schema.json, then run `python scripts/deep_reading_runtime.py submit-reading-enrichment --payload runtime/payloads/reading-enrichment.json` and `python scripts/deep_reading_runtime.py validate-reading-enrichment`. Next read runtime/views/reading-blocks.json, source-structure.json, concept-overlay-view.json, and section-insights-view.json, write runtime/payloads/block-translations.json using assets/schemas/block-translations.schema.json, then run `python scripts/deep_reading_runtime.py submit-block-translations --payload runtime/payloads/block-translations.json` and `python scripts/deep_reading_runtime.py validate-block-translations`. At completion, read literature-deep-reading.result.json and output exactly one JSON object containing `__SKILL_DONE__: true` plus all business fields from that file. Do not claim final deep-reading HTML exists."
+    }
+  }
+}

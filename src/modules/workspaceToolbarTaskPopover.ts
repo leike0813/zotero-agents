@@ -50,8 +50,8 @@ const OPEN_DELAY_MS = 150;
 const CLOSE_DELAY_MS = 250;
 const MAX_VISIBLE_TASKS = 6;
 const POPOVER_WIDTH = 580;
-const EMPTY_POPOVER_HEIGHT = 64;
-const RUNNING_POPOVER_CHROME_HEIGHT = 50;
+const EMPTY_POPOVER_HEIGHT = 68;
+const RUNNING_POPOVER_CHROME_HEIGHT = 54;
 const RUNNING_POPOVER_TASK_ROW_HEIGHT = 32;
 const LED_CELL_WIDTH = 18;
 const TASK_NAME_WIDTH = 250;
@@ -144,39 +144,82 @@ function xulLabel(
   return node;
 }
 
-function isPlainRunningState(row: ToolbarTaskRow) {
-  return normalizeString(row.state) === "running";
+function normalizeTaskState(row: ToolbarTaskRow) {
+  return normalizeString(row.state)
+    .toLowerCase()
+    .replace(/[-\s]+/g, "_");
+}
+
+function resolveTaskLedTone(row: ToolbarTaskRow) {
+  const state = normalizeTaskState(row);
+  if (state === "waiting_user" || state === "waiting_auth") {
+    return {
+      className: "zs-workspace-running-popover-led-amber",
+      color: "#f59e0b",
+      shadow: "rgba(245, 158, 11, 0.2)",
+      tooltip: localize(
+        "task-dashboard-status-waiting-user",
+        "Needs attention",
+      ),
+    };
+  }
+  if (state === "queued" || state === "pending") {
+    return {
+      className: "zs-workspace-running-popover-led-slate",
+      color: "#64748b",
+      shadow: "rgba(100, 116, 139, 0.18)",
+      tooltip: localize("task-manager-status-queued", "Queued"),
+    };
+  }
+  if (state === "failed") {
+    return {
+      className: "zs-workspace-running-popover-led-red",
+      color: "#dc2626",
+      shadow: "rgba(220, 38, 38, 0.18)",
+      tooltip: localize("task-dashboard-status-failed", "Failed"),
+    };
+  }
+  if (state === "succeeded" || state === "completed") {
+    return {
+      className: "zs-workspace-running-popover-led-green",
+      color: "#16a34a",
+      shadow: "rgba(22, 163, 74, 0.18)",
+      tooltip: localize("task-dashboard-status-succeeded", "Succeeded"),
+    };
+  }
+  return {
+    className: "zs-workspace-running-popover-led-blue",
+    color: "#2563eb",
+    shadow: "rgba(37, 99, 235, 0.16)",
+    tooltip: localize("task-manager-status-running", "Running"),
+  };
 }
 
 function xulLed(doc: Document, row: ToolbarTaskRow) {
   const cell = xulElement(doc, "box", "zs-workspace-running-popover-led-cell");
   forceXulBoxWidth(cell, LED_CELL_WIDTH);
+  cell.setAttribute("align", "center");
+  cell.setAttribute("pack", "center");
   const led = xulElement(doc, "box", "zs-workspace-running-popover-led");
-  const isPlainRunning = isPlainRunningState(row);
-  led.classList.add(
-    isPlainRunning
-      ? "zs-workspace-running-popover-led-blue"
-      : "zs-workspace-running-popover-led-amber",
-  );
-  led.setAttribute(
-    "tooltiptext",
-    isPlainRunning
-      ? localize("task-manager-status-running", "Running")
-      : localize("task-dashboard-status-waiting-user", "Needs attention"),
-  );
+  const tone = resolveTaskLedTone(row);
+  led.classList.add(tone.className);
+  led.setAttribute("tooltiptext", tone.tooltip);
   led.setAttribute(
     "style",
     [
+      "appearance: none !important",
+      "-moz-appearance: none !important",
       "width: 8px !important",
       "min-width: 8px !important",
       "max-width: 8px !important",
       "height: 8px !important",
       "min-height: 8px !important",
       "max-height: 8px !important",
-      "margin: 8px 5px 0 2px !important",
+      "margin: 0 5px 0 2px !important",
       "border-radius: 999px !important",
-      `background-color: ${isPlainRunning ? "#2563eb" : "#f59e0b"} !important`,
-      `box-shadow: 0 0 0 2px ${isPlainRunning ? "rgba(37, 99, 235, 0.16)" : "rgba(245, 158, 11, 0.18)"} !important`,
+      `background: ${tone.color} !important`,
+      `background-color: ${tone.color} !important`,
+      `box-shadow: 0 0 0 2px ${tone.shadow} !important`,
     ].join("; "),
   );
   cell.appendChild(led);
@@ -305,6 +348,13 @@ function isActivationInsidePopoverRuntime(
     eventTargetIsWithin(event.target, runtime.anchor) ||
     eventTargetIsWithin(event.target, runtime.popover)
   );
+}
+
+function isRelatedTargetInsideAnchor(
+  runtime: PopoverRuntime,
+  event: MouseEvent,
+) {
+  return eventTargetIsWithin(event.relatedTarget, runtime.anchor);
 }
 
 function positionPopover(runtime: PopoverRuntime) {
@@ -604,6 +654,18 @@ export function installWorkspaceToolbarTaskPopover(args: {
   };
   addListener(args.anchor, "mouseenter", () => scheduleOpen(runtime));
   addListener(args.anchor, "mouseleave", () => scheduleClose(runtime));
+  addListener(args.anchor, "mouseover", (event: Event) => {
+    if (isRelatedTargetInsideAnchor(runtime, event as MouseEvent)) {
+      return;
+    }
+    scheduleOpen(runtime);
+  });
+  addListener(args.anchor, "mouseout", (event: Event) => {
+    if (isRelatedTargetInsideAnchor(runtime, event as MouseEvent)) {
+      return;
+    }
+    scheduleClose(runtime);
+  });
   addListener(args.anchor, "mousedown", () =>
     dismissForPrimaryActivation(runtime),
   );

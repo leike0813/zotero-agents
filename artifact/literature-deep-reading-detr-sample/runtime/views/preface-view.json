@@ -1,0 +1,67 @@
+{
+  "schema_version": "literature-deep-reading.preface-view.v0",
+  "source": "topic_synthesis_artifacts",
+  "anchor": "preface",
+  "title": "阅读前导读",
+  "subtitle": "先看清这篇论文解决什么问题、接上哪些文献、又开启了哪些后续工作。",
+  "cards": [
+    {
+      "title": "研究领域",
+      "body": "本文位于计算机视觉中的目标检测与全景分割方向，核心问题是如何从图像中预测对象类别、边界框以及可扩展的像素级对象表示。"
+    },
+    {
+      "title": "研究方向",
+      "body": "在目标检测内部，DETR 属于端到端集合预测路线：用 object queries、二分匹配和 Transformer decoder 直接产生最终检测集合，尽量减少 anchors、proposals 与 NMS 这类外部规则。"
+    },
+    {
+      "title": "方向关系",
+      "body": "它不是和 Faster R-CNN、RetinaNet 完全割裂的路线，而是把检测器中的候选框分配、去重和全局关系建模重新组织起来。后续 DETR-family 主要沿着收敛加速、query 设计、多尺度注意力和实时化继续推进。"
+    },
+    {
+      "title": "文献位置",
+      "body": "从当前文献网络看，DETR 是后续端到端检测论文经常回到的起点之一；同时，它大量吸收了此前的经典检测器、Transformer、自注意力和 Hungarian matching 文献。换句话说，它的价值在于把几条成熟技术线重新组合成一种新的检测问题表述。"
+    }
+  ],
+  "takeaways": [
+    "理解 DETR-family 应以集合预测和 object queries 作为概念入口，所有后续改进均围绕如何使这一范式更高效、更精确、更实用展开。",
+    "收敛加速的五条技术路线（可变形注意力、条件式注意力、去噪训练、密集先验初始化、锚框公式化）从不同维度解决了同一核心瓶颈，彼此互补而非互斥。",
+    "训练时密集监督与推理时零开销的混合策略是当前最优实践，但辅助头设计和超参数敏感性仍是工程挑战。",
+    "实时 DETR（RT-DETR/LW-DETR/RF-DETR）已打破 Transformer 检测器无法实时运行的固有认知，且在跨域泛化上持续优于 YOLO。"
+  ],
+  "concepts": [
+    "ablation",
+    "anchor",
+    "AP",
+    "APl",
+    "APs",
+    "assignment"
+  ],
+  "coverage": {
+    "coverage_verdict": "partial",
+    "paper_count": 25,
+    "route_coverage": {
+      "routes": 6
+    },
+    "time_span": {
+      "earliest": "2020",
+      "latest": "2026"
+    }
+  },
+  "reading_path": [
+    "先读 Introduction，确认作者要消除哪些检测管线先验。",
+    "再读 Section 3 的 matching loss 与 architecture，把集合监督和 object queries 连起来。",
+    "实验部分重点看大目标优势、小目标短板、训练成本和消融结论。",
+    "读后用 Summary、References 和 Citation Graph 决定后续阅读路径。"
+  ],
+  "reading_aid": {
+    "goal": "进入正文前，先确认 DETR 属于哪条研究路线，以及它为什么会成为后续 DETR-family 的起点。",
+    "terms": [
+      "DETR",
+      "set prediction",
+      "object queries",
+      "Hungarian matching"
+    ],
+    "pitfall": "导读只是定位文献关系；具体定义、公式和实验仍以正文为准。"
+  },
+  "diagnostics": []
+}

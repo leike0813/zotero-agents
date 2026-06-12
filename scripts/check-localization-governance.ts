@@ -70,10 +70,62 @@ function parseFluentKeys(content: string) {
     .map((line) => line.trim())
     .filter((line) => !!line && !line.startsWith("#"))
     .map((line) => {
-      const match = line.match(/^([a-z0-9][a-z0-9-]*)\s*=/);
+      const match = line.match(/^([a-zA-Z0-9][a-zA-Z0-9-]*)\s*=/);
       return match ? match[1] : "";
     })
     .filter((key) => !!key);
+}
+
+function parseSynthesisWorkbenchMessageKeys(content: string) {
+  const keys = new Set<string>();
+  for (const match of content.matchAll(
+    /"((?:synthesis-)[a-zA-Z0-9-]+)"\s*:/g,
+  )) {
+    keys.add(match[1]);
+  }
+  return Array.from(keys).sort();
+}
+
+function parseSynthesisWorkbenchDefaultValues(content: string) {
+  const values = new Set<string>();
+  for (const match of content.matchAll(
+    /"synthesis-[a-zA-Z0-9-]+"\s*:\s*"([^"]*)"/g,
+  )) {
+    values.add(match[1]);
+  }
+  return values;
+}
+
+function reportSynthesisWorkbenchUiHardcodes(
+  content: string,
+  allowedValues: Set<string>,
+) {
+  const errors: string[] = [];
+  const allowedLiteral = (value: string) => {
+    if (!value.trim()) return true;
+    if (allowedValues.has(value)) return true;
+    if (/^[#A-Z0-9↑↓:|.,/ -]+$/.test(value)) return true;
+    if (/^[a-z0-9_.:-]+$/.test(value)) return true;
+    if (value.includes("%")) return true;
+    return false;
+  };
+  const patterns: Array<[string, RegExp]> = [
+    ["button", /\bmake(?:Local)?Button\("([^"]+)"/g],
+    ["placeholder", /\.placeholder\s*=\s*"([^"]+)"/g],
+    ["aria-label", /\.setAttribute\("aria-label",\s*"([^"]+)"\)/g],
+    ["title", /\.title\s*=\s*"([^"]+)"/g],
+    ["text-node", /document\.createTextNode\("([^"]+)"\)/g],
+    ["registry-header", /renderRegistryHeader\("([^"]+)"/g],
+  ];
+  for (const [kind, pattern] of patterns) {
+    for (const match of content.matchAll(pattern)) {
+      const value = match[1];
+      if (!allowedLiteral(value)) {
+        errors.push(`[synthesis-hardcoded-ui] ${kind}: "${value}"`);
+      }
+    }
+  }
+  return errors;
 }
 
 function diffKeys(a: Set<string>, b: Set<string>) {
@@ -111,7 +163,9 @@ function main() {
     if (cached) {
       return cached;
     }
-    const keys = new Set(parseFluentKeys(readText(`addon/locale/${locale}/${file}`)));
+    const keys = new Set(
+      parseFluentKeys(readText(`addon/locale/${locale}/${file}`)),
+    );
     localeFileKeySets.set(cacheKey, keys);
     return keys;
   };
@@ -141,8 +195,29 @@ function main() {
       const keys = getLocaleFileKeySet(locale, file);
       for (const key of requiredKeys) {
         if (!keys.has(key)) {
-          errors.push(`[required-key] locale=${locale} file=${file} missing key: ${key}`);
+          errors.push(
+            `[required-key] locale=${locale} file=${file} missing key: ${key}`,
+          );
         }
+      }
+    }
+  }
+
+  const synthesisI18nModule = readText("src/synthesisWorkbenchI18n.ts");
+  const synthesisWorkbenchKeys =
+    parseSynthesisWorkbenchMessageKeys(synthesisI18nModule);
+  const synthesisWorkbenchDefaultValues =
+    parseSynthesisWorkbenchDefaultValues(synthesisI18nModule);
+  if (synthesisWorkbenchKeys.length === 0) {
+    errors.push("[synthesis-i18n] no Synthesis Workbench message keys found");
+  }
+  for (const locale of LOCALES) {
+    const addonKeys = getLocaleFileKeySet(locale, "addon.ftl");
+    for (const key of synthesisWorkbenchKeys) {
+      if (!addonKeys.has(key)) {
+        errors.push(
+          `[synthesis-i18n-key] locale=${locale} file=addon.ftl missing key: ${key}`,
+        );
       }
     }
   }
@@ -177,7 +252,13 @@ function main() {
     "src/modules/skillRunnerLocalRuntimeManager.ts",
   );
   const governanceHelper = readText("src/utils/localizationGovernance.ts");
-  if (!displayNameModule.includes("resolveManagedLocalBackendDisplayNameText")) {
+  const synthesisWorkbenchHost = readText(
+    "src/modules/synthesisWorkbenchTab.ts",
+  );
+  const synthesisWorkbenchApp = readText("src/synthesisWorkbenchApp.ts");
+  if (
+    !displayNameModule.includes("resolveManagedLocalBackendDisplayNameText")
+  ) {
     errors.push(
       "[helper-wiring] displayName path must use resolveManagedLocalBackendDisplayNameText",
     );
@@ -210,6 +291,29 @@ function main() {
       "[helper-contract] centralized helper must export managed backend display/toast resolvers",
     );
   }
+  if (
+    !synthesisWorkbenchHost.includes("buildSynthesisWorkbenchI18nEnvelope") ||
+    !synthesisWorkbenchHost.includes("withSynthesisWorkbenchI18n(payload)")
+  ) {
+    errors.push(
+      "[synthesis-i18n-wiring] Workbench host must inject locale/messages with every postMessage payload",
+    );
+  }
+  if (
+    !synthesisWorkbenchApp.includes("function t(") ||
+    !synthesisWorkbenchApp.includes("applyI18nEnvelope") ||
+    !synthesisWorkbenchApp.includes("localizeWorkbenchDom")
+  ) {
+    errors.push(
+      "[synthesis-i18n-wiring] Workbench app must apply injected messages and localize rendered DOM",
+    );
+  }
+  errors.push(
+    ...reportSynthesisWorkbenchUiHardcodes(
+      synthesisWorkbenchApp,
+      synthesisWorkbenchDefaultValues,
+    ),
+  );
 
   if (errors.length > 0) {
     console.error("[localization-governance] failed");

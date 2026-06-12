@@ -323,11 +323,11 @@ The Zotero MCP server SHALL list only the current public synthesis tools.
 - **WHEN** an MCP client calls `tools/list`
 - **THEN** the returned tool names SHALL include
   `paper_artifacts.export_filtered`
-- **AND** SHALL NOT include `synthesis.export_paper_artifact_bundle`.
+- **AND** SHALL NOT include the legacy synthesis-prefixed export bundle tool.
 
-#### Scenario: Unknown old export tool is rejected
+#### Scenario: Unknown legacy export tool is rejected
 
-- **WHEN** an MCP client calls `synthesis.export_paper_artifact_bundle`
+- **WHEN** an MCP client calls the legacy synthesis-prefixed export bundle tool
 - **THEN** the MCP protocol SHALL return a tool-not-found error.
 
 ### Requirement: Tool contracts include enforceable validation metadata

@@ -1,9 +1,17 @@
 import {
+  ACP_SKILL_RUN_REQUEST_KIND,
+  ACP_BACKEND_TYPE,
+} from "../config/defaults";
+import {
   PLUGIN_TASK_DOMAIN_ACP,
+  deletePluginTaskRowEntry,
   listPluginTaskRowEntries,
   upsertPluginTaskRowEntry,
 } from "./pluginStateStore";
-import { registerAcpSkillRunsMemoryClearer } from "./runtimePersistence";
+import {
+  registerAcpSkillRunsMemoryClearer,
+  registerAcpSkillRunsRetentionCleaner,
+} from "./runtimePersistence";
 import { listRuntimeLogs } from "./runtimeLogManager";
 import { buildAssistantPanelLabels } from "./assistantPanelLabels";
 import {
@@ -253,6 +261,12 @@ export type AcpSkillRunRecord = {
   createdAt: string;
   updatedAt: string;
   events: AcpSkillRunEvent[];
+};
+
+export type AcpSkillRunRetentionCleanupResult = {
+  rowsDeleted: number;
+  requestIds: string[];
+  workspaceDirs: string[];
 };
 
 export type AcpSkillRunSummary = Pick<
@@ -699,6 +713,9 @@ function shouldShowEventInTranscript(stage: string) {
     "output-validation-failed",
     "repair-started",
     "repair-validation-failed",
+    "acp-prompt-no-output",
+    "acp-prompt-stopped",
+    "acp-prompt-failed",
     "permission-requested",
     "permission-resolved",
     "conversation-ended",
@@ -1156,6 +1173,28 @@ function isTerminalAcpSkillRunStatus(
   return status === "succeeded" || status === "failed" || status === "canceled";
 }
 
+function retentionTimestampMs(record: AcpSkillRunRecord) {
+  const parsed = Date.parse(
+    record.removedAt || record.archivedAt || record.updatedAt || "",
+  );
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isAcpSkillRunRetentionEligible(args: {
+  record: AcpSkillRunRecord;
+  thresholdMs: number;
+}) {
+  const record = args.record;
+  if (!isTerminalAcpSkillRunStatus(record.status)) {
+    return false;
+  }
+  if (!record.removedAt && !record.archivedAt) {
+    return false;
+  }
+  const ts = retentionTimestampMs(record);
+  return ts > 0 && ts < args.thresholdMs;
+}
+
 function syncWorkflowTaskForAcpSkillRun(record: AcpSkillRunRecord) {
   const requestId = normalizeString(record.requestId);
   if (!requestId) {
@@ -1178,6 +1217,142 @@ function syncWorkflowTaskForAcpSkillRun(record: AcpSkillRunRecord) {
     error: record.error || record.conversationError,
     updatedAt: record.updatedAt,
   });
+}
+
+function isAcpSkillRunWorkflowTask(task: WorkflowTaskRecord) {
+  const backendType = normalizeString(task.backendType);
+  const requestKind = normalizeString(task.requestKind);
+  const taskId = normalizeString(task.id);
+  return (
+    backendType === ACP_BACKEND_TYPE &&
+    (requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
+      taskId.startsWith("acp-skill-run:"))
+  );
+}
+
+function acpRunStatusToWorkflowTaskState(
+  record: AcpSkillRunRecord,
+): WorkflowTaskRecord["state"] {
+  if (record.pendingPermission) {
+    return "waiting_user";
+  }
+  if (
+    record.status === "queued" ||
+    record.status === "running" ||
+    record.status === "waiting_user" ||
+    record.status === "failed" ||
+    record.status === "canceled" ||
+    record.status === "succeeded"
+  ) {
+    return record.status;
+  }
+  return "running";
+}
+
+function isRecoverableAcpSkillRunAfterStartup(record: AcpSkillRunRecord) {
+  return (
+    record.conversationRecoveryState === "available" ||
+    record.conversationRecoveryState === "connected" ||
+    record.conversationRecoveryState === "connecting"
+  );
+}
+
+export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
+  ensureHydrated();
+  const runsByRequestId = new Map(
+    Array.from(runRecords.values()).map((run) => [run.requestId, run] as const),
+  );
+  let removedCount = 0;
+  let terminalSyncedCount = 0;
+  let recoverableCount = 0;
+  let failedCount = 0;
+  for (const task of listWorkflowTasks()) {
+    if (!isAcpSkillRunWorkflowTask(task) || !task.requestId) {
+      continue;
+    }
+    const requestId = normalizeString(task.requestId);
+    const run = runsByRequestId.get(requestId);
+    if (!run || run.removedAt || run.archivedAt) {
+      const removed = removeWorkflowTasksByBackendAndRequestIds({
+        backendId: task.backendId || run?.backendId || "",
+        requestIds: [requestId],
+      });
+      removedCount += removed;
+      if (removed === 0) {
+        updateWorkflowTaskStateByRequest({
+          requestId,
+          state: "failed",
+          error:
+            "ACP skill run task projection was restored without an available ACP run record.",
+        });
+        failedCount += 1;
+      }
+      continue;
+    }
+    if (isTerminalAcpSkillRunStatus(run.status)) {
+      syncWorkflowTaskForAcpSkillRun(run);
+      terminalSyncedCount += 1;
+      continue;
+    }
+    if (isRecoverableAcpSkillRunAfterStartup(run)) {
+      if (
+        run.conversationRecoveryState !== "available" ||
+        run.conversationState !== "closed" ||
+        run.activePrompt
+      ) {
+        upsertAcpSkillRun({
+          requestId,
+          activePrompt: false,
+          conversationState: "closed",
+          conversationRecoveryState: "available",
+          connectionActionState: "idle",
+          event: {
+            stage: "startup-recovery-available",
+            message:
+              "ACP skill run local controller was lost during restart; remote session remains recoverable.",
+            level: "info",
+          },
+        });
+      }
+      const updated = getAcpSkillRunRecord(requestId) || run;
+      updateWorkflowTaskStateByRequest({
+        backendId: updated.backendId || task.backendId,
+        requestId,
+        state: acpRunStatusToWorkflowTaskState(updated),
+        error:
+          updated.error ||
+          updated.conversationError ||
+          "ACP skill run is recoverable after the previous plugin session ended.",
+        updatedAt: updated.updatedAt,
+      });
+      recoverableCount += 1;
+      continue;
+    }
+    upsertAcpSkillRun({
+      requestId,
+      status: "failed",
+      activePrompt: false,
+      conversationState: "error",
+      conversationRecoveryState: "unavailable",
+      connectionActionState: "idle",
+      error:
+        run.error ||
+        "ACP skill run was left active by a previous plugin session and cannot be recovered.",
+      event: {
+        stage: "startup-recovery-unavailable",
+        message:
+          "ACP skill run was left active by a previous plugin session and cannot be recovered.",
+        level: "error",
+      },
+    });
+    failedCount += 1;
+  }
+  return {
+    removedCount,
+    terminalSyncedCount,
+    recoverableCount,
+    failedCount,
+  };
 }
 
 function emitChanged() {
@@ -2900,6 +3075,58 @@ export function listAcpSkillRuns() {
     });
 }
 
+export function cleanupExpiredAcpSkillRunsForRetention(args: {
+  retentionMs: number;
+  nowMs?: number;
+}): AcpSkillRunRetentionCleanupResult {
+  ensureHydrated();
+  const retentionMs = Math.max(0, Number(args.retentionMs || 0) || 0);
+  if (!retentionMs) {
+    return {
+      rowsDeleted: 0,
+      requestIds: [],
+      workspaceDirs: [],
+    };
+  }
+  const nowMs = Math.max(0, Number(args.nowMs || 0) || 0) || Date.now();
+  const thresholdMs = nowMs - retentionMs;
+  const requestIds: string[] = [];
+  const workspaceDirs: string[] = [];
+  for (const record of Array.from(runRecords.values())) {
+    if (!isAcpSkillRunRetentionEligible({ record, thresholdMs })) {
+      continue;
+    }
+    requestIds.push(record.requestId);
+    const workspaceDir = normalizeString(record.workspaceDir);
+    if (workspaceDir) {
+      workspaceDirs.push(workspaceDir);
+    }
+    deletePluginTaskRowEntry(
+      PLUGIN_TASK_DOMAIN_ACP,
+      record.requestId,
+      STORE_SCOPE,
+    );
+    runRecords.delete(record.requestId);
+    if (selectedRequestId === record.requestId) {
+      selectedRequestId = "";
+    }
+    if (record.backendId && record.requestId) {
+      removeWorkflowTasksByBackendAndRequestIds({
+        backendId: record.backendId,
+        requestIds: [record.requestId],
+      });
+    }
+  }
+  if (requestIds.length > 0) {
+    emitChanged();
+  }
+  return {
+    rowsDeleted: requestIds.length,
+    requestIds,
+    workspaceDirs: Array.from(new Set(workspaceDirs)),
+  };
+}
+
 export function getAcpSkillRunRecord(requestIdRaw: string) {
   ensureHydrated();
   const requestId = normalizeString(requestIdRaw);
@@ -3078,3 +3305,5 @@ registerAcpSkillRunsMemoryClearer(() => {
   hydrated = false;
   emitChanged();
 });
+
+registerAcpSkillRunsRetentionCleaner(cleanupExpiredAcpSkillRunsForRetention);

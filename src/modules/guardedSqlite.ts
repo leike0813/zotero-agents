@@ -26,8 +26,12 @@ const DEFAULT_BUSY_RETRY_ATTEMPTS = 3;
 const entriesByPath = new Map<string, GuardedConnectionEntry>();
 
 function normalizeDbPath(dbPath: string) {
-  const normalized = String(dbPath || "").trim().replace(/\\/g, "/");
-  return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
+  const normalized = String(dbPath || "")
+    .trim()
+    .replace(/\\/g, "/");
+  return /^[A-Za-z]:\//.test(normalized)
+    ? normalized.toLowerCase()
+    : normalized;
 }
 
 export function isSqliteBusyError(error: unknown) {
@@ -69,6 +73,10 @@ export function isSqliteBusyError(error: unknown) {
     text.includes("database is busy") ||
     text.includes("storage_busy")
   );
+}
+
+export function isTransientStorageBusyError(error: unknown) {
+  return isSqliteBusyError(error);
 }
 
 function withBusyRetry<T>(fn: () => T, attempts = DEFAULT_BUSY_RETRY_ATTEMPTS) {

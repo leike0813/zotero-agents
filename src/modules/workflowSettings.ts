@@ -14,6 +14,7 @@ import {
   isSkillRunnerProviderScopedEngine,
   resolveSkillRunnerModelNameForProvider,
 } from "../providers/skillrunner/modelCatalog";
+import { projectAcpProviderModelOptionsForUi } from "./acpModelOptionFolding";
 import type {
   LoadedWorkflow,
   WorkflowParameterOption,
@@ -345,6 +346,21 @@ function normalizeProviderOptionsForUi(args: {
   options: Record<string, unknown>;
 }) {
   const next: Record<string, unknown> = { ...args.options };
+  const effectiveProviderId = resolveProviderIdForBackend({
+    workflow: args.workflow,
+    backend: args.backend,
+  });
+  if (
+    effectiveProviderId === ACP_BACKEND_TYPE &&
+    String(args.backend?.type || "").trim() === ACP_BACKEND_TYPE
+  ) {
+    return projectAcpProviderModelOptionsForUi({
+      modelOptions: args.backend?.acp?.runtimeOptionsCache?.displayModels || [],
+      options: next,
+      currentDisplayModelId:
+        args.backend?.acp?.runtimeOptionsCache?.currentDisplayModelId,
+    });
+  }
   const mode = resolveSkillRunnerMode(args.workflow);
   if (!mode) {
     return next;
@@ -360,7 +376,7 @@ function normalizeProviderOptionsForUi(args: {
         }
       : undefined;
   const isProviderScoped = isSkillRunnerProviderScopedEngine(engine, scope);
-  const providerId = String(
+  const selectedProviderId = String(
     next.provider_id || next.model_provider || "",
   ).trim();
   const model = String(next.model || "").trim();
@@ -368,17 +384,17 @@ function normalizeProviderOptionsForUi(args: {
   if (!isProviderScoped) {
     return next;
   }
-  if (!providerId) {
+  if (!selectedProviderId) {
     delete next.provider_id;
     return next;
   }
-  next.provider_id = providerId;
+  next.provider_id = selectedProviderId;
   if (!model) {
     return next;
   }
   const uiModelName = resolveSkillRunnerModelNameForProvider({
     engine,
-    provider: providerId,
+    provider: selectedProviderId,
     model,
     scope,
   });
@@ -590,6 +606,12 @@ function toProviderSchemaEntries(args: {
     };
   });
   const filteredEntries = baseEntries.filter((entry) => {
+    if (
+      entry.key === "acpModelProvider" &&
+      (!entry.enumValues || entry.enumValues.length === 0)
+    ) {
+      return false;
+    }
     if (entry.key === "provider_id" && !isProviderScopedFieldVisible) {
       return false;
     }

@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { readFile } from "fs/promises";
 import { handlers } from "../../src/handlers";
 import { executeWorkflowFromCurrentSelection } from "../../src/modules/workflowExecute";
 import {
@@ -10,7 +11,9 @@ import {
   emitWorkflowJobToasts,
   emitWorkflowStartToast,
   resetWorkflowToastStateForTests,
+  selectWorkflowJobOutcomesForToasts,
   showWorkflowToast,
+  shouldEmitWorkflowFinishSummaryToast,
 } from "../../src/modules/workflowExecution/feedbackSeam";
 import { createLocalizedMessageFormatter } from "../../src/modules/workflowExecution/messageFormatter";
 import { runWorkflowPreparationSeam } from "../../src/modules/workflowExecution/preparationSeam";
@@ -78,6 +81,22 @@ async function createWorkflowRoot(args: {
 }
 
 describe("workflow execution seams", function () {
+  it("uses the startup toast icon path for workflow toast lines", async function () {
+    const feedback = await readFile(
+      "src/modules/workflowExecution/feedbackSeam.ts",
+      "utf8",
+    );
+    const ztoolkit = await readFile("src/utils/ztoolkit.ts", "utf8");
+
+    assert.include(feedback, 'type: payload.type || "default"');
+    assert.include(feedback, "updateIcons");
+    assert.include(feedback, "progress: 100");
+    assert.include(feedback, "resolveWorkflowToastIconURI");
+    assert.include(feedback, "content/icons/favicon.png");
+    assert.include(ztoolkit, "setIconURI(");
+    assert.include(ztoolkit, '"default"');
+  });
+
   beforeEach(function () {
     clearRuntimeLogs();
     resetWorkflowToastStateForTests();
@@ -457,9 +476,9 @@ describe("workflow execution seams", function () {
       toasts.some((entry) => /started\. jobs=2/i.test(entry)),
       `missing start toast: ${JSON.stringify(toasts)}`,
     );
-    assert.isTrue(
+    assert.isFalse(
       toasts.some((entry) => /job 1\/2 succeeded/i.test(entry)),
-      `missing success job toast: ${JSON.stringify(toasts)}`,
+      `success job toast should be summarized instead: ${JSON.stringify(toasts)}`,
     );
     assert.isTrue(
       toasts.some((entry) => /job 2\/2 failed/i.test(entry)),
@@ -750,6 +769,176 @@ describe("workflow execution seams", function () {
         formatter.failureReasonsTitle +
         "\n" +
         "1. job-1: failed",
+    );
+  });
+
+  it("auto-closes the workflow start toast", function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const closeTimers: number[] = [];
+    const showCloseTimes: Array<number | undefined> = [];
+    const options: Array<Record<string, unknown> | undefined> = [];
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      constructor(_title: string, ctorOptions?: Record<string, unknown>) {
+        options.push(ctorOptions);
+      }
+
+      createLine() {
+        return this;
+      }
+
+      show(closeTime?: number) {
+        showCloseTimes.push(closeTime);
+        return this;
+      }
+
+      startCloseTimer(ms: number) {
+        closeTimers.push(ms);
+        return this;
+      }
+    };
+
+    try {
+      emitWorkflowStartToast({
+        workflowLabel: "Seam Feedback",
+        totalJobs: 2,
+        messageFormatter: createLocalizedMessageFormatter(),
+      });
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) {
+        delete runtime.ztoolkit;
+      } else {
+        runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+      }
+    }
+
+    assert.deepEqual(closeTimers, [2000]);
+    assert.deepEqual(showCloseTimes, [2000]);
+    assert.equal(options[0]?.closeTime, 2000);
+  });
+
+  it("prefixes workflow toast text with semantic emoji without duplicating existing prefixes", function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const texts: string[] = [];
+    const icons: string[] = [];
+    const types: string[] = [];
+    let updateIconCalls = 0;
+    const registeredIcons: Array<[string, string]> = [];
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      private text = "";
+
+      static setIconURI(key: string, uri: string) {
+        registeredIcons.push([key, uri]);
+      }
+
+      createLine(args: { text?: string; icon?: string; type?: string }) {
+        this.text = String(args?.text || "");
+        texts.push(this.text);
+        icons.push(String(args?.icon || ""));
+        types.push(String(args?.type || ""));
+        return this;
+      }
+
+      updateIcons() {
+        updateIconCalls += 1;
+        return this;
+      }
+
+      show() {
+        return this;
+      }
+
+      startCloseTimer() {
+        return this;
+      }
+    };
+
+    try {
+      showWorkflowToast({
+        text: "Workflow started.",
+        type: "default",
+        semantic: "start",
+      });
+      showWorkflowToast({
+        text: "Workflow succeeded.",
+        type: "success",
+      });
+      showWorkflowToast({
+        text: "✅ Already prefixed.",
+        type: "success",
+      });
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) {
+        delete runtime.ztoolkit;
+      } else {
+        runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+      }
+    }
+
+    assert.deepEqual(texts, [
+      "🚀 Workflow started.",
+      "✅ Workflow succeeded.",
+      "✅ Already prefixed.",
+    ]);
+    assert.deepEqual(types, ["default", "success", "success"]);
+    assert.equal(updateIconCalls, 3);
+    assert.isTrue(
+      registeredIcons.every(
+        ([key, icon]) =>
+          ["default", "success", "error"].includes(key) &&
+          icon.endsWith("/content/icons/favicon.png"),
+      ),
+      `workflow toast should register plugin favicon on current ProgressWindow: ${JSON.stringify(registeredIcons)}`,
+    );
+    assert.isTrue(
+      icons.every((icon) => icon.endsWith("/content/icons/favicon.png")),
+      `workflow toast icons should use plugin favicon: ${JSON.stringify(icons)}`,
+    );
+  });
+
+  it("keeps apply completion summary visible while suppressing successful per-job noise", function () {
+    const outcomes = [
+      {
+        index: 0,
+        taskLabel: "task-a",
+        succeeded: true,
+        jobId: "job-1",
+      },
+      {
+        index: 1,
+        taskLabel: "task-b",
+        succeeded: false,
+        reason: "failed",
+        jobId: "job-2",
+      },
+    ];
+
+    assert.deepEqual(
+      selectWorkflowJobOutcomesForToasts({
+        outcomes,
+        totalJobs: 2,
+        skipped: 0,
+      }),
+      [outcomes[1]],
+    );
+    assert.isTrue(
+      shouldEmitWorkflowFinishSummaryToast({
+        outcomes: [outcomes[0]],
+        totalJobs: 1,
+        skipped: 0,
+      }),
+      "single successful apply should still emit a finish summary toast",
     );
   });
 

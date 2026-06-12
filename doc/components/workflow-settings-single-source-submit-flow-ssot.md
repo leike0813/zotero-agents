@@ -25,6 +25,19 @@
 - 合并规则：`persisted <- override`
 - 一次提交（一个 trigger）只解析一次 snapshot，并广播到同一 batch 所有 job
 
+### 2.3 Resolved Execution Context
+
+执行时解析出的完整上下文 `WorkflowExecutionContext`（`src/modules/workflowSettings.ts:55-62`）包含持久字段和运行时解析字段：
+
+| 字段 | 来源 | 说明 |
+|------|------|------|
+| `backend` | backend registry + `backendId` | 由持久化的 `backendId` 解析出的 backend profile |
+| `requestKind` | workflow manifest + backend type | 声明式请求编译结果 |
+| `workflowParams` | 持久化 | 业务参数 |
+| `providerOptions` | 持久化 + 一次性覆盖 | 运行期选项，支持持久化默认和 run-once 覆盖 |
+| `runOptions` | workflow manifest + 一次性覆盖 | Zotero 主机访问策略、写入自动审批等运行期选项。**不持久化**——仅从 `WorkflowExecutionOptions` 的 `runOptions` 覆盖字段合并，`mergeExecutionOptions` 中 `override.runOptions` 完全替换 `base.runOptions` |
+| `providerId` | 运行时解析 | 由 `resolveProvider` 根据 requestKind + 选定的 backend 解析得出。**不持久化** |
+
 ## 3. Configurability Predicate
 
 workflow 被判定为“可配置”当且仅当以下任一维度可编辑：

@@ -149,7 +149,6 @@ Retained `core` lite files:
 
 - `test/core/00-startup.test.ts`
 - `test/core/11-selection-context-rebuild.test.ts`
-- `test/core/32-job-queue-transport-integration.test.ts`
 - `test/core/41-workflow-scan-registration.test.ts`
 - `test/core/42-hooks-startup-template-cleanup.test.ts`
 - `test/core/45-runtime-log-manager.test.ts`

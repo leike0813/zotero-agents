@@ -75,6 +75,30 @@ function isAcpProviderResult(args: {
   );
 }
 
+function getResponseJson(result?: RunResultLike) {
+  return result?.responseJson &&
+    typeof result.responseJson === "object" &&
+    !Array.isArray(result.responseJson)
+    ? (result.responseJson as Record<string, unknown>)
+    : {};
+}
+
+function isAcpRecoverableNonTerminalResult(args: {
+  result?: RunResultLike;
+  job?: { meta?: Record<string, unknown> };
+}) {
+  if (!isAcpProviderResult(args)) {
+    return false;
+  }
+  const responseJson = getResponseJson(args.result);
+  const responseStatus = String(responseJson.status || "").trim();
+  return (
+    args.result?.status === "deferred" ||
+    responseStatus === "disconnected" ||
+    responseStatus === "interrupted"
+  );
+}
+
 type ApplySeamDeps = {
   appendRuntimeLog: typeof appendRuntimeLog;
   normalizeErrorMessage: typeof normalizeErrorMessage;
@@ -365,6 +389,35 @@ export async function runWorkflowApplySeam(args: {
       message: "provider execution finished for job",
       details: { index: i, taskLabel, targetParentID: applyParent || undefined },
     });
+
+    if (
+      isAcpRecoverableNonTerminalResult({
+        result,
+        job: job as { meta?: Record<string, unknown> },
+      })
+    ) {
+      pending += 1;
+      resolved.appendRuntimeLog({
+        level: "info",
+        scope: "job",
+        workflowId: args.runState.workflow.manifest.id,
+        jobId: job.id,
+        requestId: result.requestId,
+        stage: "foreground-apply-skipped-acp-recoverable",
+        message:
+          "foreground apply skipped for recoverable ACP skill run state",
+        details: {
+          index: i,
+          taskLabel,
+          status: result.status,
+          responseStatus: String(
+            getResponseJson(result).status || "",
+          ).trim(),
+          targetParentID: applyParent || undefined,
+        },
+      });
+      continue;
+    }
 
     if (
       isSkillRunnerAutoRequest({

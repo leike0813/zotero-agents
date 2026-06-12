@@ -2,32 +2,31 @@
   background-color: tomato;
 }
 
-.zs-skillrunner-toolbar-button[data-badge] {
-  position: relative;
+.icon-css.icon-zotero-skills-workspace,
+.icon-css.icon-item-type[data-item-type="zotero-skills-workspace"],
+.tab-icon.icon-item-type[data-item-type="zotero-skills-workspace"] {
+  display: inline-block !important;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  background-image: url("icons/icon_workbench_32.png") !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  background-size: contain !important;
+  background-color: transparent !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  -moz-context-properties: unset !important;
 }
 
-.zs-skillrunner-toolbar-button[data-badge]::after,
-.zs-skillrunner-sidebar-button[data-badge]::after {
-  content: attr(data-badge);
-  position: absolute;
-  top: 0;
-  right: 0;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
-  border-radius: 999px;
-  background: #b91c1c;
-  color: #fff;
-  font-size: 10px;
-  line-height: 14px;
-  text-align: center;
-  box-sizing: border-box;
-}
-
+.zs-assistant-sidebar-button[data-zs-selected="true"],
 .zs-skillrunner-sidebar-button[data-zs-selected="true"] {
   filter: saturate(1.2);
 }
 
+#zotero-view-item-sidenav .zs-assistant-sidebar-button,
+#zotero-context-pane-sidenav .zs-assistant-sidebar-button,
 #zotero-view-item-sidenav .zs-skillrunner-sidebar-button,
 #zotero-context-pane-sidenav .zs-skillrunner-sidebar-button {
   width: 28px !important;
@@ -37,8 +36,12 @@
   padding: 4px !important;
 }
 
+#zotero-view-item-sidenav .zs-assistant-sidebar-button > .toolbarbutton-icon,
+#zotero-context-pane-sidenav .zs-assistant-sidebar-button > .toolbarbutton-icon,
 #zotero-view-item-sidenav .zs-skillrunner-sidebar-button > .toolbarbutton-icon,
-#zotero-context-pane-sidenav .zs-skillrunner-sidebar-button > .toolbarbutton-icon {
+#zotero-context-pane-sidenav
+  .zs-skillrunner-sidebar-button
+  > .toolbarbutton-icon {
   width: 16px !important;
   height: 16px !important;
   min-width: 16px !important;
@@ -65,15 +68,19 @@
   min-width: 580px;
   max-width: 580px;
   min-height: 0;
-  padding: 7px 8px;
-  border: 1px solid rgba(148, 163, 184, 0.45);
-  border-radius: 8px;
+  padding: 5px 8px 10px;
+  border: 0;
+  border-radius: 0;
   background: #ffffff;
   color: #172033;
-  box-shadow:
-    0 12px 30px rgba(15, 23, 42, 0.16),
-    0 2px 6px rgba(15, 23, 42, 0.08);
-  font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  box-shadow: none;
+  transform: translateY(-3px);
+  font:
+    12px/1.35 system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
 
 .zs-workspace-running-popover-title {

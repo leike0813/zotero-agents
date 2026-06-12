@@ -15,6 +15,10 @@ import {
   resolveProviderSchemaEntries,
   type FormSchemaEntry,
 } from "./workflowSettingsDialogModel";
+import {
+  normalizeAcpProviderModelOptionsForRuntime,
+  projectAcpProviderModelOptionsForUi,
+} from "./acpModelOptionFolding";
 import { resolveBackendDisplayName } from "../backends/displayName";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 
@@ -311,33 +315,6 @@ function isWarningProviderOptionKey(key: string) {
   return key === "autoApproveAcpPermissions";
 }
 
-function applyTailPreservingChoiceStyle(control: Element) {
-  control.classList.add("tail-preserve-select");
-  const triggerLabel = control.querySelector(
-    "[data-zs-choice-trigger-label='1']",
-  ) as HTMLElement | null;
-  if (triggerLabel) {
-    triggerLabel.style.display = "block";
-    triggerLabel.style.flex = "1 1 auto";
-    triggerLabel.style.minWidth = "0";
-    triggerLabel.style.maxWidth = "100%";
-    triggerLabel.style.overflow = "hidden";
-    triggerLabel.style.textOverflow = "ellipsis";
-    triggerLabel.style.whiteSpace = "nowrap";
-    triggerLabel.style.direction = "rtl";
-    triggerLabel.style.textAlign = "left";
-    triggerLabel.style.unicodeBidi = "isolate";
-  }
-  const optionButtons = Array.from(
-    control.querySelectorAll("[data-zs-choice-list='1'] button"),
-  ) as HTMLElement[];
-  optionButtons.forEach((option: HTMLElement) => {
-    option.style.direction = "rtl";
-    option.style.textAlign = "left";
-    option.style.unicodeBidi = "isolate";
-  });
-}
-
 function renderSchemaFields(args: {
   doc: Document;
   container: HTMLElement;
@@ -439,9 +416,6 @@ function renderSchemaFields(args: {
         });
         recommendationControl.setAttribute("id", `${controlId}-recommendation`);
         applySelectVisualStyle(recommendationControl, "180px");
-        if (entry.key === "acpModelId") {
-          applyTailPreservingChoiceStyle(recommendationControl);
-        }
         combo.appendChild(recommendationControl);
 
         const customInput = createHtmlElement(doc, "input");
@@ -480,9 +454,6 @@ function renderSchemaFields(args: {
           disabledControl.style.pointerEvents = "none";
         }
         applySelectVisualStyle(control, "320px");
-        if (entry.key === "acpModelId") {
-          applyTailPreservingChoiceStyle(control);
-        }
         row.appendChild(control);
       }
     } else {
@@ -880,11 +851,21 @@ export async function openWorkflowSettingsDialog(args?: {
         values: Record<string, unknown>;
         resolveBackend: () => (typeof profiles)[number] | undefined;
       }) => {
-        const mergedValues = {
+        const rawMergedValues = {
           ...args.values,
           ...collectSchemaValues(args.container),
         };
         const backend = args.resolveBackend();
+        const mergedValues =
+          String(backend?.type || "").trim() === "acp"
+            ? projectAcpProviderModelOptionsForUi({
+                modelOptions:
+                  backend?.acp?.runtimeOptionsCache?.displayModels || [],
+                options: rawMergedValues,
+                currentDisplayModelId:
+                  backend?.acp?.runtimeOptionsCache?.currentDisplayModelId,
+              })
+            : rawMergedValues;
         const effectiveProviderId = resolveProviderIdForBackend(backend);
         const providerSchemaEntries = resolveProviderSchemaEntries({
           providerId: effectiveProviderId,
@@ -899,7 +880,13 @@ export async function openWorkflowSettingsDialog(args?: {
           idPrefix: args.idPrefix,
           emptyText: getString("workflow-settings-no-provider-options" as any),
         });
-        const dynamicControls = ["engine", "provider_id", "model", "acpModelId"]
+        const dynamicControls = [
+          "engine",
+          "provider_id",
+          "model",
+          "acpModelProvider",
+          "acpModelId",
+        ]
           .map(
             (key) =>
               args.container.querySelector(
@@ -1058,6 +1045,29 @@ export async function openWorkflowSettingsDialog(args?: {
       onceWorkflowFields,
       onceProviderFields,
     });
+    const normalizeAcpDraftProviderOptions = (
+      providerOptions: Record<string, unknown> | undefined,
+      profileId: string | undefined,
+    ) => {
+      const backend = profileId ? profileById.get(profileId) : undefined;
+      if (String(backend?.type || "").trim() !== "acp") {
+        return providerOptions || {};
+      }
+      return normalizeAcpProviderModelOptionsForRuntime({
+        modelOptions: backend?.acp?.runtimeOptionsCache?.displayModels || [],
+        options: providerOptions || {},
+        currentDisplayModelId:
+          backend?.acp?.runtimeOptionsCache?.currentDisplayModelId,
+      });
+    };
+    draft.persistent.providerOptions = normalizeAcpDraftProviderOptions(
+      draft.persistent.providerOptions,
+      draft.persistent.backendId,
+    );
+    draft.runOnce.providerOptions = normalizeAcpDraftProviderOptions(
+      draft.runOnce.providerOptions,
+      draft.runOnce.backendId || draft.persistent.backendId,
+    );
 
     if (clicked === "save") {
       savePersistentWorkflowSettingsDraft({

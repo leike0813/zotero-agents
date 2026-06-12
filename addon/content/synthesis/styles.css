@@ -260,6 +260,31 @@ button.is-busy {
   font-size: 12px;
 }
 
+.surface-refresh-diagnostic {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--zs-text);
+  font-size: 12px;
+}
+
+.surface-refresh-diagnostic strong {
+  flex: 0 0 auto;
+  color: #b45309;
+}
+
+.surface-refresh-diagnostic span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @keyframes zs-spin {
   to {
     transform: rotate(360deg);
@@ -2599,6 +2624,29 @@ th {
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+.graph-scope-badge {
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-start: 50%;
+  z-index: 3;
+  max-width: min(520px, calc(100% - 112px));
+  padding: 6px 12px;
+  border: 1px solid var(--zs-border);
+  border-radius: 999px;
+  background: var(--zs-panel);
+  box-shadow: var(--zs-shadow-subtle);
+  color: var(--zs-text);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow: hidden;
+  pointer-events: none;
+  text-align: center;
+  text-overflow: ellipsis;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 .citation-graph-legend {
@@ -5231,18 +5279,59 @@ th {
   padding: 14px;
   display: grid;
   gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.coverage-caveat-card > *,
+.coverage-direction-card > * {
+  min-width: 0;
+}
+
+.coverage-caveat-card strong,
+.coverage-direction-card strong {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .coverage-caveat-card p,
 .coverage-direction-card p,
 .coverage-reliability p {
   margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .coverage-examples {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
   gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.coverage-direction-card .coverage-priority-badge,
+.coverage-caveat-card .coverage-priority-badge {
+  align-self: start;
+  height: 22px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.coverage-direction-card .coverage-example-pill,
+.coverage-caveat-card .coverage-example-pill {
+  display: inline-flex;
+  flex: 0 1 auto;
+  max-width: min(100%, 36rem);
+  min-width: 0;
+  height: auto;
+  min-height: 22px;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Timeline Legend */

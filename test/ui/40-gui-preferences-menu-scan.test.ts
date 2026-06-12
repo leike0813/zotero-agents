@@ -2122,26 +2122,24 @@ describe("gui: workflow context menu", function () {
     popup!.dispatch("popupshowing");
     await flushTasks();
 
-    assert.lengthOf(popup!.children, 5);
+    assert.lengthOf(popup!.children, 4);
     assertMenuLabel(
       popup!.children[0].getAttribute("label"),
-      ["Open SkillRunner Sidebar...", "打开 SkillRunner 侧边栏..."],
-      "skillrunner sidebar label",
+      [
+        "Open Dashboard / Synthesis Workspace",
+        "打开 Dashboard/综合工作区",
+      ],
+      "workspace label",
     );
     assertMenuLabel(
       popup!.children[1].getAttribute("label"),
-      ["Open Dashboard...", "打开 Dashboard..."],
-      "task-manager label",
+      ["Open Sidebar", "打开侧边栏"],
+      "assistant sidebar label",
     );
+    assert.equal(popup!.children[2].tagName, "menuseparator");
+    assert.equal(popup!.children[3].getAttribute("disabled"), "true");
     assertMenuLabel(
-      popup!.children[2].getAttribute("label"),
-      ["Open Synthesis Workbench...", "打开 Synthesis Workbench..."],
-      "synthesis workbench label",
-    );
-    assert.equal(popup!.children[3].tagName, "menuseparator");
-    assert.equal(popup!.children[4].getAttribute("disabled"), "true");
-    assertMenuLabel(
-      popup!.children[4].getAttribute("label"),
+      popup!.children[3].getAttribute("label"),
       ["No workflows loaded", "未加载任何 Workflow"],
       "root empty label",
     );
@@ -2167,22 +2165,26 @@ describe("gui: workflow context menu", function () {
           /^Workflow B \((no selection|未选择条目)\)$/,
         ],
         expectedDisabledStates: ["true", "true"],
-        expectedLength: 6,
+        expectedLength: 5,
       },
       {
         label: "keeps requiresSelection=false workflow enabled",
         workflows: [
           makeLoadedWorkflow("workflow-a", "Workflow A"),
-          makePassThroughWorkflow("tag-manager", "Tag Manager", {
-            requiresSelection: false,
-          }),
+          makePassThroughWorkflow(
+            "optional-selection-workflow",
+            "Optional Selection",
+            {
+              requiresSelection: false,
+            },
+          ),
         ],
         expectedLabels: [
           /^Workflow A \((no selection|未选择条目)\)$/,
-          /^Tag Manager$/,
+          /^Optional Selection$/,
         ],
         expectedDisabledStates: ["true", null],
-        expectedLength: 6,
+        expectedLength: 5,
         rebuildOnly: true,
       },
       {
@@ -2192,7 +2194,7 @@ describe("gui: workflow context menu", function () {
         ],
         expectedLabels: [/^Manual Pass-through \((no selection|未选择条目)\)$/],
         expectedDisabledStates: ["true"],
-        expectedLength: 5,
+        expectedLength: 4,
         rebuildOnly: true,
       },
     ];
@@ -2223,7 +2225,7 @@ describe("gui: workflow context menu", function () {
 
       assert.lengthOf(popup.children, entry.expectedLength, entry.label);
       for (const [index, expectedLabel] of entry.expectedLabels.entries()) {
-        const child = popup.children[index + 4];
+        const child = popup.children[index + 3];
         assert.match(
           child.getAttribute("label") || "",
           expectedLabel,
@@ -2263,7 +2265,7 @@ describe("gui: workflow context menu", function () {
       ) as FakeXULElement;
       popup.dispatch("popupshowing");
       await flushTasks();
-      popup.children[1].dispatch("command");
+      popup.children[0].dispatch("command");
 
       assert.lengthOf(calls, 1);
       assert.equal(calls[0].type, "openDashboard");
@@ -2287,7 +2289,7 @@ describe("gui: workflow context menu", function () {
     popup.dispatch("popupshowing");
     for (let i = 0; i < 10; i++) {
       await flushTasks();
-      if (popup.children.length > 5) {
+      if (popup.children.length > 3) {
         break;
       }
     }
@@ -2370,7 +2372,7 @@ describe("gui: workflow context menu", function () {
       popup.dispatch("popupshowing");
       for (let i = 0; i < 10; i++) {
         await flushTasks();
-        if (popup.children.length > 5) {
+        if (popup.children.length > 3) {
           break;
         }
       }

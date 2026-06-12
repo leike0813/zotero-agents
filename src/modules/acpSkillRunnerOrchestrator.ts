@@ -160,8 +160,105 @@ export type AcpRequiredMcpPreflightProbe = (args: {
   message?: string;
 }>;
 
+type AcpPromptOutcome = {
+  sessionId: string;
+  stopReason: string;
+  assistantText: string;
+  observedAcpActivity: boolean;
+};
+
+type AcpPromptFailureDiagnostic = {
+  stage: "acp-prompt-no-output" | "acp-prompt-stopped" | "acp-prompt-failed";
+  message: string;
+  error: string;
+  details: Record<string, unknown>;
+};
+
+class AcpPromptFailureError extends Error {
+  readonly diagnostic: AcpPromptFailureDiagnostic;
+
+  constructor(diagnostic: AcpPromptFailureDiagnostic) {
+    super(diagnostic.error);
+    this.name = "AcpPromptFailureError";
+    this.diagnostic = diagnostic;
+  }
+}
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : String(error || "unknown error");
+}
+
+function isProtocolPromptStop(stopReasonRaw: string) {
+  const stopReason = normalizeString(stopReasonRaw);
+  return (
+    stopReason === "refusal" ||
+    stopReason === "max_tokens" ||
+    stopReason === "max_turn_requests" ||
+    stopReason === "cancelled"
+  );
+}
+
+function classifyAcpPromptFailure(
+  outcome: AcpPromptOutcome,
+): AcpPromptFailureDiagnostic | null {
+  const stopReason = normalizeString(outcome.stopReason);
+  if (isProtocolPromptStop(stopReason)) {
+    return {
+      stage: "acp-prompt-stopped",
+      message:
+        "ACP backend stopped the prompt before producing a valid workflow output.",
+      error: `ACP prompt stopped with ${stopReason}. Check backend authentication, model availability, quota, or retry the run.`,
+      details: {
+        stopReason,
+      },
+    };
+  }
+  if (
+    stopReason === "end_turn" &&
+    !normalizeString(outcome.assistantText) &&
+    !outcome.observedAcpActivity
+  ) {
+    return {
+      stage: "acp-prompt-no-output",
+      message:
+        "ACP backend ended the prompt without returning observable ACP output for validation.",
+      error:
+        "ACP prompt ended without observable output. Check backend authentication, model availability, quota, or retry the run.",
+      details: {
+        stopReason,
+      },
+    };
+  }
+  return null;
+}
+
+function classifyAcpPromptError(error: unknown): AcpPromptFailureDiagnostic {
+  const message = errorMessage(error);
+  const maybeRequestError = error as {
+    code?: unknown;
+    data?: unknown;
+    name?: unknown;
+  };
+  return {
+    stage: "acp-prompt-failed",
+    message:
+      "ACP backend returned a prompt error before workflow output validation.",
+    error: message,
+    details: {
+      errorName: normalizeString(maybeRequestError.name),
+      code:
+        typeof maybeRequestError.code === "number"
+          ? maybeRequestError.code
+          : undefined,
+      data: maybeRequestError.data,
+    },
+  };
 }
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
@@ -708,6 +805,15 @@ function resolveFrozenAcpRuntimeOptions(args: {
   };
 }
 
+function shouldSkipInitialAcpModelSet(args: {
+  targetRawModelId?: unknown;
+  sessionCurrentModelId?: unknown;
+}) {
+  const targetRawModelId = normalizeString(args.targetRawModelId);
+  const sessionCurrentModelId = normalizeString(args.sessionCurrentModelId);
+  return !!targetRawModelId && targetRawModelId === sessionCurrentModelId;
+}
+
 async function runPrompt(args: {
   adapter: AcpConnectionAdapter;
   requestId: string;
@@ -741,10 +847,18 @@ async function runPrompt(args: {
       });
     }
     if (args.runtimeOptions?.rawModelId) {
-      await args.adapter.setModel({
-        sessionId,
-        modelId: args.runtimeOptions.rawModelId,
-      });
+      const currentModelId = normalizeString(session.models?.currentModelId);
+      if (
+        !shouldSkipInitialAcpModelSet({
+          targetRawModelId: args.runtimeOptions.rawModelId,
+          sessionCurrentModelId: currentModelId,
+        })
+      ) {
+        await args.adapter.setModel({
+          sessionId,
+          modelId: args.runtimeOptions.rawModelId,
+        });
+      }
     }
     if (args.runtimeOptions?.reasoningEffort) {
       await args.adapter.setConfigOption?.({
@@ -1299,6 +1413,15 @@ function canContinueRecoveredWorkflowTask(
   record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>,
 ) {
   if (
+    !!record.pendingInteraction &&
+    (record.status === "waiting_user" ||
+      record.outputConvergenceState === "pending" ||
+      record.status === "running" ||
+      record.status === "failed")
+  ) {
+    return true;
+  }
+  if (
     record.status === "succeeded" ||
     record.status === "canceled" ||
     record.applyResultState === "succeeded" ||
@@ -1536,6 +1659,7 @@ export async function recoverAcpSkillRunConversation(args: {
   let cleanupDone = false;
   let captureAssistantText = false;
   let currentTurnAssistantText = "";
+  let currentTurnObservedAcpActivity = false;
   let promptChain = Promise.resolve();
   let liveSessionId = sessionId;
   let unsubscribePermission: () => void = () => undefined;
@@ -1566,8 +1690,32 @@ export async function recoverAcpSkillRunConversation(args: {
     });
     await adapter.close();
   };
-  const promptRecoveredSession = async (message: string) => {
+  const failRecoveredAcpPrompt = async (
+    diagnostic: AcpPromptFailureDiagnostic,
+  ): Promise<never> => {
+    upsertAcpSkillRun({
+      requestId,
+      status: "failed",
+      activePrompt: false,
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+      error: diagnostic.error,
+      pendingInteraction: null,
+      event: {
+        stage: diagnostic.stage,
+        message: diagnostic.message,
+        level: "error",
+        details: diagnostic.details,
+      },
+    });
+    await detach("closed").catch(() => undefined);
+    throw new AcpPromptFailureError(diagnostic);
+  };
+  const promptRecoveredSession = async (
+    message: string,
+  ): Promise<AcpPromptOutcome> => {
     currentTurnAssistantText = "";
+    currentTurnObservedAcpActivity = false;
     captureAssistantText = true;
     try {
       const result = await runPrompt({
@@ -1577,7 +1725,11 @@ export async function recoverAcpSkillRunConversation(args: {
         sessionId: liveSessionId,
       });
       liveSessionId = result.sessionId;
-      return currentTurnAssistantText;
+      return {
+        ...result,
+        assistantText: currentTurnAssistantText,
+        observedAcpActivity: currentTurnObservedAcpActivity,
+      };
     } finally {
       captureAssistantText = false;
     }
@@ -1611,7 +1763,9 @@ export async function recoverAcpSkillRunConversation(args: {
         },
       });
     }
-    const promptRecoveredWorkflowContinuation = async (userMessage: string) => {
+    const promptRecoveredWorkflowContinuation = async (
+      userMessage: string,
+    ): Promise<AcpPromptOutcome> => {
       const promptRecord = getAcpSkillRunRecord(requestId) || latest;
       try {
         return await promptRecoveredSession(
@@ -1621,26 +1775,12 @@ export async function recoverAcpSkillRunConversation(args: {
           }),
         );
       } catch (error) {
-        upsertAcpSkillRun({
-          requestId,
-          status: promptRecord.status,
-          activePrompt: false,
-          conversationState: "closed",
-          conversationRecoveryState: "available",
-          event: {
-            stage: "recovered-reply-prompt-failed",
-            message:
-              error instanceof Error
-                ? error.message
-                : String(error || "unknown error"),
-            level: "error",
-          },
-        });
+        await failRecoveredAcpPrompt(classifyAcpPromptError(error));
         throw error;
       }
     };
-    let assistantText = "";
-    assistantText = shouldContinueWorkflow
+    let promptOutcome: AcpPromptOutcome;
+    promptOutcome = shouldContinueWorkflow
       ? await promptRecoveredWorkflowContinuation(message)
       : await promptRecoveredSession(message);
     if (!shouldContinueWorkflow) {
@@ -1660,12 +1800,65 @@ export async function recoverAcpSkillRunConversation(args: {
     );
     let repairRound = Math.max(0, latest.repairRounds || 0);
     while (true) {
-      const convergence = await convergeAcpSkillTurnOutput({
-        assistantText,
-        executionMode,
-        runnerJson: runnerJsonForConvergence,
-        primarySkillDir,
-      });
+      const promptFailure = classifyAcpPromptFailure(promptOutcome);
+      let convergence: AcpSkillOutputConvergenceResult;
+      if (promptFailure?.stage === "acp-prompt-no-output") {
+        const fallback = await resolveAcpSkillResultFileFallback({
+          skillId:
+            normalizeString(latest.requestedSkillId) ||
+            normalizeString(latest.skillId),
+          runnerJson: runnerJsonForConvergence as Record<string, unknown>,
+          workspaceDir: normalizeString(latest.workspaceDir),
+          validator: (payload) =>
+            validateAcpSkillFinalPayload({
+              payload,
+              runnerJson: runnerJsonForConvergence as Record<string, unknown>,
+              primarySkillDir,
+            }),
+        });
+        if (fallback.warnings.length > 0) {
+          upsertAcpSkillRun({
+            requestId,
+            event: {
+              stage: fallback.payload
+                ? "result-file-fallback-succeeded"
+                : "result-file-fallback-skipped",
+              message: fallback.payload
+                ? "Recovered final output from package result file."
+                : "Package result file fallback did not produce valid output.",
+              level: fallback.payload ? "warn" : "info",
+              details: {
+                selectedPath: fallback.selectedPath,
+                warnings: fallback.warnings,
+                recovered: true,
+              },
+            },
+          });
+        }
+        if (!fallback.payload) {
+          await failRecoveredAcpPrompt(promptFailure);
+          throw new Error(promptFailure.error);
+        }
+        const fallbackPayload = fallback.payload;
+        convergence = {
+          kind: "final",
+          resultJson: fallbackPayload,
+          candidateText: JSON.stringify(fallbackPayload),
+          warnings: fallback.warnings.map((entry) =>
+            [entry.code, entry.detail].filter(Boolean).join(": "),
+          ),
+        };
+      } else if (promptFailure) {
+        await failRecoveredAcpPrompt(promptFailure);
+        throw new Error(promptFailure.error);
+      } else {
+        convergence = await convergeAcpSkillTurnOutput({
+          assistantText: promptOutcome.assistantText,
+          executionMode,
+          runnerJson: runnerJsonForConvergence,
+          primarySkillDir,
+        });
+      }
       if (convergence.kind === "pending") {
         projectAcpSkillRunOutputEnvelopeToTranscript({
           requestId,
@@ -1808,7 +2001,7 @@ export async function recoverAcpSkillRunConversation(args: {
           },
         },
       });
-      assistantText = await promptRecoveredWorkflowContinuation(
+      promptOutcome = await promptRecoveredWorkflowContinuation(
         buildAcpSkillOutputRepairPrompt({
           executionMode,
           previousCandidate: convergence.candidateText,
@@ -1828,6 +2021,9 @@ export async function recoverAcpSkillRunConversation(args: {
   });
   unsubscribeUpdate = adapter.onUpdate((event) => {
     const update = event.update || { sessionUpdate: "" };
+    if (captureAssistantText && normalizeString(update.sessionUpdate)) {
+      currentTurnObservedAcpActivity = true;
+    }
     if (
       captureAssistantText &&
       normalizeString(update.sessionUpdate) === "agent_message_chunk"
@@ -1921,7 +2117,8 @@ export async function recoverAcpSkillRunConversation(args: {
         await adapter.setModel({ sessionId, modelId });
       },
       setConfigOption: async ({ sessionId, category, value }) =>
-        (await adapter.setConfigOption?.({ sessionId, category, value })) === true,
+        (await adapter.setConfigOption?.({ sessionId, category, value })) ===
+        true,
     });
     upsertAcpSkillRun({
       requestId,
@@ -2377,6 +2574,7 @@ export async function executeAcpSkillRunnerJob(args: {
   let promptChain = Promise.resolve();
   let captureAssistantText = false;
   let currentTurnAssistantText = "";
+  let currentTurnObservedAcpActivity = false;
   let workspaceActivityTimer: ReturnType<typeof setInterval> | null = null;
   let workspaceActivitySignature = "";
   let workspaceActivityScanRunning = false;
@@ -2470,8 +2668,43 @@ export async function executeAcpSkillRunnerJob(args: {
     clearInterval(workspaceActivityTimer);
     workspaceActivityTimer = null;
   };
-  const promptExistingSession = async (message: string) => {
+  const failCurrentAcpPrompt = async (
+    diagnostic: AcpPromptFailureDiagnostic,
+  ): Promise<never> => {
+    const current = getAcpSkillRunRecord(workspace.requestId);
+    const hasRecoverableSession =
+      !!normalizeString(current?.sessionId) || !!normalizeString(liveSessionId);
+    upsertAcpSkillRun({
+      requestId: workspace.requestId,
+      status: "failed",
+      activePrompt: false,
+      replyState: "idle",
+      error: diagnostic.error,
+      pendingInteraction: null,
+      conversationState: hasRecoverableSession ? "closed" : "error",
+      conversationRecoveryState: hasRecoverableSession
+        ? "available"
+        : "unavailable",
+      conversationError: hasRecoverableSession ? "" : diagnostic.error,
+      event: {
+        stage: diagnostic.stage,
+        message: diagnostic.message,
+        level: "error",
+        details: diagnostic.details,
+      },
+    });
+    await cleanupLiveSession({
+      conversationState: hasRecoverableSession ? "closed" : "error",
+      conversationError: hasRecoverableSession ? undefined : diagnostic.error,
+      closeAdapter: true,
+    }).catch(() => undefined);
+    throw new AcpPromptFailureError(diagnostic);
+  };
+  const promptExistingSession = async (
+    message: string,
+  ): Promise<AcpPromptOutcome> => {
     currentTurnAssistantText = "";
+    currentTurnObservedAcpActivity = false;
     captureAssistantText = true;
     startWorkspaceActivityHeartbeat();
     try {
@@ -2486,7 +2719,18 @@ export async function executeAcpSkillRunnerJob(args: {
       return {
         ...result,
         assistantText: currentTurnAssistantText,
+        observedAcpActivity: currentTurnObservedAcpActivity,
       };
+    } catch (error) {
+      if (
+        cancellationRequested ||
+        interruptionRequested ||
+        disconnectRequested
+      ) {
+        throw error;
+      }
+      await failCurrentAcpPrompt(classifyAcpPromptError(error));
+      throw error;
     } finally {
       captureAssistantText = false;
       stopWorkspaceActivityHeartbeat();
@@ -2502,6 +2746,14 @@ export async function executeAcpSkillRunnerJob(args: {
     pendingReplyResolver = null;
     pendingReplyRejecter = null;
     resolver?.(message);
+  };
+  const resolveDisconnectedRunStatus = () => {
+    const current = getAcpSkillRunRecord(workspace.requestId);
+    return current?.status === "waiting_user" ||
+      current?.outputConvergenceState === "pending" ||
+      !!current?.pendingInteraction
+      ? "waiting_user"
+      : "running";
   };
   registerAcpSkillRunController(workspace.requestId, {
     cancel: async () => {
@@ -2583,6 +2835,9 @@ export async function executeAcpSkillRunnerJob(args: {
           try {
             await promptExistingSession(text);
           } catch (error) {
+            if (error instanceof AcpPromptFailureError) {
+              throw error;
+            }
             const message =
               error instanceof Error
                 ? error.message
@@ -2662,7 +2917,8 @@ export async function executeAcpSkillRunnerJob(args: {
       await adapter.setModel({ sessionId, modelId });
     },
     setConfigOption: async ({ sessionId, category, value }) =>
-      (await adapter.setConfigOption?.({ sessionId, category, value })) === true,
+      (await adapter.setConfigOption?.({ sessionId, category, value })) ===
+      true,
   });
   unsubscribePermission = adapter.onPermissionRequest((request) => {
     handleAcpSkillRunPermissionRequest({
@@ -2673,6 +2929,9 @@ export async function executeAcpSkillRunnerJob(args: {
   });
   unsubscribeUpdate = adapter.onUpdate((event) => {
     const update = event.update || { sessionUpdate: "" };
+    if (captureAssistantText && normalizeString(update.sessionUpdate)) {
+      currentTurnObservedAcpActivity = true;
+    }
     if (
       captureAssistantText &&
       normalizeString(update.sessionUpdate) === "agent_message_chunk"
@@ -2778,13 +3037,92 @@ export async function executeAcpSkillRunnerJob(args: {
     );
     let repairRound = 0;
     let convergence: AcpSkillOutputConvergenceResult | null = null;
+    const resolveResultFileFallbackForCurrentTurn = async (
+      currentRepairRound: number,
+    ) => {
+      const fallback = await resolveAcpSkillResultFileFallback({
+        skillId: request.skill_id,
+        runnerJson: materialization.runnerJson,
+        workspaceDir: workspace.workspaceDir,
+        validator: (payload) =>
+          validateAcpSkillFinalPayload({
+            payload,
+            runnerJson: materialization.runnerJson,
+            primarySkillDir: materialization.primarySkillDir,
+          }),
+      });
+      if (fallback.warnings.length > 0) {
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          event: {
+            stage: fallback.payload
+              ? "result-file-fallback-succeeded"
+              : "result-file-fallback-skipped",
+            message: fallback.payload
+              ? "Recovered final output from package result file."
+              : "Package result file fallback did not produce valid output.",
+            level: fallback.payload ? "warn" : "info",
+            details: {
+              selectedPath: fallback.selectedPath,
+              warnings: fallback.warnings,
+            },
+          },
+        });
+      }
+      if (!fallback.payload) {
+        return false;
+      }
+      const candidateText = JSON.stringify(fallback.payload);
+      await writeAcpSkillRunnerResultEnvelope({
+        resultJsonPath: workspace.resultJsonPath,
+        resultJson: fallback.payload,
+      });
+      projectAcpSkillRunOutputEnvelopeToTranscript({
+        requestId: workspace.requestId,
+        kind: "final",
+        resultJson: fallback.payload,
+        candidateText,
+        repairRound: currentRepairRound,
+      });
+      convergence = {
+        kind: "final",
+        resultJson: fallback.payload,
+        candidateText,
+        warnings: fallback.warnings.map((entry) =>
+          [entry.code, entry.detail].filter(Boolean).join(": "),
+        ),
+      };
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "running",
+        repairRounds: currentRepairRound,
+        validationStatus: "valid",
+        validationErrors: [],
+        outputConvergenceState: "final",
+        pendingInteraction: null,
+        lastTurnOutput: candidateText,
+        resultJson: fallback.payload,
+        event: {
+          stage: "output-validation-succeeded",
+          message: "Output validation succeeded through result-file fallback.",
+          level: "warn",
+          details: {
+            resultJsonPath: workspace.resultJsonPath,
+            selectedPath: fallback.selectedPath,
+            warnings: fallback.warnings,
+          },
+        },
+      });
+      return true;
+    };
     while (true) {
       const promptResult = await promptExistingSession(nextPrompt);
       if (disconnectRequested) {
         keepConversationAlive = true;
+        const disconnectedStatus = resolveDisconnectedRunStatus();
         upsertAcpSkillRun({
           requestId: workspace.requestId,
-          status: "running",
+          status: disconnectedStatus,
           activePrompt: false,
           replyState: "idle",
           error: "",
@@ -2797,9 +3135,10 @@ export async function executeAcpSkillRunnerJob(args: {
           },
         });
         return {
-          status: "succeeded",
+          status: "deferred",
           requestId: workspace.requestId,
           fetchType: "result",
+          backendStatus: disconnectedStatus,
           responseJson: {
             provider: "acp",
             requestId: workspace.requestId,
@@ -2836,6 +3175,16 @@ export async function executeAcpSkillRunnerJob(args: {
             status: "interrupted",
           },
         };
+      }
+      const promptFailure = classifyAcpPromptFailure(promptResult);
+      if (promptFailure?.stage === "acp-prompt-no-output") {
+        if (await resolveResultFileFallbackForCurrentTurn(repairRound)) {
+          break;
+        }
+        await failCurrentAcpPrompt(promptFailure);
+      }
+      if (promptFailure) {
+        await failCurrentAcpPrompt(promptFailure);
       }
       convergence = await convergeAcpSkillTurnOutput({
         assistantText: promptResult.assistantText,
@@ -2929,78 +3278,7 @@ export async function executeAcpSkillRunnerJob(args: {
         nextPrompt = reply;
         continue;
       }
-      const fallback = await resolveAcpSkillResultFileFallback({
-        skillId: request.skill_id,
-        runnerJson: materialization.runnerJson,
-        workspaceDir: workspace.workspaceDir,
-        validator: (payload) =>
-          validateAcpSkillFinalPayload({
-            payload,
-            runnerJson: materialization.runnerJson,
-            primarySkillDir: materialization.primarySkillDir,
-          }),
-      });
-      if (fallback.warnings.length > 0) {
-        upsertAcpSkillRun({
-          requestId: workspace.requestId,
-          event: {
-            stage: fallback.payload
-              ? "result-file-fallback-succeeded"
-              : "result-file-fallback-skipped",
-            message: fallback.payload
-              ? "Recovered final output from package result file."
-              : "Package result file fallback did not produce valid output.",
-            level: fallback.payload ? "warn" : "info",
-            details: {
-              selectedPath: fallback.selectedPath,
-              warnings: fallback.warnings,
-            },
-          },
-        });
-      }
-      if (fallback.payload) {
-        const candidateText = JSON.stringify(fallback.payload);
-        await writeAcpSkillRunnerResultEnvelope({
-          resultJsonPath: workspace.resultJsonPath,
-          resultJson: fallback.payload,
-        });
-        projectAcpSkillRunOutputEnvelopeToTranscript({
-          requestId: workspace.requestId,
-          kind: "final",
-          resultJson: fallback.payload,
-          candidateText,
-          repairRound,
-        });
-        convergence = {
-          kind: "final",
-          resultJson: fallback.payload,
-          candidateText,
-          warnings: fallback.warnings.map((entry) =>
-            [entry.code, entry.detail].filter(Boolean).join(": "),
-          ),
-        };
-        upsertAcpSkillRun({
-          requestId: workspace.requestId,
-          status: "running",
-          repairRounds: repairRound,
-          validationStatus: "valid",
-          validationErrors: [],
-          outputConvergenceState: "final",
-          pendingInteraction: null,
-          lastTurnOutput: candidateText,
-          resultJson: fallback.payload,
-          event: {
-            stage: "output-validation-succeeded",
-            message:
-              "Output validation succeeded through result-file fallback.",
-            level: "warn",
-            details: {
-              resultJsonPath: workspace.resultJsonPath,
-              selectedPath: fallback.selectedPath,
-              warnings: fallback.warnings,
-            },
-          },
-        });
+      if (await resolveResultFileFallbackForCurrentTurn(repairRound)) {
         break;
       }
       upsertAcpSkillRun({
@@ -3137,13 +3415,16 @@ export async function executeAcpSkillRunnerJob(args: {
       },
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : String(error || "unknown error");
+    if (error instanceof AcpPromptFailureError) {
+      throw error;
+    }
+    const message = errorMessage(error);
     if (disconnectRequested) {
       keepConversationAlive = true;
+      const disconnectedStatus = resolveDisconnectedRunStatus();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
-        status: "running",
+        status: disconnectedStatus,
         activePrompt: false,
         replyState: "idle",
         error: "",
@@ -3159,9 +3440,10 @@ export async function executeAcpSkillRunnerJob(args: {
         },
       });
       return {
-        status: "succeeded",
+        status: "deferred",
         requestId: workspace.requestId,
         fetchType: "result",
+        backendStatus: disconnectedStatus,
         responseJson: {
           provider: "acp",
           requestId: workspace.requestId,

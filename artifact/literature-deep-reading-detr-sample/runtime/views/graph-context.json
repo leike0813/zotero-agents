@@ -1,0 +1,16 @@
+{
+  "id": "extension-graph",
+  "title": "引用网络：DETR 接上了哪些文献",
+  "anchor": "extension-graph",
+  "translation": "从引用网络看，DETR 一边向前连接大量端到端检测后续论文，一边向后连接三类基础文献：经典目标检测器、Transformer/注意力机制，以及 Hungarian matching / 集合预测。阅读时可以把它看成一个“汇合点”：它不是单独发明所有组件，而是把这些组件组织成新的检测范式。",
+  "reading_aid": {
+    "goal": "用引用网络区分 DETR 的上游来源和下游影响。",
+    "terms": [
+      "Faster R-CNN",
+      "Transformer",
+      "Hungarian matching",
+      "DETR-family"
+    ],
+    "pitfall": "引用网络只能提示阅读路径；具体技术贡献仍要回到正文和后续论文逐篇判断。"
+  }
+}

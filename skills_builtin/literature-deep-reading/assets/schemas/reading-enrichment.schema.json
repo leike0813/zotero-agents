@@ -1,0 +1,227 @@
+{
+  "$id": "literature-deep-reading.reading-enrichment.v0",
+  "type": "object",
+  "properties": {
+    "preface_title": {
+      "type": "string"
+    },
+    "preface_cards": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/titledText"
+      }
+    },
+    "preface_reading_path": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "preface_goal": {
+      "type": "string"
+    },
+    "preface_concepts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "preface_warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "preface_questions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/questionAnswer"
+      }
+    },
+    "section_notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "section_anchor": {
+            "type": "string"
+          },
+          "reading_goal": {
+            "type": "string"
+          },
+          "concepts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "misread_warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/questionAnswer"
+            }
+          },
+          "citation_note_body": {
+            "type": "string"
+          },
+          "citation_reference_roles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reference_id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": ["reference_id"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["section_anchor"],
+        "additionalProperties": false
+      }
+    },
+    "concepts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": ["label"],
+        "additionalProperties": false
+      }
+    },
+    "reference_digest_notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "reference_id": {
+            "type": "string"
+          },
+          "role_in_current_paper": {
+            "type": "string"
+          },
+          "why_open": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": ["reference_id"],
+        "additionalProperties": false
+      }
+    },
+    "summary_fallback_enabled": {
+      "type": "boolean"
+    },
+    "summary_fallback_sections": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/titledText"
+      }
+    },
+    "extensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "anchor": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                }
+              },
+              "required": ["label", "target"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["title", "body"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "titledText": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": ["title", "body"],
+      "additionalProperties": false
+    },
+    "questionAnswer": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string"
+        },
+        "answer": {
+          "type": "string"
+        },
+        "evidence_kind": {
+          "type": "string"
+        },
+        "evidence_ref": {
+          "type": "string"
+        }
+      },
+      "required": ["question", "answer"],
+      "additionalProperties": false
+    }
+  }
+}

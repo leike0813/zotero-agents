@@ -51,6 +51,14 @@ jobs.
 
 - **WHEN** a sequence step fails, is canceled, or returns deferred
 - **THEN** the runtime SHALL NOT launch downstream steps.
+
+#### Scenario: Deferred ACP step does not run workflow apply
+
+- **GIVEN** an ACP-backed workflow step returns a deferred recoverable result
+- **WHEN** foreground workflow apply processes the provider result
+- **THEN** workflow `applyResult` SHALL NOT run
+- **AND** the workflow task SHALL remain pending rather than being marked
+  applied successfully.
 ### Requirement: ACP sequence runs preserve Host-only continuation state
 
 

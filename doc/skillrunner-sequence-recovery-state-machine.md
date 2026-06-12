@@ -25,11 +25,11 @@ Each ACP step run record stores:
 
 - `workflowId`: parent workflow id.
 - `workflowLabel`: parent workflow label.
-- `runId`: parent workflow run id.
+- `workflowRunId`: parent workflow run id.
 - `jobId`: parent workflow job id.
 - `skillId`: current step skill id.
 - `sequenceStepId`: current sequence step id.
-- `sequenceFinalStepId`: declared final sequence step id.
+- `finalStepId`: declared final sequence step id.
 
 The sequence state stores the original sequence request, backend id,
 provider options, current step index, final step id, root request id, and the
@@ -97,7 +97,9 @@ apply runs once.
 ### Step Deferred
 
 Host records the current step result and moves the sequence to
-`waiting_recovery`. Downstream steps are not started.
+`waiting_recovery`. Downstream steps are not started. If the deferred step is
+ACP-backed, workflow `applyResult` is also skipped until the recovered step
+produces a non-deferred successful result.
 
 ### Step Failed Or Task Canceled
 

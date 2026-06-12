@@ -1,0 +1,394 @@
+{
+  "schema_version": "literature-deep-reading.references-view.v0",
+  "source": "artifact",
+  "artifact_path": "artifacts/references.json",
+  "reference_count": 55,
+  "references": [
+    {
+      "id": "ref-1",
+      "index": 1,
+      "title": "Character-level language modeling with deeper self-attention",
+      "authors": "Al-Rfou, R.; Choe, D.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-2",
+      "index": 2,
+      "title": "Neural machine translation by jointly learning to align and translate",
+      "authors": "Bahdanau, D.; Cho, K.; et al.",
+      "year": "2015"
+    },
+    {
+      "id": "ref-3",
+      "index": 3,
+      "title": "Attention augmented convolutional networks",
+      "authors": "Bello, I.; Zoph, B.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-4",
+      "index": 4,
+      "title": "Soft-NMS—improving object detection with one line of code",
+      "authors": "Bodla, N.; Singh, B.; et al.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-5",
+      "index": 5,
+      "title": "Cascade R-CNN: high quality object detection and instance segmentation. PAMI",
+      "authors": "Cai, Z.; Vasconcelos, N.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-6",
+      "index": 6,
+      "title": "Imputer: sequence modelling via imputation and dynamic programming. arXiv:2002.08926",
+      "authors": "Chan, W.; Saharia, C.; et al.",
+      "year": "2020"
+    },
+    {
+      "id": "ref-7",
+      "index": 7,
+      "title": "BERT: pre-training of deep bidirectional transformers for language understanding",
+      "authors": "Devlin, J.; Chang, M.W.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-8",
+      "index": 8,
+      "title": "Scalable object detection using deep neural networks",
+      "authors": "Erhan, D.; Szegedy, C.; et al.",
+      "year": "2014"
+    },
+    {
+      "id": "ref-9",
+      "index": 9,
+      "title": "Mask-predict: parallel decoding of conditional masked language models. arXiv:1904.09324",
+      "authors": "Ghazvininejad, M.; Levy, O.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-10",
+      "index": 10,
+      "title": "Understanding the difficulty of training deep feedforward neural networks",
+      "authors": "Glorot, X.; Bengio, Y.",
+      "year": "2010"
+    },
+    {
+      "id": "ref-11",
+      "index": 11,
+      "title": "Non-autoregressive neural machine translation",
+      "authors": "Gu, J.; Bradbury, J.; et al.",
+      "year": "2018"
+    },
+    {
+      "id": "ref-12",
+      "index": 12,
+      "title": "Rethinking imagenet pre-training",
+      "authors": "He, K.; Girshick, R.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-13",
+      "index": 13,
+      "title": "Mask R-CNN",
+      "authors": "He, K.; Gkioxari, G.; et al.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-14",
+      "index": 14,
+      "title": "Deep residual learning for image recognition",
+      "authors": "He, K.; Zhang, X.; et al.",
+      "year": "2016"
+    },
+    {
+      "id": "ref-15",
+      "index": 15,
+      "title": "Learning non-maximum suppression",
+      "authors": "Hosang, J.H.; Benenson, R.; et al.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-16",
+      "index": 16,
+      "title": "Relation networks for object detection",
+      "authors": "Hu, H.; Gu, J.; et al.",
+      "year": "2018"
+    },
+    {
+      "id": "ref-17",
+      "index": 17,
+      "title": "Panoptic feature pyramid networks",
+      "authors": "Kirillov, A.; Girshick, R.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-18",
+      "index": 18,
+      "title": "Panoptic segmentation",
+      "authors": "Kirillov, A.; He, K.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-19",
+      "index": 19,
+      "title": "The Hungarian method for the assignment problem",
+      "authors": "Kuhn, H.W.",
+      "year": "1955"
+    },
+    {
+      "id": "ref-20",
+      "index": 20,
+      "title": "Fully convolutional instance-aware semantic segmentation",
+      "authors": "Li, Y.; Qi, H.; et al.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-21",
+      "index": 21,
+      "title": "Feature pyramid networks for object detection",
+      "authors": "Lin, T.Y.; Girshick, R.; et al.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-22",
+      "index": 22,
+      "title": "Focal loss for dense object detection",
+      "authors": "Lin, T.Y.; Goyal, P.; et al.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-23",
+      "index": 23,
+      "title": "Microsoft COCO: common objects in context. In: Fleet, D., Pajdla, T., Schiele, B., Tuytelaars, T. (eds.) ECCV 2014",
+      "authors": "Lin, T.-Y.",
+      "year": "2014"
+    },
+    {
+      "id": "ref-24",
+      "index": 24,
+      "title": "//doi.org/10.1007/978-3-319-10602-1 48",
+      "authors": "Springer, Cham",
+      "year": "2014"
+    },
+    {
+      "id": "ref-25",
+      "index": 25,
+      "title": "SSD: single shot multibox detector. In: Leibe, B., Matas, J., Sebe, N., Welling, M. (eds.) ECCV 2016",
+      "authors": "Liu, W.",
+      "year": "2016"
+    },
+    {
+      "id": "ref-26",
+      "index": 26,
+      "title": "//doi.org/10.1007/978-3-319-46448-0 2",
+      "authors": "Springer, Cham",
+      "year": "2016"
+    },
+    {
+      "id": "ref-27",
+      "index": 27,
+      "title": "Decoupled weight decay regularization",
+      "authors": "Loshchilov, I.; Hutter, F.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-28",
+      "index": 28,
+      "title": "RWTH ASR systems for LibriSpeech: hybrid vs attention - w/o data augmentation. arXiv:1905.03072",
+      "authors": "L¨uscher, C., et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-29",
+      "index": 29,
+      "title": "V-net: Fully convolutional neural networks for volumetric medical image segmentation",
+      "authors": "Milletari, F.; Navab, N.; et al.",
+      "year": "2016"
+    },
+    {
+      "id": "ref-30",
+      "index": 30,
+      "title": "Parallel wavenet: fast high-fidelity speech synthesis. arXiv:1711.10433",
+      "authors": "Oord, A.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-31",
+      "index": 31,
+      "title": "Learning to decompose for object detection and instance segmentation. arXiv:1511.06449",
+      "authors": "Park, E.; Berg, A.C.",
+      "year": "2015"
+    },
+    {
+      "id": "ref-32",
+      "index": 32,
+      "title": "Image transformer",
+      "authors": "Parmar, N.",
+      "year": "2018"
+    },
+    {
+      "id": "ref-33",
+      "index": 33,
+      "title": "Pytorch: an imperative style, high-performance deep learning library",
+      "authors": "Paszke, A.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-34",
+      "index": 34,
+      "title": "Elucidating image-to-set prediction: an analysis of models, losses and datasets. arXiv:1904.05709",
+      "authors": "Pineda, L.; Salvador, A.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-35",
+      "index": 35,
+      "title": "Language models are unsupervised multitask learners",
+      "authors": "Radford, A.; Wu, J.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-36",
+      "index": 36,
+      "title": "You only look once: unified, real-time object detection",
+      "authors": "Redmon, J.; Divvala, S.; et al.",
+      "year": "2016"
+    },
+    {
+      "id": "ref-37",
+      "index": 37,
+      "title": "End-to-end instance segmentation with recurrent attention",
+      "authors": "Ren, M.; Zemel, R.S.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-38",
+      "index": 38,
+      "title": "Faster R-CNN: towards real-time object detection with region proposal networks. PAMI",
+      "authors": "Ren, S.; He, K.; et al.",
+      "year": "2015"
+    },
+    {
+      "id": "ref-39",
+      "index": 39,
+      "title": "Generalized intersection over union",
+      "authors": "Rezatofighi, H.; Tsoi, N.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-40",
+      "index": 40,
+      "title": "Deep perm-set net: learn to predict sets with unknown permutation and cardinality using deep neural networks. arXiv:1805.00613",
+      "authors": "Rezatofighi, S.H.",
+      "year": "2018"
+    },
+    {
+      "id": "ref-41",
+      "index": 41,
+      "title": "Deepsetnet: predicting sets with deep neural networks",
+      "authors": "Rezatofighi, S.H.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-42",
+      "index": 42,
+      "title": "Recurrent instance segmentation. In: Leibe, B., Matas, J., Sebe, N., Welling, M. (eds.) ECCV 2016",
+      "authors": "Romera-Paredes, B.; Torr, P.H.S.",
+      "year": "2016"
+    },
+    {
+      "id": "ref-43",
+      "index": 43,
+      "title": "//doi.org/10.1007/978-3-319-46466-4 19",
+      "authors": "Springer, Cham",
+      "year": "2016"
+    },
+    {
+      "id": "ref-44",
+      "index": 44,
+      "title": "Recurrent neural networks for semantic instance segmentation. arXiv:1712.00617",
+      "authors": "Salvador, A.; Bellver, M.; et al.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-45",
+      "index": 45,
+      "title": "End-to-end people detection in crowded scenes",
+      "authors": "Stewart, R.J.; Andriluka, M.; et al.",
+      "year": "2015"
+    },
+    {
+      "id": "ref-46",
+      "index": 46,
+      "title": "Sequence to sequence learning with neural networks",
+      "authors": "Sutskever, I.; Vinyals, O.; et al.",
+      "year": "2014"
+    },
+    {
+      "id": "ref-47",
+      "index": 47,
+      "title": "End-to-end ASR: from supervised to semi-supervised learning with modern architectures. arXiv:1911.08460",
+      "authors": "Synnaeve, G.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-48",
+      "index": 48,
+      "title": "FCOS: fully convolutional one-stage object detection",
+      "authors": "Tian, Z.; Shen, C.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-49",
+      "index": 49,
+      "title": "Attention is all you need",
+      "authors": "Vaswani, A.",
+      "year": "2017"
+    },
+    {
+      "id": "ref-50",
+      "index": 50,
+      "title": "Order matters: sequence to sequence for sets",
+      "authors": "Vinyals, O.; Bengio, S.; et al.",
+      "year": "2016"
+    },
+    {
+      "id": "ref-51",
+      "index": 51,
+      "title": "Non-local neural networks",
+      "authors": "Wang, X.; Girshick, R.B.; et al.",
+      "year": "2018"
+    },
+    {
+      "id": "ref-52",
+      "index": 52,
+      "title": "Detectron2 (2019). https:// github.com/facebookresearch/detectron2",
+      "authors": "Wu, Y.; Kirillov, A.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-53",
+      "index": 53,
+      "title": "Upsnet: a unified panoptic segmentation network",
+      "authors": "Xiong, Y.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-54",
+      "index": 54,
+      "title": "Bridging the gap between anchor-based and anchor-free detection via adaptive training sample selection. arXiv:1912.02424",
+      "authors": "Zhang, S.; Chi, C.; et al.",
+      "year": "2019"
+    },
+    {
+      "id": "ref-55",
+      "index": 55,
+      "title": "Objects as points. arXiv:1904.07850",
+      "authors": "Zhou, X.; Wang, D.",
+      "year": "2019"
+    }
+  ],
+  "diagnostics": []
+}

@@ -101,6 +101,7 @@
 当前内置 provider：
 
 - `skillrunner`
+- `acp`
 - `generic-http`
 - `pass-through`
 
@@ -113,7 +114,7 @@ Provider runtime options：
 
 - 由 provider 自身声明 schema
 - workflow settings 可配置 persisted/run-once 两套参数
-- skillrunner 支持 `engine/model/no_cache`（model 随 engine 动态刷新）
+- skillrunner 支持 `engine/provider_id/model/effort/no_cache/interactive_auto_reply/hard_timeout_seconds`（model 随 engine/provider 动态刷新）
 
 SkillRunner skill source：
 

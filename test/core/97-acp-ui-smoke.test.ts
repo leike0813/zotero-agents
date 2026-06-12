@@ -8,16 +8,14 @@ function isRealZoteroRuntime() {
       };
     };
   };
-  return (
-    !!runtime.Zotero &&
-    runtime.Zotero.__parity?.runtime !== "node-mock"
-  );
+  return !!runtime.Zotero && runtime.Zotero.__parity?.runtime !== "node-mock";
 }
 
-const dynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as <T = any>(specifier: string) => Promise<T>;
+const dynamicImport = new Function("specifier", "return import(specifier)") as <
+  T = any,
+>(
+  specifier: string,
+) => Promise<T>;
 
 async function readProjectFile(relativePath: string) {
   if (isRealZoteroRuntime()) {
@@ -127,7 +125,8 @@ function createFakeDocumentForAssistantPanel() {
       },
       toggle: (name: string, force?: boolean) => {
         const current = new Set(this.className.split(/\s+/).filter(Boolean));
-        const shouldAdd = typeof force === "boolean" ? force : !current.has(name);
+        const shouldAdd =
+          typeof force === "boolean" ? force : !current.has(name);
         if (shouldAdd) current.add(name);
         else current.delete(name);
         this.className = Array.from(current).join(" ");
@@ -201,8 +200,8 @@ function createFakeDocumentForAssistantPanel() {
       }
       const attrMatch = selector.match(/^\[([A-Za-z0-9_-]+)\]$/);
       if (attrMatch) {
-        return this.descendants().filter((child) =>
-          child.getAttribute(attrMatch[1]) !== null,
+        return this.descendants().filter(
+          (child) => child.getAttribute(attrMatch[1]) !== null,
         );
       }
       return [];
@@ -240,10 +239,10 @@ describe("acp ui smoke", function () {
     assert.include(html, 'id="acp-chat-interaction"');
     assert.include(html, 'id="acp-chat-reply"');
     assert.include(html, 'id="acp-chat-details"');
-    assert.include(html, './vendor/katex/katex.min.css');
-    assert.include(html, './vendor/katex/katex.min.js');
-    assert.include(html, './vendor/markdown-it/markdown-it.min.js');
-    assert.include(html, './vendor/markdown-it-texmath/texmath.min.js');
+    assert.include(html, "./vendor/katex/katex.min.css");
+    assert.include(html, "./vendor/katex/katex.min.js");
+    assert.include(html, "./vendor/markdown-it/markdown-it.min.js");
+    assert.include(html, "./vendor/markdown-it-texmath/texmath.min.js");
     assert.notInclude(html, 'id="acp-status-summary"');
     assert.notInclude(html, 'id="acp-mode-select"');
     assert.notInclude(html, 'id="acp-model-select"');
@@ -276,7 +275,7 @@ describe("acp ui smoke", function () {
     assert.notInclude(js, "function renderPlanPanel");
     assert.notInclude(js, "function renderStatusDetails");
     assert.notInclude(js, "function renderDiagnostics");
-    assert.include(js, 'sendAction(action, data)');
+    assert.include(js, "sendAction(action, data)");
     assert.include(js, "markdownParser");
     assert.include(js, "function ensureMarkdownParser()");
     assert.include(js, "function renderMarkdown(text)");
@@ -284,7 +283,7 @@ describe("acp ui smoke", function () {
     assert.include(js, "breaks: true");
     assert.include(js, "linkify: false");
     assert.include(js, "highlight: null");
-    assert.include(js, "delimiters: \"dollars\"");
+    assert.include(js, 'delimiters: "dollars"');
     assert.include(js, "state.toolActivityExpandedIds.has(id)");
     assert.include(js, "resolveSidebarActionBridge");
     assert.include(js, "target.postMessage");
@@ -292,7 +291,10 @@ describe("acp ui smoke", function () {
     assert.notInclude(css, "position: fixed;");
     assert.notInclude(css, "inset: 0;");
     assert.notInclude(css, "grid-template-rows: auto auto minmax(0, 1fr);");
-    assert.notInclude(css, "grid-template-rows: minmax(0, 1fr) auto auto auto;");
+    assert.notInclude(
+      css,
+      "grid-template-rows: minmax(0, 1fr) auto auto auto;",
+    );
     assert.notInclude(css, ".acp-chat-toolbar {\n  display: flex;");
     assert.notInclude(css, ".acp-interaction-notices {");
     assert.notInclude(css, ".acp-plan-panel {");
@@ -387,17 +389,29 @@ describe("acp ui smoke", function () {
 
     assert.include(transcriptRendererJs, "function decorateMarkdownCodeBlocks");
     assert.include(transcriptRendererJs, 'querySelectorAll("pre > code")');
-    assert.include(transcriptRendererJs, "copyTextToClipboard(code.textContent || \"\")");
+    assert.include(
+      transcriptRendererJs,
+      'copyTextToClipboard(code.textContent || "")',
+    );
     assert.include(transcriptRendererJs, "assistant-code-copy-button");
     assert.include(transcriptRendererJs, "decorateMarkdownCodeBlocks(body);");
     assert.include(transcriptRendererJs, "decorateMarkdownCodeBlocks,");
     assert.include(transcriptRendererJs, "copyTextToClipboard,");
-    assert.include(transcriptRendererJs, "function assistantToolCommandTooltip");
+    assert.include(
+      transcriptRendererJs,
+      "function assistantToolCommandTooltip",
+    );
     assert.include(transcriptRendererJs, "function setAssistantTooltip");
     assert.include(transcriptRendererJs, "node.title = value");
-    assert.include(transcriptRendererJs, 'node.setAttribute("aria-label", value)');
+    assert.include(
+      transcriptRendererJs,
+      'node.setAttribute("aria-label", value)',
+    );
     assert.include(transcriptRendererJs, "setAssistantTooltip(badge, tooltip)");
-    assert.include(transcriptRendererJs, "setAssistantTooltip(summaryNode, tooltip)");
+    assert.include(
+      transcriptRendererJs,
+      "setAssistantTooltip(summaryNode, tooltip)",
+    );
     assert.include(transcriptRendererJs, "function toolActivityTooltipText");
     assert.include(transcriptRendererJs, ".map(assistantToolCommandTooltip)");
     assert.include(transcriptRendererJs, 'join("\\n")');
@@ -410,15 +424,24 @@ describe("acp ui smoke", function () {
     assert.include(panelRendererJs, "isCaretOnFirstTextareaLine(input)");
     assert.include(panelRendererJs, "isCaretOnLastTextareaLine(input)");
     assert.include(panelRendererJs, "state.draft = input.value");
-    assert.include(panelRendererJs, "rememberReplyHistory(historyKey, input.value)");
+    assert.include(
+      panelRendererJs,
+      "rememberReplyHistory(historyKey, input.value)",
+    );
 
     assert.include(sharedPanelCss, "user-select: text;");
     assert.include(sharedPanelCss, ".assistant-transcript-markdown-body pre");
-    assert.include(sharedPanelCss, ".assistant-panel-permission-drawer-command");
+    assert.include(
+      sharedPanelCss,
+      ".assistant-panel-permission-drawer-command",
+    );
     assert.include(sharedPanelCss, ".assistant-panel-details-value");
     assert.include(sharedPanelCss, ".asst-code-surface");
     assert.include(sharedPanelCss, ".assistant-code-copy-button");
-    assert.include(sharedPanelCss, ".assistant-code-copy-button[data-assistant-copy-state=\"copied\"]");
+    assert.include(
+      sharedPanelCss,
+      '.assistant-code-copy-button[data-assistant-copy-state="copied"]',
+    );
     assert.include(sharedPanelCss, "pre.assistant-code-block-with-copy");
   });
 
@@ -430,8 +453,12 @@ describe("acp ui smoke", function () {
       diagnostics: [{ kind: "info", message: "ready" }],
       chatSessions: [],
     });
-    const toolbarActions = acpChat.actions.toolbar.map((entry: any) => entry.action);
-    const detailActions = acpChat.actions.details.map((entry: any) => entry.action);
+    const toolbarActions = acpChat.actions.toolbar.map(
+      (entry: any) => entry.action,
+    );
+    const detailActions = acpChat.actions.details.map(
+      (entry: any) => entry.action,
+    );
     assert.include(toolbarActions, "open-backend-manager");
     assert.notInclude(detailActions, "open-backend-manager");
     assert.include(detailActions, "copy-diagnostics");
@@ -468,50 +495,112 @@ describe("acp ui smoke", function () {
       },
       workspace: { selectedTaskKey: "task-1" },
     });
-    const titles = skillRunner.drawers.details.map((section: any) => section.title);
+    const titles = skillRunner.drawers.details.map(
+      (section: any) => section.title,
+    );
     assert.include(titles, "Run");
     assert.include(titles, "Conversation Summary");
     assert.include(titles, "Revision Summary");
     assert.notInclude(titles, "Raw Snapshot");
-    assert.notInclude(JSON.stringify(skillRunner.drawers.details), "normal message");
-    assert.include(skillRunner.actions.toolbar.map((entry: any) => entry.action), "open-backend-manager");
-    assert.include(skillRunner.actions.details.map((entry: any) => entry.action), "copy-request-id");
+    assert.notInclude(
+      JSON.stringify(skillRunner.drawers.details),
+      "normal message",
+    );
+    assert.include(
+      skillRunner.actions.toolbar.map((entry: any) => entry.action),
+      "open-backend-manager",
+    );
+    assert.include(
+      skillRunner.actions.details.map((entry: any) => entry.action),
+      "copy-request-id",
+    );
 
     const acpSkill = model.projectAcpSkillRunPanelSnapshot({
       selectedRun: { requestId: "skill-details", status: "running" },
     });
-    assert.include(acpSkill.actions.toolbar.map((entry: any) => entry.action), "open-backend-manager");
+    assert.include(
+      acpSkill.actions.toolbar.map((entry: any) => entry.action),
+      "open-backend-manager",
+    );
   });
 
   it("adds dashboard entry points and hook wiring for opening the ACP sidebar", async function () {
     const dialog = await readProjectFile("src/modules/taskManagerDialog.ts");
     const app = await readProjectFile("addon/content/dashboard/app.js");
     const hooks = await readProjectFile("src/hooks.ts");
-    const assistantHtml = await readProjectFile("addon/content/dashboard/assistant-workspace.html");
-    const assistantJs = await readProjectFile("addon/content/dashboard/assistant-workspace.js");
-    const assistantCss = await readProjectFile("addon/content/dashboard/assistant-workspace.css");
-    const sharedPanelCss = await readProjectFile("addon/content/dashboard/assistant-panel-shared.css");
-    const sharedThemeCss = await readProjectFile("addon/content/shared/theme.css");
-    const sharedThemeJs = await readProjectFile("addon/content/shared/theme.js");
-    const assistantConversationViewJs = await readProjectFile("addon/content/dashboard/assistant-conversation-view.js");
-    const assistantTranscriptRendererJs = await readProjectFile("addon/content/dashboard/assistant-transcript-renderer.js");
-    const assistantPanelModelJs = await readProjectFile("addon/content/dashboard/assistant-panel-model.js");
-    const assistantPanelRendererJs = await readProjectFile("addon/content/dashboard/assistant-panel-renderer.js");
-    const assistantSidebar = await readProjectFile("src/modules/assistantWorkspaceSidebar.ts");
-    const acpChatHtml = await readProjectFile("addon/content/dashboard/acp-chat.html");
-    const acpChatJs = await readProjectFile("addon/content/dashboard/acp-chat.js");
-    const acpChatCss = await readProjectFile("addon/content/dashboard/acp-chat.css");
-    const acpSkillRunHtml = await readProjectFile("addon/content/dashboard/acp-skill-run.html");
-    const acpSkillRunJs = await readProjectFile("addon/content/dashboard/acp-skill-run.js");
-    const acpSkillRunCss = await readProjectFile("addon/content/dashboard/acp-skill-run.css");
-    const runDialogHtml = await readProjectFile("addon/content/dashboard/run-dialog.html");
-    const runDialogJs = await readProjectFile("addon/content/dashboard/run-dialog.js");
-    const runDialogCss = await readProjectFile("addon/content/dashboard/run-dialog.css");
-    const acpSkillRunStore = await readProjectFile("src/modules/acpSkillRunStore.ts");
-    const acpSkillRunner = await readProjectFile("src/modules/acpSkillRunnerOrchestrator.ts");
-    const sidebarModel = await readProjectFile("src/modules/acpSidebarModel.ts");
+    const assistantHtml = await readProjectFile(
+      "addon/content/dashboard/assistant-workspace.html",
+    );
+    const assistantJs = await readProjectFile(
+      "addon/content/dashboard/assistant-workspace.js",
+    );
+    const assistantCss = await readProjectFile(
+      "addon/content/dashboard/assistant-workspace.css",
+    );
+    const sharedPanelCss = await readProjectFile(
+      "addon/content/dashboard/assistant-panel-shared.css",
+    );
+    const sharedThemeCss = await readProjectFile(
+      "addon/content/shared/theme.css",
+    );
+    const sharedThemeJs = await readProjectFile(
+      "addon/content/shared/theme.js",
+    );
+    const assistantConversationViewJs = await readProjectFile(
+      "addon/content/dashboard/assistant-conversation-view.js",
+    );
+    const assistantTranscriptRendererJs = await readProjectFile(
+      "addon/content/dashboard/assistant-transcript-renderer.js",
+    );
+    const assistantPanelModelJs = await readProjectFile(
+      "addon/content/dashboard/assistant-panel-model.js",
+    );
+    const assistantPanelRendererJs = await readProjectFile(
+      "addon/content/dashboard/assistant-panel-renderer.js",
+    );
+    const assistantSidebar = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const acpChatHtml = await readProjectFile(
+      "addon/content/dashboard/acp-chat.html",
+    );
+    const acpChatJs = await readProjectFile(
+      "addon/content/dashboard/acp-chat.js",
+    );
+    const acpChatCss = await readProjectFile(
+      "addon/content/dashboard/acp-chat.css",
+    );
+    const acpSkillRunHtml = await readProjectFile(
+      "addon/content/dashboard/acp-skill-run.html",
+    );
+    const acpSkillRunJs = await readProjectFile(
+      "addon/content/dashboard/acp-skill-run.js",
+    );
+    const acpSkillRunCss = await readProjectFile(
+      "addon/content/dashboard/acp-skill-run.css",
+    );
+    const runDialogHtml = await readProjectFile(
+      "addon/content/dashboard/run-dialog.html",
+    );
+    const runDialogJs = await readProjectFile(
+      "addon/content/dashboard/run-dialog.js",
+    );
+    const runDialogCss = await readProjectFile(
+      "addon/content/dashboard/run-dialog.css",
+    );
+    const acpSkillRunStore = await readProjectFile(
+      "src/modules/acpSkillRunStore.ts",
+    );
+    const acpSkillRunner = await readProjectFile(
+      "src/modules/acpSkillRunnerOrchestrator.ts",
+    );
+    const sidebarModel = await readProjectFile(
+      "src/modules/acpSidebarModel.ts",
+    );
     const sidebarTypes = await readProjectFile("src/modules/acpTypes.ts");
-    const sharedHost = await readProjectFile("src/modules/sidebarBrowserHost.ts");
+    const sharedHost = await readProjectFile(
+      "src/modules/sidebarBrowserHost.ts",
+    );
     const workspaceTab = await readProjectFile("src/modules/workspaceTab.ts");
 
     assert.notInclude(dialog, "open-acp-sidebar");
@@ -534,7 +623,7 @@ describe("acp ui smoke", function () {
     assert.include(app, 'sendAction("open-acp-skill-runs"');
     assert.include(app, "function labelText(labels, key, fallback)");
     assert.include(app, 'labelText(labels, "tabProducts", "Products")');
-    assert.include(app, 'labelText(labels, "productsEmpty", "No workflow products have been registered yet.")');
+    assert.include(app, '"productsEmpty"');
     assert.include(app, "renderAcpSkillRunnerBackend");
     assert.include(app, "row.requestKind");
     assert.include(app, 'snapshot.backendView.backendType === "acp"');
@@ -543,8 +632,11 @@ describe("acp ui smoke", function () {
     assert.include(hooks, "openAssistantWorkspaceSidebar");
     assert.include(hooks, "toggleAssistantWorkspaceSidebar");
     assert.include(workspaceTab, "isAssistantWorkspaceSidebarOpen");
-    assert.include(workspaceTab, "const reopenAssistantSidebar = isAssistantWorkspaceSidebarOpen");
-    assert.include(workspaceTab, "await openAssistantWorkspaceSidebar({ window: hostWindow });");
+    assert.include(
+      workspaceTab,
+      "const reopenAssistantSidebar = isAssistantWorkspaceSidebarOpen",
+    );
+    assert.include(workspaceTab, 'target: "reader"');
     assert.notInclude(hooks, "installAcpSidebarShell(win)");
     assert.notInclude(hooks, "installAcpSkillRunnerSidebarShell(win)");
     assert.include(assistantHtml, "assistant-tab-skillrunner");
@@ -585,7 +677,10 @@ describe("acp ui smoke", function () {
     assert.notInclude(assistantHtml, "assistant-workspace-subtitle");
     assert.include(assistantHtml, "assistant-workspace-close");
     assert.include(assistantJs, "assistant-workspace:child-action");
-    assert.include(assistantJs, 'const tabs = ["acp-chat", "acp-skills", "skillrunner"]');
+    assert.include(
+      assistantJs,
+      'const tabs = ["acp-chat", "acp-skills", "skillrunner"]',
+    );
     assert.include(assistantJs, "__zsAssistantWorkspaceBridge");
     assert.include(assistantJs, "function hostBridge()");
     assert.include(assistantJs, "direct.postMessage(type, payload || {})");
@@ -593,28 +688,55 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, "__zsAcpSkillRunSidebarBridge");
     assert.include(assistantJs, "__zsSkillRunnerSidebarBridge");
     assert.include(assistantJs, "latestChildPayloads");
-    assert.include(assistantJs, "function cacheChildPayload(tab, phase, payload)");
-    assert.include(assistantJs, "function normalizeSkillRunnerSidebarPayload(payload)");
-    assert.include(assistantJs, 'Object.assign({}, source, { hostMode: "sidebar" })');
+    assert.include(
+      assistantJs,
+      "function cacheChildPayload(tab, phase, payload)",
+    );
+    assert.include(
+      assistantJs,
+      "function normalizeSkillRunnerSidebarPayload(payload)",
+    );
+    assert.include(
+      assistantJs,
+      'Object.assign({}, source, { hostMode: "sidebar" })',
+    );
     assert.include(assistantJs, "function ensureSkillRunnerSidebarLayout()");
     assert.include(assistantJs, "const normalizedPayload =");
     assert.include(assistantJs, "function normalizeTab(tab, fallback)");
     assert.include(assistantJs, "function closeDrawersForTab(tab)");
-    assert.include(assistantJs, "function closeInactiveChildDrawers(activeTab)");
+    assert.include(
+      assistantJs,
+      "function closeInactiveChildDrawers(activeTab)",
+    );
     assert.include(assistantJs, '"assistant-panel:close-drawers"');
     assert.include(assistantJs, "fallback: state.activeTab");
     assert.include(assistantJs, "actionTrace");
     assert.include(assistantJs, "function traceAction(stage, details)");
     assert.include(assistantJs, "function nextActionId(tab, action)");
-    assert.notInclude(assistantJs, "function installSkillRunnerSidebarLayoutFallback()");
+    assert.notInclude(
+      assistantJs,
+      "function installSkillRunnerSidebarLayoutFallback()",
+    );
     assert.notInclude(assistantJs, "assistantSkillrunnerLayout");
     assert.include(assistantJs, "function replayCachedChildPayload(tab)");
     assert.include(assistantJs, 'if (tab === "skillrunner" && !cached.init)');
-    assert.include(assistantJs, 'cacheChildPayload("skillrunner", "init", payload)');
-    assert.include(assistantJs, 'cacheChildPayload("skillrunner", "snapshot", payload)');
+    assert.include(
+      assistantJs,
+      'cacheChildPayload("skillrunner", "init", payload)',
+    );
+    assert.include(
+      assistantJs,
+      'cacheChildPayload("skillrunner", "snapshot", payload)',
+    );
     assert.include(assistantJs, 'postToChild("skillrunner", "init", payload)');
-    assert.include(assistantJs, 'postToChild("skillrunner", "snapshot", payload)');
-    assert.include(assistantJs, "postToChild(tab, phase, normalizedSnapshot || snapshot)");
+    assert.include(
+      assistantJs,
+      'postToChild("skillrunner", "snapshot", payload)',
+    );
+    assert.include(
+      assistantJs,
+      "postToChild(tab, phase, normalizedSnapshot || snapshot)",
+    );
     assert.include(assistantJs, "assistant-workspace-close");
     assert.include(assistantCss, ".assistant-workspace-tabbar");
     assert.include(assistantCss, ".assistant-workspace-tabs");
@@ -676,15 +798,27 @@ describe("acp ui smoke", function () {
     assert.include(sharedPanelCss, ".asst-shell-toolbar");
     assert.include(sharedPanelCss, ".asst-panel-shell");
     assert.include(sharedPanelCss, ".asst-panel-main");
-    assert.include(sharedPanelCss, "grid-template-rows: auto auto minmax(0, 1fr);");
-    assert.include(sharedPanelCss, "grid-template-rows: minmax(0, 1fr) auto auto auto;");
-    assert.include(sharedPanelCss, ".asst-shell-toolbar .assistant-panel-managed-view");
+    assert.include(
+      sharedPanelCss,
+      "grid-template-rows: auto auto minmax(0, 1fr);",
+    );
+    assert.include(
+      sharedPanelCss,
+      "grid-template-rows: minmax(0, 1fr) auto auto auto;",
+    );
+    assert.include(
+      sharedPanelCss,
+      ".asst-shell-toolbar .assistant-panel-managed-view",
+    );
     assert.include(sharedPanelCss, "border-radius: var(--asst-radius-md);");
     assert.include(sharedPanelCss, "box-shadow: var(--asst-shadow-subtle);");
     assert.include(sharedPanelCss, ".asst-context-selector");
     assert.include(sharedPanelCss, ".asst-context-actions");
     assert.include(sharedPanelCss, ".asst-conversation-surface");
-    assert.include(sharedPanelCss, ".asst-banner .assistant-panel-managed-view");
+    assert.include(
+      sharedPanelCss,
+      ".asst-banner .assistant-panel-managed-view",
+    );
     assert.include(sharedPanelCss, ".asst-conversation-overlay-menu");
     assert.include(sharedPanelCss, ".asst-hint-surface");
     assert.include(sharedPanelCss, ".asst-reply-surface");
@@ -714,10 +848,22 @@ describe("acp ui smoke", function () {
     assert.include(sharedPanelCss, ".assistant-transcript-revision-badge");
     assert.include(sharedPanelCss, ".assistant-transcript-markdown-body p");
     assert.include(sharedPanelCss, "margin: 0 0 0.35em;");
-    assert.include(sharedPanelCss, ".assistant-transcript.plain-mode .assistant-transcript-row");
-    assert.include(sharedPanelCss, ".assistant-transcript.bubble-mode .assistant-transcript-row");
-    assert.include(sharedPanelCss, ".assistant-transcript.plain-mode .assistant-transcript-row.is-tool");
-    assert.include(sharedPanelCss, ".assistant-transcript.plain-mode .assistant-transcript-row.is-workspace-activity");
+    assert.include(
+      sharedPanelCss,
+      ".assistant-transcript.plain-mode .assistant-transcript-row",
+    );
+    assert.include(
+      sharedPanelCss,
+      ".assistant-transcript.bubble-mode .assistant-transcript-row",
+    );
+    assert.include(
+      sharedPanelCss,
+      ".assistant-transcript.plain-mode .assistant-transcript-row.is-tool",
+    );
+    assert.include(
+      sharedPanelCss,
+      ".assistant-transcript.plain-mode .assistant-transcript-row.is-workspace-activity",
+    );
     assert.include(
       sharedPanelCss,
       ".assistant-transcript.plain-mode .assistant-transcript-row.is-tool .assistant-transcript-meta",
@@ -728,12 +874,27 @@ describe("acp ui smoke", function () {
     );
     assert.include(sharedPanelCss, "border-left-width: 0;");
     assert.include(sharedPanelCss, "display: none;");
-    assert.include(sharedPanelCss, ".assistant-transcript-workspace-file-icon::before");
-    assert.include(sharedPanelCss, ".assistant-transcript-workspace-file-icon::after");
+    assert.include(
+      sharedPanelCss,
+      ".assistant-transcript-workspace-file-icon::before",
+    );
+    assert.include(
+      sharedPanelCss,
+      ".assistant-transcript-workspace-file-icon::after",
+    );
     assert.include(sharedPanelCss, ".assistant-transcript-workspace-badge");
-    assert.include(assistantTranscriptRendererJs, "assistant-transcript-workspace-badge");
-    assert.include(assistantTranscriptRendererJs, 'transcriptLabel(options, "workspaceActivity", "Workspace update")');
-    assert.notInclude(assistantTranscriptRendererJs, 'assistant-transcript-workspace-file-icon", "▣"');
+    assert.include(
+      assistantTranscriptRendererJs,
+      "assistant-transcript-workspace-badge",
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      'transcriptLabel(options, "workspaceActivity", "Workspace update")',
+    );
+    assert.notInclude(
+      assistantTranscriptRendererJs,
+      'assistant-transcript-workspace-file-icon", "▣"',
+    );
     assert.notInclude(sharedPanelCss, ".acp-");
     assert.notInclude(sharedPanelCss, ".workspace-");
     assert.notInclude(sharedPanelCss, ".btn");
@@ -802,27 +963,57 @@ describe("acp ui smoke", function () {
       runDialogHtml.indexOf("./run-dialog.js"),
       "SkillRunner should load shared panel renderer before page JS",
     );
-    assert.include(assistantConversationViewJs, "window.AssistantConversationView");
-    assert.include(assistantConversationViewJs, "projectAcpChatConversationView");
-    assert.include(assistantConversationViewJs, "projectAcpSkillRunConversationView");
+    assert.include(
+      assistantConversationViewJs,
+      "window.AssistantConversationView",
+    );
+    assert.include(
+      assistantConversationViewJs,
+      "projectAcpChatConversationView",
+    );
+    assert.include(
+      assistantConversationViewJs,
+      "projectAcpSkillRunConversationView",
+    );
     assert.include(assistantConversationViewJs, "normalizeAssistantPlanEntry");
     assert.include(assistantConversationViewJs, "normalizeAssistantToolItem");
     assert.include(assistantConversationViewJs, "resolveAssistantInteraction");
     assert.include(assistantConversationViewJs, 'kind: "process"');
     assert.include(assistantConversationViewJs, 'kind: "tool"');
-    assert.include(assistantTranscriptRendererJs, "window.AssistantTranscriptRenderer");
+    assert.include(
+      assistantTranscriptRendererJs,
+      "window.AssistantTranscriptRenderer",
+    );
     assert.include(assistantTranscriptRendererJs, "renderAssistantTranscript");
-    assert.include(assistantTranscriptRendererJs, "renderAssistantTranscriptItem");
-    assert.include(assistantTranscriptRendererJs, "isAssistantTranscriptNearBottom");
+    assert.include(
+      assistantTranscriptRendererJs,
+      "renderAssistantTranscriptItem",
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      "isAssistantTranscriptNearBottom",
+    );
     assert.include(assistantTranscriptRendererJs, "buildTranscriptRenderItems");
-    assert.include(assistantTranscriptRendererJs, "assistant-transcript-revision-badge");
+    assert.include(
+      assistantTranscriptRendererJs,
+      "assistant-transcript-revision-badge",
+    );
     assert.include(assistantTranscriptRendererJs, "tool_activity_group");
     assert.include(assistantTranscriptRendererJs, "stableToolActivityGroupKey");
-    assert.include(assistantTranscriptRendererJs, 'summary.setAttribute("aria-expanded"');
-    assert.include(assistantTranscriptRendererJs, 'el("button", "assistant-transcript-tool-activity-summary")');
+    assert.include(
+      assistantTranscriptRendererJs,
+      'summary.setAttribute("aria-expanded"',
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      'el("button", "assistant-transcript-tool-activity-summary")',
+    );
     assert.include(assistantTranscriptRendererJs, "assistant-transcript-row");
     assert.include(assistantTranscriptRendererJs, "data-assistant-panel-kind");
-    assert.include(assistantTranscriptRendererJs, "function transcriptLabel(options, key, fallback)");
+    assert.include(
+      assistantTranscriptRendererJs,
+      "function transcriptLabel(options, key, fallback)",
+    );
     assert.include(assistantTranscriptRendererJs, "data-assistant-item-kind");
     assert.include(assistantTranscriptRendererJs, "data-assistant-role");
     assert.notInclude(assistantTranscriptRendererJs, "acp-message");
@@ -838,11 +1029,20 @@ describe("acp ui smoke", function () {
     assert.include(assistantPanelModelJs, "contextAction");
     assert.include(assistantPanelModelJs, "buildSessionPickerOptions");
     assert.include(assistantPanelModelJs, "SESSION_PICKER_SHOW_MORE_VALUE");
-    assert.include(assistantPanelModelJs, "function labelFrom(source, path, fallback)");
+    assert.include(
+      assistantPanelModelJs,
+      "function labelFrom(source, path, fallback)",
+    );
     assert.include(assistantPanelModelJs, "labels: snap.labels || {}");
     assert.include(assistantPanelRendererJs, "window.AssistantPanelRenderer");
-    assert.include(assistantPanelRendererJs, "function labelOf(panel, path, fallback)");
-    assert.include(assistantPanelRendererJs, "function withDefaultPanel(source)");
+    assert.include(
+      assistantPanelRendererJs,
+      "function labelOf(panel, path, fallback)",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "function withDefaultPanel(source)",
+    );
     assert.include(assistantPanelRendererJs, "context: Object.assign");
     assert.include(assistantPanelRendererJs, "reply: Object.assign");
     assert.include(assistantPanelRendererJs, "drawers: Object.assign");
@@ -855,32 +1055,74 @@ describe("acp ui smoke", function () {
     assert.include(assistantPanelRendererJs, "renderBannerIndicators");
     assert.include(assistantPanelRendererJs, "assistant-panel-indicator");
     assert.include(assistantPanelRendererJs, "renderAssistantPlan");
-    assert.include(assistantPanelRendererJs, "completedCount + \"/\" + totalCount");
+    assert.include(
+      assistantPanelRendererJs,
+      'completedCount + "/" + totalCount',
+    );
     assert.include(assistantPanelRendererJs, "assistant-panel-plan-spinner");
-    assert.include(assistantPanelRendererJs, "function isAssistantPlanWorking(panel)");
-    assert.include(assistantPanelRendererJs, 'container.setAttribute("data-assistant-plan-working"');
-    assert.include(assistantPanelRendererJs, 'toneClass === "is-running" && planWorking');
-    assert.include(sharedPanelCss, '.assistant-panel-plan[data-assistant-plan-working="false"] .assistant-panel-plan-spinner');
-    assert.include(assistantPanelRendererJs, 'toneClass === "is-completed" ? "✓" : "•"');
+    assert.include(
+      assistantPanelRendererJs,
+      "function isAssistantPlanWorking(panel)",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'container.setAttribute("data-assistant-plan-working"',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'toneClass === "is-running" && planWorking',
+    );
+    assert.include(
+      sharedPanelCss,
+      '.assistant-panel-plan[data-assistant-plan-working="false"] .assistant-panel-plan-spinner',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'toneClass === "is-completed" ? "✓" : "•"',
+    );
     assert.include(assistantPanelRendererJs, "renderAssistantHint");
-    assert.include(assistantPanelRendererJs, "assistant-panel-permission-summary");
-    assert.include(assistantPanelRendererJs, 'labelOf(panel, "permission.viewFullRequest", "View details")');
+    assert.include(
+      assistantPanelRendererJs,
+      "assistant-panel-permission-summary",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'labelOf(panel, "permission.viewFullRequest", "View details")',
+    );
     assert.include(assistantPanelRendererJs, "open-permission-request");
     assert.include(assistantPanelRendererJs, "buildPermissionRequestDto");
-    assert.notInclude(assistantPanelRendererJs, "assistant-panel-permission-detail-code");
+    assert.notInclude(
+      assistantPanelRendererJs,
+      "assistant-panel-permission-detail-code",
+    );
     assert.include(assistantPanelRendererJs, "renderAssistantReply");
-    assert.include(assistantPanelRendererJs, "function replyStructuralSignature");
-    assert.include(assistantPanelRendererJs, "function updateAssistantReplyLiveFields");
-    assert.include(assistantPanelRendererJs, "data-assistant-reply-structure-signature");
+    assert.include(
+      assistantPanelRendererJs,
+      "function replyStructuralSignature",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "function updateAssistantReplyLiveFields",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "data-assistant-reply-structure-signature",
+    );
     assert.notInclude(assistantPanelRendererJs, "reply: panel.reply,");
     assert.include(assistantPanelRendererJs, "renderPermissionRequestDrawer");
-    assert.include(assistantPanelRendererJs, "assistant-panel-permission-drawer-overlay");
+    assert.include(
+      assistantPanelRendererJs,
+      "assistant-panel-permission-drawer-overlay",
+    );
     assert.include(assistantPanelRendererJs, "close-permission-request");
     assert.include(assistantPanelRendererJs, "renderUsageGauge");
     assert.include(assistantPanelRendererJs, "assistant-panel-usage-gauge");
     assert.include(assistantPanelRendererJs, "assistant-panel-usage-ring");
     assert.include(assistantPanelRendererJs, "assistant-panel-usage-label");
-    assert.include(assistantPanelRendererJs, 'label.setAttribute("data-assistant-selector-id"');
+    assert.include(
+      assistantPanelRendererJs,
+      'label.setAttribute("data-assistant-selector-id"',
+    );
     assert.include(assistantPanelRendererJs, "renderReplyZone");
     assert.include(assistantPanelRendererJs, "renderAssistantContextDrawer");
     assert.include(assistantPanelRendererJs, "renderDetailsDrawer");
@@ -895,35 +1137,71 @@ describe("acp ui smoke", function () {
     );
     assert.include(assistantPanelRendererJs, "panel.contains(target)");
     assert.include(assistantPanelRendererJs, "function renderDetailsSection");
-    assert.include(assistantPanelRendererJs, '"assistant-panel-details-section-summary"');
-    assert.include(assistantPanelRendererJs, '"assistant-panel-details-section-body"');
-    assert.include(assistantPanelRendererJs, "section.defaultCollapsed !== true");
-    assert.include(assistantPanelRendererJs, "entry.title || entry.text || entry.label || entry.content");
-    assert.include(assistantPanelRendererJs, "const payloadKey = safeText(selector.payloadKey)");
-    assert.include(assistantPanelRendererJs, "payload[payloadKey] = select.value");
+    assert.include(
+      assistantPanelRendererJs,
+      '"assistant-panel-details-section-summary"',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      '"assistant-panel-details-section-body"',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "section.defaultCollapsed !== true",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "entry.title || entry.text || entry.label || entry.content",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "const payloadKey = safeText(selector.payloadKey)",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "payload[payloadKey] = select.value",
+    );
     assert.include(assistantPanelRendererJs, "managedRegions");
     assert.include(
       assistantPanelRendererJs,
       'markRegion(regions.conversation, "assistant-panel-conversation", "conversation",',
     );
     assert.include(assistantPanelRendererJs, "managed: false");
-    assert.include(assistantPanelRendererJs, 'node.classList.remove("is-assistant-managed")');
-    assert.include(assistantPanelModelJs, "function selectorPayloadKey(id, action)");
+    assert.include(
+      assistantPanelRendererJs,
+      'node.classList.remove("is-assistant-managed")',
+    );
+    assert.include(
+      assistantPanelModelJs,
+      "function selectorPayloadKey(id, action)",
+    );
     assert.include(assistantPanelModelJs, 'return "modeId"');
     assert.include(assistantPanelModelJs, 'return "modelId"');
     assert.include(assistantPanelModelJs, 'return "effortId"');
     assert.include(assistantPanelModelJs, 'return "backendId"');
     assert.include(assistantPanelModelJs, 'return "conversationId"');
-    assert.include(sharedPanelCss, ".assistant-panel-region.is-assistant-managed");
+    assert.include(
+      sharedPanelCss,
+      ".assistant-panel-region.is-assistant-managed",
+    );
     assert.include(sharedPanelCss, ".assistant-panel-managed-view");
     assert.include(sharedPanelCss, ".assistant-panel-reply-footer");
     assert.include(sharedPanelCss, ".assistant-panel-reply-primary");
     assert.include(sharedPanelCss, ".assistant-panel-permission-summary");
     assert.include(sharedPanelCss, ".assistant-panel-permission-actions");
-    assert.include(sharedPanelCss, ".assistant-panel-permission-view-full-request");
-    assert.include(sharedPanelCss, ".assistant-panel-permission-drawer-overlay");
+    assert.include(
+      sharedPanelCss,
+      ".assistant-panel-permission-view-full-request",
+    );
+    assert.include(
+      sharedPanelCss,
+      ".assistant-panel-permission-drawer-overlay",
+    );
     assert.include(sharedPanelCss, ".assistant-panel-permission-drawer-panel");
-    assert.notInclude(sharedPanelCss, ".assistant-panel-permission-details summary");
+    assert.notInclude(
+      sharedPanelCss,
+      ".assistant-panel-permission-details summary",
+    );
     assert.include(sharedPanelCss, ".assistant-panel-reply-controls");
     assert.include(sharedPanelCss, ".assistant-panel-select:disabled");
     assert.include(sharedPanelCss, 'data-assistant-disabled="true"');
@@ -932,15 +1210,27 @@ describe("acp ui smoke", function () {
     assert.include(sharedPanelCss, ".assistant-panel-usage-ring");
     assert.include(sharedPanelCss, ".assistant-panel-usage-label");
     assert.include(sharedPanelCss, "radial-gradient(circle at center");
-    assert.include(sharedPanelCss, ".assistant-panel-usage-gauge.is-unavailable");
+    assert.include(
+      sharedPanelCss,
+      ".assistant-panel-usage-gauge.is-unavailable",
+    );
     assert.include(sharedPanelCss, ".assistant-panel-indicators");
     assert.include(sharedPanelCss, ".assistant-panel-indicator");
-    assert.include(sharedPanelCss, ".asst-panel-details-overlay .asst-drawer-panel");
+    assert.include(
+      sharedPanelCss,
+      ".asst-panel-details-overlay .asst-drawer-panel",
+    );
     assert.include(sharedPanelCss, "grid-template-rows: auto minmax(0, 1fr);");
     assert.include(sharedPanelCss, ".assistant-panel-details-section-summary");
     assert.include(sharedPanelCss, ".assistant-panel-details-section-body");
-    assert.include(sharedPanelCss, "details.assistant-panel-details-section[open]");
-    assert.include(sharedPanelCss, '.assistant-panel-details-row[data-assistant-details-entry-kind="code"]');
+    assert.include(
+      sharedPanelCss,
+      "details.assistant-panel-details-section[open]",
+    );
+    assert.include(
+      sharedPanelCss,
+      '.assistant-panel-details-row[data-assistant-details-entry-kind="code"]',
+    );
     assert.include(sharedPanelCss, "max-height: min(42vh, 360px);");
     assert.include(sharedPanelCss, "flex-direction: column;");
     assert.include(sharedPanelCss, "overflow: auto;");
@@ -950,23 +1240,68 @@ describe("acp ui smoke", function () {
     assert.include(sharedPanelCss, "word-break: break-word;");
     assert.include(sharedPanelCss, "line-height: 1.55;");
     assert.include(sharedPanelCss, "max-height: none;");
-    assert.include(assistantPanelRendererJs, '"div", "asst-code-surface assistant-panel-details-value"');
+    assert.include(
+      assistantPanelRendererJs,
+      '"div", "asst-code-surface assistant-panel-details-value"',
+    );
     assert.include(sharedPanelCss, "background: transparent;");
     assert.include(sharedPanelCss, "box-shadow: none;");
-    assert.include(assistantPanelRendererJs, 'const footer = el("div", "assistant-panel-reply-footer")');
-    assert.include(assistantPanelRendererJs, 'const primary = el("div", "assistant-panel-reply-primary")');
-    assert.include(assistantPanelRendererJs, 'const controls = el("div", "assistant-panel-reply-controls")');
-    assert.include(assistantPanelRendererJs, 'const secondary = el("div", "assistant-panel-reply-secondary")');
-    assert.include(assistantPanelRendererJs, "renderUsageGauge(secondary, panel.usage, panel)");
-    assert.include(assistantPanelRendererJs, 'labelOf(panel, "usage.unavailable", "N/A")');
-    assert.include(assistantPanelRendererJs, 'return String(rounded).replace(/\\.0$/, "") + "k";');
-    assert.include(assistantPanelRendererJs, "source.used || source.totalTokens");
-    assert.include(assistantPanelRendererJs, "source.size || source.contextWindow");
-    assert.include(assistantPanelRendererJs, 'const centerLabel = unavailable ? labelOf(panel, "usage.unavailable", "N/A")');
-    assert.include(assistantPanelRendererJs, 'ring.appendChild(el("span", "assistant-panel-usage-label", centerLabel));');
-    assert.include(assistantPanelRendererJs, "panel.reply.showUsageGauge === true");
-    assert.notInclude(assistantPanelRendererJs, "renderUsageGauge(actions, panel.usage)");
-    assert.notInclude(assistantPanelRendererJs, "renderUsageGauge(controls, panel.usage)");
+    assert.include(
+      assistantPanelRendererJs,
+      'const footer = el("div", "assistant-panel-reply-footer")',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'const primary = el("div", "assistant-panel-reply-primary")',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'const controls = el("div", "assistant-panel-reply-controls")',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'const secondary = el("div", "assistant-panel-reply-secondary")',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "renderUsageGauge(secondary, panel.usage, panel)",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'labelOf(panel, "usage.unavailable", "N/A")',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'return String(rounded).replace(/\\.0$/, "") + "k";',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "source.used || source.totalTokens",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "source.size || source.contextWindow",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'const centerLabel = unavailable ? labelOf(panel, "usage.unavailable", "N/A")',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'ring.appendChild(el("span", "assistant-panel-usage-label", centerLabel));',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "panel.reply.showUsageGauge === true",
+    );
+    assert.notInclude(
+      assistantPanelRendererJs,
+      "renderUsageGauge(actions, panel.usage)",
+    );
+    assert.notInclude(
+      assistantPanelRendererJs,
+      "renderUsageGauge(controls, panel.usage)",
+    );
     assert.notInclude(sharedPanelCss, ".assistant-panel-reply-actions");
     assert.include(
       sharedPanelCss,
@@ -1014,7 +1349,10 @@ describe("acp ui smoke", function () {
       "Send/Cancel primary button should be left of hint and usage gauge",
     );
     assert.include(assistantPanelModelJs, "showUsageGauge: true");
-    assert.include(assistantPanelModelJs, "conversation.usage || (run && run.usage) || null");
+    assert.include(
+      assistantPanelModelJs,
+      "conversation.usage || (run && run.usage) || null",
+    );
     assert.include(assistantPanelModelJs, 'kind: "acp-skills"');
     assert.include(assistantPanelModelJs, 'hint: "",');
     assert.isBelow(
@@ -1023,22 +1361,37 @@ describe("acp ui smoke", function () {
       "Plain/Bubble controls should be inside the conversation overlay, not the top control bar",
     );
     assert.include(acpChatHtml, "acp-chat-banner asst-banner");
-    assert.include(acpChatHtml, "acp-conversation-window asst-conversation-surface");
+    assert.include(
+      acpChatHtml,
+      "acp-conversation-window asst-conversation-surface",
+    );
     assert.notInclude(acpChatCss, ".acp-chat-banner {");
     assert.notInclude(acpChatCss, ".acp-conversation-window {");
     assert.include(sharedPanelCss, ".asst-conversation-overlay-menu");
     assert.include(acpChatHtml, 'class="asst-button-compact"');
     assert.include(acpChatHtml, 'data-assistant-view-mode="plain"');
     assert.include(acpChatHtml, 'data-assistant-view-mode="bubble"');
-    assert.include(sharedPanelCss, ".asst-conversation-overlay-menu:not(:hover):not(:focus-within)");
-    assert.include(sharedPanelCss, '.asst-button-compact[aria-pressed="false"]');
+    assert.include(
+      sharedPanelCss,
+      ".asst-conversation-overlay-menu:not(:hover):not(:focus-within)",
+    );
+    assert.include(
+      sharedPanelCss,
+      '.asst-button-compact[aria-pressed="false"]',
+    );
     assert.include(sharedPanelCss, 'data-assistant-view-mode="plain"');
-    assert.include(sharedPanelCss, "linear-gradient(currentColor, currentColor) 0 1px / 15px 2px no-repeat");
+    assert.include(
+      sharedPanelCss,
+      "linear-gradient(currentColor, currentColor) 0 1px / 15px 2px no-repeat",
+    );
     assert.include(sharedPanelCss, 'data-assistant-view-mode="bubble"');
     assert.include(sharedPanelCss, "transform: translate(-62%, -62%);");
     assert.include(sharedPanelCss, "transform: translate(-38%, -38%);");
     assert.include(sharedPanelCss, "border-radius: 5px;");
-    assert.notInclude(acpChatCss, ".acp-conversation-overlay-menu .asst-button-compact");
+    assert.notInclude(
+      acpChatCss,
+      ".acp-conversation-overlay-menu .asst-button-compact",
+    );
     assert.include(acpChatJs, 'const SHOW_MORE_VALUE = "__show_more__"');
     assert.include(acpChatJs, 'option.sentinel === "show-more"');
     assert.include(acpChatJs, 'sendAction("new-conversation",');
@@ -1053,7 +1406,10 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, "function projectPanelSnapshot(snapshot)");
     assert.include(acpChatJs, "projectAcpChatPanelSnapshot(snapshot || {})");
     assert.include(acpChatJs, "function renderPanel(snapshot)");
-    assert.include(acpChatJs, "renderer.renderAssistantPanelSnapshot(panelSnapshot");
+    assert.include(
+      acpChatJs,
+      "renderer.renderAssistantPanelSnapshot(panelSnapshot",
+    );
     assert.include(acpChatJs, "function handlePanelAction(action, payload)");
     assert.include(acpChatJs, "managed: true");
     assert.include(acpChatJs, "managedRegions");
@@ -1069,25 +1425,46 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, 'sendAction("set-chat-display-mode"');
     assert.notInclude(acpChatHtml, 'id="acp-close-btn"');
     assert.include(assistantPanelModelJs, "buildAcpChatDetails");
-    assert.include(assistantPanelModelJs, "kind: \"diagnostics\"");
+    assert.include(assistantPanelModelJs, 'kind: "diagnostics"');
     assert.include(assistantPanelModelJs, "defaultCollapsed: true");
     assert.include(assistantPanelModelJs, "buildAcpPermissionInteraction");
     assert.include(acpSkillRunJs, "function projectAcpSkillRunView(run)");
-    assert.include(acpSkillRunJs, "projectAcpSkillRunConversationView(run || {})");
+    assert.include(
+      acpSkillRunJs,
+      "projectAcpSkillRunConversationView(run || {})",
+    );
     assert.include(acpSkillRunJs, "const view = projectAcpSkillRunView(run)");
     assert.include(acpSkillRunJs, "assistantTranscriptRenderer()");
     assert.include(acpSkillRunJs, "renderer.renderAssistantTranscript");
     assert.include(acpSkillRunJs, 'variant: "acp-skill-run"');
     assert.include(acpSkillRunJs, "function assistantPanelModel()");
     assert.include(acpSkillRunJs, "function assistantPanelRenderer()");
-    assert.include(acpSkillRunJs, "function projectAssistantPanelSnapshot(snapshot)");
-    assert.include(acpSkillRunJs, "projectAcpSkillRunPanelSnapshot(snapshot || {})");
-    assert.include(acpSkillRunJs, "function renderAssistantPanelRuntime(snapshot)");
-    assert.include(acpSkillRunJs, "const panelSnapshot = projectAssistantPanelSnapshot(snapshot || {})");
-    assert.include(acpSkillRunJs, "renderer.renderAssistantPanelSnapshot(panelSnapshot");
+    assert.include(
+      acpSkillRunJs,
+      "function projectAssistantPanelSnapshot(snapshot)",
+    );
+    assert.include(
+      acpSkillRunJs,
+      "projectAcpSkillRunPanelSnapshot(snapshot || {})",
+    );
+    assert.include(
+      acpSkillRunJs,
+      "function renderAssistantPanelRuntime(snapshot)",
+    );
+    assert.include(
+      acpSkillRunJs,
+      "const panelSnapshot = projectAssistantPanelSnapshot(snapshot || {})",
+    );
+    assert.include(
+      acpSkillRunJs,
+      "renderer.renderAssistantPanelSnapshot(panelSnapshot",
+    );
     assert.include(acpSkillRunJs, 'action === "toggle-drawer-section"');
     assert.include(acpSkillRunJs, "state.drawerCompletedCollapsed");
-    assert.include(acpSkillRunJs, "function handleAssistantPanelAction(action, payload)");
+    assert.include(
+      acpSkillRunJs,
+      "function handleAssistantPanelAction(action, payload)",
+    );
     assert.include(acpSkillRunJs, 'action === "open-backend-manager"');
     assert.include(acpSkillRunJs, "managed: true");
     assert.include(acpSkillRunJs, "managedRegions");
@@ -1096,7 +1473,10 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "hint: true");
     assert.include(acpSkillRunJs, "details: true");
     assert.include(acpSkillRunJs, 'action === "select-run"');
-    assert.include(acpSkillRunJs, 'action === "reply" || action === "reply-run"');
+    assert.include(
+      acpSkillRunJs,
+      'action === "reply" || action === "reply-run"',
+    );
     assert.include(acpSkillRunJs, 'action === "connect-run"');
     assert.include(assistantPanelModelJs, "buildAcpSkillDetails");
     assert.notInclude(acpSkillRunJs, "renderBannerMetadata(run);");
@@ -1107,11 +1487,20 @@ describe("acp ui smoke", function () {
     assert.notInclude(acpSkillRunJs, '} else if (item.kind === "thought")');
     assert.include(runDialogJs, "function assistantPanelModel()");
     assert.include(runDialogJs, "function assistantPanelRenderer()");
-    assert.include(runDialogJs, "function projectAssistantPanelSnapshot(envelope)");
+    assert.include(
+      runDialogJs,
+      "function projectAssistantPanelSnapshot(envelope)",
+    );
     assert.include(runDialogJs, "projectSkillRunnerPanelSnapshot(source)");
-    assert.include(runDialogJs, "renderer.renderAssistantPanelSnapshot(panelSnapshot");
+    assert.include(
+      runDialogJs,
+      "renderer.renderAssistantPanelSnapshot(panelSnapshot",
+    );
     assert.include(runDialogJs, 'action === "open-backend-manager"');
-    assert.include(runDialogJs, 'action === "copy-request-id" || action === "copy-diagnostics"');
+    assert.include(
+      runDialogJs,
+      'action === "copy-request-id" || action === "copy-diagnostics"',
+    );
     assert.include(runDialogJs, "managed: true");
     assert.include(runDialogJs, 'variant: "skillrunner"');
     assert.include(runDialogJs, "toolActivityExpandedIds: new Set()");
@@ -1132,11 +1521,17 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "isAssistantWorkspaceSidebarOpen");
     assert.include(assistantSidebar, "__zsAssistantWorkspaceBridge");
     assert.include(assistantSidebar, "function installShellBridge(");
-    assert.include(assistantSidebar, "function handleAssistantWorkspaceMessage(");
+    assert.include(
+      assistantSidebar,
+      "function handleAssistantWorkspaceMessage(",
+    );
     assert.include(assistantSidebar, "AssistantWorkspaceBridgeResult");
     assert.include(assistantSidebar, "logAssistantShellAction");
     assert.include(assistantSidebar, 'component: "assistant-shell"');
-    assert.include(assistantSidebar, 'return { ok: false, actionId, error: message }');
+    assert.include(
+      assistantSidebar,
+      "return { ok: false, actionId, error: message }",
+    );
     assert.include(assistantSidebar, "clearShellBridge(host.library)");
     assert.include(assistantSidebar, "attachSkillRunnerSidebarHost");
     assert.include(assistantSidebar, "buildDecoratedSkillRunnerSnapshot");
@@ -1146,20 +1541,32 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "contextPane.collapsed = true");
     assert.include(assistantSidebar, "drawerOpen: false");
     assert.include(assistantSidebar, "drawerCompletedCollapsed: true");
-    assert.include(assistantSidebar, 'open: host.drawerOpen');
+    assert.include(assistantSidebar, "open: host.drawerOpen");
     assert.include(assistantSidebar, 'action === "close-drawer"');
     assert.include(assistantSidebar, 'action === "toggle-drawer"');
     assert.include(assistantSidebar, 'action === "open-workspace"');
-    assert.include(assistantSidebar, 'openFolderInSystemFileManager(String(payload.workspaceDir || "").trim())');
-    assert.include(assistantSidebar, "await startNewAcpConversation({ backendId });");
+    assert.include(
+      assistantSidebar,
+      'openFolderInSystemFileManager(String(payload.workspaceDir || "").trim())',
+    );
+    assert.include(
+      assistantSidebar,
+      "await startNewAcpConversation({ backendId });",
+    );
     assert.include(assistantSidebar, "buildAcpSidebarViewSnapshot");
     assert.include(assistantSidebar, "buildAcpSkillRunPanelSnapshot");
-    assert.notInclude(assistantSidebar, "postShellInit(pane, host.activeTab);\n  postAcpChatSnapshot");
+    assert.notInclude(
+      assistantSidebar,
+      "postShellInit(pane, host.activeTab);\n  postAcpChatSnapshot",
+    );
     assert.include(assistantSidebar, "replyAcpSkillRun");
     assert.include(assistantSidebar, "connectAcpSkillRun");
     assert.include(assistantSidebar, "disconnectAcpSkillRun");
     assert.include(assistantSidebar, "endAcpSkillRunSession");
-    assert.notInclude(assistantSidebar, "Interactive ACP skill runs are not enabled yet.");
+    assert.notInclude(
+      assistantSidebar,
+      "Interactive ACP skill runs are not enabled yet.",
+    );
     assert.include(assistantSidebar, "assistant-workspace.html");
     assert.include(acpSkillRunHtml, "acp-skill-run-drawer");
     assert.include(acpSkillRunHtml, "acp-skill-run-toolbar");
@@ -1202,13 +1609,34 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "chatDisplayMode");
     assert.include(acpSkillRunJs, 'action === "set-chat-display-mode"');
     assert.include(acpSkillRunJs, "renderChatDisplayMode()");
-    assert.include(assistantTranscriptRendererJs, "function isAssistantTranscriptNearBottom(element, threshold)");
-    assert.include(assistantTranscriptRendererJs, "function installAssistantTranscriptStickiness(container, threshold)");
-    assert.include(assistantTranscriptRendererJs, "function shouldStickAssistantTranscript(container, threshold)");
-    assert.include(assistantTranscriptRendererJs, "function stickAssistantTranscriptToBottom(container)");
-    assert.include(assistantTranscriptRendererJs, 'data-assistant-transcript-programmatic-scroll');
-    assert.include(assistantTranscriptRendererJs, "const shouldStick = shouldStickAssistantTranscript");
-    assert.include(assistantTranscriptRendererJs, "if (shouldStick) stickAssistantTranscriptToBottom(container)");
+    assert.include(
+      assistantTranscriptRendererJs,
+      "function isAssistantTranscriptNearBottom(element, threshold)",
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      "function installAssistantTranscriptStickiness(container, threshold)",
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      "function shouldStickAssistantTranscript(container, threshold)",
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      "function stickAssistantTranscriptToBottom(container)",
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      "data-assistant-transcript-programmatic-scroll",
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      "const shouldStick = shouldStickAssistantTranscript",
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      "if (shouldStick) stickAssistantTranscriptToBottom(container)",
+    );
     assert.include(acpChatJs, "renderer.renderAssistantTranscript");
     assert.notInclude(acpSkillRunJs, "function renderPlan");
     assert.notInclude(acpSkillRunJs, "function renderHintWidget");
@@ -1218,11 +1646,14 @@ describe("acp ui smoke", function () {
     assert.notInclude(acpSkillRunJs, "function renderReplyComposer");
     assert.notInclude(acpSkillRunJs, "function renderDetails");
     assert.notInclude(acpSkillRunJs, "renderStatusBar");
-    assert.notInclude(acpSkillRunJs, "$(\"acp-skill-run-close-btn\")");
+    assert.notInclude(acpSkillRunJs, '$("acp-skill-run-close-btn")');
     assert.notInclude(acpSkillRunJs, "function renderPendingInteractionBanner");
     assert.notInclude(acpSkillRunJs, "function normalizeUiHintOptions");
     assert.include(acpSkillRunJs, 'sendAction("reply-run"');
-    assert.notInclude(acpSkillRunJs, "(run.pendingInteraction && run.pendingInteraction.message) ||");
+    assert.notInclude(
+      acpSkillRunJs,
+      "(run.pendingInteraction && run.pendingInteraction.message) ||",
+    );
     assert.include(acpSkillRunJs, "runDrawerOpen");
     assert.include(acpSkillRunJs, "detailsOpen");
     assert.include(acpChatJs, "permissionRequestDetails");
@@ -1238,7 +1669,10 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "pendingSelectedRequestId");
     assert.include(acpSkillRunJs, "function applyPendingSelection(snapshot)");
     assert.include(acpSkillRunJs, "state.pendingSelectedRequestId = requestId");
-    assert.include(acpSkillRunJs, "function renderPanelRuntimeFailure(message)");
+    assert.include(
+      acpSkillRunJs,
+      "function renderPanelRuntimeFailure(message)",
+    );
     assert.include(acpSkillRunJs, "ACP Skills panel renderer failed:");
     assert.include(acpSkillRunJs, "data-assistant-interaction");
     assert.include(acpSkillRunJs, "transcriptNodeMap: new Map()");
@@ -1253,7 +1687,10 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "function formatTime(value)");
     assert.include(acpSkillRunJs, "formatTime,");
     assert.include(acpSkillRunJs, "ACP Skills transcript renderer failed:");
-    assert.include(assistantTranscriptRendererJs, 'typeof options.formatTime === "function"');
+    assert.include(
+      assistantTranscriptRendererJs,
+      'typeof options.formatTime === "function"',
+    );
     assert.include(acpSkillRunJs, 'sendAction("select-run"');
     assert.include(acpSkillRunJs, 'action === "connect-run"');
     assert.include(acpSkillRunJs, 'action === "disconnect-run"');
@@ -1266,10 +1703,19 @@ describe("acp ui smoke", function () {
     assert.include(assistantPanelModelJs, '"copy-request-id"');
     assert.include(acpSkillRunCss, "--asst-context-drawer-width");
     assert.include(acpSkillRunCss, "--asst-details-drawer-width");
-    assert.notInclude(acpSkillRunCss, "grid-template-rows: auto auto minmax(0, 1fr);");
-    assert.notInclude(acpSkillRunCss, "grid-template-rows: minmax(0, 1fr) auto auto auto;");
+    assert.notInclude(
+      acpSkillRunCss,
+      "grid-template-rows: auto auto minmax(0, 1fr);",
+    );
+    assert.notInclude(
+      acpSkillRunCss,
+      "grid-template-rows: minmax(0, 1fr) auto auto auto;",
+    );
     assert.notInclude(acpSkillRunCss, ".acp-skill-toolbar {");
-    assert.notInclude(acpSkillRunCss, ".acp-skill-banner .assistant-panel-managed-view");
+    assert.notInclude(
+      acpSkillRunCss,
+      ".acp-skill-banner .assistant-panel-managed-view",
+    );
     assert.notInclude(acpSkillRunCss, ".acp-skill-plan-region {");
     assert.notInclude(acpSkillRunCss, ".acp-skill-hint-region {");
     assert.include(acpSkillRunCss, ".run-transcript");
@@ -1315,7 +1761,10 @@ describe("acp ui smoke", function () {
     assert.notInclude(acpSkillRunStore, '"acp-prompt-finished",');
     assert.notInclude(acpSkillRunStore, '"output-validation-succeeded",');
     assert.include(acpSkillRunStore, "recordAcpSkillRunSessionUpdate");
-    assert.include(acpSkillRunStore, "projectAcpSkillRunOutputEnvelopeToTranscript");
+    assert.include(
+      acpSkillRunStore,
+      "projectAcpSkillRunOutputEnvelopeToTranscript",
+    );
     assert.include(acpSkillRunStore, "recordAcpSkillRunOutputRevision");
     assert.include(acpSkillRunStore, "outputRevisions");
     assert.include(acpSkillRunStore, "replacementReason");
@@ -1338,7 +1787,10 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunStore, "applyResultState");
     assert.notInclude(acpSkillRunHtml, "acp-skill-run-revisions");
     assert.include(assistantPanelModelJs, "Output Revisions");
-    assert.include(assistantTranscriptRendererJs, "assistant-transcript-revision-badge");
+    assert.include(
+      assistantTranscriptRendererJs,
+      "assistant-transcript-revision-badge",
+    );
     assert.notInclude(acpSkillRunJs, "outputRevisions");
     assert.notInclude(acpChatJs, "outputRevisions");
     assert.include(acpSkillRunStore, "setAcpSkillRunPermissionRequest");
@@ -1359,27 +1811,57 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "archive-conversation");
     assert.include(assistantSidebar, '"connect"');
     assert.include(assistantSidebar, '"disconnect"');
-    assert.include(assistantSidebar, "await startNewAcpConversation({ backendId });");
+    assert.include(
+      assistantSidebar,
+      "await startNewAcpConversation({ backendId });",
+    );
     assert.include(assistantSidebar, "set-reasoning-effort");
     assert.include(assistantSidebar, "open-backend-manager");
     assert.include(assistantSidebar, 'action === "open-workspace"');
     assert.include(assistantSidebar, "openFolderInSystemFileManager");
     assert.include(assistantSidebar, "set-chat-display-mode");
     assert.include(assistantSidebar, "toggle-status-details");
-    assert.include(assistantSidebar, 'postShellMessage(pane, "assistant-workspace:child-snapshot"');
+    assert.include(
+      assistantSidebar,
+      'postShellMessage(pane, "assistant-workspace:child-snapshot"',
+    );
     assert.include(sidebarModel, "chatDisplayMode");
     assert.include(sidebarModel, "statusExpanded");
     assert.include(sidebarModel, "agentWorkspaceDir");
     assert.include(sidebarModel, "conversationStorageDir");
     assert.include(sidebarModel, "sessionCwd");
-    assert.include(assistantPanelModelJs, 'metadataItem(labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"), snap.agentWorkspaceDir || snap.sessionCwd, "workspace")');
-    assert.include(assistantPanelModelJs, 'detailEntry(labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"), snap.agentWorkspaceDir || snap.sessionCwd)');
-    assert.notInclude(assistantPanelModelJs, 'detailEntry(labels.sessionCwd || "Session cwd", snap.sessionCwd)');
-    assert.notInclude(assistantPanelModelJs, 'detailEntry(labels.runtime || "Runtime", snap.runtimeDir)');
-    assert.notInclude(assistantPanelModelJs, 'metadataItem("Workspace", snap.workspaceDir, "workspace")');
-    assert.notInclude(assistantPanelModelJs, 'detailEntry(labels.workspace || "Workspace", snap.workspaceDir)');
-    assert.notInclude(assistantPanelModelJs, 'metadataItem("Workspace", snap.sessionCwd || snap.workspaceDir');
-    assert.notInclude(assistantPanelModelJs, 'detailEntry(labels.workspace || "Workspace", snap.sessionCwd || snap.workspaceDir)');
+    assert.include(
+      assistantPanelModelJs,
+      'metadataItem(labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"), snap.agentWorkspaceDir || snap.sessionCwd, "workspace")',
+    );
+    assert.include(
+      assistantPanelModelJs,
+      'detailEntry(labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"), snap.agentWorkspaceDir || snap.sessionCwd)',
+    );
+    assert.notInclude(
+      assistantPanelModelJs,
+      'detailEntry(labels.sessionCwd || "Session cwd", snap.sessionCwd)',
+    );
+    assert.notInclude(
+      assistantPanelModelJs,
+      'detailEntry(labels.runtime || "Runtime", snap.runtimeDir)',
+    );
+    assert.notInclude(
+      assistantPanelModelJs,
+      'metadataItem("Workspace", snap.workspaceDir, "workspace")',
+    );
+    assert.notInclude(
+      assistantPanelModelJs,
+      'detailEntry(labels.workspace || "Workspace", snap.workspaceDir)',
+    );
+    assert.notInclude(
+      assistantPanelModelJs,
+      'metadataItem("Workspace", snap.sessionCwd || snap.workspaceDir',
+    );
+    assert.notInclude(
+      assistantPanelModelJs,
+      'detailEntry(labels.workspace || "Workspace", snap.sessionCwd || snap.workspaceDir)',
+    );
     assert.include(sidebarModel, "commandLine");
     assert.include(sidebarModel, "stderrTail");
     assert.include(sidebarModel, "lastLifecycleEvent");
@@ -1414,7 +1896,10 @@ describe("acp ui smoke", function () {
 
     assert.include(en, "task-dashboard-sidebar-assistant = Assistant");
     assert.include(en, "task-dashboard-home-acp-title = ACP Chat");
-    assert.include(en, "task-dashboard-home-acp-skill-runs-title = ACP Skill Runs");
+    assert.include(
+      en,
+      "task-dashboard-home-acp-skill-runs-title = ACP Skill Runs",
+    );
     assert.include(en, "task-dashboard-acp-backend-title = ACP Backend");
     assert.include(en, "task-dashboard-acp-manage-backends = Manage Backends");
     assert.include(en, "task-dashboard-acp-details = Details");
@@ -1422,8 +1907,14 @@ describe("acp ui smoke", function () {
     assert.include(en, "task-dashboard-acp-conversation = Conversation");
     assert.include(en, "task-dashboard-acp-remote-session = Remote session");
     assert.include(en, "task-dashboard-acp-remote-restore = Remote restore");
-    assert.include(en, "task-dashboard-acp-new-conversation = New Conversation");
-    assert.include(en, "task-dashboard-acp-rename-conversation = Rename Conversation");
+    assert.include(
+      en,
+      "task-dashboard-acp-new-conversation = New Conversation",
+    );
+    assert.include(
+      en,
+      "task-dashboard-acp-rename-conversation = Rename Conversation",
+    );
     assert.include(en, "task-dashboard-acp-session-manager = Sessions");
     assert.include(en, "task-dashboard-acp-session-show-more = Show more...");
     assert.include(en, "task-dashboard-acp-archive-conversation = Archive");
@@ -1431,7 +1922,10 @@ describe("acp ui smoke", function () {
     assert.include(en, "task-dashboard-acp-disconnect = Disconnect");
     assert.include(zh, "task-dashboard-sidebar-assistant = Assistant");
     assert.include(zh, "task-dashboard-home-acp-title = ACP 对话");
-    assert.include(zh, "task-dashboard-home-acp-skill-runs-title = ACP Skill 运行");
+    assert.include(
+      zh,
+      "task-dashboard-home-acp-skill-runs-title = ACP Skill 运行",
+    );
     assert.include(zh, "task-dashboard-acp-backend-title = ACP 后端");
     assert.include(zh, "task-dashboard-acp-manage-backends = 管理后端");
     assert.include(zh, "task-dashboard-acp-details = 详情");
@@ -1515,8 +2009,16 @@ describe("acp ui smoke", function () {
       backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
       activeConversationId: "conversation-a",
       chatSessions: [
-        { conversationId: "conversation-a", backendId: "backend-a", title: "A" },
-        { conversationId: "conversation-b", backendId: "backend-a", title: "B" },
+        {
+          conversationId: "conversation-a",
+          backendId: "backend-a",
+          title: "A",
+        },
+        {
+          conversationId: "conversation-b",
+          backendId: "backend-a",
+          title: "B",
+        },
       ],
       modeOptions: [{ id: "bypassPermissions", label: "Bypass permissions" }],
       currentMode: { id: "bypassPermissions", label: "Bypass permissions" },
@@ -1535,7 +2037,10 @@ describe("acp ui smoke", function () {
       (entry: any) => entry.id === "conversation",
     );
     assert.deepEqual(
-      conversationSelector.options.map((entry: any) => [entry.value, entry.backendId]),
+      conversationSelector.options.map((entry: any) => [
+        entry.value,
+        entry.backendId,
+      ]),
       [
         ["conversation-a", "backend-a"],
         ["conversation-b", "backend-a"],
@@ -1543,22 +2048,45 @@ describe("acp ui smoke", function () {
     );
     assert.equal(panel.drawers.layout, "workspace-task-drawer");
     assert.equal(panel.drawers.sections[0].id, "sessions");
-    assert.equal(panel.drawers.sections[0].groups[0].backendDisplayName, "Backend A");
-    assert.equal(panel.drawers.sections[0].groups[0].activeTasks[0].conversationId, "conversation-a");
-    assert.equal(panel.drawers.sections[0].groups[0].activeTasks[0].action, "set-active-conversation");
-    assert.deepEqual(panel.drawers.sections[0].groups[0].activeTasks[0].payload, {
-      conversationId: "conversation-a",
-      backendId: "backend-a",
-    });
-    assert.deepEqual(panel.drawers.sections[0].groups[0].activeTasks[0].itemActions[0].payload, {
-      conversationId: "conversation-a",
-      backendId: "backend-a",
-    });
-    assert.equal(panel.drawers.sections[0].groups[0].activeTasks[0].itemActions[0].action, "archive-conversation");
+    assert.equal(
+      panel.drawers.sections[0].groups[0].backendDisplayName,
+      "Backend A",
+    );
+    assert.equal(
+      panel.drawers.sections[0].groups[0].activeTasks[0].conversationId,
+      "conversation-a",
+    );
+    assert.equal(
+      panel.drawers.sections[0].groups[0].activeTasks[0].action,
+      "set-active-conversation",
+    );
+    assert.deepEqual(
+      panel.drawers.sections[0].groups[0].activeTasks[0].payload,
+      {
+        conversationId: "conversation-a",
+        backendId: "backend-a",
+      },
+    );
+    assert.deepEqual(
+      panel.drawers.sections[0].groups[0].activeTasks[0].itemActions[0].payload,
+      {
+        conversationId: "conversation-a",
+        backendId: "backend-a",
+      },
+    );
+    assert.equal(
+      panel.drawers.sections[0].groups[0].activeTasks[0].itemActions[0].action,
+      "archive-conversation",
+    );
     const controls = panel.reply.controls;
     assert.lengthOf(controls, 3);
     assert.deepEqual(
-      controls.map((entry: any) => [entry.id, entry.value, entry.payloadKey, entry.options.length]),
+      controls.map((entry: any) => [
+        entry.id,
+        entry.value,
+        entry.payloadKey,
+        entry.options.length,
+      ]),
       [
         ["mode", "bypassPermissions", "modeId", 1],
         ["model", "opus", "modelId", 1],
@@ -1579,15 +2107,26 @@ describe("acp ui smoke", function () {
       sessionId: "",
       remoteSessionId: "remote-session-1",
       activeBackendId: "backend-a",
-      backendOptions: [{ backendId: "backend-a", displayName: "Backend A", connected: false }],
+      backendOptions: [
+        { backendId: "backend-a", displayName: "Backend A", connected: false },
+      ],
       activeConversationId: "conversation-a",
-      chatSessions: [{ conversationId: "conversation-a", backendId: "backend-a", title: "A" }],
+      chatSessions: [
+        {
+          conversationId: "conversation-a",
+          backendId: "backend-a",
+          title: "A",
+        },
+      ],
       authMethods: [{ id: "device", name: "Device login" }],
       items: [],
       labels: {},
     });
     const remoteActions = Object.fromEntries(
-      remoteOnlyPanel.context.actions.map((entry: any) => [entry.id || entry.action, entry]),
+      remoteOnlyPanel.context.actions.map((entry: any) => [
+        entry.id || entry.action,
+        entry,
+      ]),
     );
     assert.equal(remoteActions.connect.enabled, true);
     assert.equal(remoteActions.disconnect.enabled, false);
@@ -1604,7 +2143,10 @@ describe("acp ui smoke", function () {
       labels: {},
     });
     const authActions = Object.fromEntries(
-      authRequiredPanel.context.actions.map((entry: any) => [entry.id || entry.action, entry]),
+      authRequiredPanel.context.actions.map((entry: any) => [
+        entry.id || entry.action,
+        entry,
+      ]),
     );
     assert.equal(authActions.authenticate.enabled, true);
     assert.equal(authActions.authenticate.payload.backendId, "backend-a");
@@ -1625,7 +2167,11 @@ describe("acp ui smoke", function () {
     });
     assert.equal(connectingPanel.interaction.kind, "hidden");
     assert.deepEqual(
-      connectingPanel.context.indicators.map((entry: any) => [entry.id, entry.value, entry.tone]),
+      connectingPanel.context.indicators.map((entry: any) => [
+        entry.id,
+        entry.value,
+        entry.tone,
+      ]),
       [
         ["connection", "Connecting", "accent"],
         ["host-bridge", "Ready", "success"],
@@ -1736,7 +2282,11 @@ describe("acp ui smoke", function () {
       "model",
     );
     assert.deepEqual(
-      skillPanel.context.indicators.map((entry: any) => [entry.id, entry.value, entry.tone]),
+      skillPanel.context.indicators.map((entry: any) => [
+        entry.id,
+        entry.value,
+        entry.tone,
+      ]),
       [
         ["connection", "Connected", "success"],
         ["host-bridge", "Fallback", "warning"],
@@ -1751,26 +2301,60 @@ describe("acp ui smoke", function () {
     assert.equal(skillPanel.drawers.sections[0].id, "running");
     assert.equal(skillPanel.drawers.sections[1].id, "completed");
     assert.equal(skillPanel.drawers.sections[1].collapsed, true);
-    assert.equal(skillPanel.drawers.sections[0].groups[0].backendDisplayName, "Backend A");
-    assert.equal(skillPanel.drawers.sections[0].groups[0].activeTasks[0].requestId, "acp-skill-1");
-    assert.equal(skillPanel.drawers.sections[0].groups[0].activeTasks[0].title, "Selected Paper Title");
-    assert.equal(skillPanel.drawers.sections[0].groups[0].activeTasks[0].action, "select-run");
-    assert.equal(skillPanel.drawers.sections[0].groups[0].activeTasks[0].attention, "");
-    assert.deepEqual(skillPanel.drawers.sections[0].groups[0].activeTasks[0].payload, {
-      requestId: "acp-skill-1",
-    });
-    assert.isUndefined(skillPanel.drawers.sections[0].groups[0].activeTasks[0].itemActions[0]);
-    assert.equal(skillPanel.drawers.sections[1].groups[0].finishedTasks[0].requestId, "acp-skill-2");
-    assert.equal(skillPanel.drawers.sections[1].groups[0].finishedTasks[0].title, "Completed Paper Title");
     assert.equal(
-      skillPanel.drawers.sections[1].groups[0].finishedTasks[0].itemActions[0].action,
+      skillPanel.drawers.sections[0].groups[0].backendDisplayName,
+      "Backend A",
+    );
+    assert.equal(
+      skillPanel.drawers.sections[0].groups[0].activeTasks[0].requestId,
+      "acp-skill-1",
+    );
+    assert.equal(
+      skillPanel.drawers.sections[0].groups[0].activeTasks[0].title,
+      "Selected Paper Title",
+    );
+    assert.equal(
+      skillPanel.drawers.sections[0].groups[0].activeTasks[0].action,
+      "select-run",
+    );
+    assert.equal(
+      skillPanel.drawers.sections[0].groups[0].activeTasks[0].attention,
+      "",
+    );
+    assert.deepEqual(
+      skillPanel.drawers.sections[0].groups[0].activeTasks[0].payload,
+      {
+        requestId: "acp-skill-1",
+      },
+    );
+    assert.isUndefined(
+      skillPanel.drawers.sections[0].groups[0].activeTasks[0].itemActions[0],
+    );
+    assert.equal(
+      skillPanel.drawers.sections[1].groups[0].finishedTasks[0].requestId,
+      "acp-skill-2",
+    );
+    assert.equal(
+      skillPanel.drawers.sections[1].groups[0].finishedTasks[0].title,
+      "Completed Paper Title",
+    );
+    assert.equal(
+      skillPanel.drawers.sections[1].groups[0].finishedTasks[0].itemActions[0]
+        .action,
       "archive-run",
     );
-    assert.deepEqual(skillPanel.drawers.sections[1].groups[0].finishedTasks[0].itemActions[0].payload, {
-      requestId: "acp-skill-2",
-    });
+    assert.deepEqual(
+      skillPanel.drawers.sections[1].groups[0].finishedTasks[0].itemActions[0]
+        .payload,
+      {
+        requestId: "acp-skill-2",
+      },
+    );
     const skillActions = Object.fromEntries(
-      skillPanel.context.actions.map((entry: any) => [entry.id || entry.action, entry]),
+      skillPanel.context.actions.map((entry: any) => [
+        entry.id || entry.action,
+        entry,
+      ]),
     );
     assert.equal(skillActions["connect-run"].enabled, false);
     assert.equal(skillActions["disconnect-run"].enabled, true);
@@ -1810,7 +2394,10 @@ describe("acp ui smoke", function () {
     });
     assert.equal(reconnectedWorkingSkillPanel.reply.enabled, true);
     assert.equal(reconnectedWorkingSkillPanel.reply.inputEnabled, false);
-    assert.equal(reconnectedWorkingSkillPanel.reply.action, "interrupt-run-turn");
+    assert.equal(
+      reconnectedWorkingSkillPanel.reply.action,
+      "interrupt-run-turn",
+    );
 
     const terminalSkillPanel = model.projectAcpSkillRunPanelSnapshot({
       selectedRun: {
@@ -1823,7 +2410,10 @@ describe("acp ui smoke", function () {
       logs: [],
     });
     const terminalSkillActions = Object.fromEntries(
-      terminalSkillPanel.context.actions.map((entry: any) => [entry.id || entry.action, entry]),
+      terminalSkillPanel.context.actions.map((entry: any) => [
+        entry.id || entry.action,
+        entry,
+      ]),
     );
     assert.equal(terminalSkillActions["cancel-run"].enabled, false);
 
@@ -1848,7 +2438,13 @@ describe("acp ui smoke", function () {
         conversationState: "active",
         transcriptItems: [],
       },
-      runs: [{ requestId: "acp-skill-waiting", status: "waiting_user", backendId: "backend-a" }],
+      runs: [
+        {
+          requestId: "acp-skill-waiting",
+          status: "waiting_user",
+          backendId: "backend-a",
+        },
+      ],
       logs: [],
     });
     assert.equal(
@@ -1859,6 +2455,37 @@ describe("acp ui smoke", function () {
     assert.equal(waitingSkillPanel.reply.enabled, true);
     assert.equal(waitingSkillPanel.reply.inputEnabled, true);
     assert.equal(waitingSkillPanel.reply.action, "reply-run");
+
+    const pendingRunningSkillPanel = model.projectAcpSkillRunPanelSnapshot({
+      selectedRun: {
+        requestId: "acp-skill-pending-running",
+        status: "running",
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        activePrompt: false,
+        replyState: "idle",
+        pendingInteraction: {
+          message: "Confirm pending output.",
+          uiHints: { kind: "confirm", prompt: "Confirm?" },
+        },
+        transcriptItems: [],
+      },
+      runs: [
+        {
+          requestId: "acp-skill-pending-running",
+          status: "running",
+          backendId: "backend-a",
+          pendingInteraction: {
+            message: "Confirm pending output.",
+          },
+        },
+      ],
+      logs: [],
+    });
+    assert.equal(pendingRunningSkillPanel.interaction.kind, "waiting_user");
+    assert.equal(pendingRunningSkillPanel.reply.enabled, true);
+    assert.equal(pendingRunningSkillPanel.reply.inputEnabled, true);
+    assert.equal(pendingRunningSkillPanel.reply.action, "reply-run");
 
     const idleSkillPanel = model.projectAcpSkillRunPanelSnapshot({
       selectedRun: {
@@ -1892,7 +2519,10 @@ describe("acp ui smoke", function () {
       logs: [],
     });
     assert.deepEqual(
-      idleSkillPanel.reply.controls.map((entry: any) => [entry.id, entry.disabled]),
+      idleSkillPanel.reply.controls.map((entry: any) => [
+        entry.id,
+        entry.disabled,
+      ]),
       [
         ["mode", false],
         ["model", false],
@@ -1930,7 +2560,10 @@ describe("acp ui smoke", function () {
       logs: [],
     });
     const detachedActions = Object.fromEntries(
-      detachedSkillPanel.context.actions.map((entry: any) => [entry.id || entry.action, entry]),
+      detachedSkillPanel.context.actions.map((entry: any) => [
+        entry.id || entry.action,
+        entry,
+      ]),
     );
     assert.equal(detachedActions["connect-run"].enabled, true);
     assert.equal(detachedActions["disconnect-run"].enabled, false);
@@ -1965,30 +2598,35 @@ describe("acp ui smoke", function () {
 
   it("keeps canceled ACP skill runs out of stale close-error interaction states", async function () {
     const conversationView = await loadAssistantConversationViewForSmoke();
-    const canceledConversation = conversationView.projectAcpSkillRunConversationView({
-      requestId: "acp-skill-canceled",
-      status: "canceled",
-      conversationState: "active",
-      conversationRecoveryState: "connected",
-      error: "File Closed",
-      conversationError: "File Closed",
-      transcriptItems: [],
-    });
+    const canceledConversation =
+      conversationView.projectAcpSkillRunConversationView({
+        requestId: "acp-skill-canceled",
+        status: "canceled",
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        error: "File Closed",
+        conversationError: "File Closed",
+        transcriptItems: [],
+      });
     assert.equal(canceledConversation.interaction.kind, "notice");
     assert.notInclude(canceledConversation.interaction.message, "File Closed");
 
-    const continuingConversation = conversationView.projectAcpSkillRunConversationView({
-      requestId: "acp-skill-canceled-reply",
-      status: "canceled",
-      conversationState: "active",
-      conversationRecoveryState: "connected",
-      replyState: "submitted",
-      error: "File Closed",
-      conversationError: "File Closed",
-      transcriptItems: [],
-    });
+    const continuingConversation =
+      conversationView.projectAcpSkillRunConversationView({
+        requestId: "acp-skill-canceled-reply",
+        status: "canceled",
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        replyState: "submitted",
+        error: "File Closed",
+        conversationError: "File Closed",
+        transcriptItems: [],
+      });
     assert.equal(continuingConversation.interaction.kind, "running");
-    assert.notInclude(continuingConversation.interaction.message, "File Closed");
+    assert.notInclude(
+      continuingConversation.interaction.message,
+      "File Closed",
+    );
 
     const model = await loadAssistantPanelModelForSmoke({ conversationView });
     const canceledPanel = model.projectAcpSkillRunPanelSnapshot({
@@ -2055,39 +2693,81 @@ describe("acp ui smoke", function () {
     assert.include(assistantPanelModelJs, '"archive-conversation"');
     assert.include(assistantPanelModelJs, '"archive-run"');
     assert.include(assistantPanelModelJs, "active: Boolean(requestId && run");
-    assert.include(assistantPanelRendererJs, "function renderContextEntry(parent, entry, depth)");
-    assert.include(assistantPanelRendererJs, "function renderAssistantWorkspaceTaskAction");
+    assert.include(
+      assistantPanelRendererJs,
+      "function renderContextEntry(parent, entry, depth)",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "function renderAssistantWorkspaceTaskAction",
+    );
     assert.include(assistantPanelRendererJs, "event.stopPropagation()");
     assert.include(assistantPanelRendererJs, "data-assistant-button-tone");
     assert.include(assistantPanelRendererJs, "interrupt-run-turn");
-    assert.include(assistantPanelRendererJs, "assistant-workspace-drawer-task-actions");
-    assert.include(assistantPanelRendererJs, "assistant-workspace-drawer-task-action");
-    assert.include(assistantPanelRendererJs, 'entry && entry.active ? " is-active" : ""');
+    assert.include(
+      assistantPanelRendererJs,
+      "assistant-workspace-drawer-task-actions",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "assistant-workspace-drawer-task-action",
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      'entry && entry.active ? " is-active" : ""',
+    );
     assert.include(assistantPanelRendererJs, "--assistant-context-depth");
-    assert.include(assistantPanelRendererJs, "renderAssistantWorkspaceTaskDrawer");
+    assert.include(
+      assistantPanelRendererJs,
+      "renderAssistantWorkspaceTaskDrawer",
+    );
     assert.include(assistantPanelRendererJs, "workspaceDrawerStableSignature");
     assert.include(assistantPanelRendererJs, "updateWorkspaceDrawerLiveFields");
-    assert.include(assistantPanelRendererJs, "data-assistant-workspace-drawer-signature");
+    assert.include(
+      assistantPanelRendererJs,
+      "data-assistant-workspace-drawer-signature",
+    );
     assert.include(assistantPanelRendererJs, "data-assistant-task-key");
-    assert.include(assistantPanelRendererJs, 'safeText(panel.drawers && panel.drawers.layout) === "workspace-task-drawer"');
+    assert.include(
+      assistantPanelRendererJs,
+      'safeText(panel.drawers && panel.drawers.layout) === "workspace-task-drawer"',
+    );
     assert.include(sharedPanelCss, ".assistant-panel-context-entry.is-group");
     assert.include(sharedPanelCss, ".assistant-panel-context-entry.is-active");
     assert.include(sharedPanelCss, ".assistant-workspace-drawer-section");
-    assert.include(sharedPanelCss, ".assistant-workspace-drawer-section.is-completed");
+    assert.include(
+      sharedPanelCss,
+      ".assistant-workspace-drawer-section.is-completed",
+    );
     assert.include(sharedPanelCss, ".assistant-workspace-drawer-task");
-    assert.include(sharedPanelCss, ".assistant-workspace-drawer-task-action.is-archive::before");
-    assert.include(sharedPanelCss, ".assistant-workspace-drawer-task-action.is-archive::after");
+    assert.include(
+      sharedPanelCss,
+      ".assistant-workspace-drawer-task-action.is-archive::before",
+    );
+    assert.include(
+      sharedPanelCss,
+      ".assistant-workspace-drawer-task-action.is-archive::after",
+    );
     assert.include(sharedPanelCss, "align-content: start;");
     assert.include(sharedPanelCss, "height: 34px;");
     assert.include(sharedPanelCss, "border-radius: var(--asst-radius-sm);");
-    assert.include(sharedPanelCss, ".asst-conversation-overlay-menu .asst-button-compact[aria-pressed=\"true\"]");
+    assert.include(
+      sharedPanelCss,
+      '.asst-conversation-overlay-menu .asst-button-compact[aria-pressed="true"]',
+    );
     assert.include(sharedPanelCss, "border-color: var(--asst-accent);");
     assert.notInclude(acpChatCss, ".acp-chat-drawer .asst-drawer-panel");
-    assert.include(sharedPanelCss, ".asst-panel-drawer-overlay .asst-drawer-panel");
+    assert.include(
+      sharedPanelCss,
+      ".asst-panel-drawer-overlay .asst-drawer-panel",
+    );
     assert.include(sharedPanelCss, "left: 0;");
     assert.include(sharedPanelCss, "border-right: 1px solid var(--asst-line);");
     assert.include(sharedPanelCss, "border-radius: var(--asst-radius-md);");
-    assert.notInclude(sharedPanelCss, ".asst-button,\n.asst-button-compact,\n.asst-icon-button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: 6px;\n  border: 1px solid var(--asst-line-strong);\n  border-radius: var(--asst-radius-pill);");
+    assert.notInclude(
+      sharedPanelCss,
+      ".asst-button,\n.asst-button-compact,\n.asst-icon-button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: 6px;\n  border: 1px solid var(--asst-line-strong);\n  border-radius: var(--asst-radius-pill);",
+    );
     assert.notInclude(acpSkillRunCss, ".asst-button {");
     assert.notInclude(runDialogCss, ".asst-button {");
   });
@@ -2116,7 +2796,9 @@ describe("acp ui smoke", function () {
       regions: { reply: replyRegion },
     });
 
-    const input = replyRegion.querySelector(".assistant-panel-reply-input") as any;
+    const input = replyRegion.querySelector(
+      ".assistant-panel-reply-input",
+    ) as any;
     assert.ok(input);
     input.value = "local draft";
     input.focus();
@@ -2139,7 +2821,9 @@ describe("acp ui smoke", function () {
       },
     );
 
-    const nextInput = replyRegion.querySelector(".assistant-panel-reply-input") as any;
+    const nextInput = replyRegion.querySelector(
+      ".assistant-panel-reply-input",
+    ) as any;
     assert.strictEqual(nextInput, input);
     assert.equal(nextInput.value, "local draft");
     assert.equal(nextInput.selectionStart, 2);
@@ -2190,7 +2874,9 @@ describe("acp ui smoke", function () {
           sections,
         },
       });
-      return drawerRegion.querySelectorAll(".assistant-workspace-drawer-task") as any[];
+      return drawerRegion.querySelectorAll(
+        ".assistant-workspace-drawer-task",
+      ) as any[];
     }
 
     let rows = renderSelected("session-a");

@@ -15,6 +15,16 @@ import {
   openAssistantWorkspaceSidebar,
   toggleAssistantWorkspaceSidebar,
 } from "./assistantWorkspaceSidebar";
+import {
+  listAcpSkillRuns,
+  subscribeAcpSkillRunSnapshots,
+} from "./acpSkillRunStore";
+import { countDashboardHumanAttentionTasks } from "./dashboardActiveTasks";
+import { listActiveWorkflowTasks, subscribeWorkflowTasks } from "./taskRuntime";
+import {
+  installWorkspaceToolbarTaskPopover,
+  uninstallWorkspaceToolbarTaskPopover,
+} from "./workspaceToolbarTaskPopover";
 
 type WorkspaceView = "dashboard" | "synthesis";
 type DashboardSelection = {
@@ -47,17 +57,24 @@ type WorkspaceRuntime = {
   };
   synthesisRuntime?: MountedSynthesisWorkbenchRuntime;
   removeMessageListener?: () => void;
+  removeAcpSkillRunSubscription?: () => void;
+  removeTaskSubscription?: () => void;
+  workspaceSidebarPopoverAnchor?: Element | null;
   handshakeTimer?: ReturnType<typeof setInterval>;
+  selectionRestoreTimer?: ReturnType<typeof setTimeout>;
   handshakeAttemptCount: number;
   handshakeSuccessCount: number;
   handshakeComplete: boolean;
 };
 
 const WORKSPACE_TAB_ID = "zotero-skills-workspace";
+const WORKSPACE_TAB_ICON = "zotero-skills-workspace";
+const WORKSPACE_TAB_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_workbench_32.png`;
 const WORKSPACE_BRIDGE_KEY = "__zoteroSkillsWorkspaceBridge";
 const WORKSPACE_HANDSHAKE_INTERVAL_MS = 100;
 const WORKSPACE_HANDSHAKE_REQUIRED_SUCCESSES = 5;
 const WORKSPACE_HANDSHAKE_MAX_ATTEMPTS = 80;
+const WORKSPACE_TAB_SELECTION_RESTORE_DELAY_MS = 50;
 
 let workspaceTab: WorkspaceRuntime | undefined;
 
@@ -344,6 +361,94 @@ function clearBridge(runtime: WorkspaceRuntime) {
   writeBridge(wrappedTarget);
 }
 
+function countWorkspaceHumanAttentionTasks() {
+  return countDashboardHumanAttentionTasks({
+    activeTasks: listActiveWorkflowTasks(),
+    acpSkillRuns: listAcpSkillRuns(),
+  });
+}
+
+function postAttention(runtime: WorkspaceRuntime) {
+  const frameWindow = runtime.frameWindow || resolveFrameWindow(runtime.frame);
+  if (!frameWindow) {
+    return;
+  }
+  runtime.frameWindow = frameWindow;
+  frameWindow.postMessage(
+    {
+      type: "workspace:attention",
+      payload: {
+        waitingCount: countWorkspaceHumanAttentionTasks(),
+      },
+    },
+    "*",
+  );
+}
+
+function uninstallWorkspaceSidebarTaskPopover(runtime: WorkspaceRuntime) {
+  if (!runtime.workspaceSidebarPopoverAnchor) {
+    return;
+  }
+  uninstallWorkspaceToolbarTaskPopover({
+    anchor: runtime.workspaceSidebarPopoverAnchor,
+  });
+  runtime.workspaceSidebarPopoverAnchor = null;
+}
+
+function installWorkspaceSidebarTaskPopover(runtime: WorkspaceRuntime) {
+  const frameWindow = runtime.frameWindow || resolveFrameWindow(runtime.frame);
+  const anchor = frameWindow?.document?.querySelector(".sidebar-toggle");
+  if (!frameWindow || !anchor) {
+    return;
+  }
+  runtime.frameWindow = frameWindow;
+  if (runtime.workspaceSidebarPopoverAnchor === anchor) {
+    return;
+  }
+  uninstallWorkspaceSidebarTaskPopover(runtime);
+  runtime.workspaceSidebarPopoverAnchor = anchor;
+  installWorkspaceToolbarTaskPopover({
+    window: runtime.window,
+    anchor,
+  });
+}
+
+function syncWorkspaceSidebarEntry(runtime: WorkspaceRuntime) {
+  installWorkspaceSidebarTaskPopover(runtime);
+  postAttention(runtime);
+}
+
+async function syncWorkspaceTabSelectionState(
+  runtime: WorkspaceRuntime,
+  shouldRestoreSidebar = isAssistantWorkspaceSidebarOpen({
+    window: runtime.window,
+  }),
+) {
+  syncWorkspaceSidebarEntry(runtime);
+  if (shouldRestoreSidebar) {
+    await openAssistantWorkspaceSidebar({
+      window: runtime.window,
+      target: "reader",
+    });
+  }
+}
+
+function scheduleWorkspaceTabSelectionStateSync(runtime: WorkspaceRuntime) {
+  const shouldRestoreSidebar = isAssistantWorkspaceSidebarOpen({
+    window: runtime.window,
+  });
+  if (runtime.selectionRestoreTimer) {
+    clearTimeout(runtime.selectionRestoreTimer);
+  }
+  runtime.selectionRestoreTimer = setTimeout(() => {
+    runtime.selectionRestoreTimer = undefined;
+    if (workspaceTab !== runtime) {
+      return;
+    }
+    void syncWorkspaceTabSelectionState(runtime, shouldRestoreSidebar);
+  }, WORKSPACE_TAB_SELECTION_RESTORE_DELAY_MS);
+}
+
 function postSnapshot(
   runtime: WorkspaceRuntime,
   type: "workspace:init" | "workspace:snapshot",
@@ -358,6 +463,7 @@ function postSnapshot(
       type,
       payload: {
         selectedView: runtime.selectedView,
+        waitingCount: countWorkspaceHumanAttentionTasks(),
       },
     },
     "*",
@@ -370,6 +476,7 @@ async function ensureWorkspaceHandshake(runtime: WorkspaceRuntime) {
     return false;
   }
   postSnapshot(runtime, "workspace:init");
+  syncWorkspaceSidebarEntry(runtime);
   await mountDashboardRuntimeIfReady(runtime);
   await mountSynthesisRuntimeIfReady(runtime);
   return true;
@@ -383,6 +490,14 @@ function stopWorkspaceHandshake(runtime: WorkspaceRuntime) {
   runtime.handshakeTimer = undefined;
 }
 
+function stopWorkspaceSelectionRestore(runtime: WorkspaceRuntime) {
+  if (!runtime.selectionRestoreTimer) {
+    return;
+  }
+  clearTimeout(runtime.selectionRestoreTimer);
+  runtime.selectionRestoreTimer = undefined;
+}
+
 function finalizeWorkspaceHandshake(runtime: WorkspaceRuntime) {
   if (runtime.handshakeComplete) {
     return;
@@ -390,6 +505,7 @@ function finalizeWorkspaceHandshake(runtime: WorkspaceRuntime) {
   runtime.handshakeComplete = true;
   stopWorkspaceHandshake(runtime);
   postSnapshot(runtime, "workspace:init");
+  syncWorkspaceSidebarEntry(runtime);
   void mountDashboardRuntimeIfReady(runtime);
   void mountSynthesisRuntimeIfReady(runtime);
 }
@@ -492,6 +608,7 @@ async function handleAction(
       runtime,
       action === "ready" ? "workspace:init" : "workspace:snapshot",
     );
+    syncWorkspaceSidebarEntry(runtime);
     await mountDashboardRuntimeIfReady(runtime);
     await mountSynthesisRuntimeIfReady(runtime);
     if (action === "refresh") {
@@ -507,6 +624,7 @@ async function handleAction(
     }
     runtime.selectedView = nextView;
     postSnapshot(runtime, "workspace:snapshot");
+    syncWorkspaceSidebarEntry(runtime);
     await mountDashboardRuntimeIfReady(runtime);
     await mountSynthesisRuntimeIfReady(runtime);
     return;
@@ -520,7 +638,10 @@ async function handleAction(
     return;
   }
   if (action === "open-sidebar") {
-    await openAssistantWorkspaceSidebar({ window: runtime.window });
+    await openAssistantWorkspaceSidebar({
+      window: runtime.window,
+      target: "reader",
+    });
     return;
   }
   if (action === "close-sidebar") {
@@ -528,7 +649,10 @@ async function handleAction(
     return;
   }
   if (action === "toggle-sidebar") {
-    await toggleAssistantWorkspaceSidebar({ window: runtime.window });
+    await toggleAssistantWorkspaceSidebar({
+      window: runtime.window,
+      target: "reader",
+    });
     return;
   }
 }
@@ -536,6 +660,10 @@ async function handleAction(
 function cleanupWorkspaceTab() {
   if (workspaceTab) {
     stopWorkspaceHandshake(workspaceTab);
+    stopWorkspaceSelectionRestore(workspaceTab);
+    workspaceTab.removeAcpSkillRunSubscription?.();
+    workspaceTab.removeTaskSubscription?.();
+    uninstallWorkspaceSidebarTaskPopover(workspaceTab);
     cleanupDashboardRuntime(workspaceTab);
     cleanupSynthesisRuntime(workspaceTab);
     clearBridge(workspaceTab);
@@ -549,6 +677,7 @@ function cleanupWorkspaceTab() {
 function attachBridge(runtime: WorkspaceRuntime) {
   const frame = runtime.frame;
   frame.addEventListener("load", () => {
+    uninstallWorkspaceSidebarTaskPopover(runtime);
     void ensureWorkspaceHandshake(runtime);
     scheduleWorkspaceHandshake(runtime);
   });
@@ -615,20 +744,28 @@ export async function openZoteroSkillsWorkspaceTab(
     }
     Zotero_Tabs.select(WORKSPACE_TAB_ID);
     postSnapshot(workspaceTab, "workspace:snapshot");
+    await syncWorkspaceTabSelectionState(workspaceTab, reopenAssistantSidebar);
     await mountDashboardRuntimeIfReady(workspaceTab);
     await mountSynthesisRuntimeIfReady(workspaceTab);
-    if (reopenAssistantSidebar) {
-      await openAssistantWorkspaceSidebar({ window: hostWindow });
-    }
     return;
   }
   const result = Zotero_Tabs.add({
     id: WORKSPACE_TAB_ID,
     type: "zotero-skills-workspace",
     title: "Zotero Skills",
-    data: { kind: "zotero-skills-workspace" },
+    data: {
+      kind: "zotero-skills-workspace",
+      icon: WORKSPACE_TAB_ICON,
+      iconURI: WORKSPACE_TAB_ICON_URI,
+    },
     select: true,
     onClose: cleanupWorkspaceTab,
+    onSelect: () => {
+      if (!workspaceTab) {
+        return;
+      }
+      scheduleWorkspaceTabSelectionStateSync(workspaceTab);
+    },
   });
   const container = result?.container;
   if (!container) {
@@ -649,14 +786,18 @@ export async function openZoteroSkillsWorkspaceTab(
     handshakeSuccessCount: 0,
     handshakeComplete: false,
   };
+  runtime.removeAcpSkillRunSubscription = subscribeAcpSkillRunSnapshots(() => {
+    syncWorkspaceSidebarEntry(runtime);
+  });
+  runtime.removeTaskSubscription = subscribeWorkflowTasks(() => {
+    syncWorkspaceSidebarEntry(runtime);
+  });
   workspaceTab = runtime;
   attachBridge(runtime);
   setFrameSource(frame, resolveWorkspacePageUrl());
   scheduleWorkspaceHandshake(runtime);
   Zotero_Tabs.select(WORKSPACE_TAB_ID);
-  if (reopenAssistantSidebar) {
-    await openAssistantWorkspaceSidebar({ window: hostWindow });
-  }
+  await syncWorkspaceTabSelectionState(runtime, reopenAssistantSidebar);
 }
 
 export function resetZoteroSkillsWorkspaceTabRuntimeForTests() {

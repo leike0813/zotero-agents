@@ -19,6 +19,8 @@ export type AcpFoldedModelGroup = {
   variants: AcpModelEffortVariant[];
 };
 
+export const ACP_UNSCOPED_MODEL_PROVIDER = "Unscoped";
+
 export const ACP_KNOWN_REASONING_EFFORT_ORDER = [
   "default",
   "low",
@@ -29,6 +31,244 @@ export const ACP_KNOWN_REASONING_EFFORT_ORDER = [
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+export function parseAcpProviderModelId(value: unknown) {
+  const id = normalizeString(value);
+  const index = Math.max(id.lastIndexOf("/"), id.lastIndexOf(":"));
+  if (index <= 0 || index >= id.length - 1) {
+    return null;
+  }
+  return {
+    provider: id.slice(0, index).trim(),
+    model: id.slice(index + 1).trim(),
+  };
+}
+
+export function hasAcpProviderScopedModelOptions(
+  modelOptions: AcpSelectableOption[],
+) {
+  return modelOptions.some((entry) => !!parseAcpProviderModelId(entry.id));
+}
+
+function uniqueOrdered(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeString(value);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function providerForDisplayModelId(value: unknown) {
+  return parseAcpProviderModelId(value)?.provider || "";
+}
+
+function modelForDisplayModelId(value: unknown) {
+  return parseAcpProviderModelId(value)?.model || normalizeString(value);
+}
+
+export function resolveAcpModelProviderForSelection(args: {
+  modelOptions: AcpSelectableOption[];
+  provider?: unknown;
+  displayModelId?: unknown;
+  currentDisplayModelId?: unknown;
+}) {
+  const explicitProvider = normalizeString(args.provider);
+  const providers = listAcpModelProviderOptions(args.modelOptions);
+  if (explicitProvider && providers.includes(explicitProvider)) {
+    return explicitProvider;
+  }
+  const fromSelected = providerForDisplayModelId(args.displayModelId);
+  if (fromSelected && providers.includes(fromSelected)) {
+    return fromSelected;
+  }
+  const selectedModel = normalizeString(args.displayModelId);
+  if (
+    selectedModel &&
+    args.modelOptions.some(
+      (entry) => entry.id === selectedModel && !parseAcpProviderModelId(entry.id),
+    )
+  ) {
+    return ACP_UNSCOPED_MODEL_PROVIDER;
+  }
+  const fromCurrent = providerForDisplayModelId(args.currentDisplayModelId);
+  if (fromCurrent && providers.includes(fromCurrent)) {
+    return fromCurrent;
+  }
+  const currentModel = normalizeString(args.currentDisplayModelId);
+  if (
+    currentModel &&
+    args.modelOptions.some(
+      (entry) => entry.id === currentModel && !parseAcpProviderModelId(entry.id),
+    )
+  ) {
+    return ACP_UNSCOPED_MODEL_PROVIDER;
+  }
+  return providers[0] || "";
+}
+
+export function listAcpModelProviderOptions(
+  modelOptions: AcpSelectableOption[],
+) {
+  if (!hasAcpProviderScopedModelOptions(modelOptions)) {
+    return [] as string[];
+  }
+  const providers = uniqueOrdered(
+    modelOptions
+      .map((entry) => providerForDisplayModelId(entry.id))
+      .filter(Boolean),
+  );
+  const hasUnscoped = modelOptions.some(
+    (entry) => !parseAcpProviderModelId(entry.id),
+  );
+  return hasUnscoped ? [...providers, ACP_UNSCOPED_MODEL_PROVIDER] : providers;
+}
+
+export function listAcpModelOptionsForProvider(args: {
+  modelOptions: AcpSelectableOption[];
+  provider?: unknown;
+  displayModelId?: unknown;
+  currentDisplayModelId?: unknown;
+}) {
+  if (!hasAcpProviderScopedModelOptions(args.modelOptions)) {
+    return args.modelOptions.map((entry) => entry.id);
+  }
+  const provider = resolveAcpModelProviderForSelection({
+    modelOptions: args.modelOptions,
+    provider: args.provider,
+    displayModelId: args.displayModelId,
+    currentDisplayModelId: args.currentDisplayModelId,
+  });
+  if (provider === ACP_UNSCOPED_MODEL_PROVIDER) {
+    return uniqueOrdered(
+      args.modelOptions
+        .filter((entry) => !parseAcpProviderModelId(entry.id))
+        .map((entry) => entry.id),
+    );
+  }
+  return uniqueOrdered(
+    args.modelOptions
+      .filter((entry) => providerForDisplayModelId(entry.id) === provider)
+      .map((entry) => modelForDisplayModelId(entry.id)),
+  );
+}
+
+export function resolveAcpDisplayModelIdForProviderSelection(args: {
+  modelOptions: AcpSelectableOption[];
+  provider?: unknown;
+  modelId?: unknown;
+  currentDisplayModelId?: unknown;
+}) {
+  const modelId = normalizeString(args.modelId);
+  const requestedProvider = normalizeString(args.provider);
+  if (!modelId && !requestedProvider) {
+    return normalizeString(args.currentDisplayModelId);
+  }
+  if (!hasAcpProviderScopedModelOptions(args.modelOptions)) {
+    return args.modelOptions.some((entry) => entry.id === modelId)
+      ? modelId
+      : normalizeString(args.currentDisplayModelId);
+  }
+  const modelIdIsFullProviderModel = !!parseAcpProviderModelId(modelId);
+  if (
+    (!requestedProvider || modelIdIsFullProviderModel) &&
+    args.modelOptions.some((entry) => entry.id === modelId)
+  ) {
+    return modelId;
+  }
+  const provider = resolveAcpModelProviderForSelection({
+    modelOptions: args.modelOptions,
+    provider: args.provider,
+    displayModelId: modelId,
+    currentDisplayModelId: args.currentDisplayModelId,
+  });
+  if (provider === ACP_UNSCOPED_MODEL_PROVIDER) {
+    const directUnscoped = args.modelOptions.some(
+      (entry) => entry.id === modelId && !parseAcpProviderModelId(entry.id),
+    );
+    if (directUnscoped) {
+      return modelId;
+    }
+    return (
+      args.modelOptions.find((entry) => !parseAcpProviderModelId(entry.id))
+        ?.id || normalizeString(args.currentDisplayModelId)
+    );
+  }
+  const match = args.modelOptions.find((entry) => {
+    const parsed = parseAcpProviderModelId(entry.id);
+    return parsed?.provider === provider && parsed.model === modelId;
+  });
+  if (match) {
+    return match.id;
+  }
+  return (
+    args.modelOptions.find(
+      (entry) => parseAcpProviderModelId(entry.id)?.provider === provider,
+    )?.id || normalizeString(args.currentDisplayModelId)
+  );
+}
+
+export function projectAcpProviderModelOptionsForUi(args: {
+  modelOptions: AcpSelectableOption[];
+  options: Record<string, unknown>;
+  currentDisplayModelId?: unknown;
+}) {
+  const next: Record<string, unknown> = { ...args.options };
+  if (!hasAcpProviderScopedModelOptions(args.modelOptions)) {
+    delete next.acpModelProvider;
+    return next;
+  }
+  const fullModelId = resolveAcpDisplayModelIdForProviderSelection({
+    modelOptions: args.modelOptions,
+    provider: next.acpModelProvider,
+    modelId: next.acpModelId,
+    currentDisplayModelId: args.currentDisplayModelId,
+  });
+  const provider = resolveAcpModelProviderForSelection({
+    modelOptions: args.modelOptions,
+    provider: next.acpModelProvider,
+    displayModelId: fullModelId || next.acpModelId,
+    currentDisplayModelId: args.currentDisplayModelId,
+  });
+  if (provider) {
+    next.acpModelProvider = provider;
+  }
+  if (fullModelId) {
+    next.acpModelId =
+      provider === ACP_UNSCOPED_MODEL_PROVIDER
+        ? fullModelId
+        : modelForDisplayModelId(fullModelId);
+  }
+  return next;
+}
+
+export function normalizeAcpProviderModelOptionsForRuntime(args: {
+  modelOptions: AcpSelectableOption[];
+  options: Record<string, unknown>;
+  currentDisplayModelId?: unknown;
+}) {
+  const next: Record<string, unknown> = { ...args.options };
+  if (!hasAcpProviderScopedModelOptions(args.modelOptions)) {
+    delete next.acpModelProvider;
+    return next;
+  }
+  const fullModelId = resolveAcpDisplayModelIdForProviderSelection({
+    modelOptions: args.modelOptions,
+    provider: next.acpModelProvider,
+    modelId: next.acpModelId,
+    currentDisplayModelId: args.currentDisplayModelId,
+  });
+  if (fullModelId) {
+    next.acpModelId = fullModelId;
+  }
+  delete next.acpModelProvider;
+  return next;
 }
 
 export function normalizeAcpEffortId(value: unknown) {

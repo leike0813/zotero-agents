@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "source_bundle_path": {
+      "type": "string",
+      "description": "Path to source_bundle.zip prepared by the workflow or test harness."
+    }
+  },
+  "required": ["source_bundle_path"],
+  "additionalProperties": false
+}

@@ -5,20 +5,22 @@ Runtime persistence is plugin-managed data that can grow during normal use and c
 ## Root
 The runtime persistence root is resolved by the runtime persistence module:
 
-- Windows: `%LOCALAPPDATA%\Zotero-Skills\runtime`
-- macOS: `~/Library/Application Support/Zotero-Skills/runtime`
-- Linux: `${XDG_DATA_HOME:-~/.local/share}/Zotero-Skills/runtime`
-- Fallback: `<cwd>/.zotero-skills-runtime`
+- Windows: `%LOCALAPPDATA%\zotero-agents`
+- macOS: `~/Library/Application Support/zotero-agents`
+- Linux: `${XDG_DATA_HOME:-~/.local/share}/zotero-agents`
+- Final fallback: `<cwd>/.zotero-agents`
+
+Runtime-scoped data lives under `runtime/` below this root: `{root}/runtime/logs`, `{root}/runtime/cache`, etc.
 
 ## Managed Categories
 - `state/`: plugin runtime SQLite state, including SkillRunner ledger and ACP conversation rows.
-- `logs/`: runtime log persistence.
-- `acp/chat/workspace/`: the shared ACP Chat agent working directory (`agentWorkspaceDir`/`sessionCwd`) used by all ACP Chat conversations.
-- `acp/chat/conversations/`: plugin-private ACP Chat per-conversation storage; this is not the user-facing workspace and must not live inside `acp/chat/workspace/`.
-- `acp/chat/runtime/`: plugin-private ACP Chat backend runtime state.
-- `acp/skill-runs/`: ACP SkillRunner-compatible run workspaces.
-- `cache/`: runtime caches.
-- `tmp/`: temporary runtime files.
+- `runtime/logs/`: runtime log persistence.
+- `runtime/acp/chat/workspace/`: the shared ACP Chat agent working directory (`agentWorkspaceDir`/`sessionCwd`) used by all ACP Chat conversations.
+- `runtime/acp/chat/conversations/`: plugin-private ACP Chat per-conversation storage; this is not the user-facing workspace and must not live inside `runtime/acp/chat/workspace/`.
+- `runtime/acp/chat/runtime/`: plugin-private ACP Chat backend runtime state.
+- `runtime/acp/skill-runs/`: ACP SkillRunner-compatible run workspaces.
+- `runtime/cache/`: runtime caches.
+- `runtime/tmp/`: temporary runtime files.
 - `legacy/`: discovered old runtime locations surfaced for manual cleanup.
 
 ## Exclusions

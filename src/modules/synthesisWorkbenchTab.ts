@@ -1,11 +1,18 @@
 import { config } from "../../package.json";
-import { getString } from "../utils/locale";
+import { getString, getStringOrFallback } from "../utils/locale";
+import {
+  SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
+  SYNTHESIS_WORKBENCH_MESSAGE_KEYS,
+  type SynthesisWorkbenchI18nEnvelope,
+  type SynthesisWorkbenchMessageKey,
+} from "../synthesisWorkbenchI18n";
 import { resolveAddonRef, resolveRuntimeToolkit } from "../utils/runtimeBridge";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
 import { getDefaultSynthesisService } from "./synthesis/service";
 import { writeRuntimeTextFile } from "./runtimePersistence";
+import { isTransientStorageBusyError } from "./guardedSqlite";
 import {
   registerSynthesisWorkbenchSidecarChangeListener,
   type SynthesisWorkbenchSidecarChangeEvent,
@@ -91,6 +98,10 @@ type SynthesisWorkbenchRuntime = {
   snapshotInputLocked?: boolean;
   loadedSurfaces: Set<SynthesisWorkbenchSurfaceName>;
   dirtySurfaces: Set<SynthesisWorkbenchSurfaceName>;
+  surfaceRequestSeq: number;
+  latestSurfaceRequestBySurface: Partial<
+    Record<SynthesisWorkbenchSurfaceName, number>
+  >;
   libraryReadModelRevision: number;
   libraryReadModelDirtyTimer?: ReturnType<typeof setTimeout>;
   inFlightCommands: Map<string, SynthesisUiActionOperation>;
@@ -99,7 +110,50 @@ type SynthesisWorkbenchRuntime = {
   actionWarnings: SynthesisUiActionOperation[];
 };
 
+type SurfaceRefreshRequestMeta = {
+  requestId: number;
+  surface: SynthesisWorkbenchSurfaceName;
+  selectedTabAtRequest: SynthesisUiTab;
+  refreshFromService: boolean;
+  startedAt: string;
+};
+
+function beginSurfaceRefreshRequest(
+  runtime: SynthesisWorkbenchRuntime,
+  surface: SynthesisWorkbenchSurfaceName,
+  refreshFromService: boolean,
+): SurfaceRefreshRequestMeta {
+  runtime.surfaceRequestSeq += 1;
+  const requestId = runtime.surfaceRequestSeq;
+  runtime.latestSurfaceRequestBySurface[surface] = requestId;
+  return {
+    requestId,
+    surface,
+    selectedTabAtRequest: runtime.state.selectedTab,
+    refreshFromService,
+    startedAt: new Date().toISOString(),
+  };
+}
+
+function isLatestSurfaceRefreshRequest(
+  runtime: SynthesisWorkbenchRuntime,
+  request: SurfaceRefreshRequestMeta,
+) {
+  return (
+    runtime.latestSurfaceRequestBySurface[request.surface] === request.requestId
+  );
+}
+
+function isActiveSurface(
+  runtime: SynthesisWorkbenchRuntime,
+  surface: SynthesisWorkbenchSurfaceName,
+) {
+  return surfaceForTab(runtime.state.selectedTab) === surface;
+}
+
 const SYNTHESIS_WORKBENCH_TAB_ID = "zotero-skills-synthesis-workbench";
+const SYNTHESIS_WORKBENCH_TAB_ICON = "zotero-skills-workspace";
+const SYNTHESIS_WORKBENCH_TAB_ICON_URI = `chrome://${config.addonRef}/content/icons/icon_workbench_32.png`;
 const SYNTHESIS_WORKBENCH_EMBEDDED_ID =
   "zotero-skills-synthesis-workbench-embedded";
 const SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS = 100;
@@ -129,6 +183,58 @@ function localize(key: string, fallback: string) {
   } catch {
     return fallback;
   }
+}
+
+function resolveSynthesisWorkbenchLocale() {
+  const zoteroLocale = String(
+    ((globalThis as any).Zotero?.locale as string) || "",
+  );
+  const navigatorLocale = String((globalThis as any).navigator?.language || "");
+  return zoteroLocale || navigatorLocale || "en-US";
+}
+
+function buildSynthesisWorkbenchI18nEnvelope(): SynthesisWorkbenchI18nEnvelope {
+  const messages = {} as Record<SynthesisWorkbenchMessageKey, string>;
+  for (const key of SYNTHESIS_WORKBENCH_MESSAGE_KEYS) {
+    messages[key] = resolveSynthesisWorkbenchMessage(
+      key,
+      SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES[key],
+    );
+  }
+  return {
+    locale: resolveSynthesisWorkbenchLocale(),
+    messages,
+  };
+}
+
+function resolveSynthesisWorkbenchMessage(
+  key: SynthesisWorkbenchMessageKey,
+  fallback: string,
+) {
+  const prefixed = getStringOrFallback(key, fallback);
+  if (prefixed && prefixed !== fallback) {
+    return prefixed;
+  }
+  try {
+    const pattern = (addon.data.locale?.current as any)?.formatMessagesSync?.([
+      { id: key },
+    ])?.[0];
+    const value = String(pattern?.value || "").trim();
+    return value && value !== key ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function withSynthesisWorkbenchI18n(payload: unknown) {
+  const i18n = buildSynthesisWorkbenchI18nEnvelope();
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    return {
+      ...(payload as Record<string, unknown>),
+      i18n,
+    };
+  }
+  return { value: payload, i18n };
 }
 
 function resolveSynthesisPageUrl() {
@@ -562,7 +668,7 @@ function postWorkbenchMessage(
   runtime.frameWindow.postMessage(
     {
       type,
-      payload,
+      payload: withSynthesisWorkbenchI18n(payload),
     },
     "*",
   );
@@ -811,23 +917,51 @@ async function sendSurface(
   if (!runtime?.frameWindow) {
     return;
   }
+  const refreshFromService = options.refreshFromService !== false;
+  const request = beginSurfaceRefreshRequest(
+    runtime,
+    surface,
+    refreshFromService,
+  );
   try {
-    if (options.refreshFromService !== false && !runtime.snapshotInputLocked) {
+    if (refreshFromService && !runtime.snapshotInputLocked) {
       const input =
         await getDefaultSynthesisService().getSynthesisWorkbenchSurfaceInput(
           surface,
           runtime.state,
         );
+      if (!isLatestSurfaceRefreshRequest(runtime, request)) {
+        return;
+      }
       mergeRuntimeSnapshotInput(runtime, input);
       markSurfaceLoaded(runtime, surface);
     }
+    if (
+      !isLatestSurfaceRefreshRequest(runtime, request) ||
+      !isActiveSurface(runtime, surface)
+    ) {
+      return;
+    }
     postWorkbenchMessage(runtime, "synthesis:surface", {
       surface,
+      request,
+      requestId: request.requestId,
       snapshot: snapshotForRuntime(runtime),
     });
   } catch (error) {
+    if (
+      !isLatestSurfaceRefreshRequest(runtime, request) ||
+      !isActiveSurface(runtime, surface)
+    ) {
+      return;
+    }
+    const transient = isTransientStorageBusyError(error);
     postWorkbenchMessage(runtime, "synthesis:surface-error", {
       surface,
+      request,
+      requestId: request.requestId,
+      transient,
+      code: transient ? "storage_busy" : "surface_refresh_failed",
       message: error instanceof Error ? error.message : String(error || ""),
     });
   }
@@ -844,13 +978,16 @@ function scheduleActiveSurfaceRefresh(
   runtime: SynthesisWorkbenchRuntime,
   options: { refreshFromService?: boolean } = {},
 ) {
+  const scheduledSurface = surfaceForTab(runtime.state.selectedTab);
   globalThis.setTimeout(() => {
-    const surface = surfaceForTab(runtime.state.selectedTab);
+    if (!isActiveSurface(runtime, scheduledSurface)) {
+      return;
+    }
     const refreshFromService =
       options.refreshFromService !== undefined
         ? options.refreshFromService
-        : surfaceNeedsServiceRefresh(runtime, surface);
-    void sendSurface(runtime, surface, { refreshFromService });
+        : surfaceNeedsServiceRefresh(runtime, scheduledSurface);
+    void sendSurface(runtime, scheduledSurface, { refreshFromService });
   }, 0);
 }
 
@@ -1509,7 +1646,9 @@ function handleAction(
                   ? {
                       kind: "zotero_item" as const,
                       libraryId: Number(target.libraryId || target.library_id),
-                      itemKey: String(target.itemKey || target.item_key || "").trim(),
+                      itemKey: String(
+                        target.itemKey || target.item_key || "",
+                      ).trim(),
                     }
                   : undefined;
             return action === "manual_target"
@@ -1621,7 +1760,9 @@ function handleAction(
   if (result.hostCommand?.command === "updateCanonicalReferenceMetadata") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const canonicalReferenceId = String(
-      commandArgs.canonicalReferenceId || commandArgs.canonical_reference_id || "",
+      commandArgs.canonicalReferenceId ||
+        commandArgs.canonical_reference_id ||
+        "",
     ).trim();
     const patch =
       commandArgs.patch &&
@@ -1650,7 +1791,9 @@ function handleAction(
   if (result.hostCommand?.command === "archiveCanonicalReference") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const canonicalReferenceId = String(
-      commandArgs.canonicalReferenceId || commandArgs.canonical_reference_id || "",
+      commandArgs.canonicalReferenceId ||
+        commandArgs.canonical_reference_id ||
+        "",
     ).trim();
     if (canonicalReferenceId) {
       runWorkbenchCommandOnce(
@@ -1831,7 +1974,9 @@ function handleAction(
           const service = getDefaultSynthesisService();
           const snapshot = await service.loadTagVocabulary();
           return service.saveTagVocabulary({
-            entries: snapshot.entries.filter((entry) => entry.tag !== originalTag),
+            entries: snapshot.entries.filter(
+              (entry) => entry.tag !== originalTag,
+            ),
             aliases: snapshot.aliases,
             abbrev: snapshot.abbrev,
             protocol: snapshot.protocol,
@@ -2051,7 +2196,7 @@ function surfacesInvalidatedByCommand(
     command === "rejectTopicGraphRelation" ||
     command === "applyTopicGraphReviewAction"
   ) {
-    return ["home", "graph", "review"];
+    return ["home", "topics", "graph", "review"];
   }
   if (
     command === "deleteTopicArtifact" ||
@@ -2233,6 +2378,8 @@ export async function mountSynthesisWorkbenchRuntime(args: {
     snapshotInputLocked: Boolean(args.snapshotInput),
     loadedSurfaces: new Set(),
     dirtySurfaces: new Set(),
+    surfaceRequestSeq: 0,
+    latestSurfaceRequestBySurface: {},
     libraryReadModelRevision: synthesisLibraryReadModelRevision,
     inFlightCommands: new Map(),
     actionWarnings: [],
@@ -2275,7 +2422,11 @@ export async function openSynthesisWorkbenchTab(
     id: SYNTHESIS_WORKBENCH_TAB_ID,
     type: "synthesis-workbench",
     title: localize("synthesis-workbench-title", "Synthesis"),
-    data: { kind: "synthesis-workbench" },
+    data: {
+      kind: "synthesis-workbench",
+      icon: SYNTHESIS_WORKBENCH_TAB_ICON,
+      iconURI: SYNTHESIS_WORKBENCH_TAB_ICON_URI,
+    },
     select: true,
     onClose: cleanupSynthesisWorkbenchTab,
   });
@@ -2303,6 +2454,8 @@ export async function openSynthesisWorkbenchTab(
     snapshotInputLocked: Boolean(args.snapshotInput),
     loadedSurfaces: new Set(),
     dirtySurfaces: new Set(),
+    surfaceRequestSeq: 0,
+    latestSurfaceRequestBySurface: {},
     libraryReadModelRevision: synthesisLibraryReadModelRevision,
     inFlightCommands: new Map(),
     actionWarnings: [],

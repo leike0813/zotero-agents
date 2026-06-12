@@ -2,25 +2,37 @@
 
 本文档描述当前实现下的执行主链路。
 
-硬化基线与技术债盘点请见：`doc/architecture-hardening-baseline.md`。
+硬化基线与技术债盘点请见（已归档）：`artifact/archive/architecture-hardening-baseline.md`。
 
 ## Mermaid 流程图（当前实现）
 
 ```mermaid
 flowchart TD
-  A[User Trigger] --> B[SelectionContext]
-  B --> C[Workflow Input Filter]
+  A[User Trigger] --> B[Build SelectionContext]
+  B --> C[Input Filter]
   C -->|no valid units| C1[Skip / Disabled]
   C --> D[Build Requests]
-  D --> E[Resolve Workflow Execution Context]
-  E --> F[JobQueue Enqueue]
-  F --> G[ProviderRegistry Resolve]
-  G --> H[Provider Execute]
-  H --> I[ProviderExecutionResult]
-  I --> J[applyResult Hook]
-  J --> K[Handlers Persist]
-  K --> L[Finish Message]
+  D --> E[Resolve Execution Context]
+  E --> F{Settings Gate}
+  F -->|configurable + no override| F1[Show Settings Dialog]
+  F1 -->|confirmed| F2[Merge override & persist]
+  F1 -->|canceled| F3[Abort]
+  F2 --> G[Preparation &amp; Provider Resolution]
+  F -->|skipped| G
+  E -->|not configurable| G
+  G --> H{Duplicate Guard}
+  H -->|all duplicates| H1[Skip all]
+  H --> I[JobQueue Enqueue]
+  I --> J[JobQueue Execute]
+  J --> K[Provider Execute]
+  K --> L[applyResult Hook]
+  L --> M{Has deferred jobs?}
+  M -->|yes| N[Register Deferred Completion &amp; Prompt Reconciler]
+  M -->|no| P[Finish Message]
+  J -->|all jobs done| L
 ```
+
+Provider 解析在 Preparation 阶段完成（`runWorkflowPreparationSeam` 内调用 `resolveWorkflowExecutionContext`），解析结果直接注入 JobQueue 回调。
 
 ## 1. 启动阶段
 
@@ -49,11 +61,13 @@ flowchart TD
    - request kind（workflow + backend type）
    - workflow params / provider options（persisted + run-once）
    - backend 兼容性仅由 workflow `provider` 派生，`request.kind` 只描述请求形状
-3. 入队执行（FIFO + provider 决定的并发）
+3. 设置门控：若 workflow 声明 `requireSettingsGate=true` 且未传入 `executionOptionsOverride`，弹出设置 Web 对话框供用户确认/修改配置。用户取消则本次执行中止
+4. 去重守卫：`runWorkflowDuplicateGuardSeam` 检查是否有 pending 的相同请求。若全部为重复则跳过执行
+5. 入队执行（FIFO + provider 决定的并发）
 
 ## 4. Provider 执行
 
-1. `ProviderRegistry` 按 `requestKind + backend.type` 选择 provider  
+1. Provider 在执行上下文中已预先解析完成（Preparation 阶段），JobQueue 回调直接使用
 2. provider 发起网络请求并返回 `ProviderExecutionResult`
 3. 结果形态可能是：
    - `bundle`（含 `bundleBytes`）
@@ -66,6 +80,12 @@ flowchart TD
 1. `workflowExecute` 根据结果构造 `bundleReader`（或不可用占位 reader）  
 2. 调用 workflow `applyResult`  
 3. 由 handlers 写入 Zotero（note/tag/attachment 等）
+
+## 5a. 延迟作业协调
+
+1. 若 applyResult 返回了 `reconcileOwnedPendingJobs`，注册延迟完成跟踪（`registerDeferredWorkflowCompletion`）
+2. 调用 `promptSkillRunnerTaskReconcileRequests` 触发协调器
+3. 任务进入后台 tracking 状态，等待后续 reconcile 回调完成
 
 ## 6. 任务管理窗口
 

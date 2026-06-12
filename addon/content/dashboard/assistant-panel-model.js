@@ -1527,6 +1527,7 @@
         statusText === "waiting-user" ||
         statusText === "waiting_auth" ||
         statusText === "waiting-auth" ||
+        Boolean(entry && entry.pendingInteraction) ||
         Boolean(entry && entry.pendingPermission);
       const terminal = isTerminalStatus(normalizeStatusToken(statusText));
       return {
@@ -1649,13 +1650,17 @@
         : conversation.interaction;
     const activePrompt = Boolean(run && run.activePrompt === true);
     const replyState = safeText(run && run.replyState);
+    const hasPendingInteraction = Boolean(run && run.pendingInteraction);
     const activeContinuation =
       ["submitted", "accepted", "sending"].indexOf(replyState) >= 0;
+    const waitingForUser =
+      status === "waiting-user" ||
+      status === "waiting-auth" ||
+      (hasPendingInteraction && !activePrompt && !activeContinuation);
     const busyRun =
       activePrompt ||
       activeContinuation ||
-      ["queued", "running", "repairing"].indexOf(status) >= 0;
-    const waitingForUser = status === "waiting-user" || status === "waiting-auth";
+      (!waitingForUser && ["queued", "running", "repairing"].indexOf(status) >= 0);
     const terminalRun = isTerminalStatus(status);
     const runtimeOptions =
       panel.selectedRuntimeOptions && typeof panel.selectedRuntimeOptions === "object"

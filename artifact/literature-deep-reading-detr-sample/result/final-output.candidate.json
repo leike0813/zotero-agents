@@ -1,0 +1,28 @@
+{
+  "html": "deep-reading.html",
+  "sections": [
+    "sections/sections.json"
+  ],
+  "diagnostics": [
+    {
+      "severity": "info",
+      "code": "USER_SUPPLIED_MINERU_DIRECTORY",
+      "message": "Input Markdown, PDF and images were copied from the user-specified MinerU directory."
+    },
+    {
+      "severity": "warning",
+      "code": "HOST_BRIDGE_PDF_DOWNLOAD_INVALID",
+      "message": "A previous Host Bridge PDF download produced an invalid/truncated local copy; this artifact uses the user-specified local PDF."
+    },
+    {
+      "severity": "warning",
+      "code": "TOPICS_GET_CONTEXT_DELETED",
+      "message": "Host Bridge topic lookup reported deleted while the local topic artifact exists; the local artifact was read directly."
+    },
+    {
+      "severity": "info",
+      "code": "CITATION_GRAPH_SNAPSHOT_TRUNCATED",
+      "message": "Citation graph snapshot was truncated by maxNodes/maxEdges limits."
+    }
+  ]
+}

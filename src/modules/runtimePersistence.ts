@@ -1,4 +1,5 @@
 import { joinPath } from "../utils/path";
+import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -167,6 +168,13 @@ let pluginTaskScopeByteEstimator:
   | ((domain: string, scope: string) => number)
   | null = null;
 let acpSkillRunsMemoryClearer: (() => void) | null = null;
+let acpSkillRunsRetentionCleaner:
+  | ((args: { retentionMs: number; nowMs: number }) => {
+      rowsDeleted: number;
+      requestIds: string[];
+      workspaceDirs: string[];
+    })
+  | null = null;
 
 export function registerRuntimeLogClearer(clearer: (() => void) | null) {
   runtimeLogClearer = clearer;
@@ -232,12 +240,30 @@ export function registerAcpSkillRunsMemoryClearer(
   acpSkillRunsMemoryClearer = clearer;
 }
 
+export function registerAcpSkillRunsRetentionCleaner(
+  cleaner:
+    | ((args: { retentionMs: number; nowMs: number }) => {
+        rowsDeleted: number;
+        requestIds: string[];
+        workspaceDirs: string[];
+      })
+    | null,
+) {
+  acpSkillRunsRetentionCleaner = cleaner;
+}
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
 function normalizeSlashes(path: string) {
   return normalizeString(path).replace(/\\/g, "/");
+}
+
+function isPathWithinRoot(rootRaw: string, targetRaw: string) {
+  const root = normalizeSlashes(rootRaw).replace(/\/+$/g, "");
+  const target = normalizeSlashes(targetRaw).replace(/\/+$/g, "");
+  return !!root && (target === root || target.startsWith(`${root}/`));
 }
 
 function isAbsolutePathLike(path: string) {
@@ -1365,6 +1391,39 @@ export async function cleanupRuntimePersistenceCategory(
   return {
     ok: true,
     category,
+    removedPaths,
+    details,
+    usage: await scanRuntimePersistenceUsage(),
+  };
+}
+
+export async function cleanupRuntimePersistenceRetention(args?: {
+  nowMs?: number;
+}) {
+  const paths = getRuntimePersistencePaths();
+  const nowMs = Math.max(0, Number(args?.nowMs || 0) || 0) || Date.now();
+  const retention = getTaskHistoryRetentionConfig();
+  const details: Record<string, unknown> = {
+    retentionDays: retention.retentionDays,
+    retentionMs: retention.retentionMs,
+  };
+  const removedPaths: string[] = [];
+  const cleanerResult = acpSkillRunsRetentionCleaner?.({
+    retentionMs: retention.retentionMs,
+    nowMs,
+  });
+  details.acpSkillRunRowsDeleted = cleanerResult?.rowsDeleted || 0;
+  details.acpSkillRunRequestIds = cleanerResult?.requestIds || [];
+  for (const workspaceDir of cleanerResult?.workspaceDirs || []) {
+    if (!isPathWithinRoot(paths.acpSkillRunsDir, workspaceDir)) {
+      continue;
+    }
+    if (await removeRuntimePath(workspaceDir)) {
+      removedPaths.push(workspaceDir);
+    }
+  }
+  return {
+    ok: true,
     removedPaths,
     details,
     usage: await scanRuntimePersistenceUsage(),

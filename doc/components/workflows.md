@@ -66,11 +66,11 @@ import { fetchRemote } from '../lib/remote.mjs';
 ## 内建/用户目录治理（当前实现）
 
 - 内建目录（启动同步目标）：
-  - `<Zotero.DataDirectory>/zotero-skills/workflows_builtin`
-  - 若 `Zotero.DataDirectory` 不可用，回退到 `<cwd>/.zotero-skills-runtime/workflows_builtin`
+  - `<Zotero.DataDirectory>/zotero-agents/data/workflows_builtin`
+  - 若 `Zotero.DataDirectory` 不可用，按平台回退到系统标准应用数据目录下的 `zotero-agents/data/workflows_builtin`
 - 用户目录（`workflowDir`）：
   - 优先使用偏好值 `workflowDir`
-  - 为空时默认 `<Zotero.DataDirectory>/zotero-skills/workflows`
+  - 为空时默认 `<Zotero.DataDirectory>/zotero-agents/data/workflows`
 - `.env` 中的 `ZOTERO_PLUGIN_DATA_DIR` 不由插件业务代码直接读取：
   - 该变量由 scaffold 启动器消费
   - 最终体现为运行时的 `Zotero.DataDirectory.dir`

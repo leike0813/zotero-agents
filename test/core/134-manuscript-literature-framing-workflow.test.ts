@@ -17,8 +17,14 @@ describe("Manuscript Literature Framing workflow contract", function () {
 
     assert.equal(workflow.id, "manuscript-literature-framing");
     assert.equal(workflow.label, "Manuscript Literature Framing");
-    assert.equal(workflow.request?.create?.skill_id, "manuscript-literature-framing");
-    assert.equal(workflow.taskNameTemplate, "Frame manuscript literature: {paperTitle}");
+    assert.equal(
+      workflow.request?.create?.skill_id,
+      "manuscript-literature-framing",
+    );
+    assert.equal(
+      workflow.taskNameTemplate,
+      "Frame manuscript literature: {paperTitle}",
+    );
     assert.equal(workflow.inputs?.unit, "workflow");
     assert.equal(workflow.execution?.skillrunner_mode, "interactive");
     assert.equal(workflow.provider, "acp");
@@ -63,15 +69,22 @@ describe("Manuscript Literature Framing workflow contract", function () {
       requests[0].parameter?.paperTitle,
       "Efficient Detector Adaptation in Degraded Visual Scenes",
     );
-    assert.isUndefined((requests[0] as any).runtime_options?.zotero_host_access);
+    assert.isUndefined(
+      (requests[0] as any).runtime_options?.zotero_host_access,
+    );
     assert.isUndefined((requests[0] as any).runtime_options?.workflow_mcp);
   });
 
   it("registers the workflow in the builtin synthesis-layer package and packaged manifest", async function () {
     const packageJson = JSON.parse(
-      await fs.readFile("workflows_builtin/synthesis-layer/workflow-package.json", "utf8"),
+      await fs.readFile(
+        "workflows_builtin/synthesis-layer/workflow-package.json",
+        "utf8",
+      ),
     );
-    const manifest = JSON.parse(await fs.readFile("workflows_builtin/manifest.json", "utf8"));
+    const manifest = JSON.parse(
+      await fs.readFile("workflows_builtin/manifest.json", "utf8"),
+    );
     assert.include(
       packageJson.workflows,
       "manuscript-literature-framing/workflow.json",
@@ -80,6 +93,16 @@ describe("Manuscript Literature Framing workflow contract", function () {
       manifest.files,
       "synthesis-layer/manuscript-literature-framing/workflow.json",
     );
+  });
+
+  it("ships a package hook that stays compatible with the Zotero hook bundler", async function () {
+    const hookSource = await fs.readFile(
+      "workflows_builtin/synthesis-layer/hooks/applyManuscriptLiteratureFramingResult.mjs",
+      "utf8",
+    );
+
+    assert.match(hookSource, /export\s+async\s+function\s+applyResult\b/);
+    assert.notMatch(hookSource, /export\s+default\b/);
   });
 
   it("ships a self-contained manuscript literature framing skill package", async function () {
@@ -92,7 +115,10 @@ describe("Manuscript Literature Framing workflow contract", function () {
     assert.include(files, "SKILL.md");
     assert.include(files, "assets/runner.json");
     assert.include(files, "assets/output.schema.json");
-    assert.include(files, "references/scientific_introduction_related_work_writing_guide_zh.md");
+    assert.include(
+      files,
+      "references/scientific_introduction_related_work_writing_guide_zh.md",
+    );
     assert.notInclude(files, "references/introduction_related_work_guide.md");
     assert.include(files, "scripts/gate_runtime.py");
     assert.include(files, "scripts/stage_runtime.py");
@@ -128,12 +154,21 @@ describe("Manuscript Literature Framing workflow contract", function () {
     }
     assert.notInclude(prompt, "MCP");
     assert.notInclude(skill, "MCP");
-    assert.include(skill, "背景动机 → 具体问题 → 现有路线 → gap → 本文定位/贡献 → 结构引导");
-    assert.include(skill, "taxonomy / method lines / benchmark dimensions / debates");
+    assert.include(
+      skill,
+      "背景动机 → 具体问题 → 现有路线 → gap → 本文定位/贡献 → 结构引导",
+    );
+    assert.include(
+      skill,
+      "taxonomy / method lines / benchmark dimensions / debates",
+    );
     assert.include(skill, "survey-of-surveys");
     assert.include(skill, "persist_domain_route_analysis");
     assert.include(skill, "persist_gap_alignment_analysis");
-    assert.include(skill, "scientific_introduction_related_work_writing_guide_zh.md");
+    assert.include(
+      skill,
+      "scientific_introduction_related_work_writing_guide_zh.md",
+    );
     assert.notInclude(skill, "introduction_related_work_guide.md");
     assert.notInclude(prompt, "introduction_related_work_guide.md");
   });

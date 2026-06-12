@@ -48,7 +48,7 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     backendId: "acp-claude-code",
     displayName: "Claude Code ACP",
     command: "npx",
-    args: ["@zed-industries/claude-code-acp@latest"],
+    args: ["@agentclientprotocol/claude-agent-acp@latest"],
     agentFamily: "claude-code",
   },
   {

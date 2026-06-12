@@ -1,5 +1,6 @@
 import { resolveProviderById } from "../providers/registry";
 import { isSkillRunnerProviderScopedEngine } from "../providers/skillrunner/modelCatalog";
+import { projectAcpProviderModelOptionsForUi } from "./acpModelOptionFolding";
 import type { ProviderRuntimeOptionSchemaEntry } from "../providers/types";
 import type { BackendInstance } from "../backends/types";
 import type { WorkflowParameterSchema } from "../workflows/types";
@@ -110,7 +111,17 @@ export function resolveProviderSchemaEntries(args: {
     const provider = resolveProviderById(args.providerId);
     const schema = provider.getRuntimeOptionSchema?.() || {};
     const entries = fromProviderOptionSchema(schema);
-    const values = args.currentValues || {};
+    const values =
+      args.providerId === "acp" &&
+      String(args.backend?.type || "").trim() === "acp"
+        ? projectAcpProviderModelOptionsForUi({
+            modelOptions:
+              args.backend?.acp?.runtimeOptionsCache?.displayModels || [],
+            options: args.currentValues || {},
+            currentDisplayModelId:
+              args.backend?.acp?.runtimeOptionsCache?.currentDisplayModelId,
+          })
+        : args.currentValues || {};
     const engine = String(values.engine || "").trim();
     const scope =
       args.backend &&
@@ -125,38 +136,51 @@ export function resolveProviderSchemaEntries(args: {
       args.providerId === "skillrunner" &&
       isSkillRunnerProviderScopedEngine(engine, scope);
     return entries
+      .map((entry) => {
+        if (entry.type !== "string") {
+          return entry;
+        }
+        const dynamicEnum = provider.getRuntimeOptionEnumValues?.({
+          key: entry.key,
+          options: values,
+          backend: args.backend,
+        });
+        if (Array.isArray(dynamicEnum) && dynamicEnum.length > 0) {
+          const enumValues = normalizeEnum(dynamicEnum);
+          return {
+            ...entry,
+            enumValues,
+            defaultValue:
+              typeof values[entry.key] !== "undefined"
+                ? values[entry.key]
+                : entry.defaultValue,
+            disabled:
+              (entry.key === "effort" ||
+                entry.key === "acpReasoningEffort") &&
+              enumValues.length <= 1,
+          };
+        }
+        if (entry.key === "effort") {
+          return {
+            ...entry,
+            enumValues: ["default"],
+            disabled: true,
+          };
+        }
+        return entry;
+      })
       .filter((entry) => {
+        if (
+          entry.key === "acpModelProvider" &&
+          (!entry.enumValues || entry.enumValues.length === 0)
+        ) {
+          return false;
+        }
         if (entry.key === "provider_id" && !isSkillRunnerScopedProviderField) {
           return false;
         }
         return true;
-      })
-      .map((entry) => {
-      if (entry.type !== "string") {
-        return entry;
-      }
-      const dynamicEnum = provider.getRuntimeOptionEnumValues?.({
-        key: entry.key,
-        options: values,
-        backend: args.backend,
       });
-      if (Array.isArray(dynamicEnum) && dynamicEnum.length > 0) {
-        return {
-          ...entry,
-          enumValues: normalizeEnum(dynamicEnum),
-          disabled:
-            entry.key === "effort" && normalizeEnum(dynamicEnum).length <= 1,
-        };
-      }
-      if (entry.key === "effort") {
-        return {
-          ...entry,
-          enumValues: ["default"],
-          disabled: true,
-        };
-      }
-      return entry;
-    });
   } catch {
     return [] as FormSchemaEntry[];
   }

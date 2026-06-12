@@ -210,8 +210,20 @@ Primary implementation: `src/modules/workflowEditorHost.ts`.
 `readText(path): Promise<string>`
 - Reads text file content.
 
+`readBytes(path): Promise<Uint8Array>`
+- Reads file as binary data.
+
 `writeText(path, content): Promise<void>`
 - Writes text content to file.
+
+`writeBytes(path, content): Promise<void>`
+- Writes binary data to file.
+
+`copy(src, dest): Promise<void>`
+- Copies file or directory from `src` to `dest`.
+
+`pathToFile(path): string`
+- Converts a filesystem path string to a Zotero `nsIFile` path.
 
 `exists(path): Promise<boolean>`
 - Checks if file or directory exists.
@@ -246,6 +258,9 @@ Hook receives `runtime` object with these fields:
 | `atob` | `typeof atob \| null` | Base64 decode (if available) |
 | `TextEncoder` | `typeof TextEncoder \| null` | Text encoder (if available) |
 | `TextDecoder` | `typeof TextDecoder \| null` | Text decoder (if available) |
+| `addon` | `typeof addon \| null` | Addon instance (if available) |
+| `FileReader` | `typeof globalThis.FileReader \| null` | FileReader API (if available) |
+| `navigator` | `typeof globalThis.navigator \| null` | Navigator object (if available) |
 
 ## Practical Examples
 

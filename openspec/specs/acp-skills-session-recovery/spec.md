@@ -13,6 +13,15 @@ ACP Skills SHALL detach local controllers on plugin shutdown without ending remo
 - **AND** the run is marked recoverable
 - **AND** the remote session is not canceled or ended.
 
+#### Scenario: Shutdown while waiting for user reply preserves pending input
+- **GIVEN** an ACP Skill workflow run is waiting for user input
+- **AND** the run has a recoverable session and pending interaction
+- **WHEN** Zotero shuts down
+- **THEN** the local controller is detached
+- **AND** the pending interaction remains available after restart
+- **AND** the run is not completed as workflow apply success
+- **AND** reconnect or reply can continue the same session.
+
 ### Requirement: ACP Skills SHALL recover before replying
 ACP Skills SHALL attempt to restore a missing live controller before sending a reply.
 
@@ -66,4 +75,3 @@ ACP Skills SHALL keep user-facing transcript text separate from backend prompt w
 - **THEN** the user message shows the original user reply
 - **AND** the continuation guard is not rendered as the user-facing message body
 - **AND** backend transcripts or diagnostics MAY retain the full wrapped prompt for investigation.
-

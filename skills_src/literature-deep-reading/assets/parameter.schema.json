@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "target_language": {
+      "type": "string",
+      "default": "zh-CN",
+      "description": "Target reading language for later stages. Bootstrap records it but does not translate."
+    }
+  },
+  "additionalProperties": false
+}

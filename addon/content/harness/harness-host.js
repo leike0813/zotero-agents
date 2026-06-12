@@ -1,10 +1,13 @@
 (function () {
   "use strict";
 
+  const supportedLocales = ["en-US", "zh-CN", "ja-JP", "fr-FR"];
+
   const state = {
     frames: Object.create(null),
     actionLog: [],
     frameState: Object.create(null),
+    locale: resolveInitialLocale(),
     assistantActiveTab: "acp-chat",
     assistantSkillRunnerDrawerOpen: false,
     assistantSkillRunnerSelectedTaskKey: "",
@@ -18,6 +21,35 @@
     dashboard: "/content/dashboard/index.html",
     synthesis: "/content/synthesis/index.html",
   };
+
+  function normalizeLocale(input) {
+    const value = String(input || "")
+      .replace("_", "-")
+      .toLowerCase();
+    if (!value) return "";
+    const exact = supportedLocales.find(
+      (locale) => locale.toLowerCase() === value,
+    );
+    if (exact) return exact;
+    const language = value.split("-")[0];
+    if (language === "zh") return "zh-CN";
+    if (language === "ja") return "ja-JP";
+    if (language === "fr") return "fr-FR";
+    if (language === "en") return "en-US";
+    return "";
+  }
+
+  function resolveInitialLocale() {
+    const query = new URLSearchParams(window.location.search).get("locale");
+    const stored = window.localStorage?.getItem("zsReadonlyHarnessLocale");
+    const navigatorLocale = window.navigator?.language;
+    return (
+      normalizeLocale(query) ||
+      normalizeLocale(stored) ||
+      normalizeLocale(navigatorLocale) ||
+      "en-US"
+    );
+  }
 
   function sendFrame(frame, type, payload) {
     if (!frame || !frame.contentWindow) return;
@@ -36,8 +68,14 @@
   async function api(path, body) {
     const response = await fetch(path, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body || {}),
+      headers: {
+        "content-type": "application/json",
+        "x-zs-harness-locale": state.locale,
+      },
+      body: JSON.stringify({
+        ...(body || {}),
+        locale: state.locale,
+      }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -371,6 +409,37 @@
     return { ok: true, readonly: true };
   }
 
+  function refreshSynthesisLocale() {
+    const frame = state.frames["workspace-synthesis"];
+    if (!frame) return;
+    installSynthesisBridge(frame);
+    void handleSynthesisAction(frame, "ready", {});
+  }
+
+  function syncLocaleToUrl() {
+    const url = new URL(window.location.href);
+    url.searchParams.set("locale", state.locale);
+    window.history.replaceState(null, "", url);
+  }
+
+  function initLocaleControl() {
+    const select = document.getElementById("harness-locale-select");
+    if (!select) return;
+    select.value = state.locale;
+    syncLocaleToUrl();
+    select.addEventListener("change", () => {
+      const nextLocale = normalizeLocale(select.value) || "en-US";
+      if (nextLocale === state.locale) return;
+      state.locale = nextLocale;
+      select.value = state.locale;
+      window.localStorage?.setItem("zsReadonlyHarnessLocale", state.locale);
+      syncLocaleToUrl();
+      markFrameState("harness", { locale: state.locale });
+      refreshSynthesisLocale();
+    });
+    markFrameState("harness", { locale: state.locale });
+  }
+
   function frameForSource(source) {
     return Object.values(state.frames).find(
       (candidate) => candidate.contentWindow === source,
@@ -433,6 +502,7 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     installLiveReload();
+    initLocaleControl();
     state.frames.workspace = document.getElementById("harness-workspace-frame");
     state.frames.assistant = document.getElementById("harness-assistant-frame");
 

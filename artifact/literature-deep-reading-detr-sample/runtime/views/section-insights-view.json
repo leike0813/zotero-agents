@@ -1,0 +1,603 @@
+{
+  "schema_version": "literature-deep-reading.section-insights-view.v0",
+  "source": "citation_analysis_artifact",
+  "artifact_path": "artifacts/citation-analysis.md",
+  "overall_citation_summary": "本文围绕将Transformer引入目标检测以实现端到端直接集合预测这一核心论点组织引文。首先用早期注意力与序列建模工作铺出技术背景，说明自注意力和集合匹配的由来；接着对比主流目标检测范式，突出它们对锚框和NMS的依赖，为DETR的简化设计做铺垫；然后借关键Transformer文献和直接集合预测工作把本文方法路线明确定位在并行解码Transformer加二分匹配损失的交汇点；最后在全景分割扩展中展示DETR的可扩展性。",
+  "by_anchor": {
+    "sec-end-to-end-object-detection-with-transformers": {
+      "section_anchor": "sec-end-to-end-object-detection-with-transformers",
+      "section_title": "End-to-End Object Detection with Transformers",
+      "citation_note": "",
+      "citation_references": [],
+      "questions": [
+        {
+          "id": "qa-end-to-end-object-detection-with-transformers-1",
+          "question": "这篇论文最核心的主张是什么？",
+          "answer": "目标检测可以被直接建模为集合预测：模型一次性输出最终对象集合，而不是先产生大量候选再用 NMS 清理。",
+          "section_anchor": "sec-end-to-end-object-detection-with-transformers"
+        },
+        {
+          "id": "qa-end-to-end-object-detection-with-transformers-2",
+          "question": "为什么这不是简单地把 Transformer 加进检测器？",
+          "answer": "因为本文同时改变了训练目标和输出形式：二分匹配损失负责唯一分配，Transformer decoder 的 object queries 负责并行生成预测槽位。",
+          "section_anchor": "sec-end-to-end-object-detection-with-transformers"
+        }
+      ]
+    },
+    "sec-1-introduction": {
+      "section_anchor": "sec-1-introduction",
+      "section_title": "1 Introduction",
+      "citation_note": "Introduction 用 Faster R-CNN、RetinaNet/Focal Loss、FPN 和 COCO 建立强基线语境：DETR 要挑战的不是弱检测器，而是经过长期优化的主流检测范式。",
+      "citation_references": [
+        {
+          "ref": "[36]",
+          "title": "Faster R-CNN: towards real-time object detection with region proposal networks. PAMI",
+          "keywords": "Faster R-CNN, 区域建议网络, 两阶段检测, 基线对比",
+          "summary": "原文在Faster R-CNN和区域建议网络方面引用该工作。原文将Faster R-CNN作为主要对比基线，在多个上下文中引用其候选框机制、训练方式等。"
+        },
+        {
+          "ref": "[22]",
+          "title": "Focal loss for dense object detection",
+          "keywords": "RetinaNet, Focal Loss, 单阶段检测, 锚框",
+          "summary": "原文在RetinaNet和Focal Loss方面引用该工作。原文将其作为基于锚框的单阶段检测器代表，在多个上下文中引用来说明现代检测器的设计模式。"
+        },
+        {
+          "ref": "[21]",
+          "title": "Feature pyramid networks for object detection",
+          "keywords": "FPN, 多尺度特征, 小目标检测",
+          "summary": "原文在FPN和多尺度特征方面引用该工作。原文在讨论小目标检测挑战时引用FPN，期望未来工作能像FPN改善Faster R-CNN一样改善DETR的小目标性能。"
+        },
+        {
+          "ref": "[23]",
+          "title": "Microsoft COCO: common objects in context. In: Fleet, D., Pajdla, T., Schiele, B., Tuytelaars, T. (eds.) ECCV 2014",
+          "keywords": "COCO, 目标检测数据集, 评估基准",
+          "summary": "原文在COCO和目标检测数据集方面引用该工作。原文在实验设置和评估中引用COCO数据集论文，作为主要实验平台。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-1-introduction-1",
+          "question": "作者为什么反复强调 NMS 和 anchors？",
+          "answer": "这些组件代表传统检测器中的手工先验和后处理。DETR 的目标正是让模型直接学会唯一对象集合，推理阶段不再依赖这些规则。",
+          "section_anchor": "sec-1-introduction"
+        },
+        {
+          "id": "qa-1-introduction-2",
+          "question": "Introduction 中的大目标优势和小目标短板意味着什么？",
+          "answer": "大目标优势支持全局 self-attention 的价值；小目标短板说明初版 DETR 缺少多尺度细节建模，后续 DETR-family 很多工作都围绕这一点展开。",
+          "section_anchor": "sec-1-introduction"
+        }
+      ]
+    },
+    "sec-2-related-work": {
+      "section_anchor": "sec-2-related-work",
+      "section_title": "2 Related Work",
+      "citation_note": "Related Work 将引用组织为三条功能线：集合匹配、Transformer/并行解码、传统检测器与去重机制，目的是证明 DETR 的组合设计有明确来源。",
+      "citation_references": [
+        {
+          "ref": "[19]",
+          "title": "The Hungarian method for the assignment problem",
+          "keywords": "匈牙利算法, 二分匹配, 分配问题",
+          "summary": "原文在匈牙利算法和二分匹配方面引用该工作。原文在集合预测损失中使用匈牙利算法进行最优二分匹配，引用其原始论文。"
+        },
+        {
+          "ref": "[42]",
+          "title": "End-to-end people detection in crowded scenes",
+          "keywords": "人群检测, 端到端, 匈牙利匹配",
+          "summary": "原文在人群检测和端到端方面引用该工作。原文将其列为最接近DETR思路的端到端集合预测工作之一，并在匈牙利匹配部分引用。"
+        },
+        {
+          "ref": "[46]",
+          "title": "Attention is all you need",
+          "keywords": "Transformer, 自注意力, 编码器-解码器, 位置编码",
+          "summary": "原文在Transformer和自注意力方面引用该工作。原文的核心架构基础，多次引用其编码器-解码器结构、自注意力机制和位置编码。"
+        },
+        {
+          "ref": "[4]",
+          "title": "Soft-NMS—improving object detection with one line of code",
+          "keywords": "Soft-NMS, 后处理, 去重",
+          "summary": "原文在Soft-NMS和后处理方面引用该工作。原文将其列为 prior work 中使用直接集合损失但仍需要手工特征的NMS替代方法。"
+        },
+        {
+          "ref": "[16]",
+          "title": "Relation networks for object detection",
+          "keywords": "关系网络, 注意力, 检测后处理",
+          "summary": "原文在关系网络和注意力方面引用该工作。原文在讨论显式建模预测间关系的方法时引用，说明这类方法仍需要额外的手工上下文特征。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-2-related-work-1",
+          "question": "Related Work 的三条线索分别服务什么论证？",
+          "answer": "集合预测解释监督形式，Transformer/并行解码解释模型形式，目标检测文献解释 DETR 要去除的传统检测先验。",
+          "section_anchor": "sec-2-related-work"
+        },
+        {
+          "id": "qa-2-related-work-2",
+          "question": "为什么相关工作不是普通背景罗列？",
+          "answer": "这些引用共同证明 DETR 的问题定义：需要一种既能做无序集合监督、又能并行输出、还能替代 NMS/anchor 管线的检测框架。",
+          "section_anchor": "sec-2-related-work"
+        }
+      ]
+    },
+    "sec-2-1-set-prediction": {
+      "section_anchor": "sec-2-1-set-prediction",
+      "section_title": "2.1 Set Prediction",
+      "citation_note": "集合预测部分的引用强调 Hungarian matching 和早期端到端检测尝试，说明一对一分配是直接集合预测的监督核心。",
+      "citation_references": [
+        {
+          "ref": "[19]",
+          "title": "The Hungarian method for the assignment problem",
+          "keywords": "匈牙利算法, 二分匹配, 分配问题",
+          "summary": "原文在匈牙利算法和二分匹配方面引用该工作。原文在集合预测损失中使用匈牙利算法进行最优二分匹配，引用其原始论文。"
+        },
+        {
+          "ref": "[42]",
+          "title": "End-to-end people detection in crowded scenes",
+          "keywords": "人群检测, 端到端, 匈牙利匹配",
+          "summary": "原文在人群检测和端到端方面引用该工作。原文将其列为最接近DETR思路的端到端集合预测工作之一，并在匈牙利匹配部分引用。"
+        },
+        {
+          "ref": "[8]",
+          "title": "Scalable object detection using deep neural networks",
+          "keywords": "深度目标检测, 全连接网络, 集合预测",
+          "summary": "原文在深度目标检测和全连接网络方面引用该工作。原文在讨论集合预测方法时引用该工作，说明早期使用全连接网络进行目标检测的尝试。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-2-1-set-prediction-1",
+          "question": "为什么集合预测必须处理排列不变性？",
+          "answer": "对象集合没有天然顺序，预测 1 对应哪个真实框不能预先固定；因此训练前必须先求预测与真实目标之间的最优匹配。",
+          "section_anchor": "sec-2-1-set-prediction"
+        },
+        {
+          "id": "qa-2-1-set-prediction-2",
+          "question": "Hungarian algorithm 在这里解决什么问题？",
+          "answer": "它求出预测和真实目标之间的一对一最小代价匹配，使每个真实目标最多对应一个预测，从训练目标上抑制重复预测。",
+          "section_anchor": "sec-2-1-set-prediction"
+        }
+      ]
+    },
+    "sec-2-2-transformers-and-parallel-decoding": {
+      "section_anchor": "sec-2-2-transformers-and-parallel-decoding",
+      "section_title": "2.2 Transformers and Parallel Decoding",
+      "citation_note": "Transformer 部分引用注意力、BERT 和非自回归解码工作，为 DETR 选择并行 decoder 提供技术背景。",
+      "citation_references": [
+        {
+          "ref": "[46]",
+          "title": "Attention is all you need",
+          "keywords": "Transformer, 自注意力, 编码器-解码器, 位置编码",
+          "summary": "原文在Transformer和自注意力方面引用该工作。原文的核心架构基础，多次引用其编码器-解码器结构、自注意力机制和位置编码。"
+        },
+        {
+          "ref": "[2]",
+          "title": "Neural machine translation by jointly learning to align and translate",
+          "keywords": "注意力机制, 序列到序列, 机器翻译",
+          "summary": "原文在注意力机制和序列到序列方面引用该工作。原文用它介绍注意力机制的概念，作为transformer自注意力层的思想来源。"
+        },
+        {
+          "ref": "[7]",
+          "title": "BERT: pre-training of deep bidirectional transformers for language understanding",
+          "keywords": "BERT, 预训练, Transformer应用",
+          "summary": "原文在BERT和预训练方面引用该工作。原文用它说明Transformer已在NLP等多个领域取得成功，为其引入视觉领域提供依据。"
+        },
+        {
+          "ref": "[11]",
+          "title": "Non-autoregressive neural machine translation",
+          "keywords": "非自回归翻译, 并行解码, 二分匹配",
+          "summary": "原文在非自回归翻译和并行解码方面引用该工作。原文将其列为结合二分匹配损失与并行解码的关键 prior work，与DETR的核心设计思想直接相关。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-2-2-transformers-and-parallel-decoding-1",
+          "question": "为什么 DETR 选择并行解码而不是自回归解码？",
+          "answer": "检测结果是无序集合，不需要人为规定输出顺序；并行 object queries 更符合集合预测，也能降低逐个生成的推理成本。",
+          "section_anchor": "sec-2-2-transformers-and-parallel-decoding"
+        },
+        {
+          "id": "qa-2-2-transformers-and-parallel-decoding-2",
+          "question": "object query 是 anchor 吗？",
+          "answer": "不是。object query 是可学习的解码槽位，不预设空间位置或尺度；它通过 decoder attention 从图像特征中提取对象信息。",
+          "section_anchor": "sec-2-2-transformers-and-parallel-decoding"
+        }
+      ]
+    },
+    "sec-2-3-object-detection": {
+      "section_anchor": "sec-2-3-object-detection",
+      "section_title": "2.3 Object Detection",
+      "citation_note": "检测相关工作引用两阶段、单阶段、NMS 替代和 relation network，凸显现有方法仍依赖候选、anchor 或后处理。",
+      "citation_references": [
+        {
+          "ref": "[36]",
+          "title": "Faster R-CNN: towards real-time object detection with region proposal networks. PAMI",
+          "keywords": "Faster R-CNN, 区域建议网络, 两阶段检测, 基线对比",
+          "summary": "原文在Faster R-CNN和区域建议网络方面引用该工作。原文将Faster R-CNN作为主要对比基线，在多个上下文中引用其候选框机制、训练方式等。"
+        },
+        {
+          "ref": "[22]",
+          "title": "Focal loss for dense object detection",
+          "keywords": "RetinaNet, Focal Loss, 单阶段检测, 锚框",
+          "summary": "原文在RetinaNet和Focal Loss方面引用该工作。原文将其作为基于锚框的单阶段检测器代表，在多个上下文中引用来说明现代检测器的设计模式。"
+        },
+        {
+          "ref": "[21]",
+          "title": "Feature pyramid networks for object detection",
+          "keywords": "FPN, 多尺度特征, 小目标检测",
+          "summary": "原文在FPN和多尺度特征方面引用该工作。原文在讨论小目标检测挑战时引用FPN，期望未来工作能像FPN改善Faster R-CNN一样改善DETR的小目标性能。"
+        },
+        {
+          "ref": "[4]",
+          "title": "Soft-NMS—improving object detection with one line of code",
+          "keywords": "Soft-NMS, 后处理, 去重",
+          "summary": "原文在Soft-NMS和后处理方面引用该工作。原文将其列为 prior work 中使用直接集合损失但仍需要手工特征的NMS替代方法。"
+        },
+        {
+          "ref": "[16]",
+          "title": "Relation networks for object detection",
+          "keywords": "关系网络, 注意力, 检测后处理",
+          "summary": "原文在关系网络和注意力方面引用该工作。原文在讨论显式建模预测间关系的方法时引用，说明这类方法仍需要额外的手工上下文特征。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-2-3-object-detection-1",
+          "question": "DETR 与 Faster R-CNN / RetinaNet 的根本差异是什么？",
+          "answer": "传统检测器围绕 proposals、anchors 或密集网格做间接预测，再用后处理去重；DETR 直接输出最终集合。",
+          "section_anchor": "sec-2-3-object-detection"
+        },
+        {
+          "id": "qa-2-3-object-detection-2",
+          "question": "为什么去掉 NMS 是一个重要信号？",
+          "answer": "这说明模型不再把去重留给外部规则，而是在训练目标和架构中学习唯一预测。",
+          "section_anchor": "sec-2-3-object-detection"
+        }
+      ]
+    },
+    "sec-3-the-detr-model": {
+      "section_anchor": "sec-3-the-detr-model",
+      "section_title": "3 The DETR Model",
+      "citation_note": "方法部分的引用主要承担组件定位：ResNet 提供 backbone，Transformer 提供全局建模，Hungarian/GIoU 提供集合监督和框优化。",
+      "citation_references": [
+        {
+          "ref": "[14]",
+          "title": "Deep residual learning for image recognition",
+          "keywords": "ResNet, CNN骨干, 特征提取",
+          "summary": "原文在ResNet和CNN骨干方面引用该工作。原文使用ResNet作为CNN骨干提取特征，并在架构说明和实验设置中多次引用。"
+        },
+        {
+          "ref": "[19]",
+          "title": "The Hungarian method for the assignment problem",
+          "keywords": "匈牙利算法, 二分匹配, 分配问题",
+          "summary": "原文在匈牙利算法和二分匹配方面引用该工作。原文在集合预测损失中使用匈牙利算法进行最优二分匹配，引用其原始论文。"
+        },
+        {
+          "ref": "[37]",
+          "title": "",
+          "keywords": "",
+          "summary": ""
+        },
+        {
+          "ref": "[46]",
+          "title": "Attention is all you need",
+          "keywords": "Transformer, 自注意力, 编码器-解码器, 位置编码",
+          "summary": "原文在Transformer和自注意力方面引用该工作。原文的核心架构基础，多次引用其编码器-解码器结构、自注意力机制和位置编码。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-3-the-detr-model-1",
+          "question": "读方法部分应先抓哪条主线？",
+          "answer": "先抓“损失负责唯一匹配，架构负责并行集合输出”这条主线，再看公式和架构图的细节。",
+          "section_anchor": "sec-3-the-detr-model"
+        },
+        {
+          "id": "qa-3-the-detr-model-2",
+          "question": "固定数量 N 个预测会不会限制检测数量？",
+          "answer": "N 被设得显著大于通常对象数量；多余预测通过 no-object 类吸收，因此它是预测槽位上限，不是每张图必须输出的对象数。",
+          "section_anchor": "sec-3-the-detr-model"
+        }
+      ]
+    },
+    "sec-3-1-object-detection-set-prediction-loss": {
+      "section_anchor": "sec-3-1-object-detection-set-prediction-loss",
+      "section_title": "3.1 Object Detection Set Prediction Loss",
+      "citation_note": "损失函数引用 Hungarian method 和 GIoU，分别对应匹配分配和边界框质量约束。",
+      "citation_references": [
+        {
+          "ref": "[19]",
+          "title": "The Hungarian method for the assignment problem",
+          "keywords": "匈牙利算法, 二分匹配, 分配问题",
+          "summary": "原文在匈牙利算法和二分匹配方面引用该工作。原文在集合预测损失中使用匈牙利算法进行最优二分匹配，引用其原始论文。"
+        },
+        {
+          "ref": "[37]",
+          "title": "",
+          "keywords": "",
+          "summary": ""
+        },
+        {
+          "ref": "[36]",
+          "title": "Faster R-CNN: towards real-time object detection with region proposal networks. PAMI",
+          "keywords": "Faster R-CNN, 区域建议网络, 两阶段检测, 基线对比",
+          "summary": "原文在Faster R-CNN和区域建议网络方面引用该工作。原文将Faster R-CNN作为主要对比基线，在多个上下文中引用其候选框机制、训练方式等。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-3-1-object-detection-set-prediction-loss-1",
+          "question": "Hungarian loss 和匹配代价是什么关系？",
+          "answer": "匹配代价先决定哪个预测负责哪个真实目标；Hungarian loss 再在这些匹配对上计算分类和边界框损失。",
+          "section_anchor": "sec-3-1-object-detection-set-prediction-loss"
+        },
+        {
+          "id": "qa-3-1-object-detection-set-prediction-loss-2",
+          "question": "为什么框损失要结合 L1 和 GIoU？",
+          "answer": "L1 提供坐标层面的稳定优化，GIoU 更贴近重叠质量且对尺度更稳健，两者结合更适合直接框预测。",
+          "section_anchor": "sec-3-1-object-detection-set-prediction-loss"
+        }
+      ]
+    },
+    "sec-3-2-detr-architecture": {
+      "section_anchor": "sec-3-2-detr-architecture",
+      "section_title": "3.2 DETR Architecture",
+      "citation_note": "架构引用 ResNet 与 Transformer，说明 DETR 尽量使用通用深度学习组件，而不是依赖检测专用算子。",
+      "citation_references": [
+        {
+          "ref": "[14]",
+          "title": "Deep residual learning for image recognition",
+          "keywords": "ResNet, CNN骨干, 特征提取",
+          "summary": "原文在ResNet和CNN骨干方面引用该工作。原文使用ResNet作为CNN骨干提取特征，并在架构说明和实验设置中多次引用。"
+        },
+        {
+          "ref": "[46]",
+          "title": "Attention is all you need",
+          "keywords": "Transformer, 自注意力, 编码器-解码器, 位置编码",
+          "summary": "原文在Transformer和自注意力方面引用该工作。原文的核心架构基础，多次引用其编码器-解码器结构、自注意力机制和位置编码。"
+        },
+        {
+          "ref": "[1]",
+          "title": "Character-level language modeling with deeper self-attention",
+          "keywords": "辅助损失, 解码器训练, 匈牙利损失",
+          "summary": "原文在辅助损失和解码器训练方面引用该工作。原文在解码器每层应用辅助损失时使用，引用该工作作为辅助损失技术的示例。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-3-2-detr-architecture-1",
+          "question": "encoder 和 decoder 分别承担什么职责？",
+          "answer": "encoder 对图像特征做全局关系建模；decoder 用 object queries 从这些特征中并行抽取对象表示。",
+          "section_anchor": "sec-3-2-detr-architecture"
+        },
+        {
+          "id": "qa-3-2-detr-architecture-2",
+          "question": "辅助损失为什么重要？",
+          "answer": "它让 decoder 中间层也获得监督，帮助训练早期形成正确数量的对象预测，缓解收敛慢和匹配不稳定。",
+          "section_anchor": "sec-3-2-detr-architecture"
+        }
+      ]
+    },
+    "sec-4-experiments": {
+      "section_anchor": "sec-4-experiments",
+      "section_title": "4 Experiments",
+      "citation_note": "实验引用 COCO、Faster R-CNN、RetinaNet 和 AdamW，用来固定评测基准、比较对象和训练配置。",
+      "citation_references": [
+        {
+          "ref": "[23]",
+          "title": "Microsoft COCO: common objects in context. In: Fleet, D., Pajdla, T., Schiele, B., Tuytelaars, T. (eds.) ECCV 2014",
+          "keywords": "COCO, 目标检测数据集, 评估基准",
+          "summary": "原文在COCO和目标检测数据集方面引用该工作。原文在实验设置和评估中引用COCO数据集论文，作为主要实验平台。"
+        },
+        {
+          "ref": "[36]",
+          "title": "Faster R-CNN: towards real-time object detection with region proposal networks. PAMI",
+          "keywords": "Faster R-CNN, 区域建议网络, 两阶段检测, 基线对比",
+          "summary": "原文在Faster R-CNN和区域建议网络方面引用该工作。原文将Faster R-CNN作为主要对比基线，在多个上下文中引用其候选框机制、训练方式等。"
+        },
+        {
+          "ref": "[22]",
+          "title": "Focal loss for dense object detection",
+          "keywords": "RetinaNet, Focal Loss, 单阶段检测, 锚框",
+          "summary": "原文在RetinaNet和Focal Loss方面引用该工作。原文将其作为基于锚框的单阶段检测器代表，在多个上下文中引用来说明现代检测器的设计模式。"
+        },
+        {
+          "ref": "[25]",
+          "title": "Decoupled weight decay regularization",
+          "keywords": "AdamW, 优化器, 权重衰减",
+          "summary": "原文在AdamW和优化器方面引用该工作。原文在训练设置中说明使用AdamW优化器及其超参数配置。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-4-experiments-1",
+          "question": "实验部分应同时看哪些信息？",
+          "answer": "既看 DETR 与强基线相当的总体 AP，也看训练周期、小目标 AP 和消融结果，这些决定了初版 DETR 的真实边界。",
+          "section_anchor": "sec-4-experiments"
+        },
+        {
+          "id": "qa-4-experiments-2",
+          "question": "为什么 COCO 是关键验证场景？",
+          "answer": "COCO 是目标检测主流复杂基准，包含多类别、多尺度和密集实例；能在 COCO 上竞争，才说明直接集合预测具有实际检测价值。",
+          "section_anchor": "sec-4-experiments"
+        }
+      ]
+    },
+    "sec-4-1-comparison-with-faster-r-cnn-and-retinanet": {
+      "section_anchor": "sec-4-1-comparison-with-faster-r-cnn-and-retinanet",
+      "section_title": "4.1 Comparison with Faster R-CNN and RetinaNet",
+      "citation_note": "比较实验中的引用帮助读者判断公平性：作者不只对比原始 Faster R-CNN，也增强了基线训练策略。",
+      "citation_references": [
+        {
+          "ref": "[36]",
+          "title": "Faster R-CNN: towards real-time object detection with region proposal networks. PAMI",
+          "keywords": "Faster R-CNN, 区域建议网络, 两阶段检测, 基线对比",
+          "summary": "原文在Faster R-CNN和区域建议网络方面引用该工作。原文将Faster R-CNN作为主要对比基线，在多个上下文中引用其候选框机制、训练方式等。"
+        },
+        {
+          "ref": "[22]",
+          "title": "Focal loss for dense object detection",
+          "keywords": "RetinaNet, Focal Loss, 单阶段检测, 锚框",
+          "summary": "原文在RetinaNet和Focal Loss方面引用该工作。原文将其作为基于锚框的单阶段检测器代表，在多个上下文中引用来说明现代检测器的设计模式。"
+        },
+        {
+          "ref": "[21]",
+          "title": "Feature pyramid networks for object detection",
+          "keywords": "FPN, 多尺度特征, 小目标检测",
+          "summary": "原文在FPN和多尺度特征方面引用该工作。原文在讨论小目标检测挑战时引用FPN，期望未来工作能像FPN改善Faster R-CNN一样改善DETR的小目标性能。"
+        },
+        {
+          "ref": "[37]",
+          "title": "",
+          "keywords": "",
+          "summary": ""
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-4-1-comparison-with-faster-r-cnn-and-retinanet-1",
+          "question": "表 1 最重要的对比结论是什么？",
+          "answer": "DETR 总体 AP 接近强 Faster R-CNN 基线，大目标明显更强，小目标明显更弱。",
+          "section_anchor": "sec-4-1-comparison-with-faster-r-cnn-and-retinanet"
+        },
+        {
+          "id": "qa-4-1-comparison-with-faster-r-cnn-and-retinanet-2",
+          "question": "这个结果如何导向后续工作？",
+          "answer": "它把后续改进方向指向多尺度建模、收敛加速和 query 初始化等问题。",
+          "section_anchor": "sec-4-1-comparison-with-faster-r-cnn-and-retinanet"
+        }
+      ]
+    },
+    "sec-4-2-ablations": {
+      "section_anchor": "sec-4-2-ablations",
+      "section_title": "4.2 Ablations",
+      "citation_note": "消融部分借 attention augmented convolution 等文献解释 FFN、位置编码和 attention 组件的功能边界。",
+      "citation_references": [
+        {
+          "ref": "[3]",
+          "title": "Attention augmented convolutional networks",
+          "keywords": "注意力增强卷积, FFN, 消融实验",
+          "summary": "原文在注意力增强卷积和FFN方面引用该工作。原文在消融实验中将Transformer的FFN与注意力增强卷积网络进行类比，说明FFN的重要性。"
+        },
+        {
+          "ref": "[21]",
+          "title": "Feature pyramid networks for object detection",
+          "keywords": "FPN, 多尺度特征, 小目标检测",
+          "summary": "原文在FPN和多尺度特征方面引用该工作。原文在讨论小目标检测挑战时引用FPN，期望未来工作能像FPN改善Faster R-CNN一样改善DETR的小目标性能。"
+        },
+        {
+          "ref": "[46]",
+          "title": "Attention is all you need",
+          "keywords": "Transformer, 自注意力, 编码器-解码器, 位置编码",
+          "summary": "原文在Transformer和自注意力方面引用该工作。原文的核心架构基础，多次引用其编码器-解码器结构、自注意力机制和位置编码。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-4-2-ablations-1",
+          "question": "消融实验证明了什么？",
+          "answer": "DETR 的性能来自多个组件协同：encoder 全局 self-attention、decoder 层数、FFN、位置编码和辅助损失都不可随意移除。",
+          "section_anchor": "sec-4-2-ablations"
+        },
+        {
+          "id": "qa-4-2-ablations-2",
+          "question": "为什么 NMS 在最后层反而降低 AP？",
+          "answer": "最后 decoder layer 已经学会抑制重复预测，外部 NMS 会错误移除真阳性，说明 DETR 的去重能力来自模型内部。",
+          "section_anchor": "sec-4-2-ablations"
+        }
+      ]
+    },
+    "sec-4-3-detr-for-panoptic-segmentation": {
+      "section_anchor": "sec-4-3-detr-for-panoptic-segmentation",
+      "section_title": "4.3 DETR for Panoptic Segmentation",
+      "citation_note": "全景分割部分引用 Mask R-CNN、PanopticFPN、UPSNet 和 Dice loss，说明 DETR 的 mask head 是在既有分割路线上的简化扩展。",
+      "citation_references": [
+        {
+          "ref": "[13]",
+          "title": "Mask R-CNN",
+          "keywords": "Mask R-CNN, 实例分割, 架构扩展",
+          "summary": "原文在Mask R-CNN和实例分割方面引用该工作。原文在全景分割扩展中类比Faster R-CNN到Mask R-CNN的扩展方式，说明DETR添加掩码头的自然性。"
+        },
+        {
+          "ref": "[17]",
+          "title": "Panoptic feature pyramid networks",
+          "keywords": "PanopticFPN, 全景分割, 特征金字塔",
+          "summary": "原文在PanopticFPN和全景分割方面引用该工作。原文在全景分割实验中将其作为对比基线之一。"
+        },
+        {
+          "ref": "[50]",
+          "title": "Upsnet: a unified panoptic segmentation network",
+          "keywords": "UPSNet, 全景分割, 统一网络",
+          "summary": "原文在UPSNet和全景分割方面引用该工作。原文在全景分割实验中将其作为对比基线之一。"
+        },
+        {
+          "ref": "[27]",
+          "title": "V-net: Fully convolutional neural networks for volumetric medical image segmentation",
+          "keywords": "DICE损失, 医学图像分割, 掩码监督",
+          "summary": "原文在DICE损失和医学图像分割方面引用该工作。原文在全景分割掩码监督中使用DICE/F-1损失，引用该医学分割工作。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-4-3-detr-for-panoptic-segmentation-1",
+          "question": "为什么全景分割扩展适合 DETR？",
+          "answer": "DETR 已经输出一组对象表示；给每个对象表示增加 mask head，就能自然扩展到实例和 stuff 区域的统一预测。",
+          "section_anchor": "sec-4-3-detr-for-panoptic-segmentation"
+        },
+        {
+          "id": "qa-4-3-detr-for-panoptic-segmentation-2",
+          "question": "这一节的贡献边界是什么？",
+          "answer": "它主要证明集合预测范式可迁移到像素级任务，而不是把重点放在最复杂的分割工程系统上。",
+          "section_anchor": "sec-4-3-detr-for-panoptic-segmentation"
+        }
+      ]
+    },
+    "sec-5-conclusion": {
+      "section_anchor": "sec-5-conclusion",
+      "section_title": "5 Conclusion",
+      "citation_note": "结论回到 Transformer、强检测基线和 FPN 这几条线，指出初版 DETR 的范式价值与后续改进空间。",
+      "citation_references": [
+        {
+          "ref": "[21]",
+          "title": "Feature pyramid networks for object detection",
+          "keywords": "FPN, 多尺度特征, 小目标检测",
+          "summary": "原文在FPN和多尺度特征方面引用该工作。原文在讨论小目标检测挑战时引用FPN，期望未来工作能像FPN改善Faster R-CNN一样改善DETR的小目标性能。"
+        },
+        {
+          "ref": "[36]",
+          "title": "Faster R-CNN: towards real-time object detection with region proposal networks. PAMI",
+          "keywords": "Faster R-CNN, 区域建议网络, 两阶段检测, 基线对比",
+          "summary": "原文在Faster R-CNN和区域建议网络方面引用该工作。原文将Faster R-CNN作为主要对比基线，在多个上下文中引用其候选框机制、训练方式等。"
+        },
+        {
+          "ref": "[46]",
+          "title": "Attention is all you need",
+          "keywords": "Transformer, 自注意力, 编码器-解码器, 位置编码",
+          "summary": "原文在Transformer和自注意力方面引用该工作。原文的核心架构基础，多次引用其编码器-解码器结构、自注意力机制和位置编码。"
+        }
+      ],
+      "questions": [
+        {
+          "id": "qa-5-conclusion-1",
+          "question": "结论中最值得保留的判断是什么？",
+          "answer": "DETR 是端到端检测范式的起点：它证明了直接集合预测可行，同时清楚暴露训练慢和小目标弱等后续问题。",
+          "section_anchor": "sec-5-conclusion"
+        },
+        {
+          "id": "qa-5-conclusion-2",
+          "question": "读完本文后下一步应该读什么？",
+          "answer": "如果关注性能瓶颈，读 Deformable DETR；关注 query 设计，读 Conditional/DAB/DN-DETR；关注部署，读 RT-DETR/LW-DETR/RF-DETR。",
+          "section_anchor": "sec-5-conclusion"
+        }
+      ]
+    },
+    "sec-references": {
+      "section_anchor": "sec-references",
+      "section_title": "References",
+      "citation_note": "",
+      "citation_references": [],
+      "questions": []
+    }
+  },
+  "diagnostics": []
+}

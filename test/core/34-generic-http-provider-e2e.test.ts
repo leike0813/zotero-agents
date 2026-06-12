@@ -201,13 +201,17 @@ describeGenericHttpE2ESuite("generic-http provider: e2e", function () {
       }
     }
 
-    assert.isTrue(
+    assert.isFalse(
       toasts.some(
         (entry) =>
           /Workflow Generic HTTP Echo finished\./.test(entry) &&
           /succeeded=1, failed=0/.test(entry),
       ),
-      `missing summary toast: ${JSON.stringify(toasts)}`,
+      `single-job success should not also emit summary toast: ${JSON.stringify(toasts)}`,
+    );
+    assert.isTrue(
+      toasts.some((entry) => /job 1\/1 succeeded/i.test(entry)),
+      `missing single-job result toast: ${JSON.stringify(toasts)}`,
     );
 
     const noteIDs = parent.getNotes();

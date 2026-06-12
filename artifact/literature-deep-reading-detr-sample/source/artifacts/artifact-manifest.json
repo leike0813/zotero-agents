@@ -1,0 +1,37 @@
+{
+  "schema_version": "literature-deep-reading.sidecar-artifacts.v0",
+  "item_key": "EIMSDEU3",
+  "source": {
+    "kind": "sample_fixture_from_topic_synthesis_export",
+    "path": "D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\artifact\\topic-synthesis-create-detr-gated-playbook\\workspace\\runtime\\acp\\skill-runs\\acp-skill-detr-create-topic-synthesis\\runtime\\payloads\\artifacts\\1_EIMSDEU3"
+  },
+  "artifacts": [
+    {
+      "artifact_type": "references",
+      "payload_type": "references-json",
+      "bundle_path": "artifacts/references.json",
+      "source_path": "D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\artifact\\topic-synthesis-create-detr-gated-playbook\\workspace\\runtime\\acp\\skill-runs\\acp-skill-detr-create-topic-synthesis\\runtime\\payloads\\artifacts\\1_EIMSDEU3\\references.json",
+      "status": "available",
+      "sha256": "db04abb8101eb46b9821cea38e2e3dc577c97edef60e27abbad18a0de04666c1",
+      "bytes": 9856
+    },
+    {
+      "artifact_type": "digest",
+      "payload_type": "digest-markdown",
+      "bundle_path": "artifacts/digest.md",
+      "source_path": "D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\artifact\\topic-synthesis-create-detr-gated-playbook\\workspace\\runtime\\acp\\skill-runs\\acp-skill-detr-create-topic-synthesis\\runtime\\payloads\\artifacts\\1_EIMSDEU3\\digest.md",
+      "status": "available",
+      "sha256": "e780e2b7f5eaf9efae025fac062de8ad3db13c14ec1b3f42d28cc6f84d89606a",
+      "bytes": 2617
+    },
+    {
+      "artifact_type": "citation_analysis",
+      "payload_type": "citation-analysis-markdown",
+      "bundle_path": "artifacts/citation-analysis.md",
+      "source_path": "D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\artifact\\topic-synthesis-create-detr-gated-playbook\\workspace\\runtime\\acp\\skill-runs\\acp-skill-detr-create-topic-synthesis\\runtime\\payloads\\artifacts\\1_EIMSDEU3\\citation-analysis.md",
+      "status": "available",
+      "sha256": "164e67c836617c84c7c1844c32060b7f42676352d9326b3f043c08d9e7e6001a",
+      "bytes": 24050
+    }
+  ]
+}

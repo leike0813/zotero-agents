@@ -3,6 +3,7 @@ import { promises as fs } from "fs";
 import {
   ensureDashboardToolbarButton,
   removeDashboardToolbarButton,
+  updateAssistantToolbarAttention,
 } from "../../src/modules/dashboardToolbarButton";
 
 type Listener = (event: Record<string, unknown>) => void;
@@ -171,6 +172,12 @@ describe("dashboard toolbar button", function () {
       skillRunnerButton!.getAttribute("image") || "",
       "icon_sidebar_32.png",
     );
+    const originalSkillRunnerTooltip =
+      skillRunnerButton!.getAttribute("tooltiptext");
+    assert.equal(
+      skillRunnerButton!.getAttribute("data-attention"),
+      "false",
+    );
     assert.include(
       dashboardButton!.getAttribute("image") || "",
       "icon_workbench_32.png",
@@ -193,6 +200,34 @@ describe("dashboard toolbar button", function () {
     assert.lengthOf(calls, 2);
     assert.equal(calls[1].type, "openDashboard");
     assert.deepEqual(calls[1].data, { window: win });
+
+    updateAssistantToolbarAttention(win, 2);
+    assert.equal(
+      skillRunnerButton!.getAttribute("data-attention"),
+      "true",
+    );
+    assert.equal(
+      skillRunnerButton!.getAttribute("data-attention-count"),
+      "2",
+    );
+    assert.include(
+      skillRunnerButton!.getAttribute("image") || "",
+      "icon_sidebar_glow_32.png",
+    );
+    assert.equal(
+      skillRunnerButton!.getAttribute("tooltiptext"),
+      originalSkillRunnerTooltip,
+    );
+
+    updateAssistantToolbarAttention(win, 0);
+    assert.equal(
+      skillRunnerButton!.getAttribute("data-attention"),
+      "false",
+    );
+    assert.include(
+      skillRunnerButton!.getAttribute("image") || "",
+      "icon_sidebar_32.png",
+    );
   });
 
   it("labels the dashboard shortcut as the unified workspace entry", async function () {
@@ -207,6 +242,23 @@ describe("dashboard toolbar button", function () {
       zh,
       "task-dashboard-toolbar-open = 打开 Zotero Skills 工作区",
     );
+  });
+
+  it("does not force the existing workspace tab back to Dashboard", async function () {
+    const hooks = await fs.readFile("src/hooks.ts", "utf8");
+    const openDashboardStart = hooks.indexOf('case "openDashboard":');
+    const openDashboardEnd = hooks.indexOf(
+      'case "listDashboardActiveTasksForPopover"',
+      openDashboardStart,
+    );
+    assert.isAtLeast(openDashboardStart, 0);
+    assert.isAbove(openDashboardEnd, openDashboardStart);
+    const openDashboardBlock = hooks.slice(openDashboardStart, openDashboardEnd);
+
+    assert.include(openDashboardBlock, "openZoteroSkillsWorkspaceTab");
+    assert.notInclude(openDashboardBlock, 'initialView: "dashboard"');
+    assert.include(hooks, 'case "openSynthesisWorkbench":');
+    assert.include(hooks, 'initialView: "synthesis"');
   });
 
   it("removes existing toolbar button", function () {

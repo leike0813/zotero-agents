@@ -865,6 +865,12 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "getCitationGraphSlice",
   ),
   synthesisCapability(
+    "citation_graph.get_layout",
+    "citation_graph",
+    "Return persisted citation graph layout coordinates for an explicit full graph or bounded subgraph query without recomputing layout.",
+    "getCitationGraphLayout",
+  ),
+  synthesisCapability(
     "citation_graph.get_metrics",
     "citation_graph",
     "Return bounded read-only citation graph metrics, freshness diagnostics, and recommended maintenance commands for selected paper references.",

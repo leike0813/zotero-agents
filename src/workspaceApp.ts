@@ -20,6 +20,7 @@ type WorkspaceBridge = {
 
 type WorkspaceSnapshot = {
   selectedView: WorkspaceView;
+  waitingCount: number;
 };
 
 const state: {
@@ -28,9 +29,19 @@ const state: {
 } = {
   snapshot: {
     selectedView: "dashboard",
+    waitingCount: 0,
   },
   theme: "system",
 };
+
+function normalizeWaitingCount(value: unknown) {
+  const count = Math.floor(Number(value) || 0);
+  return Number.isFinite(count) ? Math.max(0, count) : 0;
+}
+
+function formatAttentionCount(count: number) {
+  return count > 99 ? "99+" : String(count);
+}
 
 function sendAction(action: string, payload: Record<string, unknown> = {}) {
   const direct = window.__zoteroSkillsWorkspaceBridge;
@@ -144,6 +155,20 @@ function updateThemeSwitchState() {
   });
 }
 
+function updateWorkspaceSidebarAttention() {
+  const button = document.querySelector<HTMLButtonElement>(".sidebar-toggle");
+  if (!button) {
+    return;
+  }
+  const count = normalizeWaitingCount(state.snapshot.waitingCount);
+  const hasAttention = count > 0;
+  button.setAttribute("data-attention", hasAttention ? "true" : "false");
+  button.setAttribute(
+    "data-attention-count",
+    hasAttention ? formatAttentionCount(count) : "0",
+  );
+}
+
 function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   state.theme = getThemeChoice();
   const header = el("header", "workspace-header");
@@ -203,6 +228,7 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   );
   header.appendChild(toolbar);
   root.appendChild(header);
+  updateWorkspaceSidebarAttention();
 }
 
 function renderWorkspacePanel(snapshot: WorkspaceSnapshot) {
@@ -274,6 +300,7 @@ function updateWorkspaceVisibility(snapshot: WorkspaceSnapshot) {
   );
   switcher?.classList.toggle("is-dashboard", selected === "dashboard");
   switcher?.classList.toggle("is-synthesis", selected === "synthesis");
+  updateWorkspaceSidebarAttention();
 }
 
 function render() {
@@ -306,13 +333,28 @@ window.addEventListener("message", (event: MessageEvent) => {
     const nextSnapshot = {
       selectedView:
         payload.selectedView === "synthesis" ? "synthesis" : "dashboard",
+      waitingCount: normalizeWaitingCount(payload.waitingCount),
     } satisfies WorkspaceSnapshot;
     const viewChanged =
       state.snapshot.selectedView !== nextSnapshot.selectedView;
     state.snapshot = nextSnapshot;
     if (viewChanged) {
       render();
+    } else {
+      updateWorkspaceSidebarAttention();
     }
+    return;
+  }
+  if (data.type === "workspace:attention") {
+    const payload =
+      data.payload && typeof data.payload === "object"
+        ? (data.payload as { waitingCount?: unknown })
+        : {};
+    state.snapshot = {
+      ...state.snapshot,
+      waitingCount: normalizeWaitingCount(payload.waitingCount),
+    };
+    updateWorkspaceSidebarAttention();
   }
 });
 

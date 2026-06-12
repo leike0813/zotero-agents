@@ -486,6 +486,13 @@ export type SynthesisUiGraphEdge = {
   visibility?: "default" | "hover_only";
 };
 
+export type SynthesisUiGraphTopicScope = {
+  topicId: string;
+  title: string;
+  paperRefs: string[];
+  nodeIds: string[];
+};
+
 export type SynthesisUiPreferencesStatus = {
   sourceWatchEnabled: boolean;
   registryAutoRebuild: boolean;
@@ -737,6 +744,7 @@ export type SynthesisUiState = {
   graph: {
     search: string;
     role: "all" | string;
+    topicId: "all" | string;
     layoutAlgorithm: SynthesisUiLayoutAlgorithm;
     neighborhoodDepth: number;
     nodeKinds: SynthesisUiGraphNode["kind"][];
@@ -836,6 +844,7 @@ export type SynthesisUiSnapshotInput = {
     graph_hash?: string;
     layoutStatus?: SynthesisUiCacheReadiness;
     diagnostics?: Record<string, unknown>;
+    topicScopes?: SynthesisUiGraphTopicScope[];
     nodes?: SynthesisUiGraphNode[];
     edges?: SynthesisUiGraphEdge[];
     hoverOnlyNodes?: SynthesisUiGraphNode[];
@@ -947,6 +956,8 @@ export type SynthesisUiSnapshot = {
     nodeKinds: SynthesisUiGraphNode["kind"][];
     showLowSignalReferences: boolean;
     selectedElement?: SynthesisUiGraphElement;
+    topicScopes: SynthesisUiGraphTopicScope[];
+    selectedTopicScope?: SynthesisUiGraphTopicScope;
     nodes: SynthesisUiGraphNode[];
     edges: SynthesisUiGraphEdge[];
     hoverOnlyNodes: SynthesisUiGraphNode[];
@@ -3044,6 +3055,27 @@ function normalizeGraphEdges(edges: SynthesisUiGraphEdge[] | undefined) {
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
+function normalizeGraphTopicScopes(
+  scopes: SynthesisUiGraphTopicScope[] | undefined,
+) {
+  return [...(scopes || [])]
+    .map((scope) => {
+      const topicId = cleanString(scope.topicId);
+      return {
+        topicId,
+        title: cleanString(scope.title) || topicId,
+        paperRefs: normalizeStringList(scope.paperRefs),
+        nodeIds: normalizeStringList(scope.nodeIds),
+      };
+    })
+    .filter((scope) => scope.topicId)
+    .sort(
+      (left, right) =>
+        left.title.localeCompare(right.title) ||
+        left.topicId.localeCompare(right.topicId),
+    );
+}
+
 function normalizeSelectedElement(
   value: unknown,
 ): SynthesisUiGraphElement | undefined {
@@ -3120,6 +3152,7 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
     graph: {
       search: "",
       role: "all",
+      topicId: "all",
       layoutAlgorithm: "force",
       neighborhoodDepth: 1,
       nodeKinds: ["library_paper", "external_reference"],
@@ -3328,10 +3361,31 @@ function filterGraph(
   nodes: SynthesisUiGraphNode[],
   edges: SynthesisUiGraphEdge[],
   filters: SynthesisUiState["graph"],
+  topicScopes: SynthesisUiGraphTopicScope[] = [],
 ) {
+  const selectedScope =
+    filters.topicId === "all"
+      ? undefined
+      : topicScopes.find((scope) => scope.topicId === filters.topicId);
+  const isTopicScoped = filters.topicId !== "all";
+  const topicSourceIds = new Set(selectedScope?.nodeIds || []);
+  const topicScopedNodeIds = new Set(topicSourceIds);
+  if (isTopicScoped) {
+    edges.forEach((edge) => {
+      if (topicSourceIds.has(edge.source)) {
+        topicScopedNodeIds.add(edge.source);
+        topicScopedNodeIds.add(edge.target);
+      }
+      if (topicSourceIds.has(edge.target)) {
+        topicScopedNodeIds.add(edge.source);
+        topicScopedNodeIds.add(edge.target);
+      }
+    });
+  }
   const matchesNodeBaseFilters = (node: SynthesisUiGraphNode) =>
     filters.nodeKinds.includes(node.kind) &&
-    (filters.showLowSignalReferences || !node.low_signal);
+    (filters.showLowSignalReferences || !node.low_signal) &&
+    (!isTopicScoped || topicScopedNodeIds.has(node.id));
   const visibleNodes = nodes.filter((node) => {
     if (!matchesNodeBaseFilters(node)) {
       return false;
@@ -3347,6 +3401,13 @@ function filterGraph(
       return false;
     }
     if (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)) {
+      return false;
+    }
+    if (
+      isTopicScoped &&
+      !topicSourceIds.has(edge.source) &&
+      !topicSourceIds.has(edge.target)
+    ) {
       return false;
     }
     if (filters.role !== "all" && edge.primary_role !== filters.role) {
@@ -3684,6 +3745,9 @@ export function buildSynthesisUiSnapshot(
     ...(input.graph?.edges || []),
     ...(input.graph?.hoverOnlyEdges || []),
   ]);
+  const graphTopicScopes = normalizeGraphTopicScopes(
+    input.graph?.topicScopes,
+  );
   const graphNodeById = new Map(graphNodes.map((node) => [node.id, node]));
   const graphEdgeById = new Map(graphEdges.map((edge) => [edge.id, edge]));
   const normalizedGraphNodes = Array.from(graphNodeById.values());
@@ -3701,6 +3765,7 @@ export function buildSynthesisUiSnapshot(
     normalizedGraphNodes,
     normalizedGraphEdges,
     state.graph,
+    graphTopicScopes,
   );
   const backgroundJobRows = normalizeBackgroundJobRows(
     input.maintenance?.backgroundJobs,
@@ -3886,6 +3951,7 @@ export function buildSynthesisUiSnapshot(
       filters: {
         search: state.graph.search,
         role: state.graph.role,
+        topicId: state.graph.topicId || "all",
         layoutAlgorithm: normalizeLayoutAlgorithm(state.graph.layoutAlgorithm),
         neighborhoodDepth: state.graph.neighborhoodDepth,
         nodeKinds: [...state.graph.nodeKinds],
@@ -3903,6 +3969,13 @@ export function buildSynthesisUiSnapshot(
       nodeKinds: [...state.graph.nodeKinds],
       showLowSignalReferences: state.graph.showLowSignalReferences,
       selectedElement: state.graph.selectedElement,
+      topicScopes: graphTopicScopes,
+      selectedTopicScope:
+        state.graph.topicId === "all"
+          ? undefined
+          : graphTopicScopes.find(
+              (scope) => scope.topicId === state.graph.topicId,
+            ),
       nodes: normalizedGraphNodes,
       edges: normalizedGraphEdges,
       hoverOnlyNodes: hoverOnlyGraphNodes,
@@ -4247,6 +4320,10 @@ export function applySynthesisUiAction(
       if ("role" in filters) {
         next.graph.role = cleanString(filters.role) || "all";
       }
+      if ("topicId" in filters) {
+        next.graph.topicId = cleanString(filters.topicId) || "all";
+        next.graph.selectedElement = undefined;
+      }
     }
     return { handled: true, state: next };
   }
@@ -4299,6 +4376,10 @@ export function applySynthesisUiAction(
     }
     if ("role" in payload) {
       next.graph.role = cleanString(payload.role) || "all";
+    }
+    if ("topicId" in payload) {
+      next.graph.topicId = cleanString(payload.topicId) || "all";
+      next.graph.selectedElement = undefined;
     }
     if (Array.isArray(payload.nodeKinds)) {
       const allowed: SynthesisUiGraphNode["kind"][] = [

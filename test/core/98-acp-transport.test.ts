@@ -111,7 +111,7 @@ describe("acp transport", function () {
         "--isolated",
         "--",
         "C:\\Program Files\\nodejs\\npx.cmd",
-        "@zed-industries/claude-code-acp@latest",
+        "@agentclientprotocol/claude-agent-acp@latest",
       ],
       platform: "win32",
       comspec: "C:\\Windows\\System32\\cmd.exe",
@@ -123,7 +123,7 @@ describe("acp transport", function () {
       "--isolated",
       "--",
       "C:\\Program Files\\nodejs\\npx.cmd",
-      "@zed-industries/claude-code-acp@latest",
+      "@agentclientprotocol/claude-agent-acp@latest",
     ]);
     assert.notInclude(plan.commandLine, "cmd.exe /d /c");
   });

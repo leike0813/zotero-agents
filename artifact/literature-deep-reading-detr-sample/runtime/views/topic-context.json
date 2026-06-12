@@ -1,0 +1,16 @@
+{
+  "id": "extension-topic",
+  "title": "后续阅读：DETR-family 解决了哪些问题",
+  "anchor": "extension-topic",
+  "translation": "读完原文后，后续 DETR-family 可以按问题来读：第一类工作解决收敛慢，例如 Deformable DETR、Conditional DETR、DAB-DETR 和 DN-DETR；第二类工作改进 object queries 和匹配策略，让训练监督更稳定；第三类工作把端到端检测推向实时部署，例如 RT-DETR、LW-DETR 和 RF-DETR。这样读比按年份平铺更有效，因为每篇后续工作基本都在回应初版 DETR 暴露出的训练成本、小目标、多尺度和工程速度问题。",
+  "reading_aid": {
+    "goal": "把后续阅读组织成问题链，而不是把 DETR-family 当成论文列表。",
+    "terms": [
+      "DETR-family",
+      "object queries",
+      "Deformable DETR",
+      "RT-DETR"
+    ],
+    "pitfall": "不要把后续工作只看成刷 AP；更重要的是它们分别修补初版 DETR 的哪个瓶颈。"
+  }
+}

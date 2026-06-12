@@ -14,7 +14,12 @@ import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 import { executeAcpSkillRunnerJob } from "../../modules/acpSkillRunnerOrchestrator";
 import {
   buildAcpFoldedModelGroups,
+  hasAcpProviderScopedModelOptions,
+  listAcpModelOptionsForProvider,
+  listAcpModelProviderOptions,
+  normalizeAcpProviderModelOptionsForRuntime,
   normalizeAcpEffortId,
+  resolveAcpDisplayModelIdForProviderSelection,
 } from "../../modules/acpModelOptionFolding";
 import type { BackendInstance } from "../../backends/types";
 
@@ -28,6 +33,12 @@ export class AcpProvider implements Provider {
         title: "ACP mode",
         description:
           "ACP session mode for this workflow run. Values come from the backend connection test cache.",
+      },
+      acpModelProvider: {
+        type: "string" as const,
+        title: "ACP provider",
+        description:
+          "Provider segment parsed from ACP model ids that use provider/model notation.",
       },
       acpModelId: {
         type: "string" as const,
@@ -65,13 +76,27 @@ export class AcpProvider implements Provider {
     if (key === "acpModeId") {
       return (cache.modes || []).map((mode) => mode.id);
     }
+    if (key === "acpModelProvider") {
+      return listAcpModelProviderOptions(cache.displayModels || []);
+    }
     if (key === "acpModelId") {
+      if (hasAcpProviderScopedModelOptions(cache.displayModels || [])) {
+        return listAcpModelOptionsForProvider({
+          modelOptions: cache.displayModels || [],
+          provider: args.options?.acpModelProvider,
+          displayModelId: args.options?.acpModelId,
+          currentDisplayModelId: cache.currentDisplayModelId,
+        });
+      }
       return (cache.displayModels || []).map((model) => model.id);
     }
     if (key === "acpReasoningEffort") {
-      const selectedModelId = String(
-        args.options?.acpModelId || cache.currentDisplayModelId || "",
-      ).trim();
+      const selectedModelId = resolveAcpDisplayModelIdForProviderSelection({
+        modelOptions: cache.displayModels || [],
+        provider: args.options?.acpModelProvider,
+        modelId: args.options?.acpModelId,
+        currentDisplayModelId: cache.currentDisplayModelId,
+      });
       const group = buildAcpFoldedModelGroups(cache.rawModels || []).get(
         selectedModelId,
       );
@@ -93,8 +118,13 @@ export class AcpProvider implements Provider {
       options && typeof options === "object" && !Array.isArray(options)
         ? (options as Record<string, unknown>)
         : {};
+    const normalizedSource = normalizeAcpProviderModelOptionsForRuntime({
+      modelOptions: cache?.displayModels || [],
+      options: source,
+      currentDisplayModelId: cache?.currentDisplayModelId,
+    });
     const autoApproveAcpPermissions =
-      source.autoApproveAcpPermissions === true
+      normalizedSource.autoApproveAcpPermissions === true
         ? { autoApproveAcpPermissions: true }
         : {};
     if (!cache) {
@@ -107,13 +137,21 @@ export class AcpProvider implements Provider {
       ...Array.from(modelGroups.keys()),
     ]);
     const selectedMode = String(
-      source.acpModeId || cache.currentModeId || "",
+      normalizedSource.acpModeId || cache.currentModeId || "",
     ).trim();
     const selectedModel = String(
-      source.acpModelId || cache.currentDisplayModelId || "",
+      normalizedSource.acpModelId || cache.currentDisplayModelId || "",
     ).trim();
+    const selectedDisplayModel = resolveAcpDisplayModelIdForProviderSelection({
+      modelOptions: cache.displayModels || [],
+      provider: source.acpModelProvider,
+      modelId: selectedModel,
+      currentDisplayModelId: cache.currentDisplayModelId,
+    });
     const model =
-      (selectedModel && modelIds.has(selectedModel) ? selectedModel : "") ||
+      (selectedDisplayModel && modelIds.has(selectedDisplayModel)
+        ? selectedDisplayModel
+        : "") ||
       cache.currentDisplayModelId ||
       Array.from(modelGroups.keys())[0] ||
       "";
@@ -121,7 +159,9 @@ export class AcpProvider implements Provider {
     const effortIds = new Set(
       (group?.variants || []).map((entry) => entry.effortId),
     );
-    const normalizedEffort = normalizeAcpEffortId(source.acpReasoningEffort);
+    const normalizedEffort = normalizeAcpEffortId(
+      normalizedSource.acpReasoningEffort,
+    );
     const fallbackEffort =
       group && group.variants.length > 0
         ? normalizeAcpEffortId(cache.currentReasoningEffortId) ||

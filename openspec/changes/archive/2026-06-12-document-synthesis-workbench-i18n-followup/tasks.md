@@ -1,0 +1,6 @@
+- [x] 1. Document the Synthesis Workbench i18n envelope and rendering boundary.
+- [x] 2. Document fixed-UI localization versus raw user/generated content.
+- [x] 3. Document readonly harness locale selector and transport-boundary i18n injection.
+- [x] 4. Document readonly harness SQLite snapshot reads for live Zotero/plugin DBs.
+- [x] 5. Add delta specs for `synthesis-tab-ui`, `ui-readonly-harness`, and `plugin-localization-governance`.
+- [x] 6. Link behavior to focused UI/harness tests already implemented.

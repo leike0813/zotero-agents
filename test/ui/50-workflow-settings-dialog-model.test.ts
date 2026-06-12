@@ -386,7 +386,123 @@ describe("workflow settings dialog model", function () {
     assert.equal(effort?.disabled, false);
   });
 
-  itNodeOnly("renders ACP model choices with tail-preserving label truncation", async function () {
+  it("splits ACP provider-scoped model choices for dialog schema entries", function () {
+    const backend = {
+      id: "acp-local",
+      type: "acp",
+      baseUrl: "local://acp-local",
+      acp: {
+        runtimeOptionsCache: {
+          refreshedAt: "2026-06-11T00:00:00.000Z",
+          modes: [{ id: "ask", label: "Ask" }],
+          currentModeId: "ask",
+          rawModels: [
+            { id: "openai/gpt-5", label: "GPT-5" },
+            { id: "anthropic/claude", label: "Claude" },
+            { id: "google:gemini", label: "Gemini" },
+            { id: "gateway/openai:gpt-4.1", label: "GPT-4.1" },
+            { id: "local-model", label: "Local Model" },
+          ],
+          currentRawModelId: "anthropic/claude",
+          displayModels: [
+            { id: "openai/gpt-5", label: "GPT-5" },
+            { id: "anthropic/claude", label: "Claude" },
+            { id: "google:gemini", label: "Gemini" },
+            { id: "gateway/openai:gpt-4.1", label: "GPT-4.1" },
+            { id: "local-model", label: "Local Model" },
+          ],
+          currentDisplayModelId: "anthropic/claude",
+          reasoningEfforts: [{ id: "default", label: "Default" }],
+          currentReasoningEffortId: "default",
+        },
+      },
+    } as const;
+
+    const anthropicEntries = resolveProviderSchemaEntries({
+      providerId: "acp",
+      backend,
+      currentValues: { acpModelId: "anthropic/claude" },
+    });
+    const providerEntry = anthropicEntries.find(
+      (entry) => entry.key === "acpModelProvider",
+    );
+    const modelEntry = anthropicEntries.find(
+      (entry) => entry.key === "acpModelId",
+    );
+    assert.deepEqual(providerEntry?.enumValues || [], [
+      "openai",
+      "anthropic",
+      "google",
+      "gateway/openai",
+      "Unscoped",
+    ]);
+    assert.equal(providerEntry?.defaultValue, "anthropic");
+    assert.deepEqual(modelEntry?.enumValues || [], ["claude"]);
+    assert.equal(modelEntry?.defaultValue, "claude");
+
+    const openaiEntries = resolveProviderSchemaEntries({
+      providerId: "acp",
+      backend,
+      currentValues: { acpModelProvider: "openai", acpModelId: "gpt-5" },
+    });
+    assert.deepEqual(
+      openaiEntries.find((entry) => entry.key === "acpModelId")?.enumValues ||
+        [],
+      ["gpt-5"],
+    );
+
+    const colonEntries = resolveProviderSchemaEntries({
+      providerId: "acp",
+      backend,
+      currentValues: { acpModelProvider: "google", acpModelId: "gemini" },
+    });
+    assert.deepEqual(
+      colonEntries.find((entry) => entry.key === "acpModelId")?.enumValues ||
+        [],
+      ["gemini"],
+    );
+
+    const mixedSeparatorEntries = resolveProviderSchemaEntries({
+      providerId: "acp",
+      backend,
+      currentValues: {
+        acpModelProvider: "gateway/openai",
+        acpModelId: "gpt-4.1",
+      },
+    });
+    assert.deepEqual(
+      mixedSeparatorEntries.find((entry) => entry.key === "acpModelId")
+        ?.enumValues || [],
+      ["gpt-4.1"],
+    );
+
+    const providerChangedEntries = resolveProviderSchemaEntries({
+      providerId: "acp",
+      backend,
+      currentValues: { acpModelProvider: "openai", acpModelId: "claude" },
+    });
+    const providerChangedModel = providerChangedEntries.find(
+      (entry) => entry.key === "acpModelId",
+    );
+    assert.deepEqual(providerChangedModel?.enumValues || [], ["gpt-5"]);
+    assert.equal(providerChangedModel?.defaultValue, "gpt-5");
+
+    const unscopedEntries = resolveProviderSchemaEntries({
+      providerId: "acp",
+      backend,
+      currentValues: {
+        acpModelProvider: "Unscoped",
+        acpModelId: "local-model",
+      },
+    });
+    assert.deepEqual(
+      unscopedEntries.find((entry) => entry.key === "acpModelId")?.enumValues ||
+        [],
+      ["local-model"],
+    );
+  });
+
+  itNodeOnly("renders ACP model choices with ordinary label truncation", async function () {
     const [
       customSelectJs,
       customSelectCss,
@@ -396,6 +512,7 @@ describe("workflow settings dialog model", function () {
       dashboardHtml,
       workflowDialogHtml,
       pluginDialogSource,
+      webDialogSource,
     ] = await Promise.all([
       readFile("addon/content/components/custom-select.js", "utf8"),
       readFile("addon/content/components/custom-select.css", "utf8"),
@@ -405,32 +522,44 @@ describe("workflow settings dialog model", function () {
       readFile("addon/content/dashboard/index.html", "utf8"),
       readFile("addon/content/dashboard/workflow-settings-dialog.html", "utf8"),
       readFile("src/modules/workflowSettingsDialog.ts", "utf8"),
+      readFile("src/modules/workflowSettingsWebDialog.ts", "utf8"),
     ]);
 
     assert.include(customSelectJs, "custom-select-trigger-label");
-    assert.include(customSelectCss, ".custom-select.tail-preserve-select");
-    assert.include(customSelectCss, "direction: rtl");
     assert.include(customSelectCss, "flex: 1 1 auto");
-    assert.include(customSelectCss, "unicode-bidi: isolate");
-    assert.include(workflowDialogCss, ".custom-select.tail-preserve-select");
-    assert.include(workflowDialogCss, "direction: rtl");
-    assert.include(workflowDialogCss, "unicode-bidi: isolate");
-    assert.include(dashboardHtml, "custom-select.css?ui=20260611-tail-v1");
-    assert.include(dashboardHtml, "custom-select.js?ui=20260611-tail-v1");
-    assert.include(workflowDialogHtml, "custom-select.css?ui=20260611-tail-v1");
-    assert.include(workflowDialogHtml, "custom-select.js?ui=20260611-tail-v1");
-    assert.match(
-      dashboardApp,
-      /args\.entry\.key === "acpModelId"[\s\S]*tail-preserve-select/,
+    assert.notInclude(customSelectCss, ".custom-select.tail-preserve-select");
+    assert.notInclude(customSelectCss, "direction: rtl");
+    assert.notInclude(customSelectCss, "unicode-bidi: isolate");
+    assert.notInclude(workflowDialogCss, ".custom-select.tail-preserve-select");
+    assert.notInclude(workflowDialogCss, "direction: rtl");
+    assert.notInclude(workflowDialogCss, "unicode-bidi: isolate");
+    assert.include(
+      dashboardHtml,
+      "custom-select.css?ui=20260611-provider-split-v1",
     );
-    assert.match(
-      workflowDialogJs,
-      /args\.entry\.key === "acpModelId"[\s\S]*tail-preserve-select/,
+    assert.include(
+      dashboardHtml,
+      "custom-select.js?ui=20260611-provider-split-v1",
     );
-    assert.include(pluginDialogSource, "applyTailPreservingChoiceStyle");
-    assert.match(
-      pluginDialogSource,
-      /entry\.key === "acpModelId"[\s\S]*applyTailPreservingChoiceStyle/,
+    assert.include(
+      workflowDialogHtml,
+      "custom-select.css?ui=20260612-provider-split-v2",
+    );
+    assert.include(
+      workflowDialogHtml,
+      "custom-select.js?ui=20260612-provider-split-v2",
+    );
+    assert.include(
+      workflowDialogHtml,
+      "workflow-settings-dialog.js?ui=20260612-provider-split-v2",
+    );
+    assert.notInclude(dashboardApp, "tail-preserve-select");
+    assert.notInclude(workflowDialogJs, "tail-preserve-select");
+    assert.notInclude(pluginDialogSource, "applyTailPreservingChoiceStyle");
+    assert.include(pluginDialogSource, "acpModelProvider");
+    assert.include(
+      webDialogSource,
+      "workflow-settings-dialog.html?ui=20260612-provider-split-v2",
     );
   });
 });

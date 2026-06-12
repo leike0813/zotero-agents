@@ -63,6 +63,7 @@ const ALLOWED_DANGEROUS_SEMANTIC_CLI = new Set([
 const CACHE_VIEW_CAPABILITIES = new Set([
   "citation_graph.get_overview",
   "citation_graph.get_slice",
+  "citation_graph.get_layout",
   "citation_graph.get_metrics",
   "citation_graph.query_cluster",
   "citation_graph.rank_external_references",

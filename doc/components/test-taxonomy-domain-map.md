@@ -41,9 +41,10 @@ Current fixture ownership:
 
 ## 4. Inventory Summary
 
-- Total migrated test suites: 39
+- Total migrated test suites: 35
+- Additional core domain files (created in-place): 13
 - Domain distribution:
-  - `core`: 24
+  - `core`: 37 (24 migrated + 13 in-place)
   - `ui`: 6
   - `workflow-literature-digest`: 4
   - `workflow-mineru`: 1
@@ -82,6 +83,22 @@ Mapped files:
 - `51-workflow-duplicate-guard-seam.test.ts`
 - `52-runtime-bridge.test.ts`
 - `53-zotero-mock-parity-governance.test.ts`
+
+Additional core domain files (created in-place in `test/core/`, not migrated from `test/zotero/`):
+
+- `55-workflow-apply-seam-risk-regression.test.ts`
+- `60-task-dashboard-history.test.ts`
+- `62-task-dashboard-snapshot.test.ts`
+- `63-job-queue-progress.test.ts`
+- `70a-skillrunner-task-reconciler-state-restore.test.ts`
+- `70b-skillrunner-task-reconciler-apply-bundle-retry.test.ts`
+- `70c-skillrunner-task-reconciler-ledger-reconcile.test.ts`
+- `71-skillrunner-run-dialog-ui-e2e-alignment.test.ts`
+- `83-skillrunner-run-dialog-waiting-auth-observer.test.ts`
+- `85-deferred-workflow-completion-tracker.test.ts`
+- `87-workflow-package-runtime-diagnostics.test.ts`
+- `88-workflow-runtime-scope-diagnostics.test.ts`
+- `89-workflow-debug-probe.test.ts`
 
 ### 5.2 UI Domain
 

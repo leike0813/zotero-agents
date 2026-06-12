@@ -651,7 +651,9 @@ function isWorkflowSettingsStructuralRefreshChange(args: {
     args.changedSection === "providerOptions" &&
     (args.changedKey === "engine" ||
       args.changedKey === "provider_id" ||
-      args.changedKey === "model")
+      args.changedKey === "model" ||
+      args.changedKey === "acpModelProvider" ||
+      args.changedKey === "acpModelId")
   ) {
     return true;
   }
