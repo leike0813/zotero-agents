@@ -13,27 +13,32 @@
     node.textContent = "";
   }
 
-  function setCodeCopyButtonState(button, state) {
+  function setCodeCopyButtonState(button, state, labels) {
     if (!button) return;
-    const normalized = state === "copied" ? "copied" : state === "failed" ? "failed" : "idle";
+    const copyLabels =
+      labels && typeof labels === "object"
+        ? labels
+        : button.__assistantTranscriptLabels || {};
+    const normalized =
+      state === "copied" ? "copied" : state === "failed" ? "failed" : "idle";
     if (button.__assistantCodeCopyResetTimer) {
       clearTimeout(button.__assistantCodeCopyResetTimer);
       button.__assistantCodeCopyResetTimer = null;
     }
     button.setAttribute("data-assistant-copy-state", normalized);
     if (normalized === "copied") {
-      button.textContent = "Copied";
-      button.title = "Copied";
+      button.textContent = transcriptText(copyLabels, "copied");
+      button.title = transcriptText(copyLabels, "copied");
     } else if (normalized === "failed") {
-      button.textContent = "Copy failed";
-      button.title = "Copy failed";
+      button.textContent = transcriptText(copyLabels, "copyFailed");
+      button.title = transcriptText(copyLabels, "copyFailed");
     } else {
-      button.textContent = "Copy";
-      button.title = "Copy code";
+      button.textContent = transcriptText(copyLabels, "copy");
+      button.title = transcriptText(copyLabels, "copyCode");
     }
     if (normalized !== "idle") {
       button.__assistantCodeCopyResetTimer = setTimeout(function () {
-        setCodeCopyButtonState(button, "idle");
+        setCodeCopyButtonState(button, "idle", copyLabels);
       }, 1400);
     }
   }
@@ -76,9 +81,12 @@
     });
   }
 
-  function decorateMarkdownCodeBlocks(body) {
+  function decorateMarkdownCodeBlocks(body, options) {
     if (!body || typeof body.querySelectorAll !== "function") return;
-    const codeBlocks = Array.prototype.slice.call(body.querySelectorAll("pre > code"));
+    const labels = transcriptLabels(options);
+    const codeBlocks = Array.prototype.slice.call(
+      body.querySelectorAll("pre > code"),
+    );
     codeBlocks.forEach(function (code) {
       const pre = code && (code.parentElement || code.parentNode);
       if (!pre || typeof pre.getAttribute !== "function") return;
@@ -87,20 +95,28 @@
       if (pre.classList && typeof pre.classList.add === "function") {
         pre.classList.add("assistant-code-block-with-copy");
       }
-      const button = el("button", "assistant-code-copy-button", "Copy");
+      const button = el(
+        "button",
+        "assistant-code-copy-button",
+        transcriptText(labels, "copy"),
+      );
       button.type = "button";
-      button.setAttribute("aria-label", "Copy code block");
+      button.__assistantTranscriptLabels = labels;
+      button.setAttribute(
+        "aria-label",
+        transcriptText(labels, "copyCodeBlock"),
+      );
       button.setAttribute("data-assistant-copy-state", "idle");
-      button.title = "Copy code";
+      button.title = transcriptText(labels, "copyCode");
       button.addEventListener("click", function (event) {
         event.preventDefault();
         event.stopPropagation();
         copyTextToClipboard(code.textContent || "").then(
           function () {
-            setCodeCopyButtonState(button, "copied");
+            setCodeCopyButtonState(button, "copied", labels);
           },
           function () {
-            setCodeCopyButtonState(button, "failed");
+            setCodeCopyButtonState(button, "failed", labels);
           },
         );
       });
@@ -109,7 +125,10 @@
   }
 
   function normalizeStatusToken(status) {
-    return String(status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return String(status || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
   }
 
   function isAssistantTranscriptNearBottom(element, threshold) {
@@ -119,16 +138,32 @@
   }
 
   function installAssistantTranscriptStickiness(container, threshold) {
-    if (!container || container.getAttribute("data-assistant-transcript-stick-installed") === "true") {
+    if (
+      !container ||
+      container.getAttribute("data-assistant-transcript-stick-installed") ===
+        "true"
+    ) {
       return;
     }
     container.setAttribute("data-assistant-transcript-stick-installed", "true");
-    container.setAttribute("data-assistant-transcript-stick", isAssistantTranscriptNearBottom(container, threshold) ? "true" : "false");
+    container.setAttribute(
+      "data-assistant-transcript-stick",
+      isAssistantTranscriptNearBottom(container, threshold) ? "true" : "false",
+    );
     container.addEventListener("scroll", function () {
-      if (container.getAttribute("data-assistant-transcript-programmatic-scroll") === "true") {
+      if (
+        container.getAttribute(
+          "data-assistant-transcript-programmatic-scroll",
+        ) === "true"
+      ) {
         return;
       }
-      container.setAttribute("data-assistant-transcript-stick", isAssistantTranscriptNearBottom(container, threshold) ? "true" : "false");
+      container.setAttribute(
+        "data-assistant-transcript-stick",
+        isAssistantTranscriptNearBottom(container, threshold)
+          ? "true"
+          : "false",
+      );
     });
   }
 
@@ -146,17 +181,24 @@
     const finish = function () {
       container.scrollTop = container.scrollHeight;
     };
-    container.setAttribute("data-assistant-transcript-programmatic-scroll", "true");
+    container.setAttribute(
+      "data-assistant-transcript-programmatic-scroll",
+      "true",
+    );
     container.scrollTop = container.scrollHeight;
-    const raf = typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame.bind(window)
-      : function (callback) {
-          return setTimeout(callback, 0);
-        };
+    const raf =
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : function (callback) {
+            return setTimeout(callback, 0);
+          };
     raf(function () {
       finish();
       raf(function () {
-        container.removeAttribute("data-assistant-transcript-programmatic-scroll");
+        container.removeAttribute(
+          "data-assistant-transcript-programmatic-scroll",
+        );
         container.setAttribute("data-assistant-transcript-stick", "true");
       });
     });
@@ -178,7 +220,11 @@
   }
 
   function compactAssistantToolName(tool) {
-    const candidates = [tool && tool.toolName, tool && tool.toolKind, tool && tool.title];
+    const candidates = [
+      tool && tool.toolName,
+      tool && tool.toolKind,
+      tool && tool.title,
+    ];
     for (let index = 0; index < candidates.length; index += 1) {
       const value = String(candidates[index] || "").trim();
       if (!isGenericToolText(value)) return value;
@@ -187,13 +233,22 @@
   }
 
   function transcriptLabels(options) {
-    const labels = options && options.labels && typeof options.labels === "object" ? options.labels : {};
-    return labels.transcript && typeof labels.transcript === "object" ? labels.transcript : labels;
+    const labels =
+      options && options.labels && typeof options.labels === "object"
+        ? options.labels
+        : {};
+    return labels.transcript && typeof labels.transcript === "object"
+      ? labels.transcript
+      : labels;
   }
 
   function transcriptLabel(options, key, fallback) {
     const labels = transcriptLabels(options);
     return String((labels && labels[key]) || fallback || "");
+  }
+
+  function transcriptText(labels, key) {
+    return String((labels && labels[key]) || key);
   }
 
   function compactAssistantToolSummary(tool) {
@@ -204,7 +259,9 @@
       tool && tool.resultSummary,
     ];
     for (let index = 0; index < candidates.length; index += 1) {
-      const value = String(candidates[index] || "").replace(/\s+/g, " ").trim();
+      const value = String(candidates[index] || "")
+        .replace(/\s+/g, " ")
+        .trim();
       if (!isGenericToolText(value)) return value;
     }
     return "";
@@ -282,7 +339,9 @@
   }
 
   function toolEventTime(item) {
-    const parsed = Date.parse(String(item && (item.updatedAt || item.createdAt) || ""));
+    const parsed = Date.parse(
+      String((item && (item.updatedAt || item.createdAt)) || ""),
+    );
     return Number.isNaN(parsed) ? 0 : parsed;
   }
 
@@ -299,7 +358,8 @@
     for (let index = 0; index < text.length; index += 1) {
       hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
     }
-    const slug = text.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 48) || "unknown";
+    const slug =
+      text.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 48) || "unknown";
     return slug + "-" + hash.toString(36);
   }
 
@@ -310,38 +370,53 @@
       return isPreferredToolEvent(candidate, current) ? candidate : current;
     }, first);
     const latestSummary =
-      items.slice().reverse().find(function (tool) {
-        return String(tool.summary || "").trim();
-      }) || {};
+      items
+        .slice()
+        .reverse()
+        .find(function (tool) {
+          return String(tool.summary || "").trim();
+        }) || {};
     const firstInputSummary =
       items.find(function (tool) {
         return !isGenericToolText(tool.inputSummary);
       }) || {};
     const latestResultSummary =
-      items.slice().reverse().find(function (tool) {
-        return !isGenericToolText(tool.resultSummary);
-      }) || {};
+      items
+        .slice()
+        .reverse()
+        .find(function (tool) {
+          return !isGenericToolText(tool.resultSummary);
+        }) || {};
     const latestToolName =
-      items.slice().reverse().find(function (tool) {
-        return !isGenericToolText(tool.toolName);
-      }) || {};
+      items
+        .slice()
+        .reverse()
+        .find(function (tool) {
+          return !isGenericToolText(tool.toolName);
+        }) || {};
     return {
       id: "assistant-tool-" + sanitizeToolGroupKey(key),
       kind: "tool",
       toolCallId: String(selected.toolCallId || first.toolCallId || key || ""),
       title: String(selected.title || first.title || "Tool"),
-      toolKind: String(selected.toolKind || first.toolKind || "").trim() || undefined,
+      toolKind:
+        String(selected.toolKind || first.toolKind || "").trim() || undefined,
       toolName:
-        String(latestToolName.toolName || selected.toolName || first.toolName || "").trim() ||
-        undefined,
+        String(
+          latestToolName.toolName || selected.toolName || first.toolName || "",
+        ).trim() || undefined,
       inputSummary:
-        String(firstInputSummary.inputSummary || selected.inputSummary || "").trim() ||
-        undefined,
+        String(
+          firstInputSummary.inputSummary || selected.inputSummary || "",
+        ).trim() || undefined,
       resultSummary:
-        String(latestResultSummary.resultSummary || selected.resultSummary || "").trim() ||
-        undefined,
+        String(
+          latestResultSummary.resultSummary || selected.resultSummary || "",
+        ).trim() || undefined,
       state: selected.state || first.state || "pending",
-      summary: String(selected.summary || latestSummary.summary || "").trim() || undefined,
+      summary:
+        String(selected.summary || latestSummary.summary || "").trim() ||
+        undefined,
       createdAt: first.createdAt,
       updatedAt: selected.updatedAt || selected.createdAt || first.updatedAt,
     };
@@ -369,7 +444,10 @@
     return entries
       .map(function (entry) {
         if (entry.toolGroupKey) {
-          return createCanonicalToolItem(entry.toolGroupKey, toolGroups.get(entry.toolGroupKey) || {});
+          return createCanonicalToolItem(
+            entry.toolGroupKey,
+            toolGroups.get(entry.toolGroupKey) || {},
+          );
         }
         return entry.item;
       })
@@ -410,7 +488,9 @@
   function createToolActivityGroup(run, expandedIds, fallbackIndex) {
     const first = run[0] || {};
     const last = run[run.length - 1] || first;
-    const id = "assistant-tool-activity-" + stableToolActivityGroupKey(run, fallbackIndex);
+    const id =
+      "assistant-tool-activity-" +
+      stableToolActivityGroupKey(run, fallbackIndex);
     return {
       id,
       kind: "tool_activity_group",
@@ -418,7 +498,10 @@
       createdAt: first.createdAt,
       updatedAt: last.updatedAt || last.createdAt,
       state: last.state,
-      expanded: expandedIds && typeof expandedIds.has === "function" && expandedIds.has(id),
+      expanded:
+        expandedIds &&
+        typeof expandedIds.has === "function" &&
+        expandedIds.has(id),
     };
   }
 
@@ -429,7 +512,10 @@
     let toolRun = [];
     function flush() {
       if (toolRun.length === 1) entries.push(toolRun[0]);
-      if (toolRun.length > 1) entries.push(createToolActivityGroup(toolRun, expandedIds, entries.length));
+      if (toolRun.length > 1)
+        entries.push(
+          createToolActivityGroup(toolRun, expandedIds, entries.length),
+        );
       toolRun = [];
     }
     canonicalItems.forEach(function (item) {
@@ -446,7 +532,11 @@
 
   function itemRole(item) {
     if (item.kind === "message") return String(item.role || "assistant");
-    if (item.kind === "tool" || item.kind === "tool_call" || item.kind === "tool_activity_group") {
+    if (
+      item.kind === "tool" ||
+      item.kind === "tool_call" ||
+      item.kind === "tool_activity_group"
+    ) {
       return "tool";
     }
     if (item.kind === "permission") return "permission";
@@ -476,12 +566,30 @@
     row.classList.toggle("is-tool", role === "tool");
     row.classList.toggle("is-process", kind === "process");
     row.classList.toggle("is-permission", kind === "permission");
-    row.classList.toggle("is-workspace-activity", kind === "status" && item.label === "workspace-activity");
-    row.classList.toggle("is-status", kind !== "message" && kind !== "process" && role !== "tool");
-    row.classList.toggle("level-warn", String(item.level || "").trim() === "warn");
-    row.classList.toggle("level-error", String(item.level || "").trim() === "error");
-    row.classList.toggle("is-streaming", String(item.state || "").trim() === "streaming");
-    row.classList.toggle("is-error", String(item.state || "").trim() === "error");
+    row.classList.toggle(
+      "is-workspace-activity",
+      kind === "status" && item.label === "workspace-activity",
+    );
+    row.classList.toggle(
+      "is-status",
+      kind !== "message" && kind !== "process" && role !== "tool",
+    );
+    row.classList.toggle(
+      "level-warn",
+      String(item.level || "").trim() === "warn",
+    );
+    row.classList.toggle(
+      "level-error",
+      String(item.level || "").trim() === "error",
+    );
+    row.classList.toggle(
+      "is-streaming",
+      String(item.state || "").trim() === "streaming",
+    );
+    row.classList.toggle(
+      "is-error",
+      String(item.state || "").trim() === "error",
+    );
     if (item.kind === "tool_activity_group") {
       row.classList.add("is-tool-activity-group");
       row.classList.toggle("is-expanded", item.expanded === true);
@@ -491,12 +599,20 @@
 
   function appendToolDisplay(parent, tool) {
     const tooltip = assistantToolCommandTooltip(tool);
-    const badge = el("span", "assistant-transcript-tool-badge", compactAssistantToolName(tool));
+    const badge = el(
+      "span",
+      "assistant-transcript-tool-badge",
+      compactAssistantToolName(tool),
+    );
     setAssistantTooltip(badge, tooltip);
     parent.appendChild(badge);
     const summary = compactAssistantToolSummary(tool);
     if (summary) {
-      const summaryNode = el("span", "assistant-transcript-tool-summary", summary);
+      const summaryNode = el(
+        "span",
+        "assistant-transcript-tool-summary",
+        summary,
+      );
       setAssistantTooltip(summaryNode, tooltip);
       parent.appendChild(summaryNode);
     }
@@ -535,10 +651,10 @@
     const badge = el(
       "span",
       className || "assistant-transcript-revision-badge",
-      transcriptLabel(options, "revised", "Revised") + " " + String(revision.count) + "x",
+      transcriptLabel(options, "revised") + " " + String(revision.count) + "x",
     );
     badge.title =
-      transcriptLabel(options, "latestRevision", "Latest output revision") +
+      transcriptLabel(options, "latestRevision") +
       ": " +
       String(revision.latestStatus || "") +
       ", repair round " +
@@ -547,11 +663,17 @@
   }
 
   function renderCanonicalItem(row, item, options) {
-    const renderMarkdown = options.renderMarkdown || function (value) { return String(value || ""); };
+    const renderMarkdown =
+      options.renderMarkdown ||
+      function (value) {
+        return String(value || "");
+      };
     const formatTime =
       typeof options.formatTime === "function"
         ? options.formatTime
-        : function (value) { return String(value || ""); };
+        : function (value) {
+            return String(value || "");
+          };
     const meta = row.querySelector(".assistant-transcript-meta");
     const body = row.querySelector("[data-assistant-transcript-body]");
     updateTranscriptClasses(row, item, options);
@@ -562,26 +684,43 @@
     row.onclick = null;
     row.onkeydown = null;
     if (item.kind === "message") {
-      meta.appendChild(el("span", "assistant-transcript-role", String(item.role || "assistant")));
+      meta.appendChild(
+        el(
+          "span",
+          "assistant-transcript-role",
+          String(item.role || "assistant"),
+        ),
+      );
       renderRevisionBadge(meta, item.revision, undefined, options);
-      meta.appendChild(el("span", "assistant-transcript-time", formatTime(item.createdAt)));
+      meta.appendChild(
+        el("span", "assistant-transcript-time", formatTime(item.createdAt)),
+      );
       body.classList.add("assistant-transcript-markdown-body");
       body.innerHTML = renderMarkdown(String(item.text || ""));
-      decorateMarkdownCodeBlocks(body);
+      decorateMarkdownCodeBlocks(body, options);
       return;
     }
     if (item.kind === "process") {
-      meta.textContent = String(item.label || transcriptLabel(options, "thinking", "Thinking"));
+      meta.textContent = String(
+        item.label || transcriptLabel(options, "thinking"),
+      );
       body.classList.add("assistant-transcript-markdown-body");
       body.innerHTML = renderMarkdown(String(item.text || ""));
-      decorateMarkdownCodeBlocks(body);
+      decorateMarkdownCodeBlocks(body, options);
       return;
     }
     if (item.kind === "permission") {
-      meta.textContent = transcriptLabel(options, "permission", "Permission");
-      const led = el("span", "assistant-transcript-tool-led " + permissionToneClass(item.status));
+      meta.textContent = transcriptLabel(options, "permission");
+      const led = el(
+        "span",
+        "assistant-transcript-tool-led " + permissionToneClass(item.status),
+      );
       led.setAttribute("aria-hidden", "true");
-      const icon = el("span", "assistant-transcript-permission-icon", permissionIcon(item.status));
+      const icon = el(
+        "span",
+        "assistant-transcript-permission-icon",
+        permissionIcon(item.status),
+      );
       icon.setAttribute("aria-hidden", "true");
       body.appendChild(led);
       body.appendChild(icon);
@@ -595,8 +734,11 @@
       return;
     }
     if (item.kind === "tool" || item.kind === "tool_call") {
-      meta.textContent = transcriptLabel(options, "tool", "Tool");
-      const led = el("span", "assistant-transcript-tool-led " + toolToneClass(item.state));
+      meta.textContent = transcriptLabel(options, "tool");
+      const led = el(
+        "span",
+        "assistant-transcript-tool-led " + toolToneClass(item.state),
+      );
       led.setAttribute("aria-hidden", "true");
       body.appendChild(led);
       appendToolDisplay(body, item);
@@ -604,33 +746,53 @@
     }
     if (item.kind === "tool_activity_group") {
       const summaryState = toolActivitySummaryState(item.items);
-      const summary = el("button", "assistant-transcript-tool-activity-summary");
+      const summary = el(
+        "button",
+        "assistant-transcript-tool-activity-summary",
+      );
       summary.type = "button";
-      summary.setAttribute("aria-expanded", item.expanded === true ? "true" : "false");
+      summary.setAttribute(
+        "aria-expanded",
+        item.expanded === true ? "true" : "false",
+      );
       summary.setAttribute(
         "aria-label",
         (item.expanded === true
-          ? transcriptLabel(options, "collapse", "Collapse")
-          : transcriptLabel(options, "expand", "Expand")) +
+          ? transcriptLabel(options, "collapse")
+          : transcriptLabel(options, "expand")) +
           " " +
-          transcriptLabel(options, "toolActivity", "Tool activity"),
+          transcriptLabel(options, "toolActivity"),
       );
-      const led = el("span", "assistant-transcript-tool-led " + toolToneClass(summaryState));
+      const led = el(
+        "span",
+        "assistant-transcript-tool-led " + toolToneClass(summaryState),
+      );
       led.setAttribute("aria-hidden", "true");
-      const chevron = el("span", "assistant-transcript-tool-activity-chevron", item.expanded === true ? "−" : "+");
+      const chevron = el(
+        "span",
+        "assistant-transcript-tool-activity-chevron",
+        item.expanded === true ? "−" : "+",
+      );
       chevron.setAttribute("aria-hidden", "true");
       meta.appendChild(
         el(
           "span",
           "assistant-transcript-role",
-          transcriptLabel(options, "toolActivity", "Tool activity") + " (" + String(item.items.length) + ")",
+          transcriptLabel(options, "toolActivity") +
+            " (" +
+            String(item.items.length) +
+            ")",
         ),
       );
       summary.appendChild(chevron);
       summary.appendChild(led);
       const activityTooltip = toolActivityTooltipText(item.items);
       setAssistantTooltip(summary, activityTooltip);
-      const summaryText = el("span", "assistant-transcript-tool-summary", toolGroupSummaryText(item.items, options));
+      const summaryText = el(
+        "span",
+        "assistant-transcript-tool-summary",
+        toolGroupSummaryText(item.items, options),
+      );
       setAssistantTooltip(summaryText, activityTooltip);
       summary.appendChild(summaryText);
       if (typeof options.onToggleExpanded === "function") {
@@ -643,9 +805,16 @@
       if (item.expanded === true) {
         const list = el("div", "assistant-transcript-tool-activity-list");
         item.items.forEach(function (tool) {
-          const entry = el("div", "assistant-transcript-tool-activity-item " + toolToneClass(tool.state));
+          const entry = el(
+            "div",
+            "assistant-transcript-tool-activity-item " +
+              toolToneClass(tool.state),
+          );
           setAssistantTooltip(entry, assistantToolCommandTooltip(tool));
-          const toolLed = el("span", "assistant-transcript-tool-led " + toolToneClass(tool.state));
+          const toolLed = el(
+            "span",
+            "assistant-transcript-tool-led " + toolToneClass(tool.state),
+          );
           toolLed.setAttribute("aria-hidden", "true");
           entry.appendChild(toolLed);
           appendToolDisplay(entry, tool);
@@ -656,9 +825,11 @@
       return;
     }
     if (item.kind === "status" && item.label === "workspace-activity") {
-      meta.textContent = transcriptLabel(options, "workspace", "Workspace");
+      meta.textContent = transcriptLabel(options, "workspace");
       const relativePath =
-        item.details && typeof item.details === "object" && item.details.relativePath
+        item.details &&
+        typeof item.details === "object" &&
+        item.details.relativePath
           ? item.details.relativePath
           : item.text;
       const fileIcon = el("span", "assistant-transcript-workspace-file-icon");
@@ -668,15 +839,19 @@
         el(
           "span",
           "assistant-transcript-tool-badge assistant-transcript-workspace-badge",
-          transcriptLabel(options, "workspaceActivity", "Workspace update"),
+          transcriptLabel(options, "workspaceActivity"),
         ),
       );
       body.appendChild(
-        el("span", "assistant-transcript-workspace-path", String(relativePath || "")),
+        el(
+          "span",
+          "assistant-transcript-workspace-path",
+          String(relativePath || ""),
+        ),
       );
       return;
     }
-    meta.textContent = String(item.label || transcriptLabel(options, "status", "Status"));
+    meta.textContent = String(item.label || transcriptLabel(options, "status"));
     body.textContent = String(item.text || "");
   }
 
@@ -693,11 +868,19 @@
       return normalizeStatusToken(tool.state) === "pending";
     }).length;
     return [
-      String(tools.length) + " " + transcriptLabel(options, "tools", "tools"),
-      failedCount ? String(failedCount) + " " + transcriptLabel(options, "failed", "failed") : "",
-      runningCount ? String(runningCount) + " " + transcriptLabel(options, "running", "running") : "",
-      pendingCount ? String(pendingCount) + " " + transcriptLabel(options, "pending", "pending") : "",
-    ].filter(Boolean).join(" • ");
+      String(tools.length) + " " + transcriptLabel(options, "tools"),
+      failedCount
+        ? String(failedCount) + " " + transcriptLabel(options, "failed")
+        : "",
+      runningCount
+        ? String(runningCount) + " " + transcriptLabel(options, "running")
+        : "",
+      pendingCount
+        ? String(pendingCount) + " " + transcriptLabel(options, "pending")
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" • ");
   }
 
   function toolActivityTooltipText(items) {
@@ -721,25 +904,45 @@
     if (!container) return;
     const variant = opts.variant || "acp-chat";
     const mode = opts.mode === "bubble" ? "bubble" : "plain";
-    const items = buildTranscriptRenderItems(opts.items || [], mode, opts.expandedIds);
+    const items = buildTranscriptRenderItems(
+      opts.items || [],
+      mode,
+      opts.expandedIds,
+    );
     container.classList.add("assistant-transcript");
     container.classList.toggle("plain-mode", mode === "plain");
     container.classList.toggle("bubble-mode", mode === "bubble");
     container.setAttribute("data-assistant-panel-kind", variant);
     installAssistantTranscriptStickiness(container, opts.stickThreshold);
-    const shouldStick = shouldStickAssistantTranscript(container, opts.stickThreshold);
+    const shouldStick = shouldStickAssistantTranscript(
+      container,
+      opts.stickThreshold,
+    );
     if (items.length === 0) {
       clearNode(container);
-      if (opts.nodeMap && typeof opts.nodeMap.clear === "function") opts.nodeMap.clear();
-      container.appendChild(el("div", "assistant-transcript-empty", opts.emptyText || transcriptLabel(opts, "empty", "No messages yet.")));
+      if (opts.nodeMap && typeof opts.nodeMap.clear === "function")
+        opts.nodeMap.clear();
+      container.appendChild(
+        el(
+          "div",
+          "assistant-transcript-empty",
+          opts.emptyText || transcriptLabel(opts, "empty"),
+        ),
+      );
       return;
     }
-    const orderKey = items.map(function (item) {
-      return String(item.kind || "") + ":" + String(item.id || "");
-    }).join("|");
+    const orderKey = items
+      .map(function (item) {
+        return String(item.kind || "") + ":" + String(item.id || "");
+      })
+      .join("|");
     const nodeMap = opts.nodeMap;
-    const canDiff = nodeMap && typeof nodeMap.get === "function" && typeof nodeMap.set === "function";
-    const needsFullRender = opts.orderKey !== orderKey || opts.modeKey !== mode || !canDiff;
+    const canDiff =
+      nodeMap &&
+      typeof nodeMap.get === "function" &&
+      typeof nodeMap.set === "function";
+    const needsFullRender =
+      opts.orderKey !== orderKey || opts.modeKey !== mode || !canDiff;
     if (needsFullRender) {
       clearNode(container);
       if (canDiff) nodeMap.clear();

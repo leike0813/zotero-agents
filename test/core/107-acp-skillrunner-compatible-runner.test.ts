@@ -1399,7 +1399,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.include(prompt, "- pending output requires ui_hints object");
     assert.include(prompt, "Target output contract details:");
     assert.include(prompt, "`ui_hints.options`");
-    assert.include(prompt, "Do not hand-write result/result.json.");
+    assert.include(prompt, "Do not hand-write the runner-owned result JSON path.");
     assert.include(prompt, "runtime-generated file is allowed");
     assert.include(prompt, "Do not output explanations.");
     assert.include(prompt, "Do not output Markdown fences.");
@@ -1465,7 +1465,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         INPUT_MANIFEST_PATH: "input.json",
         OUTPUT_BRANCH_INSTRUCTION: "- Return the pending or final branch.",
         REQUESTED_SKILL_ID: "demo-skill",
-        RESULT_JSON_PATH: "result/result.json",
+        RESULT_JSON_PATH: "result/demo-skill.1/result.json",
         USER_MESSAGE: "continue",
         WORKSPACE_DIR: "workspace",
       },
@@ -2770,6 +2770,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       const workspace = await createAcpSkillRunnerWorkspace({
         rootDir: root,
         backendId: "backend-acp-claude-code-acp-e29l768mbmft",
+        skillId: "literature-analysis",
         workflowId: "literature-analysis",
         jobId: "Lin 等 - 2021 - DETR for crowd pedestrian detection.md",
       });
@@ -3692,6 +3693,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const workspace = await createAcpSkillRunnerWorkspace({
       rootDir: root,
       backendId: "backend-acp",
+      skillId: "demo-skill",
       workflowId: "demo-skill",
       jobId: "job",
     });
@@ -3800,6 +3802,252 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  it("auto-continues a detached recoverable running run after explicit connect", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "topic-synthesis-finalize",
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "topic-synthesis-finalize",
+      workflowId: "topic-synthesis-finalize",
+      jobId: "job-finalize-auto",
+    });
+    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root);
+    const previousWorkflowDir = process.env.ZOTERO_TEST_WORKFLOW_DIR;
+    const promptMessages: string[] = [];
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({ sessionId }),
+      prompt: async ({ sessionId, message }) => {
+        promptMessages.push(message);
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({
+                __SKILL_DONE__: true,
+                kind: "auto_recovered",
+                ok: true,
+              }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    try {
+      process.env.ZOTERO_TEST_WORKFLOW_DIR = recoveryWorkflow.workflowsDir;
+      await rescanWorkflowRegistry({
+        workflowsDir: recoveryWorkflow.workflowsDir,
+      });
+      recordWorkflowTaskUpdate(
+        makeAcpWorkflowTaskJob({
+          requestId: workspace.requestId,
+          workflowId: recoveryWorkflow.workflowId,
+          backendId: ACP_OPENCODE_BACKEND_ID,
+          state: "running",
+        }),
+      );
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "running",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        workflowId: "topic-synthesis-finalize",
+        skillId: "topic-synthesis-finalize",
+        requestedSkillId: "topic-synthesis-finalize",
+        sessionId: "session-recovered-auto-final",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: {
+          execution_modes: ["interactive"],
+          schemas: { output: "assets/output.schema.json" },
+        },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        applyResultState: "pending",
+        requestPayload: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "topic-synthesis-finalize",
+          fetch_type: "result",
+        },
+      });
+      setAcpSkillRunRecoveryHandlerForTests(({ requestId, reason }) =>
+        recoverAcpSkillRunConversation({
+          requestId,
+          reason,
+          dependencies: {
+            createAdapter: async () => fakeAdapter,
+            dependencyProbe: async () => ({ ok: true }),
+          },
+        }),
+      );
+
+      await connectAcpSkillRun(workspace.requestId);
+      for (let index = 0; index < 40; index += 1) {
+        if (
+          getAcpSkillRunRecord(workspace.requestId)?.applyResultState ===
+          "succeeded"
+        ) {
+          break;
+        }
+        await delay(25);
+      }
+
+      const recovered = getAcpSkillRunRecord(workspace.requestId);
+      const stages = (recovered?.events || []).map((event) => event.stage);
+      assert.equal(recovered?.status, "succeeded");
+      assert.equal(recovered?.applyResultState, "succeeded");
+      assert.lengthOf(promptMessages, 1);
+      assert.include(promptMessages[0], "ACP Skills continuation guard");
+      assert.include(promptMessages[0], "Continue the interrupted ACP Skills workflow");
+      assert.include(stages, "recovered-auto-continuation-started");
+      assert.include(stages, "recovered-output-validation-succeeded");
+      assert.isFalse(
+        (recovered?.transcriptItems || []).some(
+          (item: any) =>
+            item.kind === "message" &&
+            item.role === "user" &&
+            item.text.includes("Continue the interrupted ACP Skills workflow"),
+        ),
+      );
+    } finally {
+      process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
+      setAcpSkillRunRecoveryHandlerForTests(null);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not auto-continue a detached recoverable run with pending user interaction", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-pending-connect",
+    });
+    let promptCount = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({ sessionId }),
+      prompt: async () => {
+        promptCount += 1;
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "waiting_user",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-pending",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: { execution_modes: ["interactive"] },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        pendingInteraction: {
+          message: "Need user input.",
+          uiHints: { prompt: "Reply" },
+          candidateText: '{"__SKILL_DONE__":false}',
+        },
+      });
+      setAcpSkillRunRecoveryHandlerForTests(({ requestId, reason }) =>
+        recoverAcpSkillRunConversation({
+          requestId,
+          reason,
+          dependencies: {
+            createAdapter: async () => fakeAdapter,
+            dependencyProbe: async () => ({ ok: true }),
+          },
+        }),
+      );
+
+      await connectAcpSkillRun(workspace.requestId);
+      await delay(50);
+
+      const recovered = getAcpSkillRunRecord(workspace.requestId);
+      assert.equal(promptCount, 0);
+      assert.equal(recovered?.status, "waiting_user");
+      assert.equal(recovered?.conversationState, "active");
+      assert.equal(recovered?.conversationRecoveryState, "connected");
+      assert.equal(recovered?.pendingInteraction?.message, "Need user input.");
+    } finally {
+      setAcpSkillRunRecoveryHandlerForTests(null);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("runs output repair after a recovered workflow reply returns invalid output", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
@@ -3808,6 +4056,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const workspace = await createAcpSkillRunnerWorkspace({
       rootDir: root,
       backendId: "backend-acp",
+      skillId: "demo-skill",
       workflowId: "demo-skill",
       jobId: "job",
     });
@@ -3948,6 +4197,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const workspace = await createAcpSkillRunnerWorkspace({
       rootDir: root,
       backendId: "backend-acp",
+      skillId: "demo-skill",
       workflowId: "demo-skill",
       jobId: "job",
     });
@@ -4022,6 +4272,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const workspace = await createAcpSkillRunnerWorkspace({
       rootDir: root,
       backendId: "backend-acp",
+      skillId: "demo-skill",
       workflowId: "demo-skill",
       jobId: "job",
     });
@@ -4177,6 +4428,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const workspace = await createAcpSkillRunnerWorkspace({
       rootDir: root,
       backendId: "backend-acp",
+      skillId: "topic-synthesis-finalize",
       workflowId: "topic-synthesis-finalize",
       jobId: "job-finalize",
     });
@@ -4302,6 +4554,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const workspace = await createAcpSkillRunnerWorkspace({
       rootDir: root,
       backendId: ACP_OPENCODE_BACKEND_ID,
+      skillId: "prepare-skill",
       workflowId: recoveryWorkflow.workflowId,
       jobId,
       workflowWorkspace: {
@@ -4438,6 +4691,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const workspace = await createAcpSkillRunnerWorkspace({
       rootDir: root,
       backendId: "backend-acp",
+      skillId: "demo-skill",
       workflowId: "demo-skill",
       jobId: "job",
     });
@@ -4563,6 +4817,129 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isTrue(disconnected);
     assert.equal(record?.conversationState, "closed");
     assert.equal(record?.conversationRecoveryState, "available");
+  });
+
+  it("interrupts a recovered active prompt without detaching the session", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-recovered-interrupt",
+    });
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let resolvePromptStarted: () => void = () => undefined;
+    let releasePrompt: (() => void) | null = null;
+    const promptStarted = new Promise<void>((resolve) => {
+      resolvePromptStarted = resolve;
+    });
+    let cancelCalls = 0;
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({ sessionId }),
+      prompt: async ({ sessionId }) => {
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "late text after interrupt" },
+          },
+        });
+        resolvePromptStarted();
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled" };
+      },
+      cancel: async () => {
+        cancelCalls += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+      },
+    };
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "waiting_user",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-interrupt",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: { execution_modes: ["interactive"] },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+      });
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          createAdapter: async () => fakeAdapter,
+          dependencyProbe: async () => ({ ok: true }),
+        },
+      });
+      const replyPromise = replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "continue recovered prompt",
+      });
+      await promptStarted;
+
+      await interruptAcpSkillRunCurrentTurn(workspace.requestId);
+      await replyPromise;
+
+      const record = getAcpSkillRunRecord(workspace.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(cancelCalls, 1);
+      assert.equal(closeCalls, 0);
+      assert.equal(record?.conversationState, "active");
+      assert.equal(record?.conversationRecoveryState, "connected");
+      assert.equal(record?.activePrompt, false);
+      assert.notEqual(record?.status, "canceled");
+      assert.include(stages, "interrupt-turn-requested");
+      assert.include(stages, "interrupt-completed");
+      assert.notInclude(stages, "recovered-output-validation-failed");
+      assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("disconnects an active ACP skill prompt without validating stale output", async function () {
@@ -5283,9 +5660,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
     assert.isTrue(
       await fs
-        .access(
-          path.join(finished?.workspaceDir || "", "result", "result.json"),
-        )
+        .access(finished?.resultJsonPath || "")
         .then(() => true)
         .catch(() => false),
     );

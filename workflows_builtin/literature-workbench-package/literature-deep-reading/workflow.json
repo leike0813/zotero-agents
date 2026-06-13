@@ -3,6 +3,10 @@
   "label": "Literature Deep Reading",
   "provider": "acp",
   "version": "0.1.0",
+  "display": {
+    "core": true,
+    "emoji": "📖"
+  },
   "inputs": {
     "unit": "attachment",
     "accepts": {
@@ -41,7 +45,7 @@
   },
   "execution": {
     "mode": "auto",
-    "skillrunner_mode": "interactive",
+    "skillrunner_mode": "auto",
     "poll_interval_ms": 2000,
     "timeout_ms": 1800000,
     "zoteroHostAccess": {

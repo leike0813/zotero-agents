@@ -9,6 +9,10 @@ import {
 import { getString } from "../utils/locale";
 import type { LoadedWorkflow } from "../workflows/types";
 import {
+  localizeWorkflowLabel,
+  localizeWorkflowParameters,
+} from "../workflows/localization";
+import {
   buildWorkflowSettingsDialogDraft,
   buildWorkflowSettingsDialogRenderModel,
   collectSchemaValues,
@@ -580,7 +584,7 @@ async function pickWorkflowIdForSettings(args: {
         doc,
         options: workflows.map((workflow) => ({
           value: workflow.manifest.id,
-          label: workflow.manifest.label,
+          label: localizeWorkflowLabel(workflow),
         })),
         selectedValue: workflows[0].manifest.id,
       });
@@ -689,8 +693,9 @@ export async function openWorkflowSettingsDialog(args?: {
     providerId,
     profileItems,
     initialState,
-    workflowParameters: workflow.manifest.parameters,
+    workflowParameters: localizeWorkflowParameters(workflow),
   });
+  const workflowLabel = localizeWorkflowLabel(workflow);
 
   const dialogData: Record<string, unknown> = {
     loadCallback: () => {
@@ -980,9 +985,7 @@ export async function openWorkflowSettingsDialog(args?: {
     .addButton(getString("workflow-settings-apply-run-once" as any), "run_once")
     .addButton(getString("workflow-settings-cancel" as any), "cancel")
     .setDialogData(dialogData)
-    .open(
-      `${getString("workflow-settings-title" as any)}: ${workflow.manifest.label}`,
-    );
+    .open(`${getString("workflow-settings-title" as any)}: ${workflowLabel}`);
 
   addon.data.dialog = dialogHelper;
   await (dialogData as { unloadLock?: { promise?: Promise<void> } }).unloadLock

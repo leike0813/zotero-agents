@@ -144,6 +144,8 @@ body {
 .main {
   padding: 16px;
   overflow: auto;
+  container-type: inline-size;
+  container-name: main-view;
 }
 
 .main.skillrunner-fill {
@@ -190,7 +192,7 @@ body {
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -228,42 +230,53 @@ body {
 }
 
 .workflow-bubbles-wrap {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 8px;
+  width: 100%;
 }
 
 .workflow-bubble {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
+  justify-content: space-between;
   align-items: center;
-  gap: 6px;
-  width: fit-content;
-  inline-size: max-content;
-  max-inline-size: 100%;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 8px 10px;
+  padding: 10px;
 }
 
 .workflow-bubble-title {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   font-size: 12px;
   font-weight: 650;
-  white-space: nowrap;
   max-width: 100%;
   text-align: center;
+  width: 100%;
+  min-height: 32px;
 }
 
 .workflow-bubble-title-text {
-  white-space: nowrap;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.35;
+  max-width: 100%;
 }
 
-.workflow-bubble-builtin-badge {
+.workflow-bubble-builtin-badge,
+.workflow-bubble-core-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -276,6 +289,12 @@ body {
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
+}
+
+.workflow-bubble-core-badge {
+  border-color: rgba(217, 119, 6, 0.35);
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .workflow-bubble-actions {
@@ -369,6 +388,8 @@ body {
 .table-wrap {
   overflow: auto;
   max-height: 320px;
+  container-type: inline-size;
+  container-name: table-container;
 }
 
 .main.skillrunner-fill .skillrunner-task-panel {
@@ -387,7 +408,6 @@ body {
 table {
   border-collapse: collapse;
   width: 100%;
-  min-width: 780px;
 }
 
 thead {
@@ -1237,4 +1257,162 @@ tr.clickable {
 .btn.danger {
   color: var(--danger);
   border-color: var(--zs-danger-border);
+}
+
+/* ==========================================================================
+   Responsive and Container Queries for Zotero Narrow Sidebar Support
+   ========================================================================== */
+
+/* 1. Sidebar responsive: convert side nav to top nav under 550px viewport */
+@media (max-width: 550px) {
+  .dashboard-root {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    padding: 8px;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+    overflow: auto;
+    max-height: 120px;
+  }
+
+  .sidebar-title {
+    display: none;
+  }
+
+  .tab-divider {
+    display: none;
+  }
+
+  .tab-btn {
+    width: auto;
+    flex: 1 1 auto;
+    padding: 4px 8px;
+    font-size: 12px;
+    justify-content: center;
+  }
+}
+
+/* Toolbar stacking */
+@media (max-width: 450px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+/* 2. Logs split view vertical stacking under 750px of main view */
+@container main-view (max-width: 750px) {
+  .logs-split-view {
+    flex-direction: column;
+    height: auto;
+    overflow: visible;
+  }
+
+  .logs-list-pane {
+    height: 350px;
+    flex: none;
+  }
+
+  .logs-detail-pane {
+    width: 100%;
+    min-width: 0;
+    height: 350px;
+    flex: none;
+  }
+}
+
+/* 3. Table column visibility control via container queries on .table-wrap */
+
+/* 3.1 Running tasks table on Home page (5 columns) */
+@container table-container (max-width: 600px) {
+  .home-running-table-wrap th:nth-child(3),
+  .home-running-table-wrap td:nth-child(3),
+  .home-running-table-wrap th:nth-child(5),
+  .home-running-table-wrap td:nth-child(5) {
+    display: none;
+  }
+}
+@container table-container (max-width: 400px) {
+  .home-running-table-wrap th:nth-child(2),
+  .home-running-table-wrap td:nth-child(2) {
+    display: none;
+  }
+}
+
+/* 3.2 Regular backend history tasks table (6 columns) */
+@container table-container (max-width: 600px) {
+  .panel:not(.skillrunner-task-panel) .backend-task-table-wrap th:nth-child(4),
+  .panel:not(.skillrunner-task-panel) .backend-task-table-wrap td:nth-child(4),
+  .panel:not(.skillrunner-task-panel) .backend-task-table-wrap th:nth-child(5),
+  .panel:not(.skillrunner-task-panel) .backend-task-table-wrap td:nth-child(5) {
+    display: none;
+  }
+}
+@container table-container (max-width: 450px) {
+  .panel:not(.skillrunner-task-panel) .backend-task-table-wrap th:nth-child(2),
+  .panel:not(.skillrunner-task-panel) .backend-task-table-wrap td:nth-child(2) {
+    display: none;
+  }
+}
+
+/* 3.3 SkillRunner/ACP history tasks table (7 columns) */
+@container table-container (max-width: 650px) {
+  .skillrunner-task-panel .backend-task-table-wrap th:nth-child(3),
+  .skillrunner-task-panel .backend-task-table-wrap td:nth-child(3),
+  .skillrunner-task-panel .backend-task-table-wrap th:nth-child(5),
+  .skillrunner-task-panel .backend-task-table-wrap td:nth-child(5),
+  .skillrunner-task-panel .backend-task-table-wrap th:nth-child(6),
+  .skillrunner-task-panel .backend-task-table-wrap td:nth-child(6) {
+    display: none;
+  }
+}
+@container table-container (max-width: 450px) {
+  .skillrunner-task-panel .backend-task-table-wrap th:nth-child(2),
+  .skillrunner-task-panel .backend-task-table-wrap td:nth-child(2) {
+    display: none;
+  }
+}
+
+/* 3.4 Runtime logs list table in Split View (6 columns with check) */
+@container table-container (max-width: 600px) {
+  .logs-table-wrap .logs-table th:nth-child(4),
+  .logs-table-wrap .logs-table td:nth-child(4),
+  .logs-table-wrap .logs-table th:nth-child(5),
+  .logs-table-wrap .logs-table td:nth-child(5) {
+    display: none;
+  }
+}
+@container table-container (max-width: 400px) {
+  .logs-table-wrap .logs-table th:nth-child(2),
+  .logs-table-wrap .logs-table td:nth-child(2) {
+    display: none;
+  }
+}
+
+/* 3.5 Logs table in backend details section (7 columns) */
+@container table-container (max-width: 700px) {
+  .section .logs-table th:nth-child(3),
+  .section .logs-table td:nth-child(3),
+  .section .logs-table th:nth-child(4),
+  .section .logs-table td:nth-child(4),
+  .section .logs-table th:nth-child(6),
+  .section .logs-table td:nth-child(6),
+  .section .logs-table th:nth-child(7),
+  .section .logs-table td:nth-child(7) {
+    display: none;
+  }
+}
+@container table-container (max-width: 450px) {
+  .section .logs-table th:nth-child(1),
+  .section .logs-table td:nth-child(1) {
+    display: none;
+  }
 }

@@ -15,8 +15,14 @@ This document defines localization governance for the plugin:
 |---|---|
 | `addon/locale/*/addon.ftl` | runtime-facing copy (dashboard, toasts, backend display names, runtime dialogs) |
 | `addon/locale/*/preferences.ftl` | preferences pane controls and status text |
+| `workflows*/**/locales/*.json` or `workflow.json#i18n` | workflow-owned labels, task-name templates, and parameter title/description copy |
+| `workflow.json#display` | workflow-owned core status and emoji display metadata |
 
 Rule: a key belongs to one owner file. Cross-file duplicates are forbidden unless explicitly allowlisted for migration compatibility.
+
+Workflow packages are not governed by plugin Fluent key parity. Their localized display copy ships with the workflow package and is resolved through the workflow display projection, while raw manifest strings remain the fallback contract.
+
+Workflow emoji prefixes and core status are manifest-owned display metadata. Plugin Fluent resources only provide fixed shell copy such as the Dashboard Core badge label.
 
 ## Compatibility Alias Policy
 

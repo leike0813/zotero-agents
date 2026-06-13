@@ -127,6 +127,12 @@ The result includes `primarySkillDir`, `runnerJson`, `sharedSkillCatalogPath`,
 `proxySkillRoots`, `proxySkillCount`, `outputContractDetailsMarkdown`,
 `resourceRewriteWarnings`, and diagnostics.
 
+`resultJsonPath` and `inputManifestPath` are concrete absolute paths allocated
+by the ACP runner for the current skill run. They must not be treated as fixed
+workspace-relative locations. When a workflow reuses one ACP workspace, these
+paths are isolated under provider-owned namespaces such as
+`result/<skillId>.n/result.json` and `.audit/<skillId>.n/input_manifest.json`.
+
 ### Thin Proxy Materializer
 
 `src/modules/acpThinProxySkillMaterializer.ts`
@@ -308,7 +314,9 @@ async function writeAcpSkillRunnerResultEnvelope(args: {
 }): Promise<void>
 ```
 
-Writes the final result JSON as a pretty-printed file to the filesystem.
+Writes the final result JSON as a pretty-printed file to the run's recorded
+`resultJsonPath`. This is the runner-owned envelope; skill business code should
+not write it directly.
 
 ---
 
@@ -332,7 +340,8 @@ async function resolveAcpSkillResultFileFallback(args: {
 Flow:
 1. Read `runnerJson.entrypoint.result_json_filename` to determine the expected
    result file name pattern.
-2. Search the workspace directory for matching files.
+2. Search the workspace directory for matching files, excluding runner-owned
+   `result/` and `.audit/` subtrees.
 3. Validate each candidate against the output schema using the provided
    validator function.
 4. Return the best candidate's payload with warning codes.

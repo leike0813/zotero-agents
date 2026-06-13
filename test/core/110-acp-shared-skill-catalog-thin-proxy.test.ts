@@ -241,6 +241,7 @@ describe("ACP shared skill catalog thin proxy overlay", function () {
       const registry = await scanPluginSkillRegistry({ cwd: root });
       const workspace = await createAcpSkillRunnerWorkspace({
         backendId: "acp-hermes",
+        skillId: "demo",
         rootDir: path.join(root, "runs"),
       });
       const result = await materializeAcpSkill({

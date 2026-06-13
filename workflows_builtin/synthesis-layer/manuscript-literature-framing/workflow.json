@@ -3,6 +3,10 @@
   "label": "Manuscript Literature Framing",
   "provider": "acp",
   "version": "0.2.0",
+  "display": {
+    "core": true,
+    "emoji": "🧭"
+  },
   "taskNameTemplate": "Frame manuscript literature: {paperTitle}",
   "trigger": {
     "requiresSelection": false

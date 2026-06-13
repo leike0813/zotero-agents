@@ -72,11 +72,21 @@ async function makeSourceBundle(
       "",
       "![](images/figure-1.png)",
       "",
+      "Fig. 1. This figure shows the main idea.",
+      "",
       "$$",
       "a = b + c",
       "$$",
       "",
       "<table><tr><td>Metric</td><td>Value</td></tr><tr><td>AP</td><td>42</td></tr></table>",
+      "",
+      "Table 1. Main metric results.",
+      "",
+      "| Method | Score |",
+      "| --- | --- |",
+      "| DETR | 42 |",
+      "",
+      "Table 2. Markdown table results.",
       "",
       "# References",
       "",
@@ -142,13 +152,29 @@ async function makeSourceBundle(
     await fs.writeFile(
       path.join(bundleSource, "artifacts", "digest.md"),
       [
-        "# TL;DR",
+        "## TL;DR",
         "",
         "Digest artifact summary.",
         "",
-        "# Contributions",
+        "## Contributions",
         "",
         "A concise contribution list.",
+        "",
+        "## Methods",
+        "",
+        "Method summary.",
+        "",
+        "## Results",
+        "",
+        "Result summary.",
+        "",
+        "## Limitations and reproducibility",
+        "",
+        "Reusable clues.",
+        "",
+        "## Section-by-section",
+        "",
+        "This should not appear in the final Summary view.",
       ].join("\n"),
       "utf8",
     );
@@ -394,8 +420,7 @@ async function writeBlockTranslations(
             .replace("Sample Paper", "样例论文")
             .replace("Introduction", "引言");
         } else if (kind === "table") {
-          translated =
-            "<table><tr><td>指标</td><td>数值</td></tr><tr><td>AP</td><td>42</td></tr></table>";
+          translated = `<table><tr><td>指标</td><td>数值</td></tr><tr><td>${block.block_id}</td><td>42</td></tr></table>`;
         } else if (kind === "image") {
           translated = "图示说明：该图用于展示方法的主要想法。";
         }
@@ -471,7 +496,7 @@ if (command === "reference-index get") {
   reply({
     rows: [
       {
-        paperRef: "1:EIMSDEU3",
+        paper_ref: "1:EIMSDEU3",
         zoteroItemKey: "EIMSDEU3",
         title: "Sample Paper",
         artifacts: {
@@ -480,7 +505,24 @@ if (command === "reference-index get") {
           citation_analysis: { status: "available" }
         }
       },
-      { index: 3, reference_title: "Reference index bound title", paperRef: "1:B", zoteroItemKey: "B" }
+      {
+        reference_index: 3,
+        title: "Reference index bound title",
+        target_paper_ref: "1:B",
+        target_literature_item_id: "B",
+        target_title: "Reference index bound title",
+        target_binding: "library",
+        binding_status: "accepted",
+        confidence: "high"
+      },
+      {
+        reference_index: 2,
+        title: "External reference title",
+        target_paper_ref: "ext:C",
+        target_title: "External reference title",
+        target_binding: "external",
+        binding_status: "accepted"
+      }
     ]
   });
 } else if (command === "paper-artifacts manifest") {
@@ -761,6 +803,35 @@ describe("Literature deep reading bootstrap skill", function () {
         (block: Record<string, unknown>) => block.kind === "formula",
       ),
     );
+    const imageBlock = blocks.blocks.find(
+      (block: Record<string, unknown>) => block.kind === "image",
+    ) as Record<string, unknown>;
+    assert.include(String(imageBlock.caption_markdown), "Fig. 1");
+    const tableBlocks = blocks.blocks.filter(
+      (block: Record<string, unknown>) => block.kind === "table",
+    ) as Array<Record<string, unknown>>;
+    assert.lengthOf(tableBlocks, 2);
+    assert.isTrue(
+      tableBlocks.some((block) =>
+        String(block.caption_markdown).includes("Table 1"),
+      ),
+    );
+    assert.isTrue(
+      tableBlocks.some((block) =>
+        String(block.table_markdown_or_html).includes("| Method |"),
+      ),
+    );
+    const referencesHeadingIndex = blocks.blocks.findIndex(
+      (block: Record<string, unknown>) =>
+        block.kind === "heading" &&
+        String(block.source_markdown).includes("References"),
+    );
+    assert.isAtLeast(referencesHeadingIndex, 0);
+    assert.isTrue(
+      blocks.blocks
+        .slice(referencesHeadingIndex)
+        .every((block: Record<string, unknown>) => block.translate === false),
+    );
 
     const imageManifest = JSON.parse(
       await fs.readFile(
@@ -961,6 +1032,11 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     assert.equal(summary.source, "digest_artifact");
     assert.equal(summary.sections[0].title, "TL;DR");
+    assert.lengthOf(summary.sections, 5);
+    assert.notInclude(
+      JSON.stringify(summary.sections),
+      "This should not appear in the final Summary view.",
+    );
 
     const references = JSON.parse(
       await fs.readFile(
@@ -1250,6 +1326,7 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.include(html, "可能的问题");
     assert.include(html, "引用线索");
     assert.include(html, "math-display");
+    assert.notInclude(html, "<code>\\");
     assert.include(html, "structured references artifact");
     assert.include(html, "data-node-id");
     assert.include(html, "graph-legend");

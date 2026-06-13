@@ -1,6 +1,12 @@
 {
   "id": "literature-workbench-package",
   "version": "1.0.0",
+  "i18n": {
+    "defaultLocale": "en-US",
+    "locales": {
+      "zh-CN": "locales/zh-CN.json"
+    }
+  },
   "workflows": [
     "add-digest-representative-image/workflow.json",
     "debug-digest-apply-fixture/workflow.json",

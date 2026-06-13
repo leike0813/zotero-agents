@@ -942,11 +942,20 @@ const CAPABILITY_BY_NAME = new Map(
   CAPABILITIES.map((entry) => [entry.name, entry]),
 );
 
+function withCurrentApproval<T extends HostBridgeCapabilityManifestEntry>(
+  entry: T,
+): T {
+  return {
+    ...entry,
+    approval: getHostBridgeApprovalRequirement(entry.name),
+  };
+}
+
 export function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[] {
   return CAPABILITIES.filter(
     (entry) => entry.category !== "debug" || isDebugModeEnabled(),
   ).map(({ handler: _handler, ...entry }) => ({
-    ...entry,
+    ...withCurrentApproval(entry),
   }));
 }
 
@@ -954,10 +963,13 @@ export function getHostBridgeCapability(
   name: string,
 ): HostBridgeCapabilityDefinition | null {
   const capability = CAPABILITY_BY_NAME.get(name) || null;
-  if (capability?.category === "debug" && !isDebugModeEnabled()) {
+  if (!capability) {
     return null;
   }
-  return capability;
+  if (capability.category === "debug" && !isDebugModeEnabled()) {
+    return null;
+  }
+  return withCurrentApproval(capability);
 }
 
 export function getHostBridgeCapabilityApproval(

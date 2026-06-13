@@ -20,6 +20,23 @@
         "type": "string",
         "minLength": 1
       }
+    },
+    "i18n": {
+      "type": "object",
+      "properties": {
+        "defaultLocale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locales": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

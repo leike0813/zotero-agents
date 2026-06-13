@@ -2,6 +2,7 @@ import {
   ACP_SKILL_RUN_REQUEST_KIND,
   ACP_BACKEND_TYPE,
 } from "../config/defaults";
+import { getStringOrFallback } from "../utils/locale";
 import {
   PLUGIN_TASK_DOMAIN_ACP,
   deletePluginTaskRowEntry,
@@ -3209,11 +3210,28 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
         scope: entry.scope,
       }))
     : [];
+  const labels = {
+    assistantPanel: buildAssistantPanelLabels(),
+    title: getStringOrFallback(
+      "task-dashboard-home-acp-skill-runs-title" as any,
+      "ACP Skill Runs",
+    ),
+    panelRendererUnavailable: getStringOrFallback(
+      "task-dashboard-acp-skill-run-panel-renderer-unavailable" as any,
+      "ACP Skills panel renderer unavailable.",
+    ),
+    panelRendererFailed: getStringOrFallback(
+      "task-dashboard-acp-skill-run-panel-renderer-failed" as any,
+      "ACP Skills panel renderer failed",
+    ),
+    transcriptRendererUnavailable: getStringOrFallback(
+      "task-dashboard-acp-transcript-renderer-unavailable" as any,
+      "Transcript renderer unavailable.",
+    ),
+  };
   return {
     generatedAt: nowIso(),
-    labels: {
-      assistantPanel: buildAssistantPanelLabels(),
-    },
+    labels,
     selectedRequestId,
     mcpServer: getZoteroMcpServerStatus(),
     mcpHealth: getZoteroMcpHealthSnapshot(),

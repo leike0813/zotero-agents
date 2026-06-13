@@ -20,6 +20,7 @@ import {
   handleZoteroMcpRequestForTests,
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
+import { setPref } from "../../src/utils/prefs";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -133,6 +134,7 @@ describe("host bridge capability calls", function () {
     resetHostBridgeWriteAutoApprovalScopesForTests();
     resetAcpSkillRunsForTests();
     setDebugModeOverrideForTests();
+    setPref("hostBridgeDisableWriteApproval", false);
   });
 
   it("requires bearer auth for capability calls", async function () {
@@ -718,6 +720,53 @@ describe("host bridge capability calls", function () {
     assert.include(approvalRequest.detail, "Fields: title");
     assert.notInclude(approvalRequest.detail, '"operation"');
     assert.notInclude(approvalRequest.detail, "{");
+  });
+
+  it("can disable Host Bridge write approvals from the preference switch", async function () {
+    setPref("hostBridgeDisableWriteApproval", true);
+    const token = configureHostBridgeServerForTests({
+      token: "execute-no-approval-token",
+    });
+    const item = await createParentItem("Bridge No Approval Before");
+    let approvalRequest: any = null;
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => {
+      approvalRequest = request;
+      return {
+        outcome: "denied",
+        requestId: request.requestId,
+        channel: "global",
+      };
+    });
+
+    const manifest = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest",
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    );
+    const mutationExecute = manifest.json.result.capabilities.find(
+      (entry: { name?: string }) => entry.name === "mutation.execute",
+    );
+    assert.strictEqual(mutationExecute.approval, "none");
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "mutation.execute",
+      input: {
+        operation: "item.updateFields",
+        target: item.id,
+        fields: {
+          title: "Bridge No Approval After",
+        },
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.result.approval, "none");
+    assert.isTrue(parsed.json.result.data.ok);
+    assert.isNull(approvalRequest);
+    assert.strictEqual(item.getField("title"), "Bridge No Approval After");
   });
 
   it("auto-approves mutation execute only for registered ACP run write scopes", async function () {

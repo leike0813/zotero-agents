@@ -490,3 +490,40 @@ small copy handle.
   copy button label
 - **AND** inline code SHALL NOT receive a copy button.
 
+### Requirement: Assistant Dashboard surfaces SHALL reuse localized panel labels
+
+Assistant Workspace, ACP Chat, ACP Skill Run, and Run Dialog surfaces SHALL reuse the shared Assistant panel labels for fixed transcript, drawer, details, reply, and action UI.
+
+#### Scenario: Shared Assistant transcript renders controls
+
+- **GIVEN** an Assistant panel snapshot with localized transcript labels
+- **WHEN** code copy buttons, transcript status rows, tool activity rows, permission rows, or empty transcript states render
+- **THEN** fixed labels MUST come from the Assistant panel labels
+- **AND** transcript body, tool output, and backend messages MUST remain raw
+
+### Requirement: Assistant compact controls SHALL preserve readable alignment
+The shared Assistant panel renderer SHALL keep compact context selectors,
+reply-footer selectors, indicator rows, and icon actions readable and aligned
+across normal and narrow sidebars.
+
+#### Scenario: Selector rows do not overlap action buttons
+
+- **WHEN** ACP Chat, ACP Skills, or SkillRunner renders managed selector rows
+  in the Assistant sidebar
+- **THEN** selector controls SHALL stay within their allocated region
+- **AND** adjacent icon actions such as add, details, backend management, or
+  drawer actions SHALL remain separately clickable.
+
+#### Scenario: Compact icon controls remain centered
+
+- **WHEN** the Assistant panel renders compact circular or square icon actions
+- **THEN** the icon glyph SHALL be visually centered inside the control
+- **AND** the control SHALL keep its tooltip or accessible label.
+
+#### Scenario: Narrow sidebars keep assistant controls usable
+
+- **WHEN** the Assistant sidebar is rendered at a narrow width
+- **THEN** selector rows, reply controls, and action groups SHALL wrap or
+  constrain without hiding primary send/cancel semantics
+- **AND** the panel SHALL preserve existing reply-state behavior.
+

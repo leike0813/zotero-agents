@@ -128,6 +128,34 @@ function reportSynthesisWorkbenchUiHardcodes(
   return errors;
 }
 
+function reportDashboardUiHardcodes(file: string, content: string) {
+  const errors: string[] = [];
+  const allowedLiteral = (value: string) => {
+    if (!value.trim()) return true;
+    if (/^[#A-Z0-9↑↓:|.,/() -]+$/.test(value)) return true;
+    if (/^[a-z0-9_.:-]+$/.test(value)) return true;
+    if (value.includes("%")) return true;
+    return false;
+  };
+  const patterns: Array<[string, RegExp]> = [
+    ["label-fallback", /\blabels\.[A-Za-z0-9_]+\s*\|\|\s*"([^"]+)"/g],
+    ["title-fallback", /document\.title\s*=[^\n]*\|\|\s*"([^"]+)"/g],
+    ["placeholder", /\.placeholder\s*=\s*"([^"]+)"/g],
+    ["aria-label", /\.setAttribute\("aria-label",\s*"([^"]+)"\)/g],
+    ["title", /\.title\s*=\s*"([^"]+)"/g],
+    ["text-content", /\.textContent\s*=\s*"([^"]+)"/g],
+  ];
+  for (const [kind, pattern] of patterns) {
+    for (const match of content.matchAll(pattern)) {
+      const value = match[1];
+      if (!allowedLiteral(value)) {
+        errors.push(`[dashboard-hardcoded-ui] ${file} ${kind}: "${value}"`);
+      }
+    }
+  }
+  return errors;
+}
+
 function diffKeys(a: Set<string>, b: Set<string>) {
   const onlyInA: string[] = [];
   const onlyInB: string[] = [];
@@ -314,6 +342,16 @@ function main() {
       synthesisWorkbenchDefaultValues,
     ),
   );
+  for (const file of [
+    "addon/content/dashboard/app.js",
+    "addon/content/dashboard/acp-chat.js",
+    "addon/content/dashboard/acp-skill-run.js",
+    "addon/content/dashboard/run-dialog.js",
+    "addon/content/dashboard/workflow-settings-dialog.js",
+    "addon/content/dashboard/assistant-transcript-renderer.js",
+  ]) {
+    errors.push(...reportDashboardUiHardcodes(file, readText(file)));
+  }
 
   if (errors.length > 0) {
     console.error("[localization-governance] failed");

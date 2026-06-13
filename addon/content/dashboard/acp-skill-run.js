@@ -23,7 +23,8 @@
   function bridge() {
     return [
       window.__zsAcpSkillRunSidebarBridge,
-      window.wrappedJSObject && window.wrappedJSObject.__zsAcpSkillRunSidebarBridge,
+      window.wrappedJSObject &&
+        window.wrappedJSObject.__zsAcpSkillRunSidebarBridge,
     ].find((entry) => entry && typeof entry.sendAction === "function");
   }
 
@@ -33,7 +34,11 @@
       direct.sendAction(action, payload || {});
       return;
     }
-    const message = { type: "acp-skill-run:action", action, payload: payload || {} };
+    const message = {
+      type: "acp-skill-run:action",
+      action,
+      payload: payload || {},
+    };
     [window.parent, window.top, window.opener].forEach(function (target) {
       if (!target) return;
       try {
@@ -85,7 +90,8 @@
   }
 
   function assistantPanelModel() {
-    return window.AssistantPanelModel && typeof window.AssistantPanelModel === "object"
+    return window.AssistantPanelModel &&
+      typeof window.AssistantPanelModel === "object"
       ? window.AssistantPanelModel
       : null;
   }
@@ -99,20 +105,23 @@
 
   function projectAcpSkillRunView(run) {
     const helper = assistantConversationView();
-    if (helper && typeof helper.projectAcpSkillRunConversationView === "function") {
+    if (
+      helper &&
+      typeof helper.projectAcpSkillRunConversationView === "function"
+    ) {
       return helper.projectAcpSkillRunConversationView(run || {});
     }
-    const items = (Array.isArray(run && run.transcriptItems) ? run.transcriptItems : []).map(
-      function (item) {
-        if (item && item.kind === "thought") {
-          return Object.assign({}, item, { kind: "process", label: "Thinking" });
-        }
-        if (item && item.kind === "tool_call") {
-          return Object.assign({}, item, { kind: "tool" });
-        }
-        return item;
-      },
-    );
+    const items = (
+      Array.isArray(run && run.transcriptItems) ? run.transcriptItems : []
+    ).map(function (item) {
+      if (item && item.kind === "thought") {
+        return Object.assign({}, item, { kind: "process", label: "Thinking" });
+      }
+      if (item && item.kind === "tool_call") {
+        return Object.assign({}, item, { kind: "tool" });
+      }
+      return item;
+    });
     return {
       items,
       plan: { entries: [], activeEntries: [], active: false },
@@ -123,31 +132,54 @@
 
   function projectAssistantPanelSnapshot(snapshot) {
     const helper = assistantPanelModel();
-    if (helper && typeof helper.projectAcpSkillRunPanelSnapshot === "function") {
+    if (
+      helper &&
+      typeof helper.projectAcpSkillRunPanelSnapshot === "function"
+    ) {
       return helper.projectAcpSkillRunPanelSnapshot(snapshot || {});
     }
     const run = (snapshot && snapshot.selectedRun) || {};
+    const labels =
+      snapshot && snapshot.labels && typeof snapshot.labels === "object"
+        ? snapshot.labels
+        : {};
+    const panelLabels =
+      labels.assistantPanel && typeof labels.assistantPanel === "object"
+        ? labels.assistantPanel
+        : {};
+    const actionLabels = panelLabels.actions || {};
+    const detailLabels = panelLabels.details || {};
     return {
       kind: "acp-skills",
+      labels,
       context: {
         id: safeText(run.requestId || (snapshot && snapshot.selectedRequestId)),
-        title: safeText(run.taskName || run.workflowLabel || run.skillId) || "ACP Skill Run",
+        title:
+          safeText(run.taskName || run.workflowLabel || run.skillId) ||
+          safeText(labels.title),
         status: safeText(run.status) || "idle",
       },
       lifecycle: {
         executionState: safeText(run.status) || "idle",
-        connectionState: safeText(run.conversationState || run.conversationRecoveryState),
+        connectionState: safeText(
+          run.conversationState || run.conversationRecoveryState,
+        ),
       },
       conversation: projectAcpSkillRunView(run),
       plan: projectAcpSkillRunView(run).plan,
       interaction: projectAcpSkillRunView(run).interaction,
       actions: {
         toolbar: [
-          { action: "open-context-drawer", label: "Runs" },
-          { action: "openDetails", label: "Details" },
+          { action: "open-context-drawer", label: safeText(actionLabels.runs) },
+          { action: "openDetails", label: safeText(actionLabels.details) },
         ],
       },
-      drawers: { contextTitle: "Runs", detailsTitle: "Run Details", contexts: [], details: [] },
+      drawers: {
+        contextTitle: safeText(actionLabels.runs),
+        detailsTitle: safeText(detailLabels.title),
+        contexts: [],
+        details: [],
+      },
       reply: { enabled: false, action: "reply-run" },
       raw: snapshot || {},
     };
@@ -181,8 +213,10 @@
     const plain = $("acp-skill-chat-mode-plain");
     const bubble = $("acp-skill-chat-mode-bubble");
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
-    if (plain) plain.setAttribute("aria-pressed", mode === "plain" ? "true" : "false");
-    if (bubble) bubble.setAttribute("aria-pressed", mode === "bubble" ? "true" : "false");
+    if (plain)
+      plain.setAttribute("aria-pressed", mode === "plain" ? "true" : "false");
+    if (bubble)
+      bubble.setAttribute("aria-pressed", mode === "bubble" ? "true" : "false");
   }
 
   function resetTranscriptRenderState() {
@@ -196,7 +230,11 @@
     const data = payload && typeof payload === "object" ? payload : {};
     const run = selectedRunFromSnapshot();
     const requestId = safeText(data.requestId || (run && run.requestId));
-    if (action !== "reply" && action !== "reply-run" && action !== "interrupt-run-turn") {
+    if (
+      action !== "reply" &&
+      action !== "reply-run" &&
+      action !== "interrupt-run-turn"
+    ) {
       captureReplyDraft();
     }
     if (action === "open-context-drawer") {
@@ -274,13 +312,25 @@
       sendAction(action, { requestId: requestId });
       return;
     }
-    sendAction(action, Object.assign({}, data, requestId ? { requestId: requestId } : {}));
+    sendAction(
+      action,
+      Object.assign({}, data, requestId ? { requestId: requestId } : {}),
+    );
   }
 
   function renderAssistantPanelRuntime(snapshot) {
     const renderer = assistantPanelRenderer();
-    if (!renderer || typeof renderer.renderAssistantPanelSnapshot !== "function") {
-      renderPanelRuntimeFailure("ACP Skills panel renderer unavailable.");
+    if (
+      !renderer ||
+      typeof renderer.renderAssistantPanelSnapshot !== "function"
+    ) {
+      renderPanelRuntimeFailure(
+        safeText(
+          snapshot &&
+            snapshot.labels &&
+            snapshot.labels.panelRendererUnavailable,
+        ),
+      );
       return;
     }
     try {
@@ -292,8 +342,10 @@
       }
       panelSnapshot.drawers = panelSnapshot.drawers || {};
       panelSnapshot.drawers.permissionRequest = state.permissionRequestDetails;
-      panelSnapshot.drawers.permissionRequestOpen = state.permissionRequestDrawerOpen;
-      const selectedRun = panelSnapshot && panelSnapshot.raw && panelSnapshot.raw.selectedRun;
+      panelSnapshot.drawers.permissionRequestOpen =
+        state.permissionRequestDrawerOpen;
+      const selectedRun =
+        panelSnapshot && panelSnapshot.raw && panelSnapshot.raw.selectedRun;
       const requestId = safeText(selectedRun && selectedRun.requestId);
       if (panelSnapshot && panelSnapshot.reply && requestId) {
         panelSnapshot.reply.value = state.replyDrafts.get(requestId) || "";
@@ -303,10 +355,14 @@
         panelSnapshot.drawers &&
         Array.isArray(panelSnapshot.drawers.sections)
       ) {
-        panelSnapshot.drawers.sections = panelSnapshot.drawers.sections.map(function (section) {
-          if (safeText(section && section.id) !== "completed") return section;
-          return Object.assign({}, section, { collapsed: state.drawerCompletedCollapsed });
-        });
+        panelSnapshot.drawers.sections = panelSnapshot.drawers.sections.map(
+          function (section) {
+            if (safeText(section && section.id) !== "completed") return section;
+            return Object.assign({}, section, {
+              collapsed: state.drawerCompletedCollapsed,
+            });
+          },
+        );
       }
       renderer.renderAssistantPanelSnapshot(panelSnapshot, {
         managed: true,
@@ -336,7 +392,11 @@
       restoreReplyFocus();
     } catch (error) {
       renderPanelRuntimeFailure(
-        "ACP Skills panel renderer failed: " + (error && error.message ? error.message : String(error)),
+        safeText(
+          snapshot && snapshot.labels && snapshot.labels.panelRendererFailed,
+        ) +
+          ": " +
+          (error && error.message ? error.message : String(error)),
       );
     }
   }
@@ -349,7 +409,7 @@
     clear(hint);
     const row = el("div", "assistant-panel-hint-row");
     row.appendChild(el("span", "asst-led is-error"));
-    row.appendChild(el("span", "", safeText(message) || "ACP Skills panel renderer failed."));
+    row.appendChild(el("span", "", safeText(message)));
     hint.appendChild(row);
   }
 
@@ -416,7 +476,17 @@
     const renderer = assistantTranscriptRenderer();
     if (!renderer || typeof renderer.renderAssistantTranscript !== "function") {
       clear(transcript);
-      transcript.appendChild(el("div", "empty-state compact", "Transcript renderer unavailable."));
+      transcript.appendChild(
+        el(
+          "div",
+          "empty-state compact",
+          safeText(
+            state.panelSnapshot &&
+              state.panelSnapshot.labels &&
+              state.panelSnapshot.labels.transcriptRendererUnavailable,
+          ),
+        ),
+      );
       return;
     }
     const requestId = safeText(run && run.requestId);
@@ -435,7 +505,10 @@
       expandedIds: state.toolActivityExpandedIds,
       renderMarkdown,
       formatTime,
-      labels: state.panelSnapshot?.labels?.assistantPanel?.transcript || state.panelSnapshot?.labels?.transcript || {},
+      labels:
+        state.panelSnapshot?.labels?.assistantPanel?.transcript ||
+        state.panelSnapshot?.labels?.transcript ||
+        {},
       emptyText:
         state.panelSnapshot?.labels?.assistantPanel?.transcript?.empty ||
         state.panelSnapshot?.labels?.transcript?.empty ||
@@ -503,18 +576,25 @@
       closeAllDrawers();
       return;
     }
-    if (data.type === "acp-skill-run:init" || data.type === "acp-skill-run:snapshot") {
+    if (
+      data.type === "acp-skill-run:init" ||
+      data.type === "acp-skill-run:snapshot"
+    ) {
       render(data.payload || {});
     }
   });
 
-  document.getElementById("acp-skill-chat-mode-plain")?.addEventListener("click", function () {
-    handleAssistantPanelAction("set-chat-display-mode", { mode: "plain" });
-  });
+  document
+    .getElementById("acp-skill-chat-mode-plain")
+    ?.addEventListener("click", function () {
+      handleAssistantPanelAction("set-chat-display-mode", { mode: "plain" });
+    });
 
-  document.getElementById("acp-skill-chat-mode-bubble")?.addEventListener("click", function () {
-    handleAssistantPanelAction("set-chat-display-mode", { mode: "bubble" });
-  });
+  document
+    .getElementById("acp-skill-chat-mode-bubble")
+    ?.addEventListener("click", function () {
+      handleAssistantPanelAction("set-chat-display-mode", { mode: "bubble" });
+    });
 
   document.addEventListener("DOMContentLoaded", function () {
     sendAction("ready", {});

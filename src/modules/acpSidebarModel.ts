@@ -67,7 +67,10 @@ function summarizeHostContext(
   parts.push(
     context.selectionEmpty
       ? localize("task-dashboard-acp-selection-empty" as any, "No selection")
-      : localize("task-dashboard-acp-selection-present" as any, "Selection available"),
+      : localize(
+          "task-dashboard-acp-selection-present" as any,
+          "Selection available",
+        ),
   );
   if (context.currentItem?.title || context.currentItem?.key) {
     parts.push(
@@ -106,32 +109,36 @@ export function buildAcpSidebarViewSnapshot(args: {
     target: args.target,
     title: localize("task-dashboard-home-acp-title" as any, "ACP Chat"),
     backendLabel,
-    activeBackendId:
-      String(args.frontendSnapshot?.activeBackendId || args.snapshot.backendId || "").trim(),
+    activeBackendId: String(
+      args.frontendSnapshot?.activeBackendId || args.snapshot.backendId || "",
+    ).trim(),
     backendOptions: (args.frontendSnapshot?.backends || []).map((entry) => ({
       ...entry,
     })),
     connectedCount: Number(args.frontendSnapshot?.connectedCount || 0),
     errorCount: Number(args.frontendSnapshot?.errorCount || 0),
-    totalMessageCount: Number(args.frontendSnapshot?.totalMessageCount || args.snapshot.items.length || 0),
+    totalMessageCount: Number(
+      args.frontendSnapshot?.totalMessageCount ||
+        args.snapshot.items.length ||
+        0,
+    ),
     conversationId: String(args.snapshot.conversationId || "").trim(),
     conversationTitle: String(args.snapshot.conversationTitle || "").trim(),
-    activeConversationId:
-      String(
-        args.frontendSnapshot?.activeConversationId ||
-          args.snapshot.conversationId ||
-          "",
-      ).trim(),
+    activeConversationId: String(
+      args.frontendSnapshot?.activeConversationId ||
+        args.snapshot.conversationId ||
+        "",
+    ).trim(),
     chatSessions: (args.frontendSnapshot?.chatSessions || []).map((entry) => ({
       ...entry,
     })),
-    backendChatSessions: (
-      args.frontendSnapshot?.backendChatSessions || []
-    ).map((group) => ({
-      backendId: group.backendId,
-      displayName: group.displayName,
-      sessions: group.sessions.map((entry) => ({ ...entry })),
-    })),
+    backendChatSessions: (args.frontendSnapshot?.backendChatSessions || []).map(
+      (group) => ({
+        backendId: group.backendId,
+        displayName: group.displayName,
+        sessions: group.sessions.map((entry) => ({ ...entry })),
+      }),
+    ),
     sessionId: String(args.snapshot.sessionId || "").trim(),
     remoteSessionId: String(args.snapshot.remoteSessionId || "").trim(),
     canLoadRemoteSession: args.snapshot.canLoadRemoteSession === true,
@@ -156,8 +163,12 @@ export function buildAcpSidebarViewSnapshot(args: {
     agentVersion: String(args.snapshot.agentVersion || "").trim(),
     sessionTitle: String(args.snapshot.sessionTitle || "").trim(),
     sessionUpdatedAt: String(args.snapshot.sessionUpdatedAt || "").trim(),
-    agentWorkspaceDir: String(args.snapshot.agentWorkspaceDir || args.snapshot.sessionCwd || "").trim(),
-    conversationStorageDir: String(args.snapshot.conversationStorageDir || "").trim(),
+    agentWorkspaceDir: String(
+      args.snapshot.agentWorkspaceDir || args.snapshot.sessionCwd || "",
+    ).trim(),
+    conversationStorageDir: String(
+      args.snapshot.conversationStorageDir || "",
+    ).trim(),
     sessionCwd: String(args.snapshot.sessionCwd || "").trim(),
     workspaceDir: String(args.snapshot.workspaceDir || "").trim(),
     runtimeDir: String(args.snapshot.runtimeDir || "").trim(),
@@ -190,9 +201,11 @@ export function buildAcpSidebarViewSnapshot(args: {
     currentDisplayModel: args.snapshot.currentDisplayModel
       ? { ...args.snapshot.currentDisplayModel }
       : null,
-    reasoningEffortOptions: args.snapshot.reasoningEffortOptions.map((entry) => ({
-      ...entry,
-    })),
+    reasoningEffortOptions: args.snapshot.reasoningEffortOptions.map(
+      (entry) => ({
+        ...entry,
+      }),
+    ),
     currentReasoningEffort: args.snapshot.currentReasoningEffort
       ? { ...args.snapshot.currentReasoningEffort }
       : null,
@@ -202,9 +215,11 @@ export function buildAcpSidebarViewSnapshot(args: {
     pendingPermissionRequest: args.snapshot.pendingPermissionRequest
       ? {
           ...args.snapshot.pendingPermissionRequest,
-          options: args.snapshot.pendingPermissionRequest.options.map((entry) => ({
-            ...entry,
-          })),
+          options: args.snapshot.pendingPermissionRequest.options.map(
+            (entry) => ({
+              ...entry,
+            }),
+          ),
         }
       : null,
     diagnostics: args.snapshot.diagnostics.map((entry) => ({ ...entry })),
@@ -217,8 +232,19 @@ export function buildAcpSidebarViewSnapshot(args: {
     hostContextSummary: summarizeHostContext(args.snapshot, args.target),
     labels: {
       assistantPanel: buildAssistantPanelLabels(),
-      targetLibrary: localize("task-dashboard-acp-target-library" as any, "Library"),
-      targetReader: localize("task-dashboard-acp-target-reader" as any, "Reader"),
+      title: localize("task-dashboard-home-acp-title" as any, "ACP Chat"),
+      transcriptRendererUnavailable: localize(
+        "task-dashboard-acp-transcript-renderer-unavailable" as any,
+        "Transcript renderer unavailable.",
+      ),
+      targetLibrary: localize(
+        "task-dashboard-acp-target-library" as any,
+        "Library",
+      ),
+      targetReader: localize(
+        "task-dashboard-acp-target-reader" as any,
+        "Reader",
+      ),
       subtitle: localize(
         "task-dashboard-acp-subtitle" as any,
         "Persistent ACP chat for your Zotero workspace.",
@@ -320,7 +346,10 @@ export function buildAcpSidebarViewSnapshot(args: {
         "task-dashboard-acp-auth-prefix" as any,
         "Authentication methods",
       ),
-      statusPrefix: localize("task-dashboard-acp-status-prefix" as any, "Status"),
+      statusPrefix: localize(
+        "task-dashboard-acp-status-prefix" as any,
+        "Status",
+      ),
       mode: localize("task-dashboard-acp-mode" as any, "Mode"),
       model: localize("task-dashboard-acp-model" as any, "Model"),
       reasoning: localize("task-dashboard-acp-reasoning" as any, "Reasoning"),
@@ -333,7 +362,10 @@ export function buildAcpSidebarViewSnapshot(args: {
         "task-dashboard-acp-remote-restore" as any,
         "Remote restore",
       ),
-      workspace: localize("task-dashboard-acp-session-cwd" as any, "Session cwd"),
+      workspace: localize(
+        "task-dashboard-acp-session-cwd" as any,
+        "Session cwd",
+      ),
       runtime: localize("task-dashboard-acp-runtime" as any, "Runtime"),
       hostContext: localize(
         "task-dashboard-acp-host-context" as any,

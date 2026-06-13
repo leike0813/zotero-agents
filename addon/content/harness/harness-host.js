@@ -158,6 +158,13 @@
   }
 
   async function initDashboard(frame) {
+    const tabParam = new URLSearchParams(window.location.search).get("tab");
+    if (tabParam) {
+      await api("/api/harness/dashboard/action", {
+        action: "select-tab",
+        payload: { tabKey: tabParam },
+      });
+    }
     const payload = await api("/api/harness/dashboard/action", {
       action: "ready",
       payload: {},
@@ -501,7 +508,7 @@
   });
 
   document.addEventListener("DOMContentLoaded", () => {
-    installLiveReload();
+    // installLiveReload();
     initLocaleControl();
     state.frames.workspace = document.getElementById("harness-workspace-frame");
     state.frames.assistant = document.getElementById("harness-assistant-frame");

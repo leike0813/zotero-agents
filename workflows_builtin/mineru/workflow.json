@@ -3,6 +3,18 @@
   "label": "MinerU",
   "provider": "generic-http",
   "version": "0.1.0",
+  "display": {
+    "core": true,
+    "emoji": "📄"
+  },
+  "i18n": {
+    "defaultLocale": "en-US",
+    "messages": {
+      "zh-CN": {
+        "label": "MinerU 文档解析"
+      }
+    }
+  },
   "inputs": {
     "unit": "attachment",
     "accepts": {

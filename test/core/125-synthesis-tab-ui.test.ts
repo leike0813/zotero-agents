@@ -1780,6 +1780,12 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "synthesis-action-back-to-topic-details");
     assert.include(app, "topic-report-header");
     assert.include(app, "topic-report-actions");
+    assert.include(
+      app,
+      "enhanceReportLiteratureDigestLinks(reportBody, detail)",
+    );
+    assert.include(app, "topic-report-digest-link");
+    assert.include(app, "openDigestModal(evidence)");
     assert.include(app, "synthesis-action-copied");
     assert.include(app, "synthesis-action-copy-failed");
     assert.notInclude(app, "downloadMarkdownFile");
@@ -1799,6 +1805,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "synthesis-action-copy");
     assert.include(app, "synthesis-action-export");
     assert.include(css, ".topic-report-header");
+    assert.include(css, ".topic-report-digest-link");
     assert.include(css, "justify-content: space-between");
     assert.match(css, /\.topic-report-actions\s*{[\s\S]*gap:\s*8px;/);
   });
@@ -1879,6 +1886,13 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(source, "coverage.external_literature");
     assert.notInclude(source, "representative_references");
     assert.include(source, "renderMergedCollectionDirections");
+    assert.include(source, "const summaryBlocks = [");
+    assert.include(source, "textValue(detail.topic?.definition)");
+    assert.include(source, "textValue(detail.summary?.summary)");
+    assert.notInclude(
+      source,
+      "detail.summary?.text || detail.summary?.brief || detail.summary?.summary",
+    );
     assert.include(source, "renderTopicReportSection");
     assert.include(source, "stripDuplicateReportHeadings(body, title)");
     assert.notInclude(source, 'renderContentCard("Report Body"');
@@ -1946,6 +1960,10 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(source, "`Phase ${index + 1}`");
     assert.include(source, "renderDigestModal");
     assert.include(source, "openDigestModal");
+    assert.include(source, "syncDigestModal");
+    const openDigestBlock = extractFunctionBlock(source, "openDigestModal");
+    assert.include(openDigestBlock, "syncDigestModal();");
+    assert.notInclude(openDigestBlock, "render();");
     assert.include(source, "buildDigestOutline");
     assert.include(source, "renderDigestRepresentativeImage");
     assert.include(source, "include_representative_image: true");
@@ -1960,6 +1978,12 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(source, '["external", "External"]');
     assert.notInclude(source, '["statistics", "Stats"]');
     assert.include(source, 'command: "resolveTopicPaperDigest"');
+    const digestMessageBlock = extractIfBlock(
+      source,
+      'data.type === "synthesis:digest"',
+    );
+    assert.include(digestMessageBlock, "syncDigestModal();");
+    assert.notInclude(digestMessageBlock, "render();");
     assert.include(css, "--topic-bg: var(--zs-bg)");
     assert.include(css, "--topic-text: var(--zs-text)");
     assert.include(css, "--topic-accent-green: var(--zs-success)");
@@ -2022,12 +2046,19 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".digest-scroll-body");
     assert.include(css, ".digest-modal-intro");
     assert.include(css, ".digest-representative-image");
+    assert.include(css, "--topic-hero-bg");
+    assert.include(css, "background: var(--topic-hero-bg)");
+    assert.notInclude(
+      css,
+      "background: linear-gradient(135deg, var(--topic-soft-blue), var(--topic-bg));",
+    );
     assert.include(source, "synthesis-evidence-select-hint");
     assert.include(source, "state.selectedEvidenceId");
     assert.include(source, "state.evidenceExplorerOpen");
     assert.include(source, "openEvidenceExplorer(evidenceId(evidence))");
     assert.include(source, "openDigestModal(selected)");
-    assert.notInclude(source, "openDigestModal(evidence);");
+    assert.include(source, "enhanceReportLiteratureDigestLinks");
+    assert.include(source, "openDigestModal(evidence);");
     assert.include(source, "synthesis-evidence-selected");
     assert.include(source, 'firstText(direction, ["current_limitation"])');
     assert.include(source, 'firstText(direction, ["future_direction"])');

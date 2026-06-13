@@ -21,7 +21,7 @@ The registry is shared infrastructure. It discovers plugin-side skills and recor
 
 For ACP SkillRunner-compatible backends, the plugin consumes the same `skillrunner.job.v1` request and executes it through an isolated ACP task session and workspace. ACP chat continues to use `acp.prompt.v1`; chat launch behavior and backend profile command/args are not changed by workflow runs.
 
-The runner resolves plugin-side skill assets, materializes them into run-local agent skill roots, injects a minimal SkillRunner-compatible run contract into the materialized `SKILL.md`, validates `result/result.json`, and returns a normal `ProviderExecutionResult` for existing workflow `applyResult()` hooks.
+The runner resolves plugin-side skill assets, materializes them into run-local agent skill roots, injects a minimal SkillRunner-compatible run contract into the materialized `SKILL.md`, validates the runner-owned result JSON envelope recorded in `resultJsonPath`, and returns a normal `ProviderExecutionResult` for existing workflow `applyResult()` hooks. Business scripts should write package fallback files when needed; they must not hand-write the runner-owned result envelope.
 
 v1 supports auto execution only. Interactive workflow reply loops are explicitly out of scope.
 

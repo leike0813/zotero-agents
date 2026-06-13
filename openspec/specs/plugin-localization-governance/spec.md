@@ -77,3 +77,60 @@ hardcoded English.
   recognized as non-UI content, schema/command data, CSS/SVG/internal token, or
   test fixture content.
 
+### Requirement: Workflow package localization SHALL be separate from plugin Fluent governance
+
+Plugin Fluent files SHALL own plugin UI strings, while workflow packages SHALL own workflow-specific fixed display strings.
+
+#### Scenario: Workflow label is package-owned
+
+- **WHEN** a workflow package adds or changes workflow labels, task-name templates, or workflow parameter titles/descriptions
+- **THEN** those strings SHALL be declared in workflow package i18n resources or raw workflow manifests
+- **AND** they SHALL NOT be required in plugin `addon.ftl` or `preferences.ftl`.
+
+#### Scenario: Plugin shell copy remains Fluent-owned
+
+- **WHEN** plugin shell UI copy around workflow menus, settings pages, toasts, or dashboard controls changes
+- **THEN** those strings SHALL remain governed by the plugin Fluent localization rules.
+
+### Requirement: Workflow emoji and core status SHALL remain workflow-owned display metadata
+
+Workflow emoji and core status SHALL be authored in workflow manifests. Plugin Fluent resources SHALL only provide fixed plugin UI copy such as the Dashboard Core badge label.
+
+#### Scenario: Workflow label has package localization and emoji
+
+- **GIVEN** a workflow has package-owned localized label messages and manifest-owned `display.emoji`
+- **WHEN** UI code requests a user-visible workflow label
+- **THEN** the localized label is resolved from workflow resources
+- **AND** the emoji is prefixed from manifest display metadata
+
+#### Scenario: Dashboard core badge label is plugin shell copy
+
+- **GIVEN** Dashboard renders a Core badge
+- **WHEN** the badge text is resolved
+- **THEN** it is resolved from plugin Fluent resources
+
+### Requirement: Dashboard-family localization SHALL be governed
+
+Dashboard-family fixed UI copy SHALL be governed through Fluent-backed snapshot labels across the supported locale set.
+
+#### Scenario: Dashboard direct UI fallback is introduced
+
+- **WHEN** a Dashboard-family static renderer introduces direct user-visible English fallback in common UI call sites
+- **THEN** localization governance MUST fail
+- **AND** the fixed copy MUST move behind snapshot labels or an existing localized helper
+
+#### Scenario: Dashboard locale key is missing in a supported locale
+
+- **WHEN** a Dashboard, ACP, run dialog, workflow settings, or Assistant panel Fluent key is added
+- **THEN** all supported addon locales MUST define the same key set
+
+### Requirement: Dashboard localization SHALL preserve raw runtime content
+
+Dashboard localization SHALL localize fixed UI chrome and controlled labels only.
+
+#### Scenario: Runtime/user content is displayed
+
+- **WHEN** Dashboard renders workflow labels, backend display names, task messages, runtime logs, ACP transcript content, tool output, generated reports, or free-form errors
+- **THEN** the UI MUST preserve the original text
+- **AND** it MUST NOT auto-translate that runtime content
+

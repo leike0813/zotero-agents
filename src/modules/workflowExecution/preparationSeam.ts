@@ -30,6 +30,7 @@ import {
   stripZoteroHostAccessRuntimeOptionFromRequest,
   workflowDeclaresRequiredZoteroHostAccess,
 } from "../../workflows/zoteroHostAccessOptions";
+import { localizeWorkflowLabel } from "../../workflows/localization";
 
 function isNoValidInputUnitsError(error: unknown) {
   if (
@@ -123,6 +124,7 @@ export async function runWorkflowPreparationSeam(
   const selectedItems = Array.isArray(args.selectedItemsOverride)
     ? args.selectedItemsOverride
     : args.win.ZoteroPane?.getSelectedItems?.() || [];
+  const workflowLabel = localizeWorkflowLabel(args.workflow);
   if (
     selectedItems.length === 0 &&
     !canWorkflowRunWithoutSelection(args.workflow.manifest)
@@ -157,7 +159,7 @@ export async function runWorkflowPreparationSeam(
     stage: "trigger-start",
     message: "workflow trigger started",
     details: {
-      workflowLabel: args.workflow.manifest.label,
+      workflowLabel,
       selectedItems: selectedItems.length,
     },
   });
@@ -270,7 +272,7 @@ export async function runWorkflowPreparationSeam(
           args.win,
           buildWorkflowFinishMessage(
             {
-              workflowLabel: args.workflow.manifest.label,
+              workflowLabel,
               succeeded: 0,
               failed: 0,
               skipped: skippedUnits,
@@ -310,9 +312,9 @@ export async function runWorkflowPreparationSeam(
         args.win,
         localizeWorkflowText(
           "workflow-execute-cannot-run",
-          `Workflow ${args.workflow.manifest.label} cannot run: ${reason}`,
+          `Workflow ${workflowLabel} cannot run: ${reason}`,
           {
-            workflowLabel: args.workflow.manifest.label,
+            workflowLabel,
             reason,
           },
         ),
@@ -342,7 +344,7 @@ export async function runWorkflowPreparationSeam(
         args.win,
         buildWorkflowFinishMessage(
           {
-            workflowLabel: args.workflow.manifest.label,
+            workflowLabel,
             succeeded: 0,
             failed: 0,
             skipped: Math.max(1, skippedByFilter),
@@ -390,9 +392,9 @@ export async function runWorkflowPreparationSeam(
         args.win,
         localizeWorkflowText(
           "workflow-execute-cannot-run",
-          `Workflow ${args.workflow.manifest.label} cannot run: ${reason}`,
+          `Workflow ${workflowLabel} cannot run: ${reason}`,
           {
-            workflowLabel: args.workflow.manifest.label,
+            workflowLabel,
             reason,
           },
         ),
@@ -419,8 +421,8 @@ export async function runWorkflowPreparationSeam(
         args.win,
         localizeWorkflowText(
           "workflow-execute-cannot-run-context-unavailable",
-          `Workflow ${args.workflow.manifest.label} cannot run: execution context is unavailable`,
-          { workflowLabel: args.workflow.manifest.label },
+          `Workflow ${workflowLabel} cannot run: execution context is unavailable`,
+          { workflowLabel },
         ),
       );
     }

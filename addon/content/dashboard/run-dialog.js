@@ -26,11 +26,18 @@
   const hintEl = document.getElementById("skillrunner-hint");
 
   function safeText(value) {
-    return typeof value === "string" ? value : value == null ? "" : String(value);
+    return typeof value === "string"
+      ? value
+      : value == null
+        ? ""
+        : String(value);
   }
 
   function normalizedStatus() {
-    return safeText(state.snapshot && state.snapshot.status).trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return safeText(state.snapshot && state.snapshot.status)
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
   }
 
   function wrappedWindow() {
@@ -41,7 +48,9 @@
 
   function resolveSidebarActionBridge() {
     const wrapped = wrappedWindow();
-    const bridge = (wrapped && wrapped[SIDEBAR_ACTION_BRIDGE_KEY]) || window[SIDEBAR_ACTION_BRIDGE_KEY];
+    const bridge =
+      (wrapped && wrapped[SIDEBAR_ACTION_BRIDGE_KEY]) ||
+      window[SIDEBAR_ACTION_BRIDGE_KEY];
     return bridge && typeof bridge.sendAction === "function" ? bridge : null;
   }
 
@@ -66,7 +75,10 @@
       targets.forEach(function (target) {
         if (!target) return;
         try {
-          target.postMessage({ type: prefix + ":action", action, payload: payload || {} }, "*");
+          target.postMessage(
+            { type: prefix + ":action", action, payload: payload || {} },
+            "*",
+          );
         } catch {
           // ignored
         }
@@ -75,7 +87,8 @@
   }
 
   function assistantPanelModel() {
-    return window.AssistantPanelModel && typeof window.AssistantPanelModel === "object"
+    return window.AssistantPanelModel &&
+      typeof window.AssistantPanelModel === "object"
       ? window.AssistantPanelModel
       : null;
   }
@@ -96,13 +109,17 @@
 
   function createCompatibleThinkingChatModel(initialMode) {
     const core = window.SkillRunnerThinkingChatCore;
-    if (!core || typeof core.createThinkingChatModel !== "function") return null;
+    if (!core || typeof core.createThinkingChatModel !== "function")
+      return null;
     const model = core.createThinkingChatModel(initialMode);
-    if (model && typeof model.setDisplayMode === "function") model.setDisplayMode(initialMode);
+    if (model && typeof model.setDisplayMode === "function")
+      model.setDisplayMode(initialMode);
     if (!model || typeof model.getEntries !== "function") return null;
     if (typeof model.getDisplayMode !== "function") {
       model.getDisplayMode = function () {
-        return safeText(initialMode).trim().toLowerCase() === "bubble" ? "bubble" : "plain";
+        return safeText(initialMode).trim().toLowerCase() === "bubble"
+          ? "bubble"
+          : "plain";
       };
     }
     if (typeof model.toggleRevision !== "function") {
@@ -163,11 +180,17 @@
   function toChatEvent(raw) {
     if (!raw || typeof raw !== "object") return null;
     const role = safeText(raw.role).trim().toLowerCase();
-    const normalizedRole = role === "assistant" || role === "user" || role === "system" ? role : "system";
+    const normalizedRole =
+      role === "assistant" || role === "user" || role === "system"
+        ? role
+        : "system";
     const displayText = safeText(raw.displayText || raw.display_text);
     const rawText = safeText(raw.text || raw.summary);
     const kind = safeText(raw.kind);
-    if (!(displayText || rawText).trim() && kind.trim().toLowerCase() !== "assistant_revision") {
+    if (
+      !(displayText || rawText).trim() &&
+      kind.trim().toLowerCase() !== "assistant_revision"
+    ) {
       return null;
     }
     return {
@@ -179,7 +202,10 @@
       displayText: displayText || rawText,
       displayFormat: safeText(raw.displayFormat || raw.display_format),
       attempt: Number(raw.attempt || 1),
-      correlation: raw.correlation && typeof raw.correlation === "object" ? raw.correlation : {},
+      correlation:
+        raw.correlation && typeof raw.correlation === "object"
+          ? raw.correlation
+          : {},
     };
   }
 
@@ -191,14 +217,19 @@
 
   function skillRunnerProcessType(source) {
     const item = source && typeof source === "object" ? source : {};
-    const correlation = item.correlation && typeof item.correlation === "object" ? item.correlation : {};
+    const correlation =
+      item.correlation && typeof item.correlation === "object"
+        ? item.correlation
+        : {};
     return safeText(
       item.processType ||
-      item.process_type ||
-      item.processKind ||
-      correlation.process_type ||
-      correlation.classification,
-    ).trim().toLowerCase();
+        item.process_type ||
+        item.processKind ||
+        correlation.process_type ||
+        correlation.classification,
+    )
+      .trim()
+      .toLowerCase();
   }
 
   function isSkillRunnerToolProcess(processType) {
@@ -208,12 +239,16 @@
 
   function skillRunnerToolDetails(source) {
     const item = source && typeof source === "object" ? source : {};
-    const correlation = item.correlation && typeof item.correlation === "object" ? item.correlation : {};
-    const details = correlation.details && typeof correlation.details === "object"
-      ? correlation.details
-      : item.details && typeof item.details === "object"
-        ? item.details
+    const correlation =
+      item.correlation && typeof item.correlation === "object"
+        ? item.correlation
         : {};
+    const details =
+      correlation.details && typeof correlation.details === "object"
+        ? correlation.details
+        : item.details && typeof item.details === "object"
+          ? item.details
+          : {};
     return { correlation, details };
   }
 
@@ -253,7 +288,9 @@
       compactSkillRunnerToolValue(tool.details.query) ||
       compactSkillRunnerToolValue(tool.details.command) ||
       compactSkillRunnerToolValue(tool.details.args);
-    const fallbackSummary = safeText(item.summary || item.displayText || item.display_text || item.text);
+    const fallbackSummary = safeText(
+      item.summary || item.displayText || item.display_text || item.text,
+    );
     return {
       toolName,
       inputSummary: inputSummary || undefined,
@@ -265,7 +302,12 @@
   function skillRunnerToolState(source) {
     const item = source && typeof source === "object" ? source : {};
     const tool = skillRunnerToolDetails(item);
-    const value = safeText(item.state || item.status || tool.correlation.state || tool.correlation.status)
+    const value = safeText(
+      item.state ||
+        item.status ||
+        tool.correlation.state ||
+        tool.correlation.status,
+    )
       .trim()
       .toLowerCase();
     return value || "completed";
@@ -290,7 +332,9 @@
   function buildSkillRunnerProcessItem(items, id) {
     const text = (Array.isArray(items) ? items : [])
       .map(function (item) {
-        return safeText(item.displayText || item.display_text || item.text || item.summary);
+        return safeText(
+          item.displayText || item.display_text || item.text || item.summary,
+        );
       })
       .filter(Boolean)
       .join("\n");
@@ -305,18 +349,29 @@
   }
 
   function messageText(event) {
-    return safeText(event && (event.displayText || event.display_text || event.text || event.summary));
+    return safeText(
+      event &&
+        (event.displayText ||
+          event.display_text ||
+          event.text ||
+          event.summary),
+    );
   }
 
   function skillRunnerConversationItems(session) {
-    const messages = (Array.isArray(session && session.messages) ? session.messages : [])
+    const messages = (
+      Array.isArray(session && session.messages) ? session.messages : []
+    )
       .map(toChatEvent)
       .filter(Boolean);
     const model = createCompatibleThinkingChatModel(state.chatDisplayMode);
     if (!model) {
       return messages.map(function (event, index) {
         const processType = skillRunnerProcessType(event);
-        if (event.kind === "assistant_process" && isSkillRunnerToolProcess(processType)) {
+        if (
+          event.kind === "assistant_process" &&
+          isSkillRunnerToolProcess(processType)
+        ) {
           return buildSkillRunnerToolItem(
             event,
             "skillrunner-tool-" + String(event.seq || index),
@@ -327,7 +382,10 @@
           id: "skillrunner-message-" + String(event.seq || index),
           kind: event.kind === "assistant_process" ? "process" : "message",
           role: event.role,
-          label: event.kind === "assistant_process" ? "Thinking" : chatRoleText(event.role),
+          label:
+            event.kind === "assistant_process"
+              ? "Thinking"
+              : chatRoleText(event.role),
           text: messageText(event),
           createdAt: event.ts,
         };
@@ -344,7 +402,9 @@
         function flushProcessGroup(groupIndex) {
           const processItem = buildSkillRunnerProcessItem(
             processGroup,
-            (entry.id || "skillrunner-process-" + String(index)) + "-process-" + String(groupIndex),
+            (entry.id || "skillrunner-process-" + String(index)) +
+              "-process-" +
+              String(groupIndex),
           );
           if (processItem) projected.push(processItem);
           processGroup = [];
@@ -353,11 +413,15 @@
           const processType = skillRunnerProcessType(item);
           if (isSkillRunnerToolProcess(processType)) {
             flushProcessGroup(itemIndex);
-            projected.push(buildSkillRunnerToolItem(
-              item,
-              (entry.id || "skillrunner-process-" + String(index)) + "-tool-" + String(itemIndex),
-              item.ts,
-            ));
+            projected.push(
+              buildSkillRunnerToolItem(
+                item,
+                (entry.id || "skillrunner-process-" + String(index)) +
+                  "-tool-" +
+                  String(itemIndex),
+                item.ts,
+              ),
+            );
             return;
           }
           processGroup.push(item);
@@ -367,42 +431,59 @@
       }
       if (entry.type === "revision") {
         const event = entry.originalEvent || entry.revisionEvent || {};
-        return [{
-          id: entry.id || "skillrunner-revision-" + String(index),
-          kind: "message",
-          role: "assistant",
-          text: messageText(event) || "Rejected final reply",
-          revision: {
-            count: 1,
-            latestStatus: "replaced",
-            latestRepairRound: Number(event.attempt || 1),
+        return [
+          {
+            id: entry.id || "skillrunner-revision-" + String(index),
+            kind: "message",
+            role: "assistant",
+            text: messageText(event) || "Rejected final reply",
+            revision: {
+              count: 1,
+              latestStatus: "replaced",
+              latestRepairRound: Number(event.attempt || 1),
+            },
+            createdAt: event.ts,
           },
-          createdAt: event.ts,
-        }];
+        ];
       }
       const event = entry.event || {};
-      return [{
-        id: "skillrunner-message-" + String(event.seq || index),
-        kind: "message",
-        role: event.role || "assistant",
-        text: messageText(event),
-        createdAt: event.ts,
-      }];
+      return [
+        {
+          id: "skillrunner-message-" + String(event.seq || index),
+          kind: "message",
+          role: event.role || "assistant",
+          text: messageText(event),
+          createdAt: event.ts,
+        },
+      ];
     });
   }
 
   function projectAssistantPanelSnapshot(envelope) {
     const helper = assistantPanelModel();
     const source = envelope || state.workspaceEnvelope || {};
-    const session = source.session && typeof source.session === "object" ? source.session : source;
-    const base = helper && typeof helper.projectSkillRunnerPanelSnapshot === "function"
-      ? helper.projectSkillRunnerPanelSnapshot(source)
-      : {
-          kind: "skillrunner",
-          context: { title: "SkillRunner Workspace", status: "idle" },
-          lifecycle: { executionState: "idle" },
-          conversation: { items: [], plan: { entries: [] }, interaction: { kind: "hidden" } },
-        };
+    const session =
+      source.session && typeof source.session === "object"
+        ? source.session
+        : source;
+    const base =
+      helper && typeof helper.projectSkillRunnerPanelSnapshot === "function"
+        ? helper.projectSkillRunnerPanelSnapshot(source)
+        : {
+            kind: "skillrunner",
+            context: {
+              title: safeText(
+                panelSnapshot.labels && panelSnapshot.labels.title,
+              ),
+              status: "idle",
+            },
+            lifecycle: { executionState: "idle" },
+            conversation: {
+              items: [],
+              plan: { entries: [] },
+              interaction: { kind: "hidden" },
+            },
+          };
     const conversationItems = skillRunnerConversationItems(session);
     return Object.assign({}, base, {
       conversation: Object.assign({}, base.conversation || {}, {
@@ -416,17 +497,29 @@
   }
 
   function pendingOptions() {
-    const ask = state.snapshot && state.snapshot.pendingAskUser && typeof state.snapshot.pendingAskUser === "object"
-      ? state.snapshot.pendingAskUser
-      : null;
-    const raw = ask && Array.isArray(ask.options) ? ask.options : state.snapshot && state.snapshot.pendingOptions;
-    return (Array.isArray(raw) ? raw : []).map(function (option) {
-      if (typeof option === "string") return { label: option, value: option };
-      if (!option || typeof option !== "object") return null;
-      const label = safeText(option.label || option.name || option.title || option.value);
-      const value = safeText(option.value || option.reply || option.message || label);
-      return label && value ? { label, value } : null;
-    }).filter(Boolean);
+    const ask =
+      state.snapshot &&
+      state.snapshot.pendingAskUser &&
+      typeof state.snapshot.pendingAskUser === "object"
+        ? state.snapshot.pendingAskUser
+        : null;
+    const raw =
+      ask && Array.isArray(ask.options)
+        ? ask.options
+        : state.snapshot && state.snapshot.pendingOptions;
+    return (Array.isArray(raw) ? raw : [])
+      .map(function (option) {
+        if (typeof option === "string") return { label: option, value: option };
+        if (!option || typeof option !== "object") return null;
+        const label = safeText(
+          option.label || option.name || option.title || option.value,
+        );
+        const value = safeText(
+          option.value || option.reply || option.message || label,
+        );
+        return label && value ? { label, value } : null;
+      })
+      .filter(Boolean);
   }
 
   function submitReply(message, payload) {
@@ -434,7 +527,10 @@
     const textValue = safeText(message);
     const status = normalizedStatus();
     if (payload && payload.mode === "auth" && payload.submission) {
-      sendAction("reply-run", Object.assign({ requestId: currentRequestId() }, payload));
+      sendAction(
+        "reply-run",
+        Object.assign({ requestId: currentRequestId() }, payload),
+      );
       return;
     }
     if (status === "waiting_auth") {
@@ -465,29 +561,34 @@
   }
 
   function readAuthImportFiles() {
-    const inputs = hintEl ? hintEl.querySelectorAll("input[data-assistant-auth-import-file]") : [];
+    const inputs = hintEl
+      ? hintEl.querySelectorAll("input[data-assistant-auth-import-file]")
+      : [];
     const jobs = [];
     inputs.forEach(function (input) {
       if (!input.files || input.files.length === 0) return;
       const file = input.files[0];
-      const name = input.getAttribute("data-assistant-auth-import-name") || file.name;
-      jobs.push(new Promise(function (resolve, reject) {
-        const reader = new FileReader();
-        reader.onload = function () {
-          const raw = safeText(reader.result);
-          const mark = "base64,";
-          const index = raw.indexOf(mark);
-          if (index < 0) {
-            reject(new Error("base64 conversion failed"));
-            return;
-          }
-          resolve({ name, contentBase64: raw.slice(index + mark.length) });
-        };
-        reader.onerror = function () {
-          reject(new Error("file read failed"));
-        };
-        reader.readAsDataURL(file);
-      }));
+      const name =
+        input.getAttribute("data-assistant-auth-import-name") || file.name;
+      jobs.push(
+        new Promise(function (resolve, reject) {
+          const reader = new FileReader();
+          reader.onload = function () {
+            const raw = safeText(reader.result);
+            const mark = "base64,";
+            const index = raw.indexOf(mark);
+            if (index < 0) {
+              reject(new Error("base64 conversion failed"));
+              return;
+            }
+            resolve({ name, contentBase64: raw.slice(index + mark.length) });
+          };
+          reader.onerror = function () {
+            reject(new Error("file read failed"));
+          };
+          reader.readAsDataURL(file);
+        }),
+      );
     });
     return Promise.all(jobs);
   }
@@ -535,7 +636,12 @@
       return;
     }
     if (action === "copy-request-id" || action === "copy-diagnostics") {
-      sendAction(action, Object.assign({}, data, { requestId: safeText(data.requestId || currentRequestId()) }));
+      sendAction(
+        action,
+        Object.assign({}, data, {
+          requestId: safeText(data.requestId || currentRequestId()),
+        }),
+      );
       return;
     }
     if (action === "open-backend-manager") {
@@ -552,14 +658,18 @@
           if (!files.length) return;
           sendAction("auth-import-run", {
             requestId: currentRequestId(),
-            providerId: safeText(state.snapshot && state.snapshot.authProviderId),
+            providerId: safeText(
+              state.snapshot && state.snapshot.authProviderId,
+            ),
             files,
           });
         })
         .catch(function (error) {
           sendAction("auth-import-run", {
             requestId: currentRequestId(),
-            providerId: safeText(state.snapshot && state.snapshot.authProviderId),
+            providerId: safeText(
+              state.snapshot && state.snapshot.authProviderId,
+            ),
             error: safeText(error && error.message),
             files: [],
           });
@@ -576,16 +686,22 @@
 
   function renderTranscript(panelSnapshot) {
     const renderer = assistantTranscriptRenderer();
-    if (!renderer || typeof renderer.renderAssistantTranscript !== "function") return;
+    if (!renderer || typeof renderer.renderAssistantTranscript !== "function")
+      return;
     renderer.renderAssistantTranscript({
       container: transcriptEl,
-      items: panelSnapshot.conversation && Array.isArray(panelSnapshot.conversation.items)
-        ? panelSnapshot.conversation.items
-        : [],
+      items:
+        panelSnapshot.conversation &&
+        Array.isArray(panelSnapshot.conversation.items)
+          ? panelSnapshot.conversation.items
+          : [],
       mode: state.chatDisplayMode,
       variant: "skillrunner",
       renderMarkdown,
-      labels: panelSnapshot.labels?.assistantPanel?.transcript || panelSnapshot.labels?.transcript || {},
+      labels:
+        panelSnapshot.labels?.assistantPanel?.transcript ||
+        panelSnapshot.labels?.transcript ||
+        {},
       emptyText:
         panelSnapshot.labels?.assistantPanel?.transcript?.empty ||
         panelSnapshot.labels?.transcript?.empty ||
@@ -610,20 +726,37 @@
   }
 
   function render(envelope) {
-    state.workspaceEnvelope = envelope && typeof envelope === "object" ? envelope : {};
+    state.workspaceEnvelope =
+      envelope && typeof envelope === "object" ? envelope : {};
     state.snapshot =
-      state.workspaceEnvelope.session && typeof state.workspaceEnvelope.session === "object"
+      state.workspaceEnvelope.session &&
+      typeof state.workspaceEnvelope.session === "object"
         ? state.workspaceEnvelope.session
         : null;
-    const panelSnapshot = projectAssistantPanelSnapshot(state.workspaceEnvelope);
-    document.title = panelSnapshot.context.title || "SkillRunner Workspace";
+    const panelSnapshot = projectAssistantPanelSnapshot(
+      state.workspaceEnvelope,
+    );
+    document.title =
+      panelSnapshot.context.title ||
+      safeText(panelSnapshot.labels && panelSnapshot.labels.title);
     const hasSession = !!state.snapshot;
     emptyEl.classList.toggle("hidden", hasSession);
     mainEl.classList.toggle("hidden", !hasSession);
-    if (plainModeEl) plainModeEl.setAttribute("aria-pressed", state.chatDisplayMode === "plain" ? "true" : "false");
-    if (bubbleModeEl) bubbleModeEl.setAttribute("aria-pressed", state.chatDisplayMode === "bubble" ? "true" : "false");
+    if (plainModeEl)
+      plainModeEl.setAttribute(
+        "aria-pressed",
+        state.chatDisplayMode === "plain" ? "true" : "false",
+      );
+    if (bubbleModeEl)
+      bubbleModeEl.setAttribute(
+        "aria-pressed",
+        state.chatDisplayMode === "bubble" ? "true" : "false",
+      );
     const renderer = assistantPanelRenderer();
-    if (renderer && typeof renderer.renderAssistantPanelSnapshot === "function") {
+    if (
+      renderer &&
+      typeof renderer.renderAssistantPanelSnapshot === "function"
+    ) {
       renderer.renderAssistantPanelSnapshot(panelSnapshot, {
         managed: true,
         managedRegions: {
@@ -640,7 +773,9 @@
         regions: {
           toolbar: document.getElementById("skillrunner-toolbar"),
           banner: document.getElementById("skillrunner-banner"),
-          conversation: document.getElementById("skillrunner-conversation-window"),
+          conversation: document.getElementById(
+            "skillrunner-conversation-window",
+          ),
           plan: document.getElementById("skillrunner-plan"),
           hint: document.getElementById("skillrunner-hint"),
           reply: document.getElementById("reply-form"),
@@ -649,8 +784,12 @@
         },
       });
     }
-    document.getElementById("skillrunner-drawer").classList.toggle("hidden", !state.drawerOpen);
-    document.getElementById("skillrunner-details").classList.toggle("hidden", !state.detailsOpen);
+    document
+      .getElementById("skillrunner-drawer")
+      .classList.toggle("hidden", !state.drawerOpen);
+    document
+      .getElementById("skillrunner-details")
+      .classList.toggle("hidden", !state.detailsOpen);
     renderTranscript(panelSnapshot);
   }
 
@@ -686,13 +825,19 @@
       data.type === "skillrunner-sidebar:init" ||
       data.type === "skillrunner-sidebar:snapshot"
     ) {
-      state.bridgePrefix = String(data.type).indexOf("skillrunner-sidebar:") === 0
-        ? "skillrunner-sidebar"
-        : "run-dialog";
+      state.bridgePrefix =
+        String(data.type).indexOf("skillrunner-sidebar:") === 0
+          ? "skillrunner-sidebar"
+          : "run-dialog";
       const payload = data.payload || null;
-      state.hostMode = payload && payload.hostMode === "sidebar" ? "sidebar" : "dialog";
-      const drawer = payload && payload.drawer && typeof payload.drawer === "object" ? payload.drawer : null;
-      if (drawer && typeof drawer.open === "boolean") state.drawerOpen = drawer.open;
+      state.hostMode =
+        payload && payload.hostMode === "sidebar" ? "sidebar" : "dialog";
+      const drawer =
+        payload && payload.drawer && typeof payload.drawer === "object"
+          ? payload.drawer
+          : null;
+      if (drawer && typeof drawer.open === "boolean")
+        state.drawerOpen = drawer.open;
       render(payload || {});
     }
   });

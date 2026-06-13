@@ -1662,6 +1662,9 @@ export async function recoverAcpSkillRunConversation(args: {
   let currentTurnObservedAcpActivity = false;
   let promptChain = Promise.resolve();
   let liveSessionId = sessionId;
+  let recoveredPromptActive = false;
+  let recoveredInterruptionRequested = false;
+  let recoveredDisconnectRequested = false;
   let unsubscribePermission: () => void = () => undefined;
   let unsubscribeUpdate: () => void = () => undefined;
   let unsubscribeDiagnostics: () => void = () => undefined;
@@ -1717,6 +1720,9 @@ export async function recoverAcpSkillRunConversation(args: {
     currentTurnAssistantText = "";
     currentTurnObservedAcpActivity = false;
     captureAssistantText = true;
+    recoveredPromptActive = true;
+    recoveredInterruptionRequested = false;
+    recoveredDisconnectRequested = false;
     try {
       const result = await runPrompt({
         adapter,
@@ -1732,15 +1738,25 @@ export async function recoverAcpSkillRunConversation(args: {
       };
     } finally {
       captureAssistantText = false;
+      recoveredPromptActive = false;
     }
   };
-  const convergeRecoveredReply = async (message: string) => {
+  const convergeRecoveredReply = async (
+    message: string,
+    options?: {
+      appendUserReply?: boolean;
+      startedStage?: string;
+      startedMessage?: string;
+    },
+  ) => {
     const latest = getAcpSkillRunRecord(requestId);
     if (!latest) {
       throw new Error(`ACP skill run not found: ${requestId}`);
     }
     const shouldContinueWorkflow = canContinueRecoveredWorkflowTask(latest);
-    appendAcpSkillRunUserReply({ requestId, message });
+    if (options?.appendUserReply !== false) {
+      appendAcpSkillRunUserReply({ requestId, message });
+    }
     if (shouldContinueWorkflow) {
       upsertAcpSkillRun({
         requestId,
@@ -1753,8 +1769,9 @@ export async function recoverAcpSkillRunConversation(args: {
         error: "",
         pendingInteraction: null,
         event: {
-          stage: "recovered-reply-continuing",
+          stage: options?.startedStage || "recovered-reply-continuing",
           message:
+            options?.startedMessage ||
             "Recovered reply accepted; continuing ACP skill output convergence.",
           level: "info",
           details: {
@@ -1775,6 +1792,14 @@ export async function recoverAcpSkillRunConversation(args: {
           }),
         );
       } catch (error) {
+        if (recoveredInterruptionRequested || recoveredDisconnectRequested) {
+          return {
+            sessionId: liveSessionId,
+            stopReason: "cancelled",
+            assistantText: "",
+            observedAcpActivity: currentTurnObservedAcpActivity,
+          };
+        }
         await failRecoveredAcpPrompt(classifyAcpPromptError(error));
         throw error;
       }
@@ -1783,6 +1808,27 @@ export async function recoverAcpSkillRunConversation(args: {
     promptOutcome = shouldContinueWorkflow
       ? await promptRecoveredWorkflowContinuation(message)
       : await promptRecoveredSession(message);
+    if (recoveredDisconnectRequested) {
+      return;
+    }
+    if (recoveredInterruptionRequested) {
+      upsertAcpSkillRun({
+        requestId,
+        activePrompt: false,
+        replyState: "idle",
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        event: {
+          stage: "interrupt-completed",
+          message: "ACP skill run current turn interrupted.",
+          level: "warn",
+          details: {
+            recovered: true,
+          },
+        },
+      });
+      return;
+    }
     if (!shouldContinueWorkflow) {
       return;
     }
@@ -2089,8 +2135,37 @@ export async function recoverAcpSkillRunConversation(args: {
         await detach("ended");
       },
       interruptTurn: async () => {
+        if (!recoveredPromptActive) {
+          upsertAcpSkillRun({
+            requestId,
+            activePrompt: false,
+            replyState: "idle",
+            event: {
+              stage: "interrupt-ignored",
+              message:
+                "ACP skill run current turn interruption ignored because no recovered prompt turn is active.",
+              level: "info",
+            },
+          });
+          return;
+        }
+        recoveredInterruptionRequested = true;
         await adapter.cancel({ sessionId: liveSessionId });
-        await detach("closed");
+        upsertAcpSkillRun({
+          requestId,
+          activePrompt: false,
+          replyState: "idle",
+          conversationState: "active",
+          conversationRecoveryState: "connected",
+          event: {
+            stage: "interrupt-turn-requested",
+            message: "ACP skill run current turn interruption requested.",
+            level: "warn",
+            details: {
+              recovered: true,
+            },
+          },
+        });
       },
       reply: async (message) => {
         const nextPrompt = promptChain
@@ -2105,6 +2180,10 @@ export async function recoverAcpSkillRunConversation(args: {
         }
       },
       disconnect: async () => {
+        recoveredDisconnectRequested = true;
+        if (recoveredPromptActive) {
+          await adapter.cancel({ sessionId: liveSessionId });
+        }
         await detach("closed");
       },
       endSession: async () => {
@@ -2151,6 +2230,52 @@ export async function recoverAcpSkillRunConversation(args: {
         level: "info",
       },
     });
+    const latest = getAcpSkillRunRecord(requestId) || record;
+    const shouldAutoContinue =
+      args.reason === "connect" &&
+      !latest.pendingInteraction &&
+      !latest.pendingPermission &&
+      (latest.status === "running" ||
+        latest.status === "repairing" ||
+        latest.status === "failed") &&
+      canContinueRecoveredWorkflowTask(latest);
+    if (shouldAutoContinue) {
+      const autoPrompt = promptChain
+        .catch(() => undefined)
+        .then(() =>
+          convergeRecoveredReply(
+            "Continue the interrupted ACP Skills workflow from the last recoverable state.",
+            {
+              appendUserReply: false,
+              startedStage: "recovered-auto-continuation-started",
+              startedMessage:
+                "Recovered session connected; starting automatic ACP skill continuation.",
+            },
+          ),
+        );
+      promptChain = autoPrompt;
+      void autoPrompt.catch((error) => {
+        promptChain = Promise.resolve();
+        upsertAcpSkillRun({
+          requestId,
+          activePrompt: false,
+          conversationState: "closed",
+          conversationRecoveryState: "available",
+          error:
+            error instanceof Error
+              ? error.message
+              : String(error || "unknown error"),
+          event: {
+            stage: "recovered-auto-continuation-failed",
+            message:
+              error instanceof Error
+                ? error.message
+                : String(error || "unknown error"),
+            level: "error",
+          },
+        });
+      });
+    }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
@@ -2198,6 +2323,7 @@ export async function executeAcpSkillRunnerJob(args: {
   const runId = normalizeString(args.orchestrationContext?.workflowRunId);
   const workspace = await workspaceFactory({
     backendId: args.backend.id,
+    skillId: request.skill_id,
     workflowId,
     jobId,
     workflowWorkspace: resolveWorkflowWorkspaceIntent(request),

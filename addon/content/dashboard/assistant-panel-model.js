@@ -1491,6 +1491,14 @@
     const conversationState = normalizeStatusToken((run && run.conversationState) || "unknown");
     const recoveryState = normalizeStatusToken((run && run.conversationRecoveryState) || "unknown");
     const connected = conversationState === "active" || recoveryState === "connected";
+    const detachedRecoverableRun = Boolean(
+      run &&
+        safeText(run.sessionId) &&
+        conversationState === "closed" &&
+        recoveryState === "available" &&
+        run.activePrompt !== true &&
+        !isTerminalStatus(status),
+    );
     const actionState = safeText(run && run.connectionActionState);
     const canConnect =
       Boolean(run && safeText(run.sessionId)) &&
@@ -1522,14 +1530,30 @@
       const backendLabel = safeText(entry && (entry.backendLabel || entry.backendId)) || "Backend";
       const workflowLabel = safeText(entry && entry.skillId) || backendLabel;
       const statusText = safeText(entry && entry.status) || "unknown";
+      const entryStatus = normalizeStatusToken(statusText);
+      const entryConversationState = normalizeStatusToken(
+        entry && entry.conversationState,
+      );
+      const entryRecoveryState = normalizeStatusToken(
+        entry && entry.conversationRecoveryState,
+      );
+      const entryDetachedRecoverable = Boolean(
+        entry &&
+          safeText(entry.sessionId) &&
+          entryConversationState === "closed" &&
+          entryRecoveryState === "available" &&
+          entry.activePrompt !== true &&
+          !isTerminalStatus(entryStatus),
+      );
       const needsAttention =
         statusText === "waiting_user" ||
         statusText === "waiting-user" ||
         statusText === "waiting_auth" ||
         statusText === "waiting-auth" ||
+        entryDetachedRecoverable ||
         Boolean(entry && entry.pendingInteraction) ||
         Boolean(entry && entry.pendingPermission);
-      const terminal = isTerminalStatus(normalizeStatusToken(statusText));
+      const terminal = isTerminalStatus(entryStatus);
       return {
         key: requestId,
         requestId,
@@ -1660,7 +1684,9 @@
     const busyRun =
       activePrompt ||
       activeContinuation ||
-      (!waitingForUser && ["queued", "running", "repairing"].indexOf(status) >= 0);
+      (!waitingForUser &&
+        !detachedRecoverableRun &&
+        ["queued", "running", "repairing"].indexOf(status) >= 0);
     const terminalRun = isTerminalStatus(status);
     const runtimeOptions =
       panel.selectedRuntimeOptions && typeof panel.selectedRuntimeOptions === "object"
@@ -1705,6 +1731,19 @@
       interaction = {
         kind: "waiting_user",
         pendingInteraction: run.pendingInteraction || null,
+      };
+    }
+    if (
+      run &&
+      !run.pendingPermission &&
+      safeText(interaction && interaction.kind) === "hidden" &&
+      detachedRecoverableRun
+    ) {
+      interaction = {
+        kind: "disconnected",
+        message:
+          safeText(run.conversationError || run.lastRecoveryError || run.error) ||
+          "Run is disconnected and recoverable. Connect to continue.",
       };
     }
     if (

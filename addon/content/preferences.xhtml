@@ -62,6 +62,7 @@
     color: #991b1b; font-weight: 700; } .zs-pref-danger-description { color:
     #7f1d1d; } .zs-pref-danger-status { color: #7f1d1d; font-size: 12px; }
     .zs-pref-danger-button { color: #991b1b; }
+    .zs-host-bridge-write-approval-danger { color: #b91c1c; font-weight: 700; }
   </html:style>
   <vbox class="zs-pref-root">
     <vbox class="zs-pref-card">
@@ -131,6 +132,21 @@
         ></html:input>
         <html:span data-l10n-id="pref-mcp-server-enabled"></html:span>
       </html:label>
+      <html:label
+        class="zs-uninstall-option zs-host-bridge-write-approval-danger"
+      >
+        <html:input
+          id="zotero-prefpane-__addonRef__-host-bridge-disable-write-approval"
+          type="checkbox"
+        ></html:input>
+        <html:span
+          data-l10n-id="pref-host-bridge-disable-write-approval"
+        ></html:span>
+      </html:label>
+      <description
+        class="zs-host-bridge-write-approval-danger"
+        data-l10n-id="pref-host-bridge-disable-write-approval-help"
+      ></description>
       <description
         id="zotero-prefpane-__addonRef__-mcp-server-status"
         data-l10n-id="pref-mcp-server-status-idle"

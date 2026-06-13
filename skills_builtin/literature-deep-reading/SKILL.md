@@ -243,7 +243,7 @@ Stage 20 完成后，继续阅读：
 
 翻译前先按 `reading-blocks.json` 中 `translate: true` 的 block 分批。运行环境支持 subagent 时，将批次委派给 subagent 翻译；不支持时，由主 agent 分批自译，但必须额外做一次独立复核。最终只能提交主 agent 验收后的译文。
 
-主 agent 验收每个 block 时必须逐项检查：没有遗漏、没有复制原文冒充译文、目标语言正确、术语与 concept/section insights 一致、Markdown 结构保留、公式不被破坏、表格仍是表格且可翻译单元已翻译。References 及其后的 block 不翻译。
+主 agent 验收每个 block 时必须逐项检查：没有遗漏、没有复制原文冒充译文、目标语言正确、术语与 concept/section insights 一致、Markdown 结构保留、公式不被破坏、表格仍是表格且可翻译单元已翻译。`formula` block 通常不提交译文，由 runtime 原样保留；`image` block 翻译图题文字，不改图片引用；`table` block 必须提交仍然是表格的译文，不要把表格说明写成表格外的普通段落。References 及其后的 block 不翻译。
 
 然后手写：
 

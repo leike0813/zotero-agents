@@ -29,6 +29,7 @@ import {
 } from "./skillRunnerTaskReconciler";
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import { getString } from "../utils/locale";
+import { localizeWorkflowLabel } from "../workflows/localization";
 
 function stripRunOptionsForPersistence(
   options: WorkflowExecutionOptions,
@@ -71,6 +72,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
     args.workflow.manifest,
   );
   const workflowSource = getLoadedWorkflowSourceById(args.workflow.manifest.id);
+  const workflowLabel = localizeWorkflowLabel(args.workflow);
   let executionOptionsOverride = args.executionOptionsOverride;
   if (args.requireSettingsGate === true && !executionOptionsOverride) {
     const loadedBackends = await loadBackendsRegistry();
@@ -121,7 +123,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
           alertWindow(
             args.win,
             buildWorkflowCannotRunMessage({
-              workflowLabel: args.workflow.manifest.label,
+              workflowLabel,
               reason: `settings gate failed: ${dialogResult.reason}`,
             }),
           );
@@ -167,7 +169,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
   const duplicateGuard = await runWorkflowDuplicateGuardSeam({
     win: args.win,
     workflowId: args.workflow.manifest.id,
-    workflowLabel: args.workflow.manifest.label,
+    workflowLabel,
     requests: preparation.prepared.requests,
   });
   const skippedByGuard = duplicateGuard.skippedByDuplicate;
@@ -188,7 +190,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
     if (showWorkflowNotifications) {
       emitWorkflowFinishSummary({
         win: args.win,
-        workflowLabel: args.workflow.manifest.label,
+        workflowLabel,
         succeeded: 0,
         failed: 0,
         skipped: totalSkipped,
@@ -208,7 +210,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
 
   if (showWorkflowNotifications) {
     emitWorkflowStartToast({
-      workflowLabel: args.workflow.manifest.label,
+      workflowLabel,
       totalJobs: runState.totalJobs,
       messageFormatter,
     });
@@ -226,7 +228,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
       runId: runState.runId,
       win: args.win,
       workflowId: args.workflow.manifest.id,
-      workflowLabel: args.workflow.manifest.label,
+      workflowLabel,
       totalJobs: runState.totalJobs,
       skipped: totalSkipped,
       succeeded: applySummary.succeeded,
@@ -247,7 +249,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
         }
         ensureSkillRunnerRecoverableContext({
           workflowId: args.workflow.manifest.id,
-          workflowLabel: args.workflow.manifest.label,
+          workflowLabel,
           requestKind: preparation.prepared.executionContext.requestKind,
           request,
           backend: preparation.prepared.executionContext.backend,
@@ -285,7 +287,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
     });
     if (jobToastOutcomes.length > 0) {
       emitWorkflowJobToasts({
-        workflowLabel: args.workflow.manifest.label,
+        workflowLabel,
         totalJobs: runState.totalJobs,
         outcomes: jobToastOutcomes,
         messageFormatter,
@@ -322,7 +324,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
     ) {
       emitWorkflowFinishSummary({
         win: args.win,
-        workflowLabel: args.workflow.manifest.label,
+        workflowLabel,
         succeeded: applySummary.succeeded,
         failed: applySummary.failed,
         skipped: totalSkipped,

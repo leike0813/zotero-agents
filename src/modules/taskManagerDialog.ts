@@ -42,6 +42,11 @@ import { triggerWorkflowFromUnifiedEntry } from "./workflowMenu";
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import {
+  compareWorkflowDisplayOrder,
+  isCoreWorkflow,
+  localizeWorkflowLabel,
+} from "../workflows/localization";
+import {
   isTerminal,
   isWaiting,
   normalizeStatus,
@@ -171,6 +176,7 @@ type DashboardSnapshot = {
     providerId: string;
     configurable: boolean;
     builtin: boolean;
+    core: boolean;
     quickRunEnabled: boolean;
     quickRunDisabledReason?: string;
   }>;
@@ -1056,7 +1062,7 @@ async function buildWorkflowOptionsView(args: {
   return {
     workflows: configurable.map((entry) => ({
       workflowId: entry.workflow.manifest.id,
-      workflowLabel: entry.workflow.manifest.label,
+      workflowLabel: localizeWorkflowLabel(entry.workflow),
       providerId: entry.descriptor.providerId,
     })),
     selectedWorkflowId,
@@ -1071,7 +1077,7 @@ async function buildHomeWorkflowSummaries(args: {
 }) {
   const loaded = getVisibleLoadedWorkflowEntries();
   const entries = await Promise.all(
-    loaded.map(async (workflow) => {
+    [...loaded].sort(compareWorkflowDisplayOrder).map(async (workflow) => {
       const descriptor = await buildWorkflowSettingsUiDescriptor({
         workflow,
         candidateBackends: args.backends,
@@ -1079,11 +1085,12 @@ async function buildHomeWorkflowSummaries(args: {
       });
       return {
         workflowId: workflow.manifest.id,
-        workflowLabel: workflow.manifest.label,
+        workflowLabel: localizeWorkflowLabel(workflow),
         providerId: descriptor.providerId,
         configurable: descriptor.hasConfigurableSettings,
         builtin:
           getLoadedWorkflowSourceById(workflow.manifest.id) === "builtin",
+        core: isCoreWorkflow(workflow),
         quickRunEnabled:
           canWorkflowRunWithoutSelection(workflow.manifest) &&
           !descriptor.blockedReason,
@@ -1098,7 +1105,7 @@ async function buildHomeWorkflowSummaries(args: {
       };
     }),
   );
-  return entries.sort((a, b) => a.workflowLabel.localeCompare(b.workflowLabel));
+  return entries;
 }
 
 async function resolveHomeWorkflowQuickRun(args: {
@@ -1162,7 +1169,7 @@ async function buildHomeWorkflowDocView(args: {
   if (cached) {
     return {
       workflowId: args.workflowId,
-      workflowLabel: matched.manifest.label,
+      workflowLabel: localizeWorkflowLabel(matched),
       html: cached.html,
       missingReadme: cached.missingReadme,
     };
@@ -1183,7 +1190,7 @@ async function buildHomeWorkflowDocView(args: {
   args.state.homeWorkflowDocCacheByWorkflowId.set(args.workflowId, cachedEntry);
   return {
     workflowId: args.workflowId,
-    workflowLabel: matched.manifest.label,
+    workflowLabel: localizeWorkflowLabel(matched),
     html,
     missingReadme,
   };
@@ -1275,6 +1282,10 @@ async function buildDashboardSnapshot(args: {
     ),
     tabProducts: localize("task-dashboard-tab-products", "Products"),
     tabBackends: localize("task-dashboard-tab-backends", "Backends"),
+    loadingDashboard: localize(
+      "task-dashboard-loading",
+      "Loading dashboard...",
+    ),
     runningTitle: localize("task-dashboard-running-title", "Active Tasks"),
     summaryTotal: localize("task-dashboard-summary-total", "Total"),
     summaryRunning: localize("task-dashboard-summary-running", "Running"),
@@ -1324,6 +1335,10 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-management-load-failed",
       "Management UI failed to load.",
     ),
+    managementLoading: localize(
+      "task-dashboard-management-loading",
+      "Loading management UI...",
+    ),
     refreshModelCache: localize(
       "backend-manager-refresh-model-cache",
       "Refresh Model Cache",
@@ -1350,6 +1365,11 @@ async function buildDashboardSnapshot(args: {
     logsDetailTitle: localize(
       "task-dashboard-generic-logs-detail-title",
       "Log Details",
+    ),
+    logsDetailClose: localize("task-dashboard-generic-logs-close", "Close"),
+    logsException: localize(
+      "task-dashboard-generic-logs-exception",
+      "Exception",
     ),
     logsViewTask: localize(
       "task-dashboard-generic-logs-view-task",
@@ -1451,9 +1471,45 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-runtime-logs-select-to-view",
       "Select a log entry to view details.",
     ),
+    runtimeLogsFilterBackend: localize(
+      "task-dashboard-runtime-logs-filter-backend",
+      "Backend",
+    ),
+    runtimeLogsFilterWorkflow: localize(
+      "task-dashboard-runtime-logs-filter-workflow",
+      "Workflow",
+    ),
+    runtimeLogsFilterAll: localize(
+      "task-dashboard-runtime-logs-filter-all",
+      "All",
+    ),
+    runtimeLogsCopySuccessBundle: localize(
+      "task-dashboard-runtime-logs-copy-success-bundle",
+      "Diagnostic bundle copied to clipboard!",
+    ),
+    runtimeLogsCopySuccessIssue: localize(
+      "task-dashboard-runtime-logs-copy-success-issue",
+      "Issue summary copied to clipboard!",
+    ),
+    runtimeLogsCopySuccess: localize(
+      "task-dashboard-runtime-logs-copy-success",
+      "Copied { $count } log entries to clipboard!",
+    ),
     productsEmpty: localize(
       "task-dashboard-products-empty",
       "No workflow products have been registered yet.",
+    ),
+    productsNoFiles: localize(
+      "task-dashboard-products-no-files",
+      "No product files.",
+    ),
+    productsRawMarkdown: localize(
+      "task-dashboard-products-raw-markdown",
+      "Raw Markdown",
+    ),
+    productsSelectFile: localize(
+      "task-dashboard-products-select-file",
+      "Select a file to preview.",
     ),
     productsOpenWorkspace: localize(
       "task-dashboard-products-open-workspace",
@@ -1491,6 +1547,10 @@ async function buildDashboardSnapshot(args: {
     homeWorkflowBuiltinBadge: localize(
       "task-dashboard-home-workflow-builtin",
       "Builtin",
+    ),
+    homeWorkflowCoreBadge: localize(
+      "task-dashboard-home-workflow-core",
+      "Core",
     ),
     homeWorkflowDocMissingReadme: localize(
       "task-dashboard-home-workflow-doc-missing-readme",
@@ -1662,7 +1722,7 @@ async function buildDashboardSnapshot(args: {
         const match = loadedWorkflows.find((w) => w.manifest.id === wId);
         return {
           value: wId,
-          label: match ? match.manifest.label : wId,
+          label: match ? localizeWorkflowLabel(match) : wId,
         };
       });
 

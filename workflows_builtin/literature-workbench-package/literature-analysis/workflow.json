@@ -3,6 +3,10 @@
   "label": "Literature Analysis",
   "provider": "acp",
   "version": "0.1.0",
+  "display": {
+    "core": true,
+    "emoji": "📊"
+  },
   "inputs": {
     "unit": "attachment",
     "accepts": {

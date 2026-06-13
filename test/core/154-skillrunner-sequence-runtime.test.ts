@@ -1,8 +1,12 @@
 import { assert } from "chai";
+import fs from "node:fs/promises";
 import { parseWorkflowManifestFromText } from "../../src/workflows/loaderContracts";
 import { executeSkillRunnerSequence } from "../../src/modules/workflowExecution/sequenceRuntime";
 import { getSequenceRunStateByStepRequest } from "../../src/modules/workflowExecution/sequenceStateStore";
-import { createAcpSkillRunnerWorkspace } from "../../src/modules/acpSkillRunnerWorkspace";
+import {
+  createAcpSkillRunnerWorkspace,
+  writeAcpSkillRunnerInputManifest,
+} from "../../src/modules/acpSkillRunnerWorkspace";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { mkTempDir } from "./workflow-test-utils";
 import { buildRequest as buildLiteratureDigestRequest } from "../../workflows_builtin/literature-workbench-package/literature-analysis/hooks/buildRequest.mjs";
@@ -477,6 +481,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     const root = await mkTempDir("zotero-skills-sequence-workspace");
     const first = await createAcpSkillRunnerWorkspace({
       backendId: "acp-backend",
+      skillId: "prepare-skill",
       rootDir: root,
       workflowWorkspace: {
         mode: "new",
@@ -485,6 +490,16 @@ describe("skillrunner.sequence.v1 runtime", function () {
     });
     const second = await createAcpSkillRunnerWorkspace({
       backendId: "acp-backend",
+      skillId: "core-skill",
+      rootDir: root,
+      workflowWorkspace: {
+        mode: "reuse",
+        workflowRunId: "workflow-run-2",
+      },
+    });
+    const third = await createAcpSkillRunnerWorkspace({
+      backendId: "acp-backend",
+      skillId: "core-skill",
       rootDir: root,
       workflowWorkspace: {
         mode: "reuse",
@@ -493,11 +508,48 @@ describe("skillrunner.sequence.v1 runtime", function () {
     });
 
     assert.notEqual(first.requestId, second.requestId);
+    assert.notEqual(second.requestId, third.requestId);
     assert.equal(first.workspaceDir, second.workspaceDir);
+    assert.equal(second.workspaceDir, third.workspaceDir);
+    assert.match(
+      first.resultJsonPath.replace(/\\/g, "/"),
+      /\/result\/prepare-skill\.1\/result\.json$/,
+    );
+    assert.match(
+      first.inputManifestPath.replace(/\\/g, "/"),
+      /\/\.audit\/prepare-skill\.1\/input_manifest\.json$/,
+    );
+    assert.match(
+      second.resultJsonPath.replace(/\\/g, "/"),
+      /\/result\/core-skill\.1\/result\.json$/,
+    );
+    assert.match(
+      third.resultJsonPath.replace(/\\/g, "/"),
+      /\/result\/core-skill\.2\/result\.json$/,
+    );
+    assert.notEqual(first.inputManifestPath, second.inputManifestPath);
+    assert.notEqual(second.inputManifestPath, third.inputManifestPath);
+
+    await writeAcpSkillRunnerInputManifest({
+      workspace: first,
+      request: { skill_id: "prepare-skill", marker: "first" },
+    });
+    await writeAcpSkillRunnerInputManifest({
+      workspace: second,
+      request: { skill_id: "core-skill", marker: "second" },
+    });
+    await writeAcpSkillRunnerInputManifest({
+      workspace: third,
+      request: { skill_id: "core-skill", marker: "third" },
+    });
+    assert.include(await fs.readFile(first.inputManifestPath, "utf8"), "first");
+    assert.include(await fs.readFile(second.inputManifestPath, "utf8"), "second");
+    assert.include(await fs.readFile(third.inputManifestPath, "utf8"), "third");
 
     try {
       await createAcpSkillRunnerWorkspace({
         backendId: "acp-backend",
+        skillId: "missing-skill",
         rootDir: root,
         workflowWorkspace: {
           mode: "reuse",

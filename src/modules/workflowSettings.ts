@@ -19,6 +19,10 @@ import type {
   LoadedWorkflow,
   WorkflowParameterOption,
 } from "../workflows/types";
+import {
+  localizeWorkflowLabel,
+  localizeWorkflowParameters,
+} from "../workflows/localization";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import { getPref, setPref } from "../utils/prefs";
 import { resolveWorkflowRequestKind } from "./workflowRequestKind";
@@ -469,7 +473,8 @@ async function toWorkflowSchemaEntries(
     workflowParams?: Record<string, unknown>;
   },
 ): Promise<WorkflowSettingsSchemaEntry[]> {
-  const schema = workflow.manifest.parameters || {};
+  const rawSchema = workflow.manifest.parameters || {};
+  const schema = localizeWorkflowParameters(workflow);
   const shouldResolveDynamicOptions = options?.resolveDynamicOptions !== false;
   const entries = await Promise.all(
     Object.entries(schema).map(async ([key, entry]) => {
@@ -518,7 +523,7 @@ async function toWorkflowSchemaEntries(
     }),
   );
   return entries.filter((entry) => {
-    const condition = schema[entry.key]?.visible_if;
+    const condition = rawSchema[entry.key]?.visible_if;
     const parameter = String(condition?.parameter || "").trim();
     if (!parameter) {
       return true;
@@ -756,7 +761,7 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
 
   return {
     workflowId: args.workflow.manifest.id,
-    workflowLabel: args.workflow.manifest.label,
+    workflowLabel: localizeWorkflowLabel(args.workflow),
     providerId,
     requiresBackendProfile,
     profiles,

@@ -1,5 +1,9 @@
 import { assert } from "chai";
-import { getProjectRoot, joinPath, readUtf8 } from "../zotero/workflow-test-utils";
+import {
+  getProjectRoot,
+  joinPath,
+  readUtf8,
+} from "../zotero/workflow-test-utils";
 
 async function readProjectFile(relativePath: string) {
   const targetPath = joinPath(getProjectRoot(), relativePath);
@@ -11,7 +15,9 @@ describe("dashboard home columns", function () {
     const js = await readProjectFile("addon/content/dashboard/app.js");
     const html = await readProjectFile("addon/content/dashboard/index.html");
     const css = await readProjectFile("addon/content/dashboard/styles.css");
-    const customSelectCss = await readProjectFile("addon/content/components/custom-select.css");
+    const customSelectCss = await readProjectFile(
+      "addon/content/components/custom-select.css",
+    );
     assert.include(html, "../shared/theme.js");
     assert.include(html, "../shared/theme.css");
     assert.include(css, "--bg: var(--zs-bg)");
@@ -19,20 +25,20 @@ describe("dashboard home columns", function () {
     assert.include(css, "background: var(--zs-bg-gradient)");
     assert.include(customSelectCss, "--zs-input-bg");
     assert.include(customSelectCss, "--zs-border-strong");
-    assert.include(js, "labels.colBackend || \"Backend\"");
+    assert.notInclude(js, 'labels.colBackend || "Backend"');
     assert.include(
       js,
-      "columns: [\n          labels.colTask,\n          labels.colWorkflow,\n          labels.colBackend || \"Backend\",\n          labels.colStatus,\n          labels.colUpdatedAt,\n        ]",
+      'columns: [\n          labels.colTask,\n          labels.colWorkflow,\n          labelText(labels, "colBackend"),\n          labels.colStatus,\n          labels.colUpdatedAt,\n        ]',
     );
     assert.include(js, "onRowClick: (row) => {");
     assert.include(js, 'sendAction("open-running-task", {');
     assert.include(js, "taskId: row.id,");
-    assert.include(js, "backendId: row.backendId || \"\",");
-    assert.include(js, "backendType: row.backendType || \"\",");
-    assert.include(js, "requestId: row.requestId || \"\",");
+    assert.include(js, 'backendId: row.backendId || "",');
+    assert.include(js, 'backendType: row.backendType || "",');
+    assert.include(js, 'requestId: row.requestId || "",');
     assert.notInclude(
       js,
-      "columns: [\n      labels.colTask,\n      labels.colWorkflow,\n      labels.colStatus,\n      labels.colRequestId,\n      labels.colUpdatedAt,\n      labels.colActions || \"Actions\",\n    ]",
+      'columns: [\n      labels.colTask,\n      labels.colWorkflow,\n      labels.colStatus,\n      labels.colRequestId,\n      labels.colUpdatedAt,\n      labels.colActions || "Actions",\n    ]',
     );
   });
 
@@ -46,13 +52,42 @@ describe("dashboard home columns", function () {
     assert.include(ts, "backendType,");
     assert.include(ts, "`${backendDisplayName} (${backendType})`");
     assert.include(ts, "options?.backendMetaById?.get(backendId)");
-    assert.include(ts, "String(backendMeta?.type || \"\").trim()");
-    assert.include(ts, "colBackend: localize(\"task-dashboard-col-backend\", \"Backend\")");
+    assert.include(ts, 'String(backendMeta?.type || "").trim()');
+    assert.include(
+      ts,
+      'colBackend: localize("task-dashboard-col-backend", "Backend")',
+    );
+  });
+
+  it("keeps dashboard chrome, product, and log affordances behind labels", async function () {
+    const js = await readProjectFile("addon/content/dashboard/app.js");
+    const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
+    const harness = await readProjectFile(
+      "src/modules/harness/dashboardReadonlyModel.ts",
+    );
+
+    for (const token of [
+      'labelText(labels, "homeWorkflowTitle")',
+      'labelText(labels, "homeWorkflowRunButton")',
+      'labelText(labels, "productsNoFiles")',
+      'labelText(labels, "productsRawMarkdown")',
+      'labelText(labels, "runtimeLogsFilterBackend")',
+      'labelText(labels, "logsDetailClose")',
+    ]) {
+      assert.include(js, token);
+    }
+    assert.notInclude(js, 'labels.homeWorkflowTitle || "Workflows"');
+    assert.notInclude(js, 'labels.runtimeLogsFilterBackend || "Backend"');
+    assert.include(ts, "loadingDashboard: localize(");
+    assert.include(ts, '"task-dashboard-products-no-files"');
+    assert.include(harness, 'productsNoFiles: "No product files."');
   });
 
   it("filters stale ACP skill run task rows from the home running list", async function () {
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
-    const activeTasksTs = await readProjectFile("src/modules/dashboardActiveTasks.ts");
+    const activeTasksTs = await readProjectFile(
+      "src/modules/dashboardActiveTasks.ts",
+    );
     assert.include(activeTasksTs, "function isVisibleDashboardActiveTask");
     assert.include(activeTasksTs, "function isAcpSkillRunTask");
     assert.include(ts, "listAcpSkillRuns()");
@@ -60,9 +95,9 @@ describe("dashboard home columns", function () {
     assert.include(activeTasksTs, "visibleAcpRequestIds.has(requestId)");
     assert.include(activeTasksTs, 'taskId.startsWith("acp-skill-run:")');
     assert.include(activeTasksTs, "return false;");
-    assert.include(activeTasksTs, "run.status !== \"succeeded\"");
-    assert.include(activeTasksTs, "run.status !== \"failed\"");
-    assert.include(activeTasksTs, "run.status !== \"canceled\"");
+    assert.include(activeTasksTs, 'run.status !== "succeeded"');
+    assert.include(activeTasksTs, 'run.status !== "failed"');
+    assert.include(activeTasksTs, 'run.status !== "canceled"');
   });
 
   it("coalesces noisy dashboard task refreshes to keep running-list scrolling stable", async function () {
@@ -80,12 +115,12 @@ describe("dashboard home columns", function () {
   it("routes row-click by backend type and handles missing skillrunner requestId", async function () {
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
     assert.include(ts, 'if (action === "open-running-task")');
-    assert.include(ts, 'requestKind === ACP_SKILL_RUN_REQUEST_KIND');
+    assert.include(ts, "requestKind === ACP_SKILL_RUN_REQUEST_KIND");
     assert.include(ts, 'taskId.startsWith("acp-skill-run:")');
     assert.include(ts, 'tab: "acp-skills"');
     assert.include(ts, 'if (backendType === "skillrunner")');
     assert.include(ts, 'if (backendType === "generic-http")');
-    assert.include(ts, 'state.selectedTabKey = toBackendTabKey(backendId);');
+    assert.include(ts, "state.selectedTabKey = toBackendTabKey(backendId);");
     assert.include(ts, '"task-dashboard-open-run-missing-request-id"');
   });
 

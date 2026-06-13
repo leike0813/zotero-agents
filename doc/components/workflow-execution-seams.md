@@ -352,7 +352,7 @@ type SequenceStepRunState = {
 | `pass_through` | 默认 `true`，将整个 output 放在 `input.handoff` 中 |
 | `defaults.input` / `defaults.parameter` | 提供默认值 |
 | `required` | 默认 `true`，output 缺失时抛出错误 |
-| `workspace` | `"reuse-workflow"` 重用工作流工作区；其他值每个步骤独立工作区 |
+| `workspace` | `"reuse-workflow"` 重用工作流工作区；其他值每个步骤独立工作区。ACP provider 内部仍会为每个 step 分配独立 runner-owned `resultJsonPath` / `inputManifestPath` 子空间。 |
 | `fetch_type` | 默认为 `"result"` |
 
 ### 恢复路径
@@ -413,8 +413,8 @@ type WorkflowResultContext = {
 #### resultJson 解析优先级
 
 1. `runResult.resultJson`（内联）→ `kind: "run-result"`
-2. `resultJsonPath` 本地文件 → `kind: "local-path"`
-3. bundle 条目（默认 `result/result.json`）→ `kind: "bundle-entry"`
+2. `resultJsonPath` 本地文件 → `kind: "local-path"`；ACP run 这里是实际 runner-owned 结果路径，不等同于固定 `result/result.json`
+3. bundle 条目（默认 `result/result.json`）→ `kind: "bundle-entry"`；这是 legacy/bundle fallback 入口，不是 ACP local result 的命名规则
 4. 均不可用 → `kind: "unavailable"` + warning
 
 #### resolveArtifact

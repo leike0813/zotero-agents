@@ -17,8 +17,14 @@
     "version": {
       "$ref": "#/$defs/nonEmptyString"
     },
+    "display": {
+      "$ref": "#/$defs/workflowDisplaySpec"
+    },
     "taskNameTemplate": {
       "$ref": "#/$defs/nonEmptyString"
+    },
+    "i18n": {
+      "$ref": "#/$defs/workflowI18nSpec"
     },
     "parameters": {
       "type": "object",
@@ -157,6 +163,41 @@
     "nonEmptyString": {
       "type": "string",
       "minLength": 1
+    },
+    "workflowI18nSpec": {
+      "type": "object",
+      "properties": {
+        "defaultLocale": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "messages": {
+          "$ref": "#/$defs/workflowI18nMessages"
+        }
+      },
+      "additionalProperties": false
+    },
+    "workflowI18nMessages": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    },
+    "workflowDisplaySpec": {
+      "type": "object",
+      "properties": {
+        "core": {
+          "type": "boolean"
+        },
+        "emoji": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        }
+      },
+      "additionalProperties": false
     },
     "parameterSchema": {
       "type": "object",

@@ -24,6 +24,7 @@ import { runWorkflowApplySeam } from "./workflowExecution/applySeam";
 import { createLocalizedMessageFormatter } from "./workflowExecution/messageFormatter";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import type { LoadedWorkflow } from "../workflows/types";
+import { localizeWorkflowLabel } from "../workflows/localization";
 
 export type HostBridgeWorkflowControlManifest = {
   supported: true;
@@ -192,7 +193,7 @@ export function listHostBridgeWorkflows(): HostBridgeWorkflowSummary[] {
     const manifest = entry.manifest;
     return {
       id: manifest.id,
-      label: manifest.label,
+      label: localizeWorkflowLabel(entry),
       provider: manifest.provider,
       version: manifest.version,
       sourceKind:
@@ -373,7 +374,7 @@ function buildWorkflowApprovalRequest(
   workflow: LoadedWorkflow,
   plan: HostBridgeWorkflowSubmitPlan,
 ) {
-  const workflowLabel = workflow.manifest.label || workflow.manifest.id;
+  const workflowLabel = localizeWorkflowLabel(workflow);
   const detailLines = [
     `Workflow: ${workflowLabel}`,
     describeWorkflowInput(plan.input),
@@ -422,7 +423,7 @@ export async function submitHostBridgeWorkflow(args: {
     {
       win,
       workflowId: workflow.manifest.id,
-      workflowLabel: workflow.manifest.label,
+      workflowLabel: localizeWorkflowLabel(workflow),
       requests: preparation.prepared.requests,
     },
     {
@@ -450,7 +451,7 @@ export async function submitHostBridgeWorkflow(args: {
 
   return {
     workflowId: workflow.manifest.id,
-    workflowLabel: workflow.manifest.label,
+    workflowLabel: localizeWorkflowLabel(workflow),
     runId: runState.runId,
     jobIds: runState.jobIds,
     totalJobs: runState.totalJobs,

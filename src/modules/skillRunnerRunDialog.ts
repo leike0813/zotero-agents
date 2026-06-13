@@ -179,6 +179,7 @@ type RunDialogSnapshot = {
   }>;
   labels: {
     assistantPanel?: ReturnType<typeof buildAssistantPanelLabels>;
+    title: string;
     backend: string;
     requestId: string;
     status: string;
@@ -307,6 +308,7 @@ export type RunWorkspaceSnapshot = {
   hostMode?: "dialog" | "sidebar";
   labels: {
     assistantPanel?: ReturnType<typeof buildAssistantPanelLabels>;
+    title: string;
     completedTasksTitle: string;
     conversationTitle: string;
     closeSidebar: string;
@@ -429,7 +431,9 @@ function trackRunDialogObserverTask<T>(task: Promise<T>) {
 }
 
 function compactError(error: unknown) {
-  const text = String(error || "").replace(/\s+/g, " ").trim();
+  const text = String(error || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!text) {
     return "unknown error";
   }
@@ -578,15 +582,25 @@ export function hasRunDialogWaitingAuthExited(args: {
   const pendingOwner = String(args.pending?.pending_owner || "")
     .trim()
     .toLowerCase();
-  if (pendingOwner && pendingOwner !== "waiting_auth" && !pendingOwner.startsWith("waiting_auth.")) {
+  if (
+    pendingOwner &&
+    pendingOwner !== "waiting_auth" &&
+    !pendingOwner.startsWith("waiting_auth.")
+  ) {
     return true;
   }
   const pendingStatusRaw = String(args.pending?.status || "").trim();
-  if (pendingStatusRaw && normalizeStatus(pendingStatusRaw, "running") !== "waiting_auth") {
+  if (
+    pendingStatusRaw &&
+    normalizeStatus(pendingStatusRaw, "running") !== "waiting_auth"
+  ) {
     return true;
   }
   const authStatusRaw = String(args.authSession?.status || "").trim();
-  if (authStatusRaw && normalizeStatus(authStatusRaw, "running") !== "waiting_auth") {
+  if (
+    authStatusRaw &&
+    normalizeStatus(authStatusRaw, "running") !== "waiting_auth"
+  ) {
     return true;
   }
   const authPhase = String(args.authSession?.phase || "").trim();
@@ -662,7 +676,9 @@ function formatSkillRunnerEventDisplayText(event: Record<string, unknown>) {
   return formatSkillRunnerEventText(event);
 }
 
-export function normalizeRunDialogMessageKind(value: unknown): RunDialogMessageKind {
+export function normalizeRunDialogMessageKind(
+  value: unknown,
+): RunDialogMessageKind {
   const kind = String(value || "")
     .trim()
     .toLowerCase();
@@ -680,7 +696,9 @@ export function normalizeRunDialogMessageKind(value: unknown): RunDialogMessageK
   return "unknown";
 }
 
-export function normalizeRunDialogMessageRole(value: unknown): RunDialogMessageRole {
+export function normalizeRunDialogMessageRole(
+  value: unknown,
+): RunDialogMessageRole {
   const role = String(value || "")
     .trim()
     .toLowerCase();
@@ -729,24 +747,31 @@ export function toRunDialogConversationEntry(args: {
     attempt: Number.isFinite(Number(args.event.attempt))
       ? normalizeAttempt(args.event.attempt, 1)
       : undefined,
-    messageId: normalizeDisplayText(
-      isObject(args.event.correlation) ? args.event.correlation.message_id : "",
-    ) || undefined,
-    messageFamilyId: normalizeDisplayText(
-      isObject(args.event.correlation)
-        ? args.event.correlation.message_family_id
-        : "",
-    ) || undefined,
-    replacesMessageId: normalizeDisplayText(
-      isObject(args.event.correlation)
-        ? args.event.correlation.replaces_message_id
-        : "",
-    ) || undefined,
-    processType: normalizeDisplayText(
-      isObject(args.event.correlation)
-        ? args.event.correlation.process_type || args.event.correlation.classification
-        : "",
-    ) || undefined,
+    messageId:
+      normalizeDisplayText(
+        isObject(args.event.correlation)
+          ? args.event.correlation.message_id
+          : "",
+      ) || undefined,
+    messageFamilyId:
+      normalizeDisplayText(
+        isObject(args.event.correlation)
+          ? args.event.correlation.message_family_id
+          : "",
+      ) || undefined,
+    replacesMessageId:
+      normalizeDisplayText(
+        isObject(args.event.correlation)
+          ? args.event.correlation.replaces_message_id
+          : "",
+      ) || undefined,
+    processType:
+      normalizeDisplayText(
+        isObject(args.event.correlation)
+          ? args.event.correlation.process_type ||
+              args.event.correlation.classification
+          : "",
+      ) || undefined,
     raw: args.event,
   };
 }
@@ -774,7 +799,9 @@ function entryCorrelation(entry: SkillRunnerConversationEntry) {
 }
 
 function entryMessageId(entry: SkillRunnerConversationEntry) {
-  return normalizeDisplayText(entry.messageId || entryCorrelation(entry).message_id);
+  return normalizeDisplayText(
+    entry.messageId || entryCorrelation(entry).message_id,
+  );
 }
 
 function entryReplacesMessageId(entry: SkillRunnerConversationEntry) {
@@ -820,7 +847,10 @@ function removePromotedIntermediateEntry(
   let fallbackMatchIndex = -1;
   for (let index = output.length - 1; index >= 0; index -= 1) {
     const candidate = output[index];
-    if (!isAssistantProcessEntry(candidate) && !isAssistantIntermediateEntry(candidate)) {
+    if (
+      !isAssistantProcessEntry(candidate) &&
+      !isAssistantIntermediateEntry(candidate)
+    ) {
       continue;
     }
     if (entryAttempt(candidate) !== finalAttempt) {
@@ -831,7 +861,11 @@ function removePromotedIntermediateEntry(
       output.splice(index, 1);
       return;
     }
-    if (!replacesMessageId && finalMessageId && candidateMessageId === finalMessageId) {
+    if (
+      !replacesMessageId &&
+      finalMessageId &&
+      candidateMessageId === finalMessageId
+    ) {
       output.splice(index, 1);
       return;
     }
@@ -901,9 +935,12 @@ export function normalizeRunDialogPendingState(
         Number.isFinite(interactionId) && interactionId > 0
           ? Math.floor(interactionId)
           : undefined,
-      kind: askUserKind || String(payload.pending.kind || "").trim() || undefined,
+      kind:
+        askUserKind || String(payload.pending.kind || "").trim() || undefined,
       prompt:
-        askUserPrompt || String(payload.pending.prompt || "").trim() || undefined,
+        askUserPrompt ||
+        String(payload.pending.prompt || "").trim() ||
+        undefined,
       options: normalizeRunDialogChoiceOptions(
         askUserOptions || payload.pending.options,
       ),
@@ -913,7 +950,9 @@ export function normalizeRunDialogPendingState(
     };
   }
 
-  const pendingAuthMethodSelection = isObject(payload.pending_auth_method_selection)
+  const pendingAuthMethodSelection = isObject(
+    payload.pending_auth_method_selection,
+  )
     ? payload.pending_auth_method_selection
     : null;
   const pendingAuthPayload = isObject(payload.pending_auth)
@@ -1054,15 +1093,18 @@ function createRunDialogFrame(doc: Document, pageUrl: string) {
     browser.setAttribute("type", "content");
     browser.setAttribute("flex", "1");
     browser.setAttribute("src", pageUrl);
-    (
-      browser as Element & { style?: CSSStyleDeclaration }
-    ).style?.setProperty("width", "100%");
-    (
-      browser as Element & { style?: CSSStyleDeclaration }
-    ).style?.setProperty("height", "100%");
-    (
-      browser as Element & { style?: CSSStyleDeclaration }
-    ).style?.setProperty("min-height", "780px");
+    (browser as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
+      "width",
+      "100%",
+    );
+    (browser as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
+      "height",
+      "100%",
+    );
+    (browser as Element & { style?: CSSStyleDeclaration }).style?.setProperty(
+      "min-height",
+      "780px",
+    );
     return browser;
   }
   const frame = doc.createElement("iframe");
@@ -1197,8 +1239,12 @@ function resolveSessionSnapshotFromTaskStores(entry: RunDialogEntry) {
   });
   const merged = [...activeMatches, ...historyMatches].sort(
     (a, b) =>
-      Date.parse(String(b.updatedAt || "").trim() || "1970-01-01T00:00:00.000Z") -
-      Date.parse(String(a.updatedAt || "").trim() || "1970-01-01T00:00:00.000Z"),
+      Date.parse(
+        String(b.updatedAt || "").trim() || "1970-01-01T00:00:00.000Z",
+      ) -
+      Date.parse(
+        String(a.updatedAt || "").trim() || "1970-01-01T00:00:00.000Z",
+      ),
   );
   if (merged.length === 0) {
     return null;
@@ -1326,7 +1372,10 @@ async function buildRunWorkspaceModel() {
     };
     for (const row of mergedRows) {
       const requestId = String(row.requestId || "").trim();
-      if (requestId && getSkillRunnerRequestLedgerRecord(requestId)?.archivedAt) {
+      if (
+        requestId &&
+        getSkillRunnerRequestLedgerRecord(requestId)?.archivedAt
+      ) {
         continue;
       }
       const key = resolveRunWorkspaceTaskKey({
@@ -1360,10 +1409,12 @@ async function buildRunWorkspaceModel() {
         selectable: requestId.length > 0,
         terminal: isTerminal(normalizedStatus),
         inputUnitIdentity:
-          String((row as { inputUnitIdentity?: unknown }).inputUnitIdentity || "").trim() ||
-          undefined,
+          String(
+            (row as { inputUnitIdentity?: unknown }).inputUnitIdentity || "",
+          ).trim() || undefined,
         targetParentID: (() => {
-          const targetParentID = (row as { targetParentID?: unknown }).targetParentID;
+          const targetParentID = (row as { targetParentID?: unknown })
+            .targetParentID;
           return typeof targetParentID === "number"
             ? Math.floor(targetParentID)
             : undefined;
@@ -1377,7 +1428,10 @@ async function buildRunWorkspaceModel() {
           baseUrl: String(row.backendBaseUrl || "").trim() || backend.baseUrl,
         },
       });
-      if (!group.latestUpdatedAt || toTime(task.updatedAt) > toTime(group.latestUpdatedAt)) {
+      if (
+        !group.latestUpdatedAt ||
+        toTime(task.updatedAt) > toTime(group.latestUpdatedAt)
+      ) {
         group.latestUpdatedAt = task.updatedAt;
       }
     }
@@ -1431,7 +1485,8 @@ async function buildRunWorkspaceModel() {
     .map((entry) => {
       const sorted = [...entry.rows].sort((a, b) => {
         const createdDiff =
-          toTime(b.createdAt || b.updatedAt) - toTime(a.createdAt || a.updatedAt);
+          toTime(b.createdAt || b.updatedAt) -
+          toTime(a.createdAt || a.updatedAt);
         if (createdDiff !== 0) return createdDiff;
         return String(b.key || "").localeCompare(String(a.key || ""));
       });
@@ -1447,7 +1502,9 @@ async function buildRunWorkspaceModel() {
         collapsed: disabled
           ? true
           : runWorkspaceState.groupCollapsed.get(entry.backendId) === true,
-        finishedCollapsed: runWorkspaceState.finishedCollapsed.has(entry.backendId)
+        finishedCollapsed: runWorkspaceState.finishedCollapsed.has(
+          entry.backendId,
+        )
           ? runWorkspaceState.finishedCollapsed.get(entry.backendId) === true
           : true,
         activeTasks: disabled ? [] : sorted.filter((task) => !task.terminal),
@@ -1596,13 +1653,17 @@ function buildRunDialogSnapshot(
       displayFormat: entryItem.displayFormat,
       attempt: entryAttempt(entryItem),
       correlation: isObject(entryItem.raw)
-        ? (isObject(entryItem.raw.correlation)
-            ? (entryItem.raw.correlation as Record<string, unknown>)
-            : {})
+        ? isObject(entryItem.raw.correlation)
+          ? (entryItem.raw.correlation as Record<string, unknown>)
+          : {}
         : {},
     })),
     labels: {
       assistantPanel: buildAssistantPanelLabels(),
+      title: localize(
+        "task-dashboard-run-workspace-title",
+        "SkillRunner Workspace",
+      ),
       backend: localize("task-dashboard-run-backend", "Backend"),
       requestId: localize("task-dashboard-run-request-id", "Request ID"),
       status: localize("task-manager-column-status", "Status"),
@@ -1696,22 +1757,13 @@ function buildRunDialogSnapshot(
         "task-dashboard-run-pending-method-selection",
         "method-selection",
       ),
-      replySend: localize(
-        "task-dashboard-run-reply-send",
-        "Send Reply",
-      ),
+      replySend: localize("task-dashboard-run-reply-send", "Send Reply"),
       replyShortcut: localize(
         "task-dashboard-run-reply-shortcut",
         "Ctrl+Enter / Cmd+Enter to send",
       ),
-      confirmYes: localize(
-        "task-dashboard-run-confirm-yes",
-        "Yes",
-      ),
-      confirmNo: localize(
-        "task-dashboard-run-confirm-no",
-        "No",
-      ),
+      confirmYes: localize("task-dashboard-run-confirm-yes", "Yes"),
+      confirmNo: localize("task-dashboard-run-confirm-no", "No"),
       authPasteApiKey: localize(
         "task-dashboard-run-auth-paste-api-key",
         "Paste API key",
@@ -1728,10 +1780,7 @@ function buildRunDialogSnapshot(
         "task-dashboard-run-auth-submit-code",
         "Submit Code",
       ),
-      authAwaiting: localize(
-        "task-dashboard-run-auth-awaiting",
-        "Awaiting",
-      ),
+      authAwaiting: localize("task-dashboard-run-auth-awaiting", "Awaiting"),
       authInProgress: localize(
         "task-dashboard-run-auth-in-progress",
         "Awaiting auth state update...",
@@ -1768,10 +1817,7 @@ function buildRunDialogSnapshot(
         "task-dashboard-run-thinking-desc",
         "Running inference and preparing the next response...",
       ),
-      roleThinking: localize(
-        "task-dashboard-run-role-thinking",
-        "Thinking",
-      ),
+      roleThinking: localize("task-dashboard-run-role-thinking", "Thinking"),
       processReasoning: localize(
         "task-dashboard-run-process-reasoning",
         "Reasoning",
@@ -1819,6 +1865,10 @@ function buildRunWorkspaceSnapshot(
       resolveRunWorkspaceTitle(),
     labels: {
       assistantPanel: buildAssistantPanelLabels(),
+      title: localize(
+        "task-dashboard-run-workspace-title",
+        "SkillRunner Workspace",
+      ),
       completedTasksTitle: localize(
         "task-dashboard-run-completed-tasks-title",
         "Completed Tasks",
@@ -1880,10 +1930,14 @@ function pushSnapshot(messageType: "init" | "snapshot") {
   if (runWorkspaceState.currentEntry) {
     syncSessionStateFromLedger(runWorkspaceState.currentEntry);
   }
-  const selectedTask =
-    runWorkspaceState.taskIndex.get(runWorkspaceState.selectedTaskKey)?.item;
+  const selectedTask = runWorkspaceState.taskIndex.get(
+    runWorkspaceState.selectedTaskKey,
+  )?.item;
   const session = runWorkspaceState.currentEntry
-    ? buildRunDialogSnapshot(runWorkspaceState.currentEntry, selectedTask?.title)
+    ? buildRunDialogSnapshot(
+        runWorkspaceState.currentEntry,
+        selectedTask?.title,
+      )
     : null;
   const snapshot = runWorkspaceState.decorateSnapshot
     ? runWorkspaceState.decorateSnapshot(
@@ -1959,7 +2013,8 @@ function attachRunWorkspaceHost(args: {
   runWorkspaceState.closeHost = args.closeHost;
   runWorkspaceState.isHostAlive = args.isHostAlive;
   runWorkspaceState.decorateSnapshot = args.decorateSnapshot;
-  runWorkspaceState.resolveSidebarSelectionContext = args.resolveSelectionContext;
+  runWorkspaceState.resolveSidebarSelectionContext =
+    args.resolveSelectionContext;
   runWorkspaceState.handleHostAction = args.handleHostAction;
 
   const expectedType = resolveRunWorkspaceBridgeMessageType("action");
@@ -2104,7 +2159,7 @@ async function startRunObserver(entry: RunDialogEntry) {
       const incomingAuth = normalizedPending.pendingAuth;
       const hasMeaningfulInteraction =
         !!incomingInteraction &&
-        ((Number(incomingInteraction.interactionId || 0) > 0) ||
+        (Number(incomingInteraction.interactionId || 0) > 0 ||
           !!String(incomingInteraction.kind || "").trim() ||
           !!String(incomingInteraction.prompt || "").trim() ||
           (Array.isArray(incomingInteraction.options) &&
@@ -2128,22 +2183,27 @@ async function startRunObserver(entry: RunDialogEntry) {
           (Array.isArray(incomingAuth.availableMethods) &&
             incomingAuth.availableMethods.length > 0) ||
           !!incomingAuth.askUser ||
-          (incomingAuth.uiHints && Object.keys(incomingAuth.uiHints).length > 0));
+          (incomingAuth.uiHints &&
+            Object.keys(incomingAuth.uiHints).length > 0));
       const hasStructuredPending =
         hasMeaningfulInteraction || hasMeaningfulAuth;
       const hasCurrentStructuredPending =
         !!entry.session.pendingInteraction || !!entry.session.pendingAuth;
       if (hasStructuredPending || !hasCurrentStructuredPending) {
-        entry.session.pendingOwner = normalizedPending.pendingOwner || normalizedStatus;
+        entry.session.pendingOwner =
+          normalizedPending.pendingOwner || normalizedStatus;
         entry.session.pendingInteraction = normalizedPending.pendingInteraction;
         entry.session.pendingAuth = normalizedPending.pendingAuth;
       } else {
         entry.session.pendingOwner =
-          normalizedPending.pendingOwner || entry.session.pendingOwner || normalizedStatus;
+          normalizedPending.pendingOwner ||
+          entry.session.pendingOwner ||
+          normalizedStatus;
       }
     } catch (error) {
       // keep last-good pending payload for waiting states
-      entry.session.pendingOwner = entry.session.pendingOwner || normalizedStatus;
+      entry.session.pendingOwner =
+        entry.session.pendingOwner || normalizedStatus;
       entry.session.error = compactError(error);
     }
     return {
@@ -2210,7 +2270,9 @@ async function startRunObserver(entry: RunDialogEntry) {
           if (stopped) {
             return;
           }
-          if (normalizeStatus(entry.session.status, "running") !== "waiting_auth") {
+          if (
+            normalizeStatus(entry.session.status, "running") !== "waiting_auth"
+          ) {
             stopWaitingAuthObserver();
             return;
           }
@@ -2231,7 +2293,9 @@ async function startRunObserver(entry: RunDialogEntry) {
       });
     }, WAITING_AUTH_OBSERVER_INTERVAL_MS);
     runDialogProbeState.waitingAuthTimerCount += 1;
-    const timerLike = waitingAuthObserverTimer as unknown as { unref?: () => void };
+    const timerLike = waitingAuthObserverTimer as unknown as {
+      unref?: () => void;
+    };
     if (typeof timerLike.unref === "function") {
       timerLike.unref();
     }
@@ -2372,11 +2436,11 @@ async function startRunObserver(entry: RunDialogEntry) {
     while (!stopped) {
       if (!initialized) {
         try {
-        if (entry.refreshState) {
-          await entry.refreshState();
-        } else {
-          await refreshRunState();
-        }
+          if (entry.refreshState) {
+            await entry.refreshState();
+          } else {
+            await refreshRunState();
+          }
         } catch (error) {
           entry.session.error = compactError(error);
         } finally {
@@ -2493,7 +2557,9 @@ async function handleRunDialogActionForEntry(
     return;
   }
   if (action === "reply-run") {
-    const mode = String(payload.mode || "interaction").trim().toLowerCase();
+    const mode = String(payload.mode || "interaction")
+      .trim()
+      .toLowerCase();
     if (mode === "auth") {
       const authSessionId = String(
         payload.authSessionId || entry.session.pendingAuth?.authSessionId || "",
@@ -2525,9 +2591,10 @@ async function handleRunDialogActionForEntry(
             ...(submission
               ? { submission }
               : replyText
-              ? {
+                ? {
                     submission: {
-                      kind: normalizeAuthInputKind(replyKind) || "auth_code_or_url",
+                      kind:
+                        normalizeAuthInputKind(replyKind) || "auth_code_or_url",
                       value: replyText,
                     },
                   }
@@ -2557,7 +2624,9 @@ async function handleRunDialogActionForEntry(
       return;
     }
     const interactionId = Number(
-      payload.interactionId || entry.session.pendingInteraction?.interactionId || 0,
+      payload.interactionId ||
+        entry.session.pendingInteraction?.interactionId ||
+        0,
     );
     if (!Number.isFinite(interactionId) || interactionId <= 0) {
       return;
@@ -2641,9 +2710,7 @@ async function handleRunDialogActionForEntry(
           : null,
       )
       .filter(
-        (
-          entryItem,
-        ): entryItem is { name: string; content_base64: string } =>
+        (entryItem): entryItem is { name: string; content_base64: string } =>
           !!entryItem && !!entryItem.name && !!entryItem.content_base64,
       );
     if (files.length === 0) {
@@ -2766,7 +2833,10 @@ async function selectWorkspaceTask(taskKey: string) {
   if (isSkillRunnerBackendReconcileFlagged(target.backend.id)) {
     showWorkflowToast({
       text: resolveBackendUnavailableMessage(
-        resolveBackendDisplayName(target.backend.id, target.backend.displayName),
+        resolveBackendDisplayName(
+          target.backend.id,
+          target.backend.displayName,
+        ),
       ),
       type: "error",
     });
@@ -2800,42 +2870,46 @@ async function refreshWorkspaceSnapshot(args?: {
   selectionChanged?: boolean;
 }) {
   if (args?.requestedTaskKey) {
-    runWorkspaceState.requestedTaskKey = String(args.requestedTaskKey || "").trim();
+    runWorkspaceState.requestedTaskKey = String(
+      args.requestedTaskKey || "",
+    ).trim();
   }
-  runWorkspaceState.refreshChain = runWorkspaceState.refreshChain.then(async () => {
-    const model = await buildRunWorkspaceModel();
-    runWorkspaceState.groups = model.groups;
-    runWorkspaceState.taskIndex = model.index;
-    if (
-      runWorkspaceState.latestOpenTarget &&
-      model.index.has(runWorkspaceState.latestOpenTarget.key)
-    ) {
-      runWorkspaceState.latestOpenTarget = undefined;
-    }
-    const selectionContext =
-      runWorkspaceState.hostMode === "sidebar"
-        ? runWorkspaceState.resolveSidebarSelectionContext?.() || null
-        : null;
-    const nextSelected =
-      runWorkspaceState.hostMode === "sidebar"
-        ? pickRunWorkspaceSelectedTaskKeyForSidebar({
-            groups: model.groups,
-            index: model.index,
-            requestedTaskKey: runWorkspaceState.requestedTaskKey,
-            currentTaskKey: runWorkspaceState.selectedTaskKey,
-            selectionChanged: args?.selectionChanged === true,
-            context: selectionContext,
-          })
-        : pickRunWorkspaceSelectedTaskKey({
-            groups: model.groups,
-            index: model.index,
-            requestedTaskKey: runWorkspaceState.requestedTaskKey,
-            currentTaskKey: runWorkspaceState.selectedTaskKey,
-          });
-    runWorkspaceState.requestedTaskKey = "";
-    await selectWorkspaceTask(nextSelected);
-    pushSnapshot(args?.forceInit ? "init" : "snapshot");
-  });
+  runWorkspaceState.refreshChain = runWorkspaceState.refreshChain.then(
+    async () => {
+      const model = await buildRunWorkspaceModel();
+      runWorkspaceState.groups = model.groups;
+      runWorkspaceState.taskIndex = model.index;
+      if (
+        runWorkspaceState.latestOpenTarget &&
+        model.index.has(runWorkspaceState.latestOpenTarget.key)
+      ) {
+        runWorkspaceState.latestOpenTarget = undefined;
+      }
+      const selectionContext =
+        runWorkspaceState.hostMode === "sidebar"
+          ? runWorkspaceState.resolveSidebarSelectionContext?.() || null
+          : null;
+      const nextSelected =
+        runWorkspaceState.hostMode === "sidebar"
+          ? pickRunWorkspaceSelectedTaskKeyForSidebar({
+              groups: model.groups,
+              index: model.index,
+              requestedTaskKey: runWorkspaceState.requestedTaskKey,
+              currentTaskKey: runWorkspaceState.selectedTaskKey,
+              selectionChanged: args?.selectionChanged === true,
+              context: selectionContext,
+            })
+          : pickRunWorkspaceSelectedTaskKey({
+              groups: model.groups,
+              index: model.index,
+              requestedTaskKey: runWorkspaceState.requestedTaskKey,
+              currentTaskKey: runWorkspaceState.selectedTaskKey,
+            });
+      runWorkspaceState.requestedTaskKey = "";
+      await selectWorkspaceTask(nextSelected);
+      pushSnapshot(args?.forceInit ? "init" : "snapshot");
+    },
+  );
   await runWorkspaceState.refreshChain;
 }
 
@@ -2893,8 +2967,7 @@ async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
       if (group?.disabled) {
         return;
       }
-      const next =
-        runWorkspaceState.groupCollapsed.get(backendId) !== true;
+      const next = runWorkspaceState.groupCollapsed.get(backendId) !== true;
       runWorkspaceState.groupCollapsed.set(backendId, next);
       await refreshWorkspaceSnapshot();
     }
@@ -3034,9 +3107,13 @@ export async function openSkillRunnerRunDialog(args?: {
   }
 
   const pageUrl = resolveRunDialogPageUrl();
-  const title = localize("task-dashboard-run-dialog-title", "Run Details: {requestId}", {
-    args: { requestId },
-  });
+  const title = localize(
+    "task-dashboard-run-dialog-title",
+    "Run Details: {requestId}",
+    {
+      args: { requestId },
+    },
+  );
   let dialogHelper: DialogHelper | undefined;
 
   const dialogData: Record<string, unknown> = {
@@ -3046,9 +3123,9 @@ export async function openSkillRunnerRunDialog(args?: {
       if (!doc || !dialogWindow) {
         return;
       }
-      const root = doc.getElementById("zs-skillrunner-run-dialog-root") as
-        | HTMLElement
-        | null;
+      const root = doc.getElementById(
+        "zs-skillrunner-run-dialog-root",
+      ) as HTMLElement | null;
       if (!root) {
         return;
       }

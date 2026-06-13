@@ -36,6 +36,10 @@ HTML_IMAGE_RE = re.compile(r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGN
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 REFERENCES_HEADING_RE = re.compile(r"\b(references|bibliography)\b|参考文献", re.IGNORECASE)
 REFERENCE_ENTRY_RE = re.compile(r"^\s*(?:\[(\d{1,4})\]|(\d{1,4})[\.)])\s+(.+?)\s*$")
+DISPLAY_MATH_RE = re.compile(r"\$\$\s*([\s\S]*?)\s*\$\$")
+INLINE_MATH_RE = re.compile(r"(?<!\$)\$([^$\n]+?)\$(?!\$)")
+FIGURE_CAPTION_RE = re.compile(r"^\s*(?:fig(?:ure)?\.?|图)\s*\d*", re.IGNORECASE)
+TABLE_CAPTION_RE = re.compile(r"^\s*(?:table|表)\s*\d*", re.IGNORECASE)
 REFERENCE_DIGEST_POLICIES = {"all_library_references", "priority_only", "none"}
 CITATION_DIRECTIONS = {"incoming", "outgoing", "both"}
 READING_ENRICHMENT_FIELDS = {
@@ -249,29 +253,153 @@ def block_text(block: dict[str, Any]) -> str:
     return str(block.get("source_markdown") or "").strip()
 
 
+def render_latex_fragment(content: str, display: bool) -> str:
+    latex = content.strip()
+    try:
+        from latex2mathml.converter import convert  # type: ignore
+
+        mathml = convert(latex, display=display)
+        tag = "div" if display else "span"
+        mode = "display" if display else "inline"
+        return f'<{tag} class="math math-{mode}" role="math">{mathml}</{tag}>'
+    except Exception:  # noqa: BLE001
+        tag = "div" if display else "span"
+        mode = "display" if display else "inline"
+        return f'<{tag} class="math math-{mode} math-fallback" role="math"><span class="math-source">{html.escape(latex)}</span></{tag}>'
+
+
 def render_math_text(text: str) -> str:
     placeholders: list[str] = []
 
     def display_repl(match: re.Match[str]) -> str:
         content = match.group(1).strip()
-        placeholders.append(
-            f'<div class="math math-display" role="math"><code>{html.escape(content)}</code></div>'
-        )
+        placeholders.append(render_latex_fragment(content, display=True))
         return f"\u0000MATH{len(placeholders) - 1}\u0000"
 
     def inline_repl(match: re.Match[str]) -> str:
         content = match.group(1).strip()
-        placeholders.append(
-            f'<span class="math math-inline" role="math"><code>{html.escape(content)}</code></span>'
-        )
+        placeholders.append(render_latex_fragment(content, display=False))
         return f"\u0000MATH{len(placeholders) - 1}\u0000"
 
-    protected = re.sub(r"\$\$\s*([\s\S]*?)\s*\$\$", display_repl, text)
-    protected = re.sub(r"(?<!\$)\$([^$\n]+?)\$(?!\$)", inline_repl, protected)
+    protected = DISPLAY_MATH_RE.sub(display_repl, text)
+    protected = INLINE_MATH_RE.sub(inline_repl, protected)
     escaped = html.escape(protected)
     for index, value in enumerate(placeholders):
         escaped = escaped.replace(html.escape(f"\u0000MATH{index}\u0000"), value)
     return escaped
+
+
+def split_structured_caption(markdown: str, kind: str) -> tuple[str, str]:
+    text = str(markdown or "").strip()
+    if not text:
+        return "", ""
+    pattern = TABLE_CAPTION_RE if kind == "table" else FIGURE_CAPTION_RE
+    parts = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    captions: list[str] = []
+    body_parts: list[str] = []
+    for part in parts:
+        if pattern.search(part):
+            captions.append(part)
+        else:
+            body_parts.append(part)
+    if not body_parts:
+        return "", "\n\n".join(captions)
+    return "\n\n".join(body_parts), "\n\n".join(captions)
+
+
+def split_html_table_prefix_suffix(markdown: str) -> tuple[str, str, str]:
+    text = str(markdown or "").strip()
+    match = re.search(r"<table\b[\s\S]*?</table>", text, re.IGNORECASE)
+    if not match:
+        return text, "", ""
+    return text[: match.start()].strip(), match.group(0).strip(), text[match.end() :].strip()
+
+
+def sanitize_table_html(table_html: str) -> str:
+    text = str(table_html or "").strip()
+    allowed = {
+        "table",
+        "thead",
+        "tbody",
+        "tfoot",
+        "tr",
+        "td",
+        "th",
+        "caption",
+        "colgroup",
+        "col",
+        "br",
+        "strong",
+        "em",
+        "b",
+        "i",
+        "sup",
+        "sub",
+        "span",
+    }
+
+    def tag_repl(match: re.Match[str]) -> str:
+        slash = match.group(1) or ""
+        name = match.group(2).lower()
+        attrs = match.group(3) or ""
+        if name not in allowed:
+            return html.escape(match.group(0))
+        if slash:
+            return f"</{name}>"
+        safe_attrs = ""
+        if name in {"td", "th"}:
+            for attr_match in re.finditer(r"\b(rowspan|colspan)\s*=\s*([\"']?)(\d{1,3})\2", attrs, re.IGNORECASE):
+                safe_attrs += f' {attr_match.group(1).lower()}="{html.escape(attr_match.group(3))}"'
+        return f"<{name}{safe_attrs}>"
+
+    escaped = html.escape(text)
+    return re.sub(r"&lt;(/?)([A-Za-z][A-Za-z0-9-]*)([^&]*)&gt;", tag_repl, escaped)
+
+
+def render_table_markdown(markdown: str) -> str:
+    lines = [line for line in str(markdown or "").splitlines() if line.strip()]
+    rows = []
+    for row_index, line in enumerate(lines):
+        if row_index == 1 and re.match(r"^\s*\|?[\s:-]+\|", line or ""):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        tag = "th" if row_index == 0 else "td"
+        rows.append("<tr>" + "".join(f"<{tag}>{render_inline_markdown(cell)}</{tag}>" for cell in cells) + "</tr>")
+    return "<table>" + "".join(rows) + "</table>"
+
+
+def render_structured_table(markdown: str) -> str:
+    prefix, table_html, suffix = split_html_table_prefix_suffix(markdown)
+    caption_parts = [part for part in [prefix, suffix] if TABLE_CAPTION_RE.search(part)]
+    if table_html:
+        table = sanitize_table_html(table_html)
+        caption_html = "".join(f'<figcaption>{render_inline_markdown(part)}</figcaption>' for part in caption_parts)
+        return f'<figure class="table-block">{caption_html}{table}</figure>'
+    body, caption = split_structured_caption(markdown, "table")
+    if not body:
+        body = markdown
+    if len(body.splitlines()) >= 2 and "|" in body.splitlines()[0] and "|" in body.splitlines()[1]:
+        table = render_table_markdown(body)
+        caption_html = f'<figcaption>{render_inline_markdown(caption)}</figcaption>' if caption else ""
+        return f'<figure class="table-block">{caption_html}{table}</figure>'
+    return "\n".join(f"<p>{render_inline_markdown(part.strip())}</p>" for part in re.split(r"\n\s*\n", markdown) if part.strip())
+
+
+def render_structured_image(markdown: str) -> str:
+    body, caption = split_structured_caption(markdown, "image")
+    source = body or markdown
+    image_match = re.search(r"!\[([^\]]*)\]\(([^)]+)\)", source)
+    if image_match:
+        alt = html.escape(image_match.group(1))
+        src = html.escape(image_match.group(2).strip())
+        caption_html = f'<figcaption>{render_inline_markdown(caption)}</figcaption>' if caption else ""
+        return f'<figure class="image-block"><img class="paper-image" src="" data-image-src="{src}" alt="{alt}">{caption_html}</figure>'
+    html_match = HTML_IMAGE_RE.search(source)
+    if html_match:
+        src = html.escape(html_match.group(1).strip())
+        caption_html = f'<figcaption>{render_inline_markdown(caption)}</figcaption>' if caption else ""
+        return f'<figure class="image-block"><img class="paper-image" src="" data-image-src="{src}" alt="">{caption_html}</figure>'
+    return "\n".join(f"<p>{render_inline_markdown(part.strip())}</p>" for part in re.split(r"\n\s*\n", markdown) if part.strip())
 
 
 def render_inline_markdown(text: str) -> str:
@@ -287,8 +415,10 @@ def render_markdown_fragment(markdown: str, kind: str = "paragraph", section_anc
     stripped = raw.strip()
     if not stripped:
         return ""
-    if stripped.lower().startswith("<table"):
-        return raw
+    if kind == "table":
+        return render_structured_table(stripped)
+    if kind == "image":
+        return render_structured_image(stripped)
     if stripped.startswith("$$") and stripped.endswith("$$"):
         return render_math_text(stripped)
     image_match = re.match(r"^!\[([^\]]*)\]\(([^)]+)\)", stripped)
@@ -303,14 +433,7 @@ def render_markdown_fragment(markdown: str, kind: str = "paragraph", section_anc
         return f"<h{level}{anchor_attr}>{render_inline_markdown(heading.group(2).strip())}</h{level}>"
     lines = raw.splitlines()
     if len(lines) >= 2 and "|" in lines[0] and re.match(r"^\s*\|?[\s:-]+\|", lines[1] or ""):
-        rows = []
-        for row_index, line in enumerate(lines):
-            if row_index == 1:
-                continue
-            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-            tag = "th" if row_index == 0 else "td"
-            rows.append("<tr>" + "".join(f"<{tag}>{render_inline_markdown(cell)}</{tag}>" for cell in cells) + "</tr>")
-        return "<table>" + "".join(rows) + "</table>"
+        return render_table_markdown(raw)
     return "\n".join(
         f"<p>{render_inline_markdown(part.strip()).replace(chr(10), '<br>')}</p>"
         for part in re.split(r"\n\s*\n", raw)
@@ -322,6 +445,50 @@ def extract_image_refs(text: str) -> list[str]:
     refs = [match.group(1).strip() for match in MARKDOWN_IMAGE_RE.finditer(text)]
     refs.extend(match.group(1).strip() for match in HTML_IMAGE_RE.finditer(text))
     return refs
+
+
+def is_caption_text(text: str, kind: str) -> bool:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    pattern = TABLE_CAPTION_RE if kind == "table" else FIGURE_CAPTION_RE
+    return bool(pattern.search(stripped))
+
+
+def is_markdown_table_start(lines: list[str], index: int) -> bool:
+    if index + 1 >= len(lines):
+        return False
+    header = lines[index].strip()
+    separator = lines[index + 1].strip()
+    return "|" in header and "|" in separator and bool(re.match(r"^\s*\|?[\s:-]+\|", separator))
+
+
+def collect_following_caption(lines: list[str], index: int, kind: str) -> tuple[str, int]:
+    cursor = index
+    while cursor < len(lines) and not lines[cursor].strip():
+        cursor += 1
+    if cursor >= len(lines):
+        return "", index
+    if not is_caption_text(lines[cursor], kind):
+        return "", index
+    start = cursor
+    collected: list[str] = []
+    while cursor < len(lines):
+        stripped = lines[cursor].strip()
+        if not stripped:
+            break
+        if cursor > start and (
+            HEADING_RE.match(lines[cursor])
+            or stripped.startswith("$$")
+            or stripped.lower().startswith("<table")
+            or is_markdown_table_start(lines, cursor)
+            or MARKDOWN_IMAGE_RE.search(lines[cursor])
+            or HTML_IMAGE_RE.search(lines[cursor])
+        ):
+            break
+        collected.append(lines[cursor])
+        cursor += 1
+    return "\n".join(collected).strip(), cursor
 
 
 def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]:
@@ -371,7 +538,7 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
         )
         return anchor
 
-    def add_block(kind: str, source: str, section_anchor: str, line_start: int, line_end: int) -> None:
+    def add_block(kind: str, source: str, section_anchor: str, line_start: int, line_end: int, extra: dict[str, Any] | None = None) -> None:
         block_id = f"block-{len(blocks) + 1:04d}"
         image_refs = extract_image_refs(source)
         block = {
@@ -385,6 +552,8 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
             "image_refs": image_refs,
             "translate": not after_references,
         }
+        if extra:
+            block.update(extra)
         blocks.append(block)
         for section in sections:
             if section["anchor"] == section_anchor:
@@ -423,7 +592,9 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
                     i += 1
                     break
                 i += 1
-            add_block("formula", "\n".join(collected), current_anchor, start + 1, i)
+            source = "\n".join(collected)
+            match = DISPLAY_MATH_RE.search(source)
+            add_block("formula", source, current_anchor, start + 1, i, {"latex": match.group(1).strip() if match else source.strip().strip("$").strip()})
             continue
         if stripped.lower().startswith("<table"):
             start = i
@@ -436,11 +607,59 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
                         i += 1
                         break
                     i += 1
-            add_block("table", "\n".join(collected), current_anchor, start + 1, i)
+            table_body = "\n".join(collected)
+            caption, next_i = collect_following_caption(lines, i, "table")
+            if caption:
+                i = next_i
+            source = table_body + (("\n\n" + caption) if caption else "")
+            add_block(
+                "table",
+                source,
+                current_anchor,
+                start + 1,
+                i,
+                {"table_markdown_or_html": table_body, "caption_markdown": caption},
+            )
+            continue
+        if is_markdown_table_start(lines, i):
+            start = i
+            collected = [raw, lines[i + 1]]
+            i += 2
+            while i < len(lines):
+                probe = lines[i]
+                if not probe.strip() or "|" not in probe:
+                    break
+                collected.append(probe)
+                i += 1
+            table_body = "\n".join(collected)
+            caption, next_i = collect_following_caption(lines, i, "table")
+            if caption:
+                i = next_i
+            source = table_body + (("\n\n" + caption) if caption else "")
+            add_block(
+                "table",
+                source,
+                current_anchor,
+                start + 1,
+                i,
+                {"table_markdown_or_html": table_body, "caption_markdown": caption},
+            )
             continue
         if MARKDOWN_IMAGE_RE.search(raw) or HTML_IMAGE_RE.search(raw):
-            add_block("image", raw, current_anchor, i + 1, i + 1)
+            start = i
             i += 1
+            caption, next_i = collect_following_caption(lines, i, "image")
+            if caption:
+                i = next_i
+            source = raw + (("\n\n" + caption) if caption else "")
+            add_block(
+                "image",
+                source,
+                current_anchor,
+                start + 1,
+                i,
+                {"caption_markdown": caption},
+            )
             continue
         start = i
         collected: list[str] = []
@@ -449,7 +668,7 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
             probe_stripped = probe.strip()
             if not probe_stripped:
                 break
-            if HEADING_RE.match(probe) or probe_stripped.startswith("$$") or probe_stripped.lower().startswith("<table"):
+            if HEADING_RE.match(probe) or probe_stripped.startswith("$$") or probe_stripped.lower().startswith("<table") or is_markdown_table_start(lines, i):
                 break
             if MARKDOWN_IMAGE_RE.search(probe) or HTML_IMAGE_RE.search(probe):
                 break
@@ -1509,15 +1728,47 @@ def merge_reference_index_bindings(bindings: list[dict[str, Any]], index_result:
             continue
         candidate = by_index.get(binding["reference_index"]) or by_title.get(binding["title"].lower())
         if isinstance(candidate, dict):
-            paper_ref = first_text(candidate.get("bound_paper_ref"), candidate.get("boundPaperRef"), candidate.get("paper_ref"), candidate.get("paperRef"))
-            item_key = first_text(candidate.get("zotero_item_key"), candidate.get("zoteroItemKey"), candidate.get("item_key"), candidate.get("itemKey"))
-            if paper_ref or item_key:
+            target_binding = clean_text(candidate.get("target_binding") or candidate.get("targetBinding"))
+            candidate_status = clean_text(candidate.get("binding_status") or candidate.get("bindingStatus"))
+            paper_ref = first_text(
+                candidate.get("target_paper_ref"),
+                candidate.get("targetPaperRef"),
+                candidate.get("bound_paper_ref"),
+                candidate.get("boundPaperRef"),
+                candidate.get("paper_ref"),
+                candidate.get("paperRef"),
+            )
+            item_key = first_text(
+                candidate.get("zotero_item_key"),
+                candidate.get("zoteroItemKey"),
+                candidate.get("item_key"),
+                candidate.get("itemKey"),
+            )
+            if not item_key and paper_ref:
+                parsed = re.match(r"^\d+:([A-Z0-9]+)$", paper_ref)
+                if parsed:
+                    item_key = parsed.group(1)
+            if target_binding and target_binding != "library":
+                merged.append(binding)
+                continue
+            if paper_ref and (not target_binding or target_binding == "library"):
                 binding = {
                     **binding,
                     "binding_status": "library",
-                    "bound_paper_ref": paper_ref or f"1:{item_key}",
+                    "bound_paper_ref": paper_ref,
                     "zotero_item_key": item_key,
-                    "match_confidence": candidate.get("match_confidence") or candidate.get("matchConfidence"),
+                    "match_confidence": candidate.get("match_confidence") or candidate.get("matchConfidence") or candidate.get("confidence"),
+                    "target_title": first_text(candidate.get("target_title"), candidate.get("targetTitle")),
+                    "reference_index_status": candidate_status,
+                }
+            elif item_key and not target_binding:
+                binding = {
+                    **binding,
+                    "binding_status": "library",
+                    "bound_paper_ref": f"1:{item_key}",
+                    "zotero_item_key": item_key,
+                    "match_confidence": candidate.get("match_confidence") or candidate.get("matchConfidence") or candidate.get("confidence"),
+                    "reference_index_status": candidate_status,
                 }
         merged.append(binding)
     return merged
@@ -2376,15 +2627,32 @@ def parse_digest_markdown(markdown: str) -> list[dict[str, str]]:
     return sections
 
 
+def filter_digest_summary_markdown(markdown: str, max_top_level_sections: int = 5) -> str:
+    lines = str(markdown or "").splitlines()
+    if not any(re.match(r"^##\s+", line) for line in lines):
+        return markdown
+    kept: list[str] = []
+    top_level_index = 0
+    keep_current = True
+    for line in lines:
+        if re.match(r"^##\s+", line):
+            top_level_index += 1
+            keep_current = top_level_index <= max_top_level_sections
+        if keep_current:
+            kept.append(line)
+    return "\n".join(kept).strip()
+
+
 def build_summary_view(payload: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
     digest_path = SOURCE_DIR / "artifacts" / "digest.md"
     if digest_path.exists():
         markdown = digest_path.read_text(encoding="utf-8", errors="replace")
+        filtered = filter_digest_summary_markdown(markdown)
         return {
             "schema_version": "literature-deep-reading.summary-view.v0",
             "source": "digest_artifact",
             "artifact_path": "artifacts/digest.md",
-            "sections": parse_digest_markdown(markdown),
+            "sections": parse_digest_markdown(filtered),
         }
     if payload.get("summary_fallback_enabled"):
         return {
@@ -2586,12 +2854,50 @@ def quality_notes(value: Any) -> list[str]:
 
 def is_table_like(markdown: str) -> bool:
     text = markdown.strip().lower()
-    if "<table" in text and "</table>" in text:
-        return True
-    lines = [line.strip() for line in markdown.splitlines() if line.strip()]
+    prefix, table_html, suffix = split_html_table_prefix_suffix(markdown)
+    if table_html:
+        return (
+            "<tr" in table_html.lower()
+            and ("<td" in table_html.lower() or "<th" in table_html.lower())
+            and (not prefix or is_caption_text(prefix, "table"))
+            and (not suffix or is_caption_text(suffix, "table"))
+        )
+    body, caption = split_structured_caption(markdown, "table")
+    lines = [line.strip() for line in (body or markdown).splitlines() if line.strip()]
     if len(lines) >= 2 and "|" in lines[0] and "|" in lines[1]:
         return True
     return False
+
+
+def table_translation_structure_error(markdown: str) -> str:
+    text = markdown.strip()
+    if not text:
+        return "empty table translation"
+    prefix, table_html, suffix = split_html_table_prefix_suffix(text)
+    if table_html:
+        if "<tr" not in table_html.lower() or ("<td" not in table_html.lower() and "<th" not in table_html.lower()):
+            return "HTML table translation must contain table rows and cells"
+        if prefix and not is_caption_text(prefix, "table"):
+            return "table translation must not prepend non-caption prose"
+        if suffix and not is_caption_text(suffix, "table"):
+            return "table translation must not append non-caption prose"
+        return ""
+    body, caption = split_structured_caption(text, "table")
+    candidate = body or text
+    lines = [line.strip() for line in candidate.splitlines() if line.strip()]
+    if len(lines) < 2 or "|" not in lines[0] or "|" not in lines[1]:
+        return "table translation must remain table-like"
+    if not re.match(r"^\s*\|?[\s:-]+\|", lines[1] or ""):
+        return "Markdown table translation must keep a separator row"
+    return ""
+
+
+def image_translation_structure_error(block: dict[str, Any], translated: str) -> str:
+    source_refs = set(str(ref) for ref in as_list(block.get("image_refs")) if clean_text(ref))
+    translated_refs = set(extract_image_refs(translated))
+    if translated_refs and translated_refs != source_refs:
+        return "image translation must not change image references"
+    return ""
 
 
 PLACEHOLDER_TRANSLATION_RE = re.compile(r"\b(todo|tbd|same as source|unchanged|copy source|原文同上|同上|未翻译|待翻译)\b", re.IGNORECASE)
@@ -2733,8 +3039,14 @@ def validate_block_translations_payload(payload: Any) -> list[str]:
             errors.append(f"translations[{index}] requires translated_markdown")
         if "quality_notes" in row and not isinstance(row.get("quality_notes"), list):
             errors.append(f"translations[{index}].quality_notes must be an array")
-        if clean_text(block.get("kind")) == "table" and translated and not is_table_like(translated):
-            errors.append(f"translations[{index}] table translation must remain table-like: {block_id}")
+        if clean_text(block.get("kind")) == "table" and translated:
+            table_error = table_translation_structure_error(translated)
+            if table_error:
+                errors.append(f"translations[{index}] table translation invalid for {block_id}: {table_error}")
+        if clean_text(block.get("kind")) == "image" and translated:
+            image_error = image_translation_structure_error(block, translated)
+            if image_error:
+                errors.append(f"translations[{index}] image translation invalid for {block_id}: {image_error}")
         if translated and block:
             errors.extend(f"translations[{index}] {message}" for message in translation_quality_errors(block, translated, target_language))
             normalized = normalized_quality_text(translated)
@@ -3061,6 +3373,9 @@ def build_render_reading_blocks(blocks: list[dict[str, Any]], translation: dict[
         block_id = clean_text(block.get("block_id"))
         source_markdown = str(block.get("source_markdown") or "")
         translated_markdown = clean_text(translations.get(block_id, {}).get("translated_markdown")) or source_markdown
+        if clean_text(block.get("kind")) == "image" and translated_markdown and not extract_image_refs(translated_markdown):
+            image_body, _source_caption = split_structured_caption(source_markdown, "image")
+            translated_markdown = image_body + (("\n\n" + translated_markdown) if translated_markdown else "")
         rendered.append(
             {
                 **block,

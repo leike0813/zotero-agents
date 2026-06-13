@@ -32,15 +32,35 @@ export type AcpSkillRunnerWorkflowWorkspaceIntent = {
   workflowRunId: string;
 };
 
+type AcpSkillRunnerWorkflowWorkspaceRecord = Pick<
+  AcpSkillRunnerWorkspace,
+  "workspaceDir" | "runtimeDir"
+> & {
+  namespaceCountsBySkillId: Map<string, number>;
+};
+
 const workflowWorkspacesByRunId = new Map<
   string,
-  Pick<AcpSkillRunnerWorkspace, "workspaceDir" | "runtimeDir" | "resultDir" | "auditDir">
+  AcpSkillRunnerWorkflowWorkspaceRecord
 >();
 
-function resolveWorkspacePaths(args: { workspaceDir: string; requestId: string }) {
+function allocateRunnerFileNamespace(args: {
+  skillId: string;
+  namespaceCountsBySkillId: Map<string, number>;
+}) {
+  const skillSegment = safeSegment(args.skillId, "skill");
+  const index = (args.namespaceCountsBySkillId.get(skillSegment) || 0) + 1;
+  args.namespaceCountsBySkillId.set(skillSegment, index);
+  return `${skillSegment}.${index}`;
+}
+
+function resolveWorkspacePaths(args: {
+  workspaceDir: string;
+  fileNamespace: string;
+}) {
   const runtimeDir = joinPath(args.workspaceDir, ".acp");
-  const resultDir = joinPath(args.workspaceDir, "result");
-  const auditDir = joinPath(args.workspaceDir, ".audit");
+  const resultDir = joinPath(args.workspaceDir, "result", args.fileNamespace);
+  const auditDir = joinPath(args.workspaceDir, ".audit", args.fileNamespace);
   return {
     workspaceDir: args.workspaceDir,
     runtimeDir,
@@ -65,6 +85,7 @@ async function assertReusableWorkspace(args: {
 
 export async function createAcpSkillRunnerWorkspace(args: {
   backendId: string;
+  skillId: string;
   workflowId?: string;
   jobId?: string;
   rootDir?: string;
@@ -90,9 +111,13 @@ export async function createAcpSkillRunnerWorkspace(args: {
       workflowRunId,
       workspaceDir: existing.workspaceDir,
     });
+    const fileNamespace = allocateRunnerFileNamespace({
+      skillId: args.skillId,
+      namespaceCountsBySkillId: existing.namespaceCountsBySkillId,
+    });
     const paths = resolveWorkspacePaths({
       workspaceDir: existing.workspaceDir,
-      requestId,
+      fileNamespace,
     });
     await ensureRuntimeDirectory(paths.resultDir);
     await ensureRuntimeDirectory(paths.auditDir);
@@ -103,7 +128,12 @@ export async function createAcpSkillRunnerWorkspace(args: {
     } satisfies AcpSkillRunnerWorkspace;
   }
   const workspaceDir = joinPath(root, safeSegment(requestId, "run"));
-  const paths = resolveWorkspacePaths({ workspaceDir, requestId });
+  const namespaceCountsBySkillId = new Map<string, number>();
+  const fileNamespace = allocateRunnerFileNamespace({
+    skillId: args.skillId,
+    namespaceCountsBySkillId,
+  });
+  const paths = resolveWorkspacePaths({ workspaceDir, fileNamespace });
   await ensureRuntimeDirectory(paths.resultDir);
   await ensureRuntimeDirectory(paths.auditDir);
   await ensureRuntimeDirectory(paths.runtimeDir);
@@ -111,8 +141,7 @@ export async function createAcpSkillRunnerWorkspace(args: {
     workflowWorkspacesByRunId.set(workflowRunId, {
       workspaceDir: paths.workspaceDir,
       runtimeDir: paths.runtimeDir,
-      resultDir: paths.resultDir,
-      auditDir: paths.auditDir,
+      namespaceCountsBySkillId,
     });
   }
   return {

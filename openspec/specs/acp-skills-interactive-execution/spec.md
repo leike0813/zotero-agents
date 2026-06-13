@@ -32,16 +32,22 @@ The pending envelope `message` SHALL be projected into the canonical assistant t
 
 ### Requirement: ACP Skill Result Envelope Is Runner-Generated
 
-ACP Skills SHALL write `result/result.json` only after final turn convergence; agents SHALL NOT be instructed to write that file as the completion signal.
+ACP Skills SHALL write the runner-owned result JSON path only after final turn
+convergence; agents SHALL NOT be instructed to write that file as the completion
+signal.
 
-When a final envelope is projected to the transcript, the `__SKILL_DONE__` marker SHALL be removed from the visible canonical message.
+When a final envelope is projected to the transcript, the `__SKILL_DONE__`
+marker SHALL be removed from the visible canonical message.
 
 #### Scenario: Final turn projects canonical message
 
-- **GIVEN** an assistant turn returns a schema-valid payload with `__SKILL_DONE__: true`
+- **GIVEN** an assistant turn returns a schema-valid payload with
+  `__SKILL_DONE__: true`
 - **WHEN** the runner validates the final output fields
-- **THEN** the runner writes the final payload to `result/result.json`
-- **AND** the transcript displays the canonical final message without the `__SKILL_DONE__` marker.
+- **THEN** the runner writes the final payload to the run record's
+  `resultJsonPath`
+- **AND** the transcript displays the canonical final message without the
+  `__SKILL_DONE__` marker.
 
 ### Requirement: ACP Skill Replies Reuse The Same ACP Session
 

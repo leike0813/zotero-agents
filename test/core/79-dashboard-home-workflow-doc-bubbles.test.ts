@@ -14,6 +14,7 @@ describe("dashboard home workflow doc bubbles", function () {
   it("extends dashboard snapshot with home workflow entries and embedded doc view", async function () {
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
     assert.include(ts, "homeWorkflows?: Array<{");
+    assert.include(ts, "core: boolean;");
     assert.include(ts, "quickRunEnabled: boolean;");
     assert.include(ts, "quickRunDisabledReason?: string;");
     assert.include(ts, "homeWorkflowDocView?: {");
@@ -71,11 +72,27 @@ describe("dashboard home workflow doc bubbles", function () {
     );
 
     assert.include(dialog, "builtin:");
+    assert.include(dialog, "core: isCoreWorkflow(workflow)");
     assert.include(dialog, "getLoadedWorkflowSourceById(workflow.manifest.id)");
     assert.include(dialog, '"builtin"');
 
     assert.include(app, "if (workflow.builtin === true)");
     assert.include(app, "workflow-bubble-builtin-badge");
+    assert.include(app, "if (workflow.core === true)");
+    assert.include(app, "workflow-bubble-core-badge");
+  });
+
+  it("groups core workflows in menu and renders core workflow badges", async function () {
+    const menu = await readProjectFile("src/modules/workflowMenu.ts");
+    const app = await readProjectFile("addon/content/dashboard/app.js");
+    const css = await readProjectFile("addon/content/dashboard/styles.css");
+
+    assert.include(menu, "compareWorkflowDisplayOrder");
+    assert.include(menu, "isCoreWorkflow");
+    assert.include(menu, "previousWasCore");
+    assert.include(menu, 'menuItem.setAttribute("style", "font-weight: 700;")');
+    assert.include(app, 'labelText(labels, "homeWorkflowCoreBadge")');
+    assert.include(css, ".workflow-bubble-core-badge");
   });
 
   it("reuses the workflow menu trigger for dashboard quick-run actions", async function () {
@@ -94,13 +111,16 @@ describe("dashboard home workflow doc bubbles", function () {
   it("enforces compact horizontal wrapping layout invariants for workflow bubbles", async function () {
     const css = await readProjectFile("addon/content/dashboard/styles.css");
     assert.include(css, ".workflow-bubbles-wrap {");
-    assert.include(css, "display: flex;");
-    assert.include(css, "flex-wrap: wrap;");
+    assert.include(css, "display: grid;");
+    assert.include(css, "grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));");
     assert.include(css, ".workflow-bubble {");
-    assert.include(css, "width: fit-content;");
-    assert.include(css, "inline-size: max-content;");
+    assert.include(css, "display: flex;");
+    assert.include(css, "flex-direction: column;");
+    assert.include(css, "justify-content: space-between;");
     assert.include(css, ".workflow-bubble-title {");
-    assert.include(css, "white-space: nowrap;");
+    assert.include(css, "min-height: 32px;");
+    assert.include(css, ".workflow-bubble-title-text {");
+    assert.include(css, "-webkit-line-clamp: 2;");
     assert.include(css, ".workflow-bubble-actions {");
     assert.include(css, "flex-wrap: nowrap;");
     assert.include(css, "--dashboard-control-bg");
@@ -138,6 +158,7 @@ describe("dashboard home workflow doc bubbles", function () {
       "task-dashboard-home-workflow-run-disabled-settings = Requires settings before running",
     );
     assert.include(en, "task-dashboard-home-workflow-settings = Settings");
+    assert.include(en, "task-dashboard-home-workflow-core = Core");
     assert.include(
       en,
       "task-dashboard-home-workflow-doc-back = Back to Dashboard",
@@ -153,6 +174,7 @@ describe("dashboard home workflow doc bubbles", function () {
       "task-dashboard-home-workflow-run-disabled-settings = 运行前需要配置",
     );
     assert.include(zh, "task-dashboard-home-workflow-settings = 设置");
+    assert.include(zh, "task-dashboard-home-workflow-core = 核心");
     assert.include(
       zh,
       "task-dashboard-home-workflow-doc-back = 回到 Dashboard",

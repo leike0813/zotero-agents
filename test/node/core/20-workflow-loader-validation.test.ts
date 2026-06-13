@@ -16,6 +16,10 @@ import {
   resetRuntimeBridgeOverrideForTests,
 } from "../../../src/utils/runtimeBridge";
 import { loadWorkflowManifests } from "../../../src/workflows/loader";
+import {
+  isCoreWorkflow,
+  localizeWorkflowLabel,
+} from "../../../src/workflows/localization";
 import { clearPackageHookBundleCacheForTests } from "../../../src/workflows/packageHookBundler";
 import { fixturePath, joinPath, mkTempDir, writeUtf8 } from "../../core/workflow-test-utils";
 
@@ -1030,6 +1034,239 @@ describe("workflow loader validation", function () {
         continue;
       }
 
+      assert.lengthOf(loaded.workflows, 0, entry.id);
+      const diagnostic = (loaded.diagnostics || []).find(
+        (candidate) =>
+          candidate.category === "manifest_validation_error" &&
+          candidate.entry === entry.id,
+      );
+      assert.isOk(diagnostic, `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`);
+      for (const expected of entry.expectedReasonIncludes || []) {
+        assert.include(String(diagnostic?.reason || ""), expected, entry.id);
+      }
+    }
+  });
+
+  it("loads package workflow locale resources without mutating raw manifests", async function () {
+    const tmpRoot = await mkTempDir("zotero-skills-wf-i18n");
+    await makeWorkflowPackage({
+      rootDir: tmpRoot,
+      packageDir: "localized-package",
+      packageManifest: {
+        id: "localized-package",
+        version: "1.0.0",
+        i18n: {
+          defaultLocale: "en-US",
+          locales: {
+            "zh-CN": "locales/zh-CN.json",
+          },
+        },
+        workflows: ["localized-workflow/workflow.json"],
+      },
+      files: {
+        "locales/zh-CN.json": JSON.stringify({
+          "workflows.localized-workflow.label": "本地化 Workflow",
+          "workflows.localized-workflow.parameters.language.title": "输出语言",
+        }),
+        "localized-workflow/workflow.json": JSON.stringify({
+          id: "localized-workflow",
+          label: "Localized Workflow",
+          provider: "pass-through",
+          parameters: {
+            language: {
+              type: "string",
+              title: "Language",
+              default: "zh-CN",
+            },
+          },
+          hooks: {
+            applyResult: "hooks/applyResult.mjs",
+          },
+        }),
+        "localized-workflow/hooks/applyResult.mjs":
+          "export async function applyResult(){ return { ok: true }; }",
+      },
+    });
+
+    const loaded = await loadWorkflowManifests(tmpRoot);
+    assert.lengthOf(loaded.workflows, 1, JSON.stringify(loaded.diagnostics));
+    const workflow = loaded.workflows[0];
+    assert.equal(workflow.manifest.label, "Localized Workflow");
+    assert.equal(localizeWorkflowLabel(workflow, "zh-CN"), "本地化 Workflow");
+  });
+
+  it("keeps package workflows loadable when locale resources are invalid", async function () {
+    const tmpRoot = await mkTempDir("zotero-skills-wf-i18n-invalid");
+    await makeWorkflowPackage({
+      rootDir: tmpRoot,
+      packageDir: "invalid-locale-package",
+      packageManifest: {
+        id: "invalid-locale-package",
+        version: "1.0.0",
+        i18n: {
+          locales: {
+            "zh-CN": "locales/zh-CN.json",
+            "fr-FR": "../outside.json",
+          },
+        },
+        workflows: ["workflow-a/workflow.json"],
+      },
+      files: {
+        "locales/zh-CN.json": JSON.stringify({
+          "workflows.workflow-a.label": 42,
+        }),
+        "workflow-a/workflow.json": JSON.stringify({
+          id: "workflow-a",
+          label: "Workflow A",
+          provider: "pass-through",
+          hooks: {
+            applyResult: "hooks/applyResult.mjs",
+          },
+        }),
+        "workflow-a/hooks/applyResult.mjs":
+          "export async function applyResult(){ return { ok: true }; }",
+      },
+    });
+
+    const loaded = await loadWorkflowManifests(tmpRoot);
+    assert.lengthOf(loaded.workflows, 1, JSON.stringify(loaded.diagnostics));
+    assert.equal(localizeWorkflowLabel(loaded.workflows[0], "zh-CN"), "Workflow A");
+    assert.isAtLeast(
+      (loaded.diagnostics || []).filter(
+        (entry) => entry.category === "manifest_validation_error",
+      ).length,
+      2,
+      JSON.stringify(loaded.diagnostics || []),
+    );
+  });
+
+  it("validates workflow inline i18n messages", async function () {
+    const cases = [
+      {
+        id: "inline-i18n-valid",
+        manifest: {
+          id: "inline-i18n-valid",
+          label: "Inline I18n Valid",
+          provider: "pass-through",
+          i18n: {
+            defaultLocale: "en-US",
+            messages: {
+              "zh-CN": {
+                label: "内联多语言有效",
+              },
+            },
+          },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+        expectValid: true,
+      },
+      {
+        id: "inline-i18n-invalid",
+        manifest: {
+          id: "inline-i18n-invalid",
+          label: "Inline I18n Invalid",
+          provider: "pass-through",
+          i18n: {
+            messages: {
+              "zh-CN": {
+                label: 42,
+              },
+            },
+          },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+        expectValid: false,
+        expectedReasonIncludes: ["/i18n/messages/zh-CN/label", "must be string"],
+      },
+    ];
+
+    for (const entry of cases) {
+      const tmpRoot = await mkTempDir("zotero-skills-wf-inline-i18n");
+      await makeWorkflow(tmpRoot, entry.id, entry.manifest, {
+        "applyResult.js":
+          "export async function applyResult(){ return { ok: true }; }",
+      });
+      const loaded = await loadWorkflowManifests(tmpRoot);
+      if (entry.expectValid) {
+        assert.lengthOf(loaded.workflows, 1, entry.id);
+        assert.equal(
+          localizeWorkflowLabel(loaded.workflows[0], "zh-CN"),
+          "内联多语言有效",
+        );
+        continue;
+      }
+      assert.lengthOf(loaded.workflows, 0, entry.id);
+      const diagnostic = (loaded.diagnostics || []).find(
+        (candidate) =>
+          candidate.category === "manifest_validation_error" &&
+          candidate.entry === entry.id,
+      );
+      assert.isOk(diagnostic, `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`);
+      for (const expected of entry.expectedReasonIncludes || []) {
+        assert.include(String(diagnostic?.reason || ""), expected, entry.id);
+      }
+    }
+  });
+
+  it("validates workflow display metadata", async function () {
+    const cases = [
+      {
+        id: "display-valid",
+        manifest: {
+          id: "display-valid",
+          label: "Display Valid",
+          provider: "pass-through",
+          display: {
+            core: true,
+            emoji: "📊",
+          },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+        expectValid: true,
+      },
+      {
+        id: "display-invalid-core",
+        manifest: {
+          id: "display-invalid-core",
+          label: "Display Invalid Core",
+          provider: "pass-through",
+          display: {
+            core: "yes",
+          },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+        expectValid: false,
+        expectedReasonIncludes: ["/display/core", "must be boolean"],
+      },
+      {
+        id: "display-invalid-emoji",
+        manifest: {
+          id: "display-invalid-emoji",
+          label: "Display Invalid Emoji",
+          provider: "pass-through",
+          display: {
+            emoji: 42,
+          },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+        expectValid: false,
+        expectedReasonIncludes: ["/display/emoji", "must be string"],
+      },
+    ];
+
+    for (const entry of cases) {
+      const tmpRoot = await mkTempDir("zotero-skills-wf-display");
+      await makeWorkflow(tmpRoot, entry.id, entry.manifest, {
+        "applyResult.js":
+          "export async function applyResult(){ return { ok: true }; }",
+      });
+      const loaded = await loadWorkflowManifests(tmpRoot);
+      if (entry.expectValid) {
+        assert.lengthOf(loaded.workflows, 1, entry.id);
+        assert.isTrue(isCoreWorkflow(loaded.workflows[0]));
+        assert.equal(localizeWorkflowLabel(loaded.workflows[0]), "📊 Display Valid");
+        continue;
+      }
       assert.lengthOf(loaded.workflows, 0, entry.id);
       const diagnostic = (loaded.diagnostics || []).find(
         (candidate) =>

@@ -3,6 +3,7 @@ import type { AcpPendingPermissionRequest } from "./acpTypes";
 import { setAcpConversationHostBridgePermissionRequest } from "./acpConversationHostBridgePermissionRegistry";
 import { isHostBridgeWriteAutoApprovalScope } from "./hostBridgeWriteAutoApprovalRegistry";
 import type { HostBridgeApprovalRequirement } from "./hostBridgeProtocol";
+import { getPref } from "../utils/prefs";
 
 const NO_APPROVAL_CAPABILITIES = new Set([
   "context.get_current_view",
@@ -87,6 +88,14 @@ function normalizeString(value: unknown) {
 function nextPermissionRequestId() {
   requestSequence += 1;
   return `host-bridge-permission-${Date.now().toString(36)}-${requestSequence}`;
+}
+
+function hostBridgeWriteApprovalDisabled() {
+  try {
+    return getPref("hostBridgeDisableWriteApproval") === true;
+  } catch {
+    return false;
+  }
 }
 
 function permissionOptions(): AcpPendingPermissionRequest["options"] {
@@ -343,17 +352,16 @@ async function requestAcpChatScopedPermission(
 export function getHostBridgeApprovalRequirement(
   capability: string,
 ): HostBridgeApprovalRequirement {
+  let requirement: HostBridgeApprovalRequirement = "zotero-ui-required";
   if (
     capability === "debug.synthesis.cleanInstallReset" ||
     capability === "debug.zotero.eval" ||
     capability === "citation_graph.refresh_metrics"
   ) {
-    return "zotero-ui-required";
-  }
-  if (capability.startsWith("debug.")) {
-    return "none";
-  }
-  if (
+    requirement = "zotero-ui-required";
+  } else if (capability.startsWith("debug.")) {
+    requirement = "none";
+  } else if (
     capability.startsWith("citation_graph.") ||
     capability.startsWith("concepts.") ||
     capability.startsWith("insights.") ||
@@ -364,12 +372,17 @@ export function getHostBridgeApprovalRequirement(
     capability.startsWith("schemas.") ||
     capability.startsWith("topics.")
   ) {
+    requirement = "none";
+  } else if (NO_APPROVAL_CAPABILITIES.has(capability)) {
+    requirement = "none";
+  }
+  if (
+    requirement === "zotero-ui-required" &&
+    hostBridgeWriteApprovalDisabled()
+  ) {
     return "none";
   }
-  if (NO_APPROVAL_CAPABILITIES.has(capability)) {
-    return "none";
-  }
-  return "zotero-ui-required";
+  return requirement;
 }
 
 export function getHostBridgeApprovalRequirementForPhaseOne(): HostBridgeApprovalRequirement {

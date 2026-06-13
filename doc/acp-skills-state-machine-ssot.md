@@ -189,6 +189,10 @@ Reply:        idle → submitted → accepted → idle
 - `status === "repairing"` implies `outputRevisionStatus` is not `"final"`.
 - A terminal run status (`succeeded | failed | canceled`) implies
   `conversationState` should eventually be `closed` or `ended`.
+- `status in running | repairing | failed`, `conversationState === "closed"`,
+  `conversationRecoveryState === "available"`, a non-empty `sessionId`, and
+  `activePrompt !== true` means a detached recoverable run. It is not an active
+  prompt turn and must not be projected as a busy interrupt state.
 
 ## User Controls
 
@@ -200,6 +204,9 @@ Canceling the current turn stops only the active ACP prompt call.
 - Does **not** modify `status` — run stays in `running | waiting_user`.
 - Does **not** disconnect the ACP connection — `conversationState` and
   `connectionActionState` are unchanged.
+- For recovered sessions, `interruptTurn` is valid only while an active prompt
+  turn exists. It must not detach a recovered session merely because the run is
+  non-terminal.
 - Sets `replyState` back to `idle` if it was `submitted`.
 - Records `lastPromptStopReason` for diagnostics.
 - Leaves the run available for a later user prompt.
@@ -228,6 +235,21 @@ Disconnecting detaches the local ACP connection.
 - After the disconnect completes, `conversationState` transitions to `closed`.
 - Any assistant text returned after the disconnect request is ignored for output
   validation, result-file fallback, and output repair.
+
+### Connect Recoverable Detached Run
+
+Connecting a recoverable detached run is explicit user action; plugin startup
+does not automatically attach remote sessions.
+
+- If the run has pending user input or permission, connect only attaches the
+  remote session and leaves the run waiting for the user action.
+- If the run has workflow output-convergence context and no pending user action,
+  connect attaches the session and sends the recovered continuation guard prompt.
+- Automatic continuation after connect uses the same recovered output
+  validation, result-file fallback, repair, pending, final apply, and sequence
+  continuation paths as a recovered user reply.
+- The automatic continuation is recorded as recovery activity and must not be
+  recorded as a user-authored reply.
 
 ### Cancel Task
 
@@ -285,6 +307,10 @@ Canceling the task terminates the ACP Skills job.
    valid forward transitions from `submitted`. `accepted` or `rejected` must
    eventually return to `idle`. `interruptTurn` is only valid when
    `replyState !== "idle"`.
+
+10. **Detached recoverable UI projection** — A detached recoverable run remains
+    visible in active task lists with warning attention, exposes Connect, and
+    does not expose current-turn interrupt until a prompt is actually active.
 
 ## Implementation Mapping
 

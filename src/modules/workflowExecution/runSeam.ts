@@ -21,6 +21,7 @@ import {
 import { resolveWorkflowDispatchConcurrency } from "./runConcurrency";
 import { executeSkillRunnerSequence } from "./sequenceRuntime";
 import type { SkillRunnerSequenceRequestV1 } from "../../providers/contracts";
+import { localizeWorkflowLabel } from "../../workflows/localization";
 
 type RunSeamDeps = {
   createQueue: (
@@ -61,6 +62,7 @@ export function runWorkflowExecutionSeam(
   const runId = `run-${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 10)}`;
+  const workflowLabel = localizeWorkflowLabel(args.prepared.workflow);
   const dispatchConcurrency = resolveWorkflowDispatchConcurrency({
     providerId: args.prepared.executionContext.providerId,
     requestCount: args.prepared.requests.length,
@@ -77,7 +79,7 @@ export function runWorkflowExecutionSeam(
           backend: args.prepared.executionContext.backend,
           providerOptions: args.prepared.executionContext.providerOptions,
           workflowId: args.prepared.workflow.manifest.id,
-          workflowLabel: args.prepared.workflow.manifest.label,
+          workflowLabel,
           workflowRunId: `${runId}-${job.id}`,
           jobId: job.id,
           executeWithProvider: resolved.executeWithProvider,
@@ -114,7 +116,7 @@ export function runWorkflowExecutionSeam(
         if (request) {
           resolved.ensureSkillRunnerRecoverableContext({
             workflowId: args.prepared.workflow.manifest.id,
-            workflowLabel: args.prepared.workflow.manifest.label,
+            workflowLabel,
             requestKind: args.prepared.executionContext.requestKind,
             request,
             backend: args.prepared.executionContext.backend,
@@ -173,7 +175,7 @@ export function runWorkflowExecutionSeam(
       if (request) {
         resolved.ensureSkillRunnerRecoverableContext({
           workflowId: args.prepared.workflow.manifest.id,
-          workflowLabel: args.prepared.workflow.manifest.label,
+          workflowLabel,
           requestKind: args.prepared.executionContext.requestKind,
           request,
           backend: args.prepared.executionContext.backend,
@@ -198,7 +200,7 @@ export function runWorkflowExecutionSeam(
       meta: {
         index,
         runId,
-        workflowLabel: args.prepared.workflow.manifest.label,
+        workflowLabel,
         taskName,
         inputUnitIdentity,
         inputUnitLabel,

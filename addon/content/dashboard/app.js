@@ -57,7 +57,7 @@
     if (text && !/^task-dashboard-[a-z0-9-]+$/i.test(text)) {
       return text;
     }
-    return fallback;
+    return typeof fallback === "string" ? fallback : key;
   }
 
   function formatTime(value) {
@@ -181,7 +181,7 @@
       labels.colStatus,
       labels.colRequestId,
       labels.colUpdatedAt,
-      labels.colActions || "Actions",
+      labelText(labels, "colActions"),
     ];
     columns.forEach((title) => {
       const th = document.createElement("th");
@@ -370,7 +370,7 @@
       const section = el("section", "section");
       section.classList.add("workflow-bubbles-section");
       section.appendChild(
-        el("h3", "section-title", labels.homeWorkflowTitle || "Workflows"),
+        el("h3", "section-title", labelText(labels, "homeWorkflowTitle")),
       );
       const wrap = el("div", "workflow-bubbles-wrap");
       workflows.forEach(function (workflow) {
@@ -388,7 +388,16 @@
             el(
               "span",
               "workflow-bubble-builtin-badge",
-              labels.homeWorkflowBuiltinBadge || "Builtin",
+              labelText(labels, "homeWorkflowBuiltinBadge"),
+            ),
+          );
+        }
+        if (workflow.core === true) {
+          title.appendChild(
+            el(
+              "span",
+              "workflow-bubble-core-badge",
+              labelText(labels, "homeWorkflowCoreBadge"),
             ),
           );
         }
@@ -399,7 +408,7 @@
           "btn workflow-bubble-btn workflow-bubble-run-btn",
           "",
         );
-        const runLabel = labels.homeWorkflowRunButton || "Run workflow";
+        const runLabel = labelText(labels, "homeWorkflowRunButton");
         const runDisabledReason = workflow.quickRunDisabledReason || "";
         runButton.setAttribute(
           "title",
@@ -426,11 +435,11 @@
         const docButton = el("button", "btn workflow-bubble-btn", "");
         docButton.setAttribute(
           "title",
-          labels.homeWorkflowDocButton || "Description",
+          labelText(labels, "homeWorkflowDocButton"),
         );
         docButton.setAttribute(
           "aria-label",
-          labels.homeWorkflowDocButton || "Description",
+          labelText(labels, "homeWorkflowDocButton"),
         );
         const docIcon = el(
           "span",
@@ -446,11 +455,11 @@
         const settingsButton = el("button", "btn workflow-bubble-btn", "");
         settingsButton.setAttribute(
           "title",
-          labels.homeWorkflowSettingsButton || "Settings",
+          labelText(labels, "homeWorkflowSettingsButton"),
         );
         settingsButton.setAttribute(
           "aria-label",
-          labels.homeWorkflowSettingsButton || "Settings",
+          labelText(labels, "homeWorkflowSettingsButton"),
         );
         const settingsIcon = el(
           "span",
@@ -475,7 +484,7 @@
     }
 
     main.appendChild(
-      el("h3", "section-title", labels.homeSummaryTitle || "Task Summary"),
+      el("h3", "section-title", labelText(labels, "homeSummaryTitle")),
     );
 
     const cards = el("div", "cards");
@@ -513,7 +522,7 @@
         columns: [
           labels.colTask,
           labels.colWorkflow,
-          labels.colBackend || "Backend",
+          labelText(labels, "colBackend"),
           labels.colStatus,
           labels.colUpdatedAt,
         ],
@@ -561,12 +570,7 @@
     content.setAttribute("data-workflow-id", String(view.workflowId || ""));
     if (view.missingReadme) {
       content.appendChild(
-        el(
-          "div",
-          "empty",
-          labels.homeWorkflowDocMissingReadme ||
-            "README.md was not found for this workflow.",
-        ),
+        el("div", "empty", labelText(labels, "homeWorkflowDocMissingReadme")),
       );
     } else {
       content.innerHTML = String(view.html || "");
@@ -581,7 +585,7 @@
     const backButton = el(
       "button",
       "btn",
-      labels.homeWorkflowDocBack || "Back to Dashboard",
+      labelText(labels, "homeWorkflowDocBack"),
     );
     backButton.addEventListener("click", function () {
       sendAction("close-home-workflow-doc", {});
@@ -603,7 +607,7 @@
     const openDiagnostics = el(
       "button",
       "btn",
-      labels.logsOpenDiagnostics || "Diagnostic Export",
+      labelText(labels, "logsOpenDiagnostics"),
     );
     openDiagnostics.disabled = !backend.selectedLogTaskId;
     openDiagnostics.addEventListener("click", function () {
@@ -644,7 +648,7 @@
             String(row.requestKind || "").trim() === "skillrunner.job.v1" &&
             row.requestId
           ) {
-            const openRun = el("button", "btn", labels.openRun || "Open Run");
+            const openRun = el("button", "btn", labelText(labels, "openRun"));
             openRun.addEventListener("click", function () {
               sendAction("open-run", {
                 backendId: backend.backendId,
@@ -652,7 +656,11 @@
               });
             });
             actions.push(openRun);
-            const cancelRun = el("button", "btn", labels.cancelRun || "Cancel");
+            const cancelRun = el(
+              "button",
+              "btn",
+              labelText(labels, "cancelRun"),
+            );
             cancelRun.disabled = isTerminalStatus(
               row.state,
               row.stateSemantics,
@@ -687,7 +695,7 @@
       const showRuns = el(
         "button",
         "btn",
-        labels.closeManagement || "Back to Runs",
+        labelText(labels, "closeManagement"),
       );
       showRuns.addEventListener("click", function () {
         sendAction("show-runs", {
@@ -698,7 +706,7 @@
       const openExternal = el(
         "button",
         "btn",
-        labels.openManagementExternal || "Open in Browser",
+        labelText(labels, "openManagementExternal"),
       );
       openExternal.addEventListener("click", function () {
         sendAction("open-management-external", {
@@ -714,7 +722,7 @@
     const refreshModelCache = el(
       "button",
       "btn",
-      labels.refreshModelCache || "Refresh Model Cache",
+      labelText(labels, "refreshModelCache"),
     );
     refreshModelCache.addEventListener("click", function () {
       sendAction("refresh-model-cache", {
@@ -744,11 +752,11 @@
         columns: [
           labels.colTask,
           labels.colWorkflow,
-          labels.colEngine || "Engine",
+          labelText(labels, "colEngine"),
           labels.colStatus,
           labels.colRequestId,
           labels.colUpdatedAt,
-          labels.colActions || "Actions",
+          labelText(labels, "colActions"),
         ],
         renderRow: (tr, row) => {
           const taskCell = document.createElement("td");
@@ -823,11 +831,7 @@
     const panel = el("section", "management-host-panel");
     if (!managementUrl) {
       panel.appendChild(
-        el(
-          "div",
-          "error-banner",
-          labels.managementLoadFailed || "Management UI failed to load.",
-        ),
+        el("div", "error-banner", labelText(labels, "managementLoadFailed")),
       );
       main.appendChild(panel);
       return;
@@ -837,7 +841,11 @@
     mount.dataset.backendId = backend.backendId || "";
     mount.dataset.managementUiUrl = managementUrl;
     mount.appendChild(
-      el("div", "management-host-loading", "Loading management UI..."),
+      el(
+        "div",
+        "management-host-loading",
+        labelText(labels, "managementLoading"),
+      ),
     );
     panel.appendChild(mount);
     main.appendChild(panel);
@@ -858,7 +866,7 @@
     }
     const toolbar = el("div", "toolbar");
     toolbar.appendChild(el("h2", "page-title", backend.title));
-    const openRuns = el("button", "btn", labels.openRun || "Open Runs");
+    const openRuns = el("button", "btn", labelText(labels, "openRun"));
     openRuns.addEventListener("click", function () {
       sendAction("open-acp-skill-runs", {});
     });
@@ -877,11 +885,11 @@
         columns: [
           labels.colTask,
           labels.colWorkflow,
-          labels.colEngine || "Engine",
+          labelText(labels, "colEngine"),
           labels.colStatus,
           labels.colRequestId,
           labels.colUpdatedAt,
-          labels.colActions || "Actions",
+          labelText(labels, "colActions"),
         ],
         renderRow: (tr, row) => {
           const taskCell = document.createElement("td");
@@ -915,7 +923,7 @@
           actionCell.className = "actions-cell";
           const actionsWrap = el("div", "actions-wrap");
           if (row.requestId) {
-            const openRun = el("button", "btn", labels.openRun || "Open Run");
+            const openRun = el("button", "btn", labelText(labels, "openRun"));
             openRun.addEventListener("click", function () {
               sendAction("open-run", {
                 backendId: backend.backendId,
@@ -923,7 +931,11 @@
               });
             });
             actionsWrap.appendChild(openRun);
-            const cancelRun = el("button", "btn", labels.cancelRun || "Cancel");
+            const cancelRun = el(
+              "button",
+              "btn",
+              labelText(labels, "cancelRun"),
+            );
             cancelRun.disabled = isTerminalStatus(
               row.state,
               row.stateSemantics,
@@ -977,18 +989,17 @@
     if (!Number.isFinite(parsed)) {
       return {
         ok: false,
-        message:
-          args.labels.workflowSettingsNumberInvalid ||
-          "Please enter a valid number.",
+        message: labelText(args.labels, "workflowSettingsNumberInvalid"),
       };
     }
     if (isPositiveIntegerField(args.entry)) {
       if (!Number.isInteger(parsed) || parsed <= 0) {
         return {
           ok: false,
-          message:
-            args.labels.workflowSettingsPositiveIntegerRequired ||
-            "Please enter a positive integer.",
+          message: labelText(
+            args.labels,
+            "workflowSettingsPositiveIntegerRequired",
+          ),
         };
       }
     }
@@ -1247,16 +1258,12 @@
     const labels = snapshot.labels || {};
     const view = snapshot.workflowOptionsView || {};
     main.appendChild(
-      el("h2", "page-title", labels.tabWorkflowOptions || "Workflow Options"),
+      el("h2", "page-title", labelText(labels, "tabWorkflowOptions")),
     );
     const workflows = Array.isArray(view.workflows) ? view.workflows : [];
     if (workflows.length === 0) {
       main.appendChild(
-        el(
-          "div",
-          "empty",
-          labels.workflowSettingsNoConfigurable || "No configurable workflows.",
-        ),
+        el("div", "empty", labelText(labels, "workflowSettingsNoConfigurable")),
       );
       return;
     }
@@ -1290,14 +1297,14 @@
       el(
         "div",
         "",
-        `${labels.workflowSettingsWorkflowLabel || "Workflow"}: ${descriptor.workflowLabel}`,
+        `${labelText(labels, "workflowSettingsWorkflowLabel")}: ${descriptor.workflowLabel}`,
       ),
     );
     meta.appendChild(
       el(
         "div",
         "",
-        `${labels.workflowSettingsProviderLabel || "Provider"}: ${descriptor.providerId}`,
+        `${labelText(labels, "workflowSettingsProviderLabel")}: ${descriptor.providerId}`,
       ),
     );
 
@@ -1324,7 +1331,7 @@
         el(
           "div",
           "workflow-settings-banner-profile-label",
-          labels.workflowSettingsProfileLabel || "Profile",
+          labelText(labels, "workflowSettingsProfileLabel"),
         ),
       );
       if (descriptor.profileEditable) {
@@ -1350,8 +1357,7 @@
           el(
             "div",
             "workflow-settings-error",
-            labels.workflowSettingsBlockedNoProfile ||
-              "No backend profile available. Please configure one first.",
+            labelText(labels, "workflowSettingsBlockedNoProfile"),
           ),
         );
       } else {
@@ -1373,11 +1379,8 @@
     const sectionsGrid = el("div", "workflow-settings-sections-grid");
     sectionsGrid.appendChild(
       renderWorkflowSettingsSection({
-        title:
-          labels.workflowSettingsWorkflowParamsTitle || "Workflow Parameters",
-        emptyText:
-          labels.workflowSettingsNoWorkflowParams ||
-          "This workflow has no configurable parameters.",
+        title: labelText(labels, "workflowSettingsWorkflowParamsTitle"),
+        emptyText: labelText(labels, "workflowSettingsNoWorkflowParams"),
         entries: descriptor.workflowSchemaEntries || [],
         values: draft.workflowParams,
         onChange: emitDraft,
@@ -1387,12 +1390,8 @@
     );
     sectionsGrid.appendChild(
       renderWorkflowSettingsSection({
-        title:
-          labels.workflowSettingsProviderOptionsTitle ||
-          "Provider Runtime Options",
-        emptyText:
-          labels.workflowSettingsNoProviderOptions ||
-          "This provider has no configurable runtime options.",
+        title: labelText(labels, "workflowSettingsProviderOptionsTitle"),
+        emptyText: labelText(labels, "workflowSettingsNoProviderOptions"),
         entries: descriptor.providerSchemaEntries || [],
         values: draft.providerOptions,
         onChange: emitDraft,
@@ -1404,7 +1403,7 @@
     main.appendChild(shell);
   }
 
-  function renderProductFileTree(product, selectedAssetId) {
+  function renderProductFileTree(product, selectedAssetId, labels) {
     const wrap = el("div", "product-file-tree");
     (product.assets || []).forEach(function (asset) {
       const btn = el(
@@ -1427,7 +1426,9 @@
       wrap.appendChild(btn);
     });
     if (!product.assets || product.assets.length === 0) {
-      wrap.appendChild(el("div", "empty", "No product files."));
+      wrap.appendChild(
+        el("div", "empty", labelText(labels, "productsNoFiles")),
+      );
     }
     return wrap;
   }
@@ -1460,11 +1461,7 @@
     const wrap = el("div", "product-preview");
     if (!preview) {
       wrap.appendChild(
-        el(
-          "div",
-          "empty",
-          labelText(labels, "productsSelectFile", "Select a file to preview."),
-        ),
+        el("div", "empty", labelText(labels, "productsSelectFile")),
       );
       return wrap;
     }
@@ -1482,12 +1479,7 @@
         el(
           "div",
           "empty",
-          preview.error ||
-            labelText(
-              labels,
-              "productsPreviewUnavailable",
-              "Preview unavailable.",
-            ),
+          preview.error || labelText(labels, "productsPreviewUnavailable"),
         ),
       );
       return wrap;
@@ -1495,7 +1487,9 @@
     if (preview.kind === "markdown") {
       wrap.appendChild(renderProductMarkdown(preview.text || ""));
       const raw = el("details", "product-preview-raw");
-      raw.appendChild(el("summary", "", "Raw Markdown"));
+      raw.appendChild(
+        el("summary", "", labelText(labels, "productsRawMarkdown")),
+      );
       raw.appendChild(renderProductCode(preview.text || "", "markdown"));
       wrap.appendChild(raw);
       return wrap;
@@ -1516,14 +1510,14 @@
     const selected = view.selectedProduct;
     const toolbar = el("div", "toolbar");
     toolbar.appendChild(
-      el("h2", "page-title", labelText(labels, "tabProducts", "Products")),
+      el("h2", "page-title", labelText(labels, "tabProducts")),
     );
     if (selected) {
       const actions = el("div", "toolbar-actions");
       const openFolder = el(
         "button",
         "btn",
-        labelText(labels, "productsOpenWorkspace", "Open Folder"),
+        labelText(labels, "productsOpenWorkspace"),
       );
       openFolder.addEventListener("click", function () {
         sendAction("open-product-folder", { productId: selected.productId });
@@ -1533,7 +1527,7 @@
         const openRun = el(
           "button",
           "btn",
-          labelText(labels, "productsOpenRun", "Open Run"),
+          labelText(labels, "productsOpenRun"),
         );
         openRun.addEventListener("click", function () {
           sendAction("open-run", {
@@ -1546,7 +1540,7 @@
       const remove = el(
         "button",
         "btn danger",
-        labelText(labels, "productsRemove", "Remove"),
+        labelText(labels, "productsRemove"),
       );
       remove.addEventListener("click", function () {
         sendAction("remove-product", { productId: selected.productId });
@@ -1556,17 +1550,7 @@
     }
     main.appendChild(toolbar);
     if (products.length === 0) {
-      main.appendChild(
-        el(
-          "div",
-          "empty",
-          labelText(
-            labels,
-            "productsEmpty",
-            "No workflow products have been registered yet.",
-          ),
-        ),
-      );
+      main.appendChild(el("div", "empty", labelText(labels, "productsEmpty")));
       return;
     }
     const layout = el("div", "products-layout");
@@ -1612,7 +1596,9 @@
         .join(" · ");
       detail.appendChild(meta);
       const body = el("div", "product-detail-body");
-      body.appendChild(renderProductFileTree(selected, view.selectedAssetId));
+      body.appendChild(
+        renderProductFileTree(selected, view.selectedAssetId, labels),
+      );
       body.appendChild(renderProductPreview(view.selectedPreview, labels));
       detail.appendChild(body);
     }
@@ -1631,7 +1617,7 @@
     const selectedIds = new Set(view.selectedEntryIds || []);
 
     main.appendChild(
-      el("h2", "page-title", labels.runtimeLogsTabTitle || "Runtime Logs"),
+      el("h2", "page-title", labelText(labels, "runtimeLogsTabTitle")),
     );
 
     const toolbar = el("div", "toolbar logs-toolbar");
@@ -1678,7 +1664,7 @@
         el(
           "span",
           "logs-filter-label",
-          labels.runtimeLogsFilterBackend || "Backend",
+          labelText(labels, "runtimeLogsFilterBackend"),
         ),
       );
       const defaultBackends = backendOptions.map(function (o) {
@@ -1700,7 +1686,7 @@
             filters: { backendId: payloadIds },
           });
         },
-        labels.runtimeLogsFilterAll || "All",
+        labelText(labels, "runtimeLogsFilterAll"),
       );
       bWrap.appendChild(bSelect.element);
       filterWrap.appendChild(bWrap);
@@ -1713,7 +1699,7 @@
         el(
           "span",
           "logs-filter-label",
-          labels.runtimeLogsFilterWorkflow || "Workflow",
+          labelText(labels, "runtimeLogsFilterWorkflow"),
         ),
       );
       const defaultWorkflows = workflowOptions.map(function (o) {
@@ -1735,7 +1721,7 @@
             filters: { workflowId: payloadIds },
           });
         },
-        labels.runtimeLogsFilterAll || "All",
+        labelText(labels, "runtimeLogsFilterAll"),
       );
       wWrap.appendChild(wSelect.element);
       filterWrap.appendChild(wWrap);
@@ -1757,7 +1743,7 @@
       el(
         "span",
         "logs-filter-text",
-        labels.runtimeLogsDiagnosticMode || "Diagnostic Mode",
+        labelText(labels, "runtimeLogsDiagnosticMode"),
       ),
     );
     diagWrap.appendChild(diagLabelNode);
@@ -1783,7 +1769,7 @@
         el(
           "span",
           "logs-context-label",
-          labels.runtimeLogsContextScope || "Active Context Filters: ",
+          labelText(labels, "runtimeLogsContextScope"),
         ),
       );
       activeContextAttrs.forEach(function (k) {
@@ -1794,7 +1780,7 @@
       const clearCtxBtn = el(
         "button",
         "btn clear",
-        labels.runtimeLogsClearContext || "Clear Context",
+        labelText(labels, "runtimeLogsClearContext"),
       );
       clearCtxBtn.addEventListener("click", function () {
         sendAction("runtime-logs-clear-context");
@@ -1810,7 +1796,7 @@
     const copySelectedBtn = el(
       "button",
       "btn",
-      labels.runtimeLogsCopySelected || "Copy Selected",
+      labelText(labels, "runtimeLogsCopySelected"),
     );
     copySelectedBtn.disabled = selectedIds.size === 0;
     copySelectedBtn.addEventListener("click", function () {
@@ -1825,7 +1811,7 @@
     const copyNdjsonBtn = el(
       "button",
       "btn",
-      labels.runtimeLogsCopyVisibleNDJSON || "Copy Visible (NDJSON)",
+      labelText(labels, "runtimeLogsCopyVisibleNDJSON"),
     );
     copyNdjsonBtn.disabled = view.logs.length === 0;
     copyNdjsonBtn.addEventListener("click", function () {
@@ -1846,26 +1832,24 @@
     const copySystemDiagBtn = el(
       "button",
       "btn",
-      labels.runtimeLogsCopyDiagnosticBundle || "Copy Diagnostic Bundle",
+      labelText(labels, "runtimeLogsCopyDiagnosticBundle"),
     );
     copySystemDiagBtn.disabled = view.logs.length === 0;
     copySystemDiagBtn.addEventListener("click", function () {
       sendAction("runtime-logs-copy-diagnostic-bundle");
-      showToast(
-        labels.runtimeLogsCopySuccessBundle || "Diagnostic bundle copied!",
-      );
+      showToast(labelText(labels, "runtimeLogsCopySuccessBundle"));
     });
     copyGroup.appendChild(copySystemDiagBtn);
 
     const copyIssueBtn = el(
       "button",
       "btn",
-      labels.runtimeLogsCopyIssueSummary || "Copy Issue Summary",
+      labelText(labels, "runtimeLogsCopyIssueSummary"),
     );
     copyIssueBtn.disabled = view.logs.length === 0;
     copyIssueBtn.addEventListener("click", function () {
       sendAction("runtime-logs-copy-issue-summary");
-      showToast(labels.runtimeLogsCopySuccessIssue || "Issue summary copied!");
+      showToast(labelText(labels, "runtimeLogsCopySuccessIssue"));
     });
     copyGroup.appendChild(copyIssueBtn);
 
@@ -1874,7 +1858,7 @@
     const clearLogsBtn = el(
       "button",
       "btn clear",
-      labels.runtimeLogsClear || "Clear Logs",
+      labelText(labels, "runtimeLogsClear"),
     );
     clearLogsBtn.addEventListener("click", function () {
       if (confirm("Are you sure you want to clear all runtime logs?")) {
@@ -1928,11 +1912,11 @@
     headRow.appendChild(thCheck);
 
     const columns = [
-      labels.colTime || "Time",
-      labels.colLevel || "Level",
-      labels.colStage || "Stage",
-      labels.colScope || "Scope",
-      labels.colMessage || "Message",
+      labelText(labels, "colTime"),
+      labelText(labels, "colLevel"),
+      labelText(labels, "colStage"),
+      labelText(labels, "colScope"),
+      labelText(labels, "colMessage"),
     ];
     columns.forEach(function (title) {
       const th = document.createElement("th");
@@ -1948,7 +1932,7 @@
       const emptyTd = document.createElement("td");
       emptyTd.colSpan = columns.length + 1;
       emptyTd.className = "empty";
-      emptyTd.textContent = labels.logsEmpty || "No runtime logs captured.";
+      emptyTd.textContent = labelText(labels, "logsEmpty");
       emptyTr.appendChild(emptyTd);
       tbody.appendChild(emptyTr);
     }
@@ -2037,8 +2021,7 @@
           el(
             "div",
             "logs-detail-empty",
-            labels.runtimeLogsSelectToView ||
-              "Select a log entry to view details.",
+            labelText(labels, "runtimeLogsSelectToView"),
           ),
         );
         return;
@@ -2047,9 +2030,13 @@
 
       const header = el("div", "logs-detail-header");
       header.appendChild(
-        el("h3", "", `${labels.logsDetailTitle || "Log Details"} `),
+        el("h3", "", `${labelText(labels, "logsDetailTitle")} `),
       );
-      const closeBtn = el("button", "btn clear logs-detail-close", "Close");
+      const closeBtn = el(
+        "button",
+        "btn clear logs-detail-close",
+        labelText(labels, "logsDetailClose"),
+      );
       closeBtn.addEventListener("click", function () {
         clearNode(detailPane);
         detailPane.classList.remove("visible");
@@ -2064,7 +2051,9 @@
       const contentWrap = el("div", "logs-detail-content");
 
       if (rowEntry.error && rowEntry.error.message) {
-        contentWrap.appendChild(el("h4", "error-title", "Exception"));
+        contentWrap.appendChild(
+          el("h4", "error-title", labelText(labels, "logsException")),
+        );
         contentWrap.appendChild(
           el("pre", "log-error mono", rowEntry.error.message),
         );
@@ -2263,17 +2252,26 @@
     clearNode(app);
     if (!snapshot) {
       const loading = el("div", "main");
-      loading.appendChild(el("div", "empty", "Loading dashboard..."));
+      loading.appendChild(
+        el(
+          "div",
+          "empty",
+          labelText(
+            state.snapshot && state.snapshot.labels,
+            "loadingDashboard",
+          ),
+        ),
+      );
       app.appendChild(el("aside", "sidebar"));
       app.appendChild(loading);
       return;
     }
 
-    document.title = snapshot.title || "Task Dashboard";
+    document.title = snapshot.title || labelText(snapshot.labels, "tabHome");
 
     const sidebar = el("aside", "sidebar");
     sidebar.appendChild(
-      el("h3", "sidebar-title", snapshot.labels.tabHome || "Home"),
+      el("h3", "sidebar-title", labelText(snapshot.labels, "tabHome")),
     );
     const tabs = Array.isArray(snapshot.tabs) ? snapshot.tabs : [];
     if (tabs.length === 0) {
@@ -2348,7 +2346,7 @@
       const divider = el("div", "tab-divider");
       sidebar.appendChild(divider);
       sidebar.appendChild(
-        el("h3", "sidebar-title", snapshot.labels.tabBackends || "Backends"),
+        el("h3", "sidebar-title", labelText(snapshot.labels, "tabBackends")),
       );
       tabs
         .filter(

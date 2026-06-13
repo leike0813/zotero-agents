@@ -50,6 +50,25 @@ The first-phase runtime SHALL accept a source bundle and materialize determinist
 - **THEN** bootstrap SHALL record diagnostics
 - **AND** it SHALL continue when `source.md` is available.
 
+### Requirement: Bootstrap reading structure
+
+The `literature-deep-reading` runtime SHALL expose stable reading blocks that preserve rich paper structures.
+
+#### Scenario: Rich content is parsed into structured blocks
+
+- **GIVEN** source Markdown contains display math, images with captions, and tables with captions
+- **WHEN** bootstrap writes `runtime/views/reading-blocks.json`
+- **THEN** display math SHALL be represented as `formula` blocks
+- **AND** image references with adjacent captions SHALL be represented as `image` blocks
+- **AND** tables with adjacent captions SHALL be represented as `table` blocks
+- **AND** each structured block SHALL preserve source order and `block_id`.
+
+#### Scenario: References remain outside translation flow
+
+- **GIVEN** the source contains a References section
+- **WHEN** bootstrap marks reading blocks
+- **THEN** References and later blocks SHALL have `translate: false`.
+
 ### Requirement: Bootstrap Host Preflight
 
 The `literature-deep-reading` runtime SHALL expose best-effort Host preflight information before the agent writes `context-request.json`.
@@ -177,6 +196,13 @@ The runtime SHALL only collect digest artifacts for references that resolve to l
 - **THEN** `reference-digests-view.json` SHALL include digest entries only for library-bound references
 - **AND** external or unresolved references SHALL not expose digest availability.
 
+#### Scenario: Library reference digests are collected
+
+- **GIVEN** `reference-index get` returns reference rows with `target_binding: "library"` and `target_paper_ref`
+- **WHEN** Stage 10 processes `reference_digest_policy: "all_library_references"`
+- **THEN** it SHALL export digest artifacts for those target paper refs
+- **AND** Stage 20 SHALL mark corresponding structured references with available digest modal data.
+
 ### Requirement: Stage 20 SHALL accept a reading enrichment payload
 
 The `literature-deep-reading` runtime SHALL accept `runtime/payloads/reading-enrichment.json` after bootstrap and Host context collection.
@@ -246,6 +272,12 @@ The Stage 20 summary view SHALL use the target paper digest artifact when availa
 - **WHEN** Stage 20 is submitted
 - **THEN** `summary-view.json` SHALL declare `source: "agent_fallback"`
 - **AND** it SHALL use the fallback summary sections.
+
+#### Scenario: Digest summary keeps only leading sections
+
+- **GIVEN** `artifacts/digest.md` contains more than five top-level `##` sections
+- **WHEN** Stage 20 builds `summary-view.json`
+- **THEN** it SHALL include only the first five top-level sections.
 
 ### Requirement: Reference digest modal data SHALL require library digest availability
 
@@ -345,6 +377,16 @@ Table block translations SHALL preserve table-like Markdown or HTML structure.
 - **WHEN** Stage 30 is submitted
 - **THEN** the runtime SHALL reject the payload.
 
+### Requirement: Image translations preserve image references
+
+Image block translations SHALL preserve source image references.
+
+#### Scenario: Image translation preserves image references
+
+- **GIVEN** an image block translation is submitted
+- **WHEN** Stage 30 validates the payload
+- **THEN** the translation SHALL preserve the source image references.
+
 ### Requirement: Generic Translation Quality Gates
 
 The runtime SHALL reject deterministic lazy or structurally invalid block translations without assuming a single target language.
@@ -380,7 +422,7 @@ The `literature-deep-reading` runtime SHALL accept `runtime/payloads/final-revie
 
 ### Requirement: Final HTML renderer
 
-The `literature-deep-reading` skill SHALL render a self-contained deep-reading HTML using the reviewed seamless reader behavior.
+The final renderer SHALL render structured blocks into a self-contained reader without escaping valid paper structures.
 
 #### Scenario: Compare mode aligns source and translation by block
 
@@ -396,12 +438,18 @@ The `literature-deep-reading` skill SHALL render a self-contained deep-reading H
 - **THEN** the right reading aid SHALL update for the active section
 - **AND** questions SHALL appear before citation clues.
 
-#### Scenario: Final HTML does not depend on external math rendering
+#### Scenario: Math is locally pre-rendered
 
 - **GIVEN** source or translated blocks contain inline or display LaTeX
-- **WHEN** Stage 40 renders the final HTML
-- **THEN** math content SHALL be emitted as local rendered HTML wrappers
-- **AND** the HTML SHALL NOT reference CDN math assets.
+- **WHEN** Stage 40 renders `result/deep-reading.html`
+- **THEN** math SHALL be rendered with local HTML/MathML output when possible
+- **AND** the final HTML SHALL NOT reference remote math assets.
+
+#### Scenario: Translated tables render as tables
+
+- **GIVEN** a table block translation contains valid HTML or Markdown table content
+- **WHEN** Stage 40 renders compare mode data
+- **THEN** the translation HTML SHALL contain a rendered table rather than escaped table markup.
 
 #### Scenario: Citation graph uses host layout coordinates
 

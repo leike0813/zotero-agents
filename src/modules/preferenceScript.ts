@@ -55,6 +55,9 @@ function bindPrefEvents() {
   const mcpServerEnabledCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-mcp-server-enabled`,
   ) as HTMLInputElement | null;
+  const hostBridgeDisableWriteApprovalCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-disable-write-approval`,
+  ) as HTMLInputElement | null;
   const mcpServerStatusText = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-mcp-server-status`,
   ) as HTMLElement | null;
@@ -1843,6 +1846,25 @@ function bindPrefEvents() {
         });
         renderMcpServerState(response);
       })();
+    });
+  }
+
+  if (hostBridgeDisableWriteApprovalCheckbox) {
+    hostBridgeDisableWriteApprovalCheckbox.checked =
+      getPref("hostBridgeDisableWriteApproval") === true;
+    hostBridgeDisableWriteApprovalCheckbox.addEventListener("change", () => {
+      const enabled = hostBridgeDisableWriteApprovalCheckbox.checked === true;
+      if (enabled) {
+        const confirmed = confirmWithWindow(
+          getString("pref-host-bridge-disable-write-approval-confirm" as any),
+        );
+        if (!confirmed) {
+          hostBridgeDisableWriteApprovalCheckbox.checked = false;
+          setPref("hostBridgeDisableWriteApproval", false);
+          return;
+        }
+      }
+      setPref("hostBridgeDisableWriteApproval", enabled);
     });
   }
 

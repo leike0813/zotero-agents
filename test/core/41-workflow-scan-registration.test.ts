@@ -10,6 +10,7 @@ import {
   getWorkflowRegistryState,
   rescanWorkflowRegistry,
 } from "../../src/modules/workflowRuntime";
+import { localizeWorkflowLabel } from "../../src/workflows/localization";
 import { syncBuiltinWorkflowsOnStartup } from "../../src/modules/builtinWorkflowSync";
 import {
   existsPath,
@@ -126,6 +127,12 @@ describe("workflow scan + registry integration", function () {
       ),
       "literature-analysis quality gate module should be copied with builtin workflows",
     );
+    assert.isTrue(
+      await existsPath(
+        joinPath(builtinDir, "synthesis-layer", "locales", "zh-CN.json"),
+      ),
+      "synthesis-layer zh-CN locale should be copied with builtin workflows",
+    );
 
     assert.equal(state.workflowsDir, configuredDir);
     assert.equal(state.builtinWorkflowsDir, builtinDir);
@@ -139,7 +146,32 @@ describe("workflow scan + registry integration", function () {
     );
     assert.notInclude(workflowIds, "reference-matching");
     assert.notInclude(workflowIds, "reference-note-editor");
-    assert.equal(workflow?.manifest.label, "Literature Digest");
+    assert.equal(workflow?.manifest.label, "Literature Analysis");
+    assert.equal(localizeWorkflowLabel(workflow!, "zh-CN"), "📊 文献分析");
+    const expectedCoreWorkflows = new Map([
+      ["literature-analysis", "📊"],
+      ["tag-regulator", "🏷️"],
+      ["literature-explainer", "💬"],
+      ["literature-deep-reading", "📖"],
+      ["literature-search-ingest", "🔎"],
+      ["mineru", "📄"],
+      ["create-topic-synthesis", "🧩"],
+      ["update-topic-synthesis", "🔄"],
+      ["manuscript-literature-framing", "🧭"],
+    ]);
+    for (const [workflowId, emoji] of expectedCoreWorkflows) {
+      const coreWorkflow = state.loaded.workflows.find(
+        (entry) => entry.manifest.id === workflowId,
+      );
+      assert.isOk(coreWorkflow, `missing core workflow ${workflowId}`);
+      assert.isTrue(coreWorkflow?.manifest.display?.core, workflowId);
+      assert.equal(coreWorkflow?.manifest.display?.emoji, emoji, workflowId);
+      assert.match(
+        localizeWorkflowLabel(coreWorkflow!, "zh-CN"),
+        new RegExp(`^${emoji.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s`),
+        workflowId,
+      );
+    }
     assert.isFunction(workflow?.hooks.applyResult);
     assert.isFunction(workflow?.hooks.filterInputs);
     assert.isAtLeast(state.loaded.manifests.length, 1);

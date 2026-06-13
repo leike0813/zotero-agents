@@ -4214,6 +4214,120 @@ function evidenceRefKeys(evidence: Record<string, unknown>) {
   return variants;
 }
 
+function evidenceDigestLinkCandidates(evidence: Record<string, unknown>) {
+  const candidates = new Set<string>();
+  [
+    evidence.paper_ref,
+    evidence.paperRef,
+    evidence.literature_item_id,
+    evidence.projected_literature_item_id,
+    evidence.item_key,
+    evidence.itemKey,
+  ].forEach((value) => {
+    const text = textValue(value);
+    if (text.length >= 3 || text.includes(":")) {
+      candidates.add(text);
+    }
+  });
+  const libraryId = textValue(
+    evidence.library_id || evidence.libraryId || state.snapshot?.libraryId,
+  );
+  const itemKey = textValue(evidence.item_key || evidence.itemKey);
+  if (libraryId && itemKey) {
+    candidates.add(`${libraryId}:${itemKey}`);
+  }
+  return candidates;
+}
+
+function enhanceReportLiteratureDigestLinks(
+  root: HTMLElement,
+  detail: TopicDetailDto,
+) {
+  const byCandidate = new Map<string, Record<string, unknown>>();
+  evidenceRows(detail).forEach((evidence) => {
+    evidenceDigestLinkCandidates(evidence).forEach((candidate) => {
+      if (!byCandidate.has(candidate)) {
+        byCandidate.set(candidate, evidence);
+      }
+    });
+  });
+  const candidates = Array.from(byCandidate.keys()).sort(
+    (left, right) => right.length - left.length,
+  );
+  if (!candidates.length) {
+    return root;
+  }
+  const escaped = candidates.map((candidate) =>
+    candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
+  const pattern = new RegExp(
+    `(^|[^A-Za-z0-9_:-])(${escaped.join("|")})(?=$|[^A-Za-z0-9_:-])`,
+    "g",
+  );
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (!(node instanceof Text)) {
+      continue;
+    }
+    const parent = node.parentElement;
+    if (
+      !parent?.closest("li, td, th") ||
+      parent.closest("a, button, code, pre, kbd, samp, script, style") ||
+      !pattern.test(node.nodeValue || "")
+    ) {
+      pattern.lastIndex = 0;
+      continue;
+    }
+    pattern.lastIndex = 0;
+    textNodes.push(node);
+  }
+  textNodes.forEach((node) => {
+    const text = node.nodeValue || "";
+    pattern.lastIndex = 0;
+    let cursor = 0;
+    let match: RegExpExecArray | null;
+    const fragment = document.createDocumentFragment();
+    while ((match = pattern.exec(text))) {
+      const prefix = match[1] || "";
+      const id = match[2] || "";
+      const idStart = match.index + prefix.length;
+      const evidence = byCandidate.get(id);
+      if (!evidence) {
+        continue;
+      }
+      if (idStart > cursor) {
+        fragment.appendChild(
+          document.createTextNode(text.slice(cursor, idStart)),
+        );
+      }
+      const button = elRawText("button", "topic-report-digest-link", id);
+      button.type = "button";
+      button.title = t("synthesis-action-open-digest-artifact");
+      button.setAttribute(
+        "aria-label",
+        `${t("synthesis-action-open-digest-artifact")}: ${id}`,
+      );
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openDigestModal(evidence);
+      });
+      fragment.appendChild(button);
+      cursor = idStart + id.length;
+    }
+    if (cursor === 0) {
+      return;
+    }
+    if (cursor < text.length) {
+      fragment.appendChild(document.createTextNode(text.slice(cursor)));
+    }
+    node.replaceWith(fragment);
+  });
+  return root;
+}
+
 function evidenceForRef(detail: TopicDetailDto, ref: unknown) {
   const id = textValue(ref);
   if (!id) {
@@ -4259,7 +4373,7 @@ function primaryEvidenceForEvent(
 function openDigestModal(evidence: Record<string, unknown>) {
   state.selectedEvidenceId = evidenceId(evidence);
   state.digestModal = { status: "loading", evidence };
-  render();
+  syncDigestModal();
   sendAction("hostCommand", {
     command: "resolveTopicPaperDigest",
     args: {
@@ -4436,15 +4550,19 @@ function renderTopicOverviewSection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
   section.appendChild(el("h2", "", t("synthesis-topic-tab-overview")));
 
-  const summaryText =
-    detail.summary?.text || detail.summary?.brief || detail.summary?.summary;
+  const summaryBlocks = [
+    textValue(detail.topic?.definition),
+    textValue(detail.summary?.summary),
+  ].filter(Boolean);
 
-  if (summaryText) {
+  if (summaryBlocks.length) {
     const summaryCard = el("div", "overview-summary-hero");
     summaryCard.appendChild(
       el("h3", "hero-title", t("synthesis-synthesis-summary")),
     );
-    summaryCard.appendChild(renderParagraphs(summaryText));
+    summaryBlocks.forEach((block) => {
+      summaryCard.appendChild(renderParagraphs(block));
+    });
     section.appendChild(summaryCard);
   }
 
@@ -5461,6 +5579,7 @@ function renderTopicReportSection(
       stripDuplicateReportHeadings(body, title),
     );
     reportBody.classList.add("report-card");
+    enhanceReportLiteratureDigestLinks(reportBody, detail);
     const reportOutline =
       reportBody instanceof HTMLElement
         ? buildReportOutline(reportBody)
@@ -14490,7 +14609,19 @@ function renderDigestRepresentativeImage(result: Record<string, unknown>) {
   return figure;
 }
 
+function syncDigestModal() {
+  const root = document.getElementById("app");
+  if (!(root instanceof HTMLElement)) {
+    return;
+  }
+  renderDigestModal(root);
+  localizeWorkbenchDom(root);
+}
+
 function renderDigestModal(root: HTMLElement) {
+  root
+    .querySelectorAll(".paper-digest-modal")
+    .forEach((node: Element) => node.remove());
   if (!state.digestModal) {
     return;
   }
@@ -14509,7 +14640,7 @@ function renderDigestModal(root: HTMLElement) {
   close.type = "button";
   close.addEventListener("click", () => {
     state.digestModal = undefined;
-    render();
+    syncDigestModal();
   });
   header.appendChild(close);
   dialog.appendChild(header);
@@ -14578,7 +14709,7 @@ window.addEventListener("keydown", (event: KeyboardEvent) => {
   }
   if (state.digestModal) {
     state.digestModal = undefined;
-    render();
+    syncDigestModal();
     return;
   }
   if (state.evidenceExplorerOpen) {
@@ -14781,7 +14912,7 @@ window.addEventListener("message", (event: MessageEvent) => {
       evidence: state.digestModal?.evidence,
       result: data.payload || {},
     };
-    render();
+    syncDigestModal();
   }
 });
 

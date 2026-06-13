@@ -29,6 +29,7 @@ declare namespace _ZoteroTypes {
       "hostBridgeMasterTokenMasked": string;
       "hostBridgeMasterTokenUpdatedAt": string;
       "hostBridgeMasterTokenKeyMaterial": string;
+      "hostBridgeDisableWriteApproval": boolean;
       "mcpServer.enabled": boolean;
       "synthesisGitSyncEnabled": boolean;
       "synthesisGitSyncRemoteUrl": string;

@@ -1,6 +1,12 @@
 {
   "id": "synthesis-layer",
   "version": "1.0.0",
+  "i18n": {
+    "defaultLocale": "en-US",
+    "locales": {
+      "zh-CN": "locales/zh-CN.json"
+    }
+  },
   "workflows": [
     "create-topic-synthesis/workflow.json",
     "update-topic-synthesis/workflow.json",

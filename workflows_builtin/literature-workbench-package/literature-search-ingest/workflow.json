@@ -3,6 +3,10 @@
   "label": "Literature Search Ingest",
   "provider": "acp",
   "version": "0.1.0",
+  "display": {
+    "core": true,
+    "emoji": "🔎"
+  },
   "taskNameTemplate": "Search and ingest literature: {query}",
   "trigger": {
     "requiresSelection": false

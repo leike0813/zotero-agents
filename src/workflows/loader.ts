@@ -6,6 +6,8 @@ import type {
   LoadedWorkflow,
   LoadedWorkflows,
   WorkflowHooksModule,
+  WorkflowI18nLocaleMessages,
+  WorkflowLocalizationResources,
   WorkflowManifest,
 } from "./types";
 import { getBaseName, joinPath } from "../utils/path";
@@ -494,8 +496,104 @@ type WorkflowLoadCandidate = {
   manifestPath: string;
   workflowRoot: string;
   declaredFromPackage: boolean;
+  localization?: WorkflowLocalizationResources;
   manifest: WorkflowManifest;
 };
+
+function normalizePackageRelativePath(value: string) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+/g, "/");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized)
+  ) {
+    return "";
+  }
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.some((segment) => segment === "..")) {
+    return "";
+  }
+  return segments.join("/");
+}
+
+function parseLocaleMessageMap(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const messages: WorkflowI18nLocaleMessages = {};
+  for (const [key, rawMessage] of Object.entries(value)) {
+    if (typeof rawMessage !== "string") {
+      return null;
+    }
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedKey) {
+      return null;
+    }
+    messages[normalizedKey] = rawMessage;
+  }
+  return messages;
+}
+
+async function loadPackageLocalizationResources(args: {
+  entry: string;
+  packageRootDir: string;
+  packageManifest: NonNullable<
+    ReturnType<typeof parseWorkflowPackageManifestFromText>["manifest"]
+  >;
+  diagnostics: LoaderDiagnostic[];
+}) {
+  const localization: WorkflowLocalizationResources = {
+    packageDefaultLocale: String(
+      args.packageManifest.i18n?.defaultLocale || "",
+    ).trim(),
+    packageMessages: {},
+  };
+  const locales = args.packageManifest.i18n?.locales || {};
+  for (const [locale, relativePath] of Object.entries(locales)) {
+    const normalizedLocale = String(locale || "").trim();
+    const normalizedPath = normalizePackageRelativePath(relativePath);
+    const diagnosticPath = normalizedPath
+      ? joinPath(args.packageRootDir, normalizedPath)
+      : joinPath(args.packageRootDir, String(relativePath || ""));
+    if (!normalizedLocale || !normalizedPath) {
+      args.diagnostics.push(
+        createLoaderDiagnostic({
+          level: "warning",
+          category: "manifest_validation_error",
+          message: `Invalid workflow package locale path: ${relativePath}`,
+          entry: args.entry,
+          path: diagnosticPath,
+          reason: "package locale path must be a package-relative path",
+        }),
+      );
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(await readTextFile(diagnosticPath));
+      const messages = parseLocaleMessageMap(parsed);
+      if (!messages) {
+        throw new Error("locale JSON must be an object with string values");
+      }
+      localization.packageMessages![normalizedLocale] = messages;
+    } catch (error) {
+      args.diagnostics.push(
+        createLoaderDiagnostic({
+          level: "warning",
+          category: "manifest_validation_error",
+          message: `Invalid workflow package locale resource: ${diagnosticPath}`,
+          entry: args.entry,
+          path: diagnosticPath,
+          reason: String(error),
+        }),
+      );
+    }
+  }
+  return localization;
+}
 
 async function collectPackageWorkflowCandidates(args: {
   entry: string;
@@ -517,6 +615,12 @@ async function collectPackageWorkflowCandidates(args: {
     }
     return candidates;
   }
+  const localization = await loadPackageLocalizationResources({
+    entry: args.entry,
+    packageRootDir: args.packageRootDir,
+    packageManifest: packageManifestResult.manifest,
+    diagnostics: args.diagnostics,
+  });
   for (const relativeManifestPath of packageManifestResult.manifest.workflows) {
     const manifestPath = joinPath(args.packageRootDir, relativeManifestPath);
     const manifestResult = parseWorkflowManifestFromText({
@@ -539,6 +643,7 @@ async function collectPackageWorkflowCandidates(args: {
       manifestPath,
       workflowRoot: getDirectoryName(manifestPath),
       declaredFromPackage: true,
+      localization,
       manifest: normalizeManifestProvider(manifestResult.manifest),
     });
   }
@@ -573,6 +678,7 @@ async function collectSingleWorkflowCandidate(args: {
       manifestPath: args.manifestPath,
       workflowRoot: args.workflowRoot,
       declaredFromPackage: false,
+      localization: undefined,
       manifest: normalizeManifestProvider(manifestResult.manifest),
     },
   ];
@@ -975,6 +1081,7 @@ export async function loadWorkflowManifests(
           packageId: candidate.packageId,
           packageRootDir: candidate.packageRootDir,
           manifestPath: candidate.manifestPath,
+          localization: candidate.localization,
           workflowSourceKind: args?.workflowSourceKind,
           hooks: hookResult.hooks,
           buildStrategy,

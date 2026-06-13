@@ -52,3 +52,37 @@ The workflow menu SHALL be built from active loaded workflow manifests only.
 - **THEN** no menu action SHALL be rendered for built-in workflow id `reference-matching`
 - **AND** no menu action SHALL be rendered for built-in workflow id `reference-note-editor`.
 
+### Requirement: Workflow menu SHALL group core workflows above other workflows
+
+The workflow action menu SHALL render core workflows before non-core workflows. If both groups are present, the menu SHALL insert a separator between them. Core workflow labels SHALL be visually emphasized.
+
+#### Scenario: Core and non-core workflows are both visible
+
+- **GIVEN** visible workflows include at least one core workflow and at least one non-core workflow
+- **WHEN** the workflow action menu is rebuilt
+- **THEN** core workflow menu items appear first
+- **AND** a separator appears before the first non-core workflow
+- **AND** core workflow labels are bold
+
+#### Scenario: Only one workflow group is visible
+
+- **GIVEN** visible workflows are all core or all non-core
+- **WHEN** the workflow action menu is rebuilt
+- **THEN** no core/non-core group separator is added
+
+### Requirement: Workflow menu SHALL use localized workflow labels
+
+The workflow action menu SHALL render workflow-owned display labels using the active display locale.
+
+#### Scenario: Menu label is localized
+
+- **WHEN** a visible workflow has a localized `label` for the active locale
+- **THEN** the workflow menu item SHALL display that localized label
+- **AND** command execution SHALL still target the stable workflow id.
+
+#### Scenario: Disabled reason is appended to localized label
+
+- **WHEN** a workflow menu entry is disabled
+- **THEN** the disabled reason SHALL be appended to the localized label
+- **AND** missing localization SHALL fall back to the raw manifest label.
+

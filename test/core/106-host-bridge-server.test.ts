@@ -61,6 +61,7 @@ describe("host bridge server phase 1", function () {
     setPref("hostBridgeMasterTokenMasked", "");
     setPref("hostBridgeMasterTokenUpdatedAt", "");
     setPref("hostBridgeMasterTokenKeyMaterial", "");
+    setPref("hostBridgeDisableWriteApproval", false);
   });
 
   it("serves unauthenticated health without leaking token or paths", async function () {

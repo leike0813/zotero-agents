@@ -186,18 +186,14 @@
     if (!Number.isFinite(parsed)) {
       return {
         ok: false,
-        message:
-          args.labels.workflowSettingsNumberInvalid ||
-          "Please enter a valid number.",
+        message: args.labels.workflowSettingsNumberInvalid,
       };
     }
     if (isPositiveIntegerField(args.entry)) {
       if (!Number.isInteger(parsed) || parsed <= 0) {
         return {
           ok: false,
-          message:
-            args.labels.workflowSettingsPositiveIntegerRequired ||
-            "Please enter a positive integer.",
+          message: args.labels.workflowSettingsPositiveIntegerRequired,
         };
       }
     }
@@ -538,7 +534,9 @@
       return;
     }
     state.fieldCollectors = [];
-    document.title = snapshot.title || "Workflow Settings";
+    document.title =
+      snapshot.title ||
+      String((snapshot.labels && snapshot.labels.title) || "").trim();
     const shell = document.createElement("div");
     shell.className = "settings-shell";
 
@@ -679,8 +677,7 @@
       const refreshBtn = document.createElement("button");
       refreshBtn.type = "button";
       refreshBtn.className = "settings-btn";
-      refreshBtn.textContent =
-        snapshot.labels.refreshAcpRuntimeCache || "Refresh ACP Config Cache";
+      refreshBtn.textContent = snapshot.labels.refreshAcpRuntimeCache;
       refreshBtn.addEventListener("click", function () {
         if (!flushDraftFromControls()) {
           return;

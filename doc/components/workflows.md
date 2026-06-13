@@ -49,9 +49,43 @@ workflows/
 {
   "id": "literature-workbench-package",
   "version": "1.0.0",
+  "i18n": {
+    "defaultLocale": "en-US",
+    "locales": {
+      "zh-CN": "locales/zh-CN.json"
+    }
+  },
   "workflows": ["literature-analysis", "tag-regulator"]
 }
 ```
+
+### Workflow package 多语言资源
+
+Workflow 是可插拔包，workflow 自身的 label、任务名模板、参数标题/说明由 workflow 包负责本地化，不进入插件内置 `addon.ftl` / `preferences.ftl` 治理。插件只在 UI 边界生成 localized display projection；`workflow.id`、参数 key、request payload、hook runtime 输入和历史任务记录保持稳定。
+
+v1 支持两种声明方式：
+
+- 单个 workflow 可在 `workflow.json` 中声明 `i18n.messages`，key 使用 workflow-local 形式，例如 `label`、`taskNameTemplate`、`parameters.language.title`。
+- 多 workflow package 可在 `workflow-package.json` 中声明 `i18n.locales`，指向包内 JSON 文件；locale 文件 key 使用 fully-qualified 形式，例如 `workflows.literature-analysis.label`。
+
+解析回退顺序固定为：精确 locale、语言子标签、`defaultLocale`、raw manifest 字符串、id/key fallback。
+
+### Workflow display 元数据
+
+`workflow.json` 可声明展示专用的 `display` 对象：
+
+```json
+{
+  "display": {
+    "core": true,
+    "emoji": "📊"
+  }
+}
+```
+
+- `display.core` 表示核心 workflow。核心 workflow 在 workflow 菜单中排在非核心 workflow 上方，并在 Dashboard 首页显示 Core badge。
+- `display.emoji` 是 locale-independent 的显示名前缀，由 manifest 所有，不进入 `i18n.messages` 或 package locale JSON。
+- `display` 只影响 UI display projection；`workflow.id`、参数 key、request payload、hook runtime 输入、agent 输出和历史任务记录都不改写。
 
 **包内 hook 可使用相对导入**：
 

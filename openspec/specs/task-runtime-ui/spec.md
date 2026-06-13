@@ -154,3 +154,47 @@ Provider workflow task projections restored from plugin state SHALL be reconcile
 - **THEN** the projection SHALL be marked `failed`
 - **AND** it SHALL no longer appear in active task lists.
 
+### Requirement: Dashboard home SHALL identify core workflows
+
+Dashboard home workflow bubbles SHALL expose whether a workflow is core and SHALL render a localized Core badge for core workflows. Builtin workflow badges SHALL continue to render independently.
+
+#### Scenario: Core workflow appears on Dashboard home
+
+- **GIVEN** a visible workflow declares `display.core` as true
+- **WHEN** Dashboard home workflow bubbles are rendered
+- **THEN** the workflow bubble snapshot includes `core: true`
+- **AND** the UI renders a localized Core badge for that bubble
+
+#### Scenario: Non-core workflow appears on Dashboard home
+
+- **GIVEN** a visible workflow does not declare `display.core` as true
+- **WHEN** Dashboard home workflow bubbles are rendered
+- **THEN** no Core badge is rendered for that workflow
+
+### Requirement: Dashboard snapshot labels SHALL cover fixed Dashboard UI
+
+Dashboard snapshots SHALL provide labels for fixed Dashboard UI chrome, table headers, toolbar buttons, products, runtime logs, management UI controls, empty states, and validation prompts.
+
+#### Scenario: Dashboard static UI renders
+
+- **GIVEN** a Dashboard snapshot with localized labels
+- **WHEN** the main Dashboard page renders home, workflow options, products, runtime logs, or backend views
+- **THEN** fixed UI text MUST come from the snapshot labels
+- **AND** action keys and business DTO fields MUST remain unchanged
+
+### Requirement: Dashboard workflow display SHALL use localized workflow labels
+
+Dashboard workflow cards and newly-created user-visible run labels SHALL use localized workflow labels when available.
+
+#### Scenario: Dashboard workflow card is localized
+
+- **WHEN** dashboard workflow summaries are built for a locale with workflow package messages
+- **THEN** each workflow card label SHALL use the localized workflow label
+- **AND** workflow ids and settings routing SHALL remain unchanged.
+
+#### Scenario: Existing history is not migrated
+
+- **WHEN** historical task rows already contain workflow labels
+- **THEN** the system SHALL NOT rewrite those rows during workflow locale changes
+- **AND** only newly-created labels use the current locale projection.
+

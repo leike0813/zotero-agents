@@ -220,3 +220,50 @@ upstream step output into the current step `input` or `parameter`.
 - **THEN** the runtime SHALL copy the referenced upstream fields into the
   declared target fields before launching the step.
 
+### Requirement: Workflow manifests SHALL support display-only core metadata
+
+Workflow manifests SHALL allow an optional `display` object with `core` and `emoji` fields. `display.core` SHALL be treated as false when omitted. `display.emoji` SHALL be a display prefix only and SHALL NOT change workflow ids, parameter keys, request payloads, or runtime execution.
+
+#### Scenario: Core display metadata is accepted
+
+- **GIVEN** a workflow manifest declares `display.core` as true and `display.emoji` as a non-empty string
+- **WHEN** workflow manifests are loaded
+- **THEN** the workflow loads successfully with the display metadata preserved
+
+#### Scenario: Invalid display metadata is rejected
+
+- **GIVEN** a workflow manifest declares `display.core` or `display.emoji` with an invalid type
+- **WHEN** workflow manifests are loaded
+- **THEN** the workflow is rejected with a manifest validation diagnostic
+
+### Requirement: Workflow manifests SHALL support display localization metadata
+
+Workflow manifests SHALL allow authors to declare display-only i18n metadata for workflow-owned fixed UI strings.
+
+#### Scenario: Inline workflow messages are accepted
+
+- **WHEN** a workflow manifest declares `i18n.messages` with locale maps for `label`, `taskNameTemplate`, or `parameters.<key>.title`/`description`
+- **THEN** schema validation SHALL accept the manifest
+- **AND** the raw manifest fields SHALL remain the stable fallback values.
+
+#### Scenario: Invalid inline message shape is rejected
+
+- **WHEN** a workflow manifest declares non-object locale messages or non-string message values
+- **THEN** schema validation SHALL reject the manifest with deterministic diagnostics.
+
+### Requirement: Workflow package manifests SHALL support package locale resources
+
+Workflow package manifests SHALL allow authors to declare package-owned locale JSON resources for workflow display strings.
+
+#### Scenario: Package locale resource is accepted
+
+- **WHEN** a workflow package manifest declares `i18n.locales` mapping locale tags to package-relative JSON paths
+- **THEN** package schema validation SHALL accept the manifest
+- **AND** loader scan SHALL read the locale messages for workflows in that package.
+
+#### Scenario: Missing package locale resource is diagnostic
+
+- **WHEN** a package locale path cannot be read or parsed as a string map
+- **THEN** loader scan SHALL emit a deterministic workflow diagnostic
+- **AND** workflows in the package SHALL remain loadable using raw manifest fallback strings.
+

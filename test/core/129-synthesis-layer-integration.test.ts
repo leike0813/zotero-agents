@@ -1245,6 +1245,88 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.include(invalid.diagnostics.errors?.join("\n"), "paper_ref");
   });
 
+  it("does not treat recreated active topics as deleted for paper_ref lookup or context", async function () {
+    const root = await makeRoot();
+    let timestamp = "2026-05-12T00:10:00.000Z";
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => timestamp,
+      mirrorAdapter: createMirrorRecorder().adapter,
+    });
+
+    await service.applyTopicSynthesisResult(
+      validBundle({
+        topic_definition: {
+          id: "topic-alpha",
+          title: "Alpha Topic",
+          definition: "Alpha semantic scope.",
+        },
+        topic_resolver: {
+          mode: "explicit",
+          paper_refs: ["1:OLD"],
+        },
+        resolved_paper_set: {
+          papers: [{ paper_ref: "1:OLD", match_reasons: ["explicit"] }],
+        },
+        artifact_metadata: {
+          depends_on: {
+            papers: ["1:OLD"],
+            artifacts: [],
+          },
+        },
+      }),
+    );
+
+    timestamp = "2026-05-12T00:11:00.000Z";
+    await service.deleteTopicArtifact({ topicId: "topic-alpha" });
+
+    timestamp = "2026-05-12T00:12:00.000Z";
+    await service.applyTopicSynthesisResult(
+      validBundle({
+        topic_definition: {
+          id: "topic-alpha",
+          title: "Alpha Topic Recreated",
+          definition: "Alpha semantic scope, recreated.",
+        },
+        topic_resolver: {
+          mode: "explicit",
+          paper_refs: ["1:RECREATED"],
+        },
+        resolved_paper_set: {
+          papers: [{ paper_ref: "1:RECREATED", match_reasons: ["explicit"] }],
+        },
+        artifact_metadata: {
+          depends_on: {
+            papers: ["1:RECREATED"],
+            artifacts: [],
+          },
+        },
+      }),
+    );
+
+    const deleted = await service.listDeletedTopicArtifacts();
+    const lookup = await service.findTopicsByPaperRef({
+      paper_ref: "1:RECREATED",
+    });
+    const context = (await service.getTopicContext({
+      topicId: "topic-alpha",
+    })) as Record<string, unknown>;
+
+    assert.include(
+      deleted.deleted.map((entry) => entry.topic_id),
+      "topic-alpha",
+    );
+    assert.equal(lookup.ok, true);
+    assert.deepEqual(
+      lookup.topics.map((topic) => topic.topic_id),
+      ["topic-alpha"],
+    );
+    assert.deepEqual(lookup.topics[0].matched_paper_refs, ["1:RECREATED"]);
+    assert.equal(context.topic_id, "topic-alpha");
+    assert.notEqual(context.status, "deleted");
+  });
+
   it("soft deletes topic artifacts from active state while preserving a deleted cleanup record", async function () {
     const root = await makeRoot();
     const mirror = createMirrorRecorder();

@@ -2,7 +2,7 @@ contract_version: "0.1.0"
 skills:
   - id: create-topic-synthesis-prepare
     title: 创建主题综合准备
-    description: 为新建主题综合运行准备主题意图、resolver、文献工作集和分析上下文。
+    description: Prepare the topic intent, resolver, paper workset and analysis context for topic synthesis creation. Do not trigger unless you can access to Zotero library via `zotero-bridge`.
     operation: create
     output_kind: topic_synthesis_handoff
     handoff: prepare_analysis_context
@@ -38,7 +38,7 @@ skills:
           - runtime/payloads/artifacts/
   - id: update-topic-synthesis-prepare
     title: 更新主题综合准备
-    description: 为更新主题综合运行准备当前主题上下文、resolver、文献工作集和分析上下文。
+    description: Prepare the topic intent, resolver, paper workset and analysis context for topic synthesis update. Do not trigger unless you can access to Zotero library via `zotero-bridge`.
     operation: update_full
     output_kind: topic_synthesis_handoff
     handoff: prepare_analysis_context
@@ -74,7 +74,7 @@ skills:
           - runtime/payloads/artifacts/
   - id: topic-synthesis-core-enrichment
     title: 主题综合核心分析与知识图谱补全
-    description: 读取已准备的分析上下文，编写核心综合分析和知识图谱补全 payload。
+    description: Produce topic-level core synthesis and knowledge graph enrichment from prepared analysis context. Do not trigger unless you can access to Zotero library via `zotero-bridge`.
     operation: create
     output_kind: topic_synthesis_handoff
     handoff: core_enrichment
@@ -105,7 +105,7 @@ skills:
           - runtime/views/concept-candidate-context.json
   - id: topic-synthesis-finalize
     title: 主题综合收尾
-    description: 读取核心分析与知识图谱补全结果，编写 coverage 与 summary payload，并准备最终候选输出。
+    description: Assess library coverage and evidence reliability, suggest collection directions, and produce the final user-facing summary. Do not trigger unless you can access to Zotero library via `zotero-bridge`.
     operation: create
     output_kind: topic_synthesis
     handoff: finalize_output

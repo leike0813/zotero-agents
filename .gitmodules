@@ -1,7 +1,3 @@
-[submodule "skills_builtin/literature-digest"]
-	path = skills_builtin/literature-digest
-	url = https://github.com/leike0813/agent-skills
-	branch = skill/literature-digest
 [submodule "skills_builtin/tag-regulator"]
 	path = skills_builtin/tag-regulator
 	url = https://github.com/leike0813/agent-skills

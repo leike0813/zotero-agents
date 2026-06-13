@@ -3,6 +3,10 @@
   "label": "Create Topic Synthesis",
   "provider": "acp",
   "version": "0.2.0",
+  "display": {
+    "core": true,
+    "emoji": "🧩"
+  },
   "taskNameTemplate": "Create synthesis: {topic seed}",
   "trigger": {
     "requiresSelection": false
@@ -50,7 +54,7 @@
     "zoteroHostAccess": {
       "required": true
     },
-    "skillrunner_mode": "interactive",
+    "skillrunner_mode": "auto",
     "timeout_ms": 1200000
   },
   "result": {

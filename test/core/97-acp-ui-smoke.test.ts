@@ -394,7 +394,10 @@ describe("acp ui smoke", function () {
       'copyTextToClipboard(code.textContent || "")',
     );
     assert.include(transcriptRendererJs, "assistant-code-copy-button");
-    assert.include(transcriptRendererJs, "decorateMarkdownCodeBlocks(body);");
+    assert.include(
+      transcriptRendererJs,
+      "decorateMarkdownCodeBlocks(body, options);",
+    );
     assert.include(transcriptRendererJs, "decorateMarkdownCodeBlocks,");
     assert.include(transcriptRendererJs, "copyTextToClipboard,");
     assert.include(
@@ -622,7 +625,7 @@ describe("acp ui smoke", function () {
     assert.notInclude(app, 'sendAction("open-acp-sidebar"');
     assert.include(app, 'sendAction("open-acp-skill-runs"');
     assert.include(app, "function labelText(labels, key, fallback)");
-    assert.include(app, 'labelText(labels, "tabProducts", "Products")');
+    assert.include(app, 'labelText(labels, "tabProducts")');
     assert.include(app, '"productsEmpty"');
     assert.include(app, "renderAcpSkillRunnerBackend");
     assert.include(app, "row.requestKind");
@@ -668,8 +671,8 @@ describe("acp ui smoke", function () {
     assert.include(assistantHtml, "assistant-workspace-tabbar");
     assert.include(assistantHtml, "../shared/theme.js");
     assert.include(assistantHtml, "../shared/theme.css");
-    assert.include(sharedThemeCss, "--zs-selection-bg: #bfd4ff;");
-    assert.include(sharedThemeCss, "--zs-selection-text: #0f172a;");
+    assert.include(sharedThemeCss, "--zs-selection-bg: var(--zs-accent-soft);");
+    assert.include(sharedThemeCss, "--zs-selection-text: var(--zs-text);");
     assert.include(sharedThemeCss, "background: var(--zs-selection-bg);");
     assert.include(sharedThemeCss, "::-moz-selection");
     assert.include(assistantHtml, 'src="./run-dialog.html"');
@@ -889,7 +892,7 @@ describe("acp ui smoke", function () {
     );
     assert.include(
       assistantTranscriptRendererJs,
-      'transcriptLabel(options, "workspaceActivity", "Workspace update")',
+      'transcriptLabel(options, "workspaceActivity")',
     );
     assert.notInclude(
       assistantTranscriptRendererJs,
@@ -1000,13 +1003,10 @@ describe("acp ui smoke", function () {
     );
     assert.include(assistantTranscriptRendererJs, "tool_activity_group");
     assert.include(assistantTranscriptRendererJs, "stableToolActivityGroupKey");
+    assert.include(assistantTranscriptRendererJs, '"aria-expanded"');
     assert.include(
       assistantTranscriptRendererJs,
-      'summary.setAttribute("aria-expanded"',
-    );
-    assert.include(
-      assistantTranscriptRendererJs,
-      'el("button", "assistant-transcript-tool-activity-summary")',
+      "assistant-transcript-tool-activity-summary",
     );
     assert.include(assistantTranscriptRendererJs, "assistant-transcript-row");
     assert.include(assistantTranscriptRendererJs, "data-assistant-panel-kind");
@@ -1305,34 +1305,13 @@ describe("acp ui smoke", function () {
     assert.notInclude(sharedPanelCss, ".assistant-panel-reply-actions");
     assert.include(
       sharedPanelCss,
-      '.assistant-panel-context-selectors .assistant-panel-selector[data-assistant-selector-id="backend"]',
+      ".asst-banner .assistant-panel-context-selectors",
     );
-    assert.include(sharedPanelCss, "flex: 4 1 0;");
+    assert.include(sharedPanelCss, ".assistant-panel-reply-footer");
     assert.include(
       sharedPanelCss,
-      '.assistant-panel-context-selectors .assistant-panel-selector[data-assistant-selector-id="conversation"]',
+      ".assistant-panel-reply-footer .assistant-panel-selector",
     );
-    assert.include(sharedPanelCss, "flex: 6 1 0;");
-    assert.include(sharedPanelCss, "flex: 0 0 max-content;");
-    assert.include(sharedPanelCss, "min-width: max-content;");
-    assert.include(sharedPanelCss, "height: 28px;");
-    assert.include(sharedPanelCss, "line-height: 26px;");
-    assert.include(sharedPanelCss, "padding-block: 0;");
-    assert.include(
-      sharedPanelCss,
-      '.assistant-panel-reply-footer .assistant-panel-selector[data-assistant-selector-id="mode"]',
-    );
-    assert.include(sharedPanelCss, "flex: 3 1 0;");
-    assert.include(
-      sharedPanelCss,
-      '.assistant-panel-reply-footer .assistant-panel-selector[data-assistant-selector-id="model"]',
-    );
-    assert.include(sharedPanelCss, "flex: 5 1 0;");
-    assert.include(
-      sharedPanelCss,
-      '.assistant-panel-reply-footer .assistant-panel-selector[data-assistant-selector-id="reasoning"]',
-    );
-    assert.include(sharedPanelCss, "white-space: nowrap;");
     assert.isBelow(
       assistantPanelRendererJs.indexOf("target.appendChild(input);"),
       assistantPanelRendererJs.indexOf("target.appendChild(footer);"),
@@ -1673,7 +1652,7 @@ describe("acp ui smoke", function () {
       acpSkillRunJs,
       "function renderPanelRuntimeFailure(message)",
     );
-    assert.include(acpSkillRunJs, "ACP Skills panel renderer failed:");
+    assert.include(acpSkillRunJs, "panelRendererFailed");
     assert.include(acpSkillRunJs, "data-assistant-interaction");
     assert.include(acpSkillRunJs, "transcriptNodeMap: new Map()");
     assert.include(acpSkillRunJs, "transcriptOrderKey");
@@ -2554,9 +2533,19 @@ describe("acp ui smoke", function () {
         conversationState: "closed",
         conversationRecoveryState: "available",
         sessionId: "session-detached",
+        activePrompt: false,
         transcriptItems: [],
       },
-      runs: [],
+      runs: [
+        {
+          requestId: "acp-skill-detached",
+          status: "running",
+          conversationState: "closed",
+          conversationRecoveryState: "available",
+          sessionId: "session-detached",
+          activePrompt: false,
+        },
+      ],
       logs: [],
     });
     const detachedActions = Object.fromEntries(
@@ -2567,6 +2556,55 @@ describe("acp ui smoke", function () {
     );
     assert.equal(detachedActions["connect-run"].enabled, true);
     assert.equal(detachedActions["disconnect-run"].enabled, false);
+    assert.equal(detachedActions["cancel-run"].enabled, true);
+    assert.equal(
+      detachedSkillPanel.drawers.sections[0].groups[0].activeTasks[0]
+        .attention,
+      "warning",
+    );
+    assert.equal(detachedSkillPanel.interaction.kind, "disconnected");
+    assert.equal(detachedSkillPanel.reply.enabled, false);
+    assert.equal(detachedSkillPanel.reply.inputEnabled, false);
+    assert.equal(detachedSkillPanel.reply.action, "reply-run");
+
+    const detachedWaitingSkillPanel = model.projectAcpSkillRunPanelSnapshot({
+      selectedRun: {
+        requestId: "acp-skill-detached-waiting",
+        status: "waiting_user",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        sessionId: "session-detached-waiting",
+        activePrompt: false,
+        pendingInteraction: {
+          message: "Need user confirmation.",
+          uiHints: { kind: "confirm" },
+        },
+        transcriptItems: [],
+      },
+      runs: [
+        {
+          requestId: "acp-skill-detached-waiting",
+          status: "waiting_user",
+          conversationState: "closed",
+          conversationRecoveryState: "available",
+          sessionId: "session-detached-waiting",
+          pendingInteraction: {
+            message: "Need user confirmation.",
+          },
+        },
+      ],
+      logs: [],
+    });
+    const detachedWaitingActions = Object.fromEntries(
+      detachedWaitingSkillPanel.context.actions.map((entry: any) => [
+        entry.id || entry.action,
+        entry,
+      ]),
+    );
+    assert.equal(detachedWaitingActions["connect-run"].enabled, true);
+    assert.equal(detachedWaitingSkillPanel.interaction.kind, "waiting_user");
+    assert.equal(detachedWaitingSkillPanel.reply.enabled, false);
+    assert.equal(detachedWaitingSkillPanel.reply.action, "reply-run");
 
     const primitivePanel = model.projectAcpChatPanelSnapshot({
       status: "connected",

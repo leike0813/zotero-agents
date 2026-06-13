@@ -65,6 +65,30 @@ export type WorkflowParameterSchema = {
   max?: number;
 };
 
+export type WorkflowI18nLocaleMessages = Record<string, string>;
+
+export type WorkflowI18nMessages = Record<string, WorkflowI18nLocaleMessages>;
+
+export type WorkflowI18nSpec = {
+  defaultLocale?: string;
+  messages?: WorkflowI18nMessages;
+};
+
+export type WorkflowPackageI18nSpec = {
+  defaultLocale?: string;
+  locales?: Record<string, string>;
+};
+
+export type WorkflowLocalizationResources = {
+  packageDefaultLocale?: string;
+  packageMessages?: WorkflowI18nMessages;
+};
+
+export type WorkflowDisplaySpec = {
+  core?: boolean;
+  emoji?: string;
+};
+
 export type WorkflowHooksSpec = {
   filterInputs?: string;
   buildRequest?: string;
@@ -164,7 +188,9 @@ export type WorkflowManifest = {
   debug_only?: boolean;
   provider: string;
   version?: string;
+  display?: WorkflowDisplaySpec;
   taskNameTemplate?: string;
+  i18n?: WorkflowI18nSpec;
   parameters?: Record<string, WorkflowParameterSchema>;
   inputs?: WorkflowInputsSpec;
   trigger?: WorkflowTriggerSpec;
@@ -178,6 +204,7 @@ export type WorkflowPackageManifest = {
   id: string;
   version: string;
   workflows: string[];
+  i18n?: WorkflowPackageI18nSpec;
 };
 
 export type HookHelpers = {
@@ -511,6 +538,7 @@ export type LoadedWorkflow = {
   packageId?: string;
   packageRootDir?: string;
   manifestPath?: string;
+  localization?: WorkflowLocalizationResources;
   workflowSourceKind?: "builtin" | "user" | "";
   hooks: WorkflowHooksModule;
   buildStrategy: ResolvedBuildStrategy;

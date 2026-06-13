@@ -26,6 +26,7 @@ import {
   writeUtf8,
 } from "./workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
+import { getPref, setPref } from "../../src/utils/prefs";
 
 type Listener = (event: Record<string, unknown>) => void;
 
@@ -394,6 +395,9 @@ function createPrefsWindow(args?: {
 
   const backendManageButton = document.createXULElement("button");
   backendManageButton.id = `zotero-prefpane-${config.addonRef}-backend-manage`;
+  const hostBridgeDisableWriteApprovalCheckbox =
+    document.createXULElement("input");
+  hostBridgeDisableWriteApprovalCheckbox.id = `zotero-prefpane-${config.addonRef}-host-bridge-disable-write-approval`;
   const runtimeDataRoot = args?.includeRuntimeDataControls
     ? document.createXULElement("div")
     : null;
@@ -541,6 +545,7 @@ function createPrefsWindow(args?: {
     workflowSettingsButton,
     workflowOpenLogsButton,
     backendManageButton,
+    hostBridgeDisableWriteApprovalCheckbox,
     runtimeDataRoot,
     runtimeDataSummary,
     runtimeDataCategories,
@@ -638,6 +643,7 @@ describe("gui: preference scripts", function () {
     const runtime = globalThis as { addon?: unknown };
     runtime.addon = prevAddon;
     setDebugModeOverrideForTests();
+    setPref("hostBridgeDisableWriteApproval", false);
     resetManagedLocalRuntimeStateChangeListenersForTests();
   });
 
@@ -792,6 +798,42 @@ describe("gui: preference scripts", function () {
     assert.deepEqual(calls[5].data, {
       window,
     });
+  });
+
+  it("confirms before disabling Host Bridge write approvals", async function () {
+    setPref("hostBridgeDisableWriteApproval", false);
+    const rejected = createPrefsWindow({
+      confirmResults: [false],
+    });
+    await registerPrefsScripts(rejected.window);
+
+    rejected.hostBridgeDisableWriteApprovalCheckbox.checked = true;
+    rejected.hostBridgeDisableWriteApprovalCheckbox.dispatch("change");
+
+    assert.lengthOf(rejected.confirmMessages, 1);
+    assert.include(
+      rejected.confirmMessages[0],
+      "pref-host-bridge-disable-write-approval-confirm",
+    );
+    assert.isFalse(rejected.hostBridgeDisableWriteApprovalCheckbox.checked);
+    assert.isFalse(getPref("hostBridgeDisableWriteApproval") === true);
+
+    const accepted = createPrefsWindow({
+      confirmResults: [true],
+    });
+    await registerPrefsScripts(accepted.window);
+
+    accepted.hostBridgeDisableWriteApprovalCheckbox.checked = true;
+    accepted.hostBridgeDisableWriteApprovalCheckbox.dispatch("change");
+
+    assert.lengthOf(accepted.confirmMessages, 1);
+    assert.isTrue(getPref("hostBridgeDisableWriteApproval") === true);
+
+    accepted.hostBridgeDisableWriteApprovalCheckbox.checked = false;
+    accepted.hostBridgeDisableWriteApprovalCheckbox.dispatch("change");
+
+    assert.lengthOf(accepted.confirmMessages, 1);
+    assert.isFalse(getPref("hostBridgeDisableWriteApproval") === true);
   });
 
   it("renders persistence governance data and dispatches issue cleanup", async function () {
@@ -1211,17 +1253,29 @@ describe("gui: preference scripts", function () {
     assert.include(xhtml, "runtime-data-toggle-issues");
     assert.include(xhtml, "runtime-data-issues-panel");
     assert.include(xhtml, "runtime-data-state-db-info");
+    assert.include(xhtml, "host-bridge-disable-write-approval");
+    assert.include(xhtml, "zs-host-bridge-write-approval-danger");
     assert.include(enLocale, "pref-runtime-data-show-issues");
     assert.include(enLocale, "pref-runtime-data-hide-issues");
     assert.include(enLocale, "pref-runtime-data-category-cleanup-confirm");
     assert.include(enLocale, "pref-runtime-data-state-db-idle");
     assert.include(enLocale, "pref-synthesis-db-reset-confirm-message");
+    assert.include(enLocale, "pref-host-bridge-disable-write-approval");
+    assert.include(
+      enLocale,
+      "pref-host-bridge-disable-write-approval-confirm",
+    );
     assert.include(enLocale, "RESET SYNTHESIS DATABASE");
     assert.include(zhLocale, "pref-runtime-data-show-issues");
     assert.include(zhLocale, "pref-runtime-data-hide-issues");
     assert.include(zhLocale, "pref-runtime-data-category-cleanup-confirm");
     assert.include(zhLocale, "pref-runtime-data-state-db-idle");
     assert.include(zhLocale, "pref-synthesis-db-reset-confirm-message");
+    assert.include(zhLocale, "pref-host-bridge-disable-write-approval");
+    assert.include(
+      zhLocale,
+      "pref-host-bridge-disable-write-approval-confirm",
+    );
     assert.include(zhLocale, "RESET SYNTHESIS DATABASE");
   });
 

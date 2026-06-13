@@ -89,7 +89,8 @@
   }
 
   function assistantPanelModel() {
-    return window.AssistantPanelModel && typeof window.AssistantPanelModel === "object"
+    return window.AssistantPanelModel &&
+      typeof window.AssistantPanelModel === "object"
       ? window.AssistantPanelModel
       : null;
   }
@@ -177,7 +178,9 @@
             kind: "acp-chat",
             context: {
               id: safeText(snapshot && snapshot.sessionId),
-              title: safeText(snapshot && snapshot.title) || "ACP Chat",
+              title:
+                safeText(snapshot && snapshot.title) ||
+                safeText(snapshot && snapshot.labels && snapshot.labels.title),
               status: safeText(snapshot && snapshot.status) || "idle",
             },
             conversation: projectConversationView(snapshot || {}),
@@ -220,7 +223,9 @@
       return;
     }
     if (action === "set-active-backend") {
-      sendAction("set-active-backend", { backendId: safeText(data.backendId || data.value) });
+      sendAction("set-active-backend", {
+        backendId: safeText(data.backendId || data.value),
+      });
       return;
     }
     if (action === "set-active-conversation") {
@@ -233,32 +238,43 @@
       sendAction("set-active-conversation", {
         conversationId: safeText(data.conversationId || data.value),
         backendId: safeText(
-          data.backendId || option.backendId || snapshot.activeBackendId || snapshot.backendId,
+          data.backendId ||
+            option.backendId ||
+            snapshot.activeBackendId ||
+            snapshot.backendId,
         ),
       });
       return;
     }
     if (action === "new-conversation") {
       sendAction("new-conversation", {
-        backendId: safeText(data.backendId || snapshot.activeBackendId || snapshot.backendId),
+        backendId: safeText(
+          data.backendId || snapshot.activeBackendId || snapshot.backendId,
+        ),
       });
       return;
     }
     if (action === "connect") {
       sendAction("connect", {
-        backendId: safeText(data.backendId || snapshot.activeBackendId || snapshot.backendId),
+        backendId: safeText(
+          data.backendId || snapshot.activeBackendId || snapshot.backendId,
+        ),
       });
       return;
     }
     if (action === "disconnect") {
       sendAction("disconnect", {
-        backendId: safeText(data.backendId || snapshot.activeBackendId || snapshot.backendId),
+        backendId: safeText(
+          data.backendId || snapshot.activeBackendId || snapshot.backendId,
+        ),
       });
       return;
     }
     if (action === "authenticate") {
       sendAction("authenticate", {
-        backendId: safeText(data.backendId || snapshot.activeBackendId || snapshot.backendId),
+        backendId: safeText(
+          data.backendId || snapshot.activeBackendId || snapshot.backendId,
+        ),
         methodId: safeText(data.methodId),
       });
       return;
@@ -268,11 +284,15 @@
       return;
     }
     if (action === "set-model") {
-      sendAction("set-model", { modelId: safeText(data.modelId || data.value) });
+      sendAction("set-model", {
+        modelId: safeText(data.modelId || data.value),
+      });
       return;
     }
     if (action === "set-reasoning-effort") {
-      sendAction("set-reasoning-effort", { effortId: safeText(data.effortId || data.value) });
+      sendAction("set-reasoning-effort", {
+        effortId: safeText(data.effortId || data.value),
+      });
       return;
     }
     if (action === "send-prompt") {
@@ -295,7 +315,11 @@
 
   function renderPanel(snapshot) {
     const renderer = assistantPanelRenderer();
-    if (!renderer || typeof renderer.renderAssistantPanelSnapshot !== "function") return;
+    if (
+      !renderer ||
+      typeof renderer.renderAssistantPanelSnapshot !== "function"
+    )
+      return;
     const panelSnapshot = projectPanelSnapshot(snapshot || {});
     if (!snapshot || !snapshot.pendingPermissionRequest) {
       state.permissionRequestDetails = null;
@@ -303,7 +327,8 @@
     }
     panelSnapshot.drawers = panelSnapshot.drawers || {};
     panelSnapshot.drawers.permissionRequest = state.permissionRequestDetails;
-    panelSnapshot.drawers.permissionRequestOpen = state.permissionRequestDrawerOpen;
+    panelSnapshot.drawers.permissionRequestOpen =
+      state.permissionRequestDrawerOpen;
     renderer.renderAssistantPanelSnapshot(panelSnapshot, {
       managed: true,
       managedRegions: {
@@ -329,8 +354,12 @@
         details: document.getElementById("acp-chat-details"),
       },
     });
-    document.getElementById("acp-chat-drawer")?.classList.toggle("hidden", !state.sessionDrawerOpen);
-    document.getElementById("acp-chat-details")?.classList.toggle("hidden", !state.detailsDrawerOpen);
+    document
+      .getElementById("acp-chat-drawer")
+      ?.classList.toggle("hidden", !state.sessionDrawerOpen);
+    document
+      .getElementById("acp-chat-details")
+      ?.classList.toggle("hidden", !state.detailsDrawerOpen);
   }
 
   function renderTranscript(snapshot) {
@@ -339,11 +368,27 @@
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
     transcriptEl.classList.toggle("plain-mode", mode === "plain");
     transcriptEl.classList.toggle("bubble-mode", mode === "bubble");
-    if (plainModeEl) plainModeEl.setAttribute("aria-pressed", mode === "plain" ? "true" : "false");
-    if (bubbleModeEl) bubbleModeEl.setAttribute("aria-pressed", mode === "bubble" ? "true" : "false");
+    if (plainModeEl)
+      plainModeEl.setAttribute(
+        "aria-pressed",
+        mode === "plain" ? "true" : "false",
+      );
+    if (bubbleModeEl)
+      bubbleModeEl.setAttribute(
+        "aria-pressed",
+        mode === "bubble" ? "true" : "false",
+      );
     if (!renderer || typeof renderer.renderAssistantTranscript !== "function") {
       clear(transcriptEl);
-      transcriptEl.appendChild(el("div", "acp-empty-state", "Transcript renderer unavailable."));
+      transcriptEl.appendChild(
+        el(
+          "div",
+          "acp-empty-state",
+          safeText(
+            snapshot.labels && snapshot.labels.transcriptRendererUnavailable,
+          ),
+        ),
+      );
       return;
     }
     renderer.renderAssistantTranscript({
@@ -357,7 +402,10 @@
       expandedIds: state.toolActivityExpandedIds,
       renderMarkdown,
       formatTime,
-      labels: snapshot.labels?.assistantPanel?.transcript || snapshot.labels?.transcript || {},
+      labels:
+        snapshot.labels?.assistantPanel?.transcript ||
+        snapshot.labels?.transcript ||
+        {},
       emptyText:
         snapshot.labels?.assistantPanel?.transcript?.empty ||
         snapshot.labels?.transcript?.empty ||
@@ -380,8 +428,13 @@
 
   function render(snapshot) {
     state.snapshot = snapshot && typeof snapshot === "object" ? snapshot : {};
-    document.title = safeText(state.snapshot.title) || "ACP Chat";
-    if (state.snapshot.chatDisplayMode === "bubble" || state.snapshot.chatDisplayMode === "plain") {
+    document.title =
+      safeText(state.snapshot.title) ||
+      safeText(state.snapshot.labels && state.snapshot.labels.title);
+    if (
+      state.snapshot.chatDisplayMode === "bubble" ||
+      state.snapshot.chatDisplayMode === "plain"
+    ) {
       state.chatDisplayMode = state.snapshot.chatDisplayMode;
     }
     renderPanel(state.snapshot);
@@ -413,8 +466,10 @@
       closeAllDrawers();
       return;
     }
-    if (!data || (data.type !== "acp:init" && data.type !== "acp:snapshot")) return;
-    const payload = data.payload && typeof data.payload === "object" ? data.payload : {};
+    if (!data || (data.type !== "acp:init" && data.type !== "acp:snapshot"))
+      return;
+    const payload =
+      data.payload && typeof data.payload === "object" ? data.payload : {};
     render(payload);
   });
 

@@ -17675,10 +17675,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     }
 
     const states = await readArtifactStateRows(root);
-    const deletedRows = await readDeletedRows(root).catch(() => []);
-    const deletedTopicIds = new Set(
-      deletedRows.map((row) => cleanString(row.topic_id)).filter(Boolean),
-    );
     const topicGraphContext = await topicGraphSnapshotForUi().catch(
       () => undefined,
     );
@@ -17695,7 +17691,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const topics: SynthesisTopicsByPaperRefResult["topics"] = [];
     for (const state of Object.values(states)) {
       const topicId = cleanString(state.topic_id);
-      if (!topicId || deletedTopicIds.has(topicId)) {
+      if (!topicId) {
         continue;
       }
       const match = topicMatchForPaperRefs({ state, requested });
@@ -17870,24 +17866,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const topicNode = (topicGraphSnapshot?.nodes || []).find(
       (node) => cleanString(node.topic_id) === resolvedTopicId,
     );
-    if (
-      topicNode?.definition_status === "deleted" ||
-      (await readDeletedRows(root)).some(
-        (row) =>
-          row.topic_id === resolvedTopicId ||
-          row.path_id === artifact.pathId ||
-          row.deleted_path_id === artifact.pathId,
-      )
-    ) {
-      return {
-        ok: false,
-        status: "deleted",
-        topic_id: resolvedTopicId,
-        diagnostics: {
-          message: `topic artifact is deleted: ${resolvedTopicId}`,
-        },
-      };
-    }
     const artifactState = await readArtifactStateRows(root);
     const paths = buildSynthesisStoragePaths(root);
     const definitions = await readStateMap<Record<string, unknown>>(

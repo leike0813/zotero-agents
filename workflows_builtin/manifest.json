@@ -2,6 +2,7 @@
   "version": 1,
   "files": [
     "literature-workbench-package/workflow-package.json",
+    "literature-workbench-package/locales/zh-CN.json",
     "literature-workbench-package/add-digest-representative-image/hooks/applyResult.mjs",
     "literature-workbench-package/add-digest-representative-image/hooks/buildRequest.mjs",
     "literature-workbench-package/add-digest-representative-image/hooks/filterInputs.mjs",
@@ -79,6 +80,7 @@
     "workflow-debug-probe/debug-sequence-context-isolation-probe/workflow.json",
     "workflow-debug-probe/README.md",
     "synthesis-layer/workflow-package.json",
+    "synthesis-layer/locales/zh-CN.json",
     "synthesis-layer/create-topic-synthesis/workflow.json",
     "synthesis-layer/update-topic-synthesis/workflow.json",
     "synthesis-layer/manuscript-literature-framing/workflow.json",

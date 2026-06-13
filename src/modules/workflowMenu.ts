@@ -15,6 +15,11 @@ import { shouldShowWorkflowNotifications } from "./workflowExecution/feedbackPol
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 import type { LoadedWorkflow } from "../workflows/types";
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
+import {
+  compareWorkflowDisplayOrder,
+  isCoreWorkflow,
+  localizeWorkflowLabel,
+} from "../workflows/localization";
 
 const ROOT_MENU_ID = `${config.addonRef}-workflows-menu`;
 const ROOT_POPUP_ID = `${config.addonRef}-workflows-popup`;
@@ -180,7 +185,7 @@ export async function triggerWorkflowFromUnifiedEntry(args: {
     if (shouldShowWorkflowNotifications(args.workflow.manifest)) {
       alertWindow(
         args.win,
-        buildTriggerFailureMessage(args.workflow.manifest.label, error),
+        buildTriggerFailureMessage(localizeWorkflowLabel(args.workflow), error),
       );
     }
   }
@@ -196,7 +201,9 @@ export async function rebuildWorkflowActionPopup(
   const includeSkillRunnerSidebarItem =
     options?.includeSkillRunnerSidebarItem !== false;
   clearPopupChildren(popup);
-  const workflows = getVisibleLoadedWorkflowEntries();
+  const workflows = [...getVisibleLoadedWorkflowEntries()].sort(
+    compareWorkflowDisplayOrder,
+  );
   if (includeWorkspaceItem) {
     appendWorkspaceItem(win, popup);
   }
@@ -218,7 +225,12 @@ export async function rebuildWorkflowActionPopup(
   const selectedItems = win.ZoteroPane?.getSelectedItems?.() || [];
   const selectionContext = await buildSelectionContext(selectedItems);
   const shouldPreflightWorkflowInputs = selectedItems.length <= 1;
+  let previousWasCore = false;
   for (const workflow of workflows) {
+    const currentIsCore = isCoreWorkflow(workflow);
+    if (previousWasCore && !currentIsCore) {
+      appendMenuSeparator(win, popup);
+    }
     const menuItem = win.document.createXULElement("menuitem");
     let disabledReason = "";
     if (
@@ -261,10 +273,14 @@ export async function rebuildWorkflowActionPopup(
       }
     }
 
+    const workflowLabel = localizeWorkflowLabel(workflow);
     const label = disabledReason
-      ? `${workflow.manifest.label} (${disabledReason})`
-      : workflow.manifest.label;
+      ? `${workflowLabel} (${disabledReason})`
+      : workflowLabel;
     menuItem.setAttribute("label", label);
+    if (currentIsCore) {
+      menuItem.setAttribute("style", "font-weight: 700;");
+    }
     if (disabledReason) {
       menuItem.setAttribute("disabled", "true");
     } else {
@@ -277,6 +293,7 @@ export async function rebuildWorkflowActionPopup(
       });
     }
     popup.appendChild(menuItem);
+    previousWasCore = currentIsCore;
   }
 }
 

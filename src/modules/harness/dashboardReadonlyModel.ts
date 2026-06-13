@@ -8,6 +8,11 @@ import {
 } from "../../config/defaults";
 import { loadWorkflowManifests } from "../../workflows/loader";
 import type { LoadedWorkflow } from "../../workflows/types";
+import {
+  compareWorkflowDisplayOrder,
+  isCoreWorkflow,
+  localizeWorkflowLabel,
+} from "../../workflows/localization";
 import { canWorkflowRunWithoutSelection } from "../../workflows/triggerPolicy";
 import {
   createPluginStateReadonlyStore,
@@ -181,6 +186,7 @@ const DASHBOARD_LABELS = {
   tabWorkflowOptions: "Workflow Options",
   tabProducts: "Products",
   tabBackends: "Backends",
+  loadingDashboard: "Loading dashboard...",
   runningTitle: "Active Tasks",
   homeSummaryTitle: "Task Summary",
   summaryTotal: "Total",
@@ -207,6 +213,10 @@ const DASHBOARD_LABELS = {
   noHistory: "Select one backend from sidebar.",
   backendNoTasks: "No tasks for this backend.",
   openManagement: "Open Backend UI",
+  closeManagement: "Back to Runs",
+  openManagementExternal: "Open in Browser",
+  managementLoadFailed: "Management UI failed to load.",
+  managementLoading: "Loading management UI...",
   refreshModelCache: "Refresh Model Cache",
   openRun: "Open Run",
   cancelRun: "Cancel Task",
@@ -216,6 +226,8 @@ const DASHBOARD_LABELS = {
   logsBoundRequestId: "Bound Request ID",
   logsBoundJobId: "Bound Job ID",
   logsDetailTitle: "Log Details",
+  logsDetailClose: "Close",
+  logsException: "Exception",
   logsViewTask: "Bind Logs",
   logsOpenDiagnostics: "Diagnostic Export",
   runtimeLogsTabTitle: "Runtime Logs",
@@ -231,6 +243,9 @@ const DASHBOARD_LABELS = {
   runtimeLogsFilterWorkflow: "Workflow",
   runtimeLogsFilterAll: "All",
   runtimeLogsContextScope: "Active Context Filters: ",
+  runtimeLogsCopySuccess: "Copied { $count } log entries to clipboard!",
+  runtimeLogsCopySuccessBundle: "Diagnostic bundle copied to clipboard!",
+  runtimeLogsCopySuccessIssue: "Issue summary copied to clipboard!",
   workflowSettingsNoConfigurable: "No configurable workflows.",
   workflowSettingsWorkflowLabel: "Workflow",
   workflowSettingsProviderLabel: "Provider",
@@ -249,6 +264,9 @@ const DASHBOARD_LABELS = {
   workflowSettingsSaved: "Saved",
   workflowSettingsSaveError: "Save failed",
   productsEmpty: "No workflow products have been registered yet.",
+  productsNoFiles: "No product files.",
+  productsRawMarkdown: "Raw Markdown",
+  productsSelectFile: "Select a file to preview.",
   productsOpenWorkspace: "Open Folder",
   productsOpenRun: "Open Run",
   productsRemove: "Remove From Products",
@@ -258,6 +276,7 @@ const DASHBOARD_LABELS = {
   homeWorkflowRunButton: "Run workflow",
   homeWorkflowSettingsButton: "Settings",
   homeWorkflowBuiltinBadge: "Builtin",
+  homeWorkflowCoreBadge: "Core",
   homeWorkflowDocMissingReadme: "README.md was not found for this workflow.",
   homeWorkflowDocBack: "Back to Dashboard",
   homeWorkflowRunDisabledSelection: "Requires a Zotero selection",
@@ -286,9 +305,7 @@ function mergeWorkflows(args: {
       workflowSourceKind: "user",
     });
   }
-  return Array.from(byId.values()).sort((left, right) =>
-    left.manifest.label.localeCompare(right.manifest.label),
-  );
+  return Array.from(byId.values()).sort(compareWorkflowDisplayOrder);
 }
 
 export function filterHarnessVisibleWorkflows(
@@ -488,7 +505,7 @@ export async function createDashboardReadonlyModel(
 
   async function buildHomeWorkflows(backends: BackendInstance[]) {
     const entries = await Promise.all(
-      workflows.map(async (workflow) => {
+      [...workflows].sort(compareWorkflowDisplayOrder).map(async (workflow) => {
         const descriptor = await buildWorkflowSettingsUiDescriptor({
           workflow,
           candidateBackends: backends,
@@ -496,10 +513,11 @@ export async function createDashboardReadonlyModel(
         });
         return {
           workflowId: workflow.manifest.id,
-          workflowLabel: workflow.manifest.label,
+          workflowLabel: localizeWorkflowLabel(workflow),
           providerId: descriptor.providerId,
           configurable: descriptor.hasConfigurableSettings,
           builtin: workflow.workflowSourceKind === "builtin",
+          core: isCoreWorkflow(workflow),
           quickRunEnabled:
             canWorkflowRunWithoutSelection(workflow.manifest) &&
             !descriptor.blockedReason,
@@ -511,9 +529,7 @@ export async function createDashboardReadonlyModel(
         };
       }),
     );
-    return entries.sort((left, right) =>
-      left.workflowLabel.localeCompare(right.workflowLabel),
-    );
+    return entries;
   }
 
   async function buildWorkflowOptionsView(backends: BackendInstance[]) {
@@ -550,7 +566,7 @@ export async function createDashboardReadonlyModel(
     return {
       workflows: configurable.map((entry) => ({
         workflowId: entry.workflow.manifest.id,
-        workflowLabel: entry.workflow.manifest.label,
+        workflowLabel: localizeWorkflowLabel(entry.workflow),
         providerId: entry.descriptor.providerId,
       })),
       selectedWorkflowId,
@@ -639,7 +655,7 @@ export async function createDashboardReadonlyModel(
         })),
         workflows: workflows.map((workflow) => ({
           value: workflow.manifest.id,
-          label: workflow.manifest.label,
+          label: localizeWorkflowLabel(workflow),
         })),
       },
     };
@@ -706,7 +722,7 @@ export async function createDashboardReadonlyModel(
         const doc = await readWorkflowDoc(workflow);
         snapshotPayload.homeWorkflowDocView = {
           workflowId: workflow.manifest.id,
-          workflowLabel: workflow.manifest.label,
+          workflowLabel: localizeWorkflowLabel(workflow),
           html: doc.html,
           missingReadme: doc.missingReadme,
         };

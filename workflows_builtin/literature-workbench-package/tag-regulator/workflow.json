@@ -3,6 +3,10 @@
   "label": "Tag Regulator",
   "provider": "skillrunner",
   "version": "0.1.0",
+  "display": {
+    "core": true,
+    "emoji": "🏷️"
+  },
   "inputs": {
     "unit": "parent"
   },
