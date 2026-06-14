@@ -75,6 +75,38 @@ const REMOVED_PATHS = [
   "addon/content/acp-runtime-prompts/templates/host_bridge_cli_prompt.md",
 ];
 
+const RESOLVER_CONTRACT_PATHS = [
+  "doc/host-bridge-cli.md",
+  "skills_builtin/zotero-bridge-cli/SKILL.md",
+  "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+  "skills_src/topic-synthesis/contracts/payload-schemas/stage-10-update-topic-context.schema.json",
+  "skills_src/topic-synthesis/contracts/payload-schemas/stage-20-resolver-and-workset.schema.json",
+  "skills_src/topic-synthesis/contracts/stage-guidance.yaml",
+  "skills_src/topic-synthesis/runtime/topic_synthesis_runtime/common/topic_synthesis_db.py",
+  "skills_builtin/create-topic-synthesis-prepare/SKILL.md",
+  "skills_builtin/create-topic-synthesis-prepare/assets/schemas/stage-20-resolver-and-workset.schema.json",
+  "skills_builtin/create-topic-synthesis-prepare/scripts/topic_synthesis_db.py",
+  "skills_builtin/update-topic-synthesis-prepare/SKILL.md",
+  "skills_builtin/update-topic-synthesis-prepare/assets/schemas/stage-10-update-topic-context.schema.json",
+  "skills_builtin/update-topic-synthesis-prepare/scripts/topic_synthesis_db.py",
+  "src/modules/zoteroMcpProtocol.ts",
+  "cli/zotero-bridge/src/args.rs",
+] as const;
+
+const FORBIDDEN_RESOLVER_CONTRACT_TEXT = [
+  "top-level resolver field",
+  "top-level `resolver` field",
+  'top-level `"resolver"` field',
+  '"mode": "tag_query"',
+  '"mode":"tag_query"',
+  '"mode": "mixed"',
+  '"mode":"mixed"',
+  "mode: \"tag_query\"",
+  "mode: \"mixed\"",
+  '{"resolver": payload["resolver"]}',
+  "{\"resolver\": payload[\"resolver\"]}",
+] as const;
+
 function read(path: string) {
   return readFileSync(join(ROOT, path), "utf8");
 }
@@ -123,6 +155,15 @@ for (const docPath of DOCS) {
     const match = text.match(pattern);
     if (match) {
       fail(`${docPath} contains stale Host Bridge surface text (${label}): ${match[0]}`);
+    }
+  }
+}
+
+for (const sourcePath of RESOLVER_CONTRACT_PATHS) {
+  const text = read(sourcePath);
+  for (const forbidden of FORBIDDEN_RESOLVER_CONTRACT_TEXT) {
+    if (text.includes(forbidden)) {
+      fail(`${sourcePath} contains stale resolver contract text: ${forbidden}`);
     }
   }
 }

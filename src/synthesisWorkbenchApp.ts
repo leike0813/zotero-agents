@@ -2,6 +2,29 @@ import Graph from "graphology";
 import Sigma from "sigma";
 import { drawDiscNodeHover } from "sigma/rendering";
 import {
+  CITATION_GRAPH_EDGE_SIZE,
+  CITATION_GRAPH_INCOMING_EDGE_COLOR,
+  CITATION_GRAPH_OUTGOING_EDGE_COLOR,
+  GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK,
+  GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK_SOFT,
+  GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT,
+  GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT,
+  GRAPH_EXTERNAL_NODE_SIZE_CAP,
+  GRAPH_IMPORTANCE_HALO_MAX,
+  GRAPH_IMPORTANCE_HALO_TOP_RATIO,
+  GRAPH_LIBRARY_BASE_NODE_SIZE,
+  GRAPH_LIBRARY_IMPORTANCE_HALO_DARK,
+  GRAPH_LIBRARY_IMPORTANCE_HALO_DARK_SOFT,
+  GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT,
+  GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT,
+  GRAPH_LIBRARY_NODE_SIZE_CAP,
+  GRAPH_MAX_ZOOM_RATIO,
+  GRAPH_MIN_ZOOM_RATIO,
+  GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE,
+  GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE,
+  GRAPH_ZOOM_SLIDER_MAX,
+} from "./shared/citationGraphVisualRules";
+import {
   SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
   formatSynthesisWorkbenchMessage,
   type SynthesisWorkbenchI18nEnvelope,
@@ -14,6 +37,7 @@ declare const window: Window &
     texmath?: MarkdownItPlugin;
     katex?: unknown;
     __zoteroSkillsSynthesisWorkbenchBridge?: SynthesisWorkbenchBridge;
+    __zoteroSkillsSynthesisTopicExport?: SynthesisTopicExportEnvelope;
   };
 declare const document: Document;
 
@@ -322,7 +346,8 @@ type TopicDetailSection =
   | "coverage"
   | "statistics"
   | "future_directions"
-  | "report";
+  | "report"
+  | "citation_graph";
 
 type TopicDetailDto = {
   topicId: string;
@@ -357,6 +382,16 @@ type DigestModalState = {
   status: "loading" | "available" | "unavailable";
   evidence?: Record<string, unknown>;
   result?: Record<string, unknown>;
+};
+
+type SynthesisTopicExportEnvelope = {
+  version?: number;
+  generatedAt?: string;
+  i18n?: SynthesisI18nPayload;
+  snapshot?: Snapshot;
+  topicDetail?: TopicDetailDto;
+  digestsByKey?: Record<string, Record<string, unknown>>;
+  graphLayouts?: Record<string, Snapshot["graph"]>;
 };
 
 type ActionOperation = {
@@ -489,24 +524,6 @@ const STATUSBAR_COMPLETED_TIMEOUT_MS = 4000;
 const STATUSBAR_FAILED_TIMEOUT_MS = 8000;
 const STATUSBAR_WARNING_TIMEOUT_MS = 8000;
 const STATUSBAR_EXPIRY_RENDER_GRACE_MS = 25;
-const GRAPH_MIN_ZOOM_RATIO = 0.12;
-const GRAPH_MAX_ZOOM_RATIO = 2.4;
-const GRAPH_ZOOM_SLIDER_MAX = 100;
-const GRAPH_LIBRARY_BASE_NODE_SIZE = 4.6;
-const GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE = 3;
-const GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE = 2;
-const GRAPH_LIBRARY_NODE_SIZE_CAP = 8;
-const GRAPH_EXTERNAL_NODE_SIZE_CAP = 4.8;
-const GRAPH_IMPORTANCE_HALO_TOP_RATIO = 0.1;
-const GRAPH_IMPORTANCE_HALO_MAX = 8;
-const GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT = "rgba(37, 99, 235, 0.52)";
-const GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT = "rgba(37, 99, 235, 0.22)";
-const GRAPH_LIBRARY_IMPORTANCE_HALO_DARK = "rgba(147, 197, 253, 0.82)";
-const GRAPH_LIBRARY_IMPORTANCE_HALO_DARK_SOFT = "rgba(147, 197, 253, 0.32)";
-const GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT = "rgba(180, 83, 9, 0.56)";
-const GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT = "rgba(180, 83, 9, 0.22)";
-const GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK = "rgba(251, 191, 36, 0.86)";
-const GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK_SOFT = "rgba(251, 191, 36, 0.34)";
 
 const state: {
   snapshot: Snapshot | null;
@@ -528,6 +545,9 @@ const state: {
   hoverClearTimer?: number;
   graphSearchDraft?: string;
   graphReturnTopicId?: string;
+  standaloneExport: boolean;
+  standaloneDigestsByKey: Map<string, Record<string, unknown>>;
+  standaloneGraphLayouts: Map<string, Snapshot["graph"]>;
   dynamicHoverNodeIds: Set<string>;
   dynamicHoverEdgeIds: Set<string>;
   localPendingActions: Map<string, ActionOperation>;
@@ -596,6 +616,9 @@ const state: {
   canonicalDetailCollapsed: false,
   dynamicHoverNodeIds: new Set(),
   dynamicHoverEdgeIds: new Set(),
+  standaloneExport: false,
+  standaloneDigestsByKey: new Map(),
+  standaloneGraphLayouts: new Map(),
   locale: "en-US",
   messages: { ...SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES },
 };
@@ -604,10 +627,6 @@ const colors: Record<GraphNodeKind, string> = {
   library_paper: "#1967b3",
   external_reference: "#7a861f",
 };
-
-const CITATION_GRAPH_EDGE_SIZE = 1.05;
-const CITATION_GRAPH_INCOMING_EDGE_COLOR = "#d97706";
-const CITATION_GRAPH_OUTGOING_EDGE_COLOR = "#7c3aed";
 
 let conceptBubbleCleanup: (() => void) | undefined;
 let conceptBubbleCloseTimer: number | undefined;
@@ -646,9 +665,12 @@ const CONTROLLED_ENUM_DOMAINS = [
   "action",
   "confidence",
   "coverage",
+  "coverage-caveat",
   "freshness",
   "binding-status",
+  "priority",
   "graph-node-kind",
+  "graph-edge-role",
   "graph-layout",
   "tag-status",
   "tag-density",
@@ -833,8 +855,68 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
     const topicId = textValue(payload.topicId || state.graphReturnTopicId);
     state.graphReturnTopicId = undefined;
     if (topicId) {
+      if (state.standaloneExport && state.snapshot) {
+        state.snapshot = {
+          ...state.snapshot,
+          selectedTab: "reader",
+          reader: {
+            topicId,
+            previousTab: "graph",
+          },
+        };
+        renderSelectedTabShell();
+        return;
+      }
       sendAction("showArtifactReader", { topicId, previousTab: "graph" });
     }
+    return;
+  }
+  if (state.standaloneExport && action === "setGraphView" && state.snapshot) {
+    const selected =
+      "selectedElement" in payload ? payload.selectedElement : undefined;
+    const nextAlgorithm = textValue(
+      payload.layoutAlgorithm || payload.layoutPreset,
+      state.snapshot.graph.layoutAlgorithm,
+    );
+    const layoutGraph =
+      state.standaloneGraphLayouts.get(nextAlgorithm) || state.snapshot.graph;
+    const filters = {
+      ...layoutGraph.filters,
+      ...state.snapshot.graph.filters,
+      topicId: state.snapshot.graph.filters.topicId,
+      role: textValue(payload.role, state.snapshot.graph.filters.role),
+      layoutAlgorithm: normalizeGraphLayoutAlgorithm(nextAlgorithm),
+      nodeKinds: Array.isArray(payload.nodeKinds)
+        ? (payload.nodeKinds
+            .map((value) => textValue(value))
+            .filter(Boolean) as GraphNodeKind[])
+        : state.snapshot.graph.filters.nodeKinds,
+      showLowSignalReferences:
+        "showLowSignalReferences" in payload
+          ? Boolean(payload.showLowSignalReferences)
+          : state.snapshot.graph.filters.showLowSignalReferences,
+    };
+    const filtered = filterStandaloneGraph(layoutGraph, filters);
+    state.snapshot = {
+      ...state.snapshot,
+      graph: {
+        ...layoutGraph,
+        filters,
+        layoutAlgorithm: normalizeGraphLayoutAlgorithm(nextAlgorithm),
+        visibleNodes: filtered.visibleNodes,
+        visibleEdges: filtered.visibleEdges,
+        selectedElement:
+          selected === null
+            ? undefined
+            : selected && typeof selected === "object"
+              ? (selected as Snapshot["graph"]["selectedElement"])
+              : state.snapshot.graph.selectedElement,
+      },
+    };
+    renderSelectedTabShell();
+    return;
+  }
+  if (state.standaloneExport && action === "hostCommand") {
     return;
   }
   if (action === "selectTab" && state.snapshot) {
@@ -856,6 +938,10 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
         ...state.snapshot,
         selectedTab: tab,
       };
+      if (state.standaloneExport) {
+        renderSelectedTabShell();
+        return;
+      }
       const surface = surfaceForTab(tab);
       if (
         surfaceRuntime(surface)?.status === "ready" &&
@@ -1006,6 +1092,7 @@ function operationKey(command: string, args: Record<string, unknown> = {}) {
       return `${command}:${keyPart(args.topicId)}:${keyPart(args.language, "auto")}`;
     case "openTopicArtifact":
     case "exportTopicSynthesisReport":
+    case "exportTopicDetailHtml":
     case "deleteTopicArtifact":
     case "resolveTopicPaperDigest":
       return `${command}:${keyPart(args.topicId)}`;
@@ -1256,6 +1343,27 @@ function clear(node: Element) {
 
 function badge(text: unknown, tone = "") {
   return el("span", `badge ${tone}`, maybeLocalizedValue(text) || "-");
+}
+
+function topicDiscoveryBadge(row: Record<string, unknown>) {
+  const count = Number(row.candidate_count || 0);
+  const candidateCount = Number.isFinite(count)
+    ? Math.max(0, Math.floor(count))
+    : 0;
+  const node =
+    candidateCount > 0
+      ? badge(
+          t(
+            candidateCount === 1
+              ? "synthesis-discovery-candidate"
+              : "synthesis-discovery-candidates",
+            { count: candidateCount },
+          ),
+          candidateCount < 5 ? "orange" : "danger",
+        )
+      : badge(t("synthesis-discovery-none"), "ok");
+  node.classList.add("topic-discovery-badge");
+  return node;
 }
 
 function renderEmptyState({
@@ -2022,6 +2130,26 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   root.appendChild(content);
 }
 
+function renderStandaloneTopicExportShell(
+  root: HTMLElement,
+  snapshot: Snapshot,
+) {
+  clear(root);
+  root.classList.remove("sidebar-expanded", "sidebar-collapsed");
+  root.classList.add("standalone-topic-export-root");
+  const content = el("div", "content standalone-topic-export-content");
+  const header = el("div", "topbar standalone-topic-export-header");
+  header.appendChild(
+    el("h1", "", state.topicDetail?.title || titleForTab("reader")),
+  );
+  content.appendChild(header);
+  const main = el("section", "main standalone-topic-export-main");
+  main.dataset.synthesisSurface = "reader";
+  renderTopicDetail(main, snapshot);
+  content.appendChild(main);
+  root.appendChild(content);
+}
+
 function renderSelectedTabShell() {
   const root = document.getElementById("app") as HTMLElement | null;
   if (!root || !state.snapshot) {
@@ -2054,6 +2182,12 @@ function renderSelectedTabShell() {
   const surface = surfaceForTab(state.snapshot.selectedTab);
   main.dataset.synthesisSurface = surface;
   clear(main);
+  if (state.standaloneExport) {
+    renderStandaloneTopicExportShell(root, state.snapshot);
+    localizeWorkbenchDom(root);
+    state.lastContentSignature = "";
+    return;
+  }
   const runtime = surfaceRuntime(surface);
   if (
     runtime?.status === "ready" ||
@@ -2256,11 +2390,42 @@ function topicPaperCount(row: Record<string, unknown>) {
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 }
 
-function topicCompletion(row: Record<string, unknown>) {
-  const value = Number(row.completion || 0);
+function topicSourceMaterialsPercent(row: Record<string, unknown>) {
+  const value = Number(row.source_materials_percent || 0);
   return Number.isFinite(value)
     ? Math.max(0, Math.min(100, Math.floor(value)))
     : 0;
+}
+
+function topicSourceMaterialsStatus(row: Record<string, unknown>) {
+  const status = textValue(row.source_materials_status, "missing");
+  return status === "complete" || status === "partial" || status === "missing"
+    ? status
+    : "missing";
+}
+
+function sourceMaterialsLabel(row: Record<string, unknown>) {
+  const status = topicSourceMaterialsStatus(row);
+  const percent = topicSourceMaterialsPercent(row);
+  if (status === "complete") {
+    return t("synthesis-source-materials-ready");
+  }
+  if (status === "missing") {
+    return t("synthesis-source-materials-missing");
+  }
+  return t("synthesis-source-materials-percent-ready", { percent });
+}
+
+function sourceMaterialsTone(row: Record<string, unknown>) {
+  const status = topicSourceMaterialsStatus(row);
+  const percent = topicSourceMaterialsPercent(row);
+  if (status === "complete" && percent >= 100) {
+    return "ok";
+  }
+  if (percent >= 50) {
+    return "warn";
+  }
+  return "danger";
 }
 
 function sortedTopTopics(snapshot: Snapshot) {
@@ -2304,7 +2469,7 @@ function renderTopicCard(row: Record<string, unknown>) {
     definition || row.summary || row.markdown_preview || "",
   ).trim();
   const count = topicPaperCount(row);
-  const completion = topicCompletion(row);
+  const sourceMaterialsPercent = topicSourceMaterialsPercent(row);
   const head = el("div", "topic-card-head");
   head.appendChild(el("strong", "", title));
   head.appendChild(badge(row.freshness, toneFor(row.freshness)));
@@ -2318,12 +2483,13 @@ function renderTopicCard(row: Record<string, unknown>) {
   );
   const meter = el("div", "topic-meter");
   const fill = el("span");
-  fill.style.width = `${completion}%`;
+  fill.style.width = `${sourceMaterialsPercent}%`;
   meter.appendChild(fill);
   card.appendChild(meter);
   const meta = el("div", "topic-card-meta");
   meta.appendChild(el("span", "", `${count} papers`));
-  meta.appendChild(el("span", "", `${completion}% complete`));
+  meta.appendChild(el("span", "", sourceMaterialsLabel(row)));
+  meta.appendChild(topicDiscoveryBadge(row));
   meta.appendChild(el("span", "", String(row.updated_at || "Not updated")));
   card.appendChild(meta);
   return card;
@@ -2353,7 +2519,7 @@ function topicRowById(snapshot: Snapshot, topicId: string) {
 function makeTopicUpdateButton(row: Record<string, unknown>) {
   const intent = topicUpdateIntent(row);
   return makeButton(
-    String(intent?.actionLabel || "Update"),
+    "Update",
     "hostCommand",
     {
       command: "submitTopicSynthesisUpdate",
@@ -2660,20 +2826,27 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
     panel.appendChild(
       tableView(
         [
-          "Title",
-          "Definition",
+          { label: "Title", className: "topics-list-title-cell" },
+          { label: "Definition", className: "topics-list-definition-column" },
           { label: "Papers", className: "topics-list-center-cell" },
-          { label: "Completion", className: "topics-list-center-cell" },
-          { label: "Coverage", className: "topics-list-center-cell" },
+          {
+            label: t("synthesis-column-source-materials"),
+            className: "topics-list-center-cell",
+          },
           { label: "Freshness", className: "topics-list-center-cell" },
+          {
+            label: t("synthesis-column-discovery"),
+            className: "topics-list-center-cell",
+          },
           { label: "Updated", className: "topics-list-center-cell" },
           "Action",
         ],
         snapshot.artifacts.visibleRows,
         (row) => [
-          titleWithSummary(
-            String(row.title || ""),
-            String(row.summary || row.markdown_preview || ""),
+          el(
+            "span",
+            "topics-list-title-text",
+            String(row.title || row.id || "-"),
           ),
           el(
             "span",
@@ -2681,9 +2854,9 @@ function renderTopics(main: HTMLElement, snapshot: Snapshot) {
             String(row.definition || "-"),
           ),
           topicPaperCount(row),
-          `${topicCompletion(row)}%`,
-          badge(row.coverage, toneFor(row.coverage)),
+          badge(sourceMaterialsLabel(row), sourceMaterialsTone(row)),
           badge(row.freshness, toneFor(row.freshness)),
+          topicDiscoveryBadge(row),
           row.updated_at || "-",
           actionGroup([
             makeButton("Open", "hostCommand", {
@@ -4155,6 +4328,55 @@ function renderKeyValueList(value: Record<string, unknown>): HTMLElement {
   return list;
 }
 
+function renderScopeBoundaryValue(raw: unknown): HTMLElement {
+  if (Array.isArray(raw)) {
+    const arrWrap = el("div", "kv-array-wrap");
+    raw.forEach((item) => {
+      arrWrap.appendChild(
+        badge(typeof item === "object" ? JSON.stringify(item) : String(item)),
+      );
+    });
+    return arrWrap;
+  }
+  if (raw && typeof raw === "object") {
+    return renderKeyValueList(raw as Record<string, unknown>);
+  }
+  return elRawText(
+    "strong",
+    "",
+    raw === null || raw === undefined ? "-" : String(raw),
+  );
+}
+
+function renderTopicScopeBoundary(
+  topic: Record<string, unknown> | undefined,
+): HTMLElement {
+  const boundary = recordValue(topic?.scope_boundary);
+  const rows: Array<[string, unknown]> = [];
+  const researchArea = firstText(topic || {}, [
+    "research_area",
+    "researchArea",
+    "notes",
+  ]);
+  if (researchArea) {
+    rows.push([t("synthesis-topic-research-area"), researchArea]);
+  }
+  if (hasStructuredContent(boundary.include)) {
+    rows.push([t("synthesis-scope-include"), boundary.include]);
+  }
+  if (hasStructuredContent(boundary.exclude)) {
+    rows.push([t("synthesis-scope-exclude"), boundary.exclude]);
+  }
+  const list = el("div", "topic-kv-list");
+  rows.forEach(([label, raw]) => {
+    const row = el("div", "topic-kv-row");
+    row.appendChild(el("span", "muted", label));
+    row.appendChild(renderScopeBoundaryValue(raw));
+    list.appendChild(row);
+  });
+  return list;
+}
+
 function evidenceRows(detail: TopicDetailDto) {
   return recordArray(detail.source_papers);
 }
@@ -4370,8 +4592,50 @@ function primaryEvidenceForEvent(
   return direct ? evidenceForRef(detail, direct) : undefined;
 }
 
+function standaloneDigestKeysForEvidence(evidence: Record<string, unknown>) {
+  const digestRef = recordValue(evidence.digest_ref || evidence.digestRef);
+  return [
+    evidenceId(evidence),
+    evidence.paper_ref,
+    evidence.paperRef,
+    digestRef.paper_ref,
+    digestRef.paperRef,
+    digestRef.note_key,
+    digestRef.noteKey,
+    digestRef.payload_hash,
+    digestRef.payloadHash,
+  ]
+    .map((value) => textValue(value))
+    .filter(Boolean);
+}
+
+function standaloneDigestForEvidence(evidence: Record<string, unknown>) {
+  for (const key of standaloneDigestKeysForEvidence(evidence)) {
+    const digest = state.standaloneDigestsByKey.get(key);
+    if (digest) {
+      return digest;
+    }
+  }
+  return undefined;
+}
+
 function openDigestModal(evidence: Record<string, unknown>) {
   state.selectedEvidenceId = evidenceId(evidence);
+  if (state.standaloneExport) {
+    const digest =
+      standaloneDigestForEvidence(evidence) ||
+      ({
+        ok: false,
+        status: t("synthesis-standalone-digest-unavailable"),
+      } as Record<string, unknown>);
+    state.digestModal = {
+      status: digest.ok ? "available" : "unavailable",
+      evidence,
+      result: digest,
+    };
+    syncDigestModal();
+    return;
+  }
   state.digestModal = { status: "loading", evidence };
   syncDigestModal();
   sendAction("hostCommand", {
@@ -4573,13 +4837,10 @@ function renderTopicOverviewSection(detail: TopicDetailDto) {
     section.appendChild(renderContentCard(t("synthesis-key-takeaways"), list));
   }
 
-  const topicBoundary = detail.topic?.scope_boundary;
-  if (hasStructuredContent(topicBoundary)) {
+  const topicBoundary = renderTopicScopeBoundary(detail.topic);
+  if (topicBoundary.childElementCount) {
     section.appendChild(
-      renderContentCard(
-        t("synthesis-scope-boundary"),
-        renderKeyValueList(topicBoundary as Record<string, unknown>),
-      ),
+      renderContentCard(t("synthesis-scope-boundary"), topicBoundary),
     );
   }
 
@@ -5206,6 +5467,9 @@ function renderStructuredRecordCards(args: {
   className?: string;
   titleKeys?: string[];
   bodyKeys?: string[];
+  titleFormatter?: (row: Record<string, unknown>, fallback: string) => string;
+  priorityFormatter?: (value: string) => string;
+  priorityTone?: (value: string) => string;
 }) {
   if (!args.rows.length) return undefined;
   const wrap = el("div", "coverage-structured-block");
@@ -5218,7 +5482,9 @@ function renderStructuredRecordCards(args: {
       args.titleKeys || ["title", "direction", "theme", "label", "type", "id"],
       `${args.title} ${index + 1}`,
     );
-    card.appendChild(elRawText("strong", "", title));
+    card.appendChild(
+      elRawText("strong", "", args.titleFormatter?.(row, title) || title),
+    );
     const body = firstText(
       row,
       args.bodyKeys || [
@@ -5233,7 +5499,10 @@ function renderStructuredRecordCards(args: {
     if (body) card.appendChild(elRawText("p", "", body));
     const priority = firstText(row, ["priority", "urgency", "severity"]);
     if (priority) {
-      const priorityBadge = badge(priority, toneFor(priority));
+      const priorityBadge = badge(
+        args.priorityFormatter?.(priority) || priority,
+        args.priorityTone?.(priority) || toneFor(priority),
+      );
       priorityBadge.classList.add("coverage-priority-badge");
       card.appendChild(priorityBadge);
     }
@@ -5279,6 +5548,22 @@ function dedupeStructuredRows(
   return result;
 }
 
+function coverageCaveatTitle(row: Record<string, unknown>, fallback: string) {
+  const type = firstText(row, ["type"]);
+  return type ? enumLabel("coverage-caveat", type, fallback) : fallback;
+}
+
+function priorityLabel(value: string) {
+  return enumLabel("priority", value, value);
+}
+
+function priorityTone(value: string) {
+  const normalized = enumKeyPart(value);
+  if (normalized === "high" || normalized === "urgent") return "danger";
+  if (normalized === "low") return "ok";
+  return "warn";
+}
+
 function renderTopicExternalCoverageSection(detail: TopicDetailDto) {
   const section = el("div", "external-coverage-section");
   const coverage = detail.coverage || {};
@@ -5322,6 +5607,7 @@ function renderCoverageSummary(detail: TopicDetailDto) {
     className: "coverage-caveat-card",
     titleKeys: ["type", "title", "label", "id"],
     bodyKeys: ["note", "reason", "description", "summary", "caveat"],
+    titleFormatter: coverageCaveatTitle,
   });
   if (caveatBlock) block.appendChild(caveatBlock);
   return block.childElementCount ? block : undefined;
@@ -5338,6 +5624,8 @@ function renderMergedCollectionDirections(detail: TopicDetailDto) {
     className: "coverage-direction-card",
     titleKeys: ["direction", "title", "label", "id"],
     bodyKeys: ["reason", "rationale", "why", "summary"],
+    priorityFormatter: priorityLabel,
+    priorityTone,
   });
 }
 
@@ -5640,6 +5928,8 @@ function renderTopicSection(
     return renderTopicFutureDirectionsSection(detail);
   if (state.topicDetailSection === "report")
     return renderTopicReportSection(detail, snapshot);
+  if (state.topicDetailSection === "citation_graph" && snapshot)
+    return renderStandaloneTopicCitationGraphSection(snapshot);
   return renderTopicOverviewSection(detail);
 }
 
@@ -5655,6 +5945,9 @@ function renderTopicTabs() {
     ["references", "synthesis-topic-tab-references"],
     ["report", "synthesis-topic-tab-report"],
   ];
+  if (state.standaloneExport) {
+    entries.push(["citation_graph", "synthesis-topic-tab-citation-graph"]);
+  }
   entries.forEach(([id, labelKey]) => {
     const button = el(
       "button",
@@ -5669,6 +5962,12 @@ function renderTopicTabs() {
     tabs.appendChild(button);
   });
   return tabs;
+}
+
+function renderStandaloneTopicCitationGraphSection(snapshot: Snapshot) {
+  const section = el("div", "topic-section topic-citation-graph-section");
+  renderGraph(section, snapshot);
+  return section;
 }
 
 function selectedEvidence(detail: TopicDetailDto) {
@@ -6505,7 +6804,7 @@ function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {
   );
   actions.appendChild(
     makeButton(
-      String(updateIntent?.actionLabel || "Update"),
+      "Update",
       "hostCommand",
       {
         command: "submitTopicSynthesisUpdate",
@@ -6524,15 +6823,18 @@ function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {
       },
     ),
   );
-  const copySummary = el("button", "", t("synthesis-action-copy-summary"));
-  copySummary.type = "button";
-  copySummary.addEventListener("click", () => {
-    const summary = textValue(
-      detail.summary?.brief || detail.summary?.summary || detail.title,
-    );
-    void navigator.clipboard?.writeText(summary);
-  });
-  actions.appendChild(copySummary);
+  actions.appendChild(
+    makeButton(
+      t("synthesis-action-export-topic-html"),
+      "hostCommand",
+      {
+        command: "exportTopicDetailHtml",
+        args: { topicId, title: detail.title },
+      },
+      false,
+      state.standaloneExport,
+    ),
+  );
   toolbar.appendChild(actions);
   return toolbar;
 }
@@ -6558,12 +6860,13 @@ function renderTopicDetailShell(root: HTMLElement, snapshot: Snapshot) {
   const body = el("section", "topic-detail");
   const workbench = el("div", "topic-detail-layout");
   workbench.appendChild(renderTopicTabs());
-  const reader = el(
-    "main",
+  const readerClass =
     state.topicDetailSection === "report"
       ? "topic-reading-surface topic-report-reading-surface"
-      : "topic-reading-surface",
-  );
+      : state.topicDetailSection === "citation_graph"
+        ? "topic-reading-surface topic-graph-reading-surface"
+        : "topic-reading-surface";
+  const reader = el("main", readerClass);
   reader.appendChild(
     applyConceptOverlay(renderTopicSection(detail, snapshot), snapshot),
   );
@@ -12724,7 +13027,8 @@ function roleOptions(snapshot: Snapshot) {
   return Array.from(
     new Set(
       snapshot.graph.edges
-        .map((edge) => edge.primary_role || "")
+        .map((edge) => edge.primary_role || "unknown")
+        .map((role) => (role === "citation" ? "" : role))
         .filter(Boolean),
     ),
   ).sort((left, right) => left.localeCompare(right));
@@ -12741,6 +13045,27 @@ function graphTopicScopeOptions(snapshot: Snapshot): Array<[string, string]> {
         ] as [string, string],
     ),
   ];
+}
+
+function graphEdgeRoleLabel(value: string) {
+  return value === "all"
+    ? t("synthesis-filter-all")
+    : enumLabel("graph-edge-role", value);
+}
+
+function graphControlGroup(
+  label: string,
+  children: Array<HTMLElement | undefined>,
+  className = "",
+) {
+  const group = el("div", `graph-control-group ${className}`.trim());
+  group.appendChild(el("span", "graph-control-group-label", label));
+  const row = el("div", "filters graph-control-row");
+  children
+    .filter((child): child is HTMLElement => Boolean(child))
+    .forEach((child) => row.appendChild(child));
+  group.appendChild(row);
+  return group;
 }
 
 function selectedGraphTopicTitle(snapshot: Snapshot) {
@@ -12859,9 +13184,14 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   detail.appendChild(header);
   const controls = el("div", "details");
   controls.dataset.synthesisScrollKey = "graph.controls";
-  controls.appendChild(renderGraphControls(snapshot));
+  controls.appendChild(
+    state.standaloneExport
+      ? renderStandaloneGraphControls(snapshot)
+      : renderGraphControls(snapshot),
+  );
   const selectedTopicTitle = selectedGraphTopicTitle(snapshot);
   if (
+    !state.standaloneExport &&
     state.graphReturnTopicId &&
     snapshot.graph.filters.topicId === state.graphReturnTopicId
   ) {
@@ -12942,16 +13272,18 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
           snapshot.graph.diagnostics || {},
           snapshot.graph.layoutStatus,
         ),
-        action: makeButton(
-          t("synthesis-action-rebuild-graph-cache"),
-          "hostCommand",
-          {
-            command: "rebuildCitationGraphCacheNow",
-            args: {
-              reason: "graph_tab",
-            },
-          },
-        ),
+        action: state.standaloneExport
+          ? undefined
+          : makeButton(
+              t("synthesis-action-rebuild-graph-cache"),
+              "hostCommand",
+              {
+                command: "rebuildCitationGraphCacheNow",
+                args: {
+                  reason: "graph_tab",
+                },
+              },
+            ),
         tone: snapshot.graph.layoutStatus === "failed" ? "warning" : "info",
       }),
     );
@@ -12972,7 +13304,7 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     stage.appendChild(empty);
     return;
   }
-  if (graphCacheStatus !== "ready") {
+  if (graphCacheStatus !== "ready" && !state.standaloneExport) {
     const banner = el("div", "graph-layout-banner");
     banner.appendChild(
       el(
@@ -13133,92 +13465,70 @@ function setGraphZoomFromSlider(renderer: Sigma, slider: HTMLInputElement) {
   syncGraphZoomSlider(renderer);
 }
 
-function renderGraphControls(snapshot: Snapshot) {
-  const wrap = el("div", "graph-controls");
-  const filters = el("div", "filters");
-  const search = el("input");
-  search.dataset.synthesisControlKey = "graph.search";
-  search.placeholder = t("synthesis-search-node");
-  search.value = state.graphSearchDraft ?? snapshot.graph.filters.search ?? "";
-  search.addEventListener("input", () => {
-    state.graphSearchDraft = search.value;
+function filterStandaloneGraph(
+  graph: Snapshot["graph"],
+  filters: Snapshot["graph"]["filters"],
+) {
+  const selectedScope =
+    filters.topicId === "all"
+      ? undefined
+      : graph.topicScopes.find((scope) => scope.topicId === filters.topicId);
+  const isTopicScoped = filters.topicId !== "all";
+  const topicSourceIds = new Set(selectedScope?.nodeIds || []);
+  const topicScopedNodeIds = new Set(topicSourceIds);
+  if (isTopicScoped) {
+    graph.edges.forEach((edge) => {
+      if (topicSourceIds.has(edge.source)) {
+        topicScopedNodeIds.add(edge.source);
+        topicScopedNodeIds.add(edge.target);
+      }
+      if (topicSourceIds.has(edge.target)) {
+        topicScopedNodeIds.add(edge.source);
+        topicScopedNodeIds.add(edge.target);
+      }
+    });
+  }
+  const visibleNodes = graph.nodes.filter((node) => {
+    if (!filters.nodeKinds.includes(node.kind)) return false;
+    if (!filters.showLowSignalReferences && node.low_signal) return false;
+    if (node.visibility === "hover_only") return false;
+    if (isTopicScoped && !topicScopedNodeIds.has(node.id)) return false;
+    return true;
   });
-  search.addEventListener("keydown", (event) => {
-    if ((event as KeyboardEvent).key === "Enter") {
-      event.preventDefault();
-      submitGraphSearch(search.value);
+  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
+  const visibleEdges = graph.edges.filter((edge) => {
+    if (edge.visibility === "hover_only") return false;
+    if (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)) {
+      return false;
     }
+    if (
+      isTopicScoped &&
+      !topicSourceIds.has(edge.source) &&
+      !topicSourceIds.has(edge.target)
+    ) {
+      return false;
+    }
+    if (filters.role !== "all" && edge.primary_role !== filters.role) {
+      return false;
+    }
+    return true;
   });
-  filters.appendChild(search);
-  filters.appendChild(
-    makeLocalButton(t("synthesis-action-search"), () => {
-      submitGraphSearch(search.value);
-    }),
-  );
-  filters.appendChild(
-    makeLocalButton(t("synthesis-action-clear"), () => {
-      search.value = "";
-      state.graphSearchDraft = "";
-      sendAction("setFilters", { graph: { search: "" } });
-      refreshGraphSearchHighlight();
-    }),
-  );
+  return { visibleNodes, visibleEdges };
+}
 
+function renderStandaloneGraphControls(snapshot: Snapshot) {
+  const wrap = el("div", "graph-controls standalone-graph-controls");
   const role = selectControl(
     ["all", ...roleOptions(snapshot)],
     snapshot.graph.filters.role,
-    (value) => sendAction("setFilters", { graph: { role: value } }),
-    (value) =>
-      value === "all" ? t("synthesis-filter-all") : humanizeEnumValue(value),
+    (value) => sendAction("setGraphView", { role: value }),
+    graphEdgeRoleLabel,
   );
-  filters.appendChild(role);
-  filters.appendChild(
-    selectControlWithLabels(
-      graphTopicScopeOptions(snapshot),
-      snapshot.graph.filters.topicId || "all",
-      (value) => {
-        state.graphReturnTopicId = undefined;
-        sendAction("setGraphView", { topicId: value || "all" });
-      },
-    ),
+  wrap.appendChild(
+    graphControlGroup(t("synthesis-graph-control-citation-role"), [role]),
   );
-  const graphCacheStatus = textValue(
-    snapshot.graph.diagnostics?.cache_status,
-    snapshot.graph.graph_hash ? "ready" : "missing",
-  );
-  filters.appendChild(makeGraphIncrementalRefreshButton(snapshot));
-  filters.appendChild(
-    makeButton(
-      t("synthesis-action-rebuild-graph-cache"),
-      "hostCommand",
-      {
-        command: "rebuildCitationGraphCacheNow",
-        args: { reason: "user" },
-      },
-      false,
-      graphCacheStatus === "refreshing",
-    ),
-  );
-  filters.appendChild(
-    makeButton(
-      t("synthesis-action-redraw-layout"),
-      "hostCommand",
-      {
-        command: "manualRecomputeLayout",
-        args: {
-          reason: "user",
-          algorithm: snapshot.graph.filters.layoutAlgorithm,
-        },
-      },
-      false,
-      graphCacheStatus !== "ready" ||
-        !snapshot.graph.graph_hash ||
-        snapshot.graph.layoutStatus === "refreshing",
-    ),
-  );
-  wrap.appendChild(filters);
 
-  const kinds = el("div", "filters");
+  const kindControls: HTMLElement[] = [];
   (["library_paper", "external_reference"] as GraphNodeKind[]).forEach(
     (kind) => {
       const label = el("label", "checkbox-label");
@@ -13235,7 +13545,7 @@ function renderGraphControls(snapshot: Snapshot) {
       label.appendChild(
         document.createTextNode(enumLabel("graph-node-kind", kind)),
       );
-      kinds.appendChild(label);
+      kindControls.push(label);
     },
   );
   const lowSignal = el("label", "checkbox-label");
@@ -13253,10 +13563,12 @@ function renderGraphControls(snapshot: Snapshot) {
       enumLabel("graph-node-kind", "low_signal_external"),
     ),
   );
-  kinds.appendChild(lowSignal);
-  wrap.appendChild(kinds);
+  kindControls.push(lowSignal);
+  wrap.appendChild(
+    graphControlGroup(t("synthesis-graph-control-node-types"), kindControls),
+  );
 
-  const algorithms = el("div", "filters");
+  const layoutButtons: HTMLElement[] = [];
   (
     [
       ["force", enumLabel("graph-layout", "force")],
@@ -13264,7 +13576,7 @@ function renderGraphControls(snapshot: Snapshot) {
       ["components", enumLabel("graph-layout", "components")],
     ] as Array<[string, string]>
   ).forEach(([algorithm, label]) => {
-    algorithms.appendChild(
+    layoutButtons.push(
       makeButton(
         label,
         "setGraphView",
@@ -13273,7 +13585,162 @@ function renderGraphControls(snapshot: Snapshot) {
       ),
     );
   });
-  wrap.appendChild(algorithms);
+  wrap.appendChild(
+    graphControlGroup(t("synthesis-graph-control-layout"), layoutButtons),
+  );
+  return wrap;
+}
+
+function renderGraphControls(snapshot: Snapshot) {
+  const wrap = el("div", "graph-controls");
+  const search = el("input");
+  search.dataset.synthesisControlKey = "graph.search";
+  search.placeholder = t("synthesis-search-node");
+  search.value = state.graphSearchDraft ?? snapshot.graph.filters.search ?? "";
+  search.addEventListener("input", () => {
+    state.graphSearchDraft = search.value;
+  });
+  search.addEventListener("keydown", (event) => {
+    if ((event as KeyboardEvent).key === "Enter") {
+      event.preventDefault();
+      submitGraphSearch(search.value);
+    }
+  });
+  const searchButton = makeLocalButton(t("synthesis-action-search"), () => {
+    submitGraphSearch(search.value);
+  });
+  const clearSearchButton = makeLocalButton(t("synthesis-action-clear"), () => {
+    search.value = "";
+    state.graphSearchDraft = "";
+    sendAction("setFilters", { graph: { search: "" } });
+    refreshGraphSearchHighlight();
+  });
+  wrap.appendChild(
+    graphControlGroup(t("synthesis-graph-control-search"), [
+      search,
+      searchButton,
+      clearSearchButton,
+    ]),
+  );
+
+  const role = selectControl(
+    ["all", ...roleOptions(snapshot)],
+    snapshot.graph.filters.role,
+    (value) => sendAction("setGraphView", { role: value }),
+    graphEdgeRoleLabel,
+  );
+  wrap.appendChild(
+    graphControlGroup(t("synthesis-graph-control-citation-role"), [role]),
+  );
+  const scope = selectControlWithLabels(
+    graphTopicScopeOptions(snapshot),
+    snapshot.graph.filters.topicId || "all",
+    (value) => {
+      state.graphReturnTopicId = undefined;
+      sendAction("setGraphView", { topicId: value || "all" });
+    },
+  );
+  wrap.appendChild(
+    graphControlGroup(t("synthesis-graph-control-scope"), [scope]),
+  );
+  const graphCacheStatus = textValue(
+    snapshot.graph.diagnostics?.cache_status,
+    snapshot.graph.graph_hash ? "ready" : "missing",
+  );
+  const refreshButton = makeGraphIncrementalRefreshButton(snapshot);
+  const rebuildButton = makeButton(
+    t("synthesis-action-rebuild-graph-cache"),
+    "hostCommand",
+    {
+      command: "rebuildCitationGraphCacheNow",
+      args: { reason: "user" },
+    },
+    false,
+    graphCacheStatus === "refreshing",
+  );
+  const redrawButton = makeButton(
+    t("synthesis-action-redraw-layout"),
+    "hostCommand",
+    {
+      command: "manualRecomputeLayout",
+      args: {
+        reason: "user",
+        algorithm: snapshot.graph.filters.layoutAlgorithm,
+      },
+    },
+    false,
+    graphCacheStatus !== "ready" ||
+      !snapshot.graph.graph_hash ||
+      snapshot.graph.layoutStatus === "refreshing",
+  );
+  wrap.appendChild(
+    graphControlGroup(t("synthesis-graph-control-cache"), [
+      refreshButton,
+      rebuildButton,
+      redrawButton,
+    ]),
+  );
+
+  const kindControls: HTMLElement[] = [];
+  (["library_paper", "external_reference"] as GraphNodeKind[]).forEach(
+    (kind) => {
+      const label = el("label", "checkbox-label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = snapshot.graph.filters.nodeKinds.includes(kind);
+      input.addEventListener("change", () => {
+        const next = new Set(snapshot.graph.filters.nodeKinds);
+        if (input.checked) next.add(kind);
+        else next.delete(kind);
+        sendAction("setGraphView", { nodeKinds: Array.from(next) });
+      });
+      label.appendChild(input);
+      label.appendChild(
+        document.createTextNode(enumLabel("graph-node-kind", kind)),
+      );
+      kindControls.push(label);
+    },
+  );
+  const lowSignal = el("label", "checkbox-label");
+  const lowSignalInput = document.createElement("input");
+  lowSignalInput.type = "checkbox";
+  lowSignalInput.checked = snapshot.graph.filters.showLowSignalReferences;
+  lowSignalInput.addEventListener("change", () =>
+    sendAction("setGraphView", {
+      showLowSignalReferences: lowSignalInput.checked,
+    }),
+  );
+  lowSignal.appendChild(lowSignalInput);
+  lowSignal.appendChild(
+    document.createTextNode(
+      enumLabel("graph-node-kind", "low_signal_external"),
+    ),
+  );
+  kindControls.push(lowSignal);
+  wrap.appendChild(
+    graphControlGroup(t("synthesis-graph-control-node-types"), kindControls),
+  );
+
+  const layoutButtons: HTMLElement[] = [];
+  (
+    [
+      ["force", enumLabel("graph-layout", "force")],
+      ["radial", enumLabel("graph-layout", "radial")],
+      ["components", enumLabel("graph-layout", "components")],
+    ] as Array<[string, string]>
+  ).forEach(([algorithm, label]) => {
+    layoutButtons.push(
+      makeButton(
+        label,
+        "setGraphView",
+        { layoutAlgorithm: algorithm },
+        snapshot.graph.layoutAlgorithm === algorithm,
+      ),
+    );
+  });
+  wrap.appendChild(
+    graphControlGroup(t("synthesis-graph-control-layout"), layoutButtons),
+  );
   return wrap;
 }
 
@@ -13639,7 +14106,7 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
         hidden: true,
         color: CITATION_GRAPH_OUTGOING_EDGE_COLOR,
         size: CITATION_GRAPH_EDGE_SIZE,
-        label: edge.primary_role || "",
+        label: edge.primary_role ? graphEdgeRoleLabel(edge.primary_role) : "",
         zIndex: 0,
         visibility: edge.visibility || "default",
       });
@@ -13858,11 +14325,11 @@ function renderSelectedDetail(snapshot: Snapshot) {
       ["id", selected.id],
     ];
     wrap.appendChild(renderDetailList(fields));
-    if (node?.kind === "library_paper") {
+    if (!state.standaloneExport && node?.kind === "library_paper") {
       wrap.appendChild(
-        makeButton("Open Zotero item", "hostCommand", {
+        makeButton(t("synthesis-action-open-zotero-item"), "hostCommand", {
           command: "openZoteroItem",
-          args: { nodeId: node.id },
+          args: { nodeId: node.id, libraryId: snapshot.libraryId },
         }),
       );
       wrap.appendChild(renderSelectedNodeCitations(snapshot, node));
@@ -13872,7 +14339,10 @@ function renderSelectedDetail(snapshot: Snapshot) {
   const edge = graphEdgeById(snapshot).get(selected.id);
   wrap.appendChild(
     renderDetailList([
-      ["role", edge?.primary_role || "-"],
+      [
+        "role",
+        edge?.primary_role ? graphEdgeRoleLabel(edge.primary_role) : "-",
+      ],
       ["source", edge?.source || "-"],
       ["target", edge?.target || "-"],
       ["mentions", edge?.mention_count || 0],
@@ -13959,7 +14429,9 @@ function renderSelectedNodeCitations(snapshot: Snapshot, node: GraphNode) {
       meta.appendChild(el("span", "muted", target.year));
     }
     if (edge.primary_role) {
-      meta.appendChild(el("span", "muted", edge.primary_role));
+      meta.appendChild(
+        el("span", "muted", graphEdgeRoleLabel(edge.primary_role)),
+      );
     }
     meta.appendChild(
       el("span", "muted", `${Math.max(0, edge.mention_count || 0)} mentions`),
@@ -14172,9 +14644,13 @@ function compactArtifactRowSignature(row: Record<string, unknown>) {
     row.id,
     row.title,
     row.freshness,
-    row.coverage,
+    row.source_materials_status,
+    row.source_materials_percent,
+    row.discovery_status,
+    row.candidate_count,
     row.updated_at,
     row.paper_count,
+    row.updateIntent,
   ];
 }
 
@@ -14528,7 +15004,11 @@ function render() {
   }
   const renderState = captureWorkbenchRenderState(root as HTMLElement);
   disposeGraphRenderer();
-  renderShell(root as HTMLElement, state.snapshot);
+  if (state.standaloneExport) {
+    renderStandaloneTopicExportShell(root as HTMLElement, state.snapshot);
+  } else {
+    renderShell(root as HTMLElement, state.snapshot);
+  }
   restoreWorkbenchRenderState(root as HTMLElement, renderState);
   renderDigestModal(root as HTMLElement);
   syncReferenceManualTargetOverlay(state.snapshot);
@@ -14539,6 +15019,9 @@ function render() {
 }
 
 function maybeRequestGraphLayoutRefresh(snapshot: Snapshot | null) {
+  if (state.standaloneExport) {
+    return;
+  }
   if (!snapshot || snapshot.selectedTab !== "graph") {
     return;
   }
@@ -14607,6 +15090,62 @@ function renderDigestRepresentativeImage(result: Record<string, unknown>) {
     figure.appendChild(el("figcaption", "", caption));
   }
   return figure;
+}
+
+function applyStandaloneTopicExportEnvelope(
+  envelope: SynthesisTopicExportEnvelope | undefined,
+) {
+  if (!envelope || typeof envelope !== "object") {
+    return false;
+  }
+  state.standaloneExport = true;
+  applyI18nEnvelope({ i18n: envelope.i18n || {} });
+  state.snapshot = envelope.snapshot || null;
+  state.topicDetail = envelope.topicDetail || undefined;
+  state.artifactReader = undefined;
+  state.digestModal = undefined;
+  state.evidenceExplorerOpen = false;
+  state.topicDetailSection = "overview";
+  state.graphReturnTopicId =
+    state.topicDetail?.topicId || state.snapshot?.reader?.topicId || undefined;
+  state.standaloneDigestsByKey.clear();
+  state.standaloneGraphLayouts.clear();
+  const digestsByKey = recordValue(envelope.digestsByKey);
+  Object.entries(digestsByKey).forEach(([key, value]) => {
+    const digest = recordValue(value);
+    if (key && Object.keys(digest).length) {
+      state.standaloneDigestsByKey.set(key, digest);
+    }
+  });
+  const graphLayouts = recordValue(envelope.graphLayouts);
+  Object.entries(graphLayouts).forEach(([key, value]) => {
+    const graph = recordValue(value) as Snapshot["graph"];
+    if (key && Array.isArray(graph.nodes) && Array.isArray(graph.edges)) {
+      state.standaloneGraphLayouts.set(
+        normalizeGraphLayoutAlgorithm(key),
+        graph,
+      );
+    }
+  });
+  if (state.snapshot) {
+    if (state.snapshot.graph) {
+      state.standaloneGraphLayouts.set(
+        normalizeGraphLayoutAlgorithm(state.snapshot.graph.layoutAlgorithm),
+        state.snapshot.graph,
+      );
+    }
+    state.snapshot = {
+      ...state.snapshot,
+      selectedTab: "reader",
+      reader: {
+        topicId:
+          state.topicDetail?.topicId || state.snapshot.reader?.topicId || "",
+        previousTab: "artifacts",
+      },
+    };
+  }
+  render();
+  return true;
 }
 
 function syncDigestModal() {
@@ -14916,5 +15455,9 @@ window.addEventListener("message", (event: MessageEvent) => {
   }
 });
 
-sendAction("ready");
-render();
+if (
+  !applyStandaloneTopicExportEnvelope(window.__zoteroSkillsSynthesisTopicExport)
+) {
+  sendAction("ready");
+  render();
+}

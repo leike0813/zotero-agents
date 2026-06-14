@@ -4,7 +4,9 @@
   "i18n": {
     "defaultLocale": "en-US",
     "locales": {
-      "zh-CN": "locales/zh-CN.json"
+      "zh-CN": "locales/zh-CN.json",
+      "fr-FR": "locales/fr-FR.json",
+      "ja-JP": "locales/ja-JP.json"
     }
   },
   "workflows": [

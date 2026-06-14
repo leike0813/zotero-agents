@@ -3,8 +3,14 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
-import { createSynthesisService } from "../../src/modules/synthesis/service";
-import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
+import {
+  SYNTHESIS_ALLOWED_CITATION_FUNCTIONS,
+  createSynthesisService,
+} from "../../src/modules/synthesis/service";
+import {
+  listNotePayloadBlocks,
+  renderPayloadBlock,
+} from "../../src/modules/notePayloadCodec";
 import {
   maybeStartSynthesisJobProfileRun,
   readSynthesisJobProfilerSnapshotForTests,
@@ -30,7 +36,8 @@ function makeService(args: {
     runtimeRoot: args.root,
     libraryId: 1,
     synthesisRepository: repository,
-    registryInputs: args.registryInputs === null ? undefined : args.registryInputs || [],
+    registryInputs:
+      args.registryInputs === null ? undefined : args.registryInputs || [],
     citationGraphPapers: args.citationGraphPapers,
     libraryAdapter: args.libraryAdapter,
     relatedItemsSyncHost: args.relatedItemsSyncHost,
@@ -38,7 +45,43 @@ function makeService(args: {
   return { service, repository };
 }
 
+function embeddedPayloadBlocks(args: Parameters<typeof renderPayloadBlock>[0]) {
+  const html = renderPayloadBlock(args);
+  return {
+    html,
+    payloadBlocks: listNotePayloadBlocks(html).map((block) => ({
+      ...block,
+      source: "embedded-image-attachment",
+      sourceStorage: "embedded-image-attachment",
+    })),
+  };
+}
+
 describe("Synthesis sidecar cache hard cut", function () {
+  it("keeps the citation role allowlist aligned with literature-analysis runtime", async function () {
+    const runtimeSource = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "skills_builtin/literature-analysis/scripts/analysis_runtime/deterministic_core.py",
+      ),
+      "utf8",
+    );
+    const allowedBlock = runtimeSource.match(
+      /ALLOWED_CITATION_FUNCTIONS\s*=\s*\{([\s\S]*?)\}/,
+    );
+    assert.isNotNull(allowedBlock);
+    const runtimeValues = Array.from(
+      allowedBlock?.[1].matchAll(/"([^"]+)"/g) || [],
+      (match) => match[1],
+    ).sort();
+
+    assert.deepEqual(
+      [...SYNTHESIS_ALLOWED_CITATION_FUNCTIONS].sort(),
+      runtimeValues,
+    );
+    assert.include(runtimeValues, "uncategorized");
+  });
+
   it("flushes profiler run and phase starts before a run finishes", async function () {
     const root = await makeRuntimeRoot();
     resetSynthesisJobProfilerForTests(root);
@@ -96,7 +139,10 @@ describe("Synthesis sidecar cache hard cut", function () {
 
     assert.equal(result.status, "sidecar_applied");
     assert.equal(repository.listRawReferences().length, 1);
-    assert.equal(repository.listReferenceFacts()[0]?.resolutionStatus, "unbound");
+    assert.equal(
+      repository.listReferenceFacts()[0]?.resolutionStatus,
+      "unbound",
+    );
     assert.equal(repository.listArtifactSidecars().length, 3);
     const operations = repository.listOperations({ includeCompleted: true });
     assert.notInclude(
@@ -129,6 +175,124 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.equal(registry.rows[0]?.artifactCoverage, "complete");
   });
 
+  it("persists best-effort citation roles from literature-analysis apply", async function () {
+    const root = await makeRuntimeRoot();
+    const { service, repository } = makeService({ root });
+
+    await service.applyLiteratureDigestSidecar({
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Attention Paper",
+      year: "2020",
+      digest: { noteKey: "NDIGEST", content: "# Digest\n\nBody" },
+      references: {
+        noteKey: "NREFS",
+        references: [
+          { id: "ref-1", title: "Background Paper", year: "2021" },
+          { id: "ref-2", title: "Method Paper", year: "2022" },
+          { id: "ref-3", title: "Tool Paper", year: "2023" },
+        ],
+      },
+      citationAnalysis: {
+        noteKey: "NCITE",
+        payloadHash: "sha256:cite",
+        payload: {
+          citation_analysis: {
+            items: [
+              { ref_index: 0, function: "background" },
+              { ref_index: 1, function: "method" },
+              { ref_index: 2, function: "uncategorized" },
+            ],
+          },
+        },
+      },
+    });
+
+    const rawRoles = repository
+      .listRawReferences()
+      .map((row) =>
+        JSON.parse(row.rolesJson || "[]").map(
+          (entry: { role?: string }) => entry.role,
+        ),
+      );
+    assert.deepEqual(rawRoles, [["background"], ["unknown"], ["unknown"]]);
+
+    await service.rebuildCitationGraphCacheNow();
+    const edgeRoles = repository
+      .listCitationEdges()
+      .map((edge) =>
+        JSON.parse(edge.rolesJson || "[]").map(
+          (entry: { role?: string }) => entry.role,
+        ),
+      );
+    assert.deepEqual(edgeRoles, [["background"], ["unknown"], ["unknown"]]);
+  });
+
+  it("refreshes reference sidecars with citation roles from Zotero citation analysis artifacts", async function () {
+    const root = await makeRuntimeRoot();
+    const { service, repository } = makeService({
+      root,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "AAA",
+          title: "Attention Paper",
+          year: "2020",
+          notes: [
+            {
+              key: "NREFS",
+              title: "References",
+              html: renderPayloadBlock({
+                payloadType: "references-json",
+                payload: {
+                  references: [
+                    { id: "ref-1", title: "Baseline Paper", year: "2021" },
+                    { id: "ref-2", title: "Dataset Paper", year: "2022" },
+                    { id: "ref-3", title: "Generic Paper", year: "2023" },
+                  ],
+                },
+              }),
+            },
+            {
+              key: "NCITE",
+              title: "Citation Analysis",
+              html: renderPayloadBlock({
+                payloadType: "citation-analysis-json",
+                payload: {
+                  citation_analysis: {
+                    items: [
+                      { ref_index: 0, function: "baseline" },
+                      { ref_index: 1, function: "dataset" },
+                      { ref_index: 2, function: "citation" },
+                    ],
+                  },
+                },
+              }),
+            },
+          ],
+        },
+      ],
+    });
+
+    await service.refreshReferenceSidecarNow();
+    const rawRoles = repository
+      .listRawReferences()
+      .map((row) =>
+        JSON.parse(row.rolesJson || "[]").map(
+          (entry: { role?: string }) => entry.role,
+        ),
+      );
+    assert.deepEqual(rawRoles, [["baseline"], ["dataset"], ["unknown"]]);
+
+    await service.rebuildCitationGraphCacheNow();
+    assert.deepEqual(
+      repository
+        .listCitationEdges()
+        .map((edge) => JSON.parse(edge.rolesJson || "[]")[0]?.role),
+      ["baseline", "dataset", "unknown"],
+    );
+  });
+
   it("verifies incomplete visible Index rows against current Zotero artifacts", async function () {
     const root = await makeRuntimeRoot();
     const { service, repository } = makeService({
@@ -156,7 +320,7 @@ describe("Synthesis sidecar cache hard cut", function () {
               {
                 key: "REFS",
                 title: "References",
-                html: renderPayloadBlock({
+                ...embeddedPayloadBlocks({
                   payloadType: "references-json",
                   payload: { references: [{ title: "Actual Reference" }] },
                 }),
@@ -297,14 +461,12 @@ describe("Synthesis sidecar cache hard cut", function () {
             title:
               "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
             year: "2021",
-            raw:
-              "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
+            raw: "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
           },
           {
             title: "Layer normalization",
             year: "2016",
-            raw:
-              "Lei Jimmy Ba, Jamie Ryan Kiros, and Geoffrey E. Hinton. Layer normalization. arXiv preprint arXiv:1607.06450, 2016.",
+            raw: "Lei Jimmy Ba, Jamie Ryan Kiros, and Geoffrey E. Hinton. Layer normalization. arXiv preprint arXiv:1607.06450, 2016.",
           },
         ],
       },
@@ -473,7 +635,10 @@ describe("Synthesis sidecar cache hard cut", function () {
 
     assert.equal(ready.status, "ready");
     assert.isAtLeast(progressCalls, 3);
-    assert.equal(repository.getCacheBasis("reference-sidecar:library")?.status, "ready");
+    assert.equal(
+      repository.getCacheBasis("reference-sidecar:library")?.status,
+      "ready",
+    );
     const graphBasis = repository.getCacheBasis("citation-graph:library");
     assert.equal(graphBasis?.status, "stale");
     assert.include(graphBasis?.diagnosticsJson || "", "1:AAA");
@@ -491,7 +656,10 @@ describe("Synthesis sidecar cache hard cut", function () {
     const operationTypes = repository
       .listOperations({ includeCompleted: true })
       .map((operation) => operation.operationType);
-    assert.notInclude(operationTypes, "citation_graph_cache_incremental_refresh");
+    assert.notInclude(
+      operationTypes,
+      "citation_graph_cache_incremental_refresh",
+    );
     assert.notInclude(operationTypes, "related_items_sync");
 
     const failing = makeService({
@@ -516,8 +684,14 @@ describe("Synthesis sidecar cache hard cut", function () {
     const failed = await failing.refreshReferenceSidecarNow();
 
     assert.equal(failed.status, "ready");
-    assert.equal(repository.getCacheBasis("reference-sidecar:library")?.status, "ready");
-    assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "stale");
+    assert.equal(
+      repository.getCacheBasis("reference-sidecar:library")?.status,
+      "ready",
+    );
+    assert.equal(
+      repository.getCacheBasis("citation-graph:library")?.status,
+      "stale",
+    );
   });
 
   it("refreshes citation graph source slices without replacing unrelated rows", async function () {
@@ -538,19 +712,28 @@ describe("Synthesis sidecar cache hard cut", function () {
       itemKey: "AAA",
       title: "Source A",
       references: [{ title: "Target B", citekey: "b" }],
-      matchedItems: [{ libraryId: 1, itemKey: "BBB", title: "Target B", citekey: "b" }],
+      matchedItems: [
+        { libraryId: 1, itemKey: "BBB", title: "Target B", citekey: "b" },
+      ],
     });
     await service.applyReferenceMatchingSidecar({
       libraryId: 1,
       itemKey: "CCC",
       title: "Source C",
       references: [{ title: "Target D", citekey: "d" }],
-      matchedItems: [{ libraryId: 1, itemKey: "DDD", title: "Target D", citekey: "d" }],
+      matchedItems: [
+        { libraryId: 1, itemKey: "DDD", title: "Target D", citekey: "d" },
+      ],
     });
     await service.rebuildCitationGraphCacheNow();
 
     assert.sameMembers(
-      repository.listCitationEdges({ statuses: ["accepted"] }).map((edge) => `${edge.sourceLiteratureItemId}->${edge.targetLiteratureItemId}`),
+      repository
+        .listCitationEdges({ statuses: ["accepted"] })
+        .map(
+          (edge) =>
+            `${edge.sourceLiteratureItemId}->${edge.targetLiteratureItemId}`,
+        ),
       ["1:AAA->1:BBB", "1:CCC->1:DDD"],
     );
 
@@ -559,21 +742,37 @@ describe("Synthesis sidecar cache hard cut", function () {
       itemKey: "AAA",
       title: "Source A",
       references: [{ title: "Target E", citekey: "e" }],
-      matchedItems: [{ libraryId: 1, itemKey: "EEE", title: "Target E", citekey: "e" }],
+      matchedItems: [
+        { libraryId: 1, itemKey: "EEE", title: "Target E", citekey: "e" },
+      ],
     });
 
-    assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "ready");
+    assert.equal(
+      repository.getCacheBasis("citation-graph:library")?.status,
+      "ready",
+    );
     assert.sameMembers(
-      repository.listCitationEdges({ statuses: ["accepted"] }).map((edge) => `${edge.sourceLiteratureItemId}->${edge.targetLiteratureItemId}`),
+      repository
+        .listCitationEdges({ statuses: ["accepted"] })
+        .map(
+          (edge) =>
+            `${edge.sourceLiteratureItemId}->${edge.targetLiteratureItemId}`,
+        ),
       ["1:AAA->1:EEE", "1:CCC->1:DDD"],
     );
     assert.equal(
-      repository.listCitationLightMetrics({ literatureItemIds: ["1:EEE"] })[0]?.incomingCount,
+      repository.listCitationLightMetrics({ literatureItemIds: ["1:EEE"] })[0]
+        ?.incomingCount,
       1,
     );
     assert.equal(
-      repository.listOperations({ includeCompleted: true })
-        .some((operation) => operation.operationType === "citation_graph_cache_incremental_refresh"),
+      repository
+        .listOperations({ includeCompleted: true })
+        .some(
+          (operation) =>
+            operation.operationType ===
+            "citation_graph_cache_incremental_refresh",
+        ),
       true,
     );
   });
@@ -685,15 +884,22 @@ describe("Synthesis sidecar cache hard cut", function () {
       itemKey: "AAA",
       title: "Source A",
       references: [{ title: "Target B", citekey: "b" }],
-      matchedItems: [{ libraryId: 1, itemKey: "BBB", title: "Target B", citekey: "b" }],
+      matchedItems: [
+        { libraryId: 1, itemKey: "BBB", title: "Target B", citekey: "b" },
+      ],
     });
     await service.rebuildCitationGraphCacheNow();
-    const rebuildCount = repository.listOperations({ includeCompleted: true })
-      .filter((operation) => operation.operationType === "citation_graph_cache_rebuild")
-      .length;
-    const relatedSyncCount = repository.listOperations({ includeCompleted: true })
-      .filter((operation) => operation.operationType === "related_items_sync")
-      .length;
+    const rebuildCount = repository
+      .listOperations({ includeCompleted: true })
+      .filter(
+        (operation) =>
+          operation.operationType === "citation_graph_cache_rebuild",
+      ).length;
+    const relatedSyncCount = repository
+      .listOperations({ includeCompleted: true })
+      .filter(
+        (operation) => operation.operationType === "related_items_sync",
+      ).length;
     repository.upsertCacheBasis({
       cacheKey: "citation-graph:library",
       cacheKind: "citation_graph",
@@ -723,17 +929,23 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.deepEqual(result.affected_source_refs, ["1:AAA"]);
     assert.equal((result as any).related_items_sync?.processed, 1);
     assert.equal((result as any).related_items_sync?.failed, 0);
-    assert.equal(repository.getCacheBasis("citation-graph:library")?.status, "ready");
     assert.equal(
-      repository.listOperations({ includeCompleted: true })
-        .filter((operation) => operation.operationType === "citation_graph_cache_rebuild")
-        .length,
+      repository.getCacheBasis("citation-graph:library")?.status,
+      "ready",
+    );
+    assert.equal(
+      repository
+        .listOperations({ includeCompleted: true })
+        .filter(
+          (operation) =>
+            operation.operationType === "citation_graph_cache_rebuild",
+        ).length,
       rebuildCount,
     );
     assert.include(
-      repository.listOperations({ includeCompleted: true }).map(
-        (operation) => operation.operationType,
-      ),
+      repository
+        .listOperations({ includeCompleted: true })
+        .map((operation) => operation.operationType),
       "citation_graph_cache_incremental_refresh",
     );
     const relatedSyncOperations = repository
@@ -826,8 +1038,7 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.isFalse(
       snapshot.maintenance.backgroundJobs.rows.some(
         (row) =>
-          row.source === "reference_sidecar_refresh" &&
-          row.status === "failed",
+          row.source === "reference_sidecar_refresh" && row.status === "failed",
       ),
     );
   });
@@ -839,7 +1050,10 @@ describe("Synthesis sidecar cache hard cut", function () {
     await service.getReferenceSidecarIndex({ sourceRefs: ["1:MISSING"] });
     await service.getCitationGraphMetrics({ paperRefs: ["1:MISSING"] });
 
-    assert.equal(repository.listOperations({ includeCompleted: true }).length, 0);
+    assert.equal(
+      repository.listOperations({ includeCompleted: true }).length,
+      0,
+    );
     assert.equal(repository.listCacheBasis().length, 0);
   });
 
@@ -880,7 +1094,10 @@ describe("Synthesis sidecar cache hard cut", function () {
     });
 
     assert.equal(scans, 0);
-    assert.equal(repository.listOperations({ includeCompleted: true }).length, 0);
+    assert.equal(
+      repository.listOperations({ includeCompleted: true }).length,
+      0,
+    );
     assert.equal(repository.listCacheBasis().length, 0);
   });
 

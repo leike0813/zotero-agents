@@ -46,6 +46,9 @@ stages:
       duplicate_status: "`none` 表示未发现重复；`possible_duplicate` 表示需谨慎；`duplicate` 表示已有同一主题；`unknown` 表示材料不足。"
       duplicate_candidate_ids: "只填写 Host topic list 中真实存在的候选 id。"
       duplicate_reason: "说明重复判断依据，不能只写“相似”。"
+    hard_constraints:
+      - "如果 `duplicate_status` 为 `duplicate`，这是 create prepare 的硬门禁失败：不要提交 resolver/workset 或任何后续 payload，不进入 Stage 20。"
+      - "硬门禁失败时直接输出符合 `assets/output.schema.json` 的 `topic_synthesis_canceled` 最终业务对象，包含 `status: \"canceled\"`、`reason: \"duplicate_topic\"`、`message`、`topic_seed`，并在可确定时填 `duplicate_topic_id`；sequence runtime 会据此短路后续 steps。"
     quality_checks:
       - "topic boundary 要能指导 resolver 设计。"
       - "重复判断要保守，不能把宽泛相关主题误判为同一 topic。"
@@ -64,41 +67,57 @@ stages:
       duplicate_reason: "现有 topic 的标题和别名中没有表示同一 DETR-style object detection 方法族的条目。"
 
   stage_10_update_topic_context:
-    semantic_goal: "读取既有 topic 状态并判断本次更新应是 full update、patch update 还是暂时不确定。"
+    semantic_goal: "读取 runtime update audit report，判断是否继续更新；继续时提交只增不改的 resolver proposal。"
     execution_steps:
-      - "从 `runtime/input.json` 找到目标 topic id；执行 topic context Host read command。"
-      - "判断哪些 section 需要重算或补充，写入 `changed_sections`。"
+      - "先读取 `runtime/payloads/update-audit-report.json`；该文件由 Stage 00 runtime 从 get-context digest/audit 读取旧持久化关联文献和 saved triage，不执行 resolver。"
+      - "如果 audit report 显示本次无需更新，写 `update_decision.action: cancel`。"
+      - "如果继续更新，执行 library index Host read command，必要时分页。"
+      - "提交 resolver proposal 时使用简化 Host Bridge resolver payload：`tag`、`collection_key`、`paper_refs` 和可选 `combine`。"
+      - "如果 audit report 中 current_resolver 已是简化格式，必须保留全部既有 selector 值，只能新增字段或数组元素；不要携带旧 `mode/query/include/exclude` DSL。"
+      - "区分 current_linked_papers、saved_triage、source_materials 和后续 resolver diff：旧关联文献是已持久化 topic 的来源集合，saved_triage 是已有单篇判断覆盖，source_materials 只说明 digest/references/citation-analysis 等 source artifacts 可读。"
       - "把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。"
     host_read_commands:
-      - command: '<zotero-bridge> topics get-context --input ''{"topicId":"<topic_id>"}'''
-        notes: "`<topic_id>` 来自 `runtime/input.json` 或 gate/input payload；不要自行发明 topic id。"
+      - command: '<zotero-bridge> library-index get --input ''{"cursor":0,"limit":200}'''
+        purpose: "读取 Synthesis sidecar cache 的文库索引，用于判断是否向当前 resolver proposal 增加文献条件。"
+        notes: "如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。"
     required_read_notes:
-      - "topic context 是既有 topic 的当前状态，不是新建 topic seed。"
+      - "`runtime/payloads/update-audit-report.json` 是本 stage 的当前状态真源。"
+      - "library index 用于设计增量 resolver proposal，不要从中手写 resolver result。"
+      - "`source_materials.status=complete` 只表示 source artifact cache 可读，不表示 triage 完整、不表示无需更新。"
     field_guidance:
-      update_assessment: "说明 operation、changed_sections 和选择理由。"
+      update_decision: "`cancel` 表示 audit report 未显示需要继续更新；`continue` 表示提交 resolver proposal 并进入 resolver cascade。"
+      resolver: "Host Bridge raw resolver payload；使用 `tag`、`collection_key`、`paper_refs` 和可选 `combine`。`combine` 默认 `union` 扩大召回；需要收窄时用 `intersection` 或更精确的 `tag.and/not`。"
+      resolver_reasoning: "说明新增条件、边界和可能遗漏，不写跨文献结论。"
+    hard_constraints:
+      - "如果 Stage 00 已生成 canceled output，直接输出 gate completed result 中的 `topic_synthesis_canceled` 对象，不再写本 stage payload。"
+      - "如果 `update_decision.action` 是 `cancel`，不要附带 resolver。"
+      - "如果 `update_decision.action` 是 `continue`，必须附带 resolver 和 resolver_reasoning。"
+      - "resolver proposal 删除或改写 current_resolver 既有简化 selector 内容时，gate 会拒绝提交。"
+      - "如果 continue 后 runtime 执行 updated resolver 得到的 `resolve_diff.added_refs` 为空，这是 update prepare 的 no-op 硬取消条件：直接输出 `topic_synthesis_canceled`，不进入 Stage 30。"
     quality_checks:
-      - "update path 当前仍是 split suite skeleton；只写当前 schema 接受的判断，不承诺后续完整 update workflow。"
-      - "不要把 create 的 duplicate check 逻辑套到 update topic context。"
+      - "更新判断必须引用 audit report 中的 source_materials、discovery、current_linked_papers 或 saved_triage 信息。"
+      - "不要把 create 的 duplicate check 逻辑套到 update。"
     common_pitfalls:
-      - "不要删除或改写 Host 提供的 topic_id。"
-      - "不要把 `unknown` 当作成功更新策略，只在证据不足时使用。"
+      - "不要手写旧基线或 updated resolve；旧基线来自 current_linked_papers，updated resolve 只由本 stage submit 后 runtime 调 Host Bridge 生成。"
+      - "不要在 `added_refs=0` 时为了补旧 triage 覆盖而继续 Stage 30；最新规则是没有新增 resolved papers 就取消本次 update。"
+      - "不要在本 stage 做 paper triage。"
     example:
-      topic_context:
-        topic_id: "existing-topic-id"
-        topic_definition:
-          title: "DETR-style Object Detection"
-        recommended_update: {}
-      update_assessment:
-        operation: "update_full"
-        changed_sections: ["taxonomy", "claims"]
-        reason: "当前 topic context 显示核心分析 sections 需要重新生成。"
+      update_decision:
+        action: "continue"
+        reason: "Audit report shows discovery candidates and an expanded source set is useful."
+        message: "Proceeding with a current-state topic update."
+      resolver:
+        paper_refs: ["1:DETR2020", "1:DINO2022"]
+        combine: "union"
+      resolver_reasoning: "保留 current_resolver 中已有 paper_refs，并加入 audit/library-index 指向的新候选。"
 
   stage_20_resolver_and_workset:
     semantic_goal: "设计紧凑 resolver proposal；runtime 负责 resolver、citation metrics 和 filtered artifact export cascade。"
     execution_steps:
       - "执行 library index Host read command，必要时按返回 cursor 分页。"
       - "从 library index 中识别 topic seed 对应的关键词、标签、citekey 或 paper_refs。"
-      - "优先写能复现的 resolver 条件；只有已有明确文献集合时才使用 explicit `paper_refs`。"
+      - "优先写能复现的 resolver 条件；可用 `tag`、`collection_key`、`paper_refs` 单独或组合查询。"
+      - "`combine` 默认 `union`，用于扩大召回；需要收窄到同时满足多个 selector 类型时，显式使用 `combine: intersection`。"
       - "用 `resolver_reasoning` 说明为什么这个 resolver 能覆盖 topic 边界。"
       - "提交后由 runtime 写 resolver result、metrics、artifact manifests 和 workset。"
     host_read_commands:
@@ -108,9 +127,9 @@ stages:
     required_read_notes:
       - "library index 用于设计 resolver，不要从中手写 resolver result。"
     field_guidance:
-      resolver: "Host Bridge resolver input proposal；必须有 `mode`，并包含 `query` 或 `paper_refs`。"
+      resolver: "Host Bridge raw resolver payload；至少包含 `tag`、`collection_key`、`paper_refs` 之一，可选 `combine: union|intersection`。"
       resolver_reasoning: "说明检索条件、边界和可能遗漏，不写跨文献结论。"
-      operation_intent: "create prepare 使用 `create`；update prepare 可使用 `update_full` 或 `update_patch`。"
+      operation_intent: "create prepare 使用 `create`。"
     quality_checks:
       - "resolver 要服务 topic 边界，而不是最大化召回所有相邻文献。"
       - "不要写 runtime 会生成的 resolver result、citation metrics 或 artifact manifest。"
@@ -119,9 +138,9 @@ stages:
       - "不要在 resolver stage 做 paper triage。"
     example:
       resolver:
-        mode: "tag_query"
-        query:
+        tag:
           and: ["object-detection", "detr"]
+        combine: "union"
       resolver_reasoning: "该标签组合面向 DETR-family 目标检测论文，同时避开泛 transformer 论文。"
       operation_intent: "create"
 
@@ -164,7 +183,10 @@ stages:
       - "按 manifest 中每篇 paper 的 `artifacts[].content_file` 读取 digest、references 和 citation-analysis；当前 artifact 文件通常位于 `runtime/payloads/artifacts/`。"
       - "逐篇阅读 digest、references 和 citation-analysis；每次判断只面向当前 paper。"
       - "如果使用 subagent，先按 paper_ref 分配 artifacts，收回 assessment row 草案后由主 agent 统一检查并合并。"
-      - "每篇 resolved paper 写一条 assessment；判断只限该 paper 与 topic 的关系。"
+      - "按 gate 指令和 runtime audit 判断需要 triage 的 paper refs；create 通常覆盖所有 resolved papers，update 使用 gate 暴露的 `triage_required_refs`。"
+      - "update 的 `triage_required_refs` 来自 updated resolver refs 与 saved triage refs 的覆盖缺口，不只是 resolver diff 中的 added refs。"
+      - "如果 update 没有可复用 triage，gate 会要求对 updated resolve 中全部 papers 写 assessment。"
+      - "每条 assessment 判断只限该 paper 与 topic 的关系。"
       - "用 `core_digest` 提炼该 paper 对 topic window 的贡献。"
       - "提交后由 runtime 根据 triage、filtered digest、references、citation-analysis 和 citation graph metrics 生成 cross-paper context、external-literature context、context manifest、source evidence index 和 prepare handoff。"
     required_read_notes:

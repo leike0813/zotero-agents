@@ -154,6 +154,28 @@ describe("runtime persistence governance", function () {
         "manifest.json",
       ),
     );
+    assert.equal(
+      topicPaths.currentTopicDetailHtml,
+      path.join(
+        paths.synthesisDataRoot,
+        "topics",
+        "topic-alpha",
+        "current",
+        "assets",
+        "topic-detail.html",
+      ),
+    );
+    assert.equal(
+      topicPaths.currentTopicDetailHtmlMetadata,
+      path.join(
+        paths.synthesisDataRoot,
+        "topics",
+        "topic-alpha",
+        "current",
+        "assets",
+        "topic-detail.html.metadata.json",
+      ),
+    );
     assert.notInclude(
       topicPaths.currentManifest.replace(/\\/g, "/"),
       "/runtime/synthesis/",

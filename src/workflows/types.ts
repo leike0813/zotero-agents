@@ -177,6 +177,13 @@ export type WorkflowRequestSpec = {
           parameter?: Record<string, unknown>;
         };
       };
+      short_circuit?: {
+        when?: {
+          path?: string;
+          equals?: string | number | boolean | null;
+        };
+        result?: "step_output";
+      };
     }>;
   };
   [key: string]: unknown;

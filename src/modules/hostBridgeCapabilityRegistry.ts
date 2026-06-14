@@ -553,12 +553,16 @@ function synthesisCapability(
   category: HostBridgeCapabilityCategory,
   summary: string,
   methodName: SynthesisMcpServiceMethod,
+  input: HostBridgeCapabilityManifestEntry["input"] = {
+    type: "object",
+    required: false,
+  },
 ): HostBridgeCapabilityDefinition {
   return capability(
     name,
     category,
     summary,
-    { type: "object", required: false },
+    input,
     async (input, context) => {
       const service =
         context.resolveSynthesisService?.() ||
@@ -813,8 +817,39 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   synthesisCapability(
     "topics.get_context",
     "topics",
-    "Return one topic context, optionally including current artifact and manifest data.",
+    "Return one topic context as digest, semantic, audit, or full view; large view results may be written to outputPath.",
     "getTopicContext",
+    {
+      type: "object",
+      required: false,
+      properties: {
+        topicId: { type: "string" },
+        topic_id: { type: "string" },
+        view: {
+          type: "string",
+          enum: ["digest", "semantic", "audit", "full"],
+        },
+        mode: { type: "string", enum: ["create", "update"] },
+        language: { type: "string" },
+        updateScope: { type: "string" },
+        update_scope: { type: "string" },
+        updateMode: { type: "string" },
+        update_mode: { type: "string" },
+        updateReason: { type: "string" },
+        update_reason: { type: "string" },
+        includeFull: { type: "boolean" },
+        include_full: { type: "boolean" },
+        includeMarkdown: { type: "boolean" },
+        include_markdown: { type: "boolean" },
+        includeArtifact: { type: "boolean" },
+        include_artifact: { type: "boolean" },
+        includeManifest: { type: "boolean" },
+        include_manifest: { type: "boolean" },
+        outputPath: { type: "string" },
+        output_path: { type: "string" },
+        overwrite: { type: "boolean" },
+      },
+    },
   ),
   synthesisCapability(
     "topics.get_report",

@@ -51,9 +51,7 @@ export type SynthesisOperationStatus =
   | "failed"
   | "canceled";
 
-export type SynthesisOperationProgressMode =
-  | "determinate"
-  | "indeterminate";
+export type SynthesisOperationProgressMode = "determinate" | "indeterminate";
 
 export type SynthesisOperationRecord = {
   operationId: string;
@@ -124,6 +122,7 @@ export type SynthesisRawReferenceRecord = {
   rawReference?: string;
   canonicalReferenceId?: string;
   status?: "active" | "stale" | "parse_error" | string;
+  rolesJson?: string;
   diagnosticsJson?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -421,6 +420,7 @@ export type SynthesisTopicDiscoveryBuildResult = {
   upserted: number;
   open: number;
   rejected: number;
+  accepted: number;
   hints: SynthesisTopicDiscoveryHintRecord[];
   diagnostics: SynthesisReviewActionDiagnostic[];
 };
@@ -842,11 +842,7 @@ function appendInFilter(
   clauses.push(`${column} IN (${placeholders.join(", ")})`);
 }
 
-function appendLimitClause(
-  params: SqlParams,
-  limit: number,
-  defaultSql = "",
-) {
+function appendLimitClause(params: SqlParams, limit: number, defaultSql = "") {
   if (limit <= 0) {
     return defaultSql;
   }
@@ -914,10 +910,11 @@ function normalizeTopicDiscoveryHintStatus(value: unknown) {
   if (normalized === "filtered") {
     return "rejected";
   }
-  if (normalized === "accepted") {
-    return "open";
-  }
-  if (normalized === "rejected" || normalized === "superseded") {
+  if (
+    normalized === "accepted" ||
+    normalized === "rejected" ||
+    normalized === "superseded"
+  ) {
     return normalized;
   }
   return "open";
@@ -967,7 +964,11 @@ function normalizeReferenceBindingState(
   value: unknown,
 ): SynthesisReferenceBindingRecord["status"] {
   const normalized = cleanString(value);
-  if (normalized === "accepted" || normalized === "auto" || normalized === "confirmed") {
+  if (
+    normalized === "accepted" ||
+    normalized === "auto" ||
+    normalized === "confirmed"
+  ) {
     return "accepted";
   }
   if (
@@ -992,13 +993,21 @@ function applyOptionalMigration(db: SqlAdapter, sql: string) {
   }
 }
 
-function tableColumnExists(db: SqlAdapter, tableName: string, columnName: string) {
+function tableColumnExists(
+  db: SqlAdapter,
+  tableName: string,
+  columnName: string,
+) {
   return db
     .all(`PRAGMA table_info(${tableName})`)
     .some((row) => cleanString(row.name) === columnName);
 }
 
-function dropOptionalColumn(db: SqlAdapter, tableName: string, columnName: string) {
+function dropOptionalColumn(
+  db: SqlAdapter,
+  tableName: string,
+  columnName: string,
+) {
   if (!tableColumnExists(db, tableName, columnName)) {
     return;
   }
@@ -1229,8 +1238,10 @@ function buildZoteroAdapter(dbPath: string): SqlAdapter {
               const row: SqlRow = {};
               const count = Number(statement.columnCount || 0);
               for (let index = 0; index < count; index += 1) {
-                row[String(statement.getColumnName?.(index) || "")] =
-                  readValue(statement, index);
+                row[String(statement.getColumnName?.(index) || "")] = readValue(
+                  statement,
+                  index,
+                );
               }
               rows.push(row);
             }
@@ -1462,7 +1473,9 @@ function createMemoryAdapter(): SqlAdapter {
         state.rawReferences.clear();
         return;
       }
-      if (normalized.startsWith("delete from synt_canonical_reference_redirect")) {
+      if (
+        normalized.startsWith("delete from synt_canonical_reference_redirect")
+      ) {
         state.canonicalReferenceRedirects.clear();
         return;
       }
@@ -1659,7 +1672,9 @@ function createMemoryAdapter(): SqlAdapter {
         state.cacheBasis.set(cleanString(params.cache_key), memoryRow(params));
         return;
       }
-      if (normalized.startsWith("insert or replace into synt_artifact_sidecar")) {
+      if (
+        normalized.startsWith("insert or replace into synt_artifact_sidecar")
+      ) {
         const key = [
           cleanString(params.source_ref),
           cleanString(params.artifact_type),
@@ -1675,7 +1690,9 @@ function createMemoryAdapter(): SqlAdapter {
         return;
       }
       if (
-        normalized.startsWith("insert or replace into synt_canonical_reference ")
+        normalized.startsWith(
+          "insert or replace into synt_canonical_reference ",
+        )
       ) {
         state.canonicalReferences.set(
           cleanString(params.canonical_reference_id),
@@ -1694,7 +1711,9 @@ function createMemoryAdapter(): SqlAdapter {
         );
         return;
       }
-      if (normalized.startsWith("insert or replace into synt_reference_binding")) {
+      if (
+        normalized.startsWith("insert or replace into synt_reference_binding")
+      ) {
         state.referenceBindings.set(
           cleanString(params.binding_id),
           memoryRow(params),
@@ -2026,9 +2045,11 @@ function createMemoryAdapter(): SqlAdapter {
         }));
       }
       if (normalized.includes("from synt_reference_match_proposal")) {
-        return Array.from(state.referenceMatchProposals.values()).map((row) => ({
-          ...row,
-        }));
+        return Array.from(state.referenceMatchProposals.values()).map(
+          (row) => ({
+            ...row,
+          }),
+        );
       }
       if (normalized.includes("from synt_citation_node")) {
         return Array.from(state.citationNodes.values()).map((row) => ({
@@ -2205,8 +2226,9 @@ function createMemoryAdapter(): SqlAdapter {
       );
       if (countMatch) {
         return {
-          value: memoryTable(state, countMatch[1], { allowMissing: true })
-            ?.size ?? 0,
+          value:
+            memoryTable(state, countMatch[1], { allowMissing: true })?.size ??
+            0,
         };
       }
       return this.all(sql, params)[0] || null;
@@ -2391,11 +2413,16 @@ function ensureSchema(db: SqlAdapter) {
       raw_reference TEXT NOT NULL DEFAULT '',
       canonical_reference_id TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'active',
+      roles_json TEXT NOT NULL DEFAULT '[]',
       diagnostics_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT ''
     );
   `);
+  applyOptionalMigration(
+    db,
+    "ALTER TABLE synt_raw_reference ADD COLUMN roles_json TEXT NOT NULL DEFAULT '[]'",
+  );
   db.run(`
     CREATE TABLE IF NOT EXISTS synt_canonical_reference (
       canonical_reference_id TEXT PRIMARY KEY,
@@ -2639,7 +2666,7 @@ function ensureSchema(db: SqlAdapter) {
       topic_id TEXT NOT NULL,
       literature_item_id TEXT NOT NULL,
       score REAL NOT NULL DEFAULT 0,
-      method TEXT NOT NULL DEFAULT 'metadata-overlap-v1',
+      method TEXT NOT NULL DEFAULT 'discovery.apply_time_token_overlap.v1',
       matching_fields_json TEXT NOT NULL DEFAULT '{}',
       status TEXT NOT NULL DEFAULT 'open',
       created_at TEXT NOT NULL DEFAULT '',
@@ -3204,6 +3231,7 @@ function rowToRawReference(row: SqlRow): SynthesisRawReferenceRecord {
     rawReference: cleanString(row.raw_reference) || undefined,
     canonicalReferenceId: cleanString(row.canonical_reference_id) || undefined,
     status: cleanString(row.status) || "active",
+    rolesJson: cleanString(row.roles_json) || "[]",
     diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
     createdAt: cleanString(row.created_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
@@ -3290,7 +3318,10 @@ function rowToReferenceMatchProposal(
       cleanString(row.source_raw_reference_ids_json) || "[]",
     targetCanonicalReferenceId:
       cleanString(row.target_canonical_reference_id) || undefined,
-    targetLibraryId: Math.max(0, Math.floor(Number(row.target_library_id) || 0)),
+    targetLibraryId: Math.max(
+      0,
+      Math.floor(Number(row.target_library_id) || 0),
+    ),
     targetItemKey: cleanString(row.target_item_key) || undefined,
     confidence: cleanString(row.confidence) || undefined,
     score: Number(row.score) || 0,
@@ -3575,7 +3606,7 @@ function rowToTopicDiscoveryHint(
     topicId: cleanString(row.topic_id),
     literatureItemId: cleanString(row.literature_item_id),
     score: Number(row.score) || 0,
-    method: cleanString(row.method) || "metadata-overlap-v1",
+    method: cleanString(row.method) || "discovery.apply_time_token_overlap.v1",
     matchingFieldsJson: cleanString(row.matching_fields_json) || "{}",
     status: normalizeTopicDiscoveryHintStatus(row.status),
     createdAt: cleanString(row.created_at) || undefined,
@@ -3883,8 +3914,47 @@ function parsedStringArray(value: unknown) {
   return parseJsonArray(value).map(cleanString).filter(Boolean);
 }
 
+const TOPIC_DISCOVERY_POLICY_METHOD = "discovery.apply_time_token_overlap.v1";
+const TOPIC_DISCOVERY_MIN_OPEN_SCORE = 0.25;
+const TOPIC_DISCOVERY_SEED_MIN_SCORE = 0.8;
+
+const DISCOVERY_STOPWORDS = new Set([
+  "analysis",
+  "approach",
+  "based",
+  "data",
+  "framework",
+  "learning",
+  "method",
+  "methods",
+  "model",
+  "models",
+  "paper",
+  "research",
+  "result",
+  "results",
+  "study",
+  "system",
+  "task",
+  "tasks",
+]);
+
 function normalizedDiscoveryTerm(value: unknown) {
-  return cleanString(value).toLowerCase();
+  const text = cleanString(value)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) {
+    return "";
+  }
+  const tokens = text
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1 && !DISCOVERY_STOPWORDS.has(token));
+  return tokens.join(" ");
 }
 
 function uniqueDiscoveryTerms(values: unknown[]) {
@@ -3931,14 +4001,63 @@ function discoveryFieldsForLiterature(args: {
   };
 }
 
-const DISCOVERY_FIELD_WEIGHTS: Record<string, number> = {
-  title: 4,
-  key_terms: 3,
-  methods: 2,
-  problems: 2,
-  datasets: 1.5,
-  zotero_tags: 1,
+const DISCOVERY_COMPONENT_WEIGHTS = {
+  must: 2.0,
+  include: 1.5,
+  method: 1.2,
+  weak: 0.8,
 };
+
+function discoveryHits(terms: string[], values: string[]) {
+  return terms
+    .filter((term) =>
+      values.some((value) => discoveryTextContains(value, term)),
+    )
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function discoveryComponentScore(args: {
+  terms: string[];
+  values: string[];
+  denominatorCap: number;
+}) {
+  if (!args.terms.length) {
+    return { hits: [] as string[], score: 0 };
+  }
+  const hits = discoveryHits(args.terms, args.values);
+  const denominator = Math.max(
+    1,
+    Math.min(args.terms.length, args.denominatorCap),
+  );
+  return {
+    hits,
+    score: Math.min(hits.length, denominator) / denominator,
+  };
+}
+
+function discoveryFieldMatches(args: {
+  queryTerms: string[];
+  fields: Record<string, string[]>;
+}) {
+  const fieldMatches: Record<string, string[]> = {};
+  for (const term of args.queryTerms) {
+    for (const [field, values] of Object.entries(args.fields)) {
+      if (!values.some((value) => discoveryTextContains(value, term))) {
+        continue;
+      }
+      fieldMatches[field] = fieldMatches[field] || [];
+      if (!fieldMatches[field].includes(term)) {
+        fieldMatches[field].push(term);
+      }
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(fieldMatches).map(([field, terms]) => [
+      field,
+      terms.sort((left, right) => left.localeCompare(right)),
+    ]),
+  );
+}
 
 function scoreDiscoveryPair(args: {
   topic: SynthesisTopicInterestMetadataRecord;
@@ -3954,54 +4073,50 @@ function scoreDiscoveryPair(args: {
       normalizedDiscoveryTerm,
     ),
   );
-  if (seedIds.has(normalizedDiscoveryTerm(args.literature.literatureItemId))) {
-    return null;
-  }
+  const isSeedLiterature = seedIds.has(
+    normalizedDiscoveryTerm(args.literature.literatureItemId),
+  );
   const fields = discoveryFieldsForLiterature({
     metadata: args.literature,
     item: args.item,
     tags: args.tags,
   });
-  const queryTerms = uniqueDiscoveryTerms([
-    ...parsedStringArray(args.topic.includeTermsJson),
-    ...parsedStringArray(args.topic.mustHaveTermsJson),
-    ...parsedStringArray(args.topic.methodsJson),
-  ]);
+  const includeTerms = uniqueDiscoveryTerms(
+    parsedStringArray(args.topic.includeTermsJson),
+  );
   const mustHaveTerms = uniqueDiscoveryTerms(
     parsedStringArray(args.topic.mustHaveTermsJson),
   );
+  const methodTerms = uniqueDiscoveryTerms(
+    parsedStringArray(args.topic.methodsJson),
+  );
+  const queryTerms = uniqueDiscoveryTerms([
+    ...includeTerms,
+    ...mustHaveTerms,
+    ...methodTerms,
+  ]);
   const topicExcludeTerms = uniqueDiscoveryTerms(
     parsedStringArray(args.topic.excludeTermsJson),
   );
-  const matchedTerms = new Set<string>();
-  const fieldMatches: Record<string, string[]> = {};
-  let score = 0;
-  for (const term of queryTerms) {
-    for (const [field, values] of Object.entries(fields)) {
-      const weight = DISCOVERY_FIELD_WEIGHTS[field] || 0;
-      if (
-        !weight ||
-        !values.some((value) => discoveryTextContains(value, term))
-      ) {
-        continue;
-      }
-      matchedTerms.add(term);
-      fieldMatches[field] = fieldMatches[field] || [];
-      if (!fieldMatches[field].includes(term)) {
-        fieldMatches[field].push(term);
-      }
-      score += weight;
-    }
-  }
-  const comparableLiteratureText = Object.entries(fields)
-    .filter(([field]) => field !== "literature_exclude_terms")
-    .flatMap(([, values]) => values)
-    .map(normalizedDiscoveryTerm);
+  const titleTags = [...fields.title, ...fields.zotero_tags];
+  const comparableLiteratureText = [
+    ...fields.key_terms,
+    ...fields.methods,
+    ...fields.problems,
+    ...fields.datasets,
+    ...titleTags,
+  ];
   const literatureExcludeTerms = uniqueDiscoveryTerms(
     fields.literature_exclude_terms || [],
   );
+  const requiredHits = discoveryHits(mustHaveTerms, [
+    ...fields.key_terms,
+    ...fields.methods,
+    ...fields.problems,
+    ...titleTags,
+  ]);
   const missingMustHaveTerms = mustHaveTerms.filter(
-    (term) => !matchedTerms.has(term),
+    (term) => !requiredHits.includes(term),
   );
   const excludeHits = topicExcludeTerms.filter((term) =>
     comparableLiteratureText.some((value) =>
@@ -4016,26 +4131,81 @@ function scoreDiscoveryPair(args: {
     ),
   );
   if (
-    missingMustHaveTerms.length ||
+    (mustHaveTerms.length > 0 && requiredHits.length === 0) ||
     excludeHits.length ||
     literatureExcludeHits.length
   ) {
     return null;
   }
+  const mustComponent = discoveryComponentScore({
+    terms: mustHaveTerms,
+    values: [...fields.key_terms, ...fields.problems, ...titleTags],
+    denominatorCap: 3,
+  });
+  const includeComponent = discoveryComponentScore({
+    terms: includeTerms,
+    values: [...fields.key_terms, ...fields.problems],
+    denominatorCap: 8,
+  });
+  const methodComponent = discoveryComponentScore({
+    terms: methodTerms,
+    values: fields.methods,
+    denominatorCap: 4,
+  });
+  const weakTerms = uniqueDiscoveryTerms([...includeTerms, ...methodTerms]);
+  const weakValues = [...fields.datasets, ...titleTags].filter(Boolean);
+  const weakComponent = discoveryComponentScore({
+    terms: weakTerms,
+    values: weakValues,
+    denominatorCap: 8,
+  });
+  const weakActive = weakTerms.length > 0 && weakValues.length > 0;
+  const activeWeightSum =
+    (mustHaveTerms.length ? DISCOVERY_COMPONENT_WEIGHTS.must : 0) +
+    (includeTerms.length ? DISCOVERY_COMPONENT_WEIGHTS.include : 0) +
+    (methodTerms.length ? DISCOVERY_COMPONENT_WEIGHTS.method : 0) +
+    (weakActive ? DISCOVERY_COMPONENT_WEIGHTS.weak : 0);
+  const weightedScore =
+    DISCOVERY_COMPONENT_WEIGHTS.must * mustComponent.score +
+    DISCOVERY_COMPONENT_WEIGHTS.include * includeComponent.score +
+    DISCOVERY_COMPONENT_WEIGHTS.method * methodComponent.score +
+    (weakActive ? DISCOVERY_COMPONENT_WEIGHTS.weak * weakComponent.score : 0);
+  const normalizedScore = activeWeightSum ? weightedScore / activeWeightSum : 0;
+  const score = isSeedLiterature
+    ? Math.max(normalizedScore, TOPIC_DISCOVERY_SEED_MIN_SCORE)
+    : normalizedScore;
   if (score < args.minScore) {
     return null;
   }
+  const fieldMatches = discoveryFieldMatches({
+    queryTerms,
+    fields: {
+      title: fields.title,
+      key_terms: fields.key_terms,
+      methods: fields.methods,
+      problems: fields.problems,
+      datasets: fields.datasets,
+      zotero_tags: fields.zotero_tags,
+    },
+  });
   const matchingFields = {
-    matched_terms: Array.from(matchedTerms).sort(),
+    matched_terms: Object.values(fieldMatches)
+      .flat()
+      .filter((term, index, terms) => terms.indexOf(term) === index)
+      .sort((left, right) => left.localeCompare(right)),
     missing_must_have_terms: missingMustHaveTerms.sort(),
     exclude_hits: excludeHits.sort(),
     literature_exclude_hits: literatureExcludeHits.sort(),
-    field_matches: Object.fromEntries(
-      Object.entries(fieldMatches).map(([field, terms]) => [
-        field,
-        terms.sort(),
-      ]),
-    ),
+    field_matches: fieldMatches,
+    components: {
+      must: mustComponent,
+      include: includeComponent,
+      method: methodComponent,
+      weak: weakActive ? weakComponent : { hits: [], score: 0 },
+      active_weight_sum: activeWeightSum,
+      weighted_score: weightedScore,
+      seed_boost_applied: isSeedLiterature && score > normalizedScore,
+    },
   };
   return {
     hintId: `topic-discovery:${stableShortKey({
@@ -4429,7 +4599,9 @@ export class SynthesisRepository {
     const from = cleanString(record.fromCanonicalReferenceId);
     const to = cleanString(record.toCanonicalReferenceId);
     if (!from || !to) {
-      throw new Error("canonical reference redirect endpoints must be non-empty");
+      throw new Error(
+        "canonical reference redirect endpoints must be non-empty",
+      );
     }
     const timestamp = this.now();
     this.db.run(
@@ -4508,7 +4680,9 @@ export class SynthesisRepository {
       return 0;
     }
     const params: SqlParams = { from_canonical_reference_id: from };
-    const targetClause = to ? " AND to_canonical_reference_id = @to_canonical_reference_id" : "";
+    const targetClause = to
+      ? " AND to_canonical_reference_id = @to_canonical_reference_id"
+      : "";
     if (to) {
       params.to_canonical_reference_id = to;
     }
@@ -4530,10 +4704,7 @@ export class SynthesisRepository {
     const redirects = new Map(
       this.listCanonicalReferenceRedirects().map(
         (row) =>
-          [
-            row.fromCanonicalReferenceId,
-            row.toCanonicalReferenceId,
-          ] as const,
+          [row.fromCanonicalReferenceId, row.toCanonicalReferenceId] as const,
       ),
     );
     const seen = new Set<string>();
@@ -4608,6 +4779,7 @@ export class SynthesisRepository {
           raw_reference,
           canonical_reference_id,
           status,
+          roles_json,
           diagnostics_json,
           created_at,
           updated_at
@@ -4625,6 +4797,7 @@ export class SynthesisRepository {
           @raw_reference,
           @canonical_reference_id,
           @status,
+          @roles_json,
           @diagnostics_json,
           @created_at,
           @updated_at
@@ -4646,6 +4819,7 @@ export class SynthesisRepository {
         raw_reference: cleanString(record.rawReference),
         canonical_reference_id: cleanString(record.canonicalReferenceId),
         status: cleanString(record.status) || "active",
+        roles_json: cleanString(record.rolesJson) || "[]",
         diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
         created_at: cleanString(record.createdAt) || timestamp,
         updated_at: cleanString(record.updatedAt) || timestamp,
@@ -4729,7 +4903,11 @@ export class SynthesisRepository {
     this.initialize();
     const sourceRef = cleanString(args.sourceRef);
     if (!sourceRef) {
-      return { staleCount: 0, staleRawReferences: [], canonicalReferenceIds: [] };
+      return {
+        staleCount: 0,
+        staleRawReferences: [],
+        canonicalReferenceIds: [],
+      };
     }
     const timestamp = cleanString(args.timestamp) || this.now();
     const rows = this.listRawReferences({
@@ -4752,7 +4930,9 @@ export class SynthesisRepository {
       staleRawReferences: rows,
       canonicalReferenceIds: Array.from(
         new Set(
-          rows.map((row) => cleanString(row.canonicalReferenceId)).filter(Boolean),
+          rows
+            .map((row) => cleanString(row.canonicalReferenceId))
+            .filter(Boolean),
         ),
       ).sort((left, right) => left.localeCompare(right)),
     };
@@ -4854,7 +5034,9 @@ export class SynthesisRepository {
         (row) =>
           !canonicalIds.size || canonicalIds.has(row.canonicalReferenceId),
       )
-      .filter((row) => !normalizedStatuses.size || normalizedStatuses.has(row.status));
+      .filter(
+        (row) => !normalizedStatuses.size || normalizedStatuses.has(row.status),
+      );
   }
 
   deleteReferenceBinding(args: { bindingId: string; basisHash?: string }) {
@@ -4879,9 +5061,7 @@ export class SynthesisRepository {
     );
   }
 
-  upsertReferenceMatchProposal(
-    record: SynthesisReferenceMatchProposalRecord,
-  ) {
+  upsertReferenceMatchProposal(record: SynthesisReferenceMatchProposalRecord) {
     this.initialize();
     const proposalId = cleanString(record.proposalId);
     if (!proposalId) {
@@ -5020,7 +5200,10 @@ export class SynthesisRepository {
       .filter((row) => !proposalIds.size || proposalIds.has(row.proposalId))
       .filter((row) => !statuses.size || statuses.has(row.status))
       .filter((row) => !kinds.size || kinds.has(row.kind))
-      .filter((row) => !confidences.size || confidences.has(cleanString(row.confidence)))
+      .filter(
+        (row) =>
+          !confidences.size || confidences.has(cleanString(row.confidence)),
+      )
       .filter(
         (row) =>
           !sourceCanonicalIds.size ||
@@ -5176,14 +5359,16 @@ export class SynthesisRepository {
       if (!node || node.hasZoteroBinding) {
         continue;
       }
-      const hasOutgoing = this.listCitationEdges({
-        sourceLiteratureItemIds: [literatureItemId],
-        limit: 1,
-      }).length > 0;
-      const hasIncoming = this.listCitationEdges({
-        targetLiteratureItemIds: [literatureItemId],
-        limit: 1,
-      }).length > 0;
+      const hasOutgoing =
+        this.listCitationEdges({
+          sourceLiteratureItemIds: [literatureItemId],
+          limit: 1,
+        }).length > 0;
+      const hasIncoming =
+        this.listCitationEdges({
+          targetLiteratureItemIds: [literatureItemId],
+          limit: 1,
+        }).length > 0;
       if (hasOutgoing || hasIncoming) {
         continue;
       }
@@ -5743,7 +5928,7 @@ export class SynthesisRepository {
     this.initialize();
     const topicId = cleanString(record.topicId);
     const literatureItemId = cleanString(record.literatureItemId);
-    const method = cleanString(record.method) || "metadata-overlap-v1";
+    const method = cleanString(record.method) || TOPIC_DISCOVERY_POLICY_METHOD;
     if (!topicId || !literatureItemId) {
       throw new Error("topicId and literatureItemId must be non-empty");
     }
@@ -5984,7 +6169,9 @@ export class SynthesisRepository {
           ? args.skippedCount
           : existing.skippedCount,
       failedCount:
-        args.failedCount !== undefined ? args.failedCount : existing.failedCount,
+        args.failedCount !== undefined
+          ? args.failedCount
+          : existing.failedCount,
       totalCount:
         args.totalCount !== undefined ? args.totalCount : existing.totalCount,
       diagnosticsJson:
@@ -6044,8 +6231,7 @@ export class SynthesisRepository {
       .map(rowToOperation)
       .filter((row) => !statuses.size || statuses.has(row.status || ""))
       .filter(
-        (row) =>
-          !operationTypes.size || operationTypes.has(row.operationType),
+        (row) => !operationTypes.size || operationTypes.has(row.operationType),
       )
       .filter(
         (row) =>
@@ -6061,7 +6247,10 @@ export class SynthesisRepository {
   }
 
   listReferenceFacts(
-    args: { sourceLiteratureItemIds?: string[]; rawReferenceIds?: string[] } = {},
+    args: {
+      sourceLiteratureItemIds?: string[];
+      rawReferenceIds?: string[];
+    } = {},
   ) {
     this.initialize();
     const sourceIds = new Set(
@@ -6090,11 +6279,12 @@ export class SynthesisRepository {
     const canonicalById = new Map(
       this.listCanonicalReferences({
         canonicalReferenceIds: relevantCanonicalIds,
-      }).map(
-        (row) => [row.canonicalReferenceId, row] as const,
-      ),
+      }).map((row) => [row.canonicalReferenceId, row] as const),
     );
-    const bindingsByCanonical = new Map<string, SynthesisReferenceBindingRecord>();
+    const bindingsByCanonical = new Map<
+      string,
+      SynthesisReferenceBindingRecord
+    >();
     const bindingPriority = (status: string) =>
       status === "accepted"
         ? 4
@@ -6217,26 +6407,31 @@ export class SynthesisRepository {
     }
     const summaries = new Map<
       string,
-      { sourceLiteratureItemId: string; referenceCount: number; unboundReferenceCount: number }
+      {
+        sourceLiteratureItemId: string;
+        referenceCount: number;
+        unboundReferenceCount: number;
+      }
     >();
     for (const reference of rawReferences) {
       const source = cleanString(reference.sourceRef);
       if (!source) {
         continue;
       }
-      const existing =
-        summaries.get(source) ||
-        {
-          sourceLiteratureItemId: source,
-          referenceCount: 0,
-          unboundReferenceCount: 0,
-        };
+      const existing = summaries.get(source) || {
+        sourceLiteratureItemId: source,
+        referenceCount: 0,
+        unboundReferenceCount: 0,
+      };
       existing.referenceCount += 1;
       const physicalCanonicalId = cleanString(reference.canonicalReferenceId);
       const effectiveCanonicalId =
         effectiveCanonicalByPhysical.get(physicalCanonicalId) ||
         physicalCanonicalId;
-      if (!effectiveCanonicalId || !boundCanonicalIds.has(effectiveCanonicalId)) {
+      if (
+        !effectiveCanonicalId ||
+        !boundCanonicalIds.has(effectiveCanonicalId)
+      ) {
         existing.unboundReferenceCount += 1;
       }
       summaries.set(source, existing);
@@ -7034,6 +7229,62 @@ export class SynthesisRepository {
     return this.updateTopicDiscoveryHintStatus({ hintId, status: "open" });
   }
 
+  acceptTopicDiscoveryHints(args: {
+    topicId: string;
+    literatureItemIds: Iterable<unknown>;
+    method?: string;
+    timestamp?: string;
+  }) {
+    this.initialize();
+    const topicId = cleanString(args.topicId);
+    const method = cleanString(args.method) || TOPIC_DISCOVERY_POLICY_METHOD;
+    const timestamp = cleanString(args.timestamp) || this.now();
+    const literatureItemIds = Array.from(
+      new Set(
+        Array.from(args.literatureItemIds)
+          .map(cleanString)
+          .filter(Boolean),
+      ),
+    ).sort((left, right) => left.localeCompare(right));
+    if (!topicId || !literatureItemIds.length) {
+      return { accepted: 0, hintIds: [] as string[] };
+    }
+    const hintIds: string[] = [];
+    this.transaction(() => {
+      for (const literatureItemId of literatureItemIds) {
+        const existing = this.listTopicDiscoveryHints({
+          topicIds: [topicId],
+          literatureItemIds: [literatureItemId],
+          method,
+          limit: 1,
+        })[0];
+        const hintId =
+          existing?.hintId ||
+          `topic-discovery:${stableShortKey({
+            topicId,
+            literatureItemId,
+            method,
+          })}`;
+        this.upsertTopicDiscoveryHint({
+          ...(existing || {}),
+          hintId,
+          topicId,
+          literatureItemId,
+          score: Math.max(Number(existing?.score) || 0, 1),
+          method,
+          matchingFieldsJson:
+            cleanString(existing?.matchingFieldsJson) ||
+            JSON.stringify({ accepted_from: "topic_synthesis_apply" }),
+          status: "accepted",
+          createdAt: existing?.createdAt || timestamp,
+          updatedAt: timestamp,
+        });
+        hintIds.push(hintId);
+      }
+    });
+    return { accepted: hintIds.length, hintIds };
+  }
+
   clearTopicDiscoveryHints(
     args: {
       topicIds?: string[];
@@ -7068,18 +7319,23 @@ export class SynthesisRepository {
     } = {},
   ): SynthesisTopicDiscoveryBuildResult {
     this.initialize();
-    const method = cleanString(args.method) || "metadata-overlap-v1";
+    const method = cleanString(args.method) || TOPIC_DISCOVERY_POLICY_METHOD;
     const timestamp = cleanString(args.timestamp) || this.now();
-    const minScore = Math.max(0, Number(args.minScore) || 1);
+    const minScore = Math.max(
+      0,
+      args.minScore === undefined
+        ? TOPIC_DISCOVERY_MIN_OPEN_SCORE
+        : Number(args.minScore) || 0,
+    );
     const topics = this.listTopicInterestMetadata({ topicIds: args.topicIds });
     const literature = this.listLiteratureMatchingMetadata({
       literatureItemIds: args.literatureItemIds,
     });
-    const scopedExistingRejected = new Map(
+    const scopedExistingTerminal = new Map(
       this.listTopicDiscoveryHints({
         topicIds: args.topicIds,
         literatureItemIds: args.literatureItemIds,
-        statuses: ["rejected"],
+        statuses: ["accepted", "rejected"],
         method,
       }).map((hint) => [
         `${hint.topicId}\u0000${hint.literatureItemId}\u0000${hint.method || method}`,
@@ -7097,16 +7353,19 @@ export class SynthesisRepository {
           minScore,
         });
         if (hint) {
-          const rejected = scopedExistingRejected.get(
+          const terminal = scopedExistingTerminal.get(
             `${hint.topicId}\u0000${hint.literatureItemId}\u0000${hint.method || method}`,
           );
+          if (terminal?.status === "accepted") {
+            continue;
+          }
           hints.push(
-            rejected
+            terminal
               ? {
                   ...hint,
-                  hintId: rejected.hintId || hint.hintId,
-                  status: "rejected",
-                  createdAt: rejected.createdAt || hint.createdAt,
+                  hintId: terminal.hintId || hint.hintId,
+                  status: terminal.status,
+                  createdAt: terminal.createdAt || hint.createdAt,
                 }
               : hint,
           );
@@ -7133,6 +7392,9 @@ export class SynthesisRepository {
     const rejected = finalHints.filter(
       (hint) => hint.status === "rejected",
     ).length;
+    const accepted = finalHints.filter(
+      (hint) => hint.status === "accepted",
+    ).length;
     return {
       method,
       scannedTopics: topics.length,
@@ -7140,6 +7402,7 @@ export class SynthesisRepository {
       upserted: hints.length,
       open,
       rejected,
+      accepted,
       hints: finalHints,
       diagnostics: [],
     };
@@ -8181,8 +8444,7 @@ export class SynthesisRepository {
         facet: cleanString(record.facet),
         note: cleanString(record.note),
         source_flow: cleanString(record.sourceFlow),
-        parent_bindings_json:
-          cleanString(record.parentBindingsJson) || "[]",
+        parent_bindings_json: cleanString(record.parentBindingsJson) || "[]",
         created_at: cleanString(record.createdAt) || timestamp,
         updated_at: cleanString(record.updatedAt) || timestamp,
       },
@@ -8275,12 +8537,12 @@ export class SynthesisRepository {
     diagnostics?: SynthesisReviewActionDiagnostic[];
     timestamp: string;
   }): SynthesisReviewActionCacheEffect[] {
-    const referenceScopes = uniqueCleanStrings(
-      args.rawReferenceIds || [],
-    ).map((rawReferenceId) => ({
-      scopeKind: "raw_reference",
-      scopeRef: rawReferenceId,
-    }));
+    const referenceScopes = uniqueCleanStrings(args.rawReferenceIds || []).map(
+      (rawReferenceId) => ({
+        scopeKind: "raw_reference",
+        scopeRef: rawReferenceId,
+      }),
+    );
     const scopes = referenceScopes.length
       ? referenceScopes
       : uniqueCleanStrings([args.sourceRef]).map((sourceRef) => ({

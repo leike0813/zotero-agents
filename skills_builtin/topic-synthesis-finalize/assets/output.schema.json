@@ -48,6 +48,7 @@
         "operation",
         "language",
         "topic_definition",
+        "base_hashes",
         "resolver_manifest_path",
         "analysis_manifest_path",
         "candidate_output_path"
@@ -64,36 +65,13 @@
             "title": { "type": "string", "minLength": 1 }
           }
         },
-        "resolver_manifest_path": { "type": "string", "minLength": 1 },
-        "analysis_manifest_path": { "type": "string", "minLength": 1 },
-        "candidate_output_path": {
-          "const": "result/final-output.candidate.json"
-        }
-      }
-    },
-    {
-      "title": "Patch update topic synthesis",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "operation",
-        "language",
-        "topic_definition",
-        "resolver_manifest_path",
-        "analysis_manifest_path",
-        "candidate_output_path"
-      ],
-      "properties": {
-        "kind": { "const": "topic_synthesis" },
-        "operation": { "const": "update_patch" },
-        "language": { "type": "string", "minLength": 1 },
-        "topic_definition": {
+        "base_hashes": {
           "type": "object",
-          "required": ["id", "title"],
+          "required": ["artifact", "manifest", "metadata"],
           "properties": {
-            "id": { "type": "string", "minLength": 1 },
-            "title": { "type": "string", "minLength": 1 }
+            "artifact": { "type": "string", "minLength": 1 },
+            "manifest": { "type": "string", "minLength": 1 },
+            "metadata": { "type": "string", "minLength": 1 }
           }
         },
         "resolver_manifest_path": { "type": "string", "minLength": 1 },

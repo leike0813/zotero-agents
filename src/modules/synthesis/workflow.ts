@@ -66,6 +66,25 @@ function requireTopicDefinition(source: Record<string, unknown>) {
   };
 }
 
+const UPDATE_FULL_CAS_HASHES = ["artifact", "manifest", "metadata"] as const;
+
+function requireUpdateFullBaseHashes(source: Record<string, unknown>) {
+  if (!isObject(source.base_hashes)) {
+    throw new Error("update_full synthesis result bundle requires base_hashes");
+  }
+  const result: Record<string, string> = {};
+  for (const name of UPDATE_FULL_CAS_HASHES) {
+    const hash = cleanString(source.base_hashes[name]);
+    if (!hash) {
+      throw new Error(
+        `update_full synthesis result bundle requires base_hashes.${name}`,
+      );
+    }
+    result[name] = hash;
+  }
+  return result;
+}
+
 export function validateSynthesisResultBundle(input: unknown): {
   ok: true;
   bundle: SynthesisResultBundle;
@@ -111,6 +130,8 @@ export function validateSynthesisResultBundle(input: unknown): {
       ? input.artifact_metadata
       : {};
     const language = requireString(input, "language");
+    const createBaseHashesIgnored =
+      operation === "create" && isObject(input.base_hashes);
     if (operation === "update_patch") {
       if (cleanString(input.markdown_path)) {
         throw new Error("update_patch bundle must not depend on markdown_path");
@@ -142,6 +163,8 @@ export function validateSynthesisResultBundle(input: unknown): {
         "structured topic synthesis bundle must not depend on markdown_path",
       );
     }
+    const baseHashes =
+      operation === "update_full" ? requireUpdateFullBaseHashes(input) : {};
     return {
       ok: true,
       bundle: {
@@ -160,6 +183,10 @@ export function validateSynthesisResultBundle(input: unknown): {
         concept_cards_proposal_path: conceptCardsProposalPath,
         topic_graph_relation_proposals_path: relationProposalsPath,
         markdown: "",
+        ...(operation === "update_full" ? { base_hashes: baseHashes } : {}),
+        ...(createBaseHashesIgnored
+          ? { create_base_hashes_ignored: true }
+          : {}),
       },
     };
   }
@@ -214,5 +241,16 @@ export function decideSynthesisApply(args: {
       mismatches: Array<{ name: string; base: string; current: string }>;
     } {
   const { bundle } = validateSynthesisResultBundle(args.bundle);
+  if (bundle.operation === "update_full") {
+    const baseHashes = bundle.base_hashes || {};
+    const mismatches = UPDATE_FULL_CAS_HASHES.flatMap((name) => {
+      const base = cleanString(baseHashes[name]);
+      const current = cleanString(args.currentHashes[name]);
+      return base && base !== current ? [{ name, base, current }] : [];
+    });
+    if (mismatches.length) {
+      return { action: "conflict", bundle, mismatches };
+    }
+  }
   return { action: "persist", bundle, mismatches: [] };
 }

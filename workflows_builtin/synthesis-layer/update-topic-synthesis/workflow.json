@@ -35,7 +35,14 @@
         {
           "id": "prepare",
           "skill_id": "update-topic-synthesis-prepare",
-          "workspace": "new"
+          "workspace": "new",
+          "short_circuit": {
+            "when": {
+              "path": "status",
+              "equals": "canceled"
+            },
+            "result": "step_output"
+          }
         },
         {
           "id": "core",

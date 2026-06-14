@@ -141,6 +141,38 @@ describe("workspace toolbar running tasks popover", function () {
     assert.notInclude(popover, "Open Dashboard");
   });
 
+  it("localizes the shared Dashboard and Synthesis workspace toolbar through host labels", async function () {
+    const workspace = await readProjectFile("src/modules/workspaceTab.ts");
+    const workspaceApp = await readProjectFile("src/workspaceApp.ts");
+    const en = await readProjectFile("addon/locale/en-US/addon.ftl");
+    const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
+    const keys = [
+      "workspace-shell-brand-subtitle",
+      "workspace-shell-views-aria-label",
+      "workspace-shell-view-dashboard",
+      "workspace-shell-view-synthesis",
+      "workspace-shell-theme-aria-label",
+      "workspace-shell-theme-system",
+      "workspace-shell-theme-light",
+      "workspace-shell-theme-dark",
+      "workspace-shell-refresh",
+      "workspace-shell-toggle-sidebar",
+    ];
+
+    assert.include(workspace, "buildWorkspaceShellLabels");
+    assert.include(workspace, "getStringOrFallback");
+    assert.include(workspace, "labels: buildWorkspaceShellLabels()");
+    assert.include(workspaceApp, "normalizeWorkspaceLabels");
+    assert.include(workspaceApp, "updateWorkspaceLocalizedText");
+    assert.include(workspaceApp, "data-workspace-label");
+    assert.include(workspaceApp, "data-workspace-icon-label");
+    for (const key of keys) {
+      assert.include(workspace, key);
+      assert.include(en, `${key} =`);
+      assert.include(zh, `${key} =`);
+    }
+  });
+
   it("keeps waiting attention on the toolbar sidebar button instead of sidebar badges", async function () {
     const toolbar = await readProjectFile(
       "src/modules/dashboardToolbarButton.ts",

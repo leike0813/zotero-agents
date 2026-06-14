@@ -33,7 +33,7 @@
   --zs-danger-border: #e8b3b3;
   --zs-purple: #7c3aed;
   --zs-purple-soft: #f2ecff;
-  --zs-selection-bg: var(--zs-accent-soft);
+  --zs-selection-bg: rgba(37, 99, 235, 0.26);
   --zs-selection-text: var(--zs-text);
   --zs-focus-ring: rgba(37, 99, 235, 0.18);
   --zs-shadow-subtle: 0 3px 12px rgba(24, 34, 53, 0.08);

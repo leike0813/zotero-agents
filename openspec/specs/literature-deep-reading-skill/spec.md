@@ -63,11 +63,15 @@ The `literature-deep-reading` runtime SHALL expose stable reading blocks that pr
 - **AND** tables with adjacent captions SHALL be represented as `table` blocks
 - **AND** each structured block SHALL preserve source order and `block_id`.
 
-#### Scenario: References remain outside translation flow
+#### Scenario: Bibliography is outside translation flow but Appendix remains paper content
 
-- **GIVEN** the source contains a References section
+- **GIVEN** the source contains a References or Bibliography section
+- **AND** the source later contains an Appendix, Appendices, Supplementary Material, or appendix-like subsection heading
 - **WHEN** bootstrap marks reading blocks
-- **THEN** References and later blocks SHALL have `translate: false`.
+- **THEN** bibliography blocks SHALL have `role: "bibliography"` and `translate: false`
+- **AND** appendix blocks SHALL have `role: "appendix"` and `translate: true`
+- **AND** normal paper blocks SHALL have `role: "main"`
+- **AND** `references-seed-view.json` fallback extraction SHALL exclude appendix text.
 
 ### Requirement: Bootstrap Host Preflight
 
@@ -428,13 +432,21 @@ The final renderer SHALL render structured blocks into a self-contained reader w
 
 - **GIVEN** `reading-blocks.json` and `translation-view.json` are available
 - **WHEN** Stage 40 renders `result/deep-reading.html`
-- **THEN** translatable body blocks before References SHALL be rendered as `aligned-block-pair` rows keyed by `block_id`
-- **AND** References and later sections SHALL be rendered full-width outside the paired reading flow.
+- **THEN** translatable main and appendix body blocks SHALL be rendered as `aligned-block-pair` rows keyed by `block_id`
+- **AND** References SHALL be rendered full-width outside the paired reading flow.
+
+#### Scenario: Appendix renders after References
+
+- **GIVEN** bootstrap identified appendix blocks
+- **WHEN** Stage 40 renders final sections
+- **THEN** `result/sections/sections.json` SHALL contain `reading_blocks` for main content
+- **AND** it SHALL contain `appendix_reading_blocks` for appendix content
+- **AND** the final HTML order SHALL be Summary, References, Appendix, Citation Graph, then Extensions after the main paper.
 
 #### Scenario: Right reading aid follows scroll position
 
 - **GIVEN** section insights contain Q&A and citation notes
-- **WHEN** the reader scrolls through body sections
+- **WHEN** the reader scrolls through main or appendix sections
 - **THEN** the right reading aid SHALL update for the active section
 - **AND** questions SHALL appear before citation clues.
 
@@ -458,6 +470,21 @@ The final renderer SHALL render structured blocks into a self-contained reader w
 - **THEN** graph nodes SHALL be positioned from the layout view
 - **AND** browser code SHALL NOT compute a replacement force layout.
 
+#### Scenario: Citation graph uses standalone bundle
+
+- **GIVEN** Stage 40 has rendered `result/deep-reading.html`
+- **WHEN** the HTML is inspected
+- **THEN** it SHALL inline the standalone citation graph renderer bundle
+- **AND** it SHALL NOT include the previous SVG-only graph renderer as the primary graph implementation.
+
+#### Scenario: Missing layout degrades without recompute
+
+- **GIVEN** citation graph snapshot exists but layout coordinates are unavailable
+- **WHEN** Stage 40 renders the final HTML
+- **THEN** the citation graph model SHALL contain no drawable nodes
+- **AND** the final HTML SHALL display a graph unavailable state
+- **AND** it SHALL NOT compute layout in the browser.
+
 #### Scenario: Structured references replace Markdown fallback when available
 
 - **GIVEN** `artifacts/references.json` is available in the source bundle
@@ -480,7 +507,7 @@ The final HTML SHALL be usable without sidecar assets or network access.
 - **GIVEN** Stage 40 has rendered `result/deep-reading.html`
 - **WHEN** the HTML is scanned
 - **THEN** it SHALL NOT reference `http://`, `https://`, `file://`, `assets/`, or `sections/`
-- **AND** it SHALL include CSS, JavaScript, data, and images inline.
+- **AND** it SHALL include CSS, JavaScript, data, images, and citation graph renderer assets inline.
 
 ### Requirement: References after body SHALL remain full width
 
@@ -491,4 +518,88 @@ References and post-reading content SHALL not enter the bilingual body columns.
 - **GIVEN** structured references exist
 - **WHEN** Stage 40 renders HTML
 - **THEN** references SHALL be represented in the post-reading data
-- **AND** references SHALL not be included in translation compare body blocks.
+- **AND** bibliography blocks SHALL not be included in translation compare body blocks.
+
+#### Scenario: Appendix is rendered as paper content
+
+- **GIVEN** appendix blocks exist after the bibliography
+- **WHEN** Stage 40 renders HTML
+- **THEN** appendix blocks SHALL be rendered after References
+- **AND** appendix blocks SHALL participate in original, translated, compare, and focus reading modes.
+
+### Requirement: Citation graph model SHALL be render-ready
+
+The runtime SHALL normalize Host citation graph snapshot and layout views into a render-ready model for the standalone renderer.
+
+#### Scenario: Snapshot and layout are merged
+
+- **GIVEN** snapshot nodes and layout nodes share node ids
+- **WHEN** Stage 40 builds `sections.json`
+- **THEN** `citation_graph.model.nodes[]` SHALL include node identity, title, kind, year, metrics, visibility, display tier, and layout coordinates
+- **AND** `citation_graph.model.edges[]` SHALL include only edges whose endpoints are drawable nodes.
+
+### Requirement: Skill runtime SHALL remain Python-only
+
+The `literature-deep-reading` runtime SHALL NOT require Node.js during Stage 40 rendering.
+
+#### Scenario: Final render reads prebuilt assets
+
+- **GIVEN** the built-in skill package contains prebuilt citation graph renderer assets
+- **WHEN** Python Stage 40 renders final HTML
+- **THEN** it SHALL read those assets from the skill package
+- **AND** it SHALL NOT execute a bundler or Node command.
+
+### Requirement: Runtime-prepared translation batches
+
+The `literature-deep-reading` skill runtime SHALL prepare deterministic translation batch inputs before the agent writes `block-translations.json`.
+
+#### Scenario: Enrichment cascades translation batch preparation
+
+- **WHEN** `submit-reading-enrichment` succeeds
+- **THEN** the runtime SHALL write `runtime/views/translation-batches-view.json`
+- **AND** the runtime SHALL write one or more `runtime/payloads/translation-batches/batch-*.json` files when translatable blocks exist
+- **AND** each `translate: true` main or appendix block SHALL appear in exactly one batch
+- **AND** bibliography/reference-list blocks SHALL NOT appear in any batch
+
+#### Scenario: Batch files are subagent-ready
+
+- **WHEN** a batch file is generated
+- **THEN** it SHALL include ordered block ids, source markdown, block kind, section anchor, target language, and a translation prompt
+- **AND** the prompt SHALL require full faithful translation, Markdown preservation, formula preservation, table text translation, table structure preservation, and no summarization
+
+### Requirement: Runtime stdout remains small
+
+Runtime commands SHALL return small JSON summaries on stdout and write large content to files.
+
+#### Scenario: Submit commands produce summary output
+
+- **WHEN** a submit or validate command completes
+- **THEN** stdout SHALL include status, counts, diagnostics summary, and relevant output paths
+- **AND** stdout SHALL NOT include large paper content, full reading blocks, full translation views, full graph models, or HTML content
+
+### Requirement: Stable Preface slots
+
+The runtime SHALL normalize Preface output to a fixed four-card structure.
+
+#### Scenario: Agent submits variable Preface cards
+
+- **WHEN** `reading-enrichment.json` contains any number of `preface_cards`
+- **THEN** `preface-view.json.cards` SHALL contain exactly four cards
+- **AND** the cards SHALL be ordered as research field, research direction, paper position, and reading path
+- **AND** extra agent cards SHALL NOT change the final card count or order
+
+### Requirement: Citation graph render diagnostics
+
+The final renderer SHALL expose citation graph render readiness and diagnostics.
+
+#### Scenario: Graph model and layout are available
+
+- **WHEN** Stage 40 builds final sections with a citation graph snapshot and layout
+- **THEN** `sections.json.citation_graph.model.diagnostics` SHALL include snapshot counts, layout counts, drawable node count, drawable edge count, dropped counts, coordinate bounds, and layout status
+- **AND** the final HTML SHALL initialize a graph container that reports `data-zs-cg-status="ready"` after successful renderer setup
+
+#### Scenario: Graph rendering fails
+
+- **WHEN** the standalone graph renderer cannot initialize
+- **THEN** the graph container SHALL report `data-zs-cg-status="failed"`
+- **AND** the user SHALL see a compact fallback message instead of an empty frame

@@ -10,9 +10,20 @@ import { resolveAddonRef, resolveRuntimeToolkit } from "../utils/runtimeBridge";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
-import { getDefaultSynthesisService } from "./synthesis/service";
-import { writeRuntimeTextFile } from "./runtimePersistence";
+import { getDefaultSynthesisService, topicPathId } from "./synthesis/service";
+import {
+  copyRuntimeFile,
+  getRuntimePersistencePaths,
+  readRuntimeTextFile,
+  runtimePathExists,
+  writeRuntimeTextFile,
+} from "./runtimePersistence";
+import { readPackagedBinaryAsset } from "./packagedAssetResolver";
 import { isTransientStorageBusyError } from "./guardedSqlite";
+import {
+  buildSynthesisStoragePaths,
+  hashCanonicalJson,
+} from "./synthesis/foundation";
 import {
   registerSynthesisWorkbenchSidecarChangeListener,
   type SynthesisWorkbenchSidecarChangeEvent,
@@ -48,7 +59,15 @@ type SynthesisWorkbenchActionEnvelope = {
   payload?: Record<string, unknown>;
 };
 
-type SynthesisTopicDetailDto = Record<string, unknown>;
+type SynthesisTopicDetailDto = Record<string, unknown> & {
+  topicId?: string;
+  title?: string;
+  source_papers?: unknown[];
+};
+
+type SynthesisExportGraphSnapshot = ReturnType<
+  typeof buildSynthesisUiSnapshot
+>["graph"];
 
 type SynthesisWorkbenchBridge = {
   postMessage: (
@@ -1063,6 +1082,24 @@ function ensureMarkdownExportPath(pathRaw: string) {
   return /\.md$/i.test(path) ? path : `${path}.md`;
 }
 
+function ensureHtmlExportPath(pathRaw: string) {
+  const path = cleanReportExportString(pathRaw);
+  if (!path) {
+    return "";
+  }
+  return /\.html?$/i.test(path) ? path : `${path}.html`;
+}
+
+function safeTopicDetailHtmlExportFileName(value: unknown) {
+  const base = cleanReportExportString(value)
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 120);
+  return `${base || "synthesis-topic"}-topic-details.html`;
+}
+
 function resolveWorkbenchFilePicker() {
   const toolkit = resolveRuntimeToolkit() as
     | {
@@ -1097,6 +1134,487 @@ async function pickTopicReportExportPath(
     : "";
 }
 
+async function pickTopicDetailHtmlExportPath(
+  runtime: SynthesisWorkbenchRuntime,
+  suggestedFileName: string,
+) {
+  const FilePicker = resolveWorkbenchFilePicker();
+  if (!FilePicker) {
+    throw new Error("Zotero file picker is unavailable.");
+  }
+  const selected = await new FilePicker(
+    localize(
+      "synthesis-export-topic-html-dialog-title",
+      "Export topic details HTML",
+    ),
+    "save",
+    [
+      [localize("synthesis-export-topic-html-file-type", "HTML"), "*.html"],
+      ["All files", "*.*"],
+    ],
+    suggestedFileName,
+    (runtime.frameWindow || runtime.hostWindow || runtime.window) as
+      | Window
+      | undefined,
+  ).open();
+  return typeof selected === "string" && selected.trim()
+    ? ensureHtmlExportPath(selected)
+    : "";
+}
+
+function escapeHtmlText(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function jsonScriptText(value: unknown) {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+function inlineScriptText(value: string) {
+  return value.replace(/<\/script/gi, "<\\/script");
+}
+
+async function readPackagedTextAsset(relativePath: string) {
+  const read = await readPackagedBinaryAsset(relativePath);
+  if (!read.ok) {
+    const checked = [
+      ...read.diagnostics.checkedUris,
+      ...read.diagnostics.checkedPaths,
+    ].join(", ");
+    throw new Error(
+      `Unable to read packaged asset ${relativePath}. Checked: ${checked}`,
+    );
+  }
+  const Decoder =
+    (globalThis as { TextDecoder?: typeof TextDecoder }).TextDecoder ||
+    TextDecoder;
+  return new Decoder("utf-8").decode(read.bytes);
+}
+
+async function readSynthesisExportAssets() {
+  const [
+    themeJs,
+    themeCss,
+    katexCss,
+    synthesisCss,
+    markdownItJs,
+    katexJs,
+    texmathJs,
+    appJs,
+  ] = await Promise.all([
+    readPackagedTextAsset("content/shared/theme.js"),
+    readPackagedTextAsset("content/shared/theme.css"),
+    readPackagedTextAsset("content/dashboard/vendor/katex/katex.min.css"),
+    readPackagedTextAsset("content/synthesis/styles.css"),
+    readPackagedTextAsset(
+      "content/dashboard/vendor/markdown-it/markdown-it.min.js",
+    ),
+    readPackagedTextAsset("content/dashboard/vendor/katex/katex.min.js"),
+    readPackagedTextAsset(
+      "content/dashboard/vendor/markdown-it-texmath/texmath.min.js",
+    ),
+    readPackagedTextAsset("content/synthesis/app.bundle.js"),
+  ]);
+  return {
+    themeJs,
+    themeCss,
+    katexCss,
+    synthesisCss,
+    markdownItJs,
+    katexJs,
+    texmathJs,
+    appJs,
+  };
+}
+
+function cleanExportRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function exportDigestKeys(
+  evidence: Record<string, unknown>,
+  digest: Record<string, unknown>,
+) {
+  const digestRef = cleanExportRecord(
+    evidence.digest_ref || evidence.digestRef,
+  );
+  return Array.from(
+    new Set(
+      [
+        evidence.id,
+        evidence.paper_ref,
+        evidence.paperRef,
+        digestRef.paper_ref,
+        digestRef.paperRef,
+        digestRef.note_key,
+        digestRef.noteKey,
+        digestRef.payload_hash,
+        digestRef.payloadHash,
+        digest.paper_ref,
+        digest.paperRef,
+        digest.payload_hash,
+        digest.payloadHash,
+      ]
+        .map((value) => cleanReportExportString(value))
+        .filter(Boolean),
+    ),
+  );
+}
+
+async function resolveTopicExportDigests(
+  detail: SynthesisTopicDetailDto,
+  topicId: string,
+) {
+  const digestsByKey: Record<string, Record<string, unknown>> = {};
+  const sourcePapers = Array.isArray(detail.source_papers)
+    ? detail.source_papers
+    : [];
+  await Promise.all(
+    sourcePapers.map(async (entry) => {
+      const evidence = cleanExportRecord(entry);
+      const paperRef = evidence.paper_ref || evidence.paperRef;
+      const digestRef = evidence.digest_ref || evidence.digestRef;
+      if (!paperRef && !digestRef) {
+        return;
+      }
+      let digest: Record<string, unknown>;
+      try {
+        digest = cleanExportRecord(
+          await getDefaultSynthesisService().resolveTopicPaperDigest({
+            topicId,
+            paper_ref: paperRef,
+            digest_ref: digestRef,
+            include_representative_image: true,
+          }),
+        );
+      } catch (error) {
+        digest = {
+          ok: false,
+          status:
+            error instanceof Error ? error.message : String(error || "failed"),
+        };
+      }
+      for (const key of exportDigestKeys(evidence, digest)) {
+        digestsByKey[key] = digest;
+      }
+    }),
+  );
+  return digestsByKey;
+}
+
+function pruneGraphToTopicSubgraph(
+  graph: SynthesisExportGraphSnapshot,
+  topicId: string,
+): SynthesisExportGraphSnapshot {
+  const scope = (graph.topicScopes || []).find(
+    (entry) => entry.topicId === topicId,
+  );
+  const sourceNodeIds = new Set(scope?.nodeIds || []);
+  if (!sourceNodeIds.size) {
+    return {
+      ...graph,
+      filters: {
+        ...graph.filters,
+        topicId,
+        search: "",
+      },
+      topicScopes: scope ? [scope] : [],
+      selectedTopicScope: scope,
+      nodes: graph.visibleNodes,
+      edges: graph.visibleEdges,
+      hoverOnlyNodes: [],
+      hoverOnlyEdges: [],
+    };
+  }
+
+  const scopedNodeIds = new Set(sourceNodeIds);
+  for (const edge of [...graph.edges, ...graph.hoverOnlyEdges]) {
+    if (sourceNodeIds.has(edge.source) || sourceNodeIds.has(edge.target)) {
+      scopedNodeIds.add(edge.source);
+      scopedNodeIds.add(edge.target);
+    }
+  }
+  const isScopedEdge = (edge: { source: string; target: string }) =>
+    scopedNodeIds.has(edge.source) &&
+    scopedNodeIds.has(edge.target) &&
+    (sourceNodeIds.has(edge.source) || sourceNodeIds.has(edge.target));
+  const nodes = graph.nodes.filter((node) => scopedNodeIds.has(node.id));
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const edges = graph.edges.filter(
+    (edge) =>
+      nodeIds.has(edge.source) &&
+      nodeIds.has(edge.target) &&
+      isScopedEdge(edge),
+  );
+  const hoverOnlyNodes = graph.hoverOnlyNodes.filter((node) =>
+    scopedNodeIds.has(node.id),
+  );
+  const hoverOnlyNodeIds = new Set(hoverOnlyNodes.map((node) => node.id));
+  const hoverOnlyEdges = graph.hoverOnlyEdges.filter(
+    (edge) =>
+      (nodeIds.has(edge.source) || hoverOnlyNodeIds.has(edge.source)) &&
+      (nodeIds.has(edge.target) || hoverOnlyNodeIds.has(edge.target)) &&
+      isScopedEdge(edge),
+  );
+  const visibleNodeIds = new Set(
+    graph.visibleNodes
+      .filter((node) => nodeIds.has(node.id))
+      .map((node) => node.id),
+  );
+  const visibleEdges = graph.visibleEdges.filter(
+    (edge) =>
+      visibleNodeIds.has(edge.source) &&
+      visibleNodeIds.has(edge.target) &&
+      isScopedEdge(edge),
+  );
+
+  return {
+    ...graph,
+    filters: {
+      ...graph.filters,
+      topicId,
+      search: "",
+    },
+    topicScopes: scope ? [scope] : [],
+    selectedTopicScope: scope,
+    nodes,
+    edges,
+    hoverOnlyNodes,
+    hoverOnlyEdges,
+    visibleNodes: graph.visibleNodes.filter((node) =>
+      visibleNodeIds.has(node.id),
+    ),
+    visibleEdges,
+  };
+}
+
+async function buildTopicDetailHtmlExport(
+  runtime: SynthesisWorkbenchRuntime,
+  topicId: string,
+) {
+  const service = getDefaultSynthesisService();
+  const detail = (await service.readTopicDetail({
+    topicId,
+  })) as SynthesisTopicDetailDto;
+  const readerState = applySynthesisUiAction(runtime.state, {
+    action: "showArtifactReader",
+    payload: { topicId },
+  }).state;
+  const graphState = applySynthesisUiAction(readerState, {
+    action: "setGraphView",
+    payload: { topicId, selectedElement: null },
+  }).state;
+  const graphLayoutAlgorithms = ["force", "radial", "components"] as const;
+  const graphLayoutStates = graphLayoutAlgorithms.map((layoutAlgorithm) => ({
+    layoutAlgorithm,
+    state: applySynthesisUiAction(readerState, {
+      action: "setGraphView",
+      payload: { topicId, selectedElement: null, layoutAlgorithm },
+    }).state,
+  }));
+  const [conceptInput, graphInputs, digestsByKey, assets] = await Promise.all([
+    service.getSynthesisWorkbenchSurfaceInput("concepts", graphState),
+    Promise.all(
+      graphLayoutStates.map(async (entry) => ({
+        ...entry,
+        input: await service.getSynthesisWorkbenchSurfaceInput(
+          "graph",
+          entry.state,
+        ),
+      })),
+    ),
+    resolveTopicExportDigests(detail, topicId),
+    readSynthesisExportAssets(),
+  ]);
+  const primaryGraphInput =
+    graphInputs.find((entry) => entry.layoutAlgorithm === "force") ||
+    graphInputs[0];
+  if (!primaryGraphInput) {
+    throw new Error("No citation graph layout input was available for export");
+  }
+  const snapshot = buildSynthesisUiSnapshot(
+    {
+      ...conceptInput,
+      ...primaryGraphInput.input,
+      libraryId: primaryGraphInput.input.libraryId || conceptInput.libraryId,
+    },
+    primaryGraphInput.state,
+  );
+  const topicScopedGraph = pruneGraphToTopicSubgraph(snapshot.graph, topicId);
+  const graphLayouts = Object.fromEntries(
+    graphInputs.map((entry) => {
+      const layoutSnapshot = buildSynthesisUiSnapshot(
+        {
+          ...entry.input,
+          libraryId: entry.input.libraryId || conceptInput.libraryId,
+        },
+        entry.state,
+      );
+      return [
+        entry.layoutAlgorithm,
+        pruneGraphToTopicSubgraph(layoutSnapshot.graph, topicId),
+      ];
+    }),
+  );
+  const i18n = buildSynthesisWorkbenchI18nEnvelope();
+  const envelope = {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    i18n,
+    snapshot: {
+      ...snapshot,
+      graph: topicScopedGraph,
+    },
+    topicDetail: detail,
+    digestsByKey,
+    graphLayouts,
+  };
+  const title =
+    cleanReportExportString(detail.title) ||
+    cleanReportExportString(detail.topicId) ||
+    localize("synthesis-page-title", "Synthesis Workbench");
+  return [
+    "<!doctype html>",
+    `<html lang="${escapeHtmlText(i18n.locale)}">`,
+    "<head>",
+    '<meta charset="UTF-8" />',
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+    `<title>${escapeHtmlText(title)}</title>`,
+    `<script>${inlineScriptText(assets.themeJs)}</script>`,
+    `<style>${assets.themeCss}\n${assets.katexCss}\n${assets.synthesisCss}</style>`,
+    "</head>",
+    '<body class="synthesis-standalone-export">',
+    '<div id="app" class="synthesis-root"></div>',
+    `<script>window.__zoteroSkillsSynthesisTopicExport=${jsonScriptText(envelope)};</script>`,
+    `<script>${inlineScriptText(assets.markdownItJs)}</script>`,
+    `<script>${inlineScriptText(assets.katexJs)}</script>`,
+    `<script>${inlineScriptText(assets.texmathJs)}</script>`,
+    `<script>${inlineScriptText(assets.appJs)}</script>`,
+    "</body>",
+    "</html>",
+    "",
+  ].join("\n");
+}
+
+const TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID =
+  "synthesis.topic_detail_html_export_metadata";
+
+type TopicDetailHtmlExportMetadata = {
+  schema_id?: string;
+  schema_version?: number;
+  topic_id?: string;
+  topic_signature?: string;
+  html_hash?: string;
+  generated_at?: string;
+};
+
+function topicDetailHtmlExportStoragePaths(topicId: string) {
+  const root = getRuntimePersistencePaths().root;
+  return buildSynthesisStoragePaths(root, topicPathId(topicId));
+}
+
+async function topicDetailHtmlExportSignature(
+  paths: ReturnType<typeof buildSynthesisStoragePaths>,
+) {
+  const [manifest, metadata, artifact] = await Promise.all([
+    readRuntimeTextFile(paths.currentManifest),
+    readRuntimeTextFile(paths.currentMetadata),
+    readRuntimeTextFile(paths.currentArtifact),
+  ]);
+  return hashCanonicalJson({
+    current_manifest: manifest,
+    current_metadata: metadata,
+    current_artifact: artifact,
+  });
+}
+
+async function readTopicDetailHtmlExportMetadata(path: string) {
+  const text = await readRuntimeTextFile(path);
+  if (!text.trim()) {
+    return null;
+  }
+  try {
+    return JSON.parse(text) as TopicDetailHtmlExportMetadata;
+  } catch {
+    return null;
+  }
+}
+
+async function isTopicDetailHtmlExportCurrent(args: {
+  paths: ReturnType<typeof buildSynthesisStoragePaths>;
+  topicId: string;
+  topicSignature: string;
+}) {
+  if (!(await runtimePathExists(args.paths.currentTopicDetailHtml))) {
+    return false;
+  }
+  const metadata = await readTopicDetailHtmlExportMetadata(
+    args.paths.currentTopicDetailHtmlMetadata,
+  );
+  const html = await readRuntimeTextFile(args.paths.currentTopicDetailHtml);
+  return (
+    metadata?.schema_id === TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID &&
+    metadata.topic_id === args.topicId &&
+    metadata.topic_signature === args.topicSignature &&
+    metadata.html_hash === hashCanonicalJson(html)
+  );
+}
+
+async function ensureCachedTopicDetailHtmlExport(
+  runtime: SynthesisWorkbenchRuntime,
+  topicId: string,
+) {
+  const paths = topicDetailHtmlExportStoragePaths(topicId);
+  const topicSignature = await topicDetailHtmlExportSignature(paths);
+  if (
+    await isTopicDetailHtmlExportCurrent({
+      paths,
+      topicId,
+      topicSignature,
+    })
+  ) {
+    return paths.currentTopicDetailHtml;
+  }
+  const html = await buildTopicDetailHtmlExport(runtime, topicId);
+  await writeRuntimeTextFile(paths.currentTopicDetailHtml, html);
+  const metadata: TopicDetailHtmlExportMetadata = {
+    schema_id: TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID,
+    schema_version: 1,
+    topic_id: topicId,
+    topic_signature: topicSignature,
+    html_hash: hashCanonicalJson(html),
+    generated_at: new Date().toISOString(),
+  };
+  await writeRuntimeTextFile(
+    paths.currentTopicDetailHtmlMetadata,
+    `${JSON.stringify(metadata, null, 2)}\n`,
+  );
+  return paths.currentTopicDetailHtml;
+}
+
+async function exportTopicDetailHtml(
+  runtime: SynthesisWorkbenchRuntime,
+  topicId: string,
+  outputPath: string,
+) {
+  if (!topicId) {
+    throw new Error("exportTopicDetailHtml requires topicId");
+  }
+  if (!outputPath) {
+    return;
+  }
+  const sourcePath = await ensureCachedTopicDetailHtmlExport(runtime, topicId);
+  await copyRuntimeFile({ sourcePath, targetPath: outputPath });
+}
+
 async function exportTopicSynthesisReport(
   runtime: SynthesisWorkbenchRuntime,
   topicId: string,
@@ -1127,6 +1645,49 @@ async function exportTopicSynthesisReport(
     outputPath,
     markdown.endsWith("\n") ? markdown : `${markdown}\n`,
   );
+}
+
+function citationGraphItemKeyFromNodeId(nodeId: string) {
+  const prefix = "zotero:item:";
+  return nodeId.startsWith(prefix) ? nodeId.slice(prefix.length).trim() : "";
+}
+
+async function openZoteroItemFromCitationGraphNode(
+  runtime: SynthesisWorkbenchRuntime,
+  args: Record<string, unknown>,
+) {
+  const nodeId = String(args.nodeId || "").trim();
+  const itemKey =
+    citationGraphItemKeyFromNodeId(nodeId) || String(args.itemKey || "").trim();
+  const libraryId = Math.max(0, Math.floor(Number(args.libraryId) || 0));
+  if (!libraryId || !itemKey) {
+    throw new Error("openZoteroItem requires a library item graph node.");
+  }
+  const zotero = (globalThis as any).Zotero;
+  const item = zotero?.Items?.getByLibraryAndKey?.(libraryId, itemKey);
+  if (!item) {
+    throw new Error(`Zotero item ${libraryId}:${itemKey} was not found.`);
+  }
+  const itemId = Math.max(0, Math.floor(Number(item.id || item.itemID) || 0));
+  if (!itemId) {
+    throw new Error(`Zotero item ${libraryId}:${itemKey} has no item id.`);
+  }
+  const hostWindow = resolveWorkflowHostWindow(runtime.window);
+  const pane = (hostWindow as unknown as { ZoteroPane?: unknown } | undefined)
+    ?.ZoteroPane as
+    | {
+        selectItem?: (itemId: number) => Promise<unknown> | unknown;
+        selectItems?: (itemIds: number[]) => Promise<unknown> | unknown;
+      }
+    | undefined;
+  if (typeof pane?.selectItem === "function") {
+    await pane.selectItem(itemId);
+  } else if (typeof pane?.selectItems === "function") {
+    await pane.selectItems([itemId]);
+  } else {
+    throw new Error("Zotero pane cannot select items.");
+  }
+  (hostWindow as unknown as { focus?: () => void } | undefined)?.focus?.();
 }
 
 function reportWorkbenchError(error: unknown, win?: _ZoteroTypes.MainWindow) {
@@ -2070,6 +2631,44 @@ function handleAction(
       "exportTopicSynthesisReport",
       { topicId },
       () => exportTopicSynthesisReport(runtime, topicId),
+      { refreshFromService: false },
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "exportTopicDetailHtml") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const topicId = String(commandArgs.topicId || "").trim();
+    const title = String(commandArgs.title || "").trim();
+    void (async () => {
+      const outputPath = await pickTopicDetailHtmlExportPath(
+        runtime,
+        safeTopicDetailHtmlExportFileName(title || topicId),
+      );
+      if (!outputPath) {
+        return;
+      }
+      runWorkbenchCommandOnce(
+        runtime,
+        "exportTopicDetailHtml",
+        { topicId },
+        () => exportTopicDetailHtml(runtime, topicId, outputPath),
+        { refreshFromService: false },
+      );
+    })().catch((error) => reportWorkbenchError(error, runtime.window));
+    return;
+  }
+  if (result.hostCommand?.command === "openZoteroItem") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const nodeId = String(commandArgs.nodeId || "").trim();
+    const libraryId = Math.max(
+      0,
+      Math.floor(Number(commandArgs.libraryId) || 0),
+    );
+    runWorkbenchCommandOnce(
+      runtime,
+      "openZoteroItem",
+      { nodeId, libraryId },
+      () => openZoteroItemFromCitationGraphNode(runtime, commandArgs),
       { refreshFromService: false },
     );
     return;

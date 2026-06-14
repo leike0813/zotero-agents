@@ -45,15 +45,34 @@ Workflow 可以通过三种后端类型执行：
 
 ## 内建 Workflows
 
-插件附带了一系列内建 workflow，存放在 `workflows_builtin/` 目录：
+插件附带了一系列内建 workflow，按功能分组：
 
-- **literature-workbench-package**：文献工作台工具包（添加摘要、导出/导入笔记、文献解读、深度阅读、标签管理等）
-- **mineru**：PDF 文档解析
-- **synthesis-layer**：Synthesis 编排
-- **topic-synthesis**：Topic 综合创建流水线
-- **workflow-debug-probe**：调试工具
+### 📚 文献分析工具包
+
+| Workflow | 用途 | 输入 | 后端 | 文档 |
+|---------|------|------|------|------|
+| **文献分析** | 从 PDF/MD 生成摘要、参考文献、引文分析 | 附件 | Skill-Runner | [详情](literature-analysis) |
+| **交互式文献解读** | 与 AI 多轮对话深入理解文献 | 附件 | Skill-Runner | [详情](literature-explainer) |
+| **深度阅读** | 生成结构化精读 HTML 视图，支持翻译 | 附件 | ACP | [详情](literature-deep-reading) |
+| **文献搜索与入库** | 搜索学术文献并直接入库到 Zotero | workflow | ACP | [详情](literature-search-ingest) |
+| **标签规范化** | 基于受控词表规范化标签，推断新标签 | 父条目 | Skill-Runner | [详情](tag-regulator) |
+| **导出/导入笔记** | 导出或导入分析笔记（摘要/参考文献/引文） | 父条目 | 无需后端 | [详情](export-import-notes) |
+
+### 🛠️ 实用工具
+
+| Workflow | 用途 | 输入 | 后端 | 文档 |
+|---------|------|------|------|------|
+| **MinerU PDF 解析** | 调用 MinerU 服务解析 PDF 为 Markdown | 附件 | Generic HTTP | [详情](mineru) |
+| **Topic 综合创建** | 三步流水线创建主题综合分析与报告 | workflow | ACP | [详情](topic-synthesis) |
+| **论文写作框架** | 生成 Introduction / Related Work LaTeX 草稿 | workflow | ACP | [详情](manuscript-literature-framing) |
+
+### 🔧 调试工具
+
+| Workflow | 用途 | 后端 | 文档 |
+|---------|------|------|------|
+| **调试工具包** | Workflow 系统开发测试和诊断 | Skill-Runner | [详情](debug-probe) |
 
 ## 下一步
 
-- [Workflow 调用与配置](./invocation)
+- [Workflow 调用与配置](invocation)
 - [后端配置](../backends/) — 配置后端的详细说明

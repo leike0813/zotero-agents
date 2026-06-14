@@ -1580,6 +1580,7 @@ export function buildSynthesisStoragePaths(root: string, topicId?: string) {
     legacyCurrentMarkdown: topicId ? joinPath(topicRoot, "current.md") : "",
     legacyCurrentMetadata: topicId ? joinPath(topicRoot, "current.json") : "",
     currentRoot: topicId ? joinPath(topicRoot, "current") : "",
+    currentAssetsRoot: topicId ? joinPath(topicRoot, "current", "assets") : "",
     currentManifest: topicId
       ? joinPath(topicRoot, "current", "manifest.json")
       : "",
@@ -1591,6 +1592,17 @@ export function buildSynthesisStoragePaths(root: string, topicId?: string) {
       : "",
     currentSectionsRoot: topicId
       ? joinPath(topicRoot, "current", "sections")
+      : "",
+    currentTopicDetailHtml: topicId
+      ? joinPath(topicRoot, "current", "assets", "topic-detail.html")
+      : "",
+    currentTopicDetailHtmlMetadata: topicId
+      ? joinPath(
+          topicRoot,
+          "current",
+          "assets",
+          "topic-detail.html.metadata.json",
+        )
       : "",
     stateRoot,
     index: joinPath(stateRoot, "index.json"),

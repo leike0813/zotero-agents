@@ -31,8 +31,14 @@ export function buildAssistantPanelLabels() {
       ),
       connect: l("assistant-panel-action-connect", "Connect"),
       disconnect: l("assistant-panel-action-disconnect", "Disconnect"),
+      connecting: l("assistant-panel-action-connecting", "Connecting..."),
+      disconnecting: l(
+        "assistant-panel-action-disconnecting",
+        "Disconnecting...",
+      ),
       authenticate: l("assistant-panel-action-authenticate", "Authenticate"),
       approve: l("assistant-panel-action-approve", "Approve"),
+      useMethod: l("assistant-panel-action-use-method", "Use method"),
     },
     fields: {
       target: l("assistant-panel-field-target", "Target"),
@@ -167,9 +173,75 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-reply-placeholder-skillrunner",
         "Reply to the pending SkillRunner interaction...",
       ),
+      placeholderAcpChat: l(
+        "assistant-panel-reply-placeholder-acp-chat",
+        "Ask the active ACP backend about the current library or item...",
+      ),
       shortcut: l(
         "assistant-panel-reply-shortcut",
         "Ctrl+Enter / Cmd+Enter to send",
+      ),
+    },
+    interaction: {
+      userInputRequired: l(
+        "assistant-panel-interaction-user-input-required",
+        "User input required",
+      ),
+      waitingReply: l(
+        "assistant-panel-interaction-waiting-reply",
+        "The agent is waiting for your reply.",
+      ),
+      authenticationRequiredTitle: l(
+        "assistant-panel-interaction-authentication-required-title",
+        "Authentication required",
+      ),
+      authenticationRequiredMessage: l(
+        "assistant-panel-interaction-authentication-required-message",
+        "Authentication required.",
+      ),
+      agentRunningTitle: l(
+        "assistant-panel-interaction-agent-running-title",
+        "Agent is running",
+      ),
+      agentWorkingMessage: l(
+        "assistant-panel-interaction-agent-working-message",
+        "Agent is working...",
+      ),
+      agentRepairingMessage: l(
+        "assistant-panel-interaction-agent-repairing-message",
+        "Agent is repairing output...",
+      ),
+      runCompletedTitle: l(
+        "assistant-panel-interaction-run-completed-title",
+        "Run completed",
+      ),
+      runResultReady: l(
+        "assistant-panel-interaction-run-result-ready",
+        "Run completed. Workflow result is ready.",
+      ),
+      acpConnectionInterrupted: l(
+        "assistant-panel-interaction-acp-connection-interrupted",
+        "ACP connection interrupted.",
+      ),
+      disconnectedRecoverable: l(
+        "assistant-panel-interaction-disconnected-recoverable",
+        "Run is disconnected and recoverable. Connect to continue.",
+      ),
+      runCanceledContinue: l(
+        "assistant-panel-interaction-run-canceled-continue",
+        "Run canceled. You can send a new instruction to continue this conversation.",
+      ),
+      waitingRequestId: l(
+        "assistant-panel-interaction-waiting-request-id",
+        "Waiting for requestId",
+      ),
+      needsUserInteraction: l(
+        "assistant-panel-interaction-needs-user-interaction",
+        "Needs user interaction",
+      ),
+      backendUnavailable: l(
+        "assistant-panel-interaction-backend-unavailable",
+        "Backend unavailable",
       ),
     },
     permission: {

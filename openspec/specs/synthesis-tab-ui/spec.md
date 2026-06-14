@@ -197,10 +197,29 @@ views.
 
 #### Scenario: Snapshot normalizes a topic row
 
-- **WHEN** a topic row contains paper count, summary, completion, and update time
+- **WHEN** a topic row contains paper count, summary, source-material status,
+  source-material percent, and update time
 - **THEN** the normalized snapshot SHALL preserve those fields
+- **AND** topic artifact rows SHALL NOT expose `coverage` or `completion` for
+  source readiness
 - **AND** filtered topic rows SHALL remain sorted according to the selected
   topic sort.
+
+#### Scenario: Topic rows expose discovery candidates
+
+- **WHEN** a topic row has discovery candidates
+- **THEN** Home and Topics views SHALL expose `discovery_status` and
+  `candidate_count`
+- **AND** the topic update action SHALL remain enabled when candidates are
+  present unless the topic update intent is blocked by an active queued or
+  running update.
+
+#### Scenario: Topic update action label is stable
+
+- **WHEN** a topic row or Topic Detail toolbar exposes an update topic action
+- **THEN** the user-facing button label SHALL be `Update`
+- **AND** the label SHALL NOT vary between `Update`, `Complete`, and
+  `Repair/Rebuild` based on freshness, source materials, or discovery state.
 
 ### Requirement: Topic synthesis creation action is labeled Create Topic
 
@@ -480,3 +499,56 @@ the existing host-owned action and data contracts.
 - **AND** the separation SHALL use theme-compatible surface, border, and shadow
   styling.
 
+### Requirement: Citation graph role filter uses semantic roles
+
+The Synthesis citation graph controls SHALL keep a visible citation-role filter
+whose options come from graph edge role facets.
+
+#### Scenario: Citation is not offered as a role filter
+
+- **GIVEN** graph edges have generic `citation` roles or missing role data
+- **WHEN** the graph controls render
+- **THEN** the role filter SHALL include `All`
+- **AND** it SHALL NOT include `citation`
+- **AND** missing or invalid role data SHALL be represented as `unknown`.
+
+#### Scenario: Best-effort roles are filterable
+
+- **GIVEN** graph edges expose roles such as `background`, `baseline`, or
+  `contrast`
+- **WHEN** the user selects one role
+- **THEN** the Workbench SHALL send the existing `setGraphView` role filter
+- **AND** the graph SHALL show only edges whose primary role matches that role.
+
+### Requirement: Standalone Synthesis topic export mode
+
+The Synthesis Workbench frontend SHALL support an internal standalone topic
+export mode that renders from an embedded export envelope and does not require a
+live Zotero host bridge.
+
+#### Scenario: Standalone boot uses embedded data
+
+- **GIVEN** a generated HTML file defines a valid Synthesis topic export envelope
+- **WHEN** the Synthesis Workbench app starts
+- **THEN** it renders Topic Details from the embedded snapshot and topic detail
+- **AND** it does not send the normal host `ready` action
+- **AND** it does not request data from Zotero or Synthesis storage
+
+#### Scenario: Embedded digest artifacts are available offline
+
+- **GIVEN** the export envelope contains resolved digest artifacts for the topic source papers
+- **WHEN** a user opens a digest link in the standalone HTML
+- **THEN** the digest modal renders from the embedded digest payload
+- **AND** missing or failed digest payloads show an unavailable local state without host calls
+
+#### Scenario: Topic citation subgraph is a readonly Topic Details tab
+
+- **GIVEN** the export envelope contains a topic-scoped citation graph snapshot
+- **WHEN** a user opens the Citation Graph tab in the standalone HTML
+- **THEN** the graph uses the same visual node and edge rendering as the Workbench graph
+- **AND** the embedded graph data is limited to the current topic citation subgraph, not the global graph or other topic subgraphs
+- **AND** pan, zoom, hover neighborhood, and selection drawer interactions remain available
+- **AND** role, node-kind, low-signal, and layout controls remain available offline
+- **AND** topic scope controls are not shown
+- **AND** graph search and graph-return controls are not shown
+- **AND** graph cache rebuild, refresh, redraw layout, and other host-mutating controls are not shown

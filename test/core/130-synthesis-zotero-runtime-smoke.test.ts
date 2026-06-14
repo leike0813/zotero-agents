@@ -29,8 +29,8 @@ function validBundle(
       title: "Runtime Smoke Topic",
     },
     topic_resolver: {
-      mode: "tag_query",
-      query: { and: ["topic:runtime-smoke"] },
+      tag: { and: ["topic:runtime-smoke"] },
+      combine: "union",
     },
     resolved_paper_set: {
       papers: [{ paper_ref: "1:RUNTIME01", match_reasons: ["smoke"] }],

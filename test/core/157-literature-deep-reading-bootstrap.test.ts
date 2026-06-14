@@ -4,6 +4,7 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import os from "os";
 import path from "path";
+import { pathToFileURL } from "url";
 import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { renderLiteratureDeepReadingSkill } from "../../skills_src/literature-deep-reading/renderer/render_literature_deep_reading_skill";
 
@@ -54,7 +55,7 @@ function pythonCommand(args: string[], cwd: string) {
 
 async function makeSourceBundle(
   tempRoot: string,
-  options?: { includeDigest?: boolean },
+  options?: { includeDigest?: boolean; includeReferences?: boolean },
 ) {
   const bundleSource = path.join(tempRoot, "bundle-source");
   await fs.mkdir(path.join(bundleSource, "images"), { recursive: true });
@@ -78,7 +79,7 @@ async function makeSourceBundle(
       "a = b + c",
       "$$",
       "",
-      "<table><tr><td>Metric</td><td>Value</td></tr><tr><td>AP</td><td>42</td></tr></table>",
+      "<table><tr><td>Metric</td><td>Value</td></tr><tr><td>AP</td><td>$42 \\pm 1$</td></tr></table>",
       "",
       "Table 1. Main metric results.",
       "",
@@ -92,6 +93,16 @@ async function makeSourceBundle(
       "",
       "1. Example Author. Example reference title. 2020.",
       "2. Another Author. Another reference title. 2021.",
+      "",
+      "# Appendix",
+      "",
+      "The appendix contains additional experimental details.",
+      "",
+      "## A Additional table",
+      "",
+      "| Extra | Value |",
+      "| --- | --- |",
+      "| Heads | 8 |",
       "",
     ].join("\n"),
     "utf8",
@@ -119,35 +130,37 @@ async function makeSourceBundle(
     ),
     "utf8",
   );
-  await fs.writeFile(
-    path.join(bundleSource, "artifacts", "references.json"),
-    JSON.stringify(
-      {
-        references: [
-          {
-            id: "ref-1",
-            title: "Example reference title",
-            year: "2020",
-            bound_paper_ref: "1:A",
-            zotero_item_key: "A",
-          },
-          {
-            id: "ref-2",
-            title: "External reference title",
-            year: "2021",
-          },
-          {
-            id: "ref-3",
-            title: "Reference index bound title",
-            year: "2022",
-          },
-        ],
-      },
-      null,
-      2,
-    ),
-    "utf8",
-  );
+  if (options?.includeReferences !== false) {
+    await fs.writeFile(
+      path.join(bundleSource, "artifacts", "references.json"),
+      JSON.stringify(
+        {
+          references: [
+            {
+              id: "ref-1",
+              title: "Example reference title",
+              year: "2020",
+              bound_paper_ref: "1:A",
+              zotero_item_key: "A",
+            },
+            {
+              id: "ref-2",
+              title: "External reference title",
+              year: "2021",
+            },
+            {
+              id: "ref-3",
+              title: "Reference index bound title",
+              year: "2022",
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+  }
   if (options?.includeDigest !== false) {
     await fs.writeFile(
       path.join(bundleSource, "artifacts", "digest.md"),
@@ -184,12 +197,16 @@ async function makeSourceBundle(
     JSON.stringify(
       {
         artifacts: [
-          {
-            artifact_type: "references",
-            payload_type: "references-json",
-            bundle_path: "artifacts/references.json",
-            status: "available",
-          },
+          ...(options?.includeReferences === false
+            ? []
+            : [
+                {
+                  artifact_type: "references",
+                  payload_type: "references-json",
+                  bundle_path: "artifacts/references.json",
+                  status: "available",
+                },
+              ]),
           ...(options?.includeDigest === false
             ? []
             : [
@@ -418,9 +435,11 @@ async function writeBlockTranslations(
         if (kind === "heading") {
           translated = source
             .replace("Sample Paper", "样例论文")
-            .replace("Introduction", "引言");
+            .replace("Introduction", "引言")
+            .replace("Appendix", "附录")
+            .replace("Additional table", "附加表格");
         } else if (kind === "table") {
-          translated = `<table><tr><td>指标</td><td>数值</td></tr><tr><td>${block.block_id}</td><td>42</td></tr></table>`;
+          translated = `<table><tr><td>指标</td><td>数值</td></tr><tr><td>${block.block_id}</td><td>$42 \\pm 1$</td></tr></table>`;
         } else if (kind === "image") {
           translated = "图示说明：该图用于展示方法的主要想法。";
         }
@@ -674,6 +693,8 @@ describe("Literature deep reading bootstrap skill", function () {
       "renderer/templates/deep-reading.html.tpl",
       "renderer/templates/deep-reading.css",
       "renderer/templates/deep-reading.js",
+      "renderer/templates/citation-graph-standalone.css",
+      "renderer/templates/citation-graph-standalone.js",
     ];
     for (const filePath of requiredSourceFiles) {
       await assertFileExists(path.join(suiteRoot, filePath));
@@ -693,6 +714,8 @@ describe("Literature deep reading bootstrap skill", function () {
       "renderer/templates/deep-reading.html.tpl",
       "renderer/templates/deep-reading.css",
       "renderer/templates/deep-reading.js",
+      "renderer/templates/citation-graph-standalone.css",
+      "renderer/templates/citation-graph-standalone.js",
     ];
     for (const filePath of requiredGeneratedFiles) {
       await assertFileExists(path.join(skillRoot, filePath));
@@ -810,7 +833,7 @@ describe("Literature deep reading bootstrap skill", function () {
     const tableBlocks = blocks.blocks.filter(
       (block: Record<string, unknown>) => block.kind === "table",
     ) as Array<Record<string, unknown>>;
-    assert.lengthOf(tableBlocks, 2);
+    assert.isAtLeast(tableBlocks.length, 3);
     assert.isTrue(
       tableBlocks.some((block) =>
         String(block.caption_markdown).includes("Table 1"),
@@ -827,10 +850,29 @@ describe("Literature deep reading bootstrap skill", function () {
         String(block.source_markdown).includes("References"),
     );
     assert.isAtLeast(referencesHeadingIndex, 0);
+    const appendixHeadingIndex = blocks.blocks.findIndex(
+      (block: Record<string, unknown>) =>
+        block.kind === "heading" &&
+        String(block.source_markdown).includes("Appendix"),
+    );
+    assert.isAbove(appendixHeadingIndex, referencesHeadingIndex);
     assert.isTrue(
       blocks.blocks
-        .slice(referencesHeadingIndex)
+        .filter(
+          (block: Record<string, unknown>) => block.role === "bibliography",
+        )
         .every((block: Record<string, unknown>) => block.translate === false),
+    );
+    assert.isTrue(
+      blocks.blocks
+        .filter((block: Record<string, unknown>) => block.role === "appendix")
+        .every((block: Record<string, unknown>) => block.translate === true),
+    );
+    assert.isAtLeast(
+      blocks.blocks.filter(
+        (block: Record<string, unknown>) => block.role === "appendix",
+      ).length,
+      2,
     );
 
     const imageManifest = JSON.parse(
@@ -849,6 +891,38 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     assert.equal(referencesSeed.source, "artifact");
     assert.equal(referencesSeed.reference_count, 3);
+  });
+
+  it("keeps Appendix out of markdown references fallback", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-references-fallback-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot, {
+      includeReferences: false,
+    });
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+
+    const referencesSeed = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "references-seed-view.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(referencesSeed.source, "markdown");
+    assert.equal(referencesSeed.reference_count, 2);
+    assert.isFalse(
+      referencesSeed.references.some((item: Record<string, unknown>) =>
+        String(item.raw || "").includes("appendix"),
+      ),
+    );
   });
 
   it("submits context requests and collects Host Bridge graph layout and reference digests", async function () {
@@ -998,6 +1072,34 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     await installFakeBridge(runRoot);
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    const readingBlocksPath = path.join(
+      runRoot,
+      "runtime",
+      "views",
+      "reading-blocks.json",
+    );
+    const readingBlocksView = JSON.parse(
+      await fs.readFile(readingBlocksPath, "utf8"),
+    );
+    const originalCount = readingBlocksView.blocks.length;
+    for (let index = 0; index < 28; index += 1) {
+      readingBlocksView.blocks.push({
+        block_id: `block-${String(originalCount + index + 1).padStart(4, "0")}`,
+        kind: "paragraph",
+        role: "main",
+        section_anchor: "sec-1-introduction",
+        translate: true,
+        source_markdown: Array.from(
+          { length: 90 },
+          (_, wordIndex) => `translation-source-${index}-${wordIndex}`,
+        ).join(" "),
+      });
+    }
+    await fs.writeFile(
+      readingBlocksPath,
+      `${JSON.stringify(readingBlocksView, null, 2)}\n`,
+      "utf8",
+    );
     await writeContextRequest(runRoot);
     runRuntime(
       [
@@ -1020,6 +1122,12 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.equal(result.kind, "literature_deep_reading_enriched");
     assert.equal(result.status, "enriched");
     assert.equal(result.final_html_available, false);
+    assert.isAtLeast(result.translation_batch_count, 2);
+    assert.notInclude(
+      JSON.stringify(result),
+      "This paper introduces a small test method",
+      "stdout result should not inline source content",
+    );
 
     const validation = runRuntime(["validate-reading-enrichment"], runRoot);
     assert.deepEqual(validation, { ok: true, errors: [] });
@@ -1072,6 +1180,51 @@ describe("Literature deep reading bootstrap skill", function () {
         (item: Record<string, unknown>) => item.label === "unresolved keyword",
       ),
     );
+
+    const preface = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "preface-view.json"),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(
+      preface.cards.map((item: Record<string, unknown>) => item.title),
+      ["研究领域", "研究方向", "本文位置", "阅读路线"],
+    );
+    assert.lengthOf(preface.cards, 4);
+
+    const batchView = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "translation-batches-view.json"),
+        "utf8",
+      ),
+    );
+    assert.isAtLeast(batchView.batch_count, 2);
+    assert.equal(
+      batchView.required_translation_count,
+      batchView.required_block_ids.length,
+    );
+    const blocks = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "reading-blocks.json"),
+        "utf8",
+      ),
+    ).blocks as Array<Record<string, unknown>>;
+    const expectedRequiredIds = blocks
+      .filter(
+        (block) =>
+          block.translate === true &&
+          block.role !== "bibliography" &&
+          block.kind !== "formula",
+      )
+      .map((block) => block.block_id);
+    assert.sameMembers(batchView.required_block_ids, expectedRequiredIds);
+    const firstBatch = JSON.parse(
+      await fs.readFile(path.join(runRoot, batchView.batches[0].path), "utf8"),
+    );
+    assert.include(firstBatch.prompt, "Translate every required block fully");
+    assert.include(firstBatch.prompt, "Table captions");
+    assert.isAtLeast(firstBatch.blocks.length, 1);
 
     const insights = JSON.parse(
       await fs.readFile(
@@ -1313,6 +1466,7 @@ describe("Literature deep reading bootstrap skill", function () {
       "data-translation-paper",
       "data-summary",
       "data-post-reading",
+      "data-appendix-reading",
       "data-citation-graph",
       "data-extensions",
       "data-digest-modal",
@@ -1326,10 +1480,13 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.include(html, "可能的问题");
     assert.include(html, "引用线索");
     assert.include(html, "math-display");
+    assert.include(html, "<math");
+    assert.notInclude(html, "math-fallback");
     assert.notInclude(html, "<code>\\");
     assert.include(html, "structured references artifact");
-    assert.include(html, "data-node-id");
-    assert.include(html, "graph-legend");
+    assert.include(html, "ZoteroSkillsCitationGraph");
+    assert.include(html, "zs-cg-legend");
+    assert.notInclude(html, "<svg viewBox=");
 
     const sections = JSON.parse(
       await fs.readFile(
@@ -1343,13 +1500,58 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.equal(sections.summary.source, "digest_artifact");
     assert.equal(sections.references.references_source, "artifact");
     assert.equal(sections.references.reference_count, 3);
+    assert.isAtLeast(sections.appendix_reading_blocks.length, 1);
+    assert.isTrue(
+      sections.appendix_reading_blocks.some((item: Record<string, unknown>) =>
+        String(item.source_markdown || "").includes(
+          "additional experimental details",
+        ),
+      ),
+    );
+    assert.isFalse(
+      sections.reading_blocks.some((item: Record<string, unknown>) =>
+        String(item.source_markdown || "").includes("Example reference title"),
+      ),
+    );
+    assert.isFalse(
+      sections.appendix_reading_blocks.some((item: Record<string, unknown>) =>
+        String(item.source_markdown || "").includes("Example reference title"),
+      ),
+    );
     assert.isTrue(
       sections.reading_blocks.some((item: Record<string, unknown>) =>
         String(item.source_html || "").includes("math-display"),
       ),
     );
+    const tableWithMath = sections.reading_blocks.find(
+      (item: Record<string, unknown>) =>
+        item.kind === "table" &&
+        String(item.source_markdown || "").includes("$42"),
+    ) as Record<string, unknown> | undefined;
+    assert.isOk(tableWithMath);
+    assert.include(String(tableWithMath?.source_html || ""), "<math");
+    assert.include(String(tableWithMath?.translation_html || ""), "<math");
+    assert.notInclude(String(tableWithMath?.source_html || ""), "$42");
+    assert.notInclude(String(tableWithMath?.translation_html || ""), "$42");
     assert.isAtLeast(sections.concepts.concepts.length, 1);
     assert.isAtLeast(sections.citation_graph.layout.nodes.length, 1);
+    assert.equal(
+      sections.citation_graph.model.renderer,
+      "zotero-skills-citation-graph-standalone",
+    );
+    assert.isAtLeast(sections.citation_graph.model.nodes.length, 1);
+    assert.isAtLeast(sections.citation_graph.model.edges.length, 1);
+    assert.equal(
+      sections.citation_graph.model.diagnostics.layout_status,
+      "ready",
+    );
+    assert.isAtLeast(
+      sections.citation_graph.model.diagnostics.drawable_node_count,
+      1,
+    );
+    assert.isObject(
+      sections.citation_graph.model.diagnostics.coordinate_bounds,
+    );
     assert.isAtLeast(sections.extensions.items.length, 1);
     assert.isTrue(
       sections.references.items.some(
@@ -1367,6 +1569,38 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     assert.equal(manifest.final_html_available, true);
     assert.equal(manifest.entrypoint, "result/deep-reading.html");
+
+    const { chromium } = await import("playwright");
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1440, height: 1000 },
+      });
+      await page.goto(
+        pathToFileURL(
+          path.join(runRoot, "result", "deep-reading.html"),
+        ).toString(),
+      );
+      await page.waitForSelector(".zs-cg-stage canvas", { timeout: 20_000 });
+      const graphState = await page.evaluate(() => {
+        const section = document.querySelector("[data-citation-graph]");
+        const stage = document.querySelector(".zs-cg-stage");
+        const rect = stage?.getBoundingClientRect();
+        return {
+          status: section?.getAttribute("data-zs-cg-status"),
+          error: section?.getAttribute("data-zs-cg-error"),
+          canvasCount: stage?.querySelectorAll("canvas").length || 0,
+          width: rect?.width || 0,
+          height: rect?.height || 0,
+        };
+      });
+      assert.equal(graphState.status, "ready", graphState.error || "");
+      assert.isAtLeast(graphState.canvasCount, 1);
+      assert.isAtLeast(graphState.width, 520);
+      assert.isAtLeast(graphState.height, 360);
+    } finally {
+      await browser.close();
+    }
   });
 
   it("rejects invalid block translation payloads", async function () {

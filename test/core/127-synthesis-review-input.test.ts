@@ -79,7 +79,7 @@ describe("Synthesis review input workflow DTO", function () {
         timeline: "Timeline section",
         metadata: { artifact_hash: "sha256:topic" },
         topic_definition: { id: "topic-alpha" },
-        resolver: { mode: "tag_query", query: "topic:alpha" },
+        resolver: { tag: "topic:alpha", combine: "union" },
         structured_topic: {
           artifact: {
             schema_id: "synthesis.topic_synthesis_artifact",

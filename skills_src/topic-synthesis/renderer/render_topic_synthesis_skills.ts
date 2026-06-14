@@ -116,10 +116,11 @@ function skillQualityGoals(skill: SkillContract): string {
       "paper triage 必须保持 paper-local，为每篇 resolved paper 给出 relevance、quality、core_digest 和 caveats，不提前写跨文献综合。",
     ],
     "update-topic-synthesis-prepare": [
-      "topic context 必须忠实保留 Host 返回的 topic id、definition 和 recommended_update。",
-      "update assessment 只判断当前 update scope，说明 full/patch/unknown 的原因和 changed sections。",
+      "Stage 00 runtime 预审必须从 get-context digest/audit 和当前 resolver resolve 生成 update audit report。",
+      "update_full 必须基于既有 topic 的 artifact/manifest/metadata hash，后续 apply 会用这些 hash 做陈旧基线保护。",
+      "Stage 10 只做 cancel 或 continue 决策；continue 时 resolver proposal 必须保留当前 resolver 既有内容并只新增。",
+      "Stage 30 在已有可复用 triage 时只处理新增 papers；没有可复用 triage 时处理 updated resolve 的全部 papers。",
       "resolver proposal 仍要服务既有 topic 的边界，不能把 create duplicate check 逻辑套到 update。",
-      "update path 当前保持 skeleton 边界：只写本 skill schema 接受的准备 payload，不承诺后续完整 update runtime 已实现。",
     ],
     "topic-synthesis-core-enrichment": [
       "taxonomy 必须解释研究路线、机制、边界、代表论文、成熟度、优势和局限，不是标签表。",
@@ -157,15 +158,16 @@ function llmRuntimeBoundary(skill: SkillContract): {
     },
     "update-topic-synthesis-prepare": {
       llm: [
-        "读取 Host topic context 后写 update scope 判断。",
-        "resolver proposal 设计。",
-        "per-paper triage：relevance、quality、core_digest、caveats。",
+        "基于 runtime update audit report 判断 cancel 或 continue。",
+        "continue 时设计只增不改的 resolver proposal。",
+        "按 runtime 指定 workset 做 per-paper triage：relevance、quality、core_digest、caveats。",
       ],
       runtime: [
         "初始化或校验 SQLite 和 stage state。",
-        "执行 resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。",
-        "校验 update topic context、resolver proposal 和 paper triage payload。",
-        "生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff；深度 update diff/patch 语义后续单独完善。",
+        "执行 update preflight：get-context digest/audit、baseline resolver resolve 和 audit report 生成。",
+        "校验 resolver proposal 只新增内容，并执行 updated resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。",
+        "校验 paper triage payload，合并已保存 triage 和新增 triage。",
+        "生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff。",
       ],
     },
     "topic-synthesis-core-enrichment": {
@@ -271,18 +273,19 @@ function operationSchemaForSkill(
     return { const: "create" };
   }
   if (skill.id === "update-topic-synthesis-prepare") {
-    return { enum: ["update_full", "update_patch"] };
+    return { const: "update_full" };
   }
-  return { enum: ["create", "update_full", "update_patch"] };
+  return { enum: ["create", "update_full"] };
 }
 
 function renderOutputContractBody(skill: SkillContract): string {
   if (skill.output_kind === "topic_synthesis_handoff") {
     return [
-      `本技能输出一个用于 \`${skill.handoff}\` 的 \`topic_synthesis_handoff\` JSON 对象。`,
+      `本技能正常输出一个用于 \`${skill.handoff}\` 的 \`topic_synthesis_handoff\` JSON 对象；硬门禁或取消路径输出一个 \`topic_synthesis_canceled\` JSON 对象。`,
       "",
       "- 返回对象必须符合 `assets/output.schema.json`。",
-      "- handoff manifest path 用来标识本 skill 的持久化输出。",
+      "- 正常 handoff 输出的 handoff manifest path 用来标识本 skill 的持久化输出。",
+      "- canceled 输出必须包含 `status: \"canceled\"`、稳定 `reason` 和用户可读 `message`；workflow sequence 会把该 step output 作为最终结果并停止后续 steps。",
       "- 大段正文和业务状态以 SQLite 与 runtime 文件为真源。",
     ].join("\n");
   }
@@ -591,25 +594,49 @@ function handoffOutputSchema(skill: SkillContract): Record<string, unknown> {
   return {
     $schema: "http://json-schema.org/draft-07/schema#",
     title: `${skill.title} Result`,
+    oneOf: [
+      {
+        title: "Topic synthesis handoff",
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "kind",
+          "handoff",
+          "operation",
+          "db_path",
+          "handoff_manifest_path",
+          "next_skill_id",
+        ],
+        properties: {
+          kind: { const: "topic_synthesis_handoff" },
+          handoff: { const: skill.handoff },
+          operation: operationSchemaForSkill(skill),
+          db_path: { const: "runtime/topic-synthesis.sqlite" },
+          handoff_manifest_path: { type: "string", minLength: 1 },
+          next_skill_id: skill.next_skill_id
+            ? { const: skill.next_skill_id }
+            : { type: "string" },
+        },
+      },
+      canceledOutputSchema(),
+    ],
+  };
+}
+
+function canceledOutputSchema(): Record<string, unknown> {
+  return {
+    title: "Canceled topic synthesis",
     type: "object",
     additionalProperties: false,
-    required: [
-      "kind",
-      "handoff",
-      "operation",
-      "db_path",
-      "handoff_manifest_path",
-      "next_skill_id",
-    ],
+    required: ["kind", "status", "reason", "message"],
     properties: {
-      kind: { const: "topic_synthesis_handoff" },
-      handoff: { const: skill.handoff },
-      operation: operationSchemaForSkill(skill),
-      db_path: { const: "runtime/topic-synthesis.sqlite" },
-      handoff_manifest_path: { type: "string", minLength: 1 },
-      next_skill_id: skill.next_skill_id
-        ? { const: skill.next_skill_id }
-        : { type: "string" },
+      kind: { const: "topic_synthesis_canceled" },
+      status: { const: "canceled" },
+      reason: { type: "string", minLength: 1 },
+      message: { type: "string", minLength: 1 },
+      duplicate_topic_id: { type: "string" },
+      topic_seed: { type: "string" },
+      topic_id: { type: "string" },
     },
   };
 }
@@ -665,6 +692,7 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
           "operation",
           "language",
           "topic_definition",
+          "base_hashes",
           "resolver_manifest_path",
           "analysis_manifest_path",
           "candidate_output_path",
@@ -681,36 +709,13 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
               title: { type: "string", minLength: 1 },
             },
           },
-          resolver_manifest_path: { type: "string", minLength: 1 },
-          analysis_manifest_path: { type: "string", minLength: 1 },
-          candidate_output_path: {
-            const: "result/final-output.candidate.json",
-          },
-        },
-      },
-      {
-        title: "Patch update topic synthesis",
-        type: "object",
-        additionalProperties: false,
-        required: [
-          "kind",
-          "operation",
-          "language",
-          "topic_definition",
-          "resolver_manifest_path",
-          "analysis_manifest_path",
-          "candidate_output_path",
-        ],
-        properties: {
-          kind: { const: "topic_synthesis" },
-          operation: { const: "update_patch" },
-          language: { type: "string", minLength: 1 },
-          topic_definition: {
+          base_hashes: {
             type: "object",
-            required: ["id", "title"],
+            required: ["artifact", "manifest", "metadata"],
             properties: {
-              id: { type: "string", minLength: 1 },
-              title: { type: "string", minLength: 1 },
+              artifact: { type: "string", minLength: 1 },
+              manifest: { type: "string", minLength: 1 },
+              metadata: { type: "string", minLength: 1 },
             },
           },
           resolver_manifest_path: { type: "string", minLength: 1 },
@@ -720,21 +725,7 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
           },
         },
       },
-      {
-        title: "Canceled topic synthesis",
-        type: "object",
-        additionalProperties: false,
-        required: ["kind", "status", "reason", "message"],
-        properties: {
-          kind: { const: "topic_synthesis_canceled" },
-          status: { const: "canceled" },
-          reason: { type: "string", minLength: 1 },
-          message: { type: "string", minLength: 1 },
-          duplicate_topic_id: { type: "string" },
-          topic_seed: { type: "string" },
-          topic_id: { type: "string" },
-        },
-      },
+      canceledOutputSchema(),
     ],
   };
 }

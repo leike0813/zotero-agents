@@ -10,6 +10,21 @@ declare const document: Document;
 
 type WorkspaceView = "dashboard" | "synthesis";
 type WorkspaceTheme = "system" | "light" | "dark";
+type WorkspaceLabelKey = keyof WorkspaceShellLabels;
+
+type WorkspaceShellLabels = {
+  tabTitle: string;
+  brandSubtitle: string;
+  viewsAriaLabel: string;
+  dashboard: string;
+  synthesis: string;
+  themeAriaLabel: string;
+  themeSystem: string;
+  themeLight: string;
+  themeDark: string;
+  refresh: string;
+  toggleSidebar: string;
+};
 
 type WorkspaceBridge = {
   postMessage: (
@@ -21,6 +36,21 @@ type WorkspaceBridge = {
 type WorkspaceSnapshot = {
   selectedView: WorkspaceView;
   waitingCount: number;
+  labels: WorkspaceShellLabels;
+};
+
+const DEFAULT_WORKSPACE_LABELS: WorkspaceShellLabels = {
+  tabTitle: "Zotero Skills",
+  brandSubtitle: "Dashboard and Synthesis workspace",
+  viewsAriaLabel: "Workspace views",
+  dashboard: "Dashboard",
+  synthesis: "Synthesis",
+  themeAriaLabel: "Theme",
+  themeSystem: "System",
+  themeLight: "Light",
+  themeDark: "Dark",
+  refresh: "Refresh",
+  toggleSidebar: "Toggle sidebar",
 };
 
 const state: {
@@ -30,6 +60,7 @@ const state: {
   snapshot: {
     selectedView: "dashboard",
     waitingCount: 0,
+    labels: DEFAULT_WORKSPACE_LABELS,
   },
   theme: "system",
 };
@@ -41,6 +72,25 @@ function normalizeWaitingCount(value: unknown) {
 
 function formatAttentionCount(count: number) {
   return count > 99 ? "99+" : String(count);
+}
+
+function normalizeWorkspaceLabels(value: unknown): WorkspaceShellLabels {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return DEFAULT_WORKSPACE_LABELS;
+  }
+  const source = value as Partial<Record<WorkspaceLabelKey, unknown>>;
+  const labels = { ...DEFAULT_WORKSPACE_LABELS };
+  for (const key of Object.keys(DEFAULT_WORKSPACE_LABELS) as WorkspaceLabelKey[]) {
+    const candidate = source[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      labels[key] = candidate;
+    }
+  }
+  return labels;
+}
+
+function workspaceLabel(key: WorkspaceLabelKey) {
+  return state.snapshot.labels[key] || DEFAULT_WORKSPACE_LABELS[key];
 }
 
 function sendAction(action: string, payload: Record<string, unknown> = {}) {
@@ -122,15 +172,21 @@ function setThemeChoice(theme: WorkspaceTheme) {
 function renderThemeSwitch() {
   const group = el("div", "theme-switch");
   group.setAttribute("role", "group");
-  group.setAttribute("aria-label", "Theme");
+  group.dataset.workspaceAriaLabel = "themeAriaLabel";
+  group.setAttribute("aria-label", workspaceLabel("themeAriaLabel"));
   [
-    ["system", "System"],
-    ["light", "Light"],
-    ["dark", "Dark"],
+    ["system", "themeSystem"],
+    ["light", "themeLight"],
+    ["dark", "themeDark"],
   ].forEach(([theme, label]) => {
-    const node = el("button", state.theme === theme ? "active" : "", label);
+    const node = el(
+      "button",
+      state.theme === theme ? "active" : "",
+      workspaceLabel(label as WorkspaceLabelKey),
+    );
     node.type = "button";
     node.dataset.theme = theme;
+    node.dataset.workspaceLabel = label;
     node.setAttribute("aria-pressed", state.theme === theme ? "true" : "false");
     node.addEventListener("click", () =>
       setThemeChoice(theme as WorkspaceTheme),
@@ -155,6 +211,40 @@ function updateThemeSwitchState() {
   });
 }
 
+function updateWorkspaceLocalizedText() {
+  document.title = workspaceLabel("tabTitle");
+  document
+    .querySelectorAll<HTMLElement>("[data-workspace-label]")
+    .forEach((node: HTMLElement) => {
+      const key = node.dataset.workspaceLabel as WorkspaceLabelKey | undefined;
+      if (key) {
+        node.textContent = workspaceLabel(key);
+      }
+    });
+  document
+    .querySelectorAll<HTMLElement>("[data-workspace-aria-label]")
+    .forEach((node: HTMLElement) => {
+      const key = node.dataset.workspaceAriaLabel as
+        | WorkspaceLabelKey
+        | undefined;
+      if (key) {
+        node.setAttribute("aria-label", workspaceLabel(key));
+      }
+    });
+  document
+    .querySelectorAll<HTMLElement>("[data-workspace-icon-label]")
+    .forEach((node: HTMLElement) => {
+      const key = node.dataset.workspaceIconLabel as
+        | WorkspaceLabelKey
+        | undefined;
+      if (key) {
+        const label = workspaceLabel(key);
+        node.setAttribute("aria-label", label);
+        node.setAttribute("title", label);
+      }
+    });
+}
+
 function updateWorkspaceSidebarAttention() {
   const button = document.querySelector<HTMLButtonElement>(".sidebar-toggle");
   if (!button) {
@@ -174,7 +264,9 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   const header = el("header", "workspace-header");
   const brand = el("div", "brand");
   brand.appendChild(el("strong", "", "Zotero Skills"));
-  brand.appendChild(el("span", "muted", "Dashboard and Synthesis workspace"));
+  const subtitle = el("span", "muted", workspaceLabel("brandSubtitle"));
+  subtitle.dataset.workspaceLabel = "brandSubtitle";
+  brand.appendChild(subtitle);
   header.appendChild(brand);
 
   const segmented = el(
@@ -183,21 +275,23 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
       ? "segmented workspace-view-switch is-synthesis"
       : "segmented workspace-view-switch is-dashboard",
   );
-  segmented.setAttribute("aria-label", "Workspace views");
+  segmented.dataset.workspaceAriaLabel = "viewsAriaLabel";
+  segmented.setAttribute("aria-label", workspaceLabel("viewsAriaLabel"));
   const thumb = el("span", "segmented-thumb");
   thumb.setAttribute("aria-hidden", "true");
   segmented.appendChild(thumb);
   [
-    ["dashboard", "Dashboard"],
-    ["synthesis", "Synthesis"],
+    ["dashboard", "dashboard"],
+    ["synthesis", "synthesis"],
   ].forEach(([view, label]) => {
     const node = button(
-      label,
+      workspaceLabel(label as WorkspaceLabelKey),
       "select-view",
       { view },
       snapshot.selectedView === view ? "active" : "",
     );
     node.dataset.view = view;
+    node.dataset.workspaceLabel = label;
     node.setAttribute(
       "aria-pressed",
       snapshot.selectedView === view ? "true" : "false",
@@ -210,24 +304,30 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   toolbar.appendChild(renderThemeSwitch());
   toolbar.appendChild(
     iconButton(
-      "Refresh",
+      workspaceLabel("refresh"),
       "refresh",
       {},
       "icon-button refresh-toggle",
       "toolbar-icon refresh-icon",
     ),
   );
+  toolbar.lastElementChild?.setAttribute("data-workspace-icon-label", "refresh");
   toolbar.appendChild(
     iconButton(
-      "Toggle sidebar",
+      workspaceLabel("toggleSidebar"),
       "toggle-sidebar",
       {},
       "icon-button sidebar-toggle",
       "toolbar-icon sidebar-icon",
     ),
   );
+  toolbar.lastElementChild?.setAttribute(
+    "data-workspace-icon-label",
+    "toggleSidebar",
+  );
   header.appendChild(toolbar);
   root.appendChild(header);
+  updateWorkspaceLocalizedText();
   updateWorkspaceSidebarAttention();
 }
 
@@ -334,6 +434,7 @@ window.addEventListener("message", (event: MessageEvent) => {
       selectedView:
         payload.selectedView === "synthesis" ? "synthesis" : "dashboard",
       waitingCount: normalizeWaitingCount(payload.waitingCount),
+      labels: normalizeWorkspaceLabels(payload.labels),
     } satisfies WorkspaceSnapshot;
     const viewChanged =
       state.snapshot.selectedView !== nextSnapshot.selectedView;
@@ -341,6 +442,7 @@ window.addEventListener("message", (event: MessageEvent) => {
     if (viewChanged) {
       render();
     } else {
+      updateWorkspaceLocalizedText();
       updateWorkspaceSidebarAttention();
     }
     return;

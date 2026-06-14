@@ -1,7 +1,7 @@
 {
   "id": "create-topic-synthesis-prepare",
   "name": "创建主题综合准备",
-  "description": "为新建主题综合运行准备主题意图、resolver、文献工作集和分析上下文。",
+  "description": "为新建主题综合运行准备主题意图、resolver、文献工作集和分析上下文；需要可通过 `zotero-bridge` 访问 Zotero 文库。",
   "version": "0.1.0",
   "execution_modes": ["interactive"],
   "max_attempt": 12,

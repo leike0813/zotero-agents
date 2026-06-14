@@ -72,6 +72,20 @@ describe("Synthesize topic workflow contract", function () {
     assert.equal(createWorkflow.request?.kind, "skillrunner.sequence.v1");
     assert.equal(updateWorkflow.request?.kind, "skillrunner.sequence.v1");
     assert.deepEqual(
+      createWorkflow.request?.sequence?.steps?.[0]?.short_circuit,
+      {
+        when: { path: "status", equals: "canceled" },
+        result: "step_output",
+      },
+    );
+    assert.deepEqual(
+      updateWorkflow.request?.sequence?.steps?.[0]?.short_circuit,
+      {
+        when: { path: "status", equals: "canceled" },
+        result: "step_output",
+      },
+    );
+    assert.deepEqual(
       createWorkflow.request?.sequence?.steps?.map((step: any) => ({
         id: step.id,
         skill_id: step.skill_id,
@@ -180,7 +194,12 @@ describe("Synthesize topic workflow contract", function () {
       targetParentID?: number;
       parameter?: Record<string, unknown>;
       kind?: string;
-      steps?: Array<{ id: string; skill_id: string; workspace?: string }>;
+      steps?: Array<{
+        id: string;
+        skill_id: string;
+        workspace?: string;
+        short_circuit?: Record<string, unknown>;
+      }>;
       final_step_id?: string;
     }>;
 
@@ -199,6 +218,10 @@ describe("Synthesize topic workflow contract", function () {
     assert.equal(requests[0].parameter?.topicSeed, "DETR");
     assert.equal(requests[0].parameter?.language, "zh-CN");
     assert.equal(requests[0].final_step_id, "finalize");
+    assert.deepEqual(requests[0].steps?.[0]?.short_circuit, {
+      when: { path: "status", equals: "canceled" },
+      result: "step_output",
+    });
     assert.deepEqual(
       requests[0].steps?.map((step) => [
         step.id,
@@ -251,7 +274,12 @@ describe("Synthesize topic workflow contract", function () {
       targetParentID?: number;
       parameter?: Record<string, unknown>;
       kind?: string;
-      steps?: Array<{ id: string; skill_id: string; workspace?: string }>;
+      steps?: Array<{
+        id: string;
+        skill_id: string;
+        workspace?: string;
+        short_circuit?: Record<string, unknown>;
+      }>;
       final_step_id?: string;
     }>;
 
@@ -268,6 +296,10 @@ describe("Synthesize topic workflow contract", function () {
     assert.notProperty(requests[0].parameter || {}, "updateScope");
     assert.notProperty(requests[0].parameter || {}, "updateMode");
     assert.equal(requests[0].final_step_id, "finalize");
+    assert.deepEqual(requests[0].steps?.[0]?.short_circuit, {
+      when: { path: "status", equals: "canceled" },
+      result: "step_output",
+    });
     assert.deepEqual(
       requests[0].steps?.map((step) => [
         step.id,
@@ -364,11 +396,17 @@ describe("Synthesize topic workflow contract", function () {
     assert.isTrue(validation.ok, validation.errors.join("; "));
   });
 
-  it("accepts canceled create-topic-synthesis output without requiring a markdown artifact", async function () {
+  it("accepts canceled create-topic-synthesis prepare output without requiring a markdown artifact", async function () {
     const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
-    const entry = registry.entriesById["create-topic-synthesis"];
+    const entry = registry.entriesById["create-topic-synthesis-prepare"];
+
+    assert.isOk(entry);
+    const businessPayload = {
+      ...canceledSkillOutputBundle(),
+    } as Record<string, unknown>;
+    delete businessPayload.__SKILL_DONE__;
     const validation = await validateAcpSkillFinalPayload({
-      payload: canceledSkillOutputBundle(),
+      payload: businessPayload,
       runnerJson: JSON.parse(await fs.readFile(entry.runnerJsonPath, "utf8")),
       primarySkillDir: path.dirname(path.dirname(entry.runnerJsonPath)),
     });
@@ -751,12 +789,14 @@ describe("Synthesize topic workflow contract", function () {
         operation: "update_full",
         base_hashes: {
           artifact: "sha256:a",
+          manifest: "sha256:m",
           metadata: "sha256:b",
           index: "sha256:c",
         },
       }),
       currentHashes: {
         artifact: "sha256:a",
+        manifest: "sha256:m",
         metadata: "sha256:b",
         index: "sha256:c",
       },
@@ -791,12 +831,14 @@ describe("Synthesize topic workflow contract", function () {
         operation: "update_full",
         base_hashes: {
           artifact: "sha256:a",
+          manifest: "sha256:m",
           metadata: "sha256:b",
           index: "sha256:c",
         },
       }),
       currentHashes: {
         artifact: "sha256:changed",
+        manifest: "sha256:m",
         metadata: "sha256:b",
         index: "sha256:c",
       },

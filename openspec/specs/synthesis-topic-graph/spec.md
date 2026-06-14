@@ -88,6 +88,33 @@ Synthesis Topic Graph SHALL allow Workbench users to accept or reject suggested 
 - **THEN** the service SHALL return a structured diagnostic
 - **AND** no canonical graph assets SHALL be changed.
 
+### Requirement: Confirmed hierarchy relations cascade discovery candidates
+
+Synthesis read models SHALL use confirmed `broader_than` topic graph relations
+to aggregate discovery candidates from narrower descendant topics into broader
+ancestor topics.
+
+#### Scenario: Broader topic includes confirmed descendants
+
+- **GIVEN** `source_topic_id broader_than target_topic_id` is confirmed
+- **WHEN** Workbench builds topic discovery summaries
+- **THEN** the source topic SHALL include open discovery candidates from the
+  target topic
+- **AND** the same rule SHALL apply transitively through confirmed descendants.
+
+#### Scenario: Candidate cascade is bounded to confirmed hierarchy
+
+- **WHEN** a relation is suggested, rejected, stale, deleted, or not
+  `broader_than`
+- **THEN** its target topic candidates SHALL NOT be counted in the source topic
+  discovery summary.
+
+#### Scenario: Cascaded candidates are deduplicated
+
+- **WHEN** the same `literature_item_id` is an open discovery hint on multiple
+  topics in the confirmed descendant scope
+- **THEN** the ancestor topic candidate count SHALL count that literature once.
+
 ### Requirement: Low-confidence relation proposals are reviewable
 
 Synthesis Topic Graph SHALL keep low-confidence or explicit-review relation proposals as canonical review items before creating suggested edges.
@@ -110,4 +137,3 @@ Synthesis Topic Graph SHALL keep low-confidence or explicit-review relation prop
 - **WHEN** a user rejects a topic graph review item
 - **THEN** the review item SHALL be marked rejected
 - **AND** no edge SHALL be created.
-

@@ -1,0 +1,7 @@
+- [x] Add delta specs for sequence runtime, manifest schema, and topic synthesis workflow short-circuit behavior.
+- [x] Extend sequence step types, JSON schema, request validation, and declarative request compilation.
+- [x] Implement runtime short-circuit evaluation for initial execution and recovered continuation.
+- [x] Add short-circuit declarations to create/update topic synthesis workflow manifests.
+- [x] Add focused runtime, compiler/contract, and topic synthesis workflow tests.
+- [x] Run OpenSpec validation, focused mocha tests, TypeScript, and `git diff --check`.
+- [x] Document prepare hard-gate cancellation instructions and verify generated skill/runtime cancel outputs.

@@ -95,7 +95,7 @@ sequenceDiagram
   T->>Z: read current Zotero item state for saved sources
   T->>A: read current artifact state for saved sources
   T->>S: write source-check diagnostic
-  UI->>S: read freshness, coverage, and discovery separately
+  UI->>S: read freshness, source materials readiness, and discovery separately
 ```
 
 Constraints:

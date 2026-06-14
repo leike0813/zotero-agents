@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 
 const THIS_FILE = fileURLToPath(import.meta.url);
@@ -86,6 +87,11 @@ async function renderRendererTemplates(targetRoot: string) {
 export async function renderLiteratureDeepReadingSkill(options?: {
   outRoot?: string;
 }) {
+  execSync("npx tsx scripts/build-literature-deep-reading-graph-renderer.ts", {
+    cwd: REPO_ROOT,
+    env: { ...process.env, LDR_GRAPH_BUILD_QUIET: "1" },
+    stdio: "inherit",
+  });
   const outRoot = options?.outRoot || path.join(REPO_ROOT, "skills_builtin");
   const targetRoot = path.join(outRoot, SKILL_ID);
   await fs.rm(targetRoot, { recursive: true, force: true });

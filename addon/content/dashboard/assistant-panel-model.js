@@ -445,6 +445,31 @@
     );
   }
 
+  function assistantDrawerLabels(source) {
+    const existing =
+      source && source.labels && typeof source.labels === "object"
+        ? source.labels
+        : {};
+    return Object.assign({}, existing, {
+      waitingRequestId: labelFrom(
+        source,
+        "interaction.waitingRequestId",
+        "Waiting for requestId",
+      ),
+      needsUserInteraction: labelFrom(
+        source,
+        "interaction.needsUserInteraction",
+        "Needs user interaction",
+      ),
+      backendUnavailable: labelFrom(
+        source,
+        "interaction.backendUnavailable",
+        "Backend unavailable",
+      ),
+      emptyTasks: labelFrom(source, "drawer.emptyTasks", "No runs."),
+    });
+  }
+
   function buildAcpPermissionInteraction(snap, baseInteraction) {
     const request = snap && snap.pendingPermissionRequest;
     if (!request) return baseInteraction;
@@ -814,7 +839,7 @@
       .filter(Boolean);
   }
 
-  function buildSkillRunnerPendingInteraction(session, status) {
+  function buildSkillRunnerPendingInteraction(session, status, source) {
     const normalized = normalizeStatusToken(status);
     const askUser = session && session.pendingAskUser && typeof session.pendingAskUser === "object"
       ? session.pendingAskUser
@@ -827,7 +852,7 @@
     if (normalized === "waiting-user") {
       return {
         kind: "waiting_user",
-        title: "User input required",
+        title: labelFrom(source, "interaction.userInputRequired", "User input required"),
         pendingInteraction: {
           interactionId: Number(session && session.pendingInteractionId || 0),
           kind: safeText((askUser && askUser.kind) || session.pendingKind || "open_text"),
@@ -835,7 +860,7 @@
             prompt:
               safeText(uiHints.prompt) ||
               safeText((askUser && askUser.prompt) || session.pendingPrompt) ||
-              "The agent is waiting for your reply.",
+              labelFrom(source, "interaction.waitingReply", "The agent is waiting for your reply."),
             hint: safeText(uiHints.hint || (askUser && askUser.hint)),
             options: normalizeSkillRunnerOptionList(
               askUser && Array.isArray(askUser.options) ? askUser.options : session.pendingOptions,
@@ -860,7 +885,8 @@
       const methodActions = methods.map(function (method) {
         return contextAction(
           "reply-run",
-          safeText(method.label || method.name || method.id) || "Use method",
+          safeText(method.label || method.name || method.id) ||
+            labelFrom(source, "actions.useMethod", "Use method"),
           {
             mode: "auth",
             authSessionId: safeText(session && session.authSessionId),
@@ -882,10 +908,18 @@
               : [];
       return {
         kind: "auth",
-        title: "Authentication required",
+        title: labelFrom(
+          source,
+          "interaction.authenticationRequiredTitle",
+          "Authentication required",
+        ),
         message:
           safeText((authAsk && authAsk.prompt) || authHints.prompt || session.authPrompt) ||
-          "Authentication required.",
+          labelFrom(
+            source,
+            "interaction.authenticationRequiredMessage",
+            "Authentication required.",
+          ),
         actions: methodActions,
         auth: {
           authSessionId: safeText(session && session.authSessionId),
@@ -897,10 +931,18 @@
       };
     }
     if (BUSY_STATES.has(normalized)) {
-      return { kind: "running", title: "Agent is running", message: "Agent is working..." };
+      return {
+        kind: "running",
+        title: labelFrom(source, "interaction.agentWorkingMessage", "Agent is working..."),
+        message: labelFrom(source, "interaction.agentWorkingMessage", "Agent is working..."),
+      };
     }
     if (isTerminalStatus(normalized)) {
-      return { kind: "completed", title: "Run completed", message: normalized };
+      return {
+        kind: "completed",
+        title: labelFrom(source, "interaction.runCompletedTitle", "Run completed"),
+        message: normalized,
+      };
     }
     return { kind: "hidden" };
   }
@@ -1395,7 +1437,7 @@
         inputEnabled: !isConnecting && snap.busy !== true,
         placeholder:
           safeText(snap.labels && snap.labels.composerPlaceholder) ||
-          "Ask the active ACP backend about the current library or item...",
+          labelFrom(snap, "reply.placeholderAcpChat", "Ask the active ACP backend about the current library or item..."),
         submitLabel:
           snap.busy === true
             ? labelFrom(snap, "actions.cancel", labels.cancel || "Cancel")
@@ -1452,6 +1494,7 @@
         layout: "workspace-task-drawer",
         contextTitle: labels.sessionManager || "Sessions",
         detailsTitle: labels.diagnostics || "Details",
+        labels: assistantDrawerLabels(snap),
         contexts: (Array.isArray(snap.chatSessions) ? snap.chatSessions : []).map(function (entry) {
           return {
             title: safeText(entry.title) || "Conversation",
@@ -1485,7 +1528,9 @@
     const helper = conversationHelper();
     const conversation =
       helper && typeof helper.projectAcpSkillRunConversationView === "function"
-        ? helper.projectAcpSkillRunConversationView(run || {})
+        ? helper.projectAcpSkillRunConversationView(
+            Object.assign({}, run || {}, { labels: panelLabels }),
+          )
         : fallbackConversationView(run && run.transcriptItems);
     const status = normalizeStatusToken((run && run.status) || "idle");
     const conversationState = normalizeStatusToken((run && run.conversationState) || "unknown");
@@ -1564,7 +1609,13 @@
         status: statusText,
         stateLabel: statusText,
         attention: needsAttention ? "warning" : "",
-        attentionLabel: needsAttention ? "Needs user interaction" : "",
+        attentionLabel: needsAttention
+          ? labelFrom(
+              panel,
+              "interaction.needsUserInteraction",
+              "Needs user interaction",
+            )
+          : "",
         updatedAt: safeText(entry && entry.updatedAt),
         backendId: safeText(entry && entry.backendId) || backendLabel,
         backendDisplayName: backendLabel,
@@ -1677,16 +1728,37 @@
     const hasPendingInteraction = Boolean(run && run.pendingInteraction);
     const activeContinuation =
       ["submitted", "accepted", "sending"].indexOf(replyState) >= 0;
+    const interruptedTurn = Boolean(
+      run &&
+        (
+          (Array.isArray(run.events) &&
+            run.events.some(function (event) {
+              const stage = safeText(event && event.stage);
+              return stage === "interrupt-requested" || stage === "interrupt-completed";
+            })) ||
+          (Array.isArray(run.transcriptItems) &&
+            run.transcriptItems.some(function (item) {
+              const label = safeText(item && (item.label || item.stage));
+              return label === "interrupt-requested" || label === "interrupt-completed";
+            }))
+        ),
+    );
+    const connectedIdleRun = Boolean(
+      run &&
+        connected &&
+        !isTerminalStatus(status) &&
+        !activePrompt &&
+        !activeContinuation &&
+        replyState === "idle" &&
+        !run.pendingPermission &&
+        interruptedTurn,
+    );
     const waitingForUser =
       status === "waiting-user" ||
       status === "waiting-auth" ||
-      (hasPendingInteraction && !activePrompt && !activeContinuation);
-    const busyRun =
-      activePrompt ||
-      activeContinuation ||
-      (!waitingForUser &&
-        !detachedRecoverableRun &&
-        ["queued", "running", "repairing"].indexOf(status) >= 0);
+      (hasPendingInteraction && !activePrompt && !activeContinuation) ||
+      connectedIdleRun;
+    const busyRun = activePrompt || activeContinuation;
     const terminalRun = isTerminalStatus(status);
     const runtimeOptions =
       panel.selectedRuntimeOptions && typeof panel.selectedRuntimeOptions === "object"
@@ -1725,6 +1797,17 @@
     if (
       run &&
       !run.pendingPermission &&
+      safeText(interaction && interaction.kind) === "running" &&
+      connectedIdleRun
+    ) {
+      interaction = {
+        kind: "waiting_user",
+        pendingInteraction: run.pendingInteraction || null,
+      };
+    }
+    if (
+      run &&
+      !run.pendingPermission &&
       safeText(interaction && interaction.kind) === "hidden" &&
       waitingForUser
     ) {
@@ -1743,7 +1826,11 @@
         kind: "disconnected",
         message:
           safeText(run.conversationError || run.lastRecoveryError || run.error) ||
-          "Run is disconnected and recoverable. Connect to continue.",
+          labelFrom(
+            panel,
+            "interaction.disconnectedRecoverable",
+            "Run is disconnected and recoverable. Connect to continue.",
+          ),
       };
     }
     if (
@@ -1774,7 +1861,11 @@
       interaction = {
         kind: "notice",
         message:
-          "Run canceled. You can send a new instruction to continue this conversation.",
+          labelFrom(
+            panel,
+            "interaction.runCanceledContinue",
+            "Run canceled. You can send a new instruction to continue this conversation.",
+          ),
       };
     }
     const canReply =
@@ -1814,13 +1905,17 @@
           ? [
               contextAction(
                 "connect-run",
-                actionState === "connecting" ? "Connecting..." : labelFrom(panel, "actions.connect", "Connect"),
+                actionState === "connecting"
+                  ? labelFrom(panel, "actions.connecting", "Connecting...")
+                  : labelFrom(panel, "actions.connect", "Connect"),
                 { requestId: safeText(run.requestId) },
                 canConnect,
               ),
               contextAction(
                 "disconnect-run",
-                actionState === "disconnecting" ? "Disconnecting..." : labelFrom(panel, "actions.disconnect", "Disconnect"),
+                actionState === "disconnecting"
+                  ? labelFrom(panel, "actions.disconnecting", "Disconnecting...")
+                  : labelFrom(panel, "actions.disconnect", "Disconnect"),
                 { requestId: safeText(run.requestId) },
                 canDisconnect,
               ),
@@ -1893,6 +1988,7 @@
         layout: "workspace-task-drawer",
         contextTitle: labelFrom(panel, "actions.runs", "Runs"),
         detailsTitle: labelFrom(panel, "details.title", "Run Details"),
+        labels: assistantDrawerLabels(panel),
         contexts: runContexts,
         sections: acpSkillRunDrawerSections(),
         selectedTaskKey: safeText(run && run.requestId),
@@ -1934,7 +2030,7 @@
       envelope.session && typeof envelope.session === "object" ? envelope.session : envelope;
     const status = normalizeStatusToken(session.status || "idle");
     const conversation = buildSkillRunnerConversationView(session);
-    const interaction = buildSkillRunnerPendingInteraction(session, status);
+    const interaction = buildSkillRunnerPendingInteraction(session, status, envelope);
     const skillRunnerBusy = status === "running" || status === "prompting";
     const skillRunnerWaiting = status === "waiting-user" || status === "waiting-auth";
     return normalizeAssistantPanelSnapshot({
@@ -1997,7 +2093,7 @@
           envelope.workspace && envelope.workspace.selectedTaskKey,
         ),
         notice: safeText(envelope.drawer && envelope.drawer.notice),
-        labels: envelope.labels && typeof envelope.labels === "object" ? envelope.labels : {},
+        labels: assistantDrawerLabels(envelope),
         details: buildSkillRunnerDetails(envelope, session),
       },
       actions: {

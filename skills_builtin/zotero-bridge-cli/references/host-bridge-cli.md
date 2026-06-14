@@ -6,7 +6,10 @@ Bridge capability registry or Rust CLI source, then run
 
 ## Resolver Payloads
 
-For resolver commands, pass the top-level `"resolver"` field. Do not pass `topic_resolver`; that legacy field is not part of the current CLI input contract.
+For resolver commands, pass direct resolver fields: `tag`, `collection_key`,
+`paper_refs`, optional `combine`, and optional paging fields. Do not wrap them
+in a top-level `resolver` object. `topic_resolver`, `mode`, `query`, `include`,
+and `exclude` are legacy fields and are rejected by `resolvers resolve`.
 
 <!-- host-bridge-surface:wrapper-reference:start -->
 This section is generated from the Host Bridge surface catalog.
@@ -82,6 +85,22 @@ zotero-bridge file --help
 | `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
 | `task list` | `GET /bridge/v1/tasks` | endpoint | - |
 | `file download` | `GET /bridge/v1/files/{fileId}` | endpoint | - |
+
+### Topic context payloads
+
+- `topics get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.
+- Omit `view` only when a legacy flat topic context response is required.
+- For large `semantic` or `full` topic contexts, pass `outputPath` or `output_path` and optional `overwrite`; stdout then contains only a compact file envelope.
+- Example: `zotero-bridge topics get-context --input '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'`.
+
+### Resolver payloads
+
+- `resolvers resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.
+- Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.
+- `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.
+- `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.
+- Examples: `zotero-bridge resolvers resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge resolvers resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
+- Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
 
 ### Raw-only and debug capabilities
 

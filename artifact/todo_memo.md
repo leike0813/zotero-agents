@@ -73,24 +73,24 @@
 - [x] **进一步优化synthesis skills**，每一步的细节指令要结合payload schema来说，明确各字段的语义及写作建议、示例，进一步约束agent行为，降低错误率，提高质量
 - [x] citation graph 用某种方式（最好是edge颜色过渡）标明引用方向
 - [x] advance matching 支持添加 Zotero 库内 item 的相关关系
-- [ ] 在新文献入库后，index似乎不是会因为dirty而重载，而是进入no cache状态，需要refresh
+- [x] 在新文献入库后，index似乎不是会因为dirty而重载，而是进入no cache状态，需要refresh
 - [x] Citation graph 在选中某一库内条目时，鼠标 hover 到相关联的库外文献条目时，可以显示Hover对象的title
 - [x] Citation graph 的search功能不再输入任何字符后立刻刷新，而是新增“Search”按钮，点击按钮后显示刷新，并且在搜索输入框右侧添加“Clear”按钮可以一键清空搜索输入内容并直接刷新
 - [x] host bridge cli 执行写入命令时的编码问题
 - [ ] 重新设计被暂时禁用的synthesis layer同步功能
-- [ ] 做完Topic graph和知识库后，tag-regulator就可以合并到literature-workbench-package中了，进一步减少重复代码
-- [ ] 进一步地，为literature-digest添加“自动进行tag-regulator”的选项，让literature-digest成为最关键的文献入库入口
+- [x] 做完Topic graph和知识库后，tag-regulator就可以合并到literature-workbench-package中了，进一步减少重复代码
+- [x] 进一步地，为literature-digest添加“自动进行tag-regulator”的选项，让literature-digest成为最关键的文献入库入口
 - [p] rebuild graph 的阻塞问题，以及graph是否需要更新的监控和提示
 - [x] 升级 host bridge cli 界面，将 synthesis 作为一等子命令
 - [x] 调试完毕后，彻底统一 host bridge cli 相关注入点（根据workflow声明，统一单点注入，不直接写SKILL；裸命令尽量实现，run-local shim做兜底），避免现在写得到处都是
 - [x] **Citation graph增强**，图论算法引入，更多分析维度和数据，最终用于增强synthesis质量
 - [x] 常见 ACP backend 的快捷添加
 - [x] acp skills执行过程中点取消会显示“File Closed”，意义不明。继续发指令后提示区一直卡在这个状态
-- [ ] canonical_merge 事件的额外选项（例如手动选择匹配目标）
-- [ ] 有任务进入pending状态时，需要在主界面以某种更醒目的方式提示
-- [ ] Review 页面中的其他选项卡需要测试
-- [ ] reference artifact变化后，原来hash记录对应的raw应该标为stale，如果对应的canonical被redirect那么也应该级联stale，最后通过某种机制清除，否则references会无限膨胀
-- [ ] **单 Workflow 多 Skill 机制、多 Skill run 共享工作区机制**（插件侧和后端都得改，子域架构级别的变更）
+- [x] canonical_merge 事件的额外选项（例如手动选择匹配目标）
+- [x] 有任务进入pending状态时，需要在主界面以某种更醒目的方式提示
+- [x] Review 页面中的其他选项卡需要测试
+- [x] reference artifact变化后，原来hash记录对应的raw应该标为stale，如果对应的canonical被redirect那么也应该级联stale，最后通过某种机制清除，否则references会无限膨胀
+- [x] **单 Workflow 多 Skill 机制、多 Skill run 共享工作区机制**（插件侧和后端都得改，子域架构级别的变更）
 - [ ] **初次启动时的使用指导demo**
 - [x] **文献搜索入库 workflow**
 - [p] **文献综述撰写 workflow**
@@ -102,7 +102,7 @@
 - [x] 新 UI 稳定后，彻底 deprecate 旧的 Dashboard 和三个对话 panel 的页面代码
 - [ ] Dashboard 中已取消任务统计永远是0
 - [x] Dashboard 以及 Sidebar panels 与 synthesis workbench 的视觉风格统一（包括亮/暗主题切换）
-- [ ] 执行失败时的弹窗信息太多太乱
+- [x] 执行失败时的弹窗信息太多太乱
 - [x] Dashboard 正在运行任务窗口似乎会频繁刷新导致scroll不正常
 - [x] **工具栏上的快捷任务观察窗（hover展开）**
 - [p] Tag 管理协议和功能内建化，支持用户自定义tag规则
@@ -110,8 +110,9 @@
 - [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **reconcile状态的显式化（例如转圈图标之类的）**
 - [p] **兼容 Zotero 9**
-- [ ] workflow 多语言文案机制
+- [x] workflow 多语言文案机制
 - [x] Dashboard 增加 Tag Manager 快捷方式（可选，要做的话也得做成注册式的）
+- [ ] **独立的 Rust 服务程序，卸载重计算到这个服务程序上，避免界面阻塞**
 - [ ] broad cache 治理，去除非必要的静态断言
 - [ ] 进一步抽出所有可复用的手搓 UI 控件（例如之前已经实现的下拉菜单等，统一搜索并抽出），尤其是带 scroll 的控件，每次加入新的该类控件都会遇到重置 scroll 位置的问题，最好直接抽成通用控件
 - [ ] 进一步升级到各 workflow 可通用的 html 组件，原来基于原生控件的 helper 整体升级（可选）

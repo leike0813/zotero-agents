@@ -138,11 +138,11 @@ describe("Synthesis MCP tools", function () {
         };
       },
       resolveResolver(args) {
-        calls.push(`resolve:${(args.resolver as any).mode}`);
+        calls.push(`resolve:${(args.tag as any) || "direct"}`);
         return {
           ok: true,
           papers: [{ paper_ref: "1:ABCD1234", match_reasons: ["tag"] }],
-          normalized_resolver: args.resolver,
+          normalized_resolver: args,
           diagnostics: { final_count: 1 },
         };
       },
@@ -166,7 +166,7 @@ describe("Synthesis MCP tools", function () {
     );
     const resolveResponse: any = await handleZoteroMcpRequestForTests(
       request(2, "resolvers.resolve", {
-        resolver: { mode: "tag_query", query: "topic:test" },
+        tag: "topic:test",
       }),
       { resolveSynthesisService: () => service },
     );
@@ -176,7 +176,7 @@ describe("Synthesis MCP tools", function () {
       "topics_by_paper:1:ABCD1234",
       "schemas:resolver",
       "library_index:0:1",
-      "resolve:tag_query",
+      "resolve:topic:test",
     ]);
     assert.equal(
       listResponse.result.structuredContent.result.topics[0].topic_id,
@@ -212,7 +212,7 @@ describe("Synthesis MCP tools", function () {
     assert.isFalse(response.result.structuredContent.result.ok);
     assert.match(
       response.result.structuredContent.result.errors.join("\n"),
-      /mode|selection_strategy/i,
+      /resolver|selection_strategy/i,
     );
     assert.equal(
       response.result.structuredContent.result.diagnostics.rejected,
@@ -762,6 +762,79 @@ describe("Synthesis MCP tools", function () {
     );
   });
 
+  it("exposes topic context view and file-output arguments in the MCP schema", async function () {
+    const response: any = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: 12,
+      method: "tools/list",
+    });
+    const tool = response.result.tools.find(
+      (entry: { name: string }) => entry.name === "topics.get_context",
+    );
+
+    assert.deepEqual(tool.inputSchema.properties.view.enum, [
+      "digest",
+      "semantic",
+      "audit",
+      "full",
+    ]);
+    assert.property(tool.inputSchema.properties, "outputPath");
+    assert.property(tool.inputSchema.properties, "output_path");
+    assert.property(tool.inputSchema.properties, "overwrite");
+  });
+
+  it("returns a compact topic context file-output envelope through MCP", async function () {
+    const calls: Record<string, unknown>[] = [];
+    const service: SynthesisMcpService = {
+      getTopicContext(args) {
+        calls.push(args);
+        return {
+          schema_id: "synthesis.topic_context.output",
+          schema_version: "2.0.0",
+          topic_id: args.topicId,
+          view: args.view,
+          output: {
+            mode: "file",
+            path: args.outputPath,
+            bytes: 2048,
+            sha256: "sha256:semantic",
+          },
+          omitted_inline_result: true,
+        };
+      },
+    };
+
+    const response: any = await handleZoteroMcpRequestForTests(
+      request(13, "topics.get_context", {
+        topicId: "object-detection",
+        view: "semantic",
+        outputPath: "runtime/topic-context.semantic.json",
+        overwrite: true,
+      }),
+      { resolveSynthesisService: () => service },
+    );
+
+    assert.deepEqual(calls, [
+      {
+        topicId: "object-detection",
+        view: "semantic",
+        outputPath: "runtime/topic-context.semantic.json",
+        overwrite: true,
+      },
+    ]);
+    assert.equal(
+      response.result.structuredContent.result.omitted_inline_result,
+      true,
+    );
+    assert.deepEqual(response.result.structuredContent.result.output, {
+      mode: "file",
+      path: "runtime/topic-context.semantic.json",
+      bytes: 2048,
+      sha256: "sha256:semantic",
+    });
+    assert.notProperty(response.result.structuredContent.result, "semantic");
+  });
+
   it("routes topic report markdown reads through the injected synthesis service", async function () {
     const calls: Record<string, unknown>[] = [];
     const service: SynthesisMcpService = {
@@ -923,7 +996,7 @@ describe("Synthesis MCP tools", function () {
 
     const response: any = await handleZoteroMcpRequestForTests(
       request(21, "resolvers.resolve", {
-        resolver: { mode: "tag_query", query: { and: ["topic:x"] } },
+        tag: { and: ["topic:x"] },
         cursor: "1",
         limit: 1,
       }),

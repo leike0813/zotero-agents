@@ -259,6 +259,10 @@ button.is-busy {
   overflow: hidden;
 }
 
+.synthesis-root.standalone-topic-export-root {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .synthesis-root.sidebar-expanded {
   grid-template-columns: 220px minmax(0, 1fr);
 }
@@ -462,6 +466,10 @@ button.is-busy {
   min-height: 0;
   height: 100%;
   overflow: hidden;
+}
+
+.standalone-topic-export-content {
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .topbar {
@@ -1559,13 +1567,34 @@ button.is-busy {
   vertical-align: middle;
 }
 
-.topics-list-definition-cell {
-  display: -webkit-box;
-  max-width: 360px;
+.topics-list-title-cell {
+  width: 14%;
+  max-width: 180px;
+  vertical-align: top;
+}
+
+.topics-list-definition-column {
+  width: 42%;
+  min-width: 320px;
+  vertical-align: top;
+}
+
+.topics-list-title-text {
+  display: block;
   overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topics-list-definition-cell {
+  display: block;
+  max-width: none;
+  overflow: visible;
   color: var(--zs-muted);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .review-cell-center .review-status-stack,
@@ -2575,6 +2604,10 @@ th {
   color: var(--zs-danger);
 }
 
+.topic-discovery-badge {
+  white-space: nowrap;
+}
+
 .topic-detail-toolbar .badge,
 .topic-detail-shell .badge,
 .topic-detail-shell .chip {
@@ -2621,6 +2654,14 @@ th {
   border-color: rgba(180, 83, 9, 0.3);
   background: var(--topic-soft-orange);
   color: var(--topic-accent-orange);
+}
+
+.topic-detail-toolbar .badge.danger,
+.topic-detail-shell .badge.danger,
+.topic-detail-shell .chip.danger {
+  border-color: rgba(220, 38, 38, 0.26);
+  background: rgba(254, 226, 226, 0.78);
+  color: var(--zs-danger);
 }
 
 .topic-detail-toolbar .badge.purple,
@@ -2823,6 +2864,41 @@ th {
 .graph-controls {
   display: grid;
   gap: 10px;
+}
+
+.graph-control-group {
+  display: grid;
+  gap: 5px;
+  padding-block-end: 9px;
+  border-bottom: 1px solid var(--zs-border);
+}
+
+.graph-control-group:last-child {
+  padding-block-end: 0;
+  border-bottom: 0;
+}
+
+.graph-control-group-label {
+  color: var(--zs-muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.graph-control-row {
+  align-items: center;
+}
+
+.graph-control-row button {
+  flex: 0 0 auto;
+}
+
+.graph-control-row input[type="text"],
+.graph-control-row input:not([type]),
+.graph-control-row select {
+  flex: 1 1 130px;
+  min-width: 0;
 }
 
 .graph-control-drawer {
@@ -3581,11 +3657,28 @@ th {
   overflow: hidden;
 }
 
+.topic-graph-reading-surface {
+  padding: 0;
+  overflow: hidden;
+}
+
 .topic-section {
   display: grid;
   gap: 14px;
   max-width: 940px;
   margin: 0 auto;
+}
+
+.topic-citation-graph-section {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+}
+
+.topic-citation-graph-section .graph-shell {
+  height: 100%;
+  min-height: 0;
 }
 
 .topic-section > h2,

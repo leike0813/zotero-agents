@@ -1,7 +1,7 @@
 {
   "id": "topic-synthesis-finalize",
   "name": "主题综合收尾",
-  "description": "读取核心分析与知识图谱补全结果，编写 coverage 与 summary payload，并准备最终候选输出。",
+  "description": "评估文库覆盖和证据可靠性，提出 collection 补充方向，并生成最终面向用户的 summary；需要可通过 `zotero-bridge` 访问 Zotero 文库。",
   "version": "0.1.0",
   "execution_modes": ["interactive"],
   "max_attempt": 12,

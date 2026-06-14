@@ -40,6 +40,17 @@ async function exists(filePath: string): Promise<boolean> {
   }
 }
 
+async function readBridgeCalls(runRoot: string): Promise<any[]> {
+  const callsPath = path.join(runRoot, "runtime", "bridge-calls.jsonl");
+  if (!(await exists(callsPath))) {
+    return [];
+  }
+  return (await fs.readFile(callsPath, "utf8"))
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
 async function readGuidanceExample(
   stageId: string,
 ): Promise<Record<string, any>> {
@@ -213,14 +224,72 @@ if (inputRef.startsWith("@")) {
   input = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), inputRef.slice(1)), "utf8"));
 }
 const command = args.slice(0, inputIndex >= 0 ? inputIndex : args.length).join(" ");
-const papers = (input.resolver?.paper_refs || ["1:DETR", "1:DINO"]).map((ref) => ({
+fs.mkdirSync(path.join(process.cwd(), "runtime"), { recursive: true });
+fs.appendFileSync(path.join(process.cwd(), "runtime", "bridge-calls.jsonl"), JSON.stringify({ command, input }) + "\n");
+const papers = (input.paper_refs || ["1:DETR", "1:DINO"]).map((ref) => ({
   paper_ref: ref,
   item_key: ref.split(":")[1],
   title: ref === "1:DETR" ? "End-to-end object detection with transformers" : "DINO: DETR with improved DeNoising anchor boxes",
   year: ref === "1:DETR" ? 2020 : 2022,
   match_reasons: ["explicit"]
 }));
-if (command === "resolvers resolve") {
+if (command === "topics get-context") {
+  if (input.topicId === "missing-topic") {
+    console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "topics.get_context", data: { ok: false, status: "not_found", topic_id: input.topicId } } }));
+  } else if (input.view === "digest") {
+    console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "topics.get_context", data: { schema_id: "synthesis.topic_context", view: "digest", topic_id: input.topicId, digest: {
+      topic_id: input.topicId,
+      title: "DETR-style Object Detection",
+      definition: "Query-based object detection methods derived from DETR.",
+      language: "zh-CN",
+      paper_count: 1
+    } } } }));
+  } else if (input.view === "audit") {
+    const linkedRefs = input.topicId === "partial-triage-topic" ? ["1:DETR", "1:DINO"] : ["1:DETR"];
+    const linkedPapers = linkedRefs.map((ref) => ({
+      paper_ref: ref,
+      item_key: ref.split(":")[1],
+      title: ref === "1:DETR" ? "End-to-end object detection with transformers" : "DINO: DETR with improved DeNoising anchor boxes",
+      year: ref === "1:DETR" ? 2020 : 2022
+    }));
+    const savedTriage = input.topicId === "no-triage-topic" ? {} : {
+      "1:DETR": {
+        paper_ref: "1:DETR",
+        relevance_level: "core",
+        relevance_reason: "Original topic anchor.",
+        paper_quality_level: "high",
+        paper_quality_reason: "Fixture quality.",
+        core_digest: "DETR remains the update anchor.",
+        caveats: []
+      }
+    };
+    console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "topics.get_context", data: { schema_id: "synthesis.topic_context", view: "audit", topic_id: input.topicId, audit: {
+      topic_id: input.topicId,
+      language: "zh-CN",
+      current_hashes: {
+        artifact: "sha256:artifact",
+        manifest: "sha256:manifest",
+        metadata: "sha256:metadata"
+      },
+      section_hashes: { summary: "sha256:summary" },
+      topic_resolver: { paper_refs: linkedRefs, combine: "union" },
+      resolved_paper_set: { papers: linkedPapers, returned: linkedPapers.length, total: linkedPapers.length },
+      source_papers: linkedPapers.map((paper) => ({
+        ...paper,
+        summary: paper.paper_ref === "1:DETR" ? "DETR remains the update anchor." : "DINO was already linked but lacks saved triage.",
+        synthesis_role: paper.paper_ref === "1:DETR" ? "core" : "supporting",
+        quality: paper.paper_ref === "1:DETR" ? "high" : "unknown",
+        caveats: []
+      })),
+      source_paper_triage: savedTriage,
+      source_materials: { status: "complete", percent: 100 },
+      discovery: { status: "candidates", candidate_count: 1, hints: [{ literature_item_id: "1:DINO" }] }
+    } } } }));
+  } else {
+    console.log(JSON.stringify({ ok: false, error: { code: "invalid_view" } }));
+    process.exitCode = 1;
+  }
+} else if (command === "resolvers resolve") {
   console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "resolvers.resolve", data: { ok: true, papers, returned: papers.length, total: papers.length } } }));
 } else if (command === "citation-graph get-metrics") {
   const refs = input.paperRefs || input.paper_refs || [];
@@ -294,6 +363,9 @@ describe("topic synthesis split skill runtime", function () {
     const bridgeBin = await createFakeBridge(runRoot);
     const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
     const env = { ZOTERO_BRIDGE_BIN: bridgeBin };
+    await writeJson(path.join(runRoot, "runtime/input.json"), {
+      topicId: "detr-topic",
+    });
 
     const gate0 = runGate(
       packages.updatePrepare,
@@ -302,32 +374,43 @@ describe("topic synthesis split skill runtime", function () {
       env,
     );
     assert.equal(gate0.stage, "stage_00_runtime_setup");
-    runGate(
+    const preflightOutput = runGate(
       packages.updatePrepare,
       runRoot,
       ["--db", dbPath, "--action", "run"],
       env,
     );
+    assert.equal(preflightOutput.result.status, "ready");
+    assert.equal(preflightOutput.result.linked_paper_count, 1);
+    assert.equal(preflightOutput.result.saved_triage_count, 1);
+    assert.deepEqual(preflightOutput.result.base_hashes, {
+      artifact: "sha256:artifact",
+      manifest: "sha256:manifest",
+      metadata: "sha256:metadata",
+    });
+    assert.deepEqual(
+      (await readBridgeCalls(runRoot)).map((call) => call.command),
+      ["topics get-context", "topics get-context"],
+    );
+    const updateAuditReport = await readJson<any>(
+      path.join(runRoot, "runtime/payloads/update-audit-report.json"),
+    );
+    assert.notProperty(updateAuditReport, "baseline_resolve");
+    assert.deepEqual(updateAuditReport.current_linked_papers.paper_refs, [
+      "1:DETR",
+    ]);
+    assert.deepEqual(updateAuditReport.saved_triage.missing_refs, []);
 
     await writeJson(
       path.join(runRoot, "runtime/payloads/update-topic-context.json"),
       {
-        topic_context: {
-          topic_id: "detr-topic",
-          topic_definition: {
-            id: "detr-topic",
-            title: "DETR-style Object Detection",
-          },
-          recommended_update: {
-            scope: "refresh",
-            reason: "fixture update",
-          },
+        update_decision: {
+          action: "continue",
+          reason: "Fixture audit found one new candidate.",
+          message: "Proceeding with update.",
         },
-        update_assessment: {
-          operation: "update_full",
-          changed_sections: ["summary"],
-          reason: "Fixture topic needs a refresh.",
-        },
+        resolver: { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
+        resolver_reasoning: "Fixture update resolver keeps DETR and adds DINO.",
       },
     );
     const gate1 = runGate(
@@ -337,6 +420,34 @@ describe("topic synthesis split skill runtime", function () {
       env,
     );
     assert.equal(gate1.stage, "stage_10_update_topic_context");
+    await writeJson(
+      path.join(runRoot, "runtime/payloads/update-topic-context-invalid.json"),
+      {
+        update_decision: {
+          action: "continue",
+          reason: "Invalid fixture removes the current resolver ref.",
+          message: "Proceeding with update.",
+        },
+        resolver: { paper_refs: ["1:DINO"], combine: "union" },
+        resolver_reasoning: "Invalid update resolver.",
+      },
+    );
+    assert.equal(
+      runGateStatus(
+        packages.updatePrepare,
+        runRoot,
+        [
+          "--db",
+          dbPath,
+          "--action",
+          "submit",
+          "--payload",
+          "runtime/payloads/update-topic-context-invalid.json",
+        ],
+        env,
+      ),
+      2,
+    );
     const updateContextOutput = runGate(
       packages.updatePrepare,
       runRoot,
@@ -351,7 +462,10 @@ describe("topic synthesis split skill runtime", function () {
       env,
     );
     assert.equal(updateContextOutput.stage, "stage_10_update_topic_context");
-    assert.equal(updateContextOutput.result.operation, "update_full");
+    assert.deepEqual(updateContextOutput.result.triage_required_refs, [
+      "1:DINO",
+    ]);
+    assert.equal(updateContextOutput.result.triage_mode, "missing_triage");
 
     const gate2 = runGate(
       packages.updatePrepare,
@@ -359,28 +473,17 @@ describe("topic synthesis split skill runtime", function () {
       ["--db", dbPath],
       env,
     );
-    assert.equal(gate2.stage, "stage_20_resolver_and_workset");
-    await writeJson(
-      path.join(runRoot, "runtime/payloads/resolver-and-workset.json"),
-      {
-        resolver: { mode: "explicit", paper_refs: ["1:DETR", "1:DINO"] },
-        resolver_reasoning: "Fixture update resolver.",
-        operation_intent: "update_full",
-      },
+    assertStage30HardRules(gate2);
+    assert.deepEqual(gate2.triage_required_refs, ["1:DINO"]);
+    const resolverManifest = await readJson<any>(
+      path.join(runRoot, "runtime/payloads/resolver.json"),
     );
-    runGate(
-      packages.updatePrepare,
-      runRoot,
-      [
-        "--db",
-        dbPath,
-        "--action",
-        "submit",
-        "--payload",
-        "runtime/payloads/resolver-and-workset.json",
-      ],
-      env,
-    );
+    assert.deepEqual(resolverManifest.base_hashes, {
+      artifact: "sha256:artifact",
+      manifest: "sha256:manifest",
+      metadata: "sha256:metadata",
+    });
+    assert.deepEqual(resolverManifest.resolve_diff.added_refs, ["1:DINO"]);
 
     const gate3 = runGate(
       packages.updatePrepare,
@@ -393,15 +496,6 @@ describe("topic synthesis split skill runtime", function () {
       path.join(runRoot, "runtime/payloads/prepare-analysis-context.json"),
       {
         assessments: [
-          {
-            paper_ref: "1:DETR",
-            relevance_level: "core",
-            relevance_reason: "Original topic anchor.",
-            paper_quality_level: "high",
-            paper_quality_reason: "Fixture quality.",
-            core_digest: "DETR remains the update anchor.",
-            caveats: [],
-          },
           {
             paper_ref: "1:DINO",
             relevance_level: "core",
@@ -451,6 +545,254 @@ describe("topic synthesis split skill runtime", function () {
       env,
     );
     assert.notEqual(auditStatus, 0);
+  });
+
+  it("reads the update topic id from the ACP request parameter envelope", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
+    );
+    const runRoot = path.join(
+      tempRoot,
+      "runtime",
+      "acp",
+      "skill-runs",
+      "acp-skill-split-runtime-update-parameter",
+    );
+    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+      recursive: true,
+    });
+    const bridgeBin = await createFakeBridge(runRoot);
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    const env = { ZOTERO_BRIDGE_BIN: bridgeBin };
+    await writeJson(path.join(runRoot, "runtime/input.json"), {
+      parameter: { topicId: "detr-topic" },
+    });
+
+    const gate0 = runGate(
+      packages.updatePrepare,
+      runRoot,
+      ["--db", dbPath],
+      env,
+    );
+    assert.equal(gate0.stage, "stage_00_runtime_setup");
+    const preflightOutput = runGate(
+      packages.updatePrepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      env,
+    );
+    assert.equal(preflightOutput.result.status, "ready");
+    assert.equal(preflightOutput.result.topic_id, "detr-topic");
+    assert.notProperty(preflightOutput.result, "canceled_output");
+  });
+
+  it("reads the update topic id from the ACP input manifest when runtime input is absent", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
+    );
+    const runRoot = path.join(
+      tempRoot,
+      "runtime",
+      "acp",
+      "skill-runs",
+      "acp-skill-split-runtime-update-input-manifest",
+    );
+    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+      recursive: true,
+    });
+    const bridgeBin = await createFakeBridge(runRoot);
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    const env = { ZOTERO_BRIDGE_BIN: bridgeBin };
+    await writeJson(
+      path.join(
+        runRoot,
+        ".audit/update-topic-synthesis-prepare.1/input_manifest.json",
+      ),
+      {
+        kind: "acp.skill.run.v1",
+        skill_id: "update-topic-synthesis-prepare",
+        taskName: "Update synthesis: detr-topic / prepare",
+        sourceAttachmentPaths: [],
+        parameter: { topicId: "detr-topic" },
+        runtime_options: {
+          workflow_workspace: {
+            mode: "new",
+            workflow_run_id: "workflow-run",
+          },
+        },
+        fetch_type: "result",
+      },
+    );
+    assert.isFalse(await exists(path.join(runRoot, "runtime/input.json")));
+
+    const gate0 = runGate(
+      packages.updatePrepare,
+      runRoot,
+      ["--db", dbPath],
+      env,
+    );
+    assert.equal(gate0.stage, "stage_00_runtime_setup");
+    const preflightOutput = runGate(
+      packages.updatePrepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      env,
+    );
+    assert.equal(preflightOutput.result.status, "ready");
+    assert.equal(preflightOutput.result.topic_id, "detr-topic");
+    assert.notProperty(preflightOutput.result, "canceled_output");
+  });
+
+  it("requires full update triage when the topic has no saved triage", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
+    );
+    const runRoot = path.join(
+      tempRoot,
+      "runtime",
+      "acp",
+      "skill-runs",
+      "acp-skill-split-runtime-update-no-triage",
+    );
+    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+      recursive: true,
+    });
+    const bridgeBin = await createFakeBridge(runRoot);
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    const env = { ZOTERO_BRIDGE_BIN: bridgeBin };
+    await writeJson(path.join(runRoot, "runtime/input.json"), {
+      topicId: "no-triage-topic",
+    });
+
+    runGate(packages.updatePrepare, runRoot, ["--db", dbPath], env);
+    const preflightOutput = runGate(
+      packages.updatePrepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      env,
+    );
+    assert.equal(preflightOutput.result.saved_triage_count, 0);
+
+    await writeJson(
+      path.join(runRoot, "runtime/payloads/update-topic-context.json"),
+      {
+        update_decision: {
+          action: "continue",
+          reason: "Fixture topic lacks reusable triage.",
+          message: "Proceeding with full triage.",
+        },
+        resolver: { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
+        resolver_reasoning: "Fixture resolver keeps DETR and adds DINO.",
+      },
+    );
+    const updateOutput = runGate(
+      packages.updatePrepare,
+      runRoot,
+      [
+        "--db",
+        dbPath,
+        "--action",
+        "submit",
+        "--payload",
+        "runtime/payloads/update-topic-context.json",
+      ],
+      env,
+    );
+    assert.equal(updateOutput.result.triage_mode, "full");
+    assert.deepEqual(updateOutput.result.triage_required_refs, [
+      "1:DETR",
+      "1:DINO",
+    ]);
+  });
+
+  it("cancels update prepare when the updated resolver adds no papers", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
+    );
+    const runRoot = path.join(
+      tempRoot,
+      "runtime",
+      "acp",
+      "skill-runs",
+      "acp-skill-split-runtime-update-partial-triage",
+    );
+    await fs.mkdir(path.join(runRoot, "runtime", "payloads"), {
+      recursive: true,
+    });
+    const bridgeBin = await createFakeBridge(runRoot);
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    const env = { ZOTERO_BRIDGE_BIN: bridgeBin };
+    await writeJson(path.join(runRoot, "runtime/input.json"), {
+      topicId: "partial-triage-topic",
+    });
+
+    runGate(packages.updatePrepare, runRoot, ["--db", dbPath], env);
+    const preflightOutput = runGate(
+      packages.updatePrepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      env,
+    );
+    assert.equal(preflightOutput.result.linked_paper_count, 2);
+    assert.equal(preflightOutput.result.saved_triage_count, 1);
+    assert.equal(preflightOutput.result.saved_triage_missing_count, 1);
+
+    await writeJson(
+      path.join(runRoot, "runtime/payloads/update-topic-context.json"),
+      {
+        update_decision: {
+          action: "continue",
+          reason: "Fixture topic has incomplete persisted triage.",
+          message: "Proceeding with gap triage.",
+        },
+        resolver: { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
+        resolver_reasoning: "Fixture resolver keeps the persisted workset.",
+      },
+    );
+    const updateOutput = runGate(
+      packages.updatePrepare,
+      runRoot,
+      [
+        "--db",
+        dbPath,
+        "--action",
+        "submit",
+        "--payload",
+        "runtime/payloads/update-topic-context.json",
+      ],
+      env,
+    );
+    assert.equal(updateOutput.result.status, "canceled");
+    assert.equal(
+      updateOutput.result.canceled_output.reason,
+      "no_new_resolved_papers",
+    );
+    assert.deepEqual(updateOutput.result.resolve_diff.added_refs, []);
+
+    const completedOutput = runGate(
+      packages.updatePrepare,
+      runRoot,
+      ["--db", dbPath],
+      env,
+    );
+    assert.equal(completedOutput.stage, "completed");
+    assert.equal(completedOutput.output.kind, "topic_synthesis_canceled");
+    assert.equal(completedOutput.output.reason, "no_new_resolved_papers");
+    assert.isFalse(
+      await exists(path.join(runRoot, "runtime/payloads/resolver.json")),
+    );
+    assert.isFalse(
+      await exists(
+        path.join(
+          runRoot,
+          "runtime/payloads/paper-artifacts-manifest-batch-1.json",
+        ),
+      ),
+    );
+    assert.deepEqual(
+      (await readBridgeCalls(runRoot)).map((call) => call.command),
+      ["topics get-context", "topics get-context", "resolvers resolve"],
+    );
   });
 
   it("runs the create split-skill path through the minimal runtime contract", async function () {
@@ -546,7 +888,7 @@ describe("topic synthesis split skill runtime", function () {
     await writeJson(
       path.join(runRoot, "runtime/payloads/resolver-and-workset-invalid.json"),
       {
-        resolver: { mode: "explicit" },
+        resolver: { paper_refs: [] },
         resolver_reasoning: "Invalid resolver fixture.",
         operation_intent: "update_full",
       },
@@ -575,7 +917,7 @@ describe("topic synthesis split skill runtime", function () {
     await writeJson(
       path.join(runRoot, "runtime/payloads/resolver-and-workset.json"),
       {
-        resolver: { mode: "explicit", paper_refs: ["1:DETR", "1:DINO"] },
+        resolver: { paper_refs: ["1:DETR", "1:DINO"], combine: "union" },
         resolver_reasoning: "Fixture resolver.",
         operation_intent: "create",
       },
@@ -1233,6 +1575,14 @@ describe("topic synthesis split skill runtime", function () {
         "1:DINO": "2022",
       },
     );
+    const detrSourcePaper = (sections.source_papers as any[]).find(
+      (row) => row.paper_ref === "1:DETR",
+    );
+    assert.equal(detrSourcePaper?.summary, "DETR baseline.");
+    assert.equal(detrSourcePaper?.synthesis_role, "core");
+    assert.equal(detrSourcePaper?.quality, "high");
+    assert.deepEqual(detrSourcePaper?.caveats, []);
+    assert.notProperty(detrSourcePaper, "triage");
     assert.deepEqual((sections.statistics as any).time_span, {
       earliest: "2020",
       latest: "2022",

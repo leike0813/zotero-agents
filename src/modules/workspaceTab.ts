@@ -1,5 +1,6 @@
 import { config } from "../../package.json";
 import { resolveAddonRef } from "../utils/runtimeBridge";
+import { getStringOrFallback } from "../utils/locale";
 import {
   mountSynthesisWorkbenchRuntime,
   type MountedSynthesisWorkbenchRuntime,
@@ -27,6 +28,19 @@ import {
 } from "./workspaceToolbarTaskPopover";
 
 type WorkspaceView = "dashboard" | "synthesis";
+type WorkspaceShellLabels = {
+  tabTitle: string;
+  brandSubtitle: string;
+  viewsAriaLabel: string;
+  dashboard: string;
+  synthesis: string;
+  themeAriaLabel: string;
+  themeSystem: string;
+  themeLight: string;
+  themeDark: string;
+  refresh: string;
+  toggleSidebar: string;
+};
 type DashboardSelection = {
   tabKey?: string;
   workflowId?: string;
@@ -77,6 +91,59 @@ const WORKSPACE_HANDSHAKE_MAX_ATTEMPTS = 80;
 const WORKSPACE_TAB_SELECTION_RESTORE_DELAY_MS = 50;
 
 let workspaceTab: WorkspaceRuntime | undefined;
+
+function localizeWorkspaceShellLabel(key: string, fallback: string) {
+  return getStringOrFallback(key as any, fallback);
+}
+
+function buildWorkspaceShellLabels(): WorkspaceShellLabels {
+  return {
+    tabTitle: localizeWorkspaceShellLabel(
+      "workspace-shell-tab-title",
+      "Zotero Skills",
+    ),
+    brandSubtitle: localizeWorkspaceShellLabel(
+      "workspace-shell-brand-subtitle",
+      "Dashboard and Synthesis workspace",
+    ),
+    viewsAriaLabel: localizeWorkspaceShellLabel(
+      "workspace-shell-views-aria-label",
+      "Workspace views",
+    ),
+    dashboard: localizeWorkspaceShellLabel(
+      "workspace-shell-view-dashboard",
+      "Dashboard",
+    ),
+    synthesis: localizeWorkspaceShellLabel(
+      "workspace-shell-view-synthesis",
+      "Synthesis",
+    ),
+    themeAriaLabel: localizeWorkspaceShellLabel(
+      "workspace-shell-theme-aria-label",
+      "Theme",
+    ),
+    themeSystem: localizeWorkspaceShellLabel(
+      "workspace-shell-theme-system",
+      "System",
+    ),
+    themeLight: localizeWorkspaceShellLabel(
+      "workspace-shell-theme-light",
+      "Light",
+    ),
+    themeDark: localizeWorkspaceShellLabel(
+      "workspace-shell-theme-dark",
+      "Dark",
+    ),
+    refresh: localizeWorkspaceShellLabel(
+      "workspace-shell-refresh",
+      "Refresh",
+    ),
+    toggleSidebar: localizeWorkspaceShellLabel(
+      "workspace-shell-toggle-sidebar",
+      "Toggle sidebar",
+    ),
+  };
+}
 
 function resolveWorkspacePageUrl() {
   const addonRef = String(config.addonRef || "").trim() || resolveAddonRef("");
@@ -464,6 +531,7 @@ function postSnapshot(
       payload: {
         selectedView: runtime.selectedView,
         waitingCount: countWorkspaceHumanAttentionTasks(),
+        labels: buildWorkspaceShellLabels(),
       },
     },
     "*",
@@ -752,7 +820,10 @@ export async function openZoteroSkillsWorkspaceTab(
   const result = Zotero_Tabs.add({
     id: WORKSPACE_TAB_ID,
     type: "zotero-skills-workspace",
-    title: "Zotero Skills",
+    title: localizeWorkspaceShellLabel(
+      "workspace-shell-tab-title",
+      "Zotero Skills",
+    ),
     data: {
       kind: "zotero-skills-workspace",
       icon: WORKSPACE_TAB_ICON,

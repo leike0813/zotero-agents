@@ -183,22 +183,24 @@ describe("Synthesis tab UI model", function () {
           id: "topic-b",
           title: "Beta Topic",
           kind: "topic_synthesis",
-          coverage: "partial",
+          source_materials_status: "partial",
+          source_materials_percent: 62,
           freshness: "dirty",
           updated_at: "2026-05-10T12:00:00.000Z",
           paper_count: 7,
           summary: "Beta summary",
-          completion: 62,
+          discovery_status: "candidates",
+          candidate_count: 2,
         },
         {
           id: "topic-a",
           title: "Alpha Topic",
           kind: "topic_synthesis",
-          coverage: "complete",
+          source_materials_status: "complete",
+          source_materials_percent: 100,
           freshness: "fresh",
           paper_count: 3,
           summary: "Alpha summary",
-          completion: 100,
         },
       ],
       registry: {
@@ -219,7 +221,15 @@ describe("Synthesis tab UI model", function () {
     assert.equal(snapshot.artifacts.rows[1]?.freshness, "dirty");
     assert.equal(snapshot.artifacts.rows[1]?.paper_count, 7);
     assert.equal(snapshot.artifacts.rows[1]?.summary, "Beta summary");
-    assert.equal(snapshot.artifacts.rows[1]?.completion, 62);
+    assert.equal(
+      snapshot.artifacts.rows[1]?.source_materials_status,
+      "partial",
+    );
+    assert.equal(snapshot.artifacts.rows[1]?.source_materials_percent, 62);
+    assert.notProperty(snapshot.artifacts.rows[1] as any, "coverage");
+    assert.notProperty(snapshot.artifacts.rows[1] as any, "completion");
+    assert.equal(snapshot.artifacts.rows[1]?.discovery_status, "candidates");
+    assert.equal(snapshot.artifacts.rows[1]?.candidate_count, 2);
     assert.equal(snapshot.preferences.graphRebuildMode, "off");
     assert.equal(snapshot.graph.layoutAlgorithm, "force");
     assert.equal(
@@ -389,6 +399,25 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "function graphTopicScopeOptions");
     assert.include(controlsBlock, "graphTopicScopeOptions(snapshot)");
     assert.include(controlsBlock, 'sendAction("setGraphView", { topicId');
+    assert.include(
+      controlsBlock,
+      'sendAction("setGraphView", { role: value })',
+    );
+    assert.include(controlsBlock, "synthesis-graph-control-search");
+    assert.include(controlsBlock, "synthesis-graph-control-scope");
+    assert.include(controlsBlock, "synthesis-graph-control-citation-role");
+    assert.include(controlsBlock, "synthesis-graph-control-node-types");
+    assert.include(controlsBlock, "synthesis-graph-control-layout");
+    assert.include(controlsBlock, "synthesis-graph-control-cache");
+    assert.include(app, "function graphEdgeRoleLabel");
+    assert.include(app, 'enumLabel("graph-edge-role", value)');
+    const roleOptionsBlock = extractFunctionBlock(app, "roleOptions");
+    assert.include(roleOptionsBlock, 'edge.primary_role || "unknown"');
+    assert.include(roleOptionsBlock, 'role === "citation" ? "" : role');
+    assert.notInclude(
+      controlsBlock,
+      'sendAction("setFilters", { graph: { role: value } })',
+    );
     assert.include(app, "openTopicCitationSubgraph");
     assert.include(app, "backToTopicDetail");
     assert.include(app, "selectedGraphTopicTitle");
@@ -586,21 +615,21 @@ describe("Synthesis tab UI model", function () {
           id: "topic-small-new",
           title: "Small New",
           kind: "topic_synthesis" as const,
-          coverage: "complete" as const,
+          source_materials_status: "complete" as const,
+          source_materials_percent: 100,
           freshness: "fresh" as const,
           updated_at: "2026-05-12T00:00:00.000Z",
           paper_count: 1,
-          completion: 100,
         },
         {
           id: "topic-large-old",
           title: "Large Old",
           kind: "topic_synthesis" as const,
-          coverage: "partial" as const,
+          source_materials_status: "partial" as const,
+          source_materials_percent: 50,
           freshness: "dirty" as const,
           updated_at: "2026-05-10T00:00:00.000Z",
           paper_count: 12,
-          completion: 50,
         },
       ],
     };
@@ -626,7 +655,7 @@ describe("Synthesis tab UI model", function () {
       payload: {
         artifacts: {
           search: "graph",
-          coverage: "partial",
+          sourceMaterials: "partial",
           freshness: "dirty",
         },
         registry: {
@@ -643,14 +672,16 @@ describe("Synthesis tab UI model", function () {
             id: "topic-graph",
             title: "Graph Synthesis",
             kind: "topic_synthesis",
-            coverage: "partial",
+            source_materials_status: "partial",
+            source_materials_percent: 50,
             freshness: "dirty",
           },
           {
             id: "topic-tags",
             title: "Tag Synthesis",
             kind: "topic_synthesis",
-            coverage: "complete",
+            source_materials_status: "complete",
+            source_materials_percent: 100,
             freshness: "fresh",
           },
         ],
@@ -1750,6 +1781,8 @@ describe("Synthesis tab UI model", function () {
 
     assert.include(source, 'command === "openTopicArtifact"');
     assert.include(source, 'command === "exportTopicSynthesisReport"');
+    assert.include(source, 'command === "exportTopicDetailHtml"');
+    assert.include(source, 'command === "openZoteroItem"');
     assert.notInclude(source, 'command === "openCanonicalMarkdown"');
     assert.notInclude(source, 'command === "copyTopicMarkdownExport"');
     assert.include(source, 'command === "resolveTopicPaperDigest"');
@@ -1759,11 +1792,28 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "confirmWorkbenchAction");
     assert.include(source, "readTopicDetail");
     assert.include(source, "getTopicReport");
+    assert.include(source, "buildTopicDetailHtmlExport");
+    assert.include(source, "ensureCachedTopicDetailHtmlExport");
+    assert.include(source, "topicDetailHtmlExportSignature");
+    assert.include(source, "currentTopicDetailHtml");
+    assert.include(source, "currentTopicDetailHtmlMetadata");
+    assert.include(source, "resolveTopicExportDigests");
+    assert.include(source, "readSynthesisExportAssets");
+    assert.include(source, "pruneGraphToTopicSubgraph");
+    assert.include(source, "graphLayoutAlgorithms");
+    assert.include(source, "graphLayouts");
+    assert.include(source, "content/synthesis/app.bundle.js");
+    assert.include(source, "content/synthesis/styles.css");
     assert.include(source, "resolveRuntimeToolkit");
     assert.include(source, "FilePicker");
+    assert.include(source, "copyRuntimeFile");
     assert.include(source, "writeRuntimeTextFile");
     assert.include(source, "sendTopicDetail");
     assert.include(source, '"synthesis:topic-detail"');
+    assert.include(source, "citationGraphItemKeyFromNodeId");
+    assert.include(source, "openZoteroItemFromCitationGraphNode");
+    assert.include(source, "getByLibraryAndKey");
+    assert.include(source, "selectItem(itemId)");
     assert.notInclude(source, '"synthesis:artifact"');
     assert.notInclude(
       source,
@@ -1775,6 +1825,24 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, 'command: "openTopicArtifact"');
     assert.include(app, 'command: "submitTopicSynthesisUpdate"');
     assert.include(app, 'command: "exportTopicSynthesisReport"');
+    assert.include(app, 'command: "exportTopicDetailHtml"');
+    assert.include(app, 'command: "openZoteroItem"');
+    assert.include(app, "libraryId: snapshot.libraryId");
+    assert.include(app, "!state.standaloneExport && node?.kind");
+    assert.include(app, "synthesis-action-open-zotero-item");
+    assert.include(app, "synthesis-action-export-topic-html");
+    assert.notInclude(app, "synthesis-action-copy-summary");
+    assert.notInclude(app, "navigator.clipboard?.writeText(summary)");
+    assert.include(app, "__zoteroSkillsSynthesisTopicExport");
+    assert.include(app, "applyStandaloneTopicExportEnvelope");
+    assert.include(app, "renderStandaloneTopicExportShell");
+    assert.include(app, "state.standaloneExport");
+    assert.include(app, "standaloneDigestForEvidence");
+    assert.include(app, "state.standaloneDigestsByKey");
+    assert.include(app, "state.standaloneGraphLayouts");
+    assert.include(app, "renderStandaloneGraphControls");
+    assert.include(app, "synthesis-topic-tab-citation-graph");
+    assert.include(app, "renderGraphControls(snapshot)");
     assert.include(app, "synthesis-action-open-citation-subgraph");
     assert.include(app, '"openTopicCitationSubgraph"');
     assert.include(app, "synthesis-action-back-to-topic-details");
@@ -1804,10 +1872,109 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(app, "synthesis-action-copy");
     assert.include(app, "synthesis-action-export");
+    assert.include(app, "topicDiscoveryBadge");
+    assert.include(app, 't("synthesis-column-discovery")');
+    assert.include(app, '"synthesis-discovery-candidate"');
+    assert.include(app, '"synthesis-discovery-candidates"');
+    assert.include(app, "candidate_count");
+    assert.include(app, "discovery_status");
+    assert.include(app, 'candidateCount < 5 ? "orange" : "danger"');
+    assert.include(app, 'badge(t("synthesis-discovery-none"), "ok")');
+    assert.include(css, ".topic-discovery-badge");
+    assert.include(css, "white-space: nowrap");
     assert.include(css, ".topic-report-header");
     assert.include(css, ".topic-report-digest-link");
+    assert.include(css, ".synthesis-root.standalone-topic-export-root");
+    assert.include(css, ".standalone-topic-export-content");
+    assert.include(css, ".topic-citation-graph-section");
+    assert.include(css, ".topic-graph-reading-surface");
+    assert.include(css, ".graph-control-group");
+    assert.include(css, ".graph-control-group-label");
     assert.include(css, "justify-content: space-between");
     assert.match(css, /\.topic-report-actions\s*{[\s\S]*gap:\s*8px;/);
+
+    const standaloneShellBlock = extractFunctionBlock(
+      app,
+      "renderStandaloneTopicExportShell",
+    );
+    assert.include(standaloneShellBlock, "renderTopicDetail(main, snapshot)");
+    assert.notInclude(standaloneShellBlock, "renderTopicDetailToolbar");
+    assert.notInclude(standaloneShellBlock, "renderActionStatusbar");
+    assert.notInclude(standaloneShellBlock, "renderCurrentView");
+
+    const topicTabsBlock = extractFunctionBlock(app, "renderTopicTabs");
+    assert.include(topicTabsBlock, "state.standaloneExport");
+    assert.include(
+      topicTabsBlock,
+      '["citation_graph", "synthesis-topic-tab-citation-graph"]',
+    );
+
+    const graphBlock = extractFunctionBlock(app, "renderGraph");
+    assert.include(graphBlock, "renderStandaloneGraphControls(snapshot)");
+    assert.include(graphBlock, "!state.standaloneExport");
+    assert.include(graphBlock, "synthesis-action-back-to-topic-details");
+
+    const standaloneGraphControlsBlock = extractFunctionBlock(
+      app,
+      "renderStandaloneGraphControls",
+    );
+    assert.include(standaloneGraphControlsBlock, '["force", enumLabel');
+    assert.include(standaloneGraphControlsBlock, '["radial", enumLabel');
+    assert.include(standaloneGraphControlsBlock, '["components", enumLabel');
+    assert.include(standaloneGraphControlsBlock, "showLowSignalReferences");
+    assert.include(
+      standaloneGraphControlsBlock,
+      "synthesis-graph-control-citation-role",
+    );
+    assert.include(
+      standaloneGraphControlsBlock,
+      "synthesis-graph-control-node-types",
+    );
+    assert.include(
+      standaloneGraphControlsBlock,
+      "synthesis-graph-control-layout",
+    );
+    assert.notInclude(standaloneGraphControlsBlock, "synthesis-search-node");
+    assert.notInclude(standaloneGraphControlsBlock, "graphTopicScopeOptions");
+    assert.notInclude(
+      standaloneGraphControlsBlock,
+      "makeGraphIncrementalRefreshButton",
+    );
+    assert.notInclude(standaloneGraphControlsBlock, "manualRecomputeLayout");
+    assert.notInclude(
+      standaloneGraphControlsBlock,
+      "synthesis-action-back-to-topic-details",
+    );
+
+    const exportTopicHtmlBlock = extractFunctionBlock(
+      source,
+      "exportTopicDetailHtml",
+    );
+    assert.include(exportTopicHtmlBlock, "ensureCachedTopicDetailHtmlExport");
+    assert.include(exportTopicHtmlBlock, "copyRuntimeFile");
+    assert.notInclude(
+      exportTopicHtmlBlock,
+      "const html = await buildTopicDetailHtmlExport",
+    );
+
+    const exportPickerIndex = source.indexOf(
+      "const outputPath = await pickTopicDetailHtmlExportPath",
+    );
+    const exportRunIndex = source.indexOf(
+      'runWorkbenchCommandOnce(\n        runtime,\n        "exportTopicDetailHtml"',
+    );
+    assert.isAtLeast(exportPickerIndex, 0);
+    assert.isAtLeast(exportRunIndex, 0);
+    assert.isBelow(
+      exportPickerIndex,
+      exportRunIndex,
+      "standalone HTML export should ask for the save path before entering the pending operation",
+    );
+    assert.include(
+      source,
+      "() => exportTopicDetailHtml(runtime, topicId, outputPath)",
+    );
+    assert.notInclude(source, "{ topicId, outputPath }");
   });
 
   it("renders the redesigned Home, Topics, Index, and immersive reader views", async function () {
@@ -1824,11 +1991,29 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "renderGitSyncPanel");
     assert.include(source, "Sync review");
     assert.include(source, "paper_count");
-    assert.include(source, "completion");
+    assert.include(source, "source_materials_percent");
+    assert.include(source, "sourceMaterialsLabel");
+    assert.include(source, "sourceMaterialsTone");
+    assert.include(source, "synthesis-column-source-materials");
+    assert.notInclude(source, "toneFor(topicSourceMaterialsStatus(row))");
+    assert.notInclude(
+      source,
+      '"Completion", className: "topics-list-center-cell"',
+    );
+    assert.notInclude(
+      source,
+      '"Coverage", className: "topics-list-center-cell"',
+    );
     assert.include(source, "row.definition");
     assert.notInclude(source, "row.description");
     assert.include(source, '"Definition"');
     assert.include(source, "topics-list-definition-cell");
+    assert.include(source, "topics-list-title-cell");
+    assert.include(source, "topics-list-title-text");
+    assert.notInclude(
+      extractFunctionBlock(source, "renderTopics"),
+      "titleWithSummary(",
+    );
     assert.include(source, 'makeButton("Create Topic", "hostCommand"');
     assert.notInclude(source, 'makeButton("Run synthesis", "hostCommand"');
     assert.include(source, "immersive-reader");
@@ -1841,6 +2026,12 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".topic-grid");
     assert.include(css, ".topic-card");
     assert.include(css, ".topics-list-definition-cell");
+    assert.include(css, ".topics-list-title-cell");
+    assert.include(css, ".topics-list-definition-column");
+    assert.match(
+      css,
+      /\.topics-list-definition-cell\s*{[\s\S]*?max-width:\s*none;[\s\S]*?overflow:\s*visible;[\s\S]*?white-space:\s*normal;/,
+    );
     assert.include(css, ".panel-toolbar");
     assert.include(css, ".immersive-reader");
     assert.include(css, ":focus-visible");
@@ -1972,6 +2163,16 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "synthesis-external-literature-context");
     assert.include(source, "synthesis-suggested-collection-directions");
     assert.include(source, "synthesis-coverage-caveats");
+    assert.include(source, "renderTopicScopeBoundary");
+    assert.include(source, "synthesis-topic-research-area");
+    assert.include(source, "synthesis-scope-include");
+    assert.include(source, "synthesis-scope-exclude");
+    assert.notInclude(source, "synthesis-scope-notes");
+    assert.include(source, 'enumLabel("coverage-caveat"');
+    assert.include(source, "coverageCaveatTitle");
+    assert.include(source, "priorityTone");
+    assert.include(source, "priorityFormatter: priorityLabel");
+    assert.include(source, 'normalized === "high" || normalized === "urgent"');
     assert.notInclude(source, "Identified Gaps");
     assert.include(source, 'bodyKeys: ["note", "reason", "description"');
     assert.include(source, "formatTimeSpan");
@@ -2030,6 +2231,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".coverage-direction-card > *");
     assert.include(css, ".coverage-direction-card strong");
     assert.include(css, ".coverage-priority-badge");
+    assert.include(css, ".topic-detail-shell .badge.danger");
     assert.include(css, ".coverage-example-pill");
     assert.include(css, "height: 22px");
     assert.include(css, "white-space: normal");
@@ -2472,6 +2674,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, 'enumLabel("review-tab", "reference_matching")');
     assert.include(app, 'filterOptionLabel("synthesis-filter-binding"');
     assert.include(app, '"synthesis-topic-tab-overview"');
+    assert.include(app, '"synthesis-topic-tab-citation-graph"');
     assert.include(app, 't("synthesis-graph-controls")');
     assert.include(app, 't("synthesis-column-actions")');
     assert.include(app, "html.lang = locale");
@@ -2484,6 +2687,13 @@ describe("Synthesis tab UI model", function () {
     assert.include(i18n, "synthesis-enum-graph-node-kind-library-paper");
     assert.include(i18n, "synthesis-enum-graph-node-kind-external-reference");
     assert.include(i18n, "synthesis-enum-graph-node-kind-low-signal-external");
+    assert.include(i18n, "synthesis-enum-graph-edge-role-citation");
+    assert.include(i18n, "synthesis-enum-graph-edge-role-unknown");
+    assert.include(i18n, "synthesis-enum-graph-edge-role-historical");
+    assert.include(i18n, "synthesis-enum-coverage-caveat-workset-subdomain-bias");
+    assert.include(i18n, "synthesis-enum-coverage-caveat-artifact-evidence-insufficient");
+    assert.include(i18n, "synthesis-enum-coverage-caveat-evaluation-scope-limitation");
+    assert.include(i18n, "synthesis-enum-priority-unknown");
     assert.include(i18n, "synthesis-enum-binding-status-stale-target");
     assert.include(i18n, "synthesis-enum-action-manual-target");
     assert.include(html, '<html lang="">');
@@ -2679,6 +2889,10 @@ describe("Synthesis tab UI model", function () {
       "src/modules/synthesis/uiModel.ts",
       "utf8",
     );
+    const graphVisualRules = await fs.readFile(
+      "src/shared/citationGraphVisualRules.ts",
+      "utf8",
+    );
     const config = await fs.readFile("zotero-plugin.config.ts", "utf8");
 
     assert.include(index, "app.bundle.js");
@@ -2688,10 +2902,14 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "scheduleSigmaResize");
     assert.include(source, 'label: ""');
     assert.include(source, "function graphNodeSize");
-    assert.include(source, "GRAPH_LIBRARY_BASE_NODE_SIZE = 4.6");
-    assert.include(source, "GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE = 3");
-    assert.include(source, "GRAPH_LIBRARY_NODE_SIZE_CAP = 8");
-    assert.include(source, "GRAPH_EXTERNAL_NODE_SIZE_CAP = 4.8");
+    assert.include(source, "GRAPH_LIBRARY_BASE_NODE_SIZE");
+    assert.include(graphVisualRules, "GRAPH_LIBRARY_BASE_NODE_SIZE = 4.6");
+    assert.include(
+      graphVisualRules,
+      "GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE = 3",
+    );
+    assert.include(graphVisualRules, "GRAPH_LIBRARY_NODE_SIZE_CAP = 8");
+    assert.include(graphVisualRules, "GRAPH_EXTERNAL_NODE_SIZE_CAP = 4.8");
     assert.include(source, "function buildGraphNodeImportance");
     assert.include(source, "function graphNodeIncomingDegree");
     assert.include(source, "function fallbackGraphIncomingDegrees");
@@ -2897,7 +3115,8 @@ describe("Synthesis tab UI model", function () {
           id: "topic-stale",
           title: "Stale Topic",
           kind: "topic_synthesis",
-          coverage: "complete",
+          source_materials_status: "complete",
+          source_materials_percent: 100,
           freshness: "stale",
           language: "zh-CN",
           stale_reasons: ["artifact_changed:digest-markdown"],
@@ -2906,7 +3125,8 @@ describe("Synthesis tab UI model", function () {
           id: "topic-incomplete",
           title: "Incomplete Topic",
           kind: "topic_synthesis",
-          coverage: "partial",
+          source_materials_status: "partial",
+          source_materials_percent: 50,
           freshness: "fresh",
           language: "en-US",
           missing_sections: ["coverage"],
@@ -2915,7 +3135,8 @@ describe("Synthesis tab UI model", function () {
           id: "topic-dirty",
           title: "Dirty Topic",
           kind: "topic_synthesis",
-          coverage: "missing",
+          source_materials_status: "missing",
+          source_materials_percent: 0,
           freshness: "dirty",
           language: "zh-CN",
           dirty_reasons: ["legacy_invalid"],
@@ -2924,7 +3145,8 @@ describe("Synthesis tab UI model", function () {
           id: "topic-queued",
           title: "Queued Topic",
           kind: "topic_synthesis",
-          coverage: "complete",
+          source_materials_status: "complete",
+          source_materials_percent: 100,
           freshness: "queued",
           language: "zh-CN",
         },
@@ -2932,9 +3154,21 @@ describe("Synthesis tab UI model", function () {
           id: "topic-failed",
           title: "Failed Topic",
           kind: "topic_synthesis",
-          coverage: "complete",
+          source_materials_status: "complete",
+          source_materials_percent: 100,
           freshness: "failed",
           language: "zh-CN",
+        },
+        {
+          id: "topic-discovery",
+          title: "Discovery Topic",
+          kind: "topic_synthesis",
+          source_materials_status: "complete",
+          source_materials_percent: 100,
+          freshness: "fresh",
+          language: "zh-CN",
+          discovery_status: "candidates",
+          candidate_count: 2,
         },
       ] as any,
     });
@@ -2953,13 +3187,13 @@ describe("Synthesis tab UI model", function () {
     assert.deepInclude(intents["topic-incomplete"], {
       topicId: "topic-incomplete",
       language: "en-US",
-      updateScope: "coverage",
-      actionLabel: "Complete",
+      updateScope: "source_materials",
+      actionLabel: "Update",
     });
     assert.deepInclude(intents["topic-dirty"], {
       topicId: "topic-dirty",
       updateMode: "update_full",
-      actionLabel: "Repair/Rebuild",
+      actionLabel: "Update",
     });
     assert.deepInclude(intents["topic-queued"], {
       topicId: "topic-queued",
@@ -2969,8 +3203,16 @@ describe("Synthesis tab UI model", function () {
     assert.deepInclude(intents["topic-failed"], {
       topicId: "topic-failed",
       updateMode: "update_full",
-      actionLabel: "Repair/Rebuild",
+      actionLabel: "Update",
     });
+    assert.deepInclude(intents["topic-discovery"], {
+      topicId: "topic-discovery",
+      updateScope: "discovery",
+      updateMode: "update_patch",
+      updateReason: "discovery_candidates",
+      actionLabel: "Update",
+    });
+    assert.notEqual(intents["topic-discovery"]?.blocked, true);
 
     const freshComplete = normalizeSynthesisUiSnapshot({
       libraryId: 1,
@@ -2979,7 +3221,8 @@ describe("Synthesis tab UI model", function () {
           id: "topic-fresh",
           title: "Fresh Topic",
           kind: "topic_synthesis",
-          coverage: "complete",
+          source_materials_status: "complete",
+          source_materials_percent: 100,
           freshness: "fresh",
         },
       ] as any,

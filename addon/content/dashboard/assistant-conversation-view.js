@@ -5,6 +5,23 @@
     return String(value || "").trim();
   }
 
+  function labelRoot(source) {
+    const labels = source && source.labels && typeof source.labels === "object" ? source.labels : {};
+    return labels.assistantPanel && typeof labels.assistantPanel === "object"
+      ? labels.assistantPanel
+      : labels;
+  }
+
+  function labelFrom(source, path, fallback) {
+    const parts = safeText(path).split(".").filter(Boolean);
+    let cursor = labelRoot(source);
+    for (let index = 0; index < parts.length; index += 1) {
+      if (!cursor || typeof cursor !== "object") return fallback;
+      cursor = cursor[parts[index]];
+    }
+    return safeText(cursor) || fallback;
+  }
+
   function normalizeStatusToken(status) {
     return safeText(status).toLowerCase().replace(/[\s-]+/g, "_");
   }
@@ -231,7 +248,13 @@
     if (state.disconnected || state.errorText) {
       return {
         kind: "disconnected",
-        message: safeText(state.errorText) || "ACP connection interrupted.",
+        message:
+          safeText(state.errorText) ||
+          labelFrom(
+            state,
+            "interaction.acpConnectionInterrupted",
+            "ACP connection interrupted.",
+          ),
       };
     }
     if (state.waitingUser) {
@@ -243,7 +266,13 @@
     if (state.running) {
       return {
         kind: "running",
-        message: safeText(state.runningLabel) || "Agent is working...",
+        message:
+          safeText(state.runningLabel) ||
+          labelFrom(
+            state,
+            "interaction.agentWorkingMessage",
+            "Agent is working...",
+          ),
       };
     }
     if (state.completed) {
@@ -296,6 +325,7 @@
         errorText,
         running,
         runningLabel: source.labels && (source.labels.running || source.labels.working),
+        labels: source.labels,
         notice: safeText(source.lastStopReason),
       }),
       usage: source.usage || null,
@@ -344,16 +374,33 @@
           activeContinuation,
         runningLabel:
           status === "repairing"
-            ? "Agent is repairing output..."
-            : "Agent is working...",
+            ? labelFrom(
+                source,
+                "interaction.agentRepairingMessage",
+                "Agent is repairing output...",
+              )
+            : labelFrom(
+                source,
+                "interaction.agentWorkingMessage",
+                "Agent is working...",
+              ),
+        labels: source.labels,
         completed: succeeded && !activeContinuation,
         completedMessage:
           status === "succeeded"
-            ? "Run completed. Workflow result is ready."
+            ? labelFrom(
+                source,
+                "interaction.runResultReady",
+                "Run completed. Workflow result is ready.",
+              )
             : safeText(source.error),
         notice:
           canceled && !activeContinuation
-            ? "Run canceled. You can send a new instruction to continue this conversation."
+            ? labelFrom(
+                source,
+                "interaction.runCanceledContinue",
+                "Run canceled. You can send a new instruction to continue this conversation.",
+              )
             : "",
       }),
       usage: source.usage || null,

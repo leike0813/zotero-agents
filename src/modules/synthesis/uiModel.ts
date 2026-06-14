@@ -19,6 +19,10 @@ export type SynthesisWorkbenchSurfaceName =
   | "reader";
 
 export type SynthesisUiCoverage = "complete" | "partial" | "missing";
+export type SynthesisUiSourceMaterialsStatus =
+  | "complete"
+  | "partial"
+  | "missing";
 export type SynthesisUiCacheReadiness =
   | "missing"
   | "refreshing"
@@ -33,6 +37,11 @@ export type SynthesisUiFreshness =
   | "queued"
   | "running"
   | "failed"
+  | "unknown";
+export type SynthesisUiDiscoveryStatus =
+  | "none"
+  | "candidates"
+  | "rejected"
   | "unknown";
 
 export type SynthesisUiLayoutAlgorithm = "force" | "radial" | "components";
@@ -86,7 +95,7 @@ export type SynthesisUiTopicUpdateIntent = {
   updateScope: string;
   updateMode: "auto" | "update_patch" | "update_full";
   updateReason: string;
-  actionLabel: "Update" | "Complete" | "Repair/Rebuild";
+  actionLabel: "Update";
   changedSections: string[];
   blocked?: boolean;
 };
@@ -95,18 +104,20 @@ export type SynthesisUiArtifactRow = {
   id: string;
   title: string;
   kind: "topic_synthesis";
-  coverage: SynthesisUiCoverage;
+  source_materials_status: SynthesisUiSourceMaterialsStatus;
+  source_materials_percent: number;
   freshness: SynthesisUiFreshness;
   updated_at?: string;
   definition?: string;
   markdown_preview?: string;
   paper_count?: number;
   summary?: string;
-  completion?: number;
   status?: string;
   readerMode?: string;
   language?: string;
   external_literature_count?: number;
+  discovery_status?: SynthesisUiDiscoveryStatus;
+  candidate_count?: number;
   stale_reasons?: string[];
   dirty_reasons?: string[];
   missing_sections?: string[];
@@ -175,13 +186,13 @@ export type SynthesisUiReferenceMatchTargetCandidate =
       kind: "canonical_reference";
       canonicalReferenceId: string;
       title: string;
-    year?: string;
-    rawReferenceIds?: string[];
-    bindingStatus?: SynthesisUiBindingStatus;
-    bindingTarget?: {
-      libraryId: number;
-      itemKey: string;
-      paperRef?: string;
+      year?: string;
+      rawReferenceIds?: string[];
+      bindingStatus?: SynthesisUiBindingStatus;
+      bindingTarget?: {
+        libraryId: number;
+        itemKey: string;
+        paperRef?: string;
       };
     };
 
@@ -668,7 +679,7 @@ export type SynthesisUiState = {
   selectedTab: SynthesisUiTab;
   artifacts: {
     search: string;
-    coverage: "all" | SynthesisUiCoverage;
+    sourceMaterials: "all" | SynthesisUiSourceMaterialsStatus;
     freshness: "all" | SynthesisUiFreshness;
     sort: "title" | "paper_count" | "updated_at";
     viewMode: "graph" | "list" | "grid";
@@ -978,6 +989,7 @@ export type SynthesisUiAction = {
 export type SynthesisUiHostCommandName =
   | "openTopicArtifact"
   | "exportTopicSynthesisReport"
+  | "exportTopicDetailHtml"
   | "runSynthesizeTopic"
   | "openZoteroItem"
   | "runMissingArtifactWorkflow"
@@ -1068,6 +1080,7 @@ export type SynthesisUiActionResult = {
 const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "openTopicArtifact",
   "exportTopicSynthesisReport",
+  "exportTopicDetailHtml",
   "runSynthesizeTopic",
   "openZoteroItem",
   "runMissingArtifactWorkflow",
@@ -1123,6 +1136,7 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
 const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   openTopicArtifact: "Open topic",
   exportTopicSynthesisReport: "Export report",
+  exportTopicDetailHtml: "Export topic HTML",
   runSynthesizeTopic: "Create topic",
   openZoteroItem: "Open Zotero item",
   runMissingArtifactWorkflow: "Run workflow",
@@ -1227,6 +1241,7 @@ export function getSynthesisUiOperationKey(
       return `${command}:${keyPart(args.topicId)}:${keyPart(args.language, "auto")}`;
     case "openTopicArtifact":
     case "exportTopicSynthesisReport":
+    case "exportTopicDetailHtml":
     case "deleteTopicArtifact":
     case "resolveTopicPaperDigest":
       return `${command}:${keyPart(args.topicId)}`;
@@ -1287,6 +1302,20 @@ function normalizeCoverage(value: unknown): SynthesisUiCoverage {
   return "missing";
 }
 
+function normalizeSourceMaterialsStatus(
+  value: unknown,
+): SynthesisUiSourceMaterialsStatus {
+  const normalized = cleanString(value);
+  if (
+    normalized === "complete" ||
+    normalized === "partial" ||
+    normalized === "missing"
+  ) {
+    return normalized;
+  }
+  return "missing";
+}
+
 function normalizeFreshness(value: unknown): SynthesisUiFreshness {
   const normalized = cleanString(value);
   if (
@@ -1301,6 +1330,19 @@ function normalizeFreshness(value: unknown): SynthesisUiFreshness {
     return normalized;
   }
   return "unknown";
+}
+
+function normalizeDiscoveryStatus(value: unknown): SynthesisUiDiscoveryStatus {
+  const normalized = cleanString(value);
+  if (
+    normalized === "none" ||
+    normalized === "candidates" ||
+    normalized === "rejected" ||
+    normalized === "unknown"
+  ) {
+    return normalized;
+  }
+  return "none";
 }
 
 function normalizeCacheReadiness(value: unknown): SynthesisUiCacheReadiness {
@@ -1654,18 +1696,23 @@ function normalizeDeletedArtifactRows(values: unknown) {
 
 function deriveUpdateIntent(row: {
   id: string;
-  coverage: SynthesisUiCoverage;
+  source_materials_status: SynthesisUiSourceMaterialsStatus;
   freshness: SynthesisUiFreshness;
   language?: string;
   stale_reasons?: string[];
   dirty_reasons?: string[];
   missing_sections?: string[];
   status?: string;
+  candidate_count?: number;
 }): SynthesisUiTopicUpdateIntent | undefined {
   const language = cleanString(row.language) || "auto";
   const staleReasons = normalizeStringList(row.stale_reasons);
   const dirtyReasons = normalizeStringList(row.dirty_reasons);
   const missingSections = normalizeStringList(row.missing_sections);
+  const candidateCount = Math.max(
+    0,
+    Math.floor(cleanNumber(row.candidate_count, 0)),
+  );
   if (
     row.freshness === "dirty" ||
     row.freshness === "failed" ||
@@ -1678,7 +1725,7 @@ function deriveUpdateIntent(row: {
       updateScope: "repair",
       updateMode: "update_full",
       updateReason: dirtyReasons[0] || row.status || "dirty",
-      actionLabel: "Repair/Rebuild",
+      actionLabel: "Update",
       changedSections: [],
     };
   }
@@ -1694,8 +1741,14 @@ function deriveUpdateIntent(row: {
       blocked: true,
     };
   }
-  if (row.coverage !== "complete" || missingSections.length > 0) {
-    const section = missingSections[0] || "coverage";
+  if (
+    row.source_materials_status !== "complete" ||
+    missingSections.length > 0
+  ) {
+    const section =
+      missingSections[0] === "coverage"
+        ? "source_materials"
+        : missingSections[0] || "source_materials";
     return {
       topicId: row.id,
       language,
@@ -1703,11 +1756,13 @@ function deriveUpdateIntent(row: {
       updateMode: "update_patch",
       updateReason: missingSections.length
         ? "incomplete_sections"
-        : "coverage_incomplete",
-      actionLabel: "Complete",
+        : "source_materials_incomplete",
+      actionLabel: "Update",
       changedSections: missingSections.length
-        ? missingSections
-        : ["coverage", "diagnostics"],
+        ? missingSections.map((entry) =>
+            entry === "coverage" ? "source_materials" : entry,
+          )
+        : ["source_materials", "diagnostics"],
     };
   }
   if (row.freshness === "stale" || staleReasons.length > 0) {
@@ -1717,6 +1772,17 @@ function deriveUpdateIntent(row: {
       updateScope: "auto",
       updateMode: "auto",
       updateReason: staleReasons[0] || "stale",
+      actionLabel: "Update",
+      changedSections: [],
+    };
+  }
+  if (candidateCount > 0) {
+    return {
+      topicId: row.id,
+      language,
+      updateScope: "discovery",
+      updateMode: "update_patch",
+      updateReason: "discovery_candidates",
       actionLabel: "Update",
       changedSections: [],
     };
@@ -1781,7 +1847,16 @@ function normalizeArtifactRows(rows: SynthesisUiArtifactRow[] | undefined) {
         id: cleanString(row.id),
         title: cleanString(row.title) || cleanString(row.id),
         kind: "topic_synthesis" as const,
-        coverage: normalizeCoverage(row.coverage),
+        source_materials_status: normalizeSourceMaterialsStatus(
+          row.source_materials_status,
+        ),
+        source_materials_percent: Math.max(
+          0,
+          Math.min(
+            100,
+            Math.floor(cleanNumber(row.source_materials_percent, 0)),
+          ),
+        ),
         freshness: normalizeFreshness(row.freshness),
         updated_at: cleanString(row.updated_at) || undefined,
         definition: cleanString(row.definition) || undefined,
@@ -1795,13 +1870,14 @@ function normalizeArtifactRows(rows: SynthesisUiArtifactRow[] | undefined) {
           0,
           Math.floor(cleanNumber(row.external_literature_count, 0)),
         ),
+        discovery_status: normalizeDiscoveryStatus(row.discovery_status),
+        candidate_count: Math.max(
+          0,
+          Math.floor(cleanNumber(row.candidate_count, 0)),
+        ),
         stale_reasons: normalizeStringList(row.stale_reasons),
         dirty_reasons: normalizeStringList(row.dirty_reasons),
         missing_sections: normalizeStringList(row.missing_sections),
-        completion: Math.max(
-          0,
-          Math.min(100, Math.floor(cleanNumber(row.completion, 0))),
-        ),
       };
       return {
         ...normalized,
@@ -2062,7 +2138,9 @@ function normalizeCanonicalActionAvailability(
   value: unknown,
 ): SynthesisUiCanonicalActionAvailability {
   const row =
-    value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
   return {
     allowed: Boolean(row.allowed),
     reason: cleanString(row.reason) || undefined,
@@ -2086,8 +2164,7 @@ function normalizeCanonicalReferenceRows(
       const projectedLiteratureItemId =
         cleanString(row.projected_literature_item_id) || effectiveCanonicalId;
       const actionAvailability =
-        row.action_availability &&
-        typeof row.action_availability === "object"
+        row.action_availability && typeof row.action_availability === "object"
           ? (row.action_availability as Record<string, unknown>)
           : {};
       const binding =
@@ -2144,9 +2221,7 @@ function normalizeCanonicalReferenceRows(
         raw_reference_samples: Array.isArray(row.raw_reference_samples)
           ? row.raw_reference_samples
           : [],
-        physical_canonical_ids: normalizeStringList(
-          row.physical_canonical_ids,
-        ),
+        physical_canonical_ids: normalizeStringList(row.physical_canonical_ids),
         effective_canonical_ids: normalizeStringList(
           row.effective_canonical_ids,
         ),
@@ -2190,9 +2265,7 @@ function normalizeCanonicalReferenceRows(
         possible_duplicate_group:
           cleanString(row.possible_duplicate_group) || undefined,
         action_availability: {
-          merge: normalizeCanonicalActionAvailability(
-            actionAvailability.merge,
-          ),
+          merge: normalizeCanonicalActionAvailability(actionAvailability.merge),
           edit: normalizeCanonicalActionAvailability(actionAvailability.edit),
           archive: normalizeCanonicalActionAvailability(
             actionAvailability.archive,
@@ -2241,7 +2314,8 @@ function filterCanonicalReferenceRows(
     }
     if (filters.canonicalBinding === "bound" && !row.binding) return false;
     if (filters.canonicalBinding === "external" && row.binding) return false;
-    if (filters.canonicalGraph === "visible" && !row.graph_node_id) return false;
+    if (filters.canonicalGraph === "visible" && !row.graph_node_id)
+      return false;
     if (filters.canonicalGraph === "not_in_graph" && row.graph_node_id) {
       return false;
     }
@@ -3096,7 +3170,7 @@ export function createDefaultSynthesisUiState(): SynthesisUiState {
     selectedTab: "overview",
     artifacts: {
       search: "",
-      coverage: "all",
+      sourceMaterials: "all",
       freshness: "all",
       sort: "title",
       viewMode: "graph",
@@ -3226,7 +3300,10 @@ function filterArtifacts(
     ) {
       return false;
     }
-    if (filters.coverage !== "all" && row.coverage !== filters.coverage) {
+    if (
+      filters.sourceMaterials !== "all" &&
+      row.source_materials_status !== filters.sourceMaterials
+    ) {
       return false;
     }
     if (filters.freshness !== "all" && row.freshness !== filters.freshness) {
@@ -3745,9 +3822,7 @@ export function buildSynthesisUiSnapshot(
     ...(input.graph?.edges || []),
     ...(input.graph?.hoverOnlyEdges || []),
   ]);
-  const graphTopicScopes = normalizeGraphTopicScopes(
-    input.graph?.topicScopes,
-  );
+  const graphTopicScopes = normalizeGraphTopicScopes(input.graph?.topicScopes);
   const graphNodeById = new Map(graphNodes.map((node) => [node.id, node]));
   const graphEdgeById = new Map(graphEdges.map((edge) => [edge.id, edge]));
   const normalizedGraphNodes = Array.from(graphNodeById.values());
@@ -4005,6 +4080,12 @@ function normalizeAllOrCoverage(value: unknown) {
   return cleanString(value) === "all" ? "all" : normalizeCoverage(value);
 }
 
+function normalizeAllOrSourceMaterials(value: unknown) {
+  return cleanString(value) === "all"
+    ? "all"
+    : normalizeSourceMaterialsStatus(value);
+}
+
 function normalizeAllOrFreshness(value: unknown) {
   return cleanString(value) === "all" ? "all" : normalizeFreshness(value);
 }
@@ -4087,8 +4168,10 @@ export function applySynthesisUiAction(
       if ("search" in filters) {
         next.artifacts.search = cleanString(filters.search);
       }
-      if ("coverage" in filters) {
-        next.artifacts.coverage = normalizeAllOrCoverage(filters.coverage);
+      if ("sourceMaterials" in filters) {
+        next.artifacts.sourceMaterials = normalizeAllOrSourceMaterials(
+          filters.sourceMaterials,
+        );
       }
       if ("freshness" in filters) {
         next.artifacts.freshness = normalizeAllOrFreshness(filters.freshness);

@@ -230,6 +230,7 @@ runtime/payloads/reading-enrichment.json
 - `runtime/views/references-view.json`
 - `runtime/views/summary-view.json`
 - `runtime/views/extensions-view.json`
+- `runtime/views/translation-batches-view.json`
 - `runtime/views/diagnostics-enrichment.json`
 
 ## Stage 30 Block Translation
@@ -240,10 +241,12 @@ Stage 20 完成后，继续阅读：
 - `runtime/views/source-structure.json`
 - `runtime/views/concept-overlay-view.json`
 - `runtime/views/section-insights-view.json`
+- `runtime/views/translation-batches-view.json`
+- `runtime/payloads/translation-batches/batch-*.json`
 
-翻译前先按 `reading-blocks.json` 中 `translate: true` 的 block 分批。运行环境支持 subagent 时，将批次委派给 subagent 翻译；不支持时，由主 agent 分批自译，但必须额外做一次独立复核。最终只能提交主 agent 验收后的译文。
+不要自行切分翻译任务。runtime 已根据 `reading-blocks.json` 和大致字数生成 batch 文件；主 agent 只按 `translation-batches-view.json` 中列出的 batch 路径委派。运行环境支持 subagent 时，将每个 batch 文件原样交给 subagent；不支持时，由主 agent 逐 batch 自译，但仍必须按 batch 文件中的 prompt 和 block 列表执行。最终只能提交主 agent 验收后的译文。
 
-主 agent 验收每个 block 时必须逐项检查：没有遗漏、没有复制原文冒充译文、目标语言正确、术语与 concept/section insights 一致、Markdown 结构保留、公式不被破坏、表格仍是表格且可翻译单元已翻译。`formula` block 通常不提交译文，由 runtime 原样保留；`image` block 翻译图题文字，不改图片引用；`table` block 必须提交仍然是表格的译文，不要把表格说明写成表格外的普通段落。References 及其后的 block 不翻译。
+subagent 必须完整忠实翻译 batch 内所有 `translate_required: true` 的 block，不得摘要、删减、复制原文充数或插入解释性说明。主 agent 验收每个 block 时必须逐项检查：没有遗漏、没有复制原文冒充译文、目标语言正确、术语与 concept/section insights 一致、Markdown 结构保留、公式不被破坏、表格仍是表格且可翻译单元已翻译。`formula` block 通常不提交译文，由 runtime 原样保留；`image` block 保留图片引用并翻译图题文字；`table` block 必须提交仍然是表格的译文，表题和可翻译单元都要翻译，不要把表格说明写成表格外的普通段落。只跳过 `translate: false` 的 bibliography/reference-list block；Appendix/Supplementary Material 如果被标为 `translate: true`，仍然需要翻译。
 
 然后手写：
 

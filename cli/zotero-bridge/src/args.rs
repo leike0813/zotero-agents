@@ -267,7 +267,7 @@ pub enum TopicsCommand {
 
     #[command(
         about = "Read one topic synthesis context",
-        long_about = "Map to Host Bridge capability topics.get_context. Use --input for the topic lookup payload."
+        long_about = "Map to Host Bridge capability topics.get_context. Use --input for the topic lookup payload. Explicit view values are digest, semantic, audit, and full. No view keeps the legacy flat response. For large semantic or full contexts, pass outputPath/output_path and optional overwrite in --input so the Host Bridge writes the view JSON to a file and stdout only contains a compact envelope."
     )]
     GetContext(BridgeInputArgs),
 
@@ -397,7 +397,7 @@ pub struct ResolversArgs {
 pub enum ResolversCommand {
     #[command(
         about = "Resolve a topic resolver into a paper set",
-        long_about = "Map to Host Bridge capability resolvers.resolve. --input must be a JSON object containing a top-level resolver field, for example {\"resolver\":{\"mode\":\"tag_query\",\"query\":\"tag-name\"}}. Do not pass topic_resolver, root-level queries, or the resolver object by itself."
+        long_about = "Map to Host Bridge capability resolvers.resolve. --input must be a JSON object with direct resolver fields such as {\"tag\":{\"and\":[\"topic:vision\"]},\"paper_refs\":[\"1:ABCD1234\"],\"combine\":\"union\"}. Do not pass a top-level resolver wrapper, topic_resolver, mode, query, include, or exclude."
     )]
     Resolve(BridgeInputArgs),
 }

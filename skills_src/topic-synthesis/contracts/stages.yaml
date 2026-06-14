@@ -2,13 +2,14 @@ contract_version: "0.1.0"
 skills:
   - id: create-topic-synthesis-prepare
     title: 创建主题综合准备
-    description: Prepare the topic intent, resolver, paper workset and analysis context for topic synthesis creation. Do not trigger unless you can access to Zotero library via `zotero-bridge`.
+    description: 为新建主题综合运行准备主题意图、resolver、文献工作集和分析上下文；需要可通过 `zotero-bridge` 访问 Zotero 文库。
     operation: create
     output_kind: topic_synthesis_handoff
     handoff: prepare_analysis_context
     next_skill_id: topic-synthesis-core-enrichment
     required_runtime_inputs:
-      - runtime/input.json
+      - .audit/<skill-namespace>/input_manifest.json
+      - runtime/input.json（兼容旧执行器，可选）
     stages:
       - id: stage_00_runtime_setup
         kind: command
@@ -38,13 +39,14 @@ skills:
           - runtime/payloads/artifacts/
   - id: update-topic-synthesis-prepare
     title: 更新主题综合准备
-    description: Prepare the topic intent, resolver, paper workset and analysis context for topic synthesis update. Do not trigger unless you can access to Zotero library via `zotero-bridge`.
+    description: 为更新主题综合运行准备当前主题上下文、resolver、文献工作集和分析上下文；需要可通过 `zotero-bridge` 访问 Zotero 文库。
     operation: update_full
     output_kind: topic_synthesis_handoff
     handoff: prepare_analysis_context
     next_skill_id: topic-synthesis-core-enrichment
     required_runtime_inputs:
-      - runtime/input.json
+      - .audit/<skill-namespace>/input_manifest.json
+      - runtime/input.json（兼容旧执行器，可选）
     stages:
       - id: stage_00_runtime_setup
         kind: command
@@ -52,17 +54,11 @@ skills:
         required_reads: []
       - id: stage_10_update_topic_context
         kind: payload
-        task: 读取当前主题上下文，并编写紧凑的更新判断。
+        task: 基于 runtime 预审报告决定是否继续更新；继续时提交只增不改的 resolver proposal。
         schema: stage-10-update-topic-context.schema.json
         payload_path: runtime/payloads/update-topic-context.json
         required_reads:
-          - '<zotero-bridge> topics get-context --input ''{"topicId":"<topic_id>"}'''
-      - id: stage_20_resolver_and_workset
-        kind: payload
-        task: 编写 resolver proposal；后续由 runtime 执行 resolver、图谱查询和 artifact 准备。
-        schema: stage-20-resolver-and-workset.schema.json
-        payload_path: runtime/payloads/resolver-and-workset.json
-        required_reads:
+          - runtime/payloads/update-audit-report.json
           - '<zotero-bridge> library-index get --input ''{"cursor":0,"limit":200}'''
       - id: stage_30_prepare_analysis_context
         kind: payload
@@ -74,7 +70,7 @@ skills:
           - runtime/payloads/artifacts/
   - id: topic-synthesis-core-enrichment
     title: 主题综合核心分析与知识图谱补全
-    description: Produce topic-level core synthesis and knowledge graph enrichment from prepared analysis context. Do not trigger unless you can access to Zotero library via `zotero-bridge`.
+    description: 基于 prepare 阶段的分析上下文编写 topic 级核心综合和知识图谱补全；需要可通过 `zotero-bridge` 访问 Zotero 文库。
     operation: create
     output_kind: topic_synthesis_handoff
     handoff: core_enrichment
@@ -105,7 +101,7 @@ skills:
           - runtime/views/concept-candidate-context.json
   - id: topic-synthesis-finalize
     title: 主题综合收尾
-    description: Assess library coverage and evidence reliability, suggest collection directions, and produce the final user-facing summary. Do not trigger unless you can access to Zotero library via `zotero-bridge`.
+    description: 评估文库覆盖和证据可靠性，提出 collection 补充方向，并生成最终面向用户的 summary；需要可通过 `zotero-bridge` 访问 Zotero 文库。
     operation: create
     output_kind: topic_synthesis
     handoff: finalize_output

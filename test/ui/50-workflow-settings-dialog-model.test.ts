@@ -502,7 +502,7 @@ describe("workflow settings dialog model", function () {
     );
   });
 
-  itNodeOnly("renders ACP model choices with ordinary label truncation", async function () {
+  itNodeOnly("renders ACP choices and submit layout", async function () {
     const [
       customSelectJs,
       customSelectCss,
@@ -557,6 +557,17 @@ describe("workflow settings dialog model", function () {
     assert.notInclude(workflowDialogJs, "tail-preserve-select");
     assert.notInclude(pluginDialogSource, "applyTailPreservingChoiceStyle");
     assert.include(pluginDialogSource, "acpModelProvider");
+    assert.include(workflowDialogJs, "settings-options-column");
+    assert.include(
+      workflowDialogJs,
+      "Array.isArray(form.runSchemaEntries) && form.runSchemaEntries.length",
+    );
+    assert.include(workflowDialogJs, 'classList.add("settings-card-fill")');
+    assert.include(workflowDialogCss, "align-items: stretch");
+    assert.include(workflowDialogCss, ".settings-options-column");
+    assert.include(workflowDialogCss, "flex-direction: column");
+    assert.include(workflowDialogCss, ".settings-card-fill");
+    assert.include(webDialogSource, "dialogWindow.resizeTo(760, 660)");
     assert.include(
       webDialogSource,
       "workflow-settings-dialog.html?ui=20260612-provider-split-v2",

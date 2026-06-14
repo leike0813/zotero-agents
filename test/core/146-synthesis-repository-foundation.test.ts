@@ -277,6 +277,35 @@ describe("Synthesis repository foundation", function () {
     );
   });
 
+  it("round-trips raw reference citation roles with an empty default", function () {
+    const repository = createSynthesisRepository();
+
+    repository.upsertRawReference({
+      rawReferenceId: "raw:1",
+      sourceRef: "1:AAA",
+      libraryId: 1,
+      itemKey: "AAA",
+      referencesArtifactHash: "sha256:refs",
+      referenceIndex: 0,
+      parsedTitle: "Background Paper",
+      rolesJson: JSON.stringify([{ role: "background", count: 1 }]),
+    });
+    repository.upsertRawReference({
+      rawReferenceId: "raw:2",
+      sourceRef: "1:AAA",
+      libraryId: 1,
+      itemKey: "AAA",
+      referencesArtifactHash: "sha256:refs",
+      referenceIndex: 1,
+      parsedTitle: "Unknown Paper",
+    });
+
+    assert.deepEqual(
+      repository.listRawReferences().map((row) => row.rolesJson),
+      [JSON.stringify([{ role: "background", count: 1 }]), "[]"],
+    );
+  });
+
   it("rolls back repository transactions on failure", function () {
     const repository = createSynthesisRepository({
       now: () => "2026-05-26T00:00:00.000Z",
@@ -709,7 +738,7 @@ describe("Synthesis repository foundation", function () {
     assert.deepEqual(exportPluginStateStoreRowsForTests().rows, []);
   });
 
-  it("builds topic discovery hints as candidate-only state from metadata overlap [inv.discovery.apply_time_token_overlap]", function () {
+  it("builds topic discovery hints from apply-time token overlap [inv.discovery.apply_time_token_overlap]", function () {
     const repository = createSynthesisRepository({
       now: () => "2026-05-26T00:00:00.000Z",
     });
@@ -751,22 +780,30 @@ describe("Synthesis repository foundation", function () {
 
     assert.equal(result.scannedTopics, 1);
     assert.equal(result.scannedLiterature, 3);
-    assert.equal(result.open, 1);
+    assert.equal(result.open, 2);
     assert.equal(result.rejected, 0);
     assert.deepEqual(allHints.map((hint) => hint.literatureItemId).sort(), [
       "lit:candidate",
+      "lit:seed",
     ]);
     assert.deepEqual(
       openHints.map((hint) => hint.literatureItemId),
-      ["lit:candidate"],
+      ["lit:candidate", "lit:seed"],
     );
-    assert.isAbove(openHints[0].score, 0);
-    assert.equal(openHints[0].method, "metadata-overlap-v1");
-    assert.deepInclude(JSON.parse(openHints[0].matchingFieldsJson || "{}"), {
+    assert.isAtLeast(openHints[0].score, 0.25);
+    assert.isAtMost(openHints[0].score, 1);
+    assert.equal(openHints[0].method, "discovery.apply_time_token_overlap.v1");
+    const candidateFields = JSON.parse(openHints[0].matchingFieldsJson || "{}");
+    assert.deepInclude(candidateFields, {
       missing_must_have_terms: [],
       exclude_hits: [],
     });
-    assert.equal(repository.countRows("synt_topic_discovery_hint"), 1);
+    assert.deepInclude(candidateFields.components, {
+      active_weight_sum: 5.5,
+    });
+    const seedFields = JSON.parse(openHints[1].matchingFieldsJson || "{}");
+    assert.isTrue(seedFields.components.seed_boost_applied);
+    assert.equal(repository.countRows("synt_topic_discovery_hint"), 2);
     assert.deepEqual(exportPluginStateStoreRowsForTests().rows, []);
   });
 
@@ -855,6 +892,131 @@ describe("Synthesis repository foundation", function () {
       [["hint:rejected", "lit:candidate", "rejected"]],
     );
     assert.equal(hints[0].createdAt, "2026-05-25T00:00:00.000Z");
+  });
+
+  it("cascades topic discovery candidates through confirmed broader topic relations [inv.discovery.topic_graph_cascade]", async function () {
+    const repository = createSynthesisRepository({
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+    const service = createSynthesisService({
+      root: "C:/zs-topic-discovery-cascade",
+      libraryId: 1,
+      synthesisRepository: repository,
+      now: () => "2026-05-26T00:00:00.000Z",
+    });
+    repository.replaceTopicGraphState({
+      nodes: [
+        {
+          topicId: "topic:parent",
+          title: "Parent",
+          nodeType: "materialized",
+          definitionStatus: "has_synthesis",
+        },
+        {
+          topicId: "topic:child",
+          title: "Child",
+          nodeType: "materialized",
+          definitionStatus: "has_synthesis",
+        },
+        {
+          topicId: "topic:grandchild",
+          title: "Grandchild",
+          nodeType: "materialized",
+          definitionStatus: "has_synthesis",
+        },
+        {
+          topicId: "topic:suggested",
+          title: "Suggested",
+          nodeType: "materialized",
+          definitionStatus: "has_synthesis",
+        },
+        {
+          topicId: "topic:rejected",
+          title: "Rejected",
+          nodeType: "materialized",
+          definitionStatus: "has_synthesis",
+        },
+      ],
+      edges: [
+        {
+          edgeId: "edge:parent-child",
+          sourceTopicId: "topic:parent",
+          targetTopicId: "topic:child",
+          relation: "broader_than",
+          status: "confirmed",
+        },
+        {
+          edgeId: "edge:child-grandchild",
+          sourceTopicId: "topic:child",
+          targetTopicId: "topic:grandchild",
+          relation: "broader_than",
+          status: "confirmed",
+        },
+        {
+          edgeId: "edge:parent-suggested",
+          sourceTopicId: "topic:parent",
+          targetTopicId: "topic:suggested",
+          relation: "broader_than",
+          status: "suggested",
+        },
+        {
+          edgeId: "edge:parent-rejected",
+          sourceTopicId: "topic:parent",
+          targetTopicId: "topic:rejected",
+          relation: "broader_than",
+          status: "rejected",
+        },
+      ],
+      reviewItems: [],
+    });
+    repository.upsertTopicDiscoveryHint({
+      hintId: "hint:parent-shared",
+      topicId: "topic:parent",
+      literatureItemId: "lit:shared",
+      score: 0.6,
+      status: "open",
+    });
+    repository.upsertTopicDiscoveryHint({
+      hintId: "hint:child-shared",
+      topicId: "topic:child",
+      literatureItemId: "lit:shared",
+      score: 0.9,
+      status: "open",
+    });
+    repository.upsertTopicDiscoveryHint({
+      hintId: "hint:grandchild",
+      topicId: "topic:grandchild",
+      literatureItemId: "lit:grandchild",
+      score: 0.8,
+      status: "open",
+    });
+    repository.upsertTopicDiscoveryHint({
+      hintId: "hint:suggested",
+      topicId: "topic:suggested",
+      literatureItemId: "lit:suggested",
+      score: 0.7,
+      status: "open",
+    });
+    repository.upsertTopicDiscoveryHint({
+      hintId: "hint:rejected-relation",
+      topicId: "topic:rejected",
+      literatureItemId: "lit:rejected-relation",
+      score: 0.7,
+      status: "open",
+    });
+
+    const snapshot = await service.getSynthesisSnapshot();
+    const rows = Object.fromEntries(
+      snapshot.artifacts.rows.map((row) => [row.id, row]),
+    );
+
+    assert.equal(rows["topic:parent"]?.candidate_count, 2);
+    assert.equal(rows["topic:child"]?.candidate_count, 2);
+    assert.equal(rows["topic:grandchild"]?.candidate_count, 1);
+    assert.equal(rows["topic:suggested"]?.candidate_count, 1);
+    assert.equal(rows["topic:rejected"]?.candidate_count, 1);
+    assert.equal(rows["topic:parent"]?.discovery_status, "candidates");
+    assert.notEqual(rows["topic:parent"]?.updateIntent?.blocked, true);
   });
 
   it("rejects and restores topic discovery hints without accept actions", async function () {

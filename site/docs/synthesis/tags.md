@@ -56,3 +56,7 @@ Tag Vocabulary（受控标签词表）是一个规范化的标签体系，用于
 - 跨库迁移标签体系
 - 团队共享标签规范
 - 备份和版本管理
+
+## 相关 Workflow
+
+标签的规范化和自动推断由 [标签规范化](../workflows/tag-regulator) workflow 驱动。运行该 workflow 可以基于受控词表自动清理和补充标签。

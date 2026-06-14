@@ -246,6 +246,37 @@ function validateSequenceHandoff(value: unknown, label: string) {
   return null;
 }
 
+function validateSequenceShortCircuit(value: unknown, label: string) {
+  if (typeof value === "undefined") {
+    return null;
+  }
+  if (!isObject(value)) {
+    return `${label} must be object`;
+  }
+  if (!isObject(value.when)) {
+    return `${label}.when must be object`;
+  }
+  if (!isNonEmptyString(value.when.path)) {
+    return `${label}.when.path must be non-empty string`;
+  }
+  if (!Object.prototype.hasOwnProperty.call(value.when, "equals")) {
+    return `${label}.when.equals is required`;
+  }
+  const equalsType = typeof value.when.equals;
+  if (
+    value.when.equals !== null &&
+    equalsType !== "string" &&
+    equalsType !== "number" &&
+    equalsType !== "boolean"
+  ) {
+    return `${label}.when.equals must be string, number, boolean, or null`;
+  }
+  if (value.result !== "step_output") {
+    return `${label}.result must be step_output`;
+  }
+  return null;
+}
+
 function validateSkillRunnerSequencePayload(request: unknown) {
   if (!isObject(request)) {
     return "payload must be object";
@@ -289,6 +320,13 @@ function validateSkillRunnerSequencePayload(request: unknown) {
     );
     if (handoffDetail) {
       return handoffDetail;
+    }
+    const shortCircuitDetail = validateSequenceShortCircuit(
+      step.short_circuit,
+      `payload.steps[${i}].short_circuit`,
+    );
+    if (shortCircuitDetail) {
+      return shortCircuitDetail;
     }
     if (
       typeof step.fetch_type !== "undefined" &&

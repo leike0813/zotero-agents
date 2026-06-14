@@ -114,6 +114,15 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `debug synthesis diff` | `debug.synthesis.diff` | capability | - |
 | `debug tasks` | `debug.tasks.snapshot` | capability | - |
 
+#### Resolver payloads
+
+- `resolvers resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.
+- Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.
+- `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.
+- `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.
+- Examples: `zotero-bridge resolvers resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge resolvers resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
+- Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
+
 #### Debug capabilities
 
 | Capability | Category | Approval | Input | CLI exposure | Flags |
@@ -1106,6 +1115,9 @@ registry 和 Rust CLI source 渲染，新增、删除或重命名 Host Bridge su
 ```text
 zotero-bridge topics list --input '{}'
 zotero-bridge topics get-context --input '{"topicId":"topic-id"}'
+zotero-bridge topics get-context --input '{"topicId":"topic-id","view":"digest"}'
+zotero-bridge topics get-context --input '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'
+zotero-bridge topics get-context --input '{"topicId":"topic-id","view":"audit","outputPath":"runtime/topic-context.audit.json","overwrite":true}'
 zotero-bridge topics get-report --input '{"topicId":"topic-id"}'
 zotero-bridge library-index get --input '{"cursor":0,"limit":50}'
 zotero-bridge resolvers resolve --input @runtime/payloads/resolver-input.json
@@ -1115,20 +1127,30 @@ zotero-bridge insights attention-queue --input '{}'
 zotero-bridge paper-artifacts export-filtered --input @runtime/payloads/export-input.json
 ```
 
-`resolvers resolve` 的输入必须是带顶层 `resolver` 字段的 JSON object：
+`topics get-context` 未传 `view` 时保持 legacy flat 输出，供旧 workflow
+继续使用。显式 `view` 使用 v2 topic context envelope：`digest` 返回基础信息
+和语义摘要，`semantic` 返回完整语义内容，`audit` 返回 hashes、freshness、
+discovery 和 diagnostics，`full` 返回上述三者的嵌套组合。大体量
+`semantic` 或 `full` 读取应优先传 `outputPath`，此时 stdout 只返回包含
+path、bytes、sha256 和 `omitted_inline_result: true` 的 compact envelope。
+
+`resolvers resolve` 的输入是直接 resolver payload，不要再包一层
+`resolver`：
 
 ```json
 {
-  "resolver": {
-    "mode": "tag_query",
-    "query": "tag-name"
-  }
+  "tag": { "and": ["object-detection"], "not": ["nlp-transformer"] },
+  "collection_key": ["COLL_A", "COLL_B"],
+  "paper_refs": ["1:DETR2020", "1:DINO2022"],
+  "combine": "union"
 }
 ```
 
-不要传 `topic_resolver`、根级 `queries` 或 resolver 对象本体。
-`topic_resolver` 是 workflow bundle 字段，不是 Host Bridge
-`resolvers resolve` 的输入字段。
+至少需要 `tag`、`collection_key`、`paper_refs` 之一。多 selector 默认
+`combine:"union"`，任一 selector 类型命中即返回；传
+`combine:"intersection"` 时，必须命中所有已提供的 selector 类型才返回。
+旧字段 `resolver`、`topic_resolver`、`mode`、`query`、`include` 和
+`exclude` 都会被拒绝。
 
 `library-index get`、`reference-index get` 和 citation-graph cache-view
 子命令返回 Synthesis 持久缓存视图。它们不保证已经与 Zotero Library 同步，也

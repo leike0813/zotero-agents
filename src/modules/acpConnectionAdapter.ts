@@ -100,6 +100,22 @@ export type AcpConnectionAttachSessionResult = {
   models?: SessionModelState | null;
 };
 
+export type AcpPromptBackendError = {
+  message: string;
+  name?: string;
+  code?: string | number;
+  data?: unknown;
+  source?: "request_error" | "session_update" | "connection";
+};
+
+export type AcpPromptResult = {
+  stopReason: string;
+  cancelRequested?: boolean;
+  observedAcpActivity?: boolean;
+  standardAssistantTextSeen?: boolean;
+  backendError?: AcpPromptBackendError;
+};
+
 export type AcpConnectionAdapter = {
   initialize: () => Promise<AcpConnectionInitializeResult>;
   onUpdate: (listener: AcpConnectionUpdateListener) => () => void;
@@ -112,7 +128,7 @@ export type AcpConnectionAdapter = {
   prompt: (args: {
     sessionId: string;
     message: string;
-  }) => Promise<{ stopReason: string }>;
+  }) => Promise<AcpPromptResult>;
   cancel: (args: { sessionId: string }) => Promise<void>;
   setConfigOption?: (args: {
     sessionId: string;
@@ -147,6 +163,42 @@ function compactError(error: unknown) {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+const ACP_STANDARD_SESSION_UPDATE_KINDS = new Set([
+  "user_message_chunk",
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "tool_call",
+  "tool_call_update",
+  "plan",
+  "available_commands_update",
+  "current_mode_update",
+  "config_option_update",
+  "session_info_update",
+  "usage_update",
+]);
+
+const ACP_PROMPT_ERROR_SESSION_UPDATE_KINDS = new Set([
+  "backend_error",
+  "prompt_error",
+  "session_error",
+  "stream_error",
+  "provider_error",
+  "model_error",
+  "acp_prompt_error",
+  "acp_backend_error",
+]);
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function compactDiagnosticData(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  return safeJson(value, 4000);
 }
 
 function compactText(value: unknown, limit = 360) {
@@ -276,6 +328,15 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   private readonly activePromptSessions = new Set<string>();
   private readonly standardAssistantTextSessions = new Set<string>();
   private readonly rawAssistantTextBySession = new Map<string, string[]>();
+  private readonly promptCapturesBySession = new Map<
+    string,
+    {
+      cancelRequested: boolean;
+      observedAcpActivity: boolean;
+      standardAssistantTextSeen: boolean;
+      backendError?: AcpPromptBackendError;
+    }
+  >();
   private closing = false;
   private unsubscribeZoteroMcpDiagnostics: () => void = () => undefined;
   private readonly zoteroMcpDiagnosticListener = (event: ZoteroMcpDiagnosticEvent) => {
@@ -475,9 +536,18 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   }
 
   private async emitSessionUpdate(params: SessionNotification) {
+    const sessionId = normalizeString(params.sessionId);
+    const capture = sessionId ? this.promptCapturesBySession.get(sessionId) : null;
+    if (capture) {
+      capture.observedAcpActivity = true;
+    }
     const update = params?.update as
       | {
           sessionUpdate?: string;
+          status?: unknown;
+          error?: unknown;
+          message?: unknown;
+          reason?: unknown;
           configOptions?: unknown;
           content?: { type?: string | null; text?: string | null };
         }
@@ -485,18 +555,78 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     if (String(update?.sessionUpdate || "").trim() === "config_option_update") {
       this.updateLatestConfigOptions(update?.configOptions);
     }
+    const backendError = this.extractBackendErrorFromSessionUpdate(update);
+    if (capture && backendError) {
+      capture.backendError = backendError;
+      this.emitDiagnostic({
+        kind: "prompt_backend_error",
+        level: "error",
+        message: backendError.message,
+        detail: compactDiagnosticData(backendError.data),
+        stage: "session_update",
+        errorName: backendError.name,
+        code: backendError.code,
+      });
+    }
     if (
       String(update?.sessionUpdate || "").trim() === "agent_message_chunk" &&
       normalizeString(update?.content?.type) === "text" &&
       String(update?.content?.text || "").length > 0
     ) {
-      this.standardAssistantTextSessions.add(
-        normalizeString(params.sessionId),
-      );
+      this.standardAssistantTextSessions.add(sessionId);
+      if (capture) {
+        capture.standardAssistantTextSeen = true;
+      }
     }
     for (const listener of this.updateListeners) {
       await listener(params);
     }
+  }
+
+  private extractBackendErrorFromSessionUpdate(
+    update:
+      | {
+          sessionUpdate?: unknown;
+          status?: unknown;
+          error?: unknown;
+          message?: unknown;
+          reason?: unknown;
+        }
+      | undefined,
+  ): AcpPromptBackendError | null {
+    if (!update) {
+      return null;
+    }
+    const sessionUpdate = normalizeString(update.sessionUpdate).toLowerCase();
+    if (
+      !sessionUpdate ||
+      ACP_STANDARD_SESSION_UPDATE_KINDS.has(sessionUpdate) ||
+      !ACP_PROMPT_ERROR_SESSION_UPDATE_KINDS.has(sessionUpdate)
+    ) {
+      return null;
+    }
+    const explicitError = update.error;
+    const errorObject = isJsonObject(explicitError) ? explicitError : null;
+    const message =
+      normalizeString(errorObject?.message) ||
+      normalizeString(update.message) ||
+      normalizeString(update.reason) ||
+      (typeof explicitError === "string" ? normalizeString(explicitError) : "") ||
+      "ACP backend reported a prompt error.";
+    return {
+      source: "session_update",
+      message,
+      name:
+        normalizeString(errorObject?.name) ||
+        normalizeString(errorObject?.type) ||
+        undefined,
+      code:
+        typeof errorObject?.code === "number" ||
+        typeof errorObject?.code === "string"
+          ? errorObject.code
+          : undefined,
+      data: explicitError !== undefined ? explicitError : update,
+    };
   }
 
   private async flushClaudeRawSdkAssistantText(sessionIdRaw: string) {
@@ -541,6 +671,33 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     this.activePromptSessions.delete(sessionId);
     this.standardAssistantTextSessions.delete(sessionId);
     this.rawAssistantTextBySession.delete(sessionId);
+    this.promptCapturesBySession.delete(sessionId);
+  }
+
+  private beginPromptCapture(sessionId: string): {
+    cancelRequested: boolean;
+    observedAcpActivity: boolean;
+    standardAssistantTextSeen: boolean;
+    backendError?: AcpPromptBackendError;
+  } {
+    const capture = {
+      cancelRequested: false,
+      observedAcpActivity: false,
+      standardAssistantTextSeen: false,
+    };
+    this.promptCapturesBySession.set(sessionId, capture);
+    return capture;
+  }
+
+  private markPromptCancelled(sessionIdRaw: string) {
+    const sessionId = normalizeString(sessionIdRaw);
+    if (!sessionId) {
+      return;
+    }
+    const capture = this.promptCapturesBySession.get(sessionId);
+    if (capture) {
+      capture.cancelRequested = true;
+    }
   }
 
   private async resolveMcpServers(stage: string) {
@@ -1171,6 +1328,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     });
     const sessionId = normalizeString(args.sessionId);
     this.clearPromptCapture(sessionId);
+    const capture = this.beginPromptCapture(sessionId);
     if (sessionId) {
       this.activePromptSessions.add(sessionId);
     }
@@ -1194,8 +1352,24 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       });
       return {
         stopReason: String(response.stopReason || "").trim(),
+        cancelRequested: capture.cancelRequested,
+        observedAcpActivity: capture.observedAcpActivity,
+        standardAssistantTextSeen: capture.standardAssistantTextSeen,
+        backendError: capture.backendError,
       };
     } catch (error) {
+      const requestError = isRequestError(error)
+        ? {
+            source: "request_error" as const,
+            message: normalizeString(error.message) || "ACP prompt request failed.",
+            name: error.name,
+            code: error.code,
+            data: error.data,
+          }
+        : undefined;
+      if (requestError) {
+        capture.backendError = requestError;
+      }
       this.emitErrorDiagnostic({
         kind: "prompt_finished",
         message: "Prompt failed",
@@ -1212,6 +1386,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     if (!this.connection) {
       return;
     }
+    this.markPromptCancelled(args.sessionId);
     await this.connection.cancel({
       sessionId: args.sessionId,
     });

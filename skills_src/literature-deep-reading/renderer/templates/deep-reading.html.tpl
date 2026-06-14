@@ -38,6 +38,20 @@
         <article class="translation-paper" data-translation-paper></article>
         <section class="summary-section" data-summary></section>
         <section class="post-reading" data-post-reading></section>
+        <section class="appendix-section" data-appendix-reading>
+          <article
+            class="paper appendix-paper markdown-body"
+            data-appendix-paper
+          ></article>
+          <article
+            class="reading-flow appendix-reading-flow markdown-body"
+            data-appendix-reading-flow
+          ></article>
+          <article
+            class="translation-paper appendix-translation-paper"
+            data-appendix-translation-paper
+          ></article>
+        </section>
         <section class="citation-graph-section" data-citation-graph></section>
         <section class="extensions" data-extensions></section>
       </main>

@@ -11,6 +11,7 @@ import type { BackendInstance } from "../../src/backends/types";
 import {
   ACP_CLIENT_METHODS,
   ACP_PROTOCOL_VERSION,
+  RequestError,
   type JsonRpcMessage,
   type RequestPermissionRequest,
   type SessionNotification,
@@ -140,6 +141,10 @@ async function createFakeClaudeAcpServerScript(root: string) {
       "let rawEnabled = false;",
       "let newSessionAttempts = 0;",
       "const rejectMeta = process.env.REJECT_META === '1';",
+      "const errorUpdate = process.env.ERROR_UPDATE === '1';",
+      "const toolErrorUpdate = process.env.TOOL_ERROR_UPDATE === '1';",
+      "const unknownFailedUpdate = process.env.UNKNOWN_FAILED_UPDATE === '1';",
+      "const promptRequestError = process.env.PROMPT_REQUEST_ERROR === '1';",
       "function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); }",
       "const rl = readline.createInterface({ input: process.stdin });",
       "rl.on('line', (line) => {",
@@ -160,7 +165,21 @@ async function createFakeClaudeAcpServerScript(root: string) {
       "    return;",
       "  }",
       "  if (request.method === 'session/prompt') {",
+      "    if (promptRequestError) {",
+      "      send({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message: 'backend prompt failed', data: { reason: 'provider' } } });",
+      "      return;",
+      "    }",
       "    send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: request.params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '' } } } });",
+      "    if (errorUpdate) {",
+      "      send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: request.params.sessionId, update: { sessionUpdate: 'backend_error', status: 'failed', error: { name: 'BackendStreamError', code: 'stream_error', message: 'backend stream failed' } } } });",
+      "    }",
+      "    if (toolErrorUpdate) {",
+      "      send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: request.params.sessionId, update: { sessionUpdate: 'tool_call', toolCallId: 'tool-1', title: 'read', status: 'pending' } } });",
+      "      send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: request.params.sessionId, update: { sessionUpdate: 'tool_call_update', toolCallId: 'tool-1', title: 'read', status: 'failed', rawOutput: { error: 'File not found' } } } });",
+      "    }",
+      "    if (unknownFailedUpdate) {",
+      "      send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: request.params.sessionId, update: { sessionUpdate: 'agent_progress', status: 'failed', error: { message: 'non-prompt failed update' } } } });",
+      "    }",
       "    if (rawEnabled) {",
       "      send({ jsonrpc: '2.0', method: '_claude/sdkMessage', params: { sessionId: request.params.sessionId, message: { type: 'assistant', message: { content: [{ type: 'text', text: '{\"probe\":\"raw\",\"ok\":true}' }] } } } });",
       "    }",
@@ -572,6 +591,171 @@ describe("acp client connection", function () {
         ),
         ["", '{"probe":"raw","ok":true}'],
       );
+    } finally {
+      await adapter?.close().catch(() => undefined);
+      await fs.rm(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
+    }
+  });
+
+  it("captures error-like session updates in prompt outcome diagnostics", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-client-"));
+    let adapter: Awaited<ReturnType<typeof createAcpConnectionAdapter>> | null =
+      null;
+    try {
+      const scriptPath = await createFakeClaudeAcpServerScript(root);
+      adapter = await createAcpConnectionAdapter({
+        backend: createClaudeBackend(scriptPath, { ERROR_UPDATE: "1" }),
+        agentWorkspaceDir: root,
+        sessionCwd: root,
+        workspaceDir: root,
+        runtimeDir: root,
+      });
+      const diagnostics: Array<{ kind: string; message: string }> = [];
+      adapter.onDiagnostics((entry) => {
+        diagnostics.push({ kind: entry.kind, message: entry.message });
+      });
+
+      await adapter.initialize();
+      const session = await adapter.newSession();
+      const response = await adapter.prompt({
+        sessionId: session.sessionId,
+        message: "return JSON",
+      });
+
+      assert.equal(response.stopReason, "end_turn");
+      assert.equal(response.backendError?.message, "backend stream failed");
+      assert.equal(response.backendError?.name, "BackendStreamError");
+      assert.equal(response.backendError?.code, "stream_error");
+      assert.equal(response.backendError?.source, "session_update");
+      assert.isTrue(
+        diagnostics.some((entry) => entry.kind === "prompt_backend_error"),
+      );
+    } finally {
+      await adapter?.close().catch(() => undefined);
+      await fs.rm(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
+    }
+  });
+
+  it("does not classify failed tool updates as prompt backend errors", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-client-"));
+    let adapter: Awaited<ReturnType<typeof createAcpConnectionAdapter>> | null =
+      null;
+    try {
+      const scriptPath = await createFakeClaudeAcpServerScript(root);
+      adapter = await createAcpConnectionAdapter({
+        backend: createClaudeBackend(scriptPath, { TOOL_ERROR_UPDATE: "1" }),
+        agentWorkspaceDir: root,
+        sessionCwd: root,
+        workspaceDir: root,
+        runtimeDir: root,
+      });
+      const diagnostics: Array<{ kind: string; message: string }> = [];
+      adapter.onDiagnostics((entry) => {
+        diagnostics.push({ kind: entry.kind, message: entry.message });
+      });
+
+      await adapter.initialize();
+      const session = await adapter.newSession();
+      const response = await adapter.prompt({
+        sessionId: session.sessionId,
+        message: "return JSON",
+      });
+
+      assert.equal(response.stopReason, "end_turn");
+      assert.isUndefined(response.backendError);
+      assert.isFalse(
+        diagnostics.some((entry) => entry.kind === "prompt_backend_error"),
+      );
+    } finally {
+      await adapter?.close().catch(() => undefined);
+      await fs.rm(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
+    }
+  });
+
+  it("does not classify unknown failed session updates as prompt backend errors", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-client-"));
+    let adapter: Awaited<ReturnType<typeof createAcpConnectionAdapter>> | null =
+      null;
+    try {
+      const scriptPath = await createFakeClaudeAcpServerScript(root);
+      adapter = await createAcpConnectionAdapter({
+        backend: createClaudeBackend(scriptPath, { UNKNOWN_FAILED_UPDATE: "1" }),
+        agentWorkspaceDir: root,
+        sessionCwd: root,
+        workspaceDir: root,
+        runtimeDir: root,
+      });
+      const diagnostics: Array<{ kind: string; message: string }> = [];
+      adapter.onDiagnostics((entry) => {
+        diagnostics.push({ kind: entry.kind, message: entry.message });
+      });
+
+      await adapter.initialize();
+      const session = await adapter.newSession();
+      const response = await adapter.prompt({
+        sessionId: session.sessionId,
+        message: "return JSON",
+      });
+
+      assert.equal(response.stopReason, "end_turn");
+      assert.isUndefined(response.backendError);
+      assert.isFalse(
+        diagnostics.some((entry) => entry.kind === "prompt_backend_error"),
+      );
+    } finally {
+      await adapter?.close().catch(() => undefined);
+      await fs.rm(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
+    }
+  });
+
+  it("surfaces JSON-RPC prompt response errors as request errors", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-client-"));
+    let adapter: Awaited<ReturnType<typeof createAcpConnectionAdapter>> | null =
+      null;
+    try {
+      const scriptPath = await createFakeClaudeAcpServerScript(root);
+      adapter = await createAcpConnectionAdapter({
+        backend: createClaudeBackend(scriptPath, { PROMPT_REQUEST_ERROR: "1" }),
+        agentWorkspaceDir: root,
+        sessionCwd: root,
+        workspaceDir: root,
+        runtimeDir: root,
+      });
+
+      await adapter.initialize();
+      const session = await adapter.newSession();
+      let caught: unknown;
+      try {
+        await adapter.prompt({
+          sessionId: session.sessionId,
+          message: "return JSON",
+        });
+      } catch (error) {
+        caught = error;
+      }
+
+      assert.instanceOf(caught, RequestError);
+      assert.equal((caught as RequestError).code, -32000);
     } finally {
       await adapter?.close().catch(() => undefined);
       await fs.rm(root, {

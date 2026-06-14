@@ -731,6 +731,7 @@ function shouldShowEventInTranscript(stage: string) {
     "failed",
     "canceled",
     "cancel-requested",
+    "interrupt-completed",
   ]).has(normalizeString(stage));
 }
 
@@ -2538,6 +2539,7 @@ export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
   }
   upsertAcpSkillRun({
     requestId,
+    status: "waiting_user",
     activePrompt: false,
     replyState: "idle",
     event: {
@@ -2685,9 +2687,8 @@ export async function replyAcpSkillRun(args: {
 function isAcpSkillRunPromptActive(run: AcpSkillRunRecord) {
   return (
     run.activePrompt === true ||
-    run.status === "queued" ||
-    run.status === "running" ||
-    run.status === "repairing"
+    run.replyState === "submitted" ||
+    run.replyState === "accepted"
   );
 }
 

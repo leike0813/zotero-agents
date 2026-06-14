@@ -49,9 +49,12 @@ async function openSample(
   await page.waitForSelector("[data-paper] .aligned-block-pair", {
     timeout: 20_000,
   });
-  await page.waitForSelector("[data-citation-graph] .graph-node", {
-    timeout: 20_000,
-  });
+  await page.waitForSelector(
+    "[data-citation-graph] .zs-cg-stage canvas, [data-citation-graph] .graph-node",
+    {
+      timeout: 20_000,
+    },
+  );
   return page;
 }
 
@@ -110,8 +113,18 @@ async function assertMainSurfaces(page: Page) {
     summary: document.querySelectorAll("[data-summary] h1").length,
     references: document.querySelectorAll(".structured-references").length,
     referenceItems: document.querySelectorAll(".reference-item").length,
-    graphNodes: document.querySelectorAll(".graph-node").length,
-    graphLegend: document.querySelectorAll(".graph-legend-item").length,
+    graphStatus: document
+      .querySelector("[data-citation-graph]")
+      ?.getAttribute("data-zs-cg-status"),
+    graphCanvases: document.querySelectorAll(".zs-cg-stage canvas").length,
+    legacyGraphNodes: document.querySelectorAll(".graph-node").length,
+    graphStageWidth:
+      document.querySelector(".zs-cg-stage")?.getBoundingClientRect().width ||
+      0,
+    graphStageHeight:
+      document.querySelector(".zs-cg-stage")?.getBoundingClientRect().height ||
+      0,
+    graphLegend: document.querySelectorAll(".zs-cg-legend span").length,
     extensions: document.querySelectorAll("[data-extensions] .extension")
       .length,
     sideSections: document.querySelectorAll("[data-side] section").length,
@@ -133,12 +146,39 @@ async function assertMainSurfaces(page: Page) {
     40,
     "structured reference items should render",
   );
-  assert.isAtLeast(counts.graphNodes, 20, "citation graph nodes should render");
-  assert.isAtLeast(
-    counts.graphLegend,
-    4,
-    "citation graph legend should render",
-  );
+  if (counts.graphStatus) {
+    assert.equal(
+      counts.graphStatus,
+      "ready",
+      "citation graph should initialize",
+    );
+    assert.isAtLeast(
+      counts.graphCanvases,
+      1,
+      "citation graph canvas should render",
+    );
+    assert.isAtLeast(
+      counts.graphStageWidth,
+      520,
+      "citation graph stage should not be cramped",
+    );
+    assert.isAtLeast(
+      counts.graphStageHeight,
+      360,
+      "citation graph stage should have stable height",
+    );
+    assert.isAtLeast(
+      counts.graphLegend,
+      4,
+      "citation graph legend should render",
+    );
+  } else {
+    assert.isAtLeast(
+      counts.legacyGraphNodes,
+      20,
+      "legacy graph sample should be allowed",
+    );
+  }
   assert.isAtLeast(counts.extensions, 1, "extensions should render");
   assert.isAtLeast(
     counts.sideSections,
@@ -304,49 +344,50 @@ async function assertReferencesDigestModalIfAvailable(
 async function assertCitationGraphInteractions(page: Page) {
   await page.locator("#citation-graph").scrollIntoViewIfNeeded();
   await page.waitForTimeout(150);
-  const startNode = page.locator('[data-node-id="zotero:item:EIMSDEU3"]');
-  await startNode.hover();
-  await page.waitForTimeout(150);
-  assert.isAbove(
-    await page.locator(".graph-edge").count(),
-    0,
-    "hover should reveal citation graph edges",
-  );
-  const hoverLabelCount = await page.locator(".graph-label").count();
-  assert.isAtMost(
-    hoverLabelCount,
-    25,
-    "hover should not leave excessive graph labels",
-  );
-  await startNode.click();
+  if ((await page.locator(".zs-cg-stage canvas").count()) === 0) {
+    const startNode = page.locator('[data-node-id="zotero:item:EIMSDEU3"]');
+    await startNode.hover();
+    await page.waitForTimeout(150);
+    assert.isAbove(
+      await page.locator(".graph-edge").count(),
+      0,
+      "hover should reveal citation graph edges",
+    );
+    await startNode.click();
+    await page.waitForTimeout(150);
+    assert.isTrue(
+      await page.locator(".graph-detail h3").first().isVisible(),
+      "graph selection detail should render",
+    );
+    return;
+  }
+  const graphState = await page.evaluate(() => {
+    const section = document.querySelector("[data-citation-graph]");
+    const stage = document.querySelector(".zs-cg-stage");
+    const rect = stage?.getBoundingClientRect();
+    return {
+      status: section?.getAttribute("data-zs-cg-status"),
+      error: section?.getAttribute("data-zs-cg-error"),
+      canvasCount: stage?.querySelectorAll("canvas").length || 0,
+      width: rect?.width || 0,
+      height: rect?.height || 0,
+    };
+  });
+  assert.equal(graphState.status, "ready", graphState.error || "");
+  assert.isAtLeast(graphState.canvasCount, 1);
+  assert.isAtLeast(graphState.width, 520);
+  assert.isAtLeast(graphState.height, 360);
+
+  await page.locator("[data-zs-cg-search]").fill("DETR");
   await page.waitForTimeout(150);
   assert.isTrue(
-    await page.locator(".graph-detail h3").first().isVisible(),
-    "graph selection detail should render",
+    await page.locator("[data-zs-cg-detail] h3").first().isVisible(),
+    "graph detail panel should render",
   );
 
-  const selectedLabelCount = await page.locator(".graph-label").count();
-  assert.isAtMost(
-    selectedLabelCount,
-    25,
-    "selection should not render two-hop label clutter",
-  );
-
-  await page.locator('[data-graph-filter="external"]').click();
+  await page.locator("[data-zs-cg-clear]").click();
   await page.waitForTimeout(150);
-  assert.isAbove(
-    await page.locator(".graph-node").count(),
-    0,
-    "graph should still have nodes after external filter",
-  );
-
-  await page.locator("[data-graph-reset]").click();
-  await page.waitForTimeout(150);
-  assert.equal(
-    await page.locator(".graph-label").count(),
-    0,
-    "graph reset should clear labels",
-  );
+  assert.equal(await page.locator("[data-zs-cg-search]").inputValue(), "");
 }
 
 describe("literature deep reading DETR browser visual regression", function () {

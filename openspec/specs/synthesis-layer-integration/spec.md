@@ -71,15 +71,16 @@ canonical current artifact and Markdown as a compatibility export.
 
 - **WHEN** the Synthesis service builds a topic row for the Workbench snapshot
 - **THEN** the row SHALL prefer structured summary, paper count, external
-  literature count, language, coverage, and completion fields over
+  literature count, language, source-material status, and source-material
+  percent fields over
   Markdown-derived preview text.
 
 #### Scenario: Update intent is projected
 
 - **WHEN** the Synthesis service builds a topic row for a stale, incomplete, or
   dirty topic
-- **THEN** it SHALL derive a host-owned update intent from freshness, coverage,
-  stale reasons, and dirty reasons
+- **THEN** it SHALL derive a host-owned update intent from freshness,
+  source-material readiness, stale reasons, and dirty reasons
 - **AND** the intent SHALL include prefillable topic id, language, update scope,
   update mode, update reason, action label, and whether update is allowed or
   should be treated as repair/rebuild.
@@ -208,8 +209,18 @@ plugin-owned deterministic dependency snapshots.
 - **THEN** the service SHALL write an artifact-state entry for that topic
 - **AND** the entry SHALL contain baseline and current dependency hashes
 - **AND** the topic SHALL be reported as `fresh`
-- **AND** incomplete evidence SHALL be reported through coverage, not by turning
-  the topic stale.
+- **AND** source artifact readiness SHALL be reported through
+  `source_materials_status`, not by turning the topic stale.
+
+#### Scenario: Legacy source-readiness state is migrated
+
+- **GIVEN** a persisted topic artifact-state row contains legacy `coverage`
+  for source readiness and does not contain `source_materials_status`
+- **WHEN** the service reads or migrates artifact state
+- **THEN** it SHALL map the legacy value to `source_materials_status`
+- **AND** subsequent writes SHALL persist only `source_materials_status`
+- **AND** they SHALL NOT write topic-row `coverage` or `completion` fields for
+  source readiness.
 
 #### Scenario: Legacy topic initializes baseline on first scan
 
@@ -316,3 +327,13 @@ separate compatibility Markdown export.
   `synthesis_report`
 - **AND** it SHALL NOT expose `markdown_export`
 - **AND** it SHALL NOT expose markdown/export hashes.
+
+### Requirement: Topic context audit exposes update preflight inputs
+
+The `topics.get_context` audit view SHALL expose the current topic resolver and compact source paper triage records needed by topic synthesis update preflight.
+
+#### Scenario: Audit view is requested for an existing topic
+
+- **WHEN** `topics.get_context` is called with `view: "audit"`
+- **THEN** the response SHALL include audit fields for `topic_resolver` and `source_paper_triage`
+- **AND** SHALL NOT inline the full synthesis report body.

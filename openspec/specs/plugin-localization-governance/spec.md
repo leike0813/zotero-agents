@@ -134,3 +134,28 @@ Dashboard localization SHALL localize fixed UI chrome and controlled labels only
 - **THEN** the UI MUST preserve the original text
 - **AND** it MUST NOT auto-translate that runtime content
 
+### Requirement: Citation role labels are localized
+
+Synthesis Workbench localization SHALL include labels for citation-role filter
+chrome and known literature-analysis function values.
+
+#### Scenario: Known roles render through locale messages
+
+- **GIVEN** graph edge roles include known literature-analysis function values
+- **WHEN** the Synthesis graph controls or inspector render them
+- **THEN** the labels SHALL come from the Synthesis i18n dictionary
+- **AND** the four active addon locales SHALL contain the same keys.
+
+### Requirement: Synthesis standalone export localization governance
+
+Synthesis standalone export UI labels SHALL be included in the existing Synthesis
+localization dictionary and four-locale Fluent parity checks.
+
+#### Scenario: Export labels are localized
+
+- **GIVEN** the Topic Details export action, save dialog labels, and standalone fallback messages are rendered
+- **WHEN** localization governance runs
+- **THEN** each fixed UI label is backed by a Synthesis message key
+- **AND** `en-US`, `zh-CN`, `ja-JP`, and `fr-FR` contain the same key set
+- **AND** export envelope field names and schema identifiers are not treated as user-visible UI copy
+

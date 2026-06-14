@@ -15,6 +15,7 @@ import subprocess
 import sys
 import zipfile
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ DB_PATH = Path("runtime/literature-deep-reading.sqlite")
 VIEWS_DIR = Path("runtime/views")
 SOURCE_DIR = Path("runtime/source")
 PAYLOADS_DIR = Path("runtime/payloads")
+TRANSLATION_BATCHES_DIR = PAYLOADS_DIR / "translation-batches"
 RESULT_PATH = Path("literature-deep-reading.result.json")
 RESULT_DIR = Path("result")
 RESULT_SECTIONS_DIR = RESULT_DIR / "sections"
@@ -35,6 +37,8 @@ MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\n]+)\)")
 HTML_IMAGE_RE = re.compile(r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 REFERENCES_HEADING_RE = re.compile(r"\b(references|bibliography)\b|参考文献", re.IGNORECASE)
+APPENDIX_HEADING_RE = re.compile(r"\b(appendix|appendices|supplementary\s+material|supplemental\s+material|supplementary\s+information)\b|附录", re.IGNORECASE)
+APPENDIX_LETTER_HEADING_RE = re.compile(r"^(?:appendix\s+)?[A-Z](?:\.\d+(?:\.\d+)*)?(?:\s+|\.?\s*$)", re.IGNORECASE)
 REFERENCE_ENTRY_RE = re.compile(r"^\s*(?:\[(\d{1,4})\]|(\d{1,4})[\.)])\s+(.+?)\s*$")
 DISPLAY_MATH_RE = re.compile(r"\$\$\s*([\s\S]*?)\s*\$\$")
 INLINE_MATH_RE = re.compile(r"(?<!\$)\$([^$\n]+?)\$(?!\$)")
@@ -64,6 +68,15 @@ FINAL_REVIEW_FIELDS = {"overall_assessment", "quality_observations"}
 FINAL_REVIEW_OBSERVATION_FIELDS = {"severity", "kind", "block_id", "section_anchor", "message"}
 FINAL_REVIEW_ASSESSMENTS = {"ready", "ready_with_notes", "needs_revision"}
 FINAL_REVIEW_SEVERITIES = {"info", "warning", "error"}
+TRANSLATION_BATCH_MAX_WORDS = 1600
+TRANSLATION_BATCH_MAX_CHARS = 6000
+TRANSLATION_BATCH_MAX_BLOCKS = 20
+PREFACE_SLOT_DEFINITIONS = [
+    ("research_field", "研究领域", "定位论文所在的上位研究领域。"),
+    ("research_direction", "研究方向", "说明论文所属方向及其与领域的关系。"),
+    ("paper_position", "本文位置", "概括本文在相关主题中的作用和贡献位置。"),
+    ("reading_path", "阅读路线", "给出进入正文前最值得带着阅读的问题。"),
+]
 
 
 def utc_now() -> str:
@@ -89,8 +102,28 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def compact_command_output(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    if set(value).issubset({"ok", "errors"}):
+        return value
+    result = dict(value)
+    views = result.get("views")
+    if isinstance(views, dict):
+        result["views"] = {
+            key: path
+            for key, path in views.items()
+            if isinstance(path, str) or path is None
+        }
+    for key in ["reading_blocks", "translation", "citation_graph", "html", "sections"]:
+        if key in result and not isinstance(result.get(key), (str, int, float, bool, type(None))):
+            result[f"{key}_omitted"] = True
+            result.pop(key, None)
+    return result
+
+
 def print_json(value: Any) -> None:
-    print(json.dumps(value, ensure_ascii=False, indent=2))
+    print(json.dumps(compact_command_output(value), ensure_ascii=False, indent=2))
 
 
 def normalize_posix(path: Path | str) -> str:
@@ -258,7 +291,7 @@ def render_latex_fragment(content: str, display: bool) -> str:
     try:
         from latex2mathml.converter import convert  # type: ignore
 
-        mathml = convert(latex, display=display)
+        mathml = convert(latex, display="block" if display else "inline")
         tag = "div" if display else "span"
         mode = "display" if display else "inline"
         return f'<{tag} class="math math-{mode}" role="math">{mathml}</{tag}>'
@@ -337,23 +370,53 @@ def sanitize_table_html(table_html: str) -> str:
         "sub",
         "span",
     }
+    void_tags = {"br", "col"}
 
-    def tag_repl(match: re.Match[str]) -> str:
-        slash = match.group(1) or ""
-        name = match.group(2).lower()
-        attrs = match.group(3) or ""
-        if name not in allowed:
-            return html.escape(match.group(0))
-        if slash:
-            return f"</{name}>"
-        safe_attrs = ""
-        if name in {"td", "th"}:
-            for attr_match in re.finditer(r"\b(rowspan|colspan)\s*=\s*([\"']?)(\d{1,3})\2", attrs, re.IGNORECASE):
-                safe_attrs += f' {attr_match.group(1).lower()}="{html.escape(attr_match.group(3))}"'
-        return f"<{name}{safe_attrs}>"
+    class TableSanitizer(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            self.parts: list[str] = []
 
-    escaped = html.escape(text)
-    return re.sub(r"&lt;(/?)([A-Za-z][A-Za-z0-9-]*)([^&]*)&gt;", tag_repl, escaped)
+        def safe_attrs(self, name: str, attrs: list[tuple[str, str | None]]) -> str:
+            if name not in {"td", "th"}:
+                return ""
+            parts = []
+            for attr_name, attr_value in attrs:
+                lower = attr_name.lower()
+                value = str(attr_value or "")
+                if lower in {"rowspan", "colspan"} and re.fullmatch(r"\d{1,3}", value):
+                    parts.append(f' {lower}="{html.escape(value)}"')
+            return "".join(parts)
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            name = tag.lower()
+            if name not in allowed:
+                self.parts.append(html.escape(self.get_starttag_text() or f"<{tag}>"))
+                return
+            self.parts.append(f"<{name}{self.safe_attrs(name, attrs)}>")
+
+        def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            name = tag.lower()
+            if name not in allowed:
+                self.parts.append(html.escape(self.get_starttag_text() or f"<{tag}/>"))
+                return
+            if name in void_tags:
+                self.parts.append(f"<{name}{self.safe_attrs(name, attrs)}>")
+            else:
+                self.parts.append(f"<{name}{self.safe_attrs(name, attrs)}></{name}>")
+
+        def handle_endtag(self, tag: str) -> None:
+            name = tag.lower()
+            if name in allowed and name not in void_tags:
+                self.parts.append(f"</{name}>")
+
+        def handle_data(self, data: str) -> None:
+            self.parts.append(render_math_text(data))
+
+    parser = TableSanitizer()
+    parser.feed(text)
+    parser.close()
+    return "".join(parser.parts)
 
 
 def render_table_markdown(markdown: str) -> str:
@@ -491,6 +554,19 @@ def collect_following_caption(lines: list[str], index: int, kind: str) -> tuple[
     return "\n".join(collected).strip(), cursor
 
 
+def role_for_heading(title: str, current_role: str, bibliography_seen: bool) -> str:
+    normalized = clean_text(title).strip()
+    if REFERENCES_HEADING_RE.search(normalized):
+        return "bibliography"
+    if APPENDIX_HEADING_RE.search(normalized):
+        return "appendix"
+    if current_role == "appendix":
+        return "appendix"
+    if bibliography_seen and APPENDIX_LETTER_HEADING_RE.match(normalized):
+        return "appendix"
+    return current_role if current_role in {"main", "bibliography", "appendix"} else "main"
+
+
 def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]:
     lines = markdown.splitlines()
     sections: list[dict[str, Any]] = []
@@ -499,8 +575,9 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
     current_anchor = "sec-document"
     current_title = "Document"
     current_level = 0
+    current_role = "main"
     references_anchor: str | None = None
-    after_references = False
+    bibliography_seen = False
 
     def ensure_default_section() -> None:
         if not sections:
@@ -514,10 +591,11 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
                     "parent_anchor": "",
                     "source_start_block": "",
                     "source_end_block": "",
+                    "role": current_role,
                 }
             )
 
-    def add_section(title: str, level: int) -> str:
+    def add_section(title: str, level: int, role: str) -> str:
         anchor = slugify(title, used_anchors)
         parent_anchor = ""
         for section in reversed(sections):
@@ -534,6 +612,7 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
                 "parent_anchor": parent_anchor,
                 "source_start_block": "",
                 "source_end_block": "",
+                "role": role,
             }
         )
         return anchor
@@ -545,12 +624,13 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
             "block_id": block_id,
             "kind": kind,
             "section_anchor": section_anchor,
+            "role": current_role,
             "order_index": len(blocks) + 1,
             "line_start": line_start,
             "line_end": line_end,
             "source_markdown": source,
             "image_refs": image_refs,
-            "translate": not after_references,
+            "translate": current_role != "bibliography",
         }
         if extra:
             block.update(extra)
@@ -574,10 +654,11 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
             title = heading.group(2).strip()
             current_level = len(heading.group(1))
             current_title = title
-            current_anchor = add_section(title, current_level)
-            if REFERENCES_HEADING_RE.search(title):
+            current_role = role_for_heading(title, current_role, bibliography_seen)
+            current_anchor = add_section(title, current_level, current_role)
+            if current_role == "bibliography":
                 references_anchor = current_anchor
-                after_references = True
+                bibliography_seen = True
             add_block("heading", raw, current_anchor, i + 1, i + 1)
             i += 1
             continue
@@ -737,11 +818,18 @@ def build_image_manifest(extract_dir: Path, blocks: list[dict[str, Any]], source
 
 
 def build_source_structure(sections: list[dict[str, Any]], blocks: list[dict[str, Any]], references_anchor: str | None) -> dict[str, Any]:
+    role_counts: dict[str, int] = {}
+    for block in blocks:
+        role = clean_text(block.get("role")) or "main"
+        role_counts[role] = role_counts.get(role, 0) + 1
     return {
         "schema_version": "literature-deep-reading.source-structure.v0",
         "sections": sections,
         "block_count": len(blocks),
+        "role_counts": role_counts,
         "references_anchor": references_anchor,
+        "bibliography_anchors": [section["anchor"] for section in sections if clean_text(section.get("role")) == "bibliography"],
+        "appendix_anchors": [section["anchor"] for section in sections if clean_text(section.get("role")) == "appendix"],
     }
 
 
@@ -766,6 +854,7 @@ def build_source_reading_view(sections: list[dict[str, Any]], blocks: list[dict[
                 "anchor": section["anchor"],
                 "title": section["title"],
                 "level": section["level"],
+                "role": section.get("role") or "main",
                 "block_count": len(selected),
                 "excerpt": "\n\n".join(excerpt_parts)[:1400],
             }
@@ -1140,15 +1229,14 @@ def build_references_seed_view(extract_dir: Path, blocks: list[dict[str, Any]], 
                 "reference_count": len(references),
             }
     raw_entries: list[dict[str, Any]] = []
-    if references_anchor:
-        for block in blocks:
-            if block.get("section_anchor") != references_anchor or block.get("kind") == "heading":
-                continue
-            for line in block_text(block).splitlines():
-                match = REFERENCE_ENTRY_RE.match(line)
-                if match:
-                    index = match.group(1) or match.group(2)
-                    raw_entries.append({"id": f"ref-{index}", "index": int(index), "raw": match.group(3).strip()})
+    for block in blocks:
+        if clean_text(block.get("role")) != "bibliography" or block.get("kind") == "heading":
+            continue
+        for line in block_text(block).splitlines():
+            match = REFERENCE_ENTRY_RE.match(line)
+            if match:
+                index = match.group(1) or match.group(2)
+                raw_entries.append({"id": f"ref-{index}", "index": int(index), "raw": match.group(3).strip()})
     return {
         "schema_version": "literature-deep-reading.references-seed-view.v0",
         "source": "markdown" if raw_entries else "none",
@@ -1195,12 +1283,14 @@ def initialize_database(db_path: Path, context: dict[str, Any], sections: list[d
               order_index INTEGER NOT NULL,
               parent_anchor TEXT NOT NULL,
               source_start_block TEXT NOT NULL,
-              source_end_block TEXT NOT NULL
+              source_end_block TEXT NOT NULL,
+              role TEXT NOT NULL
             );
             CREATE TABLE reading_blocks (
               block_id TEXT PRIMARY KEY,
               section_anchor TEXT NOT NULL,
               kind TEXT NOT NULL,
+              role TEXT NOT NULL,
               order_index INTEGER NOT NULL,
               line_start INTEGER NOT NULL,
               line_end INTEGER NOT NULL,
@@ -1338,7 +1428,7 @@ def initialize_database(db_path: Path, context: dict[str, Any], sections: list[d
             )
         for section in sections:
             conn.execute(
-                "INSERT INTO source_sections VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO source_sections VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     section["section_id"],
                     section["anchor"],
@@ -1348,15 +1438,17 @@ def initialize_database(db_path: Path, context: dict[str, Any], sections: list[d
                     section["parent_anchor"],
                     section["source_start_block"],
                     section["source_end_block"],
+                    clean_text(section.get("role")) or "main",
                 ),
             )
         for block in blocks:
             conn.execute(
-                "INSERT INTO reading_blocks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO reading_blocks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     block["block_id"],
                     block["section_anchor"],
                     block["kind"],
+                    clean_text(block.get("role")) or "main",
                     int(block["order_index"]),
                     int(block["line_start"]),
                     int(block["line_end"]),
@@ -1510,6 +1602,7 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
                 "parent_anchor": "",
                 "source_start_block": "",
                 "source_end_block": "",
+                "role": "main",
             }
         ]
     image_manifest = build_image_manifest(SOURCE_DIR, blocks, source_manifest if isinstance(source_manifest, dict) else {})
@@ -2448,6 +2541,71 @@ def build_concept_overlay_view(payload: dict[str, Any], diagnostics: list[dict[s
     }
 
 
+def normalize_preface_card(entry: Any) -> dict[str, str]:
+    if not isinstance(entry, dict):
+        return {"title": "", "body": ""}
+    return {
+        "title": clean_text(entry.get("title")),
+        "body": clean_text(entry.get("body") or entry.get("description")),
+    }
+
+
+def preface_slot_key(title: str, index: int) -> str:
+    text = title.lower()
+    if any(token in text for token in ["field", "领域", "domain", "area"]):
+        return "research_field"
+    if any(token in text for token in ["direction", "方向", "line", "track"]):
+        return "research_direction"
+    if any(token in text for token in ["position", "地位", "位置", "role", "contribution", "贡献"]):
+        return "paper_position"
+    if any(token in text for token in ["path", "路线", "route", "guide", "目标", "goal", "阅读"]):
+        return "reading_path"
+    return PREFACE_SLOT_DEFINITIONS[min(index, len(PREFACE_SLOT_DEFINITIONS) - 1)][0]
+
+
+def preface_slot_fallback(slot_key: str, payload: dict[str, Any], concept_view: dict[str, Any]) -> str:
+    concepts = [
+        clean_text(item.get("label"))
+        for item in as_list(concept_view.get("concepts"))
+        if isinstance(item, dict) and clean_text(item.get("label"))
+    ][:4]
+    if slot_key == "research_field":
+        return "这篇论文应先被放在其上位研究领域中理解，再进入具体方法细节。"
+    if slot_key == "research_direction":
+        if concepts:
+            return "可从这些核心概念进入本文方向：" + "、".join(concepts) + "。"
+        return "本文属于一个围绕问题建模、方法结构和实验验证展开的具体研究方向。"
+    if slot_key == "paper_position":
+        return clean_text(payload.get("preface_goal")) or "本文的价值需要结合问题设定、方法取舍和后续引用关系来判断。"
+    path_items = [clean_text(item) for item in as_list(payload.get("preface_reading_path")) if clean_text(item)]
+    if path_items:
+        return "建议按以下路径阅读：" + " → ".join(path_items) + "。"
+    return "建议先看问题设定，再看方法结构，最后回到实验结果和局限。"
+
+
+def build_stable_preface_cards(payload: dict[str, Any], concept_view: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+    assigned: dict[str, dict[str, str]] = {}
+    extras: list[dict[str, Any]] = []
+    for index, raw_card in enumerate(as_list(payload.get("preface_cards"))):
+        card = normalize_preface_card(raw_card)
+        if not card["title"] and not card["body"]:
+            continue
+        slot_key = preface_slot_key(card["title"], index)
+        if slot_key in assigned:
+            extras.append({"title": card["title"], "body": card["body"], "reason": "extra_preface_card"})
+            continue
+        assigned[slot_key] = card
+    cards: list[dict[str, str]] = []
+    for slot_key, title, fallback in PREFACE_SLOT_DEFINITIONS:
+        card = assigned.get(slot_key, {})
+        body = clean_text(card.get("body")) or preface_slot_fallback(slot_key, payload, concept_view) or fallback
+        cards.append({"slot": slot_key, "title": title, "body": body})
+    for slot_key, card in assigned.items():
+        if slot_key not in {item[0] for item in PREFACE_SLOT_DEFINITIONS}:
+            extras.append({"title": card.get("title", ""), "body": card.get("body", ""), "reason": "unknown_preface_slot"})
+    return cards, extras
+
+
 def build_preface_view(payload: dict[str, Any], concept_view: dict[str, Any]) -> dict[str, Any]:
     concepts = {concept_key(item.get("label") or ""): item for item in as_list(concept_view.get("concepts")) if isinstance(item, dict)}
     preface_concepts = []
@@ -2463,13 +2621,15 @@ def build_preface_view(payload: dict[str, Any], concept_view: dict[str, Any]) ->
                 "status": concept.get("status") if concept else "keyword",
             }
         )
+    cards, extra_cards = build_stable_preface_cards(payload, concept_view)
     return {
         "schema_version": "literature-deep-reading.preface-view.v0",
         "source": "agent_enrichment",
         "anchor": "preface",
         "title": clean_text(payload.get("preface_title")) or "阅读前导读",
         "goal": clean_text(payload.get("preface_goal")),
-        "cards": as_list(payload.get("preface_cards")),
+        "cards": cards,
+        "extra_cards": extra_cards,
         "reading_path": as_list(payload.get("preface_reading_path")),
         "concepts": preface_concepts,
         "warnings": as_list(payload.get("preface_warnings")),
@@ -2767,6 +2927,181 @@ def write_invalid_stage20_submission(payload_path: Path, errors: list[str]) -> N
         conn.close()
 
 
+def estimate_translation_words(text: str) -> int:
+    latin_words = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?", text)
+    cjk_chars = re.findall(r"[\u3400-\u9fff]", text)
+    other_words = re.findall(r"[^\sA-Za-z0-9\u3400-\u9fff]+", text)
+    return max(1, len(latin_words) + max(1, len(cjk_chars) // 2) + max(0, len(other_words) // 8))
+
+
+def block_translation_source(block: dict[str, Any]) -> str:
+    kind = clean_text(block.get("kind"))
+    if kind == "image":
+        return clean_text(block.get("caption_markdown") or block.get("source_markdown"))
+    if kind == "table":
+        return clean_text(block.get("source_markdown") or block.get("table_markdown_or_html"))
+    return clean_text(block.get("source_markdown"))
+
+
+def translatable_blocks_for_batches() -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for block in reading_blocks():
+        if not bool(block.get("translate")):
+            continue
+        role = clean_text(block.get("role")) or "main"
+        if role == "bibliography":
+            continue
+        block_id = clean_text(block.get("block_id"))
+        if not block_id:
+            continue
+        result.append(block)
+    return result
+
+
+def translation_batch_prompt(batch_id: str, target_language: str) -> str:
+    return "\n".join(
+        [
+            f"You are translating batch {batch_id} of an academic paper into {target_language}.",
+            "Translate every required block fully and faithfully. Do not summarize, omit, invent, or add explanatory commentary.",
+            "Preserve each block_id exactly. Preserve Markdown structure, inline math, display math, image references, citations, and tables.",
+            "Formulas may remain unchanged. Table captions and translatable table cell text must be translated while the table-like structure remains valid.",
+            "For image blocks, keep the original image reference and translate only the caption-like text.",
+            "Use consistent terminology from the provided concepts and section context. Put uncertainty or terminology caveats in quality_notes.",
+            "Return only JSON shaped as {\"translations\":[{\"block_id\":\"...\",\"translated_markdown\":\"...\",\"quality_notes\":[]}]} for this batch.",
+        ]
+    )
+
+
+def make_translation_batch(
+    batch_index: int,
+    blocks: list[dict[str, Any]],
+    target_language: str,
+    concepts_view: dict[str, Any],
+    insights_view: dict[str, Any],
+) -> dict[str, Any]:
+    batch_id = f"batch-{batch_index:04d}"
+    concept_terms = [
+        {
+            "label": clean_text(item.get("label")),
+            "definition": clean_text(item.get("definition")),
+            "aliases": as_list(item.get("aliases")),
+        }
+        for item in as_list(concepts_view.get("concepts"))
+        if isinstance(item, dict) and clean_text(item.get("label"))
+    ]
+    section_anchors = sorted({clean_text(block.get("section_anchor")) for block in blocks if clean_text(block.get("section_anchor"))})
+    section_context = {
+        anchor: insights_view.get("by_anchor", {}).get(anchor, {})
+        for anchor in section_anchors
+        if isinstance(insights_view.get("by_anchor"), dict)
+    }
+    items: list[dict[str, Any]] = []
+    total_words = 0
+    total_chars = 0
+    for block in blocks:
+        source = block_translation_source(block)
+        words = estimate_translation_words(source)
+        total_words += words
+        total_chars += len(source)
+        items.append(
+            {
+                "block_id": clean_text(block.get("block_id")),
+                "kind": clean_text(block.get("kind")),
+                "role": clean_text(block.get("role")) or "main",
+                "section_anchor": clean_text(block.get("section_anchor")),
+                "translate_required": clean_text(block.get("kind")) not in FORMULA_BLOCK_KINDS,
+                "estimated_words": words,
+                "source_markdown": source,
+                "full_source_markdown": clean_text(block.get("source_markdown")),
+            }
+        )
+    return {
+        "schema_version": "literature-deep-reading.translation-batch-input.v0",
+        "batch_id": batch_id,
+        "target_language": target_language,
+        "prompt": translation_batch_prompt(batch_id, target_language),
+        "source_stats": {"estimated_words": total_words, "chars": total_chars, "block_count": len(items)},
+        "concept_terms": concept_terms,
+        "section_context": section_context,
+        "blocks": items,
+    }
+
+
+def prepare_translation_batches(concepts_view: dict[str, Any], insights_view: dict[str, Any]) -> dict[str, Any]:
+    target_language = target_language_from_db()
+    blocks = translatable_blocks_for_batches()
+    if TRANSLATION_BATCHES_DIR.exists():
+        shutil.rmtree(TRANSLATION_BATCHES_DIR)
+    TRANSLATION_BATCHES_DIR.mkdir(parents=True, exist_ok=True)
+    batches: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_words = 0
+    current_chars = 0
+    for block in blocks:
+        source = block_translation_source(block)
+        words = estimate_translation_words(source)
+        chars = len(source)
+        should_flush = (
+            bool(current)
+            and (
+                current_words + words > TRANSLATION_BATCH_MAX_WORDS
+                or current_chars + chars > TRANSLATION_BATCH_MAX_CHARS
+                or len(current) >= TRANSLATION_BATCH_MAX_BLOCKS
+            )
+        )
+        if should_flush:
+            batches.append(current)
+            current = []
+            current_words = 0
+            current_chars = 0
+        current.append(block)
+        current_words += words
+        current_chars += chars
+    if current:
+        batches.append(current)
+
+    batch_summaries: list[dict[str, Any]] = []
+    required_block_ids: list[str] = []
+    for index, batch_blocks in enumerate(batches, start=1):
+        batch = make_translation_batch(index, batch_blocks, target_language, concepts_view, insights_view)
+        batch_path = TRANSLATION_BATCHES_DIR / f"{batch['batch_id']}.json"
+        write_json(batch_path, batch)
+        batch_required_ids = [
+            clean_text(item.get("block_id"))
+            for item in as_list(batch.get("blocks"))
+            if isinstance(item, dict) and item.get("translate_required")
+        ]
+        required_block_ids.extend(batch_required_ids)
+        batch_summaries.append(
+            {
+                "batch_id": batch["batch_id"],
+                "path": normalize_posix(batch_path),
+                "block_count": len(as_list(batch.get("blocks"))),
+                "required_translation_count": len(batch_required_ids),
+                "estimated_words": safe_int(batch.get("source_stats", {}).get("estimated_words"), 0),
+                "chars": safe_int(batch.get("source_stats", {}).get("chars"), 0),
+                "section_anchors": sorted({clean_text(block.get("section_anchor")) for block in batch_blocks if clean_text(block.get("section_anchor"))}),
+            }
+        )
+    view = {
+        "schema_version": "literature-deep-reading.translation-batches-view.v0",
+        "source": "runtime_prepared_batches",
+        "target_language": target_language,
+        "batch_dir": normalize_posix(TRANSLATION_BATCHES_DIR),
+        "batch_count": len(batch_summaries),
+        "required_translation_count": len(required_block_ids),
+        "required_block_ids": required_block_ids,
+        "limits": {
+            "max_words": TRANSLATION_BATCH_MAX_WORDS,
+            "max_chars": TRANSLATION_BATCH_MAX_CHARS,
+            "max_blocks": TRANSLATION_BATCH_MAX_BLOCKS,
+        },
+        "batches": batch_summaries,
+    }
+    write_json(VIEWS_DIR / "translation-batches-view.json", view)
+    return view
+
+
 def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
     if not DB_PATH.exists():
         raise FileNotFoundError("bootstrap database is missing; run bootstrap first")
@@ -2795,6 +3130,7 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
     references = build_references_view(payload)
     summary = build_summary_view(payload, diagnostics)
     extensions = build_extensions_view(payload)
+    translation_batches = prepare_translation_batches(concept_overlay, section_insights)
     diagnostics_view = {
         "schema_version": "literature-deep-reading.diagnostics-enrichment.v0",
         "diagnostics": diagnostics,
@@ -2806,6 +3142,7 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
         "references-view": references,
         "summary-view": summary,
         "extensions-view": extensions,
+        "translation-batches-view": translation_batches,
         "diagnostics-enrichment": diagnostics_view,
     }
     for filename, view in view_map.items():
@@ -2822,7 +3159,10 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
             "references": normalize_posix(VIEWS_DIR / "references-view.json"),
             "summary": normalize_posix(VIEWS_DIR / "summary-view.json"),
             "extensions": normalize_posix(VIEWS_DIR / "extensions-view.json"),
+            "translation_batches": normalize_posix(VIEWS_DIR / "translation-batches-view.json"),
         },
+        "translation_batch_count": safe_int(translation_batches.get("batch_count"), 0),
+        "required_translation_count": safe_int(translation_batches.get("required_translation_count"), 0),
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-enrichment.json"),
         "final_html_available": False,
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics],
@@ -3275,6 +3615,101 @@ def read_template(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any]) -> dict[str, Any]:
+    layout_nodes = {
+        clean_text(node.get("node_id") or node.get("id")): node
+        for node in as_list(layout.get("nodes"))
+        if isinstance(node, dict) and clean_text(node.get("node_id") or node.get("id"))
+    }
+    snapshot_nodes = as_list(snapshot.get("nodes"))
+    snapshot_edges = as_list(snapshot.get("edges"))
+    start_node_id = clean_text(snapshot.get("start_node_id"))
+    nodes: list[dict[str, Any]] = []
+    for node in snapshot_nodes:
+        if not isinstance(node, dict):
+            continue
+        node_id = clean_text(node.get("node_id") or node.get("id"))
+        point = layout_nodes.get(node_id)
+        if not node_id or not isinstance(point, dict):
+            continue
+        x = point.get("x")
+        y = point.get("y")
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            continue
+        raw_kind = clean_text(node.get("kind") or node.get("type"))
+        kind = "external_reference"
+        if node_id == start_node_id or raw_kind in {"target", "library", "library_paper"} or node_id.startswith("zotero:item:"):
+            kind = "library_paper"
+        display_tier = clean_text(node.get("display_tier") or node.get("displayTier"))
+        if not display_tier:
+            display_tier = "library" if kind == "library_paper" else "shared_external"
+        nodes.append(
+            {
+                "id": node_id,
+                "title": first_text(node.get("title"), node.get("label"), node_id),
+                "kind": kind,
+                "year": clean_text(node.get("year")),
+                "x": x,
+                "y": y,
+                "low_signal": bool(node.get("low_signal") or node.get("lowSignal")),
+                "visibility": clean_text(node.get("visibility")) or "default",
+                "display_tier": display_tier,
+                "metrics": node.get("metrics") if isinstance(node.get("metrics"), dict) else {},
+                "source": node,
+            }
+        )
+    node_ids = {node["id"] for node in nodes}
+    edges: list[dict[str, Any]] = []
+    for index, edge in enumerate(snapshot_edges, start=1):
+        if not isinstance(edge, dict):
+            continue
+        source = clean_text(edge.get("source"))
+        target = clean_text(edge.get("target"))
+        if source not in node_ids or target not in node_ids:
+            continue
+        edges.append(
+            {
+                "id": first_text(edge.get("edge_id"), edge.get("id"), f"edge-{index:04d}"),
+                "source": source,
+                "target": target,
+                "primary_role": clean_text(edge.get("primary_role") or edge.get("role") or edge.get("kind")),
+                "mention_count": safe_int(edge.get("mention_count") or edge.get("mentions"), 0),
+                "visibility": clean_text(edge.get("visibility")) or "default",
+                "source_record": edge,
+            }
+        )
+    x_values = [float(node["x"]) for node in nodes]
+    y_values = [float(node["y"]) for node in nodes]
+    coordinate_bounds = {
+        "min_x": min(x_values) if x_values else None,
+        "max_x": max(x_values) if x_values else None,
+        "min_y": min(y_values) if y_values else None,
+        "max_y": max(y_values) if y_values else None,
+    }
+    layout_status = clean_text(layout.get("status") or layout.get("layout_status"))
+    diagnostics = {
+        "snapshot_node_count": len(snapshot_nodes),
+        "snapshot_edge_count": len(snapshot_edges),
+        "layout_node_count": len(layout_nodes),
+        "layout_edge_count": len(as_list(layout.get("edges"))),
+        "drawable_node_count": len(nodes),
+        "drawable_edge_count": len(edges),
+        "dropped_node_count": max(0, len(snapshot_nodes) - len(nodes)),
+        "dropped_edge_count": max(0, len(snapshot_edges) - len(edges)),
+        "coordinate_bounds": coordinate_bounds,
+        "layout_status": layout_status,
+        "render_status": "ready" if nodes and edges and layout_status in {"", "ready", "available"} else ("empty" if not nodes else "partial"),
+    }
+    return {
+        "schema_version": "literature-deep-reading.citation-graph-render-model.v0",
+        "renderer": "zotero-skills-citation-graph-standalone",
+        "start_node_id": start_node_id,
+        "nodes": nodes,
+        "edges": edges,
+        "diagnostics": diagnostics,
+    }
+
+
 def image_data_uri(path: Path) -> str:
     mime_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
@@ -3322,8 +3757,26 @@ def build_source_images_view() -> dict[str, Any]:
     }
 
 
+def inferred_navigation_level(title: str, markdown_level: int) -> int:
+    base_level = max(0, markdown_level - 1)
+    if base_level == 0:
+        return 0
+    text = clean_text(title).strip()
+    depth = 1
+    numeric = re.match(r"^(\d+(?:\.\d+)*)(?:\s+|$)", text)
+    if numeric:
+        depth = numeric.group(1).count(".") + 1
+    else:
+        appendix = re.match(r"^([A-Z])(?:\.(\d+(?:\.\d+)*))?(?:\s+|$)", text)
+        if appendix:
+            suffix = appendix.group(2) or ""
+            depth = 1 + (suffix.count(".") + 1 if suffix else 0)
+    return max(base_level, depth)
+
+
 def build_navigation(source_structure: dict[str, Any]) -> list[dict[str, Any]]:
     navigation = [{"anchor": "preface", "title": "阅读前导读", "level": 0, "kind": "preface"}]
+    appendix_sections: list[dict[str, Any]] = []
     for section in as_list(source_structure.get("sections")):
         if not isinstance(section, dict):
             continue
@@ -3331,11 +3784,17 @@ def build_navigation(source_structure: dict[str, Any]) -> list[dict[str, Any]]:
         title = clean_text(section.get("title"))
         if not anchor or not title:
             continue
+        role = clean_text(section.get("role")) or "main"
+        if role == "bibliography":
+            continue
+        if role == "appendix":
+            appendix_sections.append(section)
+            continue
         navigation.append(
             {
                 "anchor": anchor,
                 "title": title,
-                "level": max(0, safe_int(section.get("level"), 1) - 1),
+                "level": inferred_navigation_level(title, safe_int(section.get("level"), 1)),
                 "kind": "paper_section",
             }
         )
@@ -3343,6 +3802,20 @@ def build_navigation(source_structure: dict[str, Any]) -> list[dict[str, Any]]:
         [
             {"anchor": "summary", "title": "Summary", "level": 0, "kind": "summary"},
             {"anchor": "references", "title": "References", "level": 0, "kind": "references"},
+        ]
+    )
+    for section in appendix_sections:
+        title = clean_text(section.get("title"))
+        navigation.append(
+            {
+                "anchor": clean_text(section.get("anchor")),
+                "title": title,
+                "level": inferred_navigation_level(title, safe_int(section.get("level"), 1)),
+                "kind": "appendix_section",
+            }
+        )
+    navigation.extend(
+        [
             {"anchor": "citation-graph", "title": "Citation Graph", "level": 0, "kind": "citation_graph"},
             {"anchor": "extensions", "title": "Extensions", "level": 0, "kind": "extensions"},
         ]
@@ -3360,7 +3833,7 @@ def paper_metadata() -> dict[str, Any]:
     }
 
 
-def build_render_reading_blocks(blocks: list[dict[str, Any]], translation: dict[str, Any]) -> list[dict[str, Any]]:
+def build_render_reading_blocks(blocks: list[dict[str, Any]], translation: dict[str, Any], role: str = "main") -> list[dict[str, Any]]:
     translations = {
         clean_text(item.get("block_id")): item
         for item in as_list(translation.get("items"))
@@ -3369,6 +3842,8 @@ def build_render_reading_blocks(blocks: list[dict[str, Any]], translation: dict[
     rendered: list[dict[str, Any]] = []
     for block in blocks:
         if not isinstance(block, dict) or block.get("translate") is False:
+            continue
+        if (clean_text(block.get("role")) or "main") != role:
             continue
         block_id = clean_text(block.get("block_id"))
         source_markdown = str(block.get("source_markdown") or "")
@@ -3398,6 +3873,7 @@ def build_final_sections_view(final_review: dict[str, Any], diagnostics: list[di
     layout_nodes = as_list(citation_layout.get("nodes"))
     if as_list(citation_snapshot.get("nodes")) and not layout_nodes:
         diagnostics.append({"severity": "warning", "code": "citation_graph_layout_missing"})
+    citation_graph_model = build_citation_graph_model(citation_snapshot, citation_layout)
     blocks = reading_blocks()
     sections_view = {
         "schema_version": "literature-deep-reading.seamless-scroll.v0",
@@ -3405,7 +3881,8 @@ def build_final_sections_view(final_review: dict[str, Any], diagnostics: list[di
         "navigation": build_navigation(source_structure),
         "preface": read_view("preface-view.json", {}),
         "sections": as_list(source_structure.get("sections")),
-        "reading_blocks": build_render_reading_blocks(blocks, translation),
+        "reading_blocks": build_render_reading_blocks(blocks, translation, "main"),
+        "appendix_reading_blocks": build_render_reading_blocks(blocks, translation, "appendix"),
         "summary": read_view("summary-view.json", {}),
         "post_reading_markdown": "",
         "section_insights": read_view("section-insights-view.json", {}),
@@ -3416,6 +3893,7 @@ def build_final_sections_view(final_review: dict[str, Any], diagnostics: list[di
             "anchor": "citation-graph",
             "snapshot": citation_snapshot,
             "layout": citation_layout,
+            "model": citation_graph_model,
         },
         "extensions": read_view("extensions-view.json", {}),
         "translation": translation,
@@ -3444,12 +3922,14 @@ def render_final_html(sections_view: dict[str, Any]) -> str:
     title = html.escape(clean_text(sections_view.get("paper", {}).get("title")) or "Literature Deep Reading")
     template = read_template("deep-reading.html.tpl")
     style = read_template("deep-reading.css")
+    graph_style = read_template("citation-graph-standalone.css")
     script = read_template("deep-reading.js")
+    graph_script = read_template("citation-graph-standalone.js")
     return (
         template.replace("{{TITLE}}", title)
-        .replace("{{STYLE}}", style)
+        .replace("{{STYLE}}", style + "\n" + graph_style)
         .replace("{{DATA_JSON}}", safe_inline_json(sections_view))
-        .replace("{{SCRIPT}}", script)
+        .replace("{{SCRIPT}}", graph_script + "\n" + script)
     )
 
 
@@ -3929,6 +4409,7 @@ def validate_reading_enrichment(payload_path: Path | None = None) -> dict[str, A
         VIEWS_DIR / "references-view.json",
         VIEWS_DIR / "summary-view.json",
         VIEWS_DIR / "extensions-view.json",
+        VIEWS_DIR / "translation-batches-view.json",
         VIEWS_DIR / "diagnostics-enrichment.json",
     ]
     if not any(errors):
@@ -4058,7 +4539,7 @@ def validate_final_output(payload_path: Path | None = None) -> dict[str, Any]:
             external_refs = external_html_references(html_text)
             if external_refs:
                 errors.append("final HTML contains external or loose references: " + ", ".join(external_refs))
-            for marker in ["data-nav", "data-concept-rail", "data-mode=\"compare\"", "data-preface", "data-paper", "data-translation-paper", "data-summary", "data-post-reading", "data-citation-graph", "data-extensions", "data-digest-modal"]:
+            for marker in ["data-nav", "data-concept-rail", "data-mode=\"compare\"", "data-preface", "data-paper", "data-translation-paper", "data-summary", "data-post-reading", "data-appendix-reading", "data-citation-graph", "data-extensions", "data-digest-modal"]:
                 if marker not in html_text:
                     errors.append(f"final HTML missing marker: {marker}")
         if DB_PATH.exists():

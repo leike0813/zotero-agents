@@ -602,7 +602,7 @@ export async function openWorkflowSettingsWebDialog(args: {
           throw new Error("workflow settings dialog window is unavailable");
         }
         try {
-          dialogWindow.resizeTo(760, 620);
+          dialogWindow.resizeTo(760, 660);
         } catch {
           // ignore
         }

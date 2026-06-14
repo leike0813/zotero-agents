@@ -71,6 +71,7 @@ import {
   createAcpConnectionAdapter,
   type AcpConnectionAdapter,
   type AcpConnectionInitializeResult,
+  type AcpPromptBackendError,
 } from "./acpConnectionAdapter";
 import { ensureZoteroMcpServer } from "./zoteroMcpServer";
 import { listZoteroMcpTools } from "./zoteroMcpProtocol";
@@ -165,6 +166,9 @@ type AcpPromptOutcome = {
   stopReason: string;
   assistantText: string;
   observedAcpActivity: boolean;
+  cancelRequested?: boolean;
+  standardAssistantTextSeen?: boolean;
+  backendError?: AcpPromptBackendError;
 };
 
 type AcpPromptFailureDiagnostic = {
@@ -207,6 +211,29 @@ function isProtocolPromptStop(stopReasonRaw: string) {
 function classifyAcpPromptFailure(
   outcome: AcpPromptOutcome,
 ): AcpPromptFailureDiagnostic | null {
+  if (outcome.backendError?.message) {
+    const hasAssistantCandidate =
+      !!normalizeString(outcome.assistantText) ||
+      outcome.standardAssistantTextSeen === true;
+    if (
+      outcome.backendError.source === "session_update" &&
+      hasAssistantCandidate
+    ) {
+      return null;
+    }
+    return {
+      stage: "acp-prompt-failed",
+      message:
+        "ACP backend returned a prompt error before workflow output validation.",
+      error: outcome.backendError.message,
+      details: {
+        errorName: outcome.backendError.name,
+        code: outcome.backendError.code,
+        data: outcome.backendError.data,
+        source: outcome.backendError.source,
+      },
+    };
+  }
   const stopReason = normalizeString(outcome.stopReason);
   if (isProtocolPromptStop(stopReason)) {
     return {
@@ -821,7 +848,14 @@ async function runPrompt(args: {
   runtimeOptions?: FrozenAcpRuntimeOptions;
   sessionId?: string;
   prepareSession?: (sessionId: string) => Promise<void>;
-}): Promise<{ sessionId: string; stopReason: string }> {
+}): Promise<{
+  sessionId: string;
+  stopReason: string;
+  cancelRequested?: boolean;
+  observedAcpActivity?: boolean;
+  standardAssistantTextSeen?: boolean;
+  backendError?: AcpPromptBackendError;
+}> {
   let sessionId = String(args.sessionId || "").trim();
   if (!sessionId) {
     const session = await args.adapter.newSession();
@@ -904,7 +938,14 @@ async function runPrompt(args: {
       },
     },
   });
-  return { sessionId, stopReason };
+  return {
+    sessionId,
+    stopReason,
+    cancelRequested: response.cancelRequested,
+    observedAcpActivity: response.observedAcpActivity,
+    standardAssistantTextSeen: response.standardAssistantTextSeen,
+    backendError: response.backendError,
+  };
 }
 
 async function resolveWorkflowById(workflowId: string) {
@@ -1734,7 +1775,8 @@ export async function recoverAcpSkillRunConversation(args: {
       return {
         ...result,
         assistantText: currentTurnAssistantText,
-        observedAcpActivity: currentTurnObservedAcpActivity,
+        observedAcpActivity:
+          currentTurnObservedAcpActivity || result.observedAcpActivity === true,
       };
     } finally {
       captureAssistantText = false;
@@ -1798,6 +1840,7 @@ export async function recoverAcpSkillRunConversation(args: {
             stopReason: "cancelled",
             assistantText: "",
             observedAcpActivity: currentTurnObservedAcpActivity,
+            cancelRequested: recoveredInterruptionRequested,
           };
         }
         await failRecoveredAcpPrompt(classifyAcpPromptError(error));
@@ -1811,9 +1854,10 @@ export async function recoverAcpSkillRunConversation(args: {
     if (recoveredDisconnectRequested) {
       return;
     }
-    if (recoveredInterruptionRequested) {
+    if (recoveredInterruptionRequested || promptOutcome.cancelRequested) {
       upsertAcpSkillRun({
         requestId,
+        status: "waiting_user",
         activePrompt: false,
         replyState: "idle",
         conversationState: "active",
@@ -1824,6 +1868,7 @@ export async function recoverAcpSkillRunConversation(args: {
           level: "warn",
           details: {
             recovered: true,
+            cancelRequested: promptOutcome.cancelRequested === true,
           },
         },
       });
@@ -2845,7 +2890,8 @@ export async function executeAcpSkillRunnerJob(args: {
       return {
         ...result,
         assistantText: currentTurnAssistantText,
-        observedAcpActivity: currentTurnObservedAcpActivity,
+        observedAcpActivity:
+          currentTurnObservedAcpActivity || result.observedAcpActivity === true,
       };
     } catch (error) {
       if (
@@ -3272,11 +3318,11 @@ export async function executeAcpSkillRunnerJob(args: {
           },
         };
       }
-      if (interruptionRequested) {
+      if (interruptionRequested || promptResult.cancelRequested) {
         keepConversationAlive = true;
         upsertAcpSkillRun({
           requestId: workspace.requestId,
-          status: "running",
+          status: "waiting_user",
           activePrompt: false,
           replyState: "idle",
           error: "",
@@ -3288,13 +3334,15 @@ export async function executeAcpSkillRunnerJob(args: {
             level: "warn",
             details: {
               reason: "current turn canceled after prompt returned",
+              cancelRequested: promptResult.cancelRequested === true,
             },
           },
         });
         return {
-          status: "succeeded",
+          status: "deferred",
           requestId: workspace.requestId,
           fetchType: "result",
+          backendStatus: "waiting_user",
           responseJson: {
             provider: "acp",
             requestId: workspace.requestId,
@@ -3581,7 +3629,7 @@ export async function executeAcpSkillRunnerJob(args: {
       keepConversationAlive = true;
       upsertAcpSkillRun({
         requestId: workspace.requestId,
-        status: "running",
+        status: "waiting_user",
         activePrompt: false,
         replyState: "idle",
         error: "",
@@ -3597,9 +3645,10 @@ export async function executeAcpSkillRunnerJob(args: {
         },
       });
       return {
-        status: "succeeded",
+        status: "deferred",
         requestId: workspace.requestId,
         fetchType: "result",
+        backendStatus: "waiting_user",
         responseJson: {
           provider: "acp",
           requestId: workspace.requestId,

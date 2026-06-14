@@ -155,6 +155,16 @@ function validateSequenceManifestSemantics(manifest: WorkflowManifest) {
     if (fromStep && !seen.has(fromStep)) {
       return `/request/sequence/steps/${index}/handoff/from_step must match a declared sequence step`;
     }
+    const shortCircuit = steps[index]?.short_circuit;
+    if (shortCircuit !== undefined) {
+      const path = String(shortCircuit?.when?.path || "").trim();
+      if (!path) {
+        return `/request/sequence/steps/${index}/short_circuit/when/path must be non-empty`;
+      }
+      if (shortCircuit?.result !== "step_output") {
+        return `/request/sequence/steps/${index}/short_circuit/result must be step_output`;
+      }
+    }
   }
   return "";
 }

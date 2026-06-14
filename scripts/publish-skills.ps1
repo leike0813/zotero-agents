@@ -13,12 +13,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string[]]$Skills = @(
-        'create-topic-synthesis',
-        'literature-search-ingest',
-        'manuscript-literature-framing',
-        'update-topic-synthesis'
-    ),
+    [string[]]$Skills,
     [string]$Prefix = 'skill/',
     [string]$BaseBranch = 'main',
     [switch]$Push,
@@ -47,6 +42,21 @@ if (-not $DevRoot) { Log-Error "Run this script from inside the Zotero-Skills gi
 $DevRoot = Resolve-Path $DevRoot
 
 Log-Info "DEV_ROOT = $DevRoot"
+
+# Load skill whitelist from .public if not specified
+if (-not $Skills) {
+    $publicFile = Join-Path $DevRoot "skills_builtin\.public"
+    if (-not (Test-Path $publicFile)) {
+        Log-Error "No -Skills provided and .public whitelist not found at: $publicFile"
+    }
+    $Skills = Get-Content $publicFile | Where-Object {
+        $_ -and $_ -notmatch '^\s*#'
+    } | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+    if (-not $Skills) {
+        Log-Error "No valid skill entries in skills_builtin\.public"
+    }
+    Log-Info "Loaded $($Skills.Count) skill(s) from .public: $($Skills -join ', ')"
+}
 
 # Check worktree is clean
 $porcelain = git -C $DevRoot status --porcelain

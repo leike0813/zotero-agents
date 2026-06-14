@@ -671,7 +671,7 @@ describe("acp ui smoke", function () {
     assert.include(assistantHtml, "assistant-workspace-tabbar");
     assert.include(assistantHtml, "../shared/theme.js");
     assert.include(assistantHtml, "../shared/theme.css");
-    assert.include(sharedThemeCss, "--zs-selection-bg: var(--zs-accent-soft);");
+    assert.include(sharedThemeCss, "--zs-selection-bg: rgba(37, 99, 235, 0.26);");
     assert.include(sharedThemeCss, "--zs-selection-text: var(--zs-text);");
     assert.include(sharedThemeCss, "background: var(--zs-selection-bg);");
     assert.include(sharedThemeCss, "::-moz-selection");
@@ -1942,7 +1942,26 @@ describe("acp ui smoke", function () {
       "assistant-panel-details-no-entries",
       "assistant-panel-reply-placeholder-acp-skill",
       "assistant-panel-reply-placeholder-skillrunner",
+      "assistant-panel-reply-placeholder-acp-chat",
       "assistant-panel-reply-shortcut",
+      "assistant-panel-action-connecting",
+      "assistant-panel-action-disconnecting",
+      "assistant-panel-action-use-method",
+      "assistant-panel-interaction-user-input-required",
+      "assistant-panel-interaction-waiting-reply",
+      "assistant-panel-interaction-authentication-required-title",
+      "assistant-panel-interaction-authentication-required-message",
+      "assistant-panel-interaction-agent-running-title",
+      "assistant-panel-interaction-agent-working-message",
+      "assistant-panel-interaction-agent-repairing-message",
+      "assistant-panel-interaction-run-completed-title",
+      "assistant-panel-interaction-run-result-ready",
+      "assistant-panel-interaction-acp-connection-interrupted",
+      "assistant-panel-interaction-disconnected-recoverable",
+      "assistant-panel-interaction-run-canceled-continue",
+      "assistant-panel-interaction-waiting-request-id",
+      "assistant-panel-interaction-needs-user-interaction",
+      "assistant-panel-interaction-backend-unavailable",
       "assistant-panel-permission-view-full-request",
       "assistant-panel-transcript-empty",
       "assistant-panel-transcript-thinking",
@@ -1955,6 +1974,123 @@ describe("acp ui smoke", function () {
         assert.include(text, `${key} =`, `${locale} should define ${key}`);
       });
     });
+  });
+
+  it("projects localized Assistant sidebar hint copy from shared panel labels", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const labels = {
+      actions: {
+        send: "发送",
+        useMethod: "使用此方式",
+      },
+      reply: {
+        placeholderAcpChat: "询问当前 ACP 后端...",
+        shortcut: "快捷发送",
+      },
+      drawer: {
+        emptyTasks: "暂无运行",
+      },
+      interaction: {
+        userInputRequired: "需要用户输入",
+        waitingReply: "正在等待回复",
+        waitingRequestId: "等待请求 ID",
+        needsUserInteraction: "需要交互",
+        backendUnavailable: "后端不可用",
+      },
+    };
+
+    const skillRunner = model.projectSkillRunnerPanelSnapshot({
+      labels,
+      session: {
+        requestId: "req-localized-hint",
+        status: "waiting_user",
+        pendingInteractionId: 1,
+        pendingKind: "open_text",
+      },
+      drawer: {
+        sections: [
+          {
+            id: "running",
+            groups: [
+              {
+                backendId: "backend-a",
+                activeTasks: [
+                  {
+                    key: "",
+                    status: "waiting_user",
+                    attention: "warning",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    assert.equal(skillRunner.interaction.title, "需要用户输入");
+    assert.equal(
+      skillRunner.interaction.pendingInteraction.uiHints.prompt,
+      "正在等待回复",
+    );
+    assert.equal(skillRunner.reply.hint, "快捷发送");
+    assert.equal(skillRunner.drawers.labels.waitingRequestId, "等待请求 ID");
+    assert.equal(skillRunner.drawers.labels.needsUserInteraction, "需要交互");
+    assert.equal(skillRunner.drawers.labels.backendUnavailable, "后端不可用");
+
+    const acpChat = model.projectAcpChatPanelSnapshot({
+      labels,
+      status: "connected",
+      backendOptions: [],
+      chatSessions: [],
+    });
+    assert.equal(acpChat.reply.placeholder, "询问当前 ACP 后端...");
+  });
+
+  it("localizes the Assistant interaction status area from the conversation view", async function () {
+    const conversationView = await loadAssistantConversationViewForSmoke();
+    const model = await loadAssistantPanelModelForSmoke({ conversationView });
+    const labels = {
+      interaction: {
+        agentWorkingMessage: "Agent 正在处理",
+        agentRepairingMessage: "Agent 正在修复输出",
+        runResultReady: "结果已就绪",
+        runCanceledContinue: "任务已取消，可继续对话",
+      },
+    };
+
+    const chatPanel = model.projectAcpChatPanelSnapshot({
+      labels,
+      status: "connected",
+      busy: true,
+      sessionId: "session-localized-working",
+      backendOptions: [],
+      chatSessions: [],
+    });
+    assert.equal(chatPanel.interaction.kind, "running");
+    assert.equal(chatPanel.interaction.message, "Agent 正在处理");
+
+    const repairingPanel = model.projectAcpSkillRunPanelSnapshot({
+      labels,
+      selectedRun: {
+        requestId: "repairing-run",
+        status: "repairing",
+      },
+      runs: [{ requestId: "repairing-run", status: "repairing" }],
+    });
+    assert.equal(repairingPanel.interaction.kind, "running");
+    assert.equal(repairingPanel.interaction.message, "Agent 正在修复输出");
+
+    const completedPanel = model.projectAcpSkillRunPanelSnapshot({
+      labels,
+      selectedRun: {
+        requestId: "completed-run",
+        status: "succeeded",
+      },
+      runs: [{ requestId: "completed-run", status: "succeeded" }],
+    });
+    assert.equal(completedPanel.interaction.kind, "completed");
+    assert.equal(completedPanel.interaction.message, "结果已就绪");
   });
 
   it("defines Products dashboard locale keys in all active locales", async function () {
@@ -2206,6 +2342,7 @@ describe("acp ui smoke", function () {
         requestId: "acp-skill-1",
         status: "running",
         conversationState: "active",
+        activePrompt: true,
         sessionId: "session-1",
         taskName: "Selected Paper Title",
         workflowLabel: "Digest",
@@ -2377,6 +2514,48 @@ describe("acp ui smoke", function () {
       reconnectedWorkingSkillPanel.reply.action,
       "interrupt-run-turn",
     );
+
+    const connectedIdleRunningSkillPanel = model.projectAcpSkillRunPanelSnapshot({
+      selectedRun: {
+        requestId: "acp-skill-connected-idle",
+        status: "running",
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        activePrompt: false,
+        replyState: "idle",
+        sessionId: "session-connected-idle",
+        transcriptItems: [
+          {
+            kind: "status",
+            label: "interrupt-completed",
+          },
+        ],
+      },
+      runs: [{ requestId: "acp-skill-connected-idle", status: "running" }],
+      logs: [],
+    });
+    assert.equal(connectedIdleRunningSkillPanel.interaction.kind, "waiting_user");
+    assert.equal(connectedIdleRunningSkillPanel.reply.enabled, true);
+    assert.equal(connectedIdleRunningSkillPanel.reply.inputEnabled, true);
+    assert.equal(connectedIdleRunningSkillPanel.reply.action, "reply-run");
+
+    const transcriptWaitingSkillPanel = model.projectAcpSkillRunPanelSnapshot({
+      selectedRun: {
+        requestId: "acp-skill-transcript-waiting",
+        status: "running",
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        activePrompt: false,
+        replyState: "idle",
+        sessionId: "session-transcript-waiting",
+        transcriptItems: [],
+      },
+      runs: [{ requestId: "acp-skill-transcript-waiting", status: "running" }],
+      logs: [],
+    });
+    assert.notEqual(transcriptWaitingSkillPanel.interaction.kind, "waiting_user");
+    assert.equal(transcriptWaitingSkillPanel.reply.enabled, false);
+    assert.equal(transcriptWaitingSkillPanel.reply.inputEnabled, false);
 
     const terminalSkillPanel = model.projectAcpSkillRunPanelSnapshot({
       selectedRun: {
@@ -2778,6 +2957,20 @@ describe("acp ui smoke", function () {
       ".assistant-workspace-drawer-section.is-completed",
     );
     assert.include(sharedPanelCss, ".assistant-workspace-drawer-task");
+    assert.include(
+      sharedPanelCss,
+      ':root[data-zs-theme="dark"] .assistant-workspace-drawer-task',
+    );
+    assert.include(sharedPanelCss, "color: var(--asst-text);");
+    assert.include(
+      sharedPanelCss,
+      ':root[data-zs-theme="dark"] .assistant-workspace-drawer-task-workflow',
+    );
+    assert.include(sharedPanelCss, "color: var(--asst-muted);");
+    assert.include(
+      sharedPanelCss,
+      ':root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task',
+    );
     assert.include(
       sharedPanelCss,
       ".assistant-workspace-drawer-task-action.is-archive::before",

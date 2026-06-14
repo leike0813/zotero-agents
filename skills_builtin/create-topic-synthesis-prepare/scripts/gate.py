@@ -35,6 +35,22 @@ def main() -> int:
     parser.add_argument("--input", help="Initial workflow input JSON path.")
     parser.add_argument("--payload", help="Stage payload JSON path.")
     parser.add_argument(
+        "--reason",
+        default="user_cancelled",
+        help="Business cancellation reason for --action cancel.",
+    )
+    parser.add_argument(
+        "--message",
+        default="Topic synthesis was canceled.",
+        help="Business cancellation message for --action cancel.",
+    )
+    parser.add_argument("--topic-id", help="Topic id to include in canceled output.")
+    parser.add_argument("--topic-seed", help="Topic seed to include in canceled output.")
+    parser.add_argument(
+        "--duplicate-topic-id",
+        help="Duplicate topic id to include in canceled output.",
+    )
+    parser.add_argument(
         "--action",
         default="gate",
         choices=["gate", "run", "submit", "cancel"],
@@ -77,16 +93,20 @@ def main() -> int:
             )
             return 0
         if args.action == "cancel":
-            _print_json(
-                {
-                    "__SKILL_DONE__": True,
-                    "kind": "topic_synthesis_canceled",
-                    "status": "canceled",
-                    "reason": "user_cancelled",
-                    "message": "Topic synthesis was canceled.",
-                    "skill_id": skill_id,
-                }
-            )
+            canceled = {
+                "__SKILL_DONE__": True,
+                "kind": "topic_synthesis_canceled",
+                "status": "canceled",
+                "reason": args.reason,
+                "message": args.message,
+            }
+            if args.topic_id:
+                canceled["topic_id"] = args.topic_id
+            if args.topic_seed:
+                canceled["topic_seed"] = args.topic_seed
+            if args.duplicate_topic_id:
+                canceled["duplicate_topic_id"] = args.duplicate_topic_id
+            _print_json(canceled)
             return 0
         raise AssertionError(f"unsupported action: {args.action}")
     except Exception as error:

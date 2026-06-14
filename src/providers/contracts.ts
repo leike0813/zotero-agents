@@ -70,6 +70,14 @@ export type SkillRunnerSequenceHandoffSpec = {
   };
 };
 
+export type SkillRunnerSequenceShortCircuitSpec = {
+  when: {
+    path: string;
+    equals: string | number | boolean | null;
+  };
+  result: "step_output";
+};
+
 export type SkillRunnerSequenceStepV1 = {
   id: string;
   skill_id: string;
@@ -78,6 +86,7 @@ export type SkillRunnerSequenceStepV1 = {
   fetch_type?: "bundle" | "result";
   workspace?: SkillRunnerSequenceWorkspaceMode;
   handoff?: SkillRunnerSequenceHandoffSpec;
+  short_circuit?: SkillRunnerSequenceShortCircuitSpec;
 };
 
 export type SkillRunnerSequenceRequestV1 = ProviderExecutionRequestMeta & {
@@ -196,6 +205,9 @@ export type ProviderExecutionSucceededResult = {
   sequence?: {
     workflow_run_id?: string;
     final_step_id?: string;
+    short_circuited?: boolean;
+    short_circuit_step_id?: string;
+    declared_final_step_id?: string;
     steps?: Array<{
       step_id?: string;
       request_id?: string;

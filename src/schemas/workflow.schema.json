@@ -579,6 +579,46 @@
         },
         "handoff": {
           "$ref": "#/$defs/requestSequenceHandoffSpec"
+        },
+        "short_circuit": {
+          "$ref": "#/$defs/requestSequenceShortCircuitSpec"
+        }
+      },
+      "additionalProperties": false
+    },
+    "requestSequenceShortCircuitSpec": {
+      "type": "object",
+      "required": ["when", "result"],
+      "properties": {
+        "when": {
+          "type": "object",
+          "required": ["path", "equals"],
+          "properties": {
+            "path": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "equals": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "type": "string",
+          "enum": ["step_output"]
         }
       },
       "additionalProperties": false

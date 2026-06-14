@@ -1,0 +1,10 @@
+- [x] Add OpenSpec deltas for topic context Host Bridge/MCP views and file output.
+- [x] Implement explicit `digest`, `semantic`, `audit`, and `full` topic context views while preserving legacy no-view output.
+- [x] Add `outputPath`/`output_path` file materialization with compact result envelopes.
+- [x] Update MCP tool schema and Host Bridge capability description.
+- [x] Update CLI documentation examples for view/file output usage.
+- [x] Update Rust CLI help for `topics get-context` view and file-output input.
+- [x] Update Host Bridge surface renderer and regenerate wrapper skill/reference surfaces.
+- [x] Add focused service and MCP tests.
+- [x] Add CLI/wrapper documentation sync tests.
+- [x] Run focused mocha, OpenSpec validation, TypeScript, and `git diff --check`.

@@ -12,6 +12,12 @@
     "messages": {
       "zh-CN": {
         "label": "MinerU 文档解析"
+      },
+      "fr-FR": {
+        "label": "MinerU - Extraction de documents"
+      },
+      "ja-JP": {
+        "label": "MinerU ドキュメント解析"
       }
     }
   },

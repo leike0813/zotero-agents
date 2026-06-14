@@ -7,7 +7,6 @@ handoff_paths:
 result_paths:
   candidate_output: result/final-output.candidate.json
   create_manifest: result/topic-analysis.json
-  update_patch_manifest: result/topic-analysis.patch.json
 schema_paths:
   handoff: assets/schemas/handoff.schema.json
   stdout_envelope: assets/output.schema.json

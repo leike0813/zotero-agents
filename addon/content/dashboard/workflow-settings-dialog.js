@@ -603,7 +603,9 @@
     const grid = document.createElement("div");
     grid.className = "settings-grid";
 
-    grid.appendChild(
+    const workflowColumn = document.createElement("div");
+    workflowColumn.className = "settings-options-column";
+    workflowColumn.appendChild(
       renderFormSection({
         title: snapshot.labels.workflowParamsTitle,
         emptyText: snapshot.labels.noWorkflowParams,
@@ -616,33 +618,36 @@
         },
       }),
     );
+    if (Array.isArray(form.runSchemaEntries) && form.runSchemaEntries.length) {
+      workflowColumn.appendChild(
+        renderFormSection({
+          title: snapshot.labels.runOptionsTitle,
+          emptyText: snapshot.labels.noRunOptions,
+          entries: form.runSchemaEntries,
+          values: state.draft.runOptions,
+          section: "runOptions",
+          labels: snapshot.labels || {},
+          onChange: function (changeMeta) {
+            updateDraft(state.draft, changeMeta);
+          },
+        }),
+      );
+    }
+    grid.appendChild(workflowColumn);
 
-    grid.appendChild(
-      renderFormSection({
-        title: snapshot.labels.providerOptionsTitle,
-        emptyText: snapshot.labels.noProviderOptions,
-        entries: form.providerSchemaEntries || [],
-        values: state.draft.providerOptions,
-        section: "providerOptions",
-        labels: snapshot.labels || {},
-        onChange: function (changeMeta) {
-          updateDraft(state.draft, changeMeta);
-        },
-      }),
-    );
-    grid.appendChild(
-      renderFormSection({
-        title: snapshot.labels.runOptionsTitle,
-        emptyText: snapshot.labels.noRunOptions,
-        entries: form.runSchemaEntries || [],
-        values: state.draft.runOptions,
-        section: "runOptions",
-        labels: snapshot.labels || {},
-        onChange: function (changeMeta) {
-          updateDraft(state.draft, changeMeta);
-        },
-      }),
-    );
+    const providerCard = renderFormSection({
+      title: snapshot.labels.providerOptionsTitle,
+      emptyText: snapshot.labels.noProviderOptions,
+      entries: form.providerSchemaEntries || [],
+      values: state.draft.providerOptions,
+      section: "providerOptions",
+      labels: snapshot.labels || {},
+      onChange: function (changeMeta) {
+        updateDraft(state.draft, changeMeta);
+      },
+    });
+    providerCard.classList.add("settings-card-fill");
+    grid.appendChild(providerCard);
     shell.appendChild(grid);
 
     if (form.profileMissing) {

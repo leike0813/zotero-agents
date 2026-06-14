@@ -671,14 +671,16 @@
         "span",
         "",
         safeText(interaction.title || interaction.message || interaction.label) ||
-          (kind === "running" ? labelOf(panel, "status.running", "Agent is working...") : kind),
+          (kind === "running"
+            ? labelOf(panel, "interaction.agentWorkingMessage", "Agent is working...")
+            : kind),
       ),
     );
     const pending = interaction.pendingInteraction || {};
     if (kind === "waiting_user") {
       const prompt =
         safeText(pending.uiHints && pending.uiHints.prompt) ||
-        labelOf(panel, "permission.waitingReply", "Agent is waiting for your reply.");
+        labelOf(panel, "interaction.waitingReply", "Agent is waiting for your reply.");
       row.lastChild.textContent = prompt;
     }
     target.appendChild(row);
@@ -1040,7 +1042,10 @@
     const content = el("div", "assistant-workspace-drawer-task-content");
     if (safeText(item.attention) === "warning") {
       const led = el("span", "assistant-workspace-drawer-task-attention asst-led is-warning", "");
-      led.title = safeText(item.attentionLabel) || "Needs user interaction";
+      led.title =
+        safeText(item.attentionLabel) ||
+        safeText(labels.needsUserInteraction) ||
+        "Needs user interaction";
       content.appendChild(led);
     }
     content.appendChild(title);

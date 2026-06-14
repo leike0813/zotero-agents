@@ -141,13 +141,13 @@ function validBundle(topicId: string, paperRefs: string[]) {
       title: "Alpha Topic",
     },
     topic_resolver: {
-      mode: "tag_query",
-      query: { and: ["topic:alpha"] },
+      tag: { and: ["topic:alpha"] },
+      combine: "union",
     },
     resolved_paper_set: {
       papers: paperRefs.map((paper_ref) => ({
         paper_ref,
-        match_reasons: ["tag_query"],
+        match_reasons: ["tag"],
       })),
     },
     resolver_diagnostics: {
@@ -336,7 +336,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     const beta = await createPaper({
       title: "Beta Paper",
       date: "2023",
-      tags: ["topic:alpha", "exclude:reviewed"],
+      tags: ["exclude:reviewed"],
       creators: [{ lastName: "Beta" }],
     });
     await addPayloadNote(alpha, "References", "references-json", {
@@ -360,17 +360,16 @@ describe("Synthesis Layer MVP real-data closure", function () {
       }),
     });
 
+    const alphaRef = `${alpha.libraryID}:${alpha.key}`;
+    const betaRef = `${beta.libraryID}:${beta.key}`;
+    const unionResolved = await service.resolveResolver({
+      tag: { and: ["topic:alpha"] },
+      paper_refs: [betaRef],
+    });
     const resolved = await service.resolveResolver({
-      resolver: {
-        mode: "mixed",
-        include: [
-          {
-            mode: "tag_query",
-            query: { and: ["topic:alpha"], or: ["domain:vision"] },
-          },
-        ],
-        exclude: [{ mode: "tag_query", query: { and: ["exclude:reviewed"] } }],
-      },
+      tag: { and: ["topic:alpha"], or: ["domain:vision"] },
+      paper_refs: [alphaRef, betaRef],
+      combine: "intersection",
     });
     const artifacts = await service.readPaperArtifacts({
       paper_refs: [`${alpha.libraryID}:${alpha.key}`],
@@ -380,9 +379,13 @@ describe("Synthesis Layer MVP real-data closure", function () {
     await service.rebuildCitationGraphCacheNow();
     const graph = await service.queryCitationGraph();
 
+    assert.sameMembers(
+      unionResolved.papers.map((paper) => paper.paper_ref),
+      [alphaRef, betaRef],
+    );
     assert.deepEqual(
       resolved.papers.map((paper) => paper.paper_ref),
-      [`${alpha.libraryID}:${alpha.key}`],
+      [alphaRef],
     );
     assert.equal(resolved.papers[0].year, "2024");
     assert.equal(resolved.diagnostics.final_count, 1);
@@ -409,7 +412,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     assert.include(["method", "citation"], graph.edges[0].primary_role);
   });
 
-  it("rejects non-canonical topic resolver fields inside resolve_resolver", async function () {
+  it("rejects legacy resolver wrappers and mode DSL fields inside resolve_resolver", async function () {
     await createPaper({
       title: "Alpha Paper",
       date: "2024",
@@ -435,12 +438,12 @@ describe("Synthesis Layer MVP real-data closure", function () {
     assert.equal(resolved.diagnostics.rejected, true);
     assert.match(
       resolved.errors.join("\n"),
-      /mode|selection_strategy|tag_criteria/i,
+      /resolver|selection_strategy|tag_criteria/i,
     );
     assert.lengthOf(resolved.papers, 0);
   });
 
-  it("marks a canonical resolver as invalid when it matches no papers", async function () {
+  it("marks a resolver payload as invalid when it matches no papers", async function () {
     await createPaper({
       title: "Alpha Paper",
       date: "2024",
@@ -455,19 +458,14 @@ describe("Synthesis Layer MVP real-data closure", function () {
       }),
     });
 
-    const resolved = await service.resolveResolver({
-      resolver: {
-        mode: "tag_query",
-        query: "topic:missing",
-      },
-    });
+    const resolved = await service.resolveResolver({ tag: "topic:missing" });
 
     assert.isFalse(resolved.ok);
     assert.equal(resolved.diagnostics.final_count, 0);
     assert.match(resolved.errors.join("\n"), /matched no papers/i);
   });
 
-  it("requires explicit resolver paper_refs to be an array", async function () {
+  it("requires resolver paper_refs to be an array", async function () {
     const service = createSynthesisService({
       root: await makeRoot(),
       libraryId: Zotero.Libraries.userLibraryID,
@@ -475,10 +473,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     });
 
     const resolved = await service.resolveResolver({
-      resolver: {
-        mode: "explicit",
-        paper_refs: "1:ABCD1234",
-      },
+      paper_refs: "1:ABCD1234",
     });
 
     assert.isFalse(resolved.ok);

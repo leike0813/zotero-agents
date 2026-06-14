@@ -53,6 +53,18 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
+function primitiveEquals(left: unknown, right: unknown) {
+  if (
+    left === null ||
+    typeof left === "string" ||
+    typeof left === "number" ||
+    typeof left === "boolean"
+  ) {
+    return left === right;
+  }
+  return false;
+}
+
 function getPath(source: unknown, path: string) {
   const normalized = normalizeString(path);
   if (!normalized || normalized === "$") {
@@ -288,35 +300,95 @@ function findPreviousStepId(args: {
   return "";
 }
 
+function matchesShortCircuitRule(args: {
+  step: SkillRunnerSequenceStepV1;
+  output: unknown;
+}) {
+  const spec = args.step.short_circuit;
+  if (!spec || spec.result !== "step_output") {
+    return false;
+  }
+  const path = normalizeString(spec.when?.path);
+  if (!path) {
+    return false;
+  }
+  return primitiveEquals(getPath(args.output, path), spec.when.equals);
+}
+
+function findRecoveredShortCircuit(args: {
+  state: SequenceRunState;
+  startIndex: number;
+  outputsByStep: Map<string, StepOutput>;
+}) {
+  const previous = args.state.steps[args.startIndex - 1];
+  if (!previous || previous.status !== "succeeded") {
+    return null;
+  }
+  const step = args.state.request.steps[previous.index];
+  const output = args.outputsByStep.get(previous.stepId);
+  if (
+    !step ||
+    !output ||
+    output.result.status !== "succeeded" ||
+    !matchesShortCircuitRule({ step, output: output.output })
+  ) {
+    return null;
+  }
+  return {
+    step,
+    output,
+    result: output.result,
+  };
+}
+
+function sequenceStepsMetadata(outputsByStep: Map<string, StepOutput>) {
+  return Array.from(outputsByStep.values()).map((entry) => ({
+    step_id: entry.stepId,
+    request_id: entry.requestId,
+  }));
+}
+
+function sequenceStepsWithOutputs(outputsByStep: Map<string, StepOutput>) {
+  return Array.from(outputsByStep.values()).map((entry) => ({
+    step_id: entry.stepId,
+    request_id: entry.requestId,
+    output: entry.output,
+    result: entry.result,
+  }));
+}
+
 function buildSequenceResult(args: {
   finalResult: Extract<ProviderExecutionResult, { status: "succeeded" }>;
   workflowRunId: string;
   finalStepId: string;
   outputsByStep: Map<string, StepOutput>;
+  shortCircuitStepId?: string;
 }) {
+  const shortCircuitStepId = normalizeString(args.shortCircuitStepId);
+  const sequenceMetadata = {
+    workflow_run_id: args.workflowRunId,
+    final_step_id: args.finalStepId,
+    ...(shortCircuitStepId
+      ? {
+          short_circuited: true,
+          short_circuit_step_id: shortCircuitStepId,
+          declared_final_step_id: args.finalStepId,
+        }
+      : {}),
+  };
   return {
     ...args.finalResult,
     sequence: {
-      workflow_run_id: args.workflowRunId,
-      final_step_id: args.finalStepId,
-      steps: Array.from(args.outputsByStep.values()).map((entry) => ({
-        step_id: entry.stepId,
-        request_id: entry.requestId,
-        output: entry.output,
-        result: entry.result,
-      })),
+      ...sequenceMetadata,
+      steps: sequenceStepsWithOutputs(args.outputsByStep),
     },
     responseJson: {
       ...(isRecord(args.finalResult.responseJson)
         ? args.finalResult.responseJson
         : {}),
       sequence: {
-        workflow_run_id: args.workflowRunId,
-        final_step_id: args.finalStepId,
-        steps: Array.from(args.outputsByStep.values()).map((entry) => ({
-          step_id: entry.stepId,
-          request_id: entry.requestId,
-        })),
+        ...sequenceMetadata,
+        steps: sequenceStepsMetadata(args.outputsByStep),
       },
     },
   } satisfies ProviderExecutionResult;
@@ -332,6 +404,43 @@ async function executeSequenceFromState(args: {
   onProgress?: (event: ProviderProgressEvent) => void;
 }) {
   const outputsByStep = outputsByStepFromState(args.state);
+  const recoveredShortCircuit = findRecoveredShortCircuit({
+    state: args.state,
+    startIndex: args.startIndex,
+    outputsByStep,
+  });
+  if (recoveredShortCircuit) {
+    markSequenceRunTerminal({
+      sequenceRunId: args.state.sequenceRunId,
+      status: "completed",
+    });
+    args.appendRuntimeLog({
+      level: "info",
+      scope: "job",
+      workflowId: args.state.workflowId,
+      backendId: args.backend.id,
+      backendType: args.backend.type,
+      jobId: args.state.jobId,
+      requestId: recoveredShortCircuit.result.requestId,
+      stage: "sequence-short-circuit",
+      message: "skillrunner sequence short-circuited",
+      details: {
+        stepId: recoveredShortCircuit.step.id,
+        declaredFinalStepId: args.state.request.final_step_id,
+        recovered: true,
+      },
+    });
+    return buildSequenceResult({
+      finalResult: {
+        ...recoveredShortCircuit.result,
+        resultJson: recoveredShortCircuit.output.output,
+      },
+      workflowRunId: args.state.workflowRunId,
+      finalStepId: args.state.request.final_step_id,
+      outputsByStep,
+      shortCircuitStepId: recoveredShortCircuit.step.id,
+    });
+  }
   let previousStepId = findPreviousStepId({
     state: args.state,
     startIndex: args.startIndex,
@@ -458,6 +567,37 @@ async function executeSequenceFromState(args: {
         finalStep: step.id === args.state.request.final_step_id,
       },
     });
+    if (matchesShortCircuitRule({ step, output })) {
+      markSequenceRunTerminal({
+        sequenceRunId: args.state.sequenceRunId,
+        status: "completed",
+      });
+      args.appendRuntimeLog({
+        level: "info",
+        scope: "job",
+        workflowId: args.state.workflowId,
+        backendId: args.backend.id,
+        backendType: args.backend.type,
+        jobId: args.state.jobId,
+        requestId: stepResult.requestId,
+        stage: "sequence-short-circuit",
+        message: "skillrunner sequence short-circuited",
+        details: {
+          stepId: step.id,
+          declaredFinalStepId: args.state.request.final_step_id,
+        },
+      });
+      return buildSequenceResult({
+        finalResult: {
+          ...stepResult,
+          resultJson: output,
+        },
+        workflowRunId: args.state.workflowRunId,
+        finalStepId: args.state.request.final_step_id,
+        outputsByStep,
+        shortCircuitStepId: step.id,
+      });
+    }
     if (step.id === args.state.request.final_step_id) {
       finalResult = stepResult;
       break;

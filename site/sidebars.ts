@@ -20,7 +20,42 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "🔧 Workflow",
-      items: ["workflows/index", "workflows/invocation"],
+      items: [
+        "workflows/index",
+        "workflows/invocation",
+        {
+          type: "category",
+          label: "内建 Workflow",
+          items: [
+            "workflows/literature-analysis",
+            "workflows/literature-explainer",
+            "workflows/literature-deep-reading",
+            "workflows/literature-search-ingest",
+            "workflows/tag-regulator",
+            "workflows/export-import-notes",
+            "workflows/mineru",
+            "workflows/topic-synthesis",
+            "workflows/manuscript-literature-framing",
+            "workflows/debug-probe",
+          ],
+        },
+        {
+          type: "category",
+          label: "自定义 Workflow",
+          items: [
+            "workflows/custom/index",
+            "workflows/custom/manifest",
+            "workflows/custom/hooks",
+            "workflows/custom/parameters",
+            "workflows/custom/selection-context",
+            "workflows/custom/host-api",
+            "workflows/custom/packaging",
+            "workflows/custom/localization",
+            "workflows/custom/request-kinds",
+            "workflows/custom/debugging",
+          ],
+        },
+      ],
     },
     {
       type: "doc",
@@ -30,13 +65,17 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "🖥️ 侧边栏与 ACP Chat",
-      items: ["sidebar/index", "sidebar/acp-chat"],
+      items: ["sidebar/index", "sidebar/acp-chat", "sidebar/acp-skills", "sidebar/skillrunner-tab"],
     },
     {
       type: "category",
       label: "🔬 Synthesis Workbench",
       items: [
         "synthesis/index",
+        "synthesis/home",
+        "synthesis/review",
+        "synthesis/concepts",
+        "synthesis/git-sync",
         "synthesis/tags",
         "synthesis/index-and-citation",
         "synthesis/topic-synthesis",

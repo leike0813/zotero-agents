@@ -42,6 +42,8 @@ ARTIFACT_PATHS = {
     "resolver_manifest": "runtime/payloads/resolver.json",
     "citation_graph_metrics_batch_1": "runtime/payloads/citation-graph-metrics-batch-1.json",
     "paper_artifacts_manifest_batch_1": "runtime/payloads/paper-artifacts-manifest-batch-1.json",
+    "update_audit_report": "runtime/payloads/update-audit-report.json",
+    "updated_resolve_result": "runtime/payloads/updated-resolve-result.json",
     "cross_paper_context": "runtime/views/cross-paper-context.md",
     "external_literature_context": "runtime/views/external-literature-context.md",
     "cross_paper_context_manifest": "runtime/views/cross-paper-context.manifest.json",
@@ -142,20 +144,11 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
             {
                 "id": "stage_10_update_topic_context",
                 "kind": "payload",
-                "task": "读取当前主题上下文，并编写紧凑的更新判断。",
+                "task": "基于 runtime 预审报告决定是否继续更新；继续时提交只增不改的 resolver proposal。",
                 "schema": "stage-10-update-topic-context.schema.json",
                 "payload_path": "runtime/payloads/update-topic-context.json",
                 "required_reads": [
-                    "<zotero-bridge> topics get-context --input '{\"topicId\":\"<topic_id>\"}'"
-                ],
-            },
-            {
-                "id": "stage_20_resolver_and_workset",
-                "kind": "payload",
-                "task": "编写 resolver proposal；runtime 会执行 resolver、图谱指标和 artifact export。",
-                "schema": "stage-20-resolver-and-workset.schema.json",
-                "payload_path": "runtime/payloads/resolver-and-workset.json",
-                "required_reads": [
+                    "runtime/payloads/update-audit-report.json",
                     "<zotero-bridge> library-index get --input '{\"cursor\":0,\"limit\":200}'"
                 ],
             },
@@ -373,6 +366,84 @@ def get_meta(conn: sqlite3.Connection, key: str, default: Any = None) -> Any:
     return json.loads(str(row["value_json"]))
 
 
+def load_initial_input(
+    run_root: Path,
+    input_path: str | None = None,
+    *,
+    skill_id: str = "",
+) -> dict:
+    candidates: list[Path] = []
+    if input_path:
+        candidates.append(resolve_run_path(run_root, input_path))
+    candidates.append(run_root / "runtime/input.json")
+
+    audit_root = run_root / ".audit"
+    if skill_id:
+        candidates.extend(sorted(audit_root.glob(f"{skill_id}*/input_manifest.json")))
+    candidates.extend(sorted(audit_root.glob("*/input_manifest.json")))
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.exists() and candidate.is_file():
+            loaded = read_json(candidate)
+            return loaded if isinstance(loaded, dict) else {}
+    return {}
+
+
+def topic_id_from_input(input_data: dict) -> str:
+    def pick(source: Any) -> str:
+        if not isinstance(source, dict):
+            return ""
+        for key in ("topicId", "topic_id", "topic"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    direct = pick(input_data)
+    if direct:
+        return direct
+
+    for key in ("parameter", "parameters", "input", "payload"):
+        value = pick(input_data.get(key))
+        if value:
+            return value
+
+    request = input_data.get("request")
+    if isinstance(request, dict):
+        for key in ("parameter", "parameters", "input", "payload"):
+            value = pick(request.get(key))
+            if value:
+                return value
+    return ""
+
+
+def write_canceled_output(
+    conn: sqlite3.Connection,
+    run_root: Path,
+    *,
+    reason: str,
+    message: str,
+    topic_id: str = "",
+) -> dict:
+    canceled: dict[str, Any] = {
+        "__SKILL_DONE__": True,
+        "kind": "topic_synthesis_canceled",
+        "status": "canceled",
+        "reason": reason,
+        "message": message,
+    }
+    if topic_id:
+        canceled["topic_id"] = topic_id
+    write_json(run_root / "result/topic-synthesis-canceled.json", canceled)
+    set_meta(conn, "canceled_output", canceled)
+    return canceled
+
+
 def completed_stages(conn: sqlite3.Connection, skill_id: str) -> set[str]:
     rows = conn.execute(
         "select stage_id from stage_state where skill_id = ? and state = 'completed'",
@@ -436,6 +507,8 @@ def artifact_entry(conn: sqlite3.Connection, key: str) -> dict | None:
 
 
 def current_stage(conn: sqlite3.Connection, skill_id: str) -> dict[str, Any] | None:
+    if get_meta(conn, "canceled_output"):
+        return None
     contract = SKILL_STAGE_CONTRACT[skill_id]
     completed = completed_stages(conn, skill_id)
     for stage in contract["stages"]:
@@ -489,6 +562,9 @@ def instruction_for_stage(
             script_command(skill_root, db_path, "submit")
             + f' --payload "{stage["payload_path"]}"'
         )
+        if stage["id"] == "stage_30_prepare_analysis_context":
+            result["triage_required_refs"] = get_meta(conn, "triage_required_refs", [])
+            result["triage_mode"] = get_meta(conn, "triage_mode", "full")
     if stage.get("hard_rules"):
         result["hard_rules"] = stage["hard_rules"]
     if stage.get("subagent_delegation"):
@@ -663,7 +739,9 @@ def validate_payload_against_schema(payload: dict, schema: dict) -> None:
 
 
 def validate_stage_payload(conn: sqlite3.Connection, stage_id: str, payload: dict) -> None:
-    if stage_id == "stage_20_resolver_and_workset":
+    if stage_id == "stage_10_update_topic_context":
+        validate_update_topic_context_payload(payload)
+    elif stage_id == "stage_20_resolver_and_workset":
         validate_resolver_payload(conn, payload)
     elif stage_id == "stage_30_prepare_analysis_context":
         validate_prepare_triage_payload(conn, payload)
@@ -678,17 +756,40 @@ def validate_stage_payload(conn: sqlite3.Connection, stage_id: str, payload: dic
         validate_summary_payload(payload)
 
 
+def update_full_base_hashes(current_hashes: dict) -> dict:
+    required = ("artifact", "manifest", "metadata")
+    return {
+        key: clean_text(current_hashes.get(key))
+        for key in required
+    }
+
+
+def validate_update_topic_context_payload(payload: dict) -> None:
+    decision = payload.get("update_decision") if isinstance(payload.get("update_decision"), dict) else {}
+    action = clean_text(decision.get("action"))
+    if action == "cancel":
+        return
+    if action != "continue":
+        raise ValueError("update_decision.action must be cancel or continue")
+    resolver = payload.get("resolver") if isinstance(payload.get("resolver"), dict) else {}
+    if not resolver:
+        raise ValueError("continue update requires resolver")
+    if not clean_text(payload.get("resolver_reasoning")):
+        raise ValueError("continue update requires resolver_reasoning")
+
+
 def validate_resolver_payload(conn: sqlite3.Connection, payload: dict) -> None:
     operation = get_meta(conn, "operation", "create")
     intent = clean_text(payload.get("operation_intent"))
     if operation == "create" and intent not in {"create", "unknown"}:
         raise ValueError(f"operation_intent {intent} is not compatible with create")
-    if operation in {"update_full", "update_patch"} and intent not in {operation, "unknown"}:
+    if operation == "update_full" and intent not in {operation, "unknown"}:
         raise ValueError(f"operation_intent {intent} is not compatible with {operation}")
 
 
 def validate_prepare_triage_payload(conn: sqlite3.Connection, payload: dict) -> None:
     known_refs = set(paper_refs(conn))
+    required_refs = set(get_meta(conn, "triage_required_refs", paper_refs(conn)))
     seen: set[str] = set()
     for entry in payload_entries(payload):
         paper_ref = clean_text(entry.get("paper_ref"))
@@ -697,6 +798,11 @@ def validate_prepare_triage_payload(conn: sqlite3.Connection, payload: dict) -> 
         seen.add(paper_ref)
         if paper_ref and paper_ref not in known_refs:
             raise ValueError(f"paper triage references unknown paper: {paper_ref}")
+        if paper_ref and paper_ref not in required_refs:
+            raise ValueError(f"paper triage was not requested for paper: {paper_ref}")
+    missing = sorted(required_refs - seen)
+    if missing:
+        raise ValueError("paper triage missing required paper_ref: " + ", ".join(missing))
 
 
 def validate_core_synthesis_source_refs(conn: sqlite3.Connection, payload: dict) -> None:
@@ -934,6 +1040,80 @@ def unwrap_bridge_data(output: dict) -> dict:
     return data
 
 
+def context_view_payload(output: dict, view: str) -> dict:
+    data = unwrap_bridge_data(output)
+    if data.get("ok") is False:
+        return data
+    nested = data.get(view)
+    if isinstance(nested, dict):
+        return nested
+    return data
+
+
+def normalize_triage_map(value: Any) -> dict[str, dict]:
+    if isinstance(value, dict):
+        result: dict[str, dict] = {}
+        for key, raw in value.items():
+            row = raw if isinstance(raw, dict) else {}
+            paper_ref = clean_text(row.get("paper_ref"), clean_text(key))
+            if paper_ref:
+                result[paper_ref] = {**row, "paper_ref": paper_ref}
+        return result
+    if isinstance(value, list):
+        result: dict[str, dict] = {}
+        for raw in value:
+            row = raw if isinstance(raw, dict) else {}
+            paper_ref = clean_text(row.get("paper_ref"))
+            if paper_ref:
+                result[paper_ref] = row
+        return result
+    return {}
+
+
+def stable_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def resolver_contains(base: Any, proposal: Any, path: str = "$") -> list[str]:
+    errors: list[str] = []
+    if isinstance(base, dict):
+        if not isinstance(proposal, dict):
+            return [f"{path} changed from object"]
+        for key, base_value in base.items():
+            if key not in proposal:
+                errors.append(f"{path}.{key} was removed")
+                continue
+            errors.extend(resolver_contains(base_value, proposal[key], f"{path}.{key}"))
+        return errors
+    if isinstance(base, list):
+        if not isinstance(proposal, list):
+            return [f"{path} changed from array"]
+        proposal_items = {stable_json(item) for item in proposal}
+        for item in base:
+            if stable_json(item) not in proposal_items:
+                errors.append(f"{path} removed array item {stable_json(item)}")
+        return errors
+    if base != proposal:
+        return [f"{path} changed from {stable_json(base)} to {stable_json(proposal)}"]
+    return []
+
+
+def resolve_paper_refs(resolved: dict) -> list[str]:
+    return [clean_text(paper.get("paper_ref")) for paper in extract_papers(resolved) if clean_text(paper.get("paper_ref"))]
+
+
+def diff_linked_and_resolved_refs(linked_refs: list[str], updated_refs: list[str]) -> dict:
+    linked_set = set(linked_refs)
+    updated_set = set(updated_refs)
+    return {
+        "linked_refs": linked_refs,
+        "updated_refs": updated_refs,
+        "kept_refs": [ref for ref in updated_refs if ref in linked_set],
+        "added_refs": [ref for ref in updated_refs if ref not in linked_set],
+        "removed_refs": [ref for ref in linked_refs if ref not in updated_set],
+    }
+
+
 def extract_papers(resolved: dict) -> list[dict]:
     papers = resolved.get("papers")
     if isinstance(papers, list):
@@ -942,6 +1122,37 @@ def extract_papers(resolved: dict) -> list[dict]:
     if isinstance(result, dict) and isinstance(result.get("papers"), list):
         return [paper for paper in result["papers"] if isinstance(paper, dict)]
     raise ValueError("resolver result did not contain papers[]")
+
+
+def maybe_extract_papers(value: Any) -> list[dict]:
+    if not isinstance(value, dict):
+        return []
+    try:
+        return extract_papers(value)
+    except ValueError:
+        return []
+
+
+def linked_papers_from_audit(audit: dict) -> list[dict]:
+    resolved_paper_set = audit.get("resolved_paper_set")
+    papers = maybe_extract_papers(resolved_paper_set)
+    if papers:
+        return papers
+    source_papers = audit.get("source_papers")
+    if isinstance(source_papers, list):
+        return [paper for paper in source_papers if isinstance(paper, dict)]
+    return []
+
+
+def unique_paper_refs(papers: list[dict]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for paper in papers:
+        paper_ref = clean_text(paper.get("paper_ref"))
+        if paper_ref and paper_ref not in seen:
+            seen.add(paper_ref)
+            result.append(paper_ref)
+    return result
 
 
 def paper_refs(conn: sqlite3.Connection) -> list[str]:
@@ -970,6 +1181,155 @@ def store_workset(conn: sqlite3.Connection, papers: list[dict]) -> None:
     conn.commit()
 
 
+def run_update_preflight(
+    conn: sqlite3.Connection,
+    *,
+    run_root: Path,
+    skill_id: str,
+    input_path: str | None,
+) -> dict:
+    input_data = load_initial_input(run_root, input_path, skill_id=skill_id)
+    if input_data:
+        set_meta(conn, "input", input_data)
+    topic_id = topic_id_from_input(input_data)
+    if not topic_id:
+        canceled = write_canceled_output(
+            conn,
+            run_root,
+            reason="topic_not_found",
+            message="Update topic synthesis requires an existing topicId.",
+        )
+        return {"status": "canceled", "canceled_output": canceled}
+
+    digest_output = run_bridge_json(
+        run_root,
+        ["topics", "get-context"],
+        {"topicId": topic_id, "view": "digest"},
+        "topic-context-digest-input.json",
+    )
+    digest = context_view_payload(digest_output, "digest")
+    if digest.get("ok") is False or clean_text(digest.get("status")) == "not_found":
+        canceled = write_canceled_output(
+            conn,
+            run_root,
+            reason="topic_not_found",
+            message=f"Topic synthesis target was not found: {topic_id}",
+            topic_id=topic_id,
+        )
+        return {"status": "canceled", "canceled_output": canceled}
+
+    audit_output = run_bridge_json(
+        run_root,
+        ["topics", "get-context"],
+        {"topicId": topic_id, "view": "audit"},
+        "topic-context-audit-input.json",
+    )
+    audit = context_view_payload(audit_output, "audit")
+    if audit.get("ok") is False:
+        canceled = write_canceled_output(
+            conn,
+            run_root,
+            reason="invalid_topic_context",
+            message=f"Topic synthesis audit context was not available: {topic_id}",
+            topic_id=topic_id,
+        )
+        return {"status": "canceled", "canceled_output": canceled}
+
+    resolver = audit.get("topic_resolver") if isinstance(audit.get("topic_resolver"), dict) else {}
+    if not resolver:
+        canceled = write_canceled_output(
+            conn,
+            run_root,
+            reason="invalid_topic_context",
+            message=f"Topic synthesis target has no current resolver: {topic_id}",
+            topic_id=topic_id,
+        )
+        return {"status": "canceled", "canceled_output": canceled}
+
+    linked_papers = linked_papers_from_audit(audit)
+    linked_refs = unique_paper_refs(linked_papers)
+    current_hashes = audit.get("current_hashes") if isinstance(audit.get("current_hashes"), dict) else {}
+    base_hashes = update_full_base_hashes(current_hashes)
+    if any(not value for value in base_hashes.values()):
+        canceled = write_canceled_output(
+            conn,
+            run_root,
+            reason="invalid_topic_context",
+            message=f"Topic synthesis target is missing apply base hashes: {topic_id}",
+            topic_id=topic_id,
+        )
+        return {"status": "canceled", "canceled_output": canceled}
+
+    topic_definition = normalize_update_topic_definition(
+        {
+            "topic_id": digest.get("topic_id") or topic_id,
+            "topic_definition": audit.get("topic_definition") or digest,
+        }
+    )
+    saved_triage = normalize_triage_map(audit.get("source_paper_triage"))
+    saved_triage_refs = sorted(saved_triage.keys())
+    linked_ref_set = set(linked_refs)
+    saved_triage_missing_refs = [ref for ref in linked_refs if ref not in saved_triage]
+    saved_triage_extra_refs = [ref for ref in saved_triage_refs if ref not in linked_ref_set]
+    report = {
+        "schema_id": "synthesis.update_audit_report",
+        "schema_version": "1.0.0",
+        "topic_id": topic_definition["id"],
+        "topic_definition": topic_definition,
+        "base_hashes": base_hashes,
+        "current_linked_papers": {
+            "paper_count": len(linked_refs),
+            "paper_refs": linked_refs,
+            "source": "resolved_paper_set" if maybe_extract_papers(as_dict(audit.get("resolved_paper_set"))) else "source_papers",
+        },
+        "current_resolver": resolver,
+        "saved_triage": {
+            "available": bool(saved_triage),
+            "paper_refs": saved_triage_refs,
+            "count": len(saved_triage),
+            "missing_refs": saved_triage_missing_refs,
+            "missing_count": len(saved_triage_missing_refs),
+            "extra_refs": saved_triage_extra_refs,
+            "extra_count": len(saved_triage_extra_refs),
+        },
+        "discovery": as_dict(audit.get("discovery")),
+        "source_materials": as_dict(audit.get("source_materials")),
+        "artifact_digest_changes": {
+            "status": "not_reported",
+            "changed_refs": [],
+        },
+    }
+    set_meta(conn, "operation", "update_full")
+    set_meta(conn, "topic_id", topic_definition["id"])
+    set_meta(conn, "topic_definition", topic_definition)
+    set_meta(conn, "current_hashes", current_hashes)
+    set_meta(conn, "section_hashes", audit.get("section_hashes") or {})
+    set_meta(conn, "base_hashes", base_hashes)
+    set_meta(conn, "current_resolver", resolver)
+    set_meta(conn, "linked_paper_refs", linked_refs)
+    set_meta(conn, "linked_papers", linked_papers)
+    set_meta(conn, "saved_source_paper_triage", saved_triage)
+    set_meta(conn, "update_audit_report", report)
+    write_json(run_root / "runtime/payloads/update-audit-report.json", report)
+    register_artifact(
+        conn,
+        skill_id=skill_id,
+        stage_id="stage_00_runtime_setup",
+        key="update_audit_report",
+        path="runtime/payloads/update-audit-report.json",
+        hash_value="",
+    )
+    return {
+        "status": "ready",
+        "topic_id": topic_definition["id"],
+        "base_hashes": base_hashes,
+        "linked_paper_count": len(linked_refs),
+        "saved_triage_count": len(saved_triage),
+        "saved_triage_missing_count": len(saved_triage_missing_refs),
+        "update_audit_report_path": "runtime/payloads/update-audit-report.json",
+    }
+
+
 def collect_resolver_cascade(
     conn: sqlite3.Connection,
     *,
@@ -978,26 +1338,95 @@ def collect_resolver_cascade(
     stage_id: str,
     payload: dict,
 ) -> dict:
+    operation = get_meta(conn, "operation", "create")
+    if operation == "update_full":
+        current_resolver = get_meta(conn, "current_resolver", {})
+        additive_errors = resolver_contains(current_resolver, payload["resolver"])
+        if additive_errors:
+            raise ValueError("update resolver proposal must preserve current resolver: " + "; ".join(additive_errors))
     resolver_output = run_bridge_json(
         run_root,
         ["resolvers", "resolve"],
-        {"resolver": payload["resolver"]},
+        payload["resolver"],
         "resolver-input.json",
     )
     resolved = unwrap_bridge_data(resolver_output)
     papers = extract_papers(resolved)
+    conn.execute("delete from paper_workset")
+    conn.commit()
     store_workset(conn, papers)
+    refs = paper_refs(conn)
+
+    if operation == "update_full":
+        linked_refs = get_meta(conn, "linked_paper_refs", [])
+        if not isinstance(linked_refs, list):
+            linked_refs = []
+        linked_refs = [clean_text(ref) for ref in linked_refs if clean_text(ref)]
+        updated_refs = resolve_paper_refs(resolved)
+        resolve_diff = diff_linked_and_resolved_refs(linked_refs, updated_refs)
+        set_meta(conn, "resolve_diff", resolve_diff)
+        set_meta(conn, "updated_resolve_result", resolved)
+        write_json(run_root / "runtime/payloads/updated-resolve-result.json", resolved)
+        register_artifact(
+            conn,
+            skill_id=skill_id,
+            stage_id=stage_id,
+            key="updated_resolve_result",
+            path="runtime/payloads/updated-resolve-result.json",
+            hash_value="",
+        )
+        if not resolve_diff["added_refs"]:
+            topic_id = clean_text(get_meta(conn, "topic_id", ""))
+            canceled = write_canceled_output(
+                conn,
+                run_root,
+                reason="no_new_resolved_papers",
+                message="Update resolver did not add any new papers to the topic.",
+                topic_id=topic_id,
+            )
+            return {"status": "canceled", "canceled_output": canceled, "resolve_diff": resolve_diff}
+        saved_triage = normalize_triage_map(get_meta(conn, "saved_source_paper_triage", {}))
+        if saved_triage:
+            for paper_ref in updated_refs:
+                triage = saved_triage.get(paper_ref)
+                if not triage:
+                    continue
+                conn.execute(
+                    """
+                    insert into paper_triage (paper_ref, payload_json, updated_at)
+                    values (?, ?, ?)
+                    on conflict(paper_ref) do update set
+                      payload_json = excluded.payload_json,
+                      updated_at = excluded.updated_at
+                    """,
+                    (paper_ref, json.dumps(triage, ensure_ascii=False, sort_keys=True), utc_now()),
+                )
+            conn.commit()
+            required_refs = [ref for ref in updated_refs if ref not in saved_triage]
+            triage_mode = "missing_triage" if required_refs else "reused"
+        else:
+            required_refs = list(updated_refs)
+            triage_mode = "full"
+        set_meta(conn, "triage_required_refs", required_refs)
+        set_meta(conn, "triage_mode", triage_mode)
+    else:
+        set_meta(conn, "triage_required_refs", refs)
+        set_meta(conn, "triage_mode", "full")
 
     resolver_manifest = {
         "schema_id": "synthesis.topic_synthesis_resolver_manifest",
         "schema_version": "1.0.0",
         "resolver": payload["resolver"],
         "resolver_reasoning": payload.get("resolver_reasoning", ""),
-        "operation_intent": payload.get("operation_intent", "create"),
+        "operation_intent": payload.get("operation_intent", operation),
         "resolution_result": resolved,
-        "paper_refs": [str(paper.get("paper_ref")) for paper in papers],
+        "paper_refs": refs,
         "diagnostics": payload.get("diagnostics", []),
     }
+    if operation == "update_full":
+        resolver_manifest["base_hashes"] = get_meta(conn, "base_hashes", {})
+        resolver_manifest["resolve_diff"] = get_meta(conn, "resolve_diff", {})
+        resolver_manifest["triage_required_refs"] = get_meta(conn, "triage_required_refs", [])
     write_json(run_root / "runtime/payloads/resolver.json", resolver_manifest)
     register_artifact(
         conn,
@@ -1008,7 +1437,6 @@ def collect_resolver_cascade(
         hash_value="",
     )
 
-    refs = paper_refs(conn)
     metrics_output = run_bridge_json(
         run_root,
         ["citation-graph", "get-metrics"],
@@ -1068,6 +1496,8 @@ def collect_resolver_cascade(
         "paper_refs": refs,
         "paper_count": len(refs),
         "resolver_manifest_path": "runtime/payloads/resolver.json",
+        "triage_required_refs": get_meta(conn, "triage_required_refs", refs),
+        "triage_mode": get_meta(conn, "triage_mode", "full"),
     }
 
 
@@ -1109,7 +1539,8 @@ def register_prepare_triage(
     payload: dict,
 ) -> dict:
     entries = payload_entries(payload)
-    if not entries:
+    required_refs = set(get_meta(conn, "triage_required_refs", paper_refs(conn)))
+    if not entries and required_refs:
         raise ValueError("prepare analysis context payload must contain assessments[]")
     known_refs = set(paper_refs(conn))
     analyzed: list[str] = []
@@ -1152,6 +1583,8 @@ def register_prepare_triage(
     return {
         "paper_refs": analyzed,
         "analyzed_count": len(analyzed),
+        "triage_mode": get_meta(conn, "triage_mode", "full"),
+        "triage_required_refs": get_meta(conn, "triage_required_refs", []),
         "handoff": handoff,
     }
 
@@ -1865,6 +2298,9 @@ def write_handoff(
 def completed_output(*, skill_root: Path, db_path: str) -> dict:
     skill_id = infer_skill_id(skill_root)
     conn = connect(db_path)
+    canceled = get_meta(conn, "canceled_output")
+    if isinstance(canceled, dict):
+        return canceled
     contract = SKILL_STAGE_CONTRACT[skill_id]
     if contract["output_kind"] == "topic_synthesis":
         run_root = run_root_from_db_path(db_path)
@@ -1911,7 +2347,15 @@ def run_current_command_stage(
                 set_meta(conn, "input", read_json(input_resolved))
         set_meta(conn, "run_root", str(run_root))
         set_meta(conn, "operation", contract["operation"])
-        result = {"run_root": str(run_root), "operation": contract["operation"]}
+        if skill_id == "update-topic-synthesis-prepare":
+            result = run_update_preflight(
+                conn,
+                run_root=run_root,
+                skill_id=skill_id,
+                input_path=input_path,
+            )
+        else:
+            result = {"run_root": str(run_root), "operation": contract["operation"]}
     elif stage["id"] == "stage_00_runtime_state_check":
         required = (
             "runtime/handoff/prepare-analysis-context.json"
@@ -2000,30 +2444,25 @@ def dispatch_payload_stage(
         set_meta(conn, "language", payload.get("language") or get_meta(conn, "language", "zh-CN"))
         return {"topic_definition": get_meta(conn, "topic_definition"), "duplicate_status": payload["duplicate_status"]}
     if stage_id == "stage_10_update_topic_context":
-        topic_context = payload["topic_context"]
-        update_assessment = payload["update_assessment"]
-        operation = normalize_update_operation(
-            update_assessment.get("operation"),
-            default=SKILL_STAGE_CONTRACT[skill_id]["operation"],
+        decision = payload.get("update_decision") if isinstance(payload.get("update_decision"), dict) else {}
+        if clean_text(decision.get("action")) == "cancel":
+            topic_id = clean_text(get_meta(conn, "topic_id", ""))
+            canceled = write_canceled_output(
+                conn,
+                run_root,
+                reason=clean_text(decision.get("reason"), "no_update_needed"),
+                message=clean_text(decision.get("message"), "Topic synthesis update was not needed."),
+                topic_id=topic_id,
+            )
+            return {"status": "canceled", "canceled_output": canceled}
+        set_meta(conn, "update_decision", decision)
+        return collect_resolver_cascade(
+            conn,
+            run_root=run_root,
+            skill_id=skill_id,
+            stage_id=stage_id,
+            payload=payload,
         )
-        topic_definition = normalize_update_topic_definition(topic_context)
-        current_hashes = topic_context.get("current_hashes") or {}
-        section_hashes = topic_context.get("section_hashes") or {}
-        recommended_update = topic_context.get("recommended_update") or {}
-        set_meta(conn, "operation", operation)
-        set_meta(conn, "topic_id", topic_definition["id"])
-        set_meta(conn, "topic_definition", topic_definition)
-        set_meta(conn, "current_hashes", current_hashes)
-        set_meta(conn, "section_hashes", section_hashes)
-        set_meta(conn, "recommended_update", recommended_update)
-        set_meta(conn, "update_assessment", update_assessment)
-        return {
-            "topic_definition": topic_definition,
-            "operation": operation,
-            "changed_sections": update_assessment.get("changed_sections", []),
-            "current_hash_count": len(current_hashes),
-            "section_hash_count": len(section_hashes),
-        }
     if stage_id == "stage_20_resolver_and_workset":
         return collect_resolver_cascade(
             conn,
@@ -2338,6 +2777,7 @@ def normalize_source_papers(conn: sqlite3.Connection, run_root: Path) -> list[di
                 ),
                 "synthesis_role": clean_text(paper_triage.get("relevance_level"), "supporting"),
                 "quality": clean_text(paper_triage.get("paper_quality_level"), "unknown"),
+                "caveats": as_list(paper_triage.get("caveats")),
                 "digest_ref": digest_ref_for_paper(run_root, paper_ref, artifact_manifest),
             }
         )
@@ -3046,6 +3486,8 @@ def materialize_final_output(
         "analysis_manifest_path": "result/topic-analysis.json",
         "candidate_output_path": "result/final-output.candidate.json",
     }
+    if operation == "update_full":
+        final["base_hashes"] = get_meta(conn, "base_hashes", {})
     write_json(run_root / "result/final-output.candidate.json", final)
     register_artifact(conn, skill_id=skill_id, stage_id=stage_id, key="final_candidate", path="result/final-output.candidate.json", hash_value="")
     record_stage(conn, skill_id=skill_id, stage_id="stage_12_completed", result={"final_output_path": "result/final-output.candidate.json"})
@@ -3067,9 +3509,9 @@ def slugify(value: str) -> str:
 
 def normalize_update_operation(value: Any, *, default: str) -> str:
     operation = str(value or "").strip()
-    if operation in {"update_full", "update_patch"}:
+    if operation == "update_full":
         return operation
-    if default in {"update_full", "update_patch"}:
+    if default == "update_full":
         return default
     return "update_full"
 

@@ -20,7 +20,7 @@
           "enum": ["prepare_analysis_context", "core_enrichment"]
         },
         "operation": {
-          "enum": ["create", "update_full", "update_patch"]
+          "enum": ["create", "update_full"]
         },
         "db_path": { "const": "runtime/topic-synthesis.sqlite" },
         "handoff_manifest_path": { "type": "string", "minLength": 1 },
@@ -39,7 +39,7 @@
       "properties": {
         "kind": { "const": "topic_synthesis" },
         "operation": {
-          "enum": ["create", "update_full", "update_patch"]
+          "enum": ["create", "update_full"]
         },
         "analysis_manifest_path": { "type": "string", "minLength": 1 },
         "candidate_output_path": {

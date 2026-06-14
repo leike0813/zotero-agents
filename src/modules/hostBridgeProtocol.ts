@@ -132,6 +132,8 @@ export type HostBridgeCapabilityManifestEntry = {
   input: {
     type: "none" | "object" | "item-ref" | "mutation-preview";
     required: boolean;
+    properties?: Record<string, unknown>;
+    requiredProperties?: string[];
   };
 };
 

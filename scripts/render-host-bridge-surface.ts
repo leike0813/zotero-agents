@@ -202,6 +202,26 @@ function shimGuidance() {
   ].join("\n");
 }
 
+function topicContextGuidance() {
+  return [
+    "- `topics get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.",
+    "- Omit `view` only when a legacy flat topic context response is required.",
+    "- For large `semantic` or `full` topic contexts, pass `outputPath` or `output_path` and optional `overwrite`; stdout then contains only a compact file envelope.",
+    "- Example: `zotero-bridge topics get-context --input '{\"topicId\":\"topic-id\",\"view\":\"semantic\",\"outputPath\":\"runtime/topic-context.semantic.json\"}'`.",
+  ].join("\n");
+}
+
+function resolverGuidance() {
+  return [
+    "- `resolvers resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.",
+    "- Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.",
+    "- `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.",
+    "- `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.",
+    "- Examples: `zotero-bridge resolvers resolve --input '{\"tag\":{\"and\":[\"object-detection\"],\"not\":[\"nlp-transformer\"]}}'`; `zotero-bridge resolvers resolve --input '{\"tag\":\"topic:vision\",\"collection_key\":[\"COLL_A\"],\"combine\":\"intersection\"}'`.",
+    "- Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.",
+  ].join("\n");
+}
+
 function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
   return [
     "This section is generated from the Host Bridge capability registry and Rust CLI mappings. Edit the registry or CLI source, then run `npm run render:host-bridge-surface`.",
@@ -213,6 +233,10 @@ function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
     "#### CLI mappings",
     "",
     mappingTable(sortedMappings(catalog)),
+    "",
+    "#### Resolver payloads",
+    "",
+    resolverGuidance(),
     "",
     "#### Debug capabilities",
     "",
@@ -246,6 +270,14 @@ function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
     "- Use raw `call <capability>` only for raw-only capabilities or explicit diagnostics.",
     "- MCP is not the default fallback; MCP tools mirror Host Bridge capability names when explicitly used.",
     "- Full generated reference: `references/host-bridge-cli.md`.",
+    "",
+    "### Topic context payloads",
+    "",
+    topicContextGuidance(),
+    "",
+    "### Resolver payloads",
+    "",
+    resolverGuidance(),
   ].join("\n");
 }
 
@@ -268,6 +300,14 @@ function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
         (mapping) => mapping.kind !== "capability" || !mapping.target.startsWith("debug."),
       ),
     ),
+    "",
+    "### Topic context payloads",
+    "",
+    topicContextGuidance(),
+    "",
+    "### Resolver payloads",
+    "",
+    resolverGuidance(),
     "",
     "### Raw-only and debug capabilities",
     "",

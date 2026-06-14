@@ -493,6 +493,9 @@ function buildSkillRunnerSequenceRequest(args: {
       ...(step.fetch_type ? { fetch_type: step.fetch_type } : {}),
       ...(step.workspace ? { workspace: step.workspace } : {}),
       ...(step.handoff ? { handoff: cloneRecord(step.handoff) as any } : {}),
+      ...(step.short_circuit
+        ? { short_circuit: cloneRecord(step.short_circuit) as any }
+        : {}),
     })),
     final_step_id: finalStepId,
     parameter: workflowParams,

@@ -203,17 +203,22 @@ describe("Synthesis invariant guards", function () {
     assert.isAtLeast(activeMarkerCount, 1);
   });
 
-  it("keeps topic discovery metadata-overlap only [inv.discovery.no_global_llm_nxm]", function () {
+  it("keeps topic discovery apply-time token overlap only [inv.discovery.no_global_llm_nxm]", function () {
     const serviceSource = readRepoText("src/modules/synthesis/service.ts");
     const repositorySource = readRepoText(
       "src/modules/synthesis/repository.ts",
     );
     const discoveryRepositorySlice = repositorySource.slice(
-      repositorySource.indexOf("DISCOVERY_FIELD_WEIGHTS"),
-      repositorySource.indexOf("export async function getTopicDiscoveryHints"),
+      repositorySource.indexOf("TOPIC_DISCOVERY_POLICY_METHOD"),
+      repositorySource.indexOf(
+        "export function getSynthesisRepositoryDatabasePath",
+      ),
     );
 
-    assert.include(discoveryRepositorySlice, "metadata-overlap-v1");
+    assert.include(
+      discoveryRepositorySlice,
+      "discovery.apply_time_token_overlap.v1",
+    );
     assert.include(discoveryRepositorySlice, "scoreDiscoveryPair");
     assert.include(discoveryRepositorySlice, "discoveryTextContains");
 

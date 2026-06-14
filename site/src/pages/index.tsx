@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "@docusaurus/router";
+import Link from "@docusaurus/Link";
 
 /**
  * 首页组件。
@@ -27,19 +28,19 @@ export default function Home() {
         一个用于执行 Agent 技能的 Zotero 插件
       </p>
       <div style={{ marginTop: "2rem" }}>
-        <a
+        <Link
           className="button button--primary button--lg"
-          href="/intro"
+          to="/intro"
           style={{ marginRight: "1rem" }}
         >
           进入文档
-        </a>
-        <a
+        </Link>
+        <Link
           className="button button--secondary button--lg"
-          href="/installation"
+          to="/installation"
         >
           安装指南
-        </a>
+        </Link>
       </div>
     </main>
   );

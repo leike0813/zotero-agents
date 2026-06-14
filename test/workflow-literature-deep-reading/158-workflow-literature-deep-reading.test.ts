@@ -11,7 +11,7 @@ import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 import { renderPayloadBlock } from "../../workflows_builtin/literature-workbench-package/lib/noteCodecs.mjs";
 import { createStoreZipBytes } from "../../workflows_builtin/literature-workbench-package/lib/zipStore.mjs";
 import {
-  encodeBase64Utf8,
+  ensureDir,
   joinPath,
   mkTempDir,
   readBytes,
@@ -350,17 +350,95 @@ describe("workflow: literature-deep-reading", function () {
     assert.equal(originalPdf.charCodeAt(0), 37);
   });
 
-  it("attaches the final HTML result to the parent", async function () {
+  it("filters out inputs when sibling HTML target already exists", async function () {
     const workflow = await getWorkflow();
+    const tempDir = await mkTempDir("zs-deep-reading-conflict");
+    const keepPath = joinPath(tempDir, "keep.md");
+    const skipPath = joinPath(tempDir, "skip.md");
+    await writeUtf8(keepPath, "# Keep\n");
+    await writeUtf8(skipPath, "# Skip\n");
+    await writeUtf8(joinPath(tempDir, "skip.html"), "<!doctype html>");
+
+    const keepParent = await createParent("Deep Reading Keep");
+    const skipParent = await createParent("Deep Reading Skip");
+    await handlers.attachment.createFromPath({
+      parent: keepParent,
+      path: keepPath,
+      title: "keep.md",
+      mimeType: "text/markdown",
+    });
+    await handlers.attachment.createFromPath({
+      parent: skipParent,
+      path: skipPath,
+      title: "skip.md",
+      mimeType: "text/markdown",
+    });
+
+    const requests = (await executeBuildRequests({
+      workflow,
+      selectionContext: await buildSelectionContext([keepParent, skipParent]),
+    })) as Array<{ sourceAttachmentPaths?: string[] }> & {
+      __stats?: { totalUnits?: number; skippedUnits?: number };
+    };
+
+    assert.lengthOf(requests, 1);
+    assert.equal(requests[0].sourceAttachmentPaths?.[0], keepPath);
+    assert.equal(requests.__stats?.totalUnits, 2);
+    assert.equal(requests.__stats?.skippedUnits, 1);
+  });
+
+  it("does not filter when only a non-target sidecar directory exists", async function () {
+    const workflow = await getWorkflow();
+    const tempDir = await mkTempDir("zs-deep-reading-sidecar-only");
+    const markdownPath = joinPath(tempDir, "paper.md");
+    await writeUtf8(markdownPath, "# Paper\n");
+    await ensureDir(joinPath(tempDir, "paper-assets"));
+
+    const parent = await createParent("Deep Reading Sidecar Only");
+    await handlers.attachment.createFromPath({
+      parent,
+      path: markdownPath,
+      title: "paper.md",
+      mimeType: "text/markdown",
+    });
+
+    const requests = (await executeBuildRequests({
+      workflow,
+      selectionContext: await buildSelectionContext([parent]),
+    })) as Array<{ sourceAttachmentPaths?: string[] }>;
+
+    assert.lengthOf(requests, 1);
+    assert.equal(requests[0].sourceAttachmentPaths?.[0], markdownPath);
+  });
+
+  it("attaches the final HTML result next to the source attachment", async function () {
+    const workflow = await getWorkflow();
+    const tempDir = await mkTempDir("zs-deep-reading-apply");
+    const sourcePath = joinPath(tempDir, "paper.md");
+    await writeUtf8(sourcePath, "# Source Paper\n");
     const parent = await createParent("Attach Deep Reading Paper");
+    await handlers.attachment.createFromPath({
+      parent,
+      path: sourcePath,
+      title: "paper.md",
+      mimeType: "text/markdown",
+    });
     const request = {
       targetParentID: parent.id,
+      sourceAttachmentPaths: [sourcePath],
       input: {
         source_bundle_path: "inputs/source_bundle_path/source_bundle.zip",
       },
       upload_files: [
         { key: "source_bundle_path", path: "D:/tmp/source_bundle.zip" },
       ],
+      context: {
+        source_manifest: {
+          source: {
+            path: sourcePath,
+          },
+        },
+      },
     };
     const html = "<!doctype html><html><body>Deep reading result</body></html>";
 
@@ -377,16 +455,82 @@ describe("workflow: literature-deep-reading", function () {
       htmlPath: string;
     };
 
+    const expectedHtmlPath = joinPath(tempDir, "paper.html");
     assert.isTrue(applied.ok);
     assert.isAbove(applied.attachmentId, 0);
     assert.isNotEmpty(applied.attachmentKey);
+    assert.equal(applied.htmlPath, expectedHtmlPath);
     assert.equal(await readUtf8(applied.htmlPath), html);
 
     const attached = Zotero.Items.get(applied.attachmentId)!;
     assert.equal(attached.parentID, parent.id);
-    assert.match(
-      attached.getField("title"),
-      /^Deep Reading - Attach Deep Reading Paper - /,
+    assert.equal(attached.getField("title"), "paper.html");
+    assert.equal(await countAttachmentsByPath(parent, expectedHtmlPath), 1);
+  });
+
+  it("does not create duplicate linked HTML attachment for the same target path", async function () {
+    const workflow = await getWorkflow();
+    const tempDir = await mkTempDir("zs-deep-reading-dedupe");
+    const sourcePath = joinPath(tempDir, "dedupe.pdf");
+    await writeBytes(sourcePath, new Uint8Array([37, 80, 68, 70]));
+    const parent = await createParent("Deep Reading Dedupe");
+    await handlers.attachment.createFromPath({
+      parent,
+      path: sourcePath,
+      title: "dedupe.pdf",
+      mimeType: "application/pdf",
+    });
+    const request = {
+      targetParentID: parent.id,
+      sourceAttachmentPaths: [sourcePath],
+      context: {
+        source_manifest: {
+          source: {
+            path: sourcePath,
+          },
+        },
+      },
+    };
+    const html = "<!doctype html><html><body>Dedupe</body></html>";
+
+    await executeApplyResult({
+      workflow,
+      parent,
+      request,
+      bundleReader: createDeepReadingResultBundleReader(html) as any,
+      runtime: { hostApi: createWorkflowHostApi() },
+    });
+    await executeApplyResult({
+      workflow,
+      parent,
+      request,
+      bundleReader: createDeepReadingResultBundleReader(html) as any,
+      runtime: { hostApi: createWorkflowHostApi() },
+    });
+
+    assert.equal(
+      await countAttachmentsByPath(parent, joinPath(tempDir, "dedupe.html")),
+      1,
     );
   });
 });
+
+async function countAttachmentsByPath(parent: Zotero.Item, targetPath: string) {
+  let count = 0;
+  for (const attachmentId of parent.getAttachments()) {
+    const attachment = Zotero.Items.get(attachmentId);
+    const path = String((await attachment?.getFilePathAsync?.()) || "");
+    if (compareNormalizedPath(path, targetPath)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function compareNormalizedPath(a: string, b: string) {
+  return normalizePathForCompare(a) === normalizePathForCompare(b);
+}
+
+function normalizePathForCompare(value: string) {
+  return String(value || "").replace(/[\\/]+/g, "/").toLowerCase();
+}

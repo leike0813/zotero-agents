@@ -1,11 +1,17 @@
-import { joinPath, sanitizeFileNameSegment } from "../../lib/path.mjs";
+import { sanitizeFileNameSegment } from "../../lib/path.mjs";
+import {
+  basenamePath,
+  normalizePathForCompare,
+  resolveDeepReadingHtmlPathFromSourcePath,
+  resolveSourcePathFromRequest,
+} from "../../lib/deepReadingResultTarget.mjs";
 import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
 
 function normalizeString(value) {
   return String(value || "").trim();
 }
 
-function normalizePathForCompare(targetPath) {
+function normalizeBundleEntryPath(targetPath) {
   return normalizeString(targetPath)
     .replace(/^file:\/\/+/, "")
     .replaceAll("\\", "/")
@@ -24,13 +30,13 @@ function getResultArtifactPath(result, key) {
 }
 
 function resolveBundleEntryPath(rawPath, fallbackPath) {
-  const normalizedRaw = normalizePathForCompare(rawPath);
-  const normalizedFallback = normalizePathForCompare(fallbackPath);
+  const normalizedRaw = normalizeBundleEntryPath(rawPath);
+  const normalizedFallback = normalizeBundleEntryPath(fallbackPath);
   const candidates = [];
   const seen = new Set();
 
   const addCandidate = (value) => {
-    const normalized = normalizePathForCompare(value);
+    const normalized = normalizeBundleEntryPath(value);
     if (!normalized || seen.has(normalized)) {
       return;
     }
@@ -106,15 +112,41 @@ async function readArtifactText(args) {
   return readBundleTextWithPathFallback(args);
 }
 
-function makeAttachmentTitle(parentItem) {
-  const title = normalizeString(parentItem?.getField?.("title")) || "Untitled";
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  return `Deep Reading - ${title} - ${timestamp}`;
+async function findLinkedAttachmentForPath(parentItem, targetPath, runtime) {
+  const normalizedTargetPath = normalizePathForCompare(targetPath);
+  if (!normalizedTargetPath) {
+    return null;
+  }
+  for (const attachmentId of parentItem.getAttachments?.() || []) {
+    let attachment = null;
+    try {
+      attachment = runtime.helpers.resolveItemRef(attachmentId);
+    } catch {
+      attachment = null;
+    }
+    if (!attachment) {
+      continue;
+    }
+    let attachmentPath = "";
+    try {
+      attachmentPath = normalizeString(await attachment.getFilePathAsync?.());
+    } catch {
+      attachmentPath = "";
+    }
+    if (!attachmentPath) {
+      attachmentPath = normalizeString(attachment.getField?.("path"));
+    }
+    if (normalizePathForCompare(attachmentPath) === normalizedTargetPath) {
+      return attachment;
+    }
+  }
+  return null;
 }
 
 async function applyResultImpl({
   parent,
   bundleReader,
+  request,
   resultContext,
   runtime,
 }) {
@@ -150,30 +182,36 @@ async function applyResultImpl({
     });
   }
 
-  const tempRoot = await hostApi.file.getTempDirectoryPath();
-  const runDir = joinPath(
-    tempRoot,
-    `literature-deep-reading-result-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  );
-  await hostApi.file.makeDirectory(runDir);
-  const htmlPath = joinPath(runDir, "deep-reading.html");
+  const sourcePath = resolveSourcePathFromRequest(request);
+  const htmlPath = resolveDeepReadingHtmlPathFromSourcePath(sourcePath);
+  if (!htmlPath) {
+    throw new Error(
+      "literature-deep-reading applyResult cannot resolve target HTML path from source attachment",
+    );
+  }
   await hostApi.file.writeText(htmlPath, htmlResolved.text);
 
-  const attachmentTitle = sanitizeFileNameSegment(
-    makeAttachmentTitle(parentItem),
+  const attachmentTitle = sanitizeFileNameSegment(basenamePath(htmlPath));
+  let attachment = await findLinkedAttachmentForPath(
+    parentItem,
+    htmlPath,
+    runtime,
   );
-  const attachment = await hostApi.attachments.createFromPath({
-    path: htmlPath,
-    parent: parentItem,
-    title: attachmentTitle,
-    mimeType: "text/html",
-  });
+  if (!attachment) {
+    attachment = await hostApi.attachments.createFromPath({
+      path: htmlPath,
+      parent: parentItem,
+      title: attachmentTitle,
+      mimeType: "text/html",
+    });
+  }
 
   return {
     ok: true,
     attachmentKey: normalizeString(attachment?.key),
     attachmentId: attachment?.id || null,
     htmlPath,
+    sourcePath,
     htmlEntryPath: htmlResolved.entryPath,
     manifest,
     diagnostics,

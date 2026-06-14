@@ -2554,10 +2554,14 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_TOPICS_GET_CONTEXT,
     title: "Get Synthesis topic context",
     description:
-      "Return topic seed, existing topic definition, resolver, resolved paper set, and old artifact metadata for a synthesis job.",
+      "Return Synthesis topic context. Use view=digest for compact preview, semantic for full semantic content, audit for hashes/freshness/diagnostics, or full for all views. Large view results may be written with outputPath.",
     method: "getTopicContext",
     properties: {
       topicId: { type: "string" },
+      view: {
+        type: "string",
+        enum: ["digest", "semantic", "audit", "full"],
+      },
       mode: { type: "string", enum: ["create", "update"] },
       language: { type: "string" },
       updateScope: { type: "string" },
@@ -2567,6 +2571,9 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       includeMarkdown: { type: "boolean" },
       includeArtifact: { type: "boolean" },
       includeManifest: { type: "boolean" },
+      outputPath: { type: "string" },
+      output_path: { type: "string" },
+      overwrite: { type: "boolean" },
     },
   }),
   synthesisTool({
@@ -2646,14 +2653,27 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_RESOLVERS_RESOLVE,
     title: "Resolve Synthesis resolver",
     description:
-      "Validate and execute a canonical Topic Resolver. Input must include a top-level resolver object; do not pass topic_resolver or root-level queries.",
+      "Validate and execute a simplified Topic Resolver payload. Pass tag, collection_key, and/or paper_refs directly; combine defaults to union and may be intersection.",
     method: "resolveResolver",
     properties: {
-      resolver: { type: "object" },
+      tag: {
+        anyOf: [
+          { type: "string" },
+          { type: "array", items: { type: "string" } },
+          { type: "object" },
+        ],
+      },
+      collection_key: {
+        anyOf: [
+          { type: "string" },
+          { type: "array", items: { type: "string" } },
+        ],
+      },
+      paper_refs: { type: "array", items: { type: "string" } },
+      combine: { type: "string", enum: ["union", "intersection"] },
       cursor: { type: ["number", "string"] },
       limit: { type: ["number", "string"], minimum: 1, maximum: 250 },
     },
-    required: ["resolver"],
   }),
   synthesisTool({
     name: ZOTERO_MCP_TOOL_REFERENCE_INDEX_GET,
@@ -3158,7 +3178,12 @@ function mcpInputSchemaForCapability(
       });
     case "object":
     default:
-      return openObjectSchema();
+      return openObjectSchema(
+        isPlainObject(input.properties) ? input.properties : {},
+        Array.isArray(input.requiredProperties)
+          ? input.requiredProperties.map(String)
+          : [],
+      );
   }
 }
 

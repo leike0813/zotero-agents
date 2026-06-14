@@ -1,8 +1,19 @@
 import { assert } from "chai";
 import fs from "node:fs/promises";
 import { parseWorkflowManifestFromText } from "../../src/workflows/loaderContracts";
-import { executeSkillRunnerSequence } from "../../src/modules/workflowExecution/sequenceRuntime";
-import { getSequenceRunStateByStepRequest } from "../../src/modules/workflowExecution/sequenceStateStore";
+import { compileDeclarativeRequest } from "../../src/workflows/declarativeRequestCompiler";
+import { assertRequestPayloadContract } from "../../src/providers/requestContracts";
+import {
+  continueSkillRunnerSequence,
+  executeSkillRunnerSequence,
+} from "../../src/modules/workflowExecution/sequenceRuntime";
+import {
+  getSequenceRunState,
+  getSequenceRunStateByStepRequest,
+  initializeSequenceRunState,
+  recordSequenceStepRequestCreated,
+  recordSequenceStepSucceeded,
+} from "../../src/modules/workflowExecution/sequenceStateStore";
 import {
   createAcpSkillRunnerWorkspace,
   writeAcpSkillRunnerInputManifest,
@@ -10,6 +21,8 @@ import {
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { mkTempDir } from "./workflow-test-utils";
 import { buildRequest as buildLiteratureDigestRequest } from "../../workflows_builtin/literature-workbench-package/literature-analysis/hooks/buildRequest.mjs";
+
+let previousZotero: any;
 
 function sequenceManifest(overrides: Record<string, unknown> = {}) {
   return {
@@ -44,7 +57,25 @@ function sequenceManifest(overrides: Record<string, unknown> = {}) {
 
 describe("skillrunner.sequence.v1 runtime", function () {
   beforeEach(function () {
+    previousZotero = (globalThis as any).Zotero;
+    (globalThis as any).Zotero = {
+      ...(previousZotero || {}),
+      Prefs: {
+        ...(previousZotero?.Prefs || {}),
+        get: previousZotero?.Prefs?.get || ((_prefKey: string) => undefined),
+        set: previousZotero?.Prefs?.set || (() => undefined),
+        clear: previousZotero?.Prefs?.clear || (() => undefined),
+      },
+    };
     resetPluginStateStoreForTests();
+  });
+
+  afterEach(function () {
+    if (previousZotero === undefined) {
+      delete (globalThis as any).Zotero;
+    } else {
+      (globalThis as any).Zotero = previousZotero;
+    }
   });
 
   it("accepts ACP sequence manifests and rejects invalid sequence references", function () {
@@ -79,6 +110,112 @@ describe("skillrunner.sequence.v1 runtime", function () {
       manifestPath: "workflow.json",
     });
     assert.equal(nonAcp.manifest, null);
+  });
+
+  it("accepts and compiles sequence step short-circuit rules", function () {
+    const accepted = parseWorkflowManifestFromText({
+      raw: JSON.stringify(
+        sequenceManifest({
+          request: {
+            kind: "skillrunner.sequence.v1",
+            sequence: {
+              steps: [
+                {
+                  id: "prepare",
+                  skill_id: "prepare-skill",
+                  workspace: "new",
+                  short_circuit: {
+                    when: { path: "status", equals: "canceled" },
+                    result: "step_output",
+                  },
+                },
+                {
+                  id: "finalize",
+                  skill_id: "finalize-skill",
+                  workspace: "reuse-workflow",
+                },
+              ],
+            },
+          },
+        }),
+      ),
+      manifestPath: "workflow.json",
+    });
+    assert.equal(accepted.diagnostic, null);
+    assert.isOk(accepted.manifest);
+
+    const request = compileDeclarativeRequest({
+      kind: "skillrunner.sequence.v1",
+      selectionContext: {
+        items: {
+          parents: [{ item: { id: 1 } }],
+        },
+      },
+      manifest: accepted.manifest!,
+    }) as any;
+
+    assert.deepEqual(request.steps[0].short_circuit, {
+      when: { path: "status", equals: "canceled" },
+      result: "step_output",
+    });
+    assert.doesNotThrow(() =>
+      assertRequestPayloadContract({
+        requestKind: "skillrunner.sequence.v1",
+        request,
+      }),
+    );
+  });
+
+  it("rejects invalid sequence step short-circuit rules", function () {
+    const missingPath = parseWorkflowManifestFromText({
+      raw: JSON.stringify(
+        sequenceManifest({
+          request: {
+            kind: "skillrunner.sequence.v1",
+            sequence: {
+              steps: [
+                {
+                  id: "prepare",
+                  skill_id: "prepare-skill",
+                  short_circuit: {
+                    when: { equals: "canceled" },
+                    result: "step_output",
+                  },
+                },
+                { id: "finalize", skill_id: "finalize-skill" },
+              ],
+            },
+          },
+        }),
+      ),
+      manifestPath: "workflow.json",
+    });
+    const unknownResult = {
+      kind: "skillrunner.sequence.v1",
+      steps: [
+        {
+          id: "prepare",
+          skill_id: "prepare-skill",
+          short_circuit: {
+            when: { path: "status", equals: "canceled" },
+            result: "final_output",
+          },
+        },
+        { id: "finalize", skill_id: "finalize-skill" },
+      ],
+      final_step_id: "finalize",
+    };
+
+    assert.equal(missingPath.manifest, null);
+    assert.match(missingPath.diagnostic?.reason || "", /short_circuit|path/i);
+    assert.throws(
+      () =>
+        assertRequestPayloadContract({
+          requestKind: "skillrunner.sequence.v1",
+          request: unknownResult,
+        }),
+      /short_circuit.*result.*step_output/i,
+    );
   });
 
   it("accepts buildRequest-driven sequence manifests without static steps", function () {
@@ -275,6 +412,84 @@ describe("skillrunner.sequence.v1 runtime", function () {
     );
   });
 
+  it("short-circuits downstream steps when a successful step output matches the rule", async function () {
+    const launched: string[] = [];
+    const canceledOutput = {
+      kind: "topic_synthesis_canceled",
+      status: "canceled",
+      reason: "duplicate_topic",
+    };
+    const result = await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        taskName: "Sequence Task",
+        steps: [
+          {
+            id: "prepare",
+            skill_id: "prepare-skill",
+            workspace: "new",
+            short_circuit: {
+              when: { path: "status", equals: "canceled" },
+              result: "step_output",
+            },
+          },
+          {
+            id: "core",
+            skill_id: "core-skill",
+            workspace: "reuse-workflow",
+          },
+          {
+            id: "finalize",
+            skill_id: "finalize-skill",
+            workspace: "reuse-workflow",
+          },
+        ],
+        final_step_id: "finalize",
+      },
+      backend: {
+        id: "acp-backend",
+        type: "acp",
+        baseUrl: "local://acp",
+        auth: { kind: "none" },
+      },
+      providerOptions: {},
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-short-circuit",
+      jobId: "job-short-circuit",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        const skillId = String((request as { skill_id?: unknown }).skill_id);
+        launched.push(skillId);
+        return {
+          status: "succeeded",
+          requestId: `${skillId}-request`,
+          fetchType: "result",
+          resultJson: canceledOutput,
+          responseJson: {},
+        };
+      },
+    });
+
+    assert.deepEqual(launched, ["prepare-skill"]);
+    assert.equal(result.status, "succeeded");
+    assert.equal(result.requestId, "prepare-skill-request");
+    assert.deepEqual(result.resultJson, canceledOutput);
+    assert.deepInclude(result.sequence || {}, {
+      short_circuited: true,
+      short_circuit_step_id: "prepare",
+      declared_final_step_id: "finalize",
+      final_step_id: "finalize",
+    });
+    assert.deepEqual(
+      result.sequence?.steps?.map((entry) => entry.step_id),
+      ["prepare"],
+    );
+    assert.equal(
+      getSequenceRunState("workflow-run-short-circuit")?.status,
+      "completed",
+    );
+  });
+
   it("stops before downstream steps when an upstream step is canceled", async function () {
     const launched: string[] = [];
     try {
@@ -325,6 +540,96 @@ describe("skillrunner.sequence.v1 runtime", function () {
     }
 
     assert.deepEqual(launched, ["prepare-skill"]);
+  });
+
+  it("short-circuits recovered non-final steps before launching downstream continuation", async function () {
+    const canceledOutput = {
+      kind: "topic_synthesis_canceled",
+      status: "canceled",
+      reason: "missing_topic",
+    };
+    const request = {
+      kind: "skillrunner.sequence.v1" as const,
+      steps: [
+        {
+          id: "prepare",
+          skill_id: "prepare-skill",
+          workspace: "new" as const,
+          short_circuit: {
+            when: { path: "status", equals: "canceled" },
+            result: "step_output" as const,
+          },
+        },
+        {
+          id: "core",
+          skill_id: "core-skill",
+          workspace: "reuse-workflow" as const,
+        },
+        {
+          id: "finalize",
+          skill_id: "finalize-skill",
+          workspace: "reuse-workflow" as const,
+        },
+      ],
+      final_step_id: "finalize",
+    };
+    const backend = {
+      id: "acp-backend",
+      type: "acp",
+      baseUrl: "local://acp",
+      auth: { kind: "none" as const },
+    };
+    initializeSequenceRunState({
+      request,
+      backend,
+      providerOptions: {},
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-recovered-short-circuit",
+      jobId: "job-recovered-short-circuit",
+    });
+    recordSequenceStepRequestCreated({
+      sequenceRunId: "workflow-run-recovered-short-circuit",
+      stepIndex: 0,
+      requestId: "prepare-request",
+    });
+    recordSequenceStepSucceeded({
+      sequenceRunId: "workflow-run-recovered-short-circuit",
+      stepIndex: 0,
+      requestId: "prepare-request",
+      output: canceledOutput,
+      result: {
+        status: "succeeded",
+        requestId: "prepare-request",
+        fetchType: "result",
+        resultJson: canceledOutput,
+        responseJson: { provider: "acp", recovered: true },
+      },
+    });
+
+    const result = await continueSkillRunnerSequence({
+      sequenceRunId: "workflow-run-recovered-short-circuit",
+      startIndex: 1,
+      backend,
+      providerOptions: {},
+      appendRuntimeLog: () => {},
+      executeWithProvider: async () => {
+        assert.fail("downstream continuation should not launch");
+      },
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.equal(result.requestId, "prepare-request");
+    assert.deepEqual(result.resultJson, canceledOutput);
+    assert.deepInclude(result.sequence || {}, {
+      short_circuited: true,
+      short_circuit_step_id: "prepare",
+      declared_final_step_id: "finalize",
+      final_step_id: "finalize",
+    });
+    assert.equal(
+      getSequenceRunState("workflow-run-recovered-short-circuit")?.status,
+      "completed",
+    );
   });
 
   it("parks sequence state when a middle step is deferred", async function () {

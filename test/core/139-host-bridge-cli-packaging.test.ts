@@ -19,7 +19,7 @@ import {
 } from "../../src/modules/hostBridgeProfileStore";
 
 describe("host bridge cli packaging and install", function () {
-  it("documents resolve-resolver with the top-level resolver input contract", async function () {
+  it("documents resolve-resolver with the direct resolver payload contract", async function () {
     const cliArgs = await fs.readFile(
       path.join(process.cwd(), "cli/zotero-bridge/src/args.rs"),
       "utf8",
@@ -43,15 +43,22 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
 
-    for (const source of [cliArgs, wrapperReference, docs]) {
-      assert.include(source, "resolver");
+    for (const source of [wrapperReference, docs]) {
+      assert.include(source, "collection_key");
+      assert.include(source, "paper_refs");
+      assert.include(source, "combine");
+      assert.include(source, "intersection");
       assert.include(source, "topic_resolver");
     }
-    assert.include(cliArgs, "top-level resolver field");
-    assert.include(wrapperReference, '"resolver"');
-    assert.include(wrapperReference, "Do not pass `topic_resolver`");
+    assert.include(cliArgs, "paper_refs");
+    assert.include(cliArgs, "combine");
+    assert.include(cliArgs, "direct resolver fields");
+    assert.include(cliArgs, "Do not pass a top-level resolver wrapper");
+    assert.include(wrapperReference, "do not wrap them in a top-level `resolver` object");
+    assert.include(wrapperReference, "Legacy fields are rejected");
     assert.include(wrapperSkill, "references/host-bridge-cli.md");
-    assert.include(docs, '"resolver"');
+    assert.notInclude(wrapperReference, 'top-level `"resolver"` field');
+    assert.notInclude(docs, "带顶层 `resolver` 字段");
   });
 
   it("renders wrapper skill discovery from the current semantic CLI surface", async function () {
@@ -89,6 +96,47 @@ describe("host bridge cli packaging and install", function () {
     assert.include(wrapperReference, "`library-index get`");
     assert.include(wrapperReference, "`reference-index get`");
     assert.include(wrapperReference, "`resolvers resolve`");
+  });
+
+  it("documents topic get-context views and file output across CLI and wrapper surfaces", async function () {
+    const cliArgs = await fs.readFile(
+      path.join(process.cwd(), "cli/zotero-bridge/src/args.rs"),
+      "utf8",
+    );
+    const wrapperSkill = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "skills_builtin/zotero-bridge-cli/SKILL.md",
+      ),
+      "utf8",
+    );
+    const wrapperReference = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+      ),
+      "utf8",
+    );
+    const docs = await fs.readFile(
+      path.join(process.cwd(), "doc/host-bridge-cli.md"),
+      "utf8",
+    );
+
+    assert.include(cliArgs, "topics.get_context");
+    assert.include(cliArgs, "get-context");
+    for (const source of [wrapperSkill, wrapperReference, docs]) {
+      assert.include(source, "topics get-context");
+    }
+    for (const source of [cliArgs, wrapperSkill, wrapperReference, docs]) {
+      assert.include(source, "view");
+      assert.include(source, "semantic");
+      assert.include(source, "audit");
+      assert.include(source, "outputPath");
+    }
+    assert.include(cliArgs, "legacy flat response");
+    assert.include(wrapperSkill, "legacy flat topic context response");
+    assert.include(wrapperReference, "compact file envelope");
+    assert.include(docs, "omitted_inline_result");
   });
 
   it("declares remote Host Bridge profile and master token preference controls", async function () {

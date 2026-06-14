@@ -21,6 +21,7 @@ import {
   decodeNoteShard,
   hashCanonicalJson,
   hashMarkdown,
+  sha256,
   LibraryWriteLock,
   resolveSynthesisRuntimeFileRoot,
   SYNTHESIS_ANCHOR_TITLE,
@@ -218,7 +219,7 @@ export type SynthesisApplyResult =
     }
   | {
       ok: false;
-      status: "topic_exists" | "duplicate_topic";
+      status: "topic_exists" | "topic_missing" | "duplicate_topic";
       topicId: string;
       reason: string;
       warnings?: string[];
@@ -378,7 +379,7 @@ export type SynthesisTopicsByPaperRefResult = {
     status?: string;
     updated_at?: string;
     freshness?: TopicFreshness;
-    coverage?: TopicCoverage;
+    source_materials_status?: TopicSourceMaterialsStatus;
     matched_paper_refs: string[];
     match_sources: Array<"current_dependencies" | "baseline_dependencies">;
   }>;
@@ -546,7 +547,15 @@ type SynthesisLiteratureDigestSidecarApplyInput =
       payloadHash?: unknown;
       references?: unknown;
     };
-    citationAnalysis?: { noteKey?: unknown; payloadHash?: unknown };
+    citationAnalysis?: {
+      noteKey?: unknown;
+      payloadHash?: unknown;
+      payload?: unknown;
+      content?: unknown;
+      citation_analysis?: unknown;
+      citationAnalysis?: unknown;
+      items?: unknown;
+    };
     literatureMatchingMetadata?: unknown;
     matchedReferences?: unknown;
     source?: unknown;
@@ -633,7 +642,7 @@ type TopicFreshness =
 
 type TopicDiscoveryStatus = "none" | "candidates" | "rejected" | "unknown";
 
-type TopicCoverage = "complete" | "partial" | "missing";
+type TopicSourceMaterialsStatus = "complete" | "partial" | "missing";
 
 type TopicFreshnessReason = {
   code: string;
@@ -717,7 +726,7 @@ type TopicArtifactStateRow = {
   known_dependency_status?: TopicFreshness;
   discovery_status?: TopicDiscoveryStatus;
   candidate_count?: number;
-  coverage: TopicCoverage;
+  source_materials_status: TopicSourceMaterialsStatus;
   baseline_input_hash: string;
   current_input_hash: string;
   baseline_dependencies: TopicDependencySnapshot | null;
@@ -789,8 +798,55 @@ export const SYNTHESIS_CLEAN_INSTALL_RESET_CONFIRMATION_TEXT =
 const defaultLock = new LibraryWriteLock();
 let defaultService: SynthesisService | null = null;
 
+export const SYNTHESIS_UNKNOWN_CITATION_ROLE = "unknown";
+export const SYNTHESIS_ALLOWED_CITATION_FUNCTIONS = [
+  "background",
+  "baseline",
+  "contrast",
+  "component",
+  "dataset",
+  "tooling",
+  "historical",
+  "uncategorized",
+] as const;
+const SYNTHESIS_ALLOWED_CITATION_FUNCTION_SET = new Set(
+  SYNTHESIS_ALLOWED_CITATION_FUNCTIONS,
+);
+
 function cleanString(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizeCitationRole(value: unknown) {
+  const normalized = cleanString(value).toLowerCase().replace(/\s+/g, "_");
+  if (
+    !normalized ||
+    normalized === "all" ||
+    normalized === "citation" ||
+    normalized === "uncategorized" ||
+    !SYNTHESIS_ALLOWED_CITATION_FUNCTION_SET.has(
+      normalized as (typeof SYNTHESIS_ALLOWED_CITATION_FUNCTIONS)[number],
+    )
+  ) {
+    return SYNTHESIS_UNKNOWN_CITATION_ROLE;
+  }
+  return normalized;
+}
+
+function citationRoleEntries(
+  values: unknown[],
+): Array<{ role: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    const role = normalizeCitationRole(value);
+    counts.set(role, (counts.get(role) || 0) + 1);
+  }
+  if (!counts.size) {
+    counts.set(SYNTHESIS_UNKNOWN_CITATION_ROLE, 1);
+  }
+  return Array.from(counts.entries())
+    .map(([role, count]) => ({ role, count }))
+    .sort((left, right) => left.role.localeCompare(right.role));
 }
 
 function compactError(error: unknown) {
@@ -1328,6 +1384,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+type TopicContextView = "digest" | "semantic" | "audit" | "full";
+
 function errorMessage(error: unknown) {
   return error instanceof Error
     ? error.message
@@ -1381,6 +1439,63 @@ function aliasesFromDefinition(definition: Record<string, unknown>) {
     aliases.push(text);
   }
   return aliases;
+}
+
+function topicContextView(value: unknown): TopicContextView | "" | "invalid" {
+  const view = cleanString(value).toLowerCase();
+  if (!view) {
+    return "";
+  }
+  return ["digest", "semantic", "audit", "full"].includes(view)
+    ? (view as TopicContextView)
+    : "invalid";
+}
+
+function topicContextOutputPath(args: Record<string, unknown>) {
+  return cleanString(args.outputPath || args.output_path);
+}
+
+function topicContextByteLength(text: string) {
+  const Encoder = (globalThis as { TextEncoder?: typeof TextEncoder })
+    .TextEncoder;
+  return new (Encoder || TextEncoder)().encode(text).length;
+}
+
+async function maybeWriteTopicContextOutput(args: {
+  topicId: string;
+  view: TopicContextView;
+  outputPath: string;
+  overwrite: boolean;
+  payload: Record<string, unknown>;
+}) {
+  if ((await runtimePathExists(args.outputPath)) && !args.overwrite) {
+    return {
+      ok: false,
+      status: "output_exists",
+      topic_id: args.topicId,
+      view: args.view,
+      output: {
+        mode: "file",
+        path: args.outputPath,
+      },
+      diagnostics: ["output_path_exists"],
+    };
+  }
+  const text = canonicalText(args.payload);
+  await writeRuntimeTextFile(args.outputPath, text);
+  return {
+    schema_id: "synthesis.topic_context.output",
+    schema_version: "2.0.0",
+    topic_id: args.topicId,
+    view: args.view,
+    output: {
+      mode: "file",
+      path: args.outputPath,
+      bytes: topicContextByteLength(text),
+      sha256: sha256(text),
+    },
+    omitted_inline_result: true,
+  };
 }
 
 function statusFromDefinition(
@@ -1470,6 +1585,10 @@ function topicArtifactRowsFromGraphNodes(args: {
   artifactState: Record<string, TopicArtifactStateRow>;
   definitions: Record<string, Record<string, unknown>>;
   metadata?: Record<string, TopicArtifactMetadata>;
+  discoverySummaries?: Record<
+    string,
+    ReturnType<typeof topicDiscoverySummaryFromHints>
+  >;
 }): SynthesisUiArtifactRow[] {
   return args.nodes
     .filter(
@@ -1481,6 +1600,31 @@ function topicArtifactRowsFromGraphNodes(args: {
     .map((node): SynthesisUiArtifactRow => {
       const row = topicIndexRowFromGraphNode(node);
       const stateRow = args.artifactState[row.topic_id];
+      const discoverySummary =
+        args.discoverySummaries?.[row.topic_id] ||
+        preserveTopicDiscoveryState(stateRow);
+      const stateWithDiscovery = stateRow
+        ? {
+            ...stateRow,
+            discovery_status: discoverySummary.discovery_status,
+            candidate_count: discoverySummary.candidate_count,
+          }
+        : discoverySummary.candidate_count > 0
+          ? ({
+              topic_id: row.topic_id,
+              freshness: "fresh",
+              known_dependency_status: "fresh",
+              discovery_status: discoverySummary.discovery_status,
+              candidate_count: discoverySummary.candidate_count,
+              source_materials_status: "complete",
+              baseline_input_hash: "",
+              current_input_hash: "",
+              baseline_dependencies: null,
+              current_dependencies: null,
+              reasons: [],
+              last_scanned_at: "",
+            } satisfies TopicArtifactStateRow)
+          : undefined;
       const definition = args.definitions[row.topic_id] || {};
       const metadata = args.metadata?.[row.topic_id];
       const definitionText = topicDefinitionFromSources({
@@ -1489,10 +1633,11 @@ function topicArtifactRowsFromGraphNodes(args: {
         node,
       });
       const freshness = stateRow?.freshness || "unknown";
-      const coverage = stateRow?.coverage || "missing";
+      const sourceMaterialsStatus =
+        stateRow?.source_materials_status || "missing";
       const intent = deriveTopicUpdateIntent({
         topicId: row.topic_id,
-        state: stateRow,
+        state: stateWithDiscovery,
         row,
       });
       return {
@@ -1500,7 +1645,7 @@ function topicArtifactRowsFromGraphNodes(args: {
         title: row.title,
         definition: definitionText || row.definition,
         kind: "topic_synthesis" as const,
-        coverage,
+        source_materials_status: sourceMaterialsStatus,
         freshness,
         updated_at: row.updated_at,
         markdown_preview: (stateRow?.reasons || [])
@@ -1515,11 +1660,14 @@ function topicArtifactRowsFromGraphNodes(args: {
             .slice(0, 2)
             .join("; "),
         ),
-        completion: completionFromTopicState(stateRow),
+        source_materials_percent:
+          sourceMaterialsPercentFromTopicState(stateRow),
         status: node.definition_status,
         readerMode: "structured",
         language: row.language,
         external_literature_count: row.external_literature_count,
+        discovery_status: discoverySummary.discovery_status,
+        candidate_count: discoverySummary.candidate_count,
         stale_reasons:
           stateRow?.freshness === "stale"
             ? (stateRow?.reasons || []).map((entry) => entry.code)
@@ -1665,7 +1813,7 @@ function topicIdFromBundle(bundle: SynthesisResultBundle) {
   return topicId;
 }
 
-function topicPathId(topicId: string) {
+export function topicPathId(topicId: string) {
   const slug = topicId
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
@@ -2262,14 +2410,22 @@ function roleEntriesFromDb(
 ): Array<{ role: string; count: number }> {
   const counts = new Map<string, number>();
   for (const entry of parseCitationRoles(value)) {
-    const role =
+    const role = normalizeCitationRole(
       typeof entry === "string"
-        ? cleanString(entry)
-        : cleanString((entry as Record<string, unknown>)?.role);
-    if (!role) {
-      continue;
-    }
-    counts.set(role, (counts.get(role) || 0) + 1);
+        ? entry
+        : (entry as Record<string, unknown>)?.role,
+    );
+    const count =
+      typeof entry === "object" && entry
+        ? Math.max(
+            1,
+            Math.floor(Number((entry as Record<string, unknown>).count) || 1),
+          )
+        : 1;
+    counts.set(role, (counts.get(role) || 0) + count);
+  }
+  if (!counts.size) {
+    counts.set(SYNTHESIS_UNKNOWN_CITATION_ROLE, 1);
   }
   return Array.from(counts.entries())
     .map(([role, count]) => ({ role, count }))
@@ -2377,7 +2533,7 @@ function dbCitationEdgeToGraphEdge(args: {
     target: args.targetNodeId,
     kind: "citation",
     mention_count: Math.max(1, Math.floor(Number(args.edge.weight) || 1)),
-    primary_role: primary?.role || "citation",
+    primary_role: primary?.role || SYNTHESIS_UNKNOWN_CITATION_ROLE,
     aux_roles: aux,
     role_evidence: roles,
     source_refs: [args.edge.referenceInstanceId || args.edge.edgeId].filter(
@@ -3098,7 +3254,12 @@ function registryRowsToUi(rows: ReferenceSidecarIndexRow[]) {
 
 function referenceSidecarReferenceToUiRow(
   reference: ReferenceSidecarReferenceFact,
+  targetTitlesByPaperRef: Map<string, string> = new Map(),
 ): RegistryReferenceUiRow {
+  const targetPaperRef = cleanString(reference.targetPaperRef);
+  const targetTitle =
+    (targetPaperRef ? targetTitlesByPaperRef.get(targetPaperRef) : "") ||
+    cleanString(reference.targetTitle);
   return {
     reference_instance_id: reference.referenceInstanceId,
     reference_index: reference.referenceIndex,
@@ -3111,8 +3272,8 @@ function referenceSidecarReferenceToUiRow(
     confidence: cleanString(reference.confidence) || undefined,
     target_literature_item_id:
       cleanString(reference.targetLiteratureItemId) || undefined,
-    target_title: cleanString(reference.targetTitle) || undefined,
-    target_paper_ref: cleanString(reference.targetPaperRef) || undefined,
+    target_title: targetTitle || undefined,
+    target_paper_ref: targetPaperRef || undefined,
     target_binding: reference.targetLiteratureItemId
       ? reference.targetHasZoteroBinding
         ? "library"
@@ -3304,10 +3465,6 @@ function metricSortValue(
     return entry.internal_in_degree;
   }
   return entry.foundation_score;
-}
-
-function normalizeResolverMode(resolver: Record<string, unknown>) {
-  return cleanString(resolver.mode || resolver.type || resolver.kind);
 }
 
 function normalizeArray(value: unknown): unknown[] {
@@ -3503,7 +3660,7 @@ function unknownFieldErrors(
     .filter((key) => !allowedSet.has(key))
     .map(
       (key) =>
-        `${pathLabel(path, key)} is not allowed in canonical resolver schema`,
+        `${pathLabel(path, key)} is not allowed in resolver payload schema`,
     );
 }
 
@@ -3560,113 +3717,46 @@ function validateTagQueryValue(value: unknown, path: string): string[] {
   return errors;
 }
 
-function validateCollectionResolver(
-  resolver: Record<string, unknown>,
-  path: string,
-) {
-  const allowed = [
-    "mode",
-    "collection",
-    "collections",
-    "collection_key",
-    "collection_keys",
-    "collection_id",
-    "collection_ids",
-    "key",
-    "id",
-  ];
-  const errors = unknownFieldErrors(resolver, allowed, path);
-  const selectorKeys = allowed.filter(
-    (key) => key !== "mode" && key in resolver,
-  );
-  if (!selectorKeys.length) {
-    errors.push(`${path} collection resolver requires a collection selector`);
-  }
-  for (const key of selectorKeys) {
-    errors.push(
-      ...validateStringOrStringArray(resolver[key], pathLabel(path, key)),
-    );
-  }
-  return errors;
-}
-
-function validateExplicitResolver(
-  resolver: Record<string, unknown>,
-  path: string,
-) {
-  const errors = unknownFieldErrors(resolver, ["mode", "paper_refs"], path);
-  if (!("paper_refs" in resolver)) {
-    errors.push(`${path}.paper_refs is required for explicit resolver`);
-  } else {
-    errors.push(
-      ...validateStringArray(resolver.paper_refs, `${path}.paper_refs`),
-    );
-  }
-  return errors;
-}
-
-function validateMixedResolver(
-  resolver: Record<string, unknown>,
-  path: string,
-) {
-  const errors = unknownFieldErrors(
-    resolver,
-    ["mode", "include", "exclude"],
-    path,
-  );
-  if (!Array.isArray(resolver.include) || !resolver.include.length) {
-    errors.push(`${path}.include must be a non-empty resolver array`);
-  } else {
-    resolver.include.forEach((entry, index) => {
-      errors.push(
-        ...validateCanonicalResolver(entry, `${path}.include[${index}]`),
-      );
-    });
-  }
-  if (resolver.exclude !== undefined) {
-    if (!Array.isArray(resolver.exclude)) {
-      errors.push(`${path}.exclude must be a resolver array`);
-    } else {
-      resolver.exclude.forEach((entry, index) => {
-        errors.push(
-          ...validateCanonicalResolver(entry, `${path}.exclude[${index}]`),
-        );
-      });
-    }
-  }
-  return errors;
-}
-
-function validateCanonicalResolver(rawResolver: unknown, path = "$"): string[] {
+function validateResolverPayload(rawResolver: unknown, path = "$"): string[] {
   if (!isRecord(rawResolver)) {
     return [`${path} must be an object`];
   }
-  const mode = cleanString(rawResolver.mode);
-  if (!mode) {
-    return [
-      `${path}.mode is required and must be one of tag_query, collection, explicit, mixed`,
-      ...unknownFieldErrors(rawResolver, ["mode"], path),
-    ];
+  const errors = unknownFieldErrors(
+    rawResolver,
+    ["tag", "collection_key", "paper_refs", "combine", "limit", "cursor"],
+    path,
+  );
+  const selectorKeys = ["tag", "collection_key", "paper_refs"].filter(
+    (key) => key in rawResolver,
+  );
+  if (!selectorKeys.length) {
+    errors.push(
+      `${path} must include at least one of tag, collection_key, or paper_refs`,
+    );
   }
-  if (mode === "tag_query") {
-    const errors = unknownFieldErrors(rawResolver, ["mode", "query"], path);
-    if (!("query" in rawResolver)) {
-      errors.push(`${path}.query is required for tag_query resolver`);
-    } else {
-      errors.push(...validateTagQueryValue(rawResolver.query, `${path}.query`));
-    }
-    return errors;
+  if ("tag" in rawResolver) {
+    errors.push(...validateTagQueryValue(rawResolver.tag, `${path}.tag`));
   }
-  if (mode === "collection") {
-    return validateCollectionResolver(rawResolver, path);
+  if ("collection_key" in rawResolver) {
+    errors.push(
+      ...validateStringOrStringArray(
+        rawResolver.collection_key,
+        `${path}.collection_key`,
+      ),
+    );
   }
-  if (mode === "explicit") {
-    return validateExplicitResolver(rawResolver, path);
+  if ("paper_refs" in rawResolver) {
+    errors.push(
+      ...validateStringArray(rawResolver.paper_refs, `${path}.paper_refs`),
+    );
   }
-  if (mode === "mixed") {
-    return validateMixedResolver(rawResolver, path);
+  if (
+    "combine" in rawResolver &&
+    !["union", "intersection"].includes(cleanString(rawResolver.combine))
+  ) {
+    errors.push(`${path}.combine must be union or intersection`);
   }
-  return [`${path}.mode has unsupported value: ${mode}`];
+  return errors;
 }
 
 function tagSet(row: ReferenceSidecarIndexRow) {
@@ -3695,47 +3785,30 @@ function tagMatches(row: ReferenceSidecarIndexRow, query: unknown): boolean {
   );
 }
 
-function collectionMatches(
+function collectionKeyMatches(
   row: ReferenceSidecarIndexRow,
   resolver: Record<string, unknown>,
 ) {
   const collections = new Set(
     row.collections.map((entry) => entry.toLowerCase()),
   );
-  const refs = [
-    ...normalizeArray(resolver.collection),
-    ...normalizeArray(resolver.collections),
-    ...normalizeArray(resolver.collection_key),
-    ...normalizeArray(resolver.collection_keys),
-    ...normalizeArray(resolver.collection_id),
-    ...normalizeArray(resolver.collection_ids),
-    ...normalizeArray(resolver.key),
-    ...normalizeArray(resolver.id),
-  ]
+  const refs = normalizeArray(resolver.collection_key)
     .map((entry) => cleanString(entry).toLowerCase())
     .filter(Boolean);
   return refs.length ? refs.some((ref) => collections.has(ref)) : false;
 }
 
-function explicitMatches(
+function paperRefsMatch(
   row: ReferenceSidecarIndexRow,
   resolver: Record<string, unknown>,
 ) {
-  const refs = [
-    ...normalizeArray(resolver.paper_ref),
-    ...normalizeArray(resolver.paper_refs),
-    ...normalizeArray(resolver.paperRefs),
-    ...normalizeArray(resolver.item_key),
-    ...normalizeArray(resolver.item_keys),
-    ...normalizeArray(resolver.itemKeys),
-    ...normalizeArray(resolver.include),
-  ]
+  const refs = normalizeArray(resolver.paper_refs)
     .map(cleanString)
     .filter(Boolean);
-  return refs.some((ref) => ref === row.paper_ref || ref === row.item_key);
+  return refs.some((ref) => ref === row.paper_ref);
 }
 
-function resolveRowsByResolver(
+function resolveRowsByResolverPayload(
   rows: ReferenceSidecarIndexRow[],
   rawResolver: unknown,
 ): Map<string, { row: ReferenceSidecarIndexRow; reasons: string[] }> {
@@ -3743,76 +3816,44 @@ function resolveRowsByResolver(
     rawResolver && typeof rawResolver === "object"
       ? (rawResolver as Record<string, unknown>)
       : {};
-  const mode = normalizeResolverMode(resolver);
+  const selectorKeys = ["tag", "collection_key", "paper_refs"].filter(
+    (key) => key in resolver,
+  );
+  const combine = cleanString(resolver.combine) || "union";
   const result = new Map<
     string,
     { row: ReferenceSidecarIndexRow; reasons: string[] }
   >();
-  const add = (row: ReferenceSidecarIndexRow, reason: string) => {
+  const add = (row: ReferenceSidecarIndexRow, reasons: string[]) => {
     const existing = result.get(row.paper_ref);
     if (existing) {
-      if (!existing.reasons.includes(reason)) {
-        existing.reasons.push(reason);
+      for (const reason of reasons) {
+        if (!existing.reasons.includes(reason)) {
+          existing.reasons.push(reason);
+        }
       }
       return;
     }
-    result.set(row.paper_ref, { row, reasons: [reason] });
+    result.set(row.paper_ref, { row, reasons: [...reasons] });
   };
-  if (mode === "tag_query" || (!mode && resolver.query)) {
-    for (const row of rows) {
-      if (tagMatches(row, resolver.query)) {
-        add(row, "tag_query");
-      }
+  for (const row of rows) {
+    const reasons: string[] = [];
+    if ("tag" in resolver && tagMatches(row, resolver.tag)) {
+      reasons.push("tag");
     }
-    return result;
-  }
-  if (mode === "collection") {
-    for (const row of rows) {
-      if (collectionMatches(row, resolver)) {
-        add(row, "collection");
-      }
+    if ("collection_key" in resolver && collectionKeyMatches(row, resolver)) {
+      reasons.push("collection_key");
     }
-    return result;
-  }
-  if (mode === "explicit") {
-    for (const row of rows) {
-      if (explicitMatches(row, resolver)) {
-        add(row, "explicit");
-      }
+    if ("paper_refs" in resolver && paperRefsMatch(row, resolver)) {
+      reasons.push("paper_refs");
     }
-    return result;
-  }
-  if (mode === "mixed") {
-    const includeResolvers = normalizeArray(
-      resolver.include_resolvers || resolver.includes || resolver.include,
-    );
-    const excludeResolvers = normalizeArray(
-      resolver.exclude_resolvers || resolver.excludes || resolver.exclude,
-    );
-    const included = new Map<
-      string,
-      { row: ReferenceSidecarIndexRow; reasons: string[] }
-    >();
-    const sources = includeResolvers.length
-      ? includeResolvers
-      : [{ mode: "explicit" }];
-    for (const child of sources) {
-      for (const [paperRef, value] of resolveRowsByResolver(rows, child)) {
-        included.set(paperRef, value);
-      }
+    const matched =
+      combine === "intersection"
+        ? reasons.length === selectorKeys.length
+        : reasons.length > 0;
+    if (matched) {
+      add(row, reasons);
     }
-    const excluded = new Set<string>();
-    for (const child of excludeResolvers) {
-      for (const paperRef of resolveRowsByResolver(rows, child).keys()) {
-        excluded.add(paperRef);
-      }
-    }
-    for (const [paperRef, value] of included) {
-      if (!excluded.has(paperRef)) {
-        result.set(paperRef, value);
-      }
-    }
-    return result;
   }
   return result;
 }
@@ -3920,9 +3961,9 @@ function buildArtifactDependencies(
   };
 }
 
-function coverageFromDependencies(
+function sourceMaterialsStatusFromDependencies(
   snapshot: TopicDependencySnapshot | null,
-): TopicCoverage {
+): TopicSourceMaterialsStatus {
   const refs = snapshot?.saved_paper_refs || [];
   if (!refs.length) {
     return "missing";
@@ -3954,7 +3995,9 @@ function paperRefFromMissingArtifact(entry: unknown) {
   return value;
 }
 
-function completionFromTopicState(state: TopicArtifactStateRow | undefined) {
+function sourceMaterialsPercentFromTopicState(
+  state: TopicArtifactStateRow | undefined,
+) {
   if (!state) {
     return 0;
   }
@@ -3964,7 +4007,7 @@ function completionFromTopicState(state: TopicArtifactStateRow | undefined) {
     ? dependencies.current_paper_refs
     : dependencies?.saved_paper_refs || [];
   if (!refs.length) {
-    return state.coverage === "complete" ? 100 : 0;
+    return state.source_materials_status === "complete" ? 100 : 0;
   }
   const missingPaperRefs = new Set(
     (dependencies?.missing_artifacts || [])
@@ -3985,13 +4028,13 @@ function changedSectionsForReason(reasonCode: string) {
     return [];
   }
   if (reasonCode === "graph_changed") {
-    return ["coverage", "source_artifacts"];
+    return ["source_materials", "source_artifacts"];
   }
   if (
     reasonCode === "artifact_available" ||
     reasonCode === "artifact_missing"
   ) {
-    return ["coverage", "diagnostics"];
+    return ["source_materials", "diagnostics"];
   }
   if (reasonCode === "artifact_changed") {
     return ["claims", "source_papers", "timeline_events"];
@@ -4009,10 +4052,14 @@ function deriveTopicUpdateIntent(args: {
     cleanString(args.language) || cleanString(args.row?.language) || "auto";
   const reasons = args.state?.reasons || [];
   const firstReason = reasons[0];
-  const reasonCode =
+  let reasonCode =
     cleanString(firstReason?.code) ||
     cleanString(args.state?.freshness) ||
     "manual";
+  const candidateCount = Math.max(
+    0,
+    Math.floor(Number(args.state?.candidate_count) || 0),
+  );
   let mode: TopicUpdateIntent["mode"] = "auto";
   let scope = "auto";
   let changedSections = changedSectionsForReason(reasonCode);
@@ -4031,18 +4078,26 @@ function deriveTopicUpdateIntent(args: {
     mode = "update_full";
     scope = "repair";
     changedSections = [];
-  } else if (args.state?.coverage && args.state.coverage !== "complete") {
+  } else if (
+    args.state?.source_materials_status &&
+    args.state.source_materials_status !== "complete"
+  ) {
     mode = "update_patch";
-    scope = "coverage";
-    changedSections = ["coverage", "diagnostics"];
+    scope = "source_materials";
+    changedSections = ["source_materials", "diagnostics"];
   } else if (reasonCode === "paper_set_changed") {
     mode = "update_full";
     scope = "paper_set";
   } else if (changedSections.length) {
     mode = "update_patch";
-    scope = changedSections.includes("coverage")
-      ? "coverage"
+    scope = changedSections.includes("source_materials")
+      ? "source_materials"
       : changedSections[0];
+  } else if (candidateCount > 0) {
+    reasonCode = "discovery_candidates";
+    mode = "update_patch";
+    scope = "discovery";
+    changedSections = [];
   }
   const allowed =
     args.state?.freshness === "queued" || args.state?.freshness === "running"
@@ -4070,19 +4125,13 @@ function topicUpdateIntentForUi(args: {
   topicId: string;
   intent: TopicUpdateIntent;
 }): SynthesisUiTopicUpdateIntent {
-  const actionLabel: SynthesisUiTopicUpdateIntent["actionLabel"] =
-    args.intent.allowed && args.intent.scope === "repair"
-      ? "Repair/Rebuild"
-      : args.intent.allowed && args.intent.scope === "coverage"
-        ? "Complete"
-        : "Update";
   return {
     topicId: args.topicId,
     language: args.intent.prefill.language,
     updateScope: args.intent.prefill.updateScope,
     updateMode: args.intent.prefill.updateMode,
     updateReason: args.intent.prefill.updateReason,
-    actionLabel,
+    actionLabel: "Update",
     changedSections: args.intent.changed_sections,
     blocked: !args.intent.allowed,
   };
@@ -4212,10 +4261,24 @@ function collectStaleReasons(
 
 async function readArtifactStateRows(root: string) {
   const paths = buildSynthesisStoragePaths(root);
-  return readStateMap<TopicArtifactStateRow>(
+  const rows = await readStateMap<Record<string, unknown>>(
     paths.artifactState,
     "topics",
-  ).catch(() => ({}) as Record<string, TopicArtifactStateRow>);
+  ).catch(() => ({}) as Record<string, Record<string, unknown>>);
+  return Object.fromEntries(
+    Object.entries(rows).map(([topicId, row]) => {
+      const state = row as TopicArtifactStateRow & { coverage?: unknown };
+      return [
+        topicId,
+        {
+          ...state,
+          source_materials_status: normalizeTopicSourceMaterialsStatus(
+            state.source_materials_status || state.coverage,
+          ),
+        },
+      ];
+    }),
+  ) as Record<string, TopicArtifactStateRow>;
 }
 
 async function writeArtifactStateRows(
@@ -4228,7 +4291,15 @@ async function writeArtifactStateRows(
     path: paths.artifactState,
     schemaId: "synthesis.artifact_state",
     key: "topics",
-    values: rows,
+    values: Object.fromEntries(
+      Object.entries(rows).map(([topicId, row]) => [
+        topicId,
+        {
+          ...row,
+          coverage: undefined,
+        },
+      ]),
+    ),
     now: timestamp,
   });
 }
@@ -4246,15 +4317,240 @@ function topicDiscoveryStatusFromCounts(args: {
   return "none";
 }
 
+function normalizeTopicSourceMaterialsStatus(
+  value: unknown,
+): TopicSourceMaterialsStatus {
+  const normalized = cleanString(value);
+  if (
+    normalized === "complete" ||
+    normalized === "partial" ||
+    normalized === "missing"
+  ) {
+    return normalized;
+  }
+  return "missing";
+}
+
 function topicDiscoverySummaryFromHints(
   hints: SynthesisTopicDiscoveryHintRecord[],
 ) {
-  const open = hints.filter((hint) => hint.status === "open").length;
-  const rejected = hints.filter((hint) => hint.status === "rejected").length;
+  const openLiteratureItemIds = new Set<string>();
+  const rejectedLiteratureItemIds = new Set<string>();
+  for (const hint of hints) {
+    const literatureItemId = cleanString(hint.literatureItemId);
+    if (!literatureItemId) {
+      continue;
+    }
+    if (hint.status === "open") {
+      openLiteratureItemIds.add(literatureItemId);
+      continue;
+    }
+    if (hint.status === "rejected") {
+      rejectedLiteratureItemIds.add(literatureItemId);
+    }
+  }
+  for (const literatureItemId of openLiteratureItemIds) {
+    rejectedLiteratureItemIds.delete(literatureItemId);
+  }
+  const open = openLiteratureItemIds.size;
+  const rejected = rejectedLiteratureItemIds.size;
   return {
     discovery_status: topicDiscoveryStatusFromCounts({ open, rejected }),
     candidate_count: open,
   };
+}
+
+function topicGraphEdgeSourceTopicId(edge: unknown) {
+  if (!isRecord(edge)) {
+    return "";
+  }
+  return cleanString(edge.sourceTopicId) || cleanString(edge.source_topic_id);
+}
+
+function topicGraphEdgeTargetTopicId(edge: unknown) {
+  if (!isRecord(edge)) {
+    return "";
+  }
+  return cleanString(edge.targetTopicId) || cleanString(edge.target_topic_id);
+}
+
+function topicGraphEdgeRelation(edge: unknown) {
+  if (!isRecord(edge)) {
+    return "";
+  }
+  return cleanString(edge.relation);
+}
+
+function topicGraphEdgeStatus(edge: unknown) {
+  if (!isRecord(edge)) {
+    return "";
+  }
+  return cleanString(edge.status);
+}
+
+function confirmedBroaderTopicChildrenByParent(edges: unknown[]) {
+  const childrenByParent = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (
+      topicGraphEdgeRelation(edge) !== "broader_than" ||
+      topicGraphEdgeStatus(edge) !== "confirmed"
+    ) {
+      continue;
+    }
+    const sourceTopicId = topicGraphEdgeSourceTopicId(edge);
+    const targetTopicId = topicGraphEdgeTargetTopicId(edge);
+    if (!sourceTopicId || !targetTopicId || sourceTopicId === targetTopicId) {
+      continue;
+    }
+    const children = childrenByParent.get(sourceTopicId) || [];
+    children.push(targetTopicId);
+    childrenByParent.set(sourceTopicId, children);
+  }
+  return childrenByParent;
+}
+
+function confirmedBroaderTopicParentsByChild(edges: unknown[]) {
+  const parentsByChild = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (
+      topicGraphEdgeRelation(edge) !== "broader_than" ||
+      topicGraphEdgeStatus(edge) !== "confirmed"
+    ) {
+      continue;
+    }
+    const sourceTopicId = topicGraphEdgeSourceTopicId(edge);
+    const targetTopicId = topicGraphEdgeTargetTopicId(edge);
+    if (!sourceTopicId || !targetTopicId || sourceTopicId === targetTopicId) {
+      continue;
+    }
+    const parents = parentsByChild.get(targetTopicId) || [];
+    parents.push(sourceTopicId);
+    parentsByChild.set(targetTopicId, parents);
+  }
+  return parentsByChild;
+}
+
+function collectReachableTopicIds(
+  topicIds: string[],
+  adjacency: Map<string, string[]>,
+) {
+  const seen = new Set(topicIds.map(cleanString).filter(Boolean));
+  const queue = Array.from(seen);
+  while (queue.length) {
+    const current = queue.shift() || "";
+    for (const next of adjacency.get(current) || []) {
+      if (seen.has(next)) {
+        continue;
+      }
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return Array.from(seen).sort((left, right) => left.localeCompare(right));
+}
+
+function topicDiscoveryCascadeTopicIds(args: {
+  topicId: string;
+  graphEdges: unknown[];
+}) {
+  return collectReachableTopicIds(
+    [args.topicId],
+    confirmedBroaderTopicChildrenByParent(args.graphEdges),
+  );
+}
+
+function topicDiscoveryRefreshTopicIds(args: {
+  topicIds: string[];
+  graphEdges: unknown[];
+}) {
+  return collectReachableTopicIds(
+    args.topicIds,
+    confirmedBroaderTopicParentsByChild(args.graphEdges),
+  );
+}
+
+function dedupeDiscoveryHintsByLiteratureItem(
+  hints: SynthesisTopicDiscoveryHintRecord[],
+) {
+  const sorted = [...hints].sort((left, right) => {
+    const score = right.score - left.score;
+    if (score !== 0) {
+      return score;
+    }
+    return (
+      left.topicId.localeCompare(right.topicId) ||
+      left.literatureItemId.localeCompare(right.literatureItemId)
+    );
+  });
+  const seen = new Set<string>();
+  const deduped: SynthesisTopicDiscoveryHintRecord[] = [];
+  for (const hint of sorted) {
+    const literatureItemId = cleanString(hint.literatureItemId);
+    if (!literatureItemId || seen.has(literatureItemId)) {
+      continue;
+    }
+    seen.add(literatureItemId);
+    deduped.push(hint);
+  }
+  return deduped;
+}
+
+function acceptedDiscoveryLiteratureIdsForTopic(
+  hints: SynthesisTopicDiscoveryHintRecord[],
+  topicId: string,
+) {
+  const accepted = new Set<string>();
+  for (const hint of hints) {
+    const literatureItemId = cleanString(hint.literatureItemId);
+    if (
+      cleanString(hint.topicId) === topicId &&
+      hint.status === "accepted" &&
+      literatureItemId
+    ) {
+      accepted.add(literatureItemId);
+    }
+  }
+  return accepted;
+}
+
+function filterAcceptedDiscoveryHintsForTopic(
+  hints: SynthesisTopicDiscoveryHintRecord[],
+  topicId: string,
+) {
+  const accepted = acceptedDiscoveryLiteratureIdsForTopic(hints, topicId);
+  if (!accepted.size) {
+    return hints;
+  }
+  return hints.filter((hint) => {
+    const literatureItemId = cleanString(hint.literatureItemId);
+    return !(hint.status === "open" && accepted.has(literatureItemId));
+  });
+}
+
+function topicDiscoverySummariesByTopicId(args: {
+  topicIds: string[];
+  graphEdges: unknown[];
+  hints: SynthesisTopicDiscoveryHintRecord[];
+}) {
+  const summaries: Record<
+    string,
+    ReturnType<typeof topicDiscoverySummaryFromHints>
+  > = {};
+  for (const topicId of sortedUniqueStrings(args.topicIds)) {
+    const cascadedTopicIds = new Set(
+      topicDiscoveryCascadeTopicIds({
+        topicId,
+        graphEdges: args.graphEdges,
+      }),
+    );
+    summaries[topicId] = topicDiscoverySummaryFromHints(
+      filterAcceptedDiscoveryHintsForTopic(
+        args.hints.filter((hint) => cascadedTopicIds.has(hint.topicId)),
+        topicId,
+      ),
+    );
+  }
+  return summaries;
 }
 
 function preserveTopicDiscoveryState(state: TopicArtifactStateRow | undefined) {
@@ -4323,7 +4619,7 @@ async function buildTopicDependencySnapshot(args: {
 }): Promise<{
   snapshot: TopicDependencySnapshot | null;
   dirtyReasons: TopicFreshnessReason[];
-  coverage: TopicCoverage;
+  sourceMaterialsStatus: TopicSourceMaterialsStatus;
 }> {
   const paths = buildSynthesisStoragePaths(args.root, args.row.path_id);
   const globalPaths = buildSynthesisStoragePaths(args.root);
@@ -4356,13 +4652,13 @@ async function buildTopicDependencySnapshot(args: {
       }),
     );
   }
-  const resolverErrors = resolver ? validateCanonicalResolver(resolver) : [];
+  const resolverErrors = resolver ? validateResolverPayload(resolver) : [];
   if (resolverErrors.length) {
     dirtyReasons.push(
       reason({
         code: "invalid_resolver",
         severity: "error",
-        message: "Topic resolver does not match the canonical schema.",
+        message: "Topic resolver does not match the resolver payload schema.",
         details: { errors: resolverErrors },
       }),
     );
@@ -4383,11 +4679,11 @@ async function buildTopicDependencySnapshot(args: {
     );
   }
   if (!resolver || !savedPaperSet || resolverErrors.length) {
-    return { snapshot: null, dirtyReasons, coverage: "missing" };
+    return { snapshot: null, dirtyReasons, sourceMaterialsStatus: "missing" };
   }
   const savedRefs = normalizeResolvedPaperRefs(savedPaperSet);
   const currentRefs = [
-    ...resolveRowsByResolver(args.registryRows, resolver).keys(),
+    ...resolveRowsByResolverPayload(args.registryRows, resolver).keys(),
   ].sort((left, right) => left.localeCompare(right));
   const artifacts = buildArtifactDependencies(savedRefs, args.registryRows);
   const snapshot: TopicDependencySnapshot = {
@@ -4406,7 +4702,7 @@ async function buildTopicDependencySnapshot(args: {
   return {
     snapshot,
     dirtyReasons,
-    coverage: coverageFromDependencies(snapshot),
+    sourceMaterialsStatus: sourceMaterialsStatusFromDependencies(snapshot),
   };
 }
 
@@ -4439,7 +4735,7 @@ async function scanTopicFreshness(args: {
         state: {
           topic_id: row.topic_id,
           freshness: "dirty",
-          coverage: computed.coverage,
+          source_materials_status: computed.sourceMaterialsStatus,
           baseline_input_hash: existing?.baseline_input_hash || "",
           current_input_hash: "",
           baseline_dependencies: existing?.baseline_dependencies || null,
@@ -4464,7 +4760,7 @@ async function scanTopicFreshness(args: {
         state: {
           topic_id: row.topic_id,
           freshness: computed.dirtyReasons.length ? "dirty" : "fresh",
-          coverage: computed.coverage,
+          source_materials_status: computed.sourceMaterialsStatus,
           baseline_input_hash: computed.dirtyReasons.length ? "" : currentHash,
           current_input_hash: currentHash,
           baseline_dependencies: computed.dirtyReasons.length
@@ -4505,7 +4801,7 @@ async function scanTopicFreshness(args: {
       state: {
         topic_id: row.topic_id,
         freshness,
-        coverage: computed.coverage,
+        source_materials_status: computed.sourceMaterialsStatus,
         baseline_input_hash: existing.baseline_input_hash,
         current_input_hash: currentHash,
         baseline_dependencies: baselineDependencies,
@@ -4579,10 +4875,14 @@ function normalizeTopicsByPaperRefArgs(args: Record<string, unknown>) {
 function dependencyPaperRefs(
   dependencies: TopicDependencySnapshot | null | undefined,
 ) {
-  return new Set([
-    ...(dependencies?.saved_paper_refs || []),
-    ...(dependencies?.current_paper_refs || []),
-  ].map(cleanString).filter(Boolean));
+  return new Set(
+    [
+      ...(dependencies?.saved_paper_refs || []),
+      ...(dependencies?.current_paper_refs || []),
+    ]
+      .map(cleanString)
+      .filter(Boolean),
+  );
 }
 
 function topicMatchForPaperRefs(args: {
@@ -4627,7 +4927,7 @@ async function markTopicFreshnessStatus(args: {
       state: {
         topic_id: topicId,
         freshness: args.freshness,
-        coverage: existing?.coverage || "missing",
+        source_materials_status: existing?.source_materials_status || "missing",
         baseline_input_hash: existing?.baseline_input_hash || "",
         current_input_hash: existing?.current_input_hash || "",
         baseline_dependencies: existing?.baseline_dependencies || null,
@@ -5732,18 +6032,27 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     topicIds: string[];
     timestamp: string;
   }) {
-    const topicIds = sortedUniqueStrings(args.topicIds);
+    const graphEdges = synthesisRepository.listTopicGraphEdges({
+      relations: ["broader_than"],
+      statuses: ["confirmed"],
+    });
+    const topicIds = topicDiscoveryRefreshTopicIds({
+      topicIds: sortedUniqueStrings(args.topicIds),
+      graphEdges,
+    });
     if (!topicIds.length) {
       return;
     }
+    const hints = synthesisRepository.listTopicDiscoveryHints();
+    const summaries = topicDiscoverySummariesByTopicId({
+      topicIds,
+      graphEdges,
+      hints,
+    });
     const previous = await readArtifactStateRows(root);
     let changed = false;
     for (const topicId of topicIds) {
-      const summary = topicDiscoverySummaryFromHints(
-        synthesisRepository.listTopicDiscoveryHints({
-          topicIds: [topicId],
-        }),
-      );
+      const summary = summaries[topicId] || topicDiscoverySummaryFromHints([]);
       const existing = previous[topicId];
       if (
         existing?.discovery_status === summary.discovery_status &&
@@ -5758,7 +6067,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           existing?.known_dependency_status || existing?.freshness || "unknown",
         discovery_status: summary.discovery_status,
         candidate_count: summary.candidate_count,
-        coverage: existing?.coverage || "missing",
+        source_materials_status: existing?.source_materials_status || "missing",
         baseline_input_hash: existing?.baseline_input_hash || "",
         current_input_hash: existing?.current_input_hash || "",
         baseline_dependencies: existing?.baseline_dependencies || null,
@@ -8636,6 +8945,105 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return [];
   }
 
+  function citationAnalysisPayload(value: unknown): Record<string, unknown> {
+    if (typeof value === "string") {
+      return citationAnalysisPayload(parseJsonObject(value));
+    }
+    if (!isObject(value)) {
+      return {};
+    }
+    if (isObject(value.payload)) {
+      return citationAnalysisPayload(value.payload);
+    }
+    if (typeof value.content === "string") {
+      return citationAnalysisPayload(value.content);
+    }
+    if (isObject(value.citation_analysis)) {
+      return value.citation_analysis;
+    }
+    if (isObject(value.citationAnalysis)) {
+      return value.citationAnalysis;
+    }
+    return value;
+  }
+
+  function citationRoleValuesFromEntry(entry: Record<string, unknown>) {
+    return [
+      entry.function,
+      entry.role,
+      ...(Array.isArray(entry.roles) ? entry.roles : []),
+    ].filter((value) => cleanString(value));
+  }
+
+  function citationRoleIndex(args: {
+    citationAnalysis?: unknown;
+    references: Record<string, unknown>[];
+  }) {
+    const payload = citationAnalysisPayload(args.citationAnalysis);
+    const entries = Array.isArray(payload.items)
+      ? payload.items
+      : Array.isArray(payload.citations)
+        ? payload.citations
+        : [];
+    const rolesByIndex = new Map<number, unknown[]>();
+    const rolesById = new Map<string, unknown[]>();
+    const rolesByTitleYear = new Map<string, unknown[]>();
+    for (const entryValue of entries) {
+      if (!isObject(entryValue)) {
+        continue;
+      }
+      const values = citationRoleValuesFromEntry(entryValue);
+      if (!values.length) {
+        continue;
+      }
+      const rawIndex =
+        entryValue.ref_index ?? entryValue.reference_index ?? entryValue.index;
+      const index = Number(rawIndex);
+      if (Number.isInteger(index) && index >= 0) {
+        rolesByIndex.set(index, [
+          ...(rolesByIndex.get(index) || []),
+          ...values,
+        ]);
+      }
+      const reference = isObject(entryValue.reference)
+        ? entryValue.reference
+        : entryValue;
+      for (const idValue of [
+        entryValue.ref_id,
+        entryValue.reference_id,
+        entryValue.id,
+        reference.id,
+      ]) {
+        const id = cleanString(idValue);
+        if (id) {
+          rolesById.set(id, [...(rolesById.get(id) || []), ...values]);
+        }
+      }
+      const titleYear = sidecarTitleYearKey({
+        title: reference.title ?? entryValue.title,
+        year: reference.year ?? entryValue.year,
+      });
+      if (titleYear) {
+        rolesByTitleYear.set(titleYear, [
+          ...(rolesByTitleYear.get(titleYear) || []),
+          ...values,
+        ]);
+      }
+    }
+    return (reference: Record<string, unknown>, index: number) => {
+      const id = cleanString(reference.id || reference.ref_id || reference.key);
+      const titleYear = sidecarTitleYearKey({
+        title: reference.title || reference.paper_title || reference.raw_title,
+        year: reference.year || reference.date,
+      });
+      return citationRoleEntries([
+        ...(rolesByIndex.get(index) || []),
+        ...(id ? rolesById.get(id) || [] : []),
+        ...(titleYear ? rolesByTitleYear.get(titleYear) || [] : []),
+      ]);
+    };
+  }
+
   function sidecarReferenceIdentity(reference: Record<string, unknown>) {
     const citekey = referenceCitekey(reference).toLowerCase();
     const title = referenceTitle(reference);
@@ -9667,11 +10075,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     sourceRef: string;
     referencesArtifactHash: string;
     references: unknown;
+    citationAnalysis?: unknown;
     matchedItems?: unknown;
     reviewer: string;
     timestamp: string;
   }) {
     const inputReferences = normalizeArray(args.references).filter(isRecord);
+    const rolesForReference = citationRoleIndex({
+      citationAnalysis: args.citationAnalysis,
+      references: inputReferences,
+    });
     const qualityRows = inputReferences.map((reference, index) => ({
       reference,
       index,
@@ -9717,6 +10130,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         rawReference: identity.raw,
         canonicalReferenceId: canonical.canonicalReferenceId,
         status: "active",
+        rolesJson: JSON.stringify(rolesForReference(reference, row.index)),
         diagnosticsJson: JSON.stringify(
           row.quality.warningReasons.map((code) => ({
             code,
@@ -9916,7 +10330,62 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     );
   }
 
-  function registryRowsWithReferenceFactsToUi(
+  async function referenceTargetTitlesByPaperRef(
+    references: ReferenceSidecarReferenceFact[],
+  ) {
+    const targetRefs = Array.from(
+      new Set(
+        references
+          .filter((reference) => reference.targetHasZoteroBinding)
+          .map((reference) => cleanString(reference.targetPaperRef))
+          .filter(Boolean),
+      ),
+    );
+    const titles = new Map<string, string>();
+    if (!targetRefs.length) {
+      return titles;
+    }
+    const injectedInputs = options.registryInputs || [];
+    const inputByPaperRef = new Map(
+      injectedInputs
+        .map(
+          (input) =>
+            [
+              paperRefForRegistryInput(input),
+              cleanString(input.title),
+            ] as const,
+        )
+        .filter(([paperRef, title]) => paperRef && title),
+    );
+    const itemReader =
+      options.libraryAdapter?.getRegistryInputSummaryForItem ||
+      options.libraryAdapter?.getRegistryInputForItem;
+    for (const targetRef of targetRefs) {
+      const injectedTitle = inputByPaperRef.get(targetRef);
+      if (injectedTitle) {
+        titles.set(targetRef, injectedTitle);
+        continue;
+      }
+      if (typeof itemReader !== "function") {
+        continue;
+      }
+      const parsed = parsePaperRef(targetRef);
+      if (!parsed?.itemKey) {
+        continue;
+      }
+      const input = await itemReader({
+        libraryId: parsed.libraryId,
+        itemKey: parsed.itemKey,
+      });
+      const title = cleanString(input?.title);
+      if (title) {
+        titles.set(targetRef, title);
+      }
+    }
+    return titles;
+  }
+
+  async function registryRowsWithReferenceFactsToUi(
     registryRows: ReferenceSidecarIndexRow[],
     options: {
       includeReferences?: boolean;
@@ -9952,6 +10421,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           rawReferenceIds: options.rawReferenceIds,
         })
       : [];
+    const targetTitlesByPaperRef =
+      await referenceTargetTitlesByPaperRef(registryReferenceFacts);
     const referenceSummaries =
       synthesisRepository.listReferenceFactSummariesBySource({
         sourceLiteratureItemIds,
@@ -9989,7 +10460,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           ? unbound
           : summary?.unboundReferenceCount || 0,
         references: referencesLoaded
-          ? references.map(referenceSidecarReferenceToUiRow)
+          ? references.map((reference) =>
+              referenceSidecarReferenceToUiRow(
+                reference,
+                targetTitlesByPaperRef,
+              ),
+            )
           : [],
       };
     });
@@ -10021,12 +10497,18 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     artifacts: PaperArtifactReadResult[];
     timestamp: string;
   }) {
-    const previousReferencesBySource = new Map(
+    const previousBySourceAndType = new Map(
       synthesisRepository
-        .listArtifactSidecars({ artifactTypes: ["references"] })
-        .map((row) => [row.sourceRef, row] as const),
+        .listArtifactSidecars({
+          artifactTypes: ["references", "citation_analysis"],
+        })
+        .map((row) => [`${row.sourceRef}\0${row.artifactType}`, row] as const),
     );
-    const changedReferenceArtifacts: PaperArtifactReadResult[] = [];
+    const referenceArtifactsBySource = new Map<
+      string,
+      PaperArtifactReadResult
+    >();
+    const changedSourceRefs = new Set<string>();
     for (const artifact of args.artifacts) {
       const source = artifactSourceParts(artifact);
       if (!source.sourceRef) {
@@ -10052,18 +10534,30 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         updatedAt: args.timestamp,
       };
       synthesisRepository.upsertArtifactSidecar(record);
-      if (artifact.artifact_type !== "references") {
+      if (artifact.artifact_type === "references") {
+        referenceArtifactsBySource.set(source.sourceRef, artifact);
+      }
+      if (
+        artifact.artifact_type !== "references" &&
+        artifact.artifact_type !== "citation_analysis"
+      ) {
         continue;
       }
-      const previous = previousReferencesBySource.get(source.sourceRef);
+      const previous = previousBySourceAndType.get(
+        `${source.sourceRef}\0${artifact.artifact_type}`,
+      );
       if (
         previous?.artifactHash !== artifactHash ||
         previous?.status !== artifact.status
       ) {
-        changedReferenceArtifacts.push(artifact);
+        changedSourceRefs.add(source.sourceRef);
       }
     }
-    return changedReferenceArtifacts;
+    return Array.from(changedSourceRefs)
+      .map((sourceRef) => referenceArtifactsBySource.get(sourceRef))
+      .filter((artifact): artifact is PaperArtifactReadResult =>
+        Boolean(artifact),
+      );
   }
 
   function citationGraphLightMetricsForRecords(args: {
@@ -10296,7 +10790,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             referenceInstanceId: reference.rawReferenceId,
             resolutionId: effectiveCanonicalId,
             edgeStatus: binding?.itemKey ? "accepted" : "unbound",
-            rolesJson: "[]",
+            rolesJson: reference.rolesJson || "[]",
             weight: 1,
             createdAt: reference.createdAt || timestamp,
             updatedAt: timestamp,
@@ -10865,6 +11359,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         run: () =>
           lock.runExclusive(libraryId, () => {
             const timestamp = now();
+            const citationArtifactsBySource = new Map(
+              scan.artifacts
+                .filter(
+                  (artifact) => artifact.artifact_type === "citation_analysis",
+                )
+                .map((artifact) => [
+                  artifactSourceParts(artifact).sourceRef,
+                  artifact,
+                ]),
+            );
             for (const artifact of changedReferenceArtifacts) {
               processedChangedArtifacts += 1;
               const source = artifactSourceParts(artifact);
@@ -10888,6 +11392,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
                 sourceRef: source.sourceRef,
                 referencesArtifactHash: artifactHash,
                 references: referencesFromArtifactPayload(artifact.payload),
+                citationAnalysis: citationArtifactsBySource.get(
+                  source.sourceRef,
+                )?.payload,
                 matchedItems: bindingMatchItems,
                 reviewer: "reference-sidecar-refresh",
                 timestamp,
@@ -13590,14 +14097,23 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               reason: `topic already exists: ${topicId}`,
               ...(createBaseHashesWarning.length
                 ? { warnings: createBaseHashesWarning }
-                : {}),
+              : {}),
+            };
+          }
+        } else if (bundle.operation === "update_full") {
+          const topicExists =
+            (await runtimePathExists(paths.currentManifest)) &&
+            (await runtimePathExists(paths.currentArtifact)) &&
+            (await runtimePathExists(paths.currentMetadata));
+          if (!topicExists) {
+            return {
+              ok: false,
+              status: "topic_missing",
+              topicId,
+              reason: `topic does not exist: ${topicId}`,
             };
           }
         }
-        const resolverManifest =
-          bundle.operation === "update_patch"
-            ? undefined
-            : await loadResolverManifest({ bundle, context });
         const decision = decideSynthesisApply({
           bundle,
           currentHashes: await currentHashes(root, topicId),
@@ -13617,6 +14133,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             conflictCandidate,
           };
         }
+        const resolverManifest =
+          bundle.operation === "update_patch"
+            ? undefined
+            : await loadResolverManifest({ bundle, context });
 
         await ensureRuntimeDirectory(paths.topicRoot);
         await ensureRuntimeDirectory(paths.stateRoot);
@@ -13920,6 +14440,20 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               updatedAt: timestamp,
             }),
           );
+          const acceptedDiscovery =
+            synthesisRepository.acceptTopicDiscoveryHints({
+              topicId,
+              literatureItemIds: sourcePaperRefsFromArtifact(artifact),
+              timestamp,
+            });
+          if (acceptedDiscovery.accepted > 0) {
+            await appendJsonLine(paths.log, {
+              event: "topic_discovery_hints_accepted",
+              topic_id: topicId,
+              at: timestamp,
+              accepted_count: acceptedDiscovery.accepted,
+            });
+          }
           const discoveryResult =
             synthesisRepository.rebuildTopicDiscoveryHints({
               topicIds: [topicId],
@@ -14405,7 +14939,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       return {
         libraryId,
         registry: {
-          rows: registryRowsWithReferenceFactsToUi(registryPage.rows, {
+          rows: await registryRowsWithReferenceFactsToUi(registryPage.rows, {
             includeReferences: referencedScope,
             rawReferenceIds: registryPage.rawReferenceIds,
             referenceSourceRefs: referencedScope
@@ -14465,7 +14999,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       return {
         libraryId,
         registry: {
-          rows: registryRowsWithReferenceFactsToUi(registryRows, {
+          rows: await registryRowsWithReferenceFactsToUi(registryRows, {
             includeReferences: activeReviewTab === "reference_matching",
             rawReferenceIds: proposalRawReferenceIds,
           }),
@@ -14626,12 +15160,20 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         persistMissingDefinition: true,
       }).catch(() => undefined);
       const topicGraphSnapshot = topicGraphContext?.snapshot;
+      const discoverySummaries = topicGraphSnapshot
+        ? topicDiscoverySummariesByTopicId({
+            topicIds: topicGraphSnapshot.nodes.map((node) => node.topic_id),
+            graphEdges: topicGraphSnapshot.edges,
+            hints: synthesisRepository.listTopicDiscoveryHints(),
+          })
+        : {};
       const artifactRows = topicGraphSnapshot
         ? topicArtifactRowsFromGraphNodes({
             nodes: topicGraphSnapshot.nodes,
             artifactState,
             definitions: topicGraphContext?.definitions || {},
             metadata: topicGraphContext?.metadata || {},
+            discoverySummaries,
           })
         : [];
       return {
@@ -14666,6 +15208,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const registryReferenceFacts = synthesisRepository.listReferenceFacts({
       sourceLiteratureItemIds: registryRows.map((row) => row.paper_ref),
     });
+    const targetTitlesByPaperRef =
+      await referenceTargetTitlesByPaperRef(registryReferenceFacts);
     const referenceFactsBySource = new Map<
       string,
       typeof registryReferenceFacts
@@ -14714,6 +15258,13 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       () => undefined,
     );
     const topicGraphSnapshot = topicGraphContext?.snapshot;
+    const discoverySummaries = topicGraphSnapshot
+      ? topicDiscoverySummariesByTopicId({
+          topicIds: topicGraphSnapshot.nodes.map((node) => node.topic_id),
+          graphEdges: topicGraphSnapshot.edges,
+          hints: synthesisRepository.listTopicDiscoveryHints(),
+        })
+      : {};
     const conflicts: SynthesisConflictCandidate[] = [];
     const artifactRows = topicGraphSnapshot
       ? topicArtifactRowsFromGraphNodes({
@@ -14721,6 +15272,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           artifactState,
           definitions: topicGraphContext?.definitions || definitions,
           metadata: topicGraphContext?.metadata || {},
+          discoverySummaries,
         })
       : [];
     const topicScopes = topicGraphSnapshot
@@ -14798,7 +15350,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             literature_item_id: row.paper_ref,
             reference_count: references.length,
             unbound_reference_count: unbound,
-            references: references.map(referenceSidecarReferenceToUiRow),
+            references: references.map((reference) =>
+              referenceSidecarReferenceToUiRow(
+                reference,
+                targetTitlesByPaperRef,
+              ),
+            ),
           };
         }),
         cleanupProposals: indexReviewProposals,
@@ -15952,6 +16509,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       sourceRef,
       referencesArtifactHash: referencesHash,
       references: args.references?.references || [],
+      citationAnalysis: args.citationAnalysis,
       matchedItems: args.matchedReferences,
       reviewer: "literature-analysis-apply",
       timestamp,
@@ -17031,13 +17589,21 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function acceptTopicGraphRelation(args: { edgeId: string }) {
     const safeEdge = safeFileSegment(args.edgeId, "edge");
-    return runCanonicalWriteWithAutosync(() =>
+    const result = await runCanonicalWriteWithAutosync(() =>
       topicGraph.decideTopicGraphRelation({
         edgeId: args.edgeId,
         status: "confirmed",
         transactionId: `topic-graph-accept-${safeEdge}`,
       }),
     );
+    const edge = result.edge;
+    if (edge) {
+      await refreshTopicDiscoveryState({
+        topicIds: [edge.source_topic_id, edge.target_topic_id],
+        timestamp: now(),
+      });
+    }
+    return result;
   }
 
   async function rejectTopicGraphRelation(args: { edgeId: string }) {
@@ -17371,7 +17937,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     }
 
     const layoutDiagnostics = parseJsonArray(record?.diagnosticsJson)
-      .map((entry) => (isObject(entry) ? cleanString(entry.code) : cleanString(entry)))
+      .map((entry) =>
+        isObject(entry) ? cleanString(entry.code) : cleanString(entry),
+      )
       .filter(Boolean);
     const warnings = [...normalized.warnings, ...layoutDiagnostics];
     if (!graph.nodes.length) {
@@ -17464,11 +18032,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           return match;
         })
         .sort((left, right) => left.node_id.localeCompare(right.node_id));
-      const selectedNodeIds = new Set(selectedNodes.map((node) => node.node_id));
+      const selectedNodeIds = new Set(
+        selectedNodes.map((node) => node.node_id),
+      );
       selectedEdges = graph.edges
         .filter(
           (edge) =>
-            selectedNodeIds.has(edge.source) && selectedNodeIds.has(edge.target),
+            selectedNodeIds.has(edge.source) &&
+            selectedNodeIds.has(edge.target),
         )
         .sort((left, right) => left.edge_id.localeCompare(right.edge_id));
       for (const nodeId of requested) {
@@ -17509,7 +18080,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       selectedNodes = selectedNodes.slice(0, normalized.maxNodes);
       const retained = new Set(selectedNodes.map((node) => node.node_id));
       selectedEdges = selectedEdges
-        .filter((edge) => retained.has(edge.source) && retained.has(edge.target))
+        .filter(
+          (edge) => retained.has(edge.source) && retained.has(edge.target),
+        )
         .slice(0, normalized.maxEdges);
     }
 
@@ -17707,7 +18280,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         topic_id: topicId,
         title,
         freshness: state.freshness,
-        coverage: state.coverage,
+        source_materials_status: state.source_materials_status,
         matched_paper_refs: match.matched,
         match_sources: match.sources,
       };
@@ -17783,14 +18356,17 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         }
         const title = cleanString(row.title) || topicId;
         const freshness = cleanString(stateRow?.freshness) || "unknown";
-        const coverage = cleanString(stateRow?.coverage) || "missing";
+        const sourceMaterialsStatus =
+          cleanString(stateRow?.source_materials_status) || "missing";
         options.push({
           value: topicId,
           label: title,
           description: [
             cleanString(intent.actionLabel) || "Update",
             freshness ? `freshness ${freshness}` : "",
-            coverage ? `coverage ${coverage}` : "",
+            sourceMaterialsStatus
+              ? `source materials ${sourceMaterialsStatus}`
+              : "",
             topicId,
           ]
             .filter(Boolean)
@@ -17801,7 +18377,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             title,
             actionLabel: intent.actionLabel,
             freshness: freshness || undefined,
-            coverage: coverage || undefined,
+            sourceMaterialsStatus: sourceMaterialsStatus || undefined,
           },
         });
       }
@@ -17848,6 +18424,32 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     if (!topicId) {
       return { topics: (await listTopics()).topics };
     }
+    const view = topicContextView(args.view);
+    const outputPath = topicContextOutputPath(args);
+    if (view === "invalid") {
+      return {
+        ok: false,
+        status: "invalid_request",
+        topic_id: topicId,
+        diagnostics: ["invalid_topic_context_view"],
+      };
+    }
+    if (outputPath && !view) {
+      return {
+        ok: false,
+        status: "invalid_request",
+        topic_id: topicId,
+        diagnostics: ["output_path_requires_view"],
+      };
+    }
+    if ((args.outputPath !== undefined || args.output_path !== undefined) && !outputPath) {
+      return {
+        ok: false,
+        status: "invalid_request",
+        topic_id: topicId,
+        diagnostics: ["output_path_required"],
+      };
+    }
     const artifact = await readTopicArtifact({ topicId }).catch(() => null);
     if (!artifact) {
       return {
@@ -17889,11 +18491,22 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       : {};
     const hashes = await currentHashes(root, resolvedTopicId, artifact.pathId);
     const freshness = artifactState[resolvedTopicId] || null;
-    const discoveryHints = synthesisRepository.listTopicDiscoveryHints({
-      topicIds: [resolvedTopicId],
-      statuses: ["open"],
-      limit: 25,
+    const discoveryHintTopicIds = topicDiscoveryCascadeTopicIds({
+      topicId: resolvedTopicId,
+      graphEdges: synthesisRepository.listTopicGraphEdges({
+        relations: ["broader_than"],
+        statuses: ["confirmed"],
+      }),
     });
+    const rawDiscoveryHints = synthesisRepository.listTopicDiscoveryHints({
+      topicIds: discoveryHintTopicIds,
+    });
+    const discoveryHints = dedupeDiscoveryHintsByLiteratureItem(
+      filterAcceptedDiscoveryHintsForTopic(
+        rawDiscoveryHints,
+        resolvedTopicId,
+      ).filter((hint) => hint.status === "open"),
+    ).slice(0, 25);
     const metadata = artifact.metadata as TopicArtifactMetadata;
     const topicRow = topicNode
       ? topicIndexRowFromGraphNode(topicNode)
@@ -17904,6 +18517,228 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           artifact: artifact.artifact,
           indexRow: artifact.indexRow,
         });
+    const artifactObject = isObject(artifact.artifact)
+      ? (artifact.artifact as Record<string, unknown>)
+      : {};
+    const topicSection = isObject(artifactObject.topic)
+      ? (artifactObject.topic as Record<string, unknown>)
+      : {};
+    const summarySection = isObject(artifactObject.summary)
+      ? (artifactObject.summary as Record<string, unknown>)
+      : {};
+    const reportSection = isObject(artifactObject.synthesis_report)
+      ? (artifactObject.synthesis_report as Record<string, unknown>)
+      : {};
+    const sourcePapers = Array.isArray(artifactObject.source_papers)
+      ? artifactObject.source_papers.filter(isObject)
+      : [];
+    const sourcePaperTriage: Record<string, Record<string, unknown>> = {};
+    for (const paper of sourcePapers) {
+      const paperRef = cleanString(paper.paper_ref);
+      if (!paperRef) {
+        continue;
+      }
+      const legacyTriage = isObject(paper.triage) ? paper.triage : {};
+      const summary =
+        cleanString(paper.summary) ||
+        cleanString(legacyTriage.core_digest) ||
+        cleanString(legacyTriage.relevance_reason);
+      const triage = {
+        ...legacyTriage,
+        paper_ref: paperRef,
+        relevance_level:
+          cleanString(paper.synthesis_role) ||
+          cleanString(legacyTriage.relevance_level),
+        relevance_reason:
+          summary || cleanString(legacyTriage.relevance_reason),
+        paper_quality_level:
+          cleanString(paper.quality) ||
+          cleanString(legacyTriage.paper_quality_level),
+        paper_quality_reason: cleanString(legacyTriage.paper_quality_reason),
+        core_digest: summary || cleanString(legacyTriage.core_digest),
+        caveats: Array.isArray(paper.caveats)
+          ? paper.caveats
+          : Array.isArray(legacyTriage.caveats)
+            ? legacyTriage.caveats
+            : [],
+      };
+      sourcePaperTriage[paperRef] = {
+        ...triage,
+        paper_ref: cleanString(triage.paper_ref) || paperRef,
+      };
+    }
+    const language = metadata.language || topicRow?.language || "auto";
+    const topicDefinition =
+      definitions[resolvedTopicId] || definitions[topicId] || {};
+    const topicResolver =
+      resolvers[resolvedTopicId] || resolvers[topicId] || {};
+    const resolvedPaperSet =
+      paperSets[resolvedTopicId] || paperSets[topicId] || {};
+    const normalizedSectionHashes = Object.fromEntries(
+      Object.entries(sectionHashes).map(([section, hash]) => [
+        section,
+        cleanString(hash),
+      ]),
+    );
+    const prospectiveTopicRelationProposals =
+      normalizeProspectiveTopicRelationProposals(
+        metadata.prospective_topic_relation_proposals,
+      );
+    const recommendedUpdate = deriveTopicUpdateIntent({
+      topicId: resolvedTopicId,
+      language,
+      state: freshness || undefined,
+      row: topicRow,
+    });
+    const markdown = reportBodyFromTopicArtifact(artifact.artifact);
+    const digest = {
+      topic_id: resolvedTopicId,
+      title:
+        cleanString(topicSection.title) ||
+        cleanString((topicDefinition as Record<string, unknown>).title) ||
+        topicRow?.title ||
+        resolvedTopicId,
+      definition:
+        definitionTextFromDefinition(topicSection) ||
+        definitionTextFromDefinition(topicDefinition as Record<string, unknown>) ||
+        topicRow?.definition ||
+        "",
+      language,
+      updated_at: cleanString(metadata.updated_at || topicRow?.updated_at),
+      summary: {
+        brief: cleanString(summarySection.brief),
+        overview: cleanString(summarySection.overview),
+        report_excerpt: markdown.slice(0, 1200),
+      },
+      paper_count:
+        sourcePapers.length ||
+        Math.max(0, Math.floor(Number(metadata.paper_count) || 0)) ||
+        topicRow?.paper_count ||
+        0,
+      external_literature_count:
+        Math.max(
+          0,
+          Math.floor(Number(metadata.external_literature_count) || 0),
+        ) ||
+        topicRow?.external_literature_count ||
+        0,
+    };
+    const semantic = {
+      topic_id: resolvedTopicId,
+      language,
+      topic_definition: topicDefinition,
+      topic_resolver: topicResolver,
+      resolved_paper_set: resolvedPaperSet,
+      prospective_topic_relation_proposals: prospectiveTopicRelationProposals,
+      topic: topicSection,
+      summary: summarySection,
+      taxonomy: isObject(artifactObject.taxonomy)
+        ? artifactObject.taxonomy
+        : {},
+      comparison_matrix: isObject(artifactObject.comparison_matrix)
+        ? artifactObject.comparison_matrix
+        : {},
+      improvement_dimensions: isObject(artifactObject.improvement_dimensions)
+        ? artifactObject.improvement_dimensions
+        : Array.isArray(artifactObject.improvement_dimensions)
+          ? { summary: {}, dimensions: artifactObject.improvement_dimensions }
+          : { summary: {}, dimensions: [] },
+      claims: Array.isArray(artifactObject.claims) ? artifactObject.claims : [],
+      timeline_events: isObject(artifactObject.timeline_events)
+        ? artifactObject.timeline_events
+        : Array.isArray(artifactObject.timeline_events)
+          ? { summary: {}, events: artifactObject.timeline_events }
+          : { summary: {}, events: [] },
+      source_papers: sourcePapers,
+      debates: Array.isArray(artifactObject.debates)
+        ? artifactObject.debates
+        : [],
+      future_directions: Array.isArray(artifactObject.future_directions)
+        ? artifactObject.future_directions
+        : [],
+      review_outline: isObject(artifactObject.review_outline)
+        ? artifactObject.review_outline
+        : {},
+      synthesis_report: reportSection,
+      markdown,
+    };
+    const audit = {
+      topic_id: resolvedTopicId,
+      language,
+      paths: artifact.paths,
+      current_metadata: artifact.metadata,
+      current_manifest: artifact.manifest,
+      current_hashes: hashes,
+      section_hashes: normalizedSectionHashes,
+      topic_resolver: topicResolver,
+      resolved_paper_set: resolvedPaperSet,
+      source_paper_triage: sourcePaperTriage,
+      freshness,
+      source_materials: {
+        status:
+          cleanString((freshness as Record<string, unknown> | null)?.source_materials_status) ||
+          cleanString((topicRow as Record<string, unknown> | undefined)?.source_materials_status),
+        percent:
+          Number(
+            (freshness as Record<string, unknown> | null)
+              ?.source_materials_percent ??
+              (topicRow as Record<string, unknown> | undefined)
+                ?.source_materials_percent,
+          ) || 0,
+      },
+      discovery: {
+        status:
+          cleanString((freshness as Record<string, unknown> | null)?.discovery_status) ||
+          cleanString((topicRow as Record<string, unknown> | undefined)?.discovery_status),
+        candidate_count:
+          Number(
+            (freshness as Record<string, unknown> | null)?.candidate_count ??
+              (topicRow as Record<string, unknown> | undefined)?.candidate_count,
+          ) || discoveryHints.length,
+        hints: discoveryHints,
+      },
+      recommended_update: recommendedUpdate,
+      request: {
+        mode: cleanString(args.mode) || "read",
+        language: cleanString(args.language) || undefined,
+        updateScope:
+          cleanString(args.updateScope || args.update_scope) || undefined,
+        updateMode:
+          cleanString(args.updateMode || args.update_mode) || undefined,
+        updateReason:
+          cleanString(args.updateReason || args.update_reason) || undefined,
+      },
+      diagnostics: {
+        bounded: true,
+        discovery_hint_limit: 25,
+      },
+    };
+    if (view) {
+      const v2Base = {
+        schema_id: "synthesis.topic_context",
+        schema_version: "2.0.0",
+        topic_id: resolvedTopicId,
+        view,
+      };
+      const v2Response =
+        view === "digest"
+          ? { ...v2Base, digest }
+          : view === "semantic"
+            ? { ...v2Base, semantic }
+            : view === "audit"
+              ? { ...v2Base, audit }
+              : { ...v2Base, digest, semantic, audit };
+      if (outputPath) {
+        return maybeWriteTopicContextOutput({
+          topicId: resolvedTopicId,
+          view,
+          outputPath,
+          overwrite: args.overwrite === true,
+          payload: v2Response,
+        });
+      }
+      return v2Response;
+    }
     const includeFull = args.includeFull === true || args.include_full === true;
     const includeMarkdown =
       includeFull ||
@@ -17921,32 +18756,17 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const response: Record<string, unknown> = {
       paths: artifact.paths,
       topic_id: resolvedTopicId,
-      language: metadata.language || topicRow?.language || "auto",
+      language,
       current_metadata: artifact.metadata,
       current_hashes: hashes,
-      section_hashes: Object.fromEntries(
-        Object.entries(sectionHashes).map(([section, hash]) => [
-          section,
-          cleanString(hash),
-        ]),
-      ),
-      topic_definition:
-        definitions[resolvedTopicId] || definitions[topicId] || {},
-      topic_resolver: resolvers[resolvedTopicId] || resolvers[topicId] || {},
-      resolved_paper_set:
-        paperSets[resolvedTopicId] || paperSets[topicId] || {},
-      prospective_topic_relation_proposals:
-        normalizeProspectiveTopicRelationProposals(
-          metadata.prospective_topic_relation_proposals,
-        ),
+      section_hashes: normalizedSectionHashes,
+      topic_definition: topicDefinition,
+      topic_resolver: topicResolver,
+      resolved_paper_set: resolvedPaperSet,
+      prospective_topic_relation_proposals: prospectiveTopicRelationProposals,
       freshness,
       discovery_hints: discoveryHints,
-      recommended_update: deriveTopicUpdateIntent({
-        topicId: resolvedTopicId,
-        language: metadata.language || topicRow?.language,
-        state: freshness || undefined,
-        row: topicRow,
-      }),
+      recommended_update: recommendedUpdate,
       request: {
         mode: cleanString(args.mode) || "read",
         language: cleanString(args.language) || undefined,
@@ -18155,6 +18975,22 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     }
   }
 
+  function sourcePaperRefsFromArtifact(artifact: Record<string, unknown>) {
+    const rows = Array.isArray(artifact.source_papers)
+      ? artifact.source_papers.filter(isObject)
+      : [];
+    return sortedUniqueStrings(
+      rows.map((entry) =>
+        cleanString(
+          entry.paper_ref ||
+            (isObject(entry.digest_ref)
+              ? (entry.digest_ref as Record<string, unknown>).paper_ref
+              : ""),
+        ),
+      ),
+    );
+  }
+
   function synthesisOutputSchemaContracts() {
     const topicDefinition = {
       type: "object",
@@ -18171,6 +19007,15 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       resolver_manifest_path: { type: "string", minLength: 1 },
       analysis_manifest_path: { type: "string", minLength: 1 },
       candidate_output_path: { type: "string", minLength: 1 },
+    };
+    const baseHashes = {
+      type: "object",
+      required: ["artifact", "manifest", "metadata"],
+      properties: {
+        artifact: { type: "string", minLength: 1 },
+        manifest: { type: "string", minLength: 1 },
+        metadata: { type: "string", minLength: 1 },
+      },
     };
     return {
       schema_id: "synthesis.topic_synthesis_result_bundle",
@@ -18196,6 +19041,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             "operation",
             "language",
             "topic_definition",
+            "base_hashes",
             "resolver_manifest_path",
             "analysis_manifest_path",
             "candidate_output_path",
@@ -18203,6 +19049,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           properties: {
             ...common,
             operation: { const: "update_full" },
+            base_hashes: baseHashes,
           },
         },
         {
@@ -18622,27 +19469,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function resolveResolver(args: Record<string, unknown> = {}) {
     const rows = registryRowsForInputs(await registryInputsForService(options));
-    const resolver = args.resolver;
-    if (!isRecord(resolver)) {
-      const errors = ["$.resolver is required and must be an object"];
-      if ("topic_resolver" in args) {
-        errors.push(
-          "$.topic_resolver is not accepted by resolvers.resolve; use $.resolver instead",
-        );
-      }
-      return {
-        ok: false,
-        errors,
-        papers: [],
-        normalized_resolver: null,
-        diagnostics: {
-          final_count: 0,
-          total_candidates: rows.length,
-          rejected: true,
-        },
-      };
-    }
-    const errors = validateCanonicalResolver(resolver, "$.resolver");
+    const resolver = args;
+    const errors = validateResolverPayload(resolver, "$");
     if (errors.length) {
       return {
         ok: false,
@@ -18656,7 +19484,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         },
       };
     }
-    const allResolved = [...resolveRowsByResolver(rows, resolver).values()]
+    const allResolved = [...resolveRowsByResolverPayload(rows, resolver).values()]
       .sort((left, right) =>
         left.row.paper_ref.localeCompare(right.row.paper_ref),
       )

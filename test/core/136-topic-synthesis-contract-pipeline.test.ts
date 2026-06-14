@@ -621,8 +621,8 @@ function createResolverManifest() {
     schema_id: "synthesis.topic_resolver_manifest",
     schema_version: "2.0.0",
     resolver: {
-      mode: "tag_query",
-      query: { and: ["topic:object-detection"] },
+      tag: { and: ["topic:object-detection"] },
+      combine: "union",
     },
     resolved_paper_set: {
       papers: [

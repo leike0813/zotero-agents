@@ -28,7 +28,6 @@ const expectedStageSchemas: Record<string, string[]> = {
   ],
   "update-topic-synthesis-prepare": [
     "stage-10-update-topic-context.schema.json",
-    "stage-20-resolver-and-workset.schema.json",
     "stage-30-prepare-analysis-context.schema.json",
   ],
   "topic-synthesis-core-enrichment": [
@@ -161,7 +160,7 @@ async function collectFileMap(root: string): Promise<Record<string, string>> {
   return result;
 }
 
-function runGateFromOtherCwd(skillId: string) {
+function runGateFromOtherCwd(skillId: string, extraArgs: string[] = []) {
   const scriptPath = path.resolve(
     "skills_builtin",
     skillId,
@@ -173,7 +172,12 @@ function runGateFromOtherCwd(skillId: string) {
   );
   const arProject = path.join(os.homedir(), ".ar");
   const arPyproject = path.join(arProject, "pyproject.toml");
-  const args = [scriptPath, "--db", "runtime/topic-synthesis.sqlite"];
+  const args = [
+    scriptPath,
+    "--db",
+    "runtime/topic-synthesis.sqlite",
+    ...extraArgs,
+  ];
   const output = fsSync.existsSync(arPyproject)
     ? execFileSync(
         "uv",
@@ -243,6 +247,18 @@ describe("Topic synthesis suite renderer", function () {
         path.join(suiteRoot, "templates", skillId, "SKILL.md.j2"),
       );
     }
+    assert.isFalse(
+      fsSync.existsSync(
+        path.join(
+          "skills_builtin",
+          "update-topic-synthesis-prepare",
+          "assets",
+          "schemas",
+          "stage-20-resolver-and-workset.schema.json",
+        ),
+      ),
+      "update prepare package should not retain the create-only Stage 20 schema",
+    );
   });
 
   it("keeps suite output schemas free of ACP control fields", async function () {
@@ -422,7 +438,7 @@ describe("Topic synthesis suite renderer", function () {
       } else {
         assert.include(serialized, "topic_synthesis_handoff");
         assert.include(serialized, "handoff_manifest_path");
-        assert.notInclude(serialized, "topic_synthesis_canceled");
+        assert.include(serialized, "topic_synthesis_canceled");
         assert.notInclude(serialized, "analysis_manifest_path");
         assert.isFalse(
           validate({
@@ -436,6 +452,15 @@ describe("Topic synthesis suite renderer", function () {
             next_skill_id: "topic-synthesis-core-enrichment",
           }),
           `${skillId} output schema must reject ACP control fields`,
+        );
+        assert.isTrue(
+          validate({
+            kind: "topic_synthesis_canceled",
+            status: "canceled",
+            reason: "duplicate_topic",
+            message: "Topic synthesis was canceled.",
+          }),
+          `${skillId} output schema must accept business canceled results`,
         );
       }
     }
@@ -531,6 +556,11 @@ describe("Topic synthesis suite renderer", function () {
       assert.notInclude(skillText, "paper_evidence_refs");
       assert.notInclude(skillText, "evidence_map_refs");
       assert.notInclude(skillText, "topic_relation_candidates");
+      if (skillId === "update-topic-synthesis-prepare") {
+        assert.notInclude(skillText, "update_patch");
+        assert.notInclude(skillText, "changed_sections");
+        assert.notInclude(skillText, "update_assessment");
+      }
       assert.notInclude(skillText, "runtime/views/synthesis-report.md");
       assert.notInclude(
         skillText,
@@ -712,6 +742,18 @@ describe("Topic synthesis suite renderer", function () {
       assert.include(skillText, "runtime/payloads/artifacts/");
       assert.notInclude(skillText, "runtime/views/filtered-paper-artifacts/");
     }
+
+    const updateSkill = await fs.readFile(
+      path.join("skills_builtin", "update-topic-synthesis-prepare", "SKILL.md"),
+      "utf8",
+    );
+    assert.include(updateSkill, "source_materials.status=complete");
+    assert.include(updateSkill, "不表示 triage 完整");
+    assert.include(updateSkill, "triage_required_refs");
+    assert.include(updateSkill, "saved triage refs 的覆盖缺口");
+    assert.include(updateSkill, "不只是 resolver diff 中的 added refs");
+    assert.include(updateSkill, "resolve_diff.added_refs");
+    assert.include(updateSkill, "没有新增 resolved papers 就取消本次 update");
   });
 
   it("renders executable Host read commands instead of opaque Host labels", async function () {
@@ -733,10 +775,35 @@ describe("Topic synthesis suite renderer", function () {
       createSkill,
       '<zotero-bridge> library-index get --input \'{"cursor":0,"limit":200}\'',
     );
+    assert.include(updateSkill, "runtime/payloads/update-audit-report.json");
     assert.include(
       updateSkill,
-      '<zotero-bridge> topics get-context --input \'{"topicId":"<topic_id>"}\'',
+      '<zotero-bridge> library-index get --input \'{"cursor":0,"limit":200}\'',
     );
+  });
+
+  it("renders prepare hard-gate cancellation instructions", async function () {
+    const createSkill = await fs.readFile(
+      path.join("skills_builtin", "create-topic-synthesis-prepare", "SKILL.md"),
+      "utf8",
+    );
+    const updateSkill = await fs.readFile(
+      path.join("skills_builtin", "update-topic-synthesis-prepare", "SKILL.md"),
+      "utf8",
+    );
+
+    assert.include(createSkill, "duplicate_status");
+    assert.include(createSkill, "硬门禁失败");
+    assert.include(createSkill, "reason: \"duplicate_topic\"");
+    assert.include(createSkill, "不进入 Stage 20");
+    assert.include(createSkill, "topic_synthesis_canceled");
+    assert.include(createSkill, "短路后续 steps");
+
+    assert.include(updateSkill, "Stage 00 已生成 canceled output");
+    assert.include(updateSkill, "update_decision.action");
+    assert.include(updateSkill, "resolver proposal 删除或改写");
+    assert.include(updateSkill, "topic_synthesis_canceled");
+    assert.include(updateSkill, "停止后续 steps");
   });
 
   it("renders schema-valid inline payload examples from stage guidance", async function () {
@@ -875,6 +942,45 @@ describe("Topic synthesis suite renderer", function () {
         assert.notInclude(instruction.command, "$HOME/.ar");
       }
     }
+  });
+
+  it("emits schema-valid business cancel output with optional identifiers", async function () {
+    this.timeout(10000);
+
+    const output = runGateFromOtherCwd("create-topic-synthesis-prepare", [
+      "--action",
+      "cancel",
+      "--reason",
+      "duplicate_topic",
+      "--message",
+      "Existing topic matches the requested seed.",
+      "--topic-seed",
+      "DETR",
+      "--duplicate-topic-id",
+      "detr-style-object-detection",
+    ]);
+    assert.isTrue(output.__SKILL_DONE__);
+    assert.notProperty(output, "skill_id");
+    assert.equal(output.reason, "duplicate_topic");
+    assert.equal(output.topic_seed, "DETR");
+    assert.equal(output.duplicate_topic_id, "detr-style-object-detection");
+
+    const businessOutput = { ...output };
+    delete businessOutput.__SKILL_DONE__;
+    const schema = JSON.parse(
+      await fs.readFile(
+        path.join(
+          "skills_builtin",
+          "create-topic-synthesis-prepare",
+          "assets",
+          "output.schema.json",
+        ),
+        "utf8",
+      ),
+    );
+    const ajv = new Ajv({ allErrors: true, strict: false });
+    const validate = ajv.compile(schema);
+    assert.isTrue(validate(businessOutput), ajv.errorsText(validate.errors));
   });
 
   it("emits gate JSON as UTF-8 bytes on Windows-style Python settings", function () {

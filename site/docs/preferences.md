@@ -31,7 +31,7 @@ Zotero Skills 的设置位于 **Zotero → 设置 → Zotero Skills**（Windows/
 
 ## Synthesis Git Sync
 
-Synthesis Workbench 的可选 Git 同步功能：
+Synthesis Workbench 的可选 Git 同步功能，详情参见 [Git 同步](synthesis/git-sync)：
 
 | 设置项 | 说明 |
 |-------|------|

@@ -318,6 +318,14 @@ function createPromptStopAdapter(args: {
   assistantText?: string | ((promptCount: number) => string | undefined);
   updates?: any[] | ((promptCount: number) => any[]);
   promptError?: Error;
+  cancelRequested?: boolean | ((promptCount: number) => boolean);
+  backendError?: {
+    message: string;
+    name?: string;
+    code?: string | number;
+    data?: unknown;
+    source?: "request_error" | "session_update" | "connection";
+  };
 }) {
   let updateListener: ((event: any) => void | Promise<void>) | null = null;
   let promptCount = 0;
@@ -380,7 +388,15 @@ function createPromptStopAdapter(args: {
           },
         });
       }
-      return { stopReason: args.stopReason || "end_turn" };
+      const cancelRequested =
+        typeof args.cancelRequested === "function"
+          ? args.cancelRequested(promptCount)
+          : args.cancelRequested;
+      return {
+        stopReason: args.stopReason || "end_turn",
+        cancelRequested,
+        backendError: args.backendError,
+      };
     },
     cancel: async () => undefined,
     setMode: async () => undefined,
@@ -864,7 +880,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const interruptedRun = getAcpSkillRunRecord("run-new");
     assert.isFalse(canceled);
     assert.isTrue(interrupted);
-    assert.equal(interruptedRun?.status, "running");
+    assert.equal(interruptedRun?.status, "waiting_user");
     assert.equal(interruptedRun?.conversationState, "closed");
     assert.equal(interruptedRun?.conversationRecoveryState, "available");
     assert.equal(interruptedRun?.events.at(-1)?.stage, "interrupt-requested");
@@ -965,13 +981,17 @@ describe("ACP SkillRunner-compatible runner", function () {
 
     assert.equal(cancelCalls, 1);
     assert.equal(closeCalls, 0);
-    assert.equal(result.status, "succeeded");
+    assert.equal(result.status, "deferred");
+    assert.equal(
+      (result as { backendStatus?: string }).backendStatus,
+      "waiting_user",
+    );
     assert.deepInclude(result.responseJson as Record<string, unknown>, {
       provider: "acp",
       requestId,
       status: "interrupted",
     });
-    assert.equal(record?.status, "running");
+    assert.equal(record?.status, "waiting_user");
     assert.equal(record?.activePrompt, false);
     assert.equal(record?.replyState, "idle");
     assert.equal(record?.conversationState, "active");
@@ -1076,11 +1096,15 @@ describe("ACP SkillRunner-compatible runner", function () {
       const record = getAcpSkillRunRecord(requestId);
       const stages = (record?.events || []).map((event) => event.stage);
 
-      assert.equal(result.status, "succeeded");
+      assert.equal(result.status, "deferred");
+      assert.equal(
+        (result as { backendStatus?: string }).backendStatus,
+        "waiting_user",
+      );
       assert.deepInclude(result.responseJson as Record<string, unknown>, {
         status: "interrupted",
       });
-      assert.equal(record?.status, "running");
+      assert.equal(record?.status, "waiting_user");
       assert.equal(record?.conversationRecoveryState, "connected");
       assert.equal(cancelCalls, 1);
       assert.equal(closeCalls, 0);
@@ -1332,6 +1356,196 @@ describe("ACP SkillRunner-compatible runner", function () {
         )?.details?.code,
         -32000,
       );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails recoverably without output repair when adapter exposes backend prompt error without assistant output", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+      backendError: {
+        message: "backend stream failed",
+        name: "BackendStreamError",
+        code: "stream_error",
+        source: "session_update",
+      },
+    });
+    try {
+      let caught: unknown;
+      try {
+        await runDemoAcpSkill({ root, entry, adapter });
+      } catch (error) {
+        caught = error;
+      }
+      const record = listAcpSkillRuns()[0];
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.instanceOf(caught, Error);
+      assert.equal(getPromptCount(), 1);
+      assert.equal(record?.status, "failed");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.equal(record?.repairRounds, 0);
+      assert.deepEqual(record?.outputRevisions, []);
+      assert.include(stages, "acp-prompt-failed");
+      assert.notInclude(stages, "output-validation-failed");
+      assert.notInclude(stages, "repair-started");
+      assert.isTrue(
+        (record?.transcriptItems || []).some(
+          (item) =>
+            item.kind === "status" && item.label === "acp-prompt-failed",
+        ),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not let session update backend diagnostics override valid assistant output", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+      assistantText: JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+      backendError: {
+        message: "backend stream failed",
+        name: "BackendStreamError",
+        code: "stream_error",
+        source: "session_update",
+      },
+    });
+    try {
+      const result = await runDemoAcpSkill({ root, entry, adapter });
+      const record = listAcpSkillRuns()[0];
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.equal(result.status, "succeeded");
+      assert.equal(getPromptCount(), 1);
+      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.repairRounds, 0);
+      assert.notInclude(stages, "acp-prompt-failed");
+      assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps failed ACP tool updates output-governed when final JSON is valid", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+      updates: [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "tool-1",
+          title: "read",
+          status: "pending",
+        },
+        {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "tool-1",
+          title: "read",
+          status: "failed",
+          rawOutput: {
+            error: "File not found",
+          },
+        },
+      ],
+      assistantText: JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+    });
+    try {
+      const result = await runDemoAcpSkill({ root, entry, adapter });
+      const record = listAcpSkillRuns()[0];
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.equal(result.status, "succeeded");
+      assert.equal(getPromptCount(), 1);
+      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.repairRounds, 0);
+      assert.notInclude(stages, "acp-prompt-failed");
+      assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs invalid assistant output after failed ACP tool updates", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+      updates: (promptCount) =>
+        promptCount === 1
+          ? [
+              {
+                sessionUpdate: "tool_call",
+                toolCallId: "tool-1",
+                title: "glob",
+                status: "pending",
+              },
+              {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tool-1",
+                title: "glob",
+                status: "failed",
+                rawOutput: {
+                  error: "ripgrep execution failed",
+                },
+              },
+            ]
+          : [],
+      assistantText: (promptCount) =>
+        promptCount === 1
+          ? "not valid JSON"
+          : JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+    });
+    try {
+      const result = await runDemoAcpSkill({ root, entry, adapter });
+      const record = listAcpSkillRuns()[0];
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.equal(result.status, "succeeded");
+      assert.equal(getPromptCount(), 2);
+      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.repairRounds, 1);
+      assert.include(stages, "output-validation-failed");
+      assert.include(stages, "repair-started");
+      assert.notInclude(stages, "acp-prompt-failed");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails recoverably without output repair when ACP prompt connection closes", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      promptError: new Error("ACP connection closed"),
+    });
+    try {
+      let caught: unknown;
+      try {
+        await runDemoAcpSkill({ root, entry, adapter });
+      } catch (error) {
+        caught = error;
+      }
+      const record = listAcpSkillRuns()[0];
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.instanceOf(caught, Error);
+      assert.equal(getPromptCount(), 1);
+      assert.equal(record?.status, "failed");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.equal(record?.repairRounds, 0);
+      assert.deepEqual(record?.outputRevisions, []);
+      assert.include(stages, "acp-prompt-failed");
+      assert.notInclude(stages, "output-validation-failed");
+      assert.notInclude(stages, "repair-started");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -4264,6 +4478,78 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  it("treats recovered end_turn as interrupted when adapter reports cancelRequested", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job",
+    });
+    const { adapter, getPromptCount } = createPromptStopAdapter({
+      stopReason: "end_turn",
+      cancelRequested: true,
+    });
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "running",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-cancel-end-turn",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: {
+          execution_modes: ["interactive"],
+          schemas: { output: "assets/output.schema.json" },
+        },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+      });
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          createAdapter: async () => adapter,
+          dependencyProbe: async () => ({ ok: true }),
+          maxRepairRounds: 3,
+        },
+      });
+
+      await replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "continue after restart",
+      });
+
+      const recovered = getAcpSkillRunRecord(workspace.requestId);
+      const stages = (recovered?.events || []).map((event) => event.stage);
+      assert.equal(getPromptCount(), 1);
+      assert.equal(recovered?.status, "waiting_user");
+      assert.equal(recovered?.conversationState, "active");
+      assert.equal(recovered?.conversationRecoveryState, "connected");
+      assert.equal(recovered?.activePrompt, false);
+      assert.equal(recovered?.replyState, "idle");
+      assert.equal(recovered?.repairRounds, 0);
+      assert.include(stages, "interrupt-completed");
+      assert.notInclude(stages, "acp-prompt-no-output");
+      assert.notInclude(stages, "recovered-output-validation-failed");
+      assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("repairs recovered workflow replies when empty end_turn had observable ACP activity", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
@@ -4932,6 +5218,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(record?.conversationState, "active");
       assert.equal(record?.conversationRecoveryState, "connected");
       assert.equal(record?.activePrompt, false);
+      assert.equal(record?.status, "waiting_user");
       assert.notEqual(record?.status, "canceled");
       assert.include(stages, "interrupt-turn-requested");
       assert.include(stages, "interrupt-completed");

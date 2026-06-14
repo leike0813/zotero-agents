@@ -2295,6 +2295,22 @@ details.assistant-panel-details-section[open] > .assistant-panel-details-section
   background: var(--asst-surface);
 }
 
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-task {
+  color: var(--asst-text);
+}
+
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-task-workflow,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-task-meta,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-task-action {
+  color: var(--asst-muted);
+}
+
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-task.is-disabled,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-task.is-disabled .assistant-workspace-drawer-task-workflow,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-task.is-disabled .assistant-workspace-drawer-task-meta {
+  color: var(--asst-muted-soft);
+}
+
 :root[data-zs-theme="dark"] .assistant-panel-permission-drawer-command,
 :root[data-zs-theme="dark"] .assistant-workspace-drawer-context-note,
 :root[data-zs-theme="dark"] .assistant-workspace-drawer-section.is-completed,
@@ -2340,6 +2356,22 @@ details.assistant-panel-details-section[open] > .assistant-panel-details-section
   :root:not([data-zs-theme="light"]) .assistant-transcript-row,
   :root:not([data-zs-theme="light"]) .assistant-transcript-tool-badge {
     background: var(--asst-surface);
+  }
+
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task {
+    color: var(--asst-text);
+  }
+
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task-workflow,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task-meta,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task-action {
+    color: var(--asst-muted);
+  }
+
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task.is-disabled,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task.is-disabled .assistant-workspace-drawer-task-workflow,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task.is-disabled .assistant-workspace-drawer-task-meta {
+    color: var(--asst-muted-soft);
   }
 
   :root:not([data-zs-theme="light"]) .assistant-panel-permission-drawer-command,

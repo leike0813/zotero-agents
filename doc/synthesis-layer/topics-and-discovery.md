@@ -38,15 +38,38 @@ Source check compares a topic artifact’s recorded source dependencies with cur
 - The comparison boundary is the saved source manifest / dependency baseline versus the current Host Library / Artifact Facade output.
 - Source check is explicit user, maintenance, or debug work. Cache refresh and graph refresh must not silently run it.
 
-## Coverage
+## Research Coverage
 
-Coverage is diagnostic. It answers what the topic artifact used and omitted at generation time. It should not be confused with discovery.
+Research coverage is diagnostic. It answers what the topic artifact used and omitted at generation time. It should not be confused with discovery or source-material readiness.
 
 Examples:
 
-- A topic may be fresh but have low coverage because it was intentionally narrow.
+- A topic may be fresh but have narrow research coverage because it was intentionally scoped.
 - A topic may have discovery hints while still fresh.
 - A topic may have changed source-check diagnostics because a used source artifact changed, even if discovery has no new candidates.
+
+## Source Materials
+
+`Source Materials` is the topic-list readiness metric for source artifacts. It is a read-model diagnostic, not stored topic prose, not research coverage, and not topic content completeness.
+
+- `source_materials_status` is dependency artifact readiness (`digest`, `references`, `citation_analysis`) for the topic source set.
+- `source_materials_percent` is the percentage of current topic paper refs whose required source artifacts are complete. If the topic has no paper refs, a complete source-material state maps to `100`, otherwise missing/partial source-material state maps to `0`.
+- `freshness` is source-check freshness. It compares the saved dependency baseline with the current Zotero/artifact state and does not depend on reference sidecar or graph cache freshness.
+- `discovery_status` and `candidate_count` summarize open/rejected discovery hints after the topic graph cascade described below.
+
+The topic update action is always labeled `Update` in the UI. Its intent may still carry `updateScope`, `updateMode`, and `updateReason` such as `source_materials_incomplete`, `dirty`, or `discovery_candidates`, but the user-facing action label must not switch between `Update`, `Complete`, and `Repair/Rebuild`.
+
+### Persisted Artifact State
+
+Topic source readiness is persisted in `state/artifact-state.json` under `data.topics[*].source_materials_status`. New writes must not write the old topic-row `coverage` field for source readiness.
+
+Legacy artifact-state rows may contain `data.topics[*].coverage` from before the hard cut. Readers may map that legacy value to `source_materials_status` during migration or compatibility reads, but the next persisted state should contain only `source_materials_status`.
+
+This migration applies only to topic source readiness read-model state. It must not rename or rewrite:
+
+- topic artifact research coverage sections such as `sections/coverage.json` or `artifact.json.coverage`;
+- manifest section entries named `coverage`;
+- Index / Registry artifact coverage fields such as `artifactCoverage` or `literature-registry-index.json` row coverage.
 
 ## Discovery
 
@@ -59,6 +82,29 @@ The default direction is apply-time token overlap. Discovery does not require a 
 - The v1 matcher is `discovery.apply_time_token_overlap.v1`: lightweight, permissive, explainable token/phrase overlap over the existing metadata fields.
 - Embeddings, BM25, semantic search providers, and LLM pairwise judges are not part of the default path.
 - The system must not run global n x m LLM judging.
+
+### Topic Graph Candidate Cascade
+
+Discovery candidate counts are topic-graph aware in the read model. A higher-level topic includes candidates from lower-level topics only through confirmed hierarchy relations:
+
+- A hierarchy edge is `broader_than`.
+- The edge direction is `source_topic_id broader_than target_topic_id`; source is the broader parent and target is the narrower child.
+- Only `status = confirmed` hierarchy edges participate in discovery cascade.
+- `suggested`, `rejected`, `stale`, `deleted`, and non-hierarchy relations do not contribute to parent candidate counts.
+- Cascade is transitive. A parent counts candidates from its confirmed children, grandchildren, and deeper descendants.
+- Candidate counting is deduplicated by `literature_item_id` across the parent and all participating descendants.
+- If the same literature is open for both parent and child, it counts once.
+- An open hint wins over a rejected duplicate for the same literature identity when deriving aggregate `discovery_status`.
+
+The cascade affects:
+
+- Topics/Home list `candidate_count` and `discovery_status`;
+- Topic Detail discovery hint list, which uses the same descendant scope and deduplicates by literature identity;
+- persisted artifact discovery state refresh, including ancestor topics when a child topic's hints change.
+
+Accepting a suggested topic graph relation as `confirmed` may therefore change discovery counts for the accepted edge's source topic and its confirmed ancestors. Rejecting a relation must not add descendant candidates to a parent.
+
+Discovery cascade does not imply that parent topic content has consumed child candidates. It only exposes possible update work. Topic update remains an explicit workflow action.
 
 ## Metadata Snapshot Semantics
 

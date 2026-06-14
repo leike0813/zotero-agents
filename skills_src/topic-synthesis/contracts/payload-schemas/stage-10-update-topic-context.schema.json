@@ -1,60 +1,124 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "synthesis.stage_10_update_topic_context.schema.json",
-  "title": "Stage 10 update topic context payload",
+  "title": "Stage 10 update decision and resolver payload",
   "type": "object",
   "additionalProperties": false,
-  "required": ["topic_context", "update_assessment"],
+  "required": ["update_decision"],
   "properties": {
-    "topic_context": {
-      "type": "object",
-      "additionalProperties": true,
-      "required": ["topic_id"],
-      "properties": {
-        "topic_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "topic_definition": {
-          "type": "object"
-        },
-        "recommended_update": {
-          "type": "object"
-        }
-      }
-    },
-    "update_assessment": {
+    "update_decision": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["operation", "changed_sections", "reason"],
+      "required": ["action", "reason", "message"],
       "properties": {
-        "operation": {
-          "enum": ["update_full", "update_patch", "unknown"]
-        },
-        "changed_sections": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+        "action": {
+          "enum": ["cancel", "continue"]
         },
         "reason": {
           "type": "string"
+        },
+        "message": {
+          "type": "string"
         }
       }
+    },
+    "resolver": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": ["tag"]
+        },
+        {
+          "required": ["collection_key"]
+        },
+        {
+          "required": ["paper_refs"]
+        }
+      ],
+      "properties": {
+        "tag": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "properties": {
+                "and": {
+                  "$ref": "#/$defs/string_or_string_array"
+                },
+                "or": {
+                  "$ref": "#/$defs/string_or_string_array"
+                },
+                "not": {
+                  "$ref": "#/$defs/string_or_string_array"
+                }
+              }
+            }
+          ]
+        },
+        "collection_key": {
+          "$ref": "#/$defs/string_or_string_array"
+        },
+        "paper_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "combine": {
+          "enum": ["union", "intersection"]
+        }
+      }
+    },
+    "resolver_reasoning": {
+      "type": "string"
     }
   },
   "examples": [
     {
-      "topic_context": {
-        "topic_id": "existing-topic-id",
-        "topic_definition": {},
-        "recommended_update": {}
+      "update_decision": {
+        "action": "continue",
+        "reason": "The preflight audit shows new source material candidates.",
+        "message": "Proceeding with a current-state update."
       },
-      "update_assessment": {
-        "operation": "update_full",
-        "changed_sections": [],
-        "reason": ""
-      }
+      "resolver": {
+        "paper_refs": ["1:DETR", "1:DINO"],
+        "combine": "union"
+      },
+      "resolver_reasoning": "The proposal keeps the current resolver refs and adds newly relevant resolved papers."
     }
-  ]
+  ],
+  "$defs": {
+    "string_or_string_array": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ]
+    }
+  }
 }

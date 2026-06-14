@@ -1,6 +1,6 @@
 ---
 name: topic-synthesis-finalize
-description: 读取核心分析与知识图谱补全结果，编写 coverage 与 summary payload，并准备最终候选输出。
+description: 评估文库覆盖和证据可靠性，提出 collection 补充方向，并生成最终面向用户的 summary；需要可通过 `zotero-bridge` 访问 Zotero 文库。
 ---
 
 <!-- 本文件由 skills_src/topic-synthesis 生成，请勿手工修改。 -->
@@ -9,7 +9,7 @@ description: 读取核心分析与知识图谱补全结果，编写 coverage 与
 
 ## 范围
 
-读取核心分析与知识图谱补全结果，编写 coverage 与 summary payload，并准备最终候选输出。
+评估文库覆盖和证据可靠性，提出 collection 补充方向，并生成最终面向用户的 summary；需要可通过 `zotero-bridge` 访问 Zotero 文库。
 
 本包由 `skills_src/topic-synthesis/` 生成。执行时以包内 `SKILL.md`、
 `scripts/` 和 `assets/schemas/` 作为当前技能的执行合同。

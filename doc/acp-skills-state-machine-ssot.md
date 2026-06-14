@@ -34,6 +34,22 @@ failures.
   is treated as `acp-prompt-no-output` only when the plugin observed no ACP
   `session/update` activity during that prompt turn and result-file fallback
   cannot recover a valid result.
+- If the user has already interrupted the current prompt turn, a later
+  `end_turn` response is still governed as an interrupted turn. It must not
+  enter result-file fallback, output validation, output repair, or workflow
+  apply.
+- ACP-visible prompt errors, including JSON-RPC request errors and explicit
+  prompt-level provider `session/update` diagnostics such as `backend_error` or
+  `prompt_error`, are prompt lifecycle failures. They should be surfaced to the
+  run transcript without claiming a backend-private root cause.
+- Tool updates are not prompt lifecycle failures. A `tool_call` or
+  `tool_call_update` with failed or error status, including tool output fields
+  such as `rawOutput.error`, remains normal ACP tool activity and must not
+  prevent later assistant output from entering validation, apply, or bounded
+  repair.
+- Prompt-level provider `session/update` diagnostics must not override a
+  non-empty assistant output candidate observed in the same prompt turn; the
+  assistant output remains governed by output validation.
 - If the prompt turn produced ACP activity such as thought chunks, tool calls,
   tool updates, or plan updates, an empty assistant text remains governed by
   normal result-file fallback and bounded output validation/repair.
@@ -201,19 +217,27 @@ Reply:        idle → submitted → accepted → idle
 Canceling the current turn stops only the active ACP prompt call.
 
 - Invokes `interruptTurn` on the `AcpSkillRunController` (line 338).
-- Does **not** modify `status` — run stays in `running | waiting_user`.
+- Sets `status = "waiting_user"` after the current prompt is interrupted. The
+  run is not terminal; the next prompt belongs to the user.
 - Does **not** disconnect the ACP connection — `conversationState` and
   `connectionActionState` are unchanged.
 - For recovered sessions, `interruptTurn` is valid only while an active prompt
   turn exists. It must not detach a recovered session merely because the run is
   non-terminal.
+- If the backend later reports `end_turn` after the interrupt request, the turn
+  remains interrupted and is not reclassified as successful output convergence.
 - Sets `replyState` back to `idle` if it was `submitted`.
 - Records `lastPromptStopReason` for diagnostics.
 - Leaves the run available for a later user prompt.
 - Any assistant text returned after the turn was canceled is ignored for output
   validation, result-file fallback, and output repair.
+- If the run is executing as a sequence step, Host returns a deferred provider
+  result with `backendStatus = "waiting_user"` so the parent sequence parks at
+  the current step and does not start downstream skills.
 
-The ACP Skills reply composer uses this action while `replyState !== "idle"`.
+The ACP Skills reply composer uses this action only while an active prompt turn
+exists. After interruption completes, the composer switches back to normal
+reply mode.
 
 ### Disconnect
 
@@ -306,11 +330,16 @@ Canceling the task terminates the ACP Skills job.
 9. **Reply state constraint** — `submitted → accepted | rejected` are the only
    valid forward transitions from `submitted`. `accepted` or `rejected` must
    eventually return to `idle`. `interruptTurn` is only valid when
-   `replyState !== "idle"`.
+   `activePrompt = true` or `replyState` is `submitted | accepted`.
 
 10. **Detached recoverable UI projection** — A detached recoverable run remains
     visible in active task lists with warning attention, exposes Connect, and
     does not expose current-turn interrupt until a prompt is actually active.
+
+11. **Connected idle runs are not busy prompt turns.** — A non-terminal run with
+    `conversationRecoveryState = "connected"`, `activePrompt = false`, and
+    `replyState = "idle"` must not expose current-turn cancel. It may remain
+    connected for later user action or diagnostics.
 
 ## Implementation Mapping
 

@@ -294,29 +294,28 @@ describe("host bridge capability calls", function () {
     assert.isFalse(missing.json.result.data.ok);
     assert.include(
       missing.json.result.data.errors,
-      "$.resolver is required and must be an object",
+      "$ must include at least one of tag, collection_key, or paper_refs",
     );
 
     const legacy = await callBridgeCapability({
       token,
       capability: "resolvers.resolve",
       input: {
-        topic_resolver: {
+        resolver: {
           mode: "tag_query",
           query: "vision",
         },
+        mode: "tag_query",
+        query: "vision",
       },
     });
     assert.strictEqual(legacy.status, 200);
     assert.isFalse(legacy.json.result.data.ok);
     assert.include(
-      legacy.json.result.data.errors,
-      "$.resolver is required and must be an object",
-    );
-    assert.include(
       legacy.json.result.data.errors.join("\n"),
-      "$.topic_resolver is not accepted",
+      "$.resolver is not allowed",
     );
+    assert.include(legacy.json.result.data.errors.join("\n"), "$.mode");
   });
 
   it("hides debug capabilities when debug mode is disabled", async function () {

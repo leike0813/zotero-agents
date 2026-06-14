@@ -7,22 +7,22 @@ const conceptRail = document.querySelector("[data-concept-rail]");
 const paper = document.querySelector("[data-paper]");
 const readingFlow = document.querySelector("[data-reading-flow]");
 const translationPaper = document.querySelector("[data-translation-paper]");
+const appendixReading = document.querySelector("[data-appendix-reading]");
+const appendixPaper = document.querySelector("[data-appendix-paper]");
+const appendixReadingFlow = document.querySelector(
+  "[data-appendix-reading-flow]",
+);
+const appendixTranslationPaper = document.querySelector(
+  "[data-appendix-translation-paper]",
+);
 const side = document.querySelector("[data-side]");
 const paperScroll = document.querySelector("[data-paper-scroll]");
 const modal = document.querySelector("[data-digest-modal]");
 const graphSection = document.querySelector("[data-citation-graph]");
-const graphState = {
-  search: "",
-  showLibrary: true,
-  showExternal: true,
-  showLowSignal: false,
-  hoveredId: "",
-  hoverLabelId: "",
-  selected: null,
-};
-let graphHoverClearTimer = 0;
 let conceptBubbleTimer = 0;
 let activeAnchor = "preface";
+let scrollUpdateFrame = 0;
+let scheduleActiveAnchorUpdate = () => {};
 
 function esc(value) {
   return String(value ?? "").replace(
@@ -51,6 +51,7 @@ function setMode(mode) {
     .forEach((button) =>
       button.classList.toggle("active", button.dataset.mode === mode),
     );
+  window.setTimeout(scheduleActiveAnchorUpdate, 0);
 }
 function setImageSources(root) {
   root.querySelectorAll("img[data-image-src]").forEach((image) => {
@@ -204,6 +205,20 @@ function renderNav() {
         `<a href="#${esc(item.anchor)}" data-anchor="${esc(item.anchor)}" class="level-${esc(item.level ?? 1)}">${esc(item.title)}</a>`,
     )
     .join("");
+  toc.querySelectorAll("[data-anchor]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      const anchor = link.getAttribute("data-anchor") || "";
+      if (!anchor) return;
+      const target = targetForAnchor(anchor);
+      if (!target) return;
+      event.preventDefault();
+      scrollElementForTarget(target).scrollIntoView({
+        block: "start",
+        inline: "nearest",
+      });
+      window.setTimeout(scheduleActiveAnchorUpdate, 0);
+    });
+  });
 }
 function renderPreface() {
   const root = document.querySelector("[data-preface]");
@@ -216,29 +231,48 @@ function blockHtml(block, sideName) {
     ? block.translation_html || ""
     : block.source_html || "";
 }
-function renderReading() {
-  const blocks = data.reading_blocks || [];
-  paper.innerHTML = blocks
+function renderReadingRegion(blocks, sourceRoot, compareRoot, translationRoot) {
+  sourceRoot.innerHTML = blocks
     .map(
       (block) =>
         `<section class="source-block block-${esc(block.kind || "text")}" data-block-id="${esc(block.id || block.block_id)}" data-section-anchor="${esc(block.section_anchor || "")}">${blockHtml(block, "source")}</section>`,
     )
     .join("");
-  readingFlow.innerHTML = blocks
+  compareRoot.innerHTML = blocks
     .map(
       (block) =>
         `<section class="aligned-block-pair block-${esc(block.kind || "text")}" data-block-id="${esc(block.id || block.block_id)}" data-section-anchor="${esc(block.section_anchor || "")}"><div class="aligned-source">${blockHtml(block, "source")}</div><div class="aligned-translation">${blockHtml(block, "translation")}</div></section>`,
     )
     .join("");
-  translationPaper.innerHTML = blocks
+  translationRoot.innerHTML = blocks
     .map(
       (block) =>
         `<section class="translation-section block-${esc(block.kind || "text")}" data-block-id="${esc(block.id || block.block_id)}" data-section-anchor="${esc(block.section_anchor || "")}">${blockHtml(block, "translation")}</section>`,
     )
     .join("");
-  [paper, readingFlow, translationPaper].forEach(setImageSources);
-  applyConceptOverlay(paper);
-  applyConceptOverlay(readingFlow);
+  [sourceRoot, compareRoot, translationRoot].forEach(setImageSources);
+  applyConceptOverlay(sourceRoot);
+  applyConceptOverlay(compareRoot);
+}
+function renderReading() {
+  renderReadingRegion(
+    data.reading_blocks || [],
+    paper,
+    readingFlow,
+    translationPaper,
+  );
+  const appendixBlocks = data.appendix_reading_blocks || [];
+  if (appendixBlocks.length) {
+    appendixReading.hidden = false;
+    renderReadingRegion(
+      appendixBlocks,
+      appendixPaper,
+      appendixReadingFlow,
+      appendixTranslationPaper,
+    );
+  } else {
+    appendixReading.hidden = true;
+  }
 }
 function renderSummary() {
   const root = document.querySelector("[data-summary]");
@@ -305,6 +339,55 @@ function renderSide(anchor) {
     button.addEventListener("click", () => showConceptBubble(button, concept));
   });
 }
+function setActiveAnchor(anchor) {
+  if (!anchor) return;
+  const changed = activeAnchor !== anchor;
+  activeAnchor = anchor;
+  document
+    .querySelectorAll("[data-anchor]")
+    .forEach((link) =>
+      link.classList.toggle("active", link.dataset.anchor === anchor),
+    );
+  if (changed) renderSide(anchor);
+}
+function activeReadingContainers() {
+  if (body.classList.contains("mode-original")) return [paper, appendixPaper];
+  if (body.classList.contains("mode-translated"))
+    return [translationPaper, appendixTranslationPaper];
+  return [readingFlow, appendixReadingFlow];
+}
+function targetForAnchor(anchor) {
+  if (anchor === "preface") return document.querySelector("[data-preface]");
+  if (anchor === "summary") return document.querySelector("[data-summary]");
+  if (anchor === "references")
+    return document.querySelector("[data-post-reading]");
+  if (anchor === "citation-graph") return graphSection;
+  if (anchor === "extensions")
+    return document.querySelector("[data-extensions]");
+  for (const container of activeReadingContainers()) {
+    const target = container?.querySelector(
+      `[data-section-anchor="${cssEscape(anchor)}"]`,
+    );
+    if (target) return target;
+  }
+  return null;
+}
+function scrollElementForTarget(node) {
+  const rect = node.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) return node;
+  return (
+    Array.from(node.children || []).find((item) => {
+      const childRect = item.getBoundingClientRect();
+      const childStyle = window.getComputedStyle(item);
+      return (
+        childRect.width > 0 &&
+        childRect.height > 0 &&
+        childStyle.display !== "none" &&
+        childStyle.visibility !== "hidden"
+      );
+    }) || node
+  );
+}
 function openDigest(referenceId) {
   const ref = referencesById().get(referenceId);
   if (!ref?.digest_modal?.available) return;
@@ -332,192 +415,24 @@ function renderPostReading() {
       ),
     );
 }
-function graphNodesRaw() {
-  return data.citation_graph?.snapshot?.nodes || [];
-}
-function graphEdgesRaw() {
-  return data.citation_graph?.snapshot?.edges || [];
-}
-function graphNodeId(node) {
-  return node.node_id || node.id || "";
-}
-function graphNodeKind(node) {
-  const id = graphNodeId(node);
-  if (id === data.citation_graph?.snapshot?.start_node_id) return "target";
-  return (
-    node.kind ||
-    node.type ||
-    (id.startsWith("zotero:item:") ? "library_paper" : "external_reference")
-  );
-}
-function graphLayoutMap() {
-  const raw = data.citation_graph?.layout?.nodes || [];
-  if (Array.isArray(raw))
-    return new Map(raw.map((item) => [item.node_id || item.id, item]));
-  return new Map(
-    Object.entries(raw).map(([id, item]) => [id, { node_id: id, ...item }]),
-  );
-}
-function graphNeighbors(nodeId, edges) {
-  const ids = new Set([nodeId]);
-  edges.forEach((edge) => {
-    if (edge.source === nodeId) ids.add(edge.target);
-    if (edge.target === nodeId) ids.add(edge.source);
-  });
-  return ids;
-}
-function graphVisibleNode(node) {
-  const kind = graphNodeKind(node);
-  if (!graphState.showLowSignal && node.low_signal) return false;
-  if (
-    !graphState.showLibrary &&
-    (kind === "library_paper" || kind === "target")
-  )
-    return false;
-  if (!graphState.showExternal && kind === "external_reference") return false;
-  const query = graphState.search.trim().toLowerCase();
-  return (
-    !query ||
-    `${node.title || ""} ${node.year || ""} ${graphNodeId(node)}`
-      .toLowerCase()
-      .includes(query)
-  );
-}
 function renderCitationGraph() {
-  const layout = graphLayoutMap();
-  const nodes = graphNodesRaw()
-    .filter((node) => layout.has(graphNodeId(node)))
-    .filter(graphVisibleNode);
-  const visibleIds = new Set(nodes.map(graphNodeId));
-  const edges = graphEdgesRaw().filter(
-    (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target),
-  );
-  if (!nodes.length) {
-    graphSection.innerHTML = `<h2 id="citation-graph">Citation Graph</h2><p>当前没有可用的图布局坐标。</p>`;
+  const renderer = window.ZoteroSkillsCitationGraph?.renderCitationGraph;
+  const model = data.citation_graph?.model || { nodes: [], edges: [] };
+  if (!renderer) {
+    graphSection.dataset.zsCgStatus = "failed";
+    graphSection.dataset.zsCgError = "renderer_unavailable";
+    graphSection.innerHTML = `<h2 id="citation-graph">Citation Graph</h2><p>引用图渲染器不可用。</p>`;
     return;
   }
-  const points = nodes.map((node) => layout.get(graphNodeId(node)));
-  const xs = points.map((p) => Number(p.x || 0));
-  const ys = points.map((p) => Number(p.y || 0));
-  const minX = Math.min(...xs) - 40;
-  const maxX = Math.max(...xs) + 40;
-  const minY = Math.min(...ys) - 40;
-  const maxY = Math.max(...ys) + 40;
-  const startId = data.citation_graph?.snapshot?.start_node_id || "";
-  const pinnedId =
-    graphState.selected?.kind === "node" ? graphState.selected.id : "";
-  const activeId = pinnedId || graphState.hoveredId;
-  const neighborIds = activeId ? graphNeighbors(activeId, edges) : new Set();
-  const startOneHop = graphNeighbors(startId, edges);
-  const edgeRows = edges
-    .map((edge) => {
-      const active =
-        !activeId ||
-        edge.source === activeId ||
-        edge.target === activeId ||
-        graphState.selected?.id === edge.edge_id;
-      const s = layout.get(edge.source);
-      const t = layout.get(edge.target);
-      return `<line class="graph-edge ${active ? "is-active" : "is-muted"}" x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" data-edge-id="${esc(edge.edge_id || `${edge.source}-${edge.target}`)}"></line>`;
-    })
-    .join("");
-  const nodeRows = nodes
-    .map((node) => {
-      const id = graphNodeId(node);
-      const kind = graphNodeKind(node);
-      const point = layout.get(id);
-      const active = id === activeId || neighborIds.has(id);
-      const baseSize =
-        kind === "target" ? 8 : kind === "library_paper" ? 5.4 : 3.6;
-      const oneHop = startOneHop.has(id);
-      const showLabel =
-        graphState.search ||
-        (activeId &&
-          oneHop &&
-          (kind === "target" ||
-            kind === "library_paper" ||
-            graphState.hoverLabelId === id));
-      return `<g><circle class="graph-node ${esc(kind)} ${active ? "is-active" : ""}" cx="${point.x}" cy="${point.y}" r="${baseSize}" data-node-id="${esc(id)}"><title>${esc(node.title || id)}</title></circle>${showLabel ? `<text class="graph-label" x="${Number(point.x) + baseSize + 4}" y="${Number(point.y) - baseSize - 3}">${esc(String(node.title || id).slice(0, 48))}</text>` : ""}</g>`;
-    })
-    .join("");
-  graphSection.innerHTML = `<div class="citation-graph-header"><div><h2 id="citation-graph">Citation Graph</h2><p>基于 Host Bridge 固化布局的 2-hop 引用网络。</p></div><div class="graph-badges"><span class="graph-badge">${nodes.length} nodes</span><span class="graph-badge">${edges.length} edges</span></div></div><div class="graph-toolbar"><input type="search" data-graph-search placeholder="Search graph" value="${esc(graphState.search)}"><button type="button" data-graph-filter="library" class="${graphState.showLibrary ? "active" : ""}">Library</button><button type="button" data-graph-filter="external" class="${graphState.showExternal ? "active" : ""}">External</button><button type="button" data-graph-reset>Reset</button></div><div class="graph-legend"><span><i class="legend-dot target"></i>目标论文</span><span><i class="legend-dot library_paper"></i>库内文献</span><span><i class="legend-dot external_reference"></i>库外引用</span></div><div class="graph-layout"><div class="graph-canvas"><svg viewBox="${minX} ${minY} ${Math.max(1, maxX - minX)} ${Math.max(1, maxY - minY)}" preserveAspectRatio="xMidYMid meet">${edgeRows}${nodeRows}</svg></div><aside class="graph-detail">${graphDetailHtml()}</aside></div>`;
-  graphSection
-    .querySelector("[data-graph-search]")
-    ?.addEventListener("input", (event) => {
-      graphState.search = event.target.value || "";
-      renderCitationGraph();
-    });
-  graphSection
-    .querySelector('[data-graph-filter="library"]')
-    ?.addEventListener("click", () => {
-      graphState.showLibrary = !graphState.showLibrary;
-      renderCitationGraph();
-    });
-  graphSection
-    .querySelector('[data-graph-filter="external"]')
-    ?.addEventListener("click", () => {
-      graphState.showExternal = !graphState.showExternal;
-      renderCitationGraph();
-    });
-  graphSection
-    .querySelector("[data-graph-reset]")
-    ?.addEventListener("click", () => {
-      Object.assign(graphState, {
-        search: "",
-        showLibrary: true,
-        showExternal: true,
-        showLowSignal: false,
-        hoveredId: "",
-        hoverLabelId: "",
-        selected: null,
-      });
-      renderCitationGraph();
-    });
-  graphSection.querySelectorAll("[data-node-id]").forEach((nodeEl) => {
-    nodeEl.addEventListener("mouseenter", () =>
-      updateGraphHover(nodeEl.getAttribute("data-node-id") || ""),
-    );
-    nodeEl.addEventListener("mouseleave", () =>
-      scheduleGraphHoverClear(pinnedId),
-    );
-    nodeEl.addEventListener("click", () => {
-      graphState.selected = {
-        kind: "node",
-        id: nodeEl.getAttribute("data-node-id") || "",
-      };
-      graphState.hoveredId = graphState.selected.id;
-      graphState.hoverLabelId = "";
-      renderCitationGraph();
-    });
+  renderer(graphSection, model, {
+    readonly: true,
+    labels: {
+      title: "Citation Graph",
+      search: "Search graph",
+      clear: "Clear",
+      noGraph: "当前没有可用的图布局坐标。",
+    },
   });
-}
-function graphDetailHtml() {
-  const nodes = new Map(
-    graphNodesRaw().map((node) => [graphNodeId(node), node]),
-  );
-  if (!graphState.selected)
-    return `<h3>Selection</h3><p class="muted">点击节点查看文献细节。</p>`;
-  const node = nodes.get(graphState.selected.id);
-  if (!node) return `<h3>Selection</h3><p class="muted">未找到所选节点。</p>`;
-  const metrics = node.metrics || {};
-  return `<h3>${esc(node.title || graphNodeId(node))}</h3><dl><dt>Type</dt><dd>${esc(graphNodeKind(node))}</dd><dt>Year</dt><dd>${esc(node.year || "-")}</dd><dt>In</dt><dd>${esc(metrics.internal_in_degree ?? "-")}</dd><dt>Out</dt><dd>${esc(metrics.internal_out_degree ?? "-")}</dd><dt>ID</dt><dd>${esc(graphNodeId(node))}</dd></dl>`;
-}
-function updateGraphHover(nodeId) {
-  const edges = graphEdgesRaw();
-  const pinnedId =
-    graphState.selected?.kind === "node" ? graphState.selected.id : "";
-  graphState.hoveredId = pinnedId || nodeId;
-  graphState.hoverLabelId =
-    pinnedId && graphNeighbors(pinnedId, edges).has(nodeId) ? nodeId : "";
-  renderCitationGraph();
-}
-function scheduleGraphHoverClear(pinnedId) {
-  if (graphHoverClearTimer) window.clearTimeout(graphHoverClearTimer);
-  graphHoverClearTimer = window.setTimeout(() => {
-    graphState.hoveredId = pinnedId || "";
-    graphState.hoverLabelId = "";
-    renderCitationGraph();
-  }, 80);
 }
 function renderExtensions() {
   const root = document.querySelector("[data-extensions]");
@@ -525,36 +440,91 @@ function renderExtensions() {
 }
 function initScrollTracking() {
   const anchors = new Set((data.navigation || []).map((item) => item.anchor));
-  const targets = [
-    document.querySelector("[data-preface]"),
-    document.querySelector("[data-summary]"),
-    document.querySelector("[data-post-reading]"),
-    graphSection,
-    document.querySelector("[data-extensions]"),
-    ...document.querySelectorAll("[data-section-anchor]"),
-  ].filter(Boolean);
-  const observer = new IntersectionObserver(
-    (entries) => {
-      const visible = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-      const anchor =
-        visible?.target?.dataset?.sectionAnchor ||
-        visible?.target?.id ||
-        activeAnchor;
-      if (anchor && anchors.has(anchor) && anchor !== activeAnchor) {
-        activeAnchor = anchor;
-        document
-          .querySelectorAll("[data-anchor]")
-          .forEach((link) =>
-            link.classList.toggle("active", link.dataset.anchor === anchor),
-          );
-        renderSide(anchor);
-      }
-    },
-    { root: paperScroll, threshold: [0.08, 0.2, 0.45] },
-  );
-  targets.forEach((target) => observer.observe(target));
+
+  function rectFor(node) {
+    if (!node) return false;
+    const rect = node.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) return rect;
+    const child = Array.from(node.children || []).find((item) => {
+      const childRect = item.getBoundingClientRect();
+      const childStyle = window.getComputedStyle(item);
+      return (
+        childRect.width > 0 &&
+        childRect.height > 0 &&
+        childStyle.display !== "none" &&
+        childStyle.visibility !== "hidden"
+      );
+    });
+    return child ? child.getBoundingClientRect() : rect;
+  }
+
+  function isVisible(node) {
+    if (!node) return false;
+    const rect = rectFor(node);
+    const style = window.getComputedStyle(node);
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      style.display !== "none" &&
+      style.visibility !== "hidden"
+    );
+  }
+
+  function anchorForTarget(node) {
+    if (node.dataset?.sectionAnchor) return node.dataset.sectionAnchor;
+    if (node.dataset?.preface !== undefined) return "preface";
+    if (node.dataset?.summary !== undefined) return "summary";
+    if (node.dataset?.postReading !== undefined) return "references";
+    if (node.dataset?.citationGraph !== undefined) return "citation-graph";
+    if (node.dataset?.extensions !== undefined) return "extensions";
+    return node.id || "";
+  }
+
+  function currentTargets() {
+    const readingTargets = activeReadingContainers().flatMap((container) =>
+      Array.from(container?.querySelectorAll("[data-section-anchor]") || []),
+    );
+    return [
+      document.querySelector("[data-preface]"),
+      ...readingTargets,
+      document.querySelector("[data-summary]"),
+      document.querySelector("[data-post-reading]"),
+      graphSection,
+      document.querySelector("[data-extensions]"),
+    ].filter((node) => isVisible(node) && anchors.has(anchorForTarget(node)));
+  }
+
+  function updateActiveAnchor() {
+    scrollUpdateFrame = 0;
+    const rootRect = paperScroll.getBoundingClientRect();
+    const activationLine =
+      rootRect.top + Math.min(180, Math.max(80, rootRect.height * 0.28));
+    const visibleTargets = currentTargets()
+      .map((node) => ({ node, rect: rectFor(node) }))
+      .filter(
+        (item) =>
+          item.rect.bottom >= rootRect.top + 8 &&
+          item.rect.top <= rootRect.bottom - 8,
+      );
+    if (!visibleTargets.length) return;
+    const beforeLine = visibleTargets
+      .filter((item) => item.rect.top <= activationLine)
+      .sort((a, b) => b.rect.top - a.rect.top);
+    const selected =
+      beforeLine[0] ||
+      visibleTargets.sort((a, b) => a.rect.top - b.rect.top)[0];
+    setActiveAnchor(anchorForTarget(selected.node));
+  }
+
+  scheduleActiveAnchorUpdate = function () {
+    if (scrollUpdateFrame) return;
+    scrollUpdateFrame = window.requestAnimationFrame(updateActiveAnchor);
+  };
+
+  paperScroll.addEventListener("scroll", scheduleActiveAnchorUpdate, {
+    passive: true,
+  });
+  window.addEventListener("resize", scheduleActiveAnchorUpdate);
   document
     .querySelectorAll("[data-section-anchor]")
     .forEach((node) =>
@@ -562,6 +532,8 @@ function initScrollTracking() {
         renderSide(node.dataset.sectionAnchor),
       ),
     );
+  setActiveAnchor(activeAnchor);
+  scheduleActiveAnchorUpdate();
 }
 function init() {
   document.querySelector("[data-paper-title]").textContent =
