@@ -1,0 +1,55 @@
+{
+  "schema": "zotero-bridge-cli-bundle.v1",
+  "source": {
+    "repository": "Zotero-Skills",
+    "commit": "69325be9d2789e2ba153fc84a7e53fb609ba637a",
+    "dirty": true
+  },
+  "publishedAt": "2026-06-15T11:41:23.453Z",
+  "branch": "host-bridge/zotero-bridge-cli-bundle",
+  "cli": {
+    "name": "zotero-bridge",
+    "platforms": [
+      {
+        "platform": "linux-arm",
+        "binary": "bin/linux-arm/zotero-bridge",
+        "sha256": "aa67f474a23fc3392da7e5b22e6316f5ad9b7e2e32705eed32239ddd73714e18",
+        "sha256File": "bin/linux-arm/zotero-bridge.sha256",
+        "size": 1089760
+      },
+      {
+        "platform": "linux-arm64",
+        "binary": "bin/linux-arm64/zotero-bridge",
+        "sha256": "b99591ac4e8dd6cc6407ef878cd4274b5bf602597b9d4ff79be7a4f74c60ed29",
+        "sha256File": "bin/linux-arm64/zotero-bridge.sha256",
+        "size": 1159112
+      },
+      {
+        "platform": "linux-x64",
+        "binary": "bin/linux-x64/zotero-bridge",
+        "sha256": "bb9980c89196a643d71bea7c890daf8bb24da184e86c8b6d6fcd6cec3587df97",
+        "sha256File": "bin/linux-x64/zotero-bridge.sha256",
+        "size": 1347008
+      },
+      {
+        "platform": "linux-x86",
+        "binary": "bin/linux-x86/zotero-bridge",
+        "sha256": "9ff5f236de930acd1bb4d7c8e7faa0e2692580f13c0b83258eea9d6117319e1f",
+        "sha256File": "bin/linux-x86/zotero-bridge.sha256",
+        "size": 1472616
+      },
+      {
+        "platform": "win32-x64",
+        "binary": "bin/win32-x64/zotero-bridge.exe",
+        "sha256": "69f31bdb0ce6804d5f810a68f9f121ca82ffa459c18f2b5709dbd207b279bafc",
+        "sha256File": "bin/win32-x64/zotero-bridge.exe.sha256",
+        "size": 1250816
+      }
+    ]
+  },
+  "wrapperSkill": {
+    "id": "zotero-bridge-cli",
+    "path": "skills/zotero-bridge-cli",
+    "entrypoint": "skills/zotero-bridge-cli/SKILL.md"
+  }
+}
