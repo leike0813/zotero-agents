@@ -8,7 +8,7 @@ This branch is generated from the Zotero-Skills repository and contains only:
 - manifest.json with source commit, platform list, sizes, and checksums
 
 Source commit: 69325be9d2789e2ba153fc84a7e53fb609ba637a
-Published at: 2026-06-16T07:17:18.283Z
+Published at: 2026-06-16T19:16:25.802Z
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin
@@ -33,6 +33,9 @@ Environment variables override the template at runtime:
   http://<advertisedHost>:<pinnedPort>/bridge/v1 for LAN remote calls.
 - ZOTERO_BRIDGE_TOKEN: bearer token supplied by the Zotero plugin or deployment
   environment.
+- ZOTERO_BRIDGE_SCOPE: approval routing scope JSON. SkillRunner jobs use
+  {"kind":"skillrunner-run","requestId":"...","runId":"..."} so write
+  approvals return to the SkillRunner panel.
 - ZOTERO_BRIDGE_CONNECTION_MODE: local or remote. Use remote for SkillRunner/LAN
   calls so file-export capabilities return Host Bridge download bundles instead
   of writing caller-local paths.
