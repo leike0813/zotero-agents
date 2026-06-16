@@ -127,3 +127,8 @@ zotero-bridge file --help
 | `debug.tasks.snapshot` | debug | `none` | `object` | `debug tasks` | debug-only, mcp-mirror |
 | `debug.zotero.eval` | debug | `zotero-ui-required` | `object` | `raw call only` | debug-only, dangerous, raw-only, mcp-mirror |
 <!-- host-bridge-surface:wrapper-reference:end -->
+
+## Remote Export Bundles
+
+- With a remote profile, `topics get-context` with `outputPath` returns `delivery.mode="bridge-download"` instead of writing the caller path. Run `delivery.downloadCommand`, then run `delivery.unpackHint`.
+- With a remote profile, `paper-artifacts export-filtered` returns the same kind of zip bundle. Treat `manifest_file` as a path inside the unpacked zip.

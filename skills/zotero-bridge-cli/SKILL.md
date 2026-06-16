@@ -92,3 +92,8 @@ This section is generated from the Host Bridge surface catalog.
 - Examples: `zotero-bridge resolvers resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge resolvers resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
 - Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
 <!-- host-bridge-surface:wrapper-skill:end -->
+
+## Remote Export Bundles
+
+- With a remote profile, `topics get-context` with `outputPath` returns `delivery.mode="bridge-download"` instead of writing the caller path. Run `delivery.downloadCommand`, then run `delivery.unpackHint`.
+- With a remote profile, `paper-artifacts export-filtered` returns the same kind of zip bundle. Treat `manifest_file` as a path inside the unpacked zip.
