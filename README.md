@@ -8,7 +8,7 @@ This branch is generated from the Zotero-Skills repository and contains only:
 - manifest.json with source commit, platform list, sizes, and checksums
 
 Source commit: 69325be9d2789e2ba153fc84a7e53fb609ba637a
-Published at: 2026-06-16T07:16:06.216Z
+Published at: 2026-06-16T07:17:18.283Z
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin
@@ -21,7 +21,7 @@ ZOTERO_BRIDGE_PROFILE to its path. The well-known profile paths are:
 
 - Windows: %LOCALAPPDATA%\Zotero-Skills\bridge-profile.json
 - macOS: ~/Library/Application Support/Zotero-Skills/bridge-profile.json
-- Linux: /Zotero-Skills/bridge-profile.json
+- Linux: ${XDG_DATA_HOME:-~/.local/share}/Zotero-Skills/bridge-profile.json
 
 The template defaults to local loopback access and reads the bearer token from
 ZOTERO_BRIDGE_TOKEN.
