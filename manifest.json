@@ -5,7 +5,7 @@
     "commit": "69325be9d2789e2ba153fc84a7e53fb609ba637a",
     "dirty": true
   },
-  "publishedAt": "2026-06-16T06:36:35.399Z",
+  "publishedAt": "2026-06-16T07:13:22.536Z",
   "branch": "host-bridge/zotero-bridge-cli-bundle",
   "cli": {
     "name": "zotero-bridge",
@@ -41,9 +41,9 @@
       {
         "platform": "win32-x64",
         "binary": "bin/win32-x64/zotero-bridge.exe",
-        "sha256": "8db051f314e7f84965b04e07ae3def5fc4defa4dc393ab8a64cc6e215da53e0c",
+        "sha256": "62b814ec7a294ed989ddd8e45b273fa628d316ef83b16462ee66453b3524594a",
         "sha256File": "bin/win32-x64/zotero-bridge.exe.sha256",
-        "size": 1255936
+        "size": 1256448
       }
     ]
   },
@@ -51,5 +51,12 @@
     "id": "zotero-bridge-cli",
     "path": "skills/zotero-bridge-cli",
     "entrypoint": "skills/zotero-bridge-cli/SKILL.md"
+  },
+  "profileTemplate": {
+    "path": "profile.template.json",
+    "skillPath": "skills/zotero-bridge-cli/profile.template.json",
+    "endpointEnv": "ZOTERO_BRIDGE_ENDPOINT",
+    "tokenEnv": "ZOTERO_BRIDGE_TOKEN",
+    "connectionModeEnv": "ZOTERO_BRIDGE_CONNECTION_MODE"
   }
 }

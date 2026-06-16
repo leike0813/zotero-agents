@@ -25,6 +25,9 @@ Host Bridge capability registry and Rust CLI source.
 - Read `ZOTERO_BRIDGE_PROFILE` when present. The profile points to the Host
   Bridge endpoint and usually references the bearer token through
   `auth.tokenEnv`.
+- Keep `ZOTERO_BRIDGE_ENDPOINT`, `ZOTERO_BRIDGE_TOKEN`, and
+  `ZOTERO_BRIDGE_CONNECTION_MODE` from the injected environment. The endpoint
+  and connection mode override the profile template at runtime.
 - Never print, summarize, persist, or expose bearer token values.
 - Parse stdout as exactly one JSON object. Check both the process exit code and
   the top-level `ok` field.

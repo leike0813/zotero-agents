@@ -4,11 +4,29 @@ This branch is generated from the Zotero-Skills repository and contains only:
 
 - prebuilt zotero-bridge CLI binaries under bin/
 - the zotero-bridge-cli wrapper skill under skills/zotero-bridge-cli/
+- profile.template.json, a well-known profile template for local and remote use
 - manifest.json with source commit, platform list, sizes, and checksums
 
 Source commit: 69325be9d2789e2ba153fc84a7e53fb609ba637a
-Published at: 2026-06-16T06:36:35.399Z
+Published at: 2026-06-16T07:13:22.536Z
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin
 repository.
+
+## Profile template and environment overrides
+
+Copy profile.template.json to the Host Bridge well-known profile location, or set
+ZOTERO_BRIDGE_PROFILE to its path. The template defaults to local loopback access
+and reads the bearer token from ZOTERO_BRIDGE_TOKEN.
+
+Environment variables override the template at runtime:
+
+- ZOTERO_BRIDGE_ENDPOINT: endpoint URL, for example
+  http://127.0.0.1:26570/bridge/v1 for local calls or
+  http://<advertisedHost>:<pinnedPort>/bridge/v1 for LAN remote calls.
+- ZOTERO_BRIDGE_TOKEN: bearer token supplied by the Zotero plugin or deployment
+  environment.
+- ZOTERO_BRIDGE_CONNECTION_MODE: local or remote. Use remote for SkillRunner/LAN
+  calls so file-export capabilities return Host Bridge download bundles instead
+  of writing caller-local paths.

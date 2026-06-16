@@ -4,6 +4,11 @@ This reference is generated from the Host Bridge surface catalog. Edit the Host
 Bridge capability registry or Rust CLI source, then run
 `npm run render:host-bridge-surface`.
 
+The published bundle includes `profile.template.json`. Copy it to the Host
+Bridge well-known profile location or set `ZOTERO_BRIDGE_PROFILE` to its path.
+Override the template at runtime with `ZOTERO_BRIDGE_ENDPOINT`,
+`ZOTERO_BRIDGE_TOKEN`, and `ZOTERO_BRIDGE_CONNECTION_MODE=local|remote`.
+
 ## Resolver Payloads
 
 For resolver commands, pass direct resolver fields: `tag`, `collection_key`,
