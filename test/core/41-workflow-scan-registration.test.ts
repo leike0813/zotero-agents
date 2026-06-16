@@ -13,6 +13,10 @@ import {
 import { localizeWorkflowLabel } from "../../src/workflows/localization";
 import { syncBuiltinWorkflowsOnStartup } from "../../src/modules/builtinWorkflowSync";
 import {
+  getBuiltinSkillTargetDir,
+  syncBuiltinSkillsOnStartup,
+} from "../../src/modules/builtinSkillSync";
+import {
   existsPath,
   joinPath,
   mkTempDir,
@@ -99,6 +103,7 @@ describe("workflow scan + registry integration", function () {
     ).__zoteroSkillsDisableWorkflowDirOverride = true;
 
     await syncBuiltinWorkflowsOnStartup();
+    await syncBuiltinSkillsOnStartup();
     const configuredDir = getDefaultWorkflowDir();
     assert.match(
       configuredDir.replace(/\\/g, "/"),
@@ -132,6 +137,19 @@ describe("workflow scan + registry integration", function () {
         joinPath(builtinDir, "synthesis-layer", "locales", "zh-CN.json"),
       ),
       "synthesis-layer zh-CN locale should be copied with builtin workflows",
+    );
+    const builtinSkillDir = getBuiltinSkillTargetDir();
+    assert.isTrue(
+      await existsPath(
+        joinPath(
+          builtinSkillDir,
+          "literature-deep-reading",
+          "renderer",
+          "templates",
+          "deep-reading.js",
+        ),
+      ),
+      "literature-deep-reading renderer should be copied with builtin skills",
     );
 
     assert.equal(state.workflowsDir, configuredDir);

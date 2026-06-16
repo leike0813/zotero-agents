@@ -21,6 +21,9 @@ body {
   color: var(--ink);
   overflow: hidden;
 }
+body.static-fallback:not(.js-ready) {
+  overflow: auto;
+}
 button,
 input {
   font: inherit;
@@ -28,7 +31,7 @@ input {
 .topbar {
   height: 58px;
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(300px, auto) auto;
   gap: 16px;
   align-items: center;
   padding: 9px 16px;
@@ -70,6 +73,41 @@ input {
   background: var(--ink);
   color: #fff;
   border-color: var(--ink);
+}
+.zotero-viewer-warning {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid #8f1d1d;
+  border-radius: 6px;
+  background: #b42318;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(119, 24, 24, 0.2);
+}
+.zotero-viewer-warning.is-hidden {
+  display: none !important;
+}
+body.zotero-viewer-detected .zotero-viewer-warning,
+body.constrained-viewer-detected .zotero-viewer-warning,
+.zotero-viewer-warning.is-visible,
+.zotero-viewer-warning.is-static {
+  display: flex;
+}
+.zotero-viewer-warning.is-static {
+  display: block;
+  margin: 0;
+  border-radius: 0;
+  border-width: 0 0 1px;
+  box-shadow: none;
+}
+body.translation-unavailable .modes {
+  display: none;
 }
 .shell {
   height: calc(100vh - 58px);
@@ -195,6 +233,11 @@ input {
   color: #58666b;
 }
 .toc a.active {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+body.static-fallback:not(.js-ready) .toc a:first-child {
   background: var(--ink);
   color: #fff;
   border-color: var(--ink);
@@ -498,6 +541,116 @@ code {
   border-radius: 8px;
   padding: 20px 24px;
   max-width: 1120px;
+}
+.static-viewer-note {
+  color: var(--muted);
+}
+.static-citation-graph {
+  width: 100%;
+}
+.static-cg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px 6px 0 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 12px;
+}
+.static-cg-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.static-cg-legend i.edge {
+  width: 28px;
+  height: 3px;
+  border-radius: 999px;
+  background: #7c3aed;
+}
+.static-cg-legend i.node,
+.static-cg-legend i.current {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #2563eb;
+}
+.static-cg-legend i.current {
+  background: #ef4444;
+  box-shadow:
+    0 0 0 2px rgba(220, 38, 38, 0.62),
+    0 0 0 5px rgba(220, 38, 38, 0.2);
+}
+.static-cg-stage {
+  position: relative;
+  height: 520px;
+  border: 1px solid var(--line);
+  border-top: 0;
+  border-radius: 0 0 6px 6px;
+  background: var(--soft);
+  overflow: hidden;
+}
+.static-cg-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.static-cg-scope {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 1;
+  max-width: calc(100% - 32px);
+  padding: 5px 11px;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateX(-50%);
+}
+.static-cg-edge {
+  stroke: #94a3b8;
+  stroke-width: 0.85;
+  stroke-opacity: 0.22;
+}
+.static-cg-node {
+  stroke: var(--paper);
+  stroke-width: 1.5;
+  opacity: 0.96;
+}
+.static-cg-node.is-current-paper {
+  stroke: #991b1b;
+  stroke-width: 2;
+}
+.static-cg-halo {
+  fill: none;
+  stroke: rgba(37, 99, 235, 0.28);
+  stroke-width: 5;
+}
+.static-cg-label {
+  fill: var(--ink);
+  font-size: 12px;
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.citation-graph-synthesis-frame {
+  display: block;
+  width: 100%;
+  height: min(760px, 78vh);
+  min-height: 560px;
+  border: 0;
+  border-radius: 6px;
+  background: #fff;
 }
 .citation-graph-section .zs-cg-layout {
   display: block;
@@ -844,6 +997,9 @@ body.mode-focus .shell {
   .paper-scroll {
     padding: 14px 10px 24px;
     overflow: hidden;
+  }
+  .static-cg-stage {
+    height: 380px;
   }
   .paper,
   .translation-paper,

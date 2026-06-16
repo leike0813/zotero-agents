@@ -967,12 +967,13 @@ describe("gui: preference scripts", function () {
     assert.equal(runtimeDataRoot?.textContent, "C:\\RuntimeRoot");
     assert.include(String(runtimeDataSummary?.textContent || ""), "2.00 KB");
     assert.include(String(runtimeDataSummary?.textContent || ""), "1");
-    assert.lengthOf(runtimeDataCategories?.children || [], 18);
+    assert.lengthOf(runtimeDataCategories?.children || [], 21);
     const categoryText = (runtimeDataCategories?.children || [])
       .map((entry) => entry.textContent)
       .join("\n");
     assert.include(categoryText, "Runtime logs");
     assert.include(categoryText, "SkillRunner local ledger");
+    assert.include(categoryText, "Workflow products");
     assert.include(categoryText, "2");
     assert.notInclude(categoryText, "Protected durable data");
     assert.notInclude(categoryText, "State database");
@@ -1128,8 +1129,8 @@ describe("gui: preference scripts", function () {
     });
     await registerPrefsScripts(window);
 
-    assert.lengthOf(runtimeDataCategories?.children || [], 18);
-    assert.include(String(runtimeDataSummary?.textContent || ""), "1/6");
+    assert.lengthOf(runtimeDataCategories?.children || [], 21);
+    assert.include(String(runtimeDataSummary?.textContent || ""), "1/7");
     assert.include(
       (runtimeDataCategories?.children || [])
         .map((entry) => entry.textContent)
@@ -1231,7 +1232,7 @@ describe("gui: preference scripts", function () {
     await registerPrefsScripts(window);
     await flushTasks();
 
-    assert.lengthOf(runtimeDataCategories?.children || [], 18);
+    assert.lengthOf(runtimeDataCategories?.children || [], 21);
     assert.notInclude(
       (runtimeDataCategories?.children || [])
         .map((entry) => entry.textContent)

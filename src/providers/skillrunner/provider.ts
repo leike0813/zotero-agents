@@ -1,6 +1,7 @@
 import {
   DEFAULT_BACKEND_TYPE,
   DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE,
+  SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../../config/defaults";
 import type { BackendInstance } from "../../backends/types";
 import type {
@@ -98,12 +99,17 @@ export class SkillRunnerProvider implements Provider {
   supports(args: ProviderSupportsArgs) {
     return (
       args.backend.type === DEFAULT_BACKEND_TYPE &&
-      args.requestKind === DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[DEFAULT_BACKEND_TYPE]
+      (args.requestKind ===
+        DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[DEFAULT_BACKEND_TYPE] ||
+        args.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND)
     );
   }
 
   supportsRequestKind(requestKind: string) {
-    return requestKind === DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[DEFAULT_BACKEND_TYPE];
+    return (
+      requestKind === DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[DEFAULT_BACKEND_TYPE] ||
+      requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND
+    );
   }
 
   getRuntimeOptionSchema() {

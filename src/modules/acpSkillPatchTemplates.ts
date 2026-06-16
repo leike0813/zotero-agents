@@ -12,6 +12,7 @@ export type AcpSkillPatchModule =
   | "output_format_contract"
   | "output_contract_details"
   | "output_contract_interactive_pending"
+  | "skill_run_feedback"
   | "mode_auto"
   | "mode_interactive"
   | "run_execution_instructions"
@@ -45,6 +46,10 @@ export const ACP_SKILL_PATCH_TEMPLATES = [
   {
     module: "output_contract_interactive_pending",
     filename: "patch_output_contract_interactive_pending.md",
+  },
+  {
+    module: "skill_run_feedback",
+    filename: "patch_skill_run_feedback.md.j2",
   },
   {
     module: "mode_auto",

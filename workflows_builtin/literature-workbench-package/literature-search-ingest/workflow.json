@@ -1,7 +1,7 @@
 {
   "id": "literature-search-ingest",
   "label": "Literature Search Ingest",
-  "provider": "acp",
+  "provider": "skillrunner",
   "version": "0.1.0",
   "display": {
     "core": true,

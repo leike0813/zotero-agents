@@ -37,3 +37,45 @@ The frontend SkillRunner provider contract MUST treat `provider_id` as the canon
 - **THEN** the frontend MAY hide provider selection from the user
 - **AND** it SHALL still normalize request execution to the engine's canonical `provider_id`
 
+### Requirement: SkillRunner Host Bridge env injection
+
+The plugin SHALL translate required Zotero Host Bridge access for SkillRunner
+HTTP backend requests into generic `runtime_options.env` values without requiring
+SkillRunner-specific Zotero protocol fields.
+
+#### Scenario: Remote env uses detected host
+
+- **GIVEN** a remote SkillRunner backend URL
+- **AND** Host Bridge LAN mode and pinned port are enabled
+- **AND** backend client-address reflection returns a usable LAN IPv4
+  `client_ip`
+- **WHEN** the plugin prepares a `skillrunner.job.v1` or `skillrunner.sequence.v1`
+  request requiring Host Bridge access
+- **THEN** it injects `ZOTERO_BRIDGE_ENDPOINT`,
+  `ZOTERO_BRIDGE_TOKEN`, and `ZOTERO_BRIDGE_CONNECTION_MODE=remote`
+- **AND** it does not send `runtime_options.zotero_host_access`.
+
+#### Scenario: Diagnostics are sanitized
+
+- **GIVEN** Host Bridge env injection cannot resolve a concrete remote endpoint
+- **WHEN** workflow preparation records diagnostics
+- **THEN** the diagnostics include reflection and Host Bridge status details
+- **AND** they do not include the bearer token.
+
+#### Scenario: Host Bridge env includes run scope
+
+- **GIVEN** a workflow declares required Zotero Host Bridge access
+- **AND** the target backend is SkillRunner
+- **WHEN** the plugin prepares a `skillrunner.job.v1` request
+- **THEN** the request SHALL include `runtime_options.env.ZOTERO_BRIDGE_SCOPE`
+  containing JSON scope with `kind: "skillrunner-run"`
+- **AND** that scope SHALL include a stable non-empty `requestId`.
+
+#### Scenario: Scope request id is stable before submission
+
+- **GIVEN** a SkillRunner request requiring Host Bridge access has no reusable
+  workspace request id
+- **WHEN** the plugin prepares the request
+- **THEN** the plugin SHALL generate a stable request id for this run
+- **AND** it SHALL use that id in `runtime_options.workspace.request_id`
+- **AND** it SHALL use the same id in `ZOTERO_BRIDGE_SCOPE`.

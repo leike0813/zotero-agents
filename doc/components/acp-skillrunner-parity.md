@@ -69,10 +69,14 @@ async function scanPluginSkillRegistry(
 ### Validation sequence per candidate directory
 
 1. `SKILL.md` must exist
-2. `runner.json` must be valid JSON and pass `validateRunnerManifestShape()`
-3. All three schema assets (input, parameter, output) must pass resolution and
+2. `runner.json` must be valid JSON, pass the vendored Skill Runner manifest
+   meta-schema, and pass `validateRunnerManifestShape()`
+3. Declared or fallback schema assets (input, parameter, output) must pass
+   resolution, their corresponding vendored Skill Runner meta-schema, and
    `compileSkillJsonSchema()`
 4. Identity must be consistent across `SKILL.md` frontmatter and `runner.json`
+
+The vendored Skill Runner meta-schema snapshots live under `src/schemas/skill/`.
 
 ### Deduplication
 

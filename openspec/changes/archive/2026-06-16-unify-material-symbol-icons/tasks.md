@@ -1,0 +1,9 @@
+- [x] Create OpenSpec proposal, design, tasks, and visual-theme delta spec.
+- [x] Add vendored Material Symbols SVG subset and shared icon CSS.
+- [x] Wire shared icon CSS into Dashboard, Workspace, Synthesis, and Assistant child pages.
+- [x] Replace Dashboard tab and workflow bubble icons.
+- [x] Replace Workspace refresh/sidebar icons and add sidebar open-state projection.
+- [x] Replace Synthesis navigation, jobs, sidebar, and graph control icons.
+- [x] Replace Assistant plain/bubble overlay icons in all conversation surfaces.
+- [x] Update focused smoke tests for the new shared icon layer.
+- [x] Run OpenSpec validation, focused tests, localization check, TypeScript check, and diff whitespace check.

@@ -68,6 +68,7 @@ pub fn download(config: &BridgeConfig, path: &str) -> Result<DownloadResponse, C
         &target,
         Some(config.require_token()?),
         scope_text.as_deref(),
+        config.connection_mode.as_deref(),
         None,
     );
     let raw = send_http(&endpoint, &request)?;
@@ -125,6 +126,11 @@ fn request_json(
         &target,
         token,
         scope_text.as_deref(),
+        if auth {
+            config.connection_mode.as_deref()
+        } else {
+            None
+        },
         body_text.as_deref(),
     );
     let raw = send_http(&endpoint, &request)?;
@@ -242,6 +248,7 @@ fn build_http_request(
     path: &str,
     token: Option<&str>,
     scope: Option<&str>,
+    connection_mode: Option<&str>,
     body: Option<&str>,
 ) -> String {
     let body = body.unwrap_or("");
@@ -256,6 +263,11 @@ fn build_http_request(
     }
     if let Some(scope) = scope {
         lines.push(format!("X-Zotero-Bridge-Scope: {scope}"));
+    }
+    if let Some(connection_mode) = connection_mode {
+        lines.push(format!(
+            "X-Zotero-Bridge-Connection-Mode: {connection_mode}"
+        ));
     }
     if !body.is_empty() {
         lines.push("Content-Type: application/json".to_string());
@@ -369,6 +381,7 @@ mod tests {
             "/bridge/v1/call",
             Some("secret-token"),
             None,
+            None,
             Some("{}"),
         );
         assert!(request.starts_with("POST /bridge/v1/call HTTP/1.1"));
@@ -385,11 +398,28 @@ mod tests {
             "/bridge/v1/workflows/submit",
             Some("secret-token"),
             Some(scope),
+            None,
             Some("{}"),
         );
 
         assert!(request.contains("Authorization: Bearer secret-token"));
         assert!(request.contains(&format!("X-Zotero-Bridge-Scope: {scope}")));
+    }
+
+    #[test]
+    fn includes_connection_mode_when_building_authenticated_request() {
+        let request = build_http_request(
+            "POST",
+            "127.0.0.1",
+            "/bridge/v1/call",
+            Some("secret-token"),
+            None,
+            Some("remote"),
+            Some("{}"),
+        );
+
+        assert!(request.contains("Authorization: Bearer secret-token"));
+        assert!(request.contains("X-Zotero-Bridge-Connection-Mode: remote"));
     }
 
     #[test]
@@ -430,6 +460,7 @@ mod tests {
             endpoint: format!("http://127.0.0.1:{port}/bridge/v1"),
             token: Some("secret-token".to_string()),
             scope: None,
+            connection_mode: Some("remote".to_string()),
         };
         let result = manifest(&config).unwrap();
 

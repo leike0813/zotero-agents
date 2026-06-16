@@ -44,6 +44,19 @@ function toPortablePath(path: string) {
   return normalizeString(path).replace(/\\/g, "/");
 }
 
+function getPortableDirName(path: string) {
+  const portable = toPortablePath(path);
+  const index = portable.lastIndexOf("/");
+  return index > 0 ? portable.slice(0, index) : "";
+}
+
+function resolveFeedbackSidecarPath(resultJsonPath: string) {
+  const resultDir = getPortableDirName(resultJsonPath);
+  return resultDir
+    ? `${resultDir}/_skill_run_feedback.md`
+    : "_skill_run_feedback.md";
+}
+
 type AcpSkillExecutionMode = "auto" | "interactive";
 
 function normalizeExecutionMode(value: unknown): AcpSkillExecutionMode {
@@ -301,6 +314,20 @@ async function buildModePatchSection(executionMode: AcpSkillExecutionMode) {
   );
 }
 
+async function buildSkillRunFeedbackPatchSection(args: {
+  resultJsonPath: string;
+}) {
+  return renderAcpSkillPatchTemplate({
+    template: await loadAcpSkillPatchTemplate(
+      ACP_SKILL_PATCH_TEMPLATES_BY_MODULE.skill_run_feedback,
+    ),
+    replacements: {
+      feedback_path: resolveFeedbackSidecarPath(args.resultJsonPath),
+    },
+    requiredPlaceholders: ["feedback_path"],
+  });
+}
+
 async function buildPatchBlock(args: {
   entry: AcpSharedSkillCatalogEntry;
   workspaceDir: string;
@@ -309,6 +336,7 @@ async function buildPatchBlock(args: {
   requested: boolean;
   runnerJson: Record<string, unknown>;
   executionMode: AcpSkillExecutionMode;
+  collectSkillRunFeedback?: boolean;
 }) {
   const outputContractDetails = await buildOutputContractDetailsSection({
     runnerJson: args.runnerJson,
@@ -321,6 +349,13 @@ async function buildPatchBlock(args: {
     await buildOutputFormatContractSection(),
     outputContractDetails,
     await buildModePatchSection(args.executionMode),
+    ...(args.collectSkillRunFeedback
+      ? [
+          await buildSkillRunFeedbackPatchSection({
+            resultJsonPath: args.resultJsonPath,
+          }),
+        ]
+      : []),
   ].join("\n\n");
   return {
     headerPatchBlock: [
@@ -367,6 +402,7 @@ async function writeProxySkill(args: {
   requested: boolean;
   executionMode: AcpSkillExecutionMode;
   runnerJson: Record<string, unknown>;
+  collectSkillRunFeedback?: boolean;
 }) {
   await removeRuntimePath(args.targetDir);
   const original = await readRuntimeTextFile(args.entry.skillMdPath);
@@ -405,6 +441,34 @@ async function writeProxySkill(args: {
   };
 }
 
+async function appendFeedbackPatchToSnapshotSkill(args: {
+  targetDir: string;
+  resultJsonPath: string;
+  collectSkillRunFeedback?: boolean;
+}) {
+  if (!args.collectSkillRunFeedback) {
+    return;
+  }
+  const skillMdPath = joinPath(args.targetDir, "SKILL.md");
+  if (!(await runtimePathExists(skillMdPath))) {
+    return;
+  }
+  const original = await readRuntimeTextFile(skillMdPath);
+  const feedbackPatch = await buildSkillRunFeedbackPatchSection({
+    resultJsonPath: args.resultJsonPath,
+  });
+  await writeRuntimeTextFile(
+    skillMdPath,
+    [
+      original.trimEnd(),
+      "",
+      "<!-- zotero-skills-acp-runtime-patch:start -->",
+      feedbackPatch,
+      "<!-- zotero-skills-acp-runtime-patch:end -->",
+    ].join("\n"),
+  );
+}
+
 export async function materializeAcpThinProxySkills(args: {
   catalog: AcpSharedSkillCatalog;
   requestedSkillId: string;
@@ -413,6 +477,7 @@ export async function materializeAcpThinProxySkills(args: {
   resultJsonPath: string;
   inputManifestPath: string;
   executionMode?: string;
+  collectSkillRunFeedback?: boolean;
 }): Promise<AcpThinProxyMaterializationResult> {
   const materializedDirs: string[] = [];
   const requestedSkillProxyDirs: string[] = [];
@@ -430,6 +495,11 @@ export async function materializeAcpThinProxySkills(args: {
           sourceDir: entry.catalogSkillRoot,
           targetDir,
         });
+        await appendFeedbackPatchToSnapshotSkill({
+          targetDir,
+          resultJsonPath: args.resultJsonPath,
+          collectSkillRunFeedback: args.collectSkillRunFeedback,
+        });
         diagnostics.push({
           level: "warning",
           code: "acp_skill_full_snapshot_fallback",
@@ -445,6 +515,7 @@ export async function materializeAcpThinProxySkills(args: {
           requested,
           executionMode,
           runnerJson,
+          collectSkillRunFeedback: args.collectSkillRunFeedback,
         });
         resourceRewriteWarnings.push(
           ...proxy.warnings.map((warning) => `${entry.skillId}: ${warning}`),

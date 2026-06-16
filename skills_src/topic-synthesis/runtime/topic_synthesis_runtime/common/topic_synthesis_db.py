@@ -13,6 +13,15 @@ from typing import Any
 
 DB_RELATIVE_PATH = Path("runtime/topic-synthesis.sqlite")
 
+TAXONOMY_AXIS_TYPES = {
+    "problem_formulation",
+    "technical_mechanism",
+    "evidence_scope",
+    "research_route",
+    "application_context",
+}
+DEFAULT_TAXONOMY_AXIS_TYPE = "research_route"
+
 COMPLETE_SECTION_KEYS = [
     "topic",
     "summary",
@@ -810,9 +819,9 @@ def validate_core_synthesis_source_refs(conn: sqlite3.Connection, payload: dict)
     if not known_refs:
         raise ValueError("stage_40_core_synthesis requires a resolved paper workset before submit")
     taxonomy = payload.get("taxonomy") if isinstance(payload.get("taxonomy"), dict) else {}
-    nodes = taxonomy.get("nodes") if isinstance(taxonomy.get("nodes"), list) else []
+    nodes = taxonomy_axis_nodes(taxonomy)
     if not nodes:
-        raise ValueError("taxonomy.nodes must contain at least one research route")
+        raise ValueError("taxonomy.axes must contain at least one research route")
     errors: list[str] = []
 
     def label_for(row: dict, fallback: str) -> str:
@@ -878,6 +887,18 @@ def validate_core_synthesis_source_refs(conn: sqlite3.Connection, payload: dict)
         raise ValueError("; ".join(errors))
 
 
+def taxonomy_axis_nodes(taxonomy: dict) -> list:
+    axes = taxonomy.get("axes") if isinstance(taxonomy.get("axes"), list) else []
+    nodes: list = []
+    for axis_raw in axes:
+        axis = axis_raw if isinstance(axis_raw, dict) else {}
+        axis_nodes = axis.get("nodes") if isinstance(axis.get("nodes"), list) else []
+        nodes.extend(axis_nodes)
+    if nodes:
+        return nodes
+    return taxonomy.get("nodes") if isinstance(taxonomy.get("nodes"), list) else []
+
+
 def has_text(value: Any) -> bool:
     return bool(clean_text(value))
 
@@ -906,15 +927,34 @@ def validate_core_synthesis_apply_fields(payload: dict) -> None:
     summary = taxonomy.get("summary") if isinstance(taxonomy.get("summary"), dict) else {}
     if not any(has_text(summary.get(key)) for key in ("text", "analysis", "overview")):
         errors.append("taxonomy.summary requires text/analysis/overview")
-    for index, node_raw in enumerate(taxonomy.get("nodes") if isinstance(taxonomy.get("nodes"), list) else []):
+
+    def validate_taxonomy_node(node_raw: Any, index: int, label_prefix: str) -> None:
         node = node_raw if isinstance(node_raw, dict) else {}
-        label = "taxonomy route " + row_label(node, f"route-{index + 1}")
+        label = label_prefix + row_label(node, f"route-{index + 1}")
         require_any_text(node, ["definition", "route_definition", "description"], label, errors)
         require_any_text(node, ["core_problem", "problem", "target_problem"], label, errors)
         require_any_text(node, ["mechanism", "technical_mechanism", "core_mechanism"], label, errors)
         require_nonempty_list(node, ["strengths", "advantages"], label, errors)
         require_nonempty_list(node, ["limitations", "weaknesses"], label, errors)
         require_any_text(node, ["maturity", "status", "development_stage"], label, errors)
+
+    axes = taxonomy.get("axes") if isinstance(taxonomy.get("axes"), list) else []
+    if len(axes) < 2 or len(axes) > 5:
+        errors.append("taxonomy.axes must contain 2-5 classification axes")
+    for axis_index, axis_raw in enumerate(axes):
+        axis = axis_raw if isinstance(axis_raw, dict) else {}
+        axis_type = clean_text(axis.get("axis_type"))
+        if axis_type not in TAXONOMY_AXIS_TYPES:
+            errors.append(f"taxonomy axis {axis_index + 1} has invalid axis_type: {axis_type}")
+        nodes = axis.get("nodes") if isinstance(axis.get("nodes"), list) else []
+        if not nodes:
+            errors.append(f"taxonomy axis {axis_type or axis_index + 1} requires nodes")
+        for index, node_raw in enumerate(nodes):
+            validate_taxonomy_node(
+                node_raw,
+                index,
+                f"taxonomy axis {axis_type or axis_index + 1} route ",
+            )
 
     timeline = payload.get("timeline_events") if isinstance(payload.get("timeline_events"), dict) else {}
     timeline_summary = timeline.get("summary") if isinstance(timeline.get("summary"), dict) else {}
@@ -2835,8 +2875,21 @@ def normalize_topic_section(topic: dict) -> dict:
 
 def normalize_taxonomy(core: dict, entries: list[dict]) -> dict:
     taxonomy = as_dict(core.get("taxonomy"))
-    nodes = as_list(taxonomy.get("nodes") or taxonomy.get("categories"))
-    if not nodes:
+    axes_raw = as_list(taxonomy.get("axes"))
+    legacy_nodes = as_list(taxonomy.get("nodes") or taxonomy.get("categories"))
+    if not axes_raw and legacy_nodes:
+        axes_raw = [
+            {
+                "axis_type": DEFAULT_TAXONOMY_AXIS_TYPE,
+                "axis_rationale": first_text(
+                    taxonomy.get("axis_rationale"),
+                    taxonomy.get("rationale"),
+                    default="Legacy taxonomy nodes are grouped as research routes.",
+                ),
+                "nodes": legacy_nodes,
+            }
+        ]
+    if not axes_raw:
         nodes = [
             {
                 "id": "route-core",
@@ -2850,27 +2903,59 @@ def normalize_taxonomy(core: dict, entries: list[dict]) -> dict:
                 "maturity": "emerging",
             }
         ]
-    normalized_nodes = []
-    for index, node_raw in enumerate(nodes):
-        node = as_dict(node_raw)
-        normalized_nodes.append(
+        axes_raw = [
             {
-                **node,
-                "id": first_text(node.get("id"), default=f"route-{index + 1}"),
-                "title": first_text(node.get("title"), node.get("label"), node.get("name"), default=f"Route {index + 1}"),
-                "definition": first_text(node.get("definition"), node.get("description"), default="Runtime-normalized research route."),
-                "core_problem": first_text(node.get("core_problem"), node.get("problem"), default="Topic-level problem represented by this route."),
-                "mechanism": first_text(node.get("mechanism"), node.get("technical_mechanism"), default="Mechanism summarized from source evidence."),
-                "source_paper_refs": source_paper_refs(node, entries),
-                "strengths": as_list(node.get("strengths") or node.get("advantages")) or ["Evidence-grounded synthesis."],
-                "limitations": as_list(node.get("limitations") or node.get("weaknesses")) or ["Coverage depends on the resolved workset."],
-                "maturity": first_text(node.get("maturity"), node.get("status"), default="unknown"),
+                "axis_type": DEFAULT_TAXONOMY_AXIS_TYPE,
+                "axis_rationale": "Runtime fallback groups the synthesized topic as a research route.",
+                "nodes": nodes,
+            }
+        ]
+
+    def normalize_taxonomy_node(node_raw: Any, index: int) -> dict:
+        node = as_dict(node_raw)
+        return {
+            **node,
+            "id": first_text(node.get("id"), default=f"route-{index + 1}"),
+            "title": first_text(node.get("title"), node.get("label"), node.get("name"), default=f"Route {index + 1}"),
+            "definition": first_text(node.get("definition"), node.get("description"), default="Runtime-normalized research route."),
+            "core_problem": first_text(node.get("core_problem"), node.get("problem"), default="Topic-level problem represented by this route."),
+            "mechanism": first_text(node.get("mechanism"), node.get("technical_mechanism"), default="Mechanism summarized from source evidence."),
+            "source_paper_refs": source_paper_refs(node, entries),
+            "strengths": as_list(node.get("strengths") or node.get("advantages")) or ["Evidence-grounded synthesis."],
+            "limitations": as_list(node.get("limitations") or node.get("weaknesses")) or ["Coverage depends on the resolved workset."],
+            "maturity": first_text(node.get("maturity"), node.get("status"), default="unknown"),
+        }
+
+    normalized_axes = []
+    normalized_nodes = []
+    for axis_index, axis_raw in enumerate(axes_raw):
+        axis = as_dict(axis_raw)
+        axis_type = first_text(axis.get("axis_type"), default=DEFAULT_TAXONOMY_AXIS_TYPE)
+        if axis_type not in TAXONOMY_AXIS_TYPES:
+            axis_type = DEFAULT_TAXONOMY_AXIS_TYPE
+        axis_nodes = [
+            normalize_taxonomy_node(node_raw, index)
+            for index, node_raw in enumerate(as_list(axis.get("nodes")))
+        ]
+        if not axis_nodes:
+            continue
+        normalized_axes.append(
+            {
+                **axis,
+                "axis_type": axis_type,
+                "axis_rationale": first_text(
+                    axis.get("axis_rationale"),
+                    axis.get("rationale"),
+                    axis.get("reason"),
+                ),
+                "nodes": axis_nodes,
             }
         )
+        if axis_index == 0:
+            normalized_nodes = axis_nodes
     summary = as_dict(taxonomy.get("summary"))
     return {
         **taxonomy,
-        "primary_axis": first_text(taxonomy.get("primary_axis"), taxonomy.get("axis"), default="technical route"),
         "summary": {
             **summary,
             "text": first_text(
@@ -2880,6 +2965,7 @@ def normalize_taxonomy(core: dict, entries: list[dict]) -> dict:
                 default="The topic is organized around the main technical routes visible in the resolved paper set.",
             ),
         },
+        "axes": normalized_axes,
         "nodes": normalized_nodes,
     }
 

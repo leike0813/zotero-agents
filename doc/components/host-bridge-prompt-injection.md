@@ -79,10 +79,24 @@ payload sent to ACP backends:
 ### SkillRunner Compatibility
 
 `SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS = false` (line 10).
-For SkillRunner backend jobs, `runtime_options.zotero_host_access` and the
-`autoApproveZoteroWrites` parameter are stripped from the request by
-`stripZoteroHostAccessRuntimeParams()` (line 114) and
-`stripZoteroHostAccessRuntimeOptionFromRequest()` (line 148).
+For SkillRunner backend jobs, the plugin does not send
+`runtime_options.zotero_host_access`. Instead, preparation translates required
+Zotero host access into generic `runtime_options.env`:
+
+```json
+{
+  "ZOTERO_BRIDGE_ENDPOINT": "http://<advertisedHost>:<pinnedPort>/bridge/v1",
+  "ZOTERO_BRIDGE_TOKEN": "<current-host-bridge-token>",
+  "ZOTERO_BRIDGE_CONNECTION_MODE": "local|remote",
+  "ZOTERO_BRIDGE_SCOPE": "{\"kind\":\"skillrunner-run\",\"requestId\":\"<request-id>\",\"runId\":\"<request-id>\"}"
+}
+```
+
+This path is separate from local ACP workspace injection. The SkillRunner
+backend only needs to support `runtime_options.env`; it does not need to know
+the Zotero-specific runtime option. `ZOTERO_BRIDGE_SCOPE` is generated per task
+from the stable SkillRunner request id so write approvals can be shown in the
+SkillRunner panel instead of the global Zotero approval prompt.
 
 ---
 
@@ -168,6 +182,7 @@ stored under provider-managed namespaces such as `result/<skillId>.n/` and
 |----------|-------|-------|
 | `ZOTERO_BRIDGE_PROFILE` | Path to `.zotero-bridge/profile.json` | Always set |
 | `ZOTERO_BRIDGE_TOKEN` | Bearer token | Set only when a token is available |
+| `ZOTERO_BRIDGE_SCOPE` | Host Bridge approval scope JSON | Set per SkillRunner task as `kind: "skillrunner-run"` |
 | `PATH` / `Path` | Prepend `.zotero-bridge/bin` directory | Deduplicated merge |
 
 Variables are injected into the backend instance via
@@ -208,6 +223,7 @@ Workflow Manifest
 buildZoteroHostAccessRuntimeOptions()
   └─ runtime_options.zotero_host_access = { required, auto_approve_writes? }
        ↓
+Local ACP path:
 acpSkillRunRequestAdapter → ACP Request
        ↓
 acpSkillRunnerOrchestrator.resolveZoteroHostAccessRequirement()
@@ -226,6 +242,20 @@ acpSkillRunnerOrchestrator.resolveZoteroHostAccessRequirement()
        ↓                                           ↓
   Backend has Host Bridge access           Backend runs without
   + env + auto-approval (optional)          Host Bridge CLI
+
+Remote SkillRunner HTTP path:
+runWorkflowPreparationSeam()
+  └─ strip runtime_options.zotero_host_access
+  └─ resolve remote Host Bridge endpoint
+       ├─ manual hostBridgeAdvertisedHost override
+       └─ SkillRunner GET /v1/system/client-address reflected client_ip
+  └─ inject runtime_options.env
+       ├─ ZOTERO_BRIDGE_ENDPOINT = remote LAN endpoint
+       ├─ ZOTERO_BRIDGE_TOKEN = current Host Bridge token
+       ├─ ZOTERO_BRIDGE_CONNECTION_MODE = remote
+       └─ ZOTERO_BRIDGE_SCOPE = {"kind":"skillrunner-run",...}
+       ↓
+SkillRunner backend injects env into job runtime
 ```
 
 ---
@@ -236,5 +266,6 @@ acpSkillRunnerOrchestrator.resolveZoteroHostAccessRequirement()
 |------|-----------|
 | Engine instruction files (CLAUDE.md, AGENTS.md) must not contain Host Bridge command snippets | The `zotero-bridge-cli` wrapper skill is the sole source of command guidance; duplicating it in instruction files creates a maintenance and audit hazard |
 | Write auto-approval is double-gated (manifest + user confirmation) | Prevents workflows from silently enabling auto-approval without user consent |
-| SkillRunner backends strip `zotero_host_access` runtime options | SkillRunner has its own built-in host access mechanism; passing ACP-specific options would be misleading |
+| SkillRunner backends strip `zotero_host_access` runtime options | The backend receives generic env only; Zotero-specific request semantics stay in the plugin |
+| SkillRunner Host Bridge approvals require `scope.kind === "skillrunner-run"` and a matching request id | Requests without a valid SkillRunner run scope continue through global approval |
 | Token is passed through environment variable, not embedded in profile.json | Prevents accidental token leakage through file reads or logging |

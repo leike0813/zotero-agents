@@ -567,7 +567,12 @@ describe("workflow settings dialog model", function () {
     assert.include(workflowDialogCss, ".settings-options-column");
     assert.include(workflowDialogCss, "flex-direction: column");
     assert.include(workflowDialogCss, ".settings-card-fill");
-    assert.include(webDialogSource, "dialogWindow.resizeTo(760, 660)");
+    assert.include(webDialogSource, "fitContent: false");
+    assert.include(webDialogSource, "WORKFLOW_SETTINGS_DIALOG_WIDTH = 700");
+    assert.include(
+      webDialogSource,
+      "WORKFLOW_SETTINGS_DIALOG_INITIAL_HEIGHT = 540",
+    );
     assert.include(
       webDialogSource,
       "workflow-settings-dialog.html?ui=20260612-provider-split-v2",

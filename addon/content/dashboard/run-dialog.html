@@ -6,6 +6,7 @@
     <title>SkillRunner Workspace</title>
     <script src="../shared/theme.js"></script>
     <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="../shared/icons.css?ui=20260614-icons-v1" />
     <link rel="stylesheet" href="./assistant-panel-shared.css" />
     <link rel="stylesheet" href="./run-dialog.css" />
     <link rel="stylesheet" href="./vendor/katex/katex.min.css" />
@@ -40,7 +41,8 @@
               aria-label="Plain transcript view"
               aria-pressed="true"
             >
-              Plain
+              <span class="zs-icon zs-icon-sm asst-view-mode-icon zs-icon-subject" aria-hidden="true"></span>
+              <span class="asst-view-mode-label">Plain</span>
             </button>
             <button
               id="chat-mode-bubble"
@@ -50,7 +52,8 @@
               aria-label="Bubble conversation view"
               aria-pressed="false"
             >
-              Bubble
+              <span class="zs-icon zs-icon-sm asst-view-mode-icon zs-icon-forum" aria-hidden="true"></span>
+              <span class="asst-view-mode-label">Bubble</span>
             </button>
           </div>
         </section>

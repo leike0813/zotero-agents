@@ -24,6 +24,8 @@ type WorkspaceShellLabels = {
   themeDark: string;
   refresh: string;
   toggleSidebar: string;
+  openSidebar: string;
+  closeSidebar: string;
 };
 
 type WorkspaceBridge = {
@@ -36,6 +38,7 @@ type WorkspaceBridge = {
 type WorkspaceSnapshot = {
   selectedView: WorkspaceView;
   waitingCount: number;
+  sidebarOpen?: boolean;
   labels: WorkspaceShellLabels;
 };
 
@@ -51,6 +54,8 @@ const DEFAULT_WORKSPACE_LABELS: WorkspaceShellLabels = {
   themeDark: "Dark",
   refresh: "Refresh",
   toggleSidebar: "Toggle sidebar",
+  openSidebar: "Open sidebar",
+  closeSidebar: "Close sidebar",
 };
 
 const state: {
@@ -259,6 +264,21 @@ function updateWorkspaceSidebarAttention() {
   );
 }
 
+function updateWorkspaceSidebarToggleState() {
+  const button = document.querySelector<HTMLButtonElement>(".sidebar-toggle");
+  const icon = button?.querySelector<HTMLElement>(".sidebar-icon");
+  if (!button || !icon) {
+    return;
+  }
+  const isOpen = state.snapshot.sidebarOpen === true;
+  const label = workspaceLabel(isOpen ? "closeSidebar" : "openSidebar");
+  button.setAttribute("aria-label", label);
+  button.setAttribute("title", label);
+  button.setAttribute("aria-pressed", isOpen ? "true" : "false");
+  icon.classList.toggle("zs-icon-right-panel-open", !isOpen);
+  icon.classList.toggle("zs-icon-right-panel-close", isOpen);
+}
+
 function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   state.theme = getThemeChoice();
   const header = el("header", "workspace-header");
@@ -308,7 +328,7 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
       "refresh",
       {},
       "icon-button refresh-toggle",
-      "toolbar-icon refresh-icon",
+      "zs-icon toolbar-icon refresh-icon zs-icon-refresh",
     ),
   );
   toolbar.lastElementChild?.setAttribute("data-workspace-icon-label", "refresh");
@@ -318,7 +338,7 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
       "toggle-sidebar",
       {},
       "icon-button sidebar-toggle",
-      "toolbar-icon sidebar-icon",
+      "zs-icon toolbar-icon sidebar-icon zs-icon-right-panel-open",
     ),
   );
   toolbar.lastElementChild?.setAttribute(
@@ -329,6 +349,7 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   root.appendChild(header);
   updateWorkspaceLocalizedText();
   updateWorkspaceSidebarAttention();
+  updateWorkspaceSidebarToggleState();
 }
 
 function renderWorkspacePanel(snapshot: WorkspaceSnapshot) {
@@ -401,6 +422,7 @@ function updateWorkspaceVisibility(snapshot: WorkspaceSnapshot) {
   switcher?.classList.toggle("is-dashboard", selected === "dashboard");
   switcher?.classList.toggle("is-synthesis", selected === "synthesis");
   updateWorkspaceSidebarAttention();
+  updateWorkspaceSidebarToggleState();
 }
 
 function render() {
@@ -434,6 +456,7 @@ window.addEventListener("message", (event: MessageEvent) => {
       selectedView:
         payload.selectedView === "synthesis" ? "synthesis" : "dashboard",
       waitingCount: normalizeWaitingCount(payload.waitingCount),
+      sidebarOpen: payload.sidebarOpen === true,
       labels: normalizeWorkspaceLabels(payload.labels),
     } satisfies WorkspaceSnapshot;
     const viewChanged =
@@ -444,6 +467,7 @@ window.addEventListener("message", (event: MessageEvent) => {
     } else {
       updateWorkspaceLocalizedText();
       updateWorkspaceSidebarAttention();
+      updateWorkspaceSidebarToggleState();
     }
     return;
   }
@@ -457,6 +481,7 @@ window.addEventListener("message", (event: MessageEvent) => {
       waitingCount: normalizeWaitingCount(payload.waitingCount),
     };
     updateWorkspaceSidebarAttention();
+    updateWorkspaceSidebarToggleState();
   }
 });
 

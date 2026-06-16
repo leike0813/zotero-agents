@@ -23,6 +23,7 @@ let conceptBubbleTimer = 0;
 let activeAnchor = "preface";
 let scrollUpdateFrame = 0;
 let scheduleActiveAnchorUpdate = () => {};
+const viewerEnvironment = detectConstrainedViewer();
 
 function esc(value) {
   return String(value ?? "").replace(
@@ -415,24 +416,213 @@ function renderPostReading() {
       ),
     );
 }
-function renderCitationGraph() {
+
+function scriptTagText(value) {
+  return String(value || "").replace(/<\/script/gi, "<\\/script");
+}
+function jsonScriptText(value) {
+  return JSON.stringify(value || {})
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+function detectConstrainedViewer() {
+  const userAgent = String(navigator.userAgent || "");
+  const href = String(location.href || "");
+  const protocol = String(location.protocol || "");
+  const referrer = String(document.referrer || "");
+  const uriLike = [href, protocol, referrer].join(" ");
+  let embeddedViewer = false;
+  try {
+    embeddedViewer = window.self !== window.top;
+  } catch (_error) {
+    embeddedViewer = true;
+  }
+  const zoteroDetected =
+    /\bZotero\b/i.test(userAgent) ||
+    typeof globalThis.Zotero !== "undefined" ||
+    /\b(?:zotero:|chrome:\/\/zotero|resource:\/\/zotero)\b/i.test(uriLike);
+  const hostViewerDetected = zoteroDetected || embeddedViewer;
+  let iframeSrcdocSupported = false;
+  try {
+    iframeSrcdocSupported = "srcdoc" in document.createElement("iframe");
+  } catch (_error) {
+    iframeSrcdocSupported = false;
+  }
+  return {
+    zoteroDetected: hostViewerDetected,
+    constrained: hostViewerDetected || !iframeSrcdocSupported,
+    forceGraphFallback: hostViewerDetected || !iframeSrcdocSupported,
+  };
+}
+function applyViewerEnvironment() {
+  body.classList.toggle(
+    "zotero-viewer-detected",
+    viewerEnvironment.zoteroDetected,
+  );
+  body.classList.toggle(
+    "constrained-viewer-detected",
+    viewerEnvironment.constrained && !viewerEnvironment.zoteroDetected,
+  );
+}
+function setViewerWarningVisible(visible) {
+  const warning = document.querySelector("[data-zotero-viewer-warning]");
+  if (!warning) return;
+  warning.classList.toggle("is-visible", visible);
+  warning.classList.toggle("is-hidden", !visible);
+  warning.setAttribute("aria-hidden", visible ? "false" : "true");
+  if (visible) {
+    warning.setAttribute("role", "alert");
+    warning.textContent =
+      "当前正在使用降级图谱视图。建议使用系统浏览器打开此 HTML，以获得完整交互体验。";
+    warning.style.setProperty("display", "flex", "important");
+    warning.style.setProperty("visibility", "visible", "important");
+    warning.style.setProperty("opacity", "1", "important");
+    return;
+  }
+  warning.removeAttribute("role");
+  warning.style.removeProperty("display");
+  warning.style.removeProperty("visibility");
+  warning.style.removeProperty("opacity");
+}
+function showViewerWarningForGraphFallback() {
+  viewerEnvironment.constrained = true;
+  if (viewerEnvironment.zoteroDetected) {
+    body.classList.add("zotero-viewer-detected");
+    body.classList.remove("constrained-viewer-detected");
+    return;
+  }
+  body.classList.add("constrained-viewer-detected");
+}
+function renderCitationGraphFallback(reason) {
+  showViewerWarningForGraphFallback();
+  setViewerWarningVisible(true);
   const renderer = window.ZoteroSkillsCitationGraph?.renderCitationGraph;
   const model = data.citation_graph?.model || { nodes: [], edges: [] };
   if (!renderer) {
     graphSection.dataset.zsCgStatus = "failed";
-    graphSection.dataset.zsCgError = "renderer_unavailable";
-    graphSection.innerHTML = `<h2 id="citation-graph">Citation Graph</h2><p>引用图渲染器不可用。</p>`;
+    graphSection.dataset.zsCgError = reason || "renderer_unavailable";
+    if (!graphSection.querySelector("[data-static-citation-graph]")) {
+      graphSection.innerHTML = `<h2 id="citation-graph">Citation Graph</h2><p>引用图渲染器不可用。建议使用系统浏览器打开此 HTML。</p>`;
+    }
     return;
   }
+  graphSection.dataset.zsCgFallback = "standalone";
+  if (reason) graphSection.dataset.zsCgFallbackReason = reason;
   renderer(graphSection, model, {
     readonly: true,
     labels: {
       title: "Citation Graph",
-      search: "Search graph",
-      clear: "Clear",
       noGraph: "当前没有可用的图布局坐标。",
+      direction: "引用方向",
+      incoming: "指向当前节点",
+      outgoing: "从当前节点指出",
+      importance: "引用重要性",
+      nodeSize: "节点大小 = 入站引用数",
+      halo: "光环 = 可见节点中高被引项",
+      currentPaper: "当前论文",
+      scope: "当前论文 2 跳引用邻域",
     },
   });
+}
+function synthesisCitationGraphHtml(envelope, assets) {
+  const locale = envelope?.i18n?.locale || envelope?.locale || "en-US";
+  return [
+    "<!doctype html>",
+    `<html lang="${esc(locale)}">`,
+    "<head>",
+    '<meta charset="UTF-8" />',
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+    "<style>",
+    String(assets.synthesisCss || ""),
+    "\nhtml,body,#app{height:100%;margin:0;overflow:hidden}.synthesis-root.standalone-graph-export-root{display:block;width:100%;height:100vh;min-height:0}.standalone-graph-export-main{width:100%;height:100vh;min-height:0}.standalone-graph-export-main .graph-shell{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);height:100vh;min-height:0}.standalone-graph-export-main .graph-stage{height:auto;min-height:0}",
+    "</style>",
+    "</head>",
+    '<body class="synthesis-standalone-export">',
+    '<div id="app" class="synthesis-root"></div>',
+    "<script>",
+    `window.__zoteroSkillsSynthesisGraphExport=${jsonScriptText(envelope)};`,
+    "<\/script>",
+    "<script>",
+    scriptTagText(assets.synthesisThemeJs),
+    "<\/script>",
+    "<script>",
+    scriptTagText(assets.synthesisAppJs),
+    "<\/script>",
+    "</body>",
+    "</html>",
+  ].join("\n");
+}
+function renderCitationGraph() {
+  const envelope = data.citation_graph?.synthesis_export_envelope;
+  const assets = window.__ZoteroSkillsDeepReadingCitationGraphAssets || {};
+  if (viewerEnvironment.forceGraphFallback) {
+    renderCitationGraphFallback(
+      viewerEnvironment.zoteroDetected
+        ? "zotero_viewer_detected"
+        : "constrained_viewer_detected",
+    );
+    return;
+  }
+  if (
+    !envelope ||
+    !assets.synthesisAppJs ||
+    !assets.synthesisCss ||
+    !graphSection
+  ) {
+    renderCitationGraphFallback("synthesis_assets_unavailable");
+    return;
+  }
+  graphSection.dataset.zsCgStatus = "initializing";
+  delete graphSection.dataset.zsCgError;
+  delete graphSection.dataset.zsCgFallback;
+  graphSection.innerHTML = `<iframe class="citation-graph-synthesis-frame" title="Citation Graph" data-citation-graph-synthesis-frame></iframe>`;
+  const frame = graphSection.querySelector(
+    "[data-citation-graph-synthesis-frame]",
+  );
+  if (!frame) {
+    renderCitationGraphFallback("synthesis_frame_unavailable");
+    return;
+  }
+  let settled = false;
+  function fallback(reason) {
+    if (settled) return;
+    settled = true;
+    viewerEnvironment.constrained = true;
+    body.classList.add("constrained-viewer-detected");
+    renderCitationGraphFallback(reason);
+  }
+  function confirmSynthesisGraphReady(attempt = 0) {
+    window.setTimeout(() => {
+      if (settled) return;
+      const doc = frame.contentDocument;
+      if (doc?.querySelector(".graph-shell")) {
+        settled = true;
+        graphSection.dataset.zsCgStatus = "ready";
+        setViewerWarningVisible(false);
+        return;
+      }
+      if (attempt < 40) {
+        confirmSynthesisGraphReady(attempt + 1);
+        return;
+      }
+      if (!doc?.querySelector(".graph-shell")) {
+        fallback("synthesis_graph_shell_missing");
+        return;
+      }
+    }, 100);
+  }
+  frame.addEventListener("load", () => confirmSynthesisGraphReady());
+  try {
+    frame.setAttribute(
+      "sandbox",
+      "allow-scripts allow-same-origin allow-popups",
+    );
+    frame.srcdoc = synthesisCitationGraphHtml(envelope, assets);
+    confirmSynthesisGraphReady();
+  } catch (error) {
+    fallback(error?.message || "synthesis_frame_failed");
+  }
 }
 function renderExtensions() {
   const root = document.querySelector("[data-extensions]");
@@ -536,6 +726,8 @@ function initScrollTracking() {
   scheduleActiveAnchorUpdate();
 }
 function init() {
+  body.classList.add("js-ready");
+  applyViewerEnvironment();
   document.querySelector("[data-paper-title]").textContent =
     data.paper?.title || "Literature Deep Reading";
   document.querySelector("[data-paper-meta]").textContent =

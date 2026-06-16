@@ -895,6 +895,76 @@ describe("provider/backend registry", function () {
     assert.match(String(thrown), /incompatible backendId/);
   });
 
+  it("lets ACP-provider sequence workflows run through ACP or SkillRunner backends", async function () {
+    setBackendsConfig({
+      schemaVersion: 2,
+      backends: [
+        {
+          id: "skillrunner-primary",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:8030",
+          auth: { kind: "none" },
+        },
+        {
+          id: "acp-local",
+          type: "acp",
+          baseUrl: "local://acp-local",
+          command: "npx",
+          args: ["codex", "acp"],
+          auth: { kind: "none" },
+        },
+      ],
+    });
+    const workflow = buildWorkflow({
+      id: "acp-sequence-compatible",
+      provider: "acp",
+      requestKind: "skillrunner.sequence.v1",
+    });
+
+    const backends = await listBackendsForWorkflow(workflow);
+    assert.sameMembers(
+      Array.from(new Set(backends.map((entry) => entry.type))),
+      ["acp", "skillrunner"],
+    );
+    const backendIds = backends.map((entry) => entry.id);
+    assert.includeMembers(backendIds, ["acp-local", "skillrunner-primary"]);
+    assert.isBelow(
+      backendIds.indexOf("acp-local"),
+      backendIds.indexOf("skillrunner-primary"),
+    );
+
+    const skillrunnerBackend = await resolveBackendForWorkflow(workflow, {
+      preferredBackendId: "skillrunner-primary",
+    });
+    assert.equal(skillrunnerBackend.type, "skillrunner");
+    const skillrunnerContext = await resolveWorkflowExecutionContext({
+      workflow,
+      executionOptionsOverride: {
+        backendId: "skillrunner-primary",
+      },
+    });
+    assert.equal(skillrunnerContext.backend.id, "skillrunner-primary");
+    assert.equal(skillrunnerContext.providerId, "skillrunner");
+    assert.equal(
+      skillrunnerContext.requestKind,
+      "skillrunner.sequence.v1",
+    );
+
+    const acpBackend = await resolveBackendForWorkflow(workflow, {
+      preferredBackendId: "acp-local",
+    });
+    assert.equal(acpBackend.type, "acp");
+    const acpContext = await resolveWorkflowExecutionContext({
+      workflow,
+      executionOptionsOverride: {
+        backendId: "acp-local",
+      },
+    });
+    assert.equal(acpContext.backend.id, "acp-local");
+    assert.equal(acpContext.providerId, "acp");
+    assert.equal(acpContext.requestKind, "skillrunner.sequence.v1");
+  });
+
   it("lets SkillRunner-provider workflows run through SkillRunner or ACP backends", async function () {
     setBackendsConfig({
       schemaVersion: 2,
@@ -936,6 +1006,42 @@ describe("provider/backend registry", function () {
       preferredBackendId: "acp-local",
     });
     assert.equal(acpBackend.type, "acp");
+  });
+
+  it("prefers SkillRunner backend for SkillRunner-provider workflows by default", async function () {
+    setBackendsConfig({
+      schemaVersion: 2,
+      backends: [
+        {
+          id: "acp-local",
+          type: "acp",
+          baseUrl: "local://acp-local",
+          command: "npx",
+          args: ["codex", "acp"],
+          auth: { kind: "none" },
+        },
+        {
+          id: "skillrunner-primary",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:8030",
+          auth: { kind: "none" },
+        },
+      ],
+    });
+    const workflow = buildWorkflow({
+      id: "skillrunner-default-preferred",
+      provider: "skillrunner",
+      requestKind: "skillrunner.job.v1",
+    });
+
+    const backends = await listBackendsForWorkflow(workflow);
+    assert.deepEqual(
+      backends.map((entry) => entry.id).slice(0, 2),
+      ["skillrunner-primary", "acp-local"],
+    );
+
+    const backend = await resolveBackendForWorkflow(workflow);
+    assert.equal(backend.id, "skillrunner-primary");
   });
 
   it("does not infer backend compatibility from request.kind when provider is missing", async function () {

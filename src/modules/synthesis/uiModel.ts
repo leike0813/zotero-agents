@@ -75,7 +75,8 @@ export type SynthesisUiReviewStatusFilter =
 export type SynthesisUiReviewKindFilter =
   | "all"
   | "zotero_binding"
-  | "canonical_merge";
+  | "canonical_merge"
+  | "canonical_revision";
 
 export type SynthesisUiReviewConfidenceFilter =
   | "all"
@@ -474,6 +475,7 @@ export type SynthesisUiGraphNode = {
   label: string;
   kind: "library_paper" | "external_reference";
   year?: string;
+  authors?: string[];
   tags?: string[];
   collections?: string[];
   x?: number;
@@ -539,16 +541,31 @@ export type SynthesisUiGitSyncStatus = {
   queue_state: SynthesisUiGitSyncQueueState;
   paused: boolean;
   adapter_configured: boolean;
+  config_status?: string;
   remote_url?: string;
+  base_url?: string;
+  remote_path?: string;
   branch?: string;
   worktree_path?: string;
+  token_masked?: string;
+  token_updated_at?: string;
+  connection_test?: {
+    ok: boolean;
+    tested_at?: string;
+    remote_branch_state?: "exists" | "missing_initializable" | "unknown";
+    diagnostics: SynthesisUiSyncDiagnostic[];
+  };
   last_run_status?: string;
   last_run_at?: string;
   conflict_count: number;
   conflict_assets: Array<{
     asset_path: string;
     reason: string;
+    base_hash?: string;
+    local_hash?: string;
+    remote_hash?: string;
   }>;
+  conflictActions: string[];
   diagnostics: SynthesisUiSyncDiagnostic[];
   allowedActions: string[];
 };
@@ -658,6 +675,7 @@ export type SynthesisUiSyncStatus = {
   allowedActions: string[];
   requiresConfirmation: boolean;
   git?: SynthesisUiGitSyncStatus;
+  webdav?: SynthesisUiGitSyncStatus;
 };
 
 export type SynthesisUiConflictCandidate = {
@@ -777,7 +795,10 @@ export type SynthesisUiSnapshotInput = {
   };
   storage?: Partial<SynthesisUiStorageStatus>;
   preferences?: Partial<SynthesisUiPreferencesStatus>;
-  sync?: Partial<Omit<SynthesisUiSyncStatus, "git">> & { git?: unknown };
+  sync?: Partial<Omit<SynthesisUiSyncStatus, "git" | "webdav">> & {
+    git?: unknown;
+    webdav?: unknown;
+  };
   conflicts?: SynthesisUiConflictCandidate[];
   deletedArtifacts?: {
     rows?: SynthesisUiDeletedArtifactRow[];
@@ -1036,10 +1057,15 @@ export type SynthesisUiHostCommandName =
   | "submitTopicSynthesisUpdate"
   | "resolveTopicPaperDigest"
   | "syncNow"
+  | "syncWebDavNow"
   | "pauseGitSync"
   | "resumeGitSync"
   | "retryGitSync"
-  | "resolveGitSyncConflict";
+  | "resolveGitSyncConflict"
+  | "pauseWebDavSync"
+  | "resumeWebDavSync"
+  | "retryWebDavSync"
+  | "resolveWebDavSyncConflict";
 
 export type SynthesisUiHostCommand = {
   command: SynthesisUiHostCommandName;
@@ -1127,10 +1153,15 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "submitTopicSynthesisUpdate",
   "resolveTopicPaperDigest",
   "syncNow",
+  "syncWebDavNow",
   "pauseGitSync",
   "resumeGitSync",
   "retryGitSync",
   "resolveGitSyncConflict",
+  "pauseWebDavSync",
+  "resumeWebDavSync",
+  "retryWebDavSync",
+  "resolveWebDavSyncConflict",
 ];
 
 const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
@@ -1184,10 +1215,15 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   submitTopicSynthesisUpdate: "Update topic synthesis",
   resolveTopicPaperDigest: "Open paper digest",
   syncNow: "Sync now",
+  syncWebDavNow: "WebDAV sync now",
   pauseGitSync: "Pause sync",
   resumeGitSync: "Resume sync",
   retryGitSync: "Retry sync",
   resolveGitSyncConflict: "Resolve sync conflict",
+  pauseWebDavSync: "Pause WebDAV sync",
+  resumeWebDavSync: "Resume WebDAV sync",
+  retryWebDavSync: "Retry WebDAV sync",
+  resolveWebDavSyncConflict: "Resolve WebDAV conflict",
 };
 
 function cleanString(value: unknown) {
@@ -1582,31 +1618,81 @@ function normalizeGitSyncStatus(value: unknown): SynthesisUiGitSyncStatus {
     input.last_run && typeof input.last_run === "object"
       ? (input.last_run as Record<string, unknown>)
       : {};
+  const connectionTest =
+    input.connection_test && typeof input.connection_test === "object"
+      ? (input.connection_test as Record<string, unknown>)
+      : undefined;
+  const remoteBranchState = cleanString(connectionTest?.remote_branch_state);
   return {
     queue_state: normalizeGitSyncQueueState(input.queue_state),
     paused: Boolean(input.paused),
     adapter_configured: Boolean(input.adapter_configured),
+    config_status: cleanString(input.config_status) || undefined,
     remote_url: cleanString(input.remote_url) || undefined,
+    base_url: cleanString(input.base_url) || undefined,
+    remote_path: cleanString(input.remote_path) || undefined,
     branch: cleanString(input.branch) || undefined,
     worktree_path: cleanString(input.worktree_path) || undefined,
+    token_masked: cleanString(input.token_masked) || undefined,
+    token_updated_at: cleanString(input.token_updated_at) || undefined,
+    connection_test: connectionTest
+      ? {
+          ok: Boolean(connectionTest.ok),
+          tested_at: cleanString(connectionTest.tested_at) || undefined,
+          remote_branch_state:
+            remoteBranchState === "exists" ||
+            remoteBranchState === "missing_initializable" ||
+            remoteBranchState === "unknown"
+              ? (remoteBranchState as
+                  | "exists"
+                  | "missing_initializable"
+                  | "unknown")
+              : undefined,
+          diagnostics: normalizeSyncDiagnostics(connectionTest.diagnostics),
+        }
+      : undefined,
     last_run_status: cleanString(lastRun.status) || undefined,
     last_run_at: cleanString(lastRun.completed_at) || undefined,
     conflict_count: conflicts.length,
     conflict_assets: conflicts
-      .map((entry) => {
-        if (!entry || typeof entry !== "object") {
-          return null;
-        }
-        const row = entry as Record<string, unknown>;
-        return {
-          asset_path: cleanString(row.asset_path),
-          reason: cleanString(row.reason),
-        };
-      })
-      .filter((entry): entry is { asset_path: string; reason: string } =>
-        Boolean(entry?.asset_path),
+      .map(
+        (
+          entry,
+        ): {
+          asset_path: string;
+          reason: string;
+          base_hash?: string;
+          local_hash?: string;
+          remote_hash?: string;
+        } | null => {
+          if (!entry || typeof entry !== "object") {
+            return null;
+          }
+          const row = entry as Record<string, unknown>;
+          return {
+            asset_path: cleanString(row.asset_path),
+            reason: cleanString(row.reason),
+            base_hash: cleanString(row.base_hash) || undefined,
+            local_hash: cleanString(row.local_hash) || undefined,
+            remote_hash: cleanString(row.remote_hash) || undefined,
+          };
+        },
+      )
+      .filter(
+        (
+          entry,
+        ): entry is {
+          asset_path: string;
+          reason: string;
+          base_hash?: string;
+          local_hash?: string;
+          remote_hash?: string;
+        } => Boolean(entry?.asset_path),
       )
       .sort((left, right) => left.asset_path.localeCompare(right.asset_path)),
+    conflictActions: normalizeStringList(
+      input.conflictActions || input.conflict_actions,
+    ),
     diagnostics: normalizeSyncDiagnostics(input.diagnostics),
     allowedActions: normalizeStringList(
       input.allowedActions || input.allowed_actions,
@@ -1818,7 +1904,11 @@ function normalizeReviewKindFilter(
   value: unknown,
 ): SynthesisUiReviewKindFilter {
   const normalized = cleanString(value);
-  if (normalized === "zotero_binding" || normalized === "canonical_merge") {
+  if (
+    normalized === "zotero_binding" ||
+    normalized === "canonical_merge" ||
+    normalized === "canonical_revision"
+  ) {
     return normalized;
   }
   return "all";
@@ -3056,6 +3146,7 @@ function normalizeGraphNodes(nodes: SynthesisUiGraphNode[] | undefined) {
         label: cleanString(node.label) || cleanString(node.id),
         kind,
         year: cleanString(node.year) || undefined,
+        authors: normalizeStringList(node.authors),
         tags: normalizeStringList(node.tags),
         collections: normalizeStringList(node.collections),
         x: typeof node.x === "number" ? node.x : undefined,
@@ -3893,6 +3984,7 @@ export function buildSynthesisUiSnapshot(
       allowedActions: normalizeStringList(input.sync?.allowedActions),
       requiresConfirmation: Boolean(input.sync?.requiresConfirmation),
       git: normalizeGitSyncStatus(input.sync?.git),
+      webdav: normalizeGitSyncStatus(input.sync?.webdav),
     },
     conflicts: {
       candidates: normalizeConflictCandidates(input.conflicts),

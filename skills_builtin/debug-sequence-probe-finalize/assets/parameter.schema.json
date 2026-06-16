@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "probe_id": { "type": "string", "minLength": 1 },
+    "expected_sentinel": { "type": "string", "enum": ["present", "absent"] },
+    "sentinel_path": { "type": "string" }
+  },
+  "required": ["probe_id"],
+  "additionalProperties": true
+}

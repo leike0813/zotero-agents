@@ -1,0 +1,8 @@
+{
+  "consoleErrors": [],
+  "pageErrors": [],
+  "failedRequests": [],
+  "notes": [
+    "DETR sample does not expose a reference digest modal trigger yet; structured references were checked instead."
+  ]
+}

@@ -1,6 +1,11 @@
 import Ajv, { type ErrorObject } from "ajv";
+import Ajv2020 from "ajv/dist/2020";
 import { getBaseName, joinPath } from "../utils/path";
 import type { AcpSkillRunRequestV1 } from "../providers/contracts";
+import skillInputSchemaMetaSchema from "../schemas/skill/skill_input_schema.schema.json";
+import skillOutputSchemaMetaSchema from "../schemas/skill/skill_output_schema.schema.json";
+import skillParameterSchemaMetaSchema from "../schemas/skill/skill_parameter_schema.schema.json";
+import skillRunnerManifestMetaSchema from "../schemas/skill/skill_runner_manifest.schema.json";
 import {
   readRuntimeTextFile,
   runtimePathExists,
@@ -195,6 +200,34 @@ function formatAjvErrors(prefix: string, errors: ErrorObject[] | null | undefine
   });
 }
 
+const skillRunnerMetaAjv = new Ajv2020({
+  allErrors: true,
+  strict: false,
+  logger: false,
+});
+
+const skillRunnerManifestMetaValidator = skillRunnerMetaAjv.compile(
+  skillRunnerManifestMetaSchema,
+);
+
+const skillSchemaMetaValidators: Record<
+  AcpSkillSchemaKey,
+  ReturnType<typeof skillRunnerMetaAjv.compile>
+> = {
+  input: skillRunnerMetaAjv.compile(skillInputSchemaMetaSchema),
+  parameter: skillRunnerMetaAjv.compile(skillParameterSchemaMetaSchema),
+  output: skillRunnerMetaAjv.compile(skillOutputSchemaMetaSchema),
+};
+
+function formatMetaSchemaErrors(args: {
+  prefix: string;
+  errors: ErrorObject[] | null | undefined;
+}) {
+  return formatAjvErrors(args.prefix, args.errors).map((entry) =>
+    entry.replace(`${args.prefix}: `, ""),
+  );
+}
+
 function compileAndValidate(args: {
   schema: Record<string, unknown>;
   payload: Record<string, unknown>;
@@ -368,6 +401,14 @@ export function validateRunnerManifestShape(args: {
   skillFrontmatterName: string;
 }) {
   const errors: string[] = [];
+  if (!skillRunnerManifestMetaValidator(args.runnerJson)) {
+    errors.push(
+      ...formatMetaSchemaErrors({
+        prefix: "runner manifest meta-schema",
+        errors: skillRunnerManifestMetaValidator.errors,
+      }).map((entry) => `meta_schema: ${entry}`),
+    );
+  }
   const runnerId = normalizeString(args.runnerJson.id);
   if (!runnerId) {
     errors.push("missing_id");
@@ -481,6 +522,16 @@ export function compileSkillJsonSchema(args: {
   schema: Record<string, unknown>;
   schemaKey: AcpSkillSchemaKey;
 }) {
+  const metaValidator = skillSchemaMetaValidators[args.schemaKey];
+  if (!metaValidator(args.schema)) {
+    return formatMetaSchemaErrors({
+      prefix: `${args.schemaKey} schema meta-schema`,
+      errors: metaValidator.errors,
+    }).map(
+      (entry) =>
+        `${args.schemaKey} schema violates Skill Runner meta-schema: ${entry}`,
+    );
+  }
   try {
     const ajv = new Ajv({ allErrors: true, strict: false, logger: false });
     ajv.compile(args.schema as Parameters<typeof ajv.compile>[0]);

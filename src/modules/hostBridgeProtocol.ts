@@ -60,6 +60,8 @@ export type HostBridgeError = {
 
 export type HostBridgeBindMode = "loopback" | "lan";
 
+export type HostBridgeConnectionMode = "local" | "remote";
+
 export type HostBridgeServiceStatus =
   | "idle"
   | "starting"
@@ -69,6 +71,11 @@ export type HostBridgeServiceStatus =
 
 export type HostBridgePortMode = "random" | "pinned" | "fallback";
 
+export type HostBridgeAdvertisedHostSource =
+  | "manual"
+  | "auto"
+  | "placeholder";
+
 export type HostBridgeStatusSnapshot = {
   status: HostBridgeServiceStatus;
   protocol: typeof HOST_BRIDGE_PROTOCOL_VERSION;
@@ -77,6 +84,8 @@ export type HostBridgeStatusSnapshot = {
   endpoint: string;
   remoteEndpoint: string;
   advertisedHost: string;
+  advertisedHostSource?: HostBridgeAdvertisedHostSource;
+  advertisedHostDiagnostics?: string[];
   remoteEndpointUsesPlaceholder: boolean;
   bindMode: HostBridgeBindMode;
   lanEnabled: boolean;

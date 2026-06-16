@@ -148,6 +148,7 @@ async function applyResultImpl({
   bundleReader,
   request,
   resultContext,
+  runResult,
   runtime,
 }) {
   const hostApi = requireHostApi(runtime);

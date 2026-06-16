@@ -233,6 +233,48 @@ describe("ACP shared skill catalog thin proxy overlay", function () {
     }
   });
 
+  it("renders skill feedback patch with concrete run result paths", async function () {
+    const root = await mkTempRoot();
+    try {
+      await createSkill({ root, rootKind: "skills", skillId: "demo" });
+      const registry = await scanPluginSkillRegistry({ cwd: root });
+      const workspaceDir = path.join(root, "run");
+      const resultJsonPath = path.join(
+        workspaceDir,
+        "result",
+        "demo.1",
+        "result.json",
+      );
+      await materializeAcpSkill({
+        registry,
+        requestedSkillId: "demo",
+        injectionPlan: {
+          family: "codex",
+          skillRoots: [path.join(workspaceDir, ".agents", "skills")],
+          diagnostics: [],
+        },
+        workspaceDir,
+        resultJsonPath,
+        inputManifestPath: path.join(workspaceDir, ".audit", "demo.1", "input_manifest.json"),
+        catalogRootDir: path.join(root, "catalog"),
+        collectSkillRunFeedback: true,
+      });
+
+      const proxySkill = await fs.readFile(
+        path.join(workspaceDir, ".agents", "skills", "demo", "SKILL.md"),
+        "utf8",
+      );
+      assert.include(proxySkill, "## Skill Run Feedback Sidecar");
+      assert.include(
+        proxySkill,
+        `${path.dirname(resultJsonPath).replace(/\\/g, "/")}/_skill_run_feedback.md`,
+      );
+      assert.notInclude(proxySkill, "{feedback_path}");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("uses shared catalog instructions instead of proxy skills for Hermes", async function () {
     const root = await mkTempRoot();
     try {

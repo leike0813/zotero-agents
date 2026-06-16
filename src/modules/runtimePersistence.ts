@@ -14,6 +14,7 @@ export type RuntimePersistenceCategory =
   | "skillrunner-ledger"
   | "acp-conversations"
   | "acp-skill-runs"
+  | "workflow-products"
   | "cache"
   | "tmp";
 
@@ -33,6 +34,7 @@ export type RuntimePersistencePaths = {
   legacyAcpChatWorkspacesDir: string;
   acpChatRuntimeDir: string;
   acpSkillRunsDir: string;
+  workflowProductsDir: string;
   cacheDir: string;
   tmpDir: string;
   legacyDir: string;
@@ -146,6 +148,7 @@ const LEGACY_APP_DIR_NAME = "zotero-skills";
 const SQLITE_FILE_NAME = "zotero-agents.db";
 const LEGACY_SQLITE_FILE_NAME = "zotero-skills.db";
 const RUNTIME_LOG_FILE_NAME = "runtime-logs.json";
+const PLUGIN_PREFS_PREFIX = "extensions.zotero.zotero-skills";
 
 let runtimeLogClearer: (() => void) | null = null;
 let pluginTaskDomainClearer: ((domain: string) => number) | null = null;
@@ -540,6 +543,19 @@ function readEnv(key: string) {
   return "";
 }
 
+function readPluginPref(key: string) {
+  const runtime = globalThis as {
+    Zotero?: { Prefs?: { get?: (name: string, global?: boolean) => unknown } };
+  };
+  try {
+    return normalizeString(
+      runtime.Zotero?.Prefs?.get?.(`${PLUGIN_PREFS_PREFIX}.${key}`, true),
+    );
+  } catch {
+    return "";
+  }
+}
+
 function getPlatform() {
   const runtime = globalThis as {
     process?: { platform?: string };
@@ -563,6 +579,10 @@ function resolvePlatformDataRoot() {
   const override = readEnv("ZOTERO_SKILLS_RUNTIME_ROOT");
   if (override) {
     return override;
+  }
+  const prefOverride = readPluginPref("runtimeRoot");
+  if (prefOverride) {
+    return prefOverride;
   }
 
   const zoteroDataDir = normalizeString(
@@ -637,6 +657,7 @@ export function getRuntimePersistencePaths(
     legacyAcpChatWorkspacesDir: joinPath(acpChatRoot, "workspaces"),
     acpChatRuntimeDir: joinPath(acpChatRoot, "runtime"),
     acpSkillRunsDir: joinPath(runtimeRoot, "acp", "skill-runs"),
+    workflowProductsDir: joinPath(runtimeRoot, "workflow-products"),
     cacheDir: joinPath(runtimeRoot, "cache"),
     tmpDir: joinPath(runtimeRoot, "tmp"),
     legacyDir: joinPath(root, "legacy"),
@@ -1309,6 +1330,17 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
       fileBacked: true,
     },
     {
+      category: "workflow-products",
+      label: "Workflow products",
+      path: paths.workflowProductsDir,
+      cleanable: true,
+      recordCount: () =>
+        pluginTaskScopeCounter?.("workflow-products", "products") || 0,
+      recordBytes: () =>
+        pluginTaskScopeByteEstimator?.("workflow-products", "products") || 0,
+      fileBacked: true,
+    },
+    {
       category: "cache",
       label: "Cache",
       path: paths.cacheDir,
@@ -1382,6 +1414,10 @@ export async function cleanupRuntimePersistenceCategory(
     details.rowsDeleted = pluginTaskScopeClearer?.("acp", "skill-runs") || 0;
     acpSkillRunsMemoryClearer?.();
     await removeAndTrack(paths.acpSkillRunsDir);
+  } else if (category === "workflow-products") {
+    details.rowsDeleted =
+      pluginTaskScopeClearer?.("workflow-products", "products") || 0;
+    await removeAndTrack(paths.workflowProductsDir);
   } else if (category === "cache") {
     await removeAndTrack(paths.cacheDir);
   } else if (category === "tmp") {

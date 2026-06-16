@@ -119,16 +119,39 @@ describe("Synthesis tab UI model", function () {
           queue_state: "blocked_conflict",
           paused: false,
           adapter_configured: true,
+          config_status: "configured",
           remote_url: "https://[redacted]@example.invalid/repo.git",
           branch: "main",
+          token_masked: "ghp_ab...1234",
+          token_updated_at: "2026-06-14T00:00:00.000Z",
+          connection_test: {
+            ok: true,
+            tested_at: "2026-06-14T00:01:00.000Z",
+            remote_branch_state: "missing_initializable",
+            diagnostics: [
+              {
+                code: "git_sync_remote_branch_missing_initializable",
+                severity: "info",
+                message: "remote branch will be initialized",
+              },
+            ],
+          },
           conflict_report: {
             conflicts: [
               {
                 asset_path: "tags/vocabulary.json",
                 reason: "both_changed",
+                base_hash: "sha256:base",
+                local_hash: "sha256:local",
+                remote_hash: "sha256:remote",
               },
             ],
           },
+          conflict_actions: [
+            "keep_local",
+            "save_remote_copy",
+            "clear_after_manual_edit",
+          ],
           allowed_actions: ["retryGitSync", "resolveGitSyncConflict"],
           diagnostics: [
             {
@@ -240,9 +263,27 @@ describe("Synthesis tab UI model", function () {
     assert.equal(snapshot.sync.status, "ready");
     assert.lengthOf(snapshot.sync.diagnostics, 1);
     assert.equal(snapshot.sync.git?.queue_state, "blocked_conflict");
+    assert.equal(snapshot.sync.git?.config_status, "configured");
+    assert.equal(snapshot.sync.git?.token_masked, "ghp_ab...1234");
+    assert.equal(snapshot.sync.git?.connection_test?.ok, true);
+    assert.equal(
+      snapshot.sync.git?.connection_test?.remote_branch_state,
+      "missing_initializable",
+    );
     assert.equal(snapshot.sync.git?.conflict_count, 1);
     assert.deepEqual(snapshot.sync.git?.conflict_assets, [
-      { asset_path: "tags/vocabulary.json", reason: "both_changed" },
+      {
+        asset_path: "tags/vocabulary.json",
+        reason: "both_changed",
+        base_hash: "sha256:base",
+        local_hash: "sha256:local",
+        remote_hash: "sha256:remote",
+      },
+    ]);
+    assert.sameMembers(snapshot.sync.git?.conflictActions || [], [
+      "keep_local",
+      "save_remote_copy",
+      "clear_after_manual_edit",
     ]);
     assert.include(snapshot.sync.git?.allowedActions || [], "retryGitSync");
     assert.equal(snapshot.maintenance.summary.status, "queued");
@@ -1795,6 +1836,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "buildTopicDetailHtmlExport");
     assert.include(source, "ensureCachedTopicDetailHtmlExport");
     assert.include(source, "topicDetailHtmlExportSignature");
+    assert.include(source, "TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION");
     assert.include(source, "currentTopicDetailHtml");
     assert.include(source, "currentTopicDetailHtmlMetadata");
     assert.include(source, "resolveTopicExportDigests");
@@ -1802,6 +1844,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "pruneGraphToTopicSubgraph");
     assert.include(source, "graphLayoutAlgorithms");
     assert.include(source, "graphLayouts");
+    assert.include(source, "content/shared/icons.css");
+    assert.include(source, "inlineMaterialSymbolIconUrls");
+    assert.include(source, "data:image/svg+xml");
     assert.include(source, "content/synthesis/app.bundle.js");
     assert.include(source, "content/synthesis/styles.css");
     assert.include(source, "resolveRuntimeToolkit");
@@ -1828,7 +1873,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, 'command: "exportTopicDetailHtml"');
     assert.include(app, 'command: "openZoteroItem"');
     assert.include(app, "libraryId: snapshot.libraryId");
-    assert.include(app, "!state.standaloneExport && node?.kind");
+    assert.include(app, 'if (node?.kind === "library_paper")');
+    assert.include(app, "if (!state.standaloneExport)");
     assert.include(app, "synthesis-action-open-zotero-item");
     assert.include(app, "synthesis-action-export-topic-html");
     assert.notInclude(app, "synthesis-action-copy-summary");
@@ -1840,6 +1886,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "standaloneDigestForEvidence");
     assert.include(app, "state.standaloneDigestsByKey");
     assert.include(app, "state.standaloneGraphLayouts");
+    assert.include(app, "normalizeStandaloneGraphSnapshot");
+    assert.include(app, 'layoutStatus: "ready"');
+    assert.include(app, 'cache_status: "ready"');
     assert.include(app, "renderStandaloneGraphControls");
     assert.include(app, "synthesis-topic-tab-citation-graph");
     assert.include(app, "renderGraphControls(snapshot)");
@@ -1901,6 +1950,22 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(standaloneShellBlock, "renderTopicDetailToolbar");
     assert.notInclude(standaloneShellBlock, "renderActionStatusbar");
     assert.notInclude(standaloneShellBlock, "renderCurrentView");
+
+    const selectedTabShellBlock = extractFunctionBlock(
+      app,
+      "renderSelectedTabShell",
+    );
+    assert.include(selectedTabShellBlock, "captureWorkbenchRenderState(root)");
+    assert.include(
+      selectedTabShellBlock,
+      "restoreWorkbenchRenderState(root, renderState)",
+    );
+    const graphCameraRestoreKeyBlock = extractFunctionBlock(
+      app,
+      "graphCameraRestoreKey",
+    );
+    assert.include(graphCameraRestoreKeyBlock, "state.standaloneExport");
+    assert.include(graphCameraRestoreKeyBlock, "citation_graph");
 
     const topicTabsBlock = extractFunctionBlock(app, "renderTopicTabs");
     assert.include(topicTabsBlock, "state.standaloneExport");
@@ -2297,21 +2362,25 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(source, "reader-panel topic-detail-panel");
     assert.include(source, "sidebarExpanded: false");
     assert.include(source, "brand brand-icon-only");
-    assert.include(source, "function iconSvg(");
-    assert.include(source, "controls: [");
+    assert.include(source, "function iconEl(className: string)");
     assert.include(source, '["tags", t("synthesis-tab-tags"), "tags"]');
     assert.include(
       source,
       '["concepts", t("synthesis-tab-concepts"), "concepts"]',
     );
-    assert.include(source, "concepts: [");
     assert.notInclude(source, "M12 4.5v2");
     assert.notInclude(source, "M8.8 6.1 7.4 4.7");
     assert.notInclude(source, "M15.2 6.1l1.4-1.4");
+    assert.include(source, 'graph: "zs-icon-hub"');
+    assert.include(source, 'home: "zs-icon-home"');
+    assert.include(source, 'concepts: "zs-icon-lightbulb"');
+    assert.include(source, 'tags: "zs-icon-sell"');
     assert.include(source, "nav-icon-${iconName}");
+    assert.include(source, "zs-icon-right-panel-close");
+    assert.include(source, "zs-icon-right-panel-open");
     assert.include(
       source,
-      'iconSvg(state.sidebarExpanded ? "panel-close" : "panel-open")',
+      'state.sidebarExpanded\n        ? "zs-icon-right-panel-open"\n        : "zs-icon-right-panel-close"',
     );
     assert.include(source, "nav-label");
     assert.include(source, "sidebar-collapse-toggle");
@@ -2433,7 +2502,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(host, 'target: "reader"');
     assert.include(host, "onSelect");
     assert.include(host, "isAssistantWorkspaceSidebarOpen");
-    assert.notInclude(host, "sidebarOpen");
+    assert.include(host, "sidebarOpen");
     assert.notInclude(host, "openTaskManagerDialog");
     assert.notInclude(host, "import { openSynthesisWorkbenchTab");
     assert.include(host, "dashboard-mount-ready");
@@ -2462,7 +2531,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "iconButton");
     assert.include(app, "refresh-toggle");
     assert.include(app, "refresh-icon");
+    assert.include(app, "zs-icon-refresh");
     assert.include(app, "sidebar-toggle");
+    assert.include(app, "zs-icon-right-panel-open");
+    assert.include(app, "zs-icon-right-panel-close");
     assert.include(app, "workspace:attention");
     assert.include(app, "updateWorkspaceSidebarAttention");
     assert.include(app, "data-attention-count");
@@ -2473,7 +2545,10 @@ describe("Synthesis tab UI model", function () {
     );
     assert.notInclude(app, 'button("Preferences", "open-preferences")');
     assert.notInclude(app, '"open-preferences"');
-    assert.notInclude(app, "sidebarOpen");
+    assert.include(app, "sidebarOpen?: boolean");
+    assert.include(app, "payload.sidebarOpen === true");
+    assert.include(app, "openSidebar");
+    assert.include(app, "closeSidebar");
     assert.notInclude(app, "Show Sidebar");
     assert.notInclude(app, "Hide Sidebar");
     assert.include(app, "dashboard-mount");
@@ -2510,6 +2585,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, "transition:");
     assert.include(index, "../shared/theme.js");
     assert.include(index, "../shared/theme.css?ui=20260520-controls-v7");
+    assert.include(index, "../shared/icons.css?ui=20260614-icons-v1");
     assert.include(index, "./styles.css?ui=20260520-controls-v7");
     assert.include(css, ".toolbar .icon-button");
     assert.include(css, "appearance: none");
@@ -2521,8 +2597,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(dashboardCss, "td.center-cell");
     assert.include(css, "background: var(--workspace-control-bg)");
     assert.include(css, "box-shadow: var(--workspace-control-shadow)");
-    assert.include(css, ".refresh-icon::before");
-    assert.include(css, ".sidebar-icon::before");
+    assert.include(css, ".toolbar-icon");
+    assert.notInclude(css, ".refresh-icon::before");
+    assert.notInclude(css, ".sidebar-icon::before");
     assert.include(css, ".workspace-panel.is-dashboard");
     assert.include(css, ".workspace-panel.is-synthesis");
     assert.include(css, ".workspace-view-mount.is-active");
@@ -2690,9 +2767,18 @@ describe("Synthesis tab UI model", function () {
     assert.include(i18n, "synthesis-enum-graph-edge-role-citation");
     assert.include(i18n, "synthesis-enum-graph-edge-role-unknown");
     assert.include(i18n, "synthesis-enum-graph-edge-role-historical");
-    assert.include(i18n, "synthesis-enum-coverage-caveat-workset-subdomain-bias");
-    assert.include(i18n, "synthesis-enum-coverage-caveat-artifact-evidence-insufficient");
-    assert.include(i18n, "synthesis-enum-coverage-caveat-evaluation-scope-limitation");
+    assert.include(
+      i18n,
+      "synthesis-enum-coverage-caveat-workset-subdomain-bias",
+    );
+    assert.include(
+      i18n,
+      "synthesis-enum-coverage-caveat-artifact-evidence-insufficient",
+    );
+    assert.include(
+      i18n,
+      "synthesis-enum-coverage-caveat-evaluation-scope-limitation",
+    );
     assert.include(i18n, "synthesis-enum-priority-unknown");
     assert.include(i18n, "synthesis-enum-binding-status-stale-target");
     assert.include(i18n, "synthesis-enum-action-manual-target");
@@ -2889,6 +2975,18 @@ describe("Synthesis tab UI model", function () {
       "src/modules/synthesis/uiModel.ts",
       "utf8",
     );
+    const service = await fs.readFile(
+      "src/modules/synthesis/service.ts",
+      "utf8",
+    );
+    const repository = await fs.readFile(
+      "src/modules/synthesis/repository.ts",
+      "utf8",
+    );
+    const workbenchTab = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
     const graphVisualRules = await fs.readFile(
       "src/shared/citationGraphVisualRules.ts",
       "utf8",
@@ -2932,9 +3030,22 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK");
     assert.include(source, "GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT");
     assert.include(source, "importanceHalo");
-    assert.include(source, "highlighted: importance?.halo || false");
-    assert.include(source, "highlighted: Boolean(data.importanceHalo");
+    assert.include(
+      source,
+      "highlighted: importance?.halo || currentPaperNode || false",
+    );
+    assert.include(source, "currentPaperNode");
+    assert.include(source, "isCurrentPaperGraphNode");
+    assert.include(source, "synthesis-graph-legend-current-paper");
+    assert.include(source, "graph-selection-drawer-compact");
+    assert.include(
+      source,
+      "currentPaperNode || (data.importanceHalo && searchMatch)",
+    );
     assert.include(source, '"incoming citations"');
+    assert.include(source, '"authors"');
+    assert.include(source, "node?.authors?.length");
+    assert.include(source, "if (!state.standaloneExport) {\n      fields.push");
     assert.include(source, "CITATION_GRAPH_EDGE_SIZE");
     assert.include(source, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
     assert.include(source, "CITATION_GRAPH_OUTGOING_EDGE_COLOR");
@@ -2942,6 +3053,29 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "synthesis-graph-legend-node-size");
     assert.include(source, "synthesis-graph-legend-halo");
     assert.include(uiModel, "metrics?: {");
+    assert.include(uiModel, "authors?: string[]");
+    assert.include(uiModel, "authors: normalizeStringList(node.authors)");
+    assert.include(repository, "authorsJson?: string");
+    assert.include(repository, "authors_json TEXT NOT NULL DEFAULT '[]'");
+    assert.include(repository, "authorsJson: cleanString(row.authors_json)");
+    assert.include(repository, "authors_json: cleanString(record.authorsJson)");
+    assert.include(service, "CITATION_GRAPH_CACHE_POLICY_VERSION");
+    assert.include(service, "citation_graph_cache_policy_changed");
+    assert.include(service, "authorsForSourceRef");
+    assert.include(service, "authorsJson: JSON.stringify(authorsForSourceRef");
+    assert.include(
+      service,
+      "authors: normalizeStringListInput(parseJsonArray(args.node.authorsJson))",
+    );
+    assert.include(service, "authors: normalizeStringListInput(node.authors)");
+    assert.include(
+      service,
+      "authors: normalizeStringListInput(args.node.authors)",
+    );
+    assert.include(
+      workbenchTab,
+      "TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 4",
+    );
     assert.include(uiModel, "function normalizeGraphNodeMetrics");
     assert.include(uiModel, "internal_in_degree");
     assert.include(uiModel, "internal_out_degree");
@@ -2956,6 +3090,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "selectedElement: null");
     assert.include(source, "collectSelectedNodeCitations");
     assert.include(source, "renderSelectedNodeCitations");
+    assert.include(
+      source,
+      "if (!state.standaloneGraphOnly) {\n        wrap.appendChild(renderSelectedNodeCitations",
+    );
     assert.include(source, "graph-selection-drawer");
     assert.include(source, "graph.selection");
     assert.include(source, "snapshot.graph.hoverOnlyEdges");
@@ -2969,7 +3107,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "graph-control-drawer");
     assert.include(source, "graph-control-icon");
     assert.include(source, "graph-control-title");
-    assert.include(source, 'iconSvg("controls")');
+    assert.include(source, 'iconEl("zs-icon-tune")');
+    assert.notInclude(source, 'iconSvg("controls")');
     assert.include(
       source,
       'detail.setAttribute("aria-label", t("synthesis-graph-controls"))',
@@ -2986,7 +3125,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, ".graph-control-drawer");
     assert.include(css, ".graph-control-drawer:hover");
     assert.include(css, ".graph-control-drawer:focus-within");
-    assert.include(css, ".graph-control-icon svg");
+    assert.include(css, ".graph-control-icon .zs-icon");
     assert.include(css, "display: block;");
     assert.include(css, ".graph-control-title");
     assert.include(css, "display: none;");
@@ -4035,6 +4174,15 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "referenceTargetCandidateProjectedId");
     assert.include(source, 'textValue(proposal.kind) === "canonical_merge"');
     assert.include(source, '"reverse_accept"');
+    assert.include(source, "isCanonicalRevisionProposal");
+    assert.include(source, "renderCanonicalRevisionReviewCard");
+    assert.include(source, "renderCanonicalRevisionReviewActions");
+    assert.include(source, "canonicalRevisionReviewActionButtons");
+    assert.include(source, "renderReferenceMatchDecisionSummary({");
+    assert.notInclude(source, '["source", context.sourceTitle]');
+    assert.notInclude(source, '["target", context.targetTitle]');
+    assert.include(source, "synthesis-review-canonical-revision-title");
+    assert.include(source, "synthesis-review-canonical-no-successor");
     assert.include(source, "source_paper_title");
     assert.include(source, "reference_title");
     assert.include(source, "sourceRowTitleIsFallback");
@@ -4136,6 +4284,16 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "retargeted");
     assert.include(app, "applyCanonicalRevisionReviewAction");
     assert.include(app, "canonical_revision");
+    assert.include(
+      app,
+      'filterOptionLabel(\n              "synthesis-filter-kind",\n              "kind",\n              "canonical_revision"',
+    );
+    assert.include(
+      app,
+      'kind === "all" || textValue(row.review_kind || row.kind) === kind',
+    );
+    assert.include(app, "renderCanonicalRevisionReviewCard(item.proposal)");
+    assert.include(app, "renderCanonicalRevisionReviewActions(proposal)");
     assert.include(app, 'enumLabel("review-tab", "reference_matching")');
     assert.notInclude(app, '["index_cleanup", "Index Cleanup"]');
     assert.notInclude(app, "Concept Review Queue");
@@ -4468,6 +4626,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "renderActionStatusbar");
     assert.include(app, "listBackgroundJobs");
     assert.include(app, "snapshot.maintenance?.backgroundJobs?.rows");
+    assert.include(app, "backgroundJobStatusbarOperation");
     assert.include(app, "renderBackgroundJobPopover");
     assert.include(app, 'const isRunning = job.status === "running";');
     assert.include(app, 'isRunning ? progressLabel(job.progress) : ""');
@@ -4479,6 +4638,17 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "action-statusbar-progress");
     assert.include(app, "isOperationPending");
     assert.notInclude(app, "content.appendChild(actionNotice)");
+    const statusbarBlock = extractFunctionBlock(app, "renderActionStatusbar");
+    assert.include(
+      statusbarBlock,
+      "const showFailedJob = shouldShowTimedStatusbarEntry",
+    );
+    assert.include(statusbarBlock, "const statusbarJobs =");
+    assert.include(
+      statusbarBlock,
+      "statusbarJobs.length || state.jobPopoverOpen",
+    );
+    assert.notInclude(statusbarBlock, "if (failedJob) {");
     assert.include(host, "inFlightCommands");
     assert.include(host, "runWorkbenchCommandOnce");
     assert.include(host, "commandProgressTimer");

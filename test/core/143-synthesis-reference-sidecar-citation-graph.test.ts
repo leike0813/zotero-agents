@@ -175,6 +175,49 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.equal(registry.rows[0]?.artifactCoverage, "complete");
   });
 
+  it("treats unchanged literature-analysis reruns as sidecar governance no-ops", async function () {
+    const root = await makeRuntimeRoot();
+    let tick = 0;
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => `2026-06-15T00:00:0${tick++}.000Z`,
+    });
+    const { service } = makeService({ root, repository });
+    const input = {
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Attention Paper",
+      year: "2020",
+      digest: { noteKey: "NDIGEST", content: "# Digest\n\nBody" },
+      references: {
+        noteKey: "NREFS",
+        references: [{ title: "Detection Transformer", year: "2021" }],
+      },
+      citationAnalysis: { noteKey: "NCITE", payloadHash: "sha256:cite" },
+      matchedReferences: [{ title: "Detection Transformer", itemKey: "BBB" }],
+    };
+
+    await service.applyLiteratureDigestSidecar(input);
+    const graphBasis = repository.getCacheBasis("citation-graph:library");
+    const relatedBasis = repository.getCacheBasis("related-items-sync:global");
+
+    const rerun = await service.applyLiteratureDigestSidecar(input);
+
+    assert.equal((rerun as { unchanged?: boolean }).unchanged, true);
+    assert.equal(repository.getCacheBasis("citation-graph:library")?.updatedAt, graphBasis?.updatedAt);
+    assert.equal(
+      repository.getCacheBasis("related-items-sync:global")?.updatedAt,
+      relatedBasis?.updatedAt,
+    );
+    assert.lengthOf(
+      repository.listRawReferences({
+        sourceRefs: ["1:AAA"],
+        statuses: ["stale"],
+      }),
+      0,
+    );
+  });
+
   it("persists best-effort citation roles from literature-analysis apply", async function () {
     const root = await makeRuntimeRoot();
     const { service, repository } = makeService({ root });

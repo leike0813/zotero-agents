@@ -24,6 +24,7 @@ description: Generate a literature deep-reading artifact from a source bundle. C
 - `source.md`
 - `source-manifest.json`
 - `images/`
+- 可选 `translator/alignment.json`
 - 可选 `original.pdf`
 - 可选 `artifacts/artifact-manifest.json`
 - 可选 `artifacts/references.json`
@@ -33,6 +34,14 @@ description: Generate a literature deep-reading artifact from a source bundle. C
 参数：
 
 - `target_language`：目标语言，默认 `zh-CN`。
+
+可选输入：
+
+- `translator_alignment_path`：已有 `literature-translator` alignment JSON 的本地路径。
+- `translator_output_path`：已有 `literature-translator` 译文 Markdown 的本地路径。
+- `translator_status`：当 translator 因源目标语言相同而 `cancelled` 时，runtime 会在 bootstrap 生成 source-only alignment。
+
+Host 提供的输入以 `runtime/input.json` 和 `.audit/*/input_manifest.json` 为准。agent 不要手工猜测、替换或省略 translator 相关路径；如果 `runtime/input.json` 缺少 host 已提供的字段，`bootstrap` 会从审计输入中自动补齐。
 
 ## Runtime model
 
@@ -68,6 +77,7 @@ python scripts/deep_reading_runtime.py validate-final-output
 - `runtime/views/host-preflight-view.json`
 - `runtime/views/topic-candidates-view.json`
 - `runtime/views/concept-needs-view.json`
+- `runtime/views/translator-alignment-view.json`
 - `runtime/views/diagnostics-bootstrap.json`
 - `literature-deep-reading.result.json`
 
@@ -277,6 +287,8 @@ runtime/payloads/block-translations.json
 
 - `runtime/views/translation-view.json`
 - `runtime/views/diagnostics-translation.json`
+
+如果 `translation-batches-view.json` 的 `batch_count` 为 `0` 且 `source` 为 `translator_alignment`，说明译文已由 translator alignment 导入，不要再写 `block-translations.json`。
 
 ## Stage 40 Final Review and Render
 

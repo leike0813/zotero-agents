@@ -50,7 +50,7 @@ async function openSample(
     timeout: 20_000,
   });
   await page.waitForSelector(
-    "[data-citation-graph] .zs-cg-stage canvas, [data-citation-graph] .graph-node",
+    "[data-citation-graph-synthesis-frame], [data-citation-graph] .zs-cg-svg, [data-citation-graph] .graph-node",
     {
       timeout: 20_000,
     },
@@ -116,15 +116,47 @@ async function assertMainSurfaces(page: Page) {
     graphStatus: document
       .querySelector("[data-citation-graph]")
       ?.getAttribute("data-zs-cg-status"),
-    graphCanvases: document.querySelectorAll(".zs-cg-stage canvas").length,
-    legacyGraphNodes: document.querySelectorAll(".graph-node").length,
+    graphCanvases:
+      document.querySelectorAll(".zs-cg-stage canvas").length +
+      ((
+        document.querySelector(
+          "[data-citation-graph-synthesis-frame]",
+        ) as HTMLIFrameElement | null
+      )?.contentDocument?.querySelectorAll(".graph-stage canvas").length || 0),
+    fallbackGraphNodes: document.querySelectorAll(
+      "[data-citation-graph] .graph-node",
+    ).length,
+    fallbackSvg: document.querySelectorAll("[data-citation-graph] .zs-cg-svg")
+      .length,
     graphStageWidth:
       document.querySelector(".zs-cg-stage")?.getBoundingClientRect().width ||
+      (
+        document.querySelector(
+          "[data-citation-graph-synthesis-frame]",
+        ) as HTMLIFrameElement | null
+      )?.contentDocument
+        ?.querySelector(".graph-stage")
+        ?.getBoundingClientRect().width ||
       0,
     graphStageHeight:
       document.querySelector(".zs-cg-stage")?.getBoundingClientRect().height ||
+      (
+        document.querySelector(
+          "[data-citation-graph-synthesis-frame]",
+        ) as HTMLIFrameElement | null
+      )?.contentDocument
+        ?.querySelector(".graph-stage")
+        ?.getBoundingClientRect().height ||
       0,
-    graphLegend: document.querySelectorAll(".zs-cg-legend span").length,
+    graphLegend:
+      document.querySelectorAll(".zs-cg-legend span").length +
+      ((
+        document.querySelector(
+          "[data-citation-graph-synthesis-frame]",
+        ) as HTMLIFrameElement | null
+      )?.contentDocument?.querySelectorAll(
+        ".citation-graph-legend span, .citation-graph-legend li",
+      ).length || 0),
     extensions: document.querySelectorAll("[data-extensions] .extension")
       .length,
     sideSections: document.querySelectorAll("[data-side] section").length,
@@ -152,11 +184,19 @@ async function assertMainSurfaces(page: Page) {
       "ready",
       "citation graph should initialize",
     );
-    assert.isAtLeast(
-      counts.graphCanvases,
-      1,
-      "citation graph canvas should render",
-    );
+    if (counts.graphCanvases === 0) {
+      assert.isAtLeast(
+        counts.fallbackGraphNodes,
+        20,
+        "citation graph SVG nodes should render",
+      );
+    } else {
+      assert.isAtLeast(
+        counts.graphCanvases,
+        1,
+        "citation graph canvas should render",
+      );
+    }
     assert.isAtLeast(
       counts.graphStageWidth,
       520,
@@ -174,7 +214,7 @@ async function assertMainSurfaces(page: Page) {
     );
   } else {
     assert.isAtLeast(
-      counts.legacyGraphNodes,
+      counts.fallbackGraphNodes,
       20,
       "legacy graph sample should be allowed",
     );
@@ -344,50 +384,68 @@ async function assertReferencesDigestModalIfAvailable(
 async function assertCitationGraphInteractions(page: Page) {
   await page.locator("#citation-graph").scrollIntoViewIfNeeded();
   await page.waitForTimeout(150);
-  if ((await page.locator(".zs-cg-stage canvas").count()) === 0) {
-    const startNode = page.locator('[data-node-id="zotero:item:EIMSDEU3"]');
-    await startNode.hover();
-    await page.waitForTimeout(150);
-    assert.isAbove(
-      await page.locator(".graph-edge").count(),
-      0,
-      "hover should reveal citation graph edges",
-    );
-    await startNode.click();
-    await page.waitForTimeout(150);
-    assert.isTrue(
-      await page.locator(".graph-detail h3").first().isVisible(),
-      "graph selection detail should render",
-    );
+  if (
+    (await page.locator("[data-citation-graph-synthesis-frame]").count()) > 0
+  ) {
+    const graphState = await page.evaluate(() => {
+      const section = document.querySelector("[data-citation-graph]");
+      const frame = document.querySelector(
+        "[data-citation-graph-synthesis-frame]",
+      ) as HTMLIFrameElement | null;
+      const doc = frame?.contentDocument;
+      const stage = doc?.querySelector(".graph-stage");
+      const rect = stage?.getBoundingClientRect();
+      return {
+        status: section?.getAttribute("data-zs-cg-status"),
+        error: section?.getAttribute("data-zs-cg-error"),
+        fallback: section?.getAttribute("data-zs-cg-fallback"),
+        canvasCount: stage?.querySelectorAll("canvas").length || 0,
+        width: rect?.width || 0,
+        height: rect?.height || 0,
+        hasControlDrawer: Boolean(doc?.querySelector(".graph-control-drawer")),
+      };
+    });
+    assert.equal(graphState.status, "ready", graphState.error || "");
+    assert.isNull(graphState.fallback);
+    assert.isAtLeast(graphState.canvasCount, 1);
+    assert.isAtLeast(graphState.width, 520);
+    assert.isAtLeast(graphState.height, 360);
+    assert.isFalse(graphState.hasControlDrawer);
     return;
   }
-  const graphState = await page.evaluate(() => {
-    const section = document.querySelector("[data-citation-graph]");
-    const stage = document.querySelector(".zs-cg-stage");
-    const rect = stage?.getBoundingClientRect();
-    return {
-      status: section?.getAttribute("data-zs-cg-status"),
-      error: section?.getAttribute("data-zs-cg-error"),
-      canvasCount: stage?.querySelectorAll("canvas").length || 0,
-      width: rect?.width || 0,
-      height: rect?.height || 0,
-    };
-  });
-  assert.equal(graphState.status, "ready", graphState.error || "");
-  assert.isAtLeast(graphState.canvasCount, 1);
-  assert.isAtLeast(graphState.width, 520);
-  assert.isAtLeast(graphState.height, 360);
 
-  await page.locator("[data-zs-cg-search]").fill("DETR");
-  await page.waitForTimeout(150);
-  assert.isTrue(
-    await page.locator("[data-zs-cg-detail] h3").first().isVisible(),
-    "graph detail panel should render",
-  );
-
-  await page.locator("[data-zs-cg-clear]").click();
-  await page.waitForTimeout(150);
-  assert.equal(await page.locator("[data-zs-cg-search]").inputValue(), "");
+  const startNode = page.locator("[data-citation-graph] .graph-node").first();
+  await startNode.hover();
+  await page.waitForTimeout(180);
+  const fallbackState = await page.evaluate(() => ({
+    status: document
+      .querySelector("[data-citation-graph]")
+      ?.getAttribute("data-zs-cg-status"),
+    error: document
+      .querySelector("[data-citation-graph]")
+      ?.getAttribute("data-zs-cg-error"),
+    svgCount: document.querySelectorAll("[data-citation-graph] .zs-cg-svg")
+      .length,
+    activeEdges: document.querySelectorAll(
+      "[data-citation-graph] .graph-edge.is-active",
+    ).length,
+    activeNodes: document.querySelectorAll(
+      "[data-citation-graph] .graph-node.is-active",
+    ).length,
+    labels: document.querySelectorAll("[data-citation-graph] .graph-node-label")
+      .length,
+    searchControls: document.querySelectorAll("[data-zs-cg-search]").length,
+    detailPanels: document.querySelectorAll(
+      "[data-zs-cg-detail], .graph-detail, .zs-cg-detail",
+    ).length,
+  }));
+  assert.equal(fallbackState.status, "ready", fallbackState.error || "");
+  assert.equal(fallbackState.svgCount, 1);
+  assert.isAbove(fallbackState.activeEdges, 0, "hover should highlight edges");
+  assert.isAbove(fallbackState.activeNodes, 0, "hover should highlight nodes");
+  assert.isAbove(fallbackState.labels, 0, "hover should show labels");
+  assert.equal(fallbackState.searchControls, 0);
+  assert.equal(fallbackState.detailPanels, 0);
 }
 
 describe("literature deep reading DETR browser visual regression", function () {

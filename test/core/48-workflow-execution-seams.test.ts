@@ -245,7 +245,7 @@ describe("workflow execution seams", function () {
     ]);
   });
 
-  it("strips ZoteroHostAccess runtime options and logs a compatibility warning for SkillRunner backends", async function () {
+  it("translates required ZoteroHostAccess into SkillRunner runtime env", async function () {
     const fakeWorkflow = {
       manifest: {
         id: "seam-skillrunner-zotero-host-access",
@@ -300,6 +300,15 @@ describe("workflow execution seams", function () {
               skill_id: "literature-search-ingest",
               runtime_options: {
                 execution_mode: "interactive",
+                env: {
+                  KEEP_ME: "yes",
+                  ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v1",
+                  ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+                },
+                workspace: {
+                  mode: "reuse",
+                  request_id: "skillrunner-env-request-1",
+                },
                 zotero_host_access: {
                   required: true,
                   auto_approve_writes: true,
@@ -310,6 +319,19 @@ describe("workflow execution seams", function () {
           ] as any,
         resolveWorkflowExecutionContext: async () =>
           fakeExecutionContext as any,
+        buildSkillRunnerHostBridgeEnv: async (args) => {
+          assert.deepEqual(args, { backendUrl: "http://127.0.0.1:8030" });
+          return {
+            ok: true,
+            endpoint: "http://127.0.0.1:27655/bridge/v1",
+            connectionMode: "local",
+            env: {
+              ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+              ZOTERO_BRIDGE_TOKEN: "runtime-token",
+              ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+            },
+          };
+        },
         alertWindow: () => undefined,
         appendRuntimeLog: (entry) => {
           logs.push({ stage: entry.stage, details: entry.details });
@@ -323,11 +345,302 @@ describe("workflow execution seams", function () {
     }
     assert.deepEqual((result.prepared.requests[0] as any).runtime_options, {
       execution_mode: "interactive",
+      env: {
+        KEEP_ME: "yes",
+        ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+        ZOTERO_BRIDGE_TOKEN: "runtime-token",
+        ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+        ZOTERO_BRIDGE_SCOPE: JSON.stringify({
+          kind: "skillrunner-run",
+          requestId: "skillrunner-env-request-1",
+          runId: "skillrunner-env-request-1",
+        }),
+      },
+      workspace: {
+        mode: "reuse",
+        request_id: "skillrunner-env-request-1",
+      },
+      no_cache: true,
     });
     assert.include(
       logs.map((entry) => entry.stage),
-      "skillrunner_zotero_host_access_runtime_option_stripped",
+      "skillrunner_zotero_host_access_env_injected",
     );
+    assert.isUndefined(
+      (result.prepared.requests[0] as any).runtime_options.zotero_host_access,
+    );
+  });
+
+  it("translates sequence ZoteroHostAccess into SkillRunner runtime env", async function () {
+    const fakeWorkflow = {
+      manifest: {
+        id: "seam-skillrunner-sequence-zotero-host-access",
+        label: "Seam SkillRunner Sequence ZoteroHostAccess",
+        provider: "skillrunner",
+        execution: {
+          zoteroHostAccess: {
+            required: true,
+          },
+        },
+        request: { kind: "skillrunner.sequence.v1" },
+        hooks: {
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+    } as any;
+    const fakeExecutionContext = {
+      backend: {
+        id: "skillrunner-local",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      requestKind: "skillrunner.sequence.v1",
+      workflowParams: {},
+      providerOptions: {},
+      providerId: "skillrunner",
+    };
+
+    const result = await runWorkflowPreparationSeam(
+      {
+        win: {
+          ZoteroPane: {
+            getSelectedItems: () => [{ id: 1 }],
+          },
+          alert: () => undefined,
+        } as unknown as _ZoteroTypes.MainWindow,
+        workflow: fakeWorkflow,
+      },
+      {
+        buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [{ id: "one", skill_id: "debug-sequence-probe-emit" }],
+              final_step_id: "one",
+              runtime_options: {
+                env: {
+                  KEEP_ME: "yes",
+                  ZOTERO_BRIDGE_TOKEN: "old-token",
+                },
+                workspace: {
+                  mode: "reuse",
+                  request_id: "skillrunner-sequence-env-request-1",
+                },
+                zotero_host_access: {
+                  required: true,
+                },
+              },
+            },
+          ] as any,
+        resolveWorkflowExecutionContext: async () =>
+          fakeExecutionContext as any,
+        buildSkillRunnerHostBridgeEnv: async () => ({
+          ok: true,
+          endpoint: "http://127.0.0.1:27655/bridge/v1",
+          connectionMode: "local",
+          env: {
+            ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+            ZOTERO_BRIDGE_TOKEN: "runtime-token",
+            ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+          },
+        }),
+        alertWindow: () => undefined,
+        appendRuntimeLog: () => undefined,
+      },
+    );
+
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") {
+      return;
+    }
+    assert.deepEqual((result.prepared.requests[0] as any).runtime_options, {
+      env: {
+        KEEP_ME: "yes",
+        ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+        ZOTERO_BRIDGE_TOKEN: "runtime-token",
+        ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+        ZOTERO_BRIDGE_SCOPE: JSON.stringify({
+          kind: "skillrunner-run",
+          requestId: "skillrunner-sequence-env-request-1",
+          runId: "skillrunner-sequence-env-request-1",
+        }),
+      },
+      workspace: {
+        mode: "reuse",
+        request_id: "skillrunner-sequence-env-request-1",
+      },
+      no_cache: true,
+    });
+  });
+
+  it("does not translate sequence ZoteroHostAccess for ACP backends", async function () {
+    const fakeWorkflow = {
+      manifest: {
+        id: "seam-acp-sequence-zotero-host-access",
+        label: "Seam ACP Sequence ZoteroHostAccess",
+        provider: "skillrunner",
+        execution: {
+          zoteroHostAccess: {
+            required: true,
+          },
+        },
+        request: { kind: "skillrunner.sequence.v1" },
+        hooks: {
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+    } as any;
+    const fakeExecutionContext = {
+      backend: {
+        id: "acp-local",
+        type: "acp",
+        baseUrl: "local://acp",
+        auth: { kind: "none" },
+      },
+      requestKind: "skillrunner.sequence.v1",
+      workflowParams: {},
+      providerOptions: {},
+      providerId: "acp",
+    };
+    let envBuilderCalled = false;
+
+    const result = await runWorkflowPreparationSeam(
+      {
+        win: {
+          ZoteroPane: {
+            getSelectedItems: () => [{ id: 1 }],
+          },
+          alert: () => undefined,
+        } as unknown as _ZoteroTypes.MainWindow,
+        workflow: fakeWorkflow,
+      },
+      {
+        buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [{ id: "one", skill_id: "debug-sequence-probe-emit" }],
+              final_step_id: "one",
+              runtime_options: {
+                zotero_host_access: {
+                  required: true,
+                },
+              },
+            },
+          ] as any,
+        resolveWorkflowExecutionContext: async () =>
+          fakeExecutionContext as any,
+        buildSkillRunnerHostBridgeEnv: async () => {
+          envBuilderCalled = true;
+          return {
+            ok: false,
+            code: "should_not_be_called",
+            message: "ACP backend must not use SkillRunner env injection",
+          };
+        },
+        alertWindow: () => undefined,
+        appendRuntimeLog: () => undefined,
+      },
+    );
+
+    assert.equal(result.status, "ready");
+    assert.equal(envBuilderCalled, false);
+    if (result.status !== "ready") {
+      return;
+    }
+    assert.deepEqual((result.prepared.requests[0] as any).runtime_options, {
+      zotero_host_access: {
+        required: true,
+      },
+    });
+  });
+
+  it("halts SkillRunner preparation when required Host Bridge env is unavailable", async function () {
+    const alerts: string[] = [];
+    const fakeWorkflow = {
+      manifest: {
+        id: "seam-skillrunner-zotero-host-access-missing-env",
+        label: "Seam SkillRunner Missing Host Bridge Env",
+        provider: "skillrunner",
+        execution: {
+          zoteroHostAccess: {
+            required: true,
+          },
+        },
+        request: { kind: "skillrunner.job.v1" },
+        hooks: {
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+    } as any;
+    const fakeExecutionContext = {
+      backend: {
+        id: "skillrunner-local",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      requestKind: "skillrunner.job.v1",
+      workflowParams: {},
+      providerOptions: {},
+      providerId: "skillrunner",
+    };
+
+    const result = await runWorkflowPreparationSeam(
+      {
+        win: {
+          ZoteroPane: {
+            getSelectedItems: () => [{ id: 1 }],
+          },
+          alert: (message: string) => {
+            alerts.push(message);
+          },
+        } as unknown as _ZoteroTypes.MainWindow,
+        workflow: fakeWorkflow,
+      },
+      {
+        buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.job.v1",
+              skill_id: "literature-search-ingest",
+              runtime_options: {
+                zotero_host_access: {
+                  required: true,
+                },
+              },
+            },
+          ] as any,
+        resolveWorkflowExecutionContext: async () =>
+          fakeExecutionContext as any,
+        buildSkillRunnerHostBridgeEnv: async () => ({
+          ok: false,
+          code: "host_bridge_remote_lan_disabled",
+          message: "LAN access is disabled",
+          details: {
+            backendUrl: "http://192.168.13.10:9813",
+            advertisedHostSource: "auto",
+            token: "must-not-appear",
+          },
+        }),
+        alertWindow: (_win, message) => {
+          alerts.push(message);
+        },
+        appendRuntimeLog: (entry) => {
+          if (entry.stage === "skillrunner-host-bridge-env-unavailable") {
+            assert.include(JSON.stringify(entry.details), "advertisedHostSource");
+            assert.notInclude(JSON.stringify(entry.details), "must-not-appear");
+          }
+        },
+      },
+    );
+
+    assert.equal(result.status, "halted");
+    assert.include(alerts[0], "host_bridge_remote_lan_disabled");
   });
 
   it("keeps request-build failure messaging parity through seam entrypoint", async function () {
@@ -1157,6 +1470,104 @@ describe("workflow execution seams", function () {
     });
   });
 
+  it("skips final apply when the final sequence step owns applyResult", async function () {
+    let applyCalled = false;
+    const queueStub = {
+      getJob() {
+        return {
+          id: "job-1",
+          state: "succeeded",
+          meta: {
+            targetParentID: 123,
+            backendId: "acp-backend",
+            backendType: "acp",
+            providerId: "acp",
+            runId: "run-1",
+          },
+          result: {
+            status: "succeeded",
+            requestId: "final-request",
+            fetchType: "result",
+            resultJson: { ok: true },
+            responseJson: {},
+            sequence: {
+              workflow_run_id: "workflow-run-1",
+              final_step_id: "final",
+              steps: [
+                {
+                  step_id: "final",
+                  request_id: "final-request",
+                  output: { ok: true },
+                  result: {
+                    status: "succeeded",
+                    requestId: "final-request",
+                    fetchType: "result",
+                    resultJson: { ok: true },
+                    responseJson: {},
+                  },
+                  apply_result: {
+                    status: "succeeded",
+                    workflow_id: "final-workflow",
+                  },
+                },
+              ],
+            },
+          },
+        };
+      },
+    };
+
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: {
+          workflow: {
+            manifest: {
+              id: "sequence-apply",
+              label: "Sequence Apply",
+              provider: "acp",
+              request: { kind: "skillrunner.sequence.v1" },
+              hooks: { applyResult: "hooks/applyResult.js" },
+            },
+          } as any,
+          requests: [
+            {
+              kind: "skillrunner.sequence.v1",
+              targetParentID: 123,
+              final_step_id: "final",
+              steps: [
+                {
+                  id: "final",
+                  skill_id: "final-skill",
+                  apply_result: { workflow_id: "final-workflow" },
+                },
+              ],
+            },
+          ],
+          queue: queueStub as any,
+          jobIds: ["job-1"],
+          runId: "run-1",
+          totalJobs: 1,
+          idlePromise: Promise.resolve(),
+        },
+        messageFormatter: createLocalizedMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: () => undefined as any,
+        executeApplyResult: async () => {
+          applyCalled = true;
+          return { ok: true };
+        },
+      },
+    );
+
+    assert.equal(summary.succeeded, 1);
+    assert.equal(applyCalled, false);
+    assert.deepInclude(
+      summary.jobOutcomes[0].structuredApplyResult as Record<string, unknown>,
+      { skipped_final_apply: true },
+    );
+  });
+
   it("uses full-parallel queue concurrency for generic-http providers", function () {
     let capturedConcurrency = -1;
     const queueStub = {
@@ -1247,7 +1658,7 @@ describe("workflow execution seams", function () {
     assert.equal(capturedConcurrency, 1);
   });
 
-  it("routes interactive skillrunner request-created openings to the Assistant shell skillrunner tab", function () {
+  it("routes interactive skillrunner request-ready openings to the Assistant shell skillrunner tab", function () {
     let capturedQueueConfig: Record<string, unknown> | undefined;
     const assistantCalls: Array<Record<string, unknown>> = [];
     const focusCalls: Array<Record<string, unknown>> = [];
@@ -1319,6 +1730,25 @@ describe("workflow execution seams", function () {
       },
       {
         type: "request-created",
+        requestId: "req-1",
+      },
+    );
+
+    assert.lengthOf(focusCalls, 0);
+    assert.lengthOf(assistantCalls, 0);
+
+    onJobProgress?.(
+      {
+        id: "job-1",
+        workflowId: "seam-skillrunner-interactive-sidebar",
+        request: { targetParentID: 3 },
+        meta: { index: 0, requestId: "req-1" },
+        state: "running",
+        createdAt: "2026-04-17T00:00:00.000Z",
+        updatedAt: "2026-04-17T00:00:00.000Z",
+      },
+      {
+        type: "request-ready",
         requestId: "req-1",
       },
     );

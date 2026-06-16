@@ -9,11 +9,44 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Class | Location | Role |
 | --- | --- | --- |
 | Runtime DB | `state/zotero-agents.db` | Synthesis `synt_*` artifact sidecar rows, raw/canonical references, graph cache, review/override state, user-approved reference/binding decisions |
+| Topic artifact store | `data/synthesis/topics/<topicId>/current/**` | Current topic source artifacts and section JSON files that are not stored in SQLite |
+| Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
+| Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
+| Git durable exchange store | Git Sync worktree `synthesis/` root | Deterministic durable-state assets used for cross-device sync and recovery; see [Git Sync Durable State](./git-sync-durable-state.md) |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for workflow artifacts consumed by Synthesis |
 | Explicit exports/checkpoints | User-selected path or explicit export directory | Portable output, not UI hot path |
 | Debug dumps | Debug/runtime path | Diagnostics only |
-| Deprecated `data/synthesis` tree | Historical/explicit import only | Not a runtime SSOT |
+| Legacy `data/synthesis/state` tree | Historical cleanup residue only | Former sidecar/projection location. Current code must not create new files there; remaining files are old backups or rebuildable projection/cache artifacts. |
+
+## Runtime Root Layout
+
+The persistence root is the `zotero-agents` directory. Its active structure is:
+
+```text
+zotero-agents/
+  state/
+    zotero-agents.db
+    workflow-registry-status.json
+    *.bak
+  data/
+    synthesis/
+      topics/<topicId>/current/**
+      sidecar/**             # legacy/migration, sync transaction, debug only
+      deleted/**
+      state/                 # legacy cleanup residue only
+  runtime/
+    synthesis/git-sync/**
+    synthesis/git-sync-worktree/**
+    acp/**
+    cache/**
+    logs/**
+    tmp/**
+```
+
+`state/zotero-agents.db` is the only SQLite sidecar database. `data/synthesis/sidecar`
+must not be called `state`: it is scoped to topic artifact companion files and
+must not be confused with the persistence-root `state/` directory.
 
 ## SQLite Table Families
 
@@ -37,7 +70,12 @@ Synthesis runtime DB uses typed `synt_*` tables for normal UI, Host Bridge, expl
 
 Graph-derived rows that replace visible state must either be scoped by run/basis until promotion or be guarded by an equivalent active pointer. Workbench hot reads must not read staged rows from an unpromoted run.
 
-Do not store Synthesis sidecar facts in generic plugin task rows or `data/synthesis/**` JSON.
+Do not store SQLite-owned Synthesis sidecar facts in generic plugin task rows
+or ad hoc `data/synthesis/**` JSON. The only normal JSON writes under
+`data/synthesis` are topic current artifacts and deleted-topic artifact
+archives. Sync transaction manifests, durable sync indexes, explicit
+checkpoint/export/import staging files, and debug profiler outputs are explicit
+transport/debug artifacts, not Workbench SSOT.
 
 Do not use SQLite sidecar rows as proof that Zotero Library is synchronized. Correctness-sensitive reads must go back to Zotero Library and artifact notes. The only stable source item key stored by the reference sidecar is `source_ref = <libraryId>:<itemKey>`.
 
@@ -45,16 +83,29 @@ Runtime readiness has one source: `synt_cache_basis` (citation graph cache famil
 
 ## `data/synthesis` Boundary
 
-Normal startup, Workbench snapshot, cache refresh, graph cache rebuild, graph layout rebuild, topic source check, and discovery must not write `data/synthesis/**`.
+Normal startup and Workbench snapshot may read `data/synthesis/topics` and
+`data/synthesis/sidecar` when building topic artifact views. They must not treat
+legacy `data/synthesis/state` as active data.
 
-Allowed file writes:
+Allowed `data/synthesis` writes:
 
-- explicit export;
-- explicit checkpoint;
-- explicit debug dump;
-- explicit import staging requested by the user.
+- topic current artifact writes under `topics/<topicId>/current/**`;
+- deleted topic artifact moves under `deleted/**`;
+- sync transaction manifests and durable sync transport files;
+- explicit export/checkpoint/debug/import-staging writes requested by the user.
 
-These files must not feed normal Workbench UI unless the user explicitly imports them.
+Normal Workbench, runtime read-model, and governance paths must not read or
+write global sidecar JSON fallbacks such as `sidecar/index.json`,
+`sidecar/artifact-state.json`, `sidecar/projection-registry.json`,
+`sidecar/tag-index.json`, `sidecar/concept-kb-index.json`, or
+`sidecar/topic-graph-index.json`. Existing files are cleanup residue or
+explicit migration input until a separate verified maintenance action removes
+them.
+
+Rebuildable graph/cache projections must not be exported as Git durable state.
+Legacy `data/synthesis/state` and `data/synthesis/sidecar` global JSON files
+must not feed normal Workbench UI unless the user explicitly imports or recovers
+them.
 
 ## Reset and Recover
 
@@ -132,3 +183,10 @@ The Workbench Review & Overrides view should aggregate bounded DTOs:
 ## Import and Export
 
 Export/checkpoint should render from DB and topic artifacts into a portable bundle. Import should validate and write through repository APIs. It should not copy arbitrary file trees back into runtime state.
+
+Git Sync uses this rule as a hard contract:
+
+- durable facts must be exportable as canonical Git assets with a stable envelope and manifest entry;
+- the live SQLite file, WAL/SHM files, operation rows, cache basis rows, graph cache rows, layout rows, metrics rows, logs, locks, credentials, and temp workspaces are local-only;
+- import validates and dry-runs the Git durable payload before writing SQLite;
+- successful import hydrates durable facts and marks rebuildable projections stale rather than ready.

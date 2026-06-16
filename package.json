@@ -35,6 +35,7 @@
     "check:host-bridge-doc-sync": "tsx scripts/check-host-bridge-doc-sync.ts",
     "render:host-bridge-surface": "tsx scripts/render-host-bridge-surface.ts",
     "package:zotero-bridge-cli": "node scripts/package-zotero-bridge-cli.mjs",
+    "prebuild:zotero-bridge-cli": "node scripts/build-zotero-bridge-cli.mjs",
     "lint:check": "prettier --check . && eslint .",
     "lint:fix": "prettier --write . && eslint . --fix",
     "release": "zotero-plugin release",

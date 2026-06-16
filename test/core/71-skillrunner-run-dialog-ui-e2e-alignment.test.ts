@@ -57,7 +57,7 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(modelJs, "compactSkillRunnerToolValue(tool.details.pattern)");
     assert.include(modelJs, 'value === "tool_call" || value === "command_execution"');
     assert.include(modelJs, 'kind: "tool"');
-    assert.include(modelJs, "buildSkillRunnerPendingInteraction(session, status)");
+    assert.include(modelJs, "buildSkillRunnerPendingInteraction(session, status, envelope)");
     assert.include(modelJs, "buildSkillRunnerContexts(envelope)");
     assert.include(modelJs, "buildSkillRunnerDetails(envelope, session)");
     assert.include(modelJs, "Conversation Summary");
@@ -124,6 +124,7 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(js, "window.wrappedJSObject");
     assert.include(js, 'sendAction("ready"');
     assert.include(js, 'sendAction("reply-run"');
+    assert.match(js, /sendAction\(\s*"resolve-permission"/);
     assert.include(js, 'sendAction("auth-import-run"');
     assert.include(js, 'sendAction("cancel-run"');
     assert.include(js, 'sendAction("archive-run"');
@@ -137,6 +138,7 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(js, 'action === "cancel" || action === "cancel-run"');
     assert.include(js, 'action === "archive-run"');
     assert.include(js, 'action === "reply" || action === "reply-run"');
+    assert.include(js, 'action === "resolve-permission"');
     assert.include(js, 'action === "auth-import-run"');
     assert.include(js, 'mode: "interaction"');
     assert.include(js, 'mode: "auth"');

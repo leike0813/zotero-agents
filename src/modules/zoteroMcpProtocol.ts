@@ -3254,13 +3254,14 @@ async function requestCapabilityApprovalForMcp(args: {
   const previewCapability = getHostBridgeCapability("mutation.preview");
   const preview =
     args.capability.name === "mutation.execute" && previewCapability
-      ? ((await previewCapability.handler(args.input, {
-          getStatus:
-            args.context.options.resolveHostBridgeStatus ||
-            (() =>
-              (args.context.options.resolveMcpStatus?.() ||
-                {}) as HostBridgeStatusSnapshot),
-        })) as ZoteroHostMutationPreviewResponse)
+        ? ((await previewCapability.handler(args.input, {
+            getStatus:
+              args.context.options.resolveHostBridgeStatus ||
+              (() =>
+                (args.context.options.resolveMcpStatus?.() ||
+                  {}) as HostBridgeStatusSnapshot),
+            connectionMode: "local",
+          })) as ZoteroHostMutationPreviewResponse)
       : ({
           ok: true,
           operation: args.capability.name,
@@ -3329,6 +3330,7 @@ async function callHostBridgeCapabilityAsMcpTool(
       (() =>
         (context.options.resolveMcpStatus?.() ||
           {}) as HostBridgeStatusSnapshot),
+    connectionMode: "local",
     resolveSynthesisService: context.options.resolveSynthesisService,
   });
   return buildToolResult({

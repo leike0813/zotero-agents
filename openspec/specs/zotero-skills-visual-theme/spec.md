@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change unify-dashboard-sidebar-synthesis-visual-theme. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Browser UI surfaces SHALL share one visual theme foundation
 
 First-party browser UI surfaces SHALL load a shared browser theme foundation,
@@ -44,6 +46,22 @@ shared `--zs-*` token family.
   inputs SHALL use dark-compatible shared tokens
 - **AND** the page SHALL NOT force `color-scheme: light`.
 
+### Requirement: Browser action icons SHALL use the shared Material Symbols subset
+
+First-party browser UI surfaces SHALL use a local vendored Material Symbols SVG subset for in-page action and navigation icons instead of hand-drawn SVG paths or CSS pseudo-element drawings.
+
+#### Scenario: Browser page renders shared action icons
+
+- **WHEN** Dashboard, Workspace, Assistant, or Synthesis browser UI renders action icons
+- **THEN** those icons SHALL be represented by shared `zs-icon` classes backed by vendored Material Symbols SVG files
+- **AND** the page SHALL load the shared icon stylesheet before rendering page-specific controls.
+
+#### Scenario: Brand and host integration icons are preserved
+
+- **WHEN** Zotero toolbar buttons, Zotero tab icons, favicons, full-logo assets, or toast icons are rendered
+- **THEN** they MAY keep the existing bundled PNG brand assets
+- **AND** they SHALL NOT be replaced merely because browser action icons use Material Symbols.
+
 ### Requirement: Toolbar and workflow entrypoint icons SHALL match their action roles
 
 The plugin SHALL use distinct icons for workflow execution, workspace opening,
@@ -60,6 +78,17 @@ and sidebar opening entrypoints.
 - **THEN** it SHALL use `icon_workbench.png`.
 - **WHEN** the assistant/sidebar toolbar entrypoint is rendered
 - **THEN** it SHALL use `icon_sidebar.png`.
+
+### Requirement: Workspace sidebar toggle SHALL expose open and close states
+
+The unified Workspace SHALL render the Assistant sidebar toggle with distinct visual and accessible states for opening and closing the sidebar.
+
+#### Scenario: Sidebar toggle reflects host state
+
+- **WHEN** the Assistant sidebar is closed
+- **THEN** the Workspace sidebar toggle SHALL show an open-panel icon and accessible label.
+- **WHEN** the Assistant sidebar is open
+- **THEN** the Workspace sidebar toggle SHALL show a close-panel icon and accessible label.
 
 ### Requirement: Shared visual polish SHALL preserve cross-surface layout alignment
 
@@ -93,4 +122,3 @@ Settings dialog styling.
 - **THEN** those outputs SHALL remain local verification artifacts unless a
   task explicitly promotes a stable fixture
 - **AND** promoted fixtures SHALL document their purpose and update path.
-

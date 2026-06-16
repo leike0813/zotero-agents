@@ -40,6 +40,8 @@ type WorkspaceShellLabels = {
   themeDark: string;
   refresh: string;
   toggleSidebar: string;
+  openSidebar: string;
+  closeSidebar: string;
 };
 type DashboardSelection = {
   tabKey?: string;
@@ -141,6 +143,14 @@ function buildWorkspaceShellLabels(): WorkspaceShellLabels {
     toggleSidebar: localizeWorkspaceShellLabel(
       "workspace-shell-toggle-sidebar",
       "Toggle sidebar",
+    ),
+    openSidebar: localizeWorkspaceShellLabel(
+      "workspace-shell-open-sidebar",
+      "Open sidebar",
+    ),
+    closeSidebar: localizeWorkspaceShellLabel(
+      "workspace-shell-close-sidebar",
+      "Close sidebar",
     ),
   };
 }
@@ -531,6 +541,9 @@ function postSnapshot(
       payload: {
         selectedView: runtime.selectedView,
         waitingCount: countWorkspaceHumanAttentionTasks(),
+        sidebarOpen: isAssistantWorkspaceSidebarOpen({
+          window: runtime.window,
+        }),
         labels: buildWorkspaceShellLabels(),
       },
     },
@@ -710,10 +723,12 @@ async function handleAction(
       window: runtime.window,
       target: "reader",
     });
+    postSnapshot(runtime, "workspace:snapshot");
     return;
   }
   if (action === "close-sidebar") {
     closeAssistantWorkspaceSidebar({ window: runtime.window });
+    postSnapshot(runtime, "workspace:snapshot");
     return;
   }
   if (action === "toggle-sidebar") {
@@ -721,6 +736,7 @@ async function handleAction(
       window: runtime.window,
       target: "reader",
     });
+    postSnapshot(runtime, "workspace:snapshot");
     return;
   }
 }

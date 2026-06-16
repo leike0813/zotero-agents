@@ -43,6 +43,12 @@ export type SkillRunnerJobRequestV1 = ProviderExecutionRequestMeta & {
   parameter?: Record<string, unknown>;
   runtime_options?: {
     execution_mode?: "auto" | "interactive" | string;
+    collect_skill_run_feedback?: boolean;
+    workspace?: {
+      mode?: "reuse";
+      request_id?: string;
+    };
+    env?: Record<string, string>;
     zotero_host_access?: {
       required?: boolean;
       auto_approve_writes?: boolean;
@@ -78,6 +84,11 @@ export type SkillRunnerSequenceShortCircuitSpec = {
   result: "step_output";
 };
 
+export type SkillRunnerSequenceStepApplySpec = {
+  workflow_id?: string;
+  on_failure?: "continue" | "fail_sequence";
+};
+
 export type SkillRunnerSequenceStepV1 = {
   id: string;
   skill_id: string;
@@ -87,6 +98,7 @@ export type SkillRunnerSequenceStepV1 = {
   workspace?: SkillRunnerSequenceWorkspaceMode;
   handoff?: SkillRunnerSequenceHandoffSpec;
   short_circuit?: SkillRunnerSequenceShortCircuitSpec;
+  apply_result?: SkillRunnerSequenceStepApplySpec;
 };
 
 export type SkillRunnerSequenceRequestV1 = ProviderExecutionRequestMeta & {
@@ -100,6 +112,12 @@ export type SkillRunnerSequenceRequestV1 = ProviderExecutionRequestMeta & {
   };
   runtime_options?: {
     execution_mode?: "auto" | "interactive" | string;
+    collect_skill_run_feedback?: boolean;
+    workspace?: {
+      mode?: "reuse";
+      request_id?: string;
+    };
+    env?: Record<string, string>;
     zotero_host_access?: {
       required?: boolean;
       auto_approve_writes?: boolean;
@@ -175,10 +193,16 @@ export type AcpSkillRunRequestV1 = ProviderExecutionRequestMeta & {
   parameter?: Record<string, unknown>;
   runtime_options?: {
     execution_mode?: "auto" | "interactive" | string;
+    collect_skill_run_feedback?: boolean;
     zotero_host_access?: {
       required?: boolean;
       auto_approve_writes?: boolean;
     };
+    workspace?: {
+      mode?: "new" | "reuse";
+      workflow_run_id?: string;
+    };
+    /** Legacy ACP fallback. New requests must use runtime_options.workspace. */
     workflow_workspace?: {
       mode?: "new" | "reuse";
       workflow_run_id?: string;
@@ -213,6 +237,13 @@ export type ProviderExecutionSucceededResult = {
       request_id?: string;
       output?: unknown;
       result?: ProviderExecutionResult;
+      apply_result?: {
+        status?: "succeeded" | "failed" | "skipped";
+        workflow_id?: string;
+        error?: string;
+        result?: unknown;
+        updated_at?: string;
+      };
     }>;
   };
 };

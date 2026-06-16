@@ -1,6 +1,7 @@
 import { buildLiteratureDeepReadingSourceBundle } from "../../lib/literatureDeepReadingBundle.mjs";
-import { withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
 import { resolveParentItemFromSelection } from "../../lib/tagRegulatorRequest.mjs";
+import { findExistingTranslatorAlignment } from "../../lib/translatorArtifacts.mjs";
 
 function normalizeString(value) {
   return String(value || "").trim();
@@ -32,31 +33,85 @@ async function buildRequestImpl({
   const sourceEntry = attachments[0];
   const parentItem = resolveParentItemFromSelection(selectionContext, runtime);
   const workflowParams = resolveWorkflowParams(executionOptions);
+  const sourcePath = await runtime.helpers.getAttachmentFilePath?.(sourceEntry) ||
+    sourceEntry?.filePath ||
+    sourceEntry?.path ||
+    sourceEntry?.item?.filePath;
+  const existingAlignment = await findExistingTranslatorAlignment({
+    sourcePath,
+    targetLanguage: workflowParams.target_language,
+    hostApi: requireHostApi(runtime),
+  });
   const sourceBundle = await buildLiteratureDeepReadingSourceBundle({
     sourceEntry,
     parentItem,
     runtime,
     workflowParams,
+    translatorAlignmentPath:
+      existingAlignment.status === "available" ? existingAlignment.path : "",
   });
 
-  return {
-    kind: "skillrunner.job.v1",
+  const deepReadingStep = {
+    id: "deep_reading",
     skill_id: "literature-deep-reading",
-    sourceAttachmentPaths: [sourceBundle.sourcePath],
-    targetParentID: parentItem.id,
+    workspace: existingAlignment.status === "available" ? "new" : "reuse-workflow",
+    fetch_type: "bundle",
+    apply_result: {
+      workflow_id: "literature-deep-reading",
+      on_failure: "continue",
+    },
     input: {
-      source_bundle_path: "source_bundle_path/source_bundle.zip",
+      source_bundle_path: sourceBundle.bundlePath,
     },
     parameter: {
       target_language: workflowParams.target_language,
     },
-    upload_files: [
-      {
-        key: "source_bundle_path",
-        path: sourceBundle.bundlePath,
+  };
+  if (existingAlignment.status !== "available") {
+    deepReadingStep.handoff = {
+      from_step: "translate",
+      required: false,
+      pass_through: false,
+      input: {
+        translator_alignment_path: "alignment_path",
+        translator_output_path: "output_path",
+        translator_status: "status",
       },
-    ],
-    fetch_type: "bundle",
+    };
+  }
+
+  const steps =
+    existingAlignment.status === "available"
+      ? [deepReadingStep]
+      : [
+          {
+            id: "translate",
+            skill_id: "literature-translator",
+            workspace: "new",
+            fetch_type: "bundle",
+            apply_result: {
+              workflow_id: "literature-translator",
+              on_failure: "continue",
+            },
+            input: {
+              source_path: sourceBundle.sourcePath,
+            },
+            parameter: {
+              target_language: workflowParams.target_language,
+            },
+          },
+          deepReadingStep,
+        ];
+
+  return {
+    kind: "skillrunner.sequence.v1",
+    sourceAttachmentPaths: [sourceBundle.sourcePath],
+    targetParentID: parentItem.id,
+    steps,
+    final_step_id: "deep_reading",
+    parameter: {
+      target_language: workflowParams.target_language,
+    },
     poll: {
       interval_ms: 2000,
       timeout_ms: 1800000,
@@ -64,6 +119,9 @@ async function buildRequestImpl({
     context: {
       source_bundle_path: sourceBundle.bundlePath,
       source_manifest: sourceBundle.manifest,
+      translator_alignment_path:
+        existingAlignment.status === "available" ? existingAlignment.path : "",
+      translator_alignment_status: existingAlignment.status,
     },
   };
 }

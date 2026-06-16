@@ -72,6 +72,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-action-export-topic-html": "Export Topic HTML",
   "synthesis-action-copy-markdown": "Copy Markdown",
   "synthesis-action-open-digest-artifact": "Open Digest Artifact",
+  "synthesis-action-open-preferences": "Open preferences",
   "synthesis-action-open-citation-subgraph": "Open Citation Subgraph",
   "synthesis-action-merge-selected": "Merge Selected",
   "synthesis-action-cancel-target-picking": "Cancel target picking",
@@ -394,6 +395,10 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-review-empty-topic-graph": "No topic graph reviews",
   "synthesis-review-managed-by-canonical": "Managed by Canonical Revision",
   "synthesis-review-managed-in-index": "Managed in Index Review",
+  "synthesis-review-canonical-revision-title": "Canonical revision",
+  "synthesis-review-canonical-revision-body":
+    "Review whether this stale canonical should redirect to its successor or remain protected.",
+  "synthesis-review-canonical-no-successor": "No successor",
   "synthesis-review-no-index-message":
     "Adjust the Review filters or run Advanced Matching.",
   "synthesis-review-suggested-topic-relation": "Suggested topic graph relation",
@@ -455,6 +460,11 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-empty-overview": "No overview data",
   "synthesis-route-synthesis": "Route Synthesis",
   "synthesis-classification-axis": "Classification Axis",
+  "synthesis-taxonomy-axis-problem-formulation": "Problem formulation",
+  "synthesis-taxonomy-axis-technical-mechanism": "Technical mechanism",
+  "synthesis-taxonomy-axis-evidence-scope": "Evidence scope",
+  "synthesis-taxonomy-axis-research-route": "Research route",
+  "synthesis-taxonomy-axis-application-context": "Application context",
   "synthesis-taxonomy-node": "Node %count%",
   "synthesis-detail-problem": "Problem",
   "synthesis-detail-mechanism": "Mechanism",
@@ -498,8 +508,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
     "Insufficient artifact evidence",
   "synthesis-enum-coverage-caveat-artifact-evidence-limitation":
     "Artifact evidence limitation",
-  "synthesis-enum-coverage-caveat-evaluation-scope-gap":
-    "Evaluation scope gap",
+  "synthesis-enum-coverage-caveat-evaluation-scope-gap": "Evaluation scope gap",
   "synthesis-enum-coverage-caveat-evaluation-scope-limitation":
     "Evaluation scope limitation",
   "synthesis-enum-priority-high": "High",
@@ -580,6 +589,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-graph-legend-importance": "Citation importance",
   "synthesis-graph-legend-node-size": "Node size = incoming citations",
   "synthesis-graph-legend-halo": "Halo = top cited visible nodes",
+  "synthesis-graph-legend-current-paper": "Current paper",
   "synthesis-graph-diagnostic-refreshing":
     "The citation graph layout is still being computed.",
   "synthesis-graph-diagnostic-missing":
@@ -637,6 +647,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-enum-kind-concepts": "Concepts",
   "synthesis-enum-kind-zotero-binding": "Zotero binding",
   "synthesis-enum-kind-canonical-merge": "Canonical merge",
+  "synthesis-enum-kind-canonical-revision": "Canonical revision",
   "synthesis-enum-kind-canonical-reference": "Canonical reference",
   "synthesis-enum-kind-zotero-item": "Zotero item",
   "synthesis-enum-kind-library-paper": "Library paper",

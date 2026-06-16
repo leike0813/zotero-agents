@@ -103,6 +103,109 @@
         ></button>
       </hbox>
       <description data-l10n-id="pref-workflow-settings-help"></description>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-collect-skill-run-feedback"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-collect-skill-run-feedback"></html:span>
+      </html:label>
+      <description
+        data-l10n-id="pref-collect-skill-run-feedback-help"
+      ></description>
+    </vbox>
+
+    <vbox class="zs-pref-card">
+      <label
+        class="zs-pref-card-title"
+        data-l10n-id="pref-section-webdav-sync"
+      ></label>
+      <description data-l10n-id="pref-webdav-sync-help"></description>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-webdav-sync-enabled"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-webdav-sync-enabled"></html:span>
+      </html:label>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label
+          for="zotero-prefpane-__addonRef__-webdav-sync-base-url"
+          data-l10n-id="pref-webdav-sync-base-url"
+        ></html:label>
+        <html:input
+          type="text"
+          id="zotero-prefpane-__addonRef__-webdav-sync-base-url"
+          placeholder="https://example.com/webdav"
+        ></html:input>
+      </hbox>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label
+          for="zotero-prefpane-__addonRef__-webdav-sync-remote-path"
+          data-l10n-id="pref-webdav-sync-remote-path"
+        ></html:label>
+        <html:input
+          type="text"
+          id="zotero-prefpane-__addonRef__-webdav-sync-remote-path"
+          placeholder="zotero-skills/synthesis"
+        ></html:input>
+      </hbox>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label
+          for="zotero-prefpane-__addonRef__-webdav-sync-username"
+          data-l10n-id="pref-webdav-sync-username"
+        ></html:label>
+        <html:input
+          type="text"
+          id="zotero-prefpane-__addonRef__-webdav-sync-username"
+        ></html:input>
+      </hbox>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-webdav-sync-auto-sync"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-webdav-sync-auto-sync"></html:span>
+      </html:label>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-webdav-sync-auto-retry"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-webdav-sync-auto-retry"></html:span>
+      </html:label>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label
+          for="zotero-prefpane-__addonRef__-webdav-sync-credential"
+          data-l10n-id="pref-webdav-sync-credential"
+        ></html:label>
+        <html:input
+          type="password"
+          id="zotero-prefpane-__addonRef__-webdav-sync-credential"
+        ></html:input>
+        <button
+          id="zotero-prefpane-__addonRef__-webdav-sync-save-credential"
+          data-l10n-id="pref-webdav-sync-save-credential"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-webdav-sync-clear-credential"
+          data-l10n-id="pref-webdav-sync-clear-credential"
+        ></button>
+      </hbox>
+      <hbox class="zs-pref-actions-row">
+        <button
+          id="zotero-prefpane-__addonRef__-webdav-sync-save"
+          data-l10n-id="pref-webdav-sync-save"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-webdav-sync-test"
+          data-l10n-id="pref-webdav-sync-test"
+        ></button>
+      </hbox>
+      <description
+        id="zotero-prefpane-__addonRef__-webdav-sync-status"
+        data-l10n-id="pref-webdav-sync-status-idle"
+      ></description>
     </vbox>
 
     <vbox class="zs-pref-card">
@@ -117,6 +220,94 @@
         ></button>
       </hbox>
       <description data-l10n-id="pref-backend-manage-help"></description>
+    </vbox>
+
+    <vbox class="zs-pref-card">
+      <label
+        class="zs-pref-card-title"
+        data-l10n-id="pref-section-git-sync"
+      ></label>
+      <description data-l10n-id="pref-git-sync-help"></description>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-git-sync-enabled"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-git-sync-enabled"></html:span>
+      </html:label>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label
+          for="zotero-prefpane-__addonRef__-git-sync-remote-url"
+          data-l10n-id="pref-git-sync-remote-url"
+        ></html:label>
+        <html:input
+          type="text"
+          id="zotero-prefpane-__addonRef__-git-sync-remote-url"
+          placeholder="https://example.com/user/repo.git"
+        ></html:input>
+      </hbox>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label
+          for="zotero-prefpane-__addonRef__-git-sync-branch"
+          data-l10n-id="pref-git-sync-branch"
+        ></html:label>
+        <html:input
+          type="text"
+          id="zotero-prefpane-__addonRef__-git-sync-branch"
+          placeholder="main"
+        ></html:input>
+      </hbox>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-git-sync-auto-sync"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-git-sync-auto-sync"></html:span>
+      </html:label>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-git-sync-auto-retry"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-git-sync-auto-retry"></html:span>
+      </html:label>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label
+          for="zotero-prefpane-__addonRef__-git-sync-token"
+          data-l10n-id="pref-git-sync-token"
+        ></html:label>
+        <html:input
+          type="password"
+          id="zotero-prefpane-__addonRef__-git-sync-token"
+          placeholder="ghp_..."
+        ></html:input>
+        <button
+          id="zotero-prefpane-__addonRef__-git-sync-save-token"
+          data-l10n-id="pref-git-sync-save-token"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-git-sync-clear-token"
+          data-l10n-id="pref-git-sync-clear-token"
+        ></button>
+      </hbox>
+      <html:div
+        id="zotero-prefpane-__addonRef__-git-sync-token-status"
+        class="zs-runtime-data-path"
+      ></html:div>
+      <hbox class="zs-pref-actions-row">
+        <button
+          id="zotero-prefpane-__addonRef__-git-sync-save"
+          data-l10n-id="pref-git-sync-save"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-git-sync-test"
+          data-l10n-id="pref-git-sync-test"
+        ></button>
+      </hbox>
+      <description
+        id="zotero-prefpane-__addonRef__-git-sync-status"
+        data-l10n-id="pref-git-sync-status-idle"
+      ></description>
     </vbox>
 
     <vbox class="zs-pref-card">
@@ -184,9 +375,12 @@
         <html:input
           type="text"
           id="zotero-prefpane-__addonRef__-host-bridge-advertised-host"
-          placeholder="&lt;zotero-host-ip&gt;"
+          data-l10n-id="pref-host-bridge-advertised-host-input"
         ></html:input>
       </hbox>
+      <description
+        data-l10n-id="pref-host-bridge-advertised-host-help"
+      ></description>
       <html:div
         id="zotero-prefpane-__addonRef__-host-bridge-endpoint"
         class="zs-runtime-data-path"

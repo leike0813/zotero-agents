@@ -17,7 +17,10 @@ import type {
   WorkflowResultContext,
 } from "./workflowExecution/resultContext";
 
-export type WorkflowProductStorageMode = "local-workspace" | "cached-bundle";
+export type WorkflowProductStorageMode =
+  | "persistent-cache"
+  | "local-workspace"
+  | "cached-bundle";
 
 export type WorkflowProductAsset = {
   assetId: string;
@@ -25,7 +28,7 @@ export type WorkflowProductAsset = {
   path: string;
   relativePath: string;
   contentType?: string;
-  sourceKind: "local-path" | "bundle-entry" | "missing";
+  sourceKind: "product-cache" | "local-path" | "bundle-entry" | "missing";
   localPath?: string;
   entryPath?: string;
   size?: number;
@@ -117,6 +120,9 @@ export type ProductStorageApi = {
   ) => Promise<WorkflowProductPreview>;
 };
 
+export const WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK =
+  "skill_run_feedback";
+export const SKILL_RUN_FEEDBACK_ASSET_ID = "feedback";
 const STORE_SCOPE = "products";
 const DEFAULT_PREVIEW_BYTES = 256 * 1024;
 
@@ -198,6 +204,30 @@ function languageForKind(kind: WorkflowProductPreview["kind"]) {
   return "text";
 }
 
+function languageForPath(
+  path: string,
+  kind: WorkflowProductPreview["kind"],
+  contentType?: string,
+) {
+  if (kind !== "text") {
+    return languageForKind(kind);
+  }
+  const type = cleanString(contentType).toLowerCase();
+  const ext = extensionOf(path);
+  if (type.includes("html") || ext === "html" || ext === "htm") return "html";
+  if (type.includes("xml") || ext === "xml") return "xml";
+  if (type.includes("css") || ext === "css") return "css";
+  if (type.includes("javascript") || ext === "js" || ext === "mjs")
+    return "javascript";
+  if (type.includes("typescript") || ext === "ts" || ext === "tsx")
+    return "typescript";
+  if (ext === "jsx") return "javascript";
+  if (type.includes("csv") || ext === "csv") return "csv";
+  if (ext === "tsv") return "tsv";
+  if (ext === "log") return "log";
+  return languageForKind(kind);
+}
+
 function prettyJson(text: string) {
   try {
     return JSON.stringify(JSON.parse(text), null, 2);
@@ -239,10 +269,14 @@ function normalizeAsset(raw: unknown, index = 0): WorkflowProductAsset {
     path,
     relativePath: safeSegment(source.relativePath || path),
     contentType: cleanString(source.contentType) || undefined,
-    sourceKind:
-      source.sourceKind === "local-path" || source.sourceKind === "bundle-entry"
-        ? source.sourceKind
-        : "missing",
+    sourceKind: [
+      "product-cache",
+      "local-path",
+      "bundle-entry",
+      "missing",
+    ].includes(cleanString(source.sourceKind))
+      ? (cleanString(source.sourceKind) as WorkflowProductAsset["sourceKind"])
+      : "missing",
     localPath: cleanString(source.localPath) || undefined,
     entryPath: cleanString(source.entryPath) || undefined,
     size: Number.isFinite(Number(source.size))
@@ -270,8 +304,13 @@ function normalizeProductRecord(
     backendType: cleanString(raw.backendType),
     requestId: cleanString(raw.requestId),
     runId: cleanString(raw.runId) || undefined,
-    storageMode:
-      raw.storageMode === "cached-bundle" ? "cached-bundle" : "local-workspace",
+    storageMode: [
+      "persistent-cache",
+      "cached-bundle",
+      "local-workspace",
+    ].includes(cleanString(raw.storageMode))
+      ? (cleanString(raw.storageMode) as WorkflowProductStorageMode)
+      : "local-workspace",
     workspaceDir: cleanString(raw.workspaceDir) || undefined,
     cacheDir: cleanString(raw.cacheDir) || undefined,
     resultJsonPath: cleanString(raw.resultJsonPath) || undefined,
@@ -304,6 +343,109 @@ export function listWorkflowProducts() {
     .filter((entry): entry is WorkflowProductRecord => Boolean(entry))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map(cloneRecord);
+}
+
+export function listSkillRunFeedbackProducts(skillIdRaw?: string) {
+  const skillId = cleanString(skillIdRaw);
+  return listWorkflowProducts().filter((product) => {
+    if (product.kind !== WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK) {
+      return false;
+    }
+    if (!skillId) {
+      return true;
+    }
+    return cleanString(product.metadata?.skillId) === skillId;
+  });
+}
+
+function formatFeedbackAuditValue(value: unknown) {
+  const normalized = cleanString(value);
+  return normalized || "-";
+}
+
+function buildFeedbackAuditHeader(product: WorkflowProductRecord) {
+  const metadata = product.metadata || {};
+  return [
+    `workflowId: ${formatFeedbackAuditValue(product.workflowId)}`,
+    `workflowLabel: ${formatFeedbackAuditValue(product.workflowLabel)}`,
+    `skillId: ${formatFeedbackAuditValue(metadata.skillId)}`,
+    `backendId: ${formatFeedbackAuditValue(product.backendId)}`,
+    `backendType: ${formatFeedbackAuditValue(product.backendType)}`,
+    `requestId: ${formatFeedbackAuditValue(product.requestId)}`,
+    `runId: ${formatFeedbackAuditValue(product.runId)}`,
+    `jobId: ${formatFeedbackAuditValue(metadata.jobId)}`,
+    `sourcePath: ${formatFeedbackAuditValue(metadata.sourcePath)}`,
+    `collectedAt: ${formatFeedbackAuditValue(metadata.collectedAt)}`,
+    `contentHash: ${formatFeedbackAuditValue(metadata.contentHash)}`,
+    `applySucceeded: ${metadata.applySucceeded === true ? "true" : "false"}`,
+  ].join("\n");
+}
+
+export async function buildSkillRunFeedbackExportMarkdown(
+  productIdsRaw: string[],
+) {
+  const productIds = new Set(
+    (productIdsRaw || []).map((entry) => safeId(entry, "")).filter(Boolean),
+  );
+  const products = listSkillRunFeedbackProducts().filter((product) =>
+    productIds.has(product.productId),
+  );
+  const sections: string[] = [];
+  for (const product of products) {
+    const asset =
+      product.assets.find(
+        (entry) => entry.assetId === SKILL_RUN_FEEDBACK_ASSET_ID,
+      ) || product.assets[0];
+    const preview = asset
+      ? await readProductAssetPreview(product.productId, asset.assetId, {
+          maxBytes: 1024 * 1024,
+        })
+      : null;
+    const body = preview?.previewable ? preview.text : "";
+    sections.push(
+      [
+        `## ${product.title || product.productId}`,
+        "",
+        "```yaml",
+        buildFeedbackAuditHeader(product),
+        "```",
+        "",
+        body || "_Feedback body unavailable._",
+      ].join("\n"),
+    );
+  }
+  return [
+    "# Skill Run Feedback Export",
+    "",
+    `exportedAt: ${nowIso()}`,
+    `count: ${sections.length}`,
+    "",
+    ...sections,
+  ].join("\n\n");
+}
+
+function timestampForFilename() {
+  return nowIso().replace(/[:.]/g, "-");
+}
+
+export async function exportSkillRunFeedbackMarkdownFile(
+  productIdsRaw: string[],
+) {
+  const text = await buildSkillRunFeedbackExportMarkdown(productIdsRaw);
+  const exportDir = joinPath(
+    getRuntimePersistencePaths().runtimeRoot,
+    "workflow-products",
+    "exports",
+  );
+  const filePath = joinPath(
+    exportDir,
+    `skill-run-feedback-${timestampForFilename()}.md`,
+  );
+  await writeRuntimeTextFile(filePath, text);
+  return {
+    filePath,
+    text,
+  };
 }
 
 export function getWorkflowProduct(productIdRaw: string) {
@@ -414,9 +556,7 @@ export function createProductStorageApi(args: {
   const makeAsset = async (
     input: ProductStorageAssetInput,
     resolved: WorkflowResolvedArtifact | null,
-    productId: string,
     cacheDir: string,
-    forceCache: boolean,
   ): Promise<WorkflowProductAsset> => {
     const assetId = safeId(
       input.assetId || input.label || input.productAssetPath,
@@ -440,23 +580,6 @@ export function createProductStorageApi(args: {
         diagnostics: ["artifact not resolved"],
       };
     }
-    if (
-      !forceCache &&
-      resolved.sourceKind === "local-path" &&
-      resolved.sourcePath
-    ) {
-      return {
-        assetId,
-        label,
-        path: relativePath,
-        relativePath,
-        contentType: cleanString(input.contentType) || undefined,
-        sourceKind: "local-path",
-        localPath: resolved.sourcePath,
-        entryPath: resolved.entryPath,
-        size: await statAsset(resolved.sourcePath),
-      };
-    }
     const targetPath = joinPath(cacheDir, relativePath);
     await writeRuntimeTextFile(targetPath, resolved.text);
     return {
@@ -465,7 +588,7 @@ export function createProductStorageApi(args: {
       path: relativePath,
       relativePath,
       contentType: cleanString(input.contentType) || undefined,
-      sourceKind: "bundle-entry",
+      sourceKind: "product-cache",
       localPath: targetPath,
       entryPath: resolved.entryPath,
       size: await statAsset(targetPath),
@@ -474,24 +597,12 @@ export function createProductStorageApi(args: {
 
   const api: ProductStorageApi = {
     async cacheBundleAsset(input) {
-      const { productId, cacheDir } = productBase("adhoc");
-      return makeAsset(
-        input,
-        await resolveInput(input),
-        productId,
-        cacheDir,
-        true,
-      );
+      const { cacheDir } = productBase("adhoc");
+      return makeAsset(input, await resolveInput(input), cacheDir);
     },
     async registerLocalAsset(input) {
-      const { productId, cacheDir } = productBase("adhoc");
-      return makeAsset(
-        input,
-        await resolveInput(input),
-        productId,
-        cacheDir,
-        false,
-      );
+      const { cacheDir } = productBase("adhoc");
+      return makeAsset(input, await resolveInput(input), cacheDir);
     },
     async registerProduct(input) {
       const { productId, productKey, cacheDir } = productBase(
@@ -503,15 +614,7 @@ export function createProductStorageApi(args: {
       for (const assetInput of input.assets || []) {
         try {
           const resolved = await resolveInput(assetInput);
-          assets.push(
-            await makeAsset(
-              assetInput,
-              resolved,
-              productId,
-              cacheDir,
-              resolved.sourceKind !== "local-path",
-            ),
-          );
+          assets.push(await makeAsset(assetInput, resolved, cacheDir));
         } catch (error) {
           assets.push({
             assetId: safeId(assetInput.assetId || assetInput.label),
@@ -530,9 +633,6 @@ export function createProductStorageApi(args: {
           });
         }
       }
-      const hasCached = assets.some(
-        (asset) => asset.sourceKind === "bundle-entry",
-      );
       const record: WorkflowProductRecord = {
         productId,
         productKey,
@@ -544,10 +644,9 @@ export function createProductStorageApi(args: {
         backendType,
         requestId,
         runId,
-        storageMode:
-          hasCached || !workspaceDir ? "cached-bundle" : "local-workspace",
+        storageMode: "persistent-cache",
         workspaceDir: workspaceDir || undefined,
-        cacheDir: hasCached ? cacheDir : undefined,
+        cacheDir,
         resultJsonPath: resultJsonPath || undefined,
         assets,
         metadata: isRecord(input.metadata) ? { ...input.metadata } : {},
@@ -633,7 +732,7 @@ export async function readProductAssetPreview(
       previewable: false,
       truncated: true,
       kind,
-      language: languageForKind(kind),
+      language: languageForPath(path, kind, asset.contentType),
       text: "",
       size: stat.size,
       error: `file is too large to preview (${stat.size} bytes)`,
@@ -663,7 +762,7 @@ export async function readProductAssetPreview(
     previewable: true,
     truncated: false,
     kind,
-    language: languageForKind(kind),
+    language: languageForPath(path, kind, asset.contentType),
     text,
     formattedText: kind === "json" ? prettyJson(text) : text,
     size: stat.size,

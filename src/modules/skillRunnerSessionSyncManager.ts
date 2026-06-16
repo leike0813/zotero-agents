@@ -1,4 +1,5 @@
 import type { BackendInstance } from "../backends/types";
+import { isSkillRunnerRunTerminalClientError } from "../providers/skillrunner/errors";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { buildSkillRunnerManagementClient } from "./skillRunnerManagementClientFactory";
 import { updateTaskDashboardHistoryStateByRequest } from "./taskDashboardHistory";
@@ -336,6 +337,50 @@ async function streamEventLoop(session: SessionLoopState) {
       session.retryDelayMs = 800;
     } catch (error) {
       if (!isSessionActive(session)) {
+        return;
+      }
+      if (isSkillRunnerRunTerminalClientError(error)) {
+        const updatedAt = new Date().toISOString();
+        const message =
+          error instanceof Error
+            ? error.message
+            : "SkillRunner request is unavailable";
+        sessionSyncDeps.updateSkillRunnerRequestLedgerSnapshot({
+          requestId,
+          source: "jobs-terminal",
+          status: "failed",
+          error: message,
+          updatedAt,
+        });
+        sessionSyncDeps.updateWorkflowTaskStateByRequest({
+          backendId,
+          requestId,
+          state: "failed",
+          error: message,
+          updatedAt,
+        });
+        sessionSyncDeps.updateTaskDashboardHistoryStateByRequest({
+          backendId,
+          requestId,
+          state: "failed",
+          error: message,
+          updatedAt,
+        });
+        sessionSyncDeps.appendRuntimeLog({
+          level: "warn",
+          scope: "job",
+          backendId,
+          backendType: session.backend.type,
+          requestId,
+          component: "skillrunner-session-sync",
+          operation: "events-stream-terminal-run-error",
+          phase: "terminal",
+          stage: "events-stream-terminal-run-error",
+          message:
+            "skillrunner events stream stopped after terminal run-level error",
+          error,
+        });
+        stopSessionByKey(key);
         return;
       }
       sessionSyncDeps.markSkillRunnerBackendHealthFailure({

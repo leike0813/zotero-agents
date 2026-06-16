@@ -14,11 +14,13 @@ import {
 import { createUnavailableBundleReader } from "./workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "./workflowExecution/resultContext";
 import { resolveTargetParentIDFromRequest } from "./workflowExecution/requestMeta";
+import { executeSequenceStepApply } from "./workflowExecution/sequenceStepApply";
 import type {
   ProviderOrchestrationContext,
   ProviderProgressEvent,
 } from "../providers/types";
 import { appendRuntimeLog } from "./runtimeLogManager";
+import { collectSkillRunFeedbackSidecar } from "./skillRunFeedback";
 import {
   type PluginSkillRegistrySnapshot,
   scanPluginSkillRegistry,
@@ -312,7 +314,9 @@ function normalizeStringArray(value: unknown) {
 }
 
 function resolveWorkflowWorkspaceIntent(request: AcpSkillRunRequestV1) {
-  const raw = request.runtime_options?.workflow_workspace;
+  const raw =
+    request.runtime_options?.workspace ||
+    request.runtime_options?.workflow_workspace;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return undefined;
   }
@@ -1043,6 +1047,9 @@ async function applyRecoveredAcpSkillResult(args: {
     status: "succeeded",
     requestId: args.record.requestId,
     fetchType: "result",
+    backendId: args.record.backendId,
+    backendType: args.record.backendType,
+    runId: args.record.runId,
     resultJson: args.resultJson,
     resultJsonPath: args.record.resultJsonPath,
     workspaceDir: args.record.workspaceDir,
@@ -1073,6 +1080,31 @@ async function applyRecoveredAcpSkillResult(args: {
       resultContext,
       request,
       runResult,
+    });
+    const sequenceStepId = normalizeString(args.record.sequenceStepId);
+    const sequenceState = sequenceStepId
+      ? getSequenceRunStateByStepRequest(args.record.requestId)
+      : null;
+    const sequenceStepIndex = sequenceState
+      ? getSequenceStepIndexByRequestId(sequenceState, args.record.requestId)
+      : -1;
+    await collectSkillRunFeedbackSidecar({
+      workflow,
+      request,
+      runResult,
+      resultContext,
+      bundleReader,
+      jobId: normalizeString(args.record.jobId) || undefined,
+      sequenceStep: sequenceStepId
+        ? {
+            id: sequenceStepId,
+            index: sequenceStepIndex >= 0 ? sequenceStepIndex : undefined,
+            skillId:
+              normalizeString(args.record.skillId) ||
+              normalizeString(args.record.requestedSkillId),
+          }
+        : undefined,
+      appendRuntimeLog,
     });
     markAcpSkillRunApplyResult({
       requestId: args.record.requestId,
@@ -1222,6 +1254,43 @@ async function continueRecoveredSequenceStep(args: {
           ...input,
           dependencies: args.dependencies,
         }),
+      applySequenceStepResult: async (stepApply) => {
+        const applyWorkflow = await resolveWorkflowById(
+          stepApply.applyWorkflowId,
+        );
+        if (!applyWorkflow) {
+          throw new Error(
+            `sequence step apply workflow not found: ${stepApply.applyWorkflowId}`,
+          );
+        }
+        return executeSequenceStepApply({
+          workflow: applyWorkflow,
+          parent:
+            resolveTargetParentIDFromRequest(stepApply.sequenceRequest) ||
+            null,
+          request: stepApply.stepRequest,
+          runResult: {
+            ...stepApply.stepResult,
+            resultJson: stepApply.output,
+            backendId: normalizeString(backend.id) || undefined,
+            backendType: normalizeString(backend.type) || undefined,
+            runId: stepApply.workflowRunId,
+            sequence: {
+              workflow_run_id: stepApply.workflowRunId,
+              final_step_id: stepApply.sequenceRequest.final_step_id,
+              steps: stepApply.sequenceSteps,
+            },
+          },
+          sequenceStep: {
+            id: stepApply.step.id,
+            index: stepApply.stepIndex,
+            workflowId: stepApply.applyWorkflowId,
+            skillId: stepApply.step.skill_id,
+            finalStep: stepApply.finalStep,
+            phase: "sequence-step",
+          },
+        });
+      },
     });
     if (continuationResult.status !== "succeeded") {
       return {
@@ -2509,6 +2578,8 @@ export async function executeAcpSkillRunnerJob(args: {
     inputManifestPath: workspace.inputManifestPath,
     catalogRootDir: args.dependencies?.sharedSkillCatalogRootDir,
     executionMode,
+    collectSkillRunFeedback:
+      request.runtime_options?.collect_skill_run_feedback === true,
   });
   upsertAcpSkillRun({
     requestId: workspace.requestId,
@@ -2927,6 +2998,9 @@ export async function executeAcpSkillRunnerJob(args: {
       ? "waiting_user"
       : "running";
   };
+  let continueDetachedInteractiveReply:
+    | ((promptOutcome: AcpPromptOutcome) => Promise<void>)
+    | null = null;
   registerAcpSkillRunController(workspace.requestId, {
     cancel: async () => {
       cancellationRequested = true;
@@ -3005,7 +3079,14 @@ export async function executeAcpSkillRunnerJob(args: {
             message: text,
           });
           try {
-            await promptExistingSession(text);
+            interruptionRequested = false;
+            const promptOutcome = await promptExistingSession(text);
+            if (!continueDetachedInteractiveReply) {
+              throw new Error(
+                "ACP skill run output convergence is not available for replies.",
+              );
+            }
+            await continueDetachedInteractiveReply(promptOutcome);
           } catch (error) {
             if (error instanceof AcpPromptFailureError) {
               throw error;
@@ -3242,7 +3323,7 @@ export async function executeAcpSkillRunnerJob(args: {
         });
       }
       if (!fallback.payload) {
-        return false;
+        return null;
       }
       const candidateText = JSON.stringify(fallback.payload);
       await writeAcpSkillRunnerResultEnvelope({
@@ -3256,7 +3337,7 @@ export async function executeAcpSkillRunnerJob(args: {
         candidateText,
         repairRound: currentRepairRound,
       });
-      convergence = {
+      const fallbackConvergence: AcpSkillOutputConvergenceResult = {
         kind: "final",
         resultJson: fallback.payload,
         candidateText,
@@ -3285,7 +3366,268 @@ export async function executeAcpSkillRunnerJob(args: {
           },
         },
       });
-      return true;
+      return fallbackConvergence;
+    };
+    const shouldContinueDetachedApply = (
+      record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>,
+    ) =>
+      !!normalizeString(record.sequenceStepId) ||
+      !!normalizeString(record.workflowId) ||
+      !!resolveRecoveredWorkflowIdFromTask(record);
+    continueDetachedInteractiveReply = async (
+      initialPromptOutcome: AcpPromptOutcome,
+    ) => {
+      let promptOutcome = initialPromptOutcome;
+      let detachedRepairRound = Math.max(
+        0,
+        getAcpSkillRunRecord(workspace.requestId)?.repairRounds ||
+          repairRound ||
+          0,
+      );
+      const startingRepairRound = detachedRepairRound;
+      while (true) {
+        if (disconnectRequested) {
+          const disconnectedStatus = resolveDisconnectedRunStatus();
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            status: disconnectedStatus,
+            activePrompt: false,
+            replyState: "idle",
+            error: "",
+            conversationState: "closed",
+            conversationRecoveryState: "available",
+            event: {
+              stage: "disconnect-completed",
+              message: "ACP skill run local connection detached.",
+              level: "info",
+            },
+          });
+          return;
+        }
+        if (interruptionRequested || promptOutcome.cancelRequested) {
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            status: "waiting_user",
+            activePrompt: false,
+            replyState: "idle",
+            error: "",
+            conversationState: "active",
+            conversationRecoveryState: "connected",
+            event: {
+              stage: "interrupt-completed",
+              message: "ACP skill run current turn interrupted.",
+              level: "warn",
+              details: {
+                detachedReply: true,
+                cancelRequested: promptOutcome.cancelRequested === true,
+              },
+            },
+          });
+          return;
+        }
+        const promptFailure = classifyAcpPromptFailure(promptOutcome);
+        let detachedConvergence: AcpSkillOutputConvergenceResult;
+        if (promptFailure?.stage === "acp-prompt-no-output") {
+          const fallbackConvergence =
+            await resolveResultFileFallbackForCurrentTurn(detachedRepairRound);
+          if (!fallbackConvergence) {
+            await failCurrentAcpPrompt(promptFailure);
+            throw new AcpPromptFailureError(promptFailure);
+          }
+          detachedConvergence = fallbackConvergence;
+        } else if (promptFailure) {
+          await failCurrentAcpPrompt(promptFailure);
+          throw new AcpPromptFailureError(promptFailure);
+        } else {
+          detachedConvergence = await convergeAcpSkillTurnOutput({
+            assistantText: promptOutcome.assistantText,
+            executionMode,
+            runnerJson: materialization.runnerJson,
+            primarySkillDir: materialization.primarySkillDir,
+          });
+        }
+        if (detachedConvergence.kind === "pending") {
+          const replyPromise = waitForInteractiveReply();
+          projectAcpSkillRunOutputEnvelopeToTranscript({
+            requestId: workspace.requestId,
+            kind: "pending",
+            message: detachedConvergence.message,
+            candidateText: detachedConvergence.candidateText,
+            repairRound: detachedRepairRound,
+          });
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            status: "waiting_user",
+            activePrompt: false,
+            conversationState: "active",
+            validationStatus: "pending",
+            validationErrors: [],
+            outputConvergenceState: "pending",
+            repairRounds: detachedRepairRound,
+            lastTurnOutput: detachedConvergence.candidateText,
+            pendingInteraction: {
+              message: detachedConvergence.message,
+              uiHints: detachedConvergence.uiHints,
+              candidateText: detachedConvergence.candidateText,
+            },
+            event: {
+              stage: "waiting-user",
+              message: detachedConvergence.message,
+              level: "info",
+              details: {
+                detachedReply: true,
+                uiHints: detachedConvergence.uiHints,
+              },
+            },
+          });
+          const reply = await replyPromise;
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            status: "running",
+            activePrompt: true,
+            pendingInteraction: null,
+            event: {
+              stage: "reply-received",
+              message: "User reply received; continuing ACP skill run.",
+              level: "info",
+              details: {
+                detachedReply: true,
+              },
+            },
+          });
+          interruptionRequested = false;
+          promptOutcome = await promptExistingSession(reply);
+          continue;
+        }
+        if (detachedConvergence.kind === "final") {
+          await writeAcpSkillRunnerResultEnvelope({
+            resultJsonPath: workspace.resultJsonPath,
+            resultJson: detachedConvergence.resultJson,
+          });
+          projectAcpSkillRunOutputEnvelopeToTranscript({
+            requestId: workspace.requestId,
+            kind: "final",
+            resultJson: detachedConvergence.resultJson,
+            candidateText: detachedConvergence.candidateText,
+            repairRound: detachedRepairRound,
+          });
+          const latest = getAcpSkillRunRecord(workspace.requestId);
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            status: "succeeded",
+            activePrompt: false,
+            conversationState: "active",
+            validationStatus: "valid",
+            validationErrors: [],
+            outputConvergenceState: "final",
+            repairRounds: detachedRepairRound,
+            pendingInteraction: null,
+            lastTurnOutput: detachedConvergence.candidateText,
+            resultJson: detachedConvergence.resultJson,
+            applyResultState:
+              latest?.applyResultState === "succeeded"
+                ? "succeeded"
+                : "pending",
+            event: {
+              stage: "detached-reply-output-validation-succeeded",
+              message:
+                detachedRepairRound > startingRepairRound
+                  ? `Detached reply output repair round ${detachedRepairRound} succeeded.`
+                  : "Detached reply output validation succeeded.",
+              level: "info",
+              details: {
+                resultJsonPath: workspace.resultJsonPath,
+                repairRounds: detachedRepairRound,
+              },
+            },
+          });
+          const afterFinal = getAcpSkillRunRecord(workspace.requestId);
+          if (
+            afterFinal &&
+            afterFinal.applyResultState !== "succeeded" &&
+            shouldContinueDetachedApply(afterFinal)
+          ) {
+            await continueRecoveredSequenceStep({
+              record: {
+                ...afterFinal,
+                status: "succeeded",
+                resultJson: detachedConvergence.resultJson,
+              },
+              resultJson: detachedConvergence.resultJson,
+              dependencies: args.dependencies,
+            });
+          }
+          return;
+        }
+        recordAcpSkillRunOutputRevision({
+          requestId: workspace.requestId,
+          status: "invalid",
+          candidateText: detachedConvergence.candidateText,
+          repairRound: detachedRepairRound,
+          errors: detachedConvergence.errors,
+        });
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          status:
+            detachedRepairRound < maxRepairRounds ? "repairing" : "failed",
+          activePrompt: false,
+          repairRounds: detachedRepairRound,
+          validationStatus: "invalid",
+          validationErrors: detachedConvergence.errors,
+          outputConvergenceState: "invalid",
+          lastTurnOutput: detachedConvergence.candidateText,
+          error:
+            detachedRepairRound >= maxRepairRounds
+              ? `ACP SkillRunner-compatible output validation failed: ${detachedConvergence.errors.join("; ")}`
+              : "",
+          event: {
+            stage: "detached-reply-output-validation-failed",
+            message: "Detached reply output validation failed.",
+            level: detachedRepairRound < maxRepairRounds ? "warn" : "error",
+            details: {
+              errors: detachedConvergence.errors,
+              repairRound: detachedRepairRound,
+              maxRepairRounds,
+            },
+          },
+        });
+        if (detachedRepairRound >= maxRepairRounds) {
+          throw new Error(
+            `ACP SkillRunner-compatible output validation failed: ${detachedConvergence.errors.join("; ")}`,
+          );
+        }
+        detachedRepairRound += 1;
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          status: "repairing",
+          activePrompt: true,
+          repairRounds: detachedRepairRound,
+          pendingInteraction: null,
+          event: {
+            stage: "repair-started",
+            message: `Output repair round ${detachedRepairRound} started.`,
+            level: "warn",
+            details: {
+              detachedReply: true,
+              errors: detachedConvergence.errors,
+            },
+          },
+        });
+        const repairPrompt = await buildRunPrompt({
+          context,
+          repairPrompt: buildAcpSkillOutputRepairPrompt({
+            executionMode,
+            previousCandidate: detachedConvergence.candidateText,
+            errors: detachedConvergence.errors,
+            repairRound: detachedRepairRound,
+            maxRepairRounds,
+            outputContractDetails:
+              materialization.outputContractDetailsMarkdown,
+          }),
+        });
+        interruptionRequested = false;
+        promptOutcome = await promptExistingSession(repairPrompt);
+      }
     };
     while (true) {
       const promptResult = await promptExistingSession(nextPrompt);
@@ -3352,7 +3694,10 @@ export async function executeAcpSkillRunnerJob(args: {
       }
       const promptFailure = classifyAcpPromptFailure(promptResult);
       if (promptFailure?.stage === "acp-prompt-no-output") {
-        if (await resolveResultFileFallbackForCurrentTurn(repairRound)) {
+        const fallbackConvergence =
+          await resolveResultFileFallbackForCurrentTurn(repairRound);
+        if (fallbackConvergence) {
+          convergence = fallbackConvergence;
           break;
         }
         await failCurrentAcpPrompt(promptFailure);
@@ -3452,7 +3797,10 @@ export async function executeAcpSkillRunnerJob(args: {
         nextPrompt = reply;
         continue;
       }
-      if (await resolveResultFileFallbackForCurrentTurn(repairRound)) {
+      const fallbackConvergence =
+        await resolveResultFileFallbackForCurrentTurn(repairRound);
+      if (fallbackConvergence) {
+        convergence = fallbackConvergence;
         break;
       }
       upsertAcpSkillRun({

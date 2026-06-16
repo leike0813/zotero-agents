@@ -140,6 +140,84 @@ def resolve_input_path(raw: str, input_path: Path) -> Path:
     return (Path.cwd() / candidate).resolve()
 
 
+def request_input_from_manifest(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    request_input = value.get("input")
+    return request_input if isinstance(request_input, dict) else {}
+
+
+def request_parameter_from_manifest(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    request_parameter = value.get("parameter")
+    return request_parameter if isinstance(request_parameter, dict) else {}
+
+
+def audit_input_manifest_candidates(input_path: Path, skill_id: str) -> list[Path]:
+    run_root = Path.cwd()
+    candidates: list[Path] = []
+    audit_root = run_root / ".audit"
+    if skill_id:
+        candidates.extend(sorted(audit_root.glob(f"{skill_id}*/input_manifest.json")))
+    candidates.extend(sorted(audit_root.glob("*/input_manifest.json")))
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except Exception:
+            resolved = candidate
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(candidate)
+    return unique
+
+
+def hydrate_input_from_audit_manifest(input_payload: dict[str, Any], input_path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    hydrated = dict(input_payload)
+    parameter = hydrated.get("parameter") if isinstance(hydrated.get("parameter"), dict) else {}
+    hydrated_parameter = dict(parameter)
+    diagnostics: list[dict[str, Any]] = []
+    for candidate in audit_input_manifest_candidates(input_path, "literature-deep-reading"):
+        if not candidate.exists() or not candidate.is_file():
+            continue
+        try:
+            manifest = read_json(candidate, {})
+        except Exception as exc:
+            diagnostics.append({"severity": "warning", "code": "input_manifest_read_failed", "path": normalize_posix(candidate), "message": str(exc)})
+            continue
+        manifest_input = request_input_from_manifest(manifest)
+        manifest_parameter = request_parameter_from_manifest(manifest)
+        changed: list[str] = []
+        for key in ["source_bundle_path", "translator_alignment_path", "translator_output_path", "translator_status"]:
+            if clean_text(hydrated.get(key)):
+                continue
+            value = manifest_input.get(key)
+            if value is None:
+                continue
+            hydrated[key] = value
+            changed.append(key)
+        for key in ["target_language"]:
+            if clean_text(hydrated_parameter.get(key)) or clean_text(hydrated.get(key)):
+                continue
+            value = manifest_parameter.get(key)
+            if value is None:
+                continue
+            hydrated_parameter[key] = value
+            changed.append(f"parameter.{key}")
+        if changed:
+            hydrated["parameter"] = hydrated_parameter
+            diagnostics.append({"severity": "info", "code": "input_hydrated_from_audit_manifest", "path": normalize_posix(candidate), "fields": changed})
+            try:
+                write_json(input_path, hydrated)
+            except Exception as exc:
+                diagnostics.append({"severity": "warning", "code": "runtime_input_writeback_failed", "path": normalize_posix(input_path), "message": str(exc)})
+        break
+    return hydrated, diagnostics
+
+
 def is_object(value: Any) -> bool:
     return isinstance(value, dict)
 
@@ -150,6 +228,38 @@ def as_list(value: Any) -> list[Any]:
 
 def clean_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def creator_name(value: Any) -> str:
+    if isinstance(value, str):
+        return clean_text(value)
+    if not isinstance(value, dict):
+        return ""
+    full_name = first_text(value.get("name"), value.get("fullName"), value.get("full_name"))
+    if full_name:
+        return full_name
+    first = first_text(value.get("firstName"), value.get("first_name"), value.get("given"))
+    last = first_text(value.get("lastName"), value.get("last_name"), value.get("family"))
+    return " ".join(part for part in [first, last] if part).strip()
+
+
+def normalize_author_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [clean_text(value)] if clean_text(value) else []
+    authors: list[str] = []
+    for entry in as_list(value):
+        name = creator_name(entry)
+        if name:
+            authors.append(name)
+    return authors
+
+
+def authors_from_record(record: dict[str, Any]) -> list[str]:
+    for key in ["authors", "author", "creators", "creator"]:
+        authors = normalize_author_list(record.get(key))
+        if authors:
+            return authors
+    return []
 
 
 def first_text(*values: Any) -> str:
@@ -759,6 +869,223 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
     return sections, blocks, references_anchor
 
 
+def alignment_pair_text(pair: Any, key: str) -> str:
+    return clean_text(pair.get(key)) if isinstance(pair, dict) else ""
+
+
+def alignment_block_markdown(block: dict[str, Any], key: str, pair_key: str) -> str:
+    direct = clean_text(block.get(key))
+    if direct:
+        return direct
+    lines = [
+        alignment_pair_text(pair, pair_key)
+        for pair in as_list(block.get("pairs"))
+        if alignment_pair_text(pair, pair_key)
+    ]
+    return "\n".join(lines).strip()
+
+
+def translator_kind_to_reading_kind(kind: str, source_markdown: str) -> str:
+    normalized = clean_text(kind)
+    if normalized == "equation":
+        return "formula"
+    if normalized == "figure_caption" and extract_image_refs(source_markdown):
+        return "image"
+    if normalized == "abstract":
+        return "paragraph"
+    if normalized == "bib_item":
+        return "paragraph"
+    if normalized in {"heading", "paragraph", "table", "list", "image", "formula", "code"}:
+        return normalized
+    return "paragraph"
+
+
+def heading_title_from_markdown(source_markdown: str, fallback: str) -> tuple[str, int]:
+    match = HEADING_RE.match(source_markdown.strip())
+    if match:
+        return match.group(2).strip(), len(match.group(1))
+    return clean_text(fallback) or "Document", 1
+
+
+def alignment_to_reading_structure(alignment: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]:
+    sections: list[dict[str, Any]] = []
+    blocks: list[dict[str, Any]] = []
+    used_anchors: dict[str, int] = {}
+    current_anchor = "sec-document"
+    current_role = "main"
+    references_anchor: str | None = None
+    bibliography_seen = False
+
+    def ensure_default_section() -> None:
+        if not sections:
+            sections.append(
+                {
+                    "section_id": "section-0001",
+                    "anchor": current_anchor,
+                    "title": "Document",
+                    "level": 0,
+                    "order_index": 1,
+                    "parent_anchor": "",
+                    "source_start_block": "",
+                    "source_end_block": "",
+                    "role": current_role,
+                }
+            )
+
+    def add_section(title: str, level: int, role: str) -> str:
+        anchor = slugify(title, used_anchors)
+        parent_anchor = ""
+        for section in reversed(sections):
+            if int(section["level"]) < level:
+                parent_anchor = str(section["anchor"])
+                break
+        sections.append(
+            {
+                "section_id": f"section-{len(sections) + 1:04d}",
+                "anchor": anchor,
+                "title": title,
+                "level": level,
+                "order_index": len(sections) + 1,
+                "parent_anchor": parent_anchor,
+                "source_start_block": "",
+                "source_end_block": "",
+                "role": role,
+            }
+        )
+        return anchor
+
+    for index, raw_block in enumerate(as_list(alignment.get("blocks")), start=1):
+        if not isinstance(raw_block, dict):
+            continue
+        block_id = clean_text(raw_block.get("b")) or f"b_{index:03d}"
+        source_markdown = alignment_block_markdown(raw_block, "source_markdown", "src")
+        if not source_markdown:
+            continue
+        source_type = clean_text(raw_block.get("type"))
+        if source_type == "heading":
+            title, level = heading_title_from_markdown(
+                source_markdown,
+                clean_text(raw_block.get("heading")),
+            )
+            current_role = role_for_heading(title, current_role, bibliography_seen)
+            current_anchor = add_section(title, level, current_role)
+            if current_role == "bibliography":
+                references_anchor = current_anchor
+                bibliography_seen = True
+        else:
+            ensure_default_section()
+        kind = translator_kind_to_reading_kind(source_type, source_markdown)
+        role = "bibliography" if source_type == "bib_item" else current_role
+        block = {
+            "block_id": block_id,
+            "section_anchor": current_anchor,
+            "kind": kind,
+            "role": role,
+            "order_index": len(blocks) + 1,
+            "line_start": index,
+            "line_end": index,
+            "source_markdown": source_markdown,
+            "image_refs": extract_image_refs(source_markdown),
+            "translate": role != "bibliography",
+        }
+        if kind == "formula":
+            match = DISPLAY_MATH_RE.search(source_markdown)
+            block["latex"] = match.group(1).strip() if match else source_markdown.strip().strip("$").strip()
+        if kind == "table":
+            block["table_markdown_or_html"] = source_markdown
+            block["caption_markdown"] = ""
+        blocks.append(block)
+        for section in sections:
+            if section["anchor"] == current_anchor:
+                if not section["source_start_block"]:
+                    section["source_start_block"] = block_id
+                section["source_end_block"] = block_id
+                break
+
+    return sections, blocks, references_anchor
+
+
+def source_only_alignment_from_blocks(blocks: list[dict[str, Any]], target_language: str) -> dict[str, Any]:
+    alignment_blocks: list[dict[str, Any]] = []
+    for index, block in enumerate(blocks, start=1):
+        block_id = f"b_{index:03d}"
+        source_markdown = clean_text(block.get("source_markdown"))
+        kind = clean_text(block.get("kind"))
+        source_type = "equation" if kind == "formula" else kind or "paragraph"
+        alignment_blocks.append(
+            {
+                "b": block_id,
+                "type": source_type,
+                "heading": "",
+                "source_markdown": source_markdown,
+                "translated_markdown": "",
+                "pairs": [
+                    {
+                        "i": 1,
+                        "src": source_markdown,
+                        "tgt": "",
+                        "status": "source_only",
+                        "repair_count": 0,
+                    }
+                ],
+            }
+        )
+    return {
+        "format": "v1",
+        "doc_id": "D1",
+        "source_language": "",
+        "target_language": target_language,
+        "metadata": {
+            "source": "literature-deep-reading.source_only_alignment",
+        },
+        "blocks": alignment_blocks,
+    }
+
+
+def valid_translator_alignment(value: Any, target_language: str) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("format") == "v1"
+        and clean_text(value.get("target_language")) == target_language
+        and isinstance(value.get("blocks"), list)
+    )
+
+
+def load_translator_alignment(input_payload: dict[str, Any], input_path: Path, target_language: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any] | None:
+    candidates: list[tuple[str, Path]] = []
+    explicit = clean_text(input_payload.get("translator_alignment_path"))
+    if explicit:
+        candidates.append(("input.translator_alignment_path", resolve_input_path(explicit, input_path)))
+    candidates.append(("bundle.translator_alignment", SOURCE_DIR / "translator" / "alignment.json"))
+    for source, path in candidates:
+        if not path.exists():
+            continue
+        try:
+            alignment = read_json(path, {})
+        except Exception as exc:
+            diagnostics.append({"severity": "warning", "code": "translator_alignment_read_failed", "source": source, "path": normalize_posix(path), "message": str(exc)})
+            continue
+        if valid_translator_alignment(alignment, target_language):
+            metadata = alignment.get("metadata") if isinstance(alignment.get("metadata"), dict) else {}
+            return {
+                **alignment,
+                "metadata": {
+                    **metadata,
+                    "import_source": source,
+                    "import_path": normalize_posix(path),
+                },
+            }
+        diagnostics.append({"severity": "warning", "code": "translator_alignment_invalid", "source": source, "path": normalize_posix(path)})
+    return None
+
+
+def alignment_has_translations(alignment: dict[str, Any]) -> bool:
+    for block in as_list(alignment.get("blocks")):
+        if isinstance(block, dict) and alignment_block_markdown(block, "translated_markdown", "tgt"):
+            return True
+    return False
+
+
 def build_image_manifest(extract_dir: Path, blocks: list[dict[str, Any]], source_manifest: dict[str, Any] | None) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -768,9 +1095,11 @@ def build_image_manifest(extract_dir: Path, blocks: list[dict[str, Any]], source
             if not isinstance(entry, dict):
                 continue
             bundle_path = str(entry.get("bundle_path") or entry.get("path") or "")
-            original_src = str(entry.get("original_src") or entry.get("src") or bundle_path)
+            original_src = str(entry.get("original_src") or entry.get("src") or entry.get("source") or bundle_path)
             if bundle_path:
                 seen.add(bundle_path)
+            if original_src:
+                seen.add(original_src)
             path = extract_dir / bundle_path if bundle_path else Path()
             exists = bool(bundle_path and path.exists())
             byte_count = path.stat().st_size if exists else safe_int(entry.get("bytes"), 0)
@@ -1569,6 +1898,7 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
     input_payload = read_json(input_path, {})
     if not isinstance(input_payload, dict):
         raise ValueError("runtime input must be a JSON object")
+    input_payload, input_hydration_diagnostics = hydrate_input_from_audit_manifest(input_payload, input_path)
     bundle_raw = str(input_payload.get("source_bundle_path") or "").strip()
     if not bundle_raw:
         raise ValueError("runtime input requires source_bundle_path")
@@ -1578,11 +1908,11 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
 
     parameter = input_payload.get("parameter") if isinstance(input_payload.get("parameter"), dict) else {}
     target_language = str(parameter.get("target_language") or input_payload.get("target_language") or "zh-CN")
+    diagnostics: list[dict[str, Any]] = list(input_hydration_diagnostics)
     extracted = safe_extract_zip(bundle_path, SOURCE_DIR)
     source_manifest = read_json(SOURCE_DIR / "source-manifest.json", {}) or {}
     source_kind = str(source_manifest.get("source_kind") or "mineru_markdown")
     source_md = SOURCE_DIR / "source.md"
-    diagnostics: list[dict[str, Any]] = []
     if not source_md.exists():
         diagnostics.append({"severity": "warning", "code": "source_md_missing", "message": "source.md is missing; PDF fallback parsing is deferred."})
         markdown = ""
@@ -1590,7 +1920,42 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
     else:
         markdown = source_md.read_text(encoding="utf-8", errors="replace")
 
-    sections, blocks, references_anchor = parse_markdown(markdown)
+    translator_alignment = load_translator_alignment(
+        input_payload,
+        input_path,
+        target_language,
+        diagnostics,
+    )
+    if translator_alignment:
+        sections, blocks, references_anchor = alignment_to_reading_structure(translator_alignment)
+        if not blocks:
+            diagnostics.append({"severity": "warning", "code": "translator_alignment_empty_blocks"})
+            sections, blocks, references_anchor = parse_markdown(markdown)
+            translator_alignment = None
+        else:
+            source_kind = "translator_alignment"
+    else:
+        if clean_text(input_payload.get("translator_status")) == "success":
+            diagnostics.append({"severity": "error", "code": "translator_alignment_handoff_missing", "message": "translator_status is success but no valid translator alignment was provided."})
+            write_json(
+                VIEWS_DIR / "diagnostics-bootstrap.json",
+                {
+                    "schema_version": "literature-deep-reading.diagnostics-bootstrap.v0",
+                    "diagnostics": diagnostics,
+                    "extracted_files": extracted,
+                    "source_bundle": {
+                        "path": str(bundle_path),
+                        "sha256": sha256_file(bundle_path),
+                        "bytes": bundle_path.stat().st_size,
+                    },
+                },
+            )
+            raise ValueError("translator_alignment_handoff_missing: translator_status=success requires a valid translator_alignment_path or bundle translator/alignment.json")
+        sections, blocks, references_anchor = parse_markdown(markdown)
+        if clean_text(input_payload.get("translator_status")) == "cancelled" and blocks:
+            translator_alignment = source_only_alignment_from_blocks(blocks, target_language)
+            sections, blocks, references_anchor = alignment_to_reading_structure(translator_alignment)
+            diagnostics.append({"severity": "info", "code": "source_only_alignment_generated"})
     if not sections:
         sections = [
             {
@@ -1632,6 +1997,17 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
     write_json(VIEWS_DIR / "host-preflight-view.json", host_preflight)
     write_json(VIEWS_DIR / "concept-needs-view.json", concept_needs)
     write_json(
+        VIEWS_DIR / "translator-alignment-view.json",
+        translator_alignment
+        if translator_alignment
+        else {
+            "format": "v1",
+            "status": "unavailable",
+            "target_language": target_language,
+            "blocks": [],
+        },
+    )
+    write_json(
         VIEWS_DIR / "diagnostics-bootstrap.json",
         {
             "schema_version": "literature-deep-reading.diagnostics-bootstrap.v0",
@@ -1658,6 +2034,7 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
             "host_preflight": normalize_posix(VIEWS_DIR / "host-preflight-view.json"),
             "topic_candidates": normalize_posix(VIEWS_DIR / "topic-candidates-view.json"),
             "concept_needs": normalize_posix(VIEWS_DIR / "concept-needs-view.json"),
+            "translator_alignment": normalize_posix(VIEWS_DIR / "translator-alignment-view.json"),
         },
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-bootstrap.json"),
         "final_html_available": False,
@@ -3027,6 +3404,145 @@ def make_translation_batch(
     }
 
 
+def build_translation_view_from_translator_alignment(
+    alignment: dict[str, Any],
+    diagnostics: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not valid_translator_alignment(alignment, target_language_from_db()):
+        return None
+    target_language = target_language_from_db()
+    has_translations = alignment_has_translations(alignment)
+    alignment_by_id = {
+        clean_text(block.get("b")): block
+        for block in as_list(alignment.get("blocks"))
+        if isinstance(block, dict) and clean_text(block.get("b"))
+    }
+    if not has_translations:
+        metadata = alignment.get("metadata") if isinstance(alignment.get("metadata"), dict) else {}
+        source_only = (
+            clean_text(alignment.get("status")) == "source_only"
+            or clean_text(metadata.get("source")) == "literature-deep-reading.source_only_alignment"
+            or (
+                bool(alignment_by_id)
+                and all(
+                    any(clean_text(pair.get("status")) == "source_only" for pair in as_list(block.get("pairs")) if isinstance(pair, dict))
+                    for block in alignment_by_id.values()
+                )
+            )
+        )
+        if not source_only:
+            return None
+        items: list[dict[str, Any]] = []
+        for block in reading_blocks():
+            block_id = clean_text(block.get("block_id"))
+            if not bool(block.get("translate")):
+                continue
+            items.append(
+                {
+                    "block_id": block_id,
+                    "section_anchor": clean_text(block.get("section_anchor")),
+                    "kind": clean_text(block.get("kind")),
+                    "source_markdown": clean_text(block.get("source_markdown")),
+                    "translated_markdown": "",
+                    "status": "source_only",
+                    "quality_notes": [],
+                }
+            )
+        diagnostics.append({"severity": "info", "code": "source_only_alignment_used"})
+        return {
+            "schema_version": "literature-deep-reading.translation-view.v0",
+            "source": "source_only_alignment",
+            "target_language": target_language,
+            "items": items,
+            "translated_count": 0,
+            "carried_over_count": 0,
+        }
+    items: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for block in reading_blocks():
+        block_id = clean_text(block.get("block_id"))
+        if not bool(block.get("translate")):
+            continue
+        kind = clean_text(block.get("kind"))
+        alignment_block = alignment_by_id.get(block_id)
+        if kind in FORMULA_BLOCK_KINDS:
+            items.append(
+                {
+                    "block_id": block_id,
+                    "section_anchor": clean_text(block.get("section_anchor")),
+                    "kind": kind,
+                    "source_markdown": clean_text(block.get("source_markdown")),
+                    "translated_markdown": clean_text(block.get("source_markdown")),
+                    "status": "carried_over",
+                    "quality_notes": [],
+                }
+            )
+            continue
+        translated = (
+            alignment_block_markdown(alignment_block, "translated_markdown", "tgt")
+            if isinstance(alignment_block, dict)
+            else ""
+        )
+        if not translated:
+            missing.append(block_id)
+            continue
+        if kind == "table":
+            table_error = table_translation_structure_error(translated)
+            if table_error:
+                diagnostics.append({"severity": "warning", "code": "translator_alignment_table_structure", "block_id": block_id, "message": table_error})
+            else:
+                diagnostics.append({"severity": "info", "code": "table_translation_structure_not_deep_verified", "block_id": block_id})
+        if kind == "image":
+            image_error = image_translation_structure_error(block, translated)
+            if image_error:
+                diagnostics.append({"severity": "warning", "code": "translator_alignment_image_structure", "block_id": block_id, "message": image_error})
+        items.append(
+            {
+                "block_id": block_id,
+                "section_anchor": clean_text(block.get("section_anchor")),
+                "kind": kind,
+                "source_markdown": clean_text(block.get("source_markdown")),
+                "translated_markdown": translated,
+                "status": "available",
+                "quality_notes": [],
+            }
+        )
+    if missing:
+        diagnostics.append({"severity": "warning", "code": "translator_alignment_incomplete", "missing_block_ids": missing})
+        return None
+    return {
+        "schema_version": "literature-deep-reading.translation-view.v0",
+        "source": "translator_alignment",
+        "target_language": target_language,
+        "items": items,
+        "translated_count": sum(1 for item in items if item.get("status") == "available"),
+        "carried_over_count": sum(1 for item in items if item.get("status") == "carried_over"),
+    }
+
+
+def empty_translation_batches_view(source: str = "translator_alignment") -> dict[str, Any]:
+    if TRANSLATION_BATCHES_DIR.exists():
+        shutil.rmtree(TRANSLATION_BATCHES_DIR)
+    TRANSLATION_BATCHES_DIR.mkdir(parents=True, exist_ok=True)
+    view = {
+        "schema_version": "literature-deep-reading.translation-batches-view.v0",
+        "source": source,
+        "target_language": target_language_from_db(),
+        "batch_dir": normalize_posix(TRANSLATION_BATCHES_DIR),
+        "batch_count": 0,
+        "required_translation_count": 0,
+        "required_block_ids": [],
+        "limits": {
+            "max_words": TRANSLATION_BATCH_MAX_WORDS,
+            "max_chars": TRANSLATION_BATCH_MAX_CHARS,
+            "max_blocks": TRANSLATION_BATCH_MAX_BLOCKS,
+        },
+        "batches": [],
+    }
+    write_json(VIEWS_DIR / "translation-batches-view.json", view)
+    return view
+
+
 def prepare_translation_batches(concepts_view: dict[str, Any], insights_view: dict[str, Any]) -> dict[str, Any]:
     target_language = target_language_from_db()
     blocks = translatable_blocks_for_batches()
@@ -3130,7 +3646,15 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
     references = build_references_view(payload)
     summary = build_summary_view(payload, diagnostics)
     extensions = build_extensions_view(payload)
-    translation_batches = prepare_translation_batches(concept_overlay, section_insights)
+    translator_translation = build_translation_view_from_translator_alignment(
+        read_view("translator-alignment-view.json", {}),
+        diagnostics,
+    )
+    if translator_translation:
+        write_json(VIEWS_DIR / "translation-view.json", translator_translation)
+        translation_batches = empty_translation_batches_view(clean_text(translator_translation.get("source")) or "translator_alignment")
+    else:
+        translation_batches = prepare_translation_batches(concept_overlay, section_insights)
     diagnostics_view = {
         "schema_version": "literature-deep-reading.diagnostics-enrichment.v0",
         "diagnostics": diagnostics,
@@ -3145,6 +3669,8 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
         "translation-batches-view": translation_batches,
         "diagnostics-enrichment": diagnostics_view,
     }
+    if translator_translation:
+        view_map["translation-view"] = translator_translation
     for filename, view in view_map.items():
         write_json(VIEWS_DIR / f"{filename}.json", view)
     persist_stage20_db(payload_path, view_map, diagnostics)
@@ -3160,6 +3686,7 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
             "summary": normalize_posix(VIEWS_DIR / "summary-view.json"),
             "extensions": normalize_posix(VIEWS_DIR / "extensions-view.json"),
             "translation_batches": normalize_posix(VIEWS_DIR / "translation-batches-view.json"),
+            **({"translation": normalize_posix(VIEWS_DIR / "translation-view.json")} if translator_translation else {}),
         },
         "translation_batch_count": safe_int(translation_batches.get("batch_count"), 0),
         "required_translation_count": safe_int(translation_batches.get("required_translation_count"), 0),
@@ -3615,6 +4142,47 @@ def read_template(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+SUPPORTED_GRAPH_LOCALES = {"en-US", "zh-CN", "fr-FR", "ja-JP"}
+
+
+def resolve_graph_locale(target_language: str) -> str:
+    normalized = clean_text(target_language).replace("_", "-")
+    if normalized in SUPPORTED_GRAPH_LOCALES:
+        return normalized
+    language = normalized.split("-")[0].lower() if normalized else ""
+    for locale in SUPPORTED_GRAPH_LOCALES:
+        if locale.split("-")[0].lower() == language:
+            return locale
+    return "en-US"
+
+
+def synthesis_graph_i18n(target_language: str) -> dict[str, Any]:
+    locale = resolve_graph_locale(target_language)
+    try:
+        payload = json.loads(read_template("citation-graph-synthesis-i18n.json"))
+    except Exception:
+        payload = {}
+    envelope = payload.get(locale) if isinstance(payload, dict) else None
+    if not isinstance(envelope, dict):
+        envelope = payload.get("en-US") if isinstance(payload, dict) else None
+    if isinstance(envelope, dict):
+        return {
+            "locale": clean_text(envelope.get("locale")) or locale,
+            "messages": envelope.get("messages") if isinstance(envelope.get("messages"), dict) else {},
+        }
+    return {"locale": locale, "messages": {}}
+
+
+def synthesis_graph_scope_label(locale: str) -> str:
+    labels = {
+        "en-US": "Current paper centered 2-hop citation neighborhood",
+        "zh-CN": "以当前文献为中心的 2 跳引用邻域",
+        "fr-FR": "Voisinage de citations a 2 sauts centre sur l'article courant",
+        "ja-JP": "現在の文献を中心とした2ホップ引用近傍",
+    }
+    return labels.get(locale, labels["en-US"])
+
+
 def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any]) -> dict[str, Any]:
     layout_nodes = {
         clean_text(node.get("node_id") or node.get("id")): node
@@ -3624,6 +4192,14 @@ def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any])
     snapshot_nodes = as_list(snapshot.get("nodes"))
     snapshot_edges = as_list(snapshot.get("edges"))
     start_node_id = clean_text(snapshot.get("start_node_id"))
+    if not start_node_id:
+        manifest = source_manifest()
+        paper = manifest.get("paper") if isinstance(manifest.get("paper"), dict) else {}
+        item_key = first_text(paper.get("item_key"), paper.get("itemKey"), paper.get("key"))
+        start_node_id = f"zotero:item:{item_key}" if item_key else ""
+    manifest = source_manifest()
+    paper = manifest.get("paper") if isinstance(manifest.get("paper"), dict) else {}
+    focus_authors = authors_from_record(paper)
     nodes: list[dict[str, Any]] = []
     for node in snapshot_nodes:
         if not isinstance(node, dict):
@@ -3643,17 +4219,24 @@ def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any])
         display_tier = clean_text(node.get("display_tier") or node.get("displayTier"))
         if not display_tier:
             display_tier = "library" if kind == "library_paper" else "shared_external"
+        is_focus = bool(start_node_id and node_id == start_node_id)
+        authors = authors_from_record(node)
+        if not authors and is_focus:
+            authors = focus_authors
         nodes.append(
             {
                 "id": node_id,
                 "title": first_text(node.get("title"), node.get("label"), node_id),
                 "kind": kind,
                 "year": clean_text(node.get("year")),
+                "authors": authors,
                 "x": x,
                 "y": y,
                 "low_signal": bool(node.get("low_signal") or node.get("lowSignal")),
                 "visibility": clean_text(node.get("visibility")) or "default",
                 "display_tier": display_tier,
+                "is_focus": is_focus,
+                "focus_role": "current_paper" if is_focus else "",
                 "metrics": node.get("metrics") if isinstance(node.get("metrics"), dict) else {},
                 "source": node,
             }
@@ -3707,6 +4290,262 @@ def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any])
         "nodes": nodes,
         "edges": edges,
         "diagnostics": diagnostics,
+    }
+
+
+def synthesis_graph_layout_status(model: dict[str, Any]) -> str:
+    diagnostics = model.get("diagnostics") if isinstance(model.get("diagnostics"), dict) else {}
+    layout_status = clean_text(diagnostics.get("layout_status"))
+    if layout_status in {"ready", "available", ""} and as_list(model.get("nodes")):
+        return "ready"
+    if layout_status in {"missing", "refreshing", "stale", "failed"}:
+        return layout_status
+    return "missing" if not as_list(model.get("nodes")) else "ready"
+
+
+def synthesis_graph_hash(model: dict[str, Any]) -> str:
+    payload = {
+        "nodes": [
+            [node.get("id"), node.get("x"), node.get("y")]
+            for node in as_list(model.get("nodes"))
+            if isinstance(node, dict)
+        ],
+        "edges": [
+            [edge.get("id"), edge.get("source"), edge.get("target")]
+            for edge in as_list(model.get("edges"))
+            if isinstance(edge, dict)
+        ],
+    }
+    digest = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return f"literature-deep-reading:{digest[:16]}"
+
+
+def percentile_value(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = int((len(ordered) - 1) * max(0.0, min(1.0, percentile)))
+    return ordered[index]
+
+
+def compress_graph_coordinates_around_focus(nodes: list[dict[str, Any]], focus_node_id: str) -> None:
+    if len(nodes) < 4:
+        return
+    focus = next((node for node in nodes if clean_text(node.get("id")) == focus_node_id), None)
+    if not isinstance(focus, dict):
+        focus = next((node for node in nodes if bool(node.get("is_focus"))), None)
+    if not isinstance(focus, dict):
+        return
+    focus_x = focus.get("x")
+    focus_y = focus.get("y")
+    if not isinstance(focus_x, (int, float)) or not isinstance(focus_y, (int, float)):
+        return
+    distances: list[float] = []
+    for node in nodes:
+        x = node.get("x")
+        y = node.get("y")
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            distances.append(float(((x - focus_x) ** 2 + (y - focus_y) ** 2) ** 0.5))
+    cap = percentile_value([value for value in distances if value > 0], 0.80)
+    if cap <= 0:
+        return
+    for node in nodes:
+        x = node.get("x")
+        y = node.get("y")
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            continue
+        dx = float(x - focus_x)
+        dy = float(y - focus_y)
+        distance = float((dx**2 + dy**2) ** 0.5)
+        if distance <= cap or distance <= 0:
+            node["x"] = dx
+            node["y"] = dy
+            continue
+        compressed = cap + (distance - cap) * 0.22
+        ratio = compressed / distance
+        node["x"] = dx * ratio
+        node["y"] = dy * ratio
+    balance_graph_axis_around_focus(nodes, "x")
+    balance_graph_axis_around_focus(nodes, "y")
+
+
+def balance_graph_axis_around_focus(nodes: list[dict[str, Any]], axis: str) -> None:
+    values = [float(node.get(axis)) for node in nodes if isinstance(node.get(axis), (int, float))]
+    if not values:
+        return
+    negative = abs(min(values))
+    positive = max(values)
+    if negative <= 0 or positive <= 0:
+        return
+    target = min(negative, positive)
+    if target <= 0:
+        return
+    for node in nodes:
+        value = node.get(axis)
+        if not isinstance(value, (int, float)) or value == 0:
+            continue
+        if value > 0:
+            node[axis] = float(value) * target / positive
+        else:
+            node[axis] = float(value) * target / negative
+
+
+def build_synthesis_graph_from_model(model: dict[str, Any]) -> dict[str, Any]:
+    nodes: list[dict[str, Any]] = []
+    for node in as_list(model.get("nodes")):
+        if not isinstance(node, dict):
+            continue
+        node_id = clean_text(node.get("id"))
+        if not node_id:
+            continue
+        nodes.append(
+            {
+                "id": node_id,
+                "label": first_text(node.get("title"), node.get("label"), node_id),
+                "kind": clean_text(node.get("kind")) or "external_reference",
+                "year": clean_text(node.get("year")),
+                "authors": normalize_author_list(node.get("authors")),
+                "x": node.get("x") if isinstance(node.get("x"), (int, float)) else 0,
+                "y": node.get("y") if isinstance(node.get("y"), (int, float)) else 0,
+                "low_signal": bool(node.get("low_signal") or node.get("lowSignal")),
+                "visibility": clean_text(node.get("visibility")) or "default",
+                "display_tier": clean_text(node.get("display_tier") or node.get("displayTier")) or "shared_external",
+                "is_focus": bool(node.get("is_focus") or node.get("isFocus")),
+                "focus_role": clean_text(node.get("focus_role") or node.get("focusRole")),
+                "metrics": node.get("metrics") if isinstance(node.get("metrics"), dict) else {},
+            }
+        )
+    focus_node_id = clean_text(model.get("start_node_id"))
+    compress_graph_coordinates_around_focus(nodes, focus_node_id)
+    node_ids = {node["id"] for node in nodes}
+    edges: list[dict[str, Any]] = []
+    for edge in as_list(model.get("edges")):
+        if not isinstance(edge, dict):
+            continue
+        source = clean_text(edge.get("source"))
+        target = clean_text(edge.get("target"))
+        edge_id = clean_text(edge.get("id"))
+        if not edge_id or source not in node_ids or target not in node_ids:
+            continue
+        edges.append(
+            {
+                "id": edge_id,
+                "source": source,
+                "target": target,
+                "primary_role": clean_text(edge.get("primary_role") or edge.get("role")),
+                "mention_count": safe_int(edge.get("mention_count") or edge.get("mentions"), 0),
+                "visibility": clean_text(edge.get("visibility")) or "default",
+            }
+        )
+    diagnostics = model.get("diagnostics") if isinstance(model.get("diagnostics"), dict) else {}
+    filters = {
+        "search": "",
+        "role": "all",
+        "topicId": "literature-deep-reading",
+        "layoutAlgorithm": "force",
+        "nodeKinds": ["library_paper", "external_reference"],
+        "showLowSignalReferences": True,
+    }
+    topic_scope = {
+        "topicId": "literature-deep-reading",
+        "title": "Citation Graph",
+        "paperRefs": [],
+        "nodeIds": [node["id"] for node in nodes],
+    }
+    return {
+        "filters": filters,
+        "graph_hash": synthesis_graph_hash(model) if nodes else "",
+        "layoutStatus": synthesis_graph_layout_status(model),
+        "layoutAlgorithm": "force",
+        "topicScopes": [topic_scope],
+        "selectedTopicScope": topic_scope,
+        "nodes": nodes,
+        "edges": edges,
+        "hoverOnlyNodes": [],
+        "hoverOnlyEdges": [],
+        "visibleNodes": nodes,
+        "visibleEdges": edges,
+        "diagnostics": {
+            **diagnostics,
+            "cache_status": "ready" if nodes else "missing",
+            "library_node_count": sum(1 for node in nodes if node.get("kind") == "library_paper"),
+            "shared_external_count": sum(1 for node in nodes if node.get("display_tier") == "shared_external"),
+            "hover_only_external_count": 0,
+        },
+    }
+
+
+def empty_synthesis_snapshot(graph: dict[str, Any], paper: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "libraryId": 0,
+        "selectedTab": "reader",
+        "storage": {},
+        "preferences": {},
+        "deletedArtifacts": {"count": 0, "rows": []},
+        "artifacts": {"filters": {}, "rows": [], "visibleRows": []},
+        "registry": {"filters": {}, "rows": [], "visibleRows": []},
+        "topicGraph": {
+            "filters": {"mode": "hierarchy", "search": ""},
+            "nodes": [],
+            "edges": [],
+            "reviewItems": [],
+            "visibleNodes": [],
+            "visibleEdges": [],
+            "inspector": {
+                "parents": [],
+                "children": [],
+                "related": [],
+                "suggestedRelations": [],
+                "relationReviewItems": [],
+                "suggestedCount": 0,
+            },
+            "manifest": {},
+            "projection": {},
+            "diagnostics": [],
+        },
+        "concepts": {
+            "filters": {
+                "search": "",
+                "conceptType": "all",
+                "status": "all",
+                "topicId": "all",
+                "overlayEnabled": False,
+                "reviewMergeTargets": {},
+            },
+            "rows": [],
+            "visibleRows": [],
+            "senses": [],
+            "aliases": [],
+            "relations": [],
+            "reviewItems": [],
+            "overlayEntries": [],
+            "conceptTypes": [],
+            "projection": {},
+            "manifest": {},
+            "diagnostics": [],
+        },
+        "graph": graph,
+        "reader": {"topicId": "literature-deep-reading", "previousTab": "artifacts"},
+    }
+
+
+def build_synthesis_export_envelope(citation_graph_model: dict[str, Any], paper: dict[str, Any]) -> dict[str, Any]:
+    graph = build_synthesis_graph_from_model(citation_graph_model)
+    snapshot = empty_synthesis_snapshot(graph, paper)
+    target_language = clean_text(paper.get("target_language")) or target_language_from_db()
+    i18n = synthesis_graph_i18n(target_language)
+    focus_node_id = first_text(
+        citation_graph_model.get("start_node_id"),
+        next((node.get("id") for node in as_list(graph.get("nodes")) if isinstance(node, dict) and node.get("is_focus")), ""),
+    )
+    return {
+        "version": 1,
+        "generatedAt": utc_now(),
+        "i18n": i18n,
+        "scopeLabel": synthesis_graph_scope_label(clean_text(i18n.get("locale")) or "en-US"),
+        "focusNodeId": focus_node_id,
+        "snapshot": snapshot,
+        "graphLayouts": {"force": graph},
     }
 
 
@@ -3829,6 +4668,7 @@ def paper_metadata() -> dict[str, Any]:
     return {
         "title": first_text(paper.get("title"), manifest.get("title"), "Literature Deep Reading"),
         "item_key": first_text(paper.get("item_key"), paper.get("itemKey"), paper.get("key")),
+        "authors": authors_from_record(paper),
         "target_language": target_language_from_db(),
     }
 
@@ -3868,21 +4708,25 @@ def build_final_sections_view(final_review: dict[str, Any], diagnostics: list[di
     source_structure = read_view("source-structure.json", {})
     source_images = build_source_images_view()
     translation = read_view("translation-view.json", {})
+    translation_available = safe_int(translation.get("translated_count"), 0) > 0
     citation_snapshot = read_view("citation-graph-snapshot.json", {})
     citation_layout = read_view("citation-graph-layout.json", {})
     layout_nodes = as_list(citation_layout.get("nodes"))
     if as_list(citation_snapshot.get("nodes")) and not layout_nodes:
         diagnostics.append({"severity": "warning", "code": "citation_graph_layout_missing"})
     citation_graph_model = build_citation_graph_model(citation_snapshot, citation_layout)
+    paper = paper_metadata()
+    citation_graph_envelope = build_synthesis_export_envelope(citation_graph_model, paper)
     blocks = reading_blocks()
     sections_view = {
         "schema_version": "literature-deep-reading.seamless-scroll.v0",
-        "paper": paper_metadata(),
+        "paper": paper,
         "navigation": build_navigation(source_structure),
         "preface": read_view("preface-view.json", {}),
         "sections": as_list(source_structure.get("sections")),
         "reading_blocks": build_render_reading_blocks(blocks, translation, "main"),
         "appendix_reading_blocks": build_render_reading_blocks(blocks, translation, "appendix"),
+        "translation_available": translation_available,
         "summary": read_view("summary-view.json", {}),
         "post_reading_markdown": "",
         "section_insights": read_view("section-insights-view.json", {}),
@@ -3894,6 +4738,7 @@ def build_final_sections_view(final_review: dict[str, Any], diagnostics: list[di
             "snapshot": citation_snapshot,
             "layout": citation_layout,
             "model": citation_graph_model,
+            "synthesis_export_envelope": citation_graph_envelope,
         },
         "extensions": read_view("extensions-view.json", {}),
         "translation": translation,
@@ -3918,24 +4763,280 @@ def safe_inline_json(value: Any) -> str:
     )
 
 
-def render_final_html(sections_view: dict[str, Any]) -> str:
-    title = html.escape(clean_text(sections_view.get("paper", {}).get("title")) or "Literature Deep Reading")
-    template = read_template("deep-reading.html.tpl")
-    style = read_template("deep-reading.css")
-    graph_style = read_template("citation-graph-standalone.css")
-    script = read_template("deep-reading.js")
-    graph_script = read_template("citation-graph-standalone.js")
+def html_attr(value: Any) -> str:
+    return html.escape(str(value or ""), quote=True)
+
+
+def static_block_id(block: dict[str, Any]) -> str:
+    return clean_text(block.get("id")) or clean_text(block.get("block_id"))
+
+
+def sanitize_static_html_fragment(fragment: str) -> str:
+    return re.sub(r"\s+xmlns=[\"']http://www\.w3\.org/1998/Math/MathML[\"']", "", fragment or "", flags=re.IGNORECASE)
+
+
+def static_attach_image_sources(fragment: str, images: dict[str, Any]) -> str:
+    if not fragment:
+        return ""
+    by_path = images.get("by_path") if isinstance(images.get("by_path"), dict) else {}
+    by_src = images.get("by_src") if isinstance(images.get("by_src"), dict) else {}
+
+    def replace_img(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        if re.search(r"\ssrc=", tag, re.IGNORECASE):
+            return tag
+        key_match = re.search(r"\sdata-image-src=[\"']([^\"']+)[\"']", tag, re.IGNORECASE)
+        if not key_match:
+            return tag
+        key = key_match.group(1)
+        item = by_path.get(key) or by_src.get(key)
+        data_uri = item.get("data_uri") if isinstance(item, dict) else ""
+        if not data_uri:
+            return tag
+        return tag[:-1] + f' src="{html_attr(data_uri)}">'
+
+    return sanitize_static_html_fragment(re.sub(r"<img\b[^>]*>", replace_img, fragment, flags=re.IGNORECASE))
+
+
+def static_reading_block_html(block: dict[str, Any], mode: str, images: dict[str, Any]) -> str:
+    block_id = static_block_id(block)
+    section_anchor = clean_text(block.get("section_anchor"))
+    kind = clean_text(block.get("kind")) or "text"
+    source_html = static_attach_image_sources(str(block.get("source_html") or ""), images)
+    translation_html = static_attach_image_sources(str(block.get("translation_html") or ""), images)
+    if mode == "source":
+        return f'<section class="source-block block-{html_attr(kind)}" data-block-id="{html_attr(block_id)}" data-section-anchor="{html_attr(section_anchor)}">{source_html}</section>'
+    if mode == "translation":
+        return f'<section class="translation-section block-{html_attr(kind)}" data-block-id="{html_attr(block_id)}" data-section-anchor="{html_attr(section_anchor)}">{translation_html}</section>'
     return (
-        template.replace("{{TITLE}}", title)
-        .replace("{{STYLE}}", style + "\n" + graph_style)
-        .replace("{{DATA_JSON}}", safe_inline_json(sections_view))
-        .replace("{{SCRIPT}}", graph_script + "\n" + script)
+        f'<section class="aligned-block-pair block-{html_attr(kind)}" data-block-id="{html_attr(block_id)}" data-section-anchor="{html_attr(section_anchor)}">'
+        f'<div class="aligned-source">{source_html}</div><div class="aligned-translation">{translation_html}</div></section>'
     )
 
 
+def static_reading_region(blocks: list[dict[str, Any]], mode: str, images: dict[str, Any]) -> str:
+    return "".join(static_reading_block_html(block, mode, images) for block in blocks if isinstance(block, dict))
+
+
+def static_nav_html(sections_view: dict[str, Any]) -> str:
+    items = []
+    for item in as_list(sections_view.get("navigation")):
+        if not isinstance(item, dict):
+            continue
+        anchor = clean_text(item.get("anchor"))
+        title = clean_text(item.get("title"))
+        if not anchor or not title:
+            continue
+        level = safe_int(item.get("level"), 1)
+        items.append(f'<a href="#{html_attr(anchor)}" data-anchor="{html_attr(anchor)}" class="level-{html_attr(level)}">{html.escape(title)}</a>')
+    return "".join(items)
+
+
+def static_concept_rail_html(sections_view: dict[str, Any]) -> str:
+    concepts = as_list((sections_view.get("concepts") or {}).get("concepts") if isinstance(sections_view.get("concepts"), dict) else [])
+    chips = []
+    for concept in concepts[:24]:
+        if not isinstance(concept, dict):
+            continue
+        label = first_text(concept.get("label"), concept.get("id"), concept.get("concept_id"))
+        if not label:
+            continue
+        kind = clean_text(concept.get("kind"))
+        chips.append(f'<button type="button" class="concept-chip"><strong>{html.escape(label)}</strong>{f"<span>{html.escape(kind)}</span>" if kind else ""}</button>')
+    return '<div class="concept-rail-header"><strong>Concepts</strong></div><button type="button" class="concept-toggle" aria-label="概念导航"></button><div class="concept-list">' + "".join(chips) + "</div>"
+
+
+def static_preface_html(sections_view: dict[str, Any]) -> str:
+    preface = sections_view.get("preface") if isinstance(sections_view.get("preface"), dict) else {}
+    title = first_text(preface.get("title"), "阅读前导读")
+    goal = clean_text(preface.get("goal"))
+    cards = "".join(
+        f'<article class="preface-card"><h2>{html.escape(clean_text(card.get("title")) or "阅读提示")}</h2><p>{html.escape(clean_text(card.get("body")))}</p></article>'
+        for card in as_list(preface.get("cards"))
+        if isinstance(card, dict)
+    )
+    reading_path = as_list(preface.get("reading_path"))
+    reading_path_html = ""
+    if reading_path:
+        reading_path_html = "<h2>阅读路线</h2><ul>" + "".join(f"<li>{html.escape(clean_text(item))}</li>" for item in reading_path if clean_text(item)) + "</ul>"
+    return f'<h1 id="{html_attr(preface.get("anchor") or "preface")}">{html.escape(title)}</h1><p class="kicker">{html.escape(goal)}</p><div class="preface-grid">{cards}</div>{reading_path_html}'
+
+
+def static_summary_html(sections_view: dict[str, Any]) -> str:
+    summary = sections_view.get("summary") if isinstance(sections_view.get("summary"), dict) else {}
+    sections = as_list(summary.get("sections"))
+    body = "".join(
+        f'<section class="summary-block"><h2>{html.escape(clean_text(section.get("title")) or "Summary")}</h2><p>{html.escape(clean_text(section.get("body")) or clean_text(section.get("markdown")))}</p></section>'
+        for section in sections
+        if isinstance(section, dict)
+    )
+    return f'<h1 id="summary">Summary</h1>{body}'
+
+
+def static_references_html(sections_view: dict[str, Any]) -> str:
+    references = sections_view.get("references") if isinstance(sections_view.get("references"), dict) else {}
+    source_label = "structured references artifact" if references.get("references_source") == "artifact" else "markdown fallback"
+    items = []
+    for ref in as_list(references.get("items")):
+        if not isinstance(ref, dict):
+            continue
+        ref_index = clean_text(ref.get("reference_index"))
+        title = first_text(ref.get("title"), (ref.get("raw") or {}).get("raw") if isinstance(ref.get("raw"), dict) else "", "Untitled reference")
+        authors = ", ".join(clean_text(author) for author in as_list(ref.get("authors")) if clean_text(author))
+        note = clean_text((ref.get("digest_note") or {}).get("role_in_current_paper") if isinstance(ref.get("digest_note"), dict) else "")
+        items.append(
+            '<article class="reference-item">'
+            f'<span class="reference-index">{html.escape(ref_index)}</span>'
+            f'<div><p class="reference-title">{html.escape(title)}</p><div class="reference-meta">{html.escape(authors)}</div>{f"<p class=\"reference-note\">{html.escape(note)}</p>" if note else ""}</div>'
+            f'<div class="reference-year">{html.escape(clean_text(ref.get("year")))}</div>'
+            "</article>"
+        )
+    return f'<section class="structured-references" id="references"><div class="references-summary"><strong>References</strong><span>{html.escape(clean_text(references.get("reference_count")) or str(len(items)))} 篇 · {html.escape(source_label)}</span></div><div class="reference-list">{"".join(items)}</div></section>'
+
+
+def static_extensions_html(sections_view: dict[str, Any]) -> str:
+    extensions = sections_view.get("extensions") if isinstance(sections_view.get("extensions"), dict) else {}
+    items = "".join(
+        f'<article class="extension"><h2>{html.escape(clean_text(item.get("title")) or "Extension")}</h2><p>{html.escape(clean_text(item.get("body")) or clean_text(item.get("description")))}</p></article>'
+        for item in as_list(extensions.get("items"))
+        if isinstance(item, dict)
+    )
+    return f'<h1 id="extensions">Extensions</h1>{items}'
+
+
+def static_reading_aid_html(sections_view: dict[str, Any]) -> str:
+    preface = sections_view.get("preface") if isinstance(sections_view.get("preface"), dict) else {}
+    concepts = as_list(preface.get("concepts"))
+    chips = "".join(f'<span class="chip">{html.escape(clean_text(item.get("label") if isinstance(item, dict) else item))}</span>' for item in concepts[:10] if clean_text(item.get("label") if isinstance(item, dict) else item))
+    return f'<section><h2>当前位置</h2><p>阅读前导读</p></section><section><h2>阅读目标</h2><p>{html.escape(clean_text(preface.get("goal")))}</p></section><section><h2>相关概念</h2><div class="chips">{chips}</div></section>'
+
+
+def static_graph_is_current_node(node: dict[str, Any], model: dict[str, Any]) -> bool:
+    return bool(node.get("is_focus") or clean_text(node.get("focus_role")) == "current_paper" or (clean_text(model.get("start_node_id")) and clean_text(node.get("id")) == clean_text(model.get("start_node_id"))))
+
+
+def static_citation_graph_html(sections_view: dict[str, Any]) -> str:
+    graph = sections_view.get("citation_graph") if isinstance(sections_view.get("citation_graph"), dict) else {}
+    model = graph.get("model") if isinstance(graph.get("model"), dict) else {}
+    nodes = [node for node in as_list(model.get("nodes")) if isinstance(node, dict) and isinstance(node.get("x"), (int, float)) and isinstance(node.get("y"), (int, float))]
+    node_ids = {clean_text(node.get("id")) for node in nodes}
+    edges = [edge for edge in as_list(model.get("edges")) if isinstance(edge, dict) and clean_text(edge.get("source")) in node_ids and clean_text(edge.get("target")) in node_ids]
+    if not nodes:
+        return '<h1 id="citation-graph">Citation Graph</h1><p class="static-viewer-note">当前没有可用的图布局坐标。</p>'
+    width, height = 900, 520
+    xs = [float(node.get("x")) for node in nodes]
+    ys = [float(node.get("y")) for node in nodes]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    pad = 42
+    span_x = max(1.0, max_x - min_x)
+    span_y = max(1.0, max_y - min_y)
+
+    def point(node: dict[str, Any]) -> tuple[float, float]:
+        x = pad + (float(node.get("x")) - min_x) / span_x * (width - pad * 2)
+        y = pad + (max_y - float(node.get("y"))) / span_y * (height - pad * 2)
+        return x, y
+
+    node_by_id = {clean_text(node.get("id")): node for node in nodes}
+    edge_html = []
+    for edge in edges:
+        source = node_by_id.get(clean_text(edge.get("source")))
+        target = node_by_id.get(clean_text(edge.get("target")))
+        if not source or not target:
+            continue
+        x1, y1 = point(source)
+        x2, y2 = point(target)
+        edge_html.append(f'<line class="static-cg-edge" x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" />')
+    node_html = []
+    for node in nodes:
+        x, y = point(node)
+        is_current = static_graph_is_current_node(node, model)
+        kind = clean_text(node.get("kind"))
+        display_tier = clean_text(node.get("display_tier"))
+        incoming = safe_int((node.get("metrics") or {}).get("internal_in_degree") if isinstance(node.get("metrics"), dict) else 0, 0)
+        radius = min(15, 6 + max(0, incoming) * 1.2)
+        if is_current:
+            radius *= 1.5
+            color = "#ef4444"
+        elif kind == "library_paper":
+            color = "#2563eb"
+        elif display_tier == "single_external":
+            color = "#d97706"
+        else:
+            color = "#65a30d"
+        halo = f'<circle class="static-cg-halo" cx="{x:.2f}" cy="{y:.2f}" r="{radius + 7:.2f}" />' if is_current or incoming >= 2 else ""
+        label = f'<text class="static-cg-label" x="{x + radius + 5:.2f}" y="{y + 4:.2f}">{html.escape(clean_text(node.get("title"))[:64])}</text>' if is_current else ""
+        node_html.append(f'{halo}<circle class="static-cg-node{" is-current-paper" if is_current else ""}" cx="{x:.2f}" cy="{y:.2f}" r="{radius:.2f}" fill="{color}"><title>{html.escape(clean_text(node.get("title")) or clean_text(node.get("id")))}</title></circle>{label}')
+    return (
+        '<div class="static-citation-graph" data-static-citation-graph>'
+        '<div class="static-cg-legend"><strong>引用方向</strong><span><i class="edge"></i>引用关系</span><strong>引用重要性</strong><span><i class="node"></i>节点大小 = 入站引用数</span><span><i class="current"></i>当前论文</span></div>'
+        '<div class="static-cg-stage"><div class="static-cg-scope">当前论文 2 跳引用邻域</div>'
+        f'<svg class="static-cg-svg" viewBox="0 0 {width} {height}" role="img" aria-label="Citation Graph">'
+        f'<g>{ "".join(edge_html) }</g><g>{ "".join(node_html) }</g></svg></div></div>'
+    )
+
+
+def build_static_shell_fragments(sections_view: dict[str, Any]) -> dict[str, str]:
+    images = sections_view.get("images") if isinstance(sections_view.get("images"), dict) else {}
+    reading_blocks = [block for block in as_list(sections_view.get("reading_blocks")) if isinstance(block, dict)]
+    appendix_blocks = [block for block in as_list(sections_view.get("appendix_reading_blocks")) if isinstance(block, dict)]
+    return {
+        "STATIC_CONCEPT_RAIL": static_concept_rail_html(sections_view),
+        "STATIC_NAV": static_nav_html(sections_view),
+        "STATIC_PREFACE": static_preface_html(sections_view),
+        "STATIC_SOURCE_READING": static_reading_region(reading_blocks, "source", images),
+        "STATIC_COMPARE_READING": static_reading_region(reading_blocks, "compare", images),
+        "STATIC_TRANSLATION_READING": static_reading_region(reading_blocks, "translation", images),
+        "STATIC_SUMMARY": static_summary_html(sections_view),
+        "STATIC_POST_READING": static_references_html(sections_view),
+        "STATIC_APPENDIX_SOURCE": static_reading_region(appendix_blocks, "source", images),
+        "STATIC_APPENDIX_COMPARE": static_reading_region(appendix_blocks, "compare", images),
+        "STATIC_APPENDIX_TRANSLATION": static_reading_region(appendix_blocks, "translation", images),
+        "STATIC_CITATION_GRAPH": static_citation_graph_html(sections_view),
+        "STATIC_EXTENSIONS": static_extensions_html(sections_view),
+        "STATIC_READING_AID": static_reading_aid_html(sections_view),
+    }
+
+
+def render_final_html(sections_view: dict[str, Any]) -> str:
+    title = html.escape(clean_text(sections_view.get("paper", {}).get("title")) or "Literature Deep Reading")
+    target_language = html.escape(clean_text(sections_view.get("paper", {}).get("target_language")))
+    body_class = "mode-compare static-fallback" if sections_view.get("translation_available") is not False else "mode-original translation-unavailable"
+    template = read_template("deep-reading.html.tpl")
+    style = read_template("deep-reading.css")
+    fallback_graph_style = read_template("citation-graph-standalone.css")
+    script = read_template("deep-reading.js")
+    fallback_graph_script = read_template("citation-graph-standalone.js")
+    graph_assets = {
+        "synthesisCss": read_template("citation-graph-synthesis.css"),
+        "synthesisThemeJs": read_template("citation-graph-synthesis-theme.js"),
+        "synthesisAppJs": read_template("citation-graph-synthesis-app.js"),
+    }
+    graph_assets_script = "window.__ZoteroSkillsDeepReadingCitationGraphAssets=" + safe_inline_json(graph_assets) + ";"
+    html_text = (
+        template.replace("{{TITLE}}", title)
+        .replace("{{BODY_CLASS}}", body_class)
+        .replace("{{PAPER_TITLE}}", title)
+        .replace("{{PAPER_META}}", target_language)
+        .replace("{{STYLE}}", style + "\n" + fallback_graph_style)
+        .replace("{{DATA_JSON}}", safe_inline_json(sections_view))
+        .replace("{{SCRIPT}}", graph_assets_script + "\n" + fallback_graph_script + "\n" + script)
+    )
+    for key, value in build_static_shell_fragments(sections_view).items():
+        html_text = html_text.replace("{{" + key + "}}", value)
+    return html_text
+
+
 def external_html_references(html_text: str) -> list[str]:
-    patterns = ["http://", "https://", "file://", 'src="assets/', "src='assets/", 'href="assets/', "href='assets/", 'src="sections/', "src='sections/", 'href="sections/', "href='sections/"]
-    return [pattern for pattern in patterns if pattern in html_text]
+    checks = [
+        ("external src", r"\bsrc=[\"'](?:https?://|file://)"),
+        ("external srcset", r"\bsrcset=[\"'](?:https?://|file://)"),
+        ("external resource href", r"<(?:link|base)\b[^>]*\bhref=[\"'](?:https?://|file://)"),
+        ("file href", r"\bhref=[\"']file://"),
+        ("loose asset src", r"\bsrc=[\"'](?:assets|sections)/"),
+        ("loose asset href", r"\bhref=[\"'](?:assets|sections)/"),
+    ]
+    return [label for label, pattern in checks if re.search(pattern, html_text, flags=re.IGNORECASE)]
 
 
 def persist_stage40_db(payload_path: Path, final_review: dict[str, Any], diagnostics: list[dict[str, Any]]) -> None:

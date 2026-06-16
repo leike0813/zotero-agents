@@ -13,12 +13,14 @@ pub struct BridgeConfig {
     pub endpoint: String,
     pub token: Option<String>,
     pub scope: Option<Value>,
+    pub connection_mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Profile {
     endpoint: Option<String>,
+    connection_mode: Option<String>,
     token: Option<String>,
     token_env: Option<String>,
     auth: Option<ProfileAuth>,
@@ -38,6 +40,8 @@ impl BridgeConfig {
         let endpoint = cli
             .endpoint
             .clone()
+            .or_else(|| env::var("ZOTERO_BRIDGE_ENDPOINT").ok())
+            .filter(|value| !value.trim().is_empty())
             .or_else(|| profile.as_ref().and_then(|entry| entry.endpoint.clone()))
             .ok_or_else(|| {
                 CliError::config(
@@ -76,10 +80,33 @@ impl BridgeConfig {
                     .filter(|value| !value.trim().is_empty())
             });
 
+        let scope = env::var("ZOTERO_BRIDGE_SCOPE")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| {
+                serde_json::from_str::<Value>(&value).map_err(|error| {
+                    CliError::config(
+                        "config_invalid_scope",
+                        format!("ZOTERO_BRIDGE_SCOPE must be valid JSON: {error}"),
+                    )
+                })
+            })
+            .transpose()?
+            .or_else(|| profile.as_ref().and_then(|entry| entry.scope.clone()));
+        let connection_mode = env::var("ZOTERO_BRIDGE_CONNECTION_MODE")
+            .ok()
+            .and_then(|value| normalize_connection_mode(Some(&value)))
+            .or_else(|| {
+                profile
+                    .as_ref()
+                    .and_then(|entry| normalize_connection_mode(entry.connection_mode.as_deref()))
+            });
+
         Ok(Self {
             endpoint: normalize_endpoint(&endpoint)?,
             token,
-            scope: profile.and_then(|entry| entry.scope),
+            scope,
+            connection_mode,
         })
     }
 
@@ -177,12 +204,30 @@ fn normalize_endpoint(endpoint: &str) -> Result<String, CliError> {
     Ok(trimmed.to_string())
 }
 
+fn normalize_connection_mode(value: Option<&str>) -> Option<String> {
+    match value.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+        "local" => Some("local".to_string()),
+        "remote" => Some("remote".to_string()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{env, fs, path::PathBuf};
+    use std::{
+        env, fs,
+        path::PathBuf,
+        sync::{Mutex, OnceLock},
+    };
 
     use super::{normalize_endpoint, BridgeConfig};
     use crate::{args::Cli, args::Command};
+
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn env_lock() -> &'static Mutex<()> {
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn normalizes_http_bridge_endpoint() {
@@ -200,6 +245,7 @@ mod tests {
 
     #[test]
     fn reads_token_from_profile_auth_token() {
+        let _guard = env_lock().lock().unwrap();
         let root = env::temp_dir().join(format!("zotero-bridge-profile-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let profile = root.join("profile.json");
@@ -223,6 +269,195 @@ mod tests {
         assert_eq!(config.endpoint, "http://127.0.0.1:26570/bridge/v1");
         assert_eq!(config.token.as_deref(), Some("profile-token"));
         if let Some(value) = previous {
+            env::set_var("ZOTERO_BRIDGE_TOKEN", value);
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn endpoint_env_overrides_profile_endpoint() {
+        let _guard = env_lock().lock().unwrap();
+        let root =
+            env::temp_dir().join(format!("zotero-bridge-profile-env-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let profile = root.join("profile.json");
+        fs::write(
+            &profile,
+            r#"{
+              "schema": "zotero-bridge.profile.v1",
+              "endpoint": "http://127.0.0.1:26570/bridge/v1",
+              "auth": { "type": "bearer", "token": "profile-token" }
+            }"#,
+        )
+        .unwrap();
+        let previous_endpoint = env::var("ZOTERO_BRIDGE_ENDPOINT").ok();
+        let previous_token = env::var("ZOTERO_BRIDGE_TOKEN").ok();
+        env::set_var(
+            "ZOTERO_BRIDGE_ENDPOINT",
+            "http://192.0.2.25:27655/bridge/v1",
+        );
+        env::remove_var("ZOTERO_BRIDGE_TOKEN");
+        let cli = Cli {
+            endpoint: None,
+            profile: Some(PathBuf::from(&profile)),
+            command: Command::Status,
+        };
+        let config = BridgeConfig::load(&cli).unwrap();
+        assert_eq!(config.endpoint, "http://192.0.2.25:27655/bridge/v1");
+        assert_eq!(config.token.as_deref(), Some("profile-token"));
+        if let Some(value) = previous_endpoint {
+            env::set_var("ZOTERO_BRIDGE_ENDPOINT", value);
+        } else {
+            env::remove_var("ZOTERO_BRIDGE_ENDPOINT");
+        }
+        if let Some(value) = previous_token {
+            env::set_var("ZOTERO_BRIDGE_TOKEN", value);
+        } else {
+            env::remove_var("ZOTERO_BRIDGE_TOKEN");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn accepts_profile_connection_mode() {
+        let _guard = env_lock().lock().unwrap();
+        let root =
+            env::temp_dir().join(format!("zotero-bridge-profile-mode-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let profile = root.join("profile.json");
+        fs::write(
+            &profile,
+            r#"{
+              "schema": "zotero-bridge.profile.v1",
+              "endpoint": "http://127.0.0.1:26570/bridge/v1",
+              "connectionMode": "remote",
+              "auth": { "type": "bearer", "token": "profile-token" }
+            }"#,
+        )
+        .unwrap();
+        let previous_endpoint = env::var("ZOTERO_BRIDGE_ENDPOINT").ok();
+        let previous_token = env::var("ZOTERO_BRIDGE_TOKEN").ok();
+        let previous_mode = env::var("ZOTERO_BRIDGE_CONNECTION_MODE").ok();
+        env::remove_var("ZOTERO_BRIDGE_ENDPOINT");
+        env::remove_var("ZOTERO_BRIDGE_TOKEN");
+        env::remove_var("ZOTERO_BRIDGE_CONNECTION_MODE");
+        let cli = Cli {
+            endpoint: None,
+            profile: Some(PathBuf::from(&profile)),
+            command: Command::Status,
+        };
+        let config = BridgeConfig::load(&cli).unwrap();
+        assert_eq!(config.endpoint, "http://127.0.0.1:26570/bridge/v1");
+        assert_eq!(config.token.as_deref(), Some("profile-token"));
+        assert_eq!(config.connection_mode.as_deref(), Some("remote"));
+        if let Some(value) = previous_endpoint {
+            env::set_var("ZOTERO_BRIDGE_ENDPOINT", value);
+        }
+        if let Some(value) = previous_token {
+            env::set_var("ZOTERO_BRIDGE_TOKEN", value);
+        }
+        if let Some(value) = previous_mode {
+            env::set_var("ZOTERO_BRIDGE_CONNECTION_MODE", value);
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn connection_mode_env_overrides_profile_connection_mode() {
+        let _guard = env_lock().lock().unwrap();
+        let root = env::temp_dir().join(format!(
+            "zotero-bridge-profile-mode-env-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let profile = root.join("profile.json");
+        fs::write(
+            &profile,
+            r#"{
+              "schema": "zotero-bridge.profile.v1",
+              "endpoint": "http://127.0.0.1:26570/bridge/v1",
+              "connectionMode": "local",
+              "auth": { "type": "bearer", "token": "profile-token" }
+            }"#,
+        )
+        .unwrap();
+        let previous_endpoint = env::var("ZOTERO_BRIDGE_ENDPOINT").ok();
+        let previous_token = env::var("ZOTERO_BRIDGE_TOKEN").ok();
+        let previous_mode = env::var("ZOTERO_BRIDGE_CONNECTION_MODE").ok();
+        env::remove_var("ZOTERO_BRIDGE_ENDPOINT");
+        env::remove_var("ZOTERO_BRIDGE_TOKEN");
+        env::set_var("ZOTERO_BRIDGE_CONNECTION_MODE", "remote");
+        let cli = Cli {
+            endpoint: None,
+            profile: Some(PathBuf::from(&profile)),
+            command: Command::Status,
+        };
+        let config = BridgeConfig::load(&cli).unwrap();
+        assert_eq!(config.connection_mode.as_deref(), Some("remote"));
+        if let Some(value) = previous_endpoint {
+            env::set_var("ZOTERO_BRIDGE_ENDPOINT", value);
+        }
+        if let Some(value) = previous_token {
+            env::set_var("ZOTERO_BRIDGE_TOKEN", value);
+        }
+        if let Some(value) = previous_mode {
+            env::set_var("ZOTERO_BRIDGE_CONNECTION_MODE", value);
+        } else {
+            env::remove_var("ZOTERO_BRIDGE_CONNECTION_MODE");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn scope_env_overrides_profile_scope() {
+        let _guard = env_lock().lock().unwrap();
+        let root = env::temp_dir().join(format!(
+            "zotero-bridge-profile-scope-env-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let profile = root.join("profile.json");
+        fs::write(
+            &profile,
+            r#"{
+              "schema": "zotero-bridge.profile.v1",
+              "endpoint": "http://127.0.0.1:26570/bridge/v1",
+              "scope": { "kind": "acp-skill-run", "requestId": "profile-run" },
+              "auth": { "type": "bearer", "token": "profile-token" }
+            }"#,
+        )
+        .unwrap();
+        let previous_scope = env::var("ZOTERO_BRIDGE_SCOPE").ok();
+        let previous_endpoint = env::var("ZOTERO_BRIDGE_ENDPOINT").ok();
+        let previous_token = env::var("ZOTERO_BRIDGE_TOKEN").ok();
+        env::remove_var("ZOTERO_BRIDGE_ENDPOINT");
+        env::remove_var("ZOTERO_BRIDGE_TOKEN");
+        env::set_var(
+            "ZOTERO_BRIDGE_SCOPE",
+            r#"{"kind":"skillrunner-run","requestId":"skillrunner-run-1"}"#,
+        );
+        let cli = Cli {
+            endpoint: None,
+            profile: Some(PathBuf::from(&profile)),
+            command: Command::Status,
+        };
+        let config = BridgeConfig::load(&cli).unwrap();
+        assert_eq!(
+            config.scope.unwrap(),
+            serde_json::json!({
+                "kind": "skillrunner-run",
+                "requestId": "skillrunner-run-1"
+            })
+        );
+        if let Some(value) = previous_scope {
+            env::set_var("ZOTERO_BRIDGE_SCOPE", value);
+        } else {
+            env::remove_var("ZOTERO_BRIDGE_SCOPE");
+        }
+        if let Some(value) = previous_endpoint {
+            env::set_var("ZOTERO_BRIDGE_ENDPOINT", value);
+        }
+        if let Some(value) = previous_token {
             env::set_var("ZOTERO_BRIDGE_TOKEN", value);
         }
         let _ = fs::remove_dir_all(root);

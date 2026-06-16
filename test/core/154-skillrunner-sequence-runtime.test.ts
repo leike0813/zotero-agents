@@ -78,7 +78,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     }
   });
 
-  it("accepts ACP sequence manifests and rejects invalid sequence references", function () {
+  it("accepts ACP and SkillRunner sequence manifests and rejects invalid sequence references", function () {
     const accepted = parseWorkflowManifestFromText({
       raw: JSON.stringify(sequenceManifest()),
       manifestPath: "workflow.json",
@@ -109,7 +109,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
       raw: JSON.stringify(sequenceManifest({ provider: "skillrunner" })),
       manifestPath: "workflow.json",
     });
-    assert.equal(nonAcp.manifest, null);
+    assert.equal(nonAcp.diagnostic, null);
+    assert.equal(nonAcp.manifest?.provider, "skillrunner");
   });
 
   it("accepts and compiles sequence step short-circuit rules", function () {
@@ -157,6 +158,59 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.deepEqual(request.steps[0].short_circuit, {
       when: { path: "status", equals: "canceled" },
       result: "step_output",
+    });
+    assert.doesNotThrow(() =>
+      assertRequestPayloadContract({
+        requestKind: "skillrunner.sequence.v1",
+        request,
+      }),
+    );
+  });
+
+  it("accepts and compiles sequence step apply_result declarations", function () {
+    const accepted = parseWorkflowManifestFromText({
+      raw: JSON.stringify(
+        sequenceManifest({
+          request: {
+            kind: "skillrunner.sequence.v1",
+            sequence: {
+              steps: [
+                {
+                  id: "prepare",
+                  skill_id: "prepare-skill",
+                  workspace: "new",
+                  apply_result: {
+                    workflow_id: "prepare-workflow",
+                    on_failure: "continue",
+                  },
+                },
+                {
+                  id: "finalize",
+                  skill_id: "finalize-skill",
+                  workspace: "reuse-workflow",
+                },
+              ],
+            },
+          },
+        }),
+      ),
+      manifestPath: "workflow.json",
+    });
+    assert.equal(accepted.diagnostic, null);
+
+    const request = compileDeclarativeRequest({
+      kind: "skillrunner.sequence.v1",
+      selectionContext: {
+        items: {
+          parents: [{ item: { id: 1 } }],
+        },
+      },
+      manifest: accepted.manifest!,
+    }) as any;
+
+    assert.deepEqual(request.steps[0].apply_result, {
+      workflow_id: "prepare-workflow",
+      on_failure: "continue",
     });
     assert.doesNotThrow(() =>
       assertRequestPayloadContract({
@@ -371,11 +425,15 @@ describe("skillrunner.sequence.v1 runtime", function () {
       },
     );
     assert.deepEqual(
-      (launched[2].request.runtime_options as any).workflow_workspace,
+      (launched[2].request.runtime_options as any).workspace,
       {
         mode: "reuse",
         workflow_run_id: "workflow-run-1",
       },
+    );
+    assert.notProperty(
+      launched[2].request.runtime_options as Record<string, unknown>,
+      "workflow_workspace",
     );
     assert.notProperty(
       launched[2].request.parameter as Record<string, unknown>,
@@ -409,6 +467,132 @@ describe("skillrunner.sequence.v1 runtime", function () {
           finalStepId: "finalize",
         },
       ],
+    );
+  });
+
+  it("applies opt-in steps before launching downstream steps", async function () {
+    const events: string[] = [];
+    const result = await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        targetParentID: 42,
+        steps: [
+          {
+            id: "prepare",
+            skill_id: "prepare-skill",
+            workspace: "new",
+            apply_result: {
+              workflow_id: "prepare-workflow",
+              on_failure: "continue",
+            },
+          },
+          {
+            id: "finalize",
+            skill_id: "finalize-skill",
+            workspace: "reuse-workflow",
+          },
+        ],
+        final_step_id: "finalize",
+      },
+      backend: {
+        id: "acp-backend",
+        type: "acp",
+        baseUrl: "local://acp",
+        auth: { kind: "none" },
+      },
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-apply",
+      jobId: "job-apply",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        const skillId = String((request as { skill_id?: unknown }).skill_id);
+        events.push(`run:${skillId}`);
+        return {
+          status: "succeeded",
+          requestId: `${skillId}-request`,
+          fetchType: "result",
+          resultJson: { skillId },
+          responseJson: {},
+        };
+      },
+      applySequenceStepResult: async (args) => {
+        events.push(`apply:${args.applyWorkflowId}:${args.step.id}`);
+        assert.equal(args.stepRequest.targetParentID, 42);
+        return { applied: args.step.id };
+      },
+    });
+
+    assert.deepEqual(events, [
+      "run:prepare-skill",
+      "apply:prepare-workflow:prepare",
+      "run:finalize-skill",
+    ]);
+    assert.equal(
+      result.sequence?.steps?.[0]?.apply_result?.status,
+      "succeeded",
+    );
+  });
+
+  it("records non-blocking step apply failures and continues downstream", async function () {
+    const events: string[] = [];
+    const result = await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "prepare",
+            skill_id: "prepare-skill",
+            workspace: "new",
+            apply_result: {
+              workflow_id: "prepare-workflow",
+              on_failure: "continue",
+            },
+          },
+          {
+            id: "finalize",
+            skill_id: "finalize-skill",
+            workspace: "reuse-workflow",
+          },
+        ],
+        final_step_id: "finalize",
+      },
+      backend: {
+        id: "acp-backend",
+        type: "acp",
+        baseUrl: "local://acp",
+        auth: { kind: "none" },
+      },
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-apply-failure",
+      jobId: "job-apply-failure",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        const skillId = String((request as { skill_id?: unknown }).skill_id);
+        events.push(`run:${skillId}`);
+        return {
+          status: "succeeded",
+          requestId: `${skillId}-request`,
+          fetchType: "result",
+          resultJson: { skillId },
+          responseJson: {},
+        };
+      },
+      applySequenceStepResult: async () => {
+        events.push("apply:failed");
+        throw new Error("apply broke");
+      },
+    });
+
+    assert.deepEqual(events, [
+      "run:prepare-skill",
+      "apply:failed",
+      "run:finalize-skill",
+    ]);
+    assert.equal(result.status, "succeeded");
+    assert.equal(result.sequence?.steps?.[0]?.apply_result?.status, "failed");
+    assert.include(
+      String(result.sequence?.steps?.[0]?.apply_result?.error || ""),
+      "apply broke",
     );
   });
 
@@ -867,32 +1051,58 @@ describe("skillrunner.sequence.v1 runtime", function () {
     }
   });
 
-  it("fails closed when executing sequence on a non-ACP backend", async function () {
-    try {
-      await executeSkillRunnerSequence({
-        request: {
-          kind: "skillrunner.sequence.v1",
-          steps: [{ id: "digest", skill_id: "literature-analysis" }],
-          final_step_id: "digest",
-        },
-        backend: {
-          id: "skillrunner-backend",
-          type: "skillrunner",
-          baseUrl: "http://127.0.0.1:8030",
-          auth: { kind: "none" },
-        },
-        providerOptions: {},
-        workflowId: "sequence-workflow",
-        workflowRunId: "workflow-run-non-acp",
-        jobId: "job-non-acp",
-        appendRuntimeLog: () => {},
-        executeWithProvider: async () => {
-          throw new Error("should not launch");
-        },
-      });
-      assert.fail("expected non-ACP sequence execution to fail");
-    } catch (error) {
-      assert.include(String(error), "only supported on ACP");
-    }
+  it("compiles sequence steps to SkillRunner jobs with request_id workspace reuse", async function () {
+    const launched: Array<{ requestKind: string; request: any }> = [];
+    await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          { id: "digest", skill_id: "literature-analysis", workspace: "new" },
+          {
+            id: "tag",
+            skill_id: "tag-regulator",
+            workspace: "reuse-workflow",
+          },
+        ],
+        final_step_id: "tag",
+      },
+      backend: {
+        id: "skillrunner-backend",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      providerOptions: {},
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-skillrunner",
+      jobId: "job-skillrunner",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ requestKind, request }) => {
+        launched.push({ requestKind, request });
+        const skillId = String((request as { skill_id?: unknown }).skill_id);
+        return {
+          status: "succeeded",
+          requestId: `${skillId}-request`,
+          fetchType: "result",
+          resultJson: { skillId },
+          responseJson: {},
+        };
+      },
+    });
+
+    assert.deepEqual(
+      launched.map((entry) => entry.requestKind),
+      ["skillrunner.job.v1", "skillrunner.job.v1"],
+    );
+    assert.equal(launched[0].request.kind, "skillrunner.job.v1");
+    assert.notProperty(launched[0].request.runtime_options, "workspace");
+    assert.deepEqual(launched[1].request.runtime_options.workspace, {
+      mode: "reuse",
+      request_id: "literature-analysis-request",
+    });
+    assert.notProperty(
+      launched[1].request.runtime_options,
+      "workflow_workspace",
+    );
   });
 });

@@ -11,12 +11,18 @@ import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import {
   readRuntimeTextFile,
-  removeRuntimePath,
   runtimePathExists,
 } from "../../src/modules/runtimePersistence";
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-topic-graph-"));
+}
+
+function canonicalStoreText(root: string, kind: string) {
+  return createSynthesisRepository({ runtimeRoot: root })
+    .listCanonicalStoreRecords({ recordKinds: [kind] })
+    .map((row) => row.payloadJson)
+    .join("\n");
 }
 
 describe("Synthesis topic graph", function () {
@@ -722,9 +728,8 @@ describe("Synthesis topic graph", function () {
     const state = await service.rebuildTopicGraphIndexProjection();
     assert.isFalse(state.stale);
     const paths = buildSynthesisKnowledgeGraphPaths(root);
-    const projectionPath = path.join(paths.stateRoot, "topic-graph-index.json");
-    assert.isTrue(await runtimePathExists(projectionPath));
-    await removeRuntimePath(projectionPath);
+    const projectionPath = path.join(paths.sidecarRoot, "topic-graph-index.json");
+    assert.isFalse(await runtimePathExists(projectionPath));
 
     const projection = await service.readTopicGraphIndexProjection();
     assert.deepEqual(projection.roots, ["topic-root"]);
@@ -741,9 +746,7 @@ describe("Synthesis topic graph", function () {
       payload: { proposals: "not-array" },
     });
 
-    const diagnostics = await readRuntimeTextFile(
-      buildSynthesisKnowledgeGraphPaths(root).diagnosticsLog,
-    );
+    const diagnostics = canonicalStoreText(root, "diagnostic");
     assert.notInclude(diagnostics, root);
     assert.notInclude(diagnostics, "abc123");
     assert.match(diagnostics, /path:|invalid_proposals_payload/);

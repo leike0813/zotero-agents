@@ -652,6 +652,15 @@
       submitReply(data.message || data.value || "", data);
       return;
     }
+    if (action === "resolve-permission") {
+      sendAction(
+        "resolve-permission",
+        Object.assign({}, data, {
+          requestId: safeText(data.requestId || currentRequestId()),
+        }),
+      );
+      return;
+    }
     if (action === "auth-import-run") {
       readAuthImportFiles()
         .then(function (files) {

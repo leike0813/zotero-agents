@@ -221,6 +221,7 @@ export type SynthesisCitationNodeRecord = {
   hasZoteroBinding: boolean;
   title?: string;
   year?: string;
+  authorsJson?: string;
   summaryJson?: string;
   updatedAt?: string;
 };
@@ -618,8 +619,24 @@ export type SynthesisDiscoveryMetadataStateReplacement = {
   topicDiscoveryHints?: SynthesisTopicDiscoveryHintRecord[];
 };
 
+export type SynthesisCanonicalStoreRecord = {
+  recordId: string;
+  recordKind: "receipt" | "event" | "diagnostic";
+  transactionId?: string;
+  scope?: string;
+  assetPath?: string;
+  payloadJson: string;
+  createdAt?: string;
+};
+
+export type SynthesisCanonicalProtectionBlockerGroup = {
+  canonicalReferenceId: string;
+  candidateCanonicalReferenceIds: string[];
+};
+
 export type SynthesisRepositoryTableName =
   | "synt_cache_basis"
+  | "synt_canonical_store_record"
   | "synt_artifact_sidecar"
   | "synt_raw_reference"
   | "synt_canonical_reference"
@@ -700,11 +717,13 @@ const SYNTHESIS_RESET_TABLES: SynthesisRepositoryTableName[] = [
   "synt_canonical_reference",
   "synt_raw_reference",
   "synt_artifact_sidecar",
+  "synt_canonical_store_record",
   "synt_cache_basis",
 ];
 
 export const SYNTHESIS_REPOSITORY_TABLES: SynthesisRepositoryTableName[] = [
   "synt_cache_basis",
+  "synt_canonical_store_record",
   "synt_artifact_sidecar",
   "synt_raw_reference",
   "synt_canonical_reference",
@@ -1277,6 +1296,7 @@ export function createSynthesisSqlAdapterForPath(dbPath: string): SqlAdapter {
 type MemoryState = {
   schemaMeta: Map<string, string>;
   cacheBasis: Map<string, Record<string, SqlPrimitive>>;
+  canonicalStoreRecords: Map<string, Record<string, SqlPrimitive>>;
   artifactSidecars: Map<string, Record<string, SqlPrimitive>>;
   rawReferences: Map<string, Record<string, SqlPrimitive>>;
   canonicalReferences: Map<string, Record<string, SqlPrimitive>>;
@@ -1319,6 +1339,7 @@ function cloneMemoryState(state: MemoryState): MemoryState {
   return {
     schemaMeta: new Map(state.schemaMeta),
     cacheBasis: cloneMemoryRows(state.cacheBasis),
+    canonicalStoreRecords: cloneMemoryRows(state.canonicalStoreRecords),
     artifactSidecars: cloneMemoryRows(state.artifactSidecars),
     rawReferences: cloneMemoryRows(state.rawReferences),
     canonicalReferences: cloneMemoryRows(state.canonicalReferences),
@@ -1372,6 +1393,7 @@ function createMemoryAdapter(): SqlAdapter {
   let state: MemoryState = {
     schemaMeta: new Map(),
     cacheBasis: new Map(),
+    canonicalStoreRecords: new Map(),
     artifactSidecars: new Map(),
     rawReferences: new Map(),
     canonicalReferences: new Map(),
@@ -1449,6 +1471,10 @@ function createMemoryAdapter(): SqlAdapter {
       }
       if (normalized.startsWith("delete from synt_cache_basis")) {
         state.cacheBasis.clear();
+        return;
+      }
+      if (normalized.startsWith("delete from synt_canonical_store_record")) {
+        state.canonicalStoreRecords.clear();
         return;
       }
       if (normalized.startsWith("delete from synt_artifact_sidecar")) {
@@ -1670,6 +1696,17 @@ function createMemoryAdapter(): SqlAdapter {
       }
       if (normalized.startsWith("insert or replace into synt_cache_basis")) {
         state.cacheBasis.set(cleanString(params.cache_key), memoryRow(params));
+        return;
+      }
+      if (
+        normalized.startsWith(
+          "insert or replace into synt_canonical_store_record",
+        )
+      ) {
+        state.canonicalStoreRecords.set(
+          cleanString(params.record_id),
+          memoryRow(params),
+        );
         return;
       }
       if (
@@ -2017,6 +2054,11 @@ function createMemoryAdapter(): SqlAdapter {
           : Array.from(state.cacheBasis.values());
         return rows.map((row) => ({ ...row }));
       }
+      if (normalized.includes("from synt_canonical_store_record")) {
+        return Array.from(state.canonicalStoreRecords.values()).map((row) => ({
+          ...row,
+        }));
+      }
       if (normalized.includes("from synt_artifact_sidecar")) {
         return Array.from(state.artifactSidecars.values()).map((row) => ({
           ...row,
@@ -2262,6 +2304,8 @@ function memoryTable(
   switch (name) {
     case "synt_cache_basis":
       return state.cacheBasis;
+    case "synt_canonical_store_record":
+      return state.canonicalStoreRecords;
     case "synt_artifact_sidecar":
       return state.artifactSidecars;
     case "synt_raw_reference":
@@ -2385,6 +2429,17 @@ function ensureSchema(db: SqlAdapter) {
     );
   `);
   db.run(`
+    CREATE TABLE IF NOT EXISTS synt_canonical_store_record (
+      record_id TEXT PRIMARY KEY,
+      record_kind TEXT NOT NULL,
+      transaction_id TEXT NOT NULL DEFAULT '',
+      scope TEXT NOT NULL DEFAULT '',
+      asset_path TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT ''
+    );
+  `);
+  db.run(`
     CREATE TABLE IF NOT EXISTS synt_artifact_sidecar (
       source_ref TEXT NOT NULL,
       library_id INTEGER NOT NULL DEFAULT 0,
@@ -2491,10 +2546,15 @@ function ensureSchema(db: SqlAdapter) {
       has_zotero_binding INTEGER NOT NULL DEFAULT 0,
       title TEXT NOT NULL DEFAULT '',
       year TEXT NOT NULL DEFAULT '',
+      authors_json TEXT NOT NULL DEFAULT '[]',
       summary_json TEXT NOT NULL DEFAULT '{}',
       updated_at TEXT NOT NULL DEFAULT ''
     );
   `);
+  applyOptionalMigration(
+    db,
+    "ALTER TABLE synt_citation_node ADD COLUMN authors_json TEXT NOT NULL DEFAULT '[]'",
+  );
   db.run(`
     CREATE TABLE IF NOT EXISTS synt_citation_edge (
       edge_id TEXT PRIMARY KEY,
@@ -2939,6 +2999,14 @@ function ensureSchema(db: SqlAdapter) {
       ON synt_cache_basis(cache_kind, status, updated_at DESC);
   `);
   db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_canonical_store_record_kind_created
+      ON synt_canonical_store_record(record_kind, created_at DESC);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_canonical_store_record_transaction
+      ON synt_canonical_store_record(transaction_id, record_kind);
+  `);
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_artifact_sidecar_source
       ON synt_artifact_sidecar(source_ref, artifact_type, updated_at DESC);
   `);
@@ -2953,6 +3021,10 @@ function ensureSchema(db: SqlAdapter) {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_raw_reference_canonical_status
       ON synt_raw_reference(canonical_reference_id, status);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_canonical_reference_redirect_target
+      ON synt_canonical_reference_redirect(to_canonical_reference_id);
   `);
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_canonical_reference_title
@@ -2973,6 +3045,10 @@ function ensureSchema(db: SqlAdapter) {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_reference_match_proposal_source
       ON synt_reference_match_proposal(source_canonical_reference_id, status);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_reference_match_proposal_target
+      ON synt_reference_match_proposal(target_canonical_reference_id, status);
   `);
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_reference_match_proposal_basis
@@ -3183,6 +3259,10 @@ function ensureSchema(db: SqlAdapter) {
       ON synt_review_item(scope_kind, scope_ref, status);
   `);
   db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_review_item_kind_scope
+      ON synt_review_item(review_kind, scope_ref, status);
+  `);
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_review_item_blocked_status
       ON synt_review_item(blocked_by_review_item_id, status);
   `);
@@ -3214,6 +3294,19 @@ function rowToArtifactSidecar(row: SqlRow): SynthesisArtifactSidecarRecord {
     diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
     scannedAt: cleanString(row.scanned_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
+  };
+}
+
+function rowToCanonicalStoreRecord(row: SqlRow): SynthesisCanonicalStoreRecord {
+  const kind = cleanString(row.record_kind);
+  return {
+    recordId: cleanString(row.record_id),
+    recordKind: kind === "event" || kind === "diagnostic" ? kind : "receipt",
+    transactionId: cleanString(row.transaction_id) || undefined,
+    scope: cleanString(row.scope) || undefined,
+    assetPath: cleanString(row.asset_path) || undefined,
+    payloadJson: cleanString(row.payload_json) || "{}",
+    createdAt: cleanString(row.created_at) || undefined,
   };
 }
 
@@ -3342,6 +3435,7 @@ function rowToCitationNode(row: SqlRow): SynthesisCitationNodeRecord {
     hasZoteroBinding: Boolean(Number(row.has_zotero_binding) || 0),
     title: cleanString(row.title) || undefined,
     year: cleanString(row.year) || undefined,
+    authorsJson: cleanString(row.authors_json) || "[]",
     summaryJson: cleanString(row.summary_json) || "{}",
     updatedAt: cleanString(row.updated_at) || undefined,
   };
@@ -4415,6 +4509,100 @@ export class SynthesisRepository {
       .filter((row) => !statuses.size || statuses.has(row.status || ""));
   }
 
+  upsertCanonicalStoreRecord(record: SynthesisCanonicalStoreRecord) {
+    this.initialize();
+    const recordId = cleanString(record.recordId);
+    if (!recordId) {
+      throw new Error("canonical store recordId must be non-empty");
+    }
+    const timestamp = this.now();
+    this.db.run(
+      `
+        INSERT OR REPLACE INTO synt_canonical_store_record (
+          record_id,
+          record_kind,
+          transaction_id,
+          scope,
+          asset_path,
+          payload_json,
+          created_at
+        )
+        VALUES (
+          @record_id,
+          @record_kind,
+          @transaction_id,
+          @scope,
+          @asset_path,
+          @payload_json,
+          @created_at
+        )
+      `,
+      {
+        record_id: recordId,
+        record_kind: cleanString(record.recordKind) || "event",
+        transaction_id: cleanString(record.transactionId),
+        scope: cleanString(record.scope),
+        asset_path: cleanString(record.assetPath),
+        payload_json: cleanString(record.payloadJson) || "{}",
+        created_at: cleanString(record.createdAt) || timestamp,
+      },
+    );
+  }
+
+  listCanonicalStoreRecords(
+    args: {
+      recordKinds?: string[];
+      transactionIds?: string[];
+      scopes?: string[];
+      limit?: number;
+    } = {},
+  ) {
+    this.initialize();
+    const recordKinds = new Set(
+      (args.recordKinds || []).map(cleanString).filter(Boolean),
+    );
+    const transactionIds = new Set(
+      (args.transactionIds || []).map(cleanString).filter(Boolean),
+    );
+    const scopes = new Set(
+      (args.scopes || []).map(cleanString).filter(Boolean),
+    );
+    const limit = Math.max(0, Math.floor(Number(args.limit) || 0));
+    const clauses: string[] = [];
+    const params: SqlParams = {};
+    appendInFilter(clauses, params, "record_kind", "record_kind", recordKinds);
+    appendInFilter(
+      clauses,
+      params,
+      "transaction_id",
+      "transaction_id",
+      transactionIds,
+    );
+    appendInFilter(clauses, params, "scope", "scope", scopes);
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const limitSql = appendLimitClause(params, limit);
+    return this.db
+      .all(
+        `
+          SELECT *
+          FROM synt_canonical_store_record
+          ${where}
+          ORDER BY created_at DESC, record_id ASC
+          ${limitSql}
+        `,
+        params,
+      )
+      .map(rowToCanonicalStoreRecord)
+      .filter((row) => !recordKinds.size || recordKinds.has(row.recordKind))
+      .filter(
+        (row) =>
+          !transactionIds.size ||
+          transactionIds.has(cleanString(row.transactionId)),
+      )
+      .filter((row) => !scopes.size || scopes.has(cleanString(row.scope)))
+      .slice(0, limit || Number.POSITIVE_INFINITY);
+  }
+
   upsertArtifactSidecar(record: SynthesisArtifactSidecarRecord) {
     this.initialize();
     const sourceRef = cleanString(record.sourceRef);
@@ -4635,11 +4823,17 @@ export class SynthesisRepository {
   }
 
   listCanonicalReferenceRedirects(
-    args: { fromCanonicalReferenceIds?: string[] } = {},
+    args: {
+      fromCanonicalReferenceIds?: string[];
+      toCanonicalReferenceIds?: string[];
+    } = {},
   ) {
     this.initialize();
     const fromCanonicalReferenceIds = new Set(
       (args.fromCanonicalReferenceIds || []).map(cleanString).filter(Boolean),
+    );
+    const toCanonicalReferenceIds = new Set(
+      (args.toCanonicalReferenceIds || []).map(cleanString).filter(Boolean),
     );
     const clauses: string[] = [];
     const params: SqlParams = {};
@@ -4649,6 +4843,13 @@ export class SynthesisRepository {
       "from_canonical_reference_id",
       "from_canonical_reference_id",
       fromCanonicalReferenceIds,
+    );
+    appendInFilter(
+      clauses,
+      params,
+      "to_canonical_reference_id",
+      "to_canonical_reference_id",
+      toCanonicalReferenceIds,
     );
     const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
     return this.db
@@ -4666,6 +4867,11 @@ export class SynthesisRepository {
         (row) =>
           !fromCanonicalReferenceIds.size ||
           fromCanonicalReferenceIds.has(row.fromCanonicalReferenceId),
+      )
+      .filter(
+        (row) =>
+          !toCanonicalReferenceIds.size ||
+          toCanonicalReferenceIds.has(row.toCanonicalReferenceId),
       );
   }
 
@@ -4831,6 +5037,7 @@ export class SynthesisRepository {
     args: {
       rawReferenceIds?: string[];
       sourceRefs?: string[];
+      canonicalReferenceIds?: string[];
       statuses?: string[];
       referencesArtifactHashes?: string[];
       limit?: number;
@@ -4842,6 +5049,9 @@ export class SynthesisRepository {
     );
     const sourceRefs = new Set(
       (args.sourceRefs || []).map(cleanString).filter(Boolean),
+    );
+    const canonicalReferenceIds = new Set(
+      (args.canonicalReferenceIds || []).map(cleanString).filter(Boolean),
     );
     const statuses = new Set(
       (args.statuses || []).map(cleanString).filter(Boolean),
@@ -4860,6 +5070,13 @@ export class SynthesisRepository {
       rawReferenceIds,
     );
     appendInFilter(clauses, params, "source_ref", "source_ref", sourceRefs);
+    appendInFilter(
+      clauses,
+      params,
+      "canonical_reference_id",
+      "canonical_reference_id",
+      canonicalReferenceIds,
+    );
     appendInFilter(clauses, params, "status", "status", statuses);
     appendInFilter(
       clauses,
@@ -4887,6 +5104,11 @@ export class SynthesisRepository {
           !rawReferenceIds.size || rawReferenceIds.has(row.rawReferenceId),
       )
       .filter((row) => !sourceRefs.size || sourceRefs.has(row.sourceRef))
+      .filter(
+        (row) =>
+          !canonicalReferenceIds.size ||
+          canonicalReferenceIds.has(cleanString(row.canonicalReferenceId)),
+      )
       .filter((row) => !statuses.size || statuses.has(row.status || ""))
       .filter(
         (row) =>
@@ -5146,6 +5368,7 @@ export class SynthesisRepository {
       kinds?: string[];
       confidences?: string[];
       sourceCanonicalReferenceIds?: string[];
+      targetCanonicalReferenceIds?: string[];
       limit?: number;
     } = {},
   ) {
@@ -5169,6 +5392,9 @@ export class SynthesisRepository {
     const sourceCanonicalIds = new Set(
       (args.sourceCanonicalReferenceIds || []).map(cleanString).filter(Boolean),
     );
+    const targetCanonicalIds = new Set(
+      (args.targetCanonicalReferenceIds || []).map(cleanString).filter(Boolean),
+    );
     const limit = Math.max(0, Math.floor(Number(args.limit) || 0));
     const clauses: string[] = [];
     const params: SqlParams = {};
@@ -5182,6 +5408,13 @@ export class SynthesisRepository {
       "source_canonical_reference_id",
       "source_canonical_reference_id",
       sourceCanonicalIds,
+    );
+    appendInFilter(
+      clauses,
+      params,
+      "target_canonical_reference_id",
+      "target_canonical_reference_id",
+      targetCanonicalIds,
     );
     const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
     const limitSql = appendLimitClause(params, limit);
@@ -5208,6 +5441,11 @@ export class SynthesisRepository {
         (row) =>
           !sourceCanonicalIds.size ||
           sourceCanonicalIds.has(row.sourceCanonicalReferenceId),
+      )
+      .filter(
+        (row) =>
+          !targetCanonicalIds.size ||
+          targetCanonicalIds.has(cleanString(row.targetCanonicalReferenceId)),
       )
       .slice(0, limit || Number.POSITIVE_INFINITY);
   }
@@ -5494,6 +5732,7 @@ export class SynthesisRepository {
           has_zotero_binding,
           title,
           year,
+          authors_json,
           summary_json,
           updated_at
         )
@@ -5503,6 +5742,7 @@ export class SynthesisRepository {
           @has_zotero_binding,
           @title,
           @year,
+          @authors_json,
           @summary_json,
           @updated_at
         )
@@ -5513,6 +5753,7 @@ export class SynthesisRepository {
         has_zotero_binding: record.hasZoteroBinding ? 1 : 0,
         title: cleanString(record.title),
         year: cleanString(record.year),
+        authors_json: cleanString(record.authorsJson) || "[]",
         summary_json: cleanString(record.summaryJson) || "{}",
         updated_at: cleanString(record.updatedAt) || this.now(),
       },
@@ -7241,9 +7482,7 @@ export class SynthesisRepository {
     const timestamp = cleanString(args.timestamp) || this.now();
     const literatureItemIds = Array.from(
       new Set(
-        Array.from(args.literatureItemIds)
-          .map(cleanString)
-          .filter(Boolean),
+        Array.from(args.literatureItemIds).map(cleanString).filter(Boolean),
       ),
     ).sort((left, right) => left.localeCompare(right));
     if (!topicId || !literatureItemIds.length) {
@@ -8528,6 +8767,175 @@ export class SynthesisRepository {
       .filter((row) => !reviewKind || row.reviewKind === reviewKind)
       .filter((row) => !statuses.size || statuses.has(row.status))
       .slice(0, limit || Number.POSITIVE_INFINITY);
+  }
+
+  canonicalProtectionBlockerMap(
+    groupsInput: SynthesisCanonicalProtectionBlockerGroup[],
+  ) {
+    this.initialize();
+    const groupIds = new Map<string, Set<string>>();
+    for (const group of groupsInput || []) {
+      const canonicalReferenceId = cleanString(group.canonicalReferenceId);
+      if (!canonicalReferenceId) {
+        continue;
+      }
+      groupIds.set(
+        canonicalReferenceId,
+        new Set(
+          uniqueCleanStrings([
+            canonicalReferenceId,
+            ...(group.candidateCanonicalReferenceIds || []),
+          ]),
+        ),
+      );
+    }
+    const result = new Map(
+      Array.from(groupIds.keys()).map(
+        (canonicalReferenceId) =>
+          [canonicalReferenceId, new Set<string>()] as const,
+      ),
+    );
+    const addBlocker = (candidateId: unknown, blocker: string) => {
+      const candidate = cleanString(candidateId);
+      if (!candidate) {
+        return;
+      }
+      for (const [canonicalReferenceId, ids] of groupIds.entries()) {
+        if (ids.has(candidate)) {
+          result.get(canonicalReferenceId)?.add(blocker);
+        }
+      }
+    };
+    if (!groupIds.size) {
+      return {};
+    }
+    const allIds = () =>
+      uniqueCleanStrings(
+        Array.from(groupIds.values()).flatMap((ids) => [...ids]),
+      );
+    const initialIds = allIds();
+    for (const redirect of [
+      ...this.listCanonicalReferenceRedirects({
+        fromCanonicalReferenceIds: initialIds,
+      }),
+      ...this.listCanonicalReferenceRedirects({
+        toCanonicalReferenceIds: initialIds,
+      }),
+    ]) {
+      for (const ids of groupIds.values()) {
+        if (
+          ids.has(redirect.fromCanonicalReferenceId) ||
+          ids.has(redirect.toCanonicalReferenceId)
+        ) {
+          ids.add(redirect.fromCanonicalReferenceId);
+          ids.add(redirect.toCanonicalReferenceId);
+        }
+      }
+    }
+    const expandedIds = allIds();
+    for (const row of this.listRawReferences({
+      canonicalReferenceIds: expandedIds,
+      statuses: ["active"],
+    })) {
+      addBlocker(row.canonicalReferenceId, "active_raw_refs");
+    }
+    for (const row of this.listReferenceBindings({
+      canonicalReferenceIds: expandedIds,
+    })) {
+      if (row.status !== "rejected") {
+        addBlocker(row.canonicalReferenceId, "binding");
+      }
+    }
+    for (const redirect of [
+      ...this.listCanonicalReferenceRedirects({
+        fromCanonicalReferenceIds: expandedIds,
+      }),
+      ...this.listCanonicalReferenceRedirects({
+        toCanonicalReferenceIds: expandedIds,
+      }),
+    ]) {
+      addBlocker(redirect.fromCanonicalReferenceId, "redirect");
+      addBlocker(redirect.toCanonicalReferenceId, "redirect");
+    }
+    for (const proposal of [
+      ...this.listReferenceMatchProposals({
+        sourceCanonicalReferenceIds: expandedIds,
+      }),
+      ...this.listReferenceMatchProposals({
+        targetCanonicalReferenceIds: expandedIds,
+      }),
+    ]) {
+      addBlocker(
+        proposal.sourceCanonicalReferenceId,
+        "reference_match_proposal",
+      );
+      addBlocker(
+        proposal.targetCanonicalReferenceId,
+        "reference_match_proposal",
+      );
+    }
+    const reviewClauses: string[] = [];
+    const reviewParams: SqlParams = {};
+    appendInFilter(
+      reviewClauses,
+      reviewParams,
+      "scope_ref",
+      "review_scope_ref",
+      expandedIds,
+    );
+    expandedIds.forEach((id, index) => {
+      const key = `review_payload_${index}`;
+      reviewParams[key] = `%${id}%`;
+      reviewClauses.push(`payload_json LIKE @${key}`);
+    });
+    const reviewRows = this.db
+      .all(
+        `
+          SELECT *
+          FROM synt_review_item
+          WHERE review_kind <> 'canonical_revision'
+            AND (${reviewClauses.join(" OR ") || "0"})
+        `,
+        reviewParams,
+      )
+      .map(rowToReviewItem)
+      .filter((row) => row.reviewKind !== "canonical_revision");
+    for (const row of reviewRows) {
+      const scopeRef = cleanString(row.scopeRef);
+      const payloadJson = cleanString(row.payloadJson);
+      for (const [canonicalReferenceId, ids] of groupIds.entries()) {
+        if (
+          ids.has(scopeRef) ||
+          [...ids].some((id) => payloadJson.includes(id))
+        ) {
+          result.get(canonicalReferenceId)?.add("review_item");
+        }
+      }
+    }
+    for (const node of this.listCitationNodes({
+      literatureItemIds: expandedIds,
+      statuses: ["active"],
+    })) {
+      addBlocker(node.literatureItemId, "graph_visible");
+    }
+    for (const edge of this.listCitationEdges({
+      sourceLiteratureItemIds: expandedIds,
+      statuses: ["accepted", "candidate", "unbound"],
+    })) {
+      addBlocker(edge.sourceLiteratureItemId, "graph_visible");
+    }
+    for (const edge of this.listCitationEdges({
+      targetLiteratureItemIds: expandedIds,
+      statuses: ["accepted", "candidate", "unbound"],
+    })) {
+      addBlocker(edge.targetLiteratureItemId, "graph_visible");
+    }
+    return Object.fromEntries(
+      Array.from(result.entries()).map(([canonicalReferenceId, blockers]) => [
+        canonicalReferenceId,
+        Array.from(blockers).sort(),
+      ]),
+    );
   }
 
   markCitationGraphCacheStale(args: {

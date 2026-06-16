@@ -17,6 +17,12 @@ import {
   type WorkflowRunOptions,
 } from "../workflows/zoteroHostAccessOptions";
 
+const WORKFLOW_SETTINGS_DIALOG_WIDTH = 700;
+const WORKFLOW_SETTINGS_DIALOG_INITIAL_HEIGHT = 540;
+const WORKFLOW_SETTINGS_DIALOG_MIN_HEIGHT = 440;
+const WORKFLOW_SETTINGS_DIALOG_HEIGHT_PADDING = 16;
+const WORKFLOW_SETTINGS_DIALOG_SCREEN_MARGIN = 48;
+
 type WorkflowSettingsDialogSnapshot = {
   title: string;
   labels: {
@@ -37,6 +43,7 @@ type WorkflowSettingsDialogSnapshot = {
     workflowSettingsNumberInvalid: string;
     workflowSettingsPositiveIntegerRequired: string;
     refreshAcpRuntimeCache: string;
+    refreshAcpRuntimeCacheRunning: string;
   };
   workflow: {
     id: string;
@@ -165,6 +172,11 @@ function resolveFrameWindow(frame: Element | null) {
   }
   const candidate = frame as Element & { contentWindow?: Window | null };
   return candidate.contentWindow || null;
+}
+
+function toFiniteNumber(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -325,6 +337,56 @@ export async function openWorkflowSettingsWebDialog(args: {
   let dialog: DialogHelper | undefined;
   let frameWindow: Window | null = null;
   let removeMessageListener: (() => void) | undefined;
+  let lastRequestedDialogHeight = 0;
+
+  const resizeWorkflowSettingsDialogToContent = (contentHeight: unknown) => {
+    const dialogWindow = dialog?.window;
+    if (!dialogWindow || dialogWindow.closed) {
+      return;
+    }
+    const measuredContentHeight = Math.ceil(toFiniteNumber(contentHeight));
+    if (measuredContentHeight <= 0) {
+      return;
+    }
+    const outerWidth =
+      Math.ceil(toFiniteNumber(dialogWindow.outerWidth)) ||
+      WORKFLOW_SETTINGS_DIALOG_WIDTH;
+    const chromeHeight = Math.max(
+      0,
+      Math.ceil(
+        toFiniteNumber(dialogWindow.outerHeight) -
+          toFiniteNumber(dialogWindow.innerHeight),
+      ),
+    );
+    const screenAvailHeight = Math.floor(
+      toFiniteNumber(dialogWindow.screen?.availHeight) || 900,
+    );
+    const maxOuterHeight = Math.max(
+      WORKFLOW_SETTINGS_DIALOG_MIN_HEIGHT,
+      screenAvailHeight - WORKFLOW_SETTINGS_DIALOG_SCREEN_MARGIN,
+    );
+    const targetOuterHeight = Math.min(
+      maxOuterHeight,
+      Math.max(
+        WORKFLOW_SETTINGS_DIALOG_MIN_HEIGHT,
+        measuredContentHeight +
+          chromeHeight +
+          WORKFLOW_SETTINGS_DIALOG_HEIGHT_PADDING,
+      ),
+    );
+    if (
+      Math.abs(targetOuterHeight - lastRequestedDialogHeight) < 8 &&
+      Math.abs(targetOuterHeight - toFiniteNumber(dialogWindow.outerHeight)) < 8
+    ) {
+      return;
+    }
+    lastRequestedDialogHeight = targetOuterHeight;
+    try {
+      dialogWindow.resizeTo(outerWidth, targetOuterHeight);
+    } catch {
+      // ignore resize failures in hosts that disallow window resizing
+    }
+  };
 
   const resolveSelectedBackendForSnapshot = () => {
     const selectedProfile = String(
@@ -407,6 +469,10 @@ export async function openWorkflowSettingsWebDialog(args: {
         refreshAcpRuntimeCache: localize(
           "workflow-settings-refresh-acp-runtime-cache",
           "Refresh ACP Config Cache",
+        ),
+        refreshAcpRuntimeCacheRunning: localize(
+          "workflow-settings-refresh-acp-runtime-cache-running",
+          "Refreshing ACP Config Cache...",
         ),
       },
       workflow: {
@@ -512,6 +578,12 @@ export async function openWorkflowSettingsWebDialog(args: {
         pushSnapshot("workflow-settings-dialog:snapshot");
         return;
       }
+      if (action === "resize-to-content") {
+        resizeWorkflowSettingsDialogToContent(
+          envelope.payload?.contentHeight,
+        );
+        return;
+      }
       if (action === "refresh-acp-runtime-cache") {
         try {
           const selectedBackendId = String(
@@ -601,11 +673,6 @@ export async function openWorkflowSettingsWebDialog(args: {
         if (!doc || !dialogWindow) {
           throw new Error("workflow settings dialog window is unavailable");
         }
-        try {
-          dialogWindow.resizeTo(760, 660);
-        } catch {
-          // ignore
-        }
         const root = doc.getElementById(
           "zs-workflow-settings-dialog-root",
         ) as HTMLElement | null;
@@ -683,6 +750,13 @@ export async function openWorkflowSettingsWebDialog(args: {
     dialogBuilder.setDialogData(dialogData);
     dialog = dialogBuilder.open(
       localize("workflow-settings-submit-title", "Workflow Settings"),
+      {
+        centerscreen: true,
+        resizable: true,
+        fitContent: false,
+        width: WORKFLOW_SETTINGS_DIALOG_WIDTH,
+        height: WORKFLOW_SETTINGS_DIALOG_INITIAL_HEIGHT,
+      },
     );
   } catch (error) {
     return buildDialogErrorResult({

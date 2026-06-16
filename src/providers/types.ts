@@ -6,8 +6,14 @@ export type ProviderProgressEventRequestCreated = {
   requestId: string;
 };
 
+export type ProviderProgressEventRequestReady = {
+  type: "request-ready";
+  requestId: string;
+};
+
 export type ProviderProgressEvent =
   | ProviderProgressEventRequestCreated
+  | ProviderProgressEventRequestReady
   | {
       type: string;
       [key: string]: unknown;

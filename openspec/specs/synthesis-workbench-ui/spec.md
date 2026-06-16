@@ -129,3 +129,62 @@ Workbench Review Center SHALL display both Zotero binding and canonical merge pr
 - **THEN** it SHALL show readable source and target reference titles, confidence, score, and reasons
 - **AND** it SHALL provide Accept and Reject actions.
 
+### Requirement: Workbench surfaces durable Git Sync status
+
+Synthesis Workbench SHALL expose Git Sync state using stable user-visible states: `idle`, `syncing`, `blocked_conflict`, `failed_retryable`, and `failed_permanent`.
+
+#### Scenario: Durable conflict blocks sync
+
+- **WHEN** Git Sync reports `blocked_conflict`
+- **THEN** Workbench SHALL keep normal read-only browsing available
+- **AND** it SHALL show the conflict entity kind/id, local/remote summary when available, and recommended resolution actions.
+
+#### Scenario: User resolves durable conflict
+
+- **WHEN** the user chooses `keep_local`, `use_remote`, `save_remote_copy`, `mark_needs_attention`, or `clear_after_manual_edit`
+- **THEN** Workbench SHALL route the action through Git Sync conflict resolution
+- **AND** it SHALL NOT directly mutate SQLite outside the durable import/export service.
+
+### Requirement: Workbench presents Git Sync config and runtime status
+
+Workbench SHALL show Git Sync configuration status, remote, branch, queue state, last run, diagnostics, and conflict count.
+
+#### Scenario: Git Sync is not configured
+
+- **WHEN** Git Sync has no enabled prefs-backed adapter
+- **THEN** Workbench SHALL offer `Open preferences`
+- **AND** it SHALL NOT present long-term Git Sync configuration controls inline.
+
+#### Scenario: Git Sync is configured
+
+- **WHEN** Git Sync configuration is complete
+- **THEN** Workbench SHALL offer runtime actions such as sync, pause/resume, and retry according to allowed actions.
+
+#### Scenario: Remote branch will be initialized
+
+- **WHEN** the latest connection test reports `remote_branch_state` as `missing_initializable`
+- **THEN** Workbench SHALL present the branch state as initializable rather than failed
+- **AND** it SHALL keep `Sync now` available when allowed by the service state.
+
+### Requirement: Workbench presents semantic conflict approvals
+
+Workbench SHALL present Git Sync conflict approvals using semantic action names.
+
+#### Scenario: Conflict is blocked
+
+- **WHEN** Git Sync state is `blocked_conflict`
+- **THEN** Workbench SHALL show the conflict asset path, reason, and available hashes
+- **AND** it SHALL offer supported conflict actions from the Git Sync state.
+
+### Requirement: Workbench exposes manual WebDAV Sync
+
+Workbench SHALL show WebDAV Sync runtime status and a manual Sync now action when WebDAV Sync is configured.
+
+#### Scenario: WebDAV Sync is not configured
+- **WHEN** WebDAV Sync preferences are incomplete
+- **THEN** Workbench SHALL show the configuration status and offer Preferences as the setup path.
+
+#### Scenario: User triggers WebDAV Sync
+- **WHEN** the user clicks WebDAV Sync now
+- **THEN** Workbench SHALL route the command through the Synthesis service
+- **AND** it SHALL NOT trigger Git Sync as part of that command.

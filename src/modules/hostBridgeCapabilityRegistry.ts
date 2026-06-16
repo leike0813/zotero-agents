@@ -13,6 +13,7 @@ import type {
   HostBridgeApprovalRequirement,
   HostBridgeCapabilityCategory,
   HostBridgeCapabilityManifestEntry,
+  HostBridgeConnectionMode,
   HostBridgeStatusSnapshot,
 } from "./hostBridgeProtocol";
 import {
@@ -32,6 +33,7 @@ import type {
 
 export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
+  connectionMode: HostBridgeConnectionMode;
   resolveSynthesisService?: () => SynthesisMcpService;
 };
 
@@ -573,7 +575,11 @@ function synthesisCapability(
           `Synthesis service method is unavailable: ${String(methodName)}`,
         );
       }
-      return method(asObject(input));
+      return method(asObject(input), {
+        hostBridge: {
+          connectionMode: context.connectionMode,
+        },
+      });
     },
   );
 }

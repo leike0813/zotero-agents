@@ -21,16 +21,25 @@ import { alertWindow } from "./feedbackSeam";
 import { localizeWorkflowText } from "./messageFormatter";
 import { shouldShowWorkflowNotifications } from "./feedbackPolicy";
 import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
-import { ACP_SKILL_RUN_REQUEST_KIND } from "../../config/defaults";
+import {
+  ACP_SKILL_RUN_REQUEST_KIND,
+  SKILLRUNNER_SEQUENCE_REQUEST_KIND,
+} from "../../config/defaults";
 import type { SkillRunnerJobRequestV1 } from "../../providers/contracts";
 import { adaptSkillRunnerJobToAcpSkillRun } from "../acpSkillRunRequestAdapter";
 import {
+  SKILLRUNNER_ZOTERO_HOST_ACCESS_ENV_INJECTION_CODE,
   SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS,
   SKILLRUNNER_ZOTERO_HOST_ACCESS_STRIPPED_WARNING_CODE,
   stripZoteroHostAccessRuntimeOptionFromRequest,
   workflowDeclaresRequiredZoteroHostAccess,
 } from "../../workflows/zoteroHostAccessOptions";
 import { localizeWorkflowLabel } from "../../workflows/localization";
+import {
+  buildSkillRunnerHostBridgeRuntimeEnv,
+  buildSkillRunnerHostBridgeScopeEnv,
+  type SkillRunnerHostBridgeEnvResult,
+} from "../hostBridgeSkillRunnerEnv";
 
 function isNoValidInputUnitsError(error: unknown) {
   if (
@@ -45,10 +54,17 @@ function isNoValidInputUnitsError(error: unknown) {
   );
 }
 
-function adaptRequestsForExecutionContext(args: {
+function generateSkillRunnerHostBridgeRequestId() {
+  return `skillrunner-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+async function adaptRequestsForExecutionContext(args: {
   requests: unknown[];
   workflow: LoadedWorkflow;
   executionContext: WorkflowExecutionContext;
+  buildSkillRunnerHostBridgeEnv?: typeof buildSkillRunnerHostBridgeRuntimeEnv;
 }) {
   if (args.executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND) {
     return args.requests.map((request) =>
@@ -59,14 +75,161 @@ function adaptRequestsForExecutionContext(args: {
     );
   }
   if (
-    args.executionContext.requestKind === "skillrunner.job.v1" &&
+    isSkillRunnerBackend(args.executionContext.backend?.type) &&
+    isSkillRunnerRuntimeEnvRequestKind(args.executionContext.requestKind) &&
     !SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS
   ) {
+    const requiresHostAccess = workflowDeclaresRequiredZoteroHostAccess(
+      args.workflow.manifest,
+    );
+    if (!requiresHostAccess) {
+      return args.requests.map((request) =>
+        stripZoteroHostAccessRuntimeOptionFromRequest(request),
+      );
+    }
+    const envResult = await (
+      args.buildSkillRunnerHostBridgeEnv ||
+      buildSkillRunnerHostBridgeRuntimeEnv
+    )({
+      backendUrl: String(args.executionContext.backend?.baseUrl || ""),
+    });
+    if (!envResult.ok) {
+      throw createSkillRunnerHostBridgeEnvError(envResult);
+    }
     return args.requests.map((request) =>
-      stripZoteroHostAccessRuntimeOptionFromRequest(request),
+      injectSkillRunnerHostBridgeRuntimeEnv({
+        request: stripZoteroHostAccessRuntimeOptionFromRequest(request),
+        env: envResult.env,
+        requestId: ensureSkillRunnerHostBridgeRequestId(request),
+      }),
     );
   }
   return args.requests;
+}
+
+function createSkillRunnerHostBridgeEnvError(
+  envResult: Extract<SkillRunnerHostBridgeEnvResult, { ok: false }>,
+) {
+  const error = new Error(`${envResult.code}: ${envResult.message}`) as Error & {
+    code?: string;
+    details?: Record<string, unknown>;
+  };
+  error.code = envResult.code;
+  error.details = envResult.details;
+  return error;
+}
+
+function getSkillRunnerHostBridgeEnvFailureDetails(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return {};
+  }
+  const typed = error as { code?: unknown; details?: unknown };
+  return {
+    code: typeof typed.code === "string" ? typed.code : undefined,
+    details:
+      typed.details && typeof typed.details === "object"
+        ? sanitizeDiagnosticDetails(typed.details as Record<string, unknown>)
+        : undefined,
+  };
+}
+
+function sanitizeDiagnosticDetails(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeDiagnosticDetails(entry));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const output: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (/token|authorization|auth/i.test(key)) {
+      output[key] = "[redacted]";
+      continue;
+    }
+    output[key] = sanitizeDiagnosticDetails(entry);
+  }
+  return output;
+}
+
+function injectSkillRunnerHostBridgeRuntimeEnv(args: {
+  request: unknown;
+  env: Record<string, string>;
+  requestId: string;
+}) {
+  if (
+    !args.request ||
+    typeof args.request !== "object" ||
+    Array.isArray(args.request)
+  ) {
+    return args.request;
+  }
+  const request = { ...(args.request as Record<string, unknown>) };
+  const runtimeOptions =
+    request.runtime_options &&
+    typeof request.runtime_options === "object" &&
+    !Array.isArray(request.runtime_options)
+      ? { ...(request.runtime_options as Record<string, unknown>) }
+      : {};
+  const existingEnv =
+    runtimeOptions.env &&
+    typeof runtimeOptions.env === "object" &&
+    !Array.isArray(runtimeOptions.env)
+      ? (runtimeOptions.env as Record<string, unknown>)
+      : {};
+  const workspace =
+    runtimeOptions.workspace &&
+    typeof runtimeOptions.workspace === "object" &&
+    !Array.isArray(runtimeOptions.workspace)
+      ? { ...(runtimeOptions.workspace as Record<string, unknown>) }
+      : {};
+  if (!String(workspace.request_id || "").trim()) {
+    workspace.mode = "reuse";
+    workspace.request_id = args.requestId;
+  }
+  runtimeOptions.env = {
+    ...existingEnv,
+    ...args.env,
+    ZOTERO_BRIDGE_SCOPE: buildSkillRunnerHostBridgeScopeEnv(args.requestId),
+  };
+  runtimeOptions.workspace = workspace;
+  runtimeOptions.no_cache = true;
+  request.runtime_options = runtimeOptions;
+  return request;
+}
+
+function ensureSkillRunnerHostBridgeRequestId(request: unknown) {
+  if (!request || typeof request !== "object" || Array.isArray(request)) {
+    return generateSkillRunnerHostBridgeRequestId();
+  }
+  const runtimeOptions = (request as Record<string, unknown>).runtime_options;
+  if (
+    runtimeOptions &&
+    typeof runtimeOptions === "object" &&
+    !Array.isArray(runtimeOptions)
+  ) {
+    const workspace = (runtimeOptions as Record<string, unknown>).workspace;
+    if (workspace && typeof workspace === "object" && !Array.isArray(workspace)) {
+      const requestId = String(
+        (workspace as Record<string, unknown>).request_id || "",
+      ).trim();
+      if (requestId) {
+        return requestId;
+      }
+    }
+  }
+  return generateSkillRunnerHostBridgeRequestId();
+}
+
+function isSkillRunnerRuntimeEnvRequestKind(requestKind: unknown) {
+  const normalized = String(requestKind || "").trim();
+  return (
+    normalized === "skillrunner.job.v1" ||
+    normalized === SKILLRUNNER_SEQUENCE_REQUEST_KIND
+  );
+}
+
+function isSkillRunnerBackend(backendType: unknown) {
+  return String(backendType || "").trim() === "skillrunner";
 }
 
 function resolveSkippedUnitsFromNoValidInputError(error: unknown) {
@@ -94,6 +257,7 @@ type PreparationDeps = {
   resolveWorkflowExecutionOptionsPreview: typeof resolveWorkflowExecutionOptionsPreview;
   buildSelectionContext: typeof buildSelectionContext;
   executeBuildRequests: typeof executeBuildRequests;
+  buildSkillRunnerHostBridgeEnv: typeof buildSkillRunnerHostBridgeRuntimeEnv;
   alertWindow: typeof alertWindow;
 };
 
@@ -103,6 +267,7 @@ const defaultPreparationDeps: PreparationDeps = {
   resolveWorkflowExecutionOptionsPreview,
   buildSelectionContext,
   executeBuildRequests,
+  buildSkillRunnerHostBridgeEnv: buildSkillRunnerHostBridgeRuntimeEnv,
   alertWindow,
 };
 
@@ -431,24 +596,27 @@ export async function runWorkflowPreparationSeam(
     };
   }
 
-  if (
-    executionContext.requestKind === "skillrunner.job.v1" &&
+  const willInjectSkillRunnerHostBridgeEnv =
+    isSkillRunnerRuntimeEnvRequestKind(executionContext.requestKind) &&
     String(executionContext.backend?.type || "").trim() === "skillrunner" &&
     workflowDeclaresRequiredZoteroHostAccess(args.workflow.manifest) &&
-    !SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS
-  ) {
+    !SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS;
+
+  if (willInjectSkillRunnerHostBridgeEnv) {
     resolved.appendRuntimeLog({
-      level: "warn",
+      level: "info",
       scope: "workflow-trigger",
       workflowId: args.workflow.manifest.id,
       backendId: executionContext.backend.id,
       backendType: executionContext.backend.type,
       providerId: executionContext.providerId,
-      stage: SKILLRUNNER_ZOTERO_HOST_ACCESS_STRIPPED_WARNING_CODE,
+      stage: SKILLRUNNER_ZOTERO_HOST_ACCESS_ENV_INJECTION_CODE,
       message:
-        "SkillRunner backend does not support ZoteroHostAccess runtime options; the workflow will submit without Host Bridge runtime access.",
+        "SkillRunner ZoteroHostAccess will be provided through runtime_options.env.",
       details: {
-        code: SKILLRUNNER_ZOTERO_HOST_ACCESS_STRIPPED_WARNING_CODE,
+        code: SKILLRUNNER_ZOTERO_HOST_ACCESS_ENV_INJECTION_CODE,
+        strippedRuntimeOptionCode:
+          SKILLRUNNER_ZOTERO_HOST_ACCESS_STRIPPED_WARNING_CODE,
         temporaryCompatibilitySwitch:
           "SKILLRUNNER_SUPPORTS_ZOTERO_HOST_ACCESS_RUNTIME_OPTIONS",
         supportsZoteroHostAccessRuntimeOptions:
@@ -458,15 +626,59 @@ export async function runWorkflowPreparationSeam(
     });
   }
 
+  let adaptedRequests: unknown[] = [];
+  try {
+    adaptedRequests = await adaptRequestsForExecutionContext({
+      requests,
+      workflow: args.workflow,
+      executionContext,
+      buildSkillRunnerHostBridgeEnv: resolved.buildSkillRunnerHostBridgeEnv,
+    });
+  } catch (error) {
+    const reason = normalizeErrorMessage(error, args.messageFormatter);
+    const envFailure = getSkillRunnerHostBridgeEnvFailureDetails(error);
+    resolved.appendRuntimeLog({
+      level: "error",
+      scope: "workflow-trigger",
+      workflowId: args.workflow.manifest.id,
+      backendId: executionContext.backend.id,
+      backendType: executionContext.backend.type,
+      providerId: executionContext.providerId,
+      stage: "skillrunner-host-bridge-env-unavailable",
+      message: "SkillRunner Host Bridge env injection failed",
+      details: {
+        reason,
+        code: envFailure.code,
+        diagnostics: envFailure.details,
+      },
+      error,
+    });
+    if (
+      !args.suppressUiFeedback &&
+      shouldShowWorkflowNotifications(args.workflow.manifest)
+    ) {
+      resolved.alertWindow(
+        args.win,
+        localizeWorkflowText(
+          "workflow-execute-cannot-run",
+          `Workflow ${workflowLabel} cannot run: ${reason}`,
+          {
+            workflowLabel,
+            reason,
+          },
+        ),
+      );
+    }
+    return {
+      status: "halted",
+    };
+  }
+
   return {
     status: "ready",
     prepared: {
       workflow: args.workflow,
-      requests: adaptRequestsForExecutionContext({
-        requests,
-        workflow: args.workflow,
-        executionContext,
-      }),
+      requests: adaptedRequests,
       skippedByFilter,
       executionContext,
     },

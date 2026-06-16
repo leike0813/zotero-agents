@@ -1,8 +1,4 @@
-import Graph from "graphology";
-import Sigma from "sigma";
-import { drawDiscNodeHover } from "sigma/rendering";
 import {
-  CITATION_GRAPH_EDGE_SIZE,
   CITATION_GRAPH_INCOMING_EDGE_COLOR,
   CITATION_GRAPH_OUTGOING_EDGE_COLOR,
   GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT,
@@ -14,8 +10,6 @@ import {
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT,
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT,
   GRAPH_LIBRARY_NODE_SIZE_CAP,
-  GRAPH_MAX_ZOOM_RATIO,
-  GRAPH_MIN_ZOOM_RATIO,
   GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE,
   GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE,
 } from "./citationGraphVisualRules";
@@ -32,6 +26,8 @@ export type CitationGraphNode = {
   low_signal?: boolean;
   visibility?: "default" | "hover_only";
   display_tier?: "library" | "shared_external" | "single_external";
+  is_focus?: boolean;
+  focus_role?: string;
   metrics?: {
     internal_in_degree?: number;
     internal_out_degree?: number;
@@ -55,6 +51,7 @@ export type CitationGraphSelectedElement =
 export type CitationGraphRenderModel = {
   nodes: CitationGraphNode[];
   edges: CitationGraphEdge[];
+  start_node_id?: string;
   selectedElement?: CitationGraphSelectedElement;
   diagnostics?: unknown;
 };
@@ -66,27 +63,25 @@ export type CitationGraphRenderOptions = {
 
 type CitationGraphLabelKey =
   | "title"
-  | "search"
-  | "clear"
-  | "selection"
-  | "noSelection"
   | "noGraph"
+  | "direction"
   | "incoming"
   | "outgoing"
   | "importance"
   | "nodeSize"
   | "halo"
-  | "library"
-  | "external";
+  | "currentPaper"
+  | "scope";
 
 type RuntimeState = {
-  renderer?: Sigma;
-  graph?: Graph;
   hoveredNode?: string;
-  hoverLabelNode?: string;
   hoverClearTimer?: number;
-  search: string;
-  selectedElement: CitationGraphSelectedElement;
+};
+
+type GraphNodeImportance = {
+  incomingDegree: number;
+  percentile: number;
+  halo: boolean;
 };
 
 function text(value: unknown, fallback = "") {
@@ -111,18 +106,35 @@ function label(
   return options.labels?.[key] || fallback;
 }
 
-function graphNodeColor(node: CitationGraphNode) {
+function isCurrentPaperNode(
+  node: CitationGraphNode,
+  model: CitationGraphRenderModel,
+) {
+  return Boolean(
+    node.is_focus ||
+    node.focus_role === "current_paper" ||
+    (model.start_node_id && node.id === model.start_node_id),
+  );
+}
+
+function graphNodeColor(
+  node: CitationGraphNode,
+  model: CitationGraphRenderModel,
+) {
+  if (isCurrentPaperNode(node, model)) return "#dc2626";
   if (node.kind === "library_paper") return "#2563eb";
   if (node.display_tier === "single_external") return "#d97706";
   return "#65a30d";
 }
 
-function graphNodeImportanceColor(node: CitationGraphNode) {
-  return node.kind === "library_paper" ? "#1d4ed8" : "#b45309";
-}
-
-function graphNodeSearchText(node: CitationGraphNode) {
-  return `${node.title || ""} ${node.year || ""} ${node.id}`.toLowerCase();
+function graphNodeImportanceColor(
+  node: CitationGraphNode,
+  model: CitationGraphRenderModel,
+) {
+  if (isCurrentPaperNode(node, model)) return "#ef4444";
+  if (node.kind === "library_paper") return "#2f7df6";
+  if (node.display_tier === "single_external") return "#c4ca5d";
+  return "#94a51f";
 }
 
 function graphNodeBaseSize(node: CitationGraphNode) {
@@ -208,99 +220,35 @@ function buildGraphNodeImportance(model: CitationGraphRenderModel) {
 
 function graphNodeSize(
   node: CitationGraphNode,
-  importance?: { incomingDegree: number; percentile: number; halo: boolean },
+  model: CitationGraphRenderModel,
+  importance?: GraphNodeImportance,
 ) {
+  const multiplier = isCurrentPaperNode(node, model) ? 1.5 : 1;
   const base = graphNodeBaseSize(node);
-  if (!importance || importance.incomingDegree <= 0) return base;
+  if (!importance || importance.incomingDegree <= 0) return base * multiplier;
   const cap = graphNodeSizeCap(node);
-  return Math.min(cap, base + (cap - base) * importance.percentile);
-}
-
-function graphNodeZIndex(
-  node: CitationGraphNode,
-  importance?: { halo: boolean },
-) {
-  const importanceZIndex = importance?.halo ? 8 : 0;
-  if (node.kind === "library_paper") return Math.max(4, importanceZIndex);
-  if (node.display_tier === "shared_external")
-    return Math.max(2, importanceZIndex);
-  if (node.visibility === "hover_only") return Math.max(1, importanceZIndex);
-  return Math.max(2, importanceZIndex);
-}
-
-function drawGraphImportanceHalo(
-  context: CanvasRenderingContext2D,
-  data: {
-    x: number;
-    y: number;
-    size: number;
-    kind?: unknown;
-    importanceHalo?: unknown;
-  },
-) {
-  const libraryNode = data.kind === "library_paper";
-  const strong = libraryNode
-    ? GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT
-    : GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT;
-  const soft = libraryNode
-    ? GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT
-    : GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT;
-  const radius = Math.max(5, Number(data.size || 1)) + 3;
-  context.save();
-  context.lineCap = "round";
-  context.strokeStyle = soft;
-  context.lineWidth = 4;
-  context.beginPath();
-  context.arc(data.x, data.y, radius + 1, 0, Math.PI * 2);
-  context.stroke();
-  context.strokeStyle = strong;
-  context.lineWidth = 2;
-  context.beginPath();
-  context.arc(data.x, data.y, radius, 0, Math.PI * 2);
-  context.stroke();
-  context.restore();
-}
-
-function drawGraphNodeHover(
-  context: CanvasRenderingContext2D,
-  data: Record<string, unknown>,
-  settings: Record<string, unknown>,
-) {
-  if (data.importanceHalo && !data.importanceInteractive) {
-    drawGraphImportanceHalo(
-      context,
-      data as {
-        x: number;
-        y: number;
-        size: number;
-        kind?: unknown;
-        importanceHalo?: unknown;
-      },
-    );
-    return;
-  }
-  drawDiscNodeHover(context as any, data as any, settings as any);
-}
-
-function clampGraphCameraZoom(renderer: Sigma) {
-  const camera = renderer.getCamera() as any;
-  const state = camera?.getState?.();
-  if (!state) return;
-  const ratio = Number(state.ratio || 1);
-  const nextRatio = Math.min(
-    GRAPH_MAX_ZOOM_RATIO,
-    Math.max(GRAPH_MIN_ZOOM_RATIO, ratio),
+  return (
+    Math.min(cap, base + (cap - base) * importance.percentile) * multiplier
   );
-  if (nextRatio !== ratio) {
-    camera.setState({ ...state, ratio: nextRatio });
-  }
 }
 
-function selectedGraphHoverNode(model: CitationGraphRenderModel, graph: Graph) {
-  const selected = model.selectedElement;
-  if (selected?.kind !== "node" || !graph.hasNode(selected.id))
-    return undefined;
-  return selected.id;
+function haloColors(node: CitationGraphNode, model: CitationGraphRenderModel) {
+  if (isCurrentPaperNode(node, model)) {
+    return {
+      strong: "rgba(220, 38, 38, 0.62)",
+      soft: "rgba(220, 38, 38, 0.2)",
+    };
+  }
+  if (node.kind === "library_paper") {
+    return {
+      strong: GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT,
+      soft: GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT,
+    };
+  }
+  return {
+    strong: GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT,
+    soft: GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT,
+  };
 }
 
 function cancelScheduledHoverClear(state: RuntimeState) {
@@ -310,30 +258,28 @@ function cancelScheduledHoverClear(state: RuntimeState) {
   }
 }
 
-function graphDetailHtml(
-  model: CitationGraphRenderModel,
-  selected: CitationGraphSelectedElement,
-) {
-  if (!selected) {
-    return `<h3>Selection</h3><p class="muted">Select a node to inspect citation graph details.</p>`;
-  }
-  if (selected.kind === "edge") {
-    const edge = model.edges.find((item) => item.id === selected.id);
-    return `<h3>Edge</h3><dl><dt>Role</dt><dd>${escapeHtml(edge?.primary_role || "-")}</dd><dt>Source</dt><dd>${escapeHtml(edge?.source || "-")}</dd><dt>Target</dt><dd>${escapeHtml(edge?.target || "-")}</dd><dt>Mentions</dt><dd>${escapeHtml(edge?.mention_count ?? 0)}</dd></dl>`;
-  }
-  const node = model.nodes.find((item) => item.id === selected.id);
-  if (!node)
-    return `<h3>Selection</h3><p class="muted">Selected node was not found.</p>`;
-  return `<h3>${escapeHtml(node.title || node.id)}</h3><dl><dt>Type</dt><dd>${escapeHtml(node.kind)}</dd><dt>Year</dt><dd>${escapeHtml(node.year || "-")}</dd><dt>In</dt><dd>${escapeHtml(node.metrics?.internal_in_degree ?? "-")}</dd><dt>Out</dt><dd>${escapeHtml(node.metrics?.internal_out_degree ?? "-")}</dd><dt>ID</dt><dd>${escapeHtml(node.id)}</dd></dl>`;
-}
-
 function renderShell(
   container: HTMLElement,
   model: CitationGraphRenderModel,
   options: CitationGraphRenderOptions,
-  state: RuntimeState,
 ) {
-  container.innerHTML = `<div class="zs-cg-header"><div><h2 id="citation-graph">${escapeHtml(label(options, "title", "Citation Graph"))}</h2><p>基于 Host Bridge 固化布局的引用网络。</p></div><div class="zs-cg-badges"><span>${model.nodes.length} nodes</span><span>${model.edges.length} edges</span></div></div><div class="zs-cg-toolbar"><input type="search" data-zs-cg-search placeholder="${escapeHtml(label(options, "search", "Search graph"))}" value="${escapeHtml(state.search)}"><button type="button" data-zs-cg-clear>${escapeHtml(label(options, "clear", "Clear"))}</button></div><div class="zs-cg-legend"><strong>Direction</strong><span><i style="background:${CITATION_GRAPH_INCOMING_EDGE_COLOR}"></i>${escapeHtml(label(options, "incoming", "Incoming"))}</span><span><i style="background:${CITATION_GRAPH_OUTGOING_EDGE_COLOR}"></i>${escapeHtml(label(options, "outgoing", "Outgoing"))}</span><strong>${escapeHtml(label(options, "importance", "Importance"))}</strong><span class="zs-cg-node-size"><i></i><i></i>${escapeHtml(label(options, "nodeSize", "Node size = incoming citations"))}</span><span class="zs-cg-node-size"><i class="is-halo"></i>${escapeHtml(label(options, "halo", "Halo = high-impact node"))}</span></div><div class="zs-cg-layout"><div class="zs-cg-stage" data-zs-cg-stage></div><aside class="zs-cg-detail" data-zs-cg-detail>${graphDetailHtml(model, state.selectedElement)}</aside></div>`;
+  container.innerHTML = [
+    '<div class="zs-cg-shell">',
+    '<div class="zs-cg-legend" aria-label="Citation graph legend">',
+    `<strong>${escapeHtml(label(options, "direction", "Citation direction"))}</strong>`,
+    `<span><i class="zs-cg-edge-swatch is-incoming"></i>${escapeHtml(label(options, "incoming", "Incoming to selected"))}</span>`,
+    `<span><i class="zs-cg-edge-swatch is-outgoing"></i>${escapeHtml(label(options, "outgoing", "Outgoing from selected"))}</span>`,
+    `<strong>${escapeHtml(label(options, "importance", "Citation importance"))}</strong>`,
+    `<span class="zs-cg-node-size"><i></i><i></i>${escapeHtml(label(options, "nodeSize", "Node size = incoming citations"))}</span>`,
+    `<span class="zs-cg-node-size"><i class="is-halo"></i>${escapeHtml(label(options, "halo", "Halo = top cited visible nodes"))}</span>`,
+    `<span class="zs-cg-node-size"><i class="is-current-paper"></i>${escapeHtml(label(options, "currentPaper", "Current paper"))}</span>`,
+    "</div>",
+    '<div class="zs-cg-stage" data-zs-cg-stage>',
+    `<div class="zs-cg-scope-badge">${escapeHtml(label(options, "scope", "Current paper 2-hop citation neighborhood"))}</div>`,
+    '<div class="zs-cg-status-badge">SVG fallback</div>',
+    "</div>",
+    "</div>",
+  ].join("");
 }
 
 function renderEmpty(
@@ -346,6 +292,197 @@ function renderEmpty(
   if (status === "failed") container.dataset.zsCgError = message;
   else delete container.dataset.zsCgError;
   container.innerHTML = `<div class="zs-cg-empty"><h2 id="citation-graph">${escapeHtml(label(options, "title", "Citation Graph"))}</h2><p>${escapeHtml(message)}</p></div>`;
+}
+
+function quantile(values: number[], ratio: number) {
+  if (!values.length) return 0;
+  const sorted = values.slice().sort((left, right) => left - right);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.round((sorted.length - 1) * ratio)),
+  );
+  return sorted[index] ?? 0;
+}
+
+function svgPointProjector(nodes: CitationGraphNode[], stage: HTMLElement) {
+  const rect = stage.getBoundingClientRect();
+  const width = Math.max(
+    320,
+    Math.floor(rect.width || stage.clientWidth || 640),
+  );
+  const height = Math.max(
+    320,
+    Math.floor(rect.height || stage.clientHeight || 500),
+  );
+  const xs = nodes.map((node) => node.x);
+  const ys = nodes.map((node) => node.y);
+  const fullMinX = Math.min(...xs);
+  const fullMaxX = Math.max(...xs);
+  const fullMinY = Math.min(...ys);
+  const fullMaxY = Math.max(...ys);
+  const coreMinX = quantile(xs, 0.05);
+  const coreMaxX = quantile(xs, 0.95);
+  const coreMinY = quantile(ys, 0.05);
+  const coreMaxY = quantile(ys, 0.95);
+  const useCoreX =
+    fullMaxX - fullMinX > Math.max(1, (coreMaxX - coreMinX) * 1.8);
+  const useCoreY =
+    fullMaxY - fullMinY > Math.max(1, (coreMaxY - coreMinY) * 1.8);
+  const minX = useCoreX ? coreMinX : fullMinX;
+  const maxX = useCoreX ? coreMaxX : fullMaxX;
+  const minY = useCoreY ? coreMinY : fullMinY;
+  const maxY = useCoreY ? coreMaxY : fullMaxY;
+  const padding = Math.max(32, Math.min(width, height) * 0.08);
+  const graphWidth = Math.max(1, maxX - minX);
+  const graphHeight = Math.max(1, maxY - minY);
+  const scale = Math.min(
+    (width - padding * 2) / graphWidth,
+    (height - padding * 2) / graphHeight,
+  );
+  const usedWidth = graphWidth * scale;
+  const usedHeight = graphHeight * scale;
+  const offsetX = (width - usedWidth) / 2;
+  const offsetY = (height - usedHeight) / 2;
+  return {
+    width,
+    height,
+    project(node: CitationGraphNode) {
+      const x = Math.min(maxX, Math.max(minX, node.x));
+      const y = Math.min(maxY, Math.max(minY, node.y));
+      return {
+        x: offsetX + (x - minX) * scale,
+        y: offsetY + (maxY - y) * scale,
+      };
+    },
+  };
+}
+
+function truncateTitle(title: string) {
+  return title.length > 56 ? `${title.slice(0, 53)}...` : title;
+}
+
+function renderSvgCitationGraph(
+  container: HTMLElement,
+  model: CitationGraphRenderModel,
+  options: CitationGraphRenderOptions,
+  state: RuntimeState,
+) {
+  renderShell(container, model, options);
+  const stage = container.querySelector(
+    "[data-zs-cg-stage]",
+  ) as HTMLElement | null;
+  if (!stage) return;
+  const graphStage = stage;
+
+  const importanceByNodeId = buildGraphNodeImportance(model);
+  const nodeById = new Map(model.nodes.map((node) => [node.id, node]));
+  const adjacency = new Map<string, Set<string>>();
+  for (const edge of model.edges) {
+    if (!adjacency.has(edge.source)) adjacency.set(edge.source, new Set());
+    if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set());
+    adjacency.get(edge.source)?.add(edge.target);
+    adjacency.get(edge.target)?.add(edge.source);
+  }
+
+  function connectedToActive(edge: CitationGraphEdge, activeNode: string) {
+    return edge.source === activeNode || edge.target === activeNode;
+  }
+
+  function redrawStage() {
+    const projector = svgPointProjector(model.nodes, graphStage);
+    const activeNode = state.hoveredNode;
+    const edgeHtml = model.edges
+      .map((edge) => {
+        const source = nodeById.get(edge.source);
+        const target = nodeById.get(edge.target);
+        if (!source || !target) return "";
+        const sourcePoint = projector.project(source);
+        const targetPoint = projector.project(target);
+        const active = activeNode ? connectedToActive(edge, activeNode) : false;
+        const color =
+          activeNode && edge.target === activeNode
+            ? CITATION_GRAPH_INCOMING_EDGE_COLOR
+            : CITATION_GRAPH_OUTGOING_EDGE_COLOR;
+        return `<line class="graph-edge${active ? " is-active" : ""}" x1="${sourcePoint.x.toFixed(2)}" y1="${sourcePoint.y.toFixed(2)}" x2="${targetPoint.x.toFixed(2)}" y2="${targetPoint.y.toFixed(2)}" stroke="${color}" stroke-width="${active ? 1.8 : 0.75}" stroke-opacity="${active ? 0.72 : activeNode ? 0.08 : 0.16}" marker-end="url(#zs-cg-arrow)" />`;
+      })
+      .join("");
+    const nodeHtml = model.nodes
+      .map((node) => {
+        const point = projector.project(node);
+        const importance = importanceByNodeId.get(node.id);
+        const currentPaper = isCurrentPaperNode(node, model);
+        const baseSize = graphNodeSize(node, model, importance);
+        const radius = Math.max(4, baseSize * 1.75);
+        const neighbor = activeNode
+          ? node.id === activeNode ||
+            Boolean(adjacency.get(activeNode)?.has(node.id))
+          : false;
+        const faded = Boolean(activeNode && !neighbor && !currentPaper);
+        const color =
+          importance?.halo || currentPaper
+            ? graphNodeImportanceColor(node, model)
+            : graphNodeColor(node, model);
+        const labelVisible =
+          node.id === activeNode ||
+          (neighbor && node.kind === "library_paper") ||
+          (currentPaper && !activeNode);
+        const showHalo = importance?.halo || currentPaper;
+        const halo = showHalo
+          ? (() => {
+              const colors = haloColors(node, model);
+              return [
+                `<circle class="graph-node-halo is-soft" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${(radius + 6).toFixed(2)}" fill="none" stroke="${colors.soft}" stroke-width="4" opacity="${faded ? 0.28 : 1}" />`,
+                `<circle class="graph-node-halo" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${(radius + 4).toFixed(2)}" fill="none" stroke="${colors.strong}" stroke-width="2" opacity="${faded ? 0.28 : 1}" />`,
+              ].join("");
+            })()
+          : "";
+        const title = escapeHtml(node.title || node.id);
+        const labelText =
+          labelVisible && title
+            ? `<text class="graph-node-label" x="${(point.x + radius + 5).toFixed(2)}" y="${(point.y + 4).toFixed(2)}">${escapeHtml(truncateTitle(node.title || node.id))}</text>`
+            : "";
+        return `${halo}<circle class="graph-node${node.kind === "library_paper" ? " is-library" : " is-external"}${neighbor ? " is-active" : ""}${currentPaper ? " is-current-paper" : ""}" data-node-id="${escapeHtml(node.id)}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${radius.toFixed(2)}" fill="${color}" opacity="${faded ? 0.28 : 0.96}"><title>${title}</title></circle>${labelText}`;
+      })
+      .join("");
+    graphStage.innerHTML = [
+      `<div class="zs-cg-scope-badge">${escapeHtml(label(options, "scope", "Current paper 2-hop citation neighborhood"))}</div>`,
+      '<div class="zs-cg-status-badge">SVG fallback</div>',
+      `<svg class="zs-cg-svg" viewBox="0 0 ${projector.width} ${projector.height}" role="img" aria-label="${escapeHtml(label(options, "title", "Citation Graph"))}">`,
+      "<defs>",
+      '<marker id="zs-cg-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">',
+      `<path d="M0,0 L8,4 L0,8 Z" fill="${CITATION_GRAPH_OUTGOING_EDGE_COLOR}" opacity="0.7"></path>`,
+      "</marker>",
+      "</defs>",
+      `<g class="graph-edges">${edgeHtml}</g>`,
+      `<g class="graph-nodes">${nodeHtml}</g>`,
+      "</svg>",
+    ].join("");
+
+    const nodeElements = graphStage.querySelectorAll(
+      "[data-node-id]",
+    ) as NodeListOf<SVGElement>;
+    nodeElements.forEach((nodeEl: SVGElement) => {
+      nodeEl.addEventListener("mouseenter", () => {
+        const nodeId = nodeEl.dataset.nodeId;
+        cancelScheduledHoverClear(state);
+        state.hoverClearTimer = window.setTimeout(() => {
+          state.hoveredNode = nodeId;
+          redrawStage();
+        }, 60);
+      });
+      nodeEl.addEventListener("mouseleave", () => {
+        cancelScheduledHoverClear(state);
+        state.hoverClearTimer = window.setTimeout(() => {
+          state.hoveredNode = undefined;
+          redrawStage();
+        }, 80);
+      });
+    });
+  }
+
+  redrawStage();
+  container.dataset.zsCgStatus = "ready";
+  delete container.dataset.zsCgError;
 }
 
 export function renderCitationGraph(
@@ -375,230 +512,8 @@ export function renderCitationGraph(
       (edge) => drawableIds.has(edge.source) && drawableIds.has(edge.target),
     ),
   };
-  const state: RuntimeState = {
-    search: "",
-    selectedElement: drawableModel.selectedElement || null,
-  };
-  function draw() {
-    state.renderer?.kill();
-    renderShell(container, drawableModel, options, state);
-    const stage = container.querySelector(
-      "[data-zs-cg-stage]",
-    ) as HTMLElement | null;
-    const detail = container.querySelector(
-      "[data-zs-cg-detail]",
-    ) as HTMLElement | null;
-    if (!stage) return;
-    const graph = new Graph({ multi: false, type: "directed" });
-    const importanceByNodeId = buildGraphNodeImportance(drawableModel);
-    for (const node of drawableModel.nodes) {
-      const importance = importanceByNodeId.get(node.id);
-      graph.addNode(node.id, {
-        title: node.title,
-        label: "",
-        x: node.x,
-        y: node.y,
-        size: graphNodeSize(node, importance),
-        color: importance?.halo
-          ? graphNodeImportanceColor(node)
-          : graphNodeColor(node),
-        zIndex: graphNodeZIndex(node, importance),
-        highlighted: importance?.halo || false,
-        importanceHalo: importance?.halo || false,
-        importanceInteractive: false,
-        incomingDegree: importance?.incomingDegree || 0,
-        kind: node.kind,
-        visibility: node.visibility || "default",
-        display_tier: node.display_tier || "library",
-        searchable: graphNodeSearchText(node),
-      });
-    }
-    for (const edge of drawableModel.edges) {
-      graph.mergeDirectedEdgeWithKey(edge.id, edge.source, edge.target, {
-        type: "arrow",
-        hidden: true,
-        color: CITATION_GRAPH_OUTGOING_EDGE_COLOR,
-        size: CITATION_GRAPH_EDGE_SIZE,
-        label: edge.primary_role || "",
-        zIndex: 0,
-        visibility: edge.visibility || "default",
-      });
-    }
-    const pinnedHoverNode = selectedGraphHoverNode(drawableModel, graph);
-    state.hoveredNode = pinnedHoverNode;
-    state.hoverLabelNode = undefined;
-    const renderer = new Sigma(graph, stage, {
-      allowInvalidContainer: true,
-      enableEdgeEvents: true,
-      renderEdgeLabels: false,
-      defaultDrawNodeHover: drawGraphNodeHover,
-      zIndex: true,
-      nodeReducer(node: string, data: Record<string, unknown>) {
-        const query = state.search.trim().toLowerCase();
-        const searchActive = !!query;
-        const searchMatch = String(data.searchable || "").includes(query);
-        if (!state.hoveredNode || !graph.hasNode(state.hoveredNode)) {
-          if (!searchActive) return data;
-          return {
-            ...data,
-            color: searchMatch ? "#0ea5e9" : "#d3d8de",
-            size: searchMatch
-              ? Math.max(
-                  Number(data.size || 1) * 1.35,
-                  Number(data.size || 1) + 1,
-                )
-              : Number(data.size || 1),
-            zIndex: searchMatch
-              ? Math.max(30, Number(data.zIndex || 0))
-              : Number(data.zIndex || 0),
-            highlighted: Boolean(data.importanceHalo && searchMatch),
-            importanceInteractive: false,
-            label: searchMatch ? data.title : "",
-          };
-        }
-        const neighbor =
-          node === state.hoveredNode ||
-          graph.areNeighbors(node, state.hoveredNode);
-        const activeHaloNode = Boolean(
-          data.importanceHalo && node === state.hoveredNode,
-        );
-        const showHoverLabel =
-          searchMatch ||
-          node === state.hoverLabelNode ||
-          node === state.hoveredNode ||
-          (neighbor &&
-            (data.kind === "library_paper" ||
-              data.visibility === "hover_only"));
-        return {
-          ...data,
-          color: searchMatch ? "#0ea5e9" : neighbor ? data.color : "#d3d8de",
-          size: searchMatch
-            ? Math.max(
-                Number(data.size || 1) * 1.35,
-                Number(data.size || 1) + 1,
-              )
-            : neighbor || data.visibility !== "hover_only"
-              ? data.size
-              : Math.max(1, Number(data.size || 1) * 0.6),
-          zIndex: searchMatch
-            ? Math.max(30, Number(data.zIndex || 0))
-            : neighbor
-              ? Math.max(10, Number(data.zIndex || 0))
-              : Number(data.zIndex || 0),
-          highlighted: Boolean(
-            data.importanceHalo && (searchMatch || neighbor),
-          ),
-          importanceInteractive: activeHaloNode,
-          label: showHoverLabel ? data.title : "",
-        };
-      },
-      edgeReducer(edge: string, data: Record<string, unknown>) {
-        const selectedEdgeId =
-          state.selectedElement?.kind === "edge"
-            ? state.selectedElement.id
-            : undefined;
-        const activeNode =
-          state.hoveredNode && graph.hasNode(state.hoveredNode)
-            ? state.hoveredNode
-            : undefined;
-        const source = graph.source(edge);
-        const target = graph.target(edge);
-        const connectedToActiveNode = activeNode
-          ? source === activeNode || target === activeNode
-          : false;
-        const selectedEdge = selectedEdgeId === edge;
-        const visible = connectedToActiveNode || selectedEdge;
-        const directionColor =
-          activeNode && target === activeNode
-            ? CITATION_GRAPH_INCOMING_EDGE_COLOR
-            : CITATION_GRAPH_OUTGOING_EDGE_COLOR;
-        return {
-          ...data,
-          hidden: !visible,
-          color: directionColor,
-          size: CITATION_GRAPH_EDGE_SIZE,
-          zIndex: visible ? 20 : 0,
-        };
-      },
-    } as any);
-    state.renderer = renderer;
-    state.graph = graph;
-    container.dataset.zsCgStatus = "ready";
-    delete container.dataset.zsCgError;
-    renderer.getCamera()?.on?.("updated", () => clampGraphCameraZoom(renderer));
-    clampGraphCameraZoom(renderer);
-    renderer.on("enterNode", ({ node }: { node: string }) => {
-      const pinnedNode = selectedGraphHoverNode(drawableModel, graph);
-      if (pinnedNode && node !== pinnedNode) {
-        state.hoverLabelNode = graph.areNeighbors(node, pinnedNode)
-          ? node
-          : undefined;
-        renderer.refresh();
-        return;
-      }
-      cancelScheduledHoverClear(state);
-      state.hoveredNode = node;
-      state.hoverLabelNode = undefined;
-      renderer.refresh();
-    });
-    renderer.on("leaveNode", () => {
-      cancelScheduledHoverClear(state);
-      const pinnedNode = selectedGraphHoverNode(drawableModel, graph);
-      state.hoverClearTimer = window.setTimeout(() => {
-        state.hoveredNode = pinnedNode;
-        state.hoverLabelNode = undefined;
-        renderer.refresh();
-      }, 80);
-    });
-    renderer.on("clickNode", ({ node }: { node: string }) => {
-      state.selectedElement = { kind: "node", id: node };
-      drawableModel.selectedElement = state.selectedElement;
-      state.hoveredNode = node;
-      state.hoverLabelNode = undefined;
-      if (detail)
-        detail.innerHTML = graphDetailHtml(
-          drawableModel,
-          state.selectedElement,
-        );
-      renderer.refresh();
-    });
-    renderer.on("clickEdge", ({ edge }: { edge: string }) => {
-      state.selectedElement = { kind: "edge", id: edge };
-      drawableModel.selectedElement = state.selectedElement;
-      if (detail)
-        detail.innerHTML = graphDetailHtml(
-          drawableModel,
-          state.selectedElement,
-        );
-      renderer.refresh();
-    });
-    renderer.on("clickStage", () => {
-      state.selectedElement = null;
-      drawableModel.selectedElement = null;
-      state.hoveredNode = undefined;
-      state.hoverLabelNode = undefined;
-      if (detail) detail.innerHTML = graphDetailHtml(drawableModel, null);
-      renderer.refresh();
-    });
-    container
-      .querySelector("[data-zs-cg-search]")
-      ?.addEventListener("input", (event: Event) => {
-        state.search = (event.target as HTMLInputElement).value || "";
-        renderer.refresh();
-      });
-    container
-      .querySelector("[data-zs-cg-clear]")
-      ?.addEventListener("click", () => {
-        state.search = "";
-        const input = container.querySelector(
-          "[data-zs-cg-search]",
-        ) as HTMLInputElement | null;
-        if (input) input.value = "";
-        renderer.refresh();
-      });
-  }
   try {
-    draw();
+    renderSvgCitationGraph(container, drawableModel, options, {});
   } catch (error) {
     const message = `Citation graph renderer failed: ${text((error as Error)?.message, "unknown error")}`;
     renderEmpty(container, options, message, "failed");

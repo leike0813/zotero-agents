@@ -12,6 +12,7 @@ import {
   PLUGIN_TASK_DOMAIN_SKILLRUNNER,
   listPluginTaskRowEntries,
   replacePluginTaskRowEntries,
+  upsertPluginTaskRowEntry,
 } from "./pluginStateStore";
 import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
 
@@ -268,6 +269,12 @@ export function resetTaskDashboardHistory() {
 
 export function recordTaskDashboardHistoryFromJob(job: JobRecord) {
   const record = buildWorkflowTaskRecordFromJob(job);
+  return recordTaskDashboardHistoryFromTaskRecord(record);
+}
+
+export function recordTaskDashboardHistoryFromTaskRecord(
+  record: WorkflowTaskRecord,
+) {
   if (isPassThroughTask(record)) {
     return null;
   }
@@ -289,6 +296,28 @@ export function recordTaskDashboardHistoryFromJob(job: JobRecord) {
     ...record,
     archivedAt: now,
   };
+}
+
+export function upsertTaskDashboardHistoryFromTaskRecord(
+  record: WorkflowTaskRecord,
+) {
+  if (isPassThroughTask(record)) {
+    return null;
+  }
+  const now = new Date().toISOString();
+  const entry: TaskDashboardHistoryRecord = {
+    ...record,
+    archivedAt: now,
+  };
+  upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_SKILLRUNNER, "history", {
+    taskId: String(entry.id || "").trim(),
+    requestId: String(entry.requestId || "").trim(),
+    backendId: String(entry.backendId || "").trim(),
+    state: String(entry.state || "").trim(),
+    updatedAt: String(entry.updatedAt || "").trim(),
+    payload: JSON.stringify(entry),
+  });
+  return { ...entry };
 }
 
 export function summarizeTaskDashboardHistory(

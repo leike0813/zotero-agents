@@ -7,7 +7,7 @@ import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 
 describe("Manuscript Literature Framing workflow contract", function () {
-  it("ships an ACP-only interactive manuscript literature framing workflow", async function () {
+  it("ships a SkillRunner interactive manuscript literature framing workflow", async function () {
     const workflow = JSON.parse(
       await fs.readFile(
         "workflows_builtin/synthesis-layer/manuscript-literature-framing/workflow.json",
@@ -27,7 +27,18 @@ describe("Manuscript Literature Framing workflow contract", function () {
     );
     assert.equal(workflow.inputs?.unit, "workflow");
     assert.equal(workflow.execution?.skillrunner_mode, "interactive");
-    assert.equal(workflow.provider, "acp");
+    assert.equal(workflow.provider, "skillrunner");
+    assert.equal(workflow.result?.fetch?.type, "bundle");
+    assert.deepEqual(workflow.result?.expects?.artifacts, [
+      "result/introduction.tex",
+      "result/related-work.tex",
+      "result/intent-brief.json",
+      "result/evidence-inventory.json",
+      "result/framing-analysis.json",
+      "result/writing-plan.json",
+      "result/citation-map.json",
+      "result/diagnostics.json",
+    ]);
     assert.notProperty(workflow.execution || {}, "supportedBackends");
     assert.isTrue(workflow.execution?.zoteroHostAccess?.required);
     assert.notProperty(workflow.execution || {}, "mcp");
@@ -56,6 +67,7 @@ describe("Manuscript Literature Framing workflow contract", function () {
       },
     })) as Array<{
       taskName?: string;
+      fetch_type?: string;
       parameter?: Record<string, unknown>;
       runtime_options?: Record<string, unknown>;
     }>;
@@ -65,6 +77,7 @@ describe("Manuscript Literature Framing workflow contract", function () {
       requests[0].taskName,
       "Frame manuscript literature: Efficient Detector Adaptation in Degraded Visual Scenes",
     );
+    assert.equal(requests[0].fetch_type, "bundle");
     assert.equal(
       requests[0].parameter?.paperTitle,
       "Efficient Detector Adaptation in Degraded Visual Scenes",
@@ -114,6 +127,7 @@ describe("Manuscript Literature Framing workflow contract", function () {
 
     assert.include(files, "SKILL.md");
     assert.include(files, "assets/runner.json");
+    assert.include(files, "assets/parameter.schema.json");
     assert.include(files, "assets/output.schema.json");
     assert.include(
       files,

@@ -75,6 +75,16 @@ Advanced Reference Matching appears under Index and Review as an explicit review
 
 Canonical merge proposals must show readable source and target reference titles when matcher evidence provides them. Internal canonical ids are fallback diagnostics, not the primary decision text.
 
+## Sync Status and Conflict Review
+
+The Workbench Sync panel is a runtime surface, not the long-term sync configuration editor. Git remote URL, branch, retry policy, WebDAV base URL, WebDAV remote path, username, and encrypted credential state are owned by Zotero Preferences. Git executable detection is service-owned and read-only. When a transport is disabled or incomplete, Workbench shows the config state and offers `Open preferences` as the primary action.
+
+When configuration is complete, Workbench may expose runtime actions such as `Sync now`, `Pause`, `Resume`, and `Retry` based on each transport's service-provided `allowedActions`. The panel should show remote, branch/path, branch or head state (`ready`, `will initialize`, or `failed`), queue state, last run, credential presence metadata, recent sanitized connection-test diagnostics, and conflict count. It must never display or accept a token or password. `will initialize` is not an error state; if the service allows sync, the primary action remains `Sync now`.
+
+When Git Sync or WebDAV Sync enters `blocked_conflict`, the panel switches that transport to conflict review. Each conflict row should show entity kind/id when available, asset path, reason, and short base/local/remote hash summaries. Conflict actions are service-defined semantic commands: `keep_local`, `use_remote`, `save_remote_copy`, `mark_needs_attention`, and `clear_after_manual_edit`. In v1, Workbench should enable only actions present in the service projection. Unsupported actions may be visible for discoverability, but must be disabled with diagnostics rather than locally inventing behavior.
+
+`keep_local` closes the current report and queues export without writing remote facts into SQLite. `save_remote_copy` writes a review copy and leaves sync blocked. `clear_after_manual_edit` reruns validation and import preview before unblocking. `use_remote` and `mark_needs_attention` require backend guarantees for safe single-entity apply or durable review marking; otherwise they remain disabled.
+
 ## Graph UI
 
 - Show all library nodes by default.

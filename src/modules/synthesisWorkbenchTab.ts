@@ -10,7 +10,11 @@ import { resolveAddonRef, resolveRuntimeToolkit } from "../utils/runtimeBridge";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
-import { getDefaultSynthesisService, topicPathId } from "./synthesis/service";
+import {
+  getDefaultSynthesisService,
+  invalidateDefaultSynthesisService,
+  topicPathId,
+} from "./synthesis/service";
 import {
   copyRuntimeFile,
   getRuntimePersistencePaths,
@@ -761,6 +765,34 @@ function clearCommandProgressPolling(runtime: SynthesisWorkbenchRuntime) {
   runtime.commandProgressTimer = undefined;
 }
 
+function isGitSyncRuntimeCommand(
+  command: SynthesisUiActionOperation["command"] | undefined,
+) {
+  return (
+    command === "syncNow" ||
+    command === "syncWebDavNow" ||
+    command === "pauseGitSync" ||
+    command === "resumeGitSync" ||
+    command === "retryGitSync" ||
+    command === "resolveGitSyncConflict" ||
+    command === "pauseWebDavSync" ||
+    command === "resumeWebDavSync" ||
+    command === "retryWebDavSync" ||
+    command === "resolveWebDavSyncConflict"
+  );
+}
+
+function hasInFlightGitSyncCommand(runtime: SynthesisWorkbenchRuntime) {
+  return Array.from(runtime.inFlightCommands.values()).some((operation) =>
+    isGitSyncRuntimeCommand(operation.command),
+  );
+}
+
+function getFreshSynthesisServiceForGitSyncCommand() {
+  invalidateDefaultSynthesisService();
+  return getDefaultSynthesisService();
+}
+
 async function notifyWorkbenchCommandProgress(
   runtime: SynthesisWorkbenchRuntime,
 ) {
@@ -778,6 +810,12 @@ async function refreshWorkbenchCommandProgress(
   }
   runtime.commandProgressSnapshotRunning = true;
   try {
+    if (hasInFlightGitSyncCommand(runtime)) {
+      await sendChrome(runtime, {
+        refreshFromService: true,
+      });
+      return;
+    }
     if (!runtime.snapshotInputLocked) {
       const base = runtime.snapshotInput || buildDefaultSnapshotInput();
       runtime.snapshotInput = {
@@ -819,7 +857,7 @@ function runWorkbenchCommandOnce(
   }
   runtime.inFlightCommands.set(operation.key, operation);
   void sendChrome(runtime, {
-    refreshFromService: false,
+    refreshFromService: isGitSyncRuntimeCommand(command),
   });
   ensureCommandProgressPolling(runtime);
   const start = () =>
@@ -882,6 +920,54 @@ function failOnDiagnostic<T>(result: T): T {
     throw new Error(String(row.message || row.code || "Action failed."));
   }
   return result;
+}
+
+function syncStateString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function firstSyncDiagnosticMessage(
+  diagnostics: unknown[],
+  fallback = "Sync failed.",
+) {
+  const row = diagnostics.find(
+    (entry) => entry && typeof entry === "object",
+  ) as Record<string, unknown> | undefined;
+  if (!row) {
+    return fallback;
+  }
+  const code = syncStateString(row.code);
+  const message = syncStateString(row.message);
+  if (code && message) {
+    return `${code}: ${message}`;
+  }
+  return message || code || fallback;
+}
+
+function failOnSyncFailureState<T>(result: T): T {
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+  const row = result as Record<string, unknown>;
+  const queueState = syncStateString(row.queue_state);
+  const lastRun =
+    row.last_run && typeof row.last_run === "object"
+      ? (row.last_run as Record<string, unknown>)
+      : {};
+  const lastRunStatus = syncStateString(lastRun.status);
+  const failed =
+    queueState === "failed_retryable" ||
+    queueState === "failed_permanent" ||
+    lastRunStatus === "failed_retryable" ||
+    lastRunStatus === "failed_permanent";
+  if (!failed) {
+    return result;
+  }
+  const diagnostics = [
+    ...(Array.isArray(row.diagnostics) ? row.diagnostics : []),
+    ...(Array.isArray(lastRun.diagnostics) ? lastRun.diagnostics : []),
+  ];
+  throw new Error(firstSyncDiagnosticMessage(diagnostics));
 }
 
 async function sendSnapshot(
@@ -1180,6 +1266,13 @@ function inlineScriptText(value: string) {
   return value.replace(/<\/script/gi, "<\\/script");
 }
 
+function cssDataUrlForSvg(value: string) {
+  return `data:image/svg+xml,${encodeURIComponent(value)
+    .replace(/'/g, "%27")
+    .replace(/\(/g, "%28")
+    .replace(/\)/g, "%29")}`;
+}
+
 async function readPackagedTextAsset(relativePath: string) {
   const read = await readPackagedBinaryAsset(relativePath);
   if (!read.ok) {
@@ -1197,10 +1290,32 @@ async function readPackagedTextAsset(relativePath: string) {
   return new Decoder("utf-8").decode(read.bytes);
 }
 
+async function inlineMaterialSymbolIconUrls(css: string) {
+  const replacements = new Map<string, string>();
+  const matches = css.matchAll(
+    /url\(["']?(\.\.\/icons\/material-symbols\/[^"')]+\.svg)["']?\)/g,
+  );
+  for (const match of matches) {
+    const rawUrl = match[1] || "";
+    if (!rawUrl || replacements.has(rawUrl)) {
+      continue;
+    }
+    const svgPath = rawUrl.replace(/^\.\.\//, "content/");
+    const svg = await readPackagedTextAsset(svgPath);
+    replacements.set(rawUrl, cssDataUrlForSvg(svg));
+  }
+  return Array.from(replacements.entries()).reduce(
+    (nextCss, [rawUrl, dataUrl]) =>
+      nextCss.replaceAll(`url("${rawUrl}")`, `url("${dataUrl}")`),
+    css,
+  );
+}
+
 async function readSynthesisExportAssets() {
   const [
     themeJs,
     themeCss,
+    iconsCss,
     katexCss,
     synthesisCss,
     markdownItJs,
@@ -1210,6 +1325,9 @@ async function readSynthesisExportAssets() {
   ] = await Promise.all([
     readPackagedTextAsset("content/shared/theme.js"),
     readPackagedTextAsset("content/shared/theme.css"),
+    readPackagedTextAsset("content/shared/icons.css").then(
+      inlineMaterialSymbolIconUrls,
+    ),
     readPackagedTextAsset("content/dashboard/vendor/katex/katex.min.css"),
     readPackagedTextAsset("content/synthesis/styles.css"),
     readPackagedTextAsset(
@@ -1224,6 +1342,7 @@ async function readSynthesisExportAssets() {
   return {
     themeJs,
     themeCss,
+    iconsCss,
     katexCss,
     synthesisCss,
     markdownItJs,
@@ -1489,7 +1608,7 @@ async function buildTopicDetailHtmlExport(
     '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
     `<title>${escapeHtmlText(title)}</title>`,
     `<script>${inlineScriptText(assets.themeJs)}</script>`,
-    `<style>${assets.themeCss}\n${assets.katexCss}\n${assets.synthesisCss}</style>`,
+    `<style>${assets.themeCss}\n${assets.iconsCss}\n${assets.katexCss}\n${assets.synthesisCss}</style>`,
     "</head>",
     '<body class="synthesis-standalone-export">',
     '<div id="app" class="synthesis-root"></div>',
@@ -1506,10 +1625,12 @@ async function buildTopicDetailHtmlExport(
 
 const TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID =
   "synthesis.topic_detail_html_export_metadata";
+const TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 4;
 
 type TopicDetailHtmlExportMetadata = {
   schema_id?: string;
   schema_version?: number;
+  renderer_version?: number;
   topic_id?: string;
   topic_signature?: string;
   html_hash?: string;
@@ -1562,6 +1683,7 @@ async function isTopicDetailHtmlExportCurrent(args: {
   const html = await readRuntimeTextFile(args.paths.currentTopicDetailHtml);
   return (
     metadata?.schema_id === TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID &&
+    metadata.renderer_version === TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION &&
     metadata.topic_id === args.topicId &&
     metadata.topic_signature === args.topicSignature &&
     metadata.html_hash === hashCanonicalJson(html)
@@ -1588,6 +1710,7 @@ async function ensureCachedTopicDetailHtmlExport(
   const metadata: TopicDetailHtmlExportMetadata = {
     schema_id: TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID,
     schema_version: 1,
+    renderer_version: TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION,
     topic_id: topicId,
     topic_signature: topicSignature,
     html_hash: hashCanonicalJson(html),
@@ -1821,7 +1944,7 @@ function handleAction(
     return;
   }
   if (result.hostCommand?.command === "openPreferences") {
-    void addon.hooks.onPrefsEvent("openWorkflowSettings", {
+    void addon.hooks.onPrefsEvent("openPreferencesPane", {
       window: runtime.window,
     });
   }
@@ -2373,35 +2496,86 @@ function handleAction(
   }
   if (result.hostCommand?.command === "syncNow") {
     runWorkbenchCommandOnce(runtime, "syncNow", {}, () =>
-      getDefaultSynthesisService().syncNow(),
+      getFreshSynthesisServiceForGitSyncCommand()
+        .syncNow()
+        .then(failOnSyncFailureState),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "syncWebDavNow") {
+    runWorkbenchCommandOnce(
+      runtime,
+      "syncWebDavNow",
+      {},
+      () =>
+        getFreshSynthesisServiceForGitSyncCommand()
+          .syncWebDavNow()
+          .then(failOnSyncFailureState),
+      { deferStart: true },
     );
     return;
   }
   if (result.hostCommand?.command === "pauseGitSync") {
     runWorkbenchCommandOnce(runtime, "pauseGitSync", {}, () =>
-      getDefaultSynthesisService().pauseGitSync(),
+      getFreshSynthesisServiceForGitSyncCommand().pauseGitSync(),
     );
     return;
   }
   if (result.hostCommand?.command === "resumeGitSync") {
     runWorkbenchCommandOnce(runtime, "resumeGitSync", {}, () =>
-      getDefaultSynthesisService().resumeGitSync(),
+      getFreshSynthesisServiceForGitSyncCommand().resumeGitSync(),
     );
     return;
   }
   if (result.hostCommand?.command === "retryGitSync") {
     runWorkbenchCommandOnce(runtime, "retryGitSync", {}, () =>
-      getDefaultSynthesisService().retryGitSync(),
+      getFreshSynthesisServiceForGitSyncCommand()
+        .retryGitSync()
+        .then(failOnSyncFailureState),
     );
     return;
   }
   if (result.hostCommand?.command === "resolveGitSyncConflict") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
-    const action = String(commandArgs.action || "resolved").trim();
+    const action = String(commandArgs.action || "keep_local").trim();
     runWorkbenchCommandOnce(runtime, "resolveGitSyncConflict", { action }, () =>
-      getDefaultSynthesisService().resolveGitSyncConflict({
-        action: action === "skip" ? "skip" : "resolved",
+      getFreshSynthesisServiceForGitSyncCommand().resolveGitSyncConflict({
+        action: action as any,
       }),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "pauseWebDavSync") {
+    runWorkbenchCommandOnce(runtime, "pauseWebDavSync", {}, () =>
+      getFreshSynthesisServiceForGitSyncCommand().pauseWebDavSync(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "resumeWebDavSync") {
+    runWorkbenchCommandOnce(runtime, "resumeWebDavSync", {}, () =>
+      getFreshSynthesisServiceForGitSyncCommand().resumeWebDavSync(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "retryWebDavSync") {
+    runWorkbenchCommandOnce(runtime, "retryWebDavSync", {}, () =>
+      getFreshSynthesisServiceForGitSyncCommand()
+        .retryWebDavSync()
+        .then(failOnSyncFailureState),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "resolveWebDavSyncConflict") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const action = String(commandArgs.action || "keep_local").trim();
+    runWorkbenchCommandOnce(
+      runtime,
+      "resolveWebDavSyncConflict",
+      { action },
+      () =>
+        getFreshSynthesisServiceForGitSyncCommand().resolveWebDavSyncConflict({
+          action,
+        }),
     );
     return;
   }

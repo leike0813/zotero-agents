@@ -10,6 +10,7 @@ Preparation ──► DuplicateGuard ──► Run (enqueue) ──► Provider 
      │                │                  ▼                                  │
      │                │         deferredCompletionTracker                   │
      │                │         sequenceRuntime (+ sequenceStateStore)       │
+     │                │         sequenceStepApply                           │
      │                │                                                      │
      ▼                ▼                                                      ▼
   contracts.ts    requestMeta.ts          bundleIO.ts               resultContext.ts
@@ -153,7 +154,7 @@ function runWorkflowExecutionSeam(
 
 | Request Kind | 执行路径 |
 |-------------|---------|
-| `skillrunner.sequence.v1` | `executeSkillRunnerSequence()` |
+| `skillrunner.sequence.v1` | `executeSkillRunnerSequence()`；声明 `apply_result` 的 step 在成功后由 `sequenceStepApply` 立即执行对应 workflow 的 `applyResult` |
 | 其他 | `executeWithProvider()` |
 
 ### Job 元数据
@@ -199,6 +200,28 @@ type RunSeamDeps = {
 };
 ```
 
+### Sequence Step Apply
+
+`skillrunner.sequence.v1` 的 step 可以声明：
+
+```json
+{
+  "apply_result": {
+    "workflow_id": "literature-translator",
+    "on_failure": "continue"
+  }
+}
+```
+
+声明后，run seam 在该 step 返回 successful provider result 后、启动下一
+step 前解析目标 workflow 并调用其 `applyResult`。step apply 使用普通 apply 的
+`bundleReader`、`resultContext`、target parent 和 step request，同时额外传入
+`sequenceStep` 元数据。
+
+`on_failure` 默认是 `continue`：失败会写入 runtime log、ACP run apply state 和
+sequence state，但不阻止后续 step。声明 `fail_sequence` 时，step apply 失败会终止
+sequence。
+
 ## 4. Apply Seam（applySeam.ts）
 
 ### 导出
@@ -212,7 +235,10 @@ async function runWorkflowApplySeam(
 
 ### 职责
 
-遍历 `runState.jobIds`，对状态为 `succeeded` 的作业调用 `executeApplyResult()`，汇总为 `WorkflowApplySummary`。
+遍历 `runState.jobIds`，对状态为 `succeeded` 且仍由最终 apply seam 拥有的作业调用 `executeApplyResult()`，汇总为 `WorkflowApplySummary`。
+
+如果 `skillrunner.sequence.v1` 的 final step 已声明 `apply_result`，最终 apply seam
+只记录 skipped final apply 结果，不重复调用父 workflow 的 apply hook。
 
 ### 作业状态处理
 

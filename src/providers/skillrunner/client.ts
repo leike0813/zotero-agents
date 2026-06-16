@@ -8,6 +8,10 @@ import type { ProviderProgressEvent } from "../types";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 import { buildSkillRunnerSkillPackageBundle } from "./skillPackageBundler";
 import {
+  SkillRunnerHttpError,
+  SkillRunnerTerminalRunError,
+} from "./errors";
+import {
   createMultipartZipPayload,
   createZipFromNamedFiles,
   type MultipartZipPart,
@@ -197,7 +201,14 @@ async function sleep(ms: number) {
   await delay(ms);
 }
 
-async function readJsonOrThrow(response: Response) {
+async function readJsonOrThrow(
+  response: Response,
+  args?: {
+    path?: string;
+    url?: string;
+    prefix?: string;
+  },
+) {
   const text = await response.text();
   let body: unknown = {};
   if (text.length > 0) {
@@ -208,9 +219,14 @@ async function readJsonOrThrow(response: Response) {
     }
   }
   if (!response.ok) {
-    throw new Error(
-      `HTTP ${response.status} ${response.statusText} ${JSON.stringify(body)}`,
-    );
+    throw new SkillRunnerHttpError({
+      message: `${args?.prefix || "SkillRunner request failed"}: path=${args?.path || ""}, status=${response.status}, body=${JSON.stringify(body)}`,
+      status: response.status,
+      statusText: response.statusText,
+      path: args?.path,
+      url: args?.url,
+      body,
+    });
   }
   return body;
 }
@@ -301,7 +317,11 @@ export class SkillRunnerClient {
       duration: Date.now() - startedAt,
       stepId: step.id,
     });
-    const body = await readJsonOrThrow(response);
+    const body = await readJsonOrThrow(response, {
+      path: step.request.path,
+      url,
+      prefix: "SkillRunner create step failed",
+    });
     const pathExpr = step.extract?.request_id || "$.request_id";
     const requestId = resolveJsonPath(body, pathExpr);
     if (typeof requestId !== "string" || requestId.length === 0) {
@@ -398,7 +418,11 @@ export class SkillRunnerClient {
         fields: zipParts.map((part) => part.fieldName),
       },
     });
-    await readJsonOrThrow(response);
+    await readJsonOrThrow(response, {
+      path,
+      url,
+      prefix: "SkillRunner upload step failed",
+    });
   }
 
   private async executePollStep(
@@ -433,9 +457,11 @@ export class SkillRunnerClient {
         const terminalStatus = String(status || "unknown").trim() || "unknown";
         const terminalError =
           String(body.error || "").trim() || "unknown error";
-        throw new Error(
-          `SkillRunner job terminal failure: request_id=${normalizedRequestId}, status=${terminalStatus}, error=${terminalError}`,
-        );
+        throw new SkillRunnerTerminalRunError({
+          requestId: normalizedRequestId,
+          status,
+          error: terminalError,
+        });
       }
       if (isWaiting(status)) {
         this.appendTransportLog({
@@ -490,7 +516,11 @@ export class SkillRunnerClient {
       requestId: args.requestId,
       stepId: "poll",
     });
-    return (await readJsonOrThrow(response)) as {
+    return (await readJsonOrThrow(response, {
+      path,
+      url,
+      prefix: "SkillRunner get-state failed",
+    })) as {
       request_id?: string;
       status?: string;
       error?: string;
@@ -522,7 +552,14 @@ export class SkillRunnerClient {
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`Bundle fetch failed: HTTP ${response.status} ${text}`);
+      throw new SkillRunnerHttpError({
+        message: `Bundle fetch failed: path=${path}, status=${response.status}, body=${text}`,
+        status: response.status,
+        statusText: response.statusText,
+        path,
+        url,
+        body: text,
+      });
     }
     const data = await response.arrayBuffer();
     return new Uint8Array(data);
@@ -550,7 +587,11 @@ export class SkillRunnerClient {
       requestId,
       stepId: step.id,
     });
-    return readJsonOrThrow(response);
+    return readJsonOrThrow(response, {
+      path,
+      url,
+      prefix: "SkillRunner result fetch failed",
+    });
   }
 
   async getRunState(args: { requestId: string }) {
@@ -777,6 +818,10 @@ export class SkillRunnerClient {
     if (uploadStep) {
       await this.executeUploadStep(uploadStep, requestId);
     }
+    options?.onProgress?.({
+      type: "request-ready",
+      requestId,
+    });
     const pollResult = await this.executePollStep(request, pollStep, requestId);
     if (bundleStep) {
       const bundleBytes = await this.executeBundleStep(bundleStep, requestId);
@@ -838,6 +883,10 @@ export class SkillRunnerClient {
     if (uploadStep) {
       await this.executeUploadStep(uploadStep, requestId);
     }
+    options?.onProgress?.({
+      type: "request-ready",
+      requestId,
+    });
 
     const runState = await this.getJobState({
       requestPath: pollStep.request.path,
@@ -852,9 +901,11 @@ export class SkillRunnerClient {
     if (backendStatus === "failed" || backendStatus === "canceled") {
       const terminalError =
         String(runState.error || "").trim() || "unknown error";
-      throw new Error(
-        `SkillRunner job terminal failure: request_id=${requestId}, status=${backendStatus}, error=${terminalError}`,
-      );
+      throw new SkillRunnerTerminalRunError({
+        requestId,
+        status: backendStatus,
+        error: terminalError,
+      });
     }
     if (backendStatus === "succeeded") {
       if (bundleStep) {

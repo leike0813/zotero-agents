@@ -122,6 +122,10 @@ describe("runtime persistence governance", function () {
       paths.acpSkillRunsDir.replace(/\\/g, "/"),
       "/acp/skill-runs",
     );
+    assert.include(
+      paths.workflowProductsDir.replace(/\\/g, "/"),
+      "/workflow-products",
+    );
   });
 
   it("resolves durable synthesis canonical paths under data, not runtime", function () {
@@ -196,6 +200,31 @@ describe("runtime persistence governance", function () {
         path.join(dataDirectory, "zotero-agents", "state", "zotero-agents.db"),
       );
     } finally {
+      (globalThis as any).Zotero.DataDirectory = previousDataDirectory;
+      process.env.ZOTERO_SKILLS_RUNTIME_ROOT = tempRoot;
+    }
+  });
+
+  it("uses the launcher-patched runtimeRoot pref before Zotero DataDirectory", function () {
+    delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    const prefKey = "extensions.zotero.zotero-skills.runtimeRoot";
+    const previousPref = (globalThis as any).Zotero.Prefs.get(prefKey, true);
+    const previousDataDirectory = (globalThis as any).Zotero?.DataDirectory;
+    const prefRoot = path.join(tempRoot, "pref-runtime-root");
+    const dataDirectory = path.join(tempRoot, "zotero-data");
+    const zotero = (globalThis as any).Zotero || {};
+    zotero.DataDirectory = { dir: dataDirectory };
+    zotero.Prefs.set(prefKey, prefRoot, true);
+    try {
+      const paths = getRuntimePersistencePaths();
+      assert.equal(paths.root, prefRoot);
+      assert.equal(paths.dataDir, path.join(prefRoot, "data"));
+    } finally {
+      if (typeof previousPref === "undefined") {
+        (globalThis as any).Zotero.Prefs.clear(prefKey, true);
+      } else {
+        (globalThis as any).Zotero.Prefs.set(prefKey, previousPref, true);
+      }
       (globalThis as any).Zotero.DataDirectory = previousDataDirectory;
       process.env.ZOTERO_SKILLS_RUNTIME_ROOT = tempRoot;
     }
@@ -406,6 +435,69 @@ describe("runtime persistence governance", function () {
 
     await cleanupRuntimePersistenceCategory("acp-conversations");
     assert.equal(inspectPluginStateStoreCounts().requestCount, 0);
+  });
+
+  it("scans and cleans workflow product runtime data", async function () {
+    const paths = getRuntimePersistencePaths();
+    const productAsset = path.join(
+      paths.workflowProductsDir,
+      "assets",
+      "product-cleanup",
+      "draft",
+      "intro.md",
+    );
+    await fs.mkdir(path.dirname(productAsset), { recursive: true });
+    await fs.writeFile(productAsset, "# Product", "utf8");
+    upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS, "products", {
+      taskId: "product-cleanup",
+      requestId: "request",
+      backendId: "workflow-product",
+      state: "available",
+      updatedAt: "2026-05-25T00:00:00.000Z",
+      payload: JSON.stringify({
+        productId: "product-cleanup",
+        productKey: "product-cleanup",
+        kind: "workflow.product",
+        title: "Product cleanup",
+        workflowId: "workflow",
+        workflowLabel: "Workflow",
+        backendType: "workflow-product",
+        requestId: "request",
+        storageMode: "persistent-cache",
+        cacheDir: path.dirname(path.dirname(productAsset)),
+        assets: [
+          {
+            assetId: "intro",
+            label: "Intro",
+            path: "draft/intro.md",
+            relativePath: "draft/intro.md",
+            sourceKind: "product-cache",
+            localPath: productAsset,
+          },
+        ],
+        metadata: {},
+        createdAt: "2026-05-25T00:00:00.000Z",
+        updatedAt: "2026-05-25T00:00:00.000Z",
+      }),
+    });
+
+    const snapshot = await scanRuntimePersistenceUsage();
+    const category = snapshot.categories.find(
+      (entry) => entry.category === "workflow-products",
+    );
+    assert.isDefined(category);
+    assert.equal(category?.recordCount, 1);
+    assert.isAtLeast(category?.bytes || 0, "# Product".length);
+
+    const cleanup = await cleanupRuntimePersistenceCategory(
+      "workflow-products",
+    );
+    assert.equal((cleanup.details as any).rowsDeleted, 1);
+    assert.isFalse(await pathExists(paths.workflowProductsDir));
+    assert.lengthOf(
+      listPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS, "products"),
+      0,
+    );
   });
 
   it("cleans ACP conversations without deleting ACP skill run rows", async function () {

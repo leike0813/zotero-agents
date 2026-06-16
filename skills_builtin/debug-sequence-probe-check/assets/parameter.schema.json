@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "probe_id": { "type": "string", "minLength": 1 },
+    "expect_handoff_present": { "type": "boolean" },
+    "expected_public_marker": { "type": "string" },
+    "expected_secret_marker": { "type": "string" },
+    "forbid_secret_marker": { "type": "boolean" },
+    "expected_sentinel": { "type": "string", "enum": ["present", "absent"] },
+    "sentinel_path": { "type": "string" }
+  },
+  "required": ["probe_id"],
+  "additionalProperties": true
+}

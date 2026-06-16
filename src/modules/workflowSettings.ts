@@ -651,12 +651,13 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     manifestProvider.requiresBackendProfile !== false;
   const rawCandidateBackends = Array.isArray(args.candidateBackends)
     ? args.candidateBackends
-    : isSkillRunnerJobWorkflow(args.workflow)
+    : isSkillRunnerContractWorkflow(args.workflow)
       ? await listBackendsForWorkflow(args.workflow)
       : await listBackendsForProvider(manifestProviderId);
   const availableBackends = rawCandidateBackends.filter((backend) => {
     if (isSkillRunnerSequenceWorkflow(args.workflow)) {
-      if (String(backend.type || "").trim() !== ACP_BACKEND_TYPE) {
+      const backendType = String(backend.type || "").trim();
+      if (backendType !== "skillrunner" && backendType !== ACP_BACKEND_TYPE) {
         return false;
       }
     } else if (isSkillRunnerJobWorkflow(args.workflow)) {
@@ -838,7 +839,7 @@ export async function listProviderProfilesForWorkflow(
   workflow: LoadedWorkflow,
 ) {
   const providerId = resolveProviderId(workflow);
-  if (!isSkillRunnerJobWorkflow(workflow)) {
+  if (!isSkillRunnerContractWorkflow(workflow)) {
     assertWorkflowExecutionProviderSupported(providerId);
     return listBackendsForProvider(providerId);
   }

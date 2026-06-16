@@ -6,6 +6,7 @@
   "execution_modes": ["interactive"],
   "max_attempt": 16,
   "schemas": {
+    "parameter": "assets/parameter.schema.json",
     "output": "assets/output.schema.json"
   },
   "entrypoint": {

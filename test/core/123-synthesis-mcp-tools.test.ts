@@ -7,6 +7,10 @@ import { createSynthesisService } from "../../src/modules/synthesis/service";
 import type { SynthesisMcpService } from "../../src/modules/synthesis/mcpService";
 import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
+import {
+  resetHostBridgeFileRegistryForTests,
+  resolveHostBridgeFileDownload,
+} from "../../src/modules/hostBridgeFileRegistry";
 
 function request(id: number, name: string, args: Record<string, unknown> = {}) {
   return {
@@ -682,7 +686,34 @@ describe("Synthesis MCP tools", function () {
         citationEntry.removed_trailing_section_heading,
         "Trailing Section",
       );
+
+      const remoteResult: any = await service.exportFilteredPaperArtifacts(
+        {
+          paper_refs: ["1:ABCD1234"],
+          artifact_types: ["digest", "references"],
+        },
+        { hostBridge: { connectionMode: "remote" } },
+      );
+      assert.equal(
+        remoteResult.manifest_file,
+        "runtime/payloads/paper-artifacts-manifest.json",
+      );
+      assert.equal(remoteResult.delivery.mode, "bridge-download");
+      assert.include(remoteResult.delivery.downloadCommand, "zotero-bridge file download");
+      assert.include(remoteResult.delivery.unpackHint, "unzip ");
+      const fileId = remoteResult.delivery.bundle.fileId;
+      assert.isString(fileId);
+      assert.notInclude(JSON.stringify(remoteResult), runRoot);
+      const downloaded = await resolveHostBridgeFileDownload(fileId);
+      const zipText = Buffer.from(downloaded.bytes).toString("utf8");
+      assert.include(
+        zipText,
+        "runtime/payloads/paper-artifacts-manifest.json",
+      );
+      assert.include(zipText, "runtime/payloads/artifacts/1_ABCD1234/digest.md");
+      assert.include(zipText, "#### Digest One");
     } finally {
+      resetHostBridgeFileRegistryForTests();
       await fs.rm(runRoot, { recursive: true, force: true });
     }
   });

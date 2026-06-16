@@ -4,7 +4,7 @@
 
 This document defines Host orchestration behavior for
 `skillrunner.sequence.v1` workflows executed through ACP SkillRunner-compatible
-steps. The state machine belongs to the Host orchestrator. It does not change
+steps or SkillRunner backend job steps. The state machine belongs to the Host orchestrator. It does not change
 skill-facing `input`, `parameter`, `runtime_options`, workspace files, payload
 schemas, or final result contracts.
 
@@ -16,10 +16,10 @@ mean current-turn cancel or local disconnect.
 ## Entities
 
 - Sequence run: one workflow job executing a `skillrunner.sequence.v1` request.
-- Step run: one ACP skill run launched for a sequence step.
+- Step run: one ACP skill run or SkillRunner job launched for a sequence step.
 - Sequence state: Host-persisted orchestration state keyed by
   `workflowRunId`.
-- ACP run record: Host-persisted step record keyed by the step `requestId`.
+- Step run record: Host-persisted step record keyed by the step `requestId`.
 
 Each ACP step run record stores:
 
@@ -33,16 +33,21 @@ Each ACP step run record stores:
 
 The sequence state stores the original sequence request, backend id,
 provider options, current step index, final step id, root request id, and the
-completed step outputs needed for downstream handoff mapping.
+completed step outputs needed for downstream handoff mapping. For steps that
+declare `apply_result`, it also stores step apply status so recovery can skip
+already applied step outputs.
 
 ## States
 
 ```mermaid
 stateDiagram-v2
   [*] --> running_step
-  running_step --> running_step: step succeeded and next step starts
+  running_step --> applying_step: step succeeded and declares apply_result
+  applying_step --> running_step: apply succeeds or non-blocking apply fails
+  running_step --> running_step: step succeeded without step apply and next step starts
   running_step --> waiting_recovery: step deferred or local orchestration disconnects
   waiting_recovery --> continuing: recovered non-final step succeeds
+  continuing --> applying_step: recovered step declares pending apply_result
   continuing --> running_step: next step starts
   running_step --> completed: final step succeeds and apply succeeds
   waiting_recovery --> completed: recovered final step succeeds and apply succeeds
@@ -69,7 +74,15 @@ active.
 
 A non-final step recovered successfully. The Host records the recovered output
 as that step result, rebuilds handoff context from persisted sequence state,
-and starts the next step.
+applies any pending opt-in step result, and starts the next step.
+
+### `applying_step`
+
+The current step has returned a successful result and declares `apply_result`.
+The Host invokes the declared workflow `applyResult` using step-scoped result
+context. A successful apply is persisted on the step. A failed apply is
+persisted and the sequence continues unless the step declares
+`on_failure = "fail_sequence"`.
 
 ### `completed`
 
@@ -90,9 +103,11 @@ keep the parent workflow task row connected to the sequence.
 
 ### Step Succeeded
 
-Host records the step output and provider result. If the step is not final, the
-next step starts with normal handoff mapping. If the step is final, workflow
-apply runs once.
+Host records the step output and provider result. If the step declares
+`apply_result`, Host applies the step result before downstream execution. If
+the step is not final, the next step starts with normal handoff mapping. If the
+step is final and declares `apply_result`, final foreground apply does not run
+again for the same result.
 
 ### Step Deferred
 
@@ -124,7 +139,9 @@ structured error that includes `requestId`, `workflowId`, `skillId`, and
 - No sequence recovery file is written into the ACP workspace.
 - Step `skillId` remains the current skill id; parent workflow ownership is
   recorded separately in `workflowId`.
-- Intermediate recovered steps never run workflow apply.
+- Intermediate recovered steps run workflow apply only when their sequence step
+  declares `apply_result`.
+- A step with succeeded apply state is not applied again during continuation.
 - A failed or task-canceled step terminates the sequence.
 - Current-turn cancel and local disconnect do not terminate the sequence.
 - Downstream handoff mapping uses only persisted completed step outputs.

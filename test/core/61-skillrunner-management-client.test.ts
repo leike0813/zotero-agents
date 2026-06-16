@@ -4,6 +4,7 @@ import {
   isAbortErrorLike,
   type SkillRunnerManagementSseFrame,
 } from "../../src/providers/skillrunner/managementClient";
+import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
 
 describe("skillrunner management client", function () {
   it("retries once with prompted basic auth on 401", async function () {
@@ -279,6 +280,34 @@ describe("skillrunner management client", function () {
         "GET http://127.0.0.1:8030/v1/jobs/req-2/chat/history?from_seq=2",
         "GET http://127.0.0.1:8030/v1/jobs/req-2/events/history?from_seq=3",
       ],
+    );
+  });
+
+  it("throws structured HTTP errors with status for run endpoints", async function () {
+    const client = new SkillRunnerManagementClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ detail: "missing" }), {
+          status: 404,
+          statusText: "Not Found",
+          headers: {
+            "content-type": "application/json",
+          },
+        }),
+    });
+
+    let thrown: unknown = null;
+    try {
+      await client.getRun({ requestId: "req-missing" });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.instanceOf(thrown, SkillRunnerHttpError);
+    assert.equal((thrown as SkillRunnerHttpError).status, 404);
+    assert.equal(
+      (thrown as SkillRunnerHttpError).path,
+      "/v1/jobs/req-missing",
     );
   });
 

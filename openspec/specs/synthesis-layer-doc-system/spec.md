@@ -144,3 +144,36 @@ Active Synthesis documentation SHALL state that manual stale graph refresh may r
 - **WHEN** readers consult graph or related-items documentation
 - **THEN** they SHALL see that post-refresh related-items sync uses the final affected source refs
 - **AND** full graph rebuild SHALL NOT be described as automatically running full-library related-items sync.
+### Requirement: Synthesis docs define Git Sync durable-state exchange
+
+Active Synthesis layer documentation SHALL describe Git Sync as the first-class cross-device durable-state exchange mechanism.
+
+#### Scenario: Developer reads Synthesis layer docs
+
+- **WHEN** active docs describe persistence, import/export, recovery, or sync
+- **THEN** they SHALL distinguish SQLite as a local materialized store from Git as the durable exchange store
+- **AND** they SHALL link to the Git Sync durable-state contract.
+
+#### Scenario: Developer reads migration guidance
+
+- **WHEN** active docs describe durable sync compatibility
+- **THEN** they SHALL state that Git asset schema migration is separate from SQLite schema migration
+- **AND** unknown future asset schemas require a plugin upgrade before import.
+### Requirement: Synthesis docs describe Git Sync configuration and conflict approval
+
+Active Synthesis docs SHALL document preferences-backed Git Sync configuration, encrypted token storage, non-mutating connection tests, empty-remote initialization, and semantic conflict approval actions.
+
+#### Scenario: Developer reads Git Sync durable-state docs
+
+- **WHEN** the docs discuss Git Sync operation
+- **THEN** they SHALL identify Preferences as the durable configuration surface
+- **AND** they SHALL state that Workbench only exposes runtime state and conflict approval actions
+- **AND** they SHALL state that a missing remote branch is initialized on first sync rather than treated as a connection failure.
+### Requirement: Synthesis docs describe WebDAV durable bundle sync
+
+Active Synthesis documentation SHALL describe WebDAV Sync as a lightweight durable bundle transport and distinguish it from live SQLite synchronization.
+
+#### Scenario: Developer reads sync documentation
+- **WHEN** docs discuss WebDAV Sync
+- **THEN** they SHALL state that SQLite remains local
+- **AND** only durable bundles, manifests, and HEAD pointers are exchanged.

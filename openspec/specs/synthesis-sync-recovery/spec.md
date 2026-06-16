@@ -39,10 +39,11 @@ source only when canonical assets are missing and the user explicitly confirms.
 - **AND** recovery SHALL reject absolute paths, parent-directory traversal,
   drive prefixes, UNC paths, backslash traversal, empty path segments,
   duplicate `asset_id` entries, and unknown current-asset paths.
-- **AND** recoverable state assets SHALL be restricted to exactly
-  `state/index.json`, `state/topic-definitions.json`, `state/resolvers.json`,
-  `state/resolved-paper-sets.json`, `state/artifact-state.json`, and
-  `state/deleted-topic-artifacts.json`
+- **AND** recoverable sidecar assets SHALL be restricted to exactly
+  `sidecar/index.json`, `sidecar/topic-definitions.json`,
+  `sidecar/resolvers.json`, `sidecar/resolved-paper-sets.json`,
+  `sidecar/artifact-state.json`, and
+  `sidecar/deleted-topic-artifacts.json`
 - **AND** graph/layout/history/run-workspace paths SHALL be outside the recovery
   allowlist.
 
@@ -176,4 +177,3 @@ only.
   runtime
 - **THEN** it SHALL NOT advertise `rebuild_mirror_from_canonical` or
   `recover_canonical_from_mirror` as normal actions.
-

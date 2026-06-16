@@ -39,6 +39,14 @@ const REMOVED_COMPLETE_SECTIONS = new Set([
   "positioning",
 ]);
 
+const TAXONOMY_AXIS_TYPES = new Set([
+  "problem_formulation",
+  "technical_mechanism",
+  "evidence_scope",
+  "research_route",
+  "application_context",
+]);
+
 type ValidationResult<T> =
   | { ok: true; errors: []; manifest?: T; artifact?: T }
   | { ok: false; errors: string[]; manifest?: T; artifact?: T };
@@ -63,6 +71,20 @@ function firstText(value: Record<string, unknown>, keys: string[]) {
 
 function hasAnyKey(value: Record<string, unknown>, keys: string[]) {
   return keys.some((key) => key in value && cleanString(value[key]));
+}
+
+function taxonomyRouteRows(taxonomy: Record<string, unknown>) {
+  const axes = Array.isArray(taxonomy.axes) ? taxonomy.axes : [];
+  const axisRows = axes.flatMap((axis) => {
+    if (!isObject(axis) || !Array.isArray(axis.nodes)) {
+      return [];
+    }
+    return axis.nodes;
+  });
+  if (axisRows.length) {
+    return axisRows;
+  }
+  return Array.isArray(taxonomy.nodes) ? taxonomy.nodes : [];
 }
 
 function sectionEntryErrors(section: string, value: unknown) {
@@ -429,7 +451,7 @@ function reportDimensionErrors(artifact: Record<string, unknown>) {
 
   const taxonomy = isObject(artifact.taxonomy) ? artifact.taxonomy : {};
   const taxonomySummary = isObject(taxonomy.summary) ? taxonomy.summary : {};
-  const taxonomyNodes = Array.isArray(taxonomy.nodes) ? taxonomy.nodes : [];
+  const taxonomyNodes = taxonomyRouteRows(taxonomy);
   if (
     !hasAnyKey(taxonomySummary, ["text", "analysis", "overview"]) ||
     !taxonomyNodes.length
@@ -581,9 +603,31 @@ function validateContentDepth(artifact: Record<string, unknown>) {
   }
 
   const taxonomy = isObject(artifact.taxonomy) ? artifact.taxonomy : {};
-  const taxonomyNodes = Array.isArray(taxonomy.nodes) ? taxonomy.nodes : [];
-  if (!cleanString(taxonomy.primary_axis || taxonomy.axis)) {
-    errors.push("taxonomy requires primary_axis");
+  const taxonomyNodes = taxonomyRouteRows(taxonomy);
+  const taxonomyAxes = Array.isArray(taxonomy.axes) ? taxonomy.axes : [];
+  const legacyTaxonomyNodes = Array.isArray(taxonomy.nodes)
+    ? taxonomy.nodes
+    : [];
+  if (taxonomyAxes.length) {
+    if (
+      (taxonomyAxes.length < 2 && !legacyTaxonomyNodes.length) ||
+      taxonomyAxes.length > 5
+    ) {
+      errors.push("taxonomy.axes requires 2-5 classification axes");
+    }
+    taxonomyAxes.forEach((axis, index) => {
+      if (!isObject(axis)) {
+        errors.push(`taxonomy axis ${index + 1} must be an object`);
+        return;
+      }
+      const axisType = cleanString(axis.axis_type);
+      if (!TAXONOMY_AXIS_TYPES.has(axisType)) {
+        errors.push(`taxonomy axis ${index + 1} has invalid axis_type`);
+      }
+      if (!Array.isArray(axis.nodes) || !axis.nodes.length) {
+        errors.push(`taxonomy axis ${axisType || index + 1} requires nodes`);
+      }
+    });
   }
   const taxonomySummary = isObject(taxonomy.summary) ? taxonomy.summary : {};
   if (!isObject(taxonomy.summary)) {
@@ -592,7 +636,7 @@ function validateContentDepth(artifact: Record<string, unknown>) {
     errors.push("taxonomy.summary requires text/analysis");
   }
   if (!taxonomyNodes.length) {
-    errors.push("taxonomy.nodes requires at least one research route");
+    errors.push("taxonomy.axes requires at least one research route");
   }
   for (const node of taxonomyNodes) {
     if (!isObject(node)) {

@@ -2,7 +2,7 @@
   "id": "debug-sequence-context-isolation-probe",
   "label": "Debug: Sequence Context Isolation Probe",
   "version": "0.1.0",
-  "provider": "acp",
+  "provider": "skillrunner",
   "debug_only": true,
   "trigger": {
     "requiresSelection": false

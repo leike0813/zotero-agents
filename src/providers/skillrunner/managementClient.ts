@@ -1,5 +1,9 @@
 import { encodeBasicAuthHeader } from "../../backends/managementAuth";
 import type { BackendManagementAuth } from "../../backends/types";
+import {
+  SkillRunnerHttpError,
+  formatSkillRunnerHttpErrorMessage,
+} from "./errors";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -164,9 +168,18 @@ function formatHttpError(args: {
   body: unknown;
   path: string;
 }) {
-  return new Error(
-    `SkillRunner management request failed: path=${args.path}, status=${args.response.status}, body=${JSON.stringify(args.body)}`,
-  );
+  return new SkillRunnerHttpError({
+    message: formatSkillRunnerHttpErrorMessage({
+      prefix: "SkillRunner management request failed",
+      path: args.path,
+      status: args.response.status,
+      body: args.body,
+    }),
+    status: args.response.status,
+    statusText: args.response.statusText,
+    path: args.path,
+    body: args.body,
+  });
 }
 
 function parseBasicCredentials(auth: BackendManagementAuth | undefined | null) {

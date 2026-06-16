@@ -454,6 +454,58 @@ describe("workflow apply seam risk regression", function () {
     assert.include(runtimeStages, "job-pending-recoverable-dispatch-failure");
   });
 
+  it("does not keep terminal skillrunner run error pending for reconciler", async function () {
+    const runtimeStages: string[] = [];
+
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: createRunState({
+          requests: [
+            {
+              kind: "skillrunner.job.v1",
+              targetParentID: 3,
+              runtime_options: {
+                execution_mode: "auto",
+              },
+            },
+          ],
+          jobIds: ["job-auto-terminal-1"],
+          jobsById: {
+            "job-auto-terminal-1": {
+              id: "job-auto-terminal-1",
+              state: "failed",
+              error: "SkillRunner upload step failed: status=422",
+              meta: {
+                requestId: "req-auto-terminal-1",
+                providerId: "skillrunner",
+                targetParentID: 3,
+                skillRunnerTerminalRunError: true,
+              },
+            },
+          },
+          workflowManifest: {
+            provider: "skillrunner",
+            request: {
+              kind: "skillrunner.job.v1",
+            },
+          },
+        }),
+        messageFormatter: createMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: (entry) => {
+          runtimeStages.push(entry.stage);
+        },
+      },
+    );
+
+    assert.equal(summary.succeeded, 0);
+    assert.equal(summary.pending, 0);
+    assert.equal(summary.failed, 1);
+    assert.lengthOf(summary.reconcileOwnedPendingJobs, 0);
+    assert.notInclude(runtimeStages, "job-pending-recoverable-dispatch-failure");
+  });
+
   it("propagates explicit bundle-entry path error into failureReasons", async function () {
     const summary = await runWorkflowApplySeam(
       {

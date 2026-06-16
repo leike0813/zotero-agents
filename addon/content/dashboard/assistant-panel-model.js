@@ -1028,7 +1028,12 @@
     const taskKey = safeText(task.key || task.taskKey || task.id);
     const terminal =
       task.terminal === true || isTerminalStatus(task.status || task.state || task.stateLabel);
+    const needsAttention = Boolean(task.attention);
     return Object.assign({}, task, {
+      attention: needsAttention ? "warning" : "",
+      attentionLabel: needsAttention
+        ? labelFrom({}, "interaction.needsUserInteraction", "Needs user interaction")
+        : "",
       itemActions:
         terminal && requestId
           ? [
@@ -2030,7 +2035,55 @@
       envelope.session && typeof envelope.session === "object" ? envelope.session : envelope;
     const status = normalizeStatusToken(session.status || "idle");
     const conversation = buildSkillRunnerConversationView(session);
-    const interaction = buildSkillRunnerPendingInteraction(session, status, envelope);
+    let interaction = buildSkillRunnerPendingInteraction(session, status, envelope);
+    const pendingPermission =
+      session.pendingPermission && typeof session.pendingPermission === "object"
+        ? session.pendingPermission
+        : null;
+    if (pendingPermission) {
+      interaction = {
+        kind: "permission",
+        title:
+          safeText(pendingPermission.source) === "zotero-mcp-write"
+            ? labelFrom(envelope, "permission.zoteroWriteApproval", "Zotero write approval")
+            : labelFrom(envelope, "permission.acpToolApproval", "ACP tool approval"),
+        message:
+          safeText(pendingPermission.summary) ||
+          safeText(pendingPermission.toolTitle || pendingPermission.requestId) ||
+          labelFrom(envelope, "permission.skillRunnerApproval", "SkillRunner requests approval."),
+        detail: safeText(pendingPermission.detail),
+        source: safeText(pendingPermission.source),
+        permission: pendingPermission,
+        actions: (Array.isArray(pendingPermission.options) ? pendingPermission.options : []).map(
+          function (option) {
+            return contextAction(
+              "resolve-permission",
+              safeText(option.name || option.label || option.optionId) ||
+                labelFrom(envelope, "actions.approve", "Approve"),
+              {
+                requestId: safeText(session.requestId || session.id),
+                permissionRequestId: safeText(pendingPermission.requestId),
+                outcome: "selected",
+                optionId: safeText(option.optionId || option.id),
+              },
+              true,
+            );
+          },
+        ).concat([
+          contextAction(
+            "resolve-permission",
+            labelFrom(envelope, "actions.cancel", "Cancel"),
+            {
+              requestId: safeText(session.requestId || session.id),
+              permissionRequestId: safeText(pendingPermission.requestId),
+              outcome: "cancelled",
+            },
+            true,
+            "danger",
+          ),
+        ]),
+      };
+    }
     const skillRunnerBusy = status === "running" || status === "prompting";
     const skillRunnerWaiting = status === "waiting-user" || status === "waiting-auth";
     return normalizeAssistantPanelSnapshot({
@@ -2069,8 +2122,8 @@
       plan: conversation.plan,
       interaction,
       reply: {
-        enabled: skillRunnerWaiting || skillRunnerBusy,
-        inputEnabled: skillRunnerWaiting,
+        enabled: pendingPermission ? false : skillRunnerWaiting || skillRunnerBusy,
+        inputEnabled: pendingPermission ? false : skillRunnerWaiting,
         placeholder: labelFrom(envelope, "reply.placeholderSkillRunner", "Reply to the pending SkillRunner interaction..."),
         submitLabel: skillRunnerBusy
           ? labelFrom(envelope, "actions.cancel", "Cancel")

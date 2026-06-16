@@ -48,6 +48,17 @@ at the run workspace root and SHALL NOT write `result/result.json`.
 - **THEN** the runtime writes `manuscript-literature-framing.result.json`
 - **AND** the runtime does not write `result/result.json`.
 
+#### Scenario: Successful completed result is registered as a product
+- **WHEN** the workflow run status is `succeeded`
+- **AND** the business result kind is `writing.manuscript_literature_framing`
+- **THEN** the apply hook SHALL register the manuscript literature framing product assets in Dashboard product storage.
+
+#### Scenario: Failed or canceled result is not registered as a product
+- **WHEN** the workflow run status is not `succeeded`
+- **OR** the business result kind is not `writing.manuscript_literature_framing`
+- **THEN** the apply hook SHALL NOT register a Dashboard product
+- **AND** the apply hook result SHALL remain ok with `product: null`.
+
 ### Requirement: ACP final output envelope
 The skill instructions SHALL require the final assistant output to be a single
 JSON object containing `__SKILL_DONE__: true` plus the business fields from

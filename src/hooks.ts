@@ -12,6 +12,7 @@ import {
   rescanWorkflowRegistry,
 } from "./modules/workflowRuntime";
 import { syncBuiltinWorkflowsOnStartup } from "./modules/builtinWorkflowSync";
+import { syncBuiltinSkillsOnStartup } from "./modules/builtinSkillSync";
 import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegistry";
 import { openBackendManagerDialog } from "./modules/backendManager";
 import { openTaskManagerDialog } from "./modules/taskManagerDialog";
@@ -98,7 +99,24 @@ import {
 import { installHostBridgeCli } from "./modules/hostBridgeCliInstaller";
 import { writeHostBridgeWellKnownProfile } from "./modules/hostBridgeProfileStore";
 import { delay } from "./utils/runtimeCompatibility";
-import { getDefaultSynthesisService } from "./modules/synthesis/service";
+import {
+  getDefaultSynthesisService,
+  invalidateDefaultSynthesisService,
+} from "./modules/synthesis/service";
+import {
+  clearGitSyncToken,
+  getGitSyncPrefsStatus,
+  saveGitSyncPrefs,
+  saveGitSyncToken,
+  testGitSyncConfiguration,
+} from "./modules/synthesis/gitSyncPrefs";
+import {
+  clearWebDavSyncCredential,
+  getWebDavSyncPrefsStatus,
+  saveWebDavSyncCredential,
+  saveWebDavSyncPrefs,
+  testWebDavSyncConfiguration,
+} from "./modules/synthesis/webDavSyncPrefs";
 import {
   isSynthesisLibraryReadModelInvalidationEvent,
   recordSynthesisZoteroItemNotifications,
@@ -372,6 +390,18 @@ async function onStartup() {
       );
     }
   }
+  try {
+    await syncBuiltinSkillsOnStartup({
+      devCwd: runtimeRootPath,
+    });
+  } catch (error) {
+    if (typeof console !== "undefined") {
+      console.error(
+        "[skill-builtin-sync] failed to sync builtin skills",
+        error,
+      );
+    }
+  }
 
   await ensureDefaultWorkflowDirExistsOnStartup();
   await rescanWorkflowRegistry();
@@ -589,6 +619,14 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           typeof data.workflowId === "string" ? data.workflowId : undefined,
       });
       break;
+    case "openPreferencesPane": {
+      const paneId = `zotero-prefpane-${addon.data.config.addonRef}`;
+      const opener = (Zotero as any).Utilities?.Internal?.openPreferences;
+      if (typeof opener === "function") {
+        opener(paneId);
+      }
+      break;
+    }
     case "openTaskManager":
       await openTaskManagerDialog();
       break;
@@ -716,6 +754,65 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       return getDefaultSynthesisService().resetSynthesisDatabase({
         confirmationText: data.confirmationText,
       });
+    case "getGitSyncPrefsStatus":
+      return getGitSyncPrefsStatus();
+    case "saveGitSyncPrefs": {
+      const result = saveGitSyncPrefs({
+        enabled: data.enabled,
+        remoteUrl: data.remoteUrl,
+        branch: data.branch,
+        autoSyncEnabled: data.autoSyncEnabled,
+        autoRetryEnabled: data.autoRetryEnabled,
+      });
+      if (result.ok) {
+        invalidateDefaultSynthesisService();
+      }
+      return result;
+    }
+    case "saveGitSyncToken": {
+      const result = await saveGitSyncToken(String(data.token || ""));
+      invalidateDefaultSynthesisService();
+      return result;
+    }
+    case "clearGitSyncToken": {
+      const result = await clearGitSyncToken();
+      invalidateDefaultSynthesisService();
+      return result;
+    }
+    case "testGitSyncConfiguration":
+      return testGitSyncConfiguration({
+        cwd: getRuntimePersistencePaths().dataDir,
+      });
+    case "getWebDavSyncPrefsStatus":
+      return getWebDavSyncPrefsStatus();
+    case "saveWebDavSyncPrefs": {
+      const result = saveWebDavSyncPrefs({
+        enabled: data.enabled,
+        baseUrl: data.baseUrl,
+        remotePath: data.remotePath,
+        username: data.username,
+        autoSyncEnabled: data.autoSyncEnabled,
+        autoRetryEnabled: data.autoRetryEnabled,
+      });
+      if (result.ok) {
+        invalidateDefaultSynthesisService();
+      }
+      return result;
+    }
+    case "saveWebDavSyncCredential": {
+      const result = await saveWebDavSyncCredential(
+        String(data.credential || ""),
+      );
+      invalidateDefaultSynthesisService();
+      return result;
+    }
+    case "clearWebDavSyncCredential": {
+      const result = await clearWebDavSyncCredential();
+      invalidateDefaultSynthesisService();
+      return result;
+    }
+    case "testWebDavSyncConfiguration":
+      return testWebDavSyncConfiguration();
     case "openRuntimePersistenceRoot":
       try {
         openFolderInSystemFileManager(getRuntimePersistencePaths().root, {
@@ -836,8 +933,8 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         ok: true,
         stage: "host-bridge-advertised-host",
         message: host
-          ? "Host Bridge remote host updated."
-          : "Host Bridge remote host placeholder will be used.",
+          ? "Host Bridge local IP override updated."
+          : "Host Bridge local IP override cleared; auto-detection will be used.",
         details: getHostBridgeServerStatus(),
       };
     }

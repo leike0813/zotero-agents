@@ -1,7 +1,7 @@
 {
   "id": "literature-deep-reading",
   "label": "Literature Deep Reading",
-  "provider": "acp",
+  "provider": "skillrunner",
   "version": "0.1.0",
   "display": {
     "core": true,
@@ -23,7 +23,7 @@
     }
   },
   "request": {
-    "kind": "skillrunner.job.v1"
+    "kind": "skillrunner.sequence.v1"
   },
   "parameters": {
     "target_language": {
@@ -53,6 +53,7 @@
     }
   },
   "result": {
+    "final_step_id": "deep_reading",
     "fetch": { "type": "bundle" },
     "expects": {
       "result_json": "literature-deep-reading.result.json",

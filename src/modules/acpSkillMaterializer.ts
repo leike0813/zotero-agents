@@ -43,6 +43,7 @@ export async function materializeAcpSkill(args: {
   inputManifestPath: string;
   catalogRootDir?: string;
   executionMode?: string;
+  collectSkillRunFeedback?: boolean;
 }): Promise<AcpSkillMaterializationResult> {
   const catalog = await buildAcpSharedSkillCatalog({
     registry: args.registry,
@@ -79,6 +80,7 @@ export async function materializeAcpSkill(args: {
           resultJsonPath: args.resultJsonPath,
           inputManifestPath: args.inputManifestPath,
           executionMode: args.executionMode,
+          collectSkillRunFeedback: args.collectSkillRunFeedback,
         });
   const runnerJson = await readJsonFile(requested.runnerJsonPath);
   return {

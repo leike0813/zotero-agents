@@ -16,8 +16,10 @@ declare namespace _ZoteroTypes {
       "skillRunnerLocalRuntimeVersion": string;
       "skillRunnerLocalRuntimeStateJson": string;
       "tagVocabularyStagedJson": string;
+      "collectSkillRunFeedbackEnabled": boolean;
       "workflowDir": string;
       "sampleOutputDir": string;
+      "runtimeRoot": string;
       "hostBridgeLanEnabled": boolean;
       "hostBridgePinPortEnabled": boolean;
       "hostBridgePinnedPort": number;
@@ -34,11 +36,22 @@ declare namespace _ZoteroTypes {
       "synthesisGitSyncEnabled": boolean;
       "synthesisGitSyncRemoteUrl": string;
       "synthesisGitSyncBranch": string;
-      "synthesisGitSyncGitCommand": string;
       "synthesisGitSyncTokenEncryptedJson": string;
       "synthesisGitSyncTokenMasked": string;
       "synthesisGitSyncTokenUpdatedAt": string;
+      "synthesisGitSyncAutoSyncEnabled": boolean;
       "synthesisGitSyncAutoRetryEnabled": boolean;
+      "synthesisGitSyncConnectionTestJson": string;
+      "synthesisWebDavSyncEnabled": boolean;
+      "synthesisWebDavSyncBaseUrl": string;
+      "synthesisWebDavSyncRemotePath": string;
+      "synthesisWebDavSyncUsername": string;
+      "synthesisWebDavSyncCredentialEncryptedJson": string;
+      "synthesisWebDavSyncCredentialMasked": string;
+      "synthesisWebDavSyncCredentialUpdatedAt": string;
+      "synthesisWebDavSyncAutoSyncEnabled": boolean;
+      "synthesisWebDavSyncAutoRetryEnabled": boolean;
+      "synthesisWebDavSyncConnectionTestJson": string;
     };
   }
 }

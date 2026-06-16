@@ -381,14 +381,9 @@ button.is-busy {
   width: 28px;
 }
 
-.sidebar-collapse-toggle svg {
+.sidebar-collapse-toggle .zs-icon {
   width: 18px;
   height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .sidebar-library {
@@ -441,14 +436,9 @@ button.is-busy {
   opacity: 0.9;
 }
 
-.nav-icon svg {
+.nav-icon .zs-icon {
   width: 20px;
   height: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.85;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .nav-label {
@@ -644,14 +634,9 @@ button.is-busy {
   cursor: pointer;
 }
 
-.action-statusbar-job-button svg {
+.action-statusbar-job-button .zs-icon {
   width: 14px;
   height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .action-statusbar-job-button:hover,
@@ -2753,6 +2738,31 @@ th {
   margin-top: 4px;
 }
 
+.citation-graph-legend-horizontal {
+  position: static;
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  border-radius: 6px 6px 0 0;
+  box-shadow: none;
+}
+
+.citation-graph-legend-horizontal strong {
+  margin: 0;
+}
+
+.citation-graph-legend-horizontal strong:not(:first-child) {
+  margin-top: 0;
+  margin-left: 6px;
+}
+
+.citation-graph-legend-horizontal .citation-graph-legend-row {
+  display: inline-grid;
+  width: auto;
+}
+
 .citation-graph-legend-row {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
@@ -2813,6 +2823,13 @@ th {
     0 0 0 2px var(--citation-graph-external-halo);
 }
 
+.citation-graph-legend-node.is-current-paper {
+  background: #dc2626;
+  box-shadow:
+    0 0 0 5px rgba(220, 38, 38, 0.18),
+    0 0 0 2px rgba(220, 38, 38, 0.62);
+}
+
 .graph-layout-banner {
   position: absolute;
   inset-block-start: 64px;
@@ -2848,6 +2865,30 @@ th {
 .graph-zoom-slider {
   width: 100%;
   accent-color: var(--zs-accent);
+}
+
+.standalone-graph-export-root,
+.standalone-graph-export-main {
+  height: 100vh;
+  min-height: 0;
+}
+
+.standalone-graph-export-root {
+  display: block;
+  width: 100%;
+}
+
+.standalone-graph-export-main .graph-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100vh;
+  min-height: 0;
+}
+
+.standalone-graph-export-main .graph-stage {
+  height: auto;
+  min-height: 0;
 }
 
 .graph-empty {
@@ -2989,20 +3030,15 @@ th {
   height: 100%;
 }
 
-.graph-control-icon svg {
+.graph-control-icon .zs-icon {
   display: block;
   width: 22px;
   height: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.85;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .graph-control-drawer:not(:hover):not(:focus):not(:focus-within)
   .graph-control-icon
-  svg {
+  .zs-icon {
   transform: translateY(-1px);
 }
 
@@ -3053,11 +3089,49 @@ th {
   box-shadow: var(--zs-shadow-soft);
 }
 
+.graph-selection-drawer-compact {
+  bottom: auto;
+  grid-template-rows: auto auto;
+  width: min(248px, calc(100% - 24px));
+  height: auto;
+  max-height: min(260px, calc(100% - 24px));
+}
+
 .graph-selection-content {
   min-width: 0;
   min-height: 0;
   overflow: auto;
   padding: 12px;
+}
+
+.graph-selection-drawer-compact .graph-selection-content {
+  max-height: 196px;
+  padding: 7px 8px 8px;
+}
+
+.graph-selection-drawer-compact .panel-header {
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.graph-selection-drawer-compact .panel-header strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.graph-selection-drawer-compact .selected-detail {
+  gap: 6px;
+}
+
+.graph-selection-drawer-compact .detail-list {
+  gap: 4px;
+}
+
+.graph-selection-drawer-compact .detail-row {
+  grid-template-columns: minmax(48px, auto) minmax(0, 1fr);
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .checkbox-label {
@@ -3813,6 +3887,11 @@ th {
 .taxonomy-head {
   display: grid;
   gap: 8px;
+}
+
+.taxonomy-axis-group {
+  display: grid;
+  gap: 12px;
 }
 
 .structured-empty {

@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { SkillRunnerClient } from "../../src/providers/skillrunner/client";
+import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
 import { fixturePath } from "./workflow-test-utils";
 
 function createJsonResponse(payload: unknown, status = 200): Response {
@@ -36,7 +37,7 @@ function readZipGeneralPurposeFlagFromMultipart(bytes: Uint8Array) {
 }
 
 describe("transport: upload fallback without FormData", function () {
-  it("emits request-created progress right after create step", async function () {
+  it("emits request-ready progress only after upload succeeds", async function () {
     const progressEvents: Array<{ type: string; requestId?: string }> = [];
     const client = new SkillRunnerClient({
       baseUrl: "http://127.0.0.1:8030",
@@ -100,6 +101,10 @@ describe("transport: upload fallback without FormData", function () {
     assert.deepEqual(progressEvents, [
       {
         type: "request-created",
+        requestId: "req-progress-1",
+      },
+      {
+        type: "request-ready",
         requestId: "req-progress-1",
       },
     ]);
@@ -904,5 +909,73 @@ describe("transport: upload fallback without FormData", function () {
     assert.match(String(thrown), /request_id=req-canceled/i);
     assert.match(String(thrown), /status=canceled/i);
     assert.isFalse(resultFetchCalled, "result fetch should be skipped");
+  });
+
+  it("throws structured run-level client error when post-create upload is rejected", async function () {
+    const progressEvents: Array<{ type: string; requestId?: string }> = [];
+    let pollCalled = false;
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url: string) => {
+        if (url.endsWith("/v1/jobs")) {
+          return createJsonResponse({ request_id: "req-upload-rejected" });
+        }
+        if (url.endsWith("/v1/jobs/req-upload-rejected/upload")) {
+          return createJsonResponse({ detail: "invalid skill package" }, 422);
+        }
+        if (url.endsWith("/v1/jobs/req-upload-rejected")) {
+          pollCalled = true;
+          return createJsonResponse({
+            request_id: "req-upload-rejected",
+            status: "running",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    let thrown: unknown = null;
+    try {
+      await client.executeSkillRunnerJob(
+        {
+          kind: "skillrunner.job.v1",
+          skill_id: "tag-regulator",
+          skill_source: "installed",
+          input: {
+            md_path: "inputs/md_path/example.md",
+          },
+          upload_files: [
+            {
+              key: "md_path",
+              path: fixturePath("literature-analysis", "example.md"),
+            },
+          ],
+          fetch_type: "result",
+        },
+        { engine: "gemini" },
+        {
+          onProgress: (event) => {
+            progressEvents.push({
+              type: String(event.type || ""),
+              requestId: String(
+                (event as { requestId?: unknown }).requestId || "",
+              ),
+            });
+          },
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.instanceOf(thrown, SkillRunnerHttpError);
+    assert.equal((thrown as SkillRunnerHttpError).status, 422);
+    assert.deepEqual(progressEvents, [
+      {
+        type: "request-created",
+        requestId: "req-upload-rejected",
+      },
+    ]);
+    assert.isFalse(pollCalled, "polling should not continue after upload rejection");
   });
 });

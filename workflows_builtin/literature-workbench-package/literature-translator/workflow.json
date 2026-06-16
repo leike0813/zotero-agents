@@ -1,0 +1,58 @@
+{
+  "id": "literature-translator",
+  "label": "Literature Translator",
+  "provider": "skillrunner",
+  "version": "0.1.0",
+  "display": {
+    "core": true,
+    "emoji": "🌐"
+  },
+  "inputs": {
+    "unit": "attachment",
+    "accepts": {
+      "mime": ["text/markdown", "text/x-markdown", "text/plain", "application/pdf"]
+    },
+    "per_parent": {
+      "min": 1,
+      "max": 1
+    }
+  },
+  "request": {
+    "kind": "skillrunner.sequence.v1"
+  },
+  "parameters": {
+    "target_language": {
+      "type": "string",
+      "title": "Target Language",
+      "enum": [
+        "zh-CN",
+        "en-US",
+        "ja-JP",
+        "ko-KR",
+        "de-DE",
+        "fr-FR",
+        "es-ES",
+        "ru-RU"
+      ],
+      "allowCustom": true,
+      "default": "zh-CN"
+    }
+  },
+  "execution": {
+    "mode": "auto",
+    "skillrunner_mode": "auto",
+    "poll_interval_ms": 2000,
+    "timeout_ms": 1200000
+  },
+  "result": {
+    "fetch": { "type": "bundle" },
+    "expects": {
+      "result_json": "result/result.json"
+    }
+  },
+  "hooks": {
+    "filterInputs": "hooks/filterInputs.mjs",
+    "buildRequest": "hooks/buildRequest.mjs",
+    "applyResult": "hooks/applyResult.mjs"
+  }
+}

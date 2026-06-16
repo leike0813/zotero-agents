@@ -27,6 +27,16 @@ const PROVIDER_REQUEST_CONTRACTS: Record<
   [SKILLRUNNER_SEQUENCE_REQUEST_KIND]: {
     providerType: ACP_BACKEND_TYPE,
     backendType: ACP_BACKEND_TYPE,
+    compatiblePairs: [
+      {
+        providerType: ACP_BACKEND_TYPE,
+        backendType: ACP_BACKEND_TYPE,
+      },
+      {
+        providerType: DEFAULT_BACKEND_TYPE,
+        backendType: DEFAULT_BACKEND_TYPE,
+      },
+    ],
     validatePayload: validateSkillRunnerSequencePayload,
   },
   "generic-http.request.v1": {
@@ -109,6 +119,14 @@ function validateSkillRunnerJobPayload(request: unknown) {
       return "payload.skill_source must be local-package or installed when provided";
     }
   }
+  const envDetail = validateRuntimeOptionsEnv(request);
+  if (envDetail) {
+    return envDetail;
+  }
+  const workspaceDetail = validateSkillRunnerRuntimeWorkspace(request);
+  if (workspaceDetail) {
+    return workspaceDetail;
+  }
   if (!Object.prototype.hasOwnProperty.call(request, "upload_files")) {
     return null;
   }
@@ -188,6 +206,54 @@ function validateStringMap(value: unknown, label: string) {
     if (!isNonEmptyString(entry)) {
       return `${label}.${key} must be non-empty string`;
     }
+  }
+  return null;
+}
+
+function validateRuntimeOptionsEnv(request: Record<string, unknown>) {
+  const runtimeOptions = isObject(request.runtime_options)
+    ? request.runtime_options
+    : null;
+  if (typeof runtimeOptions?.env === "undefined") {
+    return null;
+  }
+  return validateStringMap(runtimeOptions.env, "payload.runtime_options.env");
+}
+
+function validateSkillRunnerRuntimeWorkspace(request: Record<string, unknown>) {
+  const runtimeOptions = isObject(request.runtime_options)
+    ? request.runtime_options
+    : null;
+  const workspace = runtimeOptions?.workspace;
+  if (typeof workspace === "undefined") {
+    return null;
+  }
+  if (!isObject(workspace)) {
+    return "payload.runtime_options.workspace must be object when provided";
+  }
+  const mode = String(workspace.mode || "").trim();
+  if (mode !== "reuse") {
+    return "payload.runtime_options.workspace.mode must be reuse";
+  }
+  if (!isNonEmptyString(workspace.request_id)) {
+    return "payload.runtime_options.workspace.request_id must be non-empty string";
+  }
+  return null;
+}
+
+function validateAcpRuntimeWorkspace(value: unknown, label: string) {
+  if (typeof value === "undefined") {
+    return null;
+  }
+  if (!isObject(value)) {
+    return `${label} must be object when provided`;
+  }
+  const mode = String(value.mode || "").trim();
+  if (mode !== "new" && mode !== "reuse") {
+    return `${label}.mode must be new or reuse`;
+  }
+  if (!isNonEmptyString(value.workflow_run_id)) {
+    return `${label}.workflow_run_id must be non-empty string`;
   }
   return null;
 }
@@ -277,6 +343,29 @@ function validateSequenceShortCircuit(value: unknown, label: string) {
   return null;
 }
 
+function validateSequenceStepApplyResult(value: unknown, label: string) {
+  if (typeof value === "undefined") {
+    return null;
+  }
+  if (!isObject(value)) {
+    return `${label} must be object`;
+  }
+  if (
+    typeof value.workflow_id !== "undefined" &&
+    !isNonEmptyString(value.workflow_id)
+  ) {
+    return `${label}.workflow_id must be non-empty string when provided`;
+  }
+  if (
+    typeof value.on_failure !== "undefined" &&
+    value.on_failure !== "continue" &&
+    value.on_failure !== "fail_sequence"
+  ) {
+    return `${label}.on_failure must be continue or fail_sequence when provided`;
+  }
+  return null;
+}
+
 function validateSkillRunnerSequencePayload(request: unknown) {
   if (!isObject(request)) {
     return "payload must be object";
@@ -289,6 +378,10 @@ function validateSkillRunnerSequencePayload(request: unknown) {
   }
   if (!isNonEmptyString(request.final_step_id)) {
     return "payload.final_step_id must be non-empty string";
+  }
+  const envDetail = validateRuntimeOptionsEnv(request);
+  if (envDetail) {
+    return envDetail;
   }
   const seen = new Set<string>();
   for (let i = 0; i < request.steps.length; i++) {
@@ -327,6 +420,13 @@ function validateSkillRunnerSequencePayload(request: unknown) {
     );
     if (shortCircuitDetail) {
       return shortCircuitDetail;
+    }
+    const applyResultDetail = validateSequenceStepApplyResult(
+      step.apply_result,
+      `payload.steps[${i}].apply_result`,
+    );
+    if (applyResultDetail) {
+      return applyResultDetail;
     }
     if (
       typeof step.fetch_type !== "undefined" &&
@@ -424,18 +524,19 @@ function validateAcpSkillRunPayload(request: unknown) {
   const runtimeOptions = isObject(request.runtime_options)
     ? request.runtime_options
     : null;
-  const workflowWorkspace = runtimeOptions?.workflow_workspace;
-  if (typeof workflowWorkspace !== "undefined") {
-    if (!isObject(workflowWorkspace)) {
-      return "payload.runtime_options.workflow_workspace must be object when provided";
-    }
-    const mode = String(workflowWorkspace.mode || "").trim();
-    if (mode !== "new" && mode !== "reuse") {
-      return "payload.runtime_options.workflow_workspace.mode must be new or reuse";
-    }
-    if (!isNonEmptyString(workflowWorkspace.workflow_run_id)) {
-      return "payload.runtime_options.workflow_workspace.workflow_run_id must be non-empty string";
-    }
+  const workspaceDetail = validateAcpRuntimeWorkspace(
+    runtimeOptions?.workspace,
+    "payload.runtime_options.workspace",
+  );
+  if (workspaceDetail) {
+    return workspaceDetail;
+  }
+  const legacyWorkspaceDetail = validateAcpRuntimeWorkspace(
+    runtimeOptions?.workflow_workspace,
+    "payload.runtime_options.workflow_workspace",
+  );
+  if (legacyWorkspaceDetail) {
+    return legacyWorkspaceDetail;
   }
   if (!isObject(request.input)) {
     return null;

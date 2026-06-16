@@ -1,4 +1,8 @@
 import type { JobRecord, JobState } from "../jobQueue/manager";
+import {
+  isSkillRunnerRunTerminalClientError,
+  isSkillRunnerTerminalRunError,
+} from "../providers/skillrunner/errors";
 import { isActive } from "./skillRunnerProviderStateMachine";
 
 function normalizeString(value: unknown) {
@@ -27,7 +31,20 @@ export function getSkillRunnerRequestIdFromJob(
 }
 
 export function hasRecoverableSkillRunnerRequest(job: JobLike | null | undefined) {
-  return isSkillRunnerJobLike(job) && !!getSkillRunnerRequestIdFromJob(job);
+  if (!isSkillRunnerJobLike(job) || !getSkillRunnerRequestIdFromJob(job)) {
+    return false;
+  }
+  if (job?.meta?.skillRunnerTerminalRunError) {
+    return false;
+  }
+  return true;
+}
+
+export function isNonRecoverableSkillRunnerFailure(error: unknown) {
+  return (
+    isSkillRunnerRunTerminalClientError(error) ||
+    isSkillRunnerTerminalRunError(error)
+  );
 }
 
 export function coerceRecoverableSkillRunnerState(state: JobState) {

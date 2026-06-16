@@ -615,7 +615,7 @@ describe("topic synthesis split skill runtime", function () {
         sourceAttachmentPaths: [],
         parameter: { topicId: "detr-topic" },
         runtime_options: {
-          workflow_workspace: {
+          workspace: {
             mode: "new",
             workflow_run_id: "workflow-run",
           },
@@ -1165,11 +1165,82 @@ describe("topic synthesis split skill runtime", function () {
       ),
       2,
     );
+    const validCorePayload = await readGuidanceExample(
+      "stage_40_core_synthesis",
+    );
+    const invalidAxisPayload = JSON.parse(JSON.stringify(validCorePayload));
+    invalidAxisPayload.taxonomy.axes[0].axis_type = "unsupported_axis";
+    await writeJson(
+      path.join(runRoot, "runtime/payloads/core-synthesis-invalid-axis.json"),
+      invalidAxisPayload,
+    );
+    assert.equal(
+      runGateStatus(
+        packages.core,
+        runRoot,
+        [
+          "--db",
+          dbPath,
+          "--action",
+          "submit",
+          "--payload",
+          "runtime/payloads/core-synthesis-invalid-axis.json",
+        ],
+        env,
+      ),
+      2,
+    );
+    const emptyAxesPayload = JSON.parse(JSON.stringify(validCorePayload));
+    emptyAxesPayload.taxonomy.axes = [];
+    await writeJson(
+      path.join(runRoot, "runtime/payloads/core-synthesis-empty-axes.json"),
+      emptyAxesPayload,
+    );
+    assert.equal(
+      runGateStatus(
+        packages.core,
+        runRoot,
+        [
+          "--db",
+          dbPath,
+          "--action",
+          "submit",
+          "--payload",
+          "runtime/payloads/core-synthesis-empty-axes.json",
+        ],
+        env,
+      ),
+      2,
+    );
+    const axisWithoutNodesPayload = JSON.parse(
+      JSON.stringify(validCorePayload),
+    );
+    axisWithoutNodesPayload.taxonomy.axes[0].nodes = [];
+    await writeJson(
+      path.join(runRoot, "runtime/payloads/core-synthesis-axis-no-nodes.json"),
+      axisWithoutNodesPayload,
+    );
+    assert.equal(
+      runGateStatus(
+        packages.core,
+        runRoot,
+        [
+          "--db",
+          dbPath,
+          "--action",
+          "submit",
+          "--payload",
+          "runtime/payloads/core-synthesis-axis-no-nodes.json",
+        ],
+        env,
+      ),
+      2,
+    );
     const stillGate40 = runGate(packages.core, runRoot, ["--db", dbPath], env);
     assert.equal(stillGate40.stage, "stage_40_core_synthesis");
     await writeJson(
       path.join(runRoot, "runtime/payloads/core-synthesis.json"),
-      await readGuidanceExample("stage_40_core_synthesis"),
+      validCorePayload,
     );
     runGate(
       packages.core,
@@ -1600,6 +1671,18 @@ describe("topic synthesis split skill runtime", function () {
     assert.deepEqual(
       ((sections.taxonomy as any).nodes as any[]).map(
         (row) => row.source_paper_refs[0],
+      ),
+      ["1:DETR", "1:DINO"],
+    );
+    assert.isArray((sections.taxonomy as any).axes);
+    assert.isAtLeast((sections.taxonomy as any).axes.length, 2);
+    assert.include(
+      (sections.taxonomy as any).axes.map((axis: any) => axis.axis_type),
+      "research_route",
+    );
+    assert.deepEqual(
+      (sections.taxonomy as any).axes[0].nodes.map(
+        (row: any) => row.source_paper_refs[0],
       ),
       ["1:DETR", "1:DINO"],
     );

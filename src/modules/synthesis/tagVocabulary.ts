@@ -1,14 +1,8 @@
-import { joinPath } from "../../utils/path";
 import {
-  readRuntimeTextFile,
-  writeRuntimeTextFile,
-} from "../runtimePersistence";
-import {
-  buildSynthesisKnowledgeGraphPaths,
   hashCanonicalJson,
-  initializeSynthesisKnowledgeGraphStore,
   readProjectionRegistryState,
   recordProjectionRebuild,
+  resolveSynthesisPersistenceRoot,
   SynthesisSchemaRegistry,
   writeCanonicalTransaction,
   writeCanonicalDiagnostic,
@@ -926,7 +920,7 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
   const repository =
     options.repository ||
     createSynthesisRepository({
-      runtimeRoot: root,
+      runtimeRoot: resolveSynthesisPersistenceRoot(root),
       now,
     });
   const registry = createRegistry();
@@ -989,7 +983,6 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
   }
 
   async function initializeIfMissing() {
-    await initializeSynthesisKnowledgeGraphStore(root);
     repository.initialize();
     if (repository.getTagProtocol()) {
       return;
@@ -1177,8 +1170,7 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
           tag,
           facet: normalizeFacet(raw?.facet, tag),
           note: cleanString(raw?.note) || undefined,
-          source_flow:
-            cleanString(raw?.source_flow) || "tag-regulator-suggest",
+          source_flow: cleanString(raw?.source_flow) || "tag-regulator-suggest",
           parent_bindings: normalizeParentBindings(raw?.parent_bindings || []),
         },
         timestamp,
@@ -1331,11 +1323,6 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     const projection = tagProjectionFromSnapshot({ snapshot, rebuiltAt });
     await options.yieldControl?.();
     await reportProgress("write_projection", "Write projection", 2);
-    const paths = await initializeSynthesisKnowledgeGraphStore(root);
-    await writeRuntimeTextFile(
-      joinPath(paths.stateRoot, "tag-index.json"),
-      `${JSON.stringify(projection, null, 2)}\n`,
-    );
     await options.yieldControl?.();
     await reportProgress("record_projection", "Record projection", 3);
     return recordProjectionRebuild({
@@ -1349,17 +1336,10 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
   }
 
   async function readTagIndexProjection() {
-    const paths = await initializeSynthesisKnowledgeGraphStore(root);
-    const projectionPath = joinPath(paths.stateRoot, "tag-index.json");
-    try {
-      const raw = await readRuntimeTextFile(projectionPath);
-      return JSON.parse(raw) as SynthesisTagIndexProjection;
-    } catch {
-      return tagProjectionFromSnapshot({
-        snapshot: await loadTagVocabulary(),
-        rebuiltAt: now(),
-      });
-    }
+    return tagProjectionFromSnapshot({
+      snapshot: await loadTagVocabulary(),
+      rebuiltAt: now(),
+    });
   }
 
   async function exportTagVocabularyForRegulator() {

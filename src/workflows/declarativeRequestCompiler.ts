@@ -456,9 +456,10 @@ function buildSkillRunnerSequenceRequest(args: {
       `Workflow ${args.manifest.id} skillrunner.sequence.v1 requires request.sequence.steps`,
     );
   }
-  if (String(args.manifest.provider || "").trim() !== "acp") {
+  const provider = String(args.manifest.provider || "").trim();
+  if (provider !== "acp" && provider !== "skillrunner") {
     throw new Error(
-      `Workflow ${args.manifest.id} skillrunner.sequence.v1 requires provider=acp`,
+      `Workflow ${args.manifest.id} skillrunner.sequence.v1 requires provider=acp or provider=skillrunner`,
     );
   }
   const finalStepId = String(args.manifest.result?.final_step_id || "").trim();
@@ -492,6 +493,9 @@ function buildSkillRunnerSequenceRequest(args: {
       ...(step.parameter ? { parameter: cloneRecord(step.parameter) } : {}),
       ...(step.fetch_type ? { fetch_type: step.fetch_type } : {}),
       ...(step.workspace ? { workspace: step.workspace } : {}),
+      ...(step.apply_result
+        ? { apply_result: cloneRecord(step.apply_result) as any }
+        : {}),
       ...(step.handoff ? { handoff: cloneRecord(step.handoff) as any } : {}),
       ...(step.short_circuit
         ? { short_circuit: cloneRecord(step.short_circuit) as any }

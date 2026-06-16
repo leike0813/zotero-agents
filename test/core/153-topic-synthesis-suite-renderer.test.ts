@@ -40,6 +40,14 @@ const expectedStageSchemas: Record<string, string[]> = {
   ],
 };
 
+const taxonomyAxisTypes = [
+  "problem_formulation",
+  "technical_mechanism",
+  "evidence_scope",
+  "research_route",
+  "application_context",
+];
+
 async function assertFileExists(filePath: string) {
   await fs.access(filePath);
 }
@@ -57,18 +65,36 @@ function assertStage40ExampleCoversGateFields(example: any) {
   assert.notProperty(example, "positioning");
   assert.isString(example.taxonomy?.summary?.text);
   assert.isNotEmpty(example.taxonomy.summary.text);
-  const route = example.taxonomy?.nodes?.[0];
-  assert.isObject(route);
-  for (const key of ["definition", "core_problem", "mechanism", "maturity"]) {
-    assert.isString(route[key], `taxonomy route should include ${key}`);
-    assert.isNotEmpty(route[key], `taxonomy route ${key} should not be empty`);
+  assert.notProperty(example.taxonomy, "nodes");
+  assert.isArray(example.taxonomy?.axes);
+  assert.isAtLeast(example.taxonomy.axes.length, 2);
+  assert.isAtMost(example.taxonomy.axes.length, 5);
+  for (const axis of example.taxonomy.axes) {
+    assert.include(taxonomyAxisTypes, axis.axis_type);
+    assert.isArray(axis.nodes);
+    assert.isNotEmpty(axis.nodes);
+    for (const route of axis.nodes) {
+      assert.isObject(route);
+      for (const key of [
+        "definition",
+        "core_problem",
+        "mechanism",
+        "maturity",
+      ]) {
+        assert.isString(route[key], `taxonomy route should include ${key}`);
+        assert.isNotEmpty(
+          route[key],
+          `taxonomy route ${key} should not be empty`,
+        );
+      }
+      assert.isArray(route.strengths);
+      assert.isNotEmpty(route.strengths);
+      assert.isArray(route.limitations);
+      assert.isNotEmpty(route.limitations);
+      assert.isArray(route.source_paper_refs);
+      assert.isNotEmpty(route.source_paper_refs);
+    }
   }
-  assert.isArray(route.strengths);
-  assert.isNotEmpty(route.strengths);
-  assert.isArray(route.limitations);
-  assert.isNotEmpty(route.limitations);
-  assert.isArray(route.source_paper_refs);
-  assert.isNotEmpty(route.source_paper_refs);
 
   const timelineEvent = example.timeline_events?.events?.[0];
   assert.isString(timelineEvent?.description);
@@ -794,7 +820,7 @@ describe("Topic synthesis suite renderer", function () {
 
     assert.include(createSkill, "duplicate_status");
     assert.include(createSkill, "硬门禁失败");
-    assert.include(createSkill, "reason: \"duplicate_topic\"");
+    assert.include(createSkill, 'reason: "duplicate_topic"');
     assert.include(createSkill, "不进入 Stage 20");
     assert.include(createSkill, "topic_synthesis_canceled");
     assert.include(createSkill, "短路后续 steps");

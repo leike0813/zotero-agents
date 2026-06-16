@@ -32,6 +32,8 @@ import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner
 import { config } from "../../package.json";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import { buildSkillRunnerManagementClient } from "./skillRunnerManagementClientFactory";
+import { isSkillRunnerRunTerminalClientError } from "../providers/skillrunner/errors";
+import { settleSkillRunnerRunAsFailed } from "./skillRunnerRunSettlement";
 import { joinPath } from "../utils/path";
 import {
   buildWorkflowSettingsUiDescriptor,
@@ -68,8 +70,12 @@ import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
 import {
   getWorkflowProduct,
   listWorkflowProducts,
+  listSkillRunFeedbackProducts,
   readProductAssetPreview,
   removeWorkflowProduct,
+  exportSkillRunFeedbackMarkdownFile,
+  SKILL_RUN_FEEDBACK_ASSET_ID,
+  WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
   type WorkflowProductPreview,
 } from "./workflowProductStore";
 import { openFolderInSystemFileManager } from "../utils/fileSystem";
@@ -103,6 +109,10 @@ type DashboardState = {
   homeWorkflowDocWorkflowId: string;
   selectedProductId: string;
   selectedProductAssetId: string;
+  selectedProductSection: "products" | "feedback";
+  selectedFeedbackProductId: string;
+  feedbackSkillFilter: string;
+  selectedFeedbackProductIds: Set<string>;
   homeWorkflowDocCacheByWorkflowId: Map<
     string,
     {
@@ -182,10 +192,17 @@ type DashboardSnapshot = {
   }>;
   acpSkillRunsView?: ReturnType<typeof buildAcpSkillRunPanelSnapshot>;
   productStorageView?: {
+    section: "products" | "feedback";
     products: ReturnType<typeof listWorkflowProducts>;
     selectedProduct?: ReturnType<typeof getWorkflowProduct>;
     selectedAssetId?: string;
     selectedPreview?: WorkflowProductPreview;
+    feedbackProducts?: ReturnType<typeof listSkillRunFeedbackProducts>;
+    feedbackSkillOptions?: string[];
+    feedbackSkillFilter?: string;
+    selectedFeedbackProduct?: ReturnType<typeof getWorkflowProduct>;
+    selectedFeedbackProductIds?: string[];
+    selectedFeedbackPreview?: WorkflowProductPreview;
   };
   homeWorkflowDocView?: {
     workflowId: string;
@@ -244,6 +261,11 @@ type DashboardSnapshot = {
       workflows: { value: string; label: string }[];
     };
   };
+  surfaceSignatures?: {
+    chrome: string;
+    selectedSurface: string;
+    selectedSurfaceKey: string;
+  };
 };
 
 type DashboardActionEnvelope = {
@@ -251,6 +273,90 @@ type DashboardActionEnvelope = {
   action: string;
   payload?: Record<string, unknown>;
 };
+
+function normalizeDashboardSignatureValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeDashboardSignatureValue(entry));
+  }
+  if (value && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    const normalized: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) {
+      const entry = source[key];
+      if (typeof entry !== "undefined") {
+        normalized[key] = normalizeDashboardSignatureValue(entry);
+      }
+    }
+    return normalized;
+  }
+  return value;
+}
+
+function dashboardSignature(value: unknown) {
+  return JSON.stringify(normalizeDashboardSignatureValue(value));
+}
+
+function dashboardSelectedSurfaceKey(snapshot: DashboardSnapshot) {
+  const tabKey = String(snapshot.selectedTabKey || "home").trim() || "home";
+  return tabKey.startsWith("backend:") ? "backend" : tabKey;
+}
+
+function dashboardChromeSignatureInput(snapshot: DashboardSnapshot) {
+  return {
+    selectedTabKey: snapshot.selectedTabKey,
+    title: snapshot.title,
+    labels: snapshot.labels,
+    tabs: snapshot.tabs,
+    backendLoadError: snapshot.backendLoadError,
+  };
+}
+
+function dashboardSelectedSurfaceSignatureInput(snapshot: DashboardSnapshot) {
+  const surfaceKey = dashboardSelectedSurfaceKey(snapshot);
+  if (surfaceKey === "products") {
+    return {
+      surfaceKey,
+      productStorageView: snapshot.productStorageView,
+    };
+  }
+  if (surfaceKey === "workflow-options") {
+    return {
+      surfaceKey,
+      workflowOptionsView: snapshot.workflowOptionsView,
+    };
+  }
+  if (surfaceKey === "runtime-logs") {
+    return {
+      surfaceKey,
+      runtimeLogsView: snapshot.runtimeLogsView,
+    };
+  }
+  if (surfaceKey === "backend") {
+    return {
+      surfaceKey,
+      backendView: snapshot.backendView,
+    };
+  }
+  return {
+    surfaceKey,
+    summary: snapshot.summary,
+    runningRows: snapshot.runningRows,
+    homeWorkflows: snapshot.homeWorkflows,
+    homeWorkflowDocView: snapshot.homeWorkflowDocView,
+  };
+}
+
+function finalizeDashboardSnapshot(snapshot: DashboardSnapshot) {
+  const selectedSurfaceKey = dashboardSelectedSurfaceKey(snapshot);
+  snapshot.surfaceSignatures = {
+    chrome: dashboardSignature(dashboardChromeSignatureInput(snapshot)),
+    selectedSurface: dashboardSignature(
+      dashboardSelectedSurfaceSignatureInput(snapshot),
+    ),
+    selectedSurfaceKey,
+  };
+  return snapshot;
+}
 
 export type MountedTaskDashboardRuntime = {
   refresh: () => void;
@@ -1524,6 +1630,74 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-products-preview-unavailable",
       "Select a file to preview.",
     ),
+    productsListTitle: localize(
+      "task-dashboard-products-list-title",
+      "Products",
+    ),
+    productsListCollapse: localize(
+      "task-dashboard-products-list-collapse",
+      "Collapse product list",
+    ),
+    productsListExpand: localize(
+      "task-dashboard-products-list-expand",
+      "Expand product list",
+    ),
+    productsListRail: localize(
+      "task-dashboard-products-list-rail",
+      "Products",
+    ),
+    productsSectionFiles: localize(
+      "task-dashboard-products-section-files",
+      "Products",
+    ),
+    productsSectionFeedback: localize(
+      "task-dashboard-products-section-feedback",
+      "Skill Feedback",
+    ),
+    productsViewerWrap: localize(
+      "task-dashboard-products-viewer-wrap",
+      "Wrap",
+    ),
+    productsViewerCopy: localize(
+      "task-dashboard-products-viewer-copy",
+      "Copy",
+    ),
+    productsViewerCopied: localize(
+      "task-dashboard-products-viewer-copied",
+      "Copied",
+    ),
+    productsViewerCopyFailed: localize(
+      "task-dashboard-products-viewer-copy-failed",
+      "Copy failed",
+    ),
+    feedbackEmpty: localize(
+      "task-dashboard-feedback-empty",
+      "No skill feedback has been collected yet.",
+    ),
+    feedbackFilterSkill: localize(
+      "task-dashboard-feedback-filter-skill",
+      "Skill",
+    ),
+    feedbackFilterAllSkills: localize(
+      "task-dashboard-feedback-filter-all-skills",
+      "All skills",
+    ),
+    feedbackSelectAll: localize(
+      "task-dashboard-feedback-select-all",
+      "Select all",
+    ),
+    feedbackExportSelected: localize(
+      "task-dashboard-feedback-export-selected",
+      "Export Selected",
+    ),
+    feedbackExportEmpty: localize(
+      "task-dashboard-feedback-export-empty",
+      "Select at least one feedback record to export.",
+    ),
+    feedbackExportSuccess: localize(
+      "task-dashboard-feedback-export-success",
+      "Skill feedback export file created.",
+    ),
     runtimeLogsContextScope: localize(
       "task-dashboard-runtime-logs-context-scope",
       "Active Context Filters: ",
@@ -1648,11 +1822,31 @@ async function buildDashboardSnapshot(args: {
       state: args.state,
       backends: args.backends,
     });
-    return snapshot;
+    return finalizeDashboardSnapshot(snapshot);
   }
 
   if (resolvedSelectedTabKey === "products") {
-    const products = listWorkflowProducts();
+    const allProducts = listWorkflowProducts();
+    const products = allProducts.filter(
+      (entry) => entry.kind !== WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
+    );
+    const feedbackSkillOptions = Array.from(
+      new Set(
+        listSkillRunFeedbackProducts()
+          .map((entry) => String(entry.metadata?.skillId || "").trim())
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+    if (
+      args.state.feedbackSkillFilter &&
+      !feedbackSkillOptions.includes(args.state.feedbackSkillFilter)
+    ) {
+      args.state.feedbackSkillFilter = "";
+    }
+    const feedbackProducts = listSkillRunFeedbackProducts(
+      args.state.feedbackSkillFilter,
+    );
+    const section = args.state.selectedProductSection || "products";
     const selectedProduct =
       products.find(
         (entry) => entry.productId === args.state.selectedProductId,
@@ -1674,13 +1868,48 @@ async function buildDashboardSnapshot(args: {
         selectedAsset.assetId,
       );
     }
+    const selectedFeedbackProduct =
+      feedbackProducts.find(
+        (entry) => entry.productId === args.state.selectedFeedbackProductId,
+      ) ||
+      feedbackProducts[0] ||
+      null;
+    args.state.selectedFeedbackProductId =
+      selectedFeedbackProduct?.productId || "";
+    for (const selectedId of Array.from(args.state.selectedFeedbackProductIds)) {
+      if (!feedbackProducts.some((entry) => entry.productId === selectedId)) {
+        args.state.selectedFeedbackProductIds.delete(selectedId);
+      }
+    }
+    let selectedFeedbackPreview: WorkflowProductPreview | undefined;
+    if (selectedFeedbackProduct) {
+      const feedbackAsset =
+        selectedFeedbackProduct.assets.find(
+          (entry) => entry.assetId === SKILL_RUN_FEEDBACK_ASSET_ID,
+        ) || selectedFeedbackProduct.assets[0];
+      if (feedbackAsset) {
+        selectedFeedbackPreview = await readProductAssetPreview(
+          selectedFeedbackProduct.productId,
+          feedbackAsset.assetId,
+        );
+      }
+    }
     snapshot.productStorageView = {
+      section,
       products,
       selectedProduct: selectedProduct || undefined,
       selectedAssetId: selectedAsset?.assetId,
       selectedPreview,
+      feedbackProducts,
+      feedbackSkillOptions,
+      feedbackSkillFilter: args.state.feedbackSkillFilter,
+      selectedFeedbackProduct: selectedFeedbackProduct || undefined,
+      selectedFeedbackProductIds: Array.from(
+        args.state.selectedFeedbackProductIds,
+      ),
+      selectedFeedbackPreview,
     };
-    return snapshot;
+    return finalizeDashboardSnapshot(snapshot);
   }
 
   if (resolvedSelectedTabKey === "runtime-logs") {
@@ -1745,11 +1974,11 @@ async function buildDashboardSnapshot(args: {
         workflows: mappedWorkflows,
       },
     };
-    return snapshot;
+    return finalizeDashboardSnapshot(snapshot);
   }
 
   if (!selectedBackend) {
-    return snapshot;
+    return finalizeDashboardSnapshot(snapshot);
   }
 
   const rows = mergeDashboardTaskRows({
@@ -1813,7 +2042,7 @@ async function buildDashboardSnapshot(args: {
 
   if (isSkillRunnerBackend(selectedBackend)) {
     snapshot.backendView = backendView;
-    return snapshot;
+    return finalizeDashboardSnapshot(snapshot);
   }
 
   if (isAcpBackend(selectedBackend)) {
@@ -1828,7 +2057,7 @@ async function buildDashboardSnapshot(args: {
       labels.backendNoTasks ||
       "No ACP skill runs.";
     snapshot.backendView = backendView;
-    return snapshot;
+    return finalizeDashboardSnapshot(snapshot);
   }
 
   const selectedLogTaskId =
@@ -1877,7 +2106,7 @@ async function buildDashboardSnapshot(args: {
     backendView.selectedLogEntryPayload = undefined;
   }
   snapshot.backendView = backendView;
-  return snapshot;
+  return finalizeDashboardSnapshot(snapshot);
 }
 
 function normalizeFilteredHistory() {
@@ -1933,6 +2162,10 @@ export async function openTaskManagerDialog(args?: {
     homeWorkflowDocWorkflowId: "",
     selectedProductId: "",
     selectedProductAssetId: "",
+    selectedProductSection: "products",
+    selectedFeedbackProductId: "",
+    feedbackSkillFilter: "",
+    selectedFeedbackProductIds: new Set(),
     homeWorkflowDocCacheByWorkflowId: new Map(),
   };
   const initialBackendId = fromBackendTabKey(state.selectedTabKey);
@@ -1951,6 +2184,22 @@ export async function openTaskManagerDialog(args?: {
   let refreshTimer: number | undefined;
   let deferredDashboardRefreshTimer: number | undefined;
   let dashboardRefreshQueued = false;
+  type RefreshReason =
+    | "init"
+    | "user-action"
+    | "periodic"
+    | "task-update"
+    | "backend-health"
+    | "backend-load"
+    | "save-state";
+  let queuedRefreshReason: RefreshReason = "user-action";
+  let lastPostedDashboardSignatures:
+    | {
+        chrome: string;
+        selectedSurface: string;
+        selectedSurfaceKey: string;
+      }
+    | undefined;
   let frameWindow: Window | null = null;
   let removeMessageListener: (() => void) | undefined;
   const getRuntimeWindow = () =>
@@ -1984,6 +2233,7 @@ export async function openTaskManagerDialog(args?: {
 
   const pushSnapshot = async (
     messageType: "dashboard:init" | "dashboard:snapshot",
+    reason: RefreshReason,
   ) => {
     if (!frameWindow) {
       return;
@@ -2005,6 +2255,27 @@ export async function openTaskManagerDialog(args?: {
       history,
       active,
     });
+    const signatures = snapshot.surfaceSignatures;
+    if (
+      messageType === "dashboard:snapshot" &&
+      isNoisyRefreshReason(reason) &&
+      signatures &&
+      lastPostedDashboardSignatures &&
+      signatures.chrome === lastPostedDashboardSignatures.chrome &&
+      signatures.selectedSurface ===
+        lastPostedDashboardSignatures.selectedSurface &&
+      signatures.selectedSurfaceKey ===
+        lastPostedDashboardSignatures.selectedSurfaceKey
+    ) {
+      return;
+    }
+    if (signatures) {
+      lastPostedDashboardSignatures = {
+        chrome: signatures.chrome,
+        selectedSurface: signatures.selectedSurface,
+        selectedSurfaceKey: signatures.selectedSurfaceKey,
+      };
+    }
 
     frameWindow.postMessage(
       {
@@ -2016,14 +2287,6 @@ export async function openTaskManagerDialog(args?: {
   };
 
   let refreshChain: Promise<void> = Promise.resolve();
-  type RefreshReason =
-    | "init"
-    | "user-action"
-    | "periodic"
-    | "task-update"
-    | "backend-health"
-    | "backend-load"
-    | "save-state";
   const shouldSkipRefresh = (reason: RefreshReason) => {
     if (state.selectedTabKey !== "workflow-options") {
       return false;
@@ -2032,16 +2295,22 @@ export async function openTaskManagerDialog(args?: {
   };
   const enqueueRefresh = (
     messageType: "dashboard:init" | "dashboard:snapshot",
+    reason: RefreshReason,
   ) => {
     if (dashboardRefreshQueued && messageType === "dashboard:snapshot") {
+      if (!isNoisyRefreshReason(reason)) {
+        queuedRefreshReason = reason;
+      }
       return refreshChain;
     }
     dashboardRefreshQueued = true;
+    queuedRefreshReason = reason;
     refreshChain = refreshChain
       .catch(() => undefined)
       .then(async () => {
+        const reason = queuedRefreshReason;
         dashboardRefreshQueued = false;
-        await pushSnapshot(messageType);
+        await pushSnapshot(messageType, reason);
       });
     return refreshChain;
   };
@@ -2059,18 +2328,18 @@ export async function openTaskManagerDialog(args?: {
     reason === "backend-health" ||
     reason === "periodic";
 
-  const scheduleDeferredDashboardRefresh = () => {
+  const scheduleDeferredDashboardRefresh = (reason: RefreshReason) => {
     if (deferredDashboardRefreshTimer) {
       return;
     }
     const win = getRuntimeWindow();
     if (!win) {
-      void enqueueRefresh("dashboard:snapshot");
+      void enqueueRefresh("dashboard:snapshot", reason);
       return;
     }
     deferredDashboardRefreshTimer = win.setTimeout(() => {
       deferredDashboardRefreshTimer = undefined;
-      void enqueueRefresh("dashboard:snapshot");
+      void enqueueRefresh("dashboard:snapshot", reason);
     }, 350);
   };
 
@@ -2079,11 +2348,11 @@ export async function openTaskManagerDialog(args?: {
       return;
     }
     if (isNoisyRefreshReason(reason)) {
-      scheduleDeferredDashboardRefresh();
+      scheduleDeferredDashboardRefresh(reason);
       return;
     }
     clearDeferredDashboardRefresh();
-    void enqueueRefresh("dashboard:snapshot");
+    void enqueueRefresh("dashboard:snapshot", reason);
   };
 
   const ensureBackendInteractable = (backendIdRaw: unknown) => {
@@ -2122,7 +2391,7 @@ export async function openTaskManagerDialog(args?: {
       return;
     }
     if (action === "ready") {
-      void enqueueRefresh("dashboard:init");
+      void enqueueRefresh("dashboard:init", "init");
       return;
     }
     if (action === "select-tab") {
@@ -2143,6 +2412,7 @@ export async function openTaskManagerDialog(args?: {
     }
     if (action === "select-product") {
       state.selectedTabKey = "products";
+      state.selectedProductSection = "products";
       state.selectedProductId = String(payload.productId || "").trim();
       state.selectedProductAssetId = "";
       refresh("user-action");
@@ -2150,18 +2420,118 @@ export async function openTaskManagerDialog(args?: {
     }
     if (action === "select-product-asset") {
       state.selectedTabKey = "products";
+      state.selectedProductSection = "products";
       state.selectedProductId = String(payload.productId || "").trim();
       state.selectedProductAssetId = String(payload.assetId || "").trim();
       refresh("user-action");
+      return;
+    }
+    if (action === "select-product-section") {
+      state.selectedTabKey = "products";
+      state.selectedProductSection =
+        String(payload.section || "").trim() === "feedback"
+          ? "feedback"
+          : "products";
+      refresh("user-action");
+      return;
+    }
+    if (action === "select-feedback-skill-filter") {
+      state.selectedTabKey = "products";
+      state.selectedProductSection = "feedback";
+      state.feedbackSkillFilter = String(payload.skillId || "").trim();
+      state.selectedFeedbackProductId = "";
+      state.selectedFeedbackProductIds.clear();
+      refresh("user-action");
+      return;
+    }
+    if (action === "select-feedback-product") {
+      state.selectedTabKey = "products";
+      state.selectedProductSection = "feedback";
+      state.selectedFeedbackProductId = String(payload.productId || "").trim();
+      refresh("user-action");
+      return;
+    }
+    if (action === "toggle-feedback-product-selected") {
+      const productId = String(payload.productId || "").trim();
+      if (productId) {
+        if (payload.selected === true) {
+          state.selectedFeedbackProductIds.add(productId);
+        } else {
+          state.selectedFeedbackProductIds.delete(productId);
+        }
+      }
+      state.selectedTabKey = "products";
+      state.selectedProductSection = "feedback";
+      refresh("user-action");
+      return;
+    }
+    if (action === "toggle-all-feedback-products-selected") {
+      const selected = payload.selected === true;
+      const visibleFeedbackProducts = listSkillRunFeedbackProducts(
+        state.feedbackSkillFilter,
+      );
+      for (const product of visibleFeedbackProducts) {
+        const productId = String(product.productId || "").trim();
+        if (!productId) {
+          continue;
+        }
+        if (selected) {
+          state.selectedFeedbackProductIds.add(productId);
+        } else {
+          state.selectedFeedbackProductIds.delete(productId);
+        }
+      }
+      state.selectedTabKey = "products";
+      state.selectedProductSection = "feedback";
+      refresh("user-action");
+      return;
+    }
+    if (action === "export-selected-feedback") {
+      const productIds = Array.from(state.selectedFeedbackProductIds);
+      if (productIds.length === 0) {
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-feedback-export-empty",
+            "Select at least one feedback record to export.",
+          ),
+        );
+        return;
+      }
+      try {
+        const exported = await exportSkillRunFeedbackMarkdownFile(productIds);
+        const folder = String(exported.filePath || "").replace(
+          /[\\/][^\\/]*$/,
+          "",
+        );
+        if (folder) {
+          openFolderInSystemFileManager(folder, {
+            label: "skill feedback export folder",
+          });
+        }
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-feedback-export-success",
+            "Skill feedback export file created.",
+          ),
+        );
+      } catch (error) {
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-runtime-logs-copy-failed",
+            "Failed to copy logs: {error}",
+            {
+              args: { error: compactError(error) },
+            },
+          ),
+        );
+      }
       return;
     }
     if (action === "open-product-folder") {
       const product = getWorkflowProduct(
         String(payload.productId || "").trim(),
       );
-      const folder = String(
-        product?.workspaceDir || product?.cacheDir || "",
-      ).trim();
+      const folder = String(product?.cacheDir || "").trim();
       if (folder) {
         openFolderInSystemFileManager(folder, { label: "product folder" });
       }
@@ -2632,6 +3002,22 @@ export async function openTaskManagerDialog(args?: {
           requestId,
         });
       } catch (error) {
+        if (isSkillRunnerRunTerminalClientError(error)) {
+          settleSkillRunnerRunAsFailed({
+            backendId: backend.id,
+            backendType: backend.type,
+            providerId: "skillrunner",
+            workflowId: target?.workflowId,
+            runId: target?.runId,
+            jobId: target?.jobId,
+            requestId,
+            reason: compactError(error),
+            source: "task-manager-cancel",
+            error,
+          });
+          refresh("user-action");
+          return;
+        }
         alertRuntimeWindow(
           localize(
             "task-dashboard-skillrunner-cancel-failed",
@@ -2985,7 +3371,7 @@ export async function openTaskManagerDialog(args?: {
         );
         return;
       }
-      void enqueueRefresh("dashboard:init");
+      void enqueueRefresh("dashboard:init", "init");
     });
     const onMessage = (event: MessageEvent) => {
       const data = event.data as { type?: unknown };

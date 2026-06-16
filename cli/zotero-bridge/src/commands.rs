@@ -16,8 +16,8 @@ use crate::{
         LiteratureIngestArgs, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
         PaperArtifactsArgs, PaperArtifactsCommand, ReferenceIndexArgs, ReferenceIndexCommand,
         ResolversArgs, ResolversCommand, SchemasArgs, SchemasCommand, TaskArgs, TaskCommand,
-        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowArgs, WorkflowCommand,
-        WorkflowRunArgs, WorkflowSubmitArgs,
+        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowArgs, WorkflowCommand, WorkflowRunArgs,
+        WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
@@ -817,7 +817,9 @@ mod tests {
             "topics.get_report"
         );
         assert_eq!(
-            topics_capability(&TopicsCommand::GetReviewInput(BridgeInputArgs { input: None })),
+            topics_capability(&TopicsCommand::GetReviewInput(BridgeInputArgs {
+                input: None
+            })),
             "topics.get_review_input"
         );
         assert_eq!(

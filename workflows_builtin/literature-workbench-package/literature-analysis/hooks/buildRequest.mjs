@@ -51,6 +51,10 @@ async function buildRequestImpl({ selectionContext, executionOptions, runtime })
     skill_id: "literature-analysis",
     workspace: "new",
     fetch_type: "bundle",
+    apply_result: {
+      workflow_id: "literature-analysis",
+      on_failure: "continue",
+    },
     input: {
       source_path: sourcePath,
     },
@@ -72,6 +76,10 @@ async function buildRequestImpl({ selectionContext, executionOptions, runtime })
       skill_id: "tag-regulator",
       workspace: "reuse-workflow",
       fetch_type: "result",
+      apply_result: {
+        workflow_id: "tag-regulator",
+        on_failure: "continue",
+      },
       input: tagInput.input,
       parameter: resolveTagRegulatorParameters(executionOptions, {
         tagNoteLanguage: params.language,

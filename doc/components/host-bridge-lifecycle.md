@@ -170,6 +170,8 @@ export type HostBridgeStatusSnapshot = {
   endpoint: string;
   remoteEndpoint: string;
   advertisedHost: string;
+  advertisedHostSource?: "manual" | "auto" | "placeholder";
+  advertisedHostDiagnostics?: string[];
   remoteEndpointUsesPlaceholder: boolean;
   bindMode: HostBridgeBindMode;
   lanEnabled: boolean;
@@ -197,7 +199,7 @@ Grouped by concern:
 | Category | Fields |
 |----------|--------|
 | Identity | `status`, `protocol`, `bindMode`, `lanEnabled` |
-| Network | `host`, `port`, `endpoint`, `remoteEndpoint`, `advertisedHost`, `remoteEndpointUsesPlaceholder` |
+| Network | `host`, `port`, `endpoint`, `remoteEndpoint`, `advertisedHost`, `advertisedHostSource`, `advertisedHostDiagnostics`, `remoteEndpointUsesPlaceholder` |
 | Port policy | `portMode`, `pinPortEnabled`, `pinnedPort` |
 | Supervision | `supervised`, `restartCount`, `lastRecoveryReason` |
 | Auth | `authRequired`, `tokenMasked`, `masterTokenConfigured`, `masterTokenMasked`, `masterTokenUpdatedAt` |

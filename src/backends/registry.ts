@@ -657,16 +657,34 @@ export async function listBackendInstances() {
 
 function resolveCompatibleBackendTypesForWorkflow(workflow: LoadedWorkflow) {
   const providerType = String(workflow.manifest.provider || "").trim();
+  const requestKind = String(workflow.manifest.request?.kind || "").trim();
   if (!providerType) {
     return [];
   }
   if (providerType === ACP_BACKEND_TYPE) {
+    if (requestKind === "skillrunner.sequence.v1") {
+      return [ACP_BACKEND_TYPE, "skillrunner"];
+    }
     return [ACP_BACKEND_TYPE];
   }
   if (providerType === "skillrunner") {
     return ["skillrunner", ACP_BACKEND_TYPE];
   }
   return [providerType];
+}
+
+function sortBackendsByCompatibilityPriority(
+  backends: BackendInstance[],
+  compatibleBackendTypes: string[],
+) {
+  const priority = new Map(
+    compatibleBackendTypes.map((backendType, index) => [backendType, index]),
+  );
+  return [...backends].sort((left, right) => {
+    const leftPriority = priority.get(left.type) ?? Number.MAX_SAFE_INTEGER;
+    const rightPriority = priority.get(right.type) ?? Number.MAX_SAFE_INTEGER;
+    return leftPriority - rightPriority;
+  });
 }
 
 export async function listBackendsForProvider(providerType: string) {
@@ -690,8 +708,11 @@ export async function listBackendsForWorkflow(workflow: LoadedWorkflow) {
   if (compatibleBackendTypes.length === 0) {
     return [];
   }
-  return loaded.backends.filter((backend) =>
-    compatibleBackendTypes.includes(backend.type),
+  return sortBackendsByCompatibilityPriority(
+    loaded.backends.filter((backend) =>
+      compatibleBackendTypes.includes(backend.type),
+    ),
+    compatibleBackendTypes,
   );
 }
 
@@ -713,8 +734,11 @@ export async function resolveBackendForWorkflow(
       `Workflow ${workflow.manifest.id} does not declare provider`,
     );
   }
-  const backendsByType = loaded.backends.filter(
-    (backend) => compatibleBackendTypes.includes(backend.type),
+  const backendsByType = sortBackendsByCompatibilityPriority(
+    loaded.backends.filter((backend) =>
+      compatibleBackendTypes.includes(backend.type),
+    ),
+    compatibleBackendTypes,
   );
   if (backendsByType.length === 0) {
     throw new Error(

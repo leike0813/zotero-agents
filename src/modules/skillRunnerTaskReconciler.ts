@@ -29,6 +29,7 @@ import {
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import { localizeWorkflowText } from "./workflowExecution/messageFormatter";
 import { resolveTargetParentIDFromRequest } from "./workflowExecution/requestMeta";
+import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 import {
   isTerminal,
   isWaiting,
@@ -43,6 +44,11 @@ import {
   coerceRecoverableSkillRunnerState,
   isRecoverableSkillRunnerDispatchFailure,
 } from "./skillRunnerRecoverableState";
+import {
+  getSkillRunnerHttpStatus,
+  isSkillRunnerRunTerminalClientError,
+} from "../providers/skillrunner/errors";
+import { settleSkillRunnerRunAsFailed } from "./skillRunnerRunSettlement";
 import {
   registerSkillRunnerRequestLedgerFromJob,
   removeSkillRunnerRequestLedgerRecordsByBackendId,
@@ -248,6 +254,10 @@ function computeApplyRetryDelayMs(attempt: number) {
 }
 
 function extractHttpStatusFromError(error: unknown) {
+  const structured = getSkillRunnerHttpStatus(error);
+  if (structured !== undefined) {
+    return structured;
+  }
   const message = normalizeString(
     error && typeof error === "object" && "message" in error
       ? (error as { message?: unknown }).message
@@ -256,7 +266,9 @@ function extractHttpStatusFromError(error: unknown) {
   if (!message) {
     return 0;
   }
-  const matched = message.match(/HTTP\s+(\d{3})\b/i);
+  const matched =
+    message.match(/HTTP\s+(\d{3})\b/i) ||
+    message.match(/status=(\d{3})\b/i);
   if (!matched) {
     return 0;
   }
@@ -860,21 +872,24 @@ export async function reconcileSkillRunnerBackendTaskLedgerOnce(args: {
         }
       } catch (error) {
         const status = extractHttpStatusFromError(error);
-        if (status === 404) {
+        if (isSkillRunnerRunTerminalClientError(error) || status === 404) {
           missingRequestIds.push(requestId);
+          settleSkillRunnerRunAsFailed({
+            backendId,
+            backendType,
+            providerId: "skillrunner",
+            requestId,
+            reason: `SkillRunner request is unavailable: status=${status || "unknown"}`,
+            source: `backend-task-ledger-reconcile:${source}`,
+            error,
+          });
           continue;
         }
         throw error;
       }
     }
-    const removedActiveCount = removeWorkflowTasksByBackendAndRequestIds({
-      backendId,
-      requestIds: missingRequestIds,
-    });
-    const removedHistoryCount = removeTaskDashboardHistoryByBackendAndRequestIds({
-      backendId,
-      requestIds: missingRequestIds,
-    });
+    const removedActiveCount = 0;
+    const removedHistoryCount = 0;
     let reconciledTerminalActiveCount = 0;
     let reconciledTerminalHistoryCount = 0;
     const reconciledTerminalRequestIds: string[] = [];
@@ -1224,6 +1239,18 @@ export class SkillRunnerTaskReconciler {
         ) {
           return;
         }
+        if (isSkillRunnerRunTerminalClientError(error)) {
+          settleSkillRunnerRunAsFailed({
+            backendId: candidate.backendId,
+            backendType: candidate.backendType,
+            providerId: "skillrunner",
+            requestId: candidate.requestId,
+            reason: `SkillRunner request is unavailable: status=${extractHttpStatusFromError(error) || "unknown"}`,
+            source: "missing-context-reconcile",
+            error,
+          });
+          continue;
+        }
         appendRuntimeLog({
           level: "warn",
           scope: "job",
@@ -1530,6 +1557,34 @@ export class SkillRunnerTaskReconciler {
     return removed;
   }
 
+  purgeRequestContext(args: { backendId?: string; requestId: string }) {
+    const backendId = normalizeString(args.backendId);
+    const requestId = normalizeString(args.requestId);
+    if (!requestId) {
+      return 0;
+    }
+    let removed = 0;
+    for (const [contextId, context] of this.contexts.entries()) {
+      if (backendId && normalizeString(context.backendId) !== backendId) {
+        continue;
+      }
+      if (normalizeString(context.requestId) !== requestId) {
+        continue;
+      }
+      this.contexts.delete(contextId);
+      this.reportedViolationKeysByContext.delete(contextId);
+      removed += 1;
+    }
+    if (removed > 0) {
+      writePersistedContexts(Array.from(this.contexts.values()));
+    }
+    stopSessionSync({
+      backendId,
+      requestId,
+    });
+    return removed;
+  }
+
   registerFromJob(args: {
     workflowId: string;
     workflowLabel: string;
@@ -1541,6 +1596,9 @@ export class SkillRunnerTaskReconciler {
     job: JobRecord;
   }) {
     if (normalizeString(args.backend.type) !== "skillrunner") {
+      return;
+    }
+    if (args.job.meta.skillRunnerTerminalRunError) {
       return;
     }
     const deferred = (args.job.result || {}) as DeferredResultLike;
@@ -1838,9 +1896,24 @@ export class SkillRunnerTaskReconciler {
     }
     const targetParentID =
       context.targetParentID || resolveTargetParentIDFromRequest(context.request);
-    if (!targetParentID) {
+    const applyParent =
+      typeof targetParentID === "number" && targetParentID > 0
+        ? targetParentID
+        : null;
+    if (!applyParent && !canWorkflowRunWithoutSelection(workflow.manifest)) {
       throw new Error("cannot resolve target parent for deferred apply");
     }
+    const applyDetails =
+      applyParent === null
+        ? { executionMode: context.executionMode, fetchType: context.fetchType, source }
+        : {
+            executionMode: context.executionMode,
+            fetchType: context.fetchType,
+            source,
+            targetParentID: applyParent,
+          };
+    const fetchDetails =
+      applyParent === null ? { source } : { source, targetParentID: applyParent };
     let bundlePath = "";
     try {
       appendRuntimeLog({
@@ -1858,12 +1931,7 @@ export class SkillRunnerTaskReconciler {
         phase: "terminal",
         stage: "deferred-apply-start",
         message: "deferred terminal applyResult started",
-        details: {
-          executionMode: context.executionMode,
-          fetchType: context.fetchType,
-          source,
-          targetParentID,
-        },
+        details: applyDetails,
       });
       const runResult: Record<string, unknown> = {
         status: "succeeded",
@@ -1887,10 +1955,7 @@ export class SkillRunnerTaskReconciler {
           phase: "terminal",
           stage: "deferred-bundle-fetch-start",
           message: "deferred bundle fetch started",
-          details: {
-            source,
-            targetParentID,
-          },
+          details: fetchDetails,
         });
         const bundleBytes = await client.fetchRunBundle({
           requestId: context.requestId,
@@ -1926,10 +1991,7 @@ export class SkillRunnerTaskReconciler {
           phase: "terminal",
           stage: "deferred-bundle-fetch-succeeded",
           message: "deferred bundle fetch succeeded",
-          details: {
-            source,
-            targetParentID,
-          },
+          details: fetchDetails,
         });
       } else {
         runResult.resultJson = await client.fetchRunResult({
@@ -1944,7 +2006,7 @@ export class SkillRunnerTaskReconciler {
       }
       await executeApplyResult({
         workflow,
-        parent: targetParentID,
+        parent: applyParent,
         bundleReader,
         request: context.request,
         runResult,
@@ -1970,12 +2032,7 @@ export class SkillRunnerTaskReconciler {
         phase: "terminal",
         stage: "reconcile-owned-terminal-apply",
         message: "reconciler executed terminal applyResult for recoverable request",
-        details: {
-          executionMode: context.executionMode,
-          fetchType: context.fetchType,
-          source,
-          targetParentID,
-        },
+        details: applyDetails,
       });
       appendRuntimeLog({
         level: "info",
@@ -1992,11 +2049,10 @@ export class SkillRunnerTaskReconciler {
         phase: "terminal",
         stage: "deferred-apply-succeeded",
         message: "deferred applyResult succeeded",
-        details: {
-          fetchType: context.fetchType,
-          source,
-          targetParentID,
-        },
+        details:
+          applyParent === null
+            ? { fetchType: context.fetchType, source }
+            : { fetchType: context.fetchType, source, targetParentID: applyParent },
       });
     } finally {
       if (bundlePath) {
@@ -2269,6 +2325,29 @@ export class SkillRunnerTaskReconciler {
         typeof generation === "number" &&
         !this.isGenerationActive(generation)
       ) {
+        return;
+      }
+      if (isSkillRunnerRunTerminalClientError(error)) {
+        const status = extractHttpStatusFromError(error);
+        context.state = "failed";
+        context.error = `SkillRunner request is unavailable: status=${status || "unknown"}`;
+        context.updatedAt = nowIso();
+        settleSkillRunnerRunAsFailed({
+          backendId: context.backendId,
+          backendType: context.backendType,
+          providerId: context.providerId,
+          workflowId: context.workflowId,
+          runId: context.runId,
+          jobId: context.jobId,
+          requestId: context.requestId,
+          reason: context.error,
+          source: `context-reconcile:${source}`,
+          error,
+          updatedAt: context.updatedAt,
+        });
+        this.contexts.delete(context.id);
+        this.reportedViolationKeysByContext.delete(context.id);
+        writePersistedContexts(Array.from(this.contexts.values()));
         return;
       }
       const health = getSkillRunnerBackendHealthState(context.backendId);
@@ -2637,6 +2716,13 @@ export function ensureSkillRunnerRecoverableContext(args: {
   job: JobRecord;
 }) {
   defaultReconciler.registerFromJob(args);
+}
+
+export function purgeSkillRunnerRecoverableContextByRequest(args: {
+  backendId?: string;
+  requestId: string;
+}) {
+  return defaultReconciler.purgeRequestContext(args);
 }
 
 export async function promptSkillRunnerTaskReconcileRequests(args: {

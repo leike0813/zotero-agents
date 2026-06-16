@@ -79,6 +79,11 @@ import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapte
 import { RequestError } from "../../src/modules/acpProtocol";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import {
+  SKILL_RUN_FEEDBACK_ASSET_ID,
+  listSkillRunFeedbackProducts,
+  readProductAssetPreview,
+} from "../../src/modules/workflowProductStore";
+import {
   listActiveWorkflowTasks,
   listWorkflowTasks,
   recordWorkflowTaskUpdate,
@@ -6085,6 +6090,436 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.notInclude(stages, "apply-succeeded");
     } finally {
       await shutdownAcpSkillRunConversations().catch(() => undefined);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("converges a live deferred reply final output and continues sequence apply", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "topic-synthesis-finalize",
+    });
+    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root);
+    const previousWorkflowDir = process.env.ZOTERO_TEST_WORKFLOW_DIR;
+    const backend = createBackend({ id: ACP_OPENCODE_BACKEND_ID });
+    const workflowRunId = "workflow-run-live-deferred-final";
+    const jobId = "job-live-deferred-final";
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let resolveFirstPromptStarted: (() => void) | null = null;
+    let resolveCancelledPrompt: (() => void) | null = null;
+    const firstPromptStarted = new Promise<void>((resolve) => {
+      resolveFirstPromptStarted = resolve;
+    });
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-live-deferred-final" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCount += 1;
+        if (promptCount === 1) {
+          resolveFirstPromptStarted?.();
+          await new Promise<void>((resolve) => {
+            resolveCancelledPrompt = resolve;
+          });
+          return { stopReason: "cancelled", cancelRequested: true };
+        }
+        const resultJsonPath =
+          getAcpSkillRunRecord(requestId)?.resultJsonPath || "";
+        if (resultJsonPath) {
+          await fs.mkdir(path.dirname(resultJsonPath), { recursive: true });
+          await fs.writeFile(
+            path.join(path.dirname(resultJsonPath), "_skill_run_feedback.md"),
+            "## Recovered live reply feedback\n\nDetached continuation reached apply.",
+            "utf8",
+          );
+        }
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({
+                __SKILL_DONE__: true,
+                kind: "live_deferred_final",
+                ok: true,
+              }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        resolveCancelledPrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    const sequenceRequest = {
+      kind: "skillrunner.sequence.v1" as const,
+      steps: [
+        {
+          id: "finalize",
+          skill_id: "topic-synthesis-finalize",
+          workspace: "reuse-workflow" as const,
+        },
+      ],
+      final_step_id: "finalize",
+    };
+    let requestId = "";
+    try {
+      resetAcpSkillRunsForTests();
+      resetWorkflowTasks();
+      process.env.ZOTERO_TEST_WORKFLOW_DIR = recoveryWorkflow.workflowsDir;
+      await rescanWorkflowRegistry({
+        workflowsDir: recoveryWorkflow.workflowsDir,
+      });
+      initializeSequenceRunState({
+        request: sequenceRequest,
+        backend,
+        providerOptions: { mode: "live-deferred-final-test" },
+        workflowId: recoveryWorkflow.workflowId,
+        workflowLabel: "Recovered Sequence Apply Workflow",
+        workflowRunId,
+        jobId,
+      });
+      const execution = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend,
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "topic-synthesis-finalize",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "interactive",
+            collect_skill_run_feedback: true,
+          },
+        },
+        orchestrationContext: {
+          workflowId: recoveryWorkflow.workflowId,
+          workflowLabel: "Recovered Sequence Apply Workflow",
+          workflowRunId,
+          jobId,
+          sequenceStepId: "finalize",
+          finalStepId: "finalize",
+        },
+        onProgress: (event) => {
+          if (event.type !== "request-created") {
+            return;
+          }
+          requestId = String(event.requestId);
+          recordSequenceStepRequestCreated({
+            sequenceRunId: workflowRunId,
+            stepIndex: 0,
+            requestId,
+          });
+          recordWorkflowTaskUpdate(
+            makeAcpWorkflowTaskJob({
+              requestId,
+              workflowId: recoveryWorkflow.workflowId,
+              backendId: ACP_OPENCODE_BACKEND_ID,
+              state: "running",
+            }),
+          );
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "topic-synthesis-finalize": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      await firstPromptStarted;
+      assert.isNotEmpty(requestId);
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      const deferred = await execution;
+      assert.equal(deferred.status, "deferred");
+      assert.equal(deferred.backendStatus, "waiting_user");
+
+      await replyAcpSkillRun({
+        requestId,
+        message: "continue to final",
+      });
+
+      const finished = buildAcpSkillRunPanelSnapshot({
+        selectedRequestId: requestId,
+      }).selectedRun;
+      assert.equal(finished?.status, "succeeded");
+      assert.equal(finished?.applyResultState, "succeeded");
+      assert.equal(finished?.outputConvergenceState, "final");
+      assert.deepEqual(
+        finished?.outputRevisions.map((entry) => entry.status),
+        ["final"],
+      );
+      const assistantMessages =
+        finished?.transcriptItems.filter(
+          (item) => item.kind === "message" && item.role === "assistant",
+        ) || [];
+      assert.isTrue(
+        assistantMessages.some(
+          (item) =>
+            item.text.includes("```json") &&
+            item.text.includes('"kind": "live_deferred_final"'),
+        ),
+      );
+      assert.isFalse(
+        assistantMessages.some((item) =>
+          item.text.includes("__SKILL_DONE__"),
+        ),
+      );
+      assert.equal(
+        listWorkflowTasks().find((task) => task.requestId === requestId)
+          ?.state,
+        "succeeded",
+      );
+      const feedbackProducts = listSkillRunFeedbackProducts(
+        "topic-synthesis-finalize",
+      );
+      assert.lengthOf(feedbackProducts, 1);
+      assert.equal(feedbackProducts[0].metadata.requestId, requestId);
+      assert.equal(feedbackProducts[0].metadata.sequenceStepId, "finalize");
+      const feedbackPreview = await readProductAssetPreview(
+        feedbackProducts[0].productId,
+        SKILL_RUN_FEEDBACK_ASSET_ID,
+      );
+      assert.include(feedbackPreview.text, "Detached continuation reached apply");
+      assert.equal(promptCount, 2);
+    } finally {
+      if (typeof previousWorkflowDir === "string") {
+        process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
+      } else {
+        delete process.env.ZOTERO_TEST_WORKFLOW_DIR;
+      }
+      await shutdownAcpSkillRunConversations().catch(() => undefined);
+      await rescanWorkflowRegistry();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs invalid output from a live deferred reply before sequence apply", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "topic-synthesis-finalize",
+    });
+    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root);
+    const previousWorkflowDir = process.env.ZOTERO_TEST_WORKFLOW_DIR;
+    const backend = createBackend({ id: ACP_OPENCODE_BACKEND_ID });
+    const workflowRunId = "workflow-run-live-deferred-repair";
+    const jobId = "job-live-deferred-repair";
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let resolveFirstPromptStarted: (() => void) | null = null;
+    let resolveCancelledPrompt: (() => void) | null = null;
+    const firstPromptStarted = new Promise<void>((resolve) => {
+      resolveFirstPromptStarted = resolve;
+    });
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-live-deferred-repair" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCount += 1;
+        if (promptCount === 1) {
+          resolveFirstPromptStarted?.();
+          await new Promise<void>((resolve) => {
+            resolveCancelledPrompt = resolve;
+          });
+          return { stopReason: "cancelled", cancelRequested: true };
+        }
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text:
+                promptCount === 2
+                  ? "not valid json"
+                  : JSON.stringify({
+                      __SKILL_DONE__: true,
+                      kind: "live_deferred_repaired",
+                      ok: true,
+                    }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        resolveCancelledPrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    const sequenceRequest = {
+      kind: "skillrunner.sequence.v1" as const,
+      steps: [
+        {
+          id: "finalize",
+          skill_id: "topic-synthesis-finalize",
+          workspace: "reuse-workflow" as const,
+        },
+      ],
+      final_step_id: "finalize",
+    };
+    let requestId = "";
+    try {
+      resetAcpSkillRunsForTests();
+      resetWorkflowTasks();
+      process.env.ZOTERO_TEST_WORKFLOW_DIR = recoveryWorkflow.workflowsDir;
+      await rescanWorkflowRegistry({
+        workflowsDir: recoveryWorkflow.workflowsDir,
+      });
+      initializeSequenceRunState({
+        request: sequenceRequest,
+        backend,
+        providerOptions: { mode: "live-deferred-repair-test" },
+        workflowId: recoveryWorkflow.workflowId,
+        workflowLabel: "Recovered Sequence Apply Workflow",
+        workflowRunId,
+        jobId,
+      });
+      const execution = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend,
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "topic-synthesis-finalize",
+          fetch_type: "result",
+          runtime_options: { execution_mode: "interactive" },
+        },
+        orchestrationContext: {
+          workflowId: recoveryWorkflow.workflowId,
+          workflowLabel: "Recovered Sequence Apply Workflow",
+          workflowRunId,
+          jobId,
+          sequenceStepId: "finalize",
+          finalStepId: "finalize",
+        },
+        onProgress: (event) => {
+          if (event.type !== "request-created") {
+            return;
+          }
+          requestId = String(event.requestId);
+          recordSequenceStepRequestCreated({
+            sequenceRunId: workflowRunId,
+            stepIndex: 0,
+            requestId,
+          });
+          recordWorkflowTaskUpdate(
+            makeAcpWorkflowTaskJob({
+              requestId,
+              workflowId: recoveryWorkflow.workflowId,
+              backendId: ACP_OPENCODE_BACKEND_ID,
+              state: "running",
+            }),
+          );
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "topic-synthesis-finalize": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          maxRepairRounds: 2,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      await firstPromptStarted;
+      assert.isNotEmpty(requestId);
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      const deferred = await execution;
+      assert.equal(deferred.status, "deferred");
+      assert.equal(deferred.backendStatus, "waiting_user");
+
+      await replyAcpSkillRun({
+        requestId,
+        message: "continue and repair",
+      });
+
+      const finished = buildAcpSkillRunPanelSnapshot({
+        selectedRequestId: requestId,
+      }).selectedRun;
+      assert.equal(finished?.status, "succeeded");
+      assert.equal(finished?.applyResultState, "succeeded");
+      assert.equal(finished?.repairRounds, 1);
+      assert.deepEqual(
+        finished?.outputRevisions.map((entry) => entry.status),
+        ["invalid", "final"],
+      );
+      assert.equal(
+        listWorkflowTasks().find((task) => task.requestId === requestId)
+          ?.state,
+        "succeeded",
+      );
+      assert.equal(promptCount, 3);
+    } finally {
+      if (typeof previousWorkflowDir === "string") {
+        process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
+      } else {
+        delete process.env.ZOTERO_TEST_WORKFLOW_DIR;
+      }
+      await shutdownAcpSkillRunConversations().catch(() => undefined);
+      await rescanWorkflowRegistry();
       await fs.rm(root, { recursive: true, force: true });
     }
   });

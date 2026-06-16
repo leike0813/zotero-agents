@@ -8,6 +8,7 @@
       runOptions: {},
     },
     fieldCollectors: [],
+    refreshingAcpRuntimeCache: false,
   };
 
   function sendAction(action, payload) {
@@ -28,6 +29,33 @@
       } catch {
         // ignore postMessage errors
       }
+    });
+  }
+
+  function measureDialogContentHeight() {
+    const root = document.getElementById("app");
+    const shell = root && root.querySelector(".settings-shell");
+    const rootStyle = root ? window.getComputedStyle(root) : null;
+    const paddingTop = Number.parseFloat(rootStyle?.paddingTop || "0") || 0;
+    const paddingBottom =
+      Number.parseFloat(rootStyle?.paddingBottom || "0") || 0;
+    const shellHeight = Math.max(
+      Number(shell && shell.scrollHeight) || 0,
+      Number(shell && shell.getBoundingClientRect().height) || 0,
+    );
+    return Math.ceil(shellHeight + paddingTop + paddingBottom);
+  }
+
+  function sendDialogContentResizeRequest() {
+    const contentHeight = measureDialogContentHeight();
+    if (contentHeight > 0) {
+      sendAction("resize-to-content", { contentHeight });
+    }
+  }
+
+  function requestDialogContentResize() {
+    window.requestAnimationFrame(function () {
+      sendDialogContentResizeRequest();
     });
   }
 
@@ -680,13 +708,31 @@
     actions.className = "settings-actions";
     if (form.canRefreshAcpRuntimeCache === true) {
       const refreshBtn = document.createElement("button");
+      const isRefreshingAcpRuntimeCache =
+        state.refreshingAcpRuntimeCache === true;
       refreshBtn.type = "button";
       refreshBtn.className = "settings-btn";
-      refreshBtn.textContent = snapshot.labels.refreshAcpRuntimeCache;
+      refreshBtn.classList.toggle("is-busy", isRefreshingAcpRuntimeCache);
+      refreshBtn.disabled = isRefreshingAcpRuntimeCache;
+      refreshBtn.setAttribute(
+        "aria-busy",
+        isRefreshingAcpRuntimeCache ? "true" : "false",
+      );
+      refreshBtn.textContent = isRefreshingAcpRuntimeCache
+        ? snapshot.labels.refreshAcpRuntimeCacheRunning ||
+          snapshot.labels.refreshAcpRuntimeCache
+        : snapshot.labels.refreshAcpRuntimeCache;
       refreshBtn.addEventListener("click", function () {
         if (!flushDraftFromControls()) {
           return;
         }
+        state.refreshingAcpRuntimeCache = true;
+        refreshBtn.disabled = true;
+        refreshBtn.classList.add("is-busy");
+        refreshBtn.setAttribute("aria-busy", "true");
+        refreshBtn.textContent =
+          snapshot.labels.refreshAcpRuntimeCacheRunning ||
+          snapshot.labels.refreshAcpRuntimeCache;
         sendAction("refresh-acp-runtime-cache", {
           executionOptions: {
             backendId: toText(state.draft.backendId || "").trim(),
@@ -730,6 +776,7 @@
     shell.appendChild(footer);
     root.appendChild(shell);
     restoreActiveFormState(root, preservedState);
+    requestDialogContentResize();
   }
 
   window.addEventListener("message", function (event) {
@@ -741,6 +788,7 @@
       return;
     }
     const nextSnapshot = data.payload || null;
+    state.refreshingAcpRuntimeCache = false;
     const resetDraft = shouldResetDraftForSnapshot(nextSnapshot);
     state.snapshot = nextSnapshot;
     const form =

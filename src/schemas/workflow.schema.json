@@ -133,7 +133,7 @@
       "then": {
         "properties": {
           "provider": {
-            "const": "acp"
+            "enum": ["acp", "skillrunner"]
           },
           "result": {
             "type": "object",
@@ -577,6 +577,9 @@
           "type": "string",
           "enum": ["new", "reuse-workflow"]
         },
+        "apply_result": {
+          "$ref": "#/$defs/requestSequenceStepApplySpec"
+        },
         "handoff": {
           "$ref": "#/$defs/requestSequenceHandoffSpec"
         },
@@ -619,6 +622,19 @@
         "result": {
           "type": "string",
           "enum": ["step_output"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "requestSequenceStepApplySpec": {
+      "type": "object",
+      "properties": {
+        "workflow_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "on_failure": {
+          "type": "string",
+          "enum": ["continue", "fail_sequence"]
         }
       },
       "additionalProperties": false

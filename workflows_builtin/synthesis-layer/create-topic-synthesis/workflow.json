@@ -1,7 +1,7 @@
 {
   "id": "create-topic-synthesis",
   "label": "Create Topic Synthesis",
-  "provider": "acp",
+  "provider": "skillrunner",
   "version": "0.2.0",
   "display": {
     "core": true,
@@ -51,7 +51,8 @@
         {
           "id": "finalize",
           "skill_id": "topic-synthesis-finalize",
-          "workspace": "reuse-workflow"
+          "workspace": "reuse-workflow",
+          "fetch_type": "bundle"
         }
       ]
     }
@@ -66,7 +67,7 @@
   },
   "result": {
     "final_step_id": "finalize",
-    "fetch": { "type": "result" },
+    "fetch": { "type": "bundle" },
     "expects": {
       "result_json": "result/final-output.candidate.json"
     }

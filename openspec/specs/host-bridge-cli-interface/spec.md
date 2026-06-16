@@ -178,6 +178,58 @@ offer a user-facing installation action for terminal use.
 - **WHEN** the CLI detects that the Host Bridge does not support the expected
   `host-bridge.v1` protocol
 - **THEN** it SHALL exit non-zero and report `incompatible_bridge_protocol`.
+### Requirement: Host Bridge CLI prebuild covers supported desktop targets
+
+The plugin SHALL provide a repeatable Host Bridge CLI build and packaging path
+for the supported bundled platform directories.
+
+#### Scenario: Release workflow builds all supported CLI bundles
+
+- **WHEN** the Host Bridge CLI release workflow runs
+- **THEN** it SHALL build and package `win32-x64`, `darwin-x64`,
+  `darwin-arm64`, `linux-x86`, `linux-x64`, `linux-arm`, and `linux-arm64`
+  bundles
+- **AND** Linux bundles SHALL be built with `cargo-zigbuild`
+- **AND** macOS bundles SHALL be built on GitHub macOS runners.
+
+#### Scenario: Package step accepts explicit Rust target
+
+- **WHEN** the package step receives a platform and Rust target triple
+- **THEN** it SHALL copy the binary from
+  `cli/zotero-bridge/target/<triple>/release/`
+- **AND** it SHALL write the binary and `.sha256` checksum into
+  `addon/bin/<platform>/`.
+
+#### Scenario: Runtime resolves Linux bundled CLI by architecture
+
+- **WHEN** the plugin resolves a bundled CLI on Linux
+- **THEN** `x86` or `ia32` SHALL resolve to `linux-x86`
+- **AND** `x64` SHALL resolve to `linux-x64`
+- **AND** `arm` SHALL resolve to `linux-arm`
+- **AND** `arm64` or `aarch64` SHALL resolve to `linux-arm64`.
+
+### Requirement: Host Bridge CLI bundle is publishable as an isolated branch
+
+The repository SHALL provide a script that publishes the prebuilt Host Bridge
+CLI binaries and wrapper skill as an isolated Git branch for embedding in other
+projects.
+
+#### Scenario: Publisher materializes embeddable bundle
+
+- **WHEN** the Host Bridge CLI bundle publisher runs
+- **THEN** it SHALL create an orphan commit containing `bin/`, `skills/`,
+  `manifest.json`, and `README.md`
+- **AND** `skills/` SHALL include the `zotero-bridge-cli` wrapper skill
+- **AND** `bin/` SHALL include only platform CLI binaries and checksum files
+  copied from the current bundled CLI directory.
+
+#### Scenario: Publisher protects unrelated workspace changes
+
+- **WHEN** the working tree has unrelated changes
+- **THEN** the publisher SHALL fail unless explicitly allowed to publish from a
+  dirty working tree
+- **AND** even when dirty publication is allowed, it SHALL only copy the Host
+  Bridge bundle allowlist.
 ### Requirement: Remote Host Bridge profiles use stable master tokens
 
 
@@ -196,6 +248,109 @@ The CLI file download command MUST continue to accept only broker-issued file id
 - **WHEN** a profile points to `http://<host>:<port>/bridge/v1`
 - **THEN** `file download <fileId>` calls `GET /files/{fileId}` with bearer auth
 - **AND** it does not accept local filesystem paths as file ids
+### Requirement: Host Bridge CLI endpoint can be supplied by runtime env
+
+The Host Bridge CLI SHALL resolve endpoints using command-line, environment,
+and profile sources in deterministic priority order.
+
+#### Scenario: Environment endpoint overrides profile endpoint
+
+- **GIVEN** a profile contains `endpoint`
+- **AND** `ZOTERO_BRIDGE_ENDPOINT` is set
+- **WHEN** the CLI loads configuration without `--endpoint`
+- **THEN** it SHALL use `ZOTERO_BRIDGE_ENDPOINT`
+- **AND** it SHALL still read token configuration from the profile.
+
+#### Scenario: Command endpoint overrides environment endpoint
+
+- **GIVEN** `--endpoint` is provided
+- **AND** `ZOTERO_BRIDGE_ENDPOINT` is set
+- **WHEN** the CLI loads configuration
+- **THEN** it SHALL use the command-line endpoint.
+
+### Requirement: Host Bridge CLI profile declares connection mode
+
+Host Bridge CLI profiles SHALL allow callers to declare whether they are
+intended for local or remote callers.
+
+#### Scenario: Local profile
+
+- **WHEN** the plugin writes an ACP run or well-known local profile
+- **THEN** the profile SHALL include `connectionMode: "local"`.
+
+#### Scenario: Remote profile
+
+- **WHEN** the plugin creates a copied remote LAN profile
+- **THEN** the profile SHALL include `connectionMode: "remote"`.
+
+#### Scenario: CLI accepts profile connection mode
+
+- **WHEN** a profile contains `connectionMode: "local"` or
+  `connectionMode: "remote"`
+- **THEN** the CLI SHALL parse the profile successfully
+- **AND** v1 SHALL NOT use the field for authorization decisions.
+### Requirement: CLI forwards profile connection mode
+
+The Host Bridge CLI SHALL preserve the active profile `connectionMode` value and
+SHALL send it to Host Bridge for authenticated requests.
+
+#### Scenario: Remote profile calls a capability
+- **WHEN** the active CLI profile declares `connectionMode: "remote"`
+- **AND** the CLI sends an authenticated request such as `manifest`, `call`, or
+  `file download`
+- **THEN** the HTTP request SHALL include
+  `X-Zotero-Bridge-Connection-Mode: remote`.
+
+#### Scenario: Header is absent
+- **WHEN** a Host Bridge request does not include
+  `X-Zotero-Bridge-Connection-Mode`
+- **THEN** the server SHALL treat the request as `local`
+- **AND** existing clients SHALL keep their local file-output behavior.
+
+### Requirement: Remote export bundle delivery guidance
+
+The Host Bridge CLI documentation and wrapper skill SHALL instruct agents to use
+Host Bridge file download when a response contains `delivery.mode:
+"bridge-download"`.
+
+#### Scenario: Agent receives a bridge-download delivery
+- **WHEN** a CLI response contains `delivery.mode: "bridge-download"`
+- **THEN** the response SHALL include a `delivery.bundle.fileId`
+- **AND** the response SHALL include a complete `delivery.downloadCommand`
+- **AND** the response SHALL include a complete `delivery.unpackHint`
+- **AND** docs SHALL instruct the agent to run the download command before
+  reading files from the unpacked bundle.
+
+### Requirement: Remote SkillRunner Host Bridge endpoint resolution
+
+The Host Bridge CLI interface SHALL provide a concrete remote Host Bridge
+endpoint through environment variables when a SkillRunner backend is remote and
+Host Bridge access is required.
+
+#### Scenario: Manual advertised host override
+
+- **GIVEN** `hostBridgeAdvertisedHost` is set to a concrete non-loopback host
+- **WHEN** a remote SkillRunner request needs Host Bridge access
+- **THEN** the injected endpoint uses that manual host and the pinned Host Bridge
+  port.
+
+#### Scenario: Auto-detected advertised host
+
+- **GIVEN** `hostBridgeAdvertisedHost` is empty
+- **AND** the SkillRunner backend URL is remote
+- **WHEN** `GET /v1/system/client-address` returns a usable LAN IPv4
+  `client_ip`
+- **THEN** the injected endpoint uses the reflected `client_ip` and the pinned
+  Host Bridge port.
+
+#### Scenario: Detection failure
+
+- **GIVEN** no manual advertised host is configured
+- **AND** backend client-address reflection cannot produce a valid local IPv4
+  host
+- **WHEN** a remote SkillRunner request needs Host Bridge access
+- **THEN** workflow preparation fails before submitting the task
+- **AND** diagnostics explain why no concrete advertised host was available.
 ### Requirement: Host Bridge CLI documentation SHALL stay aligned with broker capabilities
 
 
@@ -222,3 +377,25 @@ obvious capability drift.
 - **AND** it SHALL fail when generated sections in CLI docs, the built-in
   wrapper skill, the wrapper skill reference, or topic-synthesis fragments are
   stale.
+
+### Requirement: Host Bridge CLI uses run scope for approval routing
+
+Host Bridge CLI-compatible clients SHALL send run scope with authenticated
+requests when a profile or runtime environment provides it.
+
+#### Scenario: SkillRunner scope is read from environment
+
+- **GIVEN** `ZOTERO_BRIDGE_SCOPE` contains valid JSON with
+  `kind: "skillrunner-run"` and a non-empty `requestId`
+- **WHEN** `zotero-bridge` sends an authenticated Host Bridge request
+- **THEN** it SHALL include `X-Zotero-Bridge-Scope` with that JSON
+- **AND** the environment scope SHALL take precedence over profile scope.
+
+#### Scenario: Scoped SkillRunner write approval enters SkillRunner UI
+
+- **GIVEN** a Host Bridge request requires approval
+- **AND** the request scope kind is `skillrunner-run`
+- **AND** the scope contains the current SkillRunner request id
+- **WHEN** Host Bridge requests permission
+- **THEN** the approval SHALL be routed to the SkillRunner panel
+- **AND** it SHALL NOT use the global Host Bridge prompt.

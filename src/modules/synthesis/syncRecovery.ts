@@ -182,13 +182,13 @@ function addAction(
   }
 }
 
-const RECOVERABLE_STATE_ASSETS = new Map<string, string>([
-  ["state:index", "state/index.json"],
-  ["state:topic-definitions", "state/topic-definitions.json"],
-  ["state:resolvers", "state/resolvers.json"],
-  ["state:resolved-paper-sets", "state/resolved-paper-sets.json"],
-  ["state:artifact-state", "state/artifact-state.json"],
-  ["state:deleted-topic-artifacts", "state/deleted-topic-artifacts.json"],
+const RECOVERABLE_SIDECAR_ASSETS = new Map<string, string>([
+  ["sidecar:index", "sidecar/index.json"],
+  ["sidecar:topic-definitions", "sidecar/topic-definitions.json"],
+  ["sidecar:resolvers", "sidecar/resolvers.json"],
+  ["sidecar:resolved-paper-sets", "sidecar/resolved-paper-sets.json"],
+  ["sidecar:artifact-state", "sidecar/artifact-state.json"],
+  ["sidecar:deleted-topic-artifacts", "sidecar/deleted-topic-artifacts.json"],
 ]);
 
 function contentTypeForPath(path: string): MirrorAssetContentType {
@@ -216,7 +216,7 @@ function isUnsafeAssetPath(path: string) {
 }
 
 function expectedPathForAssetId(assetId: string) {
-  const statePath = RECOVERABLE_STATE_ASSETS.get(assetId);
+  const statePath = RECOVERABLE_SIDECAR_ASSETS.get(assetId);
   if (statePath) {
     return statePath;
   }

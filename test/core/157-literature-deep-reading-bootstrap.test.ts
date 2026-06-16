@@ -55,11 +55,18 @@ function pythonCommand(args: string[], cwd: string) {
 
 async function makeSourceBundle(
   tempRoot: string,
-  options?: { includeDigest?: boolean; includeReferences?: boolean },
+  options?: {
+    includeDigest?: boolean;
+    includeReferences?: boolean;
+    translatorAlignment?: Record<string, unknown>;
+    imageOriginalSrc?: string;
+    imageManifestSourceOnly?: boolean;
+  },
 ) {
   const bundleSource = path.join(tempRoot, "bundle-source");
   await fs.mkdir(path.join(bundleSource, "images"), { recursive: true });
   await fs.mkdir(path.join(bundleSource, "artifacts"), { recursive: true });
+  await fs.mkdir(path.join(bundleSource, "translator"), { recursive: true });
   await fs.writeFile(
     path.join(bundleSource, "source.md"),
     [
@@ -115,11 +122,17 @@ async function makeSourceBundle(
         paper: {
           item_key: "EIMSDEU3",
           title: "Sample Paper",
+          creators: [{ firstName: "Jane", lastName: "Doe" }],
         },
         source_kind: "mineru_markdown",
         images: [
           {
-            original_src: "images/figure-1.png",
+            ...(options?.imageManifestSourceOnly
+              ? { source: options?.imageOriginalSrc || "images/figure-1.png" }
+              : {
+                  original_src:
+                    options?.imageOriginalSrc || "images/figure-1.png",
+                }),
             bundle_path: "images/figure-1.png",
             status: "available",
           },
@@ -189,6 +202,13 @@ async function makeSourceBundle(
         "",
         "This should not appear in the final Summary view.",
       ].join("\n"),
+      "utf8",
+    );
+  }
+  if (options?.translatorAlignment) {
+    await fs.writeFile(
+      path.join(bundleSource, "translator", "alignment.json"),
+      JSON.stringify(options.translatorAlignment, null, 2),
       "utf8",
     );
   }
@@ -274,6 +294,52 @@ function runRuntimeAllowFailure(args: string[], cwd: string) {
       output: JSON.parse(execError.stdout?.toString() || "{}"),
     };
   }
+}
+
+function sampleTranslatorAlignment() {
+  return {
+    format: "v1",
+    doc_id: "D1",
+    source_language: "en",
+    target_language: "zh-CN",
+    metadata: {
+      source: "test",
+    },
+    blocks: [
+      {
+        b: "b_001",
+        type: "heading",
+        heading: "Sample Paper",
+        source_markdown: "# Sample Paper",
+        translated_markdown: "# 示例论文",
+        pairs: [
+          {
+            i: 1,
+            src: "# Sample Paper",
+            tgt: "# 示例论文",
+            status: "passed",
+            repair_count: 0,
+          },
+        ],
+      },
+      {
+        b: "b_002",
+        type: "paragraph",
+        heading: "Sample Paper",
+        source_markdown: "This paper introduces a small test method.",
+        translated_markdown: "本文介绍了一种小型测试方法。",
+        pairs: [
+          {
+            i: 1,
+            src: "This paper introduces a small test method.",
+            tgt: "本文介绍了一种小型测试方法。",
+            status: "passed",
+            repair_count: 0,
+          },
+        ],
+      },
+    ],
+  };
 }
 
 async function writeContextRequest(
@@ -609,7 +675,7 @@ if (command === "reference-index get") {
   reply({
     nodes: [
       { node_id: "zotero:item:EIMSDEU3", title: "Sample Paper", kind: "target", paperRef: "1:EIMSDEU3" },
-      { node_id: "zotero:item:A", title: "Library Paper A", kind: "library", paperRef: "1:A" }
+      { node_id: "zotero:item:A", title: "Library Paper A", authors: ["Alice Smith", "Bob Lee"], kind: "library", paperRef: "1:A" }
     ],
     edges: [{ edge_id: "edge-1", source: "zotero:item:EIMSDEU3", target: "zotero:item:A", kind: "cites" }],
     diagnostics: [],
@@ -693,6 +759,10 @@ describe("Literature deep reading bootstrap skill", function () {
       "renderer/templates/deep-reading.html.tpl",
       "renderer/templates/deep-reading.css",
       "renderer/templates/deep-reading.js",
+      "renderer/templates/citation-graph-synthesis-app.js",
+      "renderer/templates/citation-graph-synthesis.css",
+      "renderer/templates/citation-graph-synthesis-theme.js",
+      "renderer/templates/citation-graph-synthesis-i18n.json",
       "renderer/templates/citation-graph-standalone.css",
       "renderer/templates/citation-graph-standalone.js",
     ];
@@ -714,12 +784,43 @@ describe("Literature deep reading bootstrap skill", function () {
       "renderer/templates/deep-reading.html.tpl",
       "renderer/templates/deep-reading.css",
       "renderer/templates/deep-reading.js",
+      "renderer/templates/citation-graph-synthesis-app.js",
+      "renderer/templates/citation-graph-synthesis.css",
+      "renderer/templates/citation-graph-synthesis-theme.js",
+      "renderer/templates/citation-graph-synthesis-i18n.json",
       "renderer/templates/citation-graph-standalone.css",
       "renderer/templates/citation-graph-standalone.js",
     ];
     for (const filePath of requiredGeneratedFiles) {
       await assertFileExists(path.join(skillRoot, filePath));
     }
+  });
+
+  it("keeps the fallback citation graph renderer SVG-only and read-only", async function () {
+    const rendererSource = await fs.readFile(
+      path.resolve("src/shared/citationGraphStandalone.ts"),
+      "utf8",
+    );
+    const rendererCss = await fs.readFile(
+      path.resolve("src/shared/citationGraphStandalone.css"),
+      "utf8",
+    );
+
+    assert.include(rendererSource, "zs-cg-svg");
+    assert.include(rendererSource, "is-current-paper");
+    assert.include(rendererSource, "mouseenter");
+    assert.notInclude(rendererSource, "new Sigma");
+    assert.notInclude(rendererSource, "graphology");
+    assert.notInclude(rendererSource, "data-zs-cg-search");
+    assert.notInclude(rendererSource, "data-zs-cg-clear");
+    assert.notInclude(rendererSource, "data-zs-cg-detail");
+
+    assert.include(rendererCss, ".zs-cg-stage");
+    assert.include(rendererCss, ".zs-cg-legend");
+    assert.include(rendererCss, ".zs-cg-node-size i.is-current-paper");
+    assert.notInclude(rendererCss, ".zs-cg-toolbar");
+    assert.notInclude(rendererCss, ".zs-cg-detail");
+    assert.notInclude(rendererCss, ".graph-detail");
   });
 
   it("renders deterministic self-contained packages", async function () {
@@ -891,6 +992,521 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     assert.equal(referencesSeed.source, "artifact");
     assert.equal(referencesSeed.reference_count, 3);
+  });
+
+  it("bootstraps bundled translator alignment as canonical reading blocks", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-bundled-alignment-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot, {
+      translatorAlignment: sampleTranslatorAlignment(),
+    });
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify(
+        {
+          source_bundle_path: bundlePath,
+          parameter: { target_language: "zh-CN" },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    const blocks = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "reading-blocks.json"),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(
+      blocks.blocks.map((block: Record<string, unknown>) => block.block_id),
+      ["b_001", "b_002"],
+    );
+    const alignment = JSON.parse(
+      await fs.readFile(
+        path.join(
+          runRoot,
+          "runtime",
+          "views",
+          "translator-alignment-view.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.equal(
+      alignment.metadata.import_source,
+      "bundle.translator_alignment",
+    );
+  });
+
+  it("keeps translator alignment image refs mapped to bundled image files", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-alignment-image-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot, {
+      imageOriginalSrc: "images/original figure.png",
+      imageManifestSourceOnly: true,
+      translatorAlignment: {
+        ...sampleTranslatorAlignment(),
+        blocks: [
+          ...sampleTranslatorAlignment().blocks,
+          {
+            b: "b_003",
+            type: "image",
+            heading: "Sample Paper",
+            source_markdown: "![Figure](images/original figure.png)",
+            translated_markdown: "![Figure](images/original figure.png)",
+            pairs: [
+              {
+                i: 1,
+                src: "![Figure](images/original figure.png)",
+                tgt: "![Figure](images/original figure.png)",
+                status: "passed",
+                repair_count: 0,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify(
+        {
+          source_bundle_path: bundlePath,
+          parameter: { target_language: "zh-CN" },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    const imageManifest = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "image-manifest.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(imageManifest.available_count, 1);
+    assert.lengthOf(imageManifest.images, 1);
+    assert.equal(
+      imageManifest.images[0].original_src,
+      "images/original figure.png",
+    );
+    assert.equal(imageManifest.images[0].bundle_path, "images/figure-1.png");
+  });
+
+  it("imports explicit translator alignment and skips runtime translation batches", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-explicit-alignment-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const alignmentPath = path.join(tempRoot, "alignment.json");
+    await fs.writeFile(
+      alignmentPath,
+      JSON.stringify(sampleTranslatorAlignment(), null, 2),
+      "utf8",
+    );
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify(
+        {
+          source_bundle_path: bundlePath,
+          translator_alignment_path: alignmentPath,
+          parameter: { target_language: "zh-CN" },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await installFakeBridge(runRoot);
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    await writeContextRequest(runRoot, {
+      main_task: "test method",
+      method_family: "sample",
+      external_context_section_anchors: ["sec-sample-paper"],
+      request_topic_context: false,
+      topic_context_reason: "",
+      selected_topic_id: "",
+      request_concept_context: false,
+      concept_labels: [],
+      request_citation_graph: false,
+      citation_graph_depth: 1,
+      citation_graph_direction: "both",
+      citation_graph_max_nodes: 20,
+      citation_graph_max_edges: 40,
+      citation_graph_include_low_signal: false,
+      reference_digest_policy: "none",
+      priority_reference_indices: [],
+    });
+    runRuntime(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+    await writeReadingEnrichment(runRoot, {
+      preface_title: "阅读前导读",
+      preface_cards: [{ title: "研究问题", body: "样例 alignment 复用。" }],
+      preface_reading_path: ["先看样例"],
+      preface_goal: "验证 translator alignment 复用。",
+      preface_concepts: [],
+      preface_warnings: [],
+      preface_questions: [],
+      section_notes: [
+        {
+          section_anchor: "sec-sample-paper",
+          reading_goal: "理解样例论文。",
+          concepts: [],
+          misread_warnings: [],
+          questions: [],
+          citation_note_body: "",
+          citation_reference_roles: [],
+        },
+      ],
+      concepts: [],
+      reference_digest_notes: [],
+      summary_fallback_enabled: true,
+      summary_fallback_sections: [{ title: "TL;DR", body: "样例。" }],
+      extensions: [],
+    });
+
+    const result = runRuntime(
+      [
+        "submit-reading-enrichment",
+        "--payload",
+        "runtime/payloads/reading-enrichment.json",
+      ],
+      runRoot,
+    );
+    assert.equal(result.translation_batch_count, 0);
+    const batches = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "translation-batches-view.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(batches.source, "translator_alignment");
+    assert.equal(batches.batch_count, 0);
+    const translation = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "translation-view.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(translation.source, "translator_alignment");
+    assert.equal(translation.translated_count, 2);
+  });
+
+  it("hydrates translator alignment input from ACP audit manifest", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-audit-alignment-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const alignmentPath = path.join(tempRoot, "alignment.json");
+    const outputPath = path.join(tempRoot, "output_zh-CN.md");
+    await fs.writeFile(
+      alignmentPath,
+      JSON.stringify(sampleTranslatorAlignment(), null, 2),
+      "utf8",
+    );
+    await fs.writeFile(outputPath, "# 示例论文\n", "utf8");
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.mkdir(
+      path.join(runRoot, ".audit", "literature-deep-reading.1"),
+      { recursive: true },
+    );
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(
+        runRoot,
+        ".audit",
+        "literature-deep-reading.1",
+        "input_manifest.json",
+      ),
+      JSON.stringify(
+        {
+          kind: "acp.skill.run.v1",
+          skill_id: "literature-deep-reading",
+          input: {
+            source_bundle_path: bundlePath,
+            translator_alignment_path: alignmentPath,
+            translator_output_path: outputPath,
+            translator_status: "success",
+          },
+          parameter: { target_language: "zh-CN" },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await installFakeBridge(runRoot);
+
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+
+    const hydratedInput = JSON.parse(
+      await fs.readFile(path.join(runRoot, "runtime", "input.json"), "utf8"),
+    );
+    assert.equal(hydratedInput.translator_alignment_path, alignmentPath);
+    assert.equal(hydratedInput.translator_output_path, outputPath);
+    assert.equal(hydratedInput.translator_status, "success");
+    assert.deepEqual(hydratedInput.parameter, { target_language: "zh-CN" });
+    const translatorAlignmentView = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "translator-alignment-view.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(
+      translatorAlignmentView.metadata.import_source,
+      "input.translator_alignment_path",
+    );
+
+    await writeContextRequest(runRoot, {
+      main_task: "test method",
+      method_family: "sample",
+      external_context_section_anchors: ["sec-sample-paper"],
+      request_topic_context: false,
+      topic_context_reason: "",
+      selected_topic_id: "",
+      request_concept_context: false,
+      concept_labels: [],
+      request_citation_graph: false,
+      citation_graph_depth: 1,
+      citation_graph_direction: "both",
+      citation_graph_max_nodes: 20,
+      citation_graph_max_edges: 40,
+      citation_graph_include_low_signal: false,
+      reference_digest_policy: "none",
+      priority_reference_indices: [],
+    });
+    runRuntime(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+    await writeReadingEnrichment(runRoot, {
+      preface_title: "阅读前导读",
+      preface_cards: [{ title: "研究问题", body: "审计输入 alignment 复用。" }],
+      preface_reading_path: ["先看样例"],
+      preface_goal: "验证 audit manifest 输入补齐。",
+      preface_concepts: [],
+      preface_warnings: [],
+      preface_questions: [],
+      section_notes: [
+        {
+          section_anchor: "sec-sample-paper",
+          reading_goal: "理解样例论文。",
+          concepts: [],
+          misread_warnings: [],
+          questions: [],
+          citation_note_body: "",
+          citation_reference_roles: [],
+        },
+      ],
+      concepts: [],
+      reference_digest_notes: [],
+      summary_fallback_enabled: true,
+      summary_fallback_sections: [{ title: "TL;DR", body: "样例。" }],
+      extensions: [],
+    });
+    const enrichment = runRuntime(
+      [
+        "submit-reading-enrichment",
+        "--payload",
+        "runtime/payloads/reading-enrichment.json",
+      ],
+      runRoot,
+    );
+    assert.equal(enrichment.translation_batch_count, 0);
+    const batches = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "translation-batches-view.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(batches.source, "translator_alignment");
+    assert.equal(batches.batch_count, 0);
+  });
+
+  it("fails bootstrap when translator succeeded but alignment is unavailable", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-missing-success-alignment-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify(
+        {
+          source_bundle_path: bundlePath,
+          translator_status: "success",
+          parameter: { target_language: "zh-CN" },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await installFakeBridge(runRoot);
+
+    const result = runRuntimeAllowFailure(
+      ["bootstrap", "--input", "runtime/input.json"],
+      runRoot,
+    );
+
+    assert.notEqual(result.exitCode, 0);
+    assert.include(
+      String(result.output.error?.message || ""),
+      "translator_alignment_handoff_missing",
+    );
+    const diagnostics = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "diagnostics-bootstrap.json"),
+        "utf8",
+      ),
+    );
+    assert.isTrue(
+      diagnostics.diagnostics.some(
+        (item: Record<string, unknown>) =>
+          item.code === "translator_alignment_handoff_missing",
+      ),
+    );
+  });
+
+  it("renders cancelled translator runs as source-only without translation modes", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-source-only-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify(
+        {
+          source_bundle_path: bundlePath,
+          translator_status: "cancelled",
+          parameter: { target_language: "en-US" },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await installFakeBridge(runRoot);
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    await writeContextRequest(runRoot, {
+      main_task: "test method",
+      method_family: "sample",
+      external_context_section_anchors: ["sec-sample-paper"],
+      request_topic_context: false,
+      topic_context_reason: "",
+      selected_topic_id: "",
+      request_concept_context: false,
+      concept_labels: [],
+      request_citation_graph: false,
+      citation_graph_depth: 1,
+      citation_graph_direction: "both",
+      citation_graph_max_nodes: 20,
+      citation_graph_max_edges: 40,
+      citation_graph_include_low_signal: false,
+      reference_digest_policy: "none",
+      priority_reference_indices: [],
+    });
+    runRuntime(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+    await writeReadingEnrichment(runRoot);
+
+    const enrichment = runRuntime(
+      [
+        "submit-reading-enrichment",
+        "--payload",
+        "runtime/payloads/reading-enrichment.json",
+      ],
+      runRoot,
+    );
+    assert.equal(enrichment.translation_batch_count, 0);
+    assert.equal(enrichment.required_translation_count, 0);
+    const batches = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "translation-batches-view.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(batches.source, "source_only_alignment");
+    const translation = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "translation-view.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(translation.source, "source_only_alignment");
+    assert.equal(translation.translated_count, 0);
+    assert.isTrue(
+      translation.items.every(
+        (item: Record<string, unknown>) => item.status === "source_only",
+      ),
+    );
+    await writeFinalReview(runRoot, {
+      overall_assessment: "ready",
+      quality_observations: [],
+    });
+    runRuntime(
+      [
+        "submit-final-review",
+        "--payload",
+        "runtime/payloads/final-review.json",
+      ],
+      runRoot,
+    );
+
+    const sections = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "result", "sections", "sections.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(sections.translation_available, false);
+    const html = await fs.readFile(
+      path.join(runRoot, "result", "deep-reading.html"),
+      "utf8",
+    );
+    assert.include(
+      html,
+      '<body class="mode-original translation-unavailable">',
+    );
+    assert.include(html, "body.translation-unavailable .modes");
   });
 
   it("keeps Appendix out of markdown references fallback", async function () {
@@ -1446,17 +2062,14 @@ describe("Literature deep reading bootstrap skill", function () {
       path.join(runRoot, "result", "deep-reading.html"),
       "utf8",
     );
-    for (const forbidden of [
-      "http://",
-      "https://",
-      "file://",
-      'src="assets/',
-      'href="assets/',
-      'src="sections/',
-      'href="sections/',
-    ]) {
-      assert.notInclude(html, forbidden);
-    }
+    assert.notMatch(html, /\bsrc=["'](?:https?:\/\/|file:\/\/)/i);
+    assert.notMatch(html, /\bsrcset=["'](?:https?:\/\/|file:\/\/)/i);
+    assert.notMatch(
+      html,
+      /<(?:link|base)\b[^>]*\bhref=["'](?:https?:\/\/|file:\/\/)/i,
+    );
+    assert.notMatch(html, /\bhref=["']file:\/\//i);
+    assert.notMatch(html, /\b(?:src|href)=["'](?:assets|sections)\//i);
     for (const marker of [
       "data-nav",
       "data-concept-rail",
@@ -1476,6 +2089,10 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.include(html, "data:image/png;base64,");
     assert.include(html, "aligned-block-pair");
     assert.include(html, "data-paper-scroll");
+    assert.include(html, "zotero-viewer-warning");
+    assert.include(html, "当前处于静态阅读模式");
+    assert.include(html, "static-citation-graph");
+    assert.include(html, "static-cg-svg");
     assert.include(html, "initScrollTracking");
     assert.include(html, "可能的问题");
     assert.include(html, "引用线索");
@@ -1484,8 +2101,15 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.notInclude(html, "math-fallback");
     assert.notInclude(html, "<code>\\");
     assert.include(html, "structured references artifact");
+    assert.include(html, "__ZoteroSkillsDeepReadingCitationGraphAssets");
+    assert.include(html, "__zoteroSkillsSynthesisGraphExport");
+    assert.notInclude(html, "window.__zoteroSkillsSynthesisTopicExport=");
+    assert.include(html, "citation-graph-synthesis-frame");
     assert.include(html, "ZoteroSkillsCitationGraph");
-    assert.include(html, "zs-cg-legend");
+    assert.include(html, "window.self !== window.top");
+    assert.include(html, "chrome:\\/\\/zotero");
+    assert.include(html, "resource:\\/\\/zotero");
+    assert.include(html, "zotero_viewer_detected");
     assert.notInclude(html, "<svg viewBox=");
 
     const sections = JSON.parse(
@@ -1539,6 +2163,58 @@ describe("Literature deep reading bootstrap skill", function () {
       sections.citation_graph.model.renderer,
       "zotero-skills-citation-graph-standalone",
     );
+    assert.equal(sections.citation_graph.synthesis_export_envelope.version, 1);
+    assert.equal(
+      sections.citation_graph.synthesis_export_envelope.i18n.locale,
+      "zh-CN",
+    );
+    assert.include(
+      sections.citation_graph.synthesis_export_envelope.scopeLabel,
+      "2 跳",
+    );
+    assert.equal(
+      sections.citation_graph.synthesis_export_envelope.focusNodeId,
+      "zotero:item:EIMSDEU3",
+    );
+    assert.isAtLeast(
+      sections.citation_graph.synthesis_export_envelope.snapshot.graph
+        .visibleNodes.length,
+      1,
+    );
+    assert.isAtLeast(
+      sections.citation_graph.synthesis_export_envelope.snapshot.graph
+        .visibleEdges.length,
+      1,
+    );
+    assert.property(
+      sections.citation_graph.synthesis_export_envelope.graphLayouts,
+      "force",
+    );
+    const focusNode =
+      sections.citation_graph.synthesis_export_envelope.snapshot.graph.visibleNodes.find(
+        (node: Record<string, unknown>) => node.id === "zotero:item:EIMSDEU3",
+      );
+    assert.isOk(focusNode);
+    assert.equal(focusNode?.focus_role, "current_paper");
+    assert.equal(focusNode?.is_focus, true);
+    assert.deepEqual(focusNode?.authors, ["Jane Doe"]);
+    const neighborNode =
+      sections.citation_graph.synthesis_export_envelope.snapshot.graph.visibleNodes.find(
+        (node: Record<string, unknown>) => node.id === "zotero:item:A",
+      );
+    assert.deepEqual(neighborNode?.authors, ["Alice Smith", "Bob Lee"]);
+    assert.deepEqual(
+      sections.citation_graph.model.nodes.find(
+        (node: Record<string, unknown>) => node.id === "zotero:item:EIMSDEU3",
+      )?.authors,
+      ["Jane Doe"],
+    );
+    assert.deepEqual(
+      sections.citation_graph.model.nodes.find(
+        (node: Record<string, unknown>) => node.id === "zotero:item:A",
+      )?.authors,
+      ["Alice Smith", "Bob Lee"],
+    );
     assert.isAtLeast(sections.citation_graph.model.nodes.length, 1);
     assert.isAtLeast(sections.citation_graph.model.edges.length, 1);
     assert.equal(
@@ -1581,23 +2257,168 @@ describe("Literature deep reading bootstrap skill", function () {
           path.join(runRoot, "result", "deep-reading.html"),
         ).toString(),
       );
-      await page.waitForSelector(".zs-cg-stage canvas", { timeout: 20_000 });
+      await page.waitForSelector("[data-citation-graph-synthesis-frame]", {
+        timeout: 20_000,
+      });
+      await page.waitForFunction(() => {
+        const frame = document.querySelector(
+          "[data-citation-graph-synthesis-frame]",
+        ) as HTMLIFrameElement | null;
+        const doc = frame?.contentDocument;
+        return Boolean(doc?.querySelector(".graph-shell canvas"));
+      });
       const graphState = await page.evaluate(() => {
         const section = document.querySelector("[data-citation-graph]");
-        const stage = document.querySelector(".zs-cg-stage");
+        const frame = document.querySelector(
+          "[data-citation-graph-synthesis-frame]",
+        ) as HTMLIFrameElement | null;
+        const doc = frame?.contentDocument;
+        const app = doc?.querySelector("#app");
+        const appRect = app?.getBoundingClientRect();
+        const appStyle = app ? doc?.defaultView?.getComputedStyle(app) : null;
+        const stage = doc?.querySelector(".graph-stage");
         const rect = stage?.getBoundingClientRect();
         return {
           status: section?.getAttribute("data-zs-cg-status"),
           error: section?.getAttribute("data-zs-cg-error"),
+          fallback: section?.getAttribute("data-zs-cg-fallback"),
+          hasGraphShell: Boolean(doc?.querySelector(".graph-shell")),
+          hasTopicTabs: Boolean(doc?.querySelector(".topic-detail-tabs")),
+          hasTimeline: Boolean(doc?.querySelector(".topic-timeline")),
+          hasTopicToolbar: Boolean(doc?.querySelector(".topic-detail-toolbar")),
+          hasControlDrawer: Boolean(
+            doc?.querySelector(".graph-control-drawer"),
+          ),
+          hasZoomSlider: Boolean(doc?.querySelector(".graph-zoom-slider")),
+          hasLegend: Boolean(doc?.querySelector(".citation-graph-legend")),
+          hasHorizontalLegend: Boolean(
+            doc?.querySelector(".citation-graph-legend-horizontal"),
+          ),
+          scopeLabel:
+            doc?.querySelector(".graph-scope-badge")?.textContent?.trim() || "",
           canvasCount: stage?.querySelectorAll("canvas").length || 0,
+          appDisplay: appStyle?.display || "",
+          appWidth: appRect?.width || 0,
           width: rect?.width || 0,
           height: rect?.height || 0,
         };
       });
       assert.equal(graphState.status, "ready", graphState.error || "");
+      assert.isNull(graphState.fallback);
+      assert.isTrue(graphState.hasGraphShell);
+      assert.isFalse(graphState.hasTopicTabs);
+      assert.isFalse(graphState.hasTimeline);
+      assert.isFalse(graphState.hasTopicToolbar);
+      assert.isFalse(graphState.hasControlDrawer);
+      assert.isTrue(graphState.hasZoomSlider);
+      assert.isTrue(graphState.hasLegend);
+      assert.isTrue(graphState.hasHorizontalLegend);
+      assert.include(graphState.scopeLabel, "2 跳");
       assert.isAtLeast(graphState.canvasCount, 1);
+      assert.equal(graphState.appDisplay, "block");
+      assert.isAtLeast(graphState.appWidth, graphState.width);
       assert.isAtLeast(graphState.width, 520);
       assert.isAtLeast(graphState.height, 360);
+
+      const browserState = await page.evaluate(() => {
+        const warning = document.querySelector(
+          "[data-zotero-viewer-warning]",
+        ) as HTMLElement | null;
+        return {
+          jsReady: document.body.classList.contains("js-ready"),
+          zoteroWarningDisplay: warning
+            ? getComputedStyle(warning).display
+            : "",
+          staticGraphCount: document.querySelectorAll(
+            "[data-static-citation-graph]",
+          ).length,
+          prefaceCount: document.querySelectorAll("[data-preface] h1").length,
+        };
+      });
+      assert.isTrue(browserState.jsReady);
+      assert.equal(browserState.zoteroWarningDisplay, "none");
+      assert.equal(browserState.staticGraphCount, 0);
+      assert.equal(browserState.prefaceCount, 1);
+
+      const noJsPage = await browser.newPage({
+        viewport: { width: 1440, height: 1000 },
+        javaScriptEnabled: false,
+      });
+      try {
+        await noJsPage.goto(
+          pathToFileURL(
+            path.join(runRoot, "result", "deep-reading.html"),
+          ).toString(),
+        );
+        const staticState = await noJsPage.evaluate(() => ({
+          navItems: document.querySelectorAll("[data-toc] a").length,
+          preface: document.querySelectorAll("[data-preface] h1").length,
+          readingBlocks: document.querySelectorAll(".aligned-block-pair")
+            .length,
+          references: document.querySelectorAll(".structured-references")
+            .length,
+          staticGraph: document.querySelectorAll(
+            "[data-static-citation-graph] .static-cg-svg",
+          ).length,
+          staticWarning:
+            document.body.textContent?.includes("当前处于静态阅读模式"),
+        }));
+        assert.isAtLeast(staticState.navItems, 5);
+        assert.equal(staticState.preface, 1);
+        assert.isAtLeast(staticState.readingBlocks, 1);
+        assert.equal(staticState.references, 1);
+        assert.equal(staticState.staticGraph, 1);
+        assert.isTrue(staticState.staticWarning);
+      } finally {
+        await noJsPage.close();
+      }
+
+      const zoteroPage = await browser.newPage({
+        viewport: { width: 1440, height: 1000 },
+      });
+      try {
+        await zoteroPage.addInitScript(() => {
+          (window as unknown as { Zotero?: unknown }).Zotero = {};
+        });
+        await zoteroPage.goto(
+          pathToFileURL(
+            path.join(runRoot, "result", "deep-reading.html"),
+          ).toString(),
+        );
+        await zoteroPage.waitForSelector("[data-citation-graph] .zs-cg-svg", {
+          timeout: 20_000,
+        });
+        const zoteroState = await zoteroPage.evaluate(() => {
+          const section = document.querySelector("[data-citation-graph]");
+          const warning = document.querySelector(
+            "[data-zotero-viewer-warning]",
+          ) as HTMLElement | null;
+          return {
+            zoteroClass: document.body.classList.contains(
+              "zotero-viewer-detected",
+            ),
+            warningVisible: warning
+              ? getComputedStyle(warning).display !== "none"
+              : false,
+            fallback: section?.getAttribute("data-zs-cg-fallback"),
+            fallbackReason: section?.getAttribute("data-zs-cg-fallback-reason"),
+            iframeCount: document.querySelectorAll(
+              "[data-citation-graph-synthesis-frame]",
+            ).length,
+            svgCount: document.querySelectorAll(
+              "[data-citation-graph] .zs-cg-svg",
+            ).length,
+          };
+        });
+        assert.isTrue(zoteroState.zoteroClass);
+        assert.isTrue(zoteroState.warningVisible);
+        assert.equal(zoteroState.fallback, "standalone");
+        assert.equal(zoteroState.fallbackReason, "zotero_viewer_detected");
+        assert.equal(zoteroState.iframeCount, 0);
+        assert.equal(zoteroState.svgCount, 1);
+      } finally {
+        await zoteroPage.close();
+      }
     } finally {
       await browser.close();
     }

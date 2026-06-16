@@ -376,6 +376,48 @@ describe("acp ui smoke", function () {
     assert.notInclude(items[0].text, "Tool Call:");
   });
 
+  it("projects SkillRunner pending permissions as shared permission interactions", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      session: {
+        requestId: "skillrunner-run-1",
+        status: "running",
+        pendingPermission: {
+          requestId: "permission-1",
+          sessionId: "host-bridge",
+          toolCallId: "permission-1",
+          toolTitle: "Run Zotero write",
+          source: "host-bridge-cli",
+          summary: "SkillRunner requests Zotero write access",
+          requestedAt: "2026-06-17T00:00:00.000Z",
+          options: [
+            {
+              optionId: "approve_once",
+              kind: "allow_once",
+              name: "Approve once",
+            },
+            {
+              optionId: "deny",
+              kind: "reject",
+              name: "Deny",
+            },
+          ],
+        },
+      },
+    });
+
+    assert.equal(panel.interaction.kind, "permission");
+    assert.equal(panel.interaction.permission.requestId, "permission-1");
+    assert.deepInclude(panel.interaction.actions[0].payload, {
+      requestId: "skillrunner-run-1",
+      permissionRequestId: "permission-1",
+      outcome: "selected",
+      optionId: "approve_once",
+    });
+    assert.isFalse(panel.reply.enabled);
+    assert.isFalse(panel.reply.inputEnabled);
+  });
+
   it("exposes copy-friendly assistant transcript and reply history affordances", async function () {
     const transcriptRendererJs = await readProjectFile(
       "addon/content/dashboard/assistant-transcript-renderer.js",
@@ -753,6 +795,7 @@ describe("acp ui smoke", function () {
     assert.include(assistantCss, ".assistant-workspace-close");
     assert.include(acpChatHtml, "../shared/theme.js");
     assert.include(acpChatHtml, "../shared/theme.css");
+    assert.include(acpChatHtml, "../shared/icons.css?ui=20260614-icons-v1");
     assert.include(acpChatHtml, "./assistant-panel-shared.css");
     assert.include(acpChatJs, '"assistant-panel:close-drawers"');
     assert.include(acpChatJs, "function closeAllDrawers()");
@@ -763,9 +806,11 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunHtml, "./assistant-panel-shared.css");
     assert.include(acpSkillRunHtml, "../shared/theme.js");
     assert.include(acpSkillRunHtml, "../shared/theme.css");
+    assert.include(acpSkillRunHtml, "../shared/icons.css?ui=20260614-icons-v1");
     assert.include(runDialogHtml, "./assistant-panel-shared.css");
     assert.include(runDialogHtml, "../shared/theme.js");
     assert.include(runDialogHtml, "../shared/theme.css");
+    assert.include(runDialogHtml, "../shared/icons.css?ui=20260614-icons-v1");
     assert.notInclude(acpChatCss, "color-scheme: light;");
     assert.notInclude(acpSkillRunCss, "color-scheme: light;");
     assert.notInclude(runDialogCss, "color-scheme: light;");
@@ -1350,6 +1395,9 @@ describe("acp ui smoke", function () {
     assert.include(acpChatHtml, 'class="asst-button-compact"');
     assert.include(acpChatHtml, 'data-assistant-view-mode="plain"');
     assert.include(acpChatHtml, 'data-assistant-view-mode="bubble"');
+    assert.include(acpChatHtml, "zs-icon-subject");
+    assert.include(acpChatHtml, "zs-icon-forum");
+    assert.include(acpChatHtml, "asst-view-mode-label");
     assert.include(
       sharedPanelCss,
       ".asst-conversation-overlay-menu:not(:hover):not(:focus-within)",
@@ -1358,15 +1406,17 @@ describe("acp ui smoke", function () {
       sharedPanelCss,
       '.asst-button-compact[aria-pressed="false"]',
     );
-    assert.include(sharedPanelCss, 'data-assistant-view-mode="plain"');
-    assert.include(
+    assert.include(sharedPanelCss, ".asst-view-mode-label");
+    assert.include(sharedPanelCss, ".asst-view-mode-icon");
+    assert.include(sharedPanelCss, "clip-path: inset(50%);");
+    assert.notInclude(sharedPanelCss, 'data-assistant-view-mode="plain"');
+    assert.notInclude(sharedPanelCss, 'data-assistant-view-mode="bubble"');
+    assert.notInclude(
       sharedPanelCss,
       "linear-gradient(currentColor, currentColor) 0 1px / 15px 2px no-repeat",
     );
-    assert.include(sharedPanelCss, 'data-assistant-view-mode="bubble"');
-    assert.include(sharedPanelCss, "transform: translate(-62%, -62%);");
-    assert.include(sharedPanelCss, "transform: translate(-38%, -38%);");
-    assert.include(sharedPanelCss, "border-radius: 5px;");
+    assert.notInclude(sharedPanelCss, "transform: translate(-62%, -62%);");
+    assert.notInclude(sharedPanelCss, "transform: translate(-38%, -38%);");
     assert.notInclude(
       acpChatCss,
       ".acp-conversation-overlay-menu .asst-button-compact",
@@ -1560,6 +1610,8 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunHtml, "acp-skill-chat-mode-bubble");
     assert.include(acpSkillRunHtml, 'data-assistant-view-mode="plain"');
     assert.include(acpSkillRunHtml, 'data-assistant-view-mode="bubble"');
+    assert.include(acpSkillRunHtml, "zs-icon-subject");
+    assert.include(acpSkillRunHtml, "zs-icon-forum");
     assert.include(acpSkillRunHtml, "asst-conversation-overlay-menu");
     assert.include(acpSkillRunHtml, "acp-skill-run-plan-panel");
     assert.include(acpSkillRunHtml, "acp-skill-run-interaction");
@@ -1974,6 +2026,15 @@ describe("acp ui smoke", function () {
         assert.include(text, `${key} =`, `${locale} should define ${key}`);
       });
     });
+    locales
+      .filter(({ locale }) => locale !== "en-US")
+      .forEach(({ locale, text }) => {
+        assert.notInclude(
+          text,
+          "task-dashboard-products-section-feedback = Skill Feedback",
+          `${locale} should localize the feedback section tab`,
+        );
+      });
   });
 
   it("projects localized Assistant sidebar hint copy from shared panel labels", async function () {
@@ -2107,12 +2168,121 @@ describe("acp ui smoke", function () {
       "task-dashboard-products-open-run",
       "task-dashboard-products-remove",
       "task-dashboard-products-preview-unavailable",
+      "task-dashboard-products-list-title",
+      "task-dashboard-products-list-collapse",
+      "task-dashboard-products-list-expand",
+      "task-dashboard-products-list-rail",
+      "task-dashboard-products-section-feedback",
+      "task-dashboard-products-viewer-wrap",
+      "task-dashboard-products-viewer-copy",
+      "task-dashboard-products-viewer-copied",
+      "task-dashboard-products-viewer-copy-failed",
+      "task-dashboard-feedback-select-all",
+      "task-dashboard-feedback-export-selected",
     ];
     locales.forEach(({ locale, text }) => {
       requiredKeys.forEach((key) => {
         assert.include(text, `${key} =`, `${locale} should define ${key}`);
       });
     });
+  });
+
+  it("wires Dashboard Products tree and rich preview assets", async function () {
+    const html = await readProjectFile("addon/content/dashboard/index.html");
+    const app = await readProjectFile("addon/content/dashboard/app.js");
+    const css = await readProjectFile("addon/content/dashboard/styles.css");
+    const iconsCss = await readProjectFile("addon/content/shared/icons.css");
+    const taskManagerDialogTs = await readProjectFile(
+      "src/modules/taskManagerDialog.ts",
+    );
+    const productIconMapper = app.slice(
+      app.indexOf("function productFileTypeIconClass"),
+      app.indexOf("function resolveHighlightLanguage"),
+    );
+
+    assert.include(html, "./vendor/katex/katex.min.css");
+    assert.include(html, "./vendor/markdown-it/markdown-it.min.js");
+    assert.include(html, "./vendor/markdown-it-texmath/texmath.min.js");
+    assert.include(html, "./vendor/highlight/highlight.min.js");
+    assert.include(html, "./vendor/highlight/styles/github.min.css");
+
+    assert.include(app, "productsListCollapsed");
+    assert.include(app, 'labelText(labels, "feedbackSelectAll")');
+    assert.include(app, 'sendAction("toggle-all-feedback-products-selected"');
+    assert.include(app, "selectedVisibleFeedbackCount");
+    assert.include(app, "selectAllCheckbox.indeterminate");
+    assert.include(css, ".feedback-select-all");
+    assert.include(
+      taskManagerDialogTs,
+      'action === "toggle-all-feedback-products-selected"',
+    );
+    assert.include(taskManagerDialogTs, "listSkillRunFeedbackProducts(");
+    assert.include(app, "buildProductAssetTree");
+    assert.include(app, "renderProductTreeNode");
+    assert.include(app, "productExpandedTreePathsById");
+    assert.include(app, 'html: false');
+    assert.include(app, "highlightCode");
+    assert.include(app, "window.hljs");
+    assert.include(app, "splitPreviewLines");
+    assert.include(app, "product-code-line-number");
+    assert.include(app, "wrapButton.setAttribute(\"aria-pressed\"");
+    assert.include(app, "copyTextToClipboard");
+    assert.include(productIconMapper, "zs-icon-product-table");
+    assert.include(productIconMapper, "zs-icon-product-article");
+    assert.include(productIconMapper, "zs-icon-product-data");
+    assert.include(productIconMapper, "zs-icon-product-code");
+    assert.include(productIconMapper, "zs-icon-product-file");
+    assert.notInclude(productIconMapper, "zs-icon-description");
+    assert.notInclude(productIconMapper, "zs-icon-terminal");
+    assert.include(app, "zs-icon-product-folder-open");
+    assert.notInclude(app, "product-tree-expander");
+
+    assert.include(css, ".products-layout-collapsed");
+    assert.include(css, ".product-tree-folder");
+    assert.include(css, ".product-tree-file");
+    assert.include(css, ".product-tree-folder-icon");
+    assert.include(css, ".product-preview-markdown table");
+    assert.include(css, ".product-code-viewer.wrap-lines");
+    assert.include(css, ".product-code-line-number");
+    assert.include(css, "user-select: none;");
+    assert.include(css, "overscroll-behavior: contain;");
+    assert.include(css, "white-space: pre-wrap;");
+    assert.include(iconsCss, ".zs-icon-product-folder");
+    assert.include(iconsCss, ".zs-icon-product-code");
+    assert.include(taskManagerDialogTs, "product?.cacheDir || \"\"");
+    assert.notInclude(
+      taskManagerDialogTs,
+      "product?.workspaceDir || product?.cacheDir",
+    );
+  });
+
+  it("governs Dashboard refreshes with surface signatures and stable shell rendering", async function () {
+    const dialog = await readProjectFile("src/modules/taskManagerDialog.ts");
+    const harness = await readProjectFile(
+      "src/modules/harness/dashboardReadonlyModel.ts",
+    );
+    const app = await readProjectFile("addon/content/dashboard/app.js");
+
+    assert.include(dialog, "surfaceSignatures?: {");
+    assert.include(dialog, "function finalizeDashboardSnapshot");
+    assert.include(dialog, "dashboardSelectedSurfaceKey(snapshot)");
+    assert.include(dialog, "lastPostedDashboardSignatures");
+    assert.include(dialog, "isNoisyRefreshReason(reason)");
+    assert.include(dialog, "signatures.selectedSurface ===");
+    assert.include(dialog, "void enqueueRefresh(\"dashboard:snapshot\", reason)");
+
+    assert.include(harness, "function dashboardSurfaceSignatures");
+    assert.include(
+      harness,
+      "snapshotPayload.surfaceSignatures =",
+    );
+
+    assert.include(app, "lastChromeSignature");
+    assert.include(app, "function ensureDashboardShell(app)");
+    assert.include(app, "shouldSkipUnchangedSnapshotRender(nextSnapshot)");
+    assert.include(app, "rememberSnapshotRenderSignature(snapshot)");
+    assert.include(app, "main.className = \"main\"");
+    assert.notInclude(app, "clearNode(app);\n    if (!snapshot)");
   });
 
   it("keeps managed ACP Chat selectors populated with typed payload keys", async function () {

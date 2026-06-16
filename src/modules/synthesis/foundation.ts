@@ -16,6 +16,7 @@ import {
   validateManagedRelativePathSet,
   writeRuntimeTextFile,
 } from "../runtimePersistence";
+import { createSynthesisRepository } from "./repository";
 import { joinPath } from "../../utils/path";
 
 export const SYNTHESIS_SCHEMA_VERSION = "1.0.0";
@@ -174,7 +175,7 @@ export type SynthesisKnowledgeGraphPaths = {
   citationGraphRoot: string;
   tagsRoot: string;
   syncRoot: string;
-  stateRoot: string;
+  sidecarRoot: string;
   transactionsRoot: string;
   receiptsLog: string;
   eventsLog: string;
@@ -881,9 +882,134 @@ async function writeRuntimeJson(path: string, value: unknown) {
   await writeRuntimeTextFile(path, canonicalJsonText(value));
 }
 
-async function appendRuntimeJsonLine(path: string, value: unknown) {
-  const current = await readRuntimeTextFile(path);
-  await writeRuntimeTextFile(path, `${current}${JSON.stringify(value)}\n`);
+function synthesisRepositoryForRoot(root: string) {
+  return createSynthesisRepository({
+    runtimeRoot: resolveSynthesisPersistenceRoot(root),
+  });
+}
+
+function parseProjectionDiagnostics(value: unknown): {
+  diagnostics: unknown[];
+  last_transaction_id?: string;
+  last_marked_stale_at?: string;
+  last_rebuild_at?: string;
+  schema_version?: string;
+} {
+  try {
+    const parsed = JSON.parse(String(value || "{}"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      return {
+        diagnostics: Array.isArray(record.diagnostics)
+          ? record.diagnostics
+          : [],
+        last_transaction_id:
+          typeof record.last_transaction_id === "string"
+            ? record.last_transaction_id
+            : undefined,
+        last_marked_stale_at:
+          typeof record.last_marked_stale_at === "string"
+            ? record.last_marked_stale_at
+            : undefined,
+        last_rebuild_at:
+          typeof record.last_rebuild_at === "string"
+            ? record.last_rebuild_at
+            : undefined,
+        schema_version:
+          typeof record.schema_version === "string"
+            ? record.schema_version
+            : undefined,
+      };
+    }
+  } catch {
+    // Ignore malformed legacy diagnostics; callers will rebuild projection state.
+  }
+  return { diagnostics: [] };
+}
+
+function projectionStateFromCacheBasis(row: {
+  cacheKey: string;
+  scopeRef?: string;
+  status?: string;
+  basisKind?: string;
+  basisValue?: string;
+  sourceHash?: string;
+  refreshedAt?: string;
+  staleReason?: string;
+  diagnosticsJson?: string;
+  updatedAt?: string;
+}): ProjectionState | null {
+  const target =
+    String(row.scopeRef || "").trim() ||
+    String(row.cacheKey || "")
+      .replace(/^projection:/, "")
+      .trim();
+  if (!target) {
+    return null;
+  }
+  const diagnostics = parseProjectionDiagnostics(row.diagnosticsJson);
+  const stale = row.status === "stale";
+  return {
+    target,
+    schema_version:
+      diagnostics.schema_version ||
+      String(row.basisKind || "").trim() ||
+      SYNTHESIS_SCHEMA_VERSION,
+    source_manifest_hash: String(row.sourceHash || "").trim(),
+    stale,
+    stale_reason: stale ? String(row.staleReason || "").trim() : undefined,
+    last_transaction_id:
+      diagnostics.last_transaction_id || String(row.basisValue || "").trim(),
+    last_marked_stale_at:
+      diagnostics.last_marked_stale_at ||
+      (stale ? String(row.updatedAt || row.refreshedAt || "").trim() : ""),
+    last_rebuild_at:
+      diagnostics.last_rebuild_at ||
+      (!stale ? String(row.refreshedAt || row.updatedAt || "").trim() : ""),
+    diagnostics: diagnostics.diagnostics,
+  };
+}
+
+function projectionDiagnosticsJson(state: ProjectionState) {
+  return JSON.stringify({
+    diagnostics: (state.diagnostics || []).map((entry) =>
+      sanitizeDiagnosticValue(entry),
+    ),
+    last_transaction_id: state.last_transaction_id || "",
+    last_marked_stale_at: state.last_marked_stale_at || "",
+    last_rebuild_at: state.last_rebuild_at || "",
+    schema_version: state.schema_version || SYNTHESIS_SCHEMA_VERSION,
+  });
+}
+
+function writeCanonicalStoreRecordToDb(args: {
+  root: string;
+  kind: "receipt" | "event" | "diagnostic";
+  transactionId?: string;
+  scope?: string;
+  assetPath?: string;
+  payload: unknown;
+  createdAt: string;
+}) {
+  const repository = synthesisRepositoryForRoot(args.root);
+  const recordId = [
+    "canonical-store",
+    args.kind,
+    args.transactionId || "no-transaction",
+    hashCanonicalJson(args.payload).slice(
+      "sha256:".length,
+      "sha256:".length + 16,
+    ),
+  ].join(":");
+  repository.upsertCanonicalStoreRecord({
+    recordId,
+    recordKind: args.kind,
+    transactionId: args.transactionId,
+    scope: args.scope,
+    assetPath: args.assetPath,
+    payloadJson: JSON.stringify(args.payload),
+    createdAt: args.createdAt,
+  });
 }
 
 function isKnownKgScope(value: unknown): value is SynthesisKnowledgeGraphScope {
@@ -1040,7 +1166,7 @@ export function buildSynthesisKnowledgeGraphPaths(
   root: string,
 ): SynthesisKnowledgeGraphPaths {
   const synthesisRoot = resolveSynthesisRuntimeFileRoot(root);
-  const stateRoot = joinPath(synthesisRoot, "state");
+  const sidecarRoot = joinPath(synthesisRoot, "sidecar");
   return {
     synthesisRoot,
     topicsRoot: joinPath(synthesisRoot, "topics"),
@@ -1049,27 +1175,18 @@ export function buildSynthesisKnowledgeGraphPaths(
     citationGraphRoot: joinPath(synthesisRoot, "citation-graph"),
     tagsRoot: joinPath(synthesisRoot, "tags"),
     syncRoot: joinPath(synthesisRoot, "sync"),
-    stateRoot,
-    transactionsRoot: joinPath(stateRoot, "transactions"),
-    receiptsLog: joinPath(stateRoot, "canonical-store-receipts.jsonl"),
-    eventsLog: joinPath(stateRoot, "canonical-store-events.jsonl"),
-    diagnosticsLog: joinPath(stateRoot, "canonical-store-diagnostics.jsonl"),
-    projectionRegistry: joinPath(stateRoot, "projection-registry.json"),
+    sidecarRoot,
+    transactionsRoot: joinPath(sidecarRoot, "transactions"),
+    receiptsLog: joinPath(sidecarRoot, "canonical-store-receipts.jsonl"),
+    eventsLog: joinPath(sidecarRoot, "canonical-store-events.jsonl"),
+    diagnosticsLog: joinPath(sidecarRoot, "canonical-store-diagnostics.jsonl"),
+    projectionRegistry: joinPath(sidecarRoot, "projection-registry.json"),
   };
 }
 
 export async function initializeSynthesisKnowledgeGraphStore(root: string) {
   const paths = buildSynthesisKnowledgeGraphPaths(root);
-  await Promise.all([
-    ensureRuntimeDirectory(paths.topicsRoot),
-    ensureRuntimeDirectory(paths.conceptsRoot),
-    ensureRuntimeDirectory(paths.topicGraphRoot),
-    ensureRuntimeDirectory(paths.citationGraphRoot),
-    ensureRuntimeDirectory(paths.tagsRoot),
-    ensureRuntimeDirectory(paths.syncRoot),
-    ensureRuntimeDirectory(paths.stateRoot),
-    ensureRuntimeDirectory(paths.transactionsRoot),
-  ]);
+  await ensureRuntimeDirectory(paths.synthesisRoot);
   return paths;
 }
 
@@ -1122,7 +1239,6 @@ export async function writeCanonicalDiagnostic(args: {
   root: string;
   diagnostic: Omit<CanonicalDiagnostic, "schema_id" | "schema_version">;
 }) {
-  const paths = await initializeSynthesisKnowledgeGraphStore(args.root);
   const diagnostic: CanonicalDiagnostic = {
     schema_id: "synthesis.canonical_store_diagnostic",
     schema_version: SYNTHESIS_SCHEMA_VERSION,
@@ -1136,28 +1252,34 @@ export async function writeCanonicalDiagnostic(args: {
     details: sanitizeDiagnosticValue(args.diagnostic.details),
     created_at: args.diagnostic.created_at,
   };
-  await appendRuntimeJsonLine(paths.diagnosticsLog, diagnostic);
+  writeCanonicalStoreRecordToDb({
+    root: args.root,
+    kind: "diagnostic",
+    transactionId: diagnostic.transaction_id,
+    scope: diagnostic.scope,
+    assetPath: diagnostic.asset_path,
+    payload: diagnostic,
+    createdAt: diagnostic.created_at,
+  });
   return diagnostic;
 }
 
 export async function readProjectionRegistryState(
   root: string,
 ): Promise<ProjectionRegistryState> {
-  const paths = await initializeSynthesisKnowledgeGraphStore(root);
-  const existing = await readRuntimeJson<ProjectionRegistryState>(
-    paths.projectionRegistry,
+  const repository = synthesisRepositoryForRoot(root);
+  const projections = Object.fromEntries(
+    repository
+      .listCacheBasis({ cacheKinds: ["projection_registry"] })
+      .map(projectionStateFromCacheBasis)
+      .filter((entry): entry is ProjectionState => Boolean(entry))
+      .map((entry) => [entry.target, entry] as const),
   );
-  if (existing?.schema_id === "synthesis.projection_registry_state") {
-    return {
-      ...existing,
-      projections: existing.projections || {},
-    };
-  }
   return {
     schema_id: "synthesis.projection_registry_state",
     schema_version: SYNTHESIS_SCHEMA_VERSION,
     updated_at: nowIso(),
-    projections: {},
+    projections,
   };
 }
 
@@ -1165,8 +1287,27 @@ async function writeProjectionRegistryState(
   root: string,
   state: ProjectionRegistryState,
 ) {
-  const paths = await initializeSynthesisKnowledgeGraphStore(root);
-  await writeRuntimeJson(paths.projectionRegistry, state);
+  const repository = synthesisRepositoryForRoot(root);
+  for (const projection of Object.values(state.projections || {})) {
+    repository.upsertCacheBasis({
+      cacheKey: `projection:${projection.target}`,
+      cacheKind: "projection_registry",
+      scopeKind: "projection",
+      scopeRef: projection.target,
+      status: projection.stale ? "stale" : "ready",
+      basisKind: projection.schema_version || SYNTHESIS_SCHEMA_VERSION,
+      basisValue: projection.last_transaction_id || "",
+      sourceHash: projection.source_manifest_hash || "",
+      policyVersion: "projection-registry-db-v1",
+      refreshedAt:
+        projection.last_rebuild_at ||
+        projection.last_marked_stale_at ||
+        state.updated_at,
+      staleReason: projection.stale ? projection.stale_reason || "" : "",
+      diagnosticsJson: projectionDiagnosticsJson(projection),
+      updatedAt: state.updated_at,
+    });
+  }
 }
 
 export async function markProjectionStale(args: {
@@ -1354,7 +1495,14 @@ export async function writeCanonicalTransaction(args: {
       changed_assets: changedAssets,
       created_at: timestamp,
     };
-    await appendRuntimeJsonLine(paths.receiptsLog, receipt);
+    writeCanonicalStoreRecordToDb({
+      root: args.root,
+      kind: "receipt",
+      transactionId,
+      scope,
+      payload: receipt,
+      createdAt: timestamp,
+    });
     const event: CanonicalStoreChangedEvent = {
       event: "canonical-store-changed",
       scope,
@@ -1362,7 +1510,14 @@ export async function writeCanonicalTransaction(args: {
       transaction_id: transactionId,
       created_at: timestamp,
     };
-    await appendRuntimeJsonLine(paths.eventsLog, event);
+    writeCanonicalStoreRecordToDb({
+      root: args.root,
+      kind: "event",
+      transactionId,
+      scope,
+      payload: event,
+      createdAt: timestamp,
+    });
     const projectionTargets = args.projectionTargets?.length
       ? args.projectionTargets
       : [scope];
@@ -1501,7 +1656,14 @@ export async function writeCanonicalEnvelopeTextTransaction(args: {
       changed_assets: changedAssets,
       created_at: timestamp,
     };
-    await appendRuntimeJsonLine(paths.receiptsLog, receipt);
+    writeCanonicalStoreRecordToDb({
+      root: args.root,
+      kind: "receipt",
+      transactionId,
+      scope,
+      payload: receipt,
+      createdAt: timestamp,
+    });
     const event: CanonicalStoreChangedEvent = {
       event: "canonical-store-changed",
       scope,
@@ -1509,7 +1671,14 @@ export async function writeCanonicalEnvelopeTextTransaction(args: {
       transaction_id: transactionId,
       created_at: timestamp,
     };
-    await appendRuntimeJsonLine(paths.eventsLog, event);
+    writeCanonicalStoreRecordToDb({
+      root: args.root,
+      kind: "event",
+      transactionId,
+      scope,
+      payload: event,
+      createdAt: timestamp,
+    });
     const projectionTargets = args.projectionTargets?.length
       ? args.projectionTargets
       : [scope];
@@ -1569,7 +1738,7 @@ export async function writeCanonicalEnvelopeTextTransaction(args: {
 
 export function buildSynthesisStoragePaths(root: string, topicId?: string) {
   const synthesisRoot = resolveSynthesisRuntimeFileRoot(root);
-  const stateRoot = joinPath(synthesisRoot, "state");
+  const sidecarRoot = joinPath(synthesisRoot, "sidecar");
   const topicRoot = topicId
     ? joinPath(synthesisRoot, "topics", topicId)
     : joinPath(synthesisRoot, "topics");
@@ -1604,24 +1773,24 @@ export function buildSynthesisStoragePaths(root: string, topicId?: string) {
           "topic-detail.html.metadata.json",
         )
       : "",
-    stateRoot,
-    index: joinPath(stateRoot, "index.json"),
-    artifactState: joinPath(stateRoot, "artifact-state.json"),
+    sidecarRoot,
+    index: joinPath(sidecarRoot, "index.json"),
+    artifactState: joinPath(sidecarRoot, "artifact-state.json"),
     deletedRoot: joinPath(synthesisRoot, "deleted"),
-    deletedArtifacts: joinPath(stateRoot, "deleted-topic-artifacts.json"),
-    topicDefinitions: joinPath(stateRoot, "topic-definitions.json"),
-    resolvers: joinPath(stateRoot, "resolvers.json"),
-    resolvedPaperSets: joinPath(stateRoot, "resolved-paper-sets.json"),
-    unifiedCitationGraph: joinPath(stateRoot, "unified-citation-graph.json"),
+    deletedArtifacts: joinPath(sidecarRoot, "deleted-topic-artifacts.json"),
+    topicDefinitions: joinPath(sidecarRoot, "topic-definitions.json"),
+    resolvers: joinPath(sidecarRoot, "resolvers.json"),
+    resolvedPaperSets: joinPath(sidecarRoot, "resolved-paper-sets.json"),
+    unifiedCitationGraph: joinPath(sidecarRoot, "unified-citation-graph.json"),
     unifiedCitationLayouts: joinPath(
-      stateRoot,
+      sidecarRoot,
       "unified-citation-layouts.json",
     ),
     unifiedCitationGraphMetrics: joinPath(
-      stateRoot,
+      sidecarRoot,
       "unified-citation-graph-metrics.json",
     ),
-    log: joinPath(stateRoot, "log.jsonl"),
+    log: joinPath(sidecarRoot, "log.jsonl"),
   };
 }
 
@@ -1659,7 +1828,7 @@ function parentPathForBoundary(value: string, levels = 1) {
   return current;
 }
 
-function resolveSynthesisPersistenceRoot(root: string) {
+export function resolveSynthesisPersistenceRoot(root: string) {
   const normalized = normalizePathForBoundary(root);
   const segments = pathSegmentsForBoundary(normalized);
   const leaf = (segments[segments.length - 1] || "").toLocaleLowerCase("en-US");

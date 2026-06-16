@@ -308,7 +308,7 @@ describe("Synthesis sync recovery", function () {
     );
   });
 
-  it("allows recovery only for documented state files and active topic current assets", function () {
+  it("allows recovery only for documented sidecar files and active topic current assets", function () {
     const graphManifest = {
       ...manifest(),
       shards: [
@@ -322,8 +322,8 @@ describe("Synthesis sync recovery", function () {
             "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           encoded_hash:
             "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          asset_id: "state:unified-citation-graph",
-          asset_path: "state/unified-citation-graph.json",
+          asset_id: "sidecar:unified-citation-graph",
+          asset_path: "sidecar/unified-citation-graph.json",
           content_type: "json",
         },
       ],
@@ -344,8 +344,8 @@ describe("Synthesis sync recovery", function () {
           encoded_hash:
             "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           payload: "{}",
-          asset_id: "state:unified-citation-graph",
-          asset_path: "state/unified-citation-graph.json",
+          asset_id: "sidecar:unified-citation-graph",
+          asset_path: "sidecar/unified-citation-graph.json",
           content_type: "json",
         } as any,
       ],

@@ -2,8 +2,16 @@ export async function applyResult(context = {}) {
   const resultJson = context.resultContext?.resultJson || context.result || {};
   const assets = resultJson.assets || {};
   const productStorage = context.productStorage;
+  const runStatus = String(context.runResult?.status || "").trim();
+  const shouldRegisterProduct =
+    runStatus === "succeeded" &&
+    resultJson.kind === "writing.manuscript_literature_framing";
   let productReceipt = null;
-  if (productStorage && typeof productStorage.registerProduct === "function") {
+  if (
+    shouldRegisterProduct &&
+    productStorage &&
+    typeof productStorage.registerProduct === "function"
+  ) {
     productReceipt = await productStorage.registerProduct({
       productKey: "manuscript-literature-framing",
       kind: resultJson.kind || "writing.manuscript_literature_framing",
@@ -86,7 +94,7 @@ export async function applyResult(context = {}) {
   }
   return {
     ok: true,
-    status: "recorded",
+    status: productReceipt ? "recorded" : "skipped",
     kind: resultJson.kind || "writing.manuscript_literature_framing",
     message:
       "Manuscript literature framing artifacts are stored in the ACP skill run result bundle.",

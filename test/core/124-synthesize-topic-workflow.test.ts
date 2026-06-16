@@ -135,6 +135,20 @@ describe("Synthesize topic workflow contract", function () {
     );
     assert.equal(createWorkflow.result?.final_step_id, "finalize");
     assert.equal(updateWorkflow.result?.final_step_id, "finalize");
+    assert.equal(createWorkflow.result?.fetch?.type, "bundle");
+    assert.equal(updateWorkflow.result?.fetch?.type, "bundle");
+    assert.equal(
+      createWorkflow.request?.sequence?.steps?.find(
+        (step: any) => step.id === "finalize",
+      )?.fetch_type,
+      "bundle",
+    );
+    assert.equal(
+      updateWorkflow.request?.sequence?.steps?.find(
+        (step: any) => step.id === "finalize",
+      )?.fetch_type,
+      "bundle",
+    );
     assert.equal(createWorkflow.inputs?.unit, "workflow");
     assert.equal(updateWorkflow.inputs?.unit, "workflow");
     assert.equal(
@@ -145,8 +159,8 @@ describe("Synthesize topic workflow contract", function () {
       updateWorkflow.taskNameTemplate,
       "Update synthesis: {topicId}",
     );
-    assert.equal(createWorkflow.provider, "acp");
-    assert.equal(updateWorkflow.provider, "acp");
+    assert.equal(createWorkflow.provider, "skillrunner");
+    assert.equal(updateWorkflow.provider, "skillrunner");
     assert.notProperty(createWorkflow.execution || {}, "supportedBackends");
     assert.notProperty(updateWorkflow.execution || {}, "supportedBackends");
     assert.isTrue(createWorkflow.execution?.zoteroHostAccess?.required);
@@ -198,6 +212,7 @@ describe("Synthesize topic workflow contract", function () {
         id: string;
         skill_id: string;
         workspace?: string;
+        fetch_type?: string;
         short_circuit?: Record<string, unknown>;
       }>;
       final_step_id?: string;
@@ -233,6 +248,10 @@ describe("Synthesize topic workflow contract", function () {
         ["core", "topic-synthesis-core-enrichment", "reuse-workflow"],
         ["finalize", "topic-synthesis-finalize", "reuse-workflow"],
       ],
+    );
+    assert.equal(
+      requests[0].steps?.find((step) => step.id === "finalize")?.fetch_type,
+      "bundle",
     );
   });
 
@@ -278,6 +297,7 @@ describe("Synthesize topic workflow contract", function () {
         id: string;
         skill_id: string;
         workspace?: string;
+        fetch_type?: string;
         short_circuit?: Record<string, unknown>;
       }>;
       final_step_id?: string;
@@ -311,6 +331,10 @@ describe("Synthesize topic workflow contract", function () {
         ["core", "topic-synthesis-core-enrichment", "reuse-workflow"],
         ["finalize", "topic-synthesis-finalize", "reuse-workflow"],
       ],
+    );
+    assert.equal(
+      requests[0].steps?.find((step) => step.id === "finalize")?.fetch_type,
+      "bundle",
     );
   });
 

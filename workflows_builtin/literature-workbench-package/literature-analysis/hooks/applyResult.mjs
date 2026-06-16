@@ -7,7 +7,6 @@ import {
   requireHostApi,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
-import { applyResult as applyTagRegulatorResult } from "../../tag-regulator/hooks/applyResult.mjs";
 
 function normalizePathForCompare(targetPath) {
   const text = String(targetPath || "").trim();
@@ -696,54 +695,18 @@ function summarizeSequence(runResult) {
 }
 
 async function applySequenceResultImpl(args) {
-  const digestStep = requireSequenceStepContext(args.runResult, "digest");
-  const digest = await applyResultImpl({
-    ...args,
-    bundleReader: digestStep.bundleReader,
-    resultContext: digestStep.resultContext,
-    runResult: {
-      ...(digestStep.result && typeof digestStep.result === "object"
-        ? digestStep.result
-        : {}),
-      sequence: args.runResult?.sequence,
-    },
-  });
-  const tagStep = findSequenceStep(args.runResult, "tag-regulator");
-  if (!tagStep) {
-    return digest;
-  }
-  if (
-    !tagStep.bundleReader ||
-    typeof tagStep.bundleReader.readText !== "function" ||
-    !tagStep.resultContext
-  ) {
-    throw new Error(
-      "literature-analysis sequence apply missing result context for step: tag-regulator",
-    );
-  }
-  const tagRegulator = await applyTagRegulatorResult({
-    parent: args.parent,
-    bundleReader: tagStep.bundleReader,
-    resultContext: tagStep.resultContext,
-    productStorage: args.productStorage,
-    request: {
-      kind: "skillrunner.sequence.step.v1",
-      step_id: "tag-regulator",
-      workflow_request: args.request,
-    },
-    runResult: tagStep.result,
-    manifest: args.manifest,
-    runtime: args.runtime,
-  });
   return {
-    digest,
-    tag_regulator: tagRegulator,
+    skipped: true,
+    reason: "sequence steps own applyResult",
     sequence: summarizeSequence(args.runResult),
   };
 }
 
 export async function applyResult(args) {
   return withPackageRuntimeScope(args?.runtime, () => {
+    if (args?.sequenceStep?.phase === "sequence-step") {
+      return applyResultImpl(args);
+    }
     if (resolveSequenceSteps(args?.runResult).length > 0) {
       return applySequenceResultImpl(args);
     }

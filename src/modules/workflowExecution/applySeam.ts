@@ -24,6 +24,7 @@ import {
   hasRecoverableSkillRunnerRequest,
 } from "../skillRunnerRecoverableState";
 import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
+import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
 
 type RunResultLike = {
   status?: string;
@@ -110,6 +111,7 @@ type ApplySeamDeps = {
   createDirectoryBundleReader: typeof createDirectoryBundleReader;
   createZipBundleReader: (bundlePath: string) => BundleReader;
   createWorkflowResultContext: typeof createWorkflowResultContext;
+  collectSkillRunFeedback: typeof collectSkillRunFeedbackSidecar;
 };
 
 const defaultApplySeamDeps: ApplySeamDeps = {
@@ -123,6 +125,7 @@ const defaultApplySeamDeps: ApplySeamDeps = {
   createDirectoryBundleReader,
   createZipBundleReader: (bundlePath) => new ZipBundleReader(bundlePath),
   createWorkflowResultContext,
+  collectSkillRunFeedback: collectSkillRunFeedbackSidecar,
 };
 
 async function createBundleReaderForRunResult(args: {
@@ -147,6 +150,53 @@ async function createBundleReaderForRunResult(args: {
 function getSequenceSteps(result: RunResultLike) {
   const steps = result.sequence?.steps;
   return Array.isArray(steps) ? steps : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function shouldSkipFinalSequenceApply(args: {
+  request: unknown;
+  result: RunResultLike;
+}) {
+  if (!isRecord(args.request)) {
+    return false;
+  }
+  if (String(args.request.kind || "").trim() !== "skillrunner.sequence.v1") {
+    return false;
+  }
+  const steps = Array.isArray(args.request.steps) ? args.request.steps : [];
+  if (steps.length === 0) {
+    return false;
+  }
+  const finalStepId =
+    String(args.result.sequence?.final_step_id || "").trim() ||
+    String(args.request.final_step_id || "").trim();
+  if (!finalStepId) {
+    return false;
+  }
+  const finalStep = steps.find(
+    (entry) => isRecord(entry) && String(entry.id || "").trim() === finalStepId,
+  );
+  return isRecord(finalStep) && isRecord(finalStep.apply_result);
+}
+
+function summarizeSequenceStepApplyResults(result: RunResultLike) {
+  return getSequenceSteps(result)
+    .map((step) => {
+      const applyResult = isRecord(step.apply_result)
+        ? step.apply_result
+        : null;
+      return {
+        step_id: String(step.step_id || "").trim(),
+        request_id: String(step.request_id || "").trim(),
+        status: String(applyResult?.status || "").trim() || "unavailable",
+        workflow_id: String(applyResult?.workflow_id || "").trim() || undefined,
+        error: String(applyResult?.error || "").trim() || undefined,
+      };
+    })
+    .filter((entry) => entry.step_id);
 }
 
 async function createSequenceApplyContext(args: {
@@ -456,6 +506,45 @@ export async function runWorkflowApplySeam(args: {
       continue;
     }
 
+    if (
+      shouldSkipFinalSequenceApply({
+        request: args.runState.requests[i],
+        result,
+      })
+    ) {
+      succeeded += 1;
+      const stepApplyResults = summarizeSequenceStepApplyResults(result);
+      jobOutcomes.push({
+        index: i,
+        taskLabel,
+        succeeded: true,
+        terminalState: "succeeded",
+        structuredApplyResult: {
+          skipped_final_apply: true,
+          sequence_step_apply: stepApplyResults,
+        },
+        jobId: job.id,
+        requestId: result.requestId,
+      });
+      resolved.appendRuntimeLog({
+        level: "info",
+        scope: "job",
+        workflowId: args.runState.workflow.manifest.id,
+        jobId: job.id,
+        requestId: result.requestId,
+        stage: "apply-skipped-sequence-step-owned",
+        message:
+          "final workflow apply skipped because sequence final step owns applyResult",
+        details: {
+          index: i,
+          taskLabel,
+          targetParentID: applyParent || undefined,
+          sequenceStepApply: stepApplyResults,
+        },
+      });
+      continue;
+    }
+
     let bundlePath = "";
     const sequenceBundlePaths: string[] = [];
     try {
@@ -487,21 +576,31 @@ export async function runWorkflowApplySeam(args: {
         deps: resolved,
         cleanupPaths: sequenceBundlePaths,
       });
+      const enrichedRunResult = {
+        ...(job.result as Record<string, unknown>),
+        backendId: String(job.meta.backendId || "").trim() || undefined,
+        backendType: String(job.meta.backendType || "").trim() || undefined,
+        runId: String(job.meta.runId || "").trim() || undefined,
+        ...(sequenceApplyContext
+          ? { sequence: sequenceApplyContext }
+          : {}),
+      };
       await resolved.executeApplyResult({
         workflow: args.runState.workflow,
         parent: applyParent,
         bundleReader,
         resultContext,
         request: args.runState.requests[i],
-        runResult: {
-          ...(job.result as Record<string, unknown>),
-          backendId: String(job.meta.backendId || "").trim() || undefined,
-          backendType: String(job.meta.backendType || "").trim() || undefined,
-          runId: String(job.meta.runId || "").trim() || undefined,
-          ...(sequenceApplyContext
-            ? { sequence: sequenceApplyContext }
-            : {}),
-        },
+        runResult: enrichedRunResult,
+      });
+      await resolved.collectSkillRunFeedback({
+        workflow: args.runState.workflow,
+        request: args.runState.requests[i],
+        runResult: enrichedRunResult,
+        resultContext,
+        bundleReader,
+        jobId: job.id,
+        appendRuntimeLog: resolved.appendRuntimeLog,
       });
       if (isAcpProviderResult({ result, job: job as { meta?: Record<string, unknown> } })) {
         markAcpSkillRunApplyResult({

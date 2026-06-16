@@ -11,6 +11,7 @@ import {
   getHostBridgeCapability,
   listHostBridgeCapabilities,
 } from "./hostBridgeCapabilityRegistry";
+import type { SynthesisMcpService } from "./synthesis/mcpService";
 import {
   getHostBridgeWorkflowControlManifest,
   getHostBridgeWorkflowRunStatus,
@@ -46,6 +47,8 @@ import {
   type HostBridgeServiceStatus,
   type HostBridgeStatusSnapshot,
   type HostBridgePortMode,
+  type HostBridgeConnectionMode,
+  type HostBridgeAdvertisedHostSource,
 } from "./hostBridgeProtocol";
 import { writeHostBridgeWellKnownProfile } from "./hostBridgeProfileStore";
 import { getPref, setPref } from "../utils/prefs";
@@ -118,6 +121,9 @@ let serverSocketFactory: (port: number, bindMode: HostBridgeBindMode) => any =
   createServerSocket;
 let state: HostBridgeServerState = createEmptyState("idle");
 let startingPromise: Promise<HostBridgeStatusSnapshot> | null = null;
+let synthesisServiceResolverForTests:
+  | (() => SynthesisMcpService)
+  | undefined = undefined;
 
 function nowIso() {
   return new Date().toISOString();
@@ -211,6 +217,11 @@ function normalizeAdvertisedHost(value: unknown) {
 
 function getAdvertisedHost() {
   return normalizeAdvertisedHost(getPref("hostBridgeAdvertisedHost"));
+}
+
+function getAdvertisedHostSource(): HostBridgeAdvertisedHostSource {
+  const manual = String(getPref("hostBridgeAdvertisedHost") || "").trim();
+  return manual ? "manual" : "placeholder";
 }
 
 function buildRemoteEndpoint(port: number) {
@@ -577,6 +588,17 @@ function parsePermissionScopeHeader(request: HttpRequest) {
   } catch {
     return null;
   }
+}
+
+function parseConnectionModeHeader(
+  request: HttpRequest,
+): HostBridgeConnectionMode {
+  const value = String(
+    request.headers["x-zotero-bridge-connection-mode"] || "",
+  )
+    .trim()
+    .toLowerCase();
+  return value === "remote" ? "remote" : "local";
 }
 
 function permissionErrorResponse(error: HostBridgePermissionError) {
@@ -1095,6 +1117,10 @@ async function callCapability(request: HttpRequest) {
     }
     const data = await capability.handler(payload.input, {
       getStatus: getHostBridgeServerStatus,
+      connectionMode: parseConnectionModeHeader(request),
+      ...(synthesisServiceResolverForTests
+        ? { resolveSynthesisService: synthesisServiceResolverForTests }
+        : {}),
     });
     return response(
       200,
@@ -1694,6 +1720,7 @@ export async function buildHostBridgeRemoteCliProfileForCopy() {
       schema: "zotero-bridge.profile.v1",
       protocol: HOST_BRIDGE_PROTOCOL_VERSION,
       endpoint,
+      connectionMode: "remote",
       auth: {
         type: "bearer",
         token: masterToken.token,
@@ -1708,6 +1735,7 @@ export function getHostBridgeServerStatus(): HostBridgeStatusSnapshot {
   const token = state.token || String(getPref("hostBridgeToken") || "");
   const masterToken = getHostBridgeMasterTokenStatus();
   const advertisedHost = getAdvertisedHost();
+  const advertisedHostSource = getAdvertisedHostSource();
   const remoteEndpoint = buildRemoteEndpoint(state.port || getPinnedPort());
   const localEndpoint =
     buildLocalClientEndpoint(state.bindMode, state.port) || state.endpoint;
@@ -1719,6 +1747,11 @@ export function getHostBridgeServerStatus(): HostBridgeStatusSnapshot {
     endpoint: localEndpoint,
     remoteEndpoint,
     advertisedHost,
+    advertisedHostSource,
+    advertisedHostDiagnostics:
+      advertisedHostSource === "placeholder"
+        ? ["hostBridgeAdvertisedHost is empty; remote endpoint uses placeholder"]
+        : [],
     remoteEndpointUsesPlaceholder: advertisedHost === "<zotero-host-ip>",
     bindMode: state.bindMode,
     lanEnabled: state.lanEnabled,
@@ -1750,6 +1783,7 @@ export function resetHostBridgeServerForTests() {
   state = createEmptyState("idle");
   startingPromise = null;
   serverSocketFactory = createServerSocket;
+  synthesisServiceResolverForTests = undefined;
   resetHostBridgeWriteAutoApprovalScopesForTests();
 }
 
@@ -1759,6 +1793,7 @@ export function configureHostBridgeServerForTests(
     endpoint?: string;
     lanEnabled?: boolean;
     portMode?: HostBridgePortMode;
+    resolveSynthesisService?: () => SynthesisMcpService;
   } = {},
 ) {
   const lanEnabled = args.lanEnabled === true;
@@ -1778,6 +1813,7 @@ export function configureHostBridgeServerForTests(
     pinnedPort: getPinnedPort(),
     lastError: "",
   });
+  synthesisServiceResolverForTests = args.resolveSynthesisService;
   return token;
 }
 

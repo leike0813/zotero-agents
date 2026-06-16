@@ -1,15 +1,9 @@
-import { joinPath } from "../../utils/path";
 import {
-  readRuntimeTextFile,
-  writeRuntimeTextFile,
-} from "../runtimePersistence";
-import {
-  buildSynthesisKnowledgeGraphPaths,
   canonicalAssetFileName,
   hashCanonicalJson,
-  initializeSynthesisKnowledgeGraphStore,
   readProjectionRegistryState,
   recordProjectionRebuild,
+  resolveSynthesisPersistenceRoot,
   SynthesisSchemaRegistry,
   writeCanonicalTransaction,
   writeCanonicalDiagnostic,
@@ -1062,15 +1056,13 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
   const repository =
     options.repository ||
     createSynthesisRepository({
-      runtimeRoot: root,
+      runtimeRoot: resolveSynthesisPersistenceRoot(root),
       now,
     });
   const registry = createRegistry();
 
   async function ensureConceptStore() {
-    const paths = await initializeSynthesisKnowledgeGraphStore(root);
     repository.initialize();
-    return paths;
   }
 
   async function readTopicConceptLinks(args: { topicId: string }) {
@@ -2067,7 +2059,9 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
         },
       }))
       .filter((entry) =>
-        existingTopicLinks.some((link) => link.topic_id === entry.data.topic_id),
+        existingTopicLinks.some(
+          (link) => link.topic_id === entry.data.topic_id,
+        ),
       );
     const result = await commitConceptState({
       concepts: snapshot.concepts.filter(
@@ -2132,11 +2126,6 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     const projection = conceptProjectionFromSnapshot({ snapshot, rebuiltAt });
     await options.yieldControl?.();
     await reportProgress("write_projection", "Write projection", 2);
-    const paths = await initializeSynthesisKnowledgeGraphStore(root);
-    await writeRuntimeTextFile(
-      joinPath(paths.stateRoot, "concept-kb-index.json"),
-      `${JSON.stringify(projection, null, 2)}\n`,
-    );
     await options.yieldControl?.();
     await reportProgress("record_projection", "Record projection", 3);
     return recordProjectionRebuild({
@@ -2150,17 +2139,10 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
   }
 
   async function readConceptKbIndexProjection() {
-    const paths = await initializeSynthesisKnowledgeGraphStore(root);
-    const projectionPath = joinPath(paths.stateRoot, "concept-kb-index.json");
-    try {
-      const raw = await readRuntimeTextFile(projectionPath);
-      return JSON.parse(raw) as SynthesisConceptIndexProjection;
-    } catch {
-      return conceptProjectionFromSnapshot({
-        snapshot: await loadConceptKb(),
-        rebuiltAt: now(),
-      });
-    }
+    return conceptProjectionFromSnapshot({
+      snapshot: await loadConceptKb(),
+      rebuiltAt: now(),
+    });
   }
 
   return {

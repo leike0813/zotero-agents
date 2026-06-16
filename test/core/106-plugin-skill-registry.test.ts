@@ -7,6 +7,7 @@ import {
   resolvePluginSkillRoots,
   setPluginSkillRegistryRuntimeRootURI,
 } from "../../src/modules/pluginSkillRegistry";
+import { getBuiltinSkillTargetDir } from "../../src/modules/builtinSkillSync";
 import { buildSkillRunnerSkillPackageBundle } from "../../src/providers/skillrunner/skillPackageBundler";
 import {
   collectRuntimeFiles,
@@ -126,6 +127,29 @@ describe("plugin skill registry", function () {
       roots.builtinRoot.replace(/\\/g, "/"),
       /D:\/Workspace\/Plugin\/\.scaffold\/build\/addon\/skills_builtin$/,
     );
+  });
+
+  it("prefers synchronized data built-in skill root inside Zotero", function () {
+    const zoteroRuntime = Zotero as unknown as {
+      DataDirectory?: { dir?: string };
+    };
+    const previousDataDirectory = zoteroRuntime.DataDirectory;
+    zoteroRuntime.DataDirectory = { dir: path.join(tempRoot, "zotero-data") };
+    setPluginSkillRegistryRuntimeRootURI(
+      "file:///D:/Workspace/Plugin/.scaffold/build/addon/",
+    );
+
+    try {
+      const roots = resolvePluginSkillRoots();
+
+      assert.equal(roots.builtinRoot, getBuiltinSkillTargetDir());
+      assert.match(
+        roots.builtinRoot.replace(/\\/g, "/"),
+        /zotero-data\/zotero-agents\/data\/skills_builtin$/,
+      );
+    } finally {
+      zoteroRuntime.DataDirectory = previousDataDirectory;
+    }
   });
 
   it("preserves POSIX built-in skill root from addon runtime file URI", function () {
@@ -477,7 +501,8 @@ describe("plugin skill registry", function () {
       registry.diagnostics.some(
         (entry) =>
           entry.category === "skill_runner_json_invalid" &&
-          entry.reason?.includes("invalid_execution_modes"),
+          (entry.reason?.includes("invalid_execution_modes") ||
+            entry.reason?.includes("meta_schema")),
       ),
     );
     assert.isTrue(
@@ -486,6 +511,97 @@ describe("plugin skill registry", function () {
           entry.category === "skill_schema_invalid" &&
           entry.reason?.includes("x-type"),
       ),
+    );
+  });
+
+  it("rejects schemas that violate Skill Runner meta-schema shape", async function () {
+    const builtinRoot = path.join(tempRoot, "skills_builtin");
+    const userRoot = path.join(tempRoot, "skills");
+    const badOutputDir = await writeSkill({
+      root: builtinRoot,
+      dirName: "bad-output-schema",
+      skillId: "bad-output-schema",
+    });
+    await fs.writeFile(
+      path.join(badOutputDir, "assets", "output.schema.json"),
+      JSON.stringify(
+        {
+          oneOf: [{ type: "object" }],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await writeSkill({
+      root: builtinRoot,
+      dirName: "bad-runner-schema",
+      skillId: "bad-runner-schema",
+      runnerJson: {
+        id: "bad-runner-schema",
+        execution_modes: "auto",
+        schemas: { output: "assets/output.schema.json" },
+      },
+    });
+
+    const registry = await scanPluginSkillRegistry({ builtinRoot, userRoot });
+
+    assert.lengthOf(registry.entries, 0);
+    assert.isTrue(
+      registry.diagnostics.some(
+        (entry) =>
+          entry.category === "skill_schema_invalid" &&
+          entry.reason?.includes(
+            "output schema violates Skill Runner meta-schema",
+          ),
+      ),
+    );
+    assert.isTrue(
+      registry.diagnostics.some(
+        (entry) =>
+          entry.category === "skill_runner_json_invalid" &&
+          entry.reason?.includes("meta_schema"),
+      ),
+    );
+  });
+
+  it("accepts all built-in skill packages under full debug visibility", async function () {
+    setDebugModeOverrideForTests(true);
+
+    const builtinRoot = path.join(process.cwd(), "skills_builtin");
+    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const candidates = await fs.readdir(builtinRoot, { withFileTypes: true });
+    const expectedSkillIds: string[] = [];
+    for (const candidate of candidates) {
+      if (!candidate.isDirectory()) {
+        continue;
+      }
+      const skillDir = path.join(builtinRoot, candidate.name);
+      const hasSkillMd = await fs
+        .access(path.join(skillDir, "SKILL.md"))
+        .then(() => true)
+        .catch(() => false);
+      const runnerJsonPath = path.join(skillDir, "assets", "runner.json");
+      const hasRunner = await fs
+        .access(runnerJsonPath)
+        .then(() => true)
+        .catch(() => false);
+      if (!hasSkillMd || !hasRunner) {
+        continue;
+      }
+      const runnerJson = JSON.parse(await fs.readFile(runnerJsonPath, "utf8"));
+      expectedSkillIds.push(String(runnerJson.id || ""));
+    }
+
+    assert.includeMembers(Object.keys(registry.entriesById), expectedSkillIds);
+    assert.deepEqual(
+      registry.diagnostics.filter(
+        (entry) =>
+          entry.category === "skill_schema_invalid" ||
+          entry.category === "skill_runner_json_invalid" ||
+          entry.category === "skill_identity_mismatch",
+      ),
+      [],
     );
   });
 

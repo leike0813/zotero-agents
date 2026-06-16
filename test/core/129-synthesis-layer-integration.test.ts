@@ -21,6 +21,14 @@ import {
   createDefaultSynthesisUiState,
 } from "../../src/modules/synthesis/uiModel";
 import { decideSynthesisApply } from "../../src/modules/synthesis/workflow";
+import {
+  resetHostBridgeFileRegistryForTests,
+  resolveHostBridgeFileDownload,
+} from "../../src/modules/hostBridgeFileRegistry";
+import {
+  clearRuntimeLogs,
+  listRuntimeLogs,
+} from "../../src/modules/runtimeLogManager";
 
 async function withMockZoteroPrefs<T>(run: () => Promise<T>): Promise<T> {
   const runtime = globalThis as { Zotero?: any };
@@ -425,6 +433,62 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.lengthOf(mirror.upserts, 0);
   });
 
+  it("mirrors synthesis audit events into the unified runtime log", async function () {
+    clearRuntimeLogs();
+    try {
+      const root = await makeRoot();
+      const service = createSynthesisService({
+        root,
+        libraryId: 1,
+        now: () => "2026-05-11T00:00:00.000Z",
+        registryInputs: [
+          registryInput({ itemKey: "A" }),
+          registryInput({ itemKey: "B" }),
+        ],
+      });
+
+      const result = await service.applyTopicSynthesisResult(validBundle());
+      const auditLog = await fs.readFile(
+        buildSynthesisStoragePaths(root).log,
+        "utf8",
+      );
+      const runtimeLogs = listRuntimeLogs({
+        component: "synthesis-layer",
+        jobId: "topic:topic-alpha",
+      });
+      const applied = runtimeLogs.find(
+        (entry) => entry.operation === "topic_synthesis_applied",
+      );
+      const baseline = runtimeLogs.find(
+        (entry) => entry.operation === "baseline_reset",
+      );
+      const sidecarFailure = runtimeLogs.find(
+        (entry) => entry.operation === "concept_cards_proposal_failed",
+      );
+
+      assert.equal(result.status, "persisted");
+      assert.include(auditLog, '"event":"topic_synthesis_applied"');
+      assert.include(auditLog, '"event":"baseline_reset"');
+      assert.isOk(applied);
+      assert.equal(applied?.level, "info");
+      assert.equal(applied?.scope, "job");
+      assert.deepInclude(applied?.details as Record<string, unknown>, {
+        event: "topic_synthesis_applied",
+        topic_id: "topic-alpha",
+      });
+      assert.isOk(baseline);
+      assert.equal(baseline?.level, "info");
+      assert.isOk(sidecarFailure);
+      assert.equal(sidecarFailure?.level, "error");
+      assert.include(
+        sidecarFailure?.error?.message || "",
+        "concept-cards-proposal.json",
+      );
+    } finally {
+      clearRuntimeLogs();
+    }
+  });
+
   it("keeps topic freshness unchanged when the reference sidecar is explicitly refreshed", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
@@ -706,8 +770,8 @@ describe("Synthesis Layer v1 integration service", function () {
     const root = await makeRoot();
     const paths = buildSynthesisStoragePaths(root);
     const kgPaths = buildSynthesisKnowledgeGraphPaths(root);
-    await fs.mkdir(paths.stateRoot, { recursive: true });
-    await fs.mkdir(kgPaths.stateRoot, { recursive: true });
+    await fs.mkdir(paths.sidecarRoot, { recursive: true });
+    await fs.mkdir(kgPaths.sidecarRoot, { recursive: true });
     await fs.writeFile(
       paths.index,
       JSON.stringify(
@@ -1117,24 +1181,26 @@ describe("Synthesis Layer v1 integration service", function () {
         },
       }),
     );
-    await createSynthesisTopicGraphService({ root }).importTopicGraphCheckpoint({
-      nodes: [
-        {
-          topic_id: "topic-alpha",
-          title: "Alpha Topic",
-          aliases: [],
-          node_type: "materialized",
-          definition_status: "has_synthesis",
-          current_artifact_path: "topics/topic-alpha/current/artifact.json",
-          paper_count: 1,
-          last_synthesis_at: "2026-05-12T00:00:00.000Z",
-          created_at: "2026-05-12T00:00:00.000Z",
-          updated_at: "2026-05-12T00:00:00.000Z",
-        },
-      ],
-      edges: [],
-      reviewItems: [],
-    });
+    await createSynthesisTopicGraphService({ root }).importTopicGraphCheckpoint(
+      {
+        nodes: [
+          {
+            topic_id: "topic-alpha",
+            title: "Alpha Topic",
+            aliases: [],
+            node_type: "materialized",
+            definition_status: "has_synthesis",
+            current_artifact_path: "topics/topic-alpha/current/artifact.json",
+            paper_count: 1,
+            last_synthesis_at: "2026-05-12T00:00:00.000Z",
+            created_at: "2026-05-12T00:00:00.000Z",
+            updated_at: "2026-05-12T00:00:00.000Z",
+          },
+        ],
+        edges: [],
+        reviewItems: [],
+      },
+    );
 
     const inventory = await service.listTopics();
     const topic = inventory.topics[0] as Record<string, unknown>;
@@ -1256,7 +1322,11 @@ describe("Synthesis Layer v1 integration service", function () {
 
     assert.equal(result.ok, true);
     assert.equal(result.status, "ok");
-    assert.deepEqual(result.paper_refs, ["1:BASELINE", "1:CURRENT", "1:MISSING"]);
+    assert.deepEqual(result.paper_refs, [
+      "1:BASELINE",
+      "1:CURRENT",
+      "1:MISSING",
+    ]);
     assert.deepEqual(result.diagnostics.unmatched_paper_refs, ["1:MISSING"]);
     assert.equal(result.diagnostics.source, "artifact_state");
     assert.lengthOf(result.topics, 1);
@@ -1794,7 +1864,9 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(full.status, "ready");
     assert.equal(full.scope, "full");
     assert.equal(full.layout_status, "ready");
-    assert.isNumber(full.nodes.find((node) => node.node_id === "zotero:item:A")?.x);
+    assert.isNumber(
+      full.nodes.find((node) => node.node_id === "zotero:item:A")?.x,
+    );
     assert.include(
       slice.nodes.map((node) => node.node_id),
       "zotero:item:B",
@@ -2286,8 +2358,7 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.isTrue(
       redirects.some(
         (redirect) =>
-          redirect.fromCanonicalReferenceId ===
-            "cref:merge-original-target" &&
+          redirect.fromCanonicalReferenceId === "cref:merge-original-target" &&
           redirect.toCanonicalReferenceId === "cref:merge-selected-target",
       ),
     );
@@ -2628,9 +2699,7 @@ describe("Synthesis Layer v1 integration service", function () {
       "cref:effective",
     );
     assert.equal(proposal?.target_projected_literature_item_id, "1:BOUND");
-    assert.deepEqual(proposal?.source_raw_reference_ids, [
-      "raw:accepted-only",
-    ]);
+    assert.deepEqual(proposal?.source_raw_reference_ids, ["raw:accepted-only"]);
   });
 
   it("filters manual target canonical candidates to citation graph projected nodes", async function () {
@@ -2768,7 +2837,8 @@ describe("Synthesis Layer v1 integration service", function () {
             ? JSON.stringify({ doi: "10.1000/source" })
             : "{}",
         metadataHash: `hash:${canonicalReferenceId}`,
-        status: canonicalReferenceId === "cref:stale-source" ? "stale" : "active",
+        status:
+          canonicalReferenceId === "cref:stale-source" ? "stale" : "active",
       });
     }
     repository.upsertCanonicalReferenceRedirect({
@@ -2829,7 +2899,9 @@ describe("Synthesis Layer v1 integration service", function () {
 
     const input = await service.getSynthesisWorkbenchSurfaceInput("index");
     const rows = input.registry?.canonicalRows || [];
-    const boundRow = rows.find((row) => row.projected_literature_item_id === "1:BOUND");
+    const boundRow = rows.find(
+      (row) => row.projected_literature_item_id === "1:BOUND",
+    );
     const externalRow = rows.find(
       (row) => row.effective_canonical_id === "cref:external",
     );
@@ -3133,6 +3205,80 @@ describe("Synthesis Layer v1 integration service", function () {
     );
   });
 
+  it("serves Home overview counts from persisted surface caches before lazy tabs load", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-06-16T00:00:00.000Z",
+    });
+    repository.upsertReviewItem({
+      reviewItemId: "review:home-delete",
+      reviewKind: "zotero_item_delete",
+      priority: 1,
+      status: "open",
+      scopeKind: "zotero_binding",
+      scopeRef: "1:A",
+      payloadJson: JSON.stringify({
+        paper_ref: "1:A",
+        title: "Home Review Paper",
+      }),
+    });
+    repository.upsertReferenceMatchProposal({
+      proposalId: "proposal:home-match",
+      kind: "canonical_merge",
+      status: "open",
+      sourceCanonicalReferenceId: "cref:home-source",
+      targetCanonicalReferenceId: "cref:home-target",
+      confidence: "review",
+      score: 0.5,
+      reasonsJson: JSON.stringify(["home_overview_fixture"]),
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      registryInputs: [
+        registryInput({ itemKey: "A", references: null, citation: null }),
+        registryInput({ itemKey: "B", references: null, citation: null }),
+      ],
+      citationGraphPapers: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Alpha Paper",
+          references: [{ title: "Beta Paper" }],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Beta Paper",
+        },
+      ],
+      now: () => "2026-06-16T00:00:00.000Z",
+    });
+
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
+    const homeInput = await service.getSynthesisWorkbenchSurfaceInput("home");
+
+    assert.isAtLeast(homeInput.registry?.rows?.length || 0, 2);
+    assert.isAtLeast(homeInput.graph?.nodes?.length || 0, 2);
+    assert.isString(homeInput.graph?.graph_hash);
+    assert.equal(homeInput.graph?.diagnostics?.storage, "sqlite");
+    assert.include(
+      (homeInput.registry?.cleanupProposals || []).map(
+        (proposal) => proposal.proposal_id,
+      ),
+      "review:home-delete",
+    );
+    assert.include(
+      (homeInput.registry?.matchProposals || []).map(
+        (proposal) => proposal.proposal_id,
+      ),
+      "proposal:home-match",
+    );
+  });
+
   it("persists and reads citation graph metrics with graph rebuilds", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
@@ -3250,10 +3396,7 @@ describe("Synthesis Layer v1 integration service", function () {
     await updated.refreshReferenceSidecarNow();
     const staleSnapshot = await updated.getSynthesisSnapshot();
 
-    assert.equal(
-      staleSnapshot.graph.diagnostics.cache_status,
-      "stale",
-    );
+    assert.equal(staleSnapshot.graph.diagnostics.cache_status, "stale");
 
     const refresh = await updated.refreshCitationGraphCacheIncrementalNow();
     assert.equal(refresh.status, "completed");
@@ -4752,6 +4895,15 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
         outputPath,
         overwrite: true,
       })) as any;
+      const remotePath = path.join(root, "remote-topic-context.semantic.json");
+      const remoteEnvelope = (await service.getTopicContext(
+        {
+          topicId: "object-detection",
+          view: "semantic",
+          outputPath: remotePath,
+        },
+        { hostBridge: { connectionMode: "remote" } },
+      )) as any;
 
       assert.equal(envelope.omitted_inline_result, true);
       assert.equal(envelope.output.mode, "file");
@@ -4766,6 +4918,29 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       assert.notProperty(envelope, "semantic");
       assert.equal(duplicate.status, "output_exists");
       assert.equal(overwritten.omitted_inline_result, true);
+      assert.equal(remoteEnvelope.output.mode, "bridge-download");
+      assert.equal(
+        remoteEnvelope.output.path,
+        "remote-topic-context.semantic.json",
+      );
+      assert.equal(remoteEnvelope.delivery.mode, "bridge-download");
+      assert.include(
+        remoteEnvelope.delivery.downloadCommand,
+        "zotero-bridge file download",
+      );
+      assert.isFalse(
+        await fs
+          .access(remotePath)
+          .then(() => true)
+          .catch(() => false),
+      );
+      const downloaded = await resolveHostBridgeFileDownload(
+        remoteEnvelope.delivery.bundle.fileId,
+      );
+      const zipText = Buffer.from(downloaded.bytes).toString("utf8");
+      assert.include(zipText, "remote-topic-context.semantic.json");
+      assert.include(zipText, "DETR introduced a set-prediction framing");
+      resetHostBridgeFileRegistryForTests();
     });
   });
 

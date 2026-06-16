@@ -65,14 +65,17 @@ The plugin skill registry SHALL exclude malformed Skill Runner-compatible skill 
 
 #### Scenario: Runner manifest fields are validated
 
-- **WHEN** `execution_modes`, `max_attempt`, `entrypoint.result_json_filename`, `schemas`, or `runtime.default_options` contain invalid values
+- **WHEN** `runner.json` violates the Skill Runner manifest meta-schema
+- **OR** `execution_modes`, `max_attempt`, `entrypoint.result_json_filename`, `schemas`, or `runtime.default_options` contain invalid values
 - **THEN** the registry SHALL exclude the candidate
 - **AND** it SHALL report a runner validation diagnostic.
 
 #### Scenario: Schema files are validated
 
 - **WHEN** a candidate declares or provides default `input`, `parameter`, or `output` schema files
-- **THEN** the registry SHALL verify that each schema is readable JSON and compileable as JSON Schema.
+- **THEN** the registry SHALL verify that each schema is readable JSON
+- **AND** each schema SHALL satisfy the corresponding Skill Runner schema meta-schema
+- **AND** each schema SHALL be compileable as JSON Schema.
 
 #### Scenario: Schema annotations are validated
 

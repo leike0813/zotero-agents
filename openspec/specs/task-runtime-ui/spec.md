@@ -37,12 +37,12 @@ TBD - created by archiving change m2-baseline. Update Purpose after archive.
 - **AND** 两个分组之间 MUST 可见分隔符
 
 ### Requirement: Backend tab with no tasks MUST render backend-empty table state
-系统 MUST 在“已选 backend 且无任务”时渲染该 backend 的空表态，而不是“请选择 backend”提示。
+系统 MUST 在"已选 backend 且无任务"时渲染该 backend 的空表态，而不是"请选择 backend"提示。
 
 #### Scenario: selected backend has no rows
 - **WHEN** 用户已进入某 backend tab 且该 backend 无历史/运行任务
 - **THEN** 页面 MUST 显示空表格
-- **AND** 文案 MUST 指示“当前 backend 无任务”
+- **AND** 文案 MUST 指示"当前 backend 无任务"
 
 ### Requirement: Run Dialog chat viewport MUST preserve manual scroll position
 系统 MUST 在 Run Dialog 聊天区中仅在用户位于底部附近时自动跟随新消息，避免阅读旧消息时被强制跳转。
@@ -56,7 +56,7 @@ TBD - created by archiving change m2-baseline. Update Purpose after archive.
 系统 MUST 在 Dashboard backend 日志区域提供跳转到诊断导出的入口，避免在 Dashboard 内重复实现独立导出面板。
 
 #### Scenario: open diagnostic export from backend log section
-- **WHEN** 用户在 backend 日志区域点击“诊断导出”入口
+- **WHEN** 用户在 backend 日志区域点击"诊断导出"入口
 - **THEN** 系统 MUST 打开日志窗口并聚焦诊断导出操作
 - **AND** 保留当前 backend/任务过滤上下文用于导出构建
 
@@ -86,32 +86,32 @@ TBD - created by archiving change m2-baseline. Update Purpose after archive.
 - **WHEN** 用户打开 Dashboard 首页
 - **THEN** 系统 MUST 在任务统计区上方显示 workflow 气泡区
 - **AND** 每个气泡 MUST 显示 workflow label
-- **AND** 每个气泡 MUST 提供“说明”和“设置”两个按钮
+- **AND** 每个气泡 MUST 提供"说明"和"设置"两个按钮
 - **AND** 气泡布局 MUST 水平排列并在空间不足时换行
 - **AND** 气泡标题与按钮行 MUST 保持单行显示（不换行）
 
 #### Scenario: disable settings button for non-configurable workflow
 - **WHEN** 某 workflow 无可配置项
-- **THEN** 该 workflow 气泡中的“设置”按钮 MUST 为禁用状态
+- **THEN** 该 workflow 气泡中的"设置"按钮 MUST 为禁用状态
 
 ### Requirement: Dashboard home MUST support embedded workflow README doc subview
 系统 MUST 支持从首页 workflow 气泡进入 README 说明子页，并保持左侧 tab 结构不变。
 
 #### Scenario: open workflow doc subview in home main area
-- **WHEN** 用户点击 workflow 气泡中的“说明”按钮
+- **WHEN** 用户点击 workflow 气泡中的"说明"按钮
 - **THEN** 系统 MUST 在右侧主区显示该 workflow 的 README 渲染内容
 - **AND** `selectedTabKey` MUST 保持为 `home`
-- **AND** 页面 MUST 提供“回到 Dashboard”按钮返回首页主视图
+- **AND** 页面 MUST 提供"回到 Dashboard"按钮返回首页主视图
 
 #### Scenario: fallback when README is missing
 - **WHEN** 目标 workflow 根目录不存在 `README.md`
-- **THEN** 系统 MUST 显示本地化的“README 缺失”提示文本
+- **THEN** 系统 MUST 显示本地化的"README 缺失"提示文本
 
 ### Requirement: Dashboard home MUST route workflow settings from bubbles
 系统 MUST 支持从首页 workflow 气泡直接跳转到 workflow 设置页并定位目标 workflow。
 
 #### Scenario: open workflow options from home bubble
-- **WHEN** 用户点击 workflow 气泡中的“设置”按钮
+- **WHEN** 用户点击 workflow 气泡中的"设置"按钮
 - **THEN** 系统 MUST 切换到 `workflow-options` tab
 - **AND** 系统 MUST 选中对应 workflow 的设置子页
 
@@ -131,7 +131,7 @@ controls.
 
 ### Requirement: Startup SHALL reconcile provider task UI projections
 
-Provider workflow task projections restored from plugin state SHALL be reconciled on startup before active task UI surfaces render.
+Provider workflow task projections restored from plugin state SHALL be reconciled on startup before active task UI surfaces render. SkillRunner projections for known requests SHALL remain user-visible when backend reconciliation proves the request is missing or rejected.
 
 #### Scenario: ACP projection follows ACP run SSOT
 
@@ -143,9 +143,8 @@ Provider workflow task projections restored from plugin state SHALL be reconcile
 #### Scenario: SkillRunner request remains backend-owned
 
 - **GIVEN** a SkillRunner workflow task projection has both `backendId` and `requestId`
-- **WHEN** startup reconciliation runs
+- **WHEN** plugin startup restores task projections
 - **THEN** the projection SHALL remain available for backend ledger reconciliation
-- **AND** taskRuntime SHALL NOT mark it failed preemptively.
 
 #### Scenario: Orphan projection is not active forever
 
@@ -153,6 +152,15 @@ Provider workflow task projections restored from plugin state SHALL be reconcile
 - **WHEN** startup reconciliation runs
 - **THEN** the projection SHALL be marked `failed`
 - **AND** it SHALL no longer appear in active task lists.
+
+#### Scenario: SkillRunner missing request becomes failed history
+
+- **GIVEN** a SkillRunner workflow task projection has both `backendId` and `requestId`
+- **WHEN** startup or managed-local-up ledger reconciliation receives `404` for that request
+- **THEN** the projection SHALL be marked `failed`
+- **AND** dashboard history SHALL retain a failed row for that request
+- **AND** the task SHALL NOT disappear because active/history rows were deleted
+- **AND** plugin SHALL NOT mark the backend unreachable solely because of that request-level 404
 
 ### Requirement: Dashboard home SHALL identify core workflows
 
@@ -198,3 +206,50 @@ Dashboard workflow cards and newly-created user-visible run labels SHALL use loc
 - **THEN** the system SHALL NOT rewrite those rows during workflow locale changes
 - **AND** only newly-created labels use the current locale projection.
 
+### Requirement: Dashboard SHALL govern refreshes by selected surface
+
+Dashboard snapshots SHALL expose stable chrome and selected-surface signatures so background refreshes can be ignored when they do not change the active view.
+
+#### Scenario: Background task update does not change active Products surface
+
+- **GIVEN** Dashboard is showing the Products tab
+- **AND** the registered products, skill feedback records, selected product, selected feedback record, filters, and Dashboard chrome are unchanged
+- **WHEN** a task update, ACP skill run snapshot update, backend-health update, or periodic refresh occurs
+- **THEN** Dashboard SHALL NOT post a replacement snapshot that forces the Products surface to re-render.
+
+#### Scenario: Product storage changes while Products is active
+
+- **GIVEN** Dashboard is showing the Products tab
+- **WHEN** normal workflow products or `skill_run_feedback` products change
+- **THEN** Dashboard SHALL post a snapshot whose selected-surface signature changes
+- **AND** the Products or Skill Feedback surface SHALL update.
+
+### Requirement: Dashboard SHALL keep a stable browser shell
+
+Dashboard browser rendering SHALL keep the top-level app shell stable and update selected view surfaces without rebuilding unrelated shell nodes.
+
+#### Scenario: Sidebar Dashboard receives noisy snapshots
+
+- **GIVEN** Dashboard is embedded in the assistant/sidebar workspace
+- **AND** a task is running in another Dashboard surface
+- **WHEN** the active view receives duplicate unchanged Dashboard snapshots
+- **THEN** the browser renderer SHALL skip the duplicate render
+- **AND** local UI state such as scroll position, product preview, product tree expansion, and feedback checkbox selection SHALL remain stable.
+
+### Requirement: Dashboard Products and Skill Feedback SHALL share stable product browsing behavior
+
+Dashboard Products and Skill Feedback SHALL use the same stable product browsing model for filtering, selection, preview, and export controls.
+
+#### Scenario: Skill Feedback remains selected during background activity
+
+- **GIVEN** the user selected one or more Skill Feedback records
+- **AND** another task emits progress updates
+- **WHEN** the feedback product set and active skill filter are unchanged
+- **THEN** Dashboard SHALL keep the selected feedback records and current Markdown preview visible.
+
+#### Scenario: Skill Feedback select-all respects the active skill filter
+
+- **GIVEN** the Skill Feedback product list is filtered by skill
+- **WHEN** the user toggles the select-all checkbox
+- **THEN** Dashboard SHALL select or clear only feedback records visible under the active filter
+- **AND** feedback records outside the active filter SHALL NOT be selected merely because select-all was toggled.

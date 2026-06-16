@@ -189,21 +189,55 @@ state_machines:
   - id: sm.import.lifecycle
     owner: import_export_service
     object: import_run
-    states: [previewing, preview_ready, applying, applied, failed, cancelled]
+    states: [validating, previewing, preview_ready, blocked_conflict, applying, stale_projection, applied, failed, cancelled]
     transitions:
+      - { from: validating, to: previewing }
+      - { from: validating, to: failed }
       - { from: previewing, to: preview_ready }
+      - { from: previewing, to: blocked_conflict }
       - { from: preview_ready, to: applying }
       - { from: preview_ready, to: cancelled }
-      - { from: applying, to: applied }
+      - { from: blocked_conflict, to: previewing }
+      - { from: applying, to: stale_projection }
+      - { from: stale_projection, to: applied }
       - { from: applying, to: failed }
-      - { from: failed, to: previewing }
+      - { from: failed, to: validating }
     forbidden_transitions:
-      - from: previewing
+      - from: validating
         to: applying
         reason: preview_result_and_confirmation_required
+      - from: blocked_conflict
+        to: applying
+        reason: explicit_conflict_resolution_required
       - from: file_bundle
         to: workbench_hot_path
         reason: import_must_write_through_repository_apis
+
+  - id: sm.sync.git
+    owner: git_sync_service
+    object: durable_exchange_run
+    states: [idle, syncing, validating, applying, blocked_conflict, failed_retryable, failed_permanent]
+    transitions:
+      - { from: idle, to: syncing }
+      - { from: syncing, to: validating }
+      - { from: validating, to: blocked_conflict }
+      - { from: validating, to: failed_permanent }
+      - { from: validating, to: applying }
+      - { from: applying, to: idle }
+      - { from: syncing, to: failed_retryable }
+      - { from: failed_retryable, to: syncing }
+      - { from: blocked_conflict, to: idle }
+      - { from: blocked_conflict, to: syncing }
+    forbidden_transitions:
+      - from: validating
+        to: applying
+        reason: durable_preview_conflicts_must_block
+      - from: applying
+        to: live_sqlite_import
+        reason: git_sync_imports_durable_assets_not_sqlite_files
+      - from: blocked_conflict
+        to: idle
+        reason: last_writer_wins_is_forbidden
 
   - id: sm.ui.workbench_surface
     owner: synthesis_workbench_ui
@@ -262,6 +296,10 @@ sequences:
     owner: import_export_service
     trigger: import_preview_or_apply_requested
     output: dry_run_diff_or_import_result
+  - id: seq.git_sync.export_import
+    owner: git_sync_service
+    trigger: git_sync_requested
+    output: durable_state_export_import_or_blocked_conflict
   - id: seq.ui.workbench_surface_refresh
     owner: synthesis_workbench_ui
     trigger: workbench_surface_requested
@@ -281,6 +319,7 @@ events:
     - related_items_sync_requested
     - import_preview_requested
     - import_apply_requested
+    - git_sync_requested
     - synthesis_reset_requested
     - synthesis_clean_install_reset_requested
     - workbench_surface_requested
@@ -296,6 +335,7 @@ events:
     - topic_discovery_apply
     - import_preview
     - import_apply
+    - git_sync
     - sidecar_reset
   progress:
     - operation_started

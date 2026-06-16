@@ -271,7 +271,8 @@ export async function scanPersistenceIntegrity(args?: {
           relativePath: runtimeRelativePath(paths.root, localPath),
           owner: `workflow-product:${product.productId}`,
           eligibleForCleanup: false,
-          reason: "workflow product metadata references a missing cached asset",
+          reason:
+            "workflow product metadata references a missing managed product asset",
         });
       }
     }
@@ -297,7 +298,7 @@ export async function scanPersistenceIntegrity(args?: {
       relativePath: runtimeRelativePath(paths.root, file),
       owner: "workflow-products",
       eligibleForCleanup: eligible,
-      reason: "cached workflow product asset has no owning SQLite row",
+      reason: "managed workflow product asset has no owning SQLite row",
       updatedAt: stat.lastModified
         ? new Date(stat.lastModified).toISOString()
         : undefined,

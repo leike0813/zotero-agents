@@ -15,6 +15,7 @@ export type HostBridgeWellKnownProfile = {
   schema: "zotero-bridge.profile.v1";
   protocol: typeof HOST_BRIDGE_PROTOCOL_VERSION;
   endpoint: string;
+  connectionMode: "local";
   auth: {
     type: "bearer";
     token: string;
@@ -133,6 +134,7 @@ export async function writeHostBridgeWellKnownProfile(args: {
     schema: "zotero-bridge.profile.v1",
     protocol: HOST_BRIDGE_PROTOCOL_VERSION,
     endpoint,
+    connectionMode: "local",
     auth: {
       type: "bearer",
       token,

@@ -25,6 +25,13 @@ export type SequenceStepRunState = {
   status?: "running" | ProviderExecutionResult["status"];
   output?: unknown;
   result?: ProviderExecutionResult;
+  applyResult?: {
+    status: "succeeded" | "failed" | "skipped";
+    workflowId?: string;
+    result?: unknown;
+    error?: string;
+    updatedAt: string;
+  };
   updatedAt: string;
 };
 
@@ -140,6 +147,23 @@ function cloneProviderResult(result: ProviderExecutionResult) {
   } satisfies ProviderExecutionResult;
 }
 
+function parseStepApplyResult(raw: unknown): SequenceStepRunState["applyResult"] {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const status = normalizeString(raw.status);
+  if (status !== "succeeded" && status !== "failed" && status !== "skipped") {
+    return undefined;
+  }
+  return {
+    status,
+    workflowId: normalizeString(raw.workflowId) || undefined,
+    result: raw.result,
+    error: normalizeString(raw.error) || undefined,
+    updatedAt: normalizeString(raw.updatedAt) || nowIso(),
+  };
+}
+
 function parseStep(raw: unknown): SequenceStepRunState | null {
   if (!isRecord(raw)) {
     return null;
@@ -166,6 +190,7 @@ function parseStep(raw: unknown): SequenceStepRunState | null {
         : undefined,
     output: raw.output,
     result: parseProviderResult(raw.result),
+    applyResult: parseStepApplyResult(raw.applyResult),
     updatedAt: normalizeString(raw.updatedAt) || nowIso(),
   };
 }
@@ -435,6 +460,28 @@ export function recordSequenceStepDeferred(args: {
       rootRequestId: next.rootRequestId || normalizeString(args.requestId),
     };
   });
+}
+
+export function recordSequenceStepApplyResult(args: {
+  sequenceRunId: string;
+  stepIndex: number;
+  workflowId?: string;
+  status: "succeeded" | "failed" | "skipped";
+  result?: unknown;
+  error?: string;
+}) {
+  return updateState(args.sequenceRunId, (state) =>
+    updateStep(state, args.stepIndex, (step) => ({
+      ...step,
+      applyResult: {
+        status: args.status,
+        workflowId: normalizeString(args.workflowId) || undefined,
+        result: args.result,
+        error: normalizeString(args.error) || undefined,
+        updatedAt: nowIso(),
+      },
+    })),
+  );
 }
 
 export function markSequenceRunContinuing(sequenceRunId: string) {

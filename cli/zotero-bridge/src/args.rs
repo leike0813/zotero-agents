@@ -267,7 +267,7 @@ pub enum TopicsCommand {
 
     #[command(
         about = "Read one topic synthesis context",
-        long_about = "Map to Host Bridge capability topics.get_context. Use --input for the topic lookup payload. Explicit view values are digest, semantic, audit, and full. No view keeps the legacy flat response. For large semantic or full contexts, pass outputPath/output_path and optional overwrite in --input so the Host Bridge writes the view JSON to a file and stdout only contains a compact envelope."
+        long_about = "Map to Host Bridge capability topics.get_context. Use --input for the topic lookup payload. Explicit view values are digest, semantic, audit, and full. No view keeps the legacy flat response. For large semantic or full contexts, pass outputPath/output_path and optional overwrite in --input. Local profiles write the view JSON directly. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle."
     )]
     GetContext(BridgeInputArgs),
 
@@ -307,7 +307,6 @@ pub struct ConceptsArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum ConceptsCommand {
-
     #[command(
         about = "Query Synthesis Concept KB candidates",
         long_about = "Map to Host Bridge capability concepts.query. Use --input with concept_candidate_labels/labels for bounded read-only alias matching."
@@ -425,7 +424,6 @@ pub struct PaperArtifactsArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum PaperArtifactsCommand {
-
     #[command(
         about = "Read paper artifact manifest metadata",
         long_about = "Map to Host Bridge capability paper_artifacts.get_manifest."
@@ -440,7 +438,7 @@ pub enum PaperArtifactsCommand {
 
     #[command(
         about = "Export bounded paper artifacts into the run workspace",
-        long_about = "Map to Host Bridge capability paper_artifacts.export_filtered."
+        long_about = "Map to Host Bridge capability paper_artifacts.export_filtered. Local profiles write runtime/payloads files inside the supplied run_root. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle before reading manifest_file."
     )]
     ExportFiltered(BridgeInputArgs),
 
@@ -459,7 +457,6 @@ pub struct InsightsArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum InsightsCommand {
-
     #[command(
         about = "Read aggregate graph/artifact/reference attention items",
         long_about = "Map to Host Bridge capability insights.get_attention_queue."
@@ -806,11 +803,19 @@ mod tests {
 
         let artifacts = command.find_subcommand_mut("paper-artifacts").unwrap();
         let artifacts_help = artifacts.render_long_help().to_string();
-        for name in ["manifest", "read", "export-filtered", "resolve-topic-digest"] {
+        for name in [
+            "manifest",
+            "read",
+            "export-filtered",
+            "resolve-topic-digest",
+        ] {
             assert!(artifacts_help.contains(name), "missing {name}");
         }
         let insights = command.find_subcommand_mut("insights").unwrap();
-        assert!(insights.render_long_help().to_string().contains("attention-queue"));
+        assert!(insights
+            .render_long_help()
+            .to_string()
+            .contains("attention-queue"));
     }
 
     #[test]

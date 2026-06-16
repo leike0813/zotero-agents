@@ -12,6 +12,8 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   skillRunnerLocalRuntimeVersion: string;
   skillRunnerLocalRuntimeStateJson: string;
   tagVocabularyStagedJson: string;
+  collectSkillRunFeedbackEnabled: boolean;
+  runtimeRoot: string;
   hostBridgeLanEnabled: boolean;
   hostBridgePinPortEnabled: boolean;
   hostBridgePinnedPort: number;
@@ -28,11 +30,22 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   synthesisGitSyncEnabled: boolean;
   synthesisGitSyncRemoteUrl: string;
   synthesisGitSyncBranch: string;
-  synthesisGitSyncGitCommand: string;
   synthesisGitSyncTokenEncryptedJson: string;
   synthesisGitSyncTokenMasked: string;
   synthesisGitSyncTokenUpdatedAt: string;
+  synthesisGitSyncAutoSyncEnabled: boolean;
   synthesisGitSyncAutoRetryEnabled: boolean;
+  synthesisGitSyncConnectionTestJson: string;
+  synthesisWebDavSyncEnabled: boolean;
+  synthesisWebDavSyncBaseUrl: string;
+  synthesisWebDavSyncRemotePath: string;
+  synthesisWebDavSyncUsername: string;
+  synthesisWebDavSyncCredentialEncryptedJson: string;
+  synthesisWebDavSyncCredentialMasked: string;
+  synthesisWebDavSyncCredentialUpdatedAt: string;
+  synthesisWebDavSyncAutoSyncEnabled: boolean;
+  synthesisWebDavSyncAutoRetryEnabled: boolean;
+  synthesisWebDavSyncConnectionTestJson: string;
 };
 
 const PREFS_PREFIX = config.prefsPrefix;

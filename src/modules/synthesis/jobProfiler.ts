@@ -150,7 +150,7 @@ function hasZoteroSqlRuntime() {
 
 export function getSynthesisJobProfilerDatabasePath(root: string) {
   const paths = buildSynthesisKnowledgeGraphPaths(root);
-  return joinPath(paths.stateRoot, "debug", "synthesis-job-profiler.db");
+  return joinPath(paths.sidecarRoot, "debug", "synthesis-job-profiler.db");
 }
 
 function getMemoryStore(dbPath: string) {
@@ -225,7 +225,7 @@ async function writeStartedProfileRun(
   }
 
   await ensureRuntimeDirectory(
-    joinPath(buildSynthesisKnowledgeGraphPaths(root).stateRoot, "debug"),
+    joinPath(buildSynthesisKnowledgeGraphPaths(root).sidecarRoot, "debug"),
   );
   const db = createSynthesisSqlAdapterForPath(dbPath);
   ensureProfilerSchema(db);
@@ -258,7 +258,7 @@ async function appendProfilePhase(
   }
 
   await ensureRuntimeDirectory(
-    joinPath(buildSynthesisKnowledgeGraphPaths(root).stateRoot, "debug"),
+    joinPath(buildSynthesisKnowledgeGraphPaths(root).sidecarRoot, "debug"),
   );
   const db = createSynthesisSqlAdapterForPath(dbPath);
   ensureProfilerSchema(db);
@@ -289,7 +289,7 @@ async function writeProfileDraft(root: string, draft: ProfileRunDraft) {
   }
 
   await ensureRuntimeDirectory(
-    joinPath(buildSynthesisKnowledgeGraphPaths(root).stateRoot, "debug"),
+    joinPath(buildSynthesisKnowledgeGraphPaths(root).sidecarRoot, "debug"),
   );
   const db = createSynthesisSqlAdapterForPath(dbPath);
   ensureProfilerSchema(db);

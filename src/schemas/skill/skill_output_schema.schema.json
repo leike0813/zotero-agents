@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-runner.local/schemas/skill_output_schema.schema.json",
+  "type": "object",
+  "properties": {
+    "type": {
+      "const": "object"
+    },
+    "properties": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/outputProperty"
+      }
+    },
+    "required": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "outputProperty": {
+      "type": "object",
+      "properties": {
+        "x-type": {
+          "type": "string",
+          "enum": [
+            "artifact",
+            "file"
+          ]
+        },
+        "x-role": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

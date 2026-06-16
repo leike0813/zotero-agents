@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { readFile } from "fs/promises";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { compileDeclarativeRequest } from "../../src/workflows/declarativeRequestCompiler";
 import { executeSkillRunnerSequence } from "../../src/modules/workflowExecution/sequenceRuntime";
@@ -13,12 +14,14 @@ import type { LoadedWorkflow } from "../../src/workflows/types";
 
 const PROBE_WORKFLOW_IDS = [
   "workflow-debug-probe",
+  "debug-host-bridge-connectivity-probe",
   "debug-sequence-linear-probe",
   "debug-sequence-workspace-reuse-probe",
   "debug-sequence-context-isolation-probe",
 ];
 
 const PROBE_SKILL_IDS = [
+  "debug-host-bridge-connectivity-probe",
   "debug-sequence-probe-emit",
   "debug-sequence-probe-check",
   "debug-sequence-probe-finalize",
@@ -30,7 +33,28 @@ function workflowById(workflows: LoadedWorkflow[], id: string) {
   return workflow!;
 }
 
+function assertSchemaHasNoNullType(value: unknown, path = "$") {
+  if (Array.isArray(value)) {
+    assert.notInclude(value, "null", `${path} must not include null type`);
+    assert.notInclude(value, null, `${path} must not include null enum value`);
+    value.forEach((entry, index) =>
+      assertSchemaHasNoNullType(entry, `${path}[${index}]`),
+    );
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    assert.notStrictEqual(entry, "null", `${path}.${key} must not be null type`);
+    assert.notStrictEqual(entry, null, `${path}.${key} must not allow null`);
+    assertSchemaHasNoNullType(entry, `${path}.${key}`);
+  }
+}
+
 describe("debug sequence probe workflows", function () {
+  this.timeout(10000);
+
   afterEach(function () {
     setDebugModeOverrideForTests();
   });
@@ -88,6 +112,40 @@ describe("debug sequence probe workflows", function () {
     }
   });
 
+  it("ships debug probe input and parameter schemas without breaking sequence requests", async function () {
+    setDebugModeOverrideForTests(true);
+    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+
+    for (const id of [
+      "debug-sequence-probe-emit",
+      "debug-sequence-probe-check",
+      "debug-sequence-probe-finalize",
+    ]) {
+      const runner = JSON.parse(
+        await readFile(`skills_builtin/${id}/assets/runner.json`, "utf8"),
+      );
+      assert.equal(runner.schemas.parameter, "assets/parameter.schema.json");
+      assert.property(registry.entriesById, id);
+    }
+
+    for (const id of [
+      "debug-sequence-probe-check",
+      "debug-sequence-probe-finalize",
+    ]) {
+      const runner = JSON.parse(
+        await readFile(`skills_builtin/${id}/assets/runner.json`, "utf8"),
+      );
+      const inputSchema = JSON.parse(
+        await readFile(`skills_builtin/${id}/assets/input.schema.json`, "utf8"),
+      );
+      assert.equal(runner.schemas.input, "assets/input.schema.json");
+      assert.equal(
+        inputSchema.properties.handoff["x-input-source"],
+        "inline",
+      );
+    }
+  });
+
   it("compiles sequence probe manifests with expected workspace and handoff contracts", async function () {
     setDebugModeOverrideForTests(true);
     const loaded = await loadWorkflowManifests("workflows_builtin", {
@@ -136,6 +194,54 @@ describe("debug sequence probe workflows", function () {
         public_marker: "public_marker",
       },
     });
+  });
+
+  it("compiles Host Bridge connectivity probe as a debug-only job with required host access", async function () {
+    setDebugModeOverrideForTests(true);
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = workflowById(
+      loaded.workflows,
+      "debug-host-bridge-connectivity-probe",
+    );
+
+    assert.equal(workflow.manifest.debug_only, true);
+    assert.deepEqual(workflow.manifest.execution?.zoteroHostAccess, {
+      required: true,
+    });
+
+    const request = compileDeclarativeRequest({
+      kind: "skillrunner.job.v1",
+      selectionContext: {},
+      manifest: workflow.manifest,
+    }) as any;
+
+    assert.deepInclude(request, {
+      kind: "skillrunner.job.v1",
+      skill_id: "debug-host-bridge-connectivity-probe",
+      skill_source: "local-package",
+      fetch_type: "result",
+    });
+    assert.deepEqual(request.parameter, {
+      probeDepth: "capability",
+      expectedConnectionMode: "auto",
+    });
+    assert.deepEqual(request.poll, {
+      interval_ms: undefined,
+      timeout_ms: 120000,
+    });
+  });
+
+  it("keeps Host Bridge connectivity probe output schema free of nullable fields", async function () {
+    const schema = JSON.parse(
+      await readFile(
+        "skills_builtin/debug-host-bridge-connectivity-probe/assets/output.schema.json",
+        "utf8",
+      ),
+    );
+
+    assertSchemaHasNoNullType(schema);
   });
 
   it("does not inject default handoff when context isolation declares pass_through false", async function () {
@@ -211,9 +317,10 @@ describe("debug sequence probe workflows", function () {
     });
     assert.notProperty(launched[1].input, "handoff");
     assert.notProperty(launched[1].input, "secret_marker");
-    assert.deepEqual(launched[1].runtime_options.workflow_workspace, {
+    assert.deepEqual(launched[1].runtime_options.workspace, {
       mode: "new",
       workflow_run_id: "debug-sequence-run-1",
     });
+    assert.notProperty(launched[1].runtime_options, "workflow_workspace");
   });
 });

@@ -17,6 +17,7 @@ import {
   getRuntimePersistencePaths,
 } from "./runtimePersistence";
 import { isDebugModeEnabled } from "./debugMode";
+import { getBuiltinSkillTargetDir } from "./builtinSkillSync";
 
 export const PLUGIN_SKILL_USER_ROOT = "skills";
 export const PLUGIN_SKILL_BUILTIN_ROOT = "skills_builtin";
@@ -130,16 +131,13 @@ function getDefaultUserSkillRoot() {
 }
 
 function getDefaultBuiltinSkillRoot() {
+  const dataDir = getZoteroDataDirectory();
+  if (dataDir) {
+    return getBuiltinSkillTargetDir();
+  }
   const packagedAddonRoot = getPackagedAddonRoot();
   if (packagedAddonRoot) {
     return joinPath(packagedAddonRoot, PLUGIN_SKILL_BUILTIN_ROOT);
-  }
-  const dataDir = getZoteroDataDirectory();
-  if (dataDir) {
-    return joinPath(
-      getRuntimePersistencePaths().dataDir,
-      PLUGIN_SKILL_BUILTIN_ROOT,
-    );
   }
   return joinPath(getRuntimeCwd(), PLUGIN_SKILL_BUILTIN_ROOT);
 }

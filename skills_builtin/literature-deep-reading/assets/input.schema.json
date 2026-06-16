@@ -4,6 +4,21 @@
     "source_bundle_path": {
       "type": "string",
       "description": "Path to source_bundle.zip prepared by the workflow or test harness."
+    },
+    "translator_alignment_path": {
+      "type": ["string", "null"],
+      "description": "Optional path to literature-translator alignment.json for reuse.",
+      "x-input-source": "inline"
+    },
+    "translator_output_path": {
+      "type": ["string", "null"],
+      "description": "Optional path to literature-translator final translated Markdown output.",
+      "x-input-source": "inline"
+    },
+    "translator_status": {
+      "type": "string",
+      "description": "Optional literature-translator status, used to generate source-only alignment for cancelled same-language runs.",
+      "x-input-source": "inline"
     }
   },
   "required": ["source_bundle_path"],

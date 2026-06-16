@@ -43,7 +43,13 @@ describe("workflow settings single-source routing", function () {
       "src/modules/workflowSettingsWebDialog.ts",
     );
     assert.include(ts, "Save as default settings");
-    assert.include(ts, "resizeTo(760, 620)");
+    assert.include(ts, "fitContent: false");
+    assert.include(ts, "WORKFLOW_SETTINGS_DIALOG_WIDTH = 700");
+    assert.include(ts, "WORKFLOW_SETTINGS_DIALOG_INITIAL_HEIGHT = 540");
+    assert.include(ts, "WORKFLOW_SETTINGS_DIALOG_MIN_HEIGHT = 440");
+    assert.include(ts, "resizeWorkflowSettingsDialogToContent");
+    assert.include(ts, 'if (action === "resize-to-content")');
+    assert.include(ts, "WORKFLOW_SETTINGS_DIALOG_SCREEN_MARGIN = 48");
     assert.include(ts, "isStructuralDraftChange");
     assert.include(ts, "toRunOptionsFormValues");
     assert.include(ts, "normalizeWorkflowRunOptions(raw.runOptions)");
@@ -113,6 +119,8 @@ describe("workflow settings single-source routing", function () {
       zh,
       "workflow-settings-submit-persist-checkbox = 保存为默认配置",
     );
+    assert.include(en, "workflow-settings-refresh-acp-runtime-cache-running");
+    assert.include(zh, "workflow-settings-refresh-acp-runtime-cache-running");
   });
 
   it("keeps submit dialog updates metadata-aware for structural refresh gating", async function () {
@@ -122,6 +130,12 @@ describe("workflow settings single-source routing", function () {
     assert.include(js, "flushDraftFromControls");
     assert.include(js, "captureActiveFormState");
     assert.include(js, "restoreActiveFormState");
+    assert.include(js, "measureDialogContentHeight");
+    assert.include(js, 'root.querySelector(".settings-shell")');
+    assert.notInclude(js, "body && body.offsetHeight");
+    assert.include(js, "sendDialogContentResizeRequest");
+    assert.include(js, "requestDialogContentResize");
+    assert.include(js, 'sendAction("resize-to-content", { contentHeight })');
     assert.include(js, "shouldResetDraftForSnapshot");
     assert.include(js, "registerFieldCollector");
     assert.include(js, "markCustomSelectDisabled");
@@ -134,6 +148,11 @@ describe("workflow settings single-source routing", function () {
     assert.include(js, 'changedKey: "backendId"');
     assert.include(js, "changedSection:");
     assert.include(js, "changedKey:");
+    assert.include(js, "refreshingAcpRuntimeCache");
+    assert.include(js, 'refreshBtn.setAttribute("aria-busy", "true")');
+    assert.include(js, "refreshBtn.disabled = true");
+    assert.include(js, "refreshAcpRuntimeCacheRunning");
+    assert.include(js, "state.refreshingAcpRuntimeCache = false");
   });
 
   it("marks ACP permission auto-approval option with warning label styling", async function () {

@@ -8,7 +8,10 @@ import {
   coerceRecoverableSkillRunnerState,
   getSkillRunnerRequestIdFromJob,
   hasRecoverableSkillRunnerRequest,
+  isNonRecoverableSkillRunnerFailure,
 } from "../modules/skillRunnerRecoverableState";
+import { settleSkillRunnerRunAsFailed } from "../modules/skillRunnerRunSettlement";
+import { purgeSkillRunnerRecoverableContextByRequest } from "../modules/skillRunnerTaskReconciler";
 
 export type JobState =
   | "queued"
@@ -292,6 +295,48 @@ export class JobQueueManager {
       this.logJobError(job, error);
       job.error = error instanceof Error ? error.message : String(error);
       const requestId = getSkillRunnerRequestIdFromJob(job);
+      if (requestId && isNonRecoverableSkillRunnerFailure(error)) {
+        job.meta.skillRunnerTerminalRunError = true;
+        job.state = "failed";
+        this.touch(job);
+        this.emitJobUpdated(job);
+        settleSkillRunnerRunAsFailed({
+          backendId: String(job.meta.backendId || "").trim(),
+          backendType: String(job.meta.backendType || "").trim(),
+          providerId: String(job.meta.providerId || "").trim() || "skillrunner",
+          workflowId: job.workflowId,
+          runId: String(job.meta.runId || "").trim(),
+          jobId: job.id,
+          requestId,
+          reason: job.error,
+          source: "job-queue-dispatch",
+          error,
+          updatedAt: job.updatedAt,
+        });
+        purgeSkillRunnerRecoverableContextByRequest({
+          backendId: String(job.meta.backendId || "").trim(),
+          requestId,
+        });
+        appendRuntimeLog({
+          level: "error",
+          scope: "job",
+          workflowId: job.workflowId,
+          backendId: String(job.meta.backendId || "").trim() || undefined,
+          backendType: String(job.meta.backendType || "").trim() || undefined,
+          providerId: String(job.meta.providerId || "").trim() || undefined,
+          runId: String(job.meta.runId || "").trim() || undefined,
+          jobId: job.id,
+          requestId,
+          component: "job-queue",
+          operation: "dispatch-failed-terminal-run",
+          phase: "terminal",
+          stage: "dispatch-failed-terminal-run",
+          message:
+            "provider dispatch failed after request creation with terminal run-level error",
+          error,
+        });
+        return;
+      }
       if (hasRecoverableSkillRunnerRequest(job)) {
         job.state = coerceRecoverableSkillRunnerState(job.state);
         this.touch(job);

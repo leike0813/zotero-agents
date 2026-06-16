@@ -223,7 +223,7 @@ describe("Synthesis JSON import tooling", function () {
     const root = await makeRuntimeRoot();
     const paths = await buildSynthesisKnowledgeGraphPaths(root);
     await writeRuntimeTextFile(
-      path.join(paths.stateRoot, "topic-graph-index.json"),
+      path.join(paths.sidecarRoot, "topic-graph-index.json"),
       `${JSON.stringify({
         schema_id: "synthesis.topic_graph_index_projection",
         nodes: [
@@ -241,7 +241,7 @@ describe("Synthesis JSON import tooling", function () {
       })}\n`,
     );
     await writeRuntimeTextFile(
-      path.join(paths.stateRoot, "tag-index.json"),
+      path.join(paths.sidecarRoot, "tag-index.json"),
       `${JSON.stringify({
         schema_id: "synthesis.tag_index_projection",
         tags: ["field:computer_vision"],
@@ -260,7 +260,7 @@ describe("Synthesis JSON import tooling", function () {
     assert.equal(repository.countRows("synt_topic_graph_node"), 1);
     assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 1);
     assert.include(
-      await readRuntimeTextFile(path.join(paths.stateRoot, "tag-index.json")),
+      await readRuntimeTextFile(path.join(paths.sidecarRoot, "tag-index.json")),
       "field:computer_vision",
     );
   });

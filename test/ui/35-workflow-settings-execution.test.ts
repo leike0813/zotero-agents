@@ -696,7 +696,7 @@ describe("workflow settings execution", function () {
   );
 
   itNodeOnly(
-    "lists only ACP backends as compatible profiles for skillrunner sequence workflows",
+    "lists ACP and SkillRunner backends as compatible profiles for skillrunner sequence workflows",
     async function () {
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
@@ -713,9 +713,11 @@ describe("workflow settings execution", function () {
       });
 
       const profileIds = descriptor.profiles.map((entry) => entry.id).sort();
-      assert.includeMembers(profileIds, ["acp-opencode"]);
-      assert.isFalse(profileIds.includes("skillrunner-alt"));
-      assert.isFalse(profileIds.includes("skillrunner-primary"));
+      assert.includeMembers(profileIds, [
+        "acp-opencode",
+        "skillrunner-alt",
+        "skillrunner-primary",
+      ]);
       assert.isFalse(profileIds.includes("generic-http-local"));
     },
   );
@@ -800,6 +802,29 @@ describe("workflow settings execution", function () {
         acpModelId: "qwen3",
         acpReasoningEffort: "default",
       });
+    },
+  );
+
+  itNodeOnly(
+    "resolves skillrunner sequence workflows to SkillRunner provider when a SkillRunner backend is selected",
+    async function () {
+      updateWorkflowSettings("literature-analysis", {
+        backendId: "skillrunner-primary",
+      });
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-analysis",
+      );
+      assert.isOk(workflow);
+
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.backend.id, "skillrunner-primary");
+      assert.equal(context.backend.type, "skillrunner");
+      assert.equal(context.providerId, "skillrunner");
+      assert.equal(context.requestKind, "skillrunner.sequence.v1");
     },
   );
 

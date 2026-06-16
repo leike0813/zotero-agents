@@ -32,6 +32,10 @@ export type DashboardReadonlyState = {
   homeWorkflowDocWorkflowId: string;
   selectedProductId: string;
   selectedProductAssetId: string;
+  selectedProductSection: "products" | "feedback";
+  selectedFeedbackProductId: string;
+  feedbackSkillFilter: string;
+  selectedFeedbackProductIds: Set<string>;
   runtimeLogFilters: Record<string, unknown>;
   runtimeLogSelectedIdSet: Set<string>;
 };
@@ -54,9 +58,72 @@ const TERMINAL_STATES = new Set([
   "completed",
   "done",
 ]);
+const SKILL_RUN_FEEDBACK_KIND = "skill_run_feedback";
+const SKILL_RUN_FEEDBACK_ASSET_ID = "feedback";
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function normalizeDashboardSignatureValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeDashboardSignatureValue(entry));
+  }
+  if (value && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    const normalized: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) {
+      const entry = source[key];
+      if (typeof entry !== "undefined") {
+        normalized[key] = normalizeDashboardSignatureValue(entry);
+      }
+    }
+    return normalized;
+  }
+  return value;
+}
+
+function dashboardSignature(value: unknown) {
+  return JSON.stringify(normalizeDashboardSignatureValue(value));
+}
+
+function dashboardSelectedSurfaceKey(snapshot: Record<string, unknown>) {
+  const tabKey = cleanString(snapshot.selectedTabKey) || "home";
+  return tabKey.startsWith("backend:") ? "backend" : tabKey;
+}
+
+function dashboardSurfaceSignatures(snapshot: Record<string, unknown>) {
+  const selectedSurfaceKey = dashboardSelectedSurfaceKey(snapshot);
+  const selectedSurface =
+    selectedSurfaceKey === "products"
+      ? { selectedSurfaceKey, productStorageView: snapshot.productStorageView }
+      : selectedSurfaceKey === "workflow-options"
+        ? {
+            selectedSurfaceKey,
+            workflowOptionsView: snapshot.workflowOptionsView,
+          }
+        : selectedSurfaceKey === "runtime-logs"
+          ? { selectedSurfaceKey, runtimeLogsView: snapshot.runtimeLogsView }
+          : selectedSurfaceKey === "backend"
+            ? { selectedSurfaceKey, backendView: snapshot.backendView }
+            : {
+                selectedSurfaceKey,
+                summary: snapshot.summary,
+                runningRows: snapshot.runningRows,
+                homeWorkflows: snapshot.homeWorkflows,
+                homeWorkflowDocView: snapshot.homeWorkflowDocView,
+              };
+  return {
+    chrome: dashboardSignature({
+      selectedTabKey: snapshot.selectedTabKey,
+      title: snapshot.title,
+      labels: snapshot.labels,
+      tabs: snapshot.tabs,
+      backendLoadError: snapshot.backendLoadError,
+    }),
+    selectedSurface: dashboardSignature(selectedSurface),
+    selectedSurfaceKey,
+  };
 }
 
 function cleanString(value: unknown) {
@@ -271,6 +338,10 @@ const DASHBOARD_LABELS = {
   productsOpenRun: "Open Run",
   productsRemove: "Remove From Products",
   productsPreviewUnavailable: "Select a file to preview.",
+  productsListTitle: "Products",
+  productsListCollapse: "Collapse product list",
+  productsListExpand: "Expand product list",
+  productsListRail: "Products",
   homeWorkflowTitle: "Workflows",
   homeWorkflowDocButton: "Description",
   homeWorkflowRunButton: "Run workflow",
@@ -394,8 +465,10 @@ function normalizeProduct(row: PluginStateReadonlyRow) {
     requestId: cleanString(product.requestId || row.requestId),
     runId: cleanString(product.runId),
     storageMode:
-      product.storageMode === "cached-bundle"
-        ? "cached-bundle"
+      product.storageMode === "persistent-cache" ||
+      product.storageMode === "cached-bundle" ||
+      product.storageMode === "local-workspace"
+        ? product.storageMode
         : "local-workspace",
     workspaceDir: cleanString(product.workspaceDir),
     cacheDir: cleanString(product.cacheDir),
@@ -479,6 +552,10 @@ export async function createDashboardReadonlyModel(
     homeWorkflowDocWorkflowId: "",
     selectedProductId: "",
     selectedProductAssetId: "",
+    selectedProductSection: "products",
+    selectedFeedbackProductId: "",
+    feedbackSkillFilter: "",
+    selectedFeedbackProductIds: new Set(),
     runtimeLogFilters: {},
     runtimeLogSelectedIdSet: new Set(),
   };
@@ -588,13 +665,38 @@ export async function createDashboardReadonlyModel(
   }
 
   function productsView() {
-    const products = store
+    const allProducts = store
       .listTaskRows({
         domain: "workflow-products",
         scope: "products",
         limit: 200,
       })
       .map(normalizeProduct);
+    const products = allProducts.filter(
+      (entry) => entry.kind !== SKILL_RUN_FEEDBACK_KIND,
+    );
+    const feedbackAll = allProducts.filter(
+      (entry) => entry.kind === SKILL_RUN_FEEDBACK_KIND,
+    );
+    const feedbackSkillOptions = Array.from(
+      new Set(
+        feedbackAll
+          .map((entry) => cleanString(entry.metadata?.skillId))
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+    if (
+      state.feedbackSkillFilter &&
+      !feedbackSkillOptions.includes(state.feedbackSkillFilter)
+    ) {
+      state.feedbackSkillFilter = "";
+    }
+    const feedbackProducts = state.feedbackSkillFilter
+      ? feedbackAll.filter(
+          (entry) =>
+            cleanString(entry.metadata?.skillId) === state.feedbackSkillFilter,
+        )
+      : feedbackAll;
     const selected =
       products.find((entry) => entry.productId === state.selectedProductId) ||
       products[0];
@@ -604,13 +706,37 @@ export async function createDashboardReadonlyModel(
         (entry: any) => entry.assetId === state.selectedProductAssetId,
       ) || selected?.assets[0];
     state.selectedProductAssetId = selectedAsset?.assetId || "";
+    const selectedFeedback =
+      feedbackProducts.find(
+        (entry) => entry.productId === state.selectedFeedbackProductId,
+      ) || feedbackProducts[0];
+    state.selectedFeedbackProductId = selectedFeedback?.productId || "";
+    for (const id of Array.from(state.selectedFeedbackProductIds)) {
+      if (!feedbackProducts.some((entry) => entry.productId === id)) {
+        state.selectedFeedbackProductIds.delete(id);
+      }
+    }
+    const feedbackAsset =
+      selectedFeedback?.assets.find(
+        (entry: any) => entry.assetId === SKILL_RUN_FEEDBACK_ASSET_ID,
+      ) || selectedFeedback?.assets[0];
     return {
+      section: state.selectedProductSection,
       products,
       selectedProduct: selected,
       selectedAssetId: selectedAsset?.assetId,
       selectedPreview: selected
         ? previewForProductAsset(selected, selectedAsset?.assetId || "")
         : undefined,
+      feedbackProducts,
+      feedbackSkillOptions,
+      feedbackSkillFilter: state.feedbackSkillFilter,
+      selectedFeedbackProduct: selectedFeedback,
+      selectedFeedbackProductIds: Array.from(state.selectedFeedbackProductIds),
+      selectedFeedbackPreview:
+        selectedFeedback && feedbackAsset
+          ? previewForProductAsset(selectedFeedback, feedbackAsset.assetId)
+          : undefined,
     };
   }
 
@@ -753,6 +879,8 @@ export async function createDashboardReadonlyModel(
         logRows: [],
       };
     }
+    snapshotPayload.surfaceSignatures =
+      dashboardSurfaceSignatures(snapshotPayload);
     return snapshotPayload;
   }
 
@@ -780,10 +908,39 @@ export async function createDashboardReadonlyModel(
       state.selectedWorkflowOptionsWorkflowId = cleanString(data.workflowId);
     } else if (action === "select-product") {
       state.selectedTabKey = "products";
+      state.selectedProductSection = "products";
       state.selectedProductId = cleanString(data.productId);
       state.selectedProductAssetId = "";
     } else if (action === "select-product-asset") {
+      state.selectedProductSection = "products";
       state.selectedProductAssetId = cleanString(data.assetId);
+    } else if (action === "select-product-section") {
+      state.selectedTabKey = "products";
+      state.selectedProductSection =
+        cleanString(data.section) === "feedback" ? "feedback" : "products";
+    } else if (action === "select-feedback-skill-filter") {
+      state.selectedTabKey = "products";
+      state.selectedProductSection = "feedback";
+      state.feedbackSkillFilter = cleanString(data.skillId);
+      state.selectedFeedbackProductId = "";
+      state.selectedFeedbackProductIds.clear();
+    } else if (action === "select-feedback-product") {
+      state.selectedTabKey = "products";
+      state.selectedProductSection = "feedback";
+      state.selectedFeedbackProductId = cleanString(data.productId);
+    } else if (action === "toggle-feedback-product-selected") {
+      const productId = cleanString(data.productId);
+      if (productId) {
+        if (data.selected === true) {
+          state.selectedFeedbackProductIds.add(productId);
+        } else {
+          state.selectedFeedbackProductIds.delete(productId);
+        }
+      }
+    } else if (action === "export-selected-feedback") {
+      log("dashboard", action, {
+        productIds: Array.from(state.selectedFeedbackProductIds),
+      });
     } else if (action === "runtime-logs-set-filters") {
       state.runtimeLogFilters =
         data.filters && typeof data.filters === "object"

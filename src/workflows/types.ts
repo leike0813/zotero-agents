@@ -166,6 +166,10 @@ export type WorkflowRequestSpec = {
       parameter?: Record<string, unknown>;
       fetch_type?: "bundle" | "result";
       workspace?: "new" | "reuse-workflow";
+      apply_result?: {
+        workflow_id?: string;
+        on_failure?: "continue" | "fail_sequence";
+      };
       handoff?: {
         from_step?: string;
         required?: boolean;
@@ -481,6 +485,14 @@ export type ApplyResultHook = (args: {
   productStorage?: ProductStorageApi;
   request?: unknown;
   runResult?: unknown;
+  sequenceStep?: {
+    id: string;
+    index: number;
+    workflowId: string;
+    skillId: string;
+    finalStep: boolean;
+    phase: "sequence-step";
+  };
   manifest: WorkflowManifest;
   runtime: WorkflowRuntimeContext;
 }) => unknown | Promise<unknown>;

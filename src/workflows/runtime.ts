@@ -40,6 +40,10 @@ import {
   buildZoteroHostAccessRuntimeOptions,
   stripZoteroHostAccessRuntimeParams,
 } from "./zoteroHostAccessOptions";
+import {
+  SKILL_RUN_FEEDBACK_RUNTIME_OPTION,
+  isSkillRunFeedbackCollectionEnabled,
+} from "../modules/skillRunFeedback";
 
 type AttachmentLike = {
   item?: {
@@ -259,6 +263,9 @@ function withInjectedSkillRunnerExecutionMode(args: {
       manifest: args.workflow.manifest,
       runOptions: args.executionOptions?.runOptions,
     });
+  }
+  if (isSkillRunFeedbackCollectionEnabled()) {
+    runtimeOptions[SKILL_RUN_FEEDBACK_RUNTIME_OPTION] = true;
   }
   if (Object.keys(runtimeOptions).length > 0) {
     next.runtime_options = runtimeOptions;
@@ -1164,6 +1171,14 @@ export async function executeApplyResult(args: {
   resultContext?: WorkflowResultContext;
   request?: unknown;
   runResult?: unknown;
+  sequenceStep?: {
+    id: string;
+    index: number;
+    workflowId: string;
+    skillId: string;
+    finalStep: boolean;
+    phase: "sequence-step";
+  };
   runtime?: Partial<WorkflowRuntimeContext>;
 }) {
   return measureAsyncTestPerformanceSpan(
@@ -1203,6 +1218,7 @@ export async function executeApplyResult(args: {
                 productStorage,
                 request: args.request,
                 runResult: args.runResult,
+                sequenceStep: args.sequenceStep,
                 manifest: args.workflow.manifest,
                 runtime: hookRuntime,
               }),

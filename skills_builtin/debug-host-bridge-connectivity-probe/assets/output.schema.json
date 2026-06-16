@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Host Bridge Connectivity Probe Result",
+  "type": "object",
+  "required": [
+    "kind",
+    "ok",
+    "connection",
+    "checks",
+    "diagnostics",
+    "failure_code",
+    "failure_message"
+  ],
+  "properties": {
+    "kind": { "const": "host_bridge_connectivity_probe_result" },
+    "ok": { "type": "boolean" },
+    "connection": {
+      "type": "object",
+      "required": [
+        "cli_entry",
+        "endpoint_source",
+        "endpoint",
+        "connection_mode",
+        "token_present"
+      ],
+      "properties": {
+        "cli_entry": { "type": "string" },
+        "endpoint_source": {
+          "enum": ["argument", "env", "profile", "unknown"]
+        },
+        "endpoint": { "type": "string" },
+        "connection_mode": {
+          "enum": ["local", "remote", "unknown"]
+        },
+        "token_present": { "type": "boolean" },
+        "profile_path": { "type": "string" },
+        "profile_present": { "type": "boolean" },
+        "env_endpoint_present": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "duration_ms"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["passed", "failed", "skipped"] },
+          "duration_ms": { "type": "number" },
+          "failure_code": { "type": "string" },
+          "message": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "properties": {
+        "protocol": { "type": "string" },
+        "capability_count": { "type": "number" },
+        "remote_endpoint_detected": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "failure_code": {
+      "type": "string",
+      "enum": [
+        "",
+        "cli_not_found",
+        "profile_missing",
+        "endpoint_missing",
+        "token_missing",
+        "endpoint_unreachable",
+        "auth_failed",
+        "manifest_invalid",
+        "capability_call_failed",
+        "expected_local_but_remote",
+        "expected_remote_but_local",
+        "remote_endpoint_loopback"
+      ]
+    },
+    "failure_message": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -126,16 +126,19 @@
 - 支持 request kind：
   - `acp.prompt.v1`：向 ACP agent 发送单轮 prompt
   - `acp.skill.run.v1`：在 ACP 后端执行 skill run
-  - `skillrunner.sequence.v1`：在 ACP 后端执行多步序列（由 workflow 运行时编排，provider 层不直接处理）
+  - `skillrunner.sequence.v1`：执行多步序列，由 workflow 运行时按目标 backend 编译为 ACP skill run 或 SkillRunner job step，provider 层不直接处理 sequence request
 - `acp.prompt.v1` 语义：
   - 通过 sidecar global chat surface 处理
   - 支持 `hostContext` 传递上下文
 - `acp.skill.run.v1` 语义：
   - 委托给 `executeAcpSkillRunnerJob` 处理
   - 支持 `input`、`parameter`、`runtime_options` 等标准负载字段
-  - 支持 `workflow_workspace` 模式（`"new"` / `"reuse"`）
+  - 支持 `runtime_options.workspace` 模式（`"new"` / `"reuse"`，句柄字段为 `workflow_run_id`）
+  - 读取旧 ACP 请求时仍接受 `runtime_options.workflow_workspace` 作为 legacy fallback
 - `skillrunner.sequence.v1` 语义：
-  - 作为 ACP 兼容工作流编排的序列提供者
+  - 作为 ACP / SkillRunner 兼容工作流编排的序列请求
+  - ACP backend step 使用 `runtime_options.workspace.workflow_run_id`
+  - SkillRunner backend step 使用 `runtime_options.workspace.request_id`
   - provider 执行层对此 request kind 抛出错误（必须由 workflow 运行时编排处理）
   - 详细合同见 `doc/skillrunner-sequence-recovery-state-machine.md`
 - Runtime options：

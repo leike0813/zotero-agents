@@ -61,7 +61,7 @@ The topic update action is always labeled `Update` in the UI. Its intent may sti
 
 ### Persisted Artifact State
 
-Topic source readiness is persisted in `state/artifact-state.json` under `data.topics[*].source_materials_status`. New writes must not write the old topic-row `coverage` field for source readiness.
+Topic source readiness is persisted in `sidecar/artifact-state.json` under `data.topics[*].source_materials_status`. New writes must not write the old topic-row `coverage` field for source readiness.
 
 Legacy artifact-state rows may contain `data.topics[*].coverage` from before the hard cut. Readers may map that legacy value to `source_materials_status` during migration or compatibility reads, but the next persisted state should contain only `source_materials_status`.
 

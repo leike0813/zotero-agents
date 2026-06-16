@@ -2,7 +2,7 @@
   "id": "debug-sequence-workspace-reuse-probe",
   "label": "Debug: Sequence Workspace Reuse Probe",
   "version": "0.1.0",
-  "provider": "acp",
+  "provider": "skillrunner",
   "debug_only": true,
   "trigger": {
     "requiresSelection": false

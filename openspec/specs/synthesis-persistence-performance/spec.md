@@ -166,3 +166,35 @@ as transient UI refresh errors.
 - **THEN** it SHALL NOT change WAL mode, SQLite busy timeout, retry attempts, or
   write lock strategy.
 
+### Requirement: Synthesis durable facts and rebuildable projections are separated
+
+Synthesis persistence SHALL keep durable facts exportable while treating cache/projection/runtime state as local materialization.
+
+#### Scenario: Durable facts are exported
+
+- **WHEN** concepts, topic graph decisions, reviews, discovery decisions, reference bindings, tag vocabulary, topic current source assets, or related-items durable effects exist
+- **THEN** export SHALL render them into deterministic Git Sync bundle entries.
+
+#### Scenario: Rebuildable projections exist
+
+- **WHEN** cache basis, citation graph cache rows, layout rows, metrics rows, or operation rows exist
+- **THEN** export SHALL treat them as local projections or runtime state
+- **AND** they SHALL NOT be included in Git Sync bundles or legacy canonical asset copies.
+
+### Requirement: Import writes durable state through repository APIs
+
+Durable import SHALL write Synthesis facts only through repository/domain services after preview succeeds.
+
+#### Scenario: Import hydrates clean SQLite
+
+- **WHEN** local SQLite has no durable Synthesis facts and a valid Git durable payload is imported
+- **THEN** Synthesis SHALL hydrate durable facts through repository/domain APIs
+- **AND** rebuildable projections SHALL be marked stale rather than ready.
+
+### Requirement: WebDAV sync excludes rebuildable projections
+
+WebDAV Sync SHALL only upload durable bundle assets and SHALL exclude runtime state, cache, projection, SQLite, WAL, SHM, logs, locks, and temporary files.
+
+#### Scenario: WebDAV export runs
+- **WHEN** WebDAV Sync uploads a snapshot
+- **THEN** uploaded paths SHALL be limited to `manifest.json` and `bundles/**` under a snapshot root plus the final `HEAD.json`.

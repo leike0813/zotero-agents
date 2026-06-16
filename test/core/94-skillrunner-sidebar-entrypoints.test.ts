@@ -98,12 +98,13 @@ describe("skillrunner sidebar entrypoints", function () {
     );
   });
 
-  it("routes interactive request-created openings through the Assistant shell entrypoint", async function () {
+  it("routes interactive request-ready openings through the Assistant shell entrypoint", async function () {
     const ts = await readProjectFile(
       "src/modules/workflowExecution/runSeam.ts",
     );
     assert.include(ts, "openAssistantWorkspaceSidebar");
     assert.include(ts, "focusSkillRunnerWorkspace");
+    assert.include(ts, 'event.type === "request-ready"');
     assert.include(ts, "selectAcpSkillRun");
     assert.notInclude(ts, "resolved.openSkillRunnerRunDialog({");
     assert.notInclude(ts, "openSkillRunnerSidebar");

@@ -1,9 +1,22 @@
+import type { HostBridgeConnectionMode } from "../hostBridgeProtocol";
+
+export type SynthesisMcpServiceContext = {
+  hostBridge?: {
+    connectionMode?: HostBridgeConnectionMode;
+  };
+};
+
+type SynthesisMcpServiceMethodHandler = (
+  args: Record<string, unknown>,
+  context?: SynthesisMcpServiceContext,
+) => unknown | Promise<unknown>;
+
 export type SynthesisMcpService = {
   listTopics?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   findTopicsByPaperRef?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
-  getTopicContext?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  getTopicContext?: SynthesisMcpServiceMethodHandler;
   getTopicReport?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   getSchemas?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
   queryConceptKb?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
@@ -39,9 +52,7 @@ export type SynthesisMcpService = {
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
   readPaperArtifacts?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
-  exportFilteredPaperArtifacts?: (
-    args: Record<string, unknown>,
-  ) => unknown | Promise<unknown>;
+  exportFilteredPaperArtifacts?: SynthesisMcpServiceMethodHandler;
   resolveTopicPaperDigest?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;

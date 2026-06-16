@@ -26,39 +26,6 @@ backend is not ACP.
 - **GIVEN** a sequence workflow is prepared with a non-ACP backend
 - **WHEN** execution starts
 - **THEN** the workflow is rejected before launching any step.
-### Requirement: Workflow runtime executes skillrunner sequences serially
-
-
-The workflow runtime SHALL execute `skillrunner.sequence.v1` requests step by
-step and SHALL not enqueue sequence steps as independent parallel workflow
-jobs.
-
-#### Scenario: Steps run in declaration order
-
-- **WHEN** a sequence request contains multiple steps
-- **THEN** the runtime SHALL launch the first step
-- **AND** it SHALL launch each downstream step only after the upstream step
-  returns a non-deferred successful result.
-
-#### Scenario: Only final step applies
-
-- **WHEN** intermediate sequence steps succeed
-- **THEN** workflow `applyResult` SHALL NOT run for those intermediate steps.
-- **WHEN** the declared final step succeeds
-- **THEN** workflow `applyResult` SHALL run once using the final step result.
-
-#### Scenario: A sequence step cannot continue
-
-- **WHEN** a sequence step fails, is canceled, or returns deferred
-- **THEN** the runtime SHALL NOT launch downstream steps.
-
-#### Scenario: Deferred ACP step does not run workflow apply
-
-- **GIVEN** an ACP-backed workflow step returns a deferred recoverable result
-- **WHEN** foreground workflow apply processes the provider result
-- **THEN** workflow `applyResult` SHALL NOT run
-- **AND** the workflow task SHALL remain pending rather than being marked
-  applied successfully.
 ### Requirement: ACP sequence runs preserve Host-only continuation state
 
 
@@ -111,7 +78,6 @@ Host SHALL terminate the sequence when a step fails or is explicitly canceled.
 - **WHEN** a sequence step returns canceled
 - **THEN** Host SHALL mark the sequence canceled
 - **AND** Host SHALL NOT launch downstream steps.
-
 ### Requirement: Workflow runtime executes skillrunner sequences serially
 
 The workflow runtime SHALL execute `skillrunner.sequence.v1` requests step by
@@ -125,23 +91,33 @@ jobs.
 - **AND** it SHALL launch each downstream step only after the upstream step
   returns a non-deferred successful result.
 
-#### Scenario: Only final step applies
+#### Scenario: Opt-in successful step applies before downstream execution
 
-- **WHEN** intermediate sequence steps succeed
-- **THEN** workflow `applyResult` SHALL NOT run for those intermediate steps.
-- **WHEN** the declared final step succeeds
-- **THEN** workflow `applyResult` SHALL run once using the final step result.
+- **GIVEN** a sequence step declares `apply_result`
+- **WHEN** that step returns a successful provider result
+- **THEN** the runtime SHALL invoke the declared workflow `applyResult` before
+  launching the next step
+- **AND** the runtime SHALL record that step apply status in sequence state.
 
-#### Scenario: Successful step output short-circuits the sequence
+#### Scenario: Step apply failure continues by default
 
-- **GIVEN** a non-final sequence step declares a `short_circuit` rule
-- **WHEN** the step succeeds and the resolved output value matches the rule
-- **THEN** the runtime SHALL mark the sequence completed
-- **AND** it SHALL NOT launch downstream steps
-- **AND** it SHALL return a succeeded provider result whose `resultJson` is the
-  short-circuiting step output
-- **AND** workflow `applyResult` SHALL run once using that short-circuiting
-  step output.
+- **GIVEN** a sequence step declares `apply_result`
+- **AND** it does not declare `on_failure = "fail_sequence"`
+- **WHEN** the step `applyResult` fails
+- **THEN** the runtime SHALL record the apply failure
+- **AND** downstream sequence steps SHALL continue.
+
+#### Scenario: Undeclared intermediate steps do not apply
+
+- **WHEN** an intermediate sequence step does not declare `apply_result`
+- **THEN** workflow `applyResult` SHALL NOT run for that intermediate step.
+
+#### Scenario: Final step apply is not duplicated
+
+- **GIVEN** the declared final sequence step declares `apply_result`
+- **WHEN** the foreground apply seam processes the completed sequence job
+- **THEN** it SHALL NOT invoke the parent workflow apply hook again for the
+  final result.
 
 #### Scenario: A sequence step cannot continue
 
@@ -155,3 +131,37 @@ jobs.
 - **THEN** workflow `applyResult` SHALL NOT run
 - **AND** the workflow task SHALL remain pending rather than being marked
   applied successfully.
+### Requirement: Opt-in skill run feedback runtime option
+
+The workflow execution runtime SHALL expose a default-off global preference named `collectSkillRunFeedbackEnabled` that controls whether skill run feedback collection is requested.
+
+#### Scenario: Preference disabled
+
+- **WHEN** the preference is disabled
+- **THEN** SkillRunner job and sequence requests do not include `runtime_options.collect_skill_run_feedback`
+
+#### Scenario: Preference enabled
+
+- **WHEN** the preference is enabled
+- **THEN** SkillRunner job and sequence requests include `runtime_options.collect_skill_run_feedback: true`
+- **AND** existing runtime options remain preserved
+
+### Requirement: Collect feedback only after successful apply
+
+The workflow execution runtime SHALL attempt skill run feedback collection only after a provider job succeeded and the workflow business apply completed successfully.
+
+#### Scenario: Apply succeeds
+
+- **WHEN** a skill job succeeds and business apply succeeds
+- **THEN** the runtime attempts to read `_skill_run_feedback.md` from the skill result subspace
+
+#### Scenario: Non-success route
+
+- **WHEN** a job fails, is canceled, remains pending or recoverable, or business apply fails
+- **THEN** the runtime does not collect skill run feedback
+
+#### Scenario: Feedback is unavailable
+
+- **WHEN** the feedback sidecar is missing, empty, or unreadable
+- **THEN** the runtime logs diagnostic information
+- **AND** the main apply summary counters are unchanged by the feedback collection attempt

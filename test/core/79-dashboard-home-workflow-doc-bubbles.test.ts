@@ -109,7 +109,9 @@ describe("dashboard home workflow doc bubbles", function () {
   });
 
   it("enforces compact horizontal wrapping layout invariants for workflow bubbles", async function () {
+    const app = await readProjectFile("addon/content/dashboard/app.js");
     const css = await readProjectFile("addon/content/dashboard/styles.css");
+    const iconCss = await readProjectFile("addon/content/shared/icons.css");
     assert.include(css, ".workflow-bubbles-wrap {");
     assert.include(css, "display: grid;");
     assert.include(css, "grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));");
@@ -130,15 +132,24 @@ describe("dashboard home workflow doc bubbles", function () {
     assert.include(css, "-moz-appearance: none");
     assert.include(css, "background-image: none");
     assert.include(css, "box-shadow: var(--dashboard-control-shadow)");
-    assert.include(css, ".workflow-bubble-icon-run {");
-    assert.include(css, "background-color: currentColor");
-    assert.include(
-      css,
-      '-webkit-mask-image: url("../icons/icon_workflow_run.svg")',
-    );
-    assert.include(css, 'mask-image: url("../icons/icon_workflow_run.svg")');
+    assert.include(app, "function dashboardTabIconClass(tabKey)");
+    assert.include(app, 'home: "zs-icon-dashboard"');
+    assert.include(app, '"workflow-options": "zs-icon-settings-applications"');
+    assert.include(app, 'products: "zs-icon-inventory-2"');
+    assert.include(app, '"runtime-logs": "zs-icon-terminal"');
+    assert.include(app, "tab-btn-content");
+    assert.include(css, ".tab-btn-content");
+    assert.include(css, ".workflow-bubble-icon {");
+    assert.include(app, "workflow-bubble-icon-run");
+    assert.include(iconCss, "background-color: currentColor");
+    assert.include(app, "zs-icon-play-arrow");
+    assert.include(app, "zs-icon-description");
+    assert.include(app, "zs-icon-settings");
+    assert.include(iconCss, ".zs-icon-play-arrow");
+    assert.include(iconCss, ".zs-icon-description");
+    assert.include(iconCss, ".zs-icon-settings");
     const icon = await readProjectFile(
-      "addon/content/icons/icon_workflow_run.svg",
+      "addon/content/icons/material-symbols/play_arrow.svg",
     );
     assert.include(icon, "<svg");
   });

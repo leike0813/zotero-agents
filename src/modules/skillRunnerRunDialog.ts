@@ -15,6 +15,7 @@ import {
   type SkillRunnerManagementSseFrame,
   isAbortErrorLike,
 } from "../providers/skillrunner/managementClient";
+import { isSkillRunnerRunTerminalClientError } from "../providers/skillrunner/errors";
 import { buildSkillRunnerManagementClient } from "./skillRunnerManagementClientFactory";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import {
@@ -52,12 +53,19 @@ import {
   stopSessionSync,
   subscribeSkillRunnerSessionState,
 } from "./skillRunnerSessionSyncManager";
+import { settleSkillRunnerRunAsFailed } from "./skillRunnerRunSettlement";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import {
   pickSkillRunnerSidebarFocusedTaskKey,
   type SkillRunnerSidebarContext,
   type SkillRunnerSidebarRelationState,
 } from "./skillRunnerSidebarModel";
+import type { AcpPendingPermissionRequest } from "./acpTypes";
+import {
+  getSkillRunnerHostBridgePermissionRequest,
+  resolveSkillRunnerHostBridgePermissionRequest,
+  subscribeSkillRunnerHostBridgePermissionRequests,
+} from "./skillRunnerHostBridgePermissionRegistry";
 
 export type RunDialogMessageRole = "assistant" | "user" | "system";
 export type RunDialogMessageKind =
@@ -122,6 +130,7 @@ type RunSessionState = {
   pendingOwner?: string;
   pendingInteraction?: RunDialogPendingInteraction;
   pendingAuth?: RunDialogPendingAuth;
+  pendingPermission?: AcpPendingPermissionRequest | null;
   messages: SkillRunnerConversationEntry[];
   seenMessageKeys: Set<string>;
   lastSeq: number;
@@ -150,6 +159,7 @@ type RunDialogSnapshot = {
   pendingRequiredFields: string[];
   pendingUiHints?: Record<string, unknown>;
   pendingAskUser?: Record<string, unknown>;
+  pendingPermission?: AcpPendingPermissionRequest | null;
   authPhase?: string;
   authSessionId?: string;
   authProviderId?: string;
@@ -286,6 +296,7 @@ export type RunWorkspaceTaskItem = {
   title: string;
   selectable: boolean;
   terminal: boolean;
+  attention?: "" | "warning";
   inputUnitIdentity?: string;
   targetParentID?: number;
   relationState?: SkillRunnerSidebarRelationState;
@@ -368,6 +379,7 @@ type RunWorkspaceState = {
   removeMessageListener?: () => void;
   unsubscribeTasks?: () => void;
   unsubscribeBackendHealth?: () => void;
+  unsubscribeHostBridgePermissions?: () => void;
   decorateSnapshot?: (snapshot: RunWorkspaceSnapshot) => RunWorkspaceSnapshot;
   resolveSidebarSelectionContext?: () => SkillRunnerSidebarContext | null;
   handleHostAction?: (
@@ -438,6 +450,40 @@ function compactError(error: unknown) {
     return "unknown error";
   }
   return text.length > 220 ? `${text.slice(0, 220)}...` : text;
+}
+
+function settleRunDialogEntryAsFailed(args: {
+  entry: RunDialogEntry;
+  error: unknown;
+  source: string;
+}) {
+  if (!isSkillRunnerRunTerminalClientError(args.error)) {
+    return false;
+  }
+  const message = compactError(args.error);
+  const updatedAt = new Date().toISOString();
+  args.entry.session.status = "failed";
+  args.entry.session.error = message;
+  args.entry.session.updatedAt = updatedAt;
+  args.entry.session.pendingOwner = undefined;
+  args.entry.session.pendingInteraction = undefined;
+  args.entry.session.pendingAuth = undefined;
+  settleSkillRunnerRunAsFailed({
+    backendId: args.entry.backend.id,
+    backendType: args.entry.backend.type,
+    providerId: "skillrunner",
+    requestId: args.entry.requestId,
+    reason: message,
+    source: args.source,
+    error: args.error,
+    updatedAt,
+  });
+  stopSessionSync({
+    backendId: args.entry.backend.id,
+    requestId: args.entry.requestId,
+  });
+  pushSnapshot("snapshot");
+  return true;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -1387,6 +1433,9 @@ async function buildRunWorkspaceModel() {
         continue;
       }
       const normalizedStatus = normalizeStatus(row.state, "running");
+      const pendingPermission = requestId
+        ? getSkillRunnerHostBridgePermissionRequest(requestId)
+        : null;
       const task: RunWorkspaceTaskItem = {
         key,
         backendId,
@@ -1408,6 +1457,7 @@ async function buildRunWorkspaceModel() {
         }),
         selectable: requestId.length > 0,
         terminal: isTerminal(normalizedStatus),
+        attention: pendingPermission ? "warning" : undefined,
         inputUnitIdentity:
           String(
             (row as { inputUnitIdentity?: unknown }).inputUnitIdentity || "",
@@ -1459,6 +1509,9 @@ async function buildRunWorkspaceModel() {
       title: target.requestId,
       selectable: true,
       terminal: false,
+      attention: getSkillRunnerHostBridgePermissionRequest(target.requestId)
+        ? "warning"
+        : undefined,
       inputUnitIdentity: undefined,
       targetParentID: undefined,
     };
@@ -1600,6 +1653,10 @@ function buildRunDialogSnapshot(
 ): RunDialogSnapshot {
   const pending = entry.session.pendingInteraction;
   const pendingAuth = entry.session.pendingAuth;
+  const pendingPermission = getSkillRunnerHostBridgePermissionRequest(
+    entry.requestId,
+  );
+  entry.session.pendingPermission = pendingPermission;
   const displayMessages = buildRunDialogDisplayMessages(entry.session.messages);
   const normalizedStatus = normalizeStatus(entry.session.status, "running");
   const backendDisplayName = resolveBackendDisplayName(
@@ -1627,6 +1684,7 @@ function buildRunDialogSnapshot(
     pendingRequiredFields: pending?.requiredFields || [],
     pendingUiHints: pending?.uiHints,
     pendingAskUser: pending?.askUser,
+    pendingPermission,
     authPhase: pendingAuth?.phase,
     authSessionId: pendingAuth?.authSessionId,
     authProviderId: pendingAuth?.providerId,
@@ -1983,6 +2041,12 @@ function ensureRunWorkspaceSubscriptions() {
         void refreshWorkspaceSnapshot();
       });
   }
+  if (!runWorkspaceState.unsubscribeHostBridgePermissions) {
+    runWorkspaceState.unsubscribeHostBridgePermissions =
+      subscribeSkillRunnerHostBridgePermissionRequests(() => {
+        void refreshWorkspaceSnapshot();
+      });
+  }
 }
 
 function attachRunWorkspaceHost(args: {
@@ -2073,6 +2137,21 @@ async function startRunObserver(entry: RunDialogEntry) {
     chatStreamAbortController = null;
   };
 
+  const settleObserverTerminalError = (error: unknown, source: string) => {
+    if (!settleRunDialogEntryAsFailed({ entry, error, source })) {
+      return false;
+    }
+    stopped = true;
+    observerGeneration += 1;
+    abortCurrentChatStream();
+    stopWaitingAuthObserver();
+    entry.unsubscribeSessionState?.();
+    entry.unsubscribeSessionState = undefined;
+    entry.refreshState = undefined;
+    entry.refreshDisplay = undefined;
+    return true;
+  };
+
   const syncHistory = async () => {
     const generation = observerGeneration;
     const historyPayload = await client.listRunChatHistory({
@@ -2099,7 +2178,10 @@ async function startRunObserver(entry: RunDialogEntry) {
       }
       entry.session.engine = String(run.engine || "").trim() || undefined;
       entry.session.model = String(run.model || "").trim() || undefined;
-    } catch {
+    } catch (error) {
+      if (settleObserverTerminalError(error, "run-dialog-meta")) {
+        return;
+      }
       // Keep existing banner metadata when metadata refresh fails.
     }
   };
@@ -2201,6 +2283,11 @@ async function startRunObserver(entry: RunDialogEntry) {
           normalizedStatus;
       }
     } catch (error) {
+      if (settleObserverTerminalError(error, "run-dialog-pending")) {
+        return {
+          waitingAuthExited: false,
+        };
+      }
       // keep last-good pending payload for waiting states
       entry.session.pendingOwner =
         entry.session.pendingOwner || normalizedStatus;
@@ -2233,6 +2320,9 @@ async function startRunObserver(entry: RunDialogEntry) {
       await syncPendingState();
       await syncHistory();
     } catch (error) {
+      if (settleObserverTerminalError(error, "run-dialog-restart-session-sync")) {
+        return;
+      }
       entry.session.error = compactError(error);
     } finally {
       restartingSessionSync = false;
@@ -2285,6 +2375,9 @@ async function startRunObserver(entry: RunDialogEntry) {
           }
           pushSnapshot("snapshot");
         } catch (error) {
+          if (settleObserverTerminalError(error, "run-dialog-waiting-auth-observer")) {
+            return;
+          }
           entry.session.error = compactError(error);
           pushSnapshot("snapshot");
         } finally {
@@ -2314,6 +2407,9 @@ async function startRunObserver(entry: RunDialogEntry) {
         entry.session.error = undefined;
       }
     } catch (error) {
+      if (settleObserverTerminalError(error, "run-dialog-refresh-state")) {
+        return;
+      }
       entry.session.error = compactError(error);
     } finally {
       if (!stopped) {
@@ -2472,6 +2568,9 @@ async function startRunObserver(entry: RunDialogEntry) {
           }
           continue;
         }
+        if (settleObserverTerminalError(error, "run-dialog-chat-stream")) {
+          break;
+        }
         entry.session.error = compactError(error);
         pushSnapshot("snapshot");
         if (stopped) {
@@ -2526,6 +2625,17 @@ async function handleRunDialogActionForEntry(
     runWorkspaceState.closeHost?.();
     return;
   }
+  if (action === "resolve-permission") {
+    resolveSkillRunnerHostBridgePermissionRequest({
+      runRequestId:
+        String(payload.requestId || "").trim() || String(entry.requestId).trim(),
+      permissionRequestId: String(payload.permissionRequestId || "").trim(),
+      outcome: payload.outcome === "selected" ? "selected" : "cancelled",
+      optionId: String(payload.optionId || "").trim(),
+    });
+    pushSnapshot("snapshot");
+    return;
+  }
   if (action === "cancel-run") {
     if (isTerminalStatus(entry.session.status)) {
       pushSnapshot("snapshot");
@@ -2541,6 +2651,16 @@ async function handleRunDialogActionForEntry(
         requestId: entry.requestId,
       });
     } catch (error) {
+      if (
+        settleRunDialogEntryAsFailed({
+          entry,
+          error,
+          source: "run-dialog-cancel",
+        })
+      ) {
+        await stopRunDialogEntryObserver(entry);
+        return;
+      }
       entry.alertWindow?.alert?.(
         localize(
           "task-dashboard-skillrunner-cancel-failed",
@@ -2603,6 +2723,16 @@ async function handleRunDialogActionForEntry(
         });
         submitted = true;
       } catch (error) {
+        if (
+          settleRunDialogEntryAsFailed({
+            entry,
+            error,
+            source: "run-dialog-auth-reply",
+          })
+        ) {
+          await stopRunDialogEntryObserver(entry);
+          return;
+        }
         entry.alertWindow?.alert?.(
           localize(
             "task-dashboard-skillrunner-reply-failed",
@@ -2675,6 +2805,16 @@ async function handleRunDialogActionForEntry(
       });
       submitted = true;
     } catch (error) {
+      if (
+        settleRunDialogEntryAsFailed({
+          entry,
+          error,
+          source: "run-dialog-interaction-reply",
+        })
+      ) {
+        await stopRunDialogEntryObserver(entry);
+        return;
+      }
       entry.alertWindow?.alert?.(
         localize(
           "task-dashboard-skillrunner-reply-failed",
@@ -2732,6 +2872,16 @@ async function handleRunDialogActionForEntry(
       });
       imported = true;
     } catch (error) {
+      if (
+        settleRunDialogEntryAsFailed({
+          entry,
+          error,
+          source: "run-dialog-auth-import",
+        })
+      ) {
+        await stopRunDialogEntryObserver(entry);
+        return;
+      }
       entry.alertWindow?.alert?.(
         localize(
           "task-dashboard-run-auth-import-failed",
@@ -2780,6 +2930,10 @@ async function shutdownRunDialogRuntime() {
   if (runWorkspaceState.unsubscribeBackendHealth) {
     runWorkspaceState.unsubscribeBackendHealth();
     runWorkspaceState.unsubscribeBackendHealth = undefined;
+  }
+  if (runWorkspaceState.unsubscribeHostBridgePermissions) {
+    runWorkspaceState.unsubscribeHostBridgePermissions();
+    runWorkspaceState.unsubscribeHostBridgePermissions = undefined;
   }
   await stopRunDialogEntryObserver(runWorkspaceState.currentEntry);
   runWorkspaceState.currentEntry = undefined;

@@ -46,9 +46,84 @@ function bindPrefEvents() {
   const workflowOpenLogsButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-workflow-open-logs`,
   ) as XUL.Button | null;
+  const collectSkillRunFeedbackCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-collect-skill-run-feedback`,
+  ) as HTMLInputElement | null;
   const backendManageButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-backend-manage`,
   ) as XUL.Button | null;
+  const gitSyncEnabledCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-enabled`,
+  ) as HTMLInputElement | null;
+  const gitSyncRemoteUrlInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-remote-url`,
+  ) as HTMLInputElement | null;
+  const gitSyncBranchInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-branch`,
+  ) as HTMLInputElement | null;
+  const gitSyncAutoSyncCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-auto-sync`,
+  ) as HTMLInputElement | null;
+  const gitSyncAutoRetryCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-auto-retry`,
+  ) as HTMLInputElement | null;
+  const gitSyncTokenInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-token`,
+  ) as HTMLInputElement | null;
+  const gitSyncSaveTokenButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-save-token`,
+  ) as XUL.Button | null;
+  const gitSyncClearTokenButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-clear-token`,
+  ) as XUL.Button | null;
+  const gitSyncTokenStatus = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-token-status`,
+  ) as HTMLElement | null;
+  const gitSyncSaveButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-save`,
+  ) as XUL.Button | null;
+  const gitSyncTestButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-test`,
+  ) as XUL.Button | null;
+  const gitSyncStatusText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-git-sync-status`,
+  ) as HTMLElement | null;
+  const webDavSyncEnabledCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-enabled`,
+  ) as HTMLInputElement | null;
+  const webDavSyncBaseUrlInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-base-url`,
+  ) as HTMLInputElement | null;
+  const webDavSyncRemotePathInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-remote-path`,
+  ) as HTMLInputElement | null;
+  const webDavSyncUsernameInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-username`,
+  ) as HTMLInputElement | null;
+  const webDavSyncAutoSyncCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-auto-sync`,
+  ) as HTMLInputElement | null;
+  const webDavSyncAutoRetryCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-auto-retry`,
+  ) as HTMLInputElement | null;
+  const webDavSyncCredentialInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-credential`,
+  ) as HTMLInputElement | null;
+  const webDavSyncSaveCredentialButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-save-credential`,
+  ) as XUL.Button | null;
+  const webDavSyncClearCredentialButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-clear-credential`,
+  ) as XUL.Button | null;
+  const webDavSyncSaveButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-save`,
+  ) as XUL.Button | null;
+  const webDavSyncTestButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-test`,
+  ) as XUL.Button | null;
+  const webDavSyncStatusText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-status`,
+  ) as HTMLElement | null;
   const hostBridgeLanCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-lan-enabled`,
   ) as HTMLInputElement | null;
@@ -311,6 +386,7 @@ function bindPrefEvents() {
     "skillrunner-ledger",
     "acp-conversations",
     "acp-skill-runs",
+    "workflow-products",
     "cache",
     "tmp",
   ];
@@ -320,6 +396,7 @@ function bindPrefEvents() {
     "skillrunner-ledger": "SkillRunner local ledger",
     "acp-conversations": "ACP conversations",
     "acp-skill-runs": "ACP skill runs",
+    "workflow-products": "Workflow products",
     cache: "Cache",
     tmp: "Temporary files",
   };
@@ -1722,6 +1799,17 @@ function bindPrefEvents() {
     });
   }
 
+  if (collectSkillRunFeedbackCheckbox) {
+    collectSkillRunFeedbackCheckbox.checked =
+      getPref("collectSkillRunFeedbackEnabled") === true;
+    collectSkillRunFeedbackCheckbox.addEventListener("change", () => {
+      setPref(
+        "collectSkillRunFeedbackEnabled",
+        collectSkillRunFeedbackCheckbox.checked === true,
+      );
+    });
+  }
+
   if (browseWorkflowDirButton) {
     browseWorkflowDirButton.addEventListener("command", () => {
       void (async () => {
@@ -1813,6 +1901,409 @@ function bindPrefEvents() {
       void addon.hooks.onPrefsEvent("openBackendManager", {
         window: addon.data.prefs?.window,
       });
+    });
+  }
+
+  const renderGitSyncPrefsStatus = (status: any, fallbackMessage = "") => {
+    if (!status || typeof status !== "object") {
+      if (gitSyncStatusText && fallbackMessage) {
+        gitSyncStatusText.textContent = fallbackMessage;
+      }
+      return;
+    }
+    if (gitSyncEnabledCheckbox) {
+      gitSyncEnabledCheckbox.checked = status.enabled === true;
+    }
+    if (gitSyncRemoteUrlInput) {
+      gitSyncRemoteUrlInput.value = String(status.remote_url || "");
+    }
+    if (gitSyncBranchInput) {
+      gitSyncBranchInput.value = String(status.branch || "main");
+    }
+    if (gitSyncAutoSyncCheckbox) {
+      gitSyncAutoSyncCheckbox.checked = status.auto_sync_enabled === true;
+    }
+    if (gitSyncAutoRetryCheckbox) {
+      gitSyncAutoRetryCheckbox.checked = status.auto_retry_enabled === true;
+    }
+    if (gitSyncTokenStatus) {
+      const masked = String(status.token_masked || "").trim();
+      const updatedAt = String(status.token_updated_at || "").trim();
+      gitSyncTokenStatus.textContent = masked
+        ? `${getString("pref-git-sync-token-configured" as any)} ${masked}${
+            updatedAt ? ` (${updatedAt})` : ""
+          }`
+        : getString("pref-git-sync-token-empty" as any);
+    }
+    const diagnostics = Array.isArray(status.diagnostics)
+      ? status.diagnostics
+      : [];
+    const connection = status.connection_test;
+    if (gitSyncStatusText) {
+      const summarizeDiagnostic = (entry: any) => {
+        if (!entry || typeof entry !== "object") {
+          return "";
+        }
+        const details = entry.details || {};
+        const checkedPaths =
+          Array.isArray(details.checkedPaths) && details.checkedPaths.length > 0
+            ? `checkedPaths=${details.checkedPaths.slice(0, 4).join(" | ")}`
+            : "";
+        const stderr = String(details.stderr || "").trim();
+        const stdout = String(details.stdout || "").trim();
+        return [
+          `${String(entry.code || "")}: ${String(entry.message || "")}`.trim(),
+          stderr ? `stderr=${stderr}` : "",
+          !stderr && stdout ? `stdout=${stdout}` : "",
+          checkedPaths,
+        ]
+          .filter(Boolean)
+          .join(" ");
+      };
+      const diagnosticText = diagnostics
+        .map(summarizeDiagnostic)
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(" | ");
+      const connectionText =
+        connection && typeof connection === "object"
+          ? [
+              connection.ok
+                ? connection.remote_branch_state === "missing_initializable"
+                  ? "Remote reachable · branch will be initialized on first sync"
+                  : connection.remote_branch_state === "exists"
+                    ? "Remote reachable · branch exists"
+                    : "OK"
+                : "Connection failed",
+              String(connection.tested_at || ""),
+            ]
+              .filter(Boolean)
+              .join(" ")
+          : "";
+      gitSyncStatusText.textContent =
+        [
+          fallbackMessage,
+          `Config: ${String(status.config_status || "unknown")}`,
+          connectionText,
+          connection?.git_executable
+            ? `Git: ${String(connection.git_executable)}`
+            : "",
+          diagnosticText,
+        ]
+          .filter(Boolean)
+          .join(" | ");
+    }
+  };
+
+  const refreshGitSyncPrefsStatus = () => {
+    void (async () => {
+      const status = await addon.hooks.onPrefsEvent("getGitSyncPrefsStatus", {
+        window: addon.data.prefs?.window,
+      });
+      renderGitSyncPrefsStatus(status);
+    })();
+  };
+
+  const gitSyncPrefsPayload = () => ({
+    window: addon.data.prefs?.window,
+    enabled: gitSyncEnabledCheckbox?.checked === true,
+    remoteUrl: gitSyncRemoteUrlInput?.value || "",
+    branch: gitSyncBranchInput?.value || "main",
+    autoSyncEnabled: gitSyncAutoSyncCheckbox?.checked === true,
+    autoRetryEnabled: gitSyncAutoRetryCheckbox?.checked === true,
+  });
+
+  if (
+    gitSyncEnabledCheckbox ||
+    gitSyncRemoteUrlInput ||
+    gitSyncBranchInput ||
+    gitSyncAutoSyncCheckbox ||
+    gitSyncAutoRetryCheckbox
+  ) {
+    refreshGitSyncPrefsStatus();
+  }
+
+  if (gitSyncSaveButton) {
+    gitSyncSaveButton.addEventListener("command", () => {
+      void (async () => {
+        const response: any = await addon.hooks.onPrefsEvent(
+          "saveGitSyncPrefs",
+          gitSyncPrefsPayload(),
+        );
+        renderGitSyncPrefsStatus(
+          response?.status || response,
+          response?.ok === false
+            ? getString("pref-git-sync-save-failed" as any)
+            : getString("pref-git-sync-save-success" as any),
+        );
+      })();
+    });
+  }
+
+  if (gitSyncSaveTokenButton) {
+    gitSyncSaveTokenButton.addEventListener("command", () => {
+      void (async () => {
+        const token = gitSyncTokenInput?.value || "";
+        const response: any = await addon.hooks.onPrefsEvent("saveGitSyncToken", {
+          window: addon.data.prefs?.window,
+          token,
+        });
+        if (gitSyncTokenInput) {
+          gitSyncTokenInput.value = "";
+        }
+        renderGitSyncPrefsStatus(
+          response?.status || response,
+          getString("pref-git-sync-token-saved" as any),
+        );
+      })();
+    });
+  }
+
+  if (gitSyncClearTokenButton) {
+    gitSyncClearTokenButton.addEventListener("command", () => {
+      void (async () => {
+        const response: any = await addon.hooks.onPrefsEvent("clearGitSyncToken", {
+          window: addon.data.prefs?.window,
+        });
+        if (gitSyncTokenInput) {
+          gitSyncTokenInput.value = "";
+        }
+        renderGitSyncPrefsStatus(
+          response?.status || response,
+          getString("pref-git-sync-token-cleared" as any),
+        );
+      })();
+    });
+  }
+
+  if (gitSyncTestButton) {
+    gitSyncTestButton.addEventListener("command", () => {
+      void (async () => {
+        if (gitSyncStatusText) {
+          gitSyncStatusText.textContent = getString(
+            "pref-git-sync-test-running" as any,
+          );
+        }
+        const save: any = await addon.hooks.onPrefsEvent(
+          "saveGitSyncPrefs",
+          gitSyncPrefsPayload(),
+        );
+        if (save?.ok === false) {
+          renderGitSyncPrefsStatus(
+            save.status,
+            getString("pref-git-sync-save-failed" as any),
+          );
+          return;
+        }
+        const test: any = await addon.hooks.onPrefsEvent(
+          "testGitSyncConfiguration",
+          {
+            window: addon.data.prefs?.window,
+          },
+        );
+        renderGitSyncPrefsStatus(
+          {
+            ...(save?.status || {}),
+            connection_test: test,
+            diagnostics: test?.diagnostics || save?.status?.diagnostics || [],
+          },
+          test?.ok
+            ? getString("pref-git-sync-test-success" as any)
+            : getString("pref-git-sync-test-failed" as any),
+        );
+      })();
+    });
+  }
+
+  const renderWebDavSyncPrefsStatus = (status: any, fallbackMessage = "") => {
+    if (!status || typeof status !== "object") {
+      if (webDavSyncStatusText && fallbackMessage) {
+        webDavSyncStatusText.textContent = fallbackMessage;
+      }
+      return;
+    }
+    if (webDavSyncEnabledCheckbox) {
+      webDavSyncEnabledCheckbox.checked = status.enabled === true;
+    }
+    if (webDavSyncBaseUrlInput) {
+      webDavSyncBaseUrlInput.value = String(status.base_url || "");
+    }
+    if (webDavSyncRemotePathInput) {
+      webDavSyncRemotePathInput.value = String(
+        status.remote_path || "zotero-agents",
+      );
+    }
+    if (webDavSyncUsernameInput) {
+      webDavSyncUsernameInput.value = String(status.username || "");
+    }
+    if (webDavSyncAutoSyncCheckbox) {
+      webDavSyncAutoSyncCheckbox.checked = status.auto_sync_enabled === true;
+    }
+    if (webDavSyncAutoRetryCheckbox) {
+      webDavSyncAutoRetryCheckbox.checked = status.auto_retry_enabled === true;
+    }
+    if (webDavSyncCredentialInput) {
+      const updatedAt = String(status.credential_updated_at || "").trim();
+      webDavSyncCredentialInput.setAttribute(
+        "placeholder",
+        status.credential_configured
+          ? `${getString("pref-webdav-sync-credential-placeholder-saved" as any)}${
+              updatedAt ? ` (${updatedAt})` : ""
+            }`
+          : getString(
+              "pref-webdav-sync-credential-placeholder-empty" as any,
+            ),
+      );
+    }
+    if (webDavSyncStatusText) {
+      const diagnostics = Array.isArray(status.diagnostics)
+        ? status.diagnostics
+        : [];
+      const connection = status.connection_test;
+      const diagnosticText = diagnostics
+        .map((entry: any) =>
+          entry && typeof entry === "object"
+            ? `${String(entry.code || "")}: ${String(entry.message || "")}`.trim()
+            : "",
+        )
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(" | ");
+      webDavSyncStatusText.textContent = [
+        fallbackMessage,
+        `Config: ${String(status.config_status || "unknown")}`,
+        connection && typeof connection === "object"
+          ? `${connection.ok ? "Connection ready" : "Connection failed"} ${String(
+              connection.tested_at || "",
+            )}`.trim()
+          : "",
+        diagnosticText,
+      ]
+        .filter(Boolean)
+        .join(" | ");
+    }
+  };
+
+  const refreshWebDavSyncPrefsStatus = () => {
+    void (async () => {
+      const status = await addon.hooks.onPrefsEvent("getWebDavSyncPrefsStatus", {
+        window: addon.data.prefs?.window,
+      });
+      renderWebDavSyncPrefsStatus(status);
+    })();
+  };
+
+  const webDavSyncPrefsPayload = () => ({
+    window: addon.data.prefs?.window,
+    enabled: webDavSyncEnabledCheckbox?.checked === true,
+    baseUrl: webDavSyncBaseUrlInput?.value || "",
+    remotePath: webDavSyncRemotePathInput?.value || "zotero-agents",
+    username: webDavSyncUsernameInput?.value || "",
+    autoSyncEnabled: webDavSyncAutoSyncCheckbox?.checked === true,
+    autoRetryEnabled: webDavSyncAutoRetryCheckbox?.checked === true,
+  });
+
+  if (
+    webDavSyncEnabledCheckbox ||
+    webDavSyncBaseUrlInput ||
+    webDavSyncRemotePathInput ||
+    webDavSyncUsernameInput ||
+    webDavSyncAutoSyncCheckbox ||
+    webDavSyncAutoRetryCheckbox
+  ) {
+    refreshWebDavSyncPrefsStatus();
+  }
+
+  if (webDavSyncSaveButton) {
+    webDavSyncSaveButton.addEventListener("command", () => {
+      void (async () => {
+        const response: any = await addon.hooks.onPrefsEvent(
+          "saveWebDavSyncPrefs",
+          webDavSyncPrefsPayload(),
+        );
+        renderWebDavSyncPrefsStatus(
+          response?.status || response,
+          response?.ok === false
+            ? getString("pref-webdav-sync-save-failed" as any)
+            : getString("pref-webdav-sync-save-success" as any),
+        );
+      })();
+    });
+  }
+
+  if (webDavSyncSaveCredentialButton) {
+    webDavSyncSaveCredentialButton.addEventListener("command", () => {
+      void (async () => {
+        const response: any = await addon.hooks.onPrefsEvent(
+          "saveWebDavSyncCredential",
+          {
+            window: addon.data.prefs?.window,
+            credential: webDavSyncCredentialInput?.value || "",
+          },
+        );
+        if (webDavSyncCredentialInput) {
+          webDavSyncCredentialInput.value = "";
+        }
+        renderWebDavSyncPrefsStatus(
+          response?.status || response,
+          getString("pref-webdav-sync-credential-saved" as any),
+        );
+      })();
+    });
+  }
+
+  if (webDavSyncClearCredentialButton) {
+    webDavSyncClearCredentialButton.addEventListener("command", () => {
+      void (async () => {
+        const response: any = await addon.hooks.onPrefsEvent(
+          "clearWebDavSyncCredential",
+          { window: addon.data.prefs?.window },
+        );
+        if (webDavSyncCredentialInput) {
+          webDavSyncCredentialInput.value = "";
+        }
+        renderWebDavSyncPrefsStatus(
+          response?.status || response,
+          getString("pref-webdav-sync-credential-cleared" as any),
+        );
+      })();
+    });
+  }
+
+  if (webDavSyncTestButton) {
+    webDavSyncTestButton.addEventListener("command", () => {
+      void (async () => {
+        if (webDavSyncStatusText) {
+          webDavSyncStatusText.textContent = getString(
+            "pref-webdav-sync-test-running" as any,
+          );
+        }
+        const save: any = await addon.hooks.onPrefsEvent(
+          "saveWebDavSyncPrefs",
+          webDavSyncPrefsPayload(),
+        );
+        if (save?.ok === false) {
+          renderWebDavSyncPrefsStatus(
+            save.status,
+            getString("pref-webdav-sync-save-failed" as any),
+          );
+          return;
+        }
+        const test: any = await addon.hooks.onPrefsEvent(
+          "testWebDavSyncConfiguration",
+          { window: addon.data.prefs?.window },
+        );
+        renderWebDavSyncPrefsStatus(
+          {
+            ...(save?.status || {}),
+            connection_test: test,
+            diagnostics: test?.diagnostics || save?.status?.diagnostics || [],
+          },
+          test?.ok
+            ? getString("pref-webdav-sync-test-success" as any)
+            : getString("pref-webdav-sync-test-failed" as any),
+        );
+      })();
     });
   }
 

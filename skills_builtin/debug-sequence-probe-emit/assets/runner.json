@@ -6,6 +6,7 @@
   "debug_only": true,
   "execution_modes": ["auto"],
   "schemas": {
+    "parameter": "assets/parameter.schema.json",
     "output": "assets/output.schema.json"
   },
   "entrypoint": {

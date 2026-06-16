@@ -48,7 +48,7 @@ stages:
       duplicate_reason: "说明重复判断依据，不能只写“相似”。"
     hard_constraints:
       - "如果 `duplicate_status` 为 `duplicate`，这是 create prepare 的硬门禁失败：不要提交 resolver/workset 或任何后续 payload，不进入 Stage 20。"
-      - "硬门禁失败时直接输出符合 `assets/output.schema.json` 的 `topic_synthesis_canceled` 最终业务对象，包含 `status: \"canceled\"`、`reason: \"duplicate_topic\"`、`message`、`topic_seed`，并在可确定时填 `duplicate_topic_id`；sequence runtime 会据此短路后续 steps。"
+      - '硬门禁失败时直接输出符合 `assets/output.schema.json` 的 `topic_synthesis_canceled` 最终业务对象，包含 `status: "canceled"`、`reason: "duplicate_topic"`、`message`、`topic_seed`，并在可确定时填 `duplicate_topic_id`；sequence runtime 会据此短路后续 steps。'
     quality_checks:
       - "topic boundary 要能指导 resolver 设计。"
       - "重复判断要保守，不能把宽泛相关主题误判为同一 topic。"
@@ -247,7 +247,7 @@ stages:
         produced_by: "prepare runtime 在 paper triage submit 后生成"
         purpose: "核对当前可引用的 source_paper_refs 和短 evidence。"
     field_guidance:
-      taxonomy: "解释 topic 语义边界内的研究路线、机制、边界、代表论文、成熟度、优势和局限；如果 workset 只覆盖子域，taxonomy 仍要按 topic 本身的宏观结构组织。"
+      taxonomy: "从多个分类轴解释 topic 语义边界内的研究路线、机制、边界、代表论文、成熟度、优势和局限；`axes` 选择 2-4 个最适合当前 topic 的视角，每个 `axis_type` 必须是 `problem_formulation`、`technical_mechanism`、`evidence_scope`、`research_route` 或 `application_context`；`axis_rationale` 只写一句短说明。如果 workset 只覆盖子域，taxonomy 仍要按 topic 本身的宏观结构组织。"
       timeline_events: "解释历史递进、里程碑和后续影响，不是按年份排序的 bibliography。"
       claims: "topic-level findings；每条应有证据范围、适用边界和 source_paper_refs。"
       improvement_dimension_summary: "概括方法进展的主轴。"
@@ -264,37 +264,71 @@ stages:
     common_pitfalls:
       - "不要读取或引用当前 stage 必读材料以外的上下文。"
       - "不要把大 topic 收缩成 resolved papers 最密集的子 topic。"
+      - "不要把多个 taxonomy axes 写成同一套分类标题；每个 axis 应体现不同分类角度。"
     example:
       taxonomy:
         summary:
           text: "Computer Vision 的宏观结构包括视觉表示学习、图像分类、目标检测、分割、三维视觉、视频理解和视觉语言多模态；当前库内证据主要覆盖检测与分割相关路线。"
-        nodes:
-          - id: "area:object-detection"
-            title: "Object detection"
-            definition: "在图像或视频中定位并分类目标，是 Computer Vision 的核心任务之一。"
-            core_problem: "在复杂视觉场景中同时完成目标定位、类别识别和实例区分。"
-            mechanism: "结合候选区域、密集预测或 query-based set prediction，将视觉特征映射为带类别的目标位置。"
-            strengths: ["直接支撑场景理解、自动驾驶和机器人感知等应用。"]
-            limitations:
-              [
-                "当前库内 evidence 偏向 DETR-family，对传统检测器和开放词汇检测覆盖不足。",
-              ]
-            maturity: "established subfield with active method evolution"
-            representative_papers: ["1:DETR"]
-            source_paper_refs: ["1:DETR"]
-          - id: "area:detection-optimization"
-            title: "Detection optimization"
-            definition: "围绕检测模型的训练稳定性、收敛速度和查询设计进行改进，是当前 workset 中最充分的证据区域。"
-            core_problem: "让端到端检测公式在有限训练预算和复杂场景中保持稳定有效。"
-            mechanism: "通过 denoising、anchor/query design 和训练目标设计改善匹配学习过程。"
-            strengths: ["能解释当前库内 DETR-family 改进论文的主要证据贡献。"]
-            limitations:
-              [
-                "它只是 Computer Vision 的检测子域，不能代表分类、视频、三维和视觉语言路线。",
-              ]
-            maturity: "active method family"
-            representative_papers: ["1:DINO"]
-            source_paper_refs: ["1:DINO"]
+        axes:
+          - axis_type: "research_route"
+            axis_rationale: "按 Computer Vision 的宏观研究路线组织，避免让当前检测/分割 workset 反向收缩 topic identity。"
+            nodes:
+              - id: "area:object-detection"
+                title: "Object detection"
+                definition: "在图像或视频中定位并分类目标，是 Computer Vision 的核心任务之一。"
+                core_problem: "在复杂视觉场景中同时完成目标定位、类别识别和实例区分。"
+                mechanism: "结合候选区域、密集预测或 query-based set prediction，将视觉特征映射为带类别的目标位置。"
+                strengths: ["直接支撑场景理解、自动驾驶和机器人感知等应用。"]
+                limitations:
+                  [
+                    "当前库内 evidence 偏向 DETR-family，对传统检测器和开放词汇检测覆盖不足。",
+                  ]
+                maturity: "established subfield with active method evolution"
+                representative_papers: ["1:DETR"]
+                source_paper_refs: ["1:DETR"]
+              - id: "area:detection-optimization"
+                title: "Detection optimization"
+                definition: "围绕检测模型的训练稳定性、收敛速度和查询设计进行改进，是当前 workset 中最充分的证据区域。"
+                core_problem: "让端到端检测公式在有限训练预算和复杂场景中保持稳定有效。"
+                mechanism: "通过 denoising、anchor/query design 和训练目标设计改善匹配学习过程。"
+                strengths:
+                  ["能解释当前库内 DETR-family 改进论文的主要证据贡献。"]
+                limitations:
+                  [
+                    "它只是 Computer Vision 的检测子域，不能代表分类、视频、三维和视觉语言路线。",
+                  ]
+                maturity: "active method family"
+                representative_papers: ["1:DINO"]
+                source_paper_refs: ["1:DINO"]
+          - axis_type: "technical_mechanism"
+            axis_rationale: "按当前 evidence 中最可证据化的机制差异组织，用于解释检测路线中的方法分化。"
+            nodes:
+              - id: "mechanism:query-based-set-prediction"
+                title: "Query-based set prediction"
+                definition: "用 object queries 和 bipartite matching 直接生成目标集合，减少候选框和后处理依赖。"
+                core_problem: "把目标检测从手工 proposal/NMS 流程转成端到端集合预测问题。"
+                mechanism: "Transformer decoder queries 与 ground-truth objects 做集合匹配，并通过全局注意力聚合图像上下文。"
+                strengths: ["能提供清晰的端到端检测公式。"]
+                limitations:
+                  [
+                    "训练收敛和 query matching 稳定性仍是当前 evidence 中的重要瓶颈。",
+                  ]
+                maturity: "active method family"
+                representative_papers: ["1:DETR"]
+                source_paper_refs: ["1:DETR"]
+              - id: "mechanism:denoising-query-training"
+                title: "Denoising query training"
+                definition: "通过 denoising targets 和 query design 改善端到端检测训练稳定性。"
+                core_problem: "缓解 query-based detector 训练慢、匹配不稳定和早期收敛不足的问题。"
+                mechanism: "在训练中加入带噪声的目标查询和辅助目标，使 decoder 更快学习匹配与定位。"
+                strengths: ["能解释 DETR-family 后续改进的主要 evidence 贡献。"]
+                limitations:
+                  [
+                    "它属于检测子域中的训练机制改进，不能代表全部 Computer Vision 路线。",
+                  ]
+                maturity: "active optimization mechanism"
+                representative_papers: ["1:DINO"]
+                source_paper_refs: ["1:DINO"]
       timeline_events:
         summary:
           text: "当前 evidence 支持检测与分割路线中的若干里程碑；分类、视频理解和视觉语言路线需要后续补证。"

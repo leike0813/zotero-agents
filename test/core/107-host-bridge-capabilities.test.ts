@@ -61,6 +61,7 @@ async function callBridgeCapability(args: {
   capability: string;
   input?: unknown;
   scope?: unknown;
+  connectionMode?: "local" | "remote";
 }) {
   const headers: Record<string, string> = {};
   if (args.token) {
@@ -68,6 +69,9 @@ async function callBridgeCapability(args: {
   }
   if (args.scope) {
     headers["x-zotero-bridge-scope"] = JSON.stringify(args.scope);
+  }
+  if (args.connectionMode) {
+    headers["x-zotero-bridge-connection-mode"] = args.connectionMode;
   }
   return parseRawHttpResponse(
     await handleHostBridgeHttpRequestForTests({
@@ -202,6 +206,29 @@ describe("host bridge capability calls", function () {
     assert.notProperty(parsed.json.result.data, "saveTx");
     assert.notProperty(parsed.json.result.data, "getField");
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
+  });
+
+  it("passes connection mode headers into synthesis capability context", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "mode-token",
+      resolveSynthesisService: () => ({
+        getTopicContext(_args, context) {
+          return {
+            connectionMode: context?.hostBridge?.connectionMode,
+          };
+        },
+      }),
+    });
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "topics.get_context",
+      input: { topicId: "object-detection" },
+      connectionMode: "remote",
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.result.data.connectionMode, "remote");
   });
 
   it("decodes UTF-8 byte-counted capability bodies without mojibake", async function () {
