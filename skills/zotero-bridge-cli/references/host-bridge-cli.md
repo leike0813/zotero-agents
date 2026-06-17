@@ -9,8 +9,8 @@ Bridge well-known profile location or set `ZOTERO_BRIDGE_PROFILE` to its path.
 Override the template at runtime with `ZOTERO_BRIDGE_ENDPOINT`,
 `ZOTERO_BRIDGE_TOKEN`, `ZOTERO_BRIDGE_SCOPE`, and
 `ZOTERO_BRIDGE_CONNECTION_MODE=local|remote`. `ZOTERO_BRIDGE_SCOPE` may contain
-`{"kind":"skillrunner-run","requestId":"...","runId":"..."}` so Host Bridge
-write approvals return to the SkillRunner panel.
+`{"kind":"skillrunner-run","frontendScopeId":"..."}` so Host Bridge write
+approvals return to the SkillRunner panel.
 
 ## Resolver Payloads
 
