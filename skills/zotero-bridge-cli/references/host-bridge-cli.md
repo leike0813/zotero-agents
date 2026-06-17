@@ -4,7 +4,7 @@ This reference is generated from the Host Bridge surface catalog. Edit the Host
 Bridge capability registry or Rust CLI source, then run
 `npm run render:host-bridge-surface`.
 
-The published bundle includes `profile.template.json`. Copy it to the Host
+The published bundle includes `assets/profile.template.json`. Copy it to the Host
 Bridge well-known profile location or set `ZOTERO_BRIDGE_PROFILE` to its path.
 Override the template at runtime with `ZOTERO_BRIDGE_ENDPOINT`,
 `ZOTERO_BRIDGE_TOKEN`, `ZOTERO_BRIDGE_SCOPE`, and
@@ -26,7 +26,7 @@ This section is generated from the Host Bridge surface catalog.
 
 - Prefer the run-local shim when it exists: Windows `.\.zotero-bridge\bin\zotero-bridge.cmd`; POSIX `./.zotero-bridge/bin/zotero-bridge`.
 - When skill instructions show `<zotero-bridge>`, replace it with the run-local shim for the current OS; use PATH command `zotero-bridge` only when the shim is absent.
-- Keep `ZOTERO_BRIDGE_PROFILE`, `ZOTERO_BRIDGE_TOKEN`, and `ZOTERO_BRIDGE_SCOPE` from the injected environment; never print token values.
+- Keep `ZOTERO_BRIDGE_PROFILE` and `ZOTERO_BRIDGE_TOKEN` from the injected environment; never print token values.
 
 ### Discovery commands
 

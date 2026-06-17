@@ -4,11 +4,11 @@ This branch is generated from the Zotero-Skills repository and contains only:
 
 - prebuilt zotero-bridge CLI binaries under bin/
 - the zotero-bridge-cli wrapper skill under skills/zotero-bridge-cli/
-- profile.template.json, a well-known profile template for local and remote use
+- assets/profile.template.json, a well-known profile template for local and remote use
 - manifest.json with source commit, platform list, sizes, and checksums
 
-Source commit: 69325be9d2789e2ba153fc84a7e53fb609ba637a
-Published at: 2026-06-16T19:16:25.802Z
+Source commit: 446c2725d7152ff0df5a08088b11bae8a4c7faba
+Published at: 2026-06-17T12:17:21.951Z
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin
@@ -16,7 +16,7 @@ repository.
 
 ## Profile template and environment overrides
 
-Copy profile.template.json to the Host Bridge well-known profile location, or set
+Copy assets/profile.template.json to the Host Bridge well-known profile location, or set
 ZOTERO_BRIDGE_PROFILE to its path. The well-known profile paths are:
 
 - Windows: %LOCALAPPDATA%\Zotero-Skills\bridge-profile.json

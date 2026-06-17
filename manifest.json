@@ -2,10 +2,10 @@
   "schema": "zotero-bridge-cli-bundle.v1",
   "source": {
     "repository": "Zotero-Skills",
-    "commit": "69325be9d2789e2ba153fc84a7e53fb609ba637a",
+    "commit": "446c2725d7152ff0df5a08088b11bae8a4c7faba",
     "dirty": true
   },
-  "publishedAt": "2026-06-16T19:16:25.802Z",
+  "publishedAt": "2026-06-17T12:17:21.951Z",
   "branch": "host-bridge/zotero-bridge-cli-bundle",
   "cli": {
     "name": "zotero-bridge",
@@ -13,35 +13,35 @@
       {
         "platform": "linux-arm",
         "binary": "bin/linux-arm/zotero-bridge",
-        "sha256": "ae65acf4ddc48291eea37e98363955745e132322795068d610c5f53f73ff3851",
+        "sha256": "31c9c383462695d2296443fdff87f0d1917a75a8ee2ebf97d00f2ba8b13c65f3",
         "sha256File": "bin/linux-arm/zotero-bridge.sha256",
-        "size": 1093592
+        "size": 1093720
       },
       {
         "platform": "linux-arm64",
         "binary": "bin/linux-arm64/zotero-bridge",
-        "sha256": "6f788aea1a179c2f4d5f8cf3a76a8e1b2e0f92c1074239aaa4bd3b748b1af5fc",
+        "sha256": "8b0b3e2da5a5a0b88c15b66a4a7256da64f12099961f0d17c75add989df2c648",
         "sha256File": "bin/linux-arm64/zotero-bridge.sha256",
-        "size": 1163568
+        "size": 1163696
       },
       {
         "platform": "linux-x64",
         "binary": "bin/linux-x64/zotero-bridge",
-        "sha256": "977376a76a69a218d1485646c3b3c9cd212b88a48ba1ba531b6160437e5fa09d",
+        "sha256": "3e929325c40db4337b594ff121ecf6602520bf234b10149028dba4c183653fef",
         "sha256File": "bin/linux-x64/zotero-bridge.sha256",
-        "size": 1352448
+        "size": 1352576
       },
       {
         "platform": "linux-x86",
         "binary": "bin/linux-x86/zotero-bridge",
-        "sha256": "e60550248f6dc6ec28812185b66309135e5e93eae5bcdfdd26da82033111c4c7",
+        "sha256": "79d9604a75d076863bff25267f1132a9ace3e8b8e304103cba8fe4d257e54f88",
         "sha256File": "bin/linux-x86/zotero-bridge.sha256",
-        "size": 1478920
+        "size": 1478984
       },
       {
         "platform": "win32-x64",
         "binary": "bin/win32-x64/zotero-bridge.exe",
-        "sha256": "6ceae40bc20412223bd6b8472717ad934d0ed80de08b7dc4a48e74497d1e1ad0",
+        "sha256": "2b7c813cd398e6289a804882380d6d6ca31ee86c793b4304cb6e21ac19d309f9",
         "sha256File": "bin/win32-x64/zotero-bridge.exe.sha256",
         "size": 1258496
       }
@@ -53,8 +53,8 @@
     "entrypoint": "skills/zotero-bridge-cli/SKILL.md"
   },
   "profileTemplate": {
-    "path": "profile.template.json",
-    "skillPath": "skills/zotero-bridge-cli/profile.template.json",
+    "path": "assets/profile.template.json",
+    "skillPath": "skills/zotero-bridge-cli/assets/profile.template.json",
     "endpointEnv": "ZOTERO_BRIDGE_ENDPOINT",
     "tokenEnv": "ZOTERO_BRIDGE_TOKEN",
     "scopeEnv": "ZOTERO_BRIDGE_SCOPE",
