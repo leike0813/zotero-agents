@@ -3,6 +3,7 @@ import { handlers } from "../../src/handlers";
 import { createHookHelpers } from "../../src/workflows/helpers";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import {
   LITERATURE_ANALYSIS_FIXTURE_CASES,
@@ -115,22 +116,24 @@ describeFixtureMatrixSuite("workflow: literature-analysis fixture matrix", funct
     );
     assert.isOk(found, "workflow literature-analysis not found");
     workflow = found!;
-    assert.isFunction(workflow.hooks.filterInputs, "filterInputs hook missing");
+    assert.equal(workflow.manifest.validateSelection?.select?.policy, "literature-source");
   });
 
   beforeEach(async function () {
-    for (const fixtureCase of LITERATURE_DIGEST_FIXTURE_CASES) {
+    for (const fixtureCase of LITERATURE_ANALYSIS_FIXTURE_CASES) {
       await clearExistingNotesForFixtureParents(fixtureCase.context);
     }
   });
 
-  for (const fixtureCase of LITERATURE_DIGEST_FIXTURE_CASES) {
-    it(`keeps filterInputs output stable for ${fixtureCase.name}`, async function () {
-      const filtered = (await workflow.hooks.filterInputs!({
+  for (const fixtureCase of LITERATURE_ANALYSIS_FIXTURE_CASES) {
+    it(`keeps validateSelection output stable for ${fixtureCase.name}`, async function () {
+      const validation = await evaluateWorkflowSelection({
+        workflow,
         selectionContext: fixtureCase.context,
-        manifest: workflow.manifest,
         runtime: hookRuntime,
-      })) as FilteredSelection;
+        mode: "execute",
+      });
+      const filtered = validation.scopedSelectionContexts[0] as FilteredSelection;
 
       const actualPaths = (filtered.items?.attachments || [])
         .map((entry) => entry.filePath || "")

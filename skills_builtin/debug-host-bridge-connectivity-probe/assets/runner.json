@@ -1,6 +1,6 @@
 {
   "id": "debug-host-bridge-connectivity-probe",
-  "name": "Debug Host Bridge Connectivity Probe",
+  "name": "🧪 Debug Host Bridge Connectivity Probe",
   "description": "Debug-only Host Bridge connectivity probe for validating CLI injection, endpoint reachability, authentication, and read-only capability routing.",
   "version": "0.1.0",
   "debug_only": true,

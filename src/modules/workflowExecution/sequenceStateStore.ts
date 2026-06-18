@@ -1,13 +1,18 @@
 import type { BackendInstance } from "../../backends/types";
+import { DEFAULT_BACKEND_TYPE } from "../../config/defaults";
 import type {
   ProviderExecutionResult,
   SkillRunnerSequenceRequestV1,
 } from "../../providers/contracts";
 import {
-  PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE,
-  listPluginTaskContextEntries,
-  upsertPluginTaskContextEntry,
+  listPluginRunStoreEntries,
+  upsertPluginRunStoreEntry,
 } from "../pluginStateStore";
+import {
+  getSkillRunnerSequenceRootState,
+  getSkillRunnerSequenceRootStateByStepRequest,
+  upsertSkillRunnerSequenceRootState,
+} from "../skillRunnerRunStore";
 
 export type SequenceRunStateStatus =
   | "running_step"
@@ -272,14 +277,37 @@ function parseState(raw: unknown): SequenceRunState | null {
   };
 }
 
+function sequenceRunKey(sequenceRunId: string) {
+  return `sequence:${sequenceRunId}`;
+}
+
+function parseStoredSequencePayload(payload: string) {
+  try {
+    const raw = JSON.parse(payload || "{}");
+    const envelope = isRecord(raw) && isRecord(raw.sequenceState)
+      ? raw.sequenceState
+      : raw;
+    return parseState(envelope);
+  } catch {
+    return null;
+  }
+}
+
 function persistState(state: SequenceRunState) {
-  upsertPluginTaskContextEntry(PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE, {
-    contextId: state.sequenceRunId,
+  if (normalizeString(state.backendType) === DEFAULT_BACKEND_TYPE) {
+    upsertSkillRunnerSequenceRootState(state as unknown as Record<string, unknown>);
+    return;
+  }
+  upsertPluginRunStoreEntry("acp", {
+    runKey: sequenceRunKey(state.sequenceRunId),
     requestId: state.rootRequestId || "",
     backendId: state.backendId,
     state: state.status,
     updatedAt: state.updatedAt,
-    payload: JSON.stringify(state),
+    payload: JSON.stringify({
+      schema: "workflow.sequence.state.v1",
+      sequenceState: state,
+    }),
   });
 }
 
@@ -357,17 +385,17 @@ export function getSequenceRunState(sequenceRunIdRaw: string) {
   if (!sequenceRunId) {
     return null;
   }
-  for (const entry of listPluginTaskContextEntries(
-    PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE,
-  )) {
-    if (entry.contextId !== sequenceRunId) {
-      continue;
-    }
-    try {
-      return parseState(JSON.parse(entry.payload || "{}"));
-    } catch {
-      return null;
-    }
+  const skillRunnerState = parseState(
+    getSkillRunnerSequenceRootState(sequenceRunId),
+  );
+  if (skillRunnerState) {
+    return skillRunnerState;
+  }
+  const acpEntry = listPluginRunStoreEntries("acp").find(
+    (entry) => entry.runKey === sequenceRunKey(sequenceRunId),
+  );
+  if (acpEntry) {
+    return parseStoredSequencePayload(acpEntry.payload);
   }
   return null;
 }
@@ -377,20 +405,20 @@ export function getSequenceRunStateByStepRequest(requestIdRaw: string) {
   if (!requestId) {
     return null;
   }
-  for (const entry of listPluginTaskContextEntries(
-    PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE,
-  )) {
-    try {
-      const state = parseState(JSON.parse(entry.payload || "{}"));
-      if (
-        state?.steps.some(
-          (step) => normalizeString(step.requestId) === requestId,
-        )
-      ) {
-        return state;
-      }
-    } catch {
-      continue;
+  const skillRunnerState = parseState(
+    getSkillRunnerSequenceRootStateByStepRequest(requestId),
+  );
+  if (skillRunnerState) {
+    return skillRunnerState;
+  }
+  for (const entry of listPluginRunStoreEntries("acp")) {
+    const state = parseStoredSequencePayload(entry.payload);
+    if (
+      state?.steps.some(
+        (step) => normalizeString(step.requestId) === requestId,
+      )
+    ) {
+      return state;
     }
   }
   return null;

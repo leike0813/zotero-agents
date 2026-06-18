@@ -3,9 +3,6 @@ import { isSkillRunnerRunTerminalClientError } from "../providers/skillrunner/er
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { buildSkillRunnerManagementClient } from "./skillRunnerManagementClientFactory";
 import { updateTaskDashboardHistoryStateByRequest } from "./taskDashboardHistory";
-import {
-  updateSkillRunnerRequestLedgerSnapshot,
-} from "./skillRunnerRequestLedger";
 import { isTerminal, normalizeStatus } from "./skillRunnerProviderStateMachine";
 import {
   isSkillRunnerBackendReconcileFlagged,
@@ -13,6 +10,7 @@ import {
   markSkillRunnerBackendHealthSuccess,
 } from "./skillRunnerBackendHealthRegistry";
 import { updateWorkflowTaskStateByRequest } from "./taskRuntime";
+import { updateSkillRunnerRunStateByRequest } from "./skillRunnerRunStore";
 import { delay } from "../utils/runtimeCompatibility";
 
 type SessionLoopState = {
@@ -34,7 +32,7 @@ type SessionSyncDeps = {
   }) => SessionSyncClient;
   appendRuntimeLog: typeof appendRuntimeLog;
   updateTaskDashboardHistoryStateByRequest: typeof updateTaskDashboardHistoryStateByRequest;
-  updateSkillRunnerRequestLedgerSnapshot: typeof updateSkillRunnerRequestLedgerSnapshot;
+  updateSkillRunnerRunStateByRequest: typeof updateSkillRunnerRunStateByRequest;
   updateWorkflowTaskStateByRequest: typeof updateWorkflowTaskStateByRequest;
   markSkillRunnerBackendHealthFailure: typeof markSkillRunnerBackendHealthFailure;
   markSkillRunnerBackendHealthSuccess: typeof markSkillRunnerBackendHealthSuccess;
@@ -53,7 +51,7 @@ const defaultSessionSyncDeps: SessionSyncDeps = {
   buildManagementClient: buildSkillRunnerManagementClient,
   appendRuntimeLog,
   updateTaskDashboardHistoryStateByRequest,
-  updateSkillRunnerRequestLedgerSnapshot,
+  updateSkillRunnerRunStateByRequest,
   updateWorkflowTaskStateByRequest,
   markSkillRunnerBackendHealthFailure,
   markSkillRunnerBackendHealthSuccess,
@@ -186,11 +184,16 @@ function applyStateSnapshot(args: {
   const normalized = normalizeStatus(args.status, "running");
   const backendId = normalizeString(args.session.backend.id);
   const requestId = normalizeString(args.session.requestId);
-  const updated = sessionSyncDeps.updateSkillRunnerRequestLedgerSnapshot({
+  const updated = sessionSyncDeps.updateSkillRunnerRunStateByRequest({
+    backendId,
     requestId,
-    source: "events",
-    status: normalized,
+    state: normalized,
     updatedAt: args.updatedAt,
+    eventType: "backend.snapshot",
+    eventPayload: {
+      source: "events",
+      status: normalized,
+    },
   });
   if (!updated) {
     return {
@@ -202,22 +205,23 @@ function applyStateSnapshot(args: {
   }
   sessionSyncDeps.updateWorkflowTaskStateByRequest({
     backendId: updated.backendId,
+    backendType: "skillrunner",
     requestId: updated.requestId,
-    state: updated.snapshot,
+    state: updated.status,
     error: undefined,
     updatedAt: updated.updatedAt,
   });
   sessionSyncDeps.updateTaskDashboardHistoryStateByRequest({
     backendId: updated.backendId,
     requestId: updated.requestId,
-    state: updated.snapshot,
+    state: updated.status,
     error: undefined,
     updatedAt: updated.updatedAt,
   });
   const payload = {
     backendId: updated.backendId,
     requestId: updated.requestId,
-    status: updated.snapshot,
+    status: updated.status,
     updatedAt: updated.updatedAt,
   };
   emitSessionStateChanged(payload);
@@ -349,15 +353,21 @@ async function streamEventLoop(session: SessionLoopState) {
           error instanceof Error
             ? error.message
             : "SkillRunner request is unavailable";
-        sessionSyncDeps.updateSkillRunnerRequestLedgerSnapshot({
+        sessionSyncDeps.updateSkillRunnerRunStateByRequest({
+          backendId,
           requestId,
-          source: "jobs-terminal",
-          status: "failed",
+          state: "failed",
           error: message,
           updatedAt,
+          eventType: "run.terminal_client_error",
+          eventPayload: {
+            source: "events-stream",
+            reason: message,
+          },
         });
         sessionSyncDeps.updateWorkflowTaskStateByRequest({
           backendId,
+          backendType: "skillrunner",
           requestId,
           state: "failed",
           error: message,

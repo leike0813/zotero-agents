@@ -11,6 +11,9 @@ export type SkillRunnerSidebarTaskItem = {
   backendId: string;
   backendDisplayName: string;
   requestId?: string;
+  skillName?: string;
+  skillLabel?: string;
+  skillId?: string;
   workflowLabel?: string;
   status: string;
   stateLabel: string;

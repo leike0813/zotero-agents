@@ -75,8 +75,8 @@ describe("skillrunner session sync lifecycle", function () {
       appendRuntimeLog: () => {
         calls.push("log");
       },
-      updateSkillRunnerRequestLedgerSnapshot: () => {
-        calls.push("ledger");
+      updateSkillRunnerRunStateByRequest: () => {
+        calls.push("run-store");
         return null;
       },
       updateWorkflowTaskStateByRequest: () => {
@@ -100,7 +100,7 @@ describe("skillrunner session sync lifecycle", function () {
 
     assert.notInclude(calls, "health:success");
     assert.notInclude(calls, "health:failure");
-    assert.notInclude(calls, "ledger");
+    assert.notInclude(calls, "run-store");
     assert.notInclude(calls, "task");
     assert.notInclude(calls, "history-state");
     assert.notInclude(calls, "log");
@@ -142,7 +142,7 @@ describe("skillrunner session sync lifecycle", function () {
       appendRuntimeLog: () => {
         calls.push("log");
       },
-      updateSkillRunnerRequestLedgerSnapshot: () => null,
+      updateSkillRunnerRunStateByRequest: () => null,
       updateWorkflowTaskStateByRequest: () => undefined,
       updateTaskDashboardHistoryStateByRequest: () => undefined,
     });
@@ -192,7 +192,7 @@ describe("skillrunner session sync lifecycle", function () {
       markSkillRunnerBackendHealthSuccess: () => undefined,
       markSkillRunnerBackendHealthFailure: () => undefined,
       appendRuntimeLog: () => undefined,
-      updateSkillRunnerRequestLedgerSnapshot: () => null,
+      updateSkillRunnerRunStateByRequest: () => null,
       updateWorkflowTaskStateByRequest: () => undefined,
       updateTaskDashboardHistoryStateByRequest: () => undefined,
     });

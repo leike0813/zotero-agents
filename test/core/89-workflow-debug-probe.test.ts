@@ -17,22 +17,24 @@ import { resetWorkflowHostApiForTests } from "../../src/workflows/hostApi";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { executeApplyResult } from "../../src/workflows/runtime";
+import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { createWorkflowResultContext } from "../../src/modules/workflowExecution/resultContext";
+import { workflowsPath } from "./workflow-test-utils";
 import type { LoadedWorkflow } from "../../src/workflows/types";
+import { applyResult as applyHostBridgeConnectivityProbeResult } from "../../workflows_builtin/workflow-debug-probe/hooks/applyHostBridgeConnectivityProbeResult.mjs";
+import { applyResult as applySequenceProbeResult } from "../../workflows_builtin/workflow-debug-probe/hooks/applySequenceProbeResult.mjs";
 
 function makePassThroughWorkflow(args: {
   id: string;
   label: string;
   packageId?: string;
   debugOnly?: boolean;
-  filterInputs?: LoadedWorkflow["hooks"]["filterInputs"];
   buildRequest?: LoadedWorkflow["hooks"]["buildRequest"];
+  validateSelection?: LoadedWorkflow["manifest"]["validateSelection"];
 }): LoadedWorkflow {
   const hooks: LoadedWorkflow["hooks"] = {
     applyResult: async () => ({ ok: true }),
   };
-  if (args.filterInputs) {
-    hooks.filterInputs = args.filterInputs;
-  }
   if (args.buildRequest) {
     hooks.buildRequest = args.buildRequest;
   }
@@ -42,17 +44,18 @@ function makePassThroughWorkflow(args: {
       label: args.label,
       provider: "pass-through",
       debug_only: args.debugOnly === true,
+      ...(args.validateSelection
+        ? { validateSelection: args.validateSelection }
+        : {}),
       hooks: {
         applyResult: "hooks/applyResult.js",
-        ...(args.filterInputs ? { filterInputs: "hooks/filterInputs.js" } : {}),
         ...(args.buildRequest ? { buildRequest: "hooks/buildRequest.js" } : {}),
       },
     },
     rootDir: `workflows/${args.id}`,
     packageId: args.packageId,
     hooks,
-    buildStrategy:
-      args.buildRequest || args.filterInputs ? "hook" : "declarative",
+    buildStrategy: args.buildRequest ? "hook" : "declarative",
   };
 }
 
@@ -89,6 +92,20 @@ function flattenText(node: FakeElement): string[] {
   return values;
 }
 
+async function getBuiltinDebugWorkflow(workflowId: string) {
+  const loaded = await loadWorkflowManifests(workflowsPath());
+  const workflow = loaded.workflows.find(
+    (entry) => entry.manifest.id === workflowId,
+  );
+  assert.isOk(
+    workflow,
+    `expected ${workflowId}; loaded=${loaded.workflows
+      .map((entry) => entry.manifest.id)
+      .join(",")}`,
+  );
+  return workflow!;
+}
+
 describe("workflow debug probe", function () {
   beforeEach(function () {
     clearRuntimeLogs();
@@ -104,7 +121,7 @@ describe("workflow debug probe", function () {
     resetWorkflowHostApiForTests();
   });
 
-  it("classifies enabled workflows and hook failures using real preflight execution", async function () {
+  it("classifies enabled workflows and declarative selection failures without request preflight", async function () {
     const parent = await handlers.item.create({
       itemType: "journalArticle",
       fields: { title: "Debug Probe Parent" },
@@ -119,11 +136,15 @@ describe("workflow debug probe", function () {
           packageId: "debug-package",
         }),
         makePassThroughWorkflow({
-          id: "filter-fail-workflow",
-          label: "Filter Fail Workflow",
+          id: "selection-fail-workflow",
+          label: "Selection Fail Workflow",
           packageId: "debug-package",
-          filterInputs: async () => {
-            throw new Error("filter boom");
+          validateSelection: {
+            require: {
+              counts: {
+                parents: { exact: 2 },
+              },
+            },
           },
         }),
         makePassThroughWorkflow({
@@ -144,8 +165,8 @@ describe("workflow debug probe", function () {
 
     assert.lengthOf(checks, 3);
     const ok = checks.find((entry) => entry.workflowId === "ok-workflow");
-    const filterFail = checks.find(
-      (entry) => entry.workflowId === "filter-fail-workflow",
+    const selectionFail = checks.find(
+      (entry) => entry.workflowId === "selection-fail-workflow",
     );
     const buildFail = checks.find(
       (entry) => entry.workflowId === "build-fail-workflow",
@@ -155,16 +176,46 @@ describe("workflow debug probe", function () {
     assert.isTrue(ok!.canRun);
     assert.equal(ok!.requestCount, 1);
 
-    assert.isOk(filterFail);
-    assert.isFalse(filterFail!.canRun);
-    assert.equal(filterFail!.failedStage, "filterInputs");
-    assert.include(filterFail!.error?.message || "", "filter boom");
+    assert.isOk(selectionFail);
+    assert.isFalse(selectionFail!.canRun);
+    assert.equal(selectionFail!.failedStage, "selection-validation");
+    assert.equal(selectionFail!.disabledReason, "no valid input");
 
     assert.isOk(buildFail);
-    assert.isFalse(buildFail!.canRun);
-    assert.equal(buildFail!.failedStage, "buildRequest");
-    assert.include(buildFail!.error?.message || "", "build boom");
+    assert.isTrue(buildFail!.canRun);
     assert.equal(buildFail!.executionMode, "node-native-module");
+  });
+
+  it("does not execute workflow-unit buildRequest during debug preflight", async function () {
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Debug Probe Workflow Unit Parent" },
+    });
+    const selectionContext = await buildSelectionContext([parent]);
+    const counter = { calls: 0 };
+    const workflow = makePassThroughWorkflow({
+      id: "workflow-unit-side-effect",
+      label: "Workflow Unit Side Effect",
+      packageId: "debug-package",
+      buildRequest: async () => {
+        counter.calls += 1;
+        return {
+          kind: "pass-through.run.v1",
+          selectionContext: {},
+        };
+      },
+    });
+    workflow.manifest.inputs = { unit: "workflow" };
+
+    const checks = await collectWorkflowDebugProbeChecks({
+      selectionContext,
+      workflows: [workflow],
+    });
+
+    assert.equal(counter.calls, 0);
+    assert.lengthOf(checks, 1);
+    assert.isTrue(checks[0].canRun);
+    assert.equal(checks[0].requestCount, 1);
   });
 
   it("renders diagnostic table with required headers", function () {
@@ -360,5 +411,335 @@ describe("workflow debug probe", function () {
     } finally {
       runtime.addon = previousAddon;
     }
+  });
+
+  it("debug probe apply hooks consume canonical resultJson instead of responseJson envelopes", async function () {
+    const hostResult = await applyHostBridgeConnectivityProbeResult({
+      runResult: {
+        resultJson: {
+          ok: true,
+          checks: [{ name: "canonical", ok: true }],
+        },
+        responseJson: {
+          result: {
+            ok: false,
+            failure_code: "stale-envelope",
+          },
+        },
+      },
+    });
+    assert.equal(hostResult.ok, true);
+    assert.deepEqual(hostResult.checks, [{ name: "canonical", ok: true }]);
+
+    const sequenceResult = await applySequenceProbeResult({
+      runResult: {
+        resultJson: {
+          status: "ok",
+          probe_id: "canonical-sequence",
+          checks: [],
+        },
+        sequence: {
+          workflow_run_id: "workflow-run",
+        },
+        responseJson: {
+          result: {
+            status: "failed",
+            probe_id: "stale-envelope",
+          },
+          sequence: {
+            workflow_run_id: "stale-response-sequence",
+          },
+        },
+      },
+    });
+    assert.equal(sequenceResult.probeId, "canonical-sequence");
+    assert.deepEqual(sequenceResult.sequence, {
+      workflow_run_id: "workflow-run",
+    });
+  });
+
+  it("loads debug apply contract workflows", async function () {
+    const loaded = await loadWorkflowManifests(workflowsPath());
+    const workflowIds = new Set(
+      loaded.workflows.map((entry) => entry.manifest.id),
+    );
+    for (const workflowId of [
+      "debug-apply-single-bundle",
+      "debug-apply-single-result",
+      "debug-apply-sequence-bundle",
+      "debug-apply-sequence-result",
+      "debug-apply-bundle-then-result",
+      "debug-apply-result-then-bundle",
+    ]) {
+      assert.isTrue(workflowIds.has(workflowId), `${workflowId} should load`);
+    }
+  });
+
+  it("debug apply buildRequest creates a unique parent and conditional sequence steps", async function () {
+    const selectionContext = {
+      selectionType: "empty",
+      items: { parents: [], attachments: [] },
+    };
+    const bundleThenResult = await getBuiltinDebugWorkflow(
+      "debug-apply-bundle-then-result",
+    );
+    const defaultRequests = (await executeBuildRequests({
+      workflow: bundleThenResult,
+      selectionContext,
+    })) as Array<{
+      kind: string;
+      targetParentID: number;
+      input?: Record<string, unknown>;
+      parameter: { run_key?: string };
+      steps: Array<{
+        id: string;
+        fetch_type: string;
+        handoff?: Record<string, unknown>;
+        input?: Record<string, unknown>;
+        parameter?: Record<string, unknown>;
+      }>;
+    }>;
+    assert.lengthOf(defaultRequests, 1);
+    assert.lengthOf(defaultRequests[0].steps, 1);
+    assert.deepEqual(defaultRequests[0].steps[0].input, {});
+    assert.deepEqual(defaultRequests[0].steps[0].handoff, {
+      pass_through: false,
+      required: false,
+    });
+    assert.containsAllKeys(defaultRequests[0].steps[0].parameter || {}, [
+      "workflow_id",
+      "step_id",
+      "run_key",
+    ]);
+    assert.deepEqual(defaultRequests[0].steps.map((step) => step.fetch_type), [
+      "bundle",
+    ]);
+    const defaultParent = Zotero.Items.get(defaultRequests[0].targetParentID)!;
+    assert.include(
+      String(defaultParent.getField("title") || ""),
+      "debug-apply-bundle-then-result",
+    );
+    assert.include(
+      String(defaultParent.getField("title") || ""),
+      String(defaultRequests[0].parameter.run_key || ""),
+    );
+
+    const enabledRequests = (await executeBuildRequests({
+      workflow: bundleThenResult,
+      selectionContext,
+      executionOptions: {
+        workflowParams: { run_result_step: true },
+      },
+    })) as Array<{
+      steps: Array<{
+        id: string;
+        fetch_type: string;
+        handoff?: Record<string, unknown>;
+        input?: Record<string, unknown>;
+      }>;
+    }>;
+    assert.deepEqual(
+      enabledRequests[0].steps.map((step) => `${step.id}:${step.fetch_type}`),
+      ["bundle:bundle", "result:result"],
+    );
+    assert.deepEqual(
+      enabledRequests[0].steps.map((step) => step.input),
+      [{}, {}],
+    );
+    assert.deepEqual(
+      enabledRequests[0].steps.map((step) => step.handoff),
+      [
+        { pass_through: false, required: false },
+        { pass_through: false, required: false },
+      ],
+    );
+
+    const resultThenBundle = await getBuiltinDebugWorkflow(
+      "debug-apply-result-then-bundle",
+    );
+    const skippedRequests = (await executeBuildRequests({
+      workflow: resultThenBundle,
+      selectionContext,
+      executionOptions: {
+        workflowParams: { skip_result_step: true },
+      },
+    })) as Array<{ steps: Array<{ id: string; fetch_type: string; workspace: string }> }>;
+    assert.deepEqual(
+      skippedRequests[0].steps.map(
+        (step) => `${step.id}:${step.fetch_type}:${step.workspace}`,
+      ),
+      ["bundle:bundle:new"],
+    );
+
+    const singleBundle = await getBuiltinDebugWorkflow("debug-apply-single-bundle");
+    const singleRequests = (await executeBuildRequests({
+      workflow: singleBundle,
+      selectionContext,
+    })) as Array<{
+      input?: Record<string, unknown>;
+      parameter?: Record<string, unknown>;
+    }>;
+    assert.deepEqual(singleRequests[0].input, {});
+    assert.containsAllKeys(singleRequests[0].parameter || {}, [
+      "workflow_id",
+      "step_id",
+      "run_key",
+    ]);
+  });
+
+  it("debug apply hook applies canonical resultJson and ignores stale responseJson", async function () {
+    const workflow = await getBuiltinDebugWorkflow("debug-apply-single-result");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "debug-apply-single-result apply-test" },
+    });
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: { readText: async () => "" },
+      request: { targetParentID: parent.id },
+      runResult: {
+        resultJson: {
+          kind: "debug_apply_contract_result",
+          workflow_id: "debug-apply-single-result",
+          step_id: "result",
+          run_key: "abc123",
+          apply_mode: "result",
+          tag: "debug-result:abc123",
+          message: "canonical",
+        },
+        responseJson: {
+          result: {
+            data: {
+              apply_mode: "result",
+              tag: "stale-response-json",
+            },
+          },
+        },
+      },
+    })) as { mode: string; tags: string[] };
+
+    assert.equal(applied.mode, "result");
+    assert.include(applied.tags, "debug-result:abc123");
+    const tags = parent.getTags().map((entry) => entry.tag);
+    assert.include(tags, "debug-result:abc123");
+    assert.notInclude(tags, "stale-response-json");
+  });
+
+  it("debug apply hook reads bundle artifacts through resultContext", async function () {
+    const workflow = await getBuiltinDebugWorkflow("debug-apply-single-bundle");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "debug-apply-single-bundle apply-test" },
+    });
+    const resultJson = {
+      kind: "debug_apply_contract_result",
+      workflow_id: "debug-apply-single-bundle",
+      step_id: "bundle",
+      run_key: "def456",
+      apply_mode: "bundle",
+      artifact_path: "result/debug-apply-artifact.txt",
+      message: "canonical bundle",
+    };
+    const bundleEntries: Record<string, string> = {
+      "result/result.json": JSON.stringify(resultJson),
+      "result/debug-apply-artifact.txt": "debug bundle artifact body",
+    };
+    const bundleReader = {
+      readText: async (entryPath: string) => {
+        if (Object.prototype.hasOwnProperty.call(bundleEntries, entryPath)) {
+          return bundleEntries[entryPath];
+        }
+        throw new Error(`missing bundle entry: ${entryPath}`);
+      },
+    };
+    const runResult = {
+      status: "succeeded",
+      requestId: "debug-bundle-request",
+      fetchType: "bundle",
+    };
+    const resultContext = await createWorkflowResultContext({
+      runResult,
+      bundleReader,
+      manifest: workflow.manifest,
+    });
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader,
+      resultContext,
+      request: { targetParentID: parent.id },
+      runResult,
+    })) as {
+      mode: string;
+      artifactEntryPath: string;
+      artifactText: string;
+      attachmentId: number;
+    };
+
+    assert.equal(applied.mode, "bundle");
+    assert.equal(applied.artifactEntryPath, "result/debug-apply-artifact.txt");
+    assert.equal(applied.artifactText, "debug bundle artifact body");
+    assert.include(parent.getAttachments(), applied.attachmentId);
+  });
+
+  it("debug apply bundle hook writes Windows temp attachments with native separators", async function () {
+    const workflow = await getBuiltinDebugWorkflow("debug-apply-single-bundle");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "debug-apply-single-bundle windows-path-test" },
+    });
+    let writtenPath = "";
+    let writtenText = "";
+    let attachmentPath = "";
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: {
+        readText: async () => "debug bundle artifact body",
+      },
+      request: { targetParentID: parent.id },
+      runResult: {
+        resultJson: {
+          kind: "debug_apply_contract_result",
+          workflow_id: "debug-apply-sequence-bundle",
+          step_id: "bundle_one",
+          run_key: "fzho2i",
+          apply_mode: "bundle",
+          artifact_path: "result/debug-apply-artifact.txt",
+        },
+      },
+      runtime: {
+        hostApi: {
+          file: {
+            getTempDirectoryPath: () =>
+              "C:\\Users\\leike\\AppData\\Local\\Temp\\Zotero",
+            writeText: async (path: string, text: string) => {
+              writtenPath = path;
+              writtenText = text;
+            },
+          },
+        } as any,
+        handlers: {
+          ...handlers,
+          attachment: {
+            ...handlers.attachment,
+            createFromPath: async (options: { path: string }) => {
+              attachmentPath = options.path;
+              return { id: 987654 };
+            },
+          },
+        } as any,
+      },
+    })) as { attachmentId: number };
+
+    assert.equal(applied.attachmentId, 987654);
+    assert.equal(writtenText, "debug bundle artifact body");
+    assert.equal(attachmentPath, writtenPath);
+    assert.equal(
+      writtenPath,
+      "C:\\Users\\leike\\AppData\\Local\\Temp\\Zotero\\debug-apply-sequence-bundle-bundle_one-fzho2i.txt",
+    );
+    assert.notInclude(writtenPath, "Zotero/debug-apply");
   });
 });

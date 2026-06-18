@@ -126,6 +126,7 @@ task-dashboard-generic-logs-open-diagnostics = Export de diagnostic
 task-dashboard-runtime-logs-tab-title = Journaux d'exécution
 task-dashboard-runtime-logs-clear = Effacer les journaux
 task-dashboard-runtime-logs-copy-selected = Copier la sélection
+task-dashboard-runtime-logs-copy-detail = Copier le journal
 task-dashboard-runtime-logs-copy-visible-ndjson = Copier visible (NDJSON)
 task-dashboard-runtime-logs-copy-issue-summary = Copier le résumé des problèmes
 task-dashboard-runtime-logs-diagnostic-mode = Mode diagnostic

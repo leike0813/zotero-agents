@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Debug Apply Result Probe Parameters",
+  "type": "object",
+  "required": ["workflow_id", "step_id", "run_key"],
+  "properties": {
+    "workflow_id": { "type": "string", "minLength": 1 },
+    "step_id": { "type": "string", "minLength": 1 },
+    "run_key": { "type": "string", "minLength": 1 },
+    "tag": { "type": "string" },
+    "message": { "type": "string" }
+  },
+  "additionalProperties": true
+}
+

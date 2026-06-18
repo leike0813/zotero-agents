@@ -17,6 +17,11 @@
       "max": 1
     }
   },
+  "validateSelection": {
+    "select": {
+      "policy": "literature-source"
+    }
+  },
   "request": {
     "kind": "skillrunner.job.v1",
     "create": {
@@ -61,7 +66,6 @@
     }
   },
   "hooks": {
-    "filterInputs": "hooks/filterInputs.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }

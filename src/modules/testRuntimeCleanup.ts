@@ -12,9 +12,6 @@ import {
   setDeferredWorkflowCompletionTrackerDepsForTests,
   resetDeferredWorkflowCompletionTrackerForTests,
 } from "./workflowExecution/deferredCompletionTracker";
-import {
-  resetSkillRunnerRequestLedgerForTests,
-} from "./skillRunnerRequestLedger";
 import { resetPluginStateStoreForTests } from "./pluginStateStore";
 import {
   resetSkillRunnerTaskReconcilerForTests,
@@ -33,7 +30,6 @@ type CleanupDeps = {
   resetLocalRuntimeToastStateForTests: () => void;
   resetSkillRunnerBackendHealthRegistryForTests: () => void;
   resetDeferredWorkflowCompletionTrackerForTests: () => void;
-  resetSkillRunnerRequestLedgerForTests: () => void;
   resetPluginStateStoreForTests: () => void;
   setSkillRunnerBackendReconcileFailureToastEmitterForTests: () => void;
   setSkillRunnerTaskLifecycleToastEmitterForTests: () => void;
@@ -53,7 +49,6 @@ const defaultCleanupDeps: CleanupDeps = {
   resetLocalRuntimeToastStateForTests,
   resetSkillRunnerBackendHealthRegistryForTests,
   resetDeferredWorkflowCompletionTrackerForTests,
-  resetSkillRunnerRequestLedgerForTests,
   resetPluginStateStoreForTests,
   setSkillRunnerBackendReconcileFailureToastEmitterForTests,
   setSkillRunnerTaskLifecycleToastEmitterForTests,
@@ -90,7 +85,6 @@ export async function cleanupBackgroundRuntimeForZoteroTests() {
   cleanupDeps.resetLocalRuntimeToastStateForTests();
   cleanupDeps.resetSkillRunnerBackendHealthRegistryForTests();
   cleanupDeps.resetDeferredWorkflowCompletionTrackerForTests();
-  cleanupDeps.resetSkillRunnerRequestLedgerForTests();
   cleanupDeps.resetPluginStateStoreForTests();
   cleanupDeps.setSkillRunnerBackendReconcileFailureToastEmitterForTests();
   cleanupDeps.setSkillRunnerTaskLifecycleToastEmitterForTests();

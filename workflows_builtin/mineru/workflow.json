@@ -27,6 +27,17 @@
       "mime": ["application/pdf"]
     }
   },
+  "validateSelection": {
+    "select": {
+      "policy": "pdf-attachment"
+    },
+    "exclude": [
+      {
+        "kind": "artifact-exists",
+        "target": "mineru-markdown"
+      }
+    ]
+  },
   "execution": {
     "poll_interval_ms": 2000,
     "timeout_ms": 600000
@@ -90,7 +101,6 @@
     ]
   },
   "hooks": {
-    "filterInputs": "hooks/filterInputs.js",
     "applyResult": "hooks/applyResult.js"
   }
 }

@@ -1,7 +1,9 @@
 import { joinPath } from "../utils/path";
 import {
+  collectExpiredRuntimeAssets,
   collectRuntimeFiles,
   getRuntimePersistencePaths,
+  listRuntimeChildren,
   removeRuntimePath,
   runtimePathExists,
   runtimeRelativePath,
@@ -56,10 +58,7 @@ export type PersistenceCleanupResult = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const TMP_TTL_MS = DAY_MS;
-const CACHE_TTL_MS = 30 * DAY_MS;
 const ORPHAN_PRODUCT_ASSET_TTL_MS = 7 * DAY_MS;
-const LOG_TTL_MS = 30 * DAY_MS;
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -101,36 +100,6 @@ function isUnderPath(root: string, target: string) {
   const rootPath = normalizePath(root).replace(/\/+$/g, "");
   const targetPath = normalizePath(target);
   return targetPath === rootPath || targetPath.startsWith(`${rootPath}/`);
-}
-
-async function collectFilesWithTtl(args: {
-  root: string;
-  owner: string;
-  type: PersistenceIntegrityIssueType;
-  ttlMs: number;
-  nowMs: number;
-}) {
-  const issues: PersistenceIntegrityIssue[] = [];
-  for (const file of await collectRuntimeFiles(args.root)) {
-    const stat = await statRuntimePath(file);
-    if (!stat.exists || !isOlderThan(stat, args.nowMs, args.ttlMs)) {
-      continue;
-    }
-    issues.push({
-      id: issueId(args.type, file, args.owner),
-      type: args.type,
-      severity: "info",
-      path: file,
-      relativePath: runtimeRelativePath(args.root, file),
-      owner: args.owner,
-      eligibleForCleanup: true,
-      reason: `${args.owner} asset exceeded configured TTL`,
-      updatedAt: stat.lastModified
-        ? new Date(stat.lastModified).toISOString()
-        : undefined,
-    });
-  }
-  return issues;
 }
 
 function managedIssueTypeForDiagnostic(
@@ -305,46 +274,49 @@ export async function scanPersistenceIntegrity(args?: {
     });
   }
 
-  for (const issue of await collectFilesWithTtl({
-    root: paths.tmpDir,
-    owner: "tmp",
-    type: "expired_runtime_asset",
-    ttlMs: TMP_TTL_MS,
+  for (const asset of await collectExpiredRuntimeAssets({
+    root: args?.root,
     nowMs,
   })) {
-    issues.push(issue);
-  }
-  for (const issue of await collectFilesWithTtl({
-    root: paths.cacheDir,
-    owner: "cache",
-    type: "expired_runtime_asset",
-    ttlMs: CACHE_TTL_MS,
-    nowMs,
-  })) {
-    issues.push(issue);
-  }
-  for (const issue of await collectFilesWithTtl({
-    root: paths.logsDir,
-    owner: "logs",
-    type: "expired_runtime_asset",
-    ttlMs: LOG_TTL_MS,
-    nowMs,
-  })) {
-    issues.push(issue);
+    issues.push({
+      id: issueId("expired_runtime_asset", asset.path, asset.owner),
+      type: "expired_runtime_asset",
+      severity: "info",
+      path: asset.path,
+      relativePath: asset.relativePath,
+      owner: asset.owner,
+      eligibleForCleanup: true,
+      reason: `${asset.owner} asset exceeded configured TTL`,
+      updatedAt: asset.lastModified
+        ? new Date(asset.lastModified).toISOString()
+        : undefined,
+    });
   }
 
   const runtimeSynthesis = joinPath(paths.runtimeRoot, "synthesis");
   if (await runtimePathExists(runtimeSynthesis)) {
-    issues.push({
-      id: issueId("forbidden_durable_asset_in_runtime", runtimeSynthesis),
-      type: "forbidden_durable_asset_in_runtime",
-      severity: "error",
-      path: runtimeSynthesis,
-      relativePath: runtimeRelativePath(paths.root, runtimeSynthesis),
-      owner: "synthesis",
-      eligibleForCleanup: false,
-      reason: "durable synthesis canonical store must not live in runtime",
-    });
+    const allowedRuntimeSynthesisRoots = new Set([
+      "git-sync",
+      "git-sync-worktree",
+      "webdav-sync",
+    ]);
+    for (const child of await listRuntimeChildren(runtimeSynthesis)) {
+      const childName = basenameOf(child);
+      if (allowedRuntimeSynthesisRoots.has(childName)) {
+        continue;
+      }
+      issues.push({
+        id: issueId("forbidden_durable_asset_in_runtime", child),
+        type: "forbidden_durable_asset_in_runtime",
+        severity: "error",
+        path: child,
+        relativePath: runtimeRelativePath(paths.root, child),
+        owner: "synthesis",
+        eligibleForCleanup: false,
+        reason:
+          "durable synthesis canonical store must not live in runtime outside sync workspaces",
+      });
+    }
   }
 
   const oldRuntimeSynthesis = joinPath(paths.root, "synthesis");

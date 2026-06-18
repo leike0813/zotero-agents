@@ -1561,6 +1561,10 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-runtime-logs-copy-selected",
       "Copy Selected",
     ),
+    runtimeLogsCopyDetail: localize(
+      "task-dashboard-runtime-logs-copy-detail",
+      "Copy Log",
+    ),
     runtimeLogsCopyVisibleNDJSON: localize(
       "task-dashboard-runtime-logs-copy-visible-ndjson",
       "Copy Visible (NDJSON)",
@@ -3124,6 +3128,49 @@ export async function openTaskManagerDialog(args?: {
           ),
         );
       }
+    }
+    if (action === "runtime-logs-copy-entry") {
+      const entryId = String(payload.entryId || "").trim();
+      const format = String(payload.format || "pretty-json").trim();
+      const entry = entryId
+        ? listRuntimeLogs({ order: "desc" }).find((e) => e.id === entryId)
+        : undefined;
+      if (!entry) {
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-runtime-logs-copy-empty",
+            "No log entries selected to copy.",
+          ),
+        );
+        return;
+      }
+      try {
+        const { buildLogCopyPayload } = await import("./runtimeLogManager");
+        const textToCopy = buildLogCopyPayload({
+          entries: [entry],
+          format: format as any,
+        });
+
+        const helper = (Components as any).classes?.[
+          "@mozilla.org/widget/clipboardhelper;1"
+        ]?.getService(Components.interfaces.nsIClipboardHelper) as {
+          copyString?: (value: string) => void;
+        };
+        if (helper?.copyString) {
+          helper.copyString(textToCopy);
+        }
+      } catch (error) {
+        alertRuntimeWindow(
+          localize(
+            "task-dashboard-runtime-logs-copy-failed",
+            "Failed to copy logs: {error}",
+            {
+              args: { error: compactError(error) },
+            },
+          ),
+        );
+      }
+      return;
     }
     if (action === "runtime-logs-copy-diagnostic-bundle") {
       try {

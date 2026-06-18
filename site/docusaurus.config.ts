@@ -18,12 +18,16 @@ const config: Config = {
 
   onBrokenLinks: "throw",
 
+  clientModules: [
+  "./src/clientModules/localePersistence",
+],
+
   i18n: {
-    defaultLocale: "zh-CN",
+    defaultLocale: "en",
     locales: ["zh-CN", "en"],
     localeConfigs: {
-      "zh-CN": { label: "简体中文" },
       en: { label: "English" },
+      "zh-CN": { label: "简体中文" },
     },
   },
 

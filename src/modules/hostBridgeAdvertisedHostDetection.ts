@@ -33,17 +33,17 @@ function summarizeBody(body: string) {
     .replace(/(bearer\s+)[^\s",}]+/gi, "$1[redacted]")
     .replace(
       /("(?:[^"]*token[^"]*)"|(?:\b\w*token\w*\b))\s*:\s*"[^"]*"/gi,
-      "$1:\"[redacted]\"",
+      '$1:"[redacted]"',
     )
     .replace(
       /("(?:[^"]*authorization[^"]*)"|(?:\b\w*authorization\w*\b))\s*:\s*"[^"]*"/gi,
-      "$1:\"[redacted]\"",
+      '$1:"[redacted]"',
     );
   return text.length > 500 ? `${text.slice(0, 500)}...` : text;
 }
 
 function buildReflectionEndpoint(backendUrl: string) {
-  return `${backendUrl.replace(/\/+$/, "")}/v1/system/client-address`;
+  return `${backendUrl.replace(/\/+$/, "")}/v1/runtime/network/client-address`;
 }
 
 function parseBackendUrl(backendUrl: unknown) {

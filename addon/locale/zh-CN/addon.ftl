@@ -126,6 +126,7 @@ task-dashboard-generic-logs-open-diagnostics = 诊断导出
 task-dashboard-runtime-logs-tab-title = 运行日志
 task-dashboard-runtime-logs-clear = 清空日志
 task-dashboard-runtime-logs-copy-selected = 复制选中
+task-dashboard-runtime-logs-copy-detail = 复制日志
 task-dashboard-runtime-logs-copy-visible-ndjson = 复制可见项 (NDJSON)
 task-dashboard-runtime-logs-copy-issue-summary = 复制故障诊断摘要
 task-dashboard-runtime-logs-diagnostic-mode = 诊断模式

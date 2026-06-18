@@ -1,0 +1,35 @@
+{
+  "id": "debug-apply-bundle-then-result",
+  "label": "Debug: Apply Bundle Then Result",
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "parameters": {
+    "run_result_step": {
+      "type": "boolean",
+      "title": "Run result step",
+      "default": false
+    }
+  },
+  "request": {
+    "kind": "skillrunner.sequence.v1"
+  },
+  "execution": {
+    "skillrunner_mode": "auto",
+    "feedback": {
+      "showNotifications": true
+    },
+    "timeout_ms": 300000
+  },
+  "hooks": {
+    "buildRequest": "../hooks/buildDebugApplyContractRequest.mjs",
+    "applyResult": "../hooks/applyDebugApplyContractResult.mjs"
+  }
+}
+

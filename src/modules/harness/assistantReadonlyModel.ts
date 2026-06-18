@@ -352,6 +352,8 @@ function summarizeAcpSkillRun(row: PluginStateReadonlyRow) {
     taskName:
       cleanString(payload.taskName || payload.skillId || payload.requestId) ||
       cleanString(row.taskId),
+    skillName: cleanString(payload.skillName || payload.skill_name),
+    skillLabel: cleanString(payload.skillLabel || payload.skill_label),
     skillId: cleanString(payload.skillId),
     executionMode: cleanString(payload.executionMode),
     conversationState: cleanString(payload.conversationState),
@@ -409,6 +411,9 @@ function acpSkillRunsSnapshot(rows: PluginStateReadonlyRow[]) {
           id: selectedRun.requestId,
           requestId: selectedRun.requestId,
           workflowLabel: selectedRun.workflowLabel,
+          skillName: selectedRun.skillName,
+          skillLabel: selectedRun.skillLabel,
+          skillId: selectedRun.skillId,
           state: selectedRun.status,
           updatedAt: selectedRun.updatedAt,
           pendingPermission: selectedRun.pendingPermission,
@@ -439,6 +444,9 @@ function skillRunnerTask(
       cleanString(payload.backendLabel || payload.backendId || row.backendId) ||
       "SkillRunner",
     requestId: cleanString(payload.requestId || row.requestId),
+    skillName: cleanString(payload.skillName || payload.skill_name),
+    skillLabel: cleanString(payload.skillLabel || payload.skill_label),
+    skillId: cleanString(payload.skillId || payload.skill_id),
     workflowLabel: cleanString(payload.workflowLabel || payload.workflowId),
     status,
     stateLabel: status.replace(/[_-]+/g, " "),
@@ -471,6 +479,9 @@ function skillRunnerSession(row?: PluginStateReadonlyRow) {
       payload.backendLabel || payload.backendId || row.backendId,
     ),
     requestId: cleanString(payload.requestId || row.requestId),
+    skillName: cleanString(payload.skillName || payload.skill_name),
+    skillLabel: cleanString(payload.skillLabel || payload.skill_label),
+    skillId: cleanString(payload.skillId || payload.skill_id),
     status,
     statusSemantics: {
       normalized: status,

@@ -1058,6 +1058,16 @@ describe("ACP SkillRunner-compatible runner", function () {
           });
           return { stopReason: "cancelled" };
         }
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({ ok: true, __SKILL_DONE__: true }),
+            },
+          },
+        });
         return { stopReason: "end_turn" };
       },
       cancel: async () => {

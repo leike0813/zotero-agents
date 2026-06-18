@@ -1,0 +1,19 @@
+{
+  "id": "debug-apply-bundle-probe",
+  "name": "Debug Apply Bundle Probe",
+  "description": "Debug-only bundle apply contract probe.",
+  "version": "0.1.0",
+  "debug_only": true,
+  "execution_modes": ["auto"],
+  "schemas": {
+    "input": "assets/input.schema.json",
+    "parameter": "assets/parameter.schema.json",
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "Execute this debug-only probe exactly as described in SKILL.md. Inputs: {{ input }}. Parameters: {{ parameter }}. Use the current working directory as the run workspace. Output exactly one JSON object."
+    }
+  }
+}
+

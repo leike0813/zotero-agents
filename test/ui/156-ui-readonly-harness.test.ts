@@ -120,6 +120,8 @@ async function createPluginStateFixture() {
         backendType: "acp",
         workflowId: "wf-acp",
         workflowLabel: "ACP Workflow",
+        skillName: "Demo Skill",
+        skillLabel: "Demo Skill Label",
         skillId: "skill.demo",
         conversationRecoveryState: "connected",
         connectionActionState: "idle",
@@ -146,6 +148,9 @@ async function createPluginStateFixture() {
         requestId: "sr-req-1",
         taskName: "Auth Run",
         workflowLabel: "SkillRunner Workflow",
+        skillName: "Auth Skill",
+        skillLabel: "Auth Skill Label",
+        skillId: "skill.auth",
         status: "waiting_auth",
         pendingAuth: {
           phase: "challenge_active",
@@ -382,12 +387,24 @@ describe("UI readonly harness", function () {
         (snapshots.acpSkills as any).selectedRun.pendingPermission.requestId,
         "skill-perm-1",
       );
+      assert.equal((snapshots.acpSkills as any).selectedRun.skillName, "Demo Skill");
+      assert.equal((snapshots.acpSkills as any).selectedRun.skillId, "skill.demo");
       assert.ok((snapshots.acpSkills as any).selectedRuntimeOptions);
       assert.equal(
         (snapshots.skillrunner as any).session.authSessionId,
         "auth-1",
       );
       assert.ok(Array.isArray((snapshots.skillrunner as any).drawer.sections));
+      assert.equal(
+        (snapshots.skillrunner as any).drawer.sections[0].groups[0]
+          .activeTasks[0].skillName,
+        "Auth Skill",
+      );
+      assert.equal(
+        (snapshots.skillrunner as any).drawer.sections[0].groups[0]
+          .activeTasks[0].skillId,
+        "skill.auth",
+      );
       const after = (await stat(fixture.dbPath)).mtimeMs;
       assert.equal(after, before);
     } finally {

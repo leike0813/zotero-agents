@@ -45,7 +45,33 @@ workflow 与后端协议强耦合。
 
 ### Requirement: Provider 执行结果必须统一为标准模型
 
-系统 MUST 将不同 Provider 的执行输出归一为统一结果结构，供 runtime 与 `applyResult` 消费。
+系统 MUST 将不同 Provider 的执行输出归一为统一结果结构，供 runtime 与
+`applyResult` 消费。
+
+#### Scenario: SkillRunner result terminal result exposes business output
+
+- **WHEN** a SkillRunner `/result` terminal success response is wrapped as
+  `{ request_id, result: { data } }`
+- **THEN** provider execution SHALL expose `result.data` as
+  `ProviderExecutionResult.resultJson`
+- **AND** the raw `/result` response SHALL remain available only as provider
+  diagnostic metadata.
+
+#### Scenario: SkillRunner direct result payload remains direct
+
+- **WHEN** a SkillRunner `/result` terminal success response is already a direct
+  business JSON payload
+- **THEN** provider execution SHALL expose that payload unchanged as
+  `ProviderExecutionResult.resultJson`
+- **AND** provider execution SHALL NOT unwrap a business field named `result`
+  unless the response has a SkillRunner result-envelope shape.
+
+#### Scenario: ACP terminal result remains canonical
+
+- **WHEN** an ACP skill run reaches terminal success
+- **THEN** provider execution SHALL expose the business output as
+  `ProviderExecutionResult.resultJson`
+- **AND** ACP output SHALL NOT be wrapped in a SkillRunner-style envelope.
 
 #### Scenario: SkillRunner bundle terminal result resolves namespaced result JSON
 
@@ -54,15 +80,7 @@ workflow 与后端协议强耦合。
   from the bundle before the legacy `result/result.json` fallback
 - **AND** the succeeded provider result SHALL expose the parsed `resultJson`
 - **AND** sequence handoff SHALL consume that parsed result rather than the
-  polling snapshot
-
-#### Scenario: SkillRunner bundle terminal result without result JSON fails closed
-
-- **WHEN** a SkillRunner bundle request succeeds but neither the namespaced
-  result JSON nor legacy fallback is present
-- **THEN** provider execution SHALL fail the request locally with a structured
-  result-resolution error
-- **AND** plugin SHALL NOT use the backend polling snapshot as step output
+  polling snapshot.
 
 ### Requirement: SkillRunner interactive execution SHALL defer terminal ownership to backend state machine
 SkillRunner interactive 执行 SHALL 将终态裁决权交给后端状态机，插件侧仅负责同步与收敛。
@@ -210,3 +228,40 @@ ordinary SkillRunner auto jobs.
   namespace
 - **AND** SHALL execute the step's declared `apply_result` workflow before
   continuing to the next step
+
+### Requirement: ACP and SkillRunner run state MUST use separated persistent stores
+
+ACP Skills and SkillRunner MUST NOT share a persistent run-state SSOT.
+
+#### Scenario: ACP skill run writes ACP-only store
+
+- **WHEN** an ACP skill run is created or updated
+- **THEN** plugin SHALL persist it in the ACP run store
+- **AND** plugin SHALL NOT persist it as a generic task-row SSOT
+- **AND** ACP run APIs SHALL reject non-ACP backend types.
+
+#### Scenario: SkillRunner run writes SkillRunner-only store
+
+- **WHEN** a SkillRunner request reaches request-ready or later lifecycle states
+- **THEN** plugin SHALL persist it in the SkillRunner run store
+- **AND** plugin SHALL NOT write `plugin_task_requests(domain=skillrunner)`
+- **AND** plugin SHALL NOT write `plugin_task_contexts(domain=skillrunner)`
+- **AND** task rows and dashboard history SHALL be derived from the SkillRunner run store rather than treated as state owners.
+
+#### Scenario: legacy SkillRunner stores are cleanup-only
+
+- **WHEN** plugin initializes runtime state after this change
+- **THEN** legacy SkillRunner request/context rows SHALL only be deleted by upgrade cleanup
+- **AND** runtime restore, reconcile, session sync, and settlement SHALL NOT read them.
+
+### Requirement: SkillRunner sequence remains frontend-orchestrated
+
+SkillRunner sequence execution MUST remain a frontend orchestration of multiple
+ordinary backend requests.
+
+#### Scenario: SkillRunner sequence step identity is independent
+
+- **WHEN** a SkillRunner sequence step is started
+- **THEN** the step SHALL have its own SkillRunner run record and backend request id
+- **AND** the sequence root SHALL be stored as a non-projectable SkillRunner run
+- **AND** the sequence root SHALL NOT swallow the step projection.

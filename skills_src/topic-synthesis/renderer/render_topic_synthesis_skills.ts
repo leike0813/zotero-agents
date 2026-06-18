@@ -501,10 +501,21 @@ function stageSchemaNames(skill: SkillContract): string[] {
     .sort();
 }
 
+function runnerDisplayName(skill: SkillContract): string {
+  const emojiBySkillId: Record<string, string> = {
+    "create-topic-synthesis-prepare": "🧩",
+    "update-topic-synthesis-prepare": "🔄",
+    "topic-synthesis-core-enrichment": "🧠",
+    "topic-synthesis-finalize": "✅",
+  };
+  const emoji = emojiBySkillId[skill.id];
+  return emoji ? `${emoji} ${skill.title}` : skill.title;
+}
+
 function runnerJson(skill: SkillContract): Record<string, unknown> {
   return {
     id: skill.id,
-    name: skill.title,
+    name: runnerDisplayName(skill),
     description: skill.description,
     version: "0.1.0",
     execution_modes: ["interactive"],

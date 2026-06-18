@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Debug Apply Result Probe Input",
+  "type": "object",
+  "additionalProperties": true
+}
+

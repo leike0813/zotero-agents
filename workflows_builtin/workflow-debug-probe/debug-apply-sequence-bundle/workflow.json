@@ -1,0 +1,28 @@
+{
+  "id": "debug-apply-sequence-bundle",
+  "label": "Debug: Apply Sequence Bundle",
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "request": {
+    "kind": "skillrunner.sequence.v1"
+  },
+  "execution": {
+    "skillrunner_mode": "auto",
+    "feedback": {
+      "showNotifications": true
+    },
+    "timeout_ms": 300000
+  },
+  "hooks": {
+    "buildRequest": "../hooks/buildDebugApplyContractRequest.mjs",
+    "applyResult": "../hooks/applyDebugApplyContractResult.mjs"
+  }
+}
+

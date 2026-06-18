@@ -19,6 +19,26 @@
     return String(value == null ? "" : value).trim();
   }
 
+  function resolveSkillDisplayName() {
+    const sources = Array.prototype.slice.call(arguments);
+    for (const source of sources) {
+      if (!source || typeof source !== "object") continue;
+      const skillName = safeText(source.skillName || source.skill_name);
+      if (skillName) return skillName;
+    }
+    for (const source of sources) {
+      if (!source || typeof source !== "object") continue;
+      const skillLabel = safeText(source.skillLabel || source.skill_label);
+      if (skillLabel) return skillLabel;
+    }
+    for (const source of sources) {
+      if (!source || typeof source !== "object") continue;
+      const skillId = safeText(source.skillId || source.skill_id);
+      if (skillId) return skillId;
+    }
+    return "";
+  }
+
   function normalizeKind(kind) {
     return PANEL_KINDS.indexOf(kind) >= 0 ? kind : "acp-chat";
   }
@@ -1937,7 +1957,7 @@
         title:
           safeText(run && (run.taskName || run.workflowLabel || run.skillId)) ||
           "ACP Skill Run",
-        subtitle: safeText(run && run.skillId),
+        subtitle: resolveSkillDisplayName(run),
         status,
         statusLabel: status,
         backendId: safeText(run && run.backendId),
@@ -2137,25 +2157,10 @@
     const skillRunnerBusy = status === "running" || status === "prompting";
     const skillRunnerWaiting = status === "waiting-user" || status === "waiting-auth";
     const selectedTask = findSkillRunnerPanelTask(envelope, session);
-    const skillRunnerSkillName = safeText(
-      session.skillName ||
-        session.skillLabel ||
-        session.skillId ||
-        session.skill_id ||
-        session.workflowLabel ||
-        session.workflowId ||
-        (selectedTask &&
-          (selectedTask.skillName ||
-            selectedTask.skillLabel ||
-            selectedTask.skillId ||
-            selectedTask.skill_id ||
-            selectedTask.workflowLabel ||
-            selectedTask.workflowId)) ||
-        envelope.skillName ||
-        envelope.skillLabel ||
-        envelope.skillId ||
-        envelope.workflowLabel ||
-        envelope.workflowId,
+    const skillRunnerSkillName = resolveSkillDisplayName(
+      selectedTask,
+      session,
+      envelope,
     );
     return normalizeAssistantPanelSnapshot({
       kind: "skillrunner",

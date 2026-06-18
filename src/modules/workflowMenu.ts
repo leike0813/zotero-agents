@@ -1,7 +1,6 @@
 import { config } from "../../package.json";
 import { getString } from "../utils/locale";
 import { buildSelectionContext } from "./selectionContext";
-import { executeBuildRequests } from "../workflows/runtime";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import { resolveProvider } from "../providers/registry";
@@ -20,6 +19,7 @@ import {
   isCoreWorkflow,
   localizeWorkflowLabel,
 } from "../workflows/localization";
+import { evaluateWorkflowSelection } from "../workflows/workflowSelectionValidation";
 
 const ROOT_MENU_ID = `${config.addonRef}-workflows-menu`;
 const ROOT_POPUP_ID = `${config.addonRef}-workflows-popup`;
@@ -98,14 +98,6 @@ function appendAssistantSidebarItem(
 function appendMenuSeparator(win: _ZoteroTypes.MainWindow, popup: XULElement) {
   const separator = win.document.createXULElement("menuseparator");
   popup.appendChild(separator);
-}
-
-function shouldRunRequestPreflightFromMenu(workflow: LoadedWorkflow) {
-  const parameterCount = Object.keys(workflow.manifest.parameters || {}).length;
-  if (workflow.manifest.inputs?.unit === "workflow" && parameterCount > 0) {
-    return false;
-  }
-  return true;
 }
 
 function compactError(error: unknown) {
@@ -258,15 +250,21 @@ export async function rebuildWorkflowActionPopup(
         if (descriptor.blockedReason) {
           throw new Error(descriptor.blockedReason);
         }
-        if (shouldRunRequestPreflightFromMenu(workflow)) {
-          await executeBuildRequests({
-            workflow,
-            selectionContext,
-            executionOptions: {
-              workflowParams: executionContext.workflowParams,
-              providerOptions: executionContext.providerOptions,
-            },
-          });
+        const selectionValidation = await evaluateWorkflowSelection({
+          workflow,
+          selectionContext,
+          mode: "menu",
+          executionOptions: {
+            workflowParams: executionContext.workflowParams,
+            providerOptions: executionContext.providerOptions,
+          },
+        });
+        if (selectionValidation.state === "disabled") {
+          const error = new Error(
+            `Workflow ${workflow.manifest.id} has no valid input units after filtering`,
+          );
+          (error as { code?: string }).code = "NO_VALID_INPUT_UNITS";
+          throw error;
         }
       } catch (error) {
         disabledReason = resolveDisabledReason(error);

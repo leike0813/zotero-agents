@@ -512,6 +512,61 @@ describe("skillrunner.sequence.v1 runtime", function () {
     );
   });
 
+  it("does not inject handoff when pass_through is false without explicit mapping", async function () {
+    const launched: Array<Record<string, unknown>> = [];
+    await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        taskName: "No Handoff Passthrough",
+        steps: [
+          {
+            id: "first",
+            skill_id: "first-skill",
+            workspace: "new",
+          },
+          {
+            id: "second",
+            skill_id: "second-skill",
+            workspace: "reuse-workflow",
+            input: {},
+            handoff: {
+              pass_through: false,
+              required: false,
+            },
+          },
+        ],
+        final_step_id: "second",
+      },
+      backend: {
+        id: "acp-backend",
+        type: "acp",
+        baseUrl: "local://acp",
+        auth: { kind: "none" },
+      },
+      providerOptions: {},
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-1",
+      jobId: "job-1",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        launched.push(request as Record<string, unknown>);
+        return {
+          status: "succeeded",
+          requestId: `${String((request as any).skill_id)}-request`,
+          fetchType: "result",
+          resultJson: { ok: true, from: String((request as any).skill_id) },
+          responseJson: {},
+        };
+      },
+    });
+
+    assert.lengthOf(launched, 2);
+    assert.notProperty(
+      ((launched[1].input || {}) as Record<string, unknown>),
+      "handoff",
+    );
+  });
+
   it("applies opt-in steps before launching downstream steps", async function () {
     const events: string[] = [];
     const result = await executeSkillRunnerSequence({
@@ -766,6 +821,54 @@ describe("skillrunner.sequence.v1 runtime", function () {
     }
 
     assert.deepEqual(launched, ["prepare-skill"]);
+  });
+
+  it("fails successful step handoff when provider omits canonical resultJson", async function () {
+    try {
+      await executeSkillRunnerSequence({
+        request: {
+          kind: "skillrunner.sequence.v1",
+          steps: [
+            {
+              id: "prepare",
+              skill_id: "prepare-skill",
+              workspace: "new",
+            },
+            {
+              id: "finalize",
+              skill_id: "finalize-skill",
+              workspace: "reuse-workflow",
+            },
+          ],
+          final_step_id: "finalize",
+        },
+        backend: {
+          id: "skillrunner-backend",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:8000",
+          auth: { kind: "none" },
+        },
+        providerOptions: {},
+        workflowId: "sequence-workflow",
+        workflowRunId: "workflow-run-missing-result-json",
+        jobId: "job-missing-result-json",
+        appendRuntimeLog: () => {},
+        executeWithProvider: async ({ request }) => {
+          const skillId = String((request as { skill_id?: unknown }).skill_id);
+          return {
+            status: "succeeded",
+            requestId: `${skillId}-request`,
+            fetchType: "result",
+            responseJson: {
+              result: { status: "success", data: { stale: true } },
+            },
+          };
+        },
+      });
+      assert.fail("expected missing canonical resultJson to fail sequence");
+    } catch (error) {
+      assert.include(String(error), "did not expose resultJson");
+    }
   });
 
   it("short-circuits recovered non-final steps before launching downstream continuation", async function () {

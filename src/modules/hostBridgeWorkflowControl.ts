@@ -43,6 +43,11 @@ export type HostBridgeWorkflowSummary = {
   configurable: boolean;
   acceptsNoSelection: boolean;
   inputUnit?: string;
+  selectionValidation?: {
+    policy?: string;
+    excludes?: string[];
+    derives?: string[];
+  };
   parameters: string[];
 };
 
@@ -202,6 +207,15 @@ export function listHostBridgeWorkflows(): HostBridgeWorkflowSummary[] {
       configurable: Object.keys(manifest.parameters || {}).length > 0,
       acceptsNoSelection: canWorkflowRunWithoutSelection(manifest),
       inputUnit: manifest.inputs?.unit,
+      selectionValidation: manifest.validateSelection
+        ? {
+            policy: manifest.validateSelection.select?.policy,
+            excludes: (manifest.validateSelection.exclude || []).map(
+              (entry) => entry.kind,
+            ),
+            derives: manifest.validateSelection.derive || [],
+          }
+        : undefined,
       parameters: Object.keys(manifest.parameters || {}),
     };
   });

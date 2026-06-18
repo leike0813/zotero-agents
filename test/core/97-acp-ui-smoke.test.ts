@@ -425,6 +425,7 @@ describe("acp ui smoke", function () {
         requestId: "skillrunner-request-1",
         title: "Selected paper task",
         status: "running",
+        workflowLabel: "Debug: Host Bridge Connectivity Probe",
       },
       workspace: {
         selectedTaskKey: "local-skillrunner-backend:skillrunner-request-1",
@@ -438,6 +439,7 @@ describe("acp ui smoke", function () {
                 requestId: "skillrunner-request-1",
                 title: "Selected paper task",
                 workflowLabel: "Debug: Host Bridge Connectivity Probe",
+                skillName: "Host Bridge Probe",
                 skillId: "debug-host-bridge-connectivity-probe",
                 status: "running",
               },
@@ -449,11 +451,49 @@ describe("acp ui smoke", function () {
     });
 
     assert.equal(panel.context.title, "Selected paper task");
+    assert.equal(panel.context.subtitle, "Host Bridge Probe");
+    assert.notEqual(panel.context.subtitle, "skillrunner-request-1");
+    assert.notEqual(
+      panel.context.subtitle,
+      "Debug: Host Bridge Connectivity Probe",
+    );
+  });
+
+  it("falls back to skill id when a SkillRunner skill name is unavailable", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      session: {
+        requestId: "skillrunner-request-1",
+        title: "Selected paper task",
+        status: "running",
+        workflowLabel: "Debug Workflow",
+      },
+      workspace: {
+        selectedTaskKey: "local-skillrunner-backend:skillrunner-request-1",
+        groups: [
+          {
+            backendId: "local-skillrunner-backend",
+            backendDisplayName: "Local SkillRunner",
+            activeTasks: [
+              {
+                key: "local-skillrunner-backend:skillrunner-request-1",
+                requestId: "skillrunner-request-1",
+                title: "Selected paper task",
+                workflowLabel: "Debug Workflow",
+                skillId: "debug-host-bridge-connectivity-probe",
+                status: "running",
+              },
+            ],
+            finishedTasks: [],
+          },
+        ],
+      },
+    });
+
     assert.equal(
       panel.context.subtitle,
       "debug-host-bridge-connectivity-probe",
     );
-    assert.notEqual(panel.context.subtitle, "skillrunner-request-1");
   });
 
   it("exposes copy-friendly assistant transcript and reply history affordances", async function () {
@@ -1841,7 +1881,7 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunStore, "function formatFinalEnvelopeMarkdown");
     assert.include(acpSkillRunStore, "transcriptItems");
     assert.include(acpSkillRunStore, "planEntries");
-    assert.include(acpSkillRunStore, 'const STORE_SCOPE = "skill-runs"');
+    assert.include(acpSkillRunStore, 'upsertPluginRunStoreEntry("acp"');
     assert.notInclude(acpSkillRunStore, "projectedEntries");
     assert.notInclude(acpSkillRunStore, "projectionWarnings");
     assert.include(acpSkillRunStore, "registerAcpSkillRunController");
@@ -2554,6 +2594,8 @@ describe("acp ui smoke", function () {
         sessionId: "session-1",
         taskName: "Selected Paper Title",
         workflowLabel: "Digest",
+        skillName: "Literature Analysis",
+        skillId: "literature-analysis",
         acpModeId: "plan",
         acpModelId: "opus",
         acpReasoningEffort: "high",
@@ -2621,6 +2663,7 @@ describe("acp ui smoke", function () {
       "mcp",
     );
     assert.equal(skillPanel.context.title, "Selected Paper Title");
+    assert.equal(skillPanel.context.subtitle, "Literature Analysis");
     assert.equal(skillPanel.drawers.layout, "workspace-task-drawer");
     assert.equal(skillPanel.drawers.sections[0].id, "running");
     assert.equal(skillPanel.drawers.sections[1].id, "completed");

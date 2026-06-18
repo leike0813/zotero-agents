@@ -11,7 +11,7 @@ import {
 import { appendRuntimeLog } from "../runtimeLogManager";
 import { recordWorkflowTaskUpdate } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
-import { ensureSkillRunnerRecoverableContext } from "../skillRunnerTaskReconciler";
+import { registerSkillRunnerRunForSettlement } from "../skillRunnerTaskReconciler";
 import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
 import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
 import { selectAcpSkillRun } from "../acpSkillRunStore";
@@ -41,7 +41,7 @@ type RunSeamDeps = {
   appendRuntimeLog: typeof appendRuntimeLog;
   recordWorkflowTaskUpdate: typeof recordWorkflowTaskUpdate;
   recordTaskDashboardHistoryFromJob: typeof recordTaskDashboardHistoryFromJob;
-  ensureSkillRunnerRecoverableContext: typeof ensureSkillRunnerRecoverableContext;
+  registerSkillRunnerRunForSettlement: typeof registerSkillRunnerRunForSettlement;
   openAssistantWorkspaceSidebar: typeof openAssistantWorkspaceSidebar;
   focusSkillRunnerWorkspace: typeof focusSkillRunnerWorkspace;
   selectAcpSkillRun: typeof selectAcpSkillRun;
@@ -55,7 +55,7 @@ const defaultRunSeamDeps: RunSeamDeps = {
   appendRuntimeLog,
   recordWorkflowTaskUpdate,
   recordTaskDashboardHistoryFromJob,
-  ensureSkillRunnerRecoverableContext,
+  registerSkillRunnerRunForSettlement,
   openAssistantWorkspaceSidebar,
   focusSkillRunnerWorkspace,
   selectAcpSkillRun,
@@ -283,7 +283,7 @@ export function runWorkflowExecutionSeam(
           return;
         }
         if ((isRequestReady || isSequenceStepReconcilePoint) && stepJob) {
-          resolved.ensureSkillRunnerRecoverableContext({
+          resolved.registerSkillRunnerRunForSettlement({
             workflowId: args.prepared.workflow.manifest.id,
             workflowLabel,
             requestKind: "skillrunner.job.v1",
@@ -337,8 +337,18 @@ export function runWorkflowExecutionSeam(
           requestIndex >= 0 && requestIndex < args.prepared.requests.length
             ? args.prepared.requests[requestIndex]
             : undefined;
-        if (request) {
-          resolved.ensureSkillRunnerRecoverableContext({
+        const isSkillRunnerJob =
+          executionContext.requestKind === "skillrunner.job.v1";
+        const isSkillRunnerReady =
+          String(job.meta.skillRunnerRequestReady || "").trim() === "true" ||
+          job.meta.skillRunnerRequestReady === true;
+        if (
+          request &&
+          backendType === "skillrunner" &&
+          executionContext.requestKind === "skillrunner.job.v1" &&
+          (!isSkillRunnerJob || isSkillRunnerReady)
+        ) {
+          resolved.registerSkillRunnerRunForSettlement({
             workflowId: args.prepared.workflow.manifest.id,
             workflowLabel,
             requestKind: args.prepared.executionContext.requestKind,
@@ -351,8 +361,6 @@ export function runWorkflowExecutionSeam(
         }
         const skillrunnerMode =
           args.prepared.workflow.manifest.execution?.skillrunner_mode;
-        const isSkillRunnerJob =
-          executionContext.requestKind === "skillrunner.job.v1";
         const isAcpSkillRun =
           executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
           executionContext.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND;
@@ -407,8 +415,8 @@ export function runWorkflowExecutionSeam(
       const isSkillRunnerReady =
         String(job.meta.skillRunnerRequestReady || "").trim() === "true" ||
         job.meta.skillRunnerRequestReady === true;
-      if (request && (!isSkillRunnerJob || isSkillRunnerReady)) {
-        resolved.ensureSkillRunnerRecoverableContext({
+      if (request && isSkillRunnerJob && isSkillRunnerReady) {
+        resolved.registerSkillRunnerRunForSettlement({
           workflowId: args.prepared.workflow.manifest.id,
           workflowLabel,
           requestKind: args.prepared.executionContext.requestKind,

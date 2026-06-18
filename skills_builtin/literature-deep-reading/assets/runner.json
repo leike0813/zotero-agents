@@ -1,6 +1,6 @@
 {
   "id": "literature-deep-reading",
-  "name": "Literature Deep Reading",
+  "name": "📖 Literature Deep Reading",
   "description": "Bootstrap a literature deep-reading run from a source bundle, collect requested Host context, build analysis views, normalize block translations, and render the final self-contained HTML.",
   "version": "0.1.0",
   "execution_modes": ["auto", "interactive"],

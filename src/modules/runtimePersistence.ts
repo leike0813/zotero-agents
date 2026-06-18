@@ -149,6 +149,24 @@ const SQLITE_FILE_NAME = "zotero-agents.db";
 const LEGACY_SQLITE_FILE_NAME = "zotero-skills.db";
 const RUNTIME_LOG_FILE_NAME = "runtime-logs.json";
 const PLUGIN_PREFS_PREFIX = "extensions.zotero.zotero-skills";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export type RuntimeExpiredAssetOwner = "tmp" | "cache" | "logs";
+
+export type RuntimeExpiredAsset = {
+  owner: RuntimeExpiredAssetOwner;
+  root: string;
+  path: string;
+  relativePath: string;
+  ttlMs: number;
+  lastModified?: number;
+};
+
+const RUNTIME_EXPIRED_ASSET_TTL_MS: Record<RuntimeExpiredAssetOwner, number> = {
+  tmp: DAY_MS,
+  cache: 30 * DAY_MS,
+  logs: 30 * DAY_MS,
+};
 
 let runtimeLogClearer: (() => void) | null = null;
 let pluginTaskDomainClearer: ((domain: string) => number) | null = null;
@@ -1194,6 +1212,62 @@ export function runtimeRelativePath(rootRaw: string, targetRaw: string) {
   return target.startsWith(prefix) ? target.slice(prefix.length) : target;
 }
 
+function runtimeExpiredAssetRoots(paths: RuntimePersistencePaths) {
+  return {
+    tmp: paths.tmpDir,
+    cache: paths.cacheDir,
+    logs: paths.logsDir,
+  } satisfies Record<RuntimeExpiredAssetOwner, string>;
+}
+
+function statIsOlderThan(
+  stat: { lastModified?: number },
+  nowMs: number,
+  ttlMs: number,
+) {
+  const lastModified = Number(stat.lastModified || 0);
+  return Number.isFinite(lastModified) && lastModified > 0
+    ? nowMs - lastModified >= ttlMs
+    : false;
+}
+
+export function getRuntimeExpiredAssetTtlMs(owner: RuntimeExpiredAssetOwner) {
+  return RUNTIME_EXPIRED_ASSET_TTL_MS[owner];
+}
+
+export async function collectExpiredRuntimeAssets(args?: {
+  root?: string;
+  nowMs?: number;
+  owners?: RuntimeExpiredAssetOwner[];
+}) {
+  const paths = getRuntimePersistencePaths(args?.root);
+  const nowMs = Math.max(0, Number(args?.nowMs || 0) || 0) || Date.now();
+  const roots = runtimeExpiredAssetRoots(paths);
+  const owners = args?.owners?.length
+    ? args.owners
+    : (Object.keys(roots) as RuntimeExpiredAssetOwner[]);
+  const assets: RuntimeExpiredAsset[] = [];
+  for (const owner of owners) {
+    const root = roots[owner];
+    const ttlMs = getRuntimeExpiredAssetTtlMs(owner);
+    for (const file of await collectRuntimeFiles(root)) {
+      const stat = await statRuntimePath(file);
+      if (!stat.exists || !statIsOlderThan(stat, nowMs, ttlMs)) {
+        continue;
+      }
+      assets.push({
+        owner,
+        root,
+        path: file,
+        relativePath: runtimeRelativePath(paths.root, file),
+        ttlMs,
+        lastModified: stat.lastModified,
+      });
+    }
+  }
+  return assets.sort((left, right) => left.path.localeCompare(right.path));
+}
+
 export async function getRuntimePathSize(pathRaw: string): Promise<{
   bytes: number;
   itemCount: number;
@@ -1458,6 +1532,23 @@ export async function cleanupRuntimePersistenceRetention(args?: {
       removedPaths.push(workspaceDir);
     }
   }
+  const expiredAssets = await collectExpiredRuntimeAssets({ nowMs });
+  const expiredByOwner: Record<RuntimeExpiredAssetOwner, number> = {
+    tmp: 0,
+    cache: 0,
+    logs: 0,
+  };
+  for (const asset of expiredAssets) {
+    if (!isPathWithinRoot(asset.root, asset.path)) {
+      continue;
+    }
+    if (await removeRuntimePath(asset.path)) {
+      removedPaths.push(asset.path);
+      expiredByOwner[asset.owner] += 1;
+    }
+  }
+  details.expiredRuntimeAssetCount = expiredAssets.length;
+  details.expiredRuntimeAssetsDeleted = expiredByOwner;
   return {
     ok: true,
     removedPaths,

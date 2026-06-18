@@ -13,6 +13,7 @@
     flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .zs-runtime-data-grid { display: grid; grid-template-columns: minmax(140px,
     1fr) auto auto; gap: 6px 10px; align-items: center; font-size: 12px; }
+    .zs-runtime-data-scan-status { grid-column: 1 / -1; color: #475569; }
     .zs-runtime-data-path { font-family: ui-monospace, SFMono-Regular, Consolas,
     monospace; font-size: 11px; word-break: break-all; color: #334155; }
     .zs-runtime-data-category { color: #334155; } .zs-runtime-data-size { color:
@@ -91,7 +92,23 @@
           data-l10n-id="pref-workflow-scan"
         ></button>
       </hbox>
-      <description data-l10n-id="pref-workflow-dir-help"></description>
+      <hbox align="center">
+        <html:label
+          for="zotero-prefpane-__addonRef__-skill-dir"
+          data-l10n-id="pref-skill-dir"
+        ></html:label>
+      </hbox>
+      <hbox class="zs-pref-actions-row">
+        <html:input
+          type="text"
+          id="zotero-prefpane-__addonRef__-skill-dir"
+          preference="skillDir"
+        ></html:input>
+        <button
+          id="zotero-prefpane-__addonRef__-skill-browse"
+          data-l10n-id="pref-workflow-browse"
+        ></button>
+      </hbox>
       <hbox class="zs-pref-actions-row">
         <button
           id="zotero-prefpane-__addonRef__-workflow-settings"

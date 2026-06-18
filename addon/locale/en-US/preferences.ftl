@@ -1,6 +1,7 @@
 pref-section-workflows = Workflow
 pref-workflow-dir = Workflow Directory
 pref-workflow-dir-help = Default: <Zotero Data Directory>/zotero-agents/data/workflows
+pref-skill-dir = Skill Directory
 pref-workflow-browse =
     .label = Browse
 pref-workflow-scan =

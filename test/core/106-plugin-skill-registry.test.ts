@@ -2,6 +2,7 @@ import { assert } from "chai";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { config } from "../../package.json";
 import {
   scanPluginSkillRegistry,
   resolvePluginSkillRoots,
@@ -14,6 +15,7 @@ import {
   copyRuntimeDirectory,
 } from "../../src/modules/runtimePersistence";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { clearPref, setPref } from "../../src/utils/prefs";
 
 async function makeTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-plugin-skills-"));
@@ -92,6 +94,8 @@ function readZipEntryNames(bytes: Uint8Array) {
 }
 
 describe("plugin skill registry", function () {
+  this.timeout(10000);
+
   let tempRoot = "";
 
   beforeEach(async function () {
@@ -114,6 +118,39 @@ describe("plugin skill registry", function () {
       roots.builtinRoot.replace(/\\/g, "/"),
       /repo-root\/skills_builtin$/,
     );
+  });
+
+  it("resolves user skill root from preference or workflow sibling default", function () {
+    const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
+    const skillDirPrefKey = `${config.prefsPrefix}.skillDir`;
+    const previousWorkflowDir = Zotero.Prefs.get(workflowDirPrefKey, true);
+    const previousSkillDir = Zotero.Prefs.get(skillDirPrefKey, true);
+
+    try {
+      setPref("workflowDir", path.join(tempRoot, "workflows"));
+      clearPref("skillDir");
+
+      const defaultRoots = resolvePluginSkillRoots();
+      assert.equal(defaultRoots.userRoot, path.join(tempRoot, "skills"));
+
+      setPref("skillDir", path.join(tempRoot, "custom-skills"));
+      const explicitRoots = resolvePluginSkillRoots();
+      assert.equal(
+        explicitRoots.userRoot,
+        path.join(tempRoot, "custom-skills"),
+      );
+    } finally {
+      if (typeof previousWorkflowDir === "undefined") {
+        Zotero.Prefs.clear(workflowDirPrefKey, true);
+      } else {
+        Zotero.Prefs.set(workflowDirPrefKey, previousWorkflowDir, true);
+      }
+      if (typeof previousSkillDir === "undefined") {
+        Zotero.Prefs.clear(skillDirPrefKey, true);
+      } else {
+        Zotero.Prefs.set(skillDirPrefKey, previousSkillDir, true);
+      }
+    }
   });
 
   it("resolves built-in skill root from addon runtime file URI", function () {
@@ -185,6 +222,12 @@ describe("plugin skill registry", function () {
       root: builtinRoot,
       dirName: "builtin-demo",
       skillId: "builtin-demo",
+      runnerJson: {
+        id: "builtin-demo",
+        name: "🧪 Builtin Demo",
+        execution_modes: ["auto"],
+        schemas: { output: "assets/output.schema.json" },
+      },
     });
     await writeSkill({
       root: userRoot,
@@ -199,6 +242,10 @@ describe("plugin skill registry", function () {
       ["builtin-demo", "user-demo"],
     );
     assert.equal(registry.entriesById["builtin-demo"].sourceKind, "builtin");
+    assert.equal(
+      registry.entriesById["builtin-demo"].skillName,
+      "🧪 Builtin Demo",
+    );
     assert.equal(registry.entriesById["user-demo"].sourceKind, "user");
     assert.equal(
       registry.entriesById["user-demo"].description,

@@ -110,7 +110,7 @@ describe("workflow scan + registry integration", function () {
       /zotero-agents\/data\/workflows$/,
     );
     assert.equal(getEffectiveWorkflowDir(), configuredDir);
-    assert.equal(Zotero.Prefs.get(workflowDirPrefKey, true), configuredDir);
+    assert.equal(String(Zotero.Prefs.get(workflowDirPrefKey, true) || ""), "");
 
     const state = await rescanWorkflowRegistry();
     const workflow = state.loaded.workflows.find(
@@ -191,7 +191,10 @@ describe("workflow scan + registry integration", function () {
       );
     }
     assert.isFunction(workflow?.hooks.applyResult);
-    assert.isFunction(workflow?.hooks.filterInputs);
+    assert.equal(
+      workflow?.manifest.validateSelection?.select?.policy,
+      "literature-source",
+    );
     assert.isAtLeast(state.loaded.manifests.length, 1);
     assert.isAtLeast((state.loaded.diagnostics || []).length, 0);
 
@@ -236,7 +239,7 @@ describe("workflow scan + registry integration", function () {
     const state = await rescanWorkflowRegistry();
 
     assert.equal(state.workflowsDir, expectedDefault);
-    assert.equal(Zotero.Prefs.get(workflowDirPrefKey, true), expectedDefault);
+    assert.equal(String(Zotero.Prefs.get(workflowDirPrefKey, true) || ""), "");
     assert.notEqual(state.workflowsDir, getBuiltinWorkflowDir());
     const expectedDefaultWithSlash = `${expectedDefault.replace(/\\/g, "/")}/`;
     assert.lengthOf(state.loaded.workflows, 0);

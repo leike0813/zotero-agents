@@ -1,6 +1,6 @@
 {
   "id": "manuscript-literature-framing",
-  "name": "Manuscript Literature Framing",
+  "name": "🧭 Manuscript Literature Framing",
   "description": "Draft LaTeX Introduction and Related Work from confirmed manuscript intent and Topic Synthesis evidence.",
   "version": "0.2.0",
   "execution_modes": ["interactive"],

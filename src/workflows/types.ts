@@ -90,10 +90,53 @@ export type WorkflowDisplaySpec = {
 };
 
 export type WorkflowHooksSpec = {
-  filterInputs?: string;
   buildRequest?: string;
   normalizeSettings?: string;
   applyResult: string;
+};
+
+export type WorkflowSelectionCountRule = {
+  min?: number;
+  max?: number;
+  exact?: number;
+};
+
+export type WorkflowValidateSelectionSpec = {
+  require?: {
+    counts?: {
+      parents?: WorkflowSelectionCountRule;
+      attachments?: WorkflowSelectionCountRule;
+      notes?: WorkflowSelectionCountRule;
+      children?: WorkflowSelectionCountRule;
+      total?: WorkflowSelectionCountRule;
+    };
+    allowMixed?: boolean;
+  };
+  select?: {
+    policy?:
+      | "input-unit"
+      | "literature-source"
+      | "pdf-attachment"
+      | "selected-parent"
+      | "generated-note-candidates"
+      | "digest-representative-image";
+    unit?: "attachment" | "parent" | "note" | "workflow";
+  };
+  exclude?: Array<
+    | {
+        kind: "generated-notes-all";
+        noteKinds: string[];
+      }
+    | {
+        kind: "artifact-exists";
+        target:
+          | "deep-reading-html"
+          | "translator-markdown"
+          | "mineru-markdown";
+        parameter?: string;
+      }
+  >;
+  derive?: Array<"exportCandidates" | "digestRepresentativeImageTarget">;
 };
 
 export type WorkflowInputsSpec = {
@@ -204,6 +247,7 @@ export type WorkflowManifest = {
   i18n?: WorkflowI18nSpec;
   parameters?: Record<string, WorkflowParameterSchema>;
   inputs?: WorkflowInputsSpec;
+  validateSelection?: WorkflowValidateSelectionSpec;
   trigger?: WorkflowTriggerSpec;
   execution?: WorkflowExecutionSpec;
   result?: WorkflowResultSpec;
@@ -454,7 +498,7 @@ export type WorkflowRuntimeContext = {
   workflowRootDir?: string;
   packageRootDir?: string;
   workflowSourceKind?: "builtin" | "user" | "";
-  hookName?: "filterInputs" | "buildRequest" | "applyResult" | "";
+  hookName?: "buildRequest" | "applyResult" | "";
   fetch?: typeof globalThis.fetch | null;
   Buffer?: typeof globalThis.Buffer | null;
   btoa?: typeof globalThis.btoa | null;
@@ -497,16 +541,6 @@ export type ApplyResultHook = (args: {
   runtime: WorkflowRuntimeContext;
 }) => unknown | Promise<unknown>;
 
-export type FilterInputsHook = (args: {
-  selectionContext: unknown;
-  manifest: WorkflowManifest;
-  executionOptions?: {
-    workflowParams?: Record<string, unknown>;
-    providerOptions?: Record<string, unknown>;
-  };
-  runtime: WorkflowRuntimeContext;
-}) => unknown | Promise<unknown>;
-
 export type NormalizeWorkflowSettingsHook = (
   args:
     | {
@@ -539,7 +573,6 @@ export type NormalizeWorkflowSettingsHook = (
 ) => unknown;
 
 export type WorkflowHooksModule = {
-  filterInputs?: FilterInputsHook;
   buildRequest?: BuildRequestHook;
   normalizeSettings?: NormalizeWorkflowSettingsHook;
   applyResult: ApplyResultHook;

@@ -31,6 +31,7 @@ import {
   resetWorkflowTasks,
   listWorkflowTasks,
   recordWorkflowTaskUpdate,
+  buildWorkflowTaskRecordFromJob,
 } from "../../src/modules/taskRuntime";
 import {
   getSkillRunnerSessionSyncRuntimeForTests,
@@ -41,13 +42,13 @@ import {
   recordTaskDashboardHistoryFromJob,
 } from "../../src/modules/taskDashboardHistory";
 import { clearRuntimeLogs, listRuntimeLogs } from "../../src/modules/runtimeLogManager";
+import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import {
-  PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-  listPluginTaskContextEntries,
-  replacePluginTaskContextEntries,
-  resetPluginStateStoreForTests,
-  upsertPluginTaskContextEntry,
-} from "../../src/modules/pluginStateStore";
+  getSkillRunnerRunRecordByRequest,
+  listSkillRunnerRunRecords,
+  updateSkillRunnerRunApplyState,
+  upsertSkillRunnerRunFromTask,
+} from "../../src/modules/skillRunnerRunStore";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
@@ -302,27 +303,61 @@ function forceApplyRetryDueNow(reconciler: SkillRunnerTaskReconciler) {
   for (const context of runtime.contexts?.values?.() || []) {
     context.nextApplyRetryAt = "1970-01-01T00:00:00.000Z";
   }
-  const persisted = listPluginTaskContextEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER);
-  replacePluginTaskContextEntries(
-    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-    persisted.map((entry) => {
-      let payload = {} as Record<string, unknown>;
-      try {
-        payload = JSON.parse(String(entry.payload || "{}")) as Record<string, unknown>;
-      } catch {
-        payload = {};
-      }
-      payload.nextApplyRetryAt = "1970-01-01T00:00:00.000Z";
-      return {
-        contextId: entry.contextId,
-        requestId: entry.requestId,
-        backendId: entry.backendId,
-        state: entry.state,
-        updatedAt: new Date().toISOString(),
-        payload: JSON.stringify(payload),
-      };
-    }),
-  );
+  for (const record of listSkillRunnerRunRecords()) {
+    updateSkillRunnerRunApplyState({
+      backendId: record.backendId,
+      requestId: record.requestId,
+      state: "failed",
+      attempt: record.apply.attempt,
+      maxAttempt: record.apply.maxAttempt,
+      nextRetryAt: "1970-01-01T00:00:00.000Z",
+      error: record.apply.error,
+      updatedAt: new Date().toISOString(),
+      eventType: "apply.failed",
+      eventPayload: {
+        source: "test.forceApplyRetryDueNow",
+      },
+    });
+  }
+}
+
+function persistReconcilerRunRecord(raw: Record<string, unknown>) {
+  const job = makeDeferredJob({
+    id: String(raw.jobId || "job-restored"),
+    requestId: String(raw.requestId || ""),
+    runId: String(raw.runId || "run-restored"),
+    state:
+      raw.state === "waiting_user" ||
+      raw.state === "waiting_auth" ||
+      raw.state === "queued" ||
+      raw.state === "succeeded" ||
+      raw.state === "failed" ||
+      raw.state === "canceled"
+        ? (raw.state as JobRecord["state"])
+        : "running",
+    fetchType: String(raw.fetchType || "bundle"),
+    backendId: String(raw.backendId || TEST_SKILLRUNNER_BACKEND_ID),
+    backendBaseUrl: String(raw.backendBaseUrl || TEST_SKILLRUNNER_BASE_URL),
+  });
+  job.workflowId = String(raw.workflowId || job.workflowId);
+  job.meta.workflowLabel = String(raw.workflowLabel || job.meta.workflowLabel);
+  job.meta.taskName = String(raw.taskName || job.meta.taskName);
+  job.meta.targetParentID =
+    typeof raw.targetParentID === "number" ? raw.targetParentID : undefined;
+  upsertSkillRunnerRunFromTask(buildWorkflowTaskRecordFromJob(job), {
+    requestPayload: raw.request,
+    providerOptions:
+      raw.providerOptions && typeof raw.providerOptions === "object"
+        ? (raw.providerOptions as Record<string, unknown>)
+        : undefined,
+    executionMode: "auto",
+    fetchType: String(raw.fetchType || "bundle") === "result" ? "result" : "bundle",
+    apply: {
+      state: "idle",
+      attempt: 0,
+      maxAttempt: 5,
+    },
+  });
 }
 
 function setupSkillRunnerTaskReconcilerSuite() {
@@ -413,7 +448,7 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
     );
   });
 
-  it("registers deferred task and clears persisted record after terminal reconcile", async function () {
+  it("registers deferred task and settles the run record after terminal reconcile", async function () {
     (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
       if (isListRunsProbeUrl(url)) {
         return createJsonResponse({
@@ -457,26 +492,26 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
       job: makeDeferredJob(),
     });
 
-    const persistedBefore = listPluginTaskContextEntries(
-      PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-    );
-    assert.isTrue(
-      persistedBefore.some((entry) => entry.requestId === "req-1"),
-    );
+    const persistedBefore = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-1",
+    });
+    assert.isOk(persistedBefore);
 
     await reconciler.reconcilePending();
 
-    const persistedAfter = listPluginTaskContextEntries(
-      PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-    );
-    assert.lengthOf(persistedAfter, 0);
+    const persistedAfter = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-1",
+    });
+    assert.equal(persistedAfter?.status, "failed");
     const tasks = listWorkflowTasks();
     assert.lengthOf(tasks, 1);
     assert.equal(tasks[0].state, "failed");
     assert.equal(tasks[0].requestId, "req-1");
   });
 
-  it("restores pending contexts from sqlite store on start", async function () {
+  it("restores pending runs from SkillRunner run store on start", async function () {
     const record = {
       id: `${TEST_SKILLRUNNER_BACKEND_ID}:req-restore-1`,
       workflowId: "literature-explainer",
@@ -498,14 +533,7 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
       createdAt: "2026-03-12T00:00:00.000Z",
       updatedAt: "2026-03-12T00:00:00.000Z",
     };
-    upsertPluginTaskContextEntry(PLUGIN_TASK_DOMAIN_SKILLRUNNER, {
-      contextId: String(record.id),
-      requestId: String(record.requestId),
-      backendId: String(record.backendId),
-      state: String(record.state),
-      updatedAt: String(record.updatedAt),
-      payload: JSON.stringify(record),
-    });
+    persistReconcilerRunRecord(record);
 
     (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
       if (url.endsWith("/v1/jobs/req-restore-1")) {
@@ -551,14 +579,7 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
       createdAt: "2026-03-12T00:00:00.000Z",
       updatedAt: "2026-03-12T00:00:00.000Z",
     };
-    upsertPluginTaskContextEntry(PLUGIN_TASK_DOMAIN_SKILLRUNNER, {
-      contextId: String(unknownRecord.id),
-      requestId: String(unknownRecord.requestId),
-      backendId: String(unknownRecord.backendId),
-      state: String(unknownRecord.state),
-      updatedAt: String(unknownRecord.updatedAt),
-      payload: JSON.stringify(unknownRecord),
-    });
+    persistReconcilerRunRecord(unknownRecord);
 
     (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
       if (url.endsWith("/v1/jobs/req-restore-unknown")) {
@@ -588,7 +609,7 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
           data: [],
         });
       }
-      if (url.endsWith("/v1/jobs/req-observed-waiting")) {
+      if (String(url).includes("/v1/jobs/req-observed-waiting")) {
         return createJsonResponse({
           request_id: "req-observed-waiting",
           status: "waiting_user",
@@ -626,15 +647,12 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
     });
 
     await reconciler.reconcilePending();
-    const persisted = listPluginTaskContextEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER);
-    const matched = persisted.find(
-      (entry) => entry.requestId === "req-observed-waiting",
-    );
+    const matched = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-observed-waiting",
+    });
     assert.isOk(matched);
-    const payload = JSON.parse(String(matched?.payload || "{}")) as {
-      state?: string;
-    };
-    assert.equal(payload.state, "waiting_user");
+    assert.equal(matched?.status, "waiting_user");
   });
 
   it("backs off unchanged queued reconcile while preserving visible task rows", async function () {
@@ -761,18 +779,13 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
       job: failedJob,
     });
 
-    const persisted = listPluginTaskContextEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER);
-    const matched = persisted.find(
-      (entry) => entry.requestId === "req-recoverable-existing",
-    );
+    const matched = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-recoverable-existing",
+    });
     assert.isOk(matched);
-    assert.equal(matched?.state, "running");
-    const payload = JSON.parse(String(matched?.payload || "{}")) as {
-      state?: string;
-      error?: string;
-    };
-    assert.equal(payload.state, "running");
-    assert.equal(payload.error, "poll request disconnected");
+    assert.equal(matched?.status, "running");
+    assert.equal(matched?.error, "poll request disconnected");
   });
 
   });
@@ -875,8 +888,16 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
     assert.match(note.getNote(), /data-zs-payload-anchor="conversation-note-markdown"/);
     assert.include(note.getNote(), "Interactive Bundle Note");
 
-    const persisted = listPluginTaskContextEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER);
-    assert.lengthOf(persisted, 0);
+    const persisted = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-bundle-note",
+    });
+    assert.equal(persisted?.status, "succeeded");
+    assert.equal(
+      persisted?.apply.state,
+      "succeeded",
+      JSON.stringify(persisted?.apply || {}),
+    );
 
     const applyLog = listRuntimeLogs({
       requestId: "req-bundle-note",
@@ -896,7 +917,206 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
     );
   });
 
+  it("applies namespaced SkillRunner envelope bundle result for debug bundle workflow", async function () {
+    this.timeout(5000);
+    await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Debug Bundle Namespaced Parent" },
+    });
+    const resultJsonPath = "result/debug-apply-bundle-probe.1/result.json";
+    const artifactPath = "result/debug-apply-artifact.txt";
+    const bundleBytes = createZipFromNamedFiles([
+      {
+        name: resultJsonPath,
+        data: utf8Bytes(
+          JSON.stringify({
+            status: "success",
+            data: {
+              apply_mode: "bundle",
+              artifact_path: artifactPath,
+              kind: "debug_apply_contract_result",
+              message: "debug namespaced bundle",
+              run_key: "namespaced",
+              step_id: "bundle",
+              workflow_id: "debug-apply-single-bundle",
+            },
+            success_source: "done_signal_payload",
+            artifacts: [artifactPath],
+            repair_level: "none",
+            validation_warnings: [],
+            error: null,
+          }),
+        ),
+      },
+      {
+        name: "result/debug-apply-bundle-probe.1/debug-apply-artifact.txt",
+        data: utf8Bytes("debug namespaced artifact body"),
+      },
+    ]);
+
+    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+      if (isListRunsProbeUrl(url)) {
+        return createJsonResponse({ data: [] });
+      }
+      if (url.endsWith("/v1/jobs/req-debug-namespaced-bundle")) {
+        return createJsonResponse({
+          request_id: "req-debug-namespaced-bundle",
+          status: "succeeded",
+        });
+      }
+      if (url.endsWith("/v1/jobs/req-debug-namespaced-bundle/bundle")) {
+        return createBinaryResponse(bundleBytes);
+      }
+      return createJsonResponse({ error: "unexpected route" }, 404);
+    };
+
+    const reconciler = createTrackedReconciler();
+    reconciler.registerFromJob({
+      workflowId: "debug-apply-single-bundle",
+      workflowLabel: "Debug: Apply Single Bundle",
+      requestKind: "skillrunner.job.v1",
+      request: {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-apply-bundle-probe",
+        targetParentID: parent.id,
+        runtime_options: {
+          execution_mode: "interactive",
+        },
+        fetch_type: "bundle",
+      },
+      backend: {
+        id: TEST_SKILLRUNNER_BACKEND_ID,
+        type: "skillrunner",
+        baseUrl: TEST_SKILLRUNNER_BASE_URL,
+        auth: { kind: "none" },
+      },
+      providerId: "skillrunner",
+      providerOptions: { engine: "gemini" },
+      job: makeDeferredJob({
+        id: "job-debug-namespaced-bundle",
+        requestId: "req-debug-namespaced-bundle",
+        state: "running",
+        fetchType: "bundle",
+        targetParentID: parent.id,
+      }),
+    });
+
+    await reconciler.reconcilePending();
+
+    const attachmentIds = parent.getAttachments();
+    assert.lengthOf(attachmentIds, 1);
+    const persisted = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-debug-namespaced-bundle",
+    });
+    assert.equal(persisted?.apply.state, "succeeded");
+  });
+
+  it("settles missing bundle artifact as non-retryable deferred apply failure", async function () {
+    this.timeout(5000);
+    await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Debug Bundle Missing Artifact Parent" },
+    });
+    let bundleFetchCount = 0;
+    const bundleBytes = createZipFromNamedFiles([
+      {
+        name: "result/debug-apply-bundle-probe.1/result.json",
+        data: utf8Bytes(
+          JSON.stringify({
+            status: "success",
+            data: {
+              apply_mode: "bundle",
+              artifact_path: "result/debug-apply-artifact.txt",
+              kind: "debug_apply_contract_result",
+              message: "debug missing artifact",
+              run_key: "missing-artifact",
+              step_id: "bundle",
+              workflow_id: "debug-apply-single-bundle",
+            },
+            success_source: "done_signal_payload",
+            artifacts: ["result/debug-apply-artifact.txt"],
+            repair_level: "none",
+            validation_warnings: [],
+            error: null,
+          }),
+        ),
+      },
+    ]);
+
+    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+      if (isListRunsProbeUrl(url)) {
+        return createJsonResponse({ data: [] });
+      }
+      if (url.endsWith("/v1/jobs/req-debug-missing-artifact")) {
+        return createJsonResponse({
+          request_id: "req-debug-missing-artifact",
+          status: "succeeded",
+        });
+      }
+      if (url.endsWith("/v1/jobs/req-debug-missing-artifact/bundle")) {
+        bundleFetchCount += 1;
+        return createBinaryResponse(bundleBytes);
+      }
+      return createJsonResponse({ error: "unexpected route" }, 404);
+    };
+
+    const reconciler = createTrackedReconciler();
+    reconciler.registerFromJob({
+      workflowId: "debug-apply-single-bundle",
+      workflowLabel: "Debug: Apply Single Bundle",
+      requestKind: "skillrunner.job.v1",
+      request: {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-apply-bundle-probe",
+        targetParentID: parent.id,
+        runtime_options: {
+          execution_mode: "interactive",
+        },
+        fetch_type: "bundle",
+      },
+      backend: {
+        id: TEST_SKILLRUNNER_BACKEND_ID,
+        type: "skillrunner",
+        baseUrl: TEST_SKILLRUNNER_BASE_URL,
+        auth: { kind: "none" },
+      },
+      providerId: "skillrunner",
+      providerOptions: { engine: "gemini" },
+      job: makeDeferredJob({
+        id: "job-debug-missing-artifact",
+        requestId: "req-debug-missing-artifact",
+        state: "running",
+        fetchType: "bundle",
+        targetParentID: parent.id,
+      }),
+    });
+
+    await reconciler.reconcilePending();
+    forceApplyRetryDueNow(reconciler);
+    await reconciler.reconcilePending();
+
+    assert.equal(bundleFetchCount, 1);
+    const persisted = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-debug-missing-artifact",
+    });
+    assert.equal(persisted?.apply.state, "failed");
+    assert.equal(persisted?.apply.attempt, persisted?.apply.maxAttempt);
+    const failedLog = listRuntimeLogs({
+      requestId: "req-debug-missing-artifact",
+      operation: "deferred-apply-failed",
+      order: "asc",
+    })[0] as { details?: Record<string, unknown> } | undefined;
+    assert.isOk(failedLog);
+    assert.equal(failedLog?.details?.contractFailure, true);
+    assert.equal(failedLog?.details?.retry, false);
+  });
+
   it("applies interactive bundle success for a real literature-explainer built request", async function () {
+    this.timeout(5000);
     const parent = await handlers.item.create({
       itemType: "journalArticle",
       fields: { title: "Interactive Bundle Real Request Parent" },
@@ -1086,40 +1306,51 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
     });
 
     await reconciler.reconcilePending();
-    let persisted = listPluginTaskContextEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER);
-    assert.lengthOf(persisted, 1);
-    let payload = JSON.parse(String(persisted[0]?.payload || "{}")) as {
-      applyAttempt?: number;
-    };
-    assert.equal(payload.applyAttempt, 1);
+    let persisted = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-retry-success",
+    });
+    assert.equal(persisted?.apply.state, "failed");
+    assert.equal(persisted?.apply.attempt, 1);
 
     forceApplyRetryDueNow(reconciler);
     await reconciler.reconcilePending();
-    persisted = listPluginTaskContextEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER);
-    assert.lengthOf(persisted, 0);
+    persisted = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-retry-success",
+    });
+    assert.equal(persisted?.apply.state, "succeeded");
     assert.isAtLeast(resultAttempts, 2);
   });
 
   it("applies no-selection deferred success when workflow allows empty selection", async function () {
-    await rescanWorkflowRegistry();
+    await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
     (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
       if (isListRunsProbeUrl(url)) {
         return createJsonResponse({
           data: [],
         });
       }
-      if (url.endsWith("/v1/jobs/req-no-selection-success")) {
+      if (String(url).includes("/v1/jobs/req-no-selection-success/result")) {
+        return createJsonResponse({
+          request_id: "req-no-selection-success",
+          result: {
+            status: "success",
+            data: {
+              ok: true,
+              checks: [],
+              connection: {},
+              diagnostics: {},
+            },
+            success_source: "done_signal_payload",
+            error: null,
+          },
+        });
+      }
+      if (String(url).includes("/v1/jobs/req-no-selection-success")) {
         return createJsonResponse({
           request_id: "req-no-selection-success",
           status: "succeeded",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-no-selection-success/result")) {
-        return createJsonResponse({
-          ok: true,
-          checks: [],
-          connection: {},
-          diagnostics: {},
         });
       }
       return createJsonResponse({ error: "unexpected route" }, 404);
@@ -1154,8 +1385,24 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
 
     await reconciler.reconcilePending();
 
-    const persisted = listPluginTaskContextEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER);
-    assert.lengthOf(persisted, 0);
+    const persisted = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-no-selection-success",
+    });
+    assert.equal(
+      persisted?.status,
+      "succeeded",
+      JSON.stringify({
+        status: persisted?.status,
+        error: persisted?.error,
+        apply: persisted?.apply,
+      }),
+    );
+    assert.equal(
+      persisted?.apply.state,
+      "succeeded",
+      JSON.stringify(persisted?.apply || {}),
+    );
     const applyLog = listRuntimeLogs({
       requestId: "req-no-selection-success",
       operation: "reconcile-owned-terminal-apply",
@@ -1167,7 +1414,7 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
   });
 
   it("keeps deferred apply parent guard for workflows that require selection", async function () {
-    await rescanWorkflowRegistry();
+    await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
     (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
       if (isListRunsProbeUrl(url)) {
         return createJsonResponse({
@@ -1212,14 +1459,13 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
 
     await reconciler.reconcilePending();
 
-    const persisted = listPluginTaskContextEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER);
-    assert.lengthOf(persisted, 1);
-    const payload = JSON.parse(String(persisted[0]?.payload || "{}")) as {
-      applyAttempt?: number;
-      lastApplyError?: string;
-    };
-    assert.equal(payload.applyAttempt, 1);
-    assert.include(String(payload.lastApplyError || ""), "target parent");
+    const persisted = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-parent-required",
+    });
+    assert.equal(persisted?.apply.state, "failed");
+    assert.equal(persisted?.apply.attempt, 1);
+    assert.include(String(persisted?.apply.error || ""), "target parent");
   });
 
   it("emits succeeded toast when interactive task reaches terminal succeeded and apply completes", async function () {
@@ -1601,7 +1847,7 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
 
   it("applies SkillRunner sequence step results in reconciler and continues the next step without ACP store pollution", async function () {
     this.timeout(8000);
-    await rescanWorkflowRegistry();
+    await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
     const backend = {
       id: TEST_SKILLRUNNER_BACKEND_ID,
       type: "skillrunner" as const,
@@ -1689,14 +1935,20 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
       if (urlText.endsWith("/v1/jobs/req-sequence-check/upload")) {
         return createJsonResponse({ ok: true });
       }
-      if (urlText.endsWith("/v1/jobs/req-sequence-check")) {
+      if (
+        urlText.includes("/v1/jobs/req-sequence-check") &&
+        !urlText.includes("/upload")
+      ) {
         checkStatePolls += 1;
         return createJsonResponse({
           request_id: "req-sequence-check",
           status: "running",
         });
       }
-      if (urlText.endsWith("/v1/jobs/req-sequence-emit")) {
+      if (
+        urlText.includes("/v1/jobs/req-sequence-emit") &&
+        !urlText.includes("/bundle")
+      ) {
         emitStatePolls += 1;
         return createJsonResponse({
           request_id: "req-sequence-emit",
@@ -1780,15 +2032,16 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
     assert.equal(sequenceState?.steps[1]?.requestId, "req-sequence-check");
     assert.equal(sequenceState?.steps[1]?.status, "deferred");
 
-    const persistedContexts = listPluginTaskContextEntries(
-      PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-    );
-    assert.isTrue(
-      persistedContexts.some((entry) => entry.requestId === "req-sequence-check"),
-    );
-    assert.isFalse(
-      persistedContexts.some((entry) => entry.requestId === "req-sequence-emit"),
-    );
+    const emitRun = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-sequence-emit",
+    });
+    const checkRun = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-sequence-check",
+    });
+    assert.equal(emitRun?.status, "succeeded");
+    assert.isOk(checkRun);
     assert.isNull(getAcpSkillRunRecord("req-sequence-emit"));
     assert.isNull(getAcpSkillRunRecord("req-sequence-check"));
   });
@@ -2111,10 +2364,13 @@ export function registerSkillRunnerTaskReconcilerLedgerReconcileTests() {
       forceApplyRetryDueNow(reconciler);
     }
 
-    const persisted = listPluginTaskContextEntries(
-      PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-    );
-    assert.lengthOf(persisted, 0);
+    const persisted = getSkillRunnerRunRecordByRequest({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: "req-retry-exhausted",
+    });
+    assert.equal(persisted?.status, "succeeded");
+    assert.equal(persisted?.apply.state, "failed");
+    assert.isAtLeast(persisted?.apply.attempt || 0, 5);
     const tasks = listWorkflowTasks();
     assert.equal(tasks[0]?.state, "succeeded");
   });

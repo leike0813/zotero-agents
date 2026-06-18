@@ -13,6 +13,7 @@ import { getRuntimePersistencePaths } from "./runtimePersistence";
 type WorkflowSourceKind = "builtin" | "user";
 
 type DynamicImport = (specifier: string) => Promise<any>;
+const DEFAULT_SKILL_DIR_NAME = "skills";
 
 const dynamicImport: DynamicImport = new Function(
   "specifier",
@@ -167,6 +168,25 @@ function getDirectoryName(targetPath: string) {
   return joinPath(...parentParts);
 }
 
+export function getDefaultSkillDirForWorkflowDir(workflowsDir: string) {
+  const parentDir = getDirectoryName(String(workflowsDir || "").trim());
+  return parentDir
+    ? joinPath(parentDir, DEFAULT_SKILL_DIR_NAME)
+    : DEFAULT_SKILL_DIR_NAME;
+}
+
+export function getDefaultSkillDir() {
+  return getDefaultSkillDirForWorkflowDir(getEffectiveWorkflowDir());
+}
+
+export function getEffectiveSkillDir() {
+  const current = String(getPref("skillDir") || "").trim();
+  if (current) {
+    return current;
+  }
+  return getDefaultSkillDir();
+}
+
 async function ensureDirectoryExists(targetDir: string) {
   const runtime = globalThis as {
     IOUtils?: {
@@ -308,13 +328,10 @@ export function getEffectiveWorkflowDir() {
 
   const testOverride = readTestWorkflowDirOverride();
   if (testOverride) {
-    setPref("workflowDir", testOverride);
     return testOverride;
   }
 
-  const fallback = getDefaultWorkflowDir();
-  setPref("workflowDir", fallback);
-  return fallback;
+  return getDefaultWorkflowDir();
 }
 
 export async function ensureDefaultWorkflowDirExistsOnStartup() {

@@ -24,8 +24,7 @@ function getResultArtifactPath(result, key) {
   }
   return (
     normalizeString(result?.[key]) ||
-    normalizeString(result?.data?.[key]) ||
-    normalizeString(result?.result?.[key])
+    normalizeString(result?.data?.[key])
   );
 }
 

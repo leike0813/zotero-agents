@@ -190,6 +190,33 @@ function resolveTaskName(row: PluginStateReadonlyRow) {
   );
 }
 
+function resolveSkillName(row: PluginStateReadonlyRow) {
+  const payload = rowPayload(row);
+  return (
+    cleanString((row as { skillName?: unknown }).skillName) ||
+    cleanString(payload.skillName) ||
+    cleanString(payload.skill_name)
+  );
+}
+
+function resolveSkillLabel(row: PluginStateReadonlyRow) {
+  const payload = rowPayload(row);
+  return (
+    cleanString((row as { skillLabel?: unknown }).skillLabel) ||
+    cleanString(payload.skillLabel) ||
+    cleanString(payload.skill_label)
+  );
+}
+
+function resolveSkillId(row: PluginStateReadonlyRow) {
+  const payload = rowPayload(row);
+  return (
+    cleanString((row as { skillId?: unknown }).skillId) ||
+    cleanString(payload.skillId) ||
+    cleanString(payload.skill_id)
+  );
+}
+
 function normalizeDashboardRow(
   row: PluginStateReadonlyRow,
   backendById: Map<string, BackendInstance>,
@@ -221,6 +248,9 @@ function normalizeDashboardRow(
       cleanString(row.workflowId),
     workflowLabel: resolveWorkflowLabel(row) || "Unknown workflow",
     workflowName: resolveWorkflowLabel(row) || "Unknown workflow",
+    skillName: resolveSkillName(row),
+    skillLabel: resolveSkillLabel(row),
+    skillId: resolveSkillId(row),
     backendId,
     backendType,
     backendLabel: backendDisplayName(backend) || backendId,
@@ -300,6 +330,7 @@ const DASHBOARD_LABELS = {
   runtimeLogsTabTitle: "Runtime Logs",
   runtimeLogsClear: "Clear Logs",
   runtimeLogsCopySelected: "Copy Selected",
+  runtimeLogsCopyDetail: "Copy Log",
   runtimeLogsCopyVisibleNDJSON: "Copy Visible (NDJSON)",
   runtimeLogsCopyIssueSummary: "Copy Issue Summary",
   runtimeLogsCopyDiagnosticBundle: "Copy Diagnostic Bundle",
@@ -944,7 +975,10 @@ export async function createDashboardReadonlyModel(
     } else if (action === "runtime-logs-set-filters") {
       state.runtimeLogFilters =
         data.filters && typeof data.filters === "object"
-          ? { ...(data.filters as Record<string, unknown>) }
+          ? {
+              ...state.runtimeLogFilters,
+              ...(data.filters as Record<string, unknown>),
+            }
           : {};
     } else if (action === "select-log-entry") {
       const id = cleanString(data.logEntryId);

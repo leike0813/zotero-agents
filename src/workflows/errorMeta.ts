@@ -1,5 +1,5 @@
 export type WorkflowHookFailureMeta = {
-  hookName?: "filterInputs" | "buildRequest" | "applyResult";
+  hookName?: "buildRequest" | "applyResult";
   workflowId?: string;
   packageId?: string;
   workflowSourceKind?: "builtin" | "user" | "";

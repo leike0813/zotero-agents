@@ -40,6 +40,7 @@ export const PLUGIN_TASK_DOMAIN_SKILLRUNNER = "skillrunner";
 export const PLUGIN_TASK_DOMAIN_ACP = "acp";
 export const PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS = "workflow-products";
 export const PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE = "workflow-sequence";
+const RUN_STORE_RESET_META_KEY = "agent_run_separated_store_hard_cut_reset_v2";
 
 export type PluginTaskRequestEntry = {
   requestId: string;
@@ -64,6 +65,27 @@ export type PluginTaskRowEntry = {
   backendId: string;
   state: string;
   updatedAt: string;
+  payload: string;
+};
+
+export type PluginRunStoreKind = "acp" | "skillrunner";
+
+export type PluginRunStoreEntry = {
+  runKey: string;
+  requestId: string;
+  backendId: string;
+  state: string;
+  updatedAt: string;
+  payload: string;
+};
+
+export type PluginRunEventStoreEntry = {
+  eventId: string;
+  runKey: string;
+  requestId: string;
+  backendId: string;
+  type: string;
+  createdAt: string;
   payload: string;
 };
 
@@ -303,6 +325,52 @@ type MemoryTables = {
       payload_json: string;
     }
   >;
+  acpRuns: Map<
+    string,
+    {
+      run_key: string;
+      request_id: string;
+      backend_id: string;
+      state: string;
+      updated_at: string;
+      payload_json: string;
+    }
+  >;
+  acpRunEvents: Map<
+    string,
+    {
+      event_id: string;
+      run_key: string;
+      request_id: string;
+      backend_id: string;
+      type: string;
+      created_at: string;
+      payload_json: string;
+    }
+  >;
+  skillRunnerRuns: Map<
+    string,
+    {
+      run_key: string;
+      request_id: string;
+      backend_id: string;
+      state: string;
+      updated_at: string;
+      payload_json: string;
+    }
+  >;
+  skillRunnerRunEvents: Map<
+    string,
+    {
+      event_id: string;
+      run_key: string;
+      request_id: string;
+      backend_id: string;
+      type: string;
+      created_at: string;
+      payload_json: string;
+    }
+  >;
 };
 
 const memoryTables: MemoryTables = {
@@ -310,6 +378,10 @@ const memoryTables: MemoryTables = {
   requests: new Map(),
   contexts: new Map(),
   rows: new Map(),
+  acpRuns: new Map(),
+  acpRunEvents: new Map(),
+  skillRunnerRuns: new Map(),
+  skillRunnerRunEvents: new Map(),
 };
 
 function requestKey(domain: string, requestId: string) {
@@ -322,6 +394,28 @@ function contextKey(domain: string, contextId: string) {
 
 function rowKey(domain: string, scope: string, taskId: string) {
   return `${domain}::${scope}::${taskId}`;
+}
+
+function memoryRunTablesFromSql(normalizedSql: string) {
+  if (normalizedSql.includes("plugin_acp_skill_run_events")) {
+    return { runs: memoryTables.acpRuns, events: memoryTables.acpRunEvents };
+  }
+  if (normalizedSql.includes("plugin_acp_skill_runs")) {
+    return { runs: memoryTables.acpRuns, events: memoryTables.acpRunEvents };
+  }
+  if (normalizedSql.includes("plugin_skillrunner_run_events")) {
+    return {
+      runs: memoryTables.skillRunnerRuns,
+      events: memoryTables.skillRunnerRunEvents,
+    };
+  }
+  if (normalizedSql.includes("plugin_skillrunner_runs")) {
+    return {
+      runs: memoryTables.skillRunnerRuns,
+      events: memoryTables.skillRunnerRunEvents,
+    };
+  }
+  return null;
 }
 
 function byUpdatedDesc<T extends { updated_at: string }>(rows: T[]) {
@@ -358,6 +452,86 @@ function buildMemoryAdapter(): SqlAdapter {
           return;
         }
         memoryTables.meta.clear();
+        return;
+      }
+      const runTables = memoryRunTablesFromSql(normalizedSql);
+      if (
+        runTables &&
+        normalizedSql.startsWith("insert or replace into") &&
+        normalizedSql.includes("_run_events")
+      ) {
+        const eventId = normalizeString(params.event_id);
+        if (!eventId) {
+          return;
+        }
+        runTables.events.set(eventId, {
+          event_id: eventId,
+          run_key: normalizeString(params.run_key),
+          request_id: normalizeString(params.request_id),
+          backend_id: normalizeString(params.backend_id),
+          type: normalizeString(params.type),
+          created_at: normalizeString(params.created_at),
+          payload_json: normalizeString(params.payload_json) || "{}",
+        });
+        return;
+      }
+      if (
+        runTables &&
+        normalizedSql.startsWith("insert or replace into") &&
+        normalizedSql.includes("_runs")
+      ) {
+        const runKey = normalizeString(params.run_key);
+        if (!runKey) {
+          return;
+        }
+        runTables.runs.set(runKey, {
+          run_key: runKey,
+          request_id: normalizeString(params.request_id),
+          backend_id: normalizeString(params.backend_id),
+          state: normalizeString(params.state),
+          updated_at: normalizeString(params.updated_at),
+          payload_json: normalizeString(params.payload_json) || "{}",
+        });
+        return;
+      }
+      if (runTables && normalizedSql.startsWith("delete from")) {
+        if (normalizedSql.includes("_run_events")) {
+          const eventId = normalizeString(params.event_id);
+          const runKey = normalizeString(params.run_key);
+          if (!eventId && !runKey) {
+            runTables.events.clear();
+            return;
+          }
+          for (const [key, row] of runTables.events.entries()) {
+            if (eventId && row.event_id !== eventId) {
+              continue;
+            }
+            if (runKey && row.run_key !== runKey) {
+              continue;
+            }
+            runTables.events.delete(key);
+          }
+          return;
+        }
+        const runKey = normalizeString(params.run_key);
+        const requestId = normalizeString(params.request_id);
+        const backendId = normalizeString(params.backend_id);
+        if (!runKey && !requestId && !backendId) {
+          runTables.runs.clear();
+          return;
+        }
+        for (const [key, row] of runTables.runs.entries()) {
+          if (runKey && row.run_key !== runKey) {
+            continue;
+          }
+          if (requestId && row.request_id !== requestId) {
+            continue;
+          }
+          if (backendId && row.backend_id !== backendId) {
+            continue;
+          }
+          runTables.runs.delete(key);
+        }
         return;
       }
       if (
@@ -469,6 +643,41 @@ function buildMemoryAdapter(): SqlAdapter {
     },
     all(sql, params = {}) {
       const normalizedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
+      const runTables = memoryRunTablesFromSql(normalizedSql);
+      if (runTables && normalizedSql.includes("_run_events")) {
+        const runKey = normalizeString(params.run_key);
+        const rows = Array.from(runTables.events.values()).filter((row) => {
+          if (runKey && row.run_key !== runKey) {
+            return false;
+          }
+          return true;
+        });
+        return rows
+          .sort((left, right) =>
+            String(right.created_at || "").localeCompare(
+              String(left.created_at || ""),
+            ),
+          )
+          .map((row) => ({ ...row }));
+      }
+      if (runTables && normalizedSql.includes("_runs")) {
+        const runKey = normalizeString(params.run_key);
+        const requestId = normalizeString(params.request_id);
+        const backendId = normalizeString(params.backend_id);
+        const rows = Array.from(runTables.runs.values()).filter((row) => {
+          if (runKey && row.run_key !== runKey) {
+            return false;
+          }
+          if (requestId && row.request_id !== requestId) {
+            return false;
+          }
+          if (backendId && row.backend_id !== backendId) {
+            return false;
+          }
+          return true;
+        });
+        return byUpdatedDesc(rows).map((row) => ({ ...row }));
+      }
       if (normalizedSql.includes("from plugin_task_requests")) {
         const domain = normalizeString(params.domain);
         const requestId = normalizeString(params.request_id);
@@ -529,6 +738,37 @@ function buildMemoryAdapter(): SqlAdapter {
     },
     get(sql, params = {}) {
       const normalizedSql = sql.replace(/\s+/g, " ").trim().toLowerCase();
+      const runTables = memoryRunTablesFromSql(normalizedSql);
+      if (
+        runTables &&
+        normalizedSql.startsWith("select count(*) as value") &&
+        normalizedSql.includes("_run_events")
+      ) {
+        const runKey = normalizeString(params.run_key);
+        let count = 0;
+        for (const row of runTables.events.values()) {
+          if (runKey && row.run_key !== runKey) {
+            continue;
+          }
+          count += 1;
+        }
+        return { value: count };
+      }
+      if (
+        runTables &&
+        normalizedSql.startsWith("select count(*) as value") &&
+        normalizedSql.includes("_runs")
+      ) {
+        const backendId = normalizeString(params.backend_id);
+        let count = 0;
+        for (const row of runTables.runs.values()) {
+          if (backendId && row.backend_id !== backendId) {
+            continue;
+          }
+          count += 1;
+        }
+        return { value: count };
+      }
       if (
         normalizedSql.startsWith(
           "select count(*) as value from plugin_task_requests",
@@ -832,6 +1072,48 @@ function ensureSchema(db: SqlAdapter) {
     );
   `);
   db.run(`
+    CREATE TABLE IF NOT EXISTS plugin_acp_skill_runs (
+      run_key TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL DEFAULT '',
+      backend_id TEXT NOT NULL DEFAULT '',
+      state TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS plugin_acp_skill_run_events (
+      event_id TEXT PRIMARY KEY,
+      run_key TEXT NOT NULL DEFAULT '',
+      request_id TEXT NOT NULL DEFAULT '',
+      backend_id TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS plugin_skillrunner_runs (
+      run_key TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL DEFAULT '',
+      backend_id TEXT NOT NULL DEFAULT '',
+      state TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS plugin_skillrunner_run_events (
+      event_id TEXT PRIMARY KEY,
+      run_key TEXT NOT NULL DEFAULT '',
+      request_id TEXT NOT NULL DEFAULT '',
+      backend_id TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL
+    );
+  `);
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_task_requests_backend_request
       ON plugin_task_requests(domain, backend_id, request_id);
   `);
@@ -854,6 +1136,30 @@ function ensureSchema(db: SqlAdapter) {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_task_rows_backend_request
       ON plugin_task_rows(domain, backend_id, request_id);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_plugin_acp_skill_runs_backend_request
+      ON plugin_acp_skill_runs(backend_id, request_id);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_plugin_acp_skill_runs_state_updated
+      ON plugin_acp_skill_runs(state, updated_at DESC);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_plugin_acp_skill_run_events_run_created
+      ON plugin_acp_skill_run_events(run_key, created_at DESC);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_plugin_skillrunner_runs_backend_request
+      ON plugin_skillrunner_runs(backend_id, request_id);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_plugin_skillrunner_runs_state_updated
+      ON plugin_skillrunner_runs(state, updated_at DESC);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_plugin_skillrunner_run_events_run_created
+      ON plugin_skillrunner_run_events(run_key, created_at DESC);
   `);
 }
 
@@ -893,7 +1199,6 @@ function migrateLegacyPrefsIntoSqlite(db: SqlAdapter) {
   const historyRows = parseLegacyDocument(
     String(getPref("taskDashboardHistoryJson") || ""),
   );
-  const migratedAt = nowIso();
   const invalidReasons: string[] = [];
   const counters = {
     requestTotal: requestRows.length,
@@ -916,112 +1221,18 @@ function migrateLegacyPrefsIntoSqlite(db: SqlAdapter) {
     db.run("DELETE FROM plugin_task_requests WHERE domain=@domain", {
       domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER,
     });
-    for (let index = 0; index < requestRows.length; index += 1) {
-      const raw = requestRows[index];
-      if (!isObject(raw)) {
-        counters.requestSkipped += 1;
-        invalidReasons.push(`request[${index}] is not object`);
-        continue;
-      }
-      const requestId = normalizeString(raw.requestId);
-      if (!requestId) {
-        counters.requestSkipped += 1;
-        invalidReasons.push(`request[${index}] missing requestId`);
-        continue;
-      }
-      db.run(
-        `
-          INSERT OR REPLACE INTO plugin_task_requests
-          (domain, request_id, backend_id, state, updated_at, payload_json)
-          VALUES (@domain, @request_id, @backend_id, @state, @updated_at, @payload_json)
-        `,
-        {
-          domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-          request_id: requestId,
-          backend_id: normalizeString(raw.backendId),
-          state: normalizeString(raw.snapshot || raw.state),
-          updated_at: normalizeString(raw.updatedAt) || migratedAt,
-          payload_json: JSON.stringify(raw),
-        },
-      );
-      counters.requestInserted += 1;
-    }
+    counters.requestSkipped = requestRows.length;
 
     db.run("DELETE FROM plugin_task_contexts WHERE domain=@domain", {
       domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER,
     });
-    for (let index = 0; index < contextRows.length; index += 1) {
-      const raw = contextRows[index];
-      if (!isObject(raw)) {
-        counters.contextSkipped += 1;
-        invalidReasons.push(`context[${index}] is not object`);
-        continue;
-      }
-      const requestId = normalizeString(raw.requestId);
-      const backendId = normalizeString(raw.backendId);
-      const contextId =
-        normalizeString(raw.id) ||
-        (requestId ? `${backendId}:${requestId}` : "");
-      if (!contextId) {
-        counters.contextSkipped += 1;
-        invalidReasons.push(`context[${index}] missing context id`);
-        continue;
-      }
-      db.run(
-        `
-          INSERT OR REPLACE INTO plugin_task_contexts
-          (domain, context_id, request_id, backend_id, state, updated_at, payload_json)
-          VALUES (@domain, @context_id, @request_id, @backend_id, @state, @updated_at, @payload_json)
-        `,
-        {
-          domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-          context_id: contextId,
-          request_id: requestId,
-          backend_id: backendId,
-          state: normalizeString(raw.state),
-          updated_at: normalizeString(raw.updatedAt) || migratedAt,
-          payload_json: JSON.stringify(raw),
-        },
-      );
-      counters.contextInserted += 1;
-    }
+    counters.contextSkipped = contextRows.length;
 
     db.run(
       "DELETE FROM plugin_task_rows WHERE domain=@domain AND scope=@scope",
       { domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER, scope: "history" },
     );
-    for (let index = 0; index < historyRows.length; index += 1) {
-      const raw = historyRows[index];
-      if (!isObject(raw)) {
-        counters.historySkipped += 1;
-        invalidReasons.push(`history[${index}] is not object`);
-        continue;
-      }
-      const taskId = normalizeString(raw.id);
-      if (!taskId) {
-        counters.historySkipped += 1;
-        invalidReasons.push(`history[${index}] missing task id`);
-        continue;
-      }
-      db.run(
-        `
-          INSERT OR REPLACE INTO plugin_task_rows
-          (domain, scope, task_id, request_id, backend_id, state, updated_at, payload_json)
-          VALUES (@domain, @scope, @task_id, @request_id, @backend_id, @state, @updated_at, @payload_json)
-        `,
-        {
-          domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-          scope: "history",
-          task_id: taskId,
-          request_id: normalizeString(raw.requestId),
-          backend_id: normalizeString(raw.backendId),
-          state: normalizeString(raw.state),
-          updated_at: normalizeString(raw.updatedAt) || migratedAt,
-          payload_json: JSON.stringify(raw),
-        },
-      );
-      counters.historyInserted += 1;
-    }
+    counters.historySkipped = historyRows.length;
 
     logInfo("[pluginStateStore] migration-before-meta-write");
     db.run(
@@ -1049,6 +1260,44 @@ function migrateLegacyPrefsIntoSqlite(db: SqlAdapter) {
   logInfo("[pluginStateStore] migration-finished", counters);
 }
 
+function resetLegacySeparatedAgentRunStateIfNeeded(db: SqlAdapter) {
+  const reset = db.get("SELECT value FROM plugin_meta WHERE key=@meta_key", {
+    meta_key: RUN_STORE_RESET_META_KEY,
+  });
+  if (normalizeString(reset?.value) === "done") {
+    return;
+  }
+  db.transaction(() => {
+    db.run("DELETE FROM plugin_task_requests WHERE domain=@domain", {
+      domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    });
+    db.run("DELETE FROM plugin_task_contexts WHERE domain=@domain", {
+      domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    });
+    db.run("DELETE FROM plugin_task_contexts WHERE domain=@domain", {
+      domain: PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE,
+    });
+    db.run("DELETE FROM plugin_task_rows WHERE domain=@domain", {
+      domain: PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    });
+    db.run(
+      "DELETE FROM plugin_task_rows WHERE domain=@domain AND scope=@scope",
+      { domain: PLUGIN_TASK_DOMAIN_ACP, scope: "skill-runs" },
+    );
+    db.run(
+      `
+        INSERT OR REPLACE INTO plugin_meta(key, value)
+        VALUES (@meta_key, @meta_value)
+      `,
+      {
+        meta_key: RUN_STORE_RESET_META_KEY,
+        meta_value: "done",
+      },
+    );
+  });
+  logInfo("[pluginStateStore] separated agent run legacy state reset");
+}
+
 function getAdapter() {
   if (!adapter) {
     adapter = resolveAdapter();
@@ -1065,6 +1314,7 @@ function getAdapter() {
         );
       }
       migrateLegacyPrefsIntoSqlite(adapter);
+      resetLegacySeparatedAgentRunStateIfNeeded(adapter);
       const migrationProbe = adapter.get(
         "SELECT value FROM plugin_meta WHERE key=@meta_key",
         { meta_key: SQLITE_MIGRATION_META_KEY },
@@ -1095,6 +1345,222 @@ function ensureJsonPayload(payload: string) {
     return "{}";
   }
   return normalized;
+}
+
+function runStoreTables(kind: PluginRunStoreKind) {
+  if (kind === "acp") {
+    return {
+      runs: "plugin_acp_skill_runs",
+      events: "plugin_acp_skill_run_events",
+    };
+  }
+  return {
+    runs: "plugin_skillrunner_runs",
+    events: "plugin_skillrunner_run_events",
+  };
+}
+
+function normalizeRunStoreEntry(row: Record<string, unknown>) {
+  return {
+    runKey: normalizeString(row.run_key),
+    requestId: normalizeString(row.request_id),
+    backendId: normalizeString(row.backend_id),
+    state: normalizeString(row.state),
+    updatedAt: normalizeString(row.updated_at),
+    payload: ensureJsonPayload(normalizeString(row.payload_json)),
+  } satisfies PluginRunStoreEntry;
+}
+
+function normalizeRunEventStoreEntry(row: Record<string, unknown>) {
+  return {
+    eventId: normalizeString(row.event_id),
+    runKey: normalizeString(row.run_key),
+    requestId: normalizeString(row.request_id),
+    backendId: normalizeString(row.backend_id),
+    type: normalizeString(row.type),
+    createdAt: normalizeString(row.created_at),
+    payload: ensureJsonPayload(normalizeString(row.payload_json)),
+  } satisfies PluginRunEventStoreEntry;
+}
+
+export function listPluginRunStoreEntries(kind: PluginRunStoreKind) {
+  const db = getAdapter();
+  const tables = runStoreTables(kind);
+  const rows = db.all(`
+    SELECT run_key, request_id, backend_id, state, updated_at, payload_json
+    FROM ${tables.runs}
+    ORDER BY updated_at DESC
+  `);
+  return rows.map(normalizeRunStoreEntry);
+}
+
+export function getPluginRunStoreEntry(
+  kind: PluginRunStoreKind,
+  runKeyRaw: string,
+) {
+  const runKey = normalizeString(runKeyRaw);
+  if (!runKey) {
+    return null;
+  }
+  const db = getAdapter();
+  const tables = runStoreTables(kind);
+  const row = db.get(
+    `
+      SELECT run_key, request_id, backend_id, state, updated_at, payload_json
+      FROM ${tables.runs}
+      WHERE run_key=@run_key
+      LIMIT 1
+    `,
+    { run_key: runKey },
+  );
+  return row ? normalizeRunStoreEntry(row) : null;
+}
+
+export function getPluginRunStoreEntryByRequest(args: {
+  kind: PluginRunStoreKind;
+  backendId?: string;
+  requestId: string;
+}) {
+  const requestId = normalizeString(args.requestId);
+  if (!requestId) {
+    return null;
+  }
+  const backendId = normalizeString(args.backendId);
+  const db = getAdapter();
+  const tables = runStoreTables(args.kind);
+  if (backendId) {
+    const row = db.get(
+      `
+        SELECT run_key, request_id, backend_id, state, updated_at, payload_json
+        FROM ${tables.runs}
+        WHERE request_id=@request_id AND backend_id=@backend_id
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `,
+      { request_id: requestId, backend_id: backendId },
+    );
+    return row ? normalizeRunStoreEntry(row) : null;
+  }
+  const row = db.get(
+    `
+      SELECT run_key, request_id, backend_id, state, updated_at, payload_json
+      FROM ${tables.runs}
+      WHERE request_id=@request_id
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `,
+    { request_id: requestId },
+  );
+  return row ? normalizeRunStoreEntry(row) : null;
+}
+
+export function upsertPluginRunStoreEntry(
+  kind: PluginRunStoreKind,
+  entry: PluginRunStoreEntry,
+) {
+  const runKey = normalizeString(entry.runKey);
+  if (!runKey) {
+    return;
+  }
+  const db = getAdapter();
+  const tables = runStoreTables(kind);
+  db.run(
+    `
+      INSERT OR REPLACE INTO ${tables.runs}
+      (run_key, request_id, backend_id, state, updated_at, payload_json)
+      VALUES (@run_key, @request_id, @backend_id, @state, @updated_at, @payload_json)
+    `,
+    {
+      run_key: runKey,
+      request_id: normalizeString(entry.requestId),
+      backend_id: normalizeString(entry.backendId),
+      state: normalizeString(entry.state),
+      updated_at: normalizeString(entry.updatedAt) || nowIso(),
+      payload_json: ensureJsonPayload(entry.payload),
+    },
+  );
+}
+
+export function deletePluginRunStoreEntry(
+  kind: PluginRunStoreKind,
+  runKeyRaw: string,
+) {
+  const runKey = normalizeString(runKeyRaw);
+  if (!runKey) {
+    return false;
+  }
+  const db = getAdapter();
+  const tables = runStoreTables(kind);
+  db.run(`DELETE FROM ${tables.runs} WHERE run_key=@run_key`, {
+    run_key: runKey,
+  });
+  db.run(`DELETE FROM ${tables.events} WHERE run_key=@run_key`, {
+    run_key: runKey,
+  });
+  return true;
+}
+
+export function clearPluginRunStore(kind: PluginRunStoreKind) {
+  const db = getAdapter();
+  const tables = runStoreTables(kind);
+  const count = Number(
+    db.get(`SELECT COUNT(*) AS value FROM ${tables.runs}`)?.value || 0,
+  );
+  db.transaction(() => {
+    db.run(`DELETE FROM ${tables.events}`);
+    db.run(`DELETE FROM ${tables.runs}`);
+  });
+  return Number.isFinite(count) ? count : 0;
+}
+
+export function appendPluginRunEventStoreEntry(
+  kind: PluginRunStoreKind,
+  entry: PluginRunEventStoreEntry,
+) {
+  const eventId = normalizeString(entry.eventId);
+  if (!eventId) {
+    return;
+  }
+  const db = getAdapter();
+  const tables = runStoreTables(kind);
+  db.run(
+    `
+      INSERT OR REPLACE INTO ${tables.events}
+      (event_id, run_key, request_id, backend_id, type, created_at, payload_json)
+      VALUES (@event_id, @run_key, @request_id, @backend_id, @type, @created_at, @payload_json)
+    `,
+    {
+      event_id: eventId,
+      run_key: normalizeString(entry.runKey),
+      request_id: normalizeString(entry.requestId),
+      backend_id: normalizeString(entry.backendId),
+      type: normalizeString(entry.type),
+      created_at: normalizeString(entry.createdAt) || nowIso(),
+      payload_json: ensureJsonPayload(entry.payload),
+    },
+  );
+}
+
+export function listPluginRunEventStoreEntries(args: {
+  kind: PluginRunStoreKind;
+  runKey: string;
+}) {
+  const runKey = normalizeString(args.runKey);
+  if (!runKey) {
+    return [];
+  }
+  const db = getAdapter();
+  const tables = runStoreTables(args.kind);
+  const rows = db.all(
+    `
+      SELECT event_id, run_key, request_id, backend_id, type, created_at, payload_json
+      FROM ${tables.events}
+      WHERE run_key=@run_key
+      ORDER BY created_at DESC
+    `,
+    { run_key: runKey },
+  );
+  return rows.map(normalizeRunEventStoreEntry);
 }
 
 export function listPluginTaskRequestEntries(domain: string) {
@@ -1847,11 +2313,19 @@ export function resetPluginStateStoreForTests() {
     db.run("DELETE FROM plugin_task_requests");
     db.run("DELETE FROM plugin_task_contexts");
     db.run("DELETE FROM plugin_task_rows");
+    db.run("DELETE FROM plugin_acp_skill_run_events");
+    db.run("DELETE FROM plugin_acp_skill_runs");
+    db.run("DELETE FROM plugin_skillrunner_run_events");
+    db.run("DELETE FROM plugin_skillrunner_runs");
     db.run("DELETE FROM plugin_meta");
   }
   memoryTables.requests.clear();
   memoryTables.contexts.clear();
   memoryTables.rows.clear();
+  memoryTables.acpRunEvents.clear();
+  memoryTables.acpRuns.clear();
+  memoryTables.skillRunnerRunEvents.clear();
+  memoryTables.skillRunnerRuns.clear();
   memoryTables.meta.clear();
   adapter = null;
   initialized = false;
@@ -1876,10 +2350,20 @@ export function inspectPluginStateStoreCounts() {
   const rowCount = Number(
     db.get("SELECT COUNT(*) AS value FROM plugin_task_rows")?.value || 0,
   );
+  const acpRunCount = Number(
+    db.get("SELECT COUNT(*) AS value FROM plugin_acp_skill_runs")?.value || 0,
+  );
+  const skillRunnerRunCount = Number(
+    db.get("SELECT COUNT(*) AS value FROM plugin_skillrunner_runs")?.value || 0,
+  );
   return {
     requestCount: Number.isFinite(requestCount) ? requestCount : 0,
     contextCount: Number.isFinite(contextCount) ? contextCount : 0,
     rowCount: Number.isFinite(rowCount) ? rowCount : 0,
+    acpRunCount: Number.isFinite(acpRunCount) ? acpRunCount : 0,
+    skillRunnerRunCount: Number.isFinite(skillRunnerRunCount)
+      ? skillRunnerRunCount
+      : 0,
   };
 }
 
@@ -1921,6 +2405,34 @@ export function exportPluginStateStoreRowsForTests() {
         SELECT domain, scope, task_id, request_id, backend_id, state, updated_at, payload_json
         FROM plugin_task_rows
         ORDER BY domain, scope, task_id
+      `,
+    ),
+    acpRuns: db.all(
+      `
+        SELECT run_key, request_id, backend_id, state, updated_at, payload_json
+        FROM plugin_acp_skill_runs
+        ORDER BY run_key
+      `,
+    ),
+    acpRunEvents: db.all(
+      `
+        SELECT event_id, run_key, request_id, backend_id, type, created_at, payload_json
+        FROM plugin_acp_skill_run_events
+        ORDER BY event_id
+      `,
+    ),
+    skillRunnerRuns: db.all(
+      `
+        SELECT run_key, request_id, backend_id, state, updated_at, payload_json
+        FROM plugin_skillrunner_runs
+        ORDER BY run_key
+      `,
+    ),
+    skillRunnerRunEvents: db.all(
+      `
+        SELECT event_id, run_key, request_id, backend_id, type, created_at, payload_json
+        FROM plugin_skillrunner_run_events
+        ORDER BY event_id
       `,
     ),
   };

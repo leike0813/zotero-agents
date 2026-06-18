@@ -22,6 +22,17 @@
       "max": 1
     }
   },
+  "validateSelection": {
+    "select": {
+      "policy": "literature-source"
+    },
+    "exclude": [
+      {
+        "kind": "artifact-exists",
+        "target": "deep-reading-html"
+      }
+    ]
+  },
   "request": {
     "kind": "skillrunner.sequence.v1"
   },
@@ -70,7 +81,6 @@
     }
   },
   "hooks": {
-    "filterInputs": "hooks/filterInputs.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }

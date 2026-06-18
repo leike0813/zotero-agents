@@ -44,10 +44,6 @@ function getNotePathFromRecord(record) {
   const candidates = [
     record.note_path,
     record.data?.note_path,
-    record.result?.note_path,
-    record.result?.data?.note_path,
-    record.data?.result?.note_path,
-    record.data?.result?.data?.note_path,
   ];
   for (const value of candidates) {
     const normalized = String(value || "").trim();
@@ -60,21 +56,9 @@ function getNotePathFromRecord(record) {
 
 function resolveNotePathFromRunResult(runResult) {
   const candidates = [
-    runResult?.resultJson?.result?.data,
-    runResult?.resultJson?.result,
     runResult?.resultJson?.data?.data,
     runResult?.resultJson?.data,
     runResult?.resultJson,
-    runResult?.responseJson?.result?.data,
-    runResult?.responseJson?.result,
-    runResult?.responseJson?.data?.data,
-    runResult?.responseJson?.data,
-    runResult?.responseJson,
-    runResult?.result?.data,
-    runResult?.result,
-    runResult?.data?.data,
-    runResult?.data,
-    runResult,
   ];
   for (const candidate of candidates) {
     const resolved = getNotePathFromRecord(candidate);

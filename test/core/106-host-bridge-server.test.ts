@@ -18,9 +18,7 @@ import {
   buildSkillRunnerHostBridgeRuntimeEnv,
   classifySkillRunnerBackendLocality,
 } from "../../src/modules/hostBridgeSkillRunnerEnv";
-import {
-  detectHostBridgeAdvertisedHostForBackend,
-} from "../../src/modules/hostBridgeAdvertisedHostDetection";
+import { detectHostBridgeAdvertisedHostForBackend } from "../../src/modules/hostBridgeAdvertisedHostDetection";
 import { HOST_BRIDGE_PROTOCOL_VERSION } from "../../src/modules/hostBridgeProtocol";
 import { getPref, setPref } from "../../src/utils/prefs";
 
@@ -299,10 +297,7 @@ describe("host bridge server phase 1", function () {
     assert.strictEqual(status.bindMode, "lan");
     assert.isTrue(status.lanEnabled);
     assert.strictEqual(status.host, "0.0.0.0");
-    assert.strictEqual(
-      status.endpoint,
-      "http://127.0.0.1:27655/bridge/v1",
-    );
+    assert.strictEqual(status.endpoint, "http://127.0.0.1:27655/bridge/v1");
     assert.isTrue(status.pinPortEnabled);
     assert.strictEqual(status.portMode, "pinned");
     assert.strictEqual(status.port, 27655);
@@ -368,11 +363,11 @@ describe("host bridge server phase 1", function () {
     }
     assert.strictEqual(result.host, "192.168.13.12");
     assert.deepEqual(requested, [
-      "http://192.168.13.10:9813/v1/system/client-address",
+      "http://192.168.13.10:9813/v1/runtime/network/client-address",
     ]);
     assert.strictEqual(
       result.diagnostics.reflectionEndpoint,
-      "http://192.168.13.10:9813/v1/system/client-address",
+      "http://192.168.13.10:9813/v1/runtime/network/client-address",
     );
   });
 
@@ -558,7 +553,7 @@ describe("host bridge server phase 1", function () {
           backendUrl,
           backendHost: "192.168.13.10",
           reflectionEndpoint:
-            "http://192.168.13.10:9813/v1/system/client-address",
+            "http://192.168.13.10:9813/v1/runtime/network/client-address",
           status: 200,
         },
       }),
@@ -679,7 +674,7 @@ describe("host bridge server phase 1", function () {
             backendUrl: "http://192.168.1.20:8030",
             backendHost: "192.168.1.20",
             reflectionEndpoint:
-              "http://192.168.1.20:8030/v1/system/client-address",
+              "http://192.168.1.20:8030/v1/runtime/network/client-address",
             status: 404,
           },
         }),

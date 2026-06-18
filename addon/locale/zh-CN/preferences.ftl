@@ -1,6 +1,7 @@
 pref-section-workflows = 工作流
 pref-workflow-dir = Workflow 目录
 pref-workflow-dir-help = 默认：<Zotero 数据目录>/zotero-agents/data/workflows
+pref-skill-dir = Skill 目录
 pref-workflow-browse =
     .label = 浏览
 pref-workflow-scan =

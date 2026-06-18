@@ -126,6 +126,7 @@ task-dashboard-generic-logs-open-diagnostics = 診断エクスポート
 task-dashboard-runtime-logs-tab-title = ランタイムログ
 task-dashboard-runtime-logs-clear = ログをクリア
 task-dashboard-runtime-logs-copy-selected = 選択をコピー
+task-dashboard-runtime-logs-copy-detail = ログをコピー
 task-dashboard-runtime-logs-copy-visible-ndjson = 可視範囲をコピー (NDJSON)
 task-dashboard-runtime-logs-copy-issue-summary = 問題概要をコピー
 task-dashboard-runtime-logs-diagnostic-mode = 診断モード

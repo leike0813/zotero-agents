@@ -4,6 +4,15 @@
   "version": "1.0.0",
   "provider": "pass-through",
   "debug_only": true,
+  "inputs": {
+    "unit": "workflow"
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "digest-representative-image"
+    },
+    "derive": ["digestRepresentativeImageTarget"]
+  },
   "parameters": {
     "markdown_src": {
       "type": "string",
@@ -13,7 +22,6 @@
     }
   },
   "hooks": {
-    "filterInputs": "hooks/filterInputs.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }

@@ -40,10 +40,11 @@ import {
   subscribeWorkflowTasks,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
+import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
 import {
-  archiveSkillRunnerRequestLedgerRecord,
-  getSkillRunnerRequestLedgerRecord,
-} from "./skillRunnerRequestLedger";
+  archiveSkillRunnerRunRecordByRequest,
+  getSkillRunnerRunRecordByRequest,
+} from "./skillRunnerRunStore";
 import {
   isSkillRunnerBackendReconcileFlagged,
   subscribeSkillRunnerBackendHealth,
@@ -289,6 +290,8 @@ export type RunWorkspaceTaskItem = {
   backendId: string;
   backendDisplayName: string;
   requestId?: string;
+  skillName?: string;
+  skillLabel?: string;
   skillId?: string;
   workflowLabel?: string;
   status: string;
@@ -1309,16 +1312,19 @@ function resolveSessionSnapshotFromTaskStores(entry: RunDialogEntry) {
   };
 }
 
-function syncSessionStateFromLedger(entry: RunDialogEntry) {
-  const fromLedger = getSkillRunnerRequestLedgerRecord(entry.requestId);
-  if (fromLedger) {
+function syncSessionStateFromRunStore(entry: RunDialogEntry) {
+  const fromRunStore = getSkillRunnerRunRecordByRequest({
+    backendId: entry.backend.id,
+    requestId: entry.requestId,
+  });
+  if (fromRunStore) {
     entry.session.status = normalizeStatus(
-      fromLedger.snapshot,
+      fromRunStore.status,
       normalizeStatus(entry.session.status, "running"),
     );
-    entry.session.updatedAt = fromLedger.updatedAt || entry.session.updatedAt;
-    if (fromLedger.error) {
-      entry.session.error = fromLedger.error;
+    entry.session.updatedAt = fromRunStore.updatedAt || entry.session.updatedAt;
+    if (fromRunStore.error) {
+      entry.session.error = fromRunStore.error;
     }
     return;
   }
@@ -1374,6 +1380,26 @@ async function buildRunWorkspaceModel() {
       String(entry.type || "").trim() === SKILLRUNNER_BACKEND_TYPE ||
       String(entry.id || "").trim() === "local-skillrunner-backend",
   );
+  const skillNameById = new Map<string, string>();
+  try {
+    const registry = await scanPluginSkillRegistry();
+    for (const entry of registry.entries) {
+      const skillId = String(entry.skillId || "").trim();
+      const skillName = String(entry.skillName || "").trim();
+      if (skillId && skillName) {
+        skillNameById.set(skillId, skillName);
+      }
+    }
+  } catch (error) {
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      component: "skillrunner-workspace",
+      stage: "skill-name-registry-scan-failed",
+      message: "Failed to resolve SkillRunner skill display names.",
+      error,
+    });
+  }
 
   const groupsMap = new Map<
     string,
@@ -1426,7 +1452,10 @@ async function buildRunWorkspaceModel() {
       const requestId = String(row.requestId || "").trim();
       if (
         requestId &&
-        getSkillRunnerRequestLedgerRecord(requestId)?.archivedAt
+        getSkillRunnerRunRecordByRequest({
+          backendId,
+          requestId,
+        })?.archivedAt
       ) {
         continue;
       }
@@ -1442,12 +1471,20 @@ async function buildRunWorkspaceModel() {
       const pendingPermission = requestId
         ? getSkillRunnerHostBridgePermissionRequest(requestId)
         : null;
+      const skillId = String(row.skillId || "").trim();
       const task: RunWorkspaceTaskItem = {
         key,
         backendId,
         backendDisplayName,
         requestId: requestId || undefined,
-        skillId: String(row.skillId || "").trim() || undefined,
+        skillName:
+          String((row as { skillName?: unknown }).skillName || "").trim() ||
+          skillNameById.get(skillId) ||
+          undefined,
+        skillLabel:
+          String((row as { skillLabel?: unknown }).skillLabel || "").trim() ||
+          undefined,
+        skillId: skillId || undefined,
         workflowLabel:
           String(row.workflowLabel || "").trim() ||
           String((row as { workflowId?: unknown }).workflowId || "").trim() ||
@@ -1508,6 +1545,9 @@ async function buildRunWorkspaceModel() {
         target.backend.displayName,
       ),
       requestId: target.requestId,
+      skillName: undefined,
+      skillLabel: undefined,
+      skillId: undefined,
       workflowLabel: undefined,
       status: "running",
       stateLabel: resolveRunWorkspaceStatusLabel("running"),
@@ -1998,7 +2038,7 @@ function pushSnapshot(messageType: "init" | "snapshot") {
     return;
   }
   if (runWorkspaceState.currentEntry) {
-    syncSessionStateFromLedger(runWorkspaceState.currentEntry);
+    syncSessionStateFromRunStore(runWorkspaceState.currentEntry);
   }
   const selectedTask = runWorkspaceState.taskIndex.get(
     runWorkspaceState.selectedTaskKey,
@@ -2445,7 +2485,7 @@ async function startRunObserver(entry: RunDialogEntry) {
       return;
     }
     try {
-      syncSessionStateFromLedger(entry);
+      syncSessionStateFromRunStore(entry);
       await syncRunMeta();
       await syncPendingState();
       await syncHistory();
@@ -3144,9 +3184,9 @@ async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
   }
   if (action === "archive-run") {
     const requestId = String(payload.requestId || "").trim();
-    const record = getSkillRunnerRequestLedgerRecord(requestId);
-    if (record && isTerminal(record.snapshot)) {
-      archiveSkillRunnerRequestLedgerRecord(requestId);
+    const record = getSkillRunnerRunRecordByRequest({ requestId });
+    if (record && isTerminal(record.status)) {
+      archiveSkillRunnerRunRecordByRequest({ requestId });
       await refreshWorkspaceSnapshot({
         requestedTaskKey: "",
       });

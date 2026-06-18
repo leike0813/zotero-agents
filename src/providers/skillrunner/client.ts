@@ -7,10 +7,7 @@ import type {
 import type { ProviderProgressEvent } from "../types";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 import { buildSkillRunnerSkillPackageBundle } from "./skillPackageBundler";
-import {
-  SkillRunnerHttpError,
-  SkillRunnerTerminalRunError,
-} from "./errors";
+import { SkillRunnerHttpError, SkillRunnerTerminalRunError } from "./errors";
 import {
   createMultipartZipPayload,
   createZipFromNamedFiles,
@@ -22,6 +19,7 @@ import {
   removeFileIfExists,
   writeBytes,
 } from "../../modules/workflowExecution/bundleIO";
+import { unwrapSkillRunnerResultJson } from "../../modules/workflowExecution/resultEnvelope";
 import { ZipBundleReader } from "../../workflows/zipBundleReader";
 import {
   isWaiting,
@@ -32,6 +30,8 @@ import { delay } from "../../utils/runtimeCompatibility";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 type DynamicImport = (specifier: string) => Promise<any>;
+
+const DEFAULT_HTTP_REQUEST_TIMEOUT_MS = 120000;
 
 const dynamicImport: DynamicImport = new Function(
   "specifier",
@@ -94,6 +94,30 @@ function toPositiveIntegerOption(value: unknown) {
     return undefined;
   }
   return parsed;
+}
+
+function normalizeTimeoutMs(value: unknown, fallback: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+}
+
+function createTimeoutError(args: {
+  method?: string;
+  path?: string;
+  timeoutMs: number;
+  cause?: unknown;
+}) {
+  const method = normalizeString(args.method) || "GET";
+  const path = normalizeString(args.path) || "/";
+  const error = new Error(
+    `SkillRunner HTTP request timed out after ${args.timeoutMs}ms: ${method} ${path}`,
+  );
+  error.name = "SkillRunnerHttpTimeoutError";
+  (error as { cause?: unknown }).cause = args.cause;
+  return error;
 }
 
 function normalizeExecutionMode(value: unknown): "auto" | "interactive" {
@@ -189,6 +213,56 @@ function resolveWorkspaceDir(responseJson: unknown) {
     normalizeString(responseJson.workspaceDir) ||
     normalizeString(responseJson.workspace_dir)
   );
+}
+
+function hasOwn(source: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(source, key);
+}
+
+function resolveResultJsonPath(responseJson: unknown) {
+  if (!isObjectRecord(responseJson)) {
+    return "";
+  }
+  const direct =
+    normalizeString(responseJson.resultJsonPath) ||
+    normalizeString(responseJson.result_json_path);
+  if (direct) {
+    return direct;
+  }
+  const result = responseJson.result;
+  if (isObjectRecord(result)) {
+    const nested =
+      normalizeString(result.resultJsonPath) ||
+      normalizeString(result.result_json_path);
+    if (nested) {
+      return nested;
+    }
+    const data = result.data;
+    if (isObjectRecord(data)) {
+      return (
+        normalizeString(data.resultJsonPath) ||
+        normalizeString(data.result_json_path)
+      );
+    }
+  }
+  return "";
+}
+
+function mergeSkillRunnerResultResponseJson(args: {
+  stateJson?: unknown;
+  resultResponseJson: unknown;
+}) {
+  if (!isObjectRecord(args.stateJson)) {
+    return {
+      provider: "skillrunner",
+      resultResponseJson: args.resultResponseJson,
+    };
+  }
+  return {
+    ...args.stateJson,
+    provider: "skillrunner",
+    resultResponseJson: args.resultResponseJson,
+  };
 }
 
 function ensureUploadRelativePath(args: { value: unknown; field: string }) {
@@ -321,8 +395,18 @@ export class SkillRunnerClient {
 
   private readonly fetchImpl: FetchLike;
 
-  constructor(args: { baseUrl: string; fetchImpl?: FetchLike }) {
+  private readonly requestTimeoutMs: number;
+
+  constructor(args: {
+    baseUrl: string;
+    fetchImpl?: FetchLike;
+    requestTimeoutMs?: number;
+  }) {
     this.baseUrl = args.baseUrl.replace(/\/+$/, "");
+    this.requestTimeoutMs = normalizeTimeoutMs(
+      args.requestTimeoutMs,
+      DEFAULT_HTTP_REQUEST_TIMEOUT_MS,
+    );
     const globalFetch = (globalThis as { fetch?: FetchLike }).fetch;
     if (typeof args.fetchImpl === "function") {
       this.fetchImpl = args.fetchImpl;
@@ -381,15 +465,119 @@ export class SkillRunnerClient {
     return request.steps.find((step) => step.id === stepId);
   }
 
+  private async fetchWithTimeout(args: {
+    url: string;
+    init: RequestInit;
+    method?: string;
+    path?: string;
+    requestId?: string;
+    stepId?: string;
+    timeoutStage: string;
+  }) {
+    const timeoutMs = this.requestTimeoutMs;
+    const runtime = globalThis as {
+      AbortController?: typeof AbortController;
+      setTimeout?: typeof setTimeout;
+      clearTimeout?: typeof clearTimeout;
+    };
+    if (
+      timeoutMs <= 0 ||
+      args.init.signal ||
+      typeof runtime.AbortController !== "function" ||
+      typeof runtime.setTimeout !== "function" ||
+      typeof runtime.clearTimeout !== "function"
+    ) {
+      return this.fetchImpl(args.url, args.init);
+    }
+    const AbortControllerCtor = runtime.AbortController;
+    const setTimer = runtime.setTimeout;
+    const clearTimer = runtime.clearTimeout;
+    const controller = new AbortControllerCtor();
+    let timedOut = false;
+    const startedAt = Date.now();
+    let timeoutError: Error | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<Response>((_resolve, reject) => {
+      timer = setTimer(() => {
+        timedOut = true;
+        timeoutError = createTimeoutError({
+          method: args.method,
+          path: args.path,
+          timeoutMs,
+        });
+        this.appendTransportLog({
+          level: "error",
+          stage: args.timeoutStage,
+          message: "skillrunner http request timed out",
+          method: args.method,
+          path: args.path,
+          url: args.url,
+          requestId: args.requestId,
+          stepId: args.stepId,
+          duration: Date.now() - startedAt,
+          error: timeoutError,
+        });
+        controller.abort();
+        reject(timeoutError);
+      }, timeoutMs);
+    });
+    const fetchPromise = this.fetchImpl(args.url, {
+      ...args.init,
+      signal: controller.signal,
+    });
+    try {
+      return await Promise.race([fetchPromise, timeoutPromise]);
+    } catch (error) {
+      if (timedOut) {
+        if (timeoutError && error !== timeoutError) {
+          (timeoutError as { cause?: unknown }).cause = error;
+        }
+        throw (
+          timeoutError ||
+          createTimeoutError({
+            method: args.method,
+            path: args.path,
+            timeoutMs,
+            cause: error,
+          })
+        );
+      }
+      throw error;
+    } finally {
+      if (timer) {
+        clearTimer(timer);
+      }
+    }
+  }
+
   private async executeCreateStep(step: SkillRunnerHttpStepDefinition) {
     const url = this.buildUrl(step.request.path);
     const startedAt = Date.now();
-    const response = await this.fetchImpl(url, {
+    this.appendTransportLog({
+      level: "debug",
+      stage: "provider-http-create-start",
+      message: "skillrunner create step started",
       method: step.request.method,
-      headers: {
-        "content-type": "application/json",
+      path: step.request.path,
+      url,
+      stepId: step.id,
+      details: {
+        timeoutMs: this.requestTimeoutMs,
       },
-      body: JSON.stringify(step.request.json || {}),
+    });
+    const response = await this.fetchWithTimeout({
+      url,
+      method: step.request.method,
+      path: step.request.path,
+      stepId: step.id,
+      timeoutStage: "provider-http-create-timeout",
+      init: {
+        method: step.request.method,
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(step.request.json || {}),
+      },
     });
     this.appendTransportLog({
       level: response.ok ? "debug" : "error",
@@ -482,10 +670,33 @@ export class SkillRunnerClient {
     const path = interpolatePath(step.request.path, { request_id: requestId });
     const url = this.buildUrl(path);
     const startedAt = Date.now();
-    const response = await this.fetchImpl(url, {
+    this.appendTransportLog({
+      level: "debug",
+      stage: "provider-http-upload-start",
+      message: "skillrunner upload step started",
       method: step.request.method,
-      headers,
-      body,
+      path,
+      url,
+      requestId,
+      stepId: step.id,
+      details: {
+        multipart: true,
+        fields: zipParts.map((part) => part.fieldName),
+        timeoutMs: this.requestTimeoutMs,
+      },
+    });
+    const response = await this.fetchWithTimeout({
+      url,
+      method: step.request.method,
+      path,
+      requestId,
+      stepId: step.id,
+      timeoutStage: "provider-http-upload-timeout",
+      init: {
+        method: step.request.method,
+        headers,
+        body,
+      },
     });
     this.appendTransportLog({
       level: response.ok ? "debug" : "error",
@@ -585,8 +796,16 @@ export class SkillRunnerClient {
     });
     const url = this.buildUrl(path);
     const startedAt = Date.now();
-    const response = await this.fetchImpl(url, {
+    const response = await this.fetchWithTimeout({
+      url,
       method: args.requestMethod,
+      path,
+      requestId: args.requestId,
+      stepId: "poll",
+      timeoutStage: "provider-http-get-state-timeout",
+      init: {
+        method: args.requestMethod,
+      },
     });
     this.appendTransportLog({
       level: response.ok ? "debug" : "error",
@@ -619,8 +838,16 @@ export class SkillRunnerClient {
     const path = interpolatePath(step.request.path, { request_id: requestId });
     const url = this.buildUrl(path);
     const startedAt = Date.now();
-    const response = await this.fetchImpl(url, {
+    const response = await this.fetchWithTimeout({
+      url,
       method: step.request.method,
+      path,
+      requestId,
+      stepId: step.id,
+      timeoutStage: "provider-http-bundle-timeout",
+      init: {
+        method: step.request.method,
+      },
     });
     this.appendTransportLog({
       level: response.ok ? "debug" : "error",
@@ -668,7 +895,7 @@ export class SkillRunnerClient {
         try {
           const text = await bundleReader.readText(candidate);
           return {
-            resultJson: JSON.parse(text),
+            resultJson: unwrapSkillRunnerResultJson(JSON.parse(text)),
             resultJsonPath: candidate,
             resultArtifactBasePath: parentBundleEntryPath(candidate),
             workspaceDir: resolveWorkspaceDir(args.responseJson) || undefined,
@@ -689,6 +916,25 @@ export class SkillRunnerClient {
     }
   }
 
+  private normalizeResultTerminalResult(args: {
+    resultResponseJson: unknown;
+    stateJson?: unknown;
+  }) {
+    const responseJson = mergeSkillRunnerResultResponseJson({
+      stateJson: args.stateJson,
+      resultResponseJson: args.resultResponseJson,
+    });
+    const resultJsonPath =
+      resolveResultJsonPath(args.resultResponseJson) ||
+      resolveResultJsonPath(args.stateJson);
+    return {
+      resultJson: unwrapSkillRunnerResultJson(args.resultResponseJson),
+      resultJsonPath: resultJsonPath || undefined,
+      workspaceDir: resolveWorkspaceDir(responseJson) || undefined,
+      responseJson,
+    };
+  }
+
   private async executeResultStep(
     step: SkillRunnerHttpStepDefinition,
     requestId: string,
@@ -696,8 +942,16 @@ export class SkillRunnerClient {
     const path = interpolatePath(step.request.path, { request_id: requestId });
     const url = this.buildUrl(path);
     const startedAt = Date.now();
-    const response = await this.fetchImpl(url, {
+    const response = await this.fetchWithTimeout({
+      url,
       method: step.request.method,
+      path,
+      requestId,
+      stepId: step.id,
+      timeoutStage: "provider-http-result-timeout",
+      init: {
+        method: step.request.method,
+      },
     });
     this.appendTransportLog({
       level: response.ok ? "debug" : "error",
@@ -760,11 +1014,16 @@ export class SkillRunnerClient {
   }
 
   async fetchRunResult(args: { requestId: string }) {
+    const normalized = await this.fetchRunResultPayload(args);
+    return normalized.resultJson;
+  }
+
+  async fetchRunResultPayload(args: { requestId: string; stateJson?: unknown }) {
     const requestId = String(args.requestId || "").trim();
     if (!requestId) {
       throw new Error("requestId is required");
     }
-    return this.executeResultStep(
+    const resultResponseJson = await this.executeResultStep(
       {
         id: "result",
         request: {
@@ -774,6 +1033,10 @@ export class SkillRunnerClient {
       },
       requestId,
     );
+    return this.normalizeResultTerminalResult({
+      resultResponseJson,
+      stateJson: args.stateJson,
+    });
   }
 
   private async toHttpStepsRequest(
@@ -825,12 +1088,48 @@ export class SkillRunnerClient {
     const uploadFiles = resolveUploadEntriesFromRequest(request);
     const skillSource =
       request.skill_source === "installed" ? "installed" : "local-package";
-    const skillPackage =
-      skillSource === "local-package"
-        ? await buildSkillRunnerSkillPackageBundle({
+    let skillPackage = null;
+    if (skillSource === "local-package") {
+      const packageStartedAt = Date.now();
+      this.appendTransportLog({
+        level: "debug",
+        stage: "provider-skill-package-build-start",
+        message: "skillrunner local skill package build started",
+        phase: "prepare",
+        details: {
+          skillId: request.skill_id,
+        },
+      });
+      try {
+        skillPackage = await buildSkillRunnerSkillPackageBundle({
+          skillId: request.skill_id,
+        });
+        this.appendTransportLog({
+          level: "debug",
+          stage: "provider-skill-package-build-succeeded",
+          message: "skillrunner local skill package build succeeded",
+          phase: "prepare",
+          duration: Date.now() - packageStartedAt,
+          details: {
+            skillId: skillPackage.skillId,
+            fileCount: skillPackage.fileCount,
+          },
+        });
+      } catch (error) {
+        this.appendTransportLog({
+          level: "error",
+          stage: "provider-skill-package-build-failed",
+          message: "skillrunner local skill package build failed",
+          phase: "prepare",
+          duration: Date.now() - packageStartedAt,
+          details: {
             skillId: request.skill_id,
-          })
-        : null;
+          },
+          error,
+        });
+        throw error;
+      }
+    }
     const createJson = {
       ...(skillSource === "installed"
         ? { skill_id: request.skill_id }
@@ -968,13 +1267,19 @@ export class SkillRunnerClient {
         responseJson: pollResult,
       };
     }
-    const resultJson = await this.executeResultStep(resultStep!, requestId);
+    const resultResponseJson = await this.executeResultStep(resultStep!, requestId);
+    const normalized = this.normalizeResultTerminalResult({
+      resultResponseJson,
+      stateJson: pollResult,
+    });
     return {
       status: "succeeded",
       requestId,
       fetchType: "result",
-      resultJson,
-      responseJson: pollResult,
+      resultJson: normalized.resultJson,
+      resultJsonPath: normalized.resultJsonPath,
+      workspaceDir: normalized.workspaceDir,
+      responseJson: normalized.responseJson,
     };
   }
 
@@ -1066,13 +1371,19 @@ export class SkillRunnerClient {
           responseJson: runState,
         };
       }
-      const resultJson = await this.executeResultStep(resultStep!, requestId);
+      const resultResponseJson = await this.executeResultStep(resultStep!, requestId);
+      const normalized = this.normalizeResultTerminalResult({
+        resultResponseJson,
+        stateJson: runState,
+      });
       return {
         status: "succeeded" as const,
         requestId,
         fetchType: "result" as const,
-        resultJson,
-        responseJson: runState,
+        resultJson: normalized.resultJson,
+        resultJsonPath: normalized.resultJsonPath,
+        workspaceDir: normalized.workspaceDir,
+        responseJson: normalized.responseJson,
       };
     }
 

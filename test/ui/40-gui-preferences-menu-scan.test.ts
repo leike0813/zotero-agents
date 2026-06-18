@@ -13,6 +13,7 @@ import {
   rebuildWorkflowActionPopup,
 } from "../../src/modules/workflowMenu";
 import {
+  getDefaultSkillDirForWorkflowDir,
   getEffectiveWorkflowDir,
   getLoadedWorkflowEntries,
   getWorkflowRegistryState,
@@ -38,6 +39,7 @@ class FakeXULElement {
 
   public style: Record<string, string> = {};
   public value = "";
+  public placeholder = "";
   public textContent = "";
   public checked = false;
   public parentNode: FakeXULElement | null = null;
@@ -271,48 +273,55 @@ function makeNoValidInputWorkflow(id: string, label: string): LoadedWorkflow {
       id,
       label,
       provider: "pass-through",
+      validateSelection: {
+        require: {
+          counts: {
+            parents: { exact: 2 },
+          },
+        },
+      },
       hooks: {
-        filterInputs: "hooks/filterInputs.js",
         applyResult: "hooks/applyResult.js",
       },
     },
     rootDir: joinPath("workflows", id),
     hooks: {
-      filterInputs: async () => ({}),
       applyResult: async () => ({ ok: true }),
     },
-    buildStrategy: "hook",
+    buildStrategy: "declarative",
   };
 }
 
 function makeCountingNoValidInputWorkflow(
   id: string,
   label: string,
-  counter: { calls: number },
+  _counter: { calls: number },
 ): LoadedWorkflow {
   return {
     manifest: {
       id,
       label,
       provider: "pass-through",
+      validateSelection: {
+        require: {
+          counts: {
+            parents: { exact: 2 },
+          },
+        },
+      },
       hooks: {
-        filterInputs: "hooks/filterInputs.js",
         applyResult: "hooks/applyResult.js",
       },
     },
     rootDir: joinPath("workflows", id),
     hooks: {
-      filterInputs: async () => {
-        counter.calls += 1;
-        return {};
-      },
       applyResult: async () => ({ ok: true }),
     },
-    buildStrategy: "hook",
+    buildStrategy: "declarative",
   };
 }
 
-function makeExplodingFilterWorkflow(
+function makeExplodingBuildRequestWorkflow(
   id: string,
   label: string,
 ): LoadedWorkflow {
@@ -322,15 +331,15 @@ function makeExplodingFilterWorkflow(
       label,
       provider: "pass-through",
       hooks: {
-        filterInputs: "hooks/filterInputs.js",
+        buildRequest: "hooks/buildRequest.js",
         applyResult: "hooks/applyResult.js",
       },
     },
     rootDir: joinPath("workflows", id),
     hooks: {
-      filterInputs: async () => {
+      buildRequest: async () => {
         throw new Error(
-          "filterInputs should not run during multi-select menu build",
+          "buildRequest should not run during workflow menu validation",
         );
       },
       applyResult: async () => ({ ok: true }),
@@ -383,9 +392,13 @@ function createPrefsWindow(args?: {
 
   const workflowDirInput = document.createXULElement("input");
   workflowDirInput.id = `zotero-prefpane-${config.addonRef}-workflow-dir`;
+  const skillDirInput = document.createXULElement("input");
+  skillDirInput.id = `zotero-prefpane-${config.addonRef}-skill-dir`;
 
   const workflowBrowseButton = document.createXULElement("button");
   workflowBrowseButton.id = `zotero-prefpane-${config.addonRef}-workflow-browse`;
+  const skillBrowseButton = document.createXULElement("button");
+  skillBrowseButton.id = `zotero-prefpane-${config.addonRef}-skill-browse`;
   const scanButton = document.createXULElement("button");
   scanButton.id = `zotero-prefpane-${config.addonRef}-workflow-scan`;
   const workflowSettingsButton = document.createXULElement("button");
@@ -540,7 +553,9 @@ function createPrefsWindow(args?: {
       },
     } as unknown as Window,
     workflowDirInput,
+    skillDirInput,
     workflowBrowseButton,
+    skillBrowseButton,
     scanButton,
     workflowSettingsButton,
     workflowOpenLogsButton,
@@ -612,14 +627,18 @@ const itFullOnly = isFullTestMode() ? it : it.skip;
 describe("gui: preference scripts", function () {
   // eslint-disable-next-line mocha/no-setup-in-describe
   const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
+  // eslint-disable-next-line mocha/no-setup-in-describe
+  const skillDirPrefKey = `${config.prefsPrefix}.skillDir`;
 
   let prevAddon: unknown;
   let prevWorkflowDirPref: unknown;
+  let prevSkillDirPref: unknown;
 
   beforeEach(function () {
     const runtime = globalThis as { addon?: unknown };
     prevAddon = runtime.addon;
     prevWorkflowDirPref = Zotero.Prefs.get(workflowDirPrefKey, true);
+    prevSkillDirPref = Zotero.Prefs.get(skillDirPrefKey, true);
     runtime.addon = {
       data: {
         config,
@@ -630,6 +649,7 @@ describe("gui: preference scripts", function () {
     };
     setDebugModeOverrideForTests(true);
     Zotero.Prefs.clear(workflowDirPrefKey, true);
+    Zotero.Prefs.clear(skillDirPrefKey, true);
     resetManagedLocalRuntimeStateChangeListenersForTests();
   });
 
@@ -638,6 +658,11 @@ describe("gui: preference scripts", function () {
       Zotero.Prefs.clear(workflowDirPrefKey, true);
     } else {
       Zotero.Prefs.set(workflowDirPrefKey, prevWorkflowDirPref, true);
+    }
+    if (typeof prevSkillDirPref === "undefined") {
+      Zotero.Prefs.clear(skillDirPrefKey, true);
+    } else {
+      Zotero.Prefs.set(skillDirPrefKey, prevSkillDirPref, true);
     }
 
     const runtime = globalThis as { addon?: unknown };
@@ -664,7 +689,9 @@ describe("gui: preference scripts", function () {
     const {
       window,
       workflowDirInput,
+      skillDirInput,
       workflowBrowseButton,
+      skillBrowseButton,
       scanButton,
       workflowSettingsButton,
       workflowOpenLogsButton,
@@ -677,10 +704,24 @@ describe("gui: preference scripts", function () {
       window,
     });
 
-    assert.isNotEmpty(workflowDirInput.value);
+    const defaultWorkflowDir = getEffectiveWorkflowDir();
+    assert.equal(workflowDirInput.value, "");
     assert.equal(
       Zotero.Prefs.get(workflowDirPrefKey, true),
-      workflowDirInput.value,
+      "",
+      "empty workflowDir pref should keep input empty",
+    );
+    assert.equal(
+      workflowDirInput.placeholder,
+      defaultWorkflowDir,
+      "workflow default should be shown as input hint",
+    );
+    assert.equal(skillDirInput.value, "");
+    assert.equal(Zotero.Prefs.get(skillDirPrefKey, true), "");
+    assert.equal(
+      skillDirInput.placeholder,
+      getDefaultSkillDirForWorkflowDir(defaultWorkflowDir),
+      "skill default should be shown as input hint",
     );
 
     workflowDirInput.value = "D:/tmp/workflows-custom";
@@ -697,15 +738,31 @@ describe("gui: preference scripts", function () {
       "D:/tmp/workflows-custom",
       "workflowDir pref should persist custom path after input/change",
     );
+    assert.equal(
+      skillDirInput.placeholder,
+      getDefaultSkillDirForWorkflowDir("D:/tmp/workflows-custom"),
+      "skill hint should follow the explicit workflow directory",
+    );
+
+    skillDirInput.value = "D:/tmp/skills-custom";
+    skillDirInput.dispatch("input", { target: skillDirInput });
+    skillDirInput.dispatch("change", { target: skillDirInput });
+    await flushTasks();
+    assert.equal(skillDirInput.value, "D:/tmp/skills-custom");
+    assert.equal(
+      Zotero.Prefs.get(skillDirPrefKey, true),
+      "D:/tmp/skills-custom",
+    );
 
     const runtime = globalThis as { ztoolkit?: unknown };
     const previousZtoolkit = runtime.ztoolkit;
-    let pickerInitialDirectory = "";
+    const pickerInitialDirectoryByTitle = new Map<string, string>();
     try {
       runtime.ztoolkit = {
         FilePicker: class {
+          private readonly title: string;
           constructor(
-            _title: string,
+            title: string,
             _mode: string,
             _filters: [string, string][],
             _suggestion: string,
@@ -713,18 +770,23 @@ describe("gui: preference scripts", function () {
             _filterMask?: string,
             directory?: string,
           ) {
-            pickerInitialDirectory = String(directory || "");
+            this.title = title;
+            pickerInitialDirectoryByTitle.set(title, String(directory || ""));
           }
           async open() {
-            return "D:/tmp/workflows-picked";
+            return this.title === "pref-skill-dir"
+              ? "D:/tmp/skills-picked"
+              : "D:/tmp/workflows-picked";
           }
         },
       };
       workflowBrowseButton.dispatch("command");
       await flushTasks();
-      if (pickerInitialDirectory) {
+      const workflowPickerInitialDirectory =
+        pickerInitialDirectoryByTitle.get("pref-workflow-dir") || "";
+      if (workflowPickerInitialDirectory) {
         assert.equal(
-          pickerInitialDirectory,
+          workflowPickerInitialDirectory,
           "D:/tmp/workflows-custom",
           "browse picker should start from current workflow dir",
         );
@@ -743,6 +805,22 @@ describe("gui: preference scripts", function () {
           Zotero.Prefs.get(workflowDirPrefKey, true),
           "D:/tmp/workflows-custom",
           "workflowDir pref should stay unchanged when picker is unavailable",
+        );
+      }
+      skillBrowseButton.dispatch("command");
+      await flushTasks();
+      const skillPickerInitialDirectory =
+        pickerInitialDirectoryByTitle.get("pref-skill-dir") || "";
+      if (skillPickerInitialDirectory) {
+        assert.equal(
+          skillPickerInitialDirectory,
+          "D:/tmp/skills-custom",
+          "skill browse picker should start from current skill dir",
+        );
+        assert.equal(skillDirInput.value, "D:/tmp/skills-picked");
+        assert.equal(
+          Zotero.Prefs.get(skillDirPrefKey, true),
+          "D:/tmp/skills-picked",
         );
       }
     } finally {
@@ -771,11 +849,8 @@ describe("gui: preference scripts", function () {
       (calls[2].data as { workflowsDir?: string }).workflowsDir,
       undefined,
     );
-    assert.isNotEmpty(workflowDirInput.value);
-    assert.equal(
-      Zotero.Prefs.get(workflowDirPrefKey, true),
-      workflowDirInput.value,
-    );
+    assert.equal(workflowDirInput.value, "");
+    assert.equal(Zotero.Prefs.get(workflowDirPrefKey, true), "");
 
     workflowSettingsButton.dispatch("command");
     assert.lengthOf(calls, 4);
@@ -1122,6 +1197,7 @@ describe("gui: preference scripts", function () {
       window,
       runtimeDataSummary,
       runtimeDataCategories,
+      runtimeDataRescanButton,
       confirmMessages,
     } = createPrefsWindow({
       includeRuntimeDataControls: true,
@@ -1129,8 +1205,22 @@ describe("gui: preference scripts", function () {
     });
     await registerPrefsScripts(window);
 
-    assert.lengthOf(runtimeDataCategories?.children || [], 21);
-    assert.include(String(runtimeDataSummary?.textContent || ""), "1/7");
+    assert.lengthOf(runtimeDataCategories?.children || [], 22);
+    assert.include(
+      String(runtimeDataSummary?.textContent || ""),
+      "pref-runtime-data-scanning",
+    );
+    assert.notInclude(String(runtimeDataSummary?.textContent || ""), "1/7");
+    assert.include(
+      String(runtimeDataCategories?.children[0]?.textContent || ""),
+      "pref-runtime-data-scanning",
+    );
+    assert.notInclude(
+      (runtimeDataCategories?.children || [])
+        .map((entry) => entry.textContent)
+        .join("\n"),
+      "1/7",
+    );
     assert.include(
       (runtimeDataCategories?.children || [])
         .map((entry) => entry.textContent)
@@ -1138,9 +1228,12 @@ describe("gui: preference scripts", function () {
       "pref-runtime-data-not-scanned",
     );
     assert.equal(
-      runtimeDataCategories?.children[2]?.getAttribute("disabled"),
+      runtimeDataCategories?.children[3]?.getAttribute("disabled"),
       "true",
     );
+    runtimeDataRescanButton?.dispatch("command");
+    await flushTasks();
+    assert.equal(scanCalls, 1);
 
     resolveScan?.({
       usage: {
@@ -1256,16 +1349,17 @@ describe("gui: preference scripts", function () {
     assert.include(xhtml, "runtime-data-state-db-info");
     assert.include(xhtml, "host-bridge-disable-write-approval");
     assert.include(xhtml, "zs-host-bridge-write-approval-danger");
+    assert.include(xhtml, "skill-dir");
+    assert.include(xhtml, "skill-browse");
+    assert.notInclude(xhtml, "pref-workflow-dir-help");
     assert.include(enLocale, "pref-runtime-data-show-issues");
     assert.include(enLocale, "pref-runtime-data-hide-issues");
     assert.include(enLocale, "pref-runtime-data-category-cleanup-confirm");
     assert.include(enLocale, "pref-runtime-data-state-db-idle");
     assert.include(enLocale, "pref-synthesis-db-reset-confirm-message");
     assert.include(enLocale, "pref-host-bridge-disable-write-approval");
-    assert.include(
-      enLocale,
-      "pref-host-bridge-disable-write-approval-confirm",
-    );
+    assert.include(enLocale, "pref-host-bridge-disable-write-approval-confirm");
+    assert.include(enLocale, "pref-skill-dir");
     assert.include(enLocale, "RESET SYNTHESIS DATABASE");
     assert.include(zhLocale, "pref-runtime-data-show-issues");
     assert.include(zhLocale, "pref-runtime-data-hide-issues");
@@ -1273,10 +1367,8 @@ describe("gui: preference scripts", function () {
     assert.include(zhLocale, "pref-runtime-data-state-db-idle");
     assert.include(zhLocale, "pref-synthesis-db-reset-confirm-message");
     assert.include(zhLocale, "pref-host-bridge-disable-write-approval");
-    assert.include(
-      zhLocale,
-      "pref-host-bridge-disable-write-approval-confirm",
-    );
+    assert.include(zhLocale, "pref-host-bridge-disable-write-approval-confirm");
+    assert.include(zhLocale, "pref-skill-dir");
     assert.include(zhLocale, "RESET SYNTHESIS DATABASE");
   });
 
@@ -2101,7 +2193,7 @@ describe("gui: workflow runtime scan", function () {
 
   // eslint-disable-next-line mocha/no-setup-in-describe
   itFullOnly(
-    "falls back to default workflow dir when preference is empty",
+    "resolves the default workflow dir without persisting it when preference is empty",
     function () {
       const processEnv = (
         globalThis as { process?: { env?: Record<string, string | undefined> } }
@@ -2116,7 +2208,7 @@ describe("gui: workflow runtime scan", function () {
           /[\\/]workflows_builtin$/.test(effectiveDir),
           `effectiveDir=${effectiveDir}`,
         );
-        assert.equal(Zotero.Prefs.get(workflowDirPrefKey, true), effectiveDir);
+        assert.equal(Zotero.Prefs.get(workflowDirPrefKey, true), "");
       } finally {
         if (processEnv) {
           if (typeof previousOverride === "undefined") {
@@ -2180,10 +2272,7 @@ describe("gui: workflow context menu", function () {
     assert.lengthOf(popup!.children, 4);
     assertMenuLabel(
       popup!.children[0].getAttribute("label"),
-      [
-        "Open Dashboard / Synthesis Workspace",
-        "打开 Dashboard/综合工作区",
-      ],
+      ["Open Dashboard / Synthesis Workspace", "打开 Dashboard/综合工作区"],
       "workspace label",
     );
     assertMenuLabel(
@@ -2225,7 +2314,7 @@ describe("gui: workflow context menu", function () {
       {
         label: "keeps requiresSelection=false workflow enabled",
         workflows: [
-          makeLoadedWorkflow("workflow-a", "Workflow A"),
+          makePassThroughWorkflow("workflow-a", "Workflow A"),
           makePassThroughWorkflow(
             "optional-selection-workflow",
             "Optional Selection",
@@ -2234,11 +2323,8 @@ describe("gui: workflow context menu", function () {
             },
           ),
         ],
-        expectedLabels: [
-          /^Workflow A \((no selection|未选择条目)\)$/,
-          /^Optional Selection$/,
-        ],
-        expectedDisabledStates: ["true", null],
+        expectedLabels: [/^Optional Selection$/],
+        expectedDisabledStates: [null],
         expectedLength: 5,
         rebuildOnly: true,
       },
@@ -2469,7 +2555,7 @@ describe("gui: workflow context menu", function () {
     const workflowItem = popup.children.find((child) =>
       (child.getAttribute("label") || "").startsWith("Workflow A"),
     );
-    assert.equal(counter.calls, 1);
+    assert.equal(counter.calls, 0);
     assert.isOk(workflowItem);
     assert.match(
       workflowItem!.getAttribute("label") || "",
@@ -2483,7 +2569,7 @@ describe("gui: workflow context menu", function () {
       itemType: "journalArticle",
       fields: { title: "Workflow Unit Settings Parent" },
     });
-    const workflow = makeExplodingFilterWorkflow(
+    const workflow = makeExplodingBuildRequestWorkflow(
       "update-topic-synthesis",
       "Update Topic Synthesis",
     );
@@ -2515,6 +2601,42 @@ describe("gui: workflow context menu", function () {
     assert.equal(workflowItem!.getAttribute("disabled"), null);
   });
 
+  it("context menu skips request preflight for workflow-unit workflows without parameters", async function () {
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Unit No Params Parent" },
+    });
+    const workflow = makeExplodingBuildRequestWorkflow(
+      "debug-apply-single-bundle",
+      "Debug Apply Single Bundle",
+    );
+    workflow.manifest.inputs = { unit: "workflow" };
+    setWorkflowState([workflow]);
+    const win = createMainWindow([parent]);
+    ensureWorkflowMenuForWindow(win);
+    const popup = win.document.getElementById(
+      `${config.addonRef}-workflows-popup`,
+    ) as FakeXULElement;
+
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeSkillRunnerSidebarItem: false,
+      includeTaskManagerItem: false,
+      includeSynthesisWorkbenchItem: false,
+    });
+
+    const workflowItem = popup.children.find((child) =>
+      (child.getAttribute("label") || "").startsWith(
+        "Debug Apply Single Bundle",
+      ),
+    );
+    assert.isOk(workflowItem);
+    assert.equal(
+      workflowItem!.getAttribute("label"),
+      "Debug Apply Single Bundle",
+    );
+    assert.equal(workflowItem!.getAttribute("disabled"), null);
+  });
+
   it("context menu skips workflow request preflight for multiple selected items", async function () {
     const parentA = await handlers.item.create({
       itemType: "journalArticle",
@@ -2524,7 +2646,9 @@ describe("gui: workflow context menu", function () {
       itemType: "journalArticle",
       fields: { title: "Multi Selection Lazy Menu Parent B" },
     });
-    setWorkflowState([makeExplodingFilterWorkflow("workflow-a", "Workflow A")]);
+    setWorkflowState([
+      makeExplodingBuildRequestWorkflow("workflow-a", "Workflow A"),
+    ]);
     const win = createMainWindow([parentA, parentB]);
     ensureWorkflowMenuForWindow(win);
     const popup = win.document.getElementById(

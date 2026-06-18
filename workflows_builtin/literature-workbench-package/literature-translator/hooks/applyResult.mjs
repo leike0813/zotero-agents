@@ -27,21 +27,9 @@ function getResultJsonFromRecord(record) {
   if (!record || typeof record !== "object") {
     return null;
   }
-  const candidates = [
-    record.resultJson,
-    record.responseJson?.resultJson,
-    record.responseJson?.result_json,
-    record.responseJson?.data,
-    record.responseJson,
-    record.result?.data,
-    record.result,
-    record.data,
-    record,
-  ];
-  for (const candidate of candidates) {
-    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
-      return candidate;
-    }
+  const candidate = record.resultJson;
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+    return candidate;
   }
   return null;
 }

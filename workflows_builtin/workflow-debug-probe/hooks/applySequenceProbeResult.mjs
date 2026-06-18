@@ -2,24 +2,19 @@ function isRecord(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function resolveFinalPayload(runResult) {
+function resolveFinalPayload(args) {
+  if (isRecord(args?.resultContext?.resultJson)) {
+    return args.resultContext.resultJson;
+  }
+  const runResult = args?.runResult;
   if (isRecord(runResult?.resultJson)) {
     return runResult.resultJson;
-  }
-  if (isRecord(runResult?.responseJson?.result)) {
-    return runResult.responseJson.result;
-  }
-  if (isRecord(runResult?.responseJson)) {
-    return runResult.responseJson;
-  }
-  if (isRecord(runResult)) {
-    return runResult;
   }
   return {};
 }
 
 export async function applyResult(args) {
-  const payload = resolveFinalPayload(args?.runResult);
+  const payload = resolveFinalPayload(args);
   const status = String(payload.status || "").trim();
   if (status !== "ok") {
     throw new Error(
@@ -30,8 +25,8 @@ export async function applyResult(args) {
     ok: true,
     probeId: String(payload.probe_id || ""),
     checks: Array.isArray(payload.checks) ? payload.checks : [],
-    sequence: isRecord(args?.runResult?.responseJson?.sequence)
-      ? args.runResult.responseJson.sequence
+    sequence: isRecord(args?.runResult?.sequence)
+      ? args.runResult.sequence
       : undefined,
     rawResult: payload,
   };

@@ -24,22 +24,12 @@ async function createWorkflowRoot(args: {
         label: `Log Instrumentation ${args.id}`,
         provider: "pass-through",
         hooks: {
-          filterInputs: "hooks/filterInputs.js",
           applyResult: "hooks/applyResult.js",
         },
       },
       null,
       2,
     ),
-  );
-  await writeUtf8(
-    joinPath(workflowRoot, "hooks", "filterInputs.js"),
-    [
-      "export function filterInputs({ selectionContext }) {",
-      "  return selectionContext;",
-      "}",
-      "",
-    ].join("\n"),
   );
   await writeUtf8(
     joinPath(workflowRoot, "hooks", "applyResult.js"),

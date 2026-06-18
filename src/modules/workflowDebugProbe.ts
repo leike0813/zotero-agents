@@ -19,12 +19,12 @@ import { getWorkflowRegistryState, getLoadedWorkflowSourceById } from "./workflo
 import { getVisibleLoadedWorkflowEntries, isWorkflowDebugOnly } from "./workflowVisibility";
 import { resolveWorkflowExecutionContext } from "./workflowSettings";
 import { resolveProvider } from "../providers/registry";
-import { executeBuildRequests } from "../workflows/runtime";
 import {
   summarizeWorkflowExecutionError,
 } from "../workflows/errorMeta";
 import { summarizeWorkflowRuntimeCapabilities } from "./workflowPackageDiagnostics";
 import type { LoadedWorkflow } from "../workflows/types";
+import { evaluateWorkflowSelection } from "../workflows/workflowSelectionValidation";
 
 export type WorkflowDebugProbeCheck = {
   workflowId: string;
@@ -261,19 +261,27 @@ export async function collectWorkflowDebugProbeChecks(args: {
       continue;
     }
     try {
-      const requests = await executeBuildRequests({
+      const selectionValidation = await evaluateWorkflowSelection({
         workflow,
         selectionContext: args.selectionContext,
+        mode: "menu",
         executionOptions: {
           workflowParams: executionContext.workflowParams,
           providerOptions: executionContext.providerOptions,
         },
       });
+      if (selectionValidation.state === "disabled") {
+        const error = new Error(
+          `Workflow ${workflow.manifest.id} has no valid input units after filtering`,
+        );
+        (error as { code?: string }).code = "NO_VALID_INPUT_UNITS";
+        throw error;
+      }
       checks.push({
         ...base,
         provider: providerId,
         canRun: true,
-        requestCount: requests.length,
+        requestCount: selectionValidation.stats.validUnits,
       });
     } catch (error) {
       const normalized = summarizeWorkflowExecutionError(error);
@@ -282,7 +290,7 @@ export async function collectWorkflowDebugProbeChecks(args: {
         canRun: false,
         provider: providerId,
         disabledReason: resolveDisabledReason(error),
-        failedStage: resolveFailureStage(error, "build-request"),
+        failedStage: resolveFailureStage(error, "selection-validation"),
         capabilitySource: normalized.capabilitySource,
         error: {
           message: normalized.message,

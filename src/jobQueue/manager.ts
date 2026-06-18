@@ -11,7 +11,7 @@ import {
   isNonRecoverableSkillRunnerFailure,
 } from "../modules/skillRunnerRecoverableState";
 import { settleSkillRunnerRunAsFailed } from "../modules/skillRunnerRunSettlement";
-import { purgeSkillRunnerRecoverableContextByRequest } from "../modules/skillRunnerTaskReconciler";
+import { purgeSkillRunnerRunByRequest } from "../modules/skillRunnerTaskReconciler";
 
 export type JobState =
   | "queued"
@@ -313,7 +313,7 @@ export class JobQueueManager {
           error,
           updatedAt: job.updatedAt,
         });
-        purgeSkillRunnerRecoverableContextByRequest({
+        purgeSkillRunnerRunByRequest({
           backendId: String(job.meta.backendId || "").trim(),
           requestId,
         });

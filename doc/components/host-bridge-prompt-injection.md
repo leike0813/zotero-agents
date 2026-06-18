@@ -248,7 +248,7 @@ runWorkflowPreparationSeam()
   └─ strip runtime_options.zotero_host_access
   └─ resolve remote Host Bridge endpoint
        ├─ manual hostBridgeAdvertisedHost override
-       └─ SkillRunner GET /v1/system/client-address reflected client_ip
+       └─ SkillRunner GET /v1/runtime/network/client-address reflected client_ip
   └─ inject runtime_options.env
        ├─ ZOTERO_BRIDGE_ENDPOINT = remote LAN endpoint
        ├─ ZOTERO_BRIDGE_TOKEN = current Host Bridge token

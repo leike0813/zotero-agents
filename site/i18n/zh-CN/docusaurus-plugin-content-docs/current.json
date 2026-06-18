@@ -1,0 +1,42 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.docsSidebar.category.📖 指南": {
+    "message": "📖 指南",
+    "description": "The label for category '📖 指南' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.⚙️ 后端配置": {
+    "message": "⚙️ 后端配置",
+    "description": "The label for category '⚙️ 后端配置' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.🔧 Workflow": {
+    "message": "🔧 Workflow",
+    "description": "The label for category '🔧 Workflow' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.内建 Workflow": {
+    "message": "内建 Workflow",
+    "description": "The label for category '内建 Workflow' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.自定义 Workflow": {
+    "message": "自定义 Workflow",
+    "description": "The label for category '自定义 Workflow' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.🖥️ 侧边栏与 ACP Chat": {
+    "message": "🖥️ 侧边栏与 ACP Chat",
+    "description": "The label for category '🖥️ 侧边栏与 ACP Chat' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.🔬 Synthesis Workbench": {
+    "message": "🔬 Synthesis Workbench",
+    "description": "The label for category '🔬 Synthesis Workbench' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.doc.📊 Dashboard": {
+    "message": "📊 Dashboard",
+    "description": "The label for the doc item '📊 Dashboard' in sidebar 'docsSidebar', linking to the doc dashboard"
+  },
+  "sidebar.docsSidebar.doc.⚙️ 偏好设置": {
+    "message": "⚙️ 偏好设置",
+    "description": "The label for the doc item '⚙️ 偏好设置' in sidebar 'docsSidebar', linking to the doc preferences"
+  }
+}

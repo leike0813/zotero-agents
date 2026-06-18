@@ -1,28 +1,21 @@
 import type { JobRecord } from "../jobQueue/manager";
-import { PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
+import { DEFAULT_BACKEND_TYPE, PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
 import {
   buildWorkflowTaskRecordFromJob,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
-import {
-  isKnownStatus,
-  normalizeStatus,
-} from "./skillRunnerProviderStateMachine";
-import {
-  PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-  listPluginTaskRowEntries,
-  replacePluginTaskRowEntries,
-  upsertPluginTaskRowEntry,
-} from "./pluginStateStore";
+import { normalizeStatus } from "./skillRunnerProviderStateMachine";
 import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
+import {
+  listSkillRunnerRunProjections,
+  upsertSkillRunnerRunFromTask,
+} from "./skillRunnerRunStore";
 
 export type TaskDashboardHistoryRecord = WorkflowTaskRecord & {
   archivedAt: string;
 };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
+const historyRecords = new Map<string, TaskDashboardHistoryRecord>();
 
 function isPassThroughTask(record: WorkflowTaskRecord) {
   if (record.backendType === PASS_THROUGH_BACKEND_TYPE) {
@@ -34,107 +27,29 @@ function isPassThroughTask(record: WorkflowTaskRecord) {
   return false;
 }
 
-function parseHistoryRecord(raw: unknown): TaskDashboardHistoryRecord | null {
-  if (!isObject(raw)) {
-    return null;
-  }
-  const id = String(raw.id || "").trim();
-  const runId = String(raw.runId || "").trim();
-  const jobId = String(raw.jobId || "").trim();
-  const workflowId = String(raw.workflowId || "").trim();
-  const workflowLabel = String(raw.workflowLabel || "").trim();
-  const taskName = String(raw.taskName || "").trim();
-  const state = String(raw.state || "").trim();
-  const createdAt = String(raw.createdAt || "").trim();
-  const updatedAt = String(raw.updatedAt || "").trim();
-  const archivedAt = String(raw.archivedAt || "").trim();
-  if (
-    !id ||
-    !runId ||
-    !jobId ||
-    !workflowId ||
-    !workflowLabel ||
-    !taskName ||
-    !state ||
-    !createdAt ||
-    !updatedAt
-  ) {
-    return null;
-  }
-  if (!isKnownStatus(state)) {
-    return null;
-  }
-  return {
-    id,
-    runId,
-    jobId,
-    workflowId,
-    workflowLabel,
-    taskName,
-    state: normalizeStatus(state) as WorkflowTaskRecord["state"],
-    requestId: String(raw.requestId || "").trim() || undefined,
-    skillId: String(raw.skillId || "").trim() || undefined,
-    sequenceStepId: String(raw.sequenceStepId || "").trim() || undefined,
-    sequenceStepIndex:
-      typeof raw.sequenceStepIndex === "number" &&
-      Number.isFinite(raw.sequenceStepIndex)
-        ? Math.floor(raw.sequenceStepIndex)
-        : undefined,
-    workflowRunId: String(raw.workflowRunId || "").trim() || undefined,
-    engine: String(raw.engine || "").trim() || undefined,
-    targetParentID:
-      typeof raw.targetParentID === "number" &&
-      Number.isFinite(raw.targetParentID)
-        ? Math.floor(raw.targetParentID)
-        : undefined,
-    inputUnitIdentity: String(raw.inputUnitIdentity || "").trim() || undefined,
-    inputUnitLabel: String(raw.inputUnitLabel || "").trim() || undefined,
-    providerId: String(raw.providerId || "").trim() || undefined,
-    requestKind: String(raw.requestKind || "").trim() || undefined,
-    backendId: String(raw.backendId || "").trim() || undefined,
-    backendType: String(raw.backendType || "").trim() || undefined,
-    backendBaseUrl: String(raw.backendBaseUrl || "").trim() || undefined,
-    error: String(raw.error || "").trim() || undefined,
-    createdAt,
-    updatedAt,
-    archivedAt: archivedAt || updatedAt,
-  };
+function readHistoryRecords(): TaskDashboardHistoryRecord[] {
+  return Array.from(historyRecords.values()).map((record) => ({ ...record }));
 }
 
-function readHistoryRecords(): TaskDashboardHistoryRecord[] {
-  const normalized: TaskDashboardHistoryRecord[] = [];
-  for (const row of listPluginTaskRowEntries(
-    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-    "history",
-  )) {
-    try {
-      const parsedRecord = parseHistoryRecord(
-        JSON.parse(String(row.payload || "{}")),
-      );
-      if (!parsedRecord) {
-        continue;
-      }
-      normalized.push(parsedRecord);
-    } catch {
-      continue;
-    }
+function skillRunnerHistoryKey(record: TaskDashboardHistoryRecord) {
+  if (String(record.backendType || "").trim() !== DEFAULT_BACKEND_TYPE) {
+    return record.id;
   }
-  return normalized;
+  const requestId = String(record.requestId || "").trim();
+  if (!requestId) {
+    return record.id;
+  }
+  return `${String(record.backendId || "").trim()}:${requestId}`;
 }
 
 function writeHistoryRecords(records: TaskDashboardHistoryRecord[]) {
-  replacePluginTaskRowEntries(
-    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-    "history",
-    records.map((entry) => ({
-      taskId: String(entry.id || "").trim(),
-      requestId: String(entry.requestId || "").trim(),
-      backendId: String(entry.backendId || "").trim(),
-      state: String(entry.state || "").trim(),
-      updatedAt: String(entry.updatedAt || "").trim(),
-      payload: JSON.stringify(entry),
-    })),
-  );
+  historyRecords.clear();
+  for (const record of records) {
+    if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
+      continue;
+    }
+    historyRecords.set(record.id, { ...record });
+  }
 }
 
 function pruneExpiredRecords(records: TaskDashboardHistoryRecord[]) {
@@ -162,7 +77,18 @@ export function listTaskDashboardHistory(args?: {
   const backendType = String(args?.backendType || "").trim();
   const workflowId = String(args?.workflowId || "").trim();
   const requestId = String(args?.requestId || "").trim();
-  return readHistoryRecords()
+  const byId = new Map<string, TaskDashboardHistoryRecord>();
+  for (const record of readHistoryRecords()) {
+    byId.set(skillRunnerHistoryKey(record), record);
+  }
+  for (const projection of listSkillRunnerRunProjections()) {
+    const record = {
+      ...projection,
+      archivedAt: projection.updatedAt,
+    };
+    byId.set(skillRunnerHistoryKey(record), record);
+  }
+  return Array.from(byId.values())
     .filter((record) => {
       if (backendId && record.backendId !== backendId) {
         return false;
@@ -286,6 +212,19 @@ export function recordTaskDashboardHistoryFromTaskRecord(
   if (isPassThroughTask(record)) {
     return null;
   }
+  if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
+    upsertSkillRunnerRunFromTask(record, {
+      eventType: "backend.snapshot",
+      eventPayload: {
+        source: "taskDashboardHistory.recordTaskDashboardHistoryFromTaskRecord",
+        state: record.state,
+      },
+    });
+    return {
+      ...record,
+      archivedAt: new Date().toISOString(),
+    };
+  }
   const current = pruneExpiredRecords(readHistoryRecords());
   const nextById = new Map<string, TaskDashboardHistoryRecord>();
   for (const row of current) {
@@ -312,19 +251,25 @@ export function upsertTaskDashboardHistoryFromTaskRecord(
   if (isPassThroughTask(record)) {
     return null;
   }
+  if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
+    upsertSkillRunnerRunFromTask(record, {
+      eventType: "backend.snapshot",
+      eventPayload: {
+        source: "taskDashboardHistory.upsertTaskDashboardHistoryFromTaskRecord",
+        state: record.state,
+      },
+    });
+    return {
+      ...record,
+      archivedAt: new Date().toISOString(),
+    };
+  }
   const now = new Date().toISOString();
   const entry: TaskDashboardHistoryRecord = {
     ...record,
     archivedAt: now,
   };
-  upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_SKILLRUNNER, "history", {
-    taskId: String(entry.id || "").trim(),
-    requestId: String(entry.requestId || "").trim(),
-    backendId: String(entry.backendId || "").trim(),
-    state: String(entry.state || "").trim(),
-    updatedAt: String(entry.updatedAt || "").trim(),
-    payload: JSON.stringify(entry),
-  });
+  historyRecords.set(entry.id, { ...entry });
   return { ...entry };
 }
 

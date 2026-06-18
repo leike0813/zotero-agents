@@ -35,6 +35,9 @@
     "inputs": {
       "$ref": "#/$defs/inputsSpec"
     },
+    "validateSelection": {
+      "$ref": "#/$defs/validateSelectionSpec"
+    },
     "trigger": {
       "$ref": "#/$defs/triggerSpec"
     },
@@ -314,9 +317,6 @@
       "type": "object",
       "required": ["applyResult"],
       "properties": {
-        "filterInputs": {
-          "$ref": "#/$defs/nonEmptyString"
-        },
         "buildRequest": {
           "$ref": "#/$defs/nonEmptyString"
         },
@@ -325,6 +325,130 @@
         },
         "applyResult": {
           "$ref": "#/$defs/nonEmptyString"
+        }
+      },
+      "additionalProperties": false
+    },
+    "countRule": {
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max": {
+          "type": "number",
+          "minimum": 0
+        },
+        "exact": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "validateSelectionSpec": {
+      "type": "object",
+      "properties": {
+        "require": {
+          "type": "object",
+          "properties": {
+            "counts": {
+              "type": "object",
+              "properties": {
+                "parents": { "$ref": "#/$defs/countRule" },
+                "attachments": { "$ref": "#/$defs/countRule" },
+                "notes": { "$ref": "#/$defs/countRule" },
+                "children": { "$ref": "#/$defs/countRule" },
+                "total": { "$ref": "#/$defs/countRule" }
+              },
+              "additionalProperties": false
+            },
+            "allowMixed": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "select": {
+          "type": "object",
+          "properties": {
+            "policy": {
+              "type": "string",
+              "enum": [
+                "input-unit",
+                "literature-source",
+                "pdf-attachment",
+                "selected-parent",
+                "generated-note-candidates",
+                "digest-representative-image"
+              ]
+            },
+            "unit": {
+              "type": "string",
+              "enum": ["attachment", "parent", "note", "workflow"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["kind", "noteKinds"],
+                "properties": {
+                  "kind": {
+                    "const": "generated-notes-all"
+                  },
+                  "noteKinds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "digest",
+                        "references",
+                        "citation-analysis",
+                        "conversation-note",
+                        "custom"
+                      ]
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["kind", "target"],
+                "properties": {
+                  "kind": {
+                    "const": "artifact-exists"
+                  },
+                  "target": {
+                    "type": "string",
+                    "enum": [
+                      "deep-reading-html",
+                      "translator-markdown",
+                      "mineru-markdown"
+                    ]
+                  },
+                  "parameter": {
+                    "$ref": "#/$defs/nonEmptyString"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "derive": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["exportCandidates", "digestRepresentativeImageTarget"]
+          }
         }
       },
       "additionalProperties": false

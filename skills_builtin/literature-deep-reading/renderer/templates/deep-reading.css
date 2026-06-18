@@ -442,6 +442,9 @@ body.static-fallback:not(.js-ready) .toc a:first-child {
 body.mode-compare .reading-flow {
   max-width: min(1480px, 100%);
 }
+body.mode-compare .appendix-section {
+  max-width: min(1480px, 100%);
+}
 .reading-flow::before,
 .reading-flow::after {
   content: "";

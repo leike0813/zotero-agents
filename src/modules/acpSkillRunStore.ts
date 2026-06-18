@@ -4,10 +4,11 @@ import {
 } from "../config/defaults";
 import { getStringOrFallback } from "../utils/locale";
 import {
-  PLUGIN_TASK_DOMAIN_ACP,
-  deletePluginTaskRowEntry,
-  listPluginTaskRowEntries,
-  upsertPluginTaskRowEntry,
+  appendPluginRunEventStoreEntry,
+  clearPluginRunStore,
+  deletePluginRunStoreEntry,
+  listPluginRunStoreEntries,
+  upsertPluginRunStoreEntry,
 } from "./pluginStateStore";
 import {
   registerAcpSkillRunsMemoryClearer,
@@ -198,6 +199,8 @@ export type AcpSkillRunRecord = {
   sequenceStepId?: string;
   sequenceFinalStepId?: string;
   taskName?: string;
+  skillName?: string;
+  skillLabel?: string;
   skillId?: string;
   requestPayload?: unknown;
   providerOptions?: Record<string, unknown>;
@@ -282,6 +285,8 @@ export type AcpSkillRunSummary = Pick<
   | "jobId"
   | "runId"
   | "taskName"
+  | "skillName"
+  | "skillLabel"
   | "skillId"
   | "executionMode"
   | "workspaceDir"
@@ -363,7 +368,6 @@ type AcpSkillRunRecoveryHandler = (args: {
   reason: "connect" | "reply";
 }) => Promise<void>;
 
-const STORE_SCOPE = "skill-runs";
 const runRecords = new Map<string, AcpSkillRunRecord>();
 const controllers = new Map<string, AcpSkillRunController>();
 const runtimeOptionsByRequestId = new Map<
@@ -998,6 +1002,8 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     sequenceStepId: normalizeString(raw.sequenceStepId) || undefined,
     sequenceFinalStepId: normalizeString(raw.sequenceFinalStepId) || undefined,
     taskName: normalizeString(raw.taskName) || undefined,
+    skillName: normalizeString(raw.skillName) || undefined,
+    skillLabel: normalizeString(raw.skillLabel) || undefined,
     skillId: normalizeString(raw.skillId) || undefined,
     requestPayload: raw.requestPayload,
     providerOptions: isRecord(raw.providerOptions)
@@ -1142,10 +1148,7 @@ function ensureHydrated() {
     return;
   }
   hydrated = true;
-  for (const row of listPluginTaskRowEntries(
-    PLUGIN_TASK_DOMAIN_ACP,
-    STORE_SCOPE,
-  )) {
+  for (const row of listPluginRunStoreEntries("acp")) {
     try {
       const parsed = parseRunRecord(JSON.parse(row.payload || "{}"));
       if (!parsed) {
@@ -1159,14 +1162,29 @@ function ensureHydrated() {
 }
 
 function persistRun(record: AcpSkillRunRecord) {
-  upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_ACP, STORE_SCOPE, {
-    taskId: record.requestId,
+  if (normalizeString(record.backendType) !== ACP_BACKEND_TYPE) {
+    return;
+  }
+  upsertPluginRunStoreEntry("acp", {
+    runKey: record.requestId,
     requestId: record.requestId,
     backendId: record.backendId,
     state: record.status,
     updatedAt: record.updatedAt,
     payload: JSON.stringify(record),
   });
+  const latestEvent = record.events[record.events.length - 1];
+  if (latestEvent) {
+    appendPluginRunEventStoreEntry("acp", {
+      eventId: `${record.requestId}:${latestEvent.ts}:${record.events.length}:${latestEvent.stage}`,
+      runKey: record.requestId,
+      requestId: record.requestId,
+      backendId: record.backendId,
+      type: latestEvent.stage,
+      createdAt: latestEvent.ts || record.updatedAt,
+      payload: JSON.stringify(latestEvent),
+    });
+  }
 }
 
 function isTerminalAcpSkillRunStatus(
@@ -1214,6 +1232,7 @@ function syncWorkflowTaskForAcpSkillRun(record: AcpSkillRunRecord) {
   }
   updateWorkflowTaskStateByRequest({
     backendId: record.backendId,
+    backendType: ACP_BACKEND_TYPE,
     requestId,
     state: record.status,
     error: record.error || record.conversationError,
@@ -1283,6 +1302,7 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
       if (removed === 0) {
         updateWorkflowTaskStateByRequest({
           requestId,
+          backendType: ACP_BACKEND_TYPE,
           state: "failed",
           error:
             "ACP skill run task projection was restored without an available ACP run record.",
@@ -1319,6 +1339,7 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
       const updated = getAcpSkillRunRecord(requestId) || run;
       updateWorkflowTaskStateByRequest({
         backendId: updated.backendId || task.backendId,
+        backendType: ACP_BACKEND_TYPE,
         requestId,
         state: acpRunStatusToWorkflowTaskState(updated),
         error:
@@ -1390,6 +1411,8 @@ export function upsertAcpSkillRun(update: {
   sequenceStepId?: string;
   sequenceFinalStepId?: string;
   taskName?: string;
+  skillName?: string;
+  skillLabel?: string;
   skillId?: string;
   requestPayload?: unknown;
   providerOptions?: Record<string, unknown>;
@@ -1448,6 +1471,12 @@ export function upsertAcpSkillRun(update: {
   if (!requestId) {
     throw new Error("ACP skill run update requires requestId");
   }
+  const incomingBackendType = normalizeString(update.backendType);
+  if (incomingBackendType && incomingBackendType !== ACP_BACKEND_TYPE) {
+    throw new Error(
+      `ACP skill run store rejected non-ACP backend type: ${incomingBackendType}`,
+    );
+  }
   const now = nowIso();
   const existing = runRecords.get(requestId);
   const next: AcpSkillRunRecord = {
@@ -1491,6 +1520,8 @@ export function upsertAcpSkillRun(update: {
   assignString("sequenceStepId", update.sequenceStepId);
   assignString("sequenceFinalStepId", update.sequenceFinalStepId);
   assignString("taskName", update.taskName);
+  assignString("skillName", update.skillName);
+  assignString("skillLabel", update.skillLabel);
   assignString("skillId", update.skillId);
   if (Object.prototype.hasOwnProperty.call(update, "requestPayload")) {
     next.requestPayload = update.requestPayload;
@@ -3106,11 +3137,7 @@ export function cleanupExpiredAcpSkillRunsForRetention(args: {
     if (workspaceDir) {
       workspaceDirs.push(workspaceDir);
     }
-    deletePluginTaskRowEntry(
-      PLUGIN_TASK_DOMAIN_ACP,
-      record.requestId,
-      STORE_SCOPE,
-    );
+    deletePluginRunStoreEntry("acp", record.requestId);
     runRecords.delete(record.requestId);
     if (selectedRequestId === record.requestId) {
       selectedRequestId = "";
@@ -3166,6 +3193,8 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
     jobId: run.jobId,
     runId: run.runId,
     taskName: run.taskName,
+    skillName: run.skillName,
+    skillLabel: run.skillLabel,
     skillId: run.skillId,
     executionMode: run.executionMode,
     workspaceDir: run.workspaceDir,
@@ -3318,6 +3347,7 @@ export function resetAcpSkillRunsForTests() {
   listeners.clear();
   selectedRequestId = "";
   hydrated = false;
+  clearPluginRunStore("acp");
 }
 
 registerAcpSkillRunsMemoryClearer(() => {
@@ -3325,6 +3355,7 @@ registerAcpSkillRunsMemoryClearer(() => {
   runtimeOptionsByRequestId.clear();
   selectedRequestId = "";
   hydrated = false;
+  clearPluginRunStore("acp");
   emitChanged();
 });
 

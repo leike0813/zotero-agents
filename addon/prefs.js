@@ -9,6 +9,7 @@ pref("skillRunnerLocalRuntimeStateJson", "");
 pref("tagVocabularyStagedJson", "");
 pref("collectSkillRunFeedbackEnabled", false);
 pref("workflowDir", "");
+pref("skillDir", "");
 pref("sampleOutputDir", "");
 pref("runtimeRoot", "");
 pref("hostBridgeLanEnabled", false);

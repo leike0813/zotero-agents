@@ -143,16 +143,10 @@ export function resolveStepOutput(result: ProviderExecutionResult) {
   if (typeof result.resultJson !== "undefined") {
     return result.resultJson;
   }
-  if (result.status === "succeeded" && result.fetchType === "bundle") {
+  if (result.status === "succeeded") {
     throw new Error(
-      `skillrunner.sequence.v1 bundle step '${result.requestId}' did not expose resultJson`,
+      `skillrunner.sequence.v1 step '${result.requestId}' did not expose resultJson`,
     );
-  }
-  if (
-    isRecord(result.responseJson) &&
-    Object.prototype.hasOwnProperty.call(result.responseJson, "result")
-  ) {
-    return result.responseJson.result;
   }
   return result.responseJson;
 }
@@ -201,8 +195,11 @@ function applyHandoffMapping(args: {
   const hasExplicitMapping =
     Object.keys(handoff?.input || {}).length > 0 ||
     Object.keys(handoff?.parameter || {}).length > 0;
-  const passThrough = handoff ? handoff.pass_through === true : true;
-  if (!hasExplicitMapping || passThrough) {
+  const passThrough = handoff
+    ? handoff.pass_through === true ||
+      (!hasExplicitMapping && handoff.pass_through !== false)
+    : true;
+  if (passThrough) {
     args.input.handoff = output;
   }
   for (const [targetPath, sourcePath] of Object.entries(handoff?.input || {})) {

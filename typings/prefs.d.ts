@@ -18,6 +18,7 @@ declare namespace _ZoteroTypes {
       "tagVocabularyStagedJson": string;
       "collectSkillRunFeedbackEnabled": boolean;
       "workflowDir": string;
+      "skillDir": string;
       "sampleOutputDir": string;
       "runtimeRoot": string;
       "hostBridgeLanEnabled": boolean;

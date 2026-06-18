@@ -2196,23 +2196,15 @@ async function collectSuggestTagsIntake(args) {
   };
 }
 
-function resolveTagRegulatorOutput(runResult) {
+function resolveTagRegulatorOutput(args) {
+  const runResult = args?.runResult;
   const candidates = [
-    runResult?.resultJson?.result?.data,
-    runResult?.resultJson?.result,
+    args?.resultContext?.resultJson?.data?.data,
+    args?.resultContext?.resultJson?.data,
+    args?.resultContext?.resultJson,
     runResult?.resultJson?.data?.data,
     runResult?.resultJson?.data,
     runResult?.resultJson,
-    runResult?.responseJson?.result?.data,
-    runResult?.responseJson?.result,
-    runResult?.responseJson?.data?.data,
-    runResult?.responseJson?.data,
-    runResult?.responseJson,
-    runResult?.result?.data,
-    runResult?.result,
-    runResult?.data?.data,
-    runResult?.data,
-    runResult,
   ];
   for (const candidate of candidates) {
     if (!isObject(candidate)) {
@@ -2312,12 +2304,12 @@ async function applyTagMutations(item, removeTags, addTags) {
   };
 }
 
-async function applyResultImpl({ parent, runResult, runtime }) {
+async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
   const parentItem = runtime.helpers.resolveItemRef(parent);
   const output = await measureWorkflowTestSpan(
     "executeApplyResult:tagRegulator:resolveOutput",
     {},
-    async () => resolveTagRegulatorOutput(runResult),
+    async () => resolveTagRegulatorOutput({ resultContext, runResult }),
   );
   if (!output) {
     return {

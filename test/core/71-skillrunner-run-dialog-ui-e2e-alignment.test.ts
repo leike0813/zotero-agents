@@ -252,7 +252,7 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(hostTs, "const refreshRunState = async () =>");
     assert.include(hostTs, "entry.refreshState = () =>");
     assert.include(hostTs, "entry.refreshDisplay = () =>");
-    assert.include(hostTs, "syncSessionStateFromLedger(entry)");
+    assert.include(hostTs, "syncSessionStateFromRunStore(entry)");
     assert.include(hostTs, "subscribeSkillRunnerSessionState");
     assert.include(hostTs, "await syncPendingState()");
     assert.include(hostTs, "ensureSkillRunnerSessionSync");

@@ -25,9 +25,11 @@ not need another rename during the next product naming pass.
 
 ## Cleanup Rules
 
-Runtime cleanup is report-first. Scans may identify missing indexed files,
-orphan runtime assets, expired runtime assets, legacy roots, and misplaced
-durable assets. Cleanup is explicit and dry-run by default.
+Runtime cleanup is report-first for structural integrity issues. Scans may
+identify missing indexed files, orphan runtime assets, expired runtime assets,
+legacy roots, and misplaced durable assets. Structural cleanup is explicit and
+dry-run by default. Low-risk retention cleanup may automatically delete expired
+files from `runtime/tmp`, `runtime/cache`, and `runtime/logs`.
 
 Default TTL rules:
 

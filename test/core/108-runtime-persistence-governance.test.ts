@@ -489,13 +489,15 @@ describe("runtime persistence governance", function () {
     assert.equal(category?.recordCount, 1);
     assert.isAtLeast(category?.bytes || 0, "# Product".length);
 
-    const cleanup = await cleanupRuntimePersistenceCategory(
-      "workflow-products",
-    );
+    const cleanup =
+      await cleanupRuntimePersistenceCategory("workflow-products");
     assert.equal((cleanup.details as any).rowsDeleted, 1);
     assert.isFalse(await pathExists(paths.workflowProductsDir));
     assert.lengthOf(
-      listPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS, "products"),
+      listPluginTaskRowEntries(
+        PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
+        "products",
+      ),
       0,
     );
   });
@@ -609,6 +611,51 @@ describe("runtime persistence governance", function () {
     assert.deepEqual((cleanup.details as any).acpSkillRunRequestIds, [
       "expired-terminal",
     ]);
+  });
+
+  it("cleans expired runtime tmp, cache, and log assets by retention", async function () {
+    const paths = getRuntimePersistencePaths();
+    const nowMs = Date.parse("2026-06-11T00:00:00.000Z");
+    const expiredAt = new Date("2026-04-01T00:00:00.000Z");
+    const freshAt = new Date("2026-06-10T23:00:00.000Z");
+    const expiredTmp = path.join(paths.tmpDir, "expired.tmp");
+    const freshTmp = path.join(paths.tmpDir, "fresh.tmp");
+    const expiredCache = path.join(paths.cacheDir, "expired-cache.json");
+    const freshCache = path.join(paths.cacheDir, "fresh-cache.json");
+    const expiredLog = path.join(paths.logsDir, "expired.log");
+    const freshLog = path.join(paths.logsDir, "fresh.log");
+    for (const file of [
+      expiredTmp,
+      freshTmp,
+      expiredCache,
+      freshCache,
+      expiredLog,
+      freshLog,
+    ]) {
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, "runtime", "utf8");
+    }
+    for (const file of [expiredTmp, expiredCache, expiredLog]) {
+      await fs.utimes(file, expiredAt, expiredAt);
+    }
+    for (const file of [freshTmp, freshCache, freshLog]) {
+      await fs.utimes(file, freshAt, freshAt);
+    }
+
+    const cleanup = await cleanupRuntimePersistenceRetention({ nowMs });
+
+    assert.isFalse(await pathExists(expiredTmp));
+    assert.isFalse(await pathExists(expiredCache));
+    assert.isFalse(await pathExists(expiredLog));
+    assert.isTrue(await pathExists(freshTmp));
+    assert.isTrue(await pathExists(freshCache));
+    assert.isTrue(await pathExists(freshLog));
+    assert.equal((cleanup.details as any).expiredRuntimeAssetCount, 3);
+    assert.deepEqual((cleanup.details as any).expiredRuntimeAssetsDeleted, {
+      tmp: 1,
+      cache: 1,
+      logs: 1,
+    });
   });
 
   it("keeps durable synthesis data outside runtime cleanup", async function () {
@@ -745,6 +792,36 @@ describe("runtime persistence governance", function () {
     assert.equal(await fs.readFile(canonicalFile, "utf8"), "canonical");
     assert.equal(await fs.readFile(stateFile, "utf8"), "sqlite");
     assert.equal(await fs.readFile(runtimeSynthesisFile, "utf8"), "legacy");
+  });
+
+  it("does not report Synthesis sync workspaces as misplaced durable assets", async function () {
+    const paths = getRuntimePersistencePaths();
+    const syncFiles = [
+      path.join(paths.runtimeRoot, "synthesis", "git-sync", "state.json"),
+      path.join(
+        paths.runtimeRoot,
+        "synthesis",
+        "git-sync-worktree",
+        "manifest.json",
+      ),
+      path.join(
+        paths.runtimeRoot,
+        "synthesis",
+        "webdav-sync",
+        "webdav-sync-state.json",
+      ),
+    ];
+    for (const file of syncFiles) {
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, "{}", "utf8");
+    }
+
+    const report = await scanPersistenceIntegrity();
+
+    assert.notInclude(
+      report.issues.map((issue) => issue.type),
+      "forbidden_durable_asset_in_runtime",
+    );
   });
 
   it("reports managed path policy issues without making canonical data cleanable", async function () {

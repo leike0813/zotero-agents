@@ -6,16 +6,21 @@ import {
 } from "../config/defaults";
 import { isActive, isTerminal } from "./skillRunnerProviderStateMachine";
 import {
-  PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-  listPluginTaskRowEntries,
-  replacePluginTaskRowEntries,
-} from "./pluginStateStore";
+  buildSkillRunnerRunKey,
+  deleteSkillRunnerRunRecord,
+  listSkillRunnerRunProjections,
+  resetSkillRunnerRunStoreForTests,
+  updateSkillRunnerRunStateByRequest,
+  upsertSkillRunnerRunFromTask,
+} from "./skillRunnerRunStore";
 
 export type WorkflowTaskRecord = {
   id: string;
   runId: string;
   jobId: string;
   requestId?: string;
+  skillName?: string;
+  skillLabel?: string;
   skillId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
@@ -101,6 +106,8 @@ export function buildWorkflowTaskRecordFromJob(
   const inputUnitLabel =
     normalizeMetaString(job.meta, "inputUnitLabel") || taskName;
   const requestId = resolveRequestIdFromJob(job);
+  const skillName = normalizeMetaString(job.meta, "skillName");
+  const skillLabel = normalizeMetaString(job.meta, "skillLabel");
   const skillId = normalizeMetaString(job.meta, "skillId");
   const sequenceStepId = normalizeMetaString(job.meta, "sequenceStepId");
   const sequenceStepIndex = resolveOptionalIntegerFromJobMeta(
@@ -119,6 +126,8 @@ export function buildWorkflowTaskRecordFromJob(
     runId,
     jobId: job.id,
     requestId: requestId || undefined,
+    skillName: skillName || undefined,
+    skillLabel: skillLabel || undefined,
     skillId: skillId || undefined,
     sequenceStepId: sequenceStepId || undefined,
     sequenceStepIndex,
@@ -184,6 +193,8 @@ function parsePersistedTaskRecord(raw: unknown): WorkflowTaskRecord | null {
     runId,
     jobId,
     requestId: String(raw.requestId || "").trim() || undefined,
+    skillName: String(raw.skillName || "").trim() || undefined,
+    skillLabel: String(raw.skillLabel || "").trim() || undefined,
     skillId: String(raw.skillId || "").trim() || undefined,
     sequenceStepId: String(raw.sequenceStepId || "").trim() || undefined,
     sequenceStepIndex:
@@ -220,54 +231,78 @@ function ensureHydratedFromStore() {
     return;
   }
   hydratedFromStore = true;
-  for (const row of listPluginTaskRowEntries(
-    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-    "active",
-  )) {
-    try {
-      const parsed = parsePersistedTaskRecord(
-        JSON.parse(String(row.payload || "{}")),
-      );
-      if (!parsed) {
-        continue;
-      }
-      taskRecords.set(parsed.id, parsed);
-    } catch {
-      continue;
-    }
+  for (const projection of listSkillRunnerRunProjections()) {
+    mergeSkillRunnerProjection(taskRecords, projection);
   }
 }
 
 function persistTaskRecordsToStore() {
-  replacePluginTaskRowEntries(
-    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
-    "active",
-    Array.from(taskRecords.values()).map((entry) => ({
-      taskId: String(entry.id || "").trim(),
-      requestId: String(entry.requestId || "").trim(),
-      backendId: String(entry.backendId || "").trim(),
-      state: String(entry.state || "").trim(),
-      updatedAt: String(entry.updatedAt || "").trim(),
-      payload: JSON.stringify(entry),
-    })),
-  );
+  // SkillRunner rows are now derived from SkillRunnerRunStore. Other task rows
+  // remain process-local here; backend-specific stores own persistence.
 }
 
 function isFinishedState(state: JobState) {
   return isTerminal(state);
 }
 
+function skillRunnerRequestProjectionKey(record: WorkflowTaskRecord) {
+  if (String(record.backendType || "").trim() !== DEFAULT_BACKEND_TYPE) {
+    return "";
+  }
+  const requestId = String(record.requestId || "").trim();
+  if (!requestId) {
+    return "";
+  }
+  return `${String(record.backendId || "").trim()}:${requestId}`;
+}
+
+function mergeSkillRunnerProjection(
+  records: Map<string, WorkflowTaskRecord>,
+  projection: WorkflowTaskRecord,
+) {
+  const projectionKey = skillRunnerRequestProjectionKey(projection);
+  if (projectionKey) {
+    for (const [id, existing] of records.entries()) {
+      if (skillRunnerRequestProjectionKey(existing) !== projectionKey) {
+        continue;
+      }
+      records.set(id, {
+        ...existing,
+        ...projection,
+        id: existing.id,
+        runId: existing.runId,
+        jobId: existing.jobId,
+      });
+      return;
+    }
+  }
+  records.set(projection.id, projection);
+}
+
 export function recordWorkflowTaskUpdate(job: JobRecord) {
   ensureHydratedFromStore();
   const record = buildWorkflowTaskRecordFromJob(job);
   taskRecords.set(record.id, record);
+  if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
+    upsertSkillRunnerRunFromTask(record, {
+      eventType: "backend.snapshot",
+      eventPayload: {
+        source: "taskRuntime.recordWorkflowTaskUpdate",
+        state: record.state,
+      },
+    });
+  }
   persistTaskRecordsToStore();
   emitTasksChanged();
 }
 
 export function listWorkflowTasks() {
   ensureHydratedFromStore();
-  return Array.from(taskRecords.values())
+  const merged = new Map(taskRecords);
+  for (const projection of listSkillRunnerRunProjections()) {
+    mergeSkillRunnerProjection(merged, projection);
+  }
+  return Array.from(merged.values())
     .map((entry) => ({ ...entry }))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
@@ -284,6 +319,16 @@ export function clearFinishedWorkflowTasks() {
       continue;
     }
     taskRecords.delete(id);
+    if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
+      deleteSkillRunnerRunRecord(
+        buildSkillRunnerRunKey({
+          backendId: record.backendId,
+          requestId: record.requestId,
+          runId: record.runId,
+          jobId: record.jobId,
+        }),
+      );
+    }
     removed = true;
   }
   if (removed) {
@@ -327,6 +372,7 @@ export function removeWorkflowTasksByBackendAndRequestIds(args: {
 
 export function updateWorkflowTaskStateByRequest(args: {
   backendId?: string;
+  backendType?: string;
   requestId: string;
   state: JobState;
   error?: string;
@@ -343,6 +389,25 @@ export function updateWorkflowTaskStateByRequest(args: {
   const nextUpdatedAt =
     String(args.updatedAt || "").trim() || new Date().toISOString();
   let updated = 0;
+  const backendType = String(args.backendType || "").trim();
+  if (!backendType || backendType === DEFAULT_BACKEND_TYPE) {
+    const storedRun = updateSkillRunnerRunStateByRequest({
+      backendId,
+      requestId,
+      state: nextState,
+      error: nextError,
+      updatedAt: nextUpdatedAt,
+      eventType: isTerminal(nextState) ? "backend.terminal" : "backend.snapshot",
+      eventPayload: {
+        source: "taskRuntime.updateWorkflowTaskStateByRequest",
+        state: nextState,
+      },
+    });
+    if (storedRun) {
+      mergeSkillRunnerProjection(taskRecords, storedRun.taskProjection);
+      updated += 1;
+    }
+  }
   for (const [id, record] of taskRecords.entries()) {
     if (String(record.requestId || "").trim() !== requestId) {
       continue;
@@ -419,6 +484,22 @@ export function reconcileWorkflowTaskProjectionsOnStartup() {
       error: record.error || PREVIOUS_SESSION_INTERRUPTED_ERROR,
       updatedAt: now,
     });
+    if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
+      upsertSkillRunnerRunFromTask(
+        {
+          ...record,
+          state: "failed",
+          error: record.error || PREVIOUS_SESSION_INTERRUPTED_ERROR,
+          updatedAt: now,
+        },
+        {
+          eventType: "backend.terminal",
+          eventPayload: {
+            source: "taskRuntime.reconcileWorkflowTaskProjectionsOnStartup",
+          },
+        },
+      );
+    }
     failedTaskIds.push(id);
   }
   if (failedTaskIds.length > 0) {
@@ -445,5 +526,5 @@ export function resetWorkflowTasks() {
   taskRecords.clear();
   listeners.clear();
   hydratedFromStore = false;
-  replacePluginTaskRowEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER, "active", []);
+  resetSkillRunnerRunStoreForTests();
 }

@@ -1112,6 +1112,7 @@ async function applyRecoveredAcpSkillResult(args: {
     });
     updateWorkflowTaskStateByRequest({
       backendId: args.record.backendId,
+      backendType: args.record.backendType,
       requestId: args.record.requestId,
       state: "succeeded",
     });
@@ -1141,6 +1142,7 @@ async function applyRecoveredAcpSkillResult(args: {
     });
     updateWorkflowTaskStateByRequest({
       backendId: args.record.backendId,
+      backendType: args.record.backendType,
       requestId: args.record.requestId,
       state: "failed",
       error: message,
@@ -1195,6 +1197,7 @@ async function continueRecoveredSequenceStep(args: {
       }
       updateWorkflowTaskStateByRequest({
         backendId: args.record.backendId,
+        backendType: args.record.backendType,
         requestId: sequenceState.rootRequestId,
         state: "succeeded",
       });
@@ -1316,6 +1319,7 @@ async function continueRecoveredSequenceStep(args: {
     if (apply.ok && sequenceState.rootRequestId) {
       updateWorkflowTaskStateByRequest({
         backendId: args.record.backendId,
+        backendType: args.record.backendType,
         requestId: sequenceState.rootRequestId,
         state: "succeeded",
       });
@@ -1332,6 +1336,7 @@ async function continueRecoveredSequenceStep(args: {
     if (sequenceState.rootRequestId) {
       updateWorkflowTaskStateByRequest({
         backendId: args.record.backendId,
+        backendType: args.record.backendType,
         requestId: sequenceState.rootRequestId,
         state: "failed",
         error: message,
@@ -2550,6 +2555,7 @@ export async function executeAcpSkillRunnerJob(args: {
   });
   upsertAcpSkillRun({
     requestId: workspace.requestId,
+    skillName: skill.skillName,
     agentFamily: injectionPlan.family,
     skillRoots: injectionPlan.skillRoots,
     event: {
@@ -3372,7 +3378,6 @@ export async function executeAcpSkillRunnerJob(args: {
       record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>,
     ) =>
       !!normalizeString(record.sequenceStepId) ||
-      !!normalizeString(record.workflowId) ||
       !!resolveRecoveredWorkflowIdFromTask(record);
     continueDetachedInteractiveReply = async (
       initialPromptOutcome: AcpPromptOutcome,

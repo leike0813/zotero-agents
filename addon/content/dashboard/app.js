@@ -2357,6 +2357,13 @@
 
     const filters = view.filters || {};
     const selectedIds = new Set(view.selectedEntryIds || []);
+    const pendingRuntimeLogFilters = Object.assign({}, filters);
+    function sendRuntimeLogFilterPatch(patch) {
+      Object.assign(pendingRuntimeLogFilters, patch);
+      sendAction("runtime-logs-set-filters", {
+        filters: Object.assign({}, pendingRuntimeLogFilters),
+      });
+    }
 
     main.appendChild(
       el("h2", "page-title", labelText(labels, "runtimeLogsTabTitle")),
@@ -2376,21 +2383,19 @@
       const labelNode = el("label", "logs-filter-checkbox-label");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
+      checkbox.value = level;
       checkbox.checked = currentLevels.indexOf(level) !== -1;
       checkbox.addEventListener("change", function () {
-        const nextLevels = levels
-          .map(function (l) {
-            return String(l).toLowerCase();
-          })
+        const nextLevels = Array.from(
+          levelWrap.querySelectorAll("input[type='checkbox']"),
+        )
           .filter(function (l) {
-            if (l === level) {
-              return checkbox.checked;
-            }
-            return currentLevels.indexOf(l) !== -1;
+            return l.checked;
+          })
+          .map(function (l) {
+            return l.value;
           });
-        sendAction("runtime-logs-set-filters", {
-          filters: { levels: nextLevels },
-        });
+        sendRuntimeLogFilterPatch({ levels: nextLevels });
       });
       labelNode.appendChild(checkbox);
       labelNode.appendChild(el("span", "logs-filter-text", levelTitle));
@@ -2424,9 +2429,7 @@
         function (nextVals) {
           const payloadIds =
             nextVals.length >= backendOptions.length ? undefined : nextVals;
-          sendAction("runtime-logs-set-filters", {
-            filters: { backendId: payloadIds },
-          });
+          sendRuntimeLogFilterPatch({ backendId: payloadIds });
         },
         labelText(labels, "runtimeLogsFilterAll"),
       );
@@ -2459,9 +2462,7 @@
         function (nextVals) {
           const payloadIds =
             nextVals.length >= workflowOptions.length ? undefined : nextVals;
-          sendAction("runtime-logs-set-filters", {
-            filters: { workflowId: payloadIds },
-          });
+          sendRuntimeLogFilterPatch({ workflowId: payloadIds });
         },
         labelText(labels, "runtimeLogsFilterAll"),
       );
@@ -2774,6 +2775,23 @@
       header.appendChild(
         el("h3", "", `${labelText(labels, "logsDetailTitle")} `),
       );
+      const headerActions = el("div", "logs-detail-actions");
+      const copyBtn = el(
+        "button",
+        "btn logs-detail-copy",
+        labelText(labels, "runtimeLogsCopyDetail"),
+      );
+      copyBtn.addEventListener("click", function () {
+        sendAction("runtime-logs-copy-entry", {
+          entryId: rowEntry.id,
+          format: "pretty-json",
+        });
+        const msg = labels.runtimeLogsCopySuccess
+          ? labels.runtimeLogsCopySuccess.replace("{ $count }", 1)
+          : "Copied 1 log entry!";
+        showToast(msg);
+      });
+      headerActions.appendChild(copyBtn);
       const closeBtn = el(
         "button",
         "btn clear logs-detail-close",
@@ -2787,7 +2805,8 @@
         state.logsActiveReadingId = null;
         state.logsDetailScrollTop = 0;
       });
-      header.appendChild(closeBtn);
+      headerActions.appendChild(closeBtn);
+      header.appendChild(headerActions);
       detailPane.appendChild(header);
 
       const contentWrap = el("div", "logs-detail-content");

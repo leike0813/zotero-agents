@@ -1,7 +1,6 @@
 import type {
   ApplyResultHook,
   BuildRequestHook,
-  FilterInputsHook,
   NormalizeWorkflowSettingsHook,
   LoadedWorkflow,
   LoadedWorkflows,
@@ -211,7 +210,6 @@ async function importHooksModuleFromText(filePath: string) {
 function hasKnownHookExport(loaded: Record<string, unknown>) {
   return (
     typeof loaded.applyResult === "function" ||
-    typeof loaded.filterInputs === "function" ||
     typeof loaded.buildRequest === "function" ||
     typeof loaded.normalizeSettings === "function"
   );
@@ -284,7 +282,6 @@ async function importPrecompiledPackageHooksModule(
     packageRootDir: string;
     exportName:
       | "applyResult"
-      | "filterInputs"
       | "buildRequest"
       | "normalizeSettings";
     workflowSourceKind?: WorkflowModuleResourceKind | "";
@@ -408,7 +405,6 @@ async function loadHooksModule(
     packageRootDir?: string;
     exportName?:
       | "applyResult"
-      | "filterInputs"
       | "buildRequest"
       | "normalizeSettings";
   },
@@ -840,51 +836,6 @@ async function loadHooks(
     });
   }
   hooks.applyResult = applyResultModule.applyResult as ApplyResultHook;
-
-  if (manifest.hooks.filterInputs) {
-    assertPackageHookPath(manifest.hooks.filterInputs, "filterInputs");
-    const filterInputsPath = joinPath(workflowRoot, manifest.hooks.filterInputs);
-    try {
-      await statPath(filterInputsPath);
-    } catch (error) {
-      throw new WorkflowLoaderDiagnosticError({
-        category: "hook_missing_error",
-        message: `Hook file missing: ${manifest.hooks.filterInputs}`,
-        workflowId: manifest.id,
-        path: filterInputsPath,
-        reason: String(error),
-      });
-    }
-    let filterInputsModule: Record<string, unknown>;
-    try {
-      const loaded = await loadHooksModule(filterInputsPath, {
-        allowTextFallback,
-        workflowSourceKind: args.workflowSourceKind,
-        packageRootDir: args.packageRootDir,
-        exportName: "filterInputs",
-      });
-      filterInputsModule = loaded.loaded;
-      assignExecutionMode(loaded.executionMode);
-    } catch (error) {
-      throw new WorkflowLoaderDiagnosticError({
-        category: "hook_import_error",
-        message: `Hook import failed: ${manifest.hooks.filterInputs}`,
-        workflowId: manifest.id,
-        path: filterInputsPath,
-        reason: String(error),
-      });
-    }
-    if (typeof filterInputsModule.filterInputs !== "function") {
-      throw new WorkflowLoaderDiagnosticError({
-        category: "hook_export_error",
-        message: `Hook export filterInputs() not found: ${manifest.hooks.filterInputs}`,
-        workflowId: manifest.id,
-        path: filterInputsPath,
-        reason: "filterInputs export missing",
-      });
-    }
-    hooks.filterInputs = filterInputsModule.filterInputs as FilterInputsHook;
-  }
 
   if (manifest.hooks.buildRequest) {
     assertPackageHookPath(manifest.hooks.buildRequest, "buildRequest");

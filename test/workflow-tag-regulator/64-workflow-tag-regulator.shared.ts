@@ -2448,7 +2448,7 @@ function registerTagRegulatorApplyIntakeSegment(
   );
 
   itNodeOnly(
-    "uses resultJson.result.data and ignores poll responseJson envelope",
+    "uses canonical resultJson and ignores poll responseJson envelope",
     async function () {
       const parent = await handlers.item.create({
         itemType: "journalArticle",
@@ -2488,58 +2488,53 @@ function registerTagRegulatorApplyIntakeSegment(
           },
           runResult: {
             resultJson: {
-              request_id: "req-live-shape",
-              result: {
-                status: "success",
-                data: {
-                  metadata: {
-                    key: "KSM65VAD",
-                    title:
-                      "MOTR: end-to-end multiple-object tracking with transformer",
-                  },
-                  input_tags: [
-                    "/unread",
-                    "End-to-End",
-                    "Multiple-object tracking",
-                    "Transformer",
-                  ],
-                  remove_tags: [
-                    "/unread",
-                    "End-to-End",
-                    "Multiple-object tracking",
-                    "Transformer",
-                  ],
-                  add_tags: [
-                    "ai_task:tracking",
-                    "data:video",
-                    "field:CS/AI/CV",
-                    "model:DL/transformer",
-                  ],
-                  suggest_tags: [
-                    {
-                      tag: "topic:end-to-end",
-                      note: "end-to-end topic",
-                    },
-                    {
-                      tag: "topic:multiple-object-tracking",
-                      note: "multiple-object-tracking topic",
-                    },
-                  ],
-                  warnings: [
-                    "Inferred tags based on title and abstract.",
-                    "Mapped 'Multiple-object tracking' to 'ai_task:tracking'.",
-                  ],
-                  error: null,
-                },
-                artifacts: [],
-                validation_warnings: ["OUTPUT_REPAIRED_GENERIC"],
-                error: null,
+              metadata: {
+                key: "KSM65VAD",
+                title:
+                  "MOTR: end-to-end multiple-object tracking with transformer",
               },
+              input_tags: [
+                "/unread",
+                "End-to-End",
+                "Multiple-object tracking",
+                "Transformer",
+              ],
+              remove_tags: [
+                "/unread",
+                "End-to-End",
+                "Multiple-object tracking",
+                "Transformer",
+              ],
+              add_tags: [
+                "ai_task:tracking",
+                "data:video",
+                "field:CS/AI/CV",
+                "model:DL/transformer",
+              ],
+              suggest_tags: [
+                {
+                  tag: "topic:end-to-end",
+                  note: "end-to-end topic",
+                },
+                {
+                  tag: "topic:multiple-object-tracking",
+                  note: "multiple-object-tracking topic",
+                },
+              ],
+              warnings: [
+                "Inferred tags based on title and abstract.",
+                "Mapped 'Multiple-object tracking' to 'ai_task:tracking'.",
+              ],
+              error: null,
             },
             responseJson: {
               status: "succeeded",
-              warnings: ["OUTPUT_REPAIRED_GENERIC"],
-              error: null,
+              result: {
+                data: {
+                  remove_tags: [],
+                  add_tags: ["stale:poll-envelope"],
+                },
+              },
             },
           },
         })) as {

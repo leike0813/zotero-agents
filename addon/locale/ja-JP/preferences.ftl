@@ -1,6 +1,7 @@
 pref-section-workflows = ワークフロー
 pref-workflow-dir = ワークフローディレクトリ
 pref-workflow-dir-help = デフォルト: <Zotero Data Directory>/zotero-agents/data/workflows
+pref-skill-dir = スキルディレクトリ
 pref-workflow-browse =
     .label = 参照
 pref-workflow-scan =

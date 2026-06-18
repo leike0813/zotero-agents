@@ -298,10 +298,7 @@ function runRuntimeAllowFailure(args: string[], cwd: string) {
 
 async function readRuntimeView(runRoot: string, fileName: string) {
   return JSON.parse(
-    await fs.readFile(
-      path.join(runRoot, "runtime", "views", fileName),
-      "utf8",
-    ),
+    await fs.readFile(path.join(runRoot, "runtime", "views", fileName), "utf8"),
   );
 }
 
@@ -961,10 +958,7 @@ describe("Literature deep reading bootstrap skill", function () {
       "utf8",
     );
     const runner = JSON.parse(
-      await fs.readFile(
-        path.join(skillRoot, "assets", "runner.json"),
-        "utf8",
-      ),
+      await fs.readFile(path.join(skillRoot, "assets", "runner.json"), "utf8"),
     );
     const runnerPrompt = String(runner.entrypoint.prompts.common);
 
@@ -974,23 +968,41 @@ describe("Literature deep reading bootstrap skill", function () {
       assert.include(content, "## 通用注意事项");
       assert.include(content, "原文是主角");
       assert.include(content, "译文、topic/context、citation graph");
-      assert.include(content, "不要把本 skill 当作通用综述生成器、纯翻译任务或普通报告生成器");
+      assert.include(
+        content,
+        "不要把本 skill 当作通用综述生成器、纯翻译任务或普通报告生成器",
+      );
       assert.include(content, "LLM 必须负责");
       assert.include(content, "runtime 必须负责");
       assert.include(content, "不要手工编辑 `runtime/views/*`");
       assert.include(content, "不要用临时脚本替代 LLM 完成论文摘要");
       assert.include(content, "subagent 只处理单个 runtime batch");
-      assert.include(content, "`batch_id`、`translations[]` 和 `quality_notes[]`");
+      assert.include(
+        content,
+        "`batch_id`、`translations[]` 和 `quality_notes[]`",
+      );
       assert.include(content, "主 agent 合并 batch 结果后写");
-      assert.include(content, "Stage 10 payload 必须表达明确的外部 context 意图");
+      assert.include(
+        content,
+        "Stage 10 payload 必须表达明确的外部 context 意图",
+      );
       assert.include(content, "Stage 20 payload 必须满足最低内容标准");
-      assert.include(content, "`background`、`baseline`、`contrast`、`component`、`dataset`、`tooling`、`historical`、`uncategorized`");
+      assert.include(
+        content,
+        "`background`、`baseline`、`contrast`、`component`、`dataset`、`tooling`、`historical`、`uncategorized`",
+      );
       assert.include(content, "不要提交单独的 `category` 字段");
-      assert.include(content, "validate 失败时，按错误中的 `block_id` 或字段名定点修复");
+      assert.include(
+        content,
+        "validate 失败时，按错误中的 `block_id` 或字段名定点修复",
+      );
       assert.include(content, "stage-10-agent-packet.json");
       assert.include(content, "stage-30-translation-worklist.json");
       assert.include(content, "stage-40-review-packet.json");
-      assert.include(content, "每次 `submit-*` 成功后，必须立即运行对应的 `validate-*` 命令");
+      assert.include(
+        content,
+        "每次 `submit-*` 成功后，必须立即运行对应的 `validate-*` 命令",
+      );
       for (const historicalMarker of [
         "旧版",
         "历史协议",
@@ -1011,7 +1023,10 @@ describe("Literature deep reading bootstrap skill", function () {
     }
 
     assert.isBelow(runnerPrompt.length, 700);
-    assert.include(runnerPrompt, "Treat SKILL.md as the authoritative procedure");
+    assert.include(
+      runnerPrompt,
+      "Treat SKILL.md as the authoritative procedure",
+    );
     assert.include(runnerPrompt, "scripts/deep_reading_runtime.py bootstrap");
     assert.include(runnerPrompt, "runtime/input.json");
     assert.include(runnerPrompt, "stage agent packets");
@@ -1020,7 +1035,10 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.notInclude(runnerPrompt, "Recommended citation role words");
     assert.notInclude(runnerPrompt, "exactly four preface cards");
     assert.notInclude(runnerPrompt, "Main agent merges batch JSON");
-    assert.notInclude(runnerPrompt, "fixes only the block_ids or fields named by validation errors");
+    assert.notInclude(
+      runnerPrompt,
+      "fixes only the block_ids or fields named by validation errors",
+    );
     assert.notInclude(
       runnerPrompt,
       "Next read runtime/views/translation-batches-view.json.",
@@ -1447,10 +1465,19 @@ describe("Literature deep reading bootstrap skill", function () {
     await writeReadingEnrichment(runRoot, {
       preface_title: "阅读前导读",
       preface_cards: [
-        { title: "研究领域", body: "样例论文用于验证 translator alignment 复用。" },
+        {
+          title: "研究领域",
+          body: "样例论文用于验证 translator alignment 复用。",
+        },
         { title: "研究方向", body: "本次运行关注已有译文对精读流程的衔接。" },
-        { title: "本文位置", body: "样例文本作为当前论文进入 deep reading 渲染链路。" },
-        { title: "核心创新", body: "测试重点是复用 alignment 而不重复翻译正文块。" },
+        {
+          title: "本文位置",
+          body: "样例文本作为当前论文进入 deep reading 渲染链路。",
+        },
+        {
+          title: "核心创新",
+          body: "测试重点是复用 alignment 而不重复翻译正文块。",
+        },
       ],
       preface_reading_path: ["先看样例"],
       preface_goal: "验证 translator alignment 复用。",
@@ -1522,7 +1549,10 @@ describe("Literature deep reading bootstrap skill", function () {
       "stage-40-review-packet.json",
     );
     assert.equal(reviewPacket.required_next_action, "write_final_review");
-    assert.equal(reviewPacket.summary.translation_source, "translator_alignment");
+    assert.equal(
+      reviewPacket.summary.translation_source,
+      "translator_alignment",
+    );
     assert.equal(reviewPacket.summary.translated_count, 2);
   });
 
@@ -1629,10 +1659,22 @@ describe("Literature deep reading bootstrap skill", function () {
     await writeReadingEnrichment(runRoot, {
       preface_title: "阅读前导读",
       preface_cards: [
-        { title: "研究领域", body: "样例论文用于验证审计输入补齐后的精读流程。" },
-        { title: "研究方向", body: "本次运行关注 Host 提供 alignment 后的复用路径。" },
-        { title: "本文位置", body: "样例文本作为当前论文进入 deep reading 渲染链路。" },
-        { title: "核心创新", body: "测试重点是从 audit manifest 补齐 translator alignment。" },
+        {
+          title: "研究领域",
+          body: "样例论文用于验证审计输入补齐后的精读流程。",
+        },
+        {
+          title: "研究方向",
+          body: "本次运行关注 Host 提供 alignment 后的复用路径。",
+        },
+        {
+          title: "本文位置",
+          body: "样例文本作为当前论文进入 deep reading 渲染链路。",
+        },
+        {
+          title: "核心创新",
+          body: "测试重点是从 audit manifest 补齐 translator alignment。",
+        },
       ],
       preface_reading_path: ["先看样例"],
       preface_goal: "验证 audit manifest 输入补齐。",
@@ -1653,7 +1695,8 @@ describe("Literature deep reading bootstrap skill", function () {
           questions: [
             {
               question: "这个样例验证什么？",
-              answer: "验证 runtime 可以从 audit manifest 恢复 alignment 输入。",
+              answer:
+                "验证 runtime 可以从 audit manifest 恢复 alignment 输入。",
             },
           ],
           citation_note_body: "本节没有额外引用角色需要展开。",
@@ -1817,7 +1860,8 @@ describe("Literature deep reading bootstrap skill", function () {
         {
           severity: "warning",
           kind: "alignment_reuse",
-          message: "Source-only alignment path has no translation batches to review.",
+          message:
+            "Source-only alignment path has no translation batches to review.",
         },
       ],
     });
@@ -3165,15 +3209,30 @@ describe("Literature deep reading bootstrap skill", function () {
             document.querySelector("[data-reading-flow]") as HTMLElement | null
           )?.getBoundingClientRect().width || 0) > 1120,
       );
+      await page.waitForFunction(
+        () =>
+          ((
+            document.querySelector(
+              "[data-appendix-reading-flow]",
+            ) as HTMLElement | null
+          )?.getBoundingClientRect().width || 0) > 1120,
+      );
       const compareWidthState = await page.evaluate(() => ({
         modeCompare: document.body.classList.contains("mode-compare"),
         readingFlowWidth:
           (
             document.querySelector("[data-reading-flow]") as HTMLElement | null
           )?.getBoundingClientRect().width || 0,
+        appendixReadingFlowWidth:
+          (
+            document.querySelector(
+              "[data-appendix-reading-flow]",
+            ) as HTMLElement | null
+          )?.getBoundingClientRect().width || 0,
       }));
       assert.isTrue(compareWidthState.modeCompare);
       assert.isAbove(compareWidthState.readingFlowWidth, 1120);
+      assert.isAbove(compareWidthState.appendixReadingFlowWidth, 1120);
       await page.click("[data-concept-toggle]");
       const conceptRailState = await page.evaluate(() => {
         const shell = document.querySelector(".shell") as HTMLElement | null;

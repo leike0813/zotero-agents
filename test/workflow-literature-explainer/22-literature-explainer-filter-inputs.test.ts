@@ -2,16 +2,18 @@ import { assert } from "chai";
 import { handlers } from "../../src/handlers";
 import { createHookHelpers } from "../../src/workflows/helpers";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
+import type { LoadedWorkflow } from "../../src/workflows/types";
 import { workflowsPath } from "./workflow-test-utils";
 
-async function getFilterHook() {
+async function getWorkflow() {
   const loaded = await loadWorkflowManifests(workflowsPath());
   const workflow = loaded.workflows.find(
     (entry) => entry.manifest.id === "literature-explainer",
   );
   assert.isOk(workflow, "workflow literature-explainer not found");
-  assert.isFunction(workflow?.hooks.filterInputs, "filterInputs hook missing");
-  return workflow!.hooks.filterInputs!;
+  assert.equal(workflow?.manifest.validateSelection?.select?.policy, "literature-source");
+  return workflow!;
 }
 
 function makeSyntheticContext(entries: Array<Record<string, unknown>>) {
@@ -39,6 +41,21 @@ const hookRuntime = {
   zotero: Zotero,
   helpers: createHookHelpers(Zotero),
 };
+
+async function evaluateSelection(
+  workflow: LoadedWorkflow,
+  context: unknown,
+) {
+  const result = await evaluateWorkflowSelection({
+    workflow,
+    selectionContext: context,
+    runtime: hookRuntime,
+    mode: "execute",
+  });
+  return result.scopedSelectionContexts[0] as {
+    items: { attachments: Array<{ filePath?: string }> };
+  };
+}
 
 function attachmentEntry(args: {
   id: number;
@@ -72,9 +89,9 @@ function attachmentEntry(args: {
   };
 }
 
-describe("literature-explainer filterInputs", function () {
+describe("literature-explainer validateSelection", function () {
   it("picks single markdown when markdown and pdf both exist", async function () {
-    const filterInputs = await getFilterHook();
+    const workflow = await getWorkflow();
     const context = makeSyntheticContext([
       attachmentEntry({
         id: 1,
@@ -96,18 +113,14 @@ describe("literature-explainer filterInputs", function () {
       }),
     ]);
 
-    const filtered = filterInputs({
-      selectionContext: context,
-      manifest: {} as any,
-      runtime: hookRuntime,
-    }) as { items: { attachments: Array<{ filePath?: string }> } };
+    const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
     assert.equal(filtered.items.attachments[0].filePath, "attachments/A/paper.md");
   });
 
   it("picks markdown matched by earliest pdf stem when multiple markdown files exist", async function () {
-    const filterInputs = await getFilterHook();
+    const workflow = await getWorkflow();
     const context = makeSyntheticContext([
       attachmentEntry({
         id: 11,
@@ -147,18 +160,14 @@ describe("literature-explainer filterInputs", function () {
       }),
     ]);
 
-    const filtered = filterInputs({
-      selectionContext: context,
-      manifest: {} as any,
-      runtime: hookRuntime,
-    }) as { items: { attachments: Array<{ filePath?: string }> } };
+    const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
     assert.equal(filtered.items.attachments[0].filePath, "attachments/B/paper.md");
   });
 
   it("falls back to earliest markdown when no markdown matches earliest pdf stem", async function () {
-    const filterInputs = await getFilterHook();
+    const workflow = await getWorkflow();
     const context = makeSyntheticContext([
       attachmentEntry({
         id: 21,
@@ -189,18 +198,14 @@ describe("literature-explainer filterInputs", function () {
       }),
     ]);
 
-    const filtered = filterInputs({
-      selectionContext: context,
-      manifest: {} as any,
-      runtime: hookRuntime,
-    }) as { items: { attachments: Array<{ filePath?: string }> } };
+    const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
     assert.equal(filtered.items.attachments[0].filePath, "attachments/C/aaa.md");
   });
 
   it("falls back to earliest pdf when markdown is absent", async function () {
-    const filterInputs = await getFilterHook();
+    const workflow = await getWorkflow();
     const context = makeSyntheticContext([
       attachmentEntry({
         id: 31,
@@ -222,18 +227,14 @@ describe("literature-explainer filterInputs", function () {
       }),
     ]);
 
-    const filtered = filterInputs({
-      selectionContext: context,
-      manifest: {} as any,
-      runtime: hookRuntime,
-    }) as { items: { attachments: Array<{ filePath?: string }> } };
+    const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
     assert.equal(filtered.items.attachments[0].filePath, "attachments/D/a.pdf");
   });
 
   it("keeps one input per parent when parent and child attachment are both selected", async function () {
-    const filterInputs = await getFilterHook();
+    const workflow = await getWorkflow();
     const context = {
       selectionType: "mixed",
       items: {
@@ -277,14 +278,9 @@ describe("literature-explainer filterInputs", function () {
       sampledAt: "2026-03-12T00:00:00.000Z",
     };
 
-    const filtered = filterInputs({
-      selectionContext: context,
-      manifest: {} as any,
-      runtime: hookRuntime,
-    }) as { items: { attachments: Array<{ filePath?: string }> } };
+    const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
     assert.equal(filtered.items.attachments[0].filePath, "attachments/E/paper.md");
   });
 });
-

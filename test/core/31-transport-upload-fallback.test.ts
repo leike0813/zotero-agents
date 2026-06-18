@@ -22,10 +22,7 @@ function createBinaryResponse(bytes: Uint8Array, status = 200): Response {
     statusText: status === 200 ? "OK" : "ERROR",
     text: async () => new TextDecoder().decode(bytes),
     arrayBuffer: async () =>
-      bytes.buffer.slice(
-        bytes.byteOffset,
-        bytes.byteOffset + bytes.byteLength,
-      ),
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
   } as unknown as Response;
 }
 
@@ -52,6 +49,61 @@ function readZipGeneralPurposeFlagFromMultipart(bytes: Uint8Array) {
 }
 
 describe("transport: upload fallback without FormData", function () {
+  it("aborts a hanging create request after the SkillRunner request timeout", async function () {
+    let abortObserved = false;
+    let createCalls = 0;
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      requestTimeoutMs: 5,
+      fetchImpl: async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/v1/jobs")) {
+          createCalls += 1;
+          return new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal;
+            if (!signal) {
+              reject(new Error("missing abort signal"));
+              return;
+            }
+            signal.addEventListener(
+              "abort",
+              () => {
+                abortObserved = true;
+                const error = new Error("aborted");
+                error.name = "AbortError";
+                reject(error);
+              },
+              { once: true },
+            );
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    let thrown: unknown;
+    try {
+      await client.executeSkillRunnerJob(
+        {
+          kind: "skillrunner.job.v1",
+          skill_id: "tag-regulator",
+          skill_source: "installed",
+          fetch_type: "result",
+        },
+        {
+          engine: "gemini",
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.instanceOf(thrown, Error);
+    assert.match(String((thrown as Error).message), /timed out after 5ms/);
+    assert.equal((thrown as Error).name, "SkillRunnerHttpTimeoutError");
+    assert.equal(createCalls, 1);
+    assert.isTrue(abortObserved);
+  });
+
   it("parses namespaced result.json from SkillRunner bundle terminal result", async function () {
     const bundleBytes = createZipFromNamedFiles([
       {
@@ -107,6 +159,115 @@ describe("transport: upload fallback without FormData", function () {
     );
     assert.equal(result.resultArtifactBasePath, "result/literature-analysis.1");
     assert.equal(result.workspaceDir, "/tmp/workspace");
+  });
+
+  it("unwraps SkillRunner /result envelopes into provider resultJson", async function () {
+    const resultData = {
+      ok: true,
+      checks: [{ name: "connectivity", ok: true }],
+      failure_code: "",
+    };
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url: string) => {
+        if (url.endsWith("/v1/jobs")) {
+          return createJsonResponse({ request_id: "req-result-envelope" });
+        }
+        if (url.endsWith("/v1/jobs/req-result-envelope")) {
+          return createJsonResponse({
+            request_id: "req-result-envelope",
+            status: "succeeded",
+            workspaceDir: "/tmp/skillrunner-workspace",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-result-envelope/result")) {
+          return createJsonResponse({
+            request_id: "req-result-envelope",
+            result: {
+              status: "success",
+              data: resultData,
+              success_source: "done_signal_payload",
+              error: null,
+            },
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    const result = await client.executeSkillRunnerJob(
+      {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-host-bridge-connectivity-probe",
+        skill_source: "installed",
+        fetch_type: "result",
+      },
+      {
+        engine: "gemini",
+      },
+    );
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(result.resultJson, resultData);
+    assert.equal(result.workspaceDir, "/tmp/skillrunner-workspace");
+    assert.deepInclude(result.responseJson as Record<string, unknown>, {
+      provider: "skillrunner",
+      workspaceDir: "/tmp/skillrunner-workspace",
+    });
+    assert.deepEqual(
+      (result.responseJson as { resultResponseJson?: unknown }).resultResponseJson,
+      {
+        request_id: "req-result-envelope",
+        result: {
+          status: "success",
+          data: resultData,
+          success_source: "done_signal_payload",
+          error: null,
+        },
+      },
+    );
+  });
+
+  it("preserves direct SkillRunner result payloads that contain a result field", async function () {
+    const directPayload = {
+      ok: true,
+      result: {
+        label: "business-output",
+      },
+    };
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url: string) => {
+        if (url.endsWith("/v1/jobs")) {
+          return createJsonResponse({ request_id: "req-direct-result" });
+        }
+        if (url.endsWith("/v1/jobs/req-direct-result")) {
+          return createJsonResponse({
+            request_id: "req-direct-result",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-direct-result/result")) {
+          return createJsonResponse(directPayload);
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    const result = await client.executeSkillRunnerJob(
+      {
+        kind: "skillrunner.job.v1",
+        skill_id: "direct-result-skill",
+        skill_source: "installed",
+        fetch_type: "result",
+      },
+      {
+        engine: "gemini",
+      },
+    );
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(result.resultJson, directPayload);
   });
 
   it("emits request-ready progress only after upload succeeds", async function () {
@@ -1125,6 +1286,9 @@ describe("transport: upload fallback without FormData", function () {
         requestId: "req-upload-rejected",
       },
     ]);
-    assert.isFalse(pollCalled, "polling should not continue after upload rejection");
+    assert.isFalse(
+      pollCalled,
+      "polling should not continue after upload rejection",
+    );
   });
 });

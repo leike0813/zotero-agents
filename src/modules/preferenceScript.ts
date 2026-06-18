@@ -1,6 +1,7 @@
 import { config } from "../../package.json";
 import { getPref, setPref } from "../utils/prefs";
 import {
+  getDefaultSkillDirForWorkflowDir,
   getDefaultWorkflowDir,
   getEffectiveWorkflowDir,
 } from "./workflowRuntime";
@@ -34,8 +35,14 @@ function bindPrefEvents() {
   const workflowDirInput = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-workflow-dir`,
   ) as HTMLInputElement | null;
+  const skillDirInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-skill-dir`,
+  ) as HTMLInputElement | null;
   const browseWorkflowDirButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-workflow-browse`,
+  ) as XUL.Button | null;
+  const browseSkillDirButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-skill-browse`,
   ) as XUL.Button | null;
   const scanButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-workflow-scan`,
@@ -366,16 +373,7 @@ function bindPrefEvents() {
   };
 
   let runtimeDataScanState: "idle" | "scanning" | "ready" | "failed" = "idle";
-  let runtimeDataScanProgressIndex = 0;
-  let runtimeDataScanProgressTimer: ReturnType<typeof setInterval> | null =
-    null;
-
-  const stopRuntimeDataScanProgress = () => {
-    if (runtimeDataScanProgressTimer) {
-      clearInterval(runtimeDataScanProgressTimer);
-      runtimeDataScanProgressTimer = null;
-    }
-  };
+  let runtimeDataRefreshPromise: Promise<void> | null = null;
 
   const formatRuntimeDataDetail = (category: any, scanned: boolean) => {
     if (!scanned) {
@@ -523,16 +521,9 @@ function bindPrefEvents() {
       const issueCount = Number(integrity?.issueCount ?? issues.length ?? 0);
       const issueText = `${getString("pref-runtime-data-issue-count" as any)} ${issueCount}`;
       if (runtimeDataScanState === "scanning") {
-        const progressIndex = Math.min(
-          runtimeDataScanProgressIndex,
-          runtimeDataCategoryOrder.length - 1,
-        );
-        const label =
-          runtimeDataCategoryLabels[runtimeDataCategoryOrder[progressIndex]] ||
-          "-";
-        runtimeDataSummary.textContent = `${getString(
+        runtimeDataSummary.textContent = getString(
           "pref-runtime-data-scanning" as any,
-        )} ${progressIndex + 1}/${runtimeDataCategoryOrder.length}: ${label}`;
+        );
       } else if (usage?.categories) {
         runtimeDataSummary.textContent = `${getString("pref-runtime-data-summary" as any)} ${total} · ${issueText}${scannedAt ? ` · ${scannedAt}` : ""}`;
       } else {
@@ -560,6 +551,12 @@ function bindPrefEvents() {
     }
     clearChildren(runtimeDataCategories);
     runtimeDataCategories.textContent = "";
+    if (runtimeDataScanState === "scanning") {
+      const status = doc.createElement("div");
+      status.className = "zs-runtime-data-scan-status";
+      status.textContent = getString("pref-runtime-data-scanning" as any);
+      runtimeDataCategories.appendChild(status);
+    }
     const appendRow = (
       label: string,
       detail: string,
@@ -619,32 +616,31 @@ function bindPrefEvents() {
   };
 
   const refreshRuntimeDataUsage = async () => {
-    try {
-      runtimeDataScanState = "scanning";
-      runtimeDataScanProgressIndex = 0;
-      renderRuntimeDataUsage(lastRuntimeDataSnapshot);
-      stopRuntimeDataScanProgress();
-      runtimeDataScanProgressTimer = setInterval(() => {
-        runtimeDataScanProgressIndex =
-          (runtimeDataScanProgressIndex + 1) % runtimeDataCategoryOrder.length;
-        renderRuntimeDataUsage(lastRuntimeDataSnapshot);
-      }, 350);
-      const snapshot = await addon.hooks.onPrefsEvent(
-        "scanPersistenceGovernance",
-        {
-          window: addon.data.prefs?.window,
-        },
-      );
-      stopRuntimeDataScanProgress();
-      runtimeDataScanState = "ready";
-      renderRuntimeDataUsage(snapshot);
-    } catch (error) {
-      stopRuntimeDataScanProgress();
-      runtimeDataScanState = "failed";
-      if (runtimeDataSummary) {
-        runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
-      }
+    if (runtimeDataRefreshPromise) {
+      return runtimeDataRefreshPromise;
     }
+    runtimeDataRefreshPromise = (async () => {
+      runtimeDataScanState = "scanning";
+      renderRuntimeDataUsage(lastRuntimeDataSnapshot);
+      try {
+        const snapshot = await addon.hooks.onPrefsEvent(
+          "scanPersistenceGovernance",
+          {
+            window: addon.data.prefs?.window,
+          },
+        );
+        runtimeDataScanState = "ready";
+        renderRuntimeDataUsage(snapshot);
+      } catch (error) {
+        runtimeDataScanState = "failed";
+        if (runtimeDataSummary) {
+          runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
+        }
+      } finally {
+        runtimeDataRefreshPromise = null;
+      }
+    })();
+    return runtimeDataRefreshPromise;
   };
 
   const cleanupRuntimeDataCategory = async (
@@ -1474,25 +1470,64 @@ function bindPrefEvents() {
     }
   };
 
+  const getWorkflowDirValueForDefault = () =>
+    String(workflowDirInput?.value || "").trim() || getEffectiveWorkflowDir();
+
+  const refreshDirectoryPlaceholders = () => {
+    const workflowDefault = getEffectiveWorkflowDir();
+    if (workflowDirInput) {
+      workflowDirInput.placeholder = workflowDefault;
+      workflowDirInput.setAttribute("placeholder", workflowDefault);
+    }
+    if (skillDirInput) {
+      const skillDefault = getDefaultSkillDirForWorkflowDir(
+        getWorkflowDirValueForDefault(),
+      );
+      skillDirInput.placeholder = skillDefault;
+      skillDirInput.setAttribute("placeholder", skillDefault);
+    }
+  };
+
   const persistWorkflowDir = (rawValue: string) => {
-    const nextValue = rawValue.trim() || getEffectiveWorkflowDir();
+    const nextValue = rawValue.trim();
     setPref("workflowDir", nextValue);
     if (workflowDirInput) {
       workflowDirInput.value = nextValue;
     }
-    return nextValue;
+    refreshDirectoryPlaceholders();
+    return nextValue || getEffectiveWorkflowDir();
   };
 
-  const persistWorkflowDirFromInput = (options?: {
-    fallbackWhenEmpty?: boolean;
-  }) => {
+  const persistWorkflowDirFromInput = () => {
     const rawValue = String(workflowDirInput?.value || "");
     const normalized = rawValue.trim();
-    if (options?.fallbackWhenEmpty === false) {
-      setPref("workflowDir", normalized);
-      return normalized;
+    setPref("workflowDir", normalized);
+    refreshDirectoryPlaceholders();
+    return normalized || getEffectiveWorkflowDir();
+  };
+
+  const persistSkillDir = (rawValue: string) => {
+    const nextValue = rawValue.trim();
+    setPref("skillDir", nextValue);
+    if (skillDirInput) {
+      skillDirInput.value = nextValue;
     }
-    return persistWorkflowDir(normalized);
+    refreshDirectoryPlaceholders();
+    return (
+      nextValue ||
+      getDefaultSkillDirForWorkflowDir(getWorkflowDirValueForDefault())
+    );
+  };
+
+  const persistSkillDirFromInput = () => {
+    const rawValue = String(skillDirInput?.value || "");
+    const normalized = rawValue.trim();
+    setPref("skillDir", normalized);
+    refreshDirectoryPlaceholders();
+    return (
+      normalized ||
+      getDefaultSkillDirForWorkflowDir(getWorkflowDirValueForDefault())
+    );
   };
 
   const formatHostBridgeStatus = (response: unknown) => {
@@ -1748,19 +1783,76 @@ function bindPrefEvents() {
     return currentWorkflowDir || defaultWorkflowDir || homeDir || "";
   };
 
+  const resolveSkillBrowseStartDir = async (preferredCurrentDir?: string) => {
+    const defaultSkillDir = getDefaultSkillDirForWorkflowDir(
+      getWorkflowDirValueForDefault(),
+    );
+    const currentSkillDir =
+      String(preferredCurrentDir || "").trim() ||
+      String(skillDirInput?.value || "").trim() ||
+      String(getPref("skillDir") || "").trim();
+    const homeDir = getHomeDir();
+    const candidates = [currentSkillDir, defaultSkillDir, homeDir].filter(
+      (value, index, array) => Boolean(value) && array.indexOf(value) === index,
+    );
+    for (const candidate of candidates) {
+      if (await pathExists(candidate)) {
+        return candidate;
+      }
+    }
+    return currentSkillDir || defaultSkillDir || homeDir || "";
+  };
+
+  const getDirectoryFilePicker = () =>
+    ((typeof ztoolkit !== "undefined" ? ztoolkit : undefined) ||
+      (
+        globalThis as {
+          ztoolkit?: {
+            FilePicker?: new (
+              title: string,
+              mode: string,
+              filters: [string, string][],
+              suggestion: string,
+              window: Window | undefined,
+              filterMask?: string,
+              directory?: string,
+            ) => { open: () => Promise<unknown> };
+          };
+        }
+      ).ztoolkit) as {
+      FilePicker?: new (
+        title: string,
+        mode: string,
+        filters: [string, string][],
+        suggestion: string,
+        window: Window | undefined,
+        filterMask?: string,
+        directory?: string,
+      ) => { open: () => Promise<unknown> };
+    } | null;
+
   if (workflowDirInput) {
     const workflowDir = String(getPref("workflowDir") || "").trim();
     persistWorkflowDir(workflowDir);
     workflowDirInput.addEventListener("input", () => {
-      persistWorkflowDirFromInput({
-        fallbackWhenEmpty: false,
-      });
+      persistWorkflowDirFromInput();
     });
     workflowDirInput.addEventListener("change", () => {
-      persistWorkflowDirFromInput({
-        fallbackWhenEmpty: true,
-      });
+      persistWorkflowDirFromInput();
     });
+  }
+
+  if (skillDirInput) {
+    const skillDir = String(getPref("skillDir") || "").trim();
+    persistSkillDir(skillDir);
+    skillDirInput.addEventListener("input", () => {
+      persistSkillDirFromInput();
+    });
+    skillDirInput.addEventListener("change", () => {
+      persistSkillDirFromInput();
+    });
+  } else {
+    refreshDirectoryPlaceholders();
   }
 
   if (collectSkillRunFeedbackCheckbox) {
@@ -1777,40 +1869,11 @@ function bindPrefEvents() {
   if (browseWorkflowDirButton) {
     browseWorkflowDirButton.addEventListener("command", () => {
       void (async () => {
-        const runtimeToolkit = ((typeof ztoolkit !== "undefined"
-          ? ztoolkit
-          : undefined) ||
-          (
-            globalThis as {
-              ztoolkit?: {
-                FilePicker?: new (
-                  title: string,
-                  mode: string,
-                  filters: [string, string][],
-                  suggestion: string,
-                  window: Window | undefined,
-                  filterMask?: string,
-                  directory?: string,
-                ) => { open: () => Promise<unknown> };
-              };
-            }
-          ).ztoolkit) as {
-          FilePicker?: new (
-            title: string,
-            mode: string,
-            filters: [string, string][],
-            suggestion: string,
-            window: Window | undefined,
-            filterMask?: string,
-            directory?: string,
-          ) => { open: () => Promise<unknown> };
-        } | null;
+        const runtimeToolkit = getDirectoryFilePicker();
         if (typeof runtimeToolkit?.FilePicker !== "function") {
           return;
         }
-        const currentWorkflowDir = persistWorkflowDirFromInput({
-          fallbackWhenEmpty: false,
-        });
+        const currentWorkflowDir = persistWorkflowDirFromInput();
         const initialDirectory =
           await resolveWorkflowBrowseStartDir(currentWorkflowDir);
         const selectedPath = await new runtimeToolkit.FilePicker(
@@ -1824,6 +1887,32 @@ function bindPrefEvents() {
         ).open();
         if (typeof selectedPath === "string" && selectedPath.trim()) {
           persistWorkflowDir(selectedPath);
+        }
+      })();
+    });
+  }
+
+  if (browseSkillDirButton) {
+    browseSkillDirButton.addEventListener("command", () => {
+      void (async () => {
+        const runtimeToolkit = getDirectoryFilePicker();
+        if (typeof runtimeToolkit?.FilePicker !== "function") {
+          return;
+        }
+        const currentSkillDir = persistSkillDirFromInput();
+        const initialDirectory =
+          await resolveSkillBrowseStartDir(currentSkillDir);
+        const selectedPath = await new runtimeToolkit.FilePicker(
+          getString("pref-skill-dir" as any),
+          "folder",
+          [],
+          "",
+          addon.data.prefs?.window,
+          undefined,
+          initialDirectory,
+        ).open();
+        if (typeof selectedPath === "string" && selectedPath.trim()) {
+          persistSkillDir(selectedPath);
         }
       })();
     });
@@ -1903,9 +1992,7 @@ function bindPrefEvents() {
           ? `${getString("pref-webdav-sync-credential-placeholder-saved" as any)}${
               updatedAt ? ` (${updatedAt})` : ""
             }`
-          : getString(
-              "pref-webdav-sync-credential-placeholder-empty" as any,
-            ),
+          : getString("pref-webdav-sync-credential-placeholder-empty" as any),
       );
     }
     if (webDavSyncStatusText) {
@@ -1939,9 +2026,12 @@ function bindPrefEvents() {
 
   const refreshWebDavSyncPrefsStatus = () => {
     void (async () => {
-      const status = await addon.hooks.onPrefsEvent("getWebDavSyncPrefsStatus", {
-        window: addon.data.prefs?.window,
-      });
+      const status = await addon.hooks.onPrefsEvent(
+        "getWebDavSyncPrefsStatus",
+        {
+          window: addon.data.prefs?.window,
+        },
+      );
       renderWebDavSyncPrefsStatus(status);
     })();
   };

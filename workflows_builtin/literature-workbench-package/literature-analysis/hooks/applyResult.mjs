@@ -83,8 +83,7 @@ function getResultArtifactPath(result, key) {
   }
   return (
     String(result?.[key] || "").trim() ||
-    String(result?.data?.[key] || "").trim() ||
-    String(result?.result?.[key] || "").trim()
+    String(result?.data?.[key] || "").trim()
   );
 }
 
@@ -93,7 +92,6 @@ function resolveWorkflowParameter(args) {
     args?.request?.parameter,
     args?.request?.request?.json?.parameter,
     args?.runResult?.resultJson?.parameter,
-    args?.runResult?.responseJson?.parameter,
   ];
   for (const candidate of candidates) {
     if (

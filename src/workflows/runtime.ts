@@ -26,7 +26,6 @@ import {
   attachWorkflowHookFailureMeta,
   summarizeWorkflowExecutionError,
 } from "./errorMeta";
-import { canWorkflowRunWithoutSelection } from "./triggerPolicy";
 import { measureAsyncTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
 import type {
   LoadedWorkflow,
@@ -44,6 +43,7 @@ import {
   SKILL_RUN_FEEDBACK_RUNTIME_OPTION,
   isSkillRunFeedbackCollectionEnabled,
 } from "../modules/skillRunFeedback";
+import { evaluateWorkflowSelection } from "./workflowSelectionValidation";
 
 type AttachmentLike = {
   item?: {
@@ -357,7 +357,6 @@ function createRuntimeContext(
         ? override.workflowSourceKind
         : "",
     hookName:
-      override?.hookName === "filterInputs" ||
       override?.hookName === "buildRequest" ||
       override?.hookName === "applyResult"
         ? override.hookName
@@ -447,7 +446,7 @@ async function withWorkflowExecutionRuntimeScope<T>(
 function createHookRuntimeContext(args: {
   runtime: WorkflowRuntimeContext;
   workflow: LoadedWorkflow;
-  hookName: "filterInputs" | "buildRequest" | "applyResult";
+  hookName: "buildRequest" | "applyResult";
 }) {
   const isPackageHostApiWorkflow =
     args.workflow.hookExecutionMode === "precompiled-host-hook";
@@ -480,7 +479,7 @@ function resolveHookCapabilitySource(workflow: LoadedWorkflow) {
 async function runWorkflowHookWithDiagnostics<T>(args: {
   workflow: LoadedWorkflow;
   runtime: WorkflowRuntimeContext;
-  hookName: "filterInputs" | "buildRequest" | "applyResult";
+  hookName: "buildRequest" | "applyResult";
   component: string;
   operation: string;
   work: (hookRuntime: WorkflowRuntimeContext) => Promise<T> | T;
@@ -851,50 +850,12 @@ async function resolveAttachmentSelectionUnits(args: {
     collectAttachmentCandidates(copied),
     allowedMimes,
   );
-  const declarativeFiltered = withScopedAttachments(
-    copied,
-    candidates,
-    args.runtime,
-  );
-
-  let split = splitAttachmentsByPerParentRules({
+  const split = splitAttachmentsByPerParentRules({
     attachments: candidates,
     min: perParentMin,
     max: perParentMax,
   });
   const totalUnitsBeforeHook = split.valid.length + split.ambiguousParents.size;
-
-  if (args.workflow.hooks.filterInputs) {
-    const fromHook = (await runWorkflowHookWithDiagnostics({
-      workflow: args.workflow,
-      runtime: args.runtime,
-      hookName: "filterInputs",
-      component: "workflow-runtime",
-      operation: "filter-inputs",
-      work: (hookRuntime) =>
-        args.workflow.hooks.filterInputs!({
-          selectionContext: declarativeFiltered,
-          manifest: args.workflow.manifest,
-          executionOptions: args.executionOptions,
-          runtime: hookRuntime,
-        }),
-    })) as SelectionLike;
-
-    const hookSelection = copySelection(fromHook);
-    const hookDirectAttachments = hookSelection.items?.attachments;
-    const hookSourceAttachments = Array.isArray(hookDirectAttachments)
-      ? (hookDirectAttachments as AttachmentLike[])
-      : collectAttachmentCandidates(hookSelection);
-    const hookAttachments = applyAttachmentMimeFilter(
-      hookSourceAttachments,
-      allowedMimes,
-    );
-    split = splitAttachmentsByPerParentRules({
-      attachments: hookAttachments,
-      min: perParentMin,
-      max: perParentMax,
-    });
-  }
 
   const contexts = split.valid.map((entry) =>
     withScopedAttachments(copied, [entry], args.runtime),
@@ -915,123 +876,17 @@ async function resolveSelectionContexts(args: {
   };
   runtime: WorkflowRuntimeContext;
 }): Promise<ResolvedSelectionContexts> {
-  const allowsEmptySelection = canWorkflowRunWithoutSelection(
-    args.workflow.manifest,
-  );
-  const isPassThroughWorkflow =
-    String(args.workflow.manifest.provider || "").trim() ===
-    PASS_THROUGH_BACKEND_TYPE;
-  if (isPassThroughWorkflow && !args.workflow.manifest.inputs?.unit) {
-    const originalSelection = copySelection(args.selectionContext);
-    const totalUnitsBeforeHook = estimatePassThroughTotalUnits(originalSelection);
-    const startedWithoutSelection = !hasAnySelectionItems(originalSelection);
-    let scopedSelection = originalSelection;
-    if (args.workflow.hooks.filterInputs) {
-      const filtered = await runWorkflowHookWithDiagnostics({
-        workflow: args.workflow,
-        runtime: args.runtime,
-        hookName: "filterInputs",
-        component: "workflow-runtime",
-        operation: "filter-inputs",
-        work: (hookRuntime) =>
-          args.workflow.hooks.filterInputs!({
-            selectionContext: scopedSelection,
-            manifest: args.workflow.manifest,
-            executionOptions: args.executionOptions,
-            runtime: hookRuntime,
-          }),
-      });
-      scopedSelection = copySelection(filtered);
-    }
-    if (!scopedSelection || typeof scopedSelection !== "object") {
-      return {
-        contexts: [],
-        totalUnits: totalUnitsBeforeHook,
-      };
-    }
-    if (!hasAnySelectionItems(scopedSelection)) {
-      if (startedWithoutSelection && allowsEmptySelection) {
-        return {
-          contexts: [scopedSelection],
-          totalUnits: totalUnitsBeforeHook,
-        };
-      }
-      return {
-        contexts: [],
-        totalUnits: totalUnitsBeforeHook,
-      };
-    }
-    const contexts = splitPassThroughSelectionUnits(scopedSelection);
-    return {
-      contexts,
-      totalUnits: Math.max(totalUnitsBeforeHook, contexts.length),
-    };
-  }
-
-  if (allowsEmptySelection) {
-    const originalSelection = copySelection(args.selectionContext);
-    const startedWithoutSelection = !hasAnySelectionItems(originalSelection);
-    let scopedSelection = originalSelection;
-    if (args.workflow.hooks.filterInputs) {
-      const filtered = await runWorkflowHookWithDiagnostics({
-        workflow: args.workflow,
-        runtime: args.runtime,
-        hookName: "filterInputs",
-        component: "workflow-runtime",
-        operation: "filter-inputs",
-        work: (hookRuntime) =>
-          args.workflow.hooks.filterInputs!({
-            selectionContext: scopedSelection,
-            manifest: args.workflow.manifest,
-            executionOptions: args.executionOptions,
-            runtime: hookRuntime,
-          }),
-      });
-      scopedSelection = copySelection(filtered);
-    }
-    if (!scopedSelection || typeof scopedSelection !== "object") {
-      return {
-        contexts: [],
-        totalUnits: 1,
-      };
-    }
-    if (!hasAnySelectionItems(scopedSelection)) {
-      if (startedWithoutSelection) {
-        return {
-          contexts: [scopedSelection],
-          totalUnits: 1,
-        };
-      }
-      return {
-        contexts: [],
-        totalUnits: 1,
-      };
-    }
-  }
-
-  const unit = args.workflow.manifest.inputs?.unit || "attachment";
-  if (unit === "workflow") {
-    const context = copySelection(args.selectionContext);
-    return {
-      contexts: [context],
-      totalUnits: 1,
-    };
-  }
-  if (unit === "parent") {
-    const contexts = buildParentSelectionUnits(copySelection(args.selectionContext));
-    return {
-      contexts,
-      totalUnits: contexts.length,
-    };
-  }
-  if (unit === "note") {
-    const contexts = buildNoteSelectionUnits(copySelection(args.selectionContext));
-    return {
-      contexts,
-      totalUnits: contexts.length,
-    };
-  }
-  return resolveAttachmentSelectionUnits(args);
+  const result = await evaluateWorkflowSelection({
+    workflow: args.workflow,
+    selectionContext: args.selectionContext,
+    executionOptions: args.executionOptions,
+    mode: "execute",
+    runtime: args.runtime,
+  });
+  return {
+    contexts: result.scopedSelectionContexts,
+    totalUnits: result.stats.totalUnits,
+  };
 }
 
 export async function executeBuildRequests(args: {

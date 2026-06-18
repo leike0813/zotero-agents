@@ -1081,6 +1081,12 @@ tr.clickable {
   font-size: 14px;
 }
 
+.logs-detail-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .logs-detail-content {
   flex: 1;
   padding: 14px;

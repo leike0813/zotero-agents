@@ -1,6 +1,5 @@
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { stopSessionSync } from "./skillRunnerSessionSyncManager";
-import { updateSkillRunnerRequestLedgerSnapshot } from "./skillRunnerRequestLedger";
 import {
   upsertTaskDashboardHistoryFromTaskRecord,
   updateTaskDashboardHistoryStateByRequest,
@@ -9,6 +8,7 @@ import {
   listWorkflowTasks,
   updateWorkflowTaskStateByRequest,
 } from "./taskRuntime";
+import { updateSkillRunnerRunStateByRequest } from "./skillRunnerRunStore";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -39,7 +39,7 @@ export function settleSkillRunnerRunAsFailed(args: {
     return {
       updatedActiveCount: 0,
       updatedHistoryCount: 0,
-      updatedLedger: false,
+      updatedRun: false,
       stoppedSession: false,
     };
   }
@@ -51,6 +51,7 @@ export function settleSkillRunnerRunAsFailed(args: {
     "SkillRunner run is unavailable";
   const updatedActiveCount = updateWorkflowTaskStateByRequest({
     backendId,
+    backendType: args.backendType || "skillrunner",
     requestId,
     state: "failed",
     error,
@@ -80,12 +81,17 @@ export function settleSkillRunnerRunAsFailed(args: {
       updatedHistoryCount = 1;
     }
   }
-  const updatedLedger = !!updateSkillRunnerRequestLedgerSnapshot({
+  const updatedRun = !!updateSkillRunnerRunStateByRequest({
+    backendId,
     requestId,
-    source: "jobs-terminal",
-    status: "failed",
+    state: "failed",
     error,
     updatedAt,
+    eventType: "run.terminal_client_error",
+    eventPayload: {
+      source: args.source,
+      reason: error,
+    },
   });
   stopSessionSync({
     backendId,
@@ -112,13 +118,13 @@ export function settleSkillRunnerRunAsFailed(args: {
       reason: error,
       updatedActiveCount,
       updatedHistoryCount,
-      updatedLedger,
+      updatedRun,
     },
   });
   return {
     updatedActiveCount,
     updatedHistoryCount,
-    updatedLedger,
+    updatedRun,
     stoppedSession: true,
   };
 }

@@ -1,6 +1,6 @@
 {
   "id": "literature-search-ingest",
-  "name": "Literature Search Ingest",
+  "name": "🔎 Literature Search Ingest",
   "description": "Interactive literature search and Zotero ingest through ACP.",
   "version": "0.1.0",
   "execution_modes": ["interactive"],

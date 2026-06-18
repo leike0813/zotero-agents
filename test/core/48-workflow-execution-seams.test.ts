@@ -26,7 +26,6 @@ async function createWorkflowRoot(args: {
   id: string;
   buildRequestBody?: string;
   applyResultBody?: string;
-  filterInputsBody?: string;
   parameters?: Record<string, unknown>;
   execution?: Record<string, unknown>;
 }) {
@@ -42,9 +41,6 @@ async function createWorkflowRoot(args: {
         ...(args.execution ? { execution: args.execution } : {}),
         ...(args.parameters ? { parameters: args.parameters } : {}),
         hooks: {
-          ...(args.filterInputsBody
-            ? { filterInputs: "hooks/filterInputs.js" }
-            : {}),
           ...(args.buildRequestBody
             ? { buildRequest: "hooks/buildRequest.js" }
             : {}),
@@ -55,12 +51,6 @@ async function createWorkflowRoot(args: {
       2,
     ),
   );
-  if (args.filterInputsBody) {
-    await writeUtf8(
-      joinPath(workflowRoot, "hooks", "filterInputs.js"),
-      args.filterInputsBody,
-    );
-  }
   if (args.buildRequestBody) {
     await writeUtf8(
       joinPath(workflowRoot, "hooks", "buildRequest.js"),
@@ -1531,7 +1521,7 @@ describe("workflow execution seams", function () {
           historyUpdates.push(job);
           return null as any;
         },
-        ensureSkillRunnerRecoverableContext: (args: any) => {
+        registerSkillRunnerRunForSettlement: (args: any) => {
           recoverableJobs.push(args.job.id);
           return {} as any;
         },
@@ -1570,6 +1560,76 @@ describe("workflow execution seams", function () {
     );
     assert.includeMembers(recoverableJobs, ["job-1:digest"]);
     assert.isAtLeast(historyUpdates.length, 2);
+  });
+
+  it("does not register ACP-compatible runs for SkillRunner settlement", async function () {
+    const registeredSettlementJobs: string[] = [];
+    const selectedAcpRuns: string[] = [];
+    const taskUpdates: any[] = [];
+    const runState = runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "seam-acp-compatible-skillrunner-provider",
+              label: "Seam ACP Compatible SkillRunner Provider",
+              provider: "skillrunner",
+            },
+          } as any,
+          requests: [
+            {
+              kind: "acp.skill.run.v1",
+              skill_id: "debug-host-bridge-connectivity-probe",
+            },
+          ],
+          skippedByFilter: 0,
+          executionContext: {
+            providerId: "skillrunner",
+            requestKind: "acp.skill.run.v1",
+            providerOptions: {},
+            backend: {
+              id: "acp-backend",
+              type: "acp",
+              baseUrl: "http://127.0.0.1:8031",
+            },
+          },
+        },
+      },
+      {
+        executeWithProvider: async ({ onProgress }) => {
+          onProgress?.({
+            type: "request-ready",
+            requestId: "acp-skill-compatible-request",
+          });
+          return {
+            status: "succeeded",
+            requestId: "acp-skill-compatible-request",
+            fetchType: "result",
+            resultJson: { ok: true },
+            responseJson: { provider: "acp" },
+          };
+        },
+        recordWorkflowTaskUpdate: (job: any) => {
+          taskUpdates.push(job);
+        },
+        recordTaskDashboardHistoryFromJob: () => null as any,
+        registerSkillRunnerRunForSettlement: (args: any) => {
+          registeredSettlementJobs.push(args.job.id);
+          return {} as any;
+        },
+        selectAcpSkillRun: (requestId: string) => {
+          selectedAcpRuns.push(requestId);
+        },
+      },
+    );
+
+    await runState.idlePromise;
+
+    assert.deepEqual(registeredSettlementJobs, []);
+    assert.deepEqual(selectedAcpRuns, ["acp-skill-compatible-request"]);
+    assert.isTrue(
+      taskUpdates.every((job) => job.meta.backendType === "acp"),
+    );
   });
 
   it("skips final apply when the final sequence step owns applyResult", async function () {
@@ -1813,7 +1873,7 @@ describe("workflow execution seams", function () {
           focusCalls.push(args as unknown as Record<string, unknown>);
           return Promise.resolve();
         },
-        ensureSkillRunnerRecoverableContext: (args) => {
+        registerSkillRunnerRunForSettlement: (args) => {
           recoverableCalls.push(args as unknown as Record<string, unknown>);
           return {} as any;
         },

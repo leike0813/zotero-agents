@@ -17,6 +17,7 @@ import {
 
 export type AcpSharedSkillCatalogEntry = {
   skillId: string;
+  skillName?: string;
   description: string;
   sourceKind: PluginSkillRegistryEntry["sourceKind"];
   checksum: string;
@@ -111,6 +112,7 @@ export async function buildAcpSharedSkillCatalog(args: {
     const resourceManifest = await buildAcpSkillResourceManifest(catalogEntry);
     entries.push({
       skillId: entry.skillId,
+      skillName: entry.skillName,
       description: entry.description,
       sourceKind: entry.sourceKind,
       checksum: entry.checksum,
@@ -128,6 +130,7 @@ export async function buildAcpSharedSkillCatalog(args: {
     generatedAt: new Date().toISOString(),
     entries: entries.map((entry) => ({
       skillId: entry.skillId,
+      skillName: entry.skillName,
       description: entry.description,
       sourceKind: entry.sourceKind,
       checksum: entry.checksum,

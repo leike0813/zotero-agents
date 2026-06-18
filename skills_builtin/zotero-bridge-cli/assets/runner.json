@@ -1,6 +1,6 @@
 {
   "id": "zotero-bridge-cli",
-  "name": "Zotero Bridge CLI",
+  "name": "🔌 Zotero Bridge CLI",
   "description": "Wrapper skill for Zotero host access through the Zotero Skills Host Bridge CLI.",
   "version": "0.1.0",
   "execution_modes": ["auto"],

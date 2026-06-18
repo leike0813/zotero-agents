@@ -2,17 +2,19 @@ import { assert } from "chai";
 import { handlers } from "../../src/handlers";
 import { createHookHelpers } from "../../src/workflows/helpers";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
+import type { LoadedWorkflow } from "../../src/workflows/types";
 import multiPdfAndMd from "../fixtures/selection-context/selection-context-multi-pdf-and-md.json";
 import { workflowsPath } from "./workflow-test-utils";
 
-async function getFilterHook() {
+async function getWorkflow() {
   const loaded = await loadWorkflowManifests(workflowsPath());
   const workflow = loaded.workflows.find(
     (entry) => entry.manifest.id === "literature-analysis",
   );
   assert.isOk(workflow, "workflow literature-analysis not found");
-  assert.isFunction(workflow?.hooks.filterInputs, "filterInputs hook missing");
-  return workflow!.hooks.filterInputs!;
+  assert.equal(workflow?.manifest.validateSelection?.select?.policy, "literature-source");
+  return workflow!;
 }
 
 function makeSyntheticContext(entries: Array<Record<string, unknown>>) {
@@ -97,6 +99,21 @@ const hookRuntime = {
   helpers: createHookHelpers(Zotero),
 };
 
+async function evaluateSelection(
+  workflow: LoadedWorkflow,
+  context: unknown,
+) {
+  const result = await evaluateWorkflowSelection({
+    workflow,
+    selectionContext: context,
+    runtime: hookRuntime,
+    mode: "execute",
+  });
+  return result.scopedSelectionContexts[0] as {
+    items: { attachments: Array<{ filePath?: string }> };
+  };
+}
+
 function attachmentEntry(args: {
   id: number;
   title: string;
@@ -129,7 +146,7 @@ function attachmentEntry(args: {
   };
 }
 
-describe("literature-analysis filterInputs", function () {
+describe("literature-analysis validateSelection", function () {
   it("exposes generic helper to pick earliest pdf attachment", function () {
     const earliest = hookRuntime.helpers.pickEarliestPdfAttachment([
       attachmentEntry({
@@ -166,15 +183,9 @@ describe("literature-analysis filterInputs", function () {
   });
 
   it("resolves parent with multiple md and pdf using earliest-pdf filename match", async function () {
-    const filterInputs = await getFilterHook();
+    const workflow = await getWorkflow();
     const context = withSyntheticParentIds(multiPdfAndMd);
-    const filtered = filterInputs({
-      selectionContext: context as unknown,
-      manifest: {} as any,
-      runtime: hookRuntime,
-    }) as {
-      items: { attachments: Array<{ filePath?: string }> };
-    };
+    const filtered = await evaluateSelection(workflow, context as unknown);
 
     assert.lengthOf(filtered.items.attachments, 1);
     assert.match(
@@ -184,7 +195,7 @@ describe("literature-analysis filterInputs", function () {
   });
 
   it("fallbacks to earliest md when no pdf-name match exists", async function () {
-    const filterInputs = await getFilterHook();
+    const workflow = await getWorkflow();
     const context = makeSyntheticContext([
       attachmentEntry({
         id: 1,
@@ -215,20 +226,14 @@ describe("literature-analysis filterInputs", function () {
       }),
     ]);
 
-    const filtered = filterInputs({
-      selectionContext: context,
-      manifest: {} as any,
-      runtime: hookRuntime,
-    }) as {
-      items: { attachments: Array<{ filePath?: string }> };
-    };
+    const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
     assert.equal(filtered.items.attachments[0].filePath, "attachments/A/paperA.md");
   });
 
   it("fallbacks to earliest pdf when no markdown exists", async function () {
-    const filterInputs = await getFilterHook();
+    const workflow = await getWorkflow();
     const context = makeSyntheticContext([
       attachmentEntry({
         id: 21,
@@ -250,20 +255,14 @@ describe("literature-analysis filterInputs", function () {
       }),
     ]);
 
-    const filtered = filterInputs({
-      selectionContext: context,
-      manifest: {} as any,
-      runtime: hookRuntime,
-    }) as {
-      items: { attachments: Array<{ filePath?: string }> };
-    };
+    const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
     assert.equal(filtered.items.attachments[0].filePath, "attachments/B/paper.pdf");
   });
 
   it("ignores selected markdown attachments when their parent is selected", async function () {
-    const filterInputs = await getFilterHook();
+    const workflow = await getWorkflow();
     const context = withSyntheticParentIds({
       selectionType: "mixed",
       items: {
@@ -316,13 +315,7 @@ describe("literature-analysis filterInputs", function () {
       sampledAt: "2026-02-09T00:00:00.000Z",
     });
 
-    const filtered = filterInputs({
-      selectionContext: context,
-      manifest: {} as any,
-      runtime: hookRuntime,
-    }) as {
-      items: { attachments: Array<{ filePath?: string }> };
-    };
+    const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
     assert.equal(filtered.items.attachments[0].filePath, "attachments/P/alpha.md");

@@ -1,6 +1,6 @@
 {
   "id": "debug-sequence-probe-finalize",
-  "name": "Debug Sequence Probe Finalize",
+  "name": "🏁 Debug Sequence Probe Finalize",
   "description": "Debug-only sequence probe step that summarizes previous checks for workflow applyResult.",
   "version": "0.1.0",
   "debug_only": true,

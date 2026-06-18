@@ -24,7 +24,7 @@ import { createLocalizedMessageFormatter } from "./workflowExecution/messageForm
 import { shouldShowWorkflowNotifications } from "./workflowExecution/feedbackPolicy";
 import { registerDeferredWorkflowCompletion } from "./workflowExecution/deferredCompletionTracker";
 import {
-  ensureSkillRunnerRecoverableContext,
+  registerSkillRunnerRunForSettlement,
   promptSkillRunnerTaskReconcileRequests,
 } from "./skillRunnerTaskReconciler";
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
@@ -237,7 +237,10 @@ export async function executeWorkflowFromCurrentSelection(args: {
       pendingJobs: applySummary.reconcileOwnedPendingJobs,
       messageFormatter,
     });
-    if (registered) {
+    const reconcileBackendType = String(
+      preparation.prepared.executionContext.backend.type || "",
+    ).trim();
+    if (registered && reconcileBackendType === "skillrunner") {
       for (const pendingJob of applySummary.reconcileOwnedPendingJobs) {
         const queueJob = runState.queue.getJob(pendingJob.jobId);
         const request =
@@ -247,7 +250,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
         if (!queueJob || typeof request === "undefined") {
           continue;
         }
-        ensureSkillRunnerRecoverableContext({
+        registerSkillRunnerRunForSettlement({
           workflowId: args.workflow.manifest.id,
           workflowLabel,
           requestKind: preparation.prepared.executionContext.requestKind,

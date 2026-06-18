@@ -14,10 +14,10 @@ import {
   runtimePathExists,
   runtimeRelativePath,
   statRuntimePath,
-  getRuntimePersistencePaths,
 } from "./runtimePersistence";
 import { isDebugModeEnabled } from "./debugMode";
 import { getBuiltinSkillTargetDir } from "./builtinSkillSync";
+import { getEffectiveSkillDir } from "./workflowRuntime";
 
 export const PLUGIN_SKILL_USER_ROOT = "skills";
 export const PLUGIN_SKILL_BUILTIN_ROOT = "skills_builtin";
@@ -43,6 +43,7 @@ export type PluginSkillRegistryDiagnostic = {
 
 export type PluginSkillRegistryEntry = {
   skillId: string;
+  skillName?: string;
   description: string;
   debugOnly?: boolean;
   sourceKind: PluginSkillSourceKind;
@@ -127,7 +128,7 @@ function getPackagedAddonRoot() {
 }
 
 function getDefaultUserSkillRoot() {
-  return joinPath(getRuntimePersistencePaths().dataDir, PLUGIN_SKILL_USER_ROOT);
+  return getEffectiveSkillDir();
 }
 
 function getDefaultBuiltinSkillRoot() {
@@ -426,6 +427,7 @@ async function inspectCandidate(
 
   return {
     skillId,
+    skillName: normalizeString(runnerJson.name) || undefined,
     description: skillFrontmatter.description,
     ...(runnerJson.debug_only === true ? { debugOnly: true } : {}),
     sourceKind: candidate.sourceKind,

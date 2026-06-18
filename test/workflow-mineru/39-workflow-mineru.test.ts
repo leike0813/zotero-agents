@@ -101,7 +101,7 @@ describe("workflow: mineru", function () {
     const workflow = await getMineruWorkflow();
     assert.equal(workflow.manifest.provider, "generic-http");
     assert.equal(workflow.manifest.request?.kind, "generic-http.steps.v1");
-    assert.isFunction(workflow.hooks.filterInputs);
+    assert.equal(workflow.manifest.validateSelection?.select?.policy, "pdf-attachment");
     assert.isFunction(workflow.hooks.applyResult);
   });
 

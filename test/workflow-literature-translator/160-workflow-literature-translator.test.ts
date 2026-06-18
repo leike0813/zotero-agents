@@ -117,7 +117,7 @@ describe("workflow: literature-translator", function () {
       "text/plain",
       "application/pdf",
     ]);
-    assert.isFunction(workflow.hooks.filterInputs);
+    assert.equal(workflow.manifest.validateSelection?.select?.policy, "literature-source");
     assert.isFunction(workflow.hooks.buildRequest);
     assert.isFunction(workflow.hooks.applyResult);
   });

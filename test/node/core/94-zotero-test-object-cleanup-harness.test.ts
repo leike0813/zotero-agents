@@ -195,7 +195,6 @@ describe("zotero test real object cleanup harness", function () {
       resetLocalRuntimeToastStateForTests: () => undefined,
       resetSkillRunnerBackendHealthRegistryForTests: () => undefined,
       resetDeferredWorkflowCompletionTrackerForTests: () => undefined,
-      resetSkillRunnerRequestLedgerForTests: () => undefined,
       resetPluginStateStoreForTests: () => undefined,
       setSkillRunnerBackendReconcileFailureToastEmitterForTests: () => undefined,
       setSkillRunnerTaskLifecycleToastEmitterForTests: () => undefined,

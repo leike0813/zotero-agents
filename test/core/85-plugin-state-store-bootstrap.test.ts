@@ -32,7 +32,7 @@ describe("plugin state store bootstrap", function () {
     assert.equal(status, "done");
   });
 
-  it("skips malformed legacy rows and keeps valid rows when migrating", function () {
+  it("drops legacy SkillRunner prefs instead of migrating old local rows", function () {
     setPref(
       "skillRunnerRequestLedgerJson",
       JSON.stringify([
@@ -64,9 +64,9 @@ describe("plugin state store bootstrap", function () {
 
     assert.equal(getPluginStateMigrationStatus(), "done");
     const counts = inspectPluginStateStoreCounts();
-    assert.isAtLeast(counts.requestCount, 0);
-    assert.isAtLeast(counts.contextCount, 0);
-    assert.isAtLeast(counts.rowCount, 0);
+    assert.equal(counts.requestCount, 0);
+    assert.equal(counts.contextCount, 0);
+    assert.equal(counts.rowCount, 0);
     assert.equal(String(getPref("skillRunnerRequestLedgerJson") || ""), "");
     assert.equal(String(getPref("skillRunnerDeferredTasksJson") || ""), "");
     assert.equal(String(getPref("taskDashboardHistoryJson") || ""), "");

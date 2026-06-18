@@ -4,6 +4,7 @@ import {
   runtimePathExists,
 } from "../runtimePersistence";
 import type { BundleReader } from "./bundleIO";
+import { canonicalizeWorkflowResultJson } from "./resultEnvelope";
 
 type WorkflowResultManifestLike = {
   result?: {
@@ -173,10 +174,11 @@ function parseJsonText(text: string, sourceLabel: string) {
 }
 
 function normalizeResultJson(value: unknown, sourceLabel: string) {
+  let parsed = value;
   if (typeof value === "string") {
-    return parseJsonText(value, sourceLabel);
+    parsed = parseJsonText(value, sourceLabel);
   }
-  return value;
+  return canonicalizeWorkflowResultJson(parsed);
 }
 
 function addCandidate(
@@ -352,7 +354,7 @@ async function tryReadResultJson(args: {
   const resultJsonPath = resolveResultJsonPath(args.runResult);
   if (resultJsonPath && (await runtimePathExists(resultJsonPath))) {
     return {
-      resultJson: parseJsonText(
+      resultJson: normalizeResultJson(
         await readRuntimeTextFile(resultJsonPath),
         resultJsonPath,
       ),
@@ -363,7 +365,7 @@ async function tryReadResultJson(args: {
   if (resultJsonEntryPath && !isAbsolutePath(resultJsonPath)) {
     try {
       return {
-        resultJson: parseJsonText(
+        resultJson: normalizeResultJson(
           await args.bundleReader.readText(resultJsonEntryPath),
           resultJsonEntryPath,
         ),
@@ -379,7 +381,7 @@ async function tryReadResultJson(args: {
     "result/result.json";
   try {
     return {
-      resultJson: parseJsonText(
+      resultJson: normalizeResultJson(
         await args.bundleReader.readText(resultEntry),
         resultEntry,
       ),
