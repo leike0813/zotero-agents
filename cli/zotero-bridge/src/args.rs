@@ -411,7 +411,7 @@ pub struct ReferenceIndexArgs {
 pub enum ReferenceIndexCommand {
     #[command(
         about = "Read the Synthesis reference index",
-        long_about = "Map to Host Bridge capability reference_index.get."
+        long_about = "Map to Host Bridge capability reference_index.get. Pass includeReferences=true with referenceSourceRefs to include per-reference binding rows for selected source papers."
     )]
     Get(BridgeInputArgs),
 }

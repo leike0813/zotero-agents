@@ -73,6 +73,14 @@ function parseHistoryRecord(raw: unknown): TaskDashboardHistoryRecord | null {
     taskName,
     state: normalizeStatus(state) as WorkflowTaskRecord["state"],
     requestId: String(raw.requestId || "").trim() || undefined,
+    skillId: String(raw.skillId || "").trim() || undefined,
+    sequenceStepId: String(raw.sequenceStepId || "").trim() || undefined,
+    sequenceStepIndex:
+      typeof raw.sequenceStepIndex === "number" &&
+      Number.isFinite(raw.sequenceStepIndex)
+        ? Math.floor(raw.sequenceStepIndex)
+        : undefined,
+    workflowRunId: String(raw.workflowRunId || "").trim() || undefined,
     engine: String(raw.engine || "").trim() || undefined,
     targetParentID:
       typeof raw.targetParentID === "number" &&

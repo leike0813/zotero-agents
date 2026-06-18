@@ -305,10 +305,6 @@ describe("workflow execution seams", function () {
                   ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v1",
                   ZOTERO_BRIDGE_CONNECTION_MODE: "local",
                 },
-                workspace: {
-                  mode: "reuse",
-                  request_id: "skillrunner-env-request-1",
-                },
                 zotero_host_access: {
                   required: true,
                   auto_approve_writes: true,
@@ -343,25 +339,26 @@ describe("workflow execution seams", function () {
     if (result.status !== "ready") {
       return;
     }
-    assert.deepEqual((result.prepared.requests[0] as any).runtime_options, {
-      execution_mode: "interactive",
-      env: {
+    const runtimeOptions = (result.prepared.requests[0] as any).runtime_options;
+    assert.equal(runtimeOptions.execution_mode, "interactive");
+    assert.isTrue(runtimeOptions.no_cache);
+    assert.notProperty(runtimeOptions, "workspace");
+    const env = runtimeOptions.env;
+    const scope = JSON.parse(env.ZOTERO_BRIDGE_SCOPE);
+    assert.deepEqual(
+      { ...env, ZOTERO_BRIDGE_SCOPE: undefined },
+      {
         KEEP_ME: "yes",
         ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
         ZOTERO_BRIDGE_TOKEN: "runtime-token",
         ZOTERO_BRIDGE_CONNECTION_MODE: "local",
-        ZOTERO_BRIDGE_SCOPE: JSON.stringify({
-          kind: "skillrunner-run",
-          requestId: "skillrunner-env-request-1",
-          runId: "skillrunner-env-request-1",
-        }),
+        ZOTERO_BRIDGE_SCOPE: undefined,
       },
-      workspace: {
-        mode: "reuse",
-        request_id: "skillrunner-env-request-1",
-      },
-      no_cache: true,
-    });
+    );
+    assert.equal(scope.kind, "skillrunner-run");
+    assert.match(scope.frontendScopeId, /^skillrunner-scope-/);
+    assert.notProperty(scope, "requestId");
+    assert.notProperty(scope, "runId");
     assert.include(
       logs.map((entry) => entry.stage),
       "skillrunner_zotero_host_access_env_injected",
@@ -424,10 +421,6 @@ describe("workflow execution seams", function () {
                   KEEP_ME: "yes",
                   ZOTERO_BRIDGE_TOKEN: "old-token",
                 },
-                workspace: {
-                  mode: "reuse",
-                  request_id: "skillrunner-sequence-env-request-1",
-                },
                 zotero_host_access: {
                   required: true,
                 },
@@ -455,24 +448,25 @@ describe("workflow execution seams", function () {
     if (result.status !== "ready") {
       return;
     }
-    assert.deepEqual((result.prepared.requests[0] as any).runtime_options, {
-      env: {
+    const runtimeOptions = (result.prepared.requests[0] as any).runtime_options;
+    assert.isTrue(runtimeOptions.no_cache);
+    assert.notProperty(runtimeOptions, "workspace");
+    const env = runtimeOptions.env;
+    const scope = JSON.parse(env.ZOTERO_BRIDGE_SCOPE);
+    assert.deepEqual(
+      { ...env, ZOTERO_BRIDGE_SCOPE: undefined },
+      {
         KEEP_ME: "yes",
         ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
         ZOTERO_BRIDGE_TOKEN: "runtime-token",
         ZOTERO_BRIDGE_CONNECTION_MODE: "local",
-        ZOTERO_BRIDGE_SCOPE: JSON.stringify({
-          kind: "skillrunner-run",
-          requestId: "skillrunner-sequence-env-request-1",
-          runId: "skillrunner-sequence-env-request-1",
-        }),
+        ZOTERO_BRIDGE_SCOPE: undefined,
       },
-      workspace: {
-        mode: "reuse",
-        request_id: "skillrunner-sequence-env-request-1",
-      },
-      no_cache: true,
-    });
+    );
+    assert.equal(scope.kind, "skillrunner-run");
+    assert.match(scope.frontendScopeId, /^skillrunner-scope-/);
+    assert.notProperty(scope, "requestId");
+    assert.notProperty(scope, "runId");
   });
 
   it("does not translate sequence ZoteroHostAccess for ACP backends", async function () {
@@ -1470,6 +1464,114 @@ describe("workflow execution seams", function () {
     });
   });
 
+  it("projects SkillRunner sequence steps as independent task rows", async function () {
+    const taskUpdates: any[] = [];
+    const historyUpdates: any[] = [];
+    const recoverableJobs: string[] = [];
+    const runState = runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "seam-skillrunner-sequence-step-tasks",
+              label: "Seam SkillRunner Sequence Step Tasks",
+              provider: "skillrunner",
+            },
+          } as any,
+          requests: [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [
+                { id: "digest", skill_id: "literature-analysis" },
+                {
+                  id: "tag",
+                  skill_id: "tag-regulator",
+                  workspace: "reuse-workflow",
+                },
+              ],
+              final_step_id: "tag",
+            },
+          ],
+          skippedByFilter: 0,
+          executionContext: {
+            providerId: "skillrunner",
+            requestKind: "skillrunner.sequence.v1",
+            providerOptions: {},
+            backend: {
+              id: "skillrunner-backend",
+              type: "skillrunner",
+              baseUrl: "http://127.0.0.1:8030",
+            },
+          },
+        },
+      },
+      {
+        executeWithProvider: async ({ request, onProgress }) => {
+          const skillId = String((request as any).skill_id || "");
+          onProgress?.({
+            type: "request-created",
+            requestId: `${skillId}-request`,
+          });
+          onProgress?.({
+            type: "request-ready",
+            requestId: `${skillId}-request`,
+          });
+          return {
+            status: "succeeded",
+            requestId: `${skillId}-request`,
+            fetchType: "result",
+            resultJson: { skillId },
+            responseJson: {},
+          };
+        },
+        recordWorkflowTaskUpdate: (job: any) => {
+          taskUpdates.push(job);
+        },
+        recordTaskDashboardHistoryFromJob: (job: any) => {
+          historyUpdates.push(job);
+          return null as any;
+        },
+        ensureSkillRunnerRecoverableContext: (args: any) => {
+          recoverableJobs.push(args.job.id);
+          return {} as any;
+        },
+        focusSkillRunnerWorkspace: async () => undefined,
+      },
+    );
+
+    await runState.idlePromise;
+
+    assert.notInclude(
+      taskUpdates.map((job) => job.id),
+      "job-1",
+    );
+    assert.includeMembers(
+      taskUpdates.map((job) => job.id),
+      ["job-1:digest"],
+    );
+    const terminalRows = taskUpdates.filter(
+      (job) => job.state === "succeeded",
+    );
+    assert.deepEqual(
+      terminalRows.map((job) => ({
+        id: job.id,
+        requestId: job.meta.requestId,
+        skillId: job.meta.skillId,
+        sequenceStepId: job.meta.sequenceStepId,
+      })),
+      [
+        {
+          id: "job-1:digest",
+          requestId: "literature-analysis-request",
+          skillId: "literature-analysis",
+          sequenceStepId: "digest",
+        },
+      ],
+    );
+    assert.includeMembers(recoverableJobs, ["job-1:digest"]);
+    assert.isAtLeast(historyUpdates.length, 2);
+  });
+
   it("skips final apply when the final sequence step owns applyResult", async function () {
     let applyCalled = false;
     const queueStub = {
@@ -1662,6 +1764,7 @@ describe("workflow execution seams", function () {
     let capturedQueueConfig: Record<string, unknown> | undefined;
     const assistantCalls: Array<Record<string, unknown>> = [];
     const focusCalls: Array<Record<string, unknown>> = [];
+    const recoverableCalls: Array<Record<string, unknown>> = [];
     const queueStub = {
       enqueue() {
         return "job-1";
@@ -1710,6 +1813,10 @@ describe("workflow execution seams", function () {
           focusCalls.push(args as unknown as Record<string, unknown>);
           return Promise.resolve();
         },
+        ensureSkillRunnerRecoverableContext: (args) => {
+          recoverableCalls.push(args as unknown as Record<string, unknown>);
+          return {} as any;
+        },
       } as any,
     );
 
@@ -1736,9 +1843,22 @@ describe("workflow execution seams", function () {
 
     assert.lengthOf(focusCalls, 0);
     assert.lengthOf(assistantCalls, 0);
+    const onJobUpdated = capturedQueueConfig?.onJobUpdated as
+      | ((job: Record<string, unknown>) => void)
+      | undefined;
+    assert.isFunction(onJobUpdated);
+    onJobUpdated?.({
+      id: "job-1",
+      workflowId: "seam-skillrunner-interactive-sidebar",
+      request: { targetParentID: 3 },
+      meta: { index: 0, requestId: "req-1" },
+      state: "running",
+      createdAt: "2026-04-17T00:00:00.000Z",
+      updatedAt: "2026-04-17T00:00:00.000Z",
+    });
+    assert.lengthOf(recoverableCalls, 0);
 
-    onJobProgress?.(
-      {
+    const readyJob = {
         id: "job-1",
         workflowId: "seam-skillrunner-interactive-sidebar",
         request: { targetParentID: 3 },
@@ -1746,12 +1866,15 @@ describe("workflow execution seams", function () {
         state: "running",
         createdAt: "2026-04-17T00:00:00.000Z",
         updatedAt: "2026-04-17T00:00:00.000Z",
-      },
+      };
+    onJobProgress?.(
+      readyJob,
       {
         type: "request-ready",
         requestId: "req-1",
       },
     );
+    onJobUpdated?.(readyJob);
 
     assert.lengthOf(focusCalls, 1);
     assert.equal(focusCalls[0].requestId, "req-1");
@@ -1762,6 +1885,7 @@ describe("workflow execution seams", function () {
       (assistantCalls[0].backend as { id?: string }).id,
       "backend-1",
     );
+    assert.isAtLeast(recoverableCalls.length, 1);
   });
 
   it("selects auto ACP skill runs without opening the Assistant shell", function () {

@@ -54,8 +54,8 @@ function isNoValidInputUnitsError(error: unknown) {
   );
 }
 
-function generateSkillRunnerHostBridgeRequestId() {
-  return `skillrunner-${Date.now().toString(36)}-${Math.random()
+function generateSkillRunnerHostBridgeFrontendScopeId() {
+  return `skillrunner-scope-${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
 }
@@ -100,7 +100,7 @@ async function adaptRequestsForExecutionContext(args: {
       injectSkillRunnerHostBridgeRuntimeEnv({
         request: stripZoteroHostAccessRuntimeOptionFromRequest(request),
         env: envResult.env,
-        requestId: ensureSkillRunnerHostBridgeRequestId(request),
+        frontendScopeId: generateSkillRunnerHostBridgeFrontendScopeId(),
       }),
     );
   }
@@ -154,7 +154,7 @@ function sanitizeDiagnosticDetails(value: unknown): unknown {
 function injectSkillRunnerHostBridgeRuntimeEnv(args: {
   request: unknown;
   env: Record<string, string>;
-  requestId: string;
+  frontendScopeId: string;
 }) {
   if (
     !args.request ||
@@ -176,48 +176,16 @@ function injectSkillRunnerHostBridgeRuntimeEnv(args: {
     !Array.isArray(runtimeOptions.env)
       ? (runtimeOptions.env as Record<string, unknown>)
       : {};
-  const workspace =
-    runtimeOptions.workspace &&
-    typeof runtimeOptions.workspace === "object" &&
-    !Array.isArray(runtimeOptions.workspace)
-      ? { ...(runtimeOptions.workspace as Record<string, unknown>) }
-      : {};
-  if (!String(workspace.request_id || "").trim()) {
-    workspace.mode = "reuse";
-    workspace.request_id = args.requestId;
-  }
   runtimeOptions.env = {
     ...existingEnv,
     ...args.env,
-    ZOTERO_BRIDGE_SCOPE: buildSkillRunnerHostBridgeScopeEnv(args.requestId),
+    ZOTERO_BRIDGE_SCOPE: buildSkillRunnerHostBridgeScopeEnv(
+      args.frontendScopeId,
+    ),
   };
-  runtimeOptions.workspace = workspace;
   runtimeOptions.no_cache = true;
   request.runtime_options = runtimeOptions;
   return request;
-}
-
-function ensureSkillRunnerHostBridgeRequestId(request: unknown) {
-  if (!request || typeof request !== "object" || Array.isArray(request)) {
-    return generateSkillRunnerHostBridgeRequestId();
-  }
-  const runtimeOptions = (request as Record<string, unknown>).runtime_options;
-  if (
-    runtimeOptions &&
-    typeof runtimeOptions === "object" &&
-    !Array.isArray(runtimeOptions)
-  ) {
-    const workspace = (runtimeOptions as Record<string, unknown>).workspace;
-    if (workspace && typeof workspace === "object" && !Array.isArray(workspace)) {
-      const requestId = String(
-        (workspace as Record<string, unknown>).request_id || "",
-      ).trim();
-      if (requestId) {
-        return requestId;
-      }
-    }
-  }
-  return generateSkillRunnerHostBridgeRequestId();
 }
 
 function isSkillRunnerRuntimeEnvRequestKind(requestKind: unknown) {

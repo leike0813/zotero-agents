@@ -391,8 +391,20 @@ async function writeReadingEnrichment(
         preface_title: "阅读前导读",
         preface_cards: [
           {
-            title: "研究问题",
-            body: "样例论文用于验证文献精读的数据层。",
+            title: "研究领域",
+            body: "目标检测领域正在从手工后处理管线转向端到端集合预测。",
+          },
+          {
+            title: "研究方向",
+            body: "本文位于以 Transformer 解码器和 object queries 为核心的直接预测路线。",
+          },
+          {
+            title: "本文位置",
+            body: "它在 2020 年把检测任务重新组织为集合预测，是该路线的重要节点。",
+          },
+          {
+            title: "核心创新",
+            body: "本文解决了候选框去重依赖问题，并为后续端到端检测研究提供了基础。",
           },
         ],
         preface_reading_path: ["问题设定", "方法结构", "实验结论"],
@@ -553,7 +565,11 @@ async function writeFinalReview(
 
 async function installFakeBridge(
   runRoot: string,
-  options?: { layoutStatus?: string; exportTargetArtifacts?: boolean },
+  options?: {
+    layoutStatus?: string;
+    exportTargetArtifacts?: boolean;
+    topicCandidates?: Array<Record<string, unknown>>;
+  },
 ) {
   const binDir = path.join(runRoot, ".zotero-bridge", "bin");
   await fs.mkdir(binDir, { recursive: true });
@@ -577,6 +593,77 @@ function reply(result) {
   console.log(JSON.stringify({ ok: true, data: { result } }));
 }
 const exportTargetArtifacts = ${JSON.stringify(options?.exportTargetArtifacts !== false)};
+const topicCandidates = ${JSON.stringify(
+      options?.topicCandidates || [
+        {
+          topic_id: "computer-vision",
+          title: "Computer Vision",
+          status: "active",
+          matched_paper_refs: ["1:EIMSDEU3"],
+          match_sources: ["current_dependencies"],
+        },
+      ],
+    )};
+function topicDigest(topicId) {
+  const title = topicId === "object-detection" ? "Object Detection" : topicId === "vision-transformers" ? "Vision Transformers" : "Computer Vision";
+  return {
+    topic_id: topicId,
+    title,
+    definition: title + " topic definition.",
+    summary: {
+      brief: title + " compact digest.",
+      overview: title + " overview for candidate comparison.",
+      report_excerpt: title + " report excerpt."
+    },
+    paper_count: 3,
+    external_literature_count: 1,
+    diagnostics: []
+  };
+}
+function topicSemantic(topicId) {
+  const digest = topicDigest(topicId);
+  return {
+    topic_id: topicId,
+    language: "zh-CN",
+    topic: {
+      id: topicId,
+      title: digest.title,
+      definition: digest.definition,
+      research_field: "Computer vision"
+    },
+    summary: digest.summary,
+    taxonomy: {
+      summary: { text: "Taxonomy organizes detection and transformer routes." },
+      axes: [
+        {
+          axis_type: "research_route",
+          axis_rationale: "Routes separate detection formulation from backbone design.",
+          nodes: [
+            {
+              id: "route:detection",
+              title: "Detection route",
+              definition: "Direct set prediction route.",
+              source_paper_refs: ["1:EIMSDEU3", "1:A"]
+            }
+          ]
+        }
+      ]
+    },
+    timeline_events: {
+      summary: { text: "The topic timeline moves from classical detection to transformer-based set prediction." },
+      events: [
+        { id: "event:cnn", label: "CNN era", year: 2015, description: "CNN detectors establish the baseline.", source_paper_refs: ["1:A"] },
+        { id: "event:set", label: "Set prediction", year: 2020, description: "Direct set prediction becomes central.", source_paper_refs: ["1:EIMSDEU3"] }
+      ]
+    },
+    source_papers: [
+      { paper_ref: "1:A", item_key: "A", title: "Library Paper A", year: 2015, synthesis_role: "foundation" },
+      { paper_ref: "1:B", item_key: "B", title: "Reference index bound title", year: 2018, synthesis_role: "foundation" },
+      { paper_ref: "1:EIMSDEU3", item_key: "EIMSDEU3", title: "Sample Paper", year: 2020, synthesis_role: "milestone" }
+    ],
+    diagnostics: []
+  };
+}
 if (command === "reference-index get") {
   reply({
     rows: [
@@ -584,29 +671,35 @@ if (command === "reference-index get") {
         paper_ref: "1:EIMSDEU3",
         zoteroItemKey: "EIMSDEU3",
         title: "Sample Paper",
+        reference_count: 2,
+        unbound_reference_count: 0,
         artifacts: {
           digest: { status: "available" },
           references: { status: "available" },
           citation_analysis: { status: "available" }
-        }
-      },
-      {
-        reference_index: 3,
-        title: "Reference index bound title",
-        target_paper_ref: "1:B",
-        target_literature_item_id: "B",
-        target_title: "Reference index bound title",
-        target_binding: "library",
-        binding_status: "accepted",
-        confidence: "high"
-      },
-      {
-        reference_index: 2,
-        title: "External reference title",
-        target_paper_ref: "ext:C",
-        target_title: "External reference title",
-        target_binding: "external",
-        binding_status: "accepted"
+        },
+        references: [
+          {
+            reference_instance_id: "ref-3",
+            reference_index: 3,
+            title: "Reference index bound title",
+            target_paper_ref: "1:B",
+            target_literature_item_id: "1:B",
+            target_title: "Reference index bound title",
+            target_binding: "library",
+            binding_status: "accepted",
+            confidence: "high"
+          },
+          {
+            reference_instance_id: "ref-2",
+            reference_index: 2,
+            title: "External reference title",
+            target_paper_ref: "ext:C",
+            target_title: "External reference title",
+            target_binding: "external",
+            binding_status: "accepted"
+          }
+        ]
       }
     ]
   });
@@ -648,29 +741,59 @@ if (command === "reference-index get") {
   }
   fs.writeFileSync(path.resolve(process.cwd(), manifestFile), JSON.stringify({ papers }, null, 2), "utf8");
   reply({ exported: papers.reduce((sum, paper) => sum + paper.artifacts.length, 0), manifest_file: manifestFile, diagnostics: [] });
+} else if (command === "paper-artifacts resolve-topic-digest") {
+  const paperRef = input.paper_ref || input.paperRef || input.digest_ref?.paper_ref || input.digestRef?.paper_ref || "1:B";
+  reply({
+    ok: true,
+    status: "available",
+    paper_ref: paperRef,
+    note_key: "digest-note-" + String(paperRef).replace(/[^A-Za-z0-9_.-]+/g, "_"),
+    digest_markdown: "# Resolved digest for " + paperRef + "\\n\\n## Key idea\\nResolved digest body.",
+    representative_image: {
+      status: "available",
+      data_url: "data:image/png;base64,iVBORw0KGgo=",
+      alt: "Representative image",
+      caption: "Representative image",
+      width: 320,
+      height: 180
+    },
+    source_changed: false,
+    diagnostics: []
+  });
 } else if (command === "topics find-by-paper-ref") {
   reply({
     ok: true,
     status: "ok",
     paper_refs: [input.paper_ref || input.paperRef],
-    topics: [
-      {
-        topic_id: "computer-vision",
-        title: "Computer Vision",
-        status: "active",
-        matched_paper_refs: [input.paper_ref || input.paperRef],
-        match_sources: ["current_dependencies"]
-      }
-    ],
-    diagnostics: { requested_count: 1, matched_topic_count: 1, unmatched_paper_refs: [], source: "artifact_state" }
+    topics: topicCandidates,
+    diagnostics: { requested_count: 1, matched_topic_count: topicCandidates.length, unmatched_paper_refs: [], source: "artifact_state" }
   });
 } else if (command === "topics get-context") {
+  const topicId = input.topicId || input.topic_id;
+  if (input.view === "semantic") {
+    reply({
+      schema_id: "synthesis.topic_context",
+      schema_version: "2.0.0",
+      topic_id: topicId,
+      view: "semantic",
+      semantic: topicSemantic(topicId)
+    });
+  } else if (input.view === "digest") {
+    reply({
+      schema_id: "synthesis.topic_context",
+      schema_version: "2.0.0",
+      topic_id: topicId,
+      view: "digest",
+      digest: topicDigest(topicId)
+    });
+  } else {
   reply({
-    topic_id: input.topicId || input.topic_id,
+    topic_id: topicId,
     title: "Computer Vision",
     summary: "Topic context for the selected paper.",
     diagnostics: []
   });
+  }
 } else if (command === "citation-graph get-slice") {
   reply({
     nodes: [
@@ -765,6 +888,8 @@ describe("Literature deep reading bootstrap skill", function () {
       "renderer/templates/citation-graph-synthesis-i18n.json",
       "renderer/templates/citation-graph-standalone.css",
       "renderer/templates/citation-graph-standalone.js",
+      "renderer/templates/topic-timeline-shared.css",
+      "renderer/templates/topic-timeline-shared.js",
     ];
     for (const filePath of requiredSourceFiles) {
       await assertFileExists(path.join(suiteRoot, filePath));
@@ -790,10 +915,31 @@ describe("Literature deep reading bootstrap skill", function () {
       "renderer/templates/citation-graph-synthesis-i18n.json",
       "renderer/templates/citation-graph-standalone.css",
       "renderer/templates/citation-graph-standalone.js",
+      "renderer/templates/topic-timeline-shared.css",
+      "renderer/templates/topic-timeline-shared.js",
     ];
     for (const filePath of requiredGeneratedFiles) {
       await assertFileExists(path.join(skillRoot, filePath));
     }
+
+    const deepReadingCss = await fs.readFile(
+      path.join(suiteRoot, "renderer", "templates", "deep-reading.css"),
+      "utf8",
+    );
+    const timelineCss = await fs.readFile(
+      path.join(
+        suiteRoot,
+        "renderer",
+        "templates",
+        "topic-timeline-shared.css",
+      ),
+      "utf8",
+    );
+    assert.notInclude(deepReadingCss, ".topic-timeline {");
+    assert.include(timelineCss, ".topic-timeline {");
+    assert.include(timelineCss, ".timeline-hover-popover");
+    assert.include(deepReadingCss, ".preface-topic-timeline .timeline-scroll");
+    assert.include(deepReadingCss, "height: 82px;");
   });
 
   it("keeps the fallback citation graph renderer SVG-only and read-only", async function () {
@@ -990,8 +1136,14 @@ describe("Literature deep reading bootstrap skill", function () {
         "utf8",
       ),
     );
-    assert.equal(referencesSeed.source, "artifact");
-    assert.equal(referencesSeed.reference_count, 3);
+    assert.equal(referencesSeed.source, "markdown");
+    assert.equal(referencesSeed.reference_count, 2);
+    assert.isTrue(
+      referencesSeed.raw_items.every(
+        (item: Record<string, unknown>) =>
+          typeof item.raw_markdown === "string",
+      ),
+    );
   });
 
   it("bootstraps bundled translator alignment as canonical reading blocks", async function () {
@@ -1227,10 +1379,9 @@ describe("Literature deep reading bootstrap skill", function () {
     await fs.writeFile(outputPath, "# 示例论文\n", "utf8");
     const runRoot = path.join(tempRoot, "run");
     await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
-    await fs.mkdir(
-      path.join(runRoot, ".audit", "literature-deep-reading.1"),
-      { recursive: true },
-    );
+    await fs.mkdir(path.join(runRoot, ".audit", "literature-deep-reading.1"), {
+      recursive: true,
+    });
     await fs.writeFile(
       path.join(runRoot, "runtime", "input.json"),
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
@@ -1273,7 +1424,12 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.deepEqual(hydratedInput.parameter, { target_language: "zh-CN" });
     const translatorAlignmentView = JSON.parse(
       await fs.readFile(
-        path.join(runRoot, "runtime", "views", "translator-alignment-view.json"),
+        path.join(
+          runRoot,
+          "runtime",
+          "views",
+          "translator-alignment-view.json",
+        ),
         "utf8",
       ),
     );
@@ -1613,20 +1769,37 @@ describe("Literature deep reading bootstrap skill", function () {
         "topics find-by-paper-ref",
         "paper-artifacts manifest",
         "paper-artifacts export-filtered",
+        "topics get-context",
         "reference-index get",
         "paper-artifacts manifest",
         "paper-artifacts export-filtered",
+        "paper-artifacts resolve-topic-digest",
+        "paper-artifacts resolve-topic-digest",
+        "paper-artifacts resolve-topic-digest",
         "citation-graph get-slice",
         "citation-graph get-layout",
         "concepts query",
-        "topics get-context",
       ],
+    );
+    const referenceIndexCalls = calls.filter(
+      (entry) => entry.command === "reference-index get",
+    );
+    assert.isTrue(
+      referenceIndexCalls.every(
+        (entry) =>
+          entry.input.includeReferences === true &&
+          entry.input.referenceSourceRefs?.[0] === "1:EIMSDEU3",
+      ),
     );
     const layoutCall = calls.find(
       (entry) => entry.command === "citation-graph get-layout",
     );
     assert.equal(layoutCall.input.preset, "force");
     assert.equal(layoutCall.input.allowTruncated, true);
+    const topicContextCall = calls.find(
+      (entry) => entry.command === "topics get-context",
+    );
+    assert.equal(topicContextCall.input.view, "semantic");
 
     const layout = JSON.parse(
       await fs.readFile(
@@ -1649,6 +1822,23 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
     );
     assert.equal(topicContext.topic_id, "computer-vision");
+    assert.equal(topicContext.view, "semantic");
+    assert.equal(
+      topicContext.context.semantic.taxonomy.axes[0].axis_type,
+      "research_route",
+    );
+    const candidateDigests = JSON.parse(
+      await fs.readFile(
+        path.join(
+          runRoot,
+          "runtime",
+          "views",
+          "topic-candidate-digests-view.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(candidateDigests.items, []);
 
     const digests = JSON.parse(
       await fs.readFile(
@@ -1658,7 +1848,7 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     assert.sameMembers(
       digests.items.map((item: Record<string, unknown>) => item.reference_id),
-      ["ref-1", "ref-3"],
+      ["timeline:1:A", "ref-3", "timeline:1:EIMSDEU3"],
     );
     const conceptNeeds = JSON.parse(
       await fs.readFile(
@@ -1671,6 +1861,216 @@ describe("Literature deep reading bootstrap skill", function () {
         (item: Record<string, unknown>) =>
           item.label === "DETR" && item.status === "resolved_by_host",
       ),
+    );
+  });
+
+  it("collects digest contexts for multiple topic candidates without guessing the selected topic", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-topic-candidates-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+    await installFakeBridge(runRoot, {
+      topicCandidates: [
+        {
+          topic_id: "object-detection",
+          title: "Object Detection",
+          status: "active",
+          matched_paper_refs: ["1:EIMSDEU3"],
+        },
+        {
+          topic_id: "vision-transformers",
+          title: "Vision Transformers",
+          status: "active",
+          matched_paper_refs: ["1:EIMSDEU3"],
+        },
+      ],
+    });
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    await writeContextRequest(runRoot);
+    runRuntime(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+
+    const topicContext = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "topic-context.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(topicContext.topic_id, "");
+    assert.equal(topicContext.source, "none");
+    assert.equal(
+      topicContext.diagnostics[0].code,
+      "topic_context_multiple_candidates",
+    );
+
+    const candidateDigests = JSON.parse(
+      await fs.readFile(
+        path.join(
+          runRoot,
+          "runtime",
+          "views",
+          "topic-candidate-digests-view.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(
+      candidateDigests.items.map(
+        (item: Record<string, unknown>) => item.topic_id,
+      ),
+      ["object-detection", "vision-transformers"],
+    );
+    assert.deepEqual(
+      candidateDigests.items.map(
+        (item: Record<string, unknown>) =>
+          (item.digest as Record<string, unknown>).title,
+      ),
+      ["Object Detection", "Vision Transformers"],
+    );
+    const calls = (
+      await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.equal(
+      calls.filter(
+        (entry) =>
+          entry.command === "topics get-context" &&
+          entry.input.view === "semantic",
+      ).length,
+      0,
+    );
+    assert.equal(
+      calls.filter(
+        (entry) =>
+          entry.command === "topics get-context" &&
+          entry.input.view === "digest",
+      ).length,
+      2,
+    );
+  });
+
+  it("uses selected topic semantic context and stores unselected candidate digests", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-selected-topic-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+    await installFakeBridge(runRoot, {
+      topicCandidates: [
+        {
+          topic_id: "object-detection",
+          title: "Object Detection",
+          status: "active",
+          matched_paper_refs: ["1:EIMSDEU3"],
+        },
+        {
+          topic_id: "vision-transformers",
+          title: "Vision Transformers",
+          status: "active",
+          matched_paper_refs: ["1:EIMSDEU3"],
+        },
+      ],
+    });
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    await writeContextRequest(runRoot, {
+      main_task: "object detection",
+      method_family: "transformer-based direct set prediction",
+      external_context_section_anchors: ["sec-1-introduction"],
+      request_topic_context: true,
+      topic_context_reason: "Use the selected Host topic.",
+      selected_topic_id: "object-detection",
+      request_concept_context: true,
+      concept_labels: ["DETR", "object queries"],
+      request_citation_graph: true,
+      citation_graph_depth: 2,
+      citation_graph_direction: "both",
+      citation_graph_max_nodes: 80,
+      citation_graph_max_edges: 160,
+      citation_graph_include_low_signal: false,
+      reference_digest_policy: "all_library_references",
+      priority_reference_indices: [],
+    });
+    runRuntime(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+
+    const topicContext = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "topic-context.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(topicContext.topic_id, "object-detection");
+    assert.equal(topicContext.view, "semantic");
+    assert.equal(topicContext.context.semantic.topic.title, "Object Detection");
+
+    const candidateDigests = JSON.parse(
+      await fs.readFile(
+        path.join(
+          runRoot,
+          "runtime",
+          "views",
+          "topic-candidate-digests-view.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.equal(candidateDigests.selected_topic_id, "object-detection");
+    assert.deepEqual(
+      candidateDigests.items.map(
+        (item: Record<string, unknown>) => item.topic_id,
+      ),
+      ["vision-transformers"],
+    );
+    assert.equal(candidateDigests.items[0].digest.title, "Vision Transformers");
+
+    const calls = (
+      await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.equal(
+      calls.filter(
+        (entry) =>
+          entry.command === "topics get-context" &&
+          entry.input.view === "semantic",
+      ).length,
+      1,
+    );
+    assert.equal(
+      calls.filter(
+        (entry) =>
+          entry.command === "topics get-context" &&
+          entry.input.view === "digest",
+      ).length,
+      1,
     );
   });
 
@@ -1768,14 +2168,40 @@ describe("Literature deep reading bootstrap skill", function () {
         "utf8",
       ),
     );
-    const ref1 = references.items.find(
-      (item: Record<string, unknown>) => item.reference_id === "ref-1",
+    assert.equal(references.default_view, "item");
+    assert.equal(references.item_view.reference_count, 2);
+    assert.equal(references.raw_view.reference_count, 2);
+    const itemRef3 = references.item_view.items.find(
+      (item: Record<string, unknown>) => item.reference_id === "ref-3",
     );
-    const ref2 = references.items.find(
+    const itemRef2 = references.item_view.items.find(
       (item: Record<string, unknown>) => item.reference_id === "ref-2",
     );
-    assert.equal(ref1.digest_modal.available, true);
-    assert.equal(ref2.digest_modal.available, false);
+    assert.equal(itemRef3.binding_status, "library");
+    assert.equal(itemRef3.bound_paper_ref, "1:B");
+    assert.equal(itemRef3.digest_modal.available, true);
+    assert.equal(
+      itemRef3.digest_modal.result.representative_image.status,
+      "available",
+    );
+    assert.equal(itemRef2.binding_status, "external");
+    assert.equal(itemRef2.digest_modal.available, false);
+    assert.isTrue(
+      references.raw_view.items.every(
+        (item: Record<string, unknown>) =>
+          (item as { digest_modal?: { available?: boolean } }).digest_modal
+            ?.available === false,
+      ),
+    );
+    assert.isTrue(
+      references.raw_view.items.every(
+        (item: Record<string, unknown>) =>
+          typeof item.raw_markdown === "string" &&
+          !("title" in item) &&
+          !("year" in item) &&
+          !("authors" in item),
+      ),
+    );
 
     const concepts = JSON.parse(
       await fs.readFile(
@@ -1805,9 +2231,18 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     assert.deepEqual(
       preface.cards.map((item: Record<string, unknown>) => item.title),
-      ["研究领域", "研究方向", "本文位置", "阅读路线"],
+      ["研究领域", "研究方向", "本文位置", "核心创新"],
     );
     assert.lengthOf(preface.cards, 4);
+    assert.equal(preface.topic_context.topic_id, "computer-vision");
+    assert.equal(preface.topic_context.view, "semantic");
+    assert.equal(preface.topic_timeline.available, true);
+    assert.include(preface.topic_timeline.current_paper_key, "1:EIMSDEU3");
+    assert.isTrue(
+      preface.topic_timeline.items.some(
+        (item: Record<string, unknown>) => item.is_current_paper === true,
+      ),
+    );
 
     const batchView = JSON.parse(
       await fs.readFile(
@@ -1992,7 +2427,7 @@ describe("Literature deep reading bootstrap skill", function () {
   });
 
   it("submits final review and renders a self-contained deep-reading HTML", async function () {
-    this.timeout(10000);
+    this.timeout(45000);
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-final-"),
     );
@@ -2087,20 +2522,31 @@ describe("Literature deep reading bootstrap skill", function () {
       assert.include(html, marker);
     }
     assert.include(html, "data:image/png;base64,");
+    assert.include(html, '<html lang="zh-CN">');
     assert.include(html, "aligned-block-pair");
     assert.include(html, "data-paper-scroll");
     assert.include(html, "zotero-viewer-warning");
+    assert.include(html, "请用浏览器打开以获得完整的交互体验");
     assert.include(html, "当前处于静态阅读模式");
     assert.include(html, "static-citation-graph");
     assert.include(html, "static-cg-svg");
     assert.include(html, "initScrollTracking");
     assert.include(html, "可能的问题");
     assert.include(html, "引用线索");
+    assert.include(html, '<h1 id="summary">总结</h1>');
+    assert.include(html, '<h1 id="extensions">扩展阅读</h1>');
     assert.include(html, "math-display");
     assert.include(html, "<math");
     assert.notInclude(html, "math-fallback");
     assert.notInclude(html, "<code>\\");
-    assert.include(html, "structured references artifact");
+    assert.include(html, "markdown references");
+    assert.notInclude(html, "structured references artifact");
+    assert.include(html, "核心创新");
+    assert.include(html, "topic-timeline");
+    assert.include(html, "ZoteroSkillsTopicTimeline");
+    assert.include(html, "timeline-current-paper");
+    assert.include(html, "legend-icon-current");
+    assert.include(html, "阅读指引");
     assert.include(html, "__ZoteroSkillsDeepReadingCitationGraphAssets");
     assert.include(html, "__zoteroSkillsSynthesisGraphExport");
     assert.notInclude(html, "window.__zoteroSkillsSynthesisTopicExport=");
@@ -2119,11 +2565,51 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
     );
     assert.equal(sections.preface.title, "阅读前导读");
+    assert.deepEqual(
+      sections.preface.cards.map((item: Record<string, unknown>) => item.title),
+      ["研究领域", "研究方向", "本文位置", "核心创新"],
+    );
+    assert.deepInclude(sections.labels, {
+      summary: "总结",
+      references: "参考文献",
+      citation_graph: "引用图谱",
+      extensions: "扩展阅读",
+      viewer_warning: "请用浏览器打开以获得完整的交互体验。",
+      noscript_warning:
+        "当前处于静态阅读模式。请用浏览器打开以获得完整的交互体验。",
+    });
+    assert.equal(sections.preface.topic_timeline.available, true);
+    assert.isTrue(
+      sections.preface.topic_timeline.items.some(
+        (item: Record<string, unknown>) => item.is_current_paper === true,
+      ),
+    );
     assert.isAtLeast(sections.reading_blocks.length, 1);
     assert.isAtLeast(sections.translation.items.length, 1);
     assert.equal(sections.summary.source, "digest_artifact");
-    assert.equal(sections.references.references_source, "artifact");
-    assert.equal(sections.references.reference_count, 3);
+    assert.equal(sections.references.references_source, "markdown");
+    assert.equal(sections.references.default_view, "item");
+    assert.equal(sections.references.reference_count, 2);
+    assert.equal(sections.references.item_view.reference_count, 2);
+    assert.equal(sections.references.raw_view.reference_count, 2);
+    assert.isTrue(
+      sections.references.item_view.items.some(
+        (item: Record<string, unknown>) =>
+          item.reference_id === "ref-3" &&
+          item.binding_status === "library" &&
+          (item as { digest_modal?: { available?: boolean } }).digest_modal
+            ?.available === true,
+      ),
+    );
+    assert.isTrue(
+      sections.references.raw_view.items.every(
+        (item: Record<string, unknown>) =>
+          typeof item.raw_markdown === "string" &&
+          !("title" in item) &&
+          !("year" in item) &&
+          !("authors" in item),
+      ),
+    );
     assert.isAtLeast(sections.appendix_reading_blocks.length, 1);
     assert.isTrue(
       sections.appendix_reading_blocks.some((item: Record<string, unknown>) =>
@@ -2230,7 +2716,7 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     assert.isAtLeast(sections.extensions.items.length, 1);
     assert.isTrue(
-      sections.references.items.some(
+      sections.references.item_view.items.some(
         (item: Record<string, unknown>) =>
           (item as { digest_modal?: { available?: boolean } }).digest_modal
             ?.available === true,
@@ -2333,12 +2819,230 @@ describe("Literature deep reading bootstrap skill", function () {
             "[data-static-citation-graph]",
           ).length,
           prefaceCount: document.querySelectorAll("[data-preface] h1").length,
+          prefaceTimeline: document.querySelectorAll(
+            "[data-preface] .topic-timeline",
+          ).length,
+          currentPaperMarkers: document.querySelectorAll(
+            "[data-preface] .timeline-current-paper",
+          ).length,
+          timelineButtonMarkers: Array.from(
+            document.querySelectorAll("[data-preface] .timeline-marker"),
+          ).filter((node) => node.tagName === "BUTTON").length,
+          timelinePaperMarkers: document.querySelectorAll(
+            '[data-preface] .timeline-marker[data-topic-timeline-kind="paper"]',
+          ).length,
+          timelinePaperDigestMarkers: document.querySelectorAll(
+            '[data-preface] .timeline-marker[data-topic-timeline-kind="paper"][data-digest-ref]',
+          ).length,
+          currentLegend: document.querySelectorAll(
+            "[data-preface] .legend-icon-current",
+          ).length,
+          currentPaperScale:
+            (
+              document.querySelector(
+                "[data-preface] .timeline-current-paper",
+              ) as HTMLElement | null
+            )?.style.getPropertyValue("--pin-scale") || "",
+          readingGuideText:
+            document.querySelector("[data-preface] .reading-guide")
+              ?.textContent || "",
+          referenceView:
+            document
+              .querySelector(".structured-references")
+              ?.getAttribute("data-reference-active-view") || "",
+          referenceToggleCount: document.querySelectorAll(
+            "[data-reference-view]",
+          ).length,
+          libraryBoundReferences: document.querySelectorAll(
+            ".reference-item.is-library-bound",
+          ).length,
+          digestRows: document.querySelectorAll(
+            ".reference-item-view.has-digest[data-digest-ref]",
+          ).length,
+          digestButtons: document.querySelectorAll(".digest-button").length,
         };
       });
       assert.isTrue(browserState.jsReady);
       assert.equal(browserState.zoteroWarningDisplay, "none");
       assert.equal(browserState.staticGraphCount, 0);
       assert.equal(browserState.prefaceCount, 1);
+      assert.equal(browserState.prefaceTimeline, 1);
+      assert.equal(browserState.currentPaperMarkers, 1);
+      assert.isAtLeast(browserState.timelineButtonMarkers, 1);
+      assert.isAtLeast(browserState.timelinePaperMarkers, 1);
+      assert.equal(
+        browserState.timelinePaperDigestMarkers,
+        browserState.timelinePaperMarkers,
+      );
+      assert.equal(browserState.currentLegend, 1);
+      assert.equal(browserState.currentPaperScale, "1.5");
+      assert.include(browserState.readingGuideText, "阅读指引");
+      assert.equal(browserState.referenceView, "item");
+      assert.equal(browserState.referenceToggleCount, 2);
+      assert.equal(browserState.libraryBoundReferences, 1);
+      assert.equal(browserState.digestRows, 1);
+      assert.equal(browserState.digestButtons, 0);
+      await page.setViewportSize({ width: 2200, height: 1000 });
+      await page.waitForFunction(
+        () => !document.body.classList.contains("compare-disabled"),
+      );
+      await page.click('[data-mode="compare"]');
+      await page.waitForFunction(
+        () =>
+          ((
+            document.querySelector("[data-reading-flow]") as HTMLElement | null
+          )?.getBoundingClientRect().width || 0) > 1120,
+      );
+      const compareWidthState = await page.evaluate(() => ({
+        modeCompare: document.body.classList.contains("mode-compare"),
+        readingFlowWidth:
+          (
+            document.querySelector("[data-reading-flow]") as HTMLElement | null
+          )?.getBoundingClientRect().width || 0,
+      }));
+      assert.isTrue(compareWidthState.modeCompare);
+      assert.isAbove(compareWidthState.readingFlowWidth, 1120);
+      await page.click("[data-concept-toggle]");
+      const conceptRailState = await page.evaluate(() => {
+        const shell = document.querySelector(".shell") as HTMLElement | null;
+        const rail = document.querySelector(
+          "[data-concept-rail]",
+        ) as HTMLElement | null;
+        const toc = document.querySelector("[data-toc]") as HTMLElement | null;
+        const list = document.querySelector(
+          ".concept-list",
+        ) as HTMLElement | null;
+        const chip = document.querySelector(
+          ".concept-chip",
+        ) as HTMLElement | null;
+        const railRect = rail?.getBoundingClientRect();
+        const tocRect = toc?.getBoundingClientRect();
+        const chipRect = chip?.getBoundingClientRect();
+        const listStyle = list ? getComputedStyle(list) : null;
+        return {
+          shellOpen: Boolean(shell?.classList.contains("concept-rail-open")),
+          railRight: railRect?.right || 0,
+          tocLeft: tocRect?.left || 0,
+          listPosition: listStyle?.position || "",
+          listOverflowY: listStyle?.overflowY || "",
+          chipHeight: chipRect?.height || 0,
+        };
+      });
+      assert.isTrue(conceptRailState.shellOpen);
+      assert.isAtLeast(
+        conceptRailState.tocLeft,
+        conceptRailState.railRight - 1,
+      );
+      assert.equal(conceptRailState.listPosition, "static");
+      assert.include(["auto", "scroll"], conceptRailState.listOverflowY);
+      assert.isBelow(conceptRailState.chipHeight, 64);
+      await page.setViewportSize({ width: 2000, height: 1000 });
+      await page.waitForFunction(
+        () =>
+          !document
+            .querySelector("[data-concept-rail]")
+            ?.classList.contains("is-open"),
+      );
+      const conceptAutoCollapseState = await page.evaluate(() => ({
+        railOpen: document
+          .querySelector("[data-concept-rail]")
+          ?.classList.contains("is-open"),
+        shellOpen: document
+          .querySelector(".shell")
+          ?.classList.contains("concept-rail-open"),
+        tocCollapsed: document.body.classList.contains("toc-collapsed"),
+      }));
+      assert.isFalse(conceptAutoCollapseState.railOpen);
+      assert.isFalse(conceptAutoCollapseState.shellOpen);
+      assert.isFalse(conceptAutoCollapseState.tocCollapsed);
+      await page.setViewportSize({ width: 1780, height: 1000 });
+      await page.waitForFunction(() =>
+        document.body.classList.contains("toc-collapsed"),
+      );
+      const tocCollapseState = await page.evaluate(() => ({
+        tocCollapsed: document.body.classList.contains("toc-collapsed"),
+        tocDisplay: getComputedStyle(
+          document.querySelector("[data-toc]") as HTMLElement,
+        ).display,
+        compareDisabled: document.body.classList.contains("compare-disabled"),
+      }));
+      assert.isTrue(tocCollapseState.tocCollapsed);
+      assert.equal(tocCollapseState.tocDisplay, "none");
+      assert.isFalse(tocCollapseState.compareDisabled);
+      await page.setViewportSize({ width: 1500, height: 1000 });
+      await page.waitForFunction(() =>
+        document.body.classList.contains("compare-disabled"),
+      );
+      const compareDisableState = await page.evaluate(() => ({
+        modeOriginal: document.body.classList.contains("mode-original"),
+        modeCompare: document.body.classList.contains("mode-compare"),
+        compareDisabled:
+          (
+            document.querySelector(
+              '[data-mode="compare"]',
+            ) as HTMLButtonElement | null
+          )?.disabled || false,
+      }));
+      assert.isTrue(compareDisableState.modeOriginal);
+      assert.isFalse(compareDisableState.modeCompare);
+      assert.isTrue(compareDisableState.compareDisabled);
+      await page.setViewportSize({ width: 2200, height: 1000 });
+      await page.waitForFunction(
+        () => !document.body.classList.contains("compare-disabled"),
+      );
+      await page.click('[data-mode="compare"]');
+      await page.focus("[data-preface] .timeline-marker");
+      const tooltipState = await page.evaluate(() => ({
+        tooltipCount: document.querySelectorAll(".timeline-hover-popover")
+          .length,
+      }));
+      assert.equal(tooltipState.tooltipCount, 1);
+      await page.focus('[data-preface] [data-topic-paper-ref="1:B"]');
+      await page.keyboard.press("Enter");
+      const timelineDigestState = await page.evaluate(() => ({
+        modal: document.querySelectorAll(".paper-digest-modal").length,
+        representativeImage: document.querySelectorAll(
+          ".digest-representative-image img",
+        ).length,
+        text: document.querySelector(".paper-digest-modal")?.textContent || "",
+      }));
+      assert.equal(timelineDigestState.modal, 1);
+      assert.equal(timelineDigestState.representativeImage, 1);
+      assert.include(timelineDigestState.text, "Resolved digest");
+      await page.keyboard.press("Escape");
+      await page.click(".reference-item-view.has-digest[data-digest-ref]");
+      const digestModalState = await page.evaluate(() => ({
+        modal: document.querySelectorAll(".paper-digest-modal").length,
+        dialog: document.querySelectorAll(".paper-digest-dialog").length,
+        body: document.querySelectorAll(".paper-digest-body").length,
+        scrollBody: document.querySelectorAll(".digest-scroll-body").length,
+        representativeImage: document.querySelectorAll(
+          ".digest-representative-image img",
+        ).length,
+        text: document.querySelector(".paper-digest-modal")?.textContent || "",
+      }));
+      assert.equal(digestModalState.modal, 1);
+      assert.equal(digestModalState.dialog, 1);
+      assert.equal(digestModalState.body, 1);
+      assert.equal(digestModalState.scrollBody, 1);
+      assert.equal(digestModalState.representativeImage, 1);
+      assert.include(digestModalState.text, "Resolved digest");
+      await page.keyboard.press("Escape");
+      await page.click('[data-reference-view="raw"]');
+      const rawReferenceState = await page.evaluate(() => ({
+        referenceView:
+          document
+            .querySelector(".structured-references")
+            ?.getAttribute("data-reference-active-view") || "",
+        digestButtons: document.querySelectorAll(".digest-button").length,
+        rawItems: document.querySelectorAll(".reference-raw-view").length,
+        rawText:
+          document.querySelector(".reference-raw-markdown")?.textContent || "",
+      }));
+      assert.equal(rawReferenceState.referenceView, "raw");
+      assert.equal(rawReferenceState.digestButtons, 0);
+      assert.equal(rawReferenceState.rawItems, 2);
+      assert.include(rawReferenceState.rawText, "Example reference");
 
       const noJsPage = await browser.newPage({
         viewport: { width: 1440, height: 1000 },
@@ -2360,6 +3064,24 @@ describe("Literature deep reading bootstrap skill", function () {
           staticGraph: document.querySelectorAll(
             "[data-static-citation-graph] .static-cg-svg",
           ).length,
+          prefaceTimeline: document.querySelectorAll(
+            "[data-preface] .topic-timeline",
+          ).length,
+          currentPaperMarkers: document.querySelectorAll(
+            "[data-preface] .timeline-current-paper",
+          ).length,
+          readingGuideText:
+            document.querySelector("[data-preface] .reading-guide")
+              ?.textContent || "",
+          referenceToggleCount: document.querySelectorAll(
+            "[data-reference-view]",
+          ).length,
+          libraryBoundReferences: document.querySelectorAll(
+            ".reference-item.is-library-bound",
+          ).length,
+          digestButtons: document.querySelectorAll(".digest-button").length,
+          rawReferenceItems:
+            document.querySelectorAll(".reference-item").length,
           staticWarning:
             document.body.textContent?.includes("当前处于静态阅读模式"),
         }));
@@ -2368,6 +3090,13 @@ describe("Literature deep reading bootstrap skill", function () {
         assert.isAtLeast(staticState.readingBlocks, 1);
         assert.equal(staticState.references, 1);
         assert.equal(staticState.staticGraph, 1);
+        assert.equal(staticState.prefaceTimeline, 1);
+        assert.equal(staticState.currentPaperMarkers, 1);
+        assert.include(staticState.readingGuideText, "阅读指引");
+        assert.equal(staticState.referenceToggleCount, 0);
+        assert.equal(staticState.libraryBoundReferences, 0);
+        assert.equal(staticState.digestButtons, 0);
+        assert.equal(staticState.rawReferenceItems, 2);
         assert.isTrue(staticState.staticWarning);
       } finally {
         await noJsPage.close();
@@ -2728,6 +3457,31 @@ describe("Literature deep reading bootstrap skill", function () {
           entry.code === "host_bridge_unavailable",
       ),
     );
+    await writeReadingEnrichment(runRoot);
+    runRuntime(
+      [
+        "submit-reading-enrichment",
+        "--payload",
+        "runtime/payloads/reading-enrichment.json",
+      ],
+      runRoot,
+    );
+    const preface = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "preface-view.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(preface.topic_timeline.available, false);
+    const references = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "references-view.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(references.default_view, "raw");
+    assert.equal(references.item_view.reference_count, 0);
+    assert.isAtLeast(references.raw_view.reference_count, 1);
   });
 
   it("rejects invalid context request payloads", async function () {

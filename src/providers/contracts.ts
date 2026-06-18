@@ -225,6 +225,9 @@ export type ProviderExecutionSucceededResult = {
   bundleBytes?: Uint8Array;
   bundleDir?: string;
   resultJson?: unknown;
+  resultJsonPath?: string;
+  workspaceDir?: string;
+  resultArtifactBasePath?: string;
   responseJson?: unknown;
   sequence?: {
     workflow_run_id?: string;
@@ -265,6 +268,9 @@ export type ProviderExecutionTerminalErrorResult = {
   error?: string;
   bundleBytes?: undefined;
   resultJson?: unknown;
+  resultJsonPath?: string;
+  workspaceDir?: string;
+  resultArtifactBasePath?: string;
   responseJson?: unknown;
 };
 

@@ -695,6 +695,10 @@
       meta.appendChild(
         el("span", "assistant-transcript-time", formatTime(item.createdAt)),
       );
+      if (String(item.state || "").trim() === "streaming") {
+        body.textContent = String(item.text || "");
+        return;
+      }
       body.classList.add("assistant-transcript-markdown-body");
       body.innerHTML = renderMarkdown(String(item.text || ""));
       decorateMarkdownCodeBlocks(body, options);
@@ -704,6 +708,10 @@
       meta.textContent = String(
         item.label || transcriptLabel(options, "thinking"),
       );
+      if (String(item.state || "").trim() === "streaming") {
+        body.textContent = String(item.text || "");
+        return;
+      }
       body.classList.add("assistant-transcript-markdown-body");
       body.innerHTML = renderMarkdown(String(item.text || ""));
       decorateMarkdownCodeBlocks(body, options);
@@ -898,6 +906,59 @@
     return createTranscriptNode(item || {}, options || {});
   }
 
+  function transcriptItemSignature(item, options) {
+    const source = item || {};
+    const expanded =
+      source.kind === "tool_activity_group" && source.expanded === true
+        ? "expanded"
+        : "collapsed";
+    return [
+      options && options.variant,
+      options && options.mode,
+      source.id,
+      source.kind,
+      source.role,
+      source.state,
+      source.status,
+      source.label,
+      source.text,
+      source.summary,
+      source.title,
+      source.createdAt,
+      source.updatedAt,
+      source.toolName,
+      source.toolKind,
+      source.inputSummary,
+      source.resultSummary,
+      expanded,
+      source.revision && source.revision.count,
+      source.revision && source.revision.latestStatus,
+      Array.isArray(source.items)
+        ? source.items
+            .map(function (entry) {
+              return [
+                entry && entry.id,
+                entry && entry.state,
+                entry && entry.toolName,
+                entry && entry.summary,
+                entry && entry.resultSummary,
+              ].join(":");
+            })
+            .join("|")
+        : "",
+    ].join("\u001f");
+  }
+
+  function renderAssistantTranscriptItemIfChanged(row, item, options) {
+    const signature = transcriptItemSignature(item || {}, options || {});
+    if (row.getAttribute("data-assistant-render-signature") === signature) {
+      return false;
+    }
+    renderAssistantTranscriptItem(row, item, options);
+    row.setAttribute("data-assistant-render-signature", signature);
+    return true;
+  }
+
   function renderAssistantTranscript(options) {
     const opts = options || {};
     const container = opts.container;
@@ -949,7 +1010,7 @@
       items.forEach(function (item) {
         const row = createRow(item, { variant });
         if (canDiff) nodeMap.set(String(item.id || ""), row);
-        renderAssistantTranscriptItem(row, item, opts);
+        renderAssistantTranscriptItemIfChanged(row, item, opts);
         container.appendChild(row);
       });
     } else {
@@ -961,7 +1022,7 @@
           nodeMap.set(id, row);
           container.appendChild(row);
         }
-        renderAssistantTranscriptItem(row, item, opts);
+        renderAssistantTranscriptItemIfChanged(row, item, opts);
       });
     }
     if (shouldStick) stickAssistantTranscriptToBottom(container);
@@ -980,6 +1041,7 @@
     isAssistantTranscriptNearBottom,
     renderAssistantTranscript,
     renderAssistantTranscriptItem,
+    renderAssistantTranscriptItemIfChanged,
     shouldStickAssistantTranscript,
     stickAssistantTranscriptToBottom,
   };

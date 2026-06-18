@@ -2683,6 +2683,9 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     method: "getReferenceSidecarIndex",
     properties: {
       sourceRefs: { type: "array", maxItems: 250 },
+      includeReferences: { type: "boolean" },
+      referenceSourceRefs: { type: "array", maxItems: 250 },
+      rawReferenceIds: { type: "array", maxItems: 250 },
       cursor: { type: ["number", "string"] },
       limit: { type: ["number", "string"], minimum: 1, maximum: 250 },
       artifactCoverage: { type: "string" },
@@ -2853,6 +2856,8 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       paperRef: { type: "string" },
       digest_ref: { type: "object" },
       digestRef: { type: "object" },
+      include_representative_image: { type: "boolean" },
+      includeRepresentativeImage: { type: "boolean" },
     },
   }),
   synthesisTool({

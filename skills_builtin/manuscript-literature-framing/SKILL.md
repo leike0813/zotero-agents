@@ -1,6 +1,6 @@
 ---
 name: manuscript-literature-framing
-description: 基于论文题目、用户确认的 manuscript intent 和已确认的 Zotero Topic Synthesis 证据，按轻量状态机生成 Introduction 与 Related Work 的写作计划和 LaTeX 草稿。
+description: Draft a LaTeX literature review section. Use this skill when user wants to create an introduction and/or related work section for a research paper. Ensure you can access to the Zotero library through zotero-bridge CLI.
 ---
 
 # Manuscript Literature Framing

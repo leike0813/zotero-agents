@@ -18,6 +18,12 @@ import {
   type ZipFileEntry,
 } from "./zipTransport";
 import {
+  buildTempBundlePath,
+  removeFileIfExists,
+  writeBytes,
+} from "../../modules/workflowExecution/bundleIO";
+import { ZipBundleReader } from "../../workflows/zipBundleReader";
+import {
   isWaiting,
   normalizeStatus,
   normalizeStatusWithGuard,
@@ -97,6 +103,10 @@ function normalizeExecutionMode(value: unknown): "auto" | "interactive" {
   return normalized === "interactive" ? "interactive" : "auto";
 }
 
+function normalizeString(value: unknown) {
+  return String(value || "").trim();
+}
+
 function normalizeUploadRelativePath(value: unknown) {
   return String(value || "")
     .trim()
@@ -104,6 +114,81 @@ function normalizeUploadRelativePath(value: unknown) {
     .replace(/^\.\/+/, "")
     .replace(/\/+/g, "/")
     .replace(/^\/+/, "");
+}
+
+function sanitizeResultNamespaceSegment(value: unknown) {
+  return (
+    normalizeString(value)
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "skill"
+  );
+}
+
+function normalizeBundleEntryPath(value: unknown) {
+  return normalizeString(value)
+    .replace(/^file:\/\/+/, "")
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/^\/+/, "")
+    .split("/")
+    .filter((segment) => segment && segment !== "." && segment !== "..")
+    .join("/");
+}
+
+function parentBundleEntryPath(value: string) {
+  const normalized = normalizeBundleEntryPath(value);
+  if (!normalized) {
+    return "";
+  }
+  const segments = normalized.split("/");
+  segments.pop();
+  return segments.join("/");
+}
+
+function collectResultJsonPathCandidates(args: {
+  skillId?: string;
+  responseJson?: unknown;
+}) {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown) => {
+    const normalized = normalizeBundleEntryPath(value);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    candidates.push(normalized);
+  };
+  if (isObjectRecord(args.responseJson)) {
+    add(args.responseJson.resultJsonPath);
+    add(args.responseJson.result_json_path);
+    for (const key of ["resultJsonPath", "result_json_path"]) {
+      const raw = normalizeString(args.responseJson[key]);
+      const lowered = raw.replace(/\\/g, "/").toLowerCase();
+      const markerIndex = lowered.lastIndexOf("/result/");
+      if (markerIndex >= 0) {
+        add(raw.slice(markerIndex + 1));
+      }
+    }
+  }
+  const skillSegment = sanitizeResultNamespaceSegment(args.skillId);
+  if (skillSegment) {
+    for (let index = 1; index <= 20; index += 1) {
+      add(`result/${skillSegment}.${index}/result.json`);
+    }
+  }
+  add("result/result.json");
+  return candidates;
+}
+
+function resolveWorkspaceDir(responseJson: unknown) {
+  if (!isObjectRecord(responseJson)) {
+    return "";
+  }
+  return (
+    normalizeString(responseJson.workspaceDir) ||
+    normalizeString(responseJson.workspace_dir)
+  );
 }
 
 function ensureUploadRelativePath(args: { value: unknown; field: string }) {
@@ -430,7 +515,7 @@ export class SkillRunnerClient {
     step: SkillRunnerHttpStepDefinition,
     requestId: string,
   ) {
-    let timeoutAnchorAt = Date.now();
+    const timeoutAnchorAt = Date.now();
     const intervalMs = Math.max(0, request.poll?.interval_ms ?? 2000);
     const timeoutRaw = request.poll?.timeout_ms;
     const timeoutMs =
@@ -463,6 +548,9 @@ export class SkillRunnerClient {
           error: terminalError,
         });
       }
+      if (timeoutEnabled && Date.now() - timeoutAnchorAt > timeoutMs) {
+        throw new Error(`SkillRunner polling timeout after ${timeoutMs}ms`);
+      }
       if (isWaiting(status)) {
         this.appendTransportLog({
           level: "debug",
@@ -482,10 +570,6 @@ export class SkillRunnerClient {
         await sleep(intervalMs);
         continue;
       }
-      if (timeoutEnabled && Date.now() - timeoutAnchorAt > timeoutMs) {
-        throw new Error(`SkillRunner polling timeout after ${timeoutMs}ms`);
-      }
-      timeoutAnchorAt = Date.now();
       pollRetry += 1;
       await sleep(intervalMs);
     }
@@ -563,6 +647,46 @@ export class SkillRunnerClient {
     }
     const data = await response.arrayBuffer();
     return new Uint8Array(data);
+  }
+
+  private async normalizeBundleTerminalResult(args: {
+    requestId: string;
+    skillId?: string;
+    bundleBytes: Uint8Array;
+    responseJson?: unknown;
+  }) {
+    const bundlePath = buildTempBundlePath(args.requestId);
+    await writeBytes(bundlePath, args.bundleBytes);
+    const bundleReader = new ZipBundleReader(bundlePath);
+    const candidates = collectResultJsonPathCandidates({
+      skillId: args.skillId,
+      responseJson: args.responseJson,
+    });
+    try {
+      const errors: string[] = [];
+      for (const candidate of candidates) {
+        try {
+          const text = await bundleReader.readText(candidate);
+          return {
+            resultJson: JSON.parse(text),
+            resultJsonPath: candidate,
+            resultArtifactBasePath: parentBundleEntryPath(candidate),
+            workspaceDir: resolveWorkspaceDir(args.responseJson) || undefined,
+          };
+        } catch (error) {
+          errors.push(
+            `${candidate}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+      throw new Error(
+        `SkillRunner bundle result JSON not found for request ${args.requestId}; candidates=${JSON.stringify(candidates)}; errors=${JSON.stringify(errors.slice(0, 5))}`,
+      );
+    } finally {
+      await removeFileIfExists(bundlePath);
+    }
   }
 
   private async executeResultStep(
@@ -790,6 +914,7 @@ export class SkillRunnerClient {
     request: SkillRunnerHttpStepsRequest,
     options?: {
       onProgress?: (event: ProviderProgressEvent) => void;
+      skillId?: string;
     },
   ): Promise<ProviderExecutionResult> {
     if (request.kind !== "http.steps") {
@@ -825,11 +950,21 @@ export class SkillRunnerClient {
     const pollResult = await this.executePollStep(request, pollStep, requestId);
     if (bundleStep) {
       const bundleBytes = await this.executeBundleStep(bundleStep, requestId);
+      const normalized = await this.normalizeBundleTerminalResult({
+        requestId,
+        skillId: options?.skillId,
+        bundleBytes,
+        responseJson: pollResult,
+      });
       return {
         status: "succeeded",
         requestId,
         fetchType: "bundle",
         bundleBytes,
+        resultJson: normalized.resultJson,
+        resultJsonPath: normalized.resultJsonPath,
+        workspaceDir: normalized.workspaceDir,
+        resultArtifactBasePath: normalized.resultArtifactBasePath,
         responseJson: pollResult,
       };
     }
@@ -858,7 +993,10 @@ export class SkillRunnerClient {
       request.runtime_options?.execution_mode || "",
     ).trim();
     if (executionMode !== "interactive") {
-      return this.executeHttpSteps(httpStepsRequest, options);
+      return this.executeHttpSteps(httpStepsRequest, {
+        ...options,
+        skillId: request.skill_id,
+      });
     }
 
     const createStep = this.findStep(httpStepsRequest, "create");
@@ -910,11 +1048,21 @@ export class SkillRunnerClient {
     if (backendStatus === "succeeded") {
       if (bundleStep) {
         const bundleBytes = await this.executeBundleStep(bundleStep, requestId);
+        const normalized = await this.normalizeBundleTerminalResult({
+          requestId,
+          skillId: request.skill_id,
+          bundleBytes,
+          responseJson: runState,
+        });
         return {
           status: "succeeded" as const,
           requestId,
           fetchType: "bundle" as const,
           bundleBytes,
+          resultJson: normalized.resultJson,
+          resultJsonPath: normalized.resultJsonPath,
+          workspaceDir: normalized.workspaceDir,
+          resultArtifactBasePath: normalized.resultArtifactBasePath,
           responseJson: runState,
         };
       }

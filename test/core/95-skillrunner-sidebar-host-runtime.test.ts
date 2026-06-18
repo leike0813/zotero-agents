@@ -78,6 +78,63 @@ describe("skillrunner sidebar host runtime", function () {
     );
   });
 
+  it("scopes sidebar snapshots to the active pane and throttles streaming run updates", async function () {
+    const workspaceHost = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const viewModel = await readProjectFile(
+      "src/modules/assistantSidebarViewModel.ts",
+    );
+    const runDialog = await readProjectFile(
+      "src/modules/skillRunnerRunDialog.ts",
+    );
+
+    assert.include(viewModel, "AssistantSidebarSnapshot");
+    assert.include(viewModel, "stripAssistantSidebarTranscript");
+    assert.include(viewModel, 'streamingMode: "plain-incremental"');
+    assert.include(workspaceHost, "scopeKey");
+    assert.include(workspaceHost, "snapshotRevision");
+    assert.include(workspaceHost, "decorateAssistantSidebarChildSnapshot");
+    assert.include(workspaceHost, 'if (host.activeTab === "acp-chat")');
+    assert.include(workspaceHost, 'if (host.activeTab === "acp-skills")');
+    assert.include(runDialog, "scheduleSnapshotFlush");
+    assert.include(runDialog, "ASSISTANT_SIDEBAR_STREAM_FLUSH_MS");
+    assert.include(runDialog, 'conversationEntry.kind !== "assistant_message"');
+  });
+
+  it("queues sidebar frontend rendering and keeps streaming transcript rows plain", async function () {
+    const acpChat = await readProjectFile(
+      "addon/content/dashboard/acp-chat.js",
+    );
+    const acpSkill = await readProjectFile(
+      "addon/content/dashboard/acp-skill-run.js",
+    );
+    const transcriptRenderer = await readProjectFile(
+      "addon/content/dashboard/assistant-transcript-renderer.js",
+    );
+
+    assert.include(acpChat, "function queueRender");
+    assert.include(acpChat, "requestAnimationFrame");
+    assert.include(acpChat, "queueRender(payload)");
+    assert.include(acpSkill, "function queueRender");
+    assert.include(acpSkill, "requestAnimationFrame");
+    assert.include(acpSkill, "queueRender(data.payload || {})");
+    assert.include(transcriptRenderer, "data-assistant-render-signature");
+    assert.include(transcriptRenderer, "transcriptItemSignature");
+    assert.include(
+      transcriptRenderer,
+      'String(item.state || "").trim() === "streaming"',
+    );
+    assert.include(
+      transcriptRenderer,
+      'body.textContent = String(item.text || "")',
+    );
+    assert.include(
+      transcriptRenderer,
+      "renderAssistantTranscriptItemIfChanged",
+    );
+  });
+
   it("keeps SkillRunner drawer semantics in the shared model instead of the deprecated host", async function () {
     const workspaceHost = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",

@@ -25,6 +25,10 @@ import {
   GRAPH_ZOOM_SLIDER_MAX,
 } from "./shared/citationGraphVisualRules";
 import {
+  renderTopicTimeline as renderSharedTopicTimeline,
+  type TopicTimelineData,
+} from "./shared/topicTimelineRenderer";
+import {
   SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
   formatSynthesisWorkbenchMessage,
   type SynthesisWorkbenchI18nEnvelope,
@@ -199,6 +203,13 @@ type Snapshot = {
   };
   reviews?: {
     filters: Record<string, unknown>;
+    summary?: {
+      openCount?: number;
+      indexCount?: number;
+      referenceMatchingCount?: number;
+      conceptCount?: number;
+      topicGraphCount?: number;
+    };
   };
   tags: {
     filters: Record<string, unknown>;
@@ -2471,6 +2482,37 @@ function renderInsightCard(
   return card;
 }
 
+function openReviewCount(rows: Array<Record<string, unknown>> | undefined) {
+  return (rows || []).filter((row) => textValue(row.status) === "open").length;
+}
+
+function reviewSummaryForHome(snapshot: Snapshot) {
+  const summary = snapshot.reviews?.summary || {};
+  const indexFallback =
+    openReviewCount(snapshot.registry.cleanupProposals) +
+    openReviewCount(snapshot.registry.matchProposals);
+  const conceptFallback = openReviewCount(snapshot.concepts.reviewItems);
+  const topicGraphFallback = openReviewCount(snapshot.topicGraph.reviewItems);
+  const indexCount = Math.max(Number(summary.indexCount || 0), indexFallback);
+  const conceptCount = Math.max(
+    Number(summary.conceptCount || 0),
+    conceptFallback,
+  );
+  const topicGraphCount = Math.max(
+    Number(summary.topicGraphCount || 0),
+    topicGraphFallback,
+  );
+  return {
+    openCount: Math.max(
+      Number(summary.openCount || 0),
+      indexCount + conceptCount + topicGraphCount,
+    ),
+    indexCount,
+    conceptCount,
+    topicGraphCount,
+  };
+}
+
 function renderTopicCard(row: Record<string, unknown>) {
   const card = el("button", "topic-card");
   card.type = "button";
@@ -2577,17 +2619,22 @@ function renderHome(main: HTMLElement, snapshot: Snapshot) {
       `${snapshot.graph.visibleEdges.length} visible edges`,
     ),
   );
+  const reviewSummary = reviewSummaryForHome(snapshot);
   grid.appendChild(
     renderInsightCard(
-      "Sync",
-      snapshot.sync?.status || "ready",
-      `${snapshot.conflicts?.candidates?.length || 0} open conflicts`,
-      "orange",
+      t("synthesis-home-review-items"),
+      reviewSummary.openCount,
+      t("synthesis-home-review-items-detail", {
+        index: reviewSummary.indexCount,
+        concepts: reviewSummary.conceptCount,
+        topicGraph: reviewSummary.topicGraphCount,
+      }),
+      reviewSummary.openCount ? "orange" : "",
     ),
   );
   insights.appendChild(grid);
   shell.appendChild(insights);
-  shell.appendChild(renderGitSyncPanel(snapshot));
+  shell.appendChild(renderSyncPanel(snapshot));
 
   const topics = el("section", "workspace-section");
   const topicHeader = el("div", "section-heading");
@@ -2615,135 +2662,41 @@ function renderHome(main: HTMLElement, snapshot: Snapshot) {
   main.appendChild(shell);
 }
 
-function renderGitSyncPanel(snapshot: Snapshot) {
+function renderSyncPanel(snapshot: Snapshot) {
   const section = el("section", "workspace-section");
+  section.classList.add("sync-panel");
   const header = el("div", "section-heading");
-  header.appendChild(el("h2", "", "Sync"));
+  header.appendChild(el("h2", "", t("synthesis-home-sync")));
   section.appendChild(header);
-  const git = snapshot.sync?.git || {};
   const webdav = snapshot.sync?.webdav || {};
-  const syncNowPending = isOperationPending("syncNow", {});
-  const retrySyncPending = isOperationPending("retryGitSync", {});
   const webDavSyncNowPending = isOperationPending("syncWebDavNow", {});
   const webDavRetryPending = isOperationPending("retryWebDavSync", {});
-  const gitSyncPending = syncNowPending || retrySyncPending;
   const webDavSyncPending = webDavSyncNowPending || webDavRetryPending;
-  const remoteBranchState = textValue(git.connection_test?.remote_branch_state);
-  const branchStatus =
-    remoteBranchState === "exists"
-      ? "ready"
-      : remoteBranchState === "missing_initializable"
-        ? "will initialize"
-        : git.connection_test?.ok === false
-          ? "failed"
-          : "unknown";
-  const grid = el("div", "insight-grid");
-  grid.appendChild(
-    renderInsightCard(
-      "Git exchange",
-      git.queue_state || "disabled",
-      git.config_status
-        ? `Config ${git.config_status}`
-        : git.paused
-          ? "Paused"
-          : "Canonical store exchange state",
-      git.queue_state === "blocked_conflict" ? "orange" : "teal",
-    ),
+  const summary = el("div", "sync-summary");
+  const appendSummaryItem = (label: string, value: string, detail = "") => {
+    const item = el("div", "sync-summary-item");
+    item.appendChild(el("span", "sync-summary-label", label));
+    item.appendChild(el("strong", "sync-summary-value", value));
+    if (detail) {
+      item.appendChild(el("span", "sync-summary-detail", detail));
+    }
+    summary.appendChild(item);
+  };
+  appendSummaryItem(
+    t("synthesis-sync-webdav-exchange"),
+    textValue(webdav.queue_state, "disabled"),
+    webdav.config_status
+      ? t("synthesis-sync-config", { status: webdav.config_status })
+      : webdav.paused
+        ? t("synthesis-sync-paused")
+        : t("synthesis-sync-webdav-exchange-detail"),
   );
-  grid.appendChild(
-    renderInsightCard(
-      "Remote",
-      git.remote_url || "Not configured",
-      git.branch
-        ? `Branch ${git.branch} · ${branchStatus}`
-        : "Single remote branch",
-      "blue",
-    ),
+  appendSummaryItem(
+    t("synthesis-sync-remote"),
+    textValue(webdav.remote_path) || t("synthesis-sync-not-configured"),
+    textValue(webdav.base_url) || t("synthesis-sync-remote-detail"),
   );
-  grid.appendChild(
-    renderInsightCard(
-      "Last run",
-      git.last_run_status || "-",
-      git.last_run_at || "No sync run recorded",
-    ),
-  );
-  grid.appendChild(
-    renderInsightCard(
-      "Token",
-      git.token_masked || "Not saved",
-      git.token_updated_at || "Encrypted preference storage",
-      git.token_masked ? "green" : "gray",
-    ),
-  );
-  grid.appendChild(
-    renderInsightCard(
-      "Review items",
-      git.conflict_count || 0,
-      "Canonical assets waiting for conflict review",
-      "orange",
-    ),
-  );
-  grid.appendChild(
-    renderInsightCard(
-      "WebDAV exchange",
-      webdav.queue_state || "disabled",
-      webdav.config_status
-        ? `Config ${webdav.config_status}`
-        : webdav.paused
-          ? "Paused"
-          : "Durable bundle exchange state",
-      webdav.queue_state === "blocked_conflict" ? "orange" : "green",
-    ),
-  );
-  grid.appendChild(
-    renderInsightCard(
-      "WebDAV remote",
-      webdav.remote_path || "Not configured",
-      webdav.base_url || "Manual durable bundle sync",
-      "blue",
-    ),
-  );
-  section.appendChild(grid);
-  const actions = el("div", "toolbar");
-  const allowed = new Set(git.allowedActions || []);
-  if (!git.adapter_configured) {
-    actions.appendChild(
-      makeButton(t("synthesis-action-open-preferences"), "hostCommand", {
-        command: "openPreferences",
-      }),
-    );
-  } else {
-    actions.appendChild(
-      makeButton(
-        "Sync now",
-        "hostCommand",
-        { command: "syncNow" },
-        false,
-        !allowed.has("syncNow"),
-      ),
-    );
-    actions.appendChild(
-      makeButton(
-        git.paused ? "Resume" : "Pause",
-        "hostCommand",
-        { command: git.paused ? "resumeGitSync" : "pauseGitSync" },
-        false,
-        git.paused
-          ? !allowed.has("resumeGitSync")
-          : !allowed.has("pauseGitSync"),
-      ),
-    );
-    actions.appendChild(
-      makeButton(
-        "Retry",
-        "hostCommand",
-        { command: "retryGitSync" },
-        false,
-        !allowed.has("retryGitSync"),
-      ),
-    );
-  }
-  section.appendChild(actions);
+  section.appendChild(summary);
   const webDavActions = el("div", "toolbar");
   const webDavAllowed = new Set(webdav.allowedActions || []);
   if (!webdav.adapter_configured) {
@@ -2755,7 +2708,7 @@ function renderGitSyncPanel(snapshot: Snapshot) {
   } else {
     webDavActions.appendChild(
       makeButton(
-        "WebDAV Sync now",
+        t("synthesis-action-webdav-sync-now"),
         "hostCommand",
         { command: "syncWebDavNow" },
         false,
@@ -2764,7 +2717,9 @@ function renderGitSyncPanel(snapshot: Snapshot) {
     );
     webDavActions.appendChild(
       makeButton(
-        webdav.paused ? "Resume WebDAV" : "Pause WebDAV",
+        webdav.paused
+          ? t("synthesis-action-resume-webdav-sync")
+          : t("synthesis-action-pause-webdav-sync"),
         "hostCommand",
         { command: webdav.paused ? "resumeWebDavSync" : "pauseWebDavSync" },
         false,
@@ -2775,7 +2730,7 @@ function renderGitSyncPanel(snapshot: Snapshot) {
     );
     webDavActions.appendChild(
       makeButton(
-        "Retry WebDAV",
+        t("synthesis-action-retry-webdav-sync"),
         "hostCommand",
         { command: "retryWebDavSync" },
         false,
@@ -2784,142 +2739,198 @@ function renderGitSyncPanel(snapshot: Snapshot) {
     );
   }
   section.appendChild(webDavActions);
+  section.appendChild(
+    renderSyncFeedbackLog(snapshot, webdav, webDavSyncPending),
+  );
+  appendSyncConflictPanel(section, webdav, webDavAllowed);
+  return section;
+}
+
+function renderSyncFeedbackLog(
+  snapshot: Snapshot,
+  webdav: SyncTransportSnapshot,
+  webDavSyncPending: boolean,
+) {
+  const log = el("div", "sync-feedback-terminal");
+  const appendLine = (
+    level: "info" | "ok" | "warn" | "error",
+    source: string,
+    message: string,
+  ) => {
+    const line = el("div", `sync-log-line sync-log-level-${level}`);
+    line.appendChild(el("span", "sync-log-source", source));
+    line.appendChild(el("span", "sync-log-message", message));
+    log.appendChild(line);
+  };
+
+  const syncOperations = [
+    "syncWebDavNow",
+    "retryWebDavSync",
+    "pauseWebDavSync",
+    "resumeWebDavSync",
+    "resolveWebDavSyncConflict",
+  ];
+  (snapshot.actions?.inFlight || [])
+    .filter((entry) => syncOperations.includes(entry.command || ""))
+    .forEach((entry) =>
+      appendLine(
+        "info",
+        t("synthesis-sync-log-pending"),
+        `${entry.label || entry.command} ${t("synthesis-sync-log-running")}`,
+      ),
+    );
+  if (webDavSyncPending && !(snapshot.actions?.inFlight || []).length) {
+    appendLine(
+      "info",
+      t("synthesis-sync-log-pending"),
+      t("synthesis-sync-log-webdav-running"),
+    );
+  }
+  const lastFailed = snapshot.actions?.lastFailed;
+  if (lastFailed && syncOperations.includes(lastFailed.command || "")) {
+    appendLine(
+      "error",
+      t("synthesis-sync-log-failed"),
+      `${lastFailed.label || lastFailed.command}: ${
+        lastFailed.message || t("synthesis-sync-log-failed")
+      }`,
+    );
+  }
+  const lastCompleted = snapshot.actions?.lastCompleted;
+  if (lastCompleted && syncOperations.includes(lastCompleted.command || "")) {
+    appendLine(
+      "ok",
+      t("synthesis-sync-log-completed"),
+      `${lastCompleted.label || lastCompleted.command} ${t(
+        "synthesis-sync-log-completed",
+      )}`,
+    );
+  }
+
   const diagnostics = [
     ...(snapshot.sync?.diagnostics || []),
-    ...(git.diagnostics || []),
     ...(webdav.diagnostics || []),
   ];
-  if (gitSyncPending || webDavSyncPending) {
-    const list = el("div", "details");
-    list.appendChild(
-      el(
-        "div",
-        "muted",
-        webDavSyncPending ? "WebDAV Sync is running." : "Git Sync is running.",
-      ),
+  diagnostics.slice(0, 6).forEach((entry) => {
+    appendLine(
+      entry.severity === "error"
+        ? "error"
+        : entry.severity === "warning"
+          ? "warn"
+          : "info",
+      t("synthesis-sync-log-diagnostic"),
+      `${textValue(entry.code)}: ${textValue(entry.message)}`,
     );
-    section.appendChild(list);
-  } else if (diagnostics.length) {
-    const list = el("div", "details");
-    diagnostics.slice(0, 4).forEach((entry) => {
-      list.appendChild(
-        el(
-          "div",
-          "muted",
+  });
+
+  const connectionDiagnostics = webdav.connection_test?.diagnostics || [];
+  if (webdav.connection_test || connectionDiagnostics.length) {
+    appendLine(
+      webdav.connection_test?.ok ? "ok" : "warn",
+      t("synthesis-sync-log-connection"),
+      `${webdav.connection_test?.ok ? t("synthesis-sync-log-ready") : t("synthesis-sync-log-not-ready")} ${
+        webdav.connection_test?.tested_at || ""
+      }`.trim(),
+    );
+    connectionDiagnostics
+      .slice(0, 3)
+      .forEach((entry) =>
+        appendLine(
+          entry.severity === "error" ? "error" : "warn",
+          t("synthesis-sync-log-connection"),
           `${textValue(entry.code)}: ${textValue(entry.message)}`,
         ),
       );
-    });
-    section.appendChild(list);
   }
-  const connectionDiagnostics = git.connection_test?.diagnostics || [];
+
+  if (webdav.last_run_status || webdav.last_run_at) {
+    appendLine(
+      webdav.last_run_status?.startsWith("failed") ? "error" : "info",
+      t("synthesis-sync-log-last-run"),
+      `${
+        webdav.last_run_status || t("synthesis-sync-log-unknown")
+      } ${webdav.last_run_at || ""}`.trim(),
+    );
+  }
+  if (!log.childElementCount) {
+    appendLine(
+      "info",
+      t("synthesis-home-sync"),
+      t("synthesis-sync-log-no-activity"),
+    );
+  }
+  return log;
+}
+
+function appendSyncConflictPanel(
+  section: HTMLElement,
+  state: SyncTransportSnapshot,
+  actionSet: Set<string>,
+) {
   if (
-    !gitSyncPending &&
-    (git.connection_test || connectionDiagnostics.length)
+    state.queue_state !== "blocked_conflict" ||
+    !state.conflict_assets?.length
   ) {
-    const connectionStatus =
-      remoteBranchState === "missing_initializable"
-        ? "will initialize"
-        : git.connection_test?.ok
-          ? "ok"
-          : "not ready";
-    const connection = el("div", "details");
-    connection.appendChild(
-      el(
-        "div",
-        "muted",
-        `Connection test: ${connectionStatus} ${
-          git.connection_test?.tested_at || ""
-        }`.trim(),
-      ),
-    );
-    connection.appendChild(el("div", "muted", `Branch: ${branchStatus}`));
-    connectionDiagnostics.slice(0, 2).forEach((entry) => {
-      connection.appendChild(
-        el(
-          "div",
-          "muted",
-          `${textValue(entry.code)}: ${textValue(entry.message)}`,
-        ),
-      );
-    });
-    section.appendChild(connection);
+    return;
   }
-  const appendConflictPanel = (
-    transport: "git" | "webdav",
-    state: SyncTransportSnapshot,
-    actionSet: Set<string>,
-  ) => {
-    if (
-      state.queue_state !== "blocked_conflict" ||
-      !state.conflict_assets?.length
-    ) {
-      return;
-    }
-    const asset = state.conflict_assets[0];
-    const conflictActions = new Set(state.conflictActions || []);
-    const command =
-      transport === "git"
-        ? "resolveGitSyncConflict"
-        : "resolveWebDavSyncConflict";
-    const conflictButton = (label: string, action: string) =>
-      makeButton(
-        label,
-        "hostCommand",
-        {
-          command,
-          args: { action },
-        },
-        false,
-        !actionSet.has(command) || !conflictActions.has(action),
-      );
-    section.appendChild(
-      renderReviewPanel(
-        renderReviewCard({
-          kind: "Sync review",
-          title: textValue(asset.asset_path, "Canonical asset conflict"),
-          meta:
-            state.conflict_assets.length > 1
-              ? `${state.conflict_assets.length - 1} more asset(s) waiting`
-              : "One asset waiting",
-          body:
-            transport === "git"
-              ? "This canonical asset changed in more than one place. Review the affected asset before allowing Git Sync to continue."
-              : "This durable bundle entry changed in more than one place. Review the affected asset before allowing WebDAV Sync to continue.",
-          details: [
-            ["reason", asset.reason || "both_changed"],
-            ["base", asset.base_hash || "-"],
-            ["local", asset.local_hash || "-"],
-            ["remote", asset.remote_hash || "-"],
-            ["queue state", state.queue_state],
-            [
-              "remote",
-              transport === "git"
-                ? state.remote_url || "not configured"
-                : state.base_url || "not configured",
-            ],
-            [
-              transport === "git" ? "branch" : "remote path",
-              transport === "git"
-                ? state.branch || "-"
-                : state.remote_path || "-",
-            ],
-          ],
-          actions: [
-            conflictButton("Keep local", "keep_local"),
-            conflictButton("Save remote copy", "save_remote_copy"),
-            conflictButton("Recheck", "clear_after_manual_edit"),
-            conflictButton("Use remote", "use_remote"),
-            conflictButton("Needs attention", "mark_needs_attention"),
-          ],
-        }),
-        "sync-review-panel",
-      ),
+  const asset = state.conflict_assets[0];
+  const conflictActions = new Set(state.conflictActions || []);
+  const command = "resolveWebDavSyncConflict";
+  const conflictButton = (label: string, action: string) =>
+    makeButton(
+      label,
+      "hostCommand",
+      {
+        command,
+        args: { action },
+      },
+      false,
+      !actionSet.has(command) || !conflictActions.has(action),
     );
-  };
-  appendConflictPanel("git", git, allowed);
-  appendConflictPanel("webdav", webdav, webDavAllowed);
-  return section;
+  section.appendChild(
+    renderReviewPanel(
+      renderReviewCard({
+        kind: t("synthesis-sync-review"),
+        title: textValue(asset.asset_path, t("synthesis-sync-conflict-title")),
+        meta:
+          state.conflict_assets.length > 1
+            ? t("synthesis-sync-more-assets", {
+                count: String(state.conflict_assets.length - 1),
+              })
+            : t("synthesis-sync-one-asset"),
+        body: t("synthesis-sync-conflict-body-webdav"),
+        details: [
+          [t("synthesis-field-reason"), asset.reason || "both_changed"],
+          ["base", asset.base_hash || "-"],
+          ["local", asset.local_hash || "-"],
+          ["remote", asset.remote_hash || "-"],
+          [t("synthesis-field-queue-state"), state.queue_state],
+          [
+            t("synthesis-field-remote"),
+            state.base_url || t("synthesis-field-not-configured"),
+          ],
+          [t("synthesis-field-remote-path"), state.remote_path || "-"],
+        ],
+        actions: [
+          conflictButton(t("synthesis-action-keep-local"), "keep_local"),
+          conflictButton(
+            t("synthesis-action-save-remote-copy"),
+            "save_remote_copy",
+          ),
+          conflictButton(
+            t("synthesis-action-recheck-sync"),
+            "clear_after_manual_edit",
+          ),
+          conflictButton(t("synthesis-action-use-remote"), "use_remote"),
+          conflictButton(
+            t("synthesis-action-needs-attention"),
+            "mark_needs_attention",
+          ),
+        ],
+      }),
+      "sync-review-panel",
+    ),
+  );
 }
 
 function renderTopics(main: HTMLElement, snapshot: Snapshot) {
@@ -5042,6 +5053,14 @@ const TAXONOMY_AXIS_MESSAGE_KEYS: Record<string, SynthesisWorkbenchMessageKey> =
     application_context: "synthesis-taxonomy-axis-application-context",
   };
 
+const TAXONOMY_AXIS_TONE_CLASSES = [
+  "axis-tone-blue",
+  "axis-tone-green",
+  "axis-tone-purple",
+  "axis-tone-orange",
+  "axis-tone-teal",
+];
+
 function taxonomyAxisLabel(axisType: string) {
   const key = TAXONOMY_AXIS_MESSAGE_KEYS[axisType];
   return key ? t(key) : axisType.replace(/_/g, " ");
@@ -5167,25 +5186,57 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
 
   const axes = recordArray(taxonomy.axes);
   if (axes.length) {
-    axes.forEach((axis) => {
+    axes.forEach((axis, axisIndex) => {
       const axisType = firstText(axis, ["axis_type", "type", "axis"]);
       const nodes = recordArray(axis.nodes);
       if (!axisType && !nodes.length) {
         return;
       }
-      const group = el("section", "taxonomy-axis-group");
-      const head = el("div", "taxonomy-head");
-      if (axisType)
-        head.appendChild(badge(taxonomyAxisLabel(axisType), "blue"));
+      const group = el(
+        "section",
+        `taxonomy-axis-group ${
+          TAXONOMY_AXIS_TONE_CLASSES[
+            axisIndex % TAXONOMY_AXIS_TONE_CLASSES.length
+          ]
+        }`,
+      );
+      const head = el("header", "taxonomy-axis-header");
+      head.appendChild(
+        el(
+          "span",
+          "taxonomy-axis-index",
+          String(axisIndex + 1).padStart(2, "0"),
+        ),
+      );
+      const heading = el("div", "taxonomy-axis-heading");
+      heading.appendChild(
+        el("span", "taxonomy-axis-kicker", t("synthesis-classification-axis")),
+      );
+      heading.appendChild(
+        elRawText(
+          "h3",
+          "taxonomy-axis-title",
+          axisType
+            ? taxonomyAxisLabel(axisType)
+            : `${t("synthesis-classification-axis")} ${axisIndex + 1}`,
+        ),
+      );
       const rationale = firstText(axis, [
         "axis_rationale",
         "rationale",
         "reason",
       ]);
-      if (rationale) head.appendChild(renderParagraphs(rationale));
-      if (head.childElementCount) group.appendChild(head);
-      if (nodes.length)
-        group.appendChild(renderTaxonomyNodeList(detail, nodes));
+      if (rationale)
+        heading.appendChild(
+          elRawText("p", "taxonomy-axis-rationale", rationale),
+        );
+      head.appendChild(heading);
+      group.appendChild(head);
+      if (nodes.length) {
+        const body = el("div", "taxonomy-axis-body");
+        body.appendChild(renderTaxonomyNodeList(detail, nodes));
+        group.appendChild(body);
+      }
       section.appendChild(group);
     });
   } else {
@@ -6385,26 +6436,6 @@ function numericYear(value: unknown) {
   return NaN;
 }
 
-type TimelineCluster = {
-  key: string;
-  label: string;
-  left: number;
-  items: TimelineItem[];
-};
-
-type PlacedTimelineItem = {
-  cluster: TimelineCluster;
-  item: TimelineItem;
-  left: number;
-};
-
-const TIMELINE_LABEL_COLLISION_GAP_PERCENT = 7;
-const TIMELINE_BASE_WIDTH_PX = 1080;
-const TIMELINE_YEAR_MIN_WIDTH_PX = 80;
-const TIMELINE_MARKER_MIN_WIDTH_PX = 34;
-const TIMELINE_RAIL_PADDING_PX = 80;
-const TIMELINE_EDGE_TOOLTIP_PERCENT = 7;
-
 type TimelineItem = {
   key: string;
   kind: "paper" | "event";
@@ -6424,111 +6455,6 @@ type TimelineItem = {
     | "external"
     | "warning";
 };
-
-type TimelineInterval = {
-  year: number;
-  count: number;
-  start: number;
-  end: number;
-};
-
-type TimelineLayout = {
-  minYear: number;
-  maxYear: number;
-  endYear: number;
-  widthPx: number;
-  intervals: TimelineInterval[];
-};
-
-function timelineYearCounts(items: TimelineItem[]): Map<number, number> {
-  const counts = new Map<number, number>();
-  items.forEach((item) => {
-    const year = item.year;
-    if (!Number.isFinite(year)) {
-      return;
-    }
-    const normalized = Math.floor(year);
-    counts.set(normalized, (counts.get(normalized) || 0) + 1);
-  });
-  return counts;
-}
-
-function timelineLayoutFromItems(
-  items: TimelineItem[],
-): TimelineLayout | undefined {
-  const counts = timelineYearCounts(items);
-  const years = Array.from(counts.keys()).sort((left, right) => left - right);
-  if (!years.length) return undefined;
-  const minYear = years[0];
-  const maxYear = years[years.length - 1];
-  const intervalYears: number[] = [];
-  for (let year = minYear; year <= maxYear; year += 1) {
-    intervalYears.push(year);
-  }
-  const weights = intervalYears.map((year) =>
-    Math.max(
-      TIMELINE_YEAR_MIN_WIDTH_PX,
-      Math.max(1, counts.get(year) || 0) * TIMELINE_MARKER_MIN_WIDTH_PX,
-    ),
-  );
-  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
-  const widthPx = Math.max(
-    TIMELINE_BASE_WIDTH_PX,
-    totalWeight + TIMELINE_RAIL_PADDING_PX,
-  );
-  let cursor = 0;
-  const intervals = intervalYears.map((year, index) => {
-    const start = cursor;
-    const width = (weights[index] / totalWeight) * 100;
-    cursor += width;
-    return {
-      year,
-      count: counts.get(year) || 0,
-      start,
-      end: index === intervalYears.length - 1 ? 100 : cursor,
-    };
-  });
-  return {
-    minYear,
-    maxYear,
-    endYear: maxYear + 1,
-    widthPx,
-    intervals,
-  };
-}
-
-function timelineAxisTicks(
-  layout: TimelineLayout | undefined,
-): { label: string; left: number }[] {
-  if (!layout) return [];
-  const ticks = layout.intervals.map((interval) => ({
-    label: String(interval.year),
-    left: interval.start,
-  }));
-  ticks.push({ label: String(layout.endYear), left: 100 });
-  return ticks;
-}
-
-function timelineIntervalForYear(
-  layout: TimelineLayout,
-  year: number,
-): TimelineInterval | undefined {
-  return layout.intervals.find(
-    (interval) => interval.year === Math.floor(year),
-  );
-}
-
-function timelinePaperLeft(
-  interval: TimelineInterval,
-  itemIndex: number,
-  total: number,
-) {
-  const count = Math.max(1, total);
-  return (
-    interval.start +
-    ((itemIndex + 1) * (interval.end - interval.start)) / (count + 1)
-  );
-}
 
 function evidenceYear(evidence: Record<string, unknown>) {
   const keys = [
@@ -6676,28 +6602,6 @@ function timelineTooltipLines(item: TimelineItem) {
     .filter(Boolean);
 }
 
-function timelineTooltipText(item: TimelineItem) {
-  return timelineTooltipLines(item).join("\n") || item.title;
-}
-
-function timelineDenseMarkerKeys(items: PlacedTimelineItem[]) {
-  const dense = new Set<string>();
-  const sorted = [...items]
-    .filter((item) => Number.isFinite(item.left))
-    .sort((left, right) => left.left - right.left);
-  sorted.forEach((item, index) => {
-    const prev = sorted[index - 1];
-    const next = sorted[index + 1];
-    if (
-      (prev && item.left - prev.left < TIMELINE_LABEL_COLLISION_GAP_PERCENT) ||
-      (next && next.left - item.left < TIMELINE_LABEL_COLLISION_GAP_PERCENT)
-    ) {
-      dense.add(item.item.key);
-    }
-  });
-  return dense;
-}
-
 function timelineItems(detail: TopicDetailDto) {
   const papers = evidenceRows(detail);
   return papers
@@ -6753,246 +6657,60 @@ function timelineEventGroups(detail: TopicDetailDto): TimelineItem[] {
     });
 }
 
-function renderTimelineEventPopover(item: TimelineItem) {
-  const popover = el(
-    "div",
-    "timeline-hover-popover timeline-milestone-popover",
-  );
-  const lines = timelineTooltipLines(item);
-  lines.forEach((line) => {
-    popover.appendChild(el("span", "timeline-milestone-row", line));
-  });
-  popover.title = lines.join("\n");
-  return popover;
-}
-
-function renderTimelinePaperPopover(item: TimelineItem) {
-  const popover = el("div", "timeline-hover-popover timeline-paper-popover");
-  popover.appendChild(el("span", "timeline-milestone-row", item.title));
-  popover.title = item.title;
-  return popover;
-}
-
-let activeTimelinePopover: HTMLElement | undefined;
-
-function hideTimelineTooltip() {
-  activeTimelinePopover?.remove();
-  activeTimelinePopover = undefined;
-}
-
-function showTimelineTooltip(anchor: HTMLElement, item: TimelineItem) {
-  hideTimelineTooltip();
-  const popover =
-    item.kind === "event"
-      ? renderTimelineEventPopover(item)
-      : renderTimelinePaperPopover(item);
-  const overlayRoot = document.body || document.documentElement;
-  if (!overlayRoot) {
-    return;
-  }
-  overlayRoot.appendChild(popover);
-  const anchorRect = anchor.getBoundingClientRect();
-  const popoverRect = popover.getBoundingClientRect();
-  const margin = 8;
-  const centeredLeft =
-    anchorRect.left + anchorRect.width / 2 - popoverRect.width / 2;
-  const maxLeft = Math.max(
-    margin,
-    window.innerWidth - popoverRect.width - margin,
-  );
-  const left = Math.min(Math.max(margin, centeredLeft), maxLeft);
-  let top = anchorRect.top - popoverRect.height - 10;
-  if (top < margin) {
-    top = anchorRect.bottom + 10;
-  }
-  popover.style.left = `${left}px`;
-  popover.style.top = `${Math.max(margin, top)}px`;
-  activeTimelinePopover = popover;
-}
-
-function renderTimelineClusters(items: TimelineItem[], layout: TimelineLayout) {
-  const byYear = new Map<string, TimelineItem[]>();
-  items.forEach((item) => {
-    const key = String(Math.floor(item.year));
-    const list = byYear.get(key) || [];
-    list.push(item);
-    byYear.set(key, list);
-  });
-  const clusters: TimelineCluster[] = Array.from(byYear.entries()).map(
-    ([key, clusterItems]) => {
-      const year = Number(key);
-      const interval = timelineIntervalForYear(layout, year);
-      return {
-        key,
-        label: "",
-        left: interval ? interval.start : 0,
-        items: clusterItems,
-      };
-    },
-  );
-  const fragment = document.createDocumentFragment();
-  const placedItems: PlacedTimelineItem[] = [];
-  clusters.forEach((cluster) => {
-    const year = Number(cluster.key);
-    const sortedItems = [...cluster.items].sort((left, right) =>
-      timelineItemSortKey(left).localeCompare(timelineItemSortKey(right)),
-    );
-    const interval = timelineIntervalForYear(layout, year);
-    if (!interval) return;
-    const paperItems = sortedItems.filter((item) => item.kind === "paper");
-    const eventItems = sortedItems.filter((item) => item.kind === "event");
-    paperItems.forEach((item, itemIndex) => {
-      const left = timelinePaperLeft(interval, itemIndex, paperItems.length);
-      placedItems.push({
-        cluster,
-        item,
-        left,
-      });
-    });
-    eventItems.forEach((item) => {
-      placedItems.push({
-        cluster,
-        item,
-        left: interval.end,
-      });
-    });
-  });
-  const denseTimelineMarkerKeys = timelineDenseMarkerKeys(placedItems);
-  placedItems.forEach((placedItem) => {
-    const { cluster, item, left } = placedItem;
-    const phase = el("section", "timeline-phase");
-    phase.style.left = `${left}%`;
-    const title = el("div", "phase-title");
-    if (cluster.label) {
-      title.appendChild(el("strong", "", cluster.label));
-    }
-    phase.appendChild(title);
-    const markerList = el("div", "marker-list");
-    const evidence = item.evidence;
-    const markerClasses = [
-      "timeline-marker",
-      `timeline-${item.kind}`,
-      `timeline-tone-${item.tone}`,
-    ];
-    if (left <= TIMELINE_EDGE_TOOLTIP_PERCENT) markerClasses.push("near-left");
-    if (left >= 100 - TIMELINE_EDGE_TOOLTIP_PERCENT)
-      markerClasses.push("near-right");
-    if (denseTimelineMarkerKeys.has(item.key)) markerClasses.push("too-dense");
-    if (evidence && evidenceId(evidence) === state.selectedEvidenceId)
-      markerClasses.push("selected");
-    const marker = el("button", markerClasses.join(" "));
-    marker.type = "button";
-    marker.style.left = "0";
-    marker.style.setProperty("--pin-scale", String(item.weight));
-    marker.title = timelineTooltipText(item);
-    marker.setAttribute("aria-label", marker.title);
-    const code = el("span", "timeline-code", item.label);
-    marker.appendChild(code);
-    const pin = el("span", "timeline-pin");
-    pin.appendChild(el("span", "timeline-pin-body"));
-    pin.appendChild(el("span", "timeline-pin-dot"));
-    marker.appendChild(pin);
-    marker.addEventListener("mouseenter", () =>
-      showTimelineTooltip(marker, item),
-    );
-    marker.addEventListener("focus", () => showTimelineTooltip(marker, item));
-    marker.addEventListener("mouseleave", hideTimelineTooltip);
-    marker.addEventListener("blur", hideTimelineTooltip);
-    if (evidence) {
-      marker.addEventListener("click", () => {
-        openEvidenceExplorer(evidenceId(evidence));
-      });
-    } else if (item.kind !== "event") {
-      marker.disabled = true;
-    }
-    markerList.appendChild(marker);
-    phase.appendChild(markerList);
-    fragment.appendChild(phase);
-  });
-  return fragment;
-}
-
 function renderTopicTimeline(detail: TopicDetailDto) {
   const paperItems = timelineItems(detail);
   const milestoneItems = timelineEventGroups(detail);
-  const layout = timelineLayoutFromItems(paperItems);
-  const items = [...paperItems, ...milestoneItems].filter((item) => {
-    if (!layout) return false;
-    return !!timelineIntervalForYear(layout, item.year);
-  });
-  items.sort((a, b) => {
-    const aFinite = Number.isFinite(a.year);
-    const bFinite = Number.isFinite(b.year);
-    if (aFinite && bFinite) return a.year - b.year;
-    if (aFinite) return -1;
-    if (bFinite) return 1;
-    return 0;
-  });
-  const rail = el("section", "topic-timeline");
-  const head = el("div", "timeline-head");
-  head.appendChild(el("strong", "", t("synthesis-timeline")));
-
-  // Legend
-  const legend = el("div", "timeline-legend");
-
-  const legEvent = el("div", "legend-item");
-  const dotEvent = el("span", "legend-icon legend-icon-event");
-  legEvent.appendChild(dotEvent);
-  legEvent.appendChild(
-    el("span", "legend-label", t("synthesis-timeline-key-milestones")),
-  );
-  legend.appendChild(legEvent);
-
-  const legPaper = el("div", "legend-item");
-  const dotPaper = el("span", "legend-icon legend-icon-paper");
-  legPaper.appendChild(dotPaper);
-  legPaper.appendChild(
-    el("span", "legend-label", t("synthesis-timeline-literature-papers")),
-  );
-  legend.appendChild(legPaper);
-
-  head.appendChild(legend);
-  rail.appendChild(head);
-
   const summaryText = firstText(topicTimelineSummary(detail), [
     "text",
     "analysis",
     "overview",
   ]);
-  if (summaryText) {
-    const summBlock = el("div", "timeline-summary");
-    summBlock.appendChild(renderParagraphs(summaryText));
-    rail.appendChild(summBlock);
-  }
-
-  if (!layout || !paperItems.length) {
-    rail.appendChild(
-      renderEmptyStructuredState(t("synthesis-timeline-empty-dated-papers")),
-    );
-    return rail;
-  }
-
-  const scroll = el("div", "timeline-scroll");
-  scroll.addEventListener("scroll", hideTimelineTooltip);
-  const timeline = el("div", "horizontal-timeline");
-  timeline.style.width = `${layout.widthPx}px`;
-  const trackInner = el("div", "timeline-inner-rail");
-
-  const axis = el("div", "time-axis");
-  const ticks = timelineAxisTicks(layout);
-  ticks.forEach((tick) => {
-    const stepEl = el("span", "", tick.label);
-    stepEl.style.position = "absolute";
-    stepEl.style.left = `${tick.left}%`;
-    stepEl.style.transform = "translateX(-50%)";
-    axis.appendChild(stepEl);
+  const timelineData: TopicTimelineData = {
+    summary: summaryText,
+    papers: paperItems.map((item) => ({
+      key: item.key,
+      year: item.year,
+      label: item.label,
+      title: item.title,
+      order: item.order,
+      weight: item.weight,
+      tone: item.tone,
+      evidence: item.evidence,
+      evidenceId: item.evidence ? evidenceId(item.evidence) : "",
+      paperRef: firstText(item.evidence || {}, ["paper_ref", "paperRef", "id"]),
+      itemKey: firstText(item.evidence || {}, ["item_key", "itemKey"]),
+      sortKey: timelineItemSortKey(item),
+    })),
+    events: milestoneItems.map((item) => ({
+      key: item.key,
+      year: item.year,
+      label: item.label,
+      title: item.title,
+      order: item.order,
+      weight: item.weight,
+      tone: item.tone,
+      event: item.event,
+      descriptions: timelineTooltipLines(item),
+      sortKey: timelineItemSortKey(item),
+    })),
+  };
+  return renderSharedTopicTimeline(timelineData, {
+    labels: {
+      title: t("synthesis-timeline"),
+      milestones: t("synthesis-timeline-key-milestones"),
+      papers: t("synthesis-timeline-literature-papers"),
+      empty: t("synthesis-timeline-empty-dated-papers"),
+    },
+    selectedEvidenceId: state.selectedEvidenceId,
+    renderSummary: renderParagraphs,
+    renderEmpty: renderEmptyStructuredState,
+    onPaperClick: (paper) => {
+      if (!paper.evidence) return;
+      openEvidenceExplorer(evidenceId(paper.evidence));
+    },
+    canClickPaper: (paper) => Boolean(paper.evidence),
+    disableUnclickablePapers: true,
   });
-  trackInner.appendChild(axis);
-  trackInner.appendChild(renderTimelineClusters(items, layout));
-  timeline.appendChild(trackInner);
-  scroll.appendChild(timeline);
-  rail.appendChild(scroll);
-  return rail;
 }
 
 function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {

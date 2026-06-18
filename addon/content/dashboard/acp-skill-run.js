@@ -18,6 +18,8 @@
     replyFocusedRequestId: "",
     permissionRequestDetails: null,
     permissionRequestDrawerOpen: false,
+    pendingRenderSnapshot: null,
+    renderScheduled: false,
   };
 
   function bridge() {
@@ -561,6 +563,25 @@
     $("acp-skill-run-details").classList.toggle("hidden", !state.detailsOpen);
   }
 
+  function queueRender(snapshot) {
+    state.pendingRenderSnapshot =
+      snapshot && typeof snapshot === "object" ? snapshot : {};
+    if (state.renderScheduled) return;
+    state.renderScheduled = true;
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : function (callback) {
+            return setTimeout(callback, 0);
+          };
+    schedule(function () {
+      state.renderScheduled = false;
+      const nextSnapshot = state.pendingRenderSnapshot || {};
+      state.pendingRenderSnapshot = null;
+      render(nextSnapshot);
+    });
+  }
+
   function closeAllDrawers() {
     captureReplyDraft();
     state.runDrawerOpen = false;
@@ -580,7 +601,7 @@
       data.type === "acp-skill-run:init" ||
       data.type === "acp-skill-run:snapshot"
     ) {
-      render(data.payload || {});
+      queueRender(data.payload || {});
     }
   });
 

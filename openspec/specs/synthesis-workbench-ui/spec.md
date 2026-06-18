@@ -131,50 +131,36 @@ Workbench Review Center SHALL display both Zotero binding and canonical merge pr
 
 ### Requirement: Workbench surfaces durable Git Sync status
 
-Synthesis Workbench SHALL expose Git Sync state using stable user-visible states: `idle`, `syncing`, `blocked_conflict`, `failed_retryable`, and `failed_permanent`.
+Synthesis Workbench SHALL keep Git Sync service state internal and hidden from user-facing Home sync controls.
 
-#### Scenario: Durable conflict blocks sync
+#### Scenario: Git Sync state exists in a snapshot
 
-- **WHEN** Git Sync reports `blocked_conflict`
-- **THEN** Workbench SHALL keep normal read-only browsing available
-- **AND** it SHALL show the conflict entity kind/id, local/remote summary when available, and recommended resolution actions.
-
-#### Scenario: User resolves durable conflict
-
-- **WHEN** the user chooses `keep_local`, `use_remote`, `save_remote_copy`, `mark_needs_attention`, or `clear_after_manual_edit`
-- **THEN** Workbench SHALL route the action through Git Sync conflict resolution
-- **AND** it SHALL NOT directly mutate SQLite outside the durable import/export service.
+- **WHEN** the Home surface renders a snapshot that includes `sync.git`
+- **THEN** it SHALL NOT show Git Sync cards, Git Sync actions, remote URL, branch, token state, or Git conflict controls.
 
 ### Requirement: Workbench presents Git Sync config and runtime status
 
-Workbench SHALL show Git Sync configuration status, remote, branch, queue state, last run, diagnostics, and conflict count.
+Git Sync configuration and runtime status SHALL NOT be exposed in user-facing Workbench Home UI.
 
 #### Scenario: Git Sync is not configured
 
 - **WHEN** Git Sync has no enabled prefs-backed adapter
-- **THEN** Workbench SHALL offer `Open preferences`
-- **AND** it SHALL NOT present long-term Git Sync configuration controls inline.
+- **THEN** Workbench SHALL NOT show a Git Sync setup prompt.
 
 #### Scenario: Git Sync is configured
 
 - **WHEN** Git Sync configuration is complete
-- **THEN** Workbench SHALL offer runtime actions such as sync, pause/resume, and retry according to allowed actions.
-
-#### Scenario: Remote branch will be initialized
-
-- **WHEN** the latest connection test reports `remote_branch_state` as `missing_initializable`
-- **THEN** Workbench SHALL present the branch state as initializable rather than failed
-- **AND** it SHALL keep `Sync now` available when allowed by the service state.
+- **THEN** Workbench SHALL NOT offer Git Sync runtime actions from Home.
 
 ### Requirement: Workbench presents semantic conflict approvals
 
-Workbench SHALL present Git Sync conflict approvals using semantic action names.
+Workbench SHALL present semantic conflict approvals for the visible sync transport only.
 
-#### Scenario: Conflict is blocked
+#### Scenario: WebDAV conflict is blocked
 
-- **WHEN** Git Sync state is `blocked_conflict`
+- **WHEN** WebDAV Sync state is `blocked_conflict`
 - **THEN** Workbench SHALL show the conflict asset path, reason, and available hashes
-- **AND** it SHALL offer supported conflict actions from the Git Sync state.
+- **AND** it SHALL offer supported conflict actions from the WebDAV Sync state.
 
 ### Requirement: Workbench exposes manual WebDAV Sync
 
@@ -188,3 +174,28 @@ Workbench SHALL show WebDAV Sync runtime status and a manual Sync now action whe
 - **WHEN** the user clicks WebDAV Sync now
 - **THEN** Workbench SHALL route the command through the Synthesis service
 - **AND** it SHALL NOT trigger Git Sync as part of that command.
+
+### Requirement: Workbench consolidates visible sync feedback
+
+Synthesis Home SHALL present WebDAV Sync status, actions, diagnostics, and execution feedback in one Sync section.
+
+#### Scenario: Sync action feedback is available
+
+- **WHEN** a WebDAV Sync command is in flight, completed, failed, or has diagnostics
+- **THEN** the Home Sync section SHALL render a terminal-style feedback area with compact log lines.
+
+#### Scenario: Home insights render
+
+- **WHEN** Synthesis Home renders Library Insights
+- **THEN** it SHALL NOT render a separate Sync insight card outside the Sync section.
+
+#### Scenario: Home shows review item count
+
+- **WHEN** the Home Library Insights section is rendered
+- **THEN** it SHALL show a Review items card using snapshot review summary data
+- **AND** the count SHALL NOT require opening the Review tab first.
+
+#### Scenario: Sync section is compact
+
+- **WHEN** the Home Sync section is rendered
+- **THEN** it SHALL use a compact WebDAV summary row rather than insight cards.

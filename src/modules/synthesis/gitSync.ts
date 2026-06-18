@@ -1,4 +1,10 @@
 import { joinPath } from "../../utils/path";
+
+/**
+ * @deprecated Git Sync is a retained hidden transport. User-facing sync UI now
+ * exposes WebDAV durable bundle sync; keep this module for historical
+ * diagnostics and future cleanup only.
+ */
 import {
   collectRuntimeFiles,
   ensureRuntimeDirectory,

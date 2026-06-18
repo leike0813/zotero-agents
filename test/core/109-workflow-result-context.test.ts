@@ -194,6 +194,57 @@ describe("workflow result context", function () {
     }
   });
 
+  it("loads namespaced bundle resultJson and sibling artifacts", async function () {
+    const root = await mkTempRoot();
+    try {
+      await fs.mkdir(
+        path.join(root, "result", "literature-deep-reading.1"),
+        { recursive: true },
+      );
+      await fs.writeFile(
+        path.join(root, "result", "literature-deep-reading.1", "result.json"),
+        JSON.stringify({ html_path: "result/deep-reading.html" }),
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(
+          root,
+          "result",
+          "literature-deep-reading.1",
+          "deep-reading.html",
+        ),
+        "<main>Deep</main>",
+        "utf8",
+      );
+
+      const context = await createWorkflowResultContext({
+        runResult: {
+          requestId: "request-namespaced-result",
+          resultJsonPath: "result/literature-deep-reading.1/result.json",
+          resultArtifactBasePath: "result/literature-deep-reading.1",
+        },
+        bundleReader: createDirectoryBundleReader(root),
+        manifest: manifest(),
+      });
+
+      assert.deepEqual(context.resultJson, {
+        html_path: "result/deep-reading.html",
+      });
+      assert.equal(context.resultJsonSource.kind, "bundle-entry");
+      const artifact = await context.readArtifactText({
+        fieldName: "html_path",
+        rawPath: "result/deep-reading.html",
+      });
+      assert.equal(artifact.text, "<main>Deep</main>");
+      assert.equal(
+        artifact.entryPath,
+        "result/literature-deep-reading.1/deep-reading.html",
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("loads local resultJsonPath and workspace-relative artifacts without bundle content", async function () {
     const root = await mkTempRoot();
     try {

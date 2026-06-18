@@ -79,6 +79,10 @@ import {
   resolveSidebarFrameWindow,
   setSidebarContainerVisible,
 } from "./sidebarBrowserHost";
+import {
+  createAssistantSidebarScopeKey,
+  decorateAssistantSidebarChildSnapshot,
+} from "./assistantSidebarViewModel";
 
 type AssistantWorkspaceTab = "skillrunner" | "acp-chat" | "acp-skills";
 type SidebarButtonElement = XULElement | Element;
@@ -103,6 +107,8 @@ type AssistantWorkspaceHostRuntime = {
   removeAcpSkillRunSubscription?: () => void;
   removeTaskSubscription?: () => void;
   postSnapshotTimer?: ReturnType<typeof setTimeout> | null;
+  scopeKey: string;
+  snapshotRevision: number;
   lastAcpSkillWaitingToastKeys: Set<string>;
 };
 type AssistantWorkspaceEnvelope = {
@@ -361,25 +367,37 @@ function buildDecoratedSkillRunnerSnapshot(
     selectedTaskKey: String(snapshot.workspace?.selectedTaskKey || ""),
     completedCollapsed: host.drawerCompletedCollapsed,
   });
-  const decorated: RunWorkspaceSnapshot = {
-    ...snapshot,
-    hostMode: "sidebar" as const,
-    drawer: {
-      open: host.drawerOpen,
-      sections: sections.map((section) => ({
-        id: section.id,
-        title:
-          section.id === "completed"
-            ? localize("task-dashboard-run-completed-tasks-title", "Completed")
-            : localize("task-dashboard-run-running-tasks-title", "Running"),
-        collapsed: section.collapsed,
-        groups: section.groups,
-      })),
-    },
-    badges: {
-      waitingCount: countWaitingSkillRunnerTasks(groups),
-    },
-  };
+  host.snapshotRevision += 1;
+  const decorated = decorateAssistantSidebarChildSnapshot({
+    scopeKey: host.scopeKey,
+    activeTab: host.activeTab,
+    tab: "skillrunner",
+    revision: host.snapshotRevision,
+    waitingCount: countWaitingTasks(),
+    full: host.activeTab === "skillrunner",
+    snapshot: {
+      ...snapshot,
+      hostMode: "sidebar" as const,
+      drawer: {
+        open: host.drawerOpen,
+        sections: sections.map((section) => ({
+          id: section.id,
+          title:
+            section.id === "completed"
+              ? localize(
+                  "task-dashboard-run-completed-tasks-title",
+                  "Completed",
+                )
+              : localize("task-dashboard-run-running-tasks-title", "Running"),
+          collapsed: section.collapsed,
+          groups: section.groups,
+        })),
+      },
+      badges: {
+        waitingCount: countWaitingSkillRunnerTasks(groups),
+      },
+    } as unknown as Record<string, unknown>,
+  }) as unknown as RunWorkspaceSnapshot;
   host.latestSkillRunnerSnapshot = decorated;
   return decorated;
 }
@@ -531,15 +549,26 @@ function clearShellBridge(pane: MountedSidebarPane) {
 }
 
 function postChildSnapshot(
+  host: AssistantWorkspaceHostRuntime,
   pane: MountedSidebarPane,
   tab: AssistantWorkspaceTab,
   phase: "init" | "snapshot",
   snapshot: Record<string, unknown>,
 ) {
+  host.snapshotRevision += 1;
+  const payload = decorateAssistantSidebarChildSnapshot({
+    scopeKey: host.scopeKey,
+    activeTab: host.activeTab,
+    tab,
+    revision: host.snapshotRevision,
+    waitingCount: countWaitingTasks(),
+    full: tab === host.activeTab,
+    snapshot,
+  });
   postShellMessage(pane, "assistant-workspace:child-snapshot", {
     tab,
     phase,
-    snapshot,
+    snapshot: payload,
   });
 }
 
@@ -552,18 +581,21 @@ function buildAcpSnapshot(target: AcpSidebarTarget) {
 }
 
 function postAcpChatSnapshot(
+  host: AssistantWorkspaceHostRuntime,
   pane: MountedSidebarPane,
   target: AcpSidebarTarget,
   phase: "init" | "snapshot" = "snapshot",
 ) {
-  postChildSnapshot(pane, "acp-chat", phase, buildAcpSnapshot(target));
+  postChildSnapshot(host, pane, "acp-chat", phase, buildAcpSnapshot(target));
 }
 
 function postAcpSkillRunSnapshot(
+  host: AssistantWorkspaceHostRuntime,
   pane: MountedSidebarPane,
   phase: "init" | "snapshot" = "snapshot",
 ) {
   postChildSnapshot(
+    host,
     pane,
     "acp-skills",
     phase,
@@ -572,12 +604,13 @@ function postAcpSkillRunSnapshot(
 }
 
 async function postFreshAcpChatSnapshot(
+  host: AssistantWorkspaceHostRuntime,
   pane: MountedSidebarPane,
   target: AcpSidebarTarget,
   phase: "init" | "snapshot" = "snapshot",
 ) {
   await refreshAcpConversationBackends();
-  postAcpChatSnapshot(pane, target, phase);
+  postAcpChatSnapshot(host, pane, target, phase);
 }
 
 function postShellInit(
@@ -593,8 +626,13 @@ function postAllSnapshots(host: AssistantWorkspaceHostRuntime) {
     return;
   }
   const pane = target === "reader" ? host.reader : host.library;
-  postAcpChatSnapshot(pane, target);
-  postAcpSkillRunSnapshot(pane);
+  if (host.activeTab === "acp-chat") {
+    postAcpChatSnapshot(host, pane, target);
+    return;
+  }
+  if (host.activeTab === "acp-skills") {
+    postAcpSkillRunSnapshot(host, pane);
+  }
 }
 
 function schedulePostSnapshot(host: AssistantWorkspaceHostRuntime) {
@@ -726,11 +764,13 @@ async function handleShellAction(
   const action = String(payload.action || "").trim();
   if (action === "ready") {
     await postFreshAcpChatSnapshot(
+      host,
       target === "reader" ? host.reader : host.library,
       target,
       "init",
     );
     postAcpSkillRunSnapshot(
+      host,
       target === "reader" ? host.reader : host.library,
       "init",
     );
@@ -742,6 +782,17 @@ async function handleShellAction(
     postShellInit(target === "reader" ? host.reader : host.library, tab);
     if (tab === "skillrunner") {
       await focusSkillRunnerWorkspace({ selectionChanged: true });
+    } else if (tab === "acp-skills") {
+      postAcpSkillRunSnapshot(
+        host,
+        target === "reader" ? host.reader : host.library,
+      );
+    } else {
+      postAcpChatSnapshot(
+        host,
+        target === "reader" ? host.reader : host.library,
+        target,
+      );
     }
     return;
   }
@@ -788,11 +839,18 @@ async function handleChildAction(
   }
   if (tab === "acp-skills") {
     await handleAcpSkillRunAction(host, action, childPayload);
-    postAcpSkillRunSnapshot(target === "reader" ? host.reader : host.library);
+    postAcpSkillRunSnapshot(
+      host,
+      target === "reader" ? host.reader : host.library,
+    );
     return;
   }
   await handleAcpChatAction(host, target, action, childPayload);
-  postAcpChatSnapshot(target === "reader" ? host.reader : host.library, target);
+  postAcpChatSnapshot(
+    host,
+    target === "reader" ? host.reader : host.library,
+    target,
+  );
 }
 
 async function handleAcpSkillRunAction(
@@ -1097,8 +1155,8 @@ function mountLibraryPane(host: AssistantWorkspaceHostRuntime) {
       installShellBridge(host, host.library, "library");
       postShellInit(host.library, host.activeTab);
       void attachSkillRunnerToPane(host, host.library);
-      void postFreshAcpChatSnapshot(host.library, "library", "init");
-      postAcpSkillRunSnapshot(host.library, "init");
+      void postFreshAcpChatSnapshot(host, host.library, "library", "init");
+      postAcpSkillRunSnapshot(host, host.library, "init");
     }
   };
   frame.addEventListener("load", frameLoadHandler);
@@ -1156,8 +1214,8 @@ function mountReaderPane(host: AssistantWorkspaceHostRuntime) {
       installShellBridge(host, host.reader, "reader");
       postShellInit(host.reader, host.activeTab);
       void attachSkillRunnerToPane(host, host.reader);
-      void postFreshAcpChatSnapshot(host.reader, "reader", "init");
-      postAcpSkillRunSnapshot(host.reader, "init");
+      void postFreshAcpChatSnapshot(host, host.reader, "reader", "init");
+      postAcpSkillRunSnapshot(host, host.reader, "init");
     }
   };
   frame.addEventListener("load", frameLoadHandler);
@@ -1205,8 +1263,8 @@ async function activateTarget(
     host.activeTarget = "library";
     postShellInit(host.library, host.activeTab);
     await attachSkillRunnerToPane(host, host.library);
-    await postFreshAcpChatSnapshot(host.library, "library", "init");
-    postAcpSkillRunSnapshot(host.library, "init");
+    await postFreshAcpChatSnapshot(host, host.library, "library", "init");
+    postAcpSkillRunSnapshot(host, host.library, "init");
     return true;
   }
   if (!ensureReaderPaneExpanded(host.win)) return false;
@@ -1221,8 +1279,8 @@ async function activateTarget(
   host.activeTarget = "reader";
   postShellInit(host.reader, host.activeTab);
   await attachSkillRunnerToPane(host, host.reader);
-  await postFreshAcpChatSnapshot(host.reader, "reader", "init");
-  postAcpSkillRunSnapshot(host.reader, "init");
+  await postFreshAcpChatSnapshot(host, host.reader, "reader", "init");
+  postAcpSkillRunSnapshot(host, host.reader, "init");
   return true;
 }
 
@@ -1239,6 +1297,8 @@ export function installAssistantWorkspaceSidebarShell(
     activeTab: DEFAULT_TAB,
     drawerOpen: false,
     drawerCompletedCollapsed: true,
+    scopeKey: createAssistantSidebarScopeKey("assistant-sidebar-workspace"),
+    snapshotRevision: 0,
     library: { button: null, container: null, frame: null, frameWindow: null },
     reader: { button: null, container: null, frame: null, frameWindow: null },
     lastAcpSkillWaitingToastKeys: new Set<string>(),

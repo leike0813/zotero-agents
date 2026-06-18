@@ -139,6 +139,10 @@ type DashboardRow = {
   stateLabel: string;
   requestId?: string;
   requestKind?: string;
+  skillId?: string;
+  sequenceStepId?: string;
+  sequenceStepIndex?: number;
+  workflowRunId?: string;
   engine?: string;
   jobId: string;
   runId: string;
@@ -986,6 +990,10 @@ function mapTaskRowWithMeta(
     stateLabel: resolveStatusLabel(normalizedState),
     requestId: task.requestId,
     requestKind: task.requestKind,
+    skillId: task.skillId,
+    sequenceStepId: task.sequenceStepId,
+    sequenceStepIndex: task.sequenceStepIndex,
+    workflowRunId: task.workflowRunId,
     engine: task.engine,
     jobId: task.jobId,
     runId: task.runId,

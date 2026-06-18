@@ -156,9 +156,10 @@ export class AcpProvider implements Provider {
       Array.from(modelGroups.keys())[0] ||
       "";
     const group = modelGroups.get(model);
-    const effortIds = new Set(
-      (group?.variants || []).map((entry) => entry.effortId),
-    );
+    const effortIds =
+      group && group.variants.length > 0
+        ? new Set((group.variants || []).map((entry) => entry.effortId))
+        : new Set((cache.reasoningEfforts || []).map((entry) => entry.id));
     const normalizedEffort = normalizeAcpEffortId(
       normalizedSource.acpReasoningEffort,
     );

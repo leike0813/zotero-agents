@@ -135,6 +135,11 @@ describe("workflow: literature-deep-reading", function () {
       workflow.manifest.parameters?.target_language?.default,
       "zh-CN",
     );
+    assert.equal(workflow.manifest.parameters?.mode?.default, "fast");
+    assert.deepEqual(workflow.manifest.parameters?.mode?.enum, [
+      "fast",
+      "high_quality",
+    ]);
     assert.isFunction(workflow.hooks.filterInputs);
     assert.isFunction(workflow.hooks.buildRequest);
     assert.isFunction(workflow.hooks.applyResult);
@@ -270,6 +275,7 @@ describe("workflow: literature-deep-reading", function () {
       executionOptions: {
         workflowParams: {
           target_language: "zh-CN",
+          mode: "high_quality",
         },
       },
     })) as Array<{
@@ -280,7 +286,7 @@ describe("workflow: literature-deep-reading", function () {
         skill_id: string;
         fetch_type?: string;
         input?: { source_bundle_path?: string; source_path?: string };
-        parameter?: { target_language?: string };
+        parameter?: { target_language?: string; mode?: string };
         handoff?: { input?: Record<string, string> };
         apply_result?: { workflow_id?: string; on_failure?: string };
       }>;
@@ -303,6 +309,7 @@ describe("workflow: literature-deep-reading", function () {
       on_failure: "continue",
     });
     assert.equal(request.steps[0].input?.source_path, markdownPath);
+    assert.equal(request.steps[0].parameter?.mode, "high_quality");
     assert.equal(request.steps[1].id, "deep_reading");
     assert.equal(request.steps[1].skill_id, "literature-deep-reading");
     assert.equal(request.steps[1].fetch_type, "bundle");

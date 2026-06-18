@@ -1,6 +1,10 @@
 import { getHostBridgeToken } from "../hostBridgeAuth";
 import { getPref, setPref } from "../../utils/prefs";
 
+/**
+ * @deprecated Git Sync token storage is retained for existing installations.
+ * The user-facing sync configuration UI now exposes WebDAV credentials only.
+ */
 const TOKEN_SCHEMA_ID = "synthesis.git_sync_token";
 const TOKEN_SCHEMA_VERSION = "1.0.0";
 const PBKDF2_ITERATIONS = 100000;

@@ -1,6 +1,6 @@
 ---
 name: zotero-bridge-cli
-description: Use the Zotero Skills Host Bridge CLI for Zotero host access.
+description: Manual for ZoteroBridge CLI. Use this skill when an agent needs to access the Zotero library.
 license: AGPL-3.0-or-later
 ---
 

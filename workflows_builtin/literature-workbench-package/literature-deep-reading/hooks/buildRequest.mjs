@@ -16,6 +16,7 @@ function resolveWorkflowParams(executionOptions) {
   const workflowParams = executionOptions?.workflowParams || {};
   return {
     target_language: normalizeString(workflowParams.target_language) || "zh-CN",
+    mode: normalizeString(workflowParams.mode) || "fast",
   };
 }
 
@@ -98,6 +99,7 @@ async function buildRequestImpl({
             },
             parameter: {
               target_language: workflowParams.target_language,
+              mode: workflowParams.mode,
             },
           },
           deepReadingStep,

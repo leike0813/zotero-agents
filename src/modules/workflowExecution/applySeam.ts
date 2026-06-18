@@ -48,11 +48,41 @@ function isSkillRunnerAutoRequest(args: {
   request: unknown;
 }) {
   const provider = String(args.workflow.manifest?.provider || "").trim();
-  const requestKind = String(args.workflow.manifest?.request?.kind || "").trim();
-  if (provider !== "skillrunner" && requestKind !== "skillrunner.job.v1") {
+  const manifestRequestKind = String(
+    args.workflow.manifest?.request?.kind || "",
+  ).trim();
+  const requestKind =
+    manifestRequestKind ||
+    (isRecord(args.request) ? String(args.request.kind || "").trim() : "");
+  if (
+    provider !== "skillrunner" &&
+    requestKind !== "skillrunner.job.v1" &&
+    requestKind !== "skillrunner.sequence.v1"
+  ) {
     return false;
   }
   return resolveSkillRunnerExecutionModeFromRequest(args.request) === "auto";
+}
+
+function resolveReconcilePendingJobId(args: {
+  jobId: string;
+  result?: RunResultLike;
+}) {
+  const sequence =
+    args.result?.responseJson &&
+    typeof args.result.responseJson === "object" &&
+    !Array.isArray(args.result.responseJson)
+      ? (args.result.responseJson as Record<string, unknown>).sequence
+      : undefined;
+  if (sequence && typeof sequence === "object" && !Array.isArray(sequence)) {
+    const pendingStepJobId = String(
+      (sequence as Record<string, unknown>).pending_step_job_id || "",
+    ).trim();
+    if (pendingStepJobId) {
+      return pendingStepJobId;
+    }
+  }
+  return args.jobId;
 }
 
 function isPendingWorkflowJobState(state: string) {
@@ -278,6 +308,7 @@ export async function runWorkflowApplySeam(args: {
         (isPendingWorkflowJobState(job.state) || job.state === "failed");
       if (recoverableSkillRunnerFailure) {
         pending += 1;
+        const result = job.result as RunResultLike | undefined;
         if (
           isSkillRunnerAutoRequest({
             workflow: args.runState.workflow,
@@ -289,7 +320,10 @@ export async function runWorkflowApplySeam(args: {
             taskLabel,
             succeeded: true,
             terminalState: "succeeded",
-            jobId: job.id,
+            jobId: resolveReconcilePendingJobId({
+              jobId: job.id,
+              result,
+            }),
             requestId: recoverableRequestId,
           });
         }

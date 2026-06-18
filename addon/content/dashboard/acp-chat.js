@@ -13,6 +13,8 @@
     toolActivityExpandedIds: new Set(),
     permissionRequestDetails: null,
     permissionRequestDrawerOpen: false,
+    pendingRenderSnapshot: null,
+    renderScheduled: false,
   };
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsAcpSidebarBridge";
@@ -441,6 +443,25 @@
     renderTranscript(state.snapshot);
   }
 
+  function queueRender(snapshot) {
+    state.pendingRenderSnapshot =
+      snapshot && typeof snapshot === "object" ? snapshot : {};
+    if (state.renderScheduled) return;
+    state.renderScheduled = true;
+    const schedule =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : function (callback) {
+            return setTimeout(callback, 0);
+          };
+    schedule(function () {
+      state.renderScheduled = false;
+      const nextSnapshot = state.pendingRenderSnapshot || {};
+      state.pendingRenderSnapshot = null;
+      render(nextSnapshot);
+    });
+  }
+
   function closeAllDrawers() {
     state.sessionDrawerOpen = false;
     state.detailsDrawerOpen = false;
@@ -470,7 +491,7 @@
       return;
     const payload =
       data.payload && typeof data.payload === "object" ? data.payload : {};
-    render(payload);
+    queueRender(payload);
   });
 
   sendAction("ready", {});

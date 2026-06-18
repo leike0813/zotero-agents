@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="{{HTML_LANG}}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -18,7 +18,7 @@
         <span data-paper-meta>{{PAPER_META}}</span>
       </div>
       <div class="zotero-viewer-warning" data-zotero-viewer-warning>
-        建议使用系统浏览器打开此 HTML，以获得完整交互体验。
+        {{STATIC_VIEWER_WARNING}}
       </div>
       <nav class="modes" aria-label="阅读模式">
         <button type="button" data-mode="original">原文</button>
@@ -29,8 +29,7 @@
     </header>
     <noscript>
       <div class="zotero-viewer-warning is-static">
-        当前处于静态阅读模式。若需完整交互、图谱缩放和阅读模式切换，建议使用系统浏览器打开此
-        HTML。
+        {{STATIC_NOSCRIPT_WARNING}}
       </div>
     </noscript>
     <div class="shell">
@@ -90,7 +89,7 @@
         {{STATIC_READING_AID}}
       </aside>
     </div>
-    <div class="digest-modal" data-digest-modal hidden></div>
+    <div class="paper-digest-modal" data-digest-modal hidden></div>
     <script>{{SCRIPT}}</script>
   </body>
 </html>

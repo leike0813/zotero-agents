@@ -54,6 +54,7 @@ function resolveWorkflowParams(executionOptions) {
   return {
     targetLanguage:
       normalizeString(workflowParams.target_language) || "zh-CN",
+    mode: normalizeString(workflowParams.mode) || "fast",
   };
 }
 
@@ -76,6 +77,7 @@ function buildRequestImpl({ selectionContext, executionOptions, runtime }) {
         },
         parameter: {
           target_language: params.targetLanguage,
+          mode: params.mode,
         },
       },
     ],

@@ -1,8 +1,8 @@
-# Git Sync Durable State
+# Durable Bundle Sync
 
-Git Sync is the first-class cross-device exchange mechanism for durable Synthesis state.
+WebDAV Sync is the current user-visible manual cross-device exchange mechanism for durable Synthesis state. Git Sync is retained as a deprecated hidden transport for historical diagnostics and future cleanup, but it is no longer exposed in Preferences, Dashboard, or Synthesis Home.
 
-SQLite is the local materialized store used by Workbench and domain services. The live SQLite file is never the sync payload. Git stores deterministic, reviewable, migratable durable-state assets that can hydrate a clean local SQLite store.
+SQLite is the local materialized store used by Workbench and domain services. The live SQLite file is never the sync payload. Sync transports exchange deterministic, reviewable, migratable durable-state assets that can hydrate a clean local SQLite store.
 
 ## Product Boundary
 
@@ -19,11 +19,11 @@ Git Sync covers long-lived Synthesis facts that cannot be fully rebuilt from Zot
 | Tags | vocabulary, aliases, abbreviations, protocol |
 | Related items | external side-effect provenance/effect rows |
 
-Git Sync does not cover `zotero-agents.db`, WAL/SHM files, `synt_operation`, `synt_cache_basis`, citation graph cache rows, graph layout, metrics, runtime logs, locks, credentials, or temporary workspaces.
+Durable bundle sync does not cover `zotero-agents.db`, WAL/SHM files, `synt_operation`, `synt_cache_basis`, citation graph cache rows, graph layout, metrics, runtime logs, locks, credentials, or temporary workspaces.
 
 ## WebDAV Durable Bundle Sync
 
-WebDAV Sync is an experimental lightweight transport for the same durable bundle contract. It is intended for users who want cross-device sync without Git worktrees, commits, and object history.
+WebDAV Sync is the visible lightweight transport for the durable bundle contract. It is intended for users who want cross-device sync without Git worktrees, commits, and object history.
 
 WebDAV Sync still does not synchronize the live SQLite database. SQLite remains a local materialized store. WebDAV only exchanges durable bundle snapshots:
 
@@ -39,23 +39,22 @@ WebDAV v1 is manual by default. Automatic sync and automatic retry are preferenc
 
 ## Configuration
 
-Long-term Git Sync configuration lives in Zotero Preferences, not Workbench. Preferences own:
+Long-term WebDAV Sync configuration lives in Zotero Preferences, not Workbench. Preferences own:
 
 - enabled flag;
-- remote URL;
-- branch;
+- base URL;
+- remote path;
+- username;
 - automatic retry flag;
-- encrypted access token.
+- encrypted credential.
 
-The Git executable is detected by the plugin. It is not a user-editable preference because Zotero's subprocess environment can differ from the user's terminal PATH, especially on Windows.
+The Workbench Home Sync panel shows WebDAV runtime status and manual actions, but does not edit long-term configuration. It also contains a terminal-style feedback area for pending actions, diagnostics, connection test status, and last run status.
 
-The remote URL must not contain credentials. Access tokens are stored only through the encrypted preference envelope and are shown after saving only as a masked token plus timestamp.
+## Deprecated Git Sync
 
-The connection test is non-mutating. It validates configuration, token decryptability when a token exists, Git executable detection, and remote reachability without initializing, fetching into, committing, or pushing the sync worktree. If Git cannot be found, sanitized diagnostics include the resolution source and bounded checked-path details.
+Git Sync code is retained but hidden from user-facing UI. Its prefs keys, service facade, token storage, command adapter, and tests may remain so existing runtime state can be diagnosed and future cleanup can be staged safely.
 
-Branch existence is not the same as connection health. A successful `git ls-remote --heads <remote> <branch>` with a matching head reports `remote_branch_state: "exists"`. A successful command with empty output reports `remote_branch_state: "missing_initializable"`, keeps the test successful, and shows `git_sync_remote_branch_missing_initializable`. Only a non-zero `ls-remote` result is a connection failure.
-
-An empty remote repository or missing configured branch is initialized by the first real sync. When `fetch origin <branch>` explicitly reports a missing remote ref, Git Sync skips `merge origin/<branch>`, keeps the exported local durable state, and lets `push origin HEAD:<branch>` create the branch. Authentication, permission, network, TLS, and other non-missing-ref failures remain sync failures.
+Git Sync no longer has a Preferences card, Dashboard entry, or Synthesis Home action. New visible sync UX should target WebDAV durable bundle sync unless a future change explicitly restores or replaces Git Sync.
 
 ## Repository Layout
 

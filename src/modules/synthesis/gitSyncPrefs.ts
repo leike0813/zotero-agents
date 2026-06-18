@@ -1,4 +1,9 @@
 import { getPref, setPref } from "../../utils/prefs";
+
+/**
+ * @deprecated Git Sync preferences are retained for service-level diagnostics
+ * and existing installations. The Preferences UI no longer exposes Git Sync.
+ */
 import {
   defaultSynthesisGitCommandRunner,
   gitSyncRemoteUrlHasCredentials,

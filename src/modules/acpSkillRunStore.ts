@@ -3031,6 +3031,9 @@ export function markAcpSkillRunApplyResult(args: {
   if (!requestId) {
     return;
   }
+  if (!getAcpSkillRunRecord(requestId)) {
+    return;
+  }
   upsertAcpSkillRun({
     requestId,
     applyResultState: args.state,

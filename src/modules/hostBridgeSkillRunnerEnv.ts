@@ -54,15 +54,14 @@ function buildEndpoint(host: string, port: number) {
   return `http://${host}:${port}/bridge/v1`;
 }
 
-export function buildSkillRunnerHostBridgeScopeEnv(requestIdRaw: unknown) {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId) {
+export function buildSkillRunnerHostBridgeScopeEnv(frontendScopeIdRaw: unknown) {
+  const frontendScopeId = normalizeString(frontendScopeIdRaw);
+  if (!frontendScopeId) {
     return "";
   }
   return JSON.stringify({
     kind: "skillrunner-run",
-    requestId,
-    runId: requestId,
+    frontendScopeId,
   });
 }
 

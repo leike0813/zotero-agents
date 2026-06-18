@@ -20,6 +20,10 @@ const PROBE_WORKFLOW_IDS = [
   "debug-sequence-context-isolation-probe",
 ];
 
+const RUNNABLE_PROBE_WORKFLOW_IDS = PROBE_WORKFLOW_IDS.filter(
+  (id) => id !== "workflow-debug-probe",
+);
+
 const PROBE_SKILL_IDS = [
   "debug-host-bridge-connectivity-probe",
   "debug-sequence-probe-emit",
@@ -72,6 +76,12 @@ describe("debug sequence probe workflows", function () {
       assert.equal(workflow.packageId, "workflow-debug-probe");
       assert.equal(workflow.manifest.debug_only, true);
       assert.equal(isWorkflowVisible(workflow), true);
+    }
+    for (const id of RUNNABLE_PROBE_WORKFLOW_IDS) {
+      assert.equal(
+        workflowById(loaded.workflows, id).manifest.inputs?.unit,
+        "workflow",
+      );
     }
 
     setDebugModeOverrideForTests(false);

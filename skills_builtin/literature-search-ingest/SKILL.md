@@ -1,6 +1,6 @@
 ---
 name: literature-search-ingest
-description: ACP-only interactive workflow for literature search, user confirmation, and Zotero ingest with best-effort PDF attachment.
+description: Simple yet agentic workflow for literature ingest. Use this skill when user wants to search for literature and add it to their Zotero library. DO NOT invoke unless you can access to the Zotero library through zotero-bridge CLI.
 ---
 
 # Literature Search Ingest

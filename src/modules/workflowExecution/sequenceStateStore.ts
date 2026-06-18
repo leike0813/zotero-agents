@@ -86,8 +86,16 @@ function parseProviderResult(
       status,
       requestId,
       fetchType,
+      bundleBytes:
+        raw.bundleBytes instanceof Uint8Array ? raw.bundleBytes : undefined,
+      bundleDir: normalizeString(raw.bundleDir) || undefined,
       resultJson: raw.resultJson,
+      resultJsonPath: normalizeString(raw.resultJsonPath) || undefined,
+      workspaceDir: normalizeString(raw.workspaceDir) || undefined,
+      resultArtifactBasePath:
+        normalizeString(raw.resultArtifactBasePath) || undefined,
       responseJson: raw.responseJson,
+      sequence: isRecord(raw.sequence) ? (raw.sequence as any) : undefined,
     };
   }
   if (status === "deferred") {
@@ -112,6 +120,10 @@ function parseProviderResult(
       fetchType,
       error: normalizeString(raw.error) || undefined,
       resultJson: raw.resultJson,
+      resultJsonPath: normalizeString(raw.resultJsonPath) || undefined,
+      workspaceDir: normalizeString(raw.workspaceDir) || undefined,
+      resultArtifactBasePath:
+        normalizeString(raw.resultArtifactBasePath) || undefined,
       responseJson: raw.responseJson,
     };
   }
@@ -124,8 +136,14 @@ function cloneProviderResult(result: ProviderExecutionResult) {
       status: "succeeded",
       requestId: result.requestId,
       fetchType: result.fetchType,
+      bundleBytes: result.bundleBytes,
+      bundleDir: result.bundleDir,
       resultJson: result.resultJson,
+      resultJsonPath: result.resultJsonPath,
+      workspaceDir: result.workspaceDir,
+      resultArtifactBasePath: result.resultArtifactBasePath,
       responseJson: result.responseJson,
+      sequence: result.sequence,
     } satisfies ProviderExecutionResult;
   }
   if (result.status === "deferred") {
@@ -143,6 +161,9 @@ function cloneProviderResult(result: ProviderExecutionResult) {
     fetchType: result.fetchType,
     error: result.error,
     resultJson: result.resultJson,
+    resultJsonPath: result.resultJsonPath,
+    workspaceDir: result.workspaceDir,
+    resultArtifactBasePath: result.resultArtifactBasePath,
     responseJson: result.responseJson,
   } satisfies ProviderExecutionResult;
 }
@@ -488,6 +509,15 @@ export function markSequenceRunContinuing(sequenceRunId: string) {
   return updateState(sequenceRunId, (state) => ({
     ...state,
     status: "continuing",
+    error: undefined,
+    updatedAt: nowIso(),
+  }));
+}
+
+export function markSequenceRunWaitingRecovery(sequenceRunId: string) {
+  return updateState(sequenceRunId, (state) => ({
+    ...state,
+    status: "waiting_recovery",
     error: undefined,
     updatedAt: nowIso(),
   }));

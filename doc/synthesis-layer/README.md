@@ -12,7 +12,7 @@ This directory is the canonical design anchor for the Synthesis Layer. It replac
 6. [Topics and Discovery](./topics-and-discovery.md) defines topic artifacts, source check, coverage, best-effort discovery, and user review/override behavior.
 7. [Concepts](./concepts.md) defines Concept KB proposal ingestion, overlay context, review actions, and failure semantics.
 8. [Runtime and Rebuild](./runtime-and-rebuild.md) defines explicit cache refresh/review operations, reset/import/export, and failure recovery.
-9. [Git Sync Durable State](./git-sync-durable-state.md) defines Git as the first-class cross-device durable-state exchange store and SQLite as the local materialized store.
+9. [Durable Bundle Sync](./git-sync-durable-state.md) defines WebDAV as the current visible manual durable-state exchange transport, Git Sync as retained hidden/deprecated code, and SQLite as the local materialized store.
 10. [Performance and Scale](./performance-and-scale.md) defines scale tiers, p95 targets, explicit operation budgets, and degraded-cache behavior.
 11. [State Machines](./state-machines.md) defines canonical object lifecycle transitions and forbidden transitions.
 12. [Sequences](./sequences.md) defines canonical cross-domain runtime flows.
@@ -103,7 +103,7 @@ Dirty events, WorkItems, WorkRuns, startup reconcile, queue drain, and Registry 
 - Index/cache state may be stale, missing, or partially refreshed without blocking literature digest or topic synthesis.
 - Library-wide synchronization is not automatic. Broad cache refresh, reference binding review, and graph rebuild are explicit user/debug operations.
 - Topic freshness reads the topic source manifest against current Zotero/artifact state; it does not depend on Reference/Graph cache freshness.
-- Git Sync is the first-class cross-device durable-state exchange mechanism; it exports deterministic assets and never synchronizes the live SQLite file.
+- WebDAV durable bundle sync is the current visible manual cross-device exchange mechanism; sync exports deterministic assets and never synchronizes the live SQLite file. Git Sync code is retained but hidden/deprecated.
 
 ## Maintenance Rules
 

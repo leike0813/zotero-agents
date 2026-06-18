@@ -41,6 +41,12 @@
       ],
       "allowCustom": true,
       "default": "zh-CN"
+    },
+    "mode": {
+      "type": "string",
+      "title": "Translation Mode",
+      "enum": ["fast", "high_quality"],
+      "default": "fast"
     }
   },
   "execution": {

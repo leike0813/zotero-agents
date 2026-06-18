@@ -1067,6 +1067,35 @@ describe("workflow settings execution", function () {
       updateWorkflowSettings("literature-analysis", {
         backendId: "acp-config-options",
         providerOptions: {
+          acpModelProvider: "anthropic",
+          acpModelId: "claude",
+          acpReasoningEffort: "low",
+        },
+      });
+
+      const lowEffortDescriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: registry.backends,
+      });
+      assert.deepEqual(lowEffortDescriptor.providerOptions, {
+        acpModeId: "ask",
+        acpModelProvider: "anthropic",
+        acpModelId: "claude",
+        acpReasoningEffort: "low",
+      });
+
+      const lowEffortContext = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.deepEqual(lowEffortContext.providerOptions, {
+        acpModeId: "ask",
+        acpModelId: "anthropic/claude",
+        acpReasoningEffort: "low",
+      });
+
+      updateWorkflowSettings("literature-analysis", {
+        backendId: "acp-config-options",
+        providerOptions: {
           acpModelProvider: "openai",
           acpModelId: "gpt-5",
           acpReasoningEffort: "high",

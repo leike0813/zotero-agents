@@ -25,6 +25,8 @@ export type ProviderOrchestrationContext = {
   workflowRunId?: string;
   jobId?: string;
   sequenceStepId?: string;
+  sequenceStepIndex?: number;
+  skillId?: string;
   finalStepId?: string;
 };
 

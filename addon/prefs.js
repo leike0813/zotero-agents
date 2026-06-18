@@ -24,6 +24,9 @@ pref("hostBridgeMasterTokenUpdatedAt", "");
 pref("hostBridgeMasterTokenKeyMaterial", "");
 pref("hostBridgeDisableWriteApproval", false);
 pref("mcpServer.enabled", true);
+// Deprecated hidden transport: Git Sync prefs are retained for existing
+// runtime state and service-level diagnostics, but no user-facing UI exposes
+// Git Sync configuration.
 pref("synthesisGitSyncEnabled", false);
 pref("synthesisGitSyncRemoteUrl", "");
 pref("synthesisGitSyncBranch", "main");

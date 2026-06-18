@@ -4,6 +4,11 @@ import {
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../runtimePersistence";
+
+/**
+ * @deprecated Git command transport is retained as hidden service code. It is
+ * not exposed by Preferences or Synthesis Home sync UI.
+ */
 import { joinPath } from "../../utils/path";
 import { getMozillaSubprocessModule } from "../../utils/runtimeCompatibility";
 import { getPref } from "../../utils/prefs";

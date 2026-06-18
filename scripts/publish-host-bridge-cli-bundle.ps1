@@ -106,13 +106,13 @@ if (-not $DevRoot) {
 $DevRoot = (Resolve-Path -LiteralPath $DevRoot).Path
 
 $SkillDir = Join-Path $DevRoot 'skills_builtin\zotero-bridge-cli'
-$ProfileTemplatePath = Join-Path $SkillDir 'profile.template.json'
+$ProfileTemplatePath = Join-Path $SkillDir 'assets\profile.template.json'
 $BinRoot = Join-Path $DevRoot 'addon\bin'
 if (-not (Test-Path -LiteralPath (Join-Path $SkillDir 'SKILL.md'))) {
     Log-Error "Wrapper skill not found at skills_builtin\zotero-bridge-cli"
 }
 if (-not (Test-Path -LiteralPath $ProfileTemplatePath)) {
-    Log-Error "Profile template not found at skills_builtin\zotero-bridge-cli\profile.template.json"
+    Log-Error "Profile template not found at skills_builtin\zotero-bridge-cli\assets\profile.template.json"
 }
 if (-not (Test-Path -LiteralPath $BinRoot)) {
     Log-Error "Bundled CLI bin root not found at addon\bin"
@@ -120,11 +120,11 @@ if (-not (Test-Path -LiteralPath $BinRoot)) {
 
 if ($BuildLinux) {
     foreach ($target in @(
-        @{ platform = 'linux-x86'; target = 'i686-unknown-linux-gnu' },
-        @{ platform = 'linux-x64'; target = 'x86_64-unknown-linux-gnu' },
-        @{ platform = 'linux-arm'; target = 'armv7-unknown-linux-gnueabihf' },
-        @{ platform = 'linux-arm64'; target = 'aarch64-unknown-linux-gnu' }
-    )) {
+            @{ platform = 'linux-x86'; target = 'i686-unknown-linux-gnu' },
+            @{ platform = 'linux-x64'; target = 'x86_64-unknown-linux-gnu' },
+            @{ platform = 'linux-arm'; target = 'armv7-unknown-linux-gnueabihf' },
+            @{ platform = 'linux-arm64'; target = 'aarch64-unknown-linux-gnu' }
+        )) {
         Log-Info "Building $($target.platform)"
         node (Join-Path $DevRoot 'scripts\build-zotero-bridge-cli.mjs') "--platform=$($target.platform)" "--target=$($target.target)"
         if ($LASTEXITCODE -ne 0) {
@@ -159,13 +159,13 @@ foreach ($dir in $platformDirs) {
         Log-Error "Checksum mismatch for $($dir.Name): declared $declaredHash actual $actualHash"
     }
     $platformEntries += [pscustomobject]@{
-        platform = $dir.Name
-        binary = $binaryName
-        sourceDir = $dir.FullName
-        binaryPath = Normalize-PathForManifest "bin/$($dir.Name)/$binaryName"
+        platform     = $dir.Name
+        binary       = $binaryName
+        sourceDir    = $dir.FullName
+        binaryPath   = Normalize-PathForManifest "bin/$($dir.Name)/$binaryName"
         checksumPath = Normalize-PathForManifest "bin/$($dir.Name)/$binaryName.sha256"
-        sha256 = $actualHash
-        size = (Get-Item -LiteralPath $binaryPath).Length
+        sha256       = $actualHash
+        size         = (Get-Item -LiteralPath $binaryPath).Length
     }
 }
 
@@ -186,10 +186,12 @@ if (-not $ReplaceHistory) {
     if (Test-RemoteBranch -RemoteName $Remote -Name $Branch) {
         Log-Info "Fetching existing publish branch $Remote/$Branch"
         $publishBaseRef = Fetch-PublishBranch -RemoteName $Remote -Name $Branch
-    } elseif (Test-LocalBranch -Name $Branch) {
+    }
+    elseif (Test-LocalBranch -Name $Branch) {
         Log-Info "Using existing local publish branch $Branch"
         $publishBaseRef = $Branch
-    } else {
+    }
+    else {
         Log-Warn "Publish branch does not exist yet; creating initial orphan snapshot."
         $useOrphanPublish = $true
     }
@@ -231,7 +233,8 @@ try {
         if ($LASTEXITCODE -ne 0) {
             Log-Error "Failed to create orphan branch"
         }
-    } else {
+    }
+    else {
         git -C $Worktree checkout -b "$TempBranch" 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Log-Error "Failed to create temporary publish branch"
@@ -250,40 +253,41 @@ try {
         Copy-Item -LiteralPath (Join-Path $entry.sourceDir "$($entry.binary).sha256") -Destination (Join-Path $platformOut "$($entry.binary).sha256") -Force
     }
     Copy-DirectoryContents -Source $SkillDir -Destination (Join-Path $Worktree 'skills\zotero-bridge-cli')
-    Copy-Item -LiteralPath $ProfileTemplatePath -Destination (Join-Path $Worktree 'profile.template.json') -Force
+    New-Item -ItemType Directory -Path (Join-Path $Worktree 'assets') -Force | Out-Null
+    Copy-Item -LiteralPath $ProfileTemplatePath -Destination (Join-Path $Worktree 'assets\profile.template.json') -Force
 
     $manifest = [ordered]@{
-        schema = 'zotero-bridge-cli-bundle.v1'
-        source = [ordered]@{
+        schema          = 'zotero-bridge-cli-bundle.v1'
+        source          = [ordered]@{
             repository = 'Zotero-Skills'
-            commit = $sourceCommit
-            dirty = [bool]$porcelain
+            commit     = $sourceCommit
+            dirty      = [bool]$porcelain
         }
-        publishedAt = $publishedAt
-        branch = $Branch
-        cli = [ordered]@{
-            name = 'zotero-bridge'
+        publishedAt     = $publishedAt
+        branch          = $Branch
+        cli             = [ordered]@{
+            name      = 'zotero-bridge'
             platforms = @($platformEntries | ForEach-Object {
-                [ordered]@{
-                    platform = $_.platform
-                    binary = $_.binaryPath
-                    sha256 = $_.sha256
-                    sha256File = $_.checksumPath
-                    size = $_.size
-                }
-            })
+                    [ordered]@{
+                        platform   = $_.platform
+                        binary     = $_.binaryPath
+                        sha256     = $_.sha256
+                        sha256File = $_.checksumPath
+                        size       = $_.size
+                    }
+                })
         }
-        wrapperSkill = [ordered]@{
-            id = 'zotero-bridge-cli'
-            path = 'skills/zotero-bridge-cli'
+        wrapperSkill    = [ordered]@{
+            id         = 'zotero-bridge-cli'
+            path       = 'skills/zotero-bridge-cli'
             entrypoint = 'skills/zotero-bridge-cli/SKILL.md'
         }
         profileTemplate = [ordered]@{
-            path = 'profile.template.json'
-            skillPath = 'skills/zotero-bridge-cli/profile.template.json'
-            endpointEnv = 'ZOTERO_BRIDGE_ENDPOINT'
-            tokenEnv = 'ZOTERO_BRIDGE_TOKEN'
-            scopeEnv = 'ZOTERO_BRIDGE_SCOPE'
+            path              = 'assets/profile.template.json'
+            skillPath         = 'skills/zotero-bridge-cli/assets/profile.template.json'
+            endpointEnv       = 'ZOTERO_BRIDGE_ENDPOINT'
+            tokenEnv          = 'ZOTERO_BRIDGE_TOKEN'
+            scopeEnv          = 'ZOTERO_BRIDGE_SCOPE'
             connectionModeEnv = 'ZOTERO_BRIDGE_CONNECTION_MODE'
         }
     }
@@ -296,7 +300,7 @@ This branch is generated from the Zotero-Skills repository and contains only:
 
 - prebuilt zotero-bridge CLI binaries under bin/
 - the zotero-bridge-cli wrapper skill under skills/zotero-bridge-cli/
-- profile.template.json, a well-known profile template for local and remote use
+- assets/profile.template.json, a well-known profile template for local and remote use
 - manifest.json with source commit, platform list, sizes, and checksums
 
 Source commit: $sourceCommit
@@ -308,7 +312,7 @@ repository.
 
 ## Profile template and environment overrides
 
-Copy profile.template.json to the Host Bridge well-known profile location, or set
+Copy assets/profile.template.json to the Host Bridge well-known profile location, or set
 ZOTERO_BRIDGE_PROFILE to its path. The well-known profile paths are:
 
 - Windows: %LOCALAPPDATA%\Zotero-Skills\bridge-profile.json
@@ -340,7 +344,8 @@ Environment variables override the template at runtime:
         if ($LASTEXITCODE -ne 0) {
             Log-Error "Failed to commit bundle branch"
         }
-    } else {
+    }
+    else {
         Log-Warn "Bundle branch already matches current materialized files; reusing existing commit."
     }
     $commit = (git -C $Worktree rev-parse HEAD).Trim()
@@ -355,7 +360,8 @@ Environment variables override the template at runtime:
         Log-Info "Pushing $Branch to $Remote"
         if ($ReplaceHistory) {
             git -C $DevRoot push --force-with-lease -u "$Remote" "$Branch" 2>&1 | Out-Null
-        } else {
+        }
+        else {
             git -C $DevRoot push -u "$Remote" "$Branch" 2>&1 | Out-Null
         }
         if ($LASTEXITCODE -ne 0) {

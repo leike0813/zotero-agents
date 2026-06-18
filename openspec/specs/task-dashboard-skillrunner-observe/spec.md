@@ -52,6 +52,14 @@ Plugin MUST minimize long-lived stream connections.
 - **THEN** plugin MUST keep event stream disconnected for that request
 - **AND** upon transition to `waiting_user`/`waiting_auth`/terminal plugin MUST disconnect event stream immediately
 
+#### Scenario: Sequence step observation uses step request identity
+
+- **WHEN** SkillRunner sequence step requests are observed in dashboard or run
+  workspace
+- **THEN** each observed row SHALL be keyed by that step's backend `requestId`
+- **AND** interactions SHALL target the selected step request rather than an
+  outer sequence orchestration id
+
 ### Requirement: SkillRunner non-terminal state MUST remain observer-only
 
 Plugin MUST treat backend jobs semantics as the single truth for run state projection.
@@ -198,19 +206,30 @@ modes using the same requestId-driven lifecycle.
 ### Requirement: SkillRunner recoverable terminal apply MUST have a single owner
 
 Plugin MUST ensure exactly one execution path owns terminal `applyResult` for
-recoverable SkillRunner requests.
+SkillRunner runs.
 
-#### Scenario: foreground apply skips SkillRunner auto terminal success
+#### Scenario: SkillRunner sequence terminal success applies only through reconciler
 
-- **WHEN** a SkillRunner `auto` job reaches foreground queue state `succeeded`
-- **THEN** foreground apply MUST NOT call `applyResult`
-- **AND** plugin MUST mark that request as reconciler-owned pending terminal work
+- **GIVEN** a SkillRunner request belongs to a sequence step
+- **WHEN** the request reaches terminal success
+- **THEN** foreground workflow apply SHALL NOT apply that step
+- **AND** `SkillRunnerTaskReconciler` SHALL apply the step result when declared
+- **AND** plugin SHALL NOT execute the outer sequence workflow apply for that
+  step request
 
-#### Scenario: reconciler owns recoverable terminal apply for both modes
+#### Scenario: SkillRunner sequence apply does not update ACP run store
 
-- **WHEN** a recoverable SkillRunner request reaches terminal `succeeded`
-- **THEN** reconciler MUST be the only path allowed to execute `applyResult`
-- **AND** this ownership rule MUST apply to both `auto` and `interactive`
+- **WHEN** a SkillRunner sequence step apply succeeds or fails
+- **THEN** plugin SHALL update SkillRunner task/runtime and sequence state
+- **AND** plugin SHALL NOT write ACP skill-run apply state for that request
+
+#### Scenario: SkillRunner sequence waits for reconciler settlement
+
+- **WHEN** a SkillRunner sequence step is waiting for reconciler-owned terminal
+  apply
+- **THEN** workflow completion SHALL remain pending/deferred
+- **AND** plugin SHALL NOT emit an unknown foreground apply failure toast for
+  the sequence root
 
 ### Requirement: SkillRunner auto completion summary MUST be deferred to reconciler convergence
 
@@ -472,4 +491,61 @@ Backend reconcile gating MUST remain backend-scoped and MUST NOT be triggered by
 - **THEN** plugin MUST mark only that request failed
 - **AND** dashboard backend tab and workspace backend group MUST remain governed by backend health probe state
 - **AND** backend reconcile flag MUST NOT be set solely from that 404 response
+
+### Requirement: SkillRunner event observation MUST require ready visible ownership
+
+Dashboard and workspace event observation MUST be gated by a post-upload ready context or a user-visible task projection. A backend `request_id` observed at `request-created` is not sufficient to start event-session sync.
+
+#### Scenario: request-created without request-ready does not start events
+
+- **GIVEN** a SkillRunner backend has returned a `request_id` for a new request
+- **AND** upload has not completed and no `request-ready` context exists
+- **WHEN** frontend dispatch bookkeeping, request ledger, dashboard refresh, or workspace refresh sees that request id
+- **THEN** plugin MUST NOT start `events/history -> events SSE` for that request
+- **AND** plugin MUST NOT open an interaction UI for that request solely from `request-created`
+- **AND** plugin MUST NOT issue repeated `/v1/jobs/{request_id}/events/history` requests for that pre-ready request
+
+#### Scenario: invisible request does not drive session sync
+
+- **GIVEN** a SkillRunner `backendId + requestId` exists in internal bookkeeping
+- **AND** there is no active or history task projection visible to the user for that request
+- **WHEN** session sync is requested for that request
+- **THEN** plugin MUST skip or stop event-session sync for that request
+- **AND** plugin MUST preserve dispatch/ledger bookkeeping without creating an observer-only invisible task
+
+### Requirement: SkillRunner queued run event observation MUST be bounded
+
+Dashboard and run-workspace observation MUST avoid repeatedly starting event-session sync for SkillRunner requests that remain `queued` without observable state changes.
+
+#### Scenario: long-unchanged queued request does not restart event history every tick
+
+- **GIVEN** a SkillRunner request has emitted `request-ready`
+- **AND** the request snapshot remains `queued` across repeated observations
+- **WHEN** dashboard or workspace observation refreshes
+- **THEN** plugin MUST NOT start a new `events/history -> events SSE` session for that request on every refresh tick
+- **AND** plugin MUST use bounded request-local cadence before trying queued-state event sync again
+- **AND** the task MUST remain visible in dashboard/workspace projections
+
+#### Scenario: running and waiting requests remain session-sync eligible
+
+- **WHEN** a SkillRunner request is observed as `running`, `waiting_user`, or `waiting_auth`
+- **THEN** plugin MAY start or maintain the normal state/session sync chain for that request
+- **AND** queued-state throttling MUST NOT prevent interactive prompt/auth observation after the state changes
+
+#### Scenario: queued observation throttling does not gate backend
+
+- **WHEN** plugin throttles event observation for an unchanged queued SkillRunner request
+- **THEN** plugin MUST NOT mark the backend unreachable solely because of that throttling
+- **AND** backend tab and backend group interactivity MUST continue to follow backend health probe state
+
+### Requirement: SkillRunner session sync start MUST be idempotent under unchanged state
+
+SkillRunner session sync start requests MUST be idempotent for a request whose relevant non-terminal state has not changed.
+
+#### Scenario: duplicate start request reuses or skips existing sync
+
+- **GIVEN** session sync has already been started or recently attempted for a SkillRunner request
+- **WHEN** another observer path asks to start sync for the same unchanged request state
+- **THEN** plugin MUST reuse the existing sync or skip the duplicate start according to request-local cadence
+- **AND** plugin MUST NOT open parallel event-history loops for the same request
 

@@ -10758,7 +10758,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       const references = referenceFactsBySource.get(row.paper_ref) || [];
       const summary = referenceSummaryBySource.get(row.paper_ref);
       const referencesLoaded =
-        includeAllReferences || loadedReferenceSourceRefs.has(row.paper_ref);
+        includeAllReferences ||
+        loadedReferenceSourceRefs.has(row.paper_ref) ||
+        Boolean(options.rawReferenceIds?.length && references.length);
       const unbound = references.filter(
         (reference) => !reference.bindingStatus,
       ).length;
@@ -15204,6 +15206,34 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
+  function openRowCount(rows: Array<{ status?: unknown }>) {
+    return rows.filter((row) => cleanString(row.status) === "open").length;
+  }
+
+  function buildReviewSummaryInput(args: {
+    registryReviewItems?: SynthesisReviewItemRecord[];
+    referenceMatchProposals?: SynthesisReferenceMatchProposalRecord[];
+    conceptReviewItems?: Array<{ status?: unknown }>;
+    topicGraphReviewItems?: Array<{ status?: unknown }>;
+  }): SynthesisUiSnapshotInput["reviews"] {
+    const referenceMatchingCount = openRowCount(
+      args.referenceMatchProposals || [],
+    );
+    const indexCount =
+      openRowCount(args.registryReviewItems || []) + referenceMatchingCount;
+    const conceptCount = openRowCount(args.conceptReviewItems || []);
+    const topicGraphCount = openRowCount(args.topicGraphReviewItems || []);
+    return {
+      summary: {
+        openCount: indexCount + conceptCount + topicGraphCount,
+        indexCount,
+        referenceMatchingCount,
+        conceptCount,
+        topicGraphCount,
+      },
+    };
+  }
+
   async function getSynthesisWorkbenchChromeInput(
     state: SynthesisUiState = createDefaultSynthesisUiState(),
   ): Promise<SynthesisUiSnapshotInput> {
@@ -15244,6 +15274,15 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       jobProgressRows: activeJobProgressRows(),
       gitSyncState,
     });
+    const registryReviewItems = synthesisRepository.listReviewItems({
+      statuses: ["open"],
+      limit: SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT,
+    });
+    const referenceMatchProposals =
+      synthesisRepository.listReferenceMatchProposals({
+        statuses: ["open"],
+        limit: SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT,
+      });
     return {
       libraryId,
       storage: {
@@ -15261,6 +15300,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         webdav: webDavSyncState,
       },
       conflicts,
+      reviews: buildReviewSummaryInput({
+        registryReviewItems,
+        referenceMatchProposals,
+      }),
       maintenance: {
         summary: maintenanceSummary,
         backgroundJobs,
@@ -15294,12 +15337,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         await peekReferenceSidecarCacheStatus().catch(() => undefined);
       const indexReviewProposals =
         indexReviewProposalsFromDb(registryReviewItems);
-      const referenceMatchProposals = synthesisRepository
-        .listReferenceMatchProposals({
+      const referenceMatchProposalRecords =
+        synthesisRepository.listReferenceMatchProposals({
           statuses: ["open"],
           limit: SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT,
-        })
-        .map(referenceMatchProposalToUiRow);
+        });
+      const referenceMatchProposals = referenceMatchProposalRecords.map(
+        referenceMatchProposalToUiRow,
+      );
       const matchTargetCandidates = await referenceMatchTargetCandidatesForUi();
       const canonicalRevision = buildCanonicalReferenceRowsForUi();
       return {
@@ -15319,6 +15364,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           canonicalDiagnostics: canonicalRevision.diagnostics,
           cacheStatus: referenceSidecarStatus,
         },
+        reviews: buildReviewSummaryInput({
+          registryReviewItems,
+          referenceMatchProposals: referenceMatchProposalRecords,
+        }),
       };
     }
     if (surface === "review") {
@@ -15397,6 +15446,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               reviewItems: reviewConcepts.review_items,
             }
           : undefined,
+        reviews: buildReviewSummaryInput({
+          registryReviewItems,
+          referenceMatchProposals: referenceMatchProposalRecords,
+          conceptReviewItems: reviewConcepts?.review_items,
+          topicGraphReviewItems: topicGraphSnapshot?.review_items,
+        }),
       };
     }
     if (surface === "graph") {
@@ -15563,10 +15618,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             limit: SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
           })
         ).slice(0, SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX);
+        const concepts = await conceptKb.loadConceptKb().catch(() => undefined);
         const registryReviewItems = synthesisRepository.listReviewItems({
           statuses: ["open"],
           limit: SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT,
         });
+        const referenceMatchProposalRecords =
+          synthesisRepository.listReferenceMatchProposals({
+            statuses: ["open"],
+            limit: SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT,
+          });
         const dbGraph = readDbCitationGraphOverview();
         const citationGraphCache = getCitationGraphCacheBasis();
         const graphLayoutRecord =
@@ -15589,13 +15650,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           ...result.registry,
           rows: registryRowsToUi(registryRows),
           cleanupProposals: indexReviewProposalsFromDb(registryReviewItems),
-          matchProposals: synthesisRepository
-            .listReferenceMatchProposals({
-              statuses: ["open"],
-              limit: SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT,
-            })
-            .map(referenceMatchProposalToUiRow),
+          matchProposals: referenceMatchProposalRecords.map(
+            referenceMatchProposalToUiRow,
+          ),
         };
+        result.reviews = buildReviewSummaryInput({
+          registryReviewItems,
+          referenceMatchProposals: referenceMatchProposalRecords,
+          conceptReviewItems: concepts?.review_items,
+          topicGraphReviewItems: topicGraphSnapshot?.review_items,
+        });
         result.graph = {
           ...mapGraphToUi(graph, {
             layout: graphLayout,
@@ -15724,9 +15788,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     });
     const indexReviewProposals =
       indexReviewProposalsFromDb(registryReviewItems);
-    const referenceMatchProposals = synthesisRepository
-      .listReferenceMatchProposals({ limit: 100 })
-      .map(referenceMatchProposalToUiRow);
+    const referenceMatchProposalRecords =
+      synthesisRepository.listReferenceMatchProposals({ limit: 100 });
+    const referenceMatchProposals = referenceMatchProposalRecords.map(
+      referenceMatchProposalToUiRow,
+    );
     const matchTargetCandidates = await referenceMatchTargetCandidatesForUi();
     const maintenanceSummary = buildMaintenanceSummary({
       referenceSidecarCache,
@@ -15755,6 +15821,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         webdav: webDavSyncState,
       },
       conflicts,
+      reviews: buildReviewSummaryInput({
+        registryReviewItems,
+        referenceMatchProposals: referenceMatchProposalRecords,
+        conceptReviewItems: concepts?.review_items,
+        topicGraphReviewItems: topicGraphSnapshot?.review_items,
+      }),
       deletedArtifacts: {
         rows: [],
       },
@@ -18138,10 +18210,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return readDbCitationGraphOverview();
   }
 
+  /** @deprecated Hidden Git transport retained for diagnostics; not exposed by sync UI. */
   async function loadGitSyncState() {
     return gitSync.loadGitSyncState();
   }
 
+  /** @deprecated Hidden Git transport retained for diagnostics; WebDAV is the visible manual sync UI. */
   async function syncNow() {
     const maintenance = canonicalMaintenanceStatus();
     const hasActiveMaintenance =
@@ -18172,18 +18246,22 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     });
   }
 
+  /** @deprecated Hidden Git transport retained for diagnostics; not exposed by sync UI. */
   async function pauseGitSync() {
     return gitSync.pauseGitSync();
   }
 
+  /** @deprecated Hidden Git transport retained for diagnostics; not exposed by sync UI. */
   async function resumeGitSync() {
     return lock.runExclusive(libraryId, () => gitSync.resumeGitSync());
   }
 
+  /** @deprecated Hidden Git transport retained for diagnostics; not exposed by sync UI. */
   async function retryGitSync() {
     return lock.runExclusive(libraryId, () => gitSync.retryGitSync());
   }
 
+  /** @deprecated Hidden Git transport retained for diagnostics; not exposed by sync UI. */
   async function resolveGitSyncConflict(args: {
     action:
       | "keep_local"
@@ -18380,6 +18458,26 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     )
       .map(cleanString)
       .filter(Boolean);
+    const includeReferences = booleanArg(
+      args.includeReferences ?? args.include_references,
+      false,
+    );
+    const referenceSourceRefs = normalizeArray(
+      args.referenceSourceRefs ||
+        args.reference_source_refs ||
+        args.referenceSourceRef ||
+        args.reference_source_ref,
+    )
+      .map(cleanString)
+      .filter(Boolean);
+    const rawReferenceIds = normalizeArray(
+      args.rawReferenceIds ||
+        args.raw_reference_ids ||
+        args.rawReferenceId ||
+        args.raw_reference_id,
+    )
+      .map(cleanString)
+      .filter(Boolean);
     const allRows = await registryRowsFromCurrentLibraryAndSidecar({
       sourceRefs: refs,
     });
@@ -18389,7 +18487,18 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       defaultLimit: 100,
       maxLimit: SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
     });
-    const rows = allRows.slice(page.cursor, page.cursor + page.limit);
+    const pageRows = allRows.slice(page.cursor, page.cursor + page.limit);
+    const shouldLoadReferenceFacts =
+      includeReferences ||
+      referenceSourceRefs.length > 0 ||
+      rawReferenceIds.length > 0;
+    const rows = shouldLoadReferenceFacts
+      ? await registryRowsWithReferenceFactsToUi(pageRows, {
+          includeReferences,
+          referenceSourceRefs,
+          rawReferenceIds,
+        })
+      : pageRows;
     const nextCursor = page.cursor + rows.length;
     const cacheMissing = allRows.length === 0;
     const readHintsForCall: SynthesisReadHint[] = [];

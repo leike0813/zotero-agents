@@ -16,6 +16,10 @@ export type WorkflowTaskRecord = {
   runId: string;
   jobId: string;
   requestId?: string;
+  skillId?: string;
+  sequenceStepId?: string;
+  sequenceStepIndex?: number;
+  workflowRunId?: string;
   engine?: string;
   targetParentID?: number;
   workflowId: string;
@@ -69,6 +73,14 @@ function resolveRequestIdFromJob(job: JobRecord) {
   return "";
 }
 
+function resolveOptionalIntegerFromJobMeta(job: JobRecord, key: string) {
+  const value = job.meta[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.floor(value);
+}
+
 function resolveTargetParentIDFromJob(job: JobRecord) {
   const candidate = job.meta.targetParentID;
   return typeof candidate === "number" && Number.isFinite(candidate)
@@ -89,6 +101,13 @@ export function buildWorkflowTaskRecordFromJob(
   const inputUnitLabel =
     normalizeMetaString(job.meta, "inputUnitLabel") || taskName;
   const requestId = resolveRequestIdFromJob(job);
+  const skillId = normalizeMetaString(job.meta, "skillId");
+  const sequenceStepId = normalizeMetaString(job.meta, "sequenceStepId");
+  const sequenceStepIndex = resolveOptionalIntegerFromJobMeta(
+    job,
+    "sequenceStepIndex",
+  );
+  const workflowRunId = normalizeMetaString(job.meta, "workflowRunId");
   const engine = normalizeMetaString(job.meta, "engine");
   const providerId = normalizeMetaString(job.meta, "providerId");
   const requestKind = normalizeMetaString(job.meta, "requestKind");
@@ -100,6 +119,10 @@ export function buildWorkflowTaskRecordFromJob(
     runId,
     jobId: job.id,
     requestId: requestId || undefined,
+    skillId: skillId || undefined,
+    sequenceStepId: sequenceStepId || undefined,
+    sequenceStepIndex,
+    workflowRunId: workflowRunId || undefined,
     engine: engine || undefined,
     targetParentID: resolveTargetParentIDFromJob(job),
     workflowId: job.workflowId,
@@ -161,6 +184,14 @@ function parsePersistedTaskRecord(raw: unknown): WorkflowTaskRecord | null {
     runId,
     jobId,
     requestId: String(raw.requestId || "").trim() || undefined,
+    skillId: String(raw.skillId || "").trim() || undefined,
+    sequenceStepId: String(raw.sequenceStepId || "").trim() || undefined,
+    sequenceStepIndex:
+      typeof raw.sequenceStepIndex === "number" &&
+      Number.isFinite(raw.sequenceStepIndex)
+        ? Math.floor(raw.sequenceStepIndex)
+        : undefined,
+    workflowRunId: String(raw.workflowRunId || "").trim() || undefined,
     engine: String(raw.engine || "").trim() || undefined,
     targetParentID:
       typeof raw.targetParentID === "number" &&

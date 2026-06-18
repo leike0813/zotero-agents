@@ -146,19 +146,13 @@ Active Synthesis documentation SHALL state that manual stale graph refresh may r
 - **AND** full graph rebuild SHALL NOT be described as automatically running full-library related-items sync.
 ### Requirement: Synthesis docs define Git Sync durable-state exchange
 
-Active Synthesis layer documentation SHALL describe Git Sync as the first-class cross-device durable-state exchange mechanism.
+Active Synthesis docs SHALL describe Git Sync as a retained deprecated transport, not the current primary user-facing sync option.
 
-#### Scenario: Developer reads Synthesis layer docs
+#### Scenario: Developer reads sync docs
 
-- **WHEN** active docs describe persistence, import/export, recovery, or sync
-- **THEN** they SHALL distinguish SQLite as a local materialized store from Git as the durable exchange store
-- **AND** they SHALL link to the Git Sync durable-state contract.
-
-#### Scenario: Developer reads migration guidance
-
-- **WHEN** active docs describe durable sync compatibility
-- **THEN** they SHALL state that Git asset schema migration is separate from SQLite schema migration
-- **AND** unknown future asset schemas require a plugin upgrade before import.
+- **WHEN** docs discuss current user-visible sync
+- **THEN** they SHALL identify WebDAV durable bundle sync as the visible manual sync transport
+- **AND** they SHALL note that Git Sync code is retained but hidden/deprecated.
 ### Requirement: Synthesis docs describe Git Sync configuration and conflict approval
 
 Active Synthesis docs SHALL document preferences-backed Git Sync configuration, encrypted token storage, non-mutating connection tests, empty-remote initialization, and semantic conflict approval actions.
@@ -171,9 +165,9 @@ Active Synthesis docs SHALL document preferences-backed Git Sync configuration, 
 - **AND** they SHALL state that a missing remote branch is initialized on first sync rather than treated as a connection failure.
 ### Requirement: Synthesis docs describe WebDAV durable bundle sync
 
-Active Synthesis documentation SHALL describe WebDAV Sync as a lightweight durable bundle transport and distinguish it from live SQLite synchronization.
+Active Synthesis documentation SHALL describe WebDAV Sync as the current visible manual durable bundle transport.
 
-#### Scenario: Developer reads sync documentation
+#### Scenario: Developer reads WebDAV sync docs
+
 - **WHEN** docs discuss WebDAV Sync
-- **THEN** they SHALL state that SQLite remains local
-- **AND** only durable bundles, manifests, and HEAD pointers are exchanged.
+- **THEN** they SHALL state that the Preferences and Synthesis Home UI expose WebDAV Sync only.

@@ -86,6 +86,14 @@ export type SynthesisUiReviewConfidenceFilter =
   | "low"
   | "review";
 
+export type SynthesisUiReviewSummary = {
+  openCount: number;
+  indexCount: number;
+  referenceMatchingCount: number;
+  conceptCount: number;
+  topicGraphCount: number;
+};
+
 export type SynthesisUiGraphElement =
   | { kind: "node"; id: string }
   | { kind: "edge"; id: string };
@@ -818,6 +826,9 @@ export type SynthesisUiSnapshotInput = {
     canonicalDiagnostics?: unknown[];
     cacheStatus?: Partial<SynthesisUiCacheStatus>;
   };
+  reviews?: {
+    summary?: Partial<SynthesisUiReviewSummary>;
+  };
   tags?: {
     entries?: Array<Partial<SynthesisUiTagRow> & { tag?: string }>;
     aliases?: Record<string, string>;
@@ -921,6 +932,7 @@ export type SynthesisUiSnapshot = {
   };
   reviews: {
     filters: SynthesisUiState["reviews"];
+    summary: SynthesisUiReviewSummary;
   };
   tags: {
     filters: SynthesisUiState["tags"];
@@ -3353,6 +3365,7 @@ export function mergeSynthesisUiSnapshotInput(
       "sync",
       "deletedArtifacts",
       "registry",
+      "reviews",
       "tags",
       "topicGraph",
       "concepts",
@@ -3839,6 +3852,61 @@ function normalizeActionStatus(
   };
 }
 
+function openStatusCount(rows: Array<{ status?: unknown }>) {
+  return rows.filter((row) => cleanString(row.status) === "open").length;
+}
+
+function normalizeReviewSummary(
+  input: Partial<SynthesisUiReviewSummary> | undefined,
+  fallback: SynthesisUiReviewSummary,
+): SynthesisUiReviewSummary {
+  const referenceMatchingCount = Math.max(
+    0,
+    Math.floor(
+      Math.max(
+        cleanNumber(input?.referenceMatchingCount, 0),
+        fallback.referenceMatchingCount,
+      ),
+    ),
+  );
+  const conceptCount = Math.max(
+    0,
+    Math.floor(
+      Math.max(cleanNumber(input?.conceptCount, 0), fallback.conceptCount),
+    ),
+  );
+  const topicGraphCount = Math.max(
+    0,
+    Math.floor(
+      Math.max(
+        cleanNumber(input?.topicGraphCount, 0),
+        fallback.topicGraphCount,
+      ),
+    ),
+  );
+  const indexCount = Math.max(
+    0,
+    Math.floor(
+      Math.max(
+        cleanNumber(input?.indexCount, 0),
+        fallback.indexCount || referenceMatchingCount,
+      ),
+    ),
+  );
+  const computedOpenCount = indexCount + conceptCount + topicGraphCount;
+  const openCount = Math.max(
+    0,
+    Math.floor(Math.max(cleanNumber(input?.openCount, 0), computedOpenCount)),
+  );
+  return {
+    openCount,
+    indexCount,
+    referenceMatchingCount,
+    conceptCount,
+    topicGraphCount,
+  };
+}
+
 export function buildSynthesisUiSnapshot(
   input: SynthesisUiSnapshotInput,
   state: SynthesisUiState = createDefaultSynthesisUiState(),
@@ -3936,6 +4004,22 @@ export function buildSynthesisUiSnapshot(
   const backgroundJobRows = normalizeBackgroundJobRows(
     input.maintenance?.backgroundJobs,
   );
+  const fallbackReviewSummary: SynthesisUiReviewSummary = {
+    referenceMatchingCount: openStatusCount(matchProposals),
+    indexCount:
+      openStatusCount(cleanupProposals) + openStatusCount(matchProposals),
+    conceptCount: openStatusCount(conceptReviewItems),
+    topicGraphCount: openStatusCount(topicGraphReviewItems),
+    openCount: 0,
+  };
+  fallbackReviewSummary.openCount =
+    fallbackReviewSummary.indexCount +
+    fallbackReviewSummary.conceptCount +
+    fallbackReviewSummary.topicGraphCount;
+  const reviewSummary = normalizeReviewSummary(
+    input.reviews?.summary,
+    fallbackReviewSummary,
+  );
 
   return {
     libraryId: Math.max(0, Math.floor(cleanNumber(input.libraryId, 0))),
@@ -4020,6 +4104,7 @@ export function buildSynthesisUiSnapshot(
     },
     reviews: {
       filters: { ...state.reviews },
+      summary: reviewSummary,
     },
     tags: {
       filters: { ...state.tags },

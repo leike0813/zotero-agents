@@ -765,12 +765,12 @@ describe("host bridge cli packaging and install", function () {
       "scripts/publish-host-bridge-cli-bundle.ps1",
       "utf8",
     );
-    assert.include(publishScript, "profile.template.json");
+    assert.include(publishScript, "assets/profile.template.json");
     assert.include(publishScript, "ZOTERO_BRIDGE_CONNECTION_MODE");
     assert.include(publishScript, "profileTemplate");
     const profileTemplate = JSON.parse(
       await fs.readFile(
-        "skills_builtin/zotero-bridge-cli/profile.template.json",
+        "skills_builtin/zotero-bridge-cli/assets/profile.template.json",
         "utf8",
       ),
     );
@@ -810,7 +810,7 @@ describe("host bridge cli packaging and install", function () {
         "utf8",
       );
       assert.strictEqual(packaged, "linux-x86-binary");
-      assert.match(checksum, /^[a-f0-9]{64}  zotero-bridge\n$/);
+      assert.match(checksum, /^[a-f0-9]{64} {2}zotero-bridge\n$/);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

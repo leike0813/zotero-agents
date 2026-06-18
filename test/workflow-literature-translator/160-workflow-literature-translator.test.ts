@@ -105,6 +105,11 @@ describe("workflow: literature-translator", function () {
     assert.equal(workflow.manifest.provider, "skillrunner");
     assert.equal(workflow.manifest.request?.kind, "skillrunner.sequence.v1");
     assert.equal(workflow.manifest.result?.fetch?.type, "bundle");
+    assert.equal(workflow.manifest.parameters?.mode?.default, "fast");
+    assert.deepEqual(workflow.manifest.parameters?.mode?.enum, [
+      "fast",
+      "high_quality",
+    ]);
     assert.equal(workflow.manifest.inputs?.unit, "attachment");
     assert.deepEqual(workflow.manifest.inputs?.accepts?.mime, [
       "text/markdown",
@@ -142,6 +147,7 @@ describe("workflow: literature-translator", function () {
       executionOptions: {
         workflowParams: {
           target_language: "fr-FR",
+          mode: "high_quality",
         },
       },
     })) as Array<{
@@ -152,7 +158,7 @@ describe("workflow: literature-translator", function () {
         skill_id?: string;
         fetch_type?: string;
         input?: { source_path?: string };
-        parameter?: { target_language?: string };
+        parameter?: { target_language?: string; mode?: string };
       }>;
       final_step_id?: string;
     }>;
@@ -167,6 +173,7 @@ describe("workflow: literature-translator", function () {
     assert.equal(requests[0].steps?.[0].fetch_type, "bundle");
     assert.equal(requests[0].steps?.[0].input?.source_path, markdown.filePath);
     assert.equal(requests[0].steps?.[0].parameter?.target_language, "fr-FR");
+    assert.equal(requests[0].steps?.[0].parameter?.mode, "high_quality");
   });
 
   it("filters selected inputs when translated markdown target already exists", async function () {

@@ -53,6 +53,7 @@ export async function executeSequenceStepApply(args: {
   };
 }) {
   const requestId = normalizeString(args.runResult.requestId);
+  const backendType = normalizeString(args.runResult.backendType);
   let bundlePath = "";
   try {
     const bundleResource = await createBundleReaderForRunResult({
@@ -84,19 +85,23 @@ export async function executeSequenceStepApply(args: {
       sequenceStep: args.sequenceStep,
       appendRuntimeLog,
     });
-    markAcpSkillRunApplyResult({
-      requestId,
-      state: "succeeded",
-    });
+    if (backendType === "acp") {
+      markAcpSkillRunApplyResult({
+        requestId,
+        state: "succeeded",
+      });
+    }
     return applied;
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
-    markAcpSkillRunApplyResult({
-      requestId,
-      state: "failed",
-      error: message,
-    });
+    if (backendType === "acp") {
+      markAcpSkillRunApplyResult({
+        requestId,
+        state: "failed",
+        error: message,
+      });
+    }
     throw error;
   } finally {
     if (bundlePath) {

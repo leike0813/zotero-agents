@@ -4,8 +4,68 @@ import {
   isSkillRunnerTaskRelatedToContext,
   pickSkillRunnerSidebarFocusedTaskKey,
 } from "../../../src/modules/skillRunnerSidebarModel";
+import {
+  ASSISTANT_SIDEBAR_STREAM_FLUSH_MS,
+  decorateAssistantSidebarChildSnapshot,
+} from "../../../src/modules/assistantSidebarViewModel";
 
 describe("skillrunner sidebar model", function () {
+  it("decorates active sidebar panes with render hints and strips inactive transcript payloads", function () {
+    const active = decorateAssistantSidebarChildSnapshot({
+      scopeKey: "scope-1",
+      activeTab: "acp-chat",
+      tab: "acp-chat",
+      revision: 2,
+      waitingCount: 3,
+      full: true,
+      snapshot: {
+        title: "Chat",
+        items: [{ id: "msg-1", kind: "message", text: "hello" }],
+      },
+    });
+    assert.deepEqual(active.items, [
+      { id: "msg-1", kind: "message", text: "hello" },
+    ]);
+    assert.equal(active.sidebar.scopeKey, "scope-1");
+    assert.equal(active.sidebar.activeTab, "acp-chat");
+    assert.equal(active.sidebar.attention.waitingCount, 3);
+    assert.equal(active.renderHints.streamingMode, "plain-incremental");
+    assert.equal(
+      active.renderHints.streamFlushMs,
+      ASSISTANT_SIDEBAR_STREAM_FLUSH_MS,
+    );
+
+    const inactive = decorateAssistantSidebarChildSnapshot({
+      scopeKey: "scope-1",
+      activeTab: "acp-chat",
+      tab: "acp-skills",
+      revision: 3,
+      full: false,
+      snapshot: {
+        selectedRun: {
+          requestId: "run-1",
+          transcriptItems: [{ id: "chunk-1", text: "stream" }],
+        },
+        runs: [
+          {
+            requestId: "run-1",
+            transcriptItems: [{ id: "chunk-1", text: "stream" }],
+          },
+        ],
+      },
+    });
+    assert.deepEqual(
+      (inactive.selectedRun as { transcriptItems: unknown[] }).transcriptItems,
+      [],
+    );
+    assert.deepEqual(
+      (inactive.runs as Array<{ transcriptItems: unknown[] }>)[0]
+        .transcriptItems,
+      [],
+    );
+    assert.isTrue(inactive.sidebar.transcript.stripped);
+  });
+
   it("matches tasks only against related parent item ids", function () {
     const context = {
       primaryParentItemId: 101,

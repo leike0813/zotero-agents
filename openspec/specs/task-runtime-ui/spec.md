@@ -6,9 +6,20 @@ TBD - created by archiving change m2-baseline. Update Purpose after archive.
 ### Requirement: 系统必须维护任务运行态模型
 系统 MUST 维护任务在运行期的状态（排队、执行、完成、失败），并提供稳定标识用于查询与展示。
 
-#### Scenario: 任务状态更新
-- **WHEN** workflow 输入单元状态变化
-- **THEN** 系统更新对应任务状态并保持键稳定
+#### Scenario: SkillRunner sequence step projection remains step-scoped
+
+- **WHEN** a SkillRunner sequence workflow launches multiple steps
+- **THEN** each step SHALL keep its independent task projection
+- **AND** reconciler-owned apply settlement SHALL update that step projection
+  rather than an outer sequence task row
+
+#### Scenario: ACP run-store rows are not created for SkillRunner sequence requests
+
+- **WHEN** a SkillRunner sequence step request id is settled by runtime or
+  reconciler code
+- **THEN** task runtime SHALL NOT create an ACP `skill-runs` record for that
+  request id
+- **AND** SkillRunner dashboard/history SHALL remain the visible task record
 
 ### Requirement: 系统必须提供任务 UI 的最小可观测能力
 系统 MUST 以 Dashboard 形态提供任务可观测能力，而非仅单表视图。
@@ -253,3 +264,53 @@ Dashboard Products and Skill Feedback SHALL use the same stable product browsing
 - **WHEN** the user toggles the select-all checkbox
 - **THEN** Dashboard SHALL select or clear only feedback records visible under the active filter
 - **AND** feedback records outside the active filter SHALL NOT be selected merely because select-all was toggled.
+
+### Requirement: SkillRunner pre-ready requests MUST not become invisible observer tasks
+
+Task runtime bookkeeping MUST distinguish dispatch-owned pre-ready SkillRunner request ids from user-visible task projections. Pre-ready requests MAY remain in dispatch or ledger state, but they MUST NOT start observation loops as invisible tasks.
+
+#### Scenario: upload-stalled request remains non-observing until ready
+
+- **GIVEN** SkillRunner `/v1/jobs` has returned a `requestId`
+- **AND** the upload step has not emitted `request-ready`
+- **WHEN** task runtime or startup reconciliation restores local bookkeeping for that request
+- **THEN** it MUST NOT create a hidden active task that is absent from the task list but still drives session sync
+- **AND** it MUST NOT start event-session sync for that request before the ready boundary
+
+#### Scenario: request-ready creates normal visible ownership
+
+- **GIVEN** a SkillRunner request has emitted `request-ready`
+- **WHEN** task runtime creates or restores the associated task projection
+- **THEN** the projection MUST contain `backendId` and `requestId`
+- **AND** subsequent observation and reconcile behavior MAY proceed through the bounded non-terminal cadence rules
+
+### Requirement: SkillRunner non-terminal reconcile MUST back off when unchanged
+
+Task runtime reconciliation MUST preserve visible SkillRunner non-terminal task rows while reducing request frequency for runs whose backend state remains unchanged.
+
+#### Scenario: unchanged queued request uses bounded reconcile cadence
+
+- **GIVEN** a SkillRunner task projection has `backendId` and `requestId`
+- **AND** backend reconciliation repeatedly observes the same non-terminal `queued` state
+- **WHEN** the reconciler schedules subsequent checks
+- **THEN** it MUST increase or maintain a bounded per-request reconcile interval instead of polling on every global tick
+- **AND** it MUST keep the task visible as non-terminal
+- **AND** it MUST NOT delete active/history rows solely because the request is stuck queued
+
+#### Scenario: state change resets reconcile cadence
+
+- **GIVEN** a SkillRunner request is under a throttled non-terminal reconcile cadence
+- **WHEN** reconciliation observes a changed state such as `running`, `waiting_user`, `waiting_auth`, `succeeded`, `failed`, or `canceled`
+- **THEN** plugin MUST reset request-local cadence for the changed state
+- **AND** terminal and waiting-state handling MUST proceed without waiting for the old queued backoff window
+
+#### Scenario: backend-level failures keep existing health semantics
+
+- **WHEN** reconciliation fails due to network error, timeout, `429`, or `5xx`
+- **THEN** plugin MUST continue to use existing recoverable/backend health gating semantics
+- **AND** unchanged-state backoff MUST NOT suppress backend health failure accounting
+
+#### Scenario: throttled task remains cancelable when cancellation is available
+
+- **WHEN** a SkillRunner task is throttled because it remains unchanged non-terminal
+- **THEN** dashboard/workspace projections MUST retain enough `backendId` and `requestId` context for user actions such as opening the run or canceling it when those actions are otherwise available

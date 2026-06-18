@@ -1,6 +1,6 @@
 ---
 name: literature-deep-reading
-description: Generate a literature deep-reading artifact from a source bundle. Current package bootstraps source structure, collects requested Host context, and builds reading analysis views for later stages.
+description: Dynamic HTML generator for literature deep-reading. Use when the user wants to read a paper in depth. Ensure you can access to the Zotero library through zotero-bridge CLI.
 ---
 
 # Literature Deep Reading
@@ -129,6 +129,7 @@ runtime/payloads/context-request.json
 - `runtime/views/citation-graph-snapshot.json`
 - `runtime/views/citation-graph-layout.json`
 - `runtime/views/topic-context.json`
+- `runtime/views/topic-candidate-digests-view.json`
 - `runtime/views/graph-context.json`
 - `runtime/views/concept-candidates-view.json`
 - `runtime/views/concept-needs-view.json`
@@ -148,8 +149,18 @@ Stage 10 完成后，继续阅读：
 - `runtime/views/reference-bindings-view.json`
 - `runtime/views/reference-digests-view.json`
 - `runtime/views/topic-context.json`
+- `runtime/views/topic-candidate-digests-view.json`
 - `runtime/views/graph-context.json`
 - `runtime/views/concept-candidates-view.json`
+
+`preface_cards` 必须围绕四个稳定槽位写作：
+
+- `研究领域`：优先根据选中 topic 的 semantic context 中的 topic definition / summary 分析；如果没有 topic context，才回退到当前论文自身。
+- `研究方向`：优先结合选中 topic 的 `taxonomy` 分析当前论文所在的 route / axis；多个 topic candidate 时，可参考未选中 candidate 的 digest 来说明边界。
+- `本文位置`：从时间、重要性、分类三个角度说明当前论文在上述研究领域中的地位。
+- `核心创新`：总结当前论文解决的问题、核心贡献，以及它为哪些后续研究奠定基础。
+
+阅读路线与阅读问题不要写成第四张卡片；它们分别写入 `preface_reading_path` 和 `preface_questions`，runtime 会在 topic timeline 下方渲染为“阅读指引”。
 
 然后手写：
 
@@ -164,8 +175,20 @@ runtime/payloads/reading-enrichment.json
   "preface_title": "阅读前导读",
   "preface_cards": [
     {
-      "title": "研究问题",
-      "body": "这篇论文要解决什么问题，以及它为什么重要。"
+      "title": "研究领域",
+      "body": "把本文放入选中 topic 所代表的研究领域中理解。"
+    },
+    {
+      "title": "研究方向",
+      "body": "结合 topic taxonomy 说明本文所在的研究路线。"
+    },
+    {
+      "title": "本文位置",
+      "body": "从时间、重要性和分类角度说明本文在领域中的位置。"
+    },
+    {
+      "title": "核心创新",
+      "body": "概括本文解决的问题、核心贡献和奠基作用。"
     }
   ],
   "preface_reading_path": ["先看问题设定", "再看方法结构", "最后看实验和局限"],

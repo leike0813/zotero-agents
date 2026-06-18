@@ -60,6 +60,7 @@ import {
   type SkillRunnerSidebarContext,
   type SkillRunnerSidebarRelationState,
 } from "./skillRunnerSidebarModel";
+import { ASSISTANT_SIDEBAR_STREAM_FLUSH_MS } from "./assistantSidebarViewModel";
 import type { AcpPendingPermissionRequest } from "./acpTypes";
 import {
   getSkillRunnerHostBridgePermissionRequest,
@@ -385,6 +386,8 @@ type RunWorkspaceState = {
   handleHostAction?: (
     envelope: RunDialogActionEnvelope,
   ) => Promise<boolean> | boolean;
+  snapshotFlushTimer?: ReturnType<typeof setTimeout> | null;
+  pendingSnapshotType?: "init" | "snapshot";
   refreshChain: Promise<void>;
   selectedTaskKey: string;
   requestedTaskKey: string;
@@ -423,6 +426,8 @@ const runWorkspaceState: RunWorkspaceState = {
   taskIndex: new Map(),
   groups: [],
   loadingBackends: false,
+  snapshotFlushTimer: null,
+  pendingSnapshotType: undefined,
 };
 
 const runDialogMap = new Map<string, RunDialogEntry>();
@@ -1982,6 +1987,11 @@ function isRunWorkspaceHostAlive() {
 }
 
 function pushSnapshot(messageType: "init" | "snapshot") {
+  if (runWorkspaceState.snapshotFlushTimer) {
+    clearTimeout(runWorkspaceState.snapshotFlushTimer);
+    runWorkspaceState.snapshotFlushTimer = null;
+    runWorkspaceState.pendingSnapshotType = undefined;
+  }
   if (!runWorkspaceState.frameWindow) {
     return;
   }
@@ -2011,7 +2021,34 @@ function pushSnapshot(messageType: "init" | "snapshot") {
   );
 }
 
+function scheduleSnapshotFlush(args: {
+  messageType?: "init" | "snapshot";
+  immediate?: boolean;
+}) {
+  const messageType = args.messageType || "snapshot";
+  if (args.immediate) {
+    pushSnapshot(messageType);
+    return;
+  }
+  runWorkspaceState.pendingSnapshotType =
+    runWorkspaceState.pendingSnapshotType === "init" ? "init" : messageType;
+  if (runWorkspaceState.snapshotFlushTimer) {
+    return;
+  }
+  runWorkspaceState.snapshotFlushTimer = setTimeout(() => {
+    const pending = runWorkspaceState.pendingSnapshotType || "snapshot";
+    runWorkspaceState.snapshotFlushTimer = null;
+    runWorkspaceState.pendingSnapshotType = undefined;
+    pushSnapshot(pending);
+  }, ASSISTANT_SIDEBAR_STREAM_FLUSH_MS);
+}
+
 function clearRunWorkspaceHostState() {
+  if (runWorkspaceState.snapshotFlushTimer) {
+    clearTimeout(runWorkspaceState.snapshotFlushTimer);
+    runWorkspaceState.snapshotFlushTimer = null;
+    runWorkspaceState.pendingSnapshotType = undefined;
+  }
   if (runWorkspaceState.removeMessageListener) {
     runWorkspaceState.removeMessageListener();
     runWorkspaceState.removeMessageListener = undefined;
@@ -2320,7 +2357,9 @@ async function startRunObserver(entry: RunDialogEntry) {
       await syncPendingState();
       await syncHistory();
     } catch (error) {
-      if (settleObserverTerminalError(error, "run-dialog-restart-session-sync")) {
+      if (
+        settleObserverTerminalError(error, "run-dialog-restart-session-sync")
+      ) {
         return;
       }
       entry.session.error = compactError(error);
@@ -2375,7 +2414,12 @@ async function startRunObserver(entry: RunDialogEntry) {
           }
           pushSnapshot("snapshot");
         } catch (error) {
-          if (settleObserverTerminalError(error, "run-dialog-waiting-auth-observer")) {
+          if (
+            settleObserverTerminalError(
+              error,
+              "run-dialog-waiting-auth-observer",
+            )
+          ) {
             return;
           }
           entry.session.error = compactError(error);
@@ -2524,7 +2568,11 @@ async function startRunObserver(entry: RunDialogEntry) {
     if (entry.session.messages.length > 500) {
       entry.session.messages = entry.session.messages.slice(-500);
     }
-    pushSnapshot("snapshot");
+    scheduleSnapshotFlush({
+      immediate:
+        conversationEntry.kind !== "assistant_message" &&
+        conversationEntry.kind !== "assistant_process",
+    });
   };
 
   const runLoop = async () => {
@@ -2559,6 +2607,7 @@ async function startRunObserver(entry: RunDialogEntry) {
         chatRetryDelayMs = 800;
         if (!stopped && !isTerminalStatus(entry.session.status)) {
           await syncHistory();
+          pushSnapshot("snapshot");
         }
       } catch (error) {
         chatStreamAbortController = null;
@@ -2589,6 +2638,11 @@ async function startRunObserver(entry: RunDialogEntry) {
     stopPromise = (async () => {
       stopped = true;
       observerGeneration += 1;
+      if (runWorkspaceState.snapshotFlushTimer) {
+        clearTimeout(runWorkspaceState.snapshotFlushTimer);
+        runWorkspaceState.snapshotFlushTimer = null;
+        runWorkspaceState.pendingSnapshotType = undefined;
+      }
       abortCurrentChatStream();
       stopWaitingAuthObserver();
       entry.unsubscribeSessionState?.();
@@ -2628,7 +2682,8 @@ async function handleRunDialogActionForEntry(
   if (action === "resolve-permission") {
     resolveSkillRunnerHostBridgePermissionRequest({
       runRequestId:
-        String(payload.requestId || "").trim() || String(entry.requestId).trim(),
+        String(payload.requestId || "").trim() ||
+        String(entry.requestId).trim(),
       permissionRequestId: String(payload.permissionRequestId || "").trim(),
       outcome: payload.outcome === "selected" ? "selected" : "cancelled",
       optionId: String(payload.optionId || "").trim(),

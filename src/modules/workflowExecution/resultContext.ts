@@ -60,6 +60,7 @@ type RunResultLike = {
   workspaceDir?: string;
   bundleDir?: string;
   requestId?: string;
+  resultArtifactBasePath?: string;
 };
 
 type ArtifactCandidate =
@@ -140,6 +141,25 @@ function resolveResultJsonPath(runResult: RunResultLike | undefined) {
     normalizeString(runResult?.resultJsonPath) ||
     getNestedString(runResult?.responseJson, ["resultJsonPath"]) ||
     getNestedString(runResult?.responseJson, ["result_json_path"])
+  );
+}
+
+function parentEntryPath(value: string) {
+  const normalized = normalizeEntryPath(value);
+  if (!normalized) {
+    return "";
+  }
+  const segments = normalized.split("/");
+  segments.pop();
+  return segments.join("/");
+}
+
+function resolveResultArtifactBasePath(runResult: RunResultLike | undefined) {
+  return (
+    normalizeEntryPath(normalizeString(runResult?.resultArtifactBasePath)) ||
+    parentEntryPath(normalizeString(runResult?.resultJsonPath)) ||
+    parentEntryPath(getNestedString(runResult?.responseJson, ["resultJsonPath"])) ||
+    parentEntryPath(getNestedString(runResult?.responseJson, ["result_json_path"]))
   );
 }
 
@@ -235,10 +255,47 @@ function addPathCandidates(args: {
   }
 }
 
+function addNamespacedPathCandidates(args: {
+  candidates: ArtifactCandidate[];
+  seen: Set<string>;
+  workspaceDir: string;
+  baseEntryPath: string;
+  rawPath: unknown;
+}) {
+  const baseEntryPath = normalizeEntryPath(args.baseEntryPath);
+  const raw = normalizeEntryPath(normalizePathText(args.rawPath));
+  if (!baseEntryPath || !raw || isAbsolutePath(normalizeLocalPathText(args.rawPath))) {
+    return;
+  }
+  const relativeUnderBase = raw.startsWith("result/")
+    ? raw.slice("result/".length)
+    : raw;
+  if (!relativeUnderBase || relativeUnderBase === "result.json") {
+    return;
+  }
+  const namespacedEntry = normalizeEntryPath(`${baseEntryPath}/${relativeUnderBase}`);
+  if (!namespacedEntry) {
+    return;
+  }
+  if (args.workspaceDir) {
+    addCandidate(args.candidates, args.seen, {
+      kind: "local-path",
+      path: joinPath(args.workspaceDir, namespacedEntry),
+      label: namespacedEntry,
+    });
+  }
+  addCandidate(args.candidates, args.seen, {
+    kind: "bundle-entry",
+    entryPath: namespacedEntry,
+    label: namespacedEntry,
+  });
+}
+
 function buildArtifactCandidates(args: {
   rawPath?: unknown;
   fallbackPath?: string;
   workspaceDir: string;
+  resultArtifactBasePath: string;
 }) {
   const candidates: ArtifactCandidate[] = [];
   const seen = new Set<string>();
@@ -248,10 +305,24 @@ function buildArtifactCandidates(args: {
     workspaceDir: args.workspaceDir,
     rawPath: args.rawPath,
   });
+  addNamespacedPathCandidates({
+    candidates,
+    seen,
+    workspaceDir: args.workspaceDir,
+    baseEntryPath: args.resultArtifactBasePath,
+    rawPath: args.rawPath,
+  });
   addPathCandidates({
     candidates,
     seen,
     workspaceDir: args.workspaceDir,
+    rawPath: args.fallbackPath,
+  });
+  addNamespacedPathCandidates({
+    candidates,
+    seen,
+    workspaceDir: args.workspaceDir,
+    baseEntryPath: args.resultArtifactBasePath,
     rawPath: args.fallbackPath,
   });
   return candidates;
@@ -287,6 +358,20 @@ async function tryReadResultJson(args: {
       ),
       source: { kind: "local-path" as const, path: resultJsonPath },
     };
+  }
+  const resultJsonEntryPath = normalizeEntryPath(resultJsonPath);
+  if (resultJsonEntryPath && !isAbsolutePath(resultJsonPath)) {
+    try {
+      return {
+        resultJson: parseJsonText(
+          await args.bundleReader.readText(resultJsonEntryPath),
+          resultJsonEntryPath,
+        ),
+        source: { kind: "bundle-entry" as const, entryPath: resultJsonEntryPath },
+      };
+    } catch {
+      // Fall through to manifest/default bundle result path.
+    }
   }
 
   const resultEntry =
@@ -325,6 +410,7 @@ export async function createWorkflowResultContext(args: {
   const errors: WorkflowResultResolutionWarning[] = [];
   const workspaceDir = resolveWorkspaceDir(args.runResult);
   const resultJsonPath = resolveResultJsonPath(args.runResult);
+  const resultArtifactBasePath = resolveResultArtifactBasePath(args.runResult);
   const resolvedResultJson = await tryReadResultJson({
     runResult: args.runResult,
     bundleReader: args.bundleReader,
@@ -341,6 +427,7 @@ export async function createWorkflowResultContext(args: {
       rawPath,
       fallbackPath,
       workspaceDir,
+      resultArtifactBasePath,
     });
     let lastError = "";
     for (const candidate of candidates) {

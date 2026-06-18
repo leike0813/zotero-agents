@@ -334,7 +334,11 @@ async function streamEventLoop(session: SessionLoopState) {
       if (!isSessionActive(session)) {
         return;
       }
-      session.retryDelayMs = 800;
+      await sleep(session.retryDelayMs);
+      if (!isSessionActive(session)) {
+        return;
+      }
+      session.retryDelayMs = Math.min(30000, session.retryDelayMs * 2);
     } catch (error) {
       if (!isSessionActive(session)) {
         return;

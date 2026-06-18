@@ -5,6 +5,10 @@ import { SkillRunnerClient } from "../providers/skillrunner/client";
 import { resolveSkillRunnerBackendCommunicationFailedToastText } from "../utils/localizationGovernance";
 import { executeApplyResult } from "../workflows/runtime";
 import { ZipBundleReader } from "../workflows/zipBundleReader";
+import type {
+  ProviderExecutionResult,
+  SkillRunnerJobRequestV1,
+} from "../providers/contracts";
 import {
   buildTempBundlePath,
   createUnavailableBundleReader,
@@ -29,6 +33,21 @@ import {
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import { localizeWorkflowText } from "./workflowExecution/messageFormatter";
 import { resolveTargetParentIDFromRequest } from "./workflowExecution/requestMeta";
+import { createWorkflowResultContext } from "./workflowExecution/resultContext";
+import {
+  applySequenceStepResultIfNeeded,
+  continueSkillRunnerSequence,
+  matchesShortCircuitRule,
+  resolveStepOutput,
+} from "./workflowExecution/sequenceRuntime";
+import {
+  getSequenceRunState,
+  getSequenceRunStateByStepRequest,
+  markSequenceRunTerminal,
+  recordSequenceStepSucceeded,
+  type SequenceRunState,
+} from "./workflowExecution/sequenceStateStore";
+import { executeSequenceStepApply } from "./workflowExecution/sequenceStepApply";
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 import {
   isTerminal,
@@ -126,6 +145,10 @@ type ReconcileContext = {
   nextApplyRetryAt?: string;
   lastApplyError?: string;
   error?: string;
+  lastObservedState?: JobState;
+  lastObservedAt?: string;
+  nextReconcileAt?: string;
+  reconcileBackoffMs?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -143,6 +166,8 @@ const BACKEND_RECONCILE_FAILURE_LOG_THROTTLE_MS = 60000;
 const APPLY_MAX_ATTEMPTS = 5;
 const APPLY_RETRY_BASE_MS = 1000;
 const APPLY_RETRY_MAX_MS = 30000;
+const RECONCILE_BACKOFF_INITIAL_MS = 5000;
+const RECONCILE_BACKOFF_MAX_MS = 30000;
 
 export type SkillRunnerBackendTaskLedgerReconcileSource =
   | "startup"
@@ -237,6 +262,35 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizeSequenceStepIndex(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed) : undefined;
+}
+
+function mapSequenceStepProgressState(event: Record<string, unknown>): JobState {
+  const type = normalizeString(event.type);
+  if (type === "sequence-step-succeeded") {
+    return "succeeded";
+  }
+  if (type === "sequence-step-canceled") {
+    return "canceled";
+  }
+  if (type === "sequence-step-failed") {
+    return "failed";
+  }
+  if (type === "sequence-step-deferred") {
+    const backendStatus = normalizeString(event.backendStatus);
+    if (
+      backendStatus === "queued" ||
+      backendStatus === "waiting_user" ||
+      backendStatus === "waiting_auth"
+    ) {
+      return backendStatus;
+    }
+  }
+  return "running";
 }
 
 function normalizeInteger(value: unknown, fallback: number) {
@@ -658,6 +712,16 @@ function parseContext(raw: unknown): ReconcileContext | null {
   );
   const nextApplyRetryAt = normalizeString(raw.nextApplyRetryAt) || undefined;
   const lastApplyError = normalizeString(raw.lastApplyError) || undefined;
+  const lastObservedStateRaw = normalizeString(raw.lastObservedState);
+  const lastObservedState = lastObservedStateRaw
+    ? normalizeStatus(lastObservedStateRaw, state)
+    : undefined;
+  const lastObservedAt = normalizeString(raw.lastObservedAt) || undefined;
+  const nextReconcileAt = normalizeString(raw.nextReconcileAt) || undefined;
+  const reconcileBackoffMsRaw =
+    typeof raw.reconcileBackoffMs === "number" && Number.isFinite(raw.reconcileBackoffMs)
+      ? Math.floor(raw.reconcileBackoffMs)
+      : 0;
   const events = Array.isArray(raw.events)
     ? raw.events
         .filter((entry) => isObject(entry))
@@ -715,6 +779,13 @@ function parseContext(raw: unknown): ReconcileContext | null {
     nextApplyRetryAt,
     lastApplyError,
     error: normalizeString(raw.error) || undefined,
+    lastObservedState,
+    lastObservedAt,
+    nextReconcileAt,
+    reconcileBackoffMs:
+      reconcileBackoffMsRaw > 0
+        ? Math.min(RECONCILE_BACKOFF_MAX_MS, reconcileBackoffMsRaw)
+        : undefined,
     createdAt,
     updatedAt,
   };
@@ -722,6 +793,11 @@ function parseContext(raw: unknown): ReconcileContext | null {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function parseIsoTime(value?: string) {
+  const parsed = Date.parse(normalizeString(value));
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 async function waitForMs(ms: number) {
@@ -811,6 +887,75 @@ async function resolveWorkflow(workflowId: string) {
     (entry) => entry.manifest.id === workflowId,
   );
   return workflow || null;
+}
+
+function sanitizeResultNamespaceSegment(value: unknown) {
+  return (
+    normalizeString(value)
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "skill"
+  );
+}
+
+function getSequenceStepIndexByRequest(args: {
+  sequenceState: SequenceRunState;
+  requestId: string;
+}) {
+  const requestId = normalizeString(args.requestId);
+  return args.sequenceState.steps.findIndex(
+    (step) => normalizeString(step.requestId) === requestId,
+  );
+}
+
+function resolveSequenceStepResultJsonPath(args: {
+  sequenceState: SequenceRunState;
+  stepIndex: number;
+}) {
+  const step = args.sequenceState.request.steps[args.stepIndex];
+  if (!step) {
+    return "";
+  }
+  const skillSegment = sanitizeResultNamespaceSegment(step.skill_id);
+  let occurrence = 0;
+  for (let index = 0; index <= args.stepIndex; index += 1) {
+    const candidate = args.sequenceState.request.steps[index];
+    if (
+      sanitizeResultNamespaceSegment(candidate?.skill_id) === skillSegment
+    ) {
+      occurrence += 1;
+    }
+  }
+  return `result/${skillSegment}.${Math.max(1, occurrence)}/result.json`;
+}
+
+function parentEntryPath(value: string) {
+  const normalized = normalizeString(value).replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  parts.pop();
+  return parts.join("/");
+}
+
+async function resolveBackendForContext(context: ReconcileContext) {
+  const backendId = normalizeString(context.backendId);
+  if (backendId) {
+    try {
+      const registry = await loadBackendsRegistry();
+      const matched = registry.backends.find(
+        (entry) => normalizeString(entry.id) === backendId,
+      );
+      if (matched) {
+        return matched;
+      }
+    } catch {
+      // Fall back to the persisted context below.
+    }
+  }
+  return {
+    id: context.backendId,
+    type: context.backendType,
+    baseUrl: context.backendBaseUrl,
+    auth: { kind: "none" },
+  } as BackendInstance;
 }
 
 export async function reconcileSkillRunnerBackendTaskLedgerOnce(args: {
@@ -1060,6 +1205,66 @@ export class SkillRunnerTaskReconciler {
     });
   }
 
+  private hasVisibleTaskProjection(context: ReconcileContext) {
+    const backendId = normalizeString(context.backendId);
+    const requestId = normalizeString(context.requestId);
+    if (!backendId || !requestId) {
+      return false;
+    }
+    const active = listActiveWorkflowTasks().some(
+      (entry) =>
+        normalizeString(entry.backendId) === backendId &&
+        normalizeString(entry.requestId) === requestId,
+    );
+    if (active) {
+      return true;
+    }
+    return listTaskDashboardHistory({
+      backendId,
+      requestId,
+    }).some(
+      (entry) =>
+        normalizeString(entry.backendId) === backendId &&
+        normalizeString(entry.requestId) === requestId,
+    );
+  }
+
+  private resetReconcileCadence(context: ReconcileContext) {
+    context.lastObservedState = undefined;
+    context.lastObservedAt = undefined;
+    context.nextReconcileAt = undefined;
+    context.reconcileBackoffMs = undefined;
+  }
+
+  private shouldSkipByReconcileCadence(
+    context: ReconcileContext,
+    source: ReconcileDispatchSource,
+  ) {
+    if (source !== "interval" || isTerminalState(context.state) || isWaiting(context.state)) {
+      return false;
+    }
+    const nextAt = parseIsoTime(context.nextReconcileAt);
+    return nextAt > Date.now();
+  }
+
+  private updateReconcileCadence(context: ReconcileContext, observedState: JobState) {
+    if (isTerminalState(observedState) || isWaiting(observedState)) {
+      this.resetReconcileCadence(context);
+      return;
+    }
+    const unchanged = context.lastObservedState === observedState;
+    const previousBackoff = unchanged
+      ? context.reconcileBackoffMs || RECONCILE_BACKOFF_INITIAL_MS
+      : 0;
+    const nextBackoff = unchanged
+      ? Math.min(RECONCILE_BACKOFF_MAX_MS, previousBackoff * 2)
+      : RECONCILE_BACKOFF_INITIAL_MS;
+    context.lastObservedState = observedState;
+    context.lastObservedAt = nowIso();
+    context.reconcileBackoffMs = nextBackoff;
+    context.nextReconcileAt = new Date(Date.now() + nextBackoff).toISOString();
+  }
+
   private buildMissingContextCandidates() {
     const existingKeys = new Set<string>();
     for (const context of this.contexts.values()) {
@@ -1271,7 +1476,14 @@ export class SkillRunnerTaskReconciler {
 
   private ensureRunningSessionSync(context: ReconcileContext) {
     const normalizedState = normalizeStatus(context.state, "running");
-    if (normalizedState !== "running" && normalizedState !== "queued") {
+    if (normalizedState !== "running") {
+      stopSessionSync({
+        backendId: context.backendId,
+        requestId: context.requestId,
+      });
+      return;
+    }
+    if (!this.hasVisibleTaskProjection(context)) {
       stopSessionSync({
         backendId: context.backendId,
         requestId: context.requestId,
@@ -1721,9 +1933,16 @@ export class SkillRunnerTaskReconciler {
       nextApplyRetryAt: existing?.nextApplyRetryAt,
       lastApplyError: existing?.lastApplyError,
       error: normalizeString(args.job.error) || existing?.error,
+      lastObservedState: existing?.lastObservedState,
+      lastObservedAt: existing?.lastObservedAt,
+      nextReconcileAt: existing?.nextReconcileAt,
+      reconcileBackoffMs: existing?.reconcileBackoffMs,
       createdAt: existing?.createdAt || args.job.createdAt,
       updatedAt: nowIso(),
     };
+    if (!existing || existing.state !== state || isWaiting(state) || isTerminalState(state)) {
+      this.resetReconcileCadence(context);
+    }
     if (recoverableDispatchFailure) {
       appendRuntimeLog({
         level: "warn",
@@ -1878,12 +2097,295 @@ export class SkillRunnerTaskReconciler {
     });
   }
 
+  private buildSequenceContinuationStepJob(args: {
+    context: ReconcileContext;
+    sequenceState: SequenceRunState;
+    backend: BackendInstance;
+    event: Record<string, unknown>;
+  }): JobRecord | null {
+    const stepId = normalizeString(args.event.sequenceStepId);
+    if (!stepId) {
+      return null;
+    }
+    const requestId = normalizeString(args.event.requestId);
+    const workflowRunId =
+      normalizeString(args.event.workflowRunId) ||
+      normalizeString(args.sequenceState.workflowRunId);
+    const sequenceStepIndex = normalizeSequenceStepIndex(
+      args.event.sequenceStepIndex,
+    );
+    const skillId = normalizeString(args.event.sequenceStepSkillId);
+    const taskName =
+      normalizeString(args.event.sequenceStepTaskName) ||
+      `${args.sequenceState.workflowLabel || args.sequenceState.workflowId} / ${stepId}`;
+    const now = nowIso();
+    return {
+      id: `${args.sequenceState.jobId}:${stepId}`,
+      workflowId: args.sequenceState.workflowId,
+      request: args.event.sequenceStepRequest || args.sequenceState.request,
+      meta: {
+        index:
+          typeof sequenceStepIndex === "number" ? sequenceStepIndex : undefined,
+        runId: args.context.runId,
+        workflowRunId: workflowRunId || undefined,
+        workflowLabel: args.sequenceState.workflowLabel,
+        jobId: `${args.sequenceState.jobId}:${stepId}`,
+        requestId: requestId || undefined,
+        requestKind: "skillrunner.job.v1",
+        backendId: args.backend.id,
+        backendType: args.backend.type,
+        backendBaseUrl: args.backend.baseUrl,
+        providerId: args.context.providerId,
+        taskName,
+        inputUnitLabel: taskName,
+        targetParentID: resolveTargetParentIDFromRequest(
+          args.sequenceState.request,
+        ),
+        skillId: skillId || undefined,
+        sequenceStepId: stepId,
+        sequenceStepIndex,
+        sequenceJobId: args.sequenceState.jobId,
+      },
+      state: mapSequenceStepProgressState(args.event),
+      error: normalizeString(args.event.error) || undefined,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  private handleSequenceContinuationProgress(args: {
+    context: ReconcileContext;
+    sequenceState: SequenceRunState;
+    backend: BackendInstance;
+    event: Record<string, unknown>;
+  }) {
+    if (!normalizeString(args.event.sequenceStepId)) {
+      return;
+    }
+    const stepJob = this.buildSequenceContinuationStepJob(args);
+    if (!stepJob) {
+      return;
+    }
+    recordWorkflowTaskUpdate(stepJob);
+    recordTaskDashboardHistoryFromJob(stepJob);
+    const eventType = normalizeString(args.event.type);
+    if (eventType === "request-created") {
+      return;
+    }
+    if (
+      eventType === "request-ready" ||
+      eventType === "sequence-step-deferred" ||
+      eventType === "sequence-step-succeeded"
+    ) {
+      this.registerFromJob({
+        workflowId: args.sequenceState.workflowId,
+        workflowLabel:
+          args.sequenceState.workflowLabel || args.sequenceState.workflowId,
+        requestKind: "skillrunner.job.v1",
+        request: stepJob.request,
+        backend: args.backend,
+        providerId: args.context.providerId,
+        providerOptions:
+          args.sequenceState.providerOptions || args.context.providerOptions,
+        job: stepJob,
+      });
+    }
+  }
+
+  private async applySequenceTerminalSuccessContext(args: {
+    context: ReconcileContext;
+    client: SkillRunnerClient;
+    sequenceState: SequenceRunState;
+    generation?: number;
+  }) {
+    const stepIndex = getSequenceStepIndexByRequest({
+      sequenceState: args.sequenceState,
+      requestId: args.context.requestId,
+    });
+    const step = args.sequenceState.request.steps[stepIndex];
+    if (stepIndex < 0 || !step) {
+      return false;
+    }
+    const resultJsonPath = resolveSequenceStepResultJsonPath({
+      sequenceState: args.sequenceState,
+      stepIndex,
+    });
+    const runResult = {
+      status: "succeeded" as const,
+      requestId: args.context.requestId,
+      fetchType: args.context.fetchType,
+      resultJsonPath,
+      resultArtifactBasePath: parentEntryPath(resultJsonPath),
+      backendId: args.context.backendId,
+      backendType: args.context.backendType,
+      runId: args.context.runId,
+      jobId: args.context.jobId,
+    } as Extract<ProviderExecutionResult, { status: "succeeded" }> &
+      Record<string, unknown>;
+    let bundlePath = "";
+    try {
+      let bundleReader = createUnavailableBundleReader(args.context.requestId);
+      if (args.context.fetchType === "bundle") {
+        const bundleBytes = await args.client.fetchRunBundle({
+          requestId: args.context.requestId,
+        });
+        if (
+          typeof args.generation === "number" &&
+          !this.isGenerationActive(args.generation)
+        ) {
+          return true;
+        }
+        runResult.bundleBytes = bundleBytes;
+        bundlePath = buildTempBundlePath(args.context.requestId);
+        await writeBytes(bundlePath, bundleBytes);
+        const zipReader = new ZipBundleReader(bundlePath);
+        bundleReader = zipReader;
+        runResult.bundleDir = await zipReader.getExtractedDir();
+      } else {
+        runResult.resultJson = await args.client.fetchRunResult({
+          requestId: args.context.requestId,
+        });
+      }
+      const resultContext = await createWorkflowResultContext({
+        runResult,
+        bundleReader,
+        manifest: {
+          result: {
+            expects: {
+              result_json: resultJsonPath,
+            },
+          },
+        },
+      });
+      runResult.resultJson = resultContext.resultJson;
+      const output = resolveStepOutput(runResult);
+      recordSequenceStepSucceeded({
+        sequenceRunId: args.sequenceState.sequenceRunId,
+        stepIndex,
+        requestId: args.context.requestId,
+        output,
+        result: runResult,
+      });
+      const backend = await resolveBackendForContext(args.context);
+      await applySequenceStepResultIfNeeded({
+        state: getSequenceRunState(args.sequenceState.sequenceRunId) || args.sequenceState,
+        stepIndex,
+        stepRequest: args.context.request as SkillRunnerJobRequestV1,
+        stepResult: runResult,
+        output,
+        backend,
+        appendRuntimeLog,
+        applySequenceStepResult: async (stepApply) => {
+          const applyWorkflow = await resolveWorkflow(stepApply.applyWorkflowId);
+          if (!applyWorkflow) {
+            throw new Error(
+              `sequence step apply workflow not found: ${stepApply.applyWorkflowId}`,
+            );
+          }
+          return executeSequenceStepApply({
+            workflow: applyWorkflow,
+            parent:
+              resolveTargetParentIDFromRequest(stepApply.sequenceRequest) ||
+              null,
+            request: stepApply.stepRequest,
+            runResult: {
+              ...stepApply.stepResult,
+              resultJson: stepApply.output,
+              backendId: backend.id,
+              backendType: backend.type,
+              runId: args.context.runId,
+              sequence: {
+                workflow_run_id: stepApply.workflowRunId,
+                final_step_id: stepApply.sequenceRequest.final_step_id,
+                steps: stepApply.sequenceSteps,
+              },
+            },
+            sequenceStep: {
+              id: stepApply.step.id,
+              index: stepApply.stepIndex,
+              workflowId: stepApply.applyWorkflowId,
+              skillId: stepApply.step.skill_id,
+              finalStep: stepApply.finalStep,
+              phase: "sequence-step",
+            },
+          });
+        },
+      });
+      if (
+        step.id === args.sequenceState.request.final_step_id ||
+        matchesShortCircuitRule({ step, output })
+      ) {
+        markSequenceRunTerminal({
+          sequenceRunId: args.sequenceState.sequenceRunId,
+          status: "completed",
+        });
+        return true;
+      }
+      const continuationResult = await continueSkillRunnerSequence({
+        sequenceRunId: args.sequenceState.sequenceRunId,
+        startIndex: stepIndex + 1,
+        backend,
+        providerOptions: args.sequenceState.providerOptions,
+        appendRuntimeLog,
+        executeWithProvider: ({
+          request,
+          backend,
+          providerOptions,
+          onProgress,
+        }) => {
+          const client = new SkillRunnerClient({
+            baseUrl: backend.baseUrl,
+          });
+          return client.executeSkillRunnerJob(
+            request as SkillRunnerJobRequestV1,
+            providerOptions || {},
+            { onProgress },
+          );
+        },
+        onProgress: (event) => {
+          this.handleSequenceContinuationProgress({
+            context: args.context,
+            sequenceState:
+              getSequenceRunState(args.sequenceState.sequenceRunId) ||
+              args.sequenceState,
+            backend,
+            event: event as Record<string, unknown>,
+          });
+        },
+      });
+      if (continuationResult.status === "deferred") {
+        this.enqueuePromptReconcileRequests({
+          backendId: backend.id,
+          requestIds: [continuationResult.requestId],
+          source: "post-register",
+        });
+      }
+      return true;
+    } finally {
+      if (bundlePath) {
+        await removeFileIfExists(bundlePath);
+      }
+    }
+  }
+
   private async applyTerminalSuccessContext(
     context: ReconcileContext,
     client: SkillRunnerClient,
     source: ReconcileDispatchSource,
     generation?: number,
   ) {
+    const sequenceState = getSequenceRunStateByStepRequest(context.requestId);
+    if (sequenceState) {
+      const handled = await this.applySequenceTerminalSuccessContext({
+        context,
+        client,
+        sequenceState,
+        generation,
+      });
+      if (handled) {
+        return;
+      }
+    }
     const workflow = await resolveWorkflow(context.workflowId);
     if (
       typeof generation === "number" &&
@@ -1975,7 +2477,9 @@ export class SkillRunnerTaskReconciler {
         ) {
           return;
         }
-        bundleReader = new ZipBundleReader(bundlePath);
+        const zipReader = new ZipBundleReader(bundlePath);
+        bundleReader = zipReader;
+        runResult.bundleDir = await zipReader.getExtractedDir();
         appendRuntimeLog({
           level: "info",
           scope: "job",
@@ -2004,10 +2508,17 @@ export class SkillRunnerTaskReconciler {
           return;
         }
       }
+      const resultContext = await createWorkflowResultContext({
+        runResult,
+        bundleReader,
+        manifest: workflow.manifest,
+      });
+      runResult.resultJson = resultContext.resultJson;
       await executeApplyResult({
         workflow,
         parent: applyParent,
         bundleReader,
+        resultContext,
         request: context.request,
         runResult,
       });
@@ -2096,16 +2607,28 @@ export class SkillRunnerTaskReconciler {
       this.logTransitionViolation(context, observed.violation);
       if (!isTerminalState(observed.status)) {
         const nextObservedState = normalizeStatus(observed.status, context.state);
+        const stateChanged = nextObservedState !== context.state;
         if (nextObservedState !== context.state) {
           context.state = nextObservedState;
           context.updatedAt = nowIso();
-          writePersistedContexts(Array.from(this.contexts.values()));
         }
-        if (normalizeStatus(observed.status, context.state) === "running") {
+        if (stateChanged) {
+          this.resetReconcileCadence(context);
+        } else {
+          this.updateReconcileCadence(context, nextObservedState);
+        }
+        writePersistedContexts(Array.from(this.contexts.values()));
+        if (nextObservedState === "running") {
           this.ensureRunningSessionSync(context);
+        } else {
+          stopSessionSync({
+            backendId: context.backendId,
+            requestId: context.requestId,
+          });
         }
         return;
       }
+      this.resetReconcileCadence(context);
       const confirmedTerminal = await resolveDoubleConfirmedTerminalRunState({
         client,
         requestId: context.requestId,
@@ -2350,6 +2873,8 @@ export class SkillRunnerTaskReconciler {
         writePersistedContexts(Array.from(this.contexts.values()));
         return;
       }
+      this.resetReconcileCadence(context);
+      writePersistedContexts(Array.from(this.contexts.values()));
       const health = getSkillRunnerBackendHealthState(context.backendId);
       const now = Date.now();
       const throttleUntil =
@@ -2467,6 +2992,17 @@ export class SkillRunnerTaskReconciler {
         });
         continue;
       }
+      if (this.shouldSkipByReconcileCadence(context, source)) {
+        if (normalizeStatus(context.state, "running") === "running") {
+          this.ensureRunningSessionSync(context);
+        } else {
+          stopSessionSync({
+            backendId: context.backendId,
+            requestId: context.requestId,
+          });
+        }
+        continue;
+      }
       this.ensureRunningSessionSync(context);
       await this.reconcileOneContext(context, source, generation);
     }
@@ -2581,12 +3117,15 @@ export class SkillRunnerTaskReconciler {
       this.isReconciling = false;
       if (
         this.pendingPromptReconciles.size > 0 &&
-        typeof generation === "number" &&
-        this.isGenerationActive(generation)
+        (typeof generation !== "number" || this.isGenerationActive(generation))
       ) {
-        this.spawnBackgroundTask("prompt-flush", generation, async () => {
-          await this.flushPromptReconcileQueue(generation);
-        });
+        if (typeof generation === "number") {
+          this.spawnBackgroundTask("prompt-flush", generation, async () => {
+            await this.flushPromptReconcileQueue(generation);
+          });
+        } else {
+          void this.flushPromptReconcileQueue();
+        }
       }
     }
   }
@@ -2663,12 +3202,15 @@ export class SkillRunnerTaskReconciler {
       this.isReconciling = false;
       if (
         this.pendingPromptReconciles.size > 0 &&
-        typeof generation === "number" &&
-        this.isGenerationActive(generation)
+        (typeof generation !== "number" || this.isGenerationActive(generation))
       ) {
-        this.spawnBackgroundTask("prompt-flush", generation, async () => {
-          await this.flushPromptReconcileQueue(generation);
-        });
+        if (typeof generation === "number") {
+          this.spawnBackgroundTask("prompt-flush", generation, async () => {
+            await this.flushPromptReconcileQueue(generation);
+          });
+        } else {
+          void this.flushPromptReconcileQueue();
+        }
       }
     }
   }

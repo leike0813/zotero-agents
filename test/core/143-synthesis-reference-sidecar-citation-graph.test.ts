@@ -604,6 +604,75 @@ describe("Synthesis sidecar cache hard cut", function () {
     );
   });
 
+  it("returns nested reference facts only when reference rows are requested", async function () {
+    const root = await makeRuntimeRoot();
+    const { service } = makeService({
+      root,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "AAA",
+          title: "Attention Paper",
+          year: "2020",
+          notes: [],
+        },
+        {
+          libraryId: 1,
+          itemKey: "BBB",
+          title: "Detection Transformer",
+          year: "2021",
+          notes: [],
+        },
+      ],
+    });
+    await service.applyReferenceMatchingSidecar({
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Attention Paper",
+      year: "2020",
+      references: [
+        { title: "Detection Transformer", year: "2021" },
+        { title: "External Reference", year: "2022" },
+      ],
+      matchedItems: [
+        {
+          libraryId: 1,
+          itemKey: "BBB",
+          title: "Detection Transformer",
+          year: "2021",
+        },
+      ],
+    });
+
+    const defaultIndex = await service.getReferenceSidecarIndex({
+      sourceRefs: ["1:AAA"],
+    });
+    assert.notProperty(defaultIndex.rows[0] || {}, "references");
+
+    const index = await service.getReferenceSidecarIndex({
+      sourceRefs: ["1:AAA"],
+      includeReferences: true,
+      referenceSourceRefs: ["1:AAA"],
+    });
+    const references = index.rows[0]?.references || [];
+    assert.lengthOf(references, 2);
+    assert.equal(references[0]?.reference_index, 0);
+    assert.equal(references[0]?.target_paper_ref, "1:BBB");
+    assert.equal(references[0]?.target_binding, "library");
+    assert.equal(references[0]?.binding_status, "accepted");
+    assert.equal(index.rows[0]?.reference_count, 2);
+
+    const filtered = await service.getReferenceSidecarIndex({
+      sourceRefs: ["1:AAA"],
+      rawReferenceIds: [references[0].reference_instance_id],
+    });
+    assert.lengthOf(filtered.rows[0]?.references || [], 1);
+    assert.equal(
+      filtered.rows[0]?.references?.[0]?.reference_instance_id,
+      references[0].reference_instance_id,
+    );
+  });
+
   it("reads Zotero titles for sidecar-only index rows", async function () {
     const root = await makeRuntimeRoot();
     const repository = createSynthesisRepository({ runtimeRoot: root });

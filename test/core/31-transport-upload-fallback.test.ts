@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import { SkillRunnerClient } from "../../src/providers/skillrunner/client";
 import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
+import { createZipFromNamedFiles } from "../../src/providers/skillrunner/zipTransport";
 import { fixturePath } from "./workflow-test-utils";
 
 function createJsonResponse(payload: unknown, status = 200): Response {
@@ -11,6 +12,20 @@ function createJsonResponse(payload: unknown, status = 200): Response {
     statusText: status === 200 ? "OK" : "ERROR",
     text: async () => text,
     arrayBuffer: async () => new TextEncoder().encode(text).buffer,
+  } as unknown as Response;
+}
+
+function createBinaryResponse(bytes: Uint8Array, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? "OK" : "ERROR",
+    text: async () => new TextDecoder().decode(bytes),
+    arrayBuffer: async () =>
+      bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength,
+      ),
   } as unknown as Response;
 }
 
@@ -37,6 +52,63 @@ function readZipGeneralPurposeFlagFromMultipart(bytes: Uint8Array) {
 }
 
 describe("transport: upload fallback without FormData", function () {
+  it("parses namespaced result.json from SkillRunner bundle terminal result", async function () {
+    const bundleBytes = createZipFromNamedFiles([
+      {
+        name: "result/literature-analysis.1/result.json",
+        data: new TextEncoder().encode(
+          JSON.stringify({ digest_path: "result/digest.md" }),
+        ),
+      },
+      {
+        name: "result/result.json",
+        data: new TextEncoder().encode(JSON.stringify({ legacy: true })),
+      },
+    ]);
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url: string) => {
+        if (url.endsWith("/v1/jobs")) {
+          return createJsonResponse({ request_id: "req-bundle-1" });
+        }
+        if (url.endsWith("/v1/jobs/req-bundle-1")) {
+          return createJsonResponse({
+            request_id: "req-bundle-1",
+            status: "succeeded",
+            workspaceDir: "/tmp/workspace",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-bundle-1/bundle")) {
+          return createBinaryResponse(bundleBytes);
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    const result = await client.executeSkillRunnerJob(
+      {
+        kind: "skillrunner.job.v1",
+        skill_id: "literature-analysis",
+        skill_source: "installed",
+        fetch_type: "bundle",
+      },
+      {
+        engine: "gemini",
+      },
+    );
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(result.resultJson, {
+      digest_path: "result/digest.md",
+    });
+    assert.equal(
+      result.resultJsonPath,
+      "result/literature-analysis.1/result.json",
+    );
+    assert.equal(result.resultArtifactBasePath, "result/literature-analysis.1");
+    assert.equal(result.workspaceDir, "/tmp/workspace");
+  });
+
   it("emits request-ready progress only after upload succeeds", async function () {
     const progressEvents: Array<{ type: string; requestId?: string }> = [];
     const client = new SkillRunnerClient({
@@ -782,6 +854,83 @@ describe("transport: upload fallback without FormData", function () {
     assert.match(String(thrown), /request_id=req-failed/i);
     assert.match(String(thrown), /status=failed/i);
     assert.match(String(thrown), /mock backend failed/i);
+  });
+
+  it("uses one absolute timeout for repeated queued poll responses", async function () {
+    const originalNow = Date.now;
+    let now = 1000;
+    let pollCount = 0;
+    Object.defineProperty(Date, "now", {
+      configurable: true,
+      value: () => now,
+    });
+    try {
+      const client = new SkillRunnerClient({
+        baseUrl: "http://127.0.0.1:8030",
+        fetchImpl: async (url: string) => {
+          if (url.endsWith("/v1/jobs")) {
+            return createJsonResponse({ request_id: "req-timeout" });
+          }
+          if (url.endsWith("/v1/jobs/req-timeout")) {
+            pollCount += 1;
+            now += 3;
+            return createJsonResponse({
+              request_id: "req-timeout",
+              status: "queued",
+            });
+          }
+          return createJsonResponse({ error: "unexpected route" }, 404);
+        },
+      });
+
+      let thrown: unknown = null;
+      try {
+        await client.executeHttpSteps({
+          kind: "http.steps",
+          poll: { interval_ms: 0, timeout_ms: 5 },
+          steps: [
+            {
+              id: "create",
+              request: {
+                method: "POST",
+                path: "/v1/jobs",
+                json: {
+                  skill_id: "literature-analysis",
+                  engine: "gemini",
+                },
+              },
+              extract: { request_id: "$.request_id" },
+            },
+            {
+              id: "poll",
+              request: {
+                method: "GET",
+                path: "/v1/jobs/{request_id}",
+              },
+            },
+            {
+              id: "result",
+              request: {
+                method: "GET",
+                path: "/v1/jobs/{request_id}/result",
+              },
+            },
+          ],
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      assert.isOk(thrown);
+      assert.match(String(thrown), /polling timeout/i);
+      assert.isAtLeast(pollCount, 2);
+      assert.isBelow(pollCount, 5);
+    } finally {
+      Object.defineProperty(Date, "now", {
+        configurable: true,
+        value: originalNow,
+      });
+    }
   });
 
   it("returns deferred status for interactive waiting_user without local timeout failure", async function () {

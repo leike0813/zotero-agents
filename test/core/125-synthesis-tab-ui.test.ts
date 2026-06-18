@@ -971,6 +971,50 @@ describe("Synthesis tab UI model", function () {
     });
   });
 
+  it("summarizes Home review items independently from the Review tab", function () {
+    const snapshot = buildSynthesisUiSnapshot({
+      libraryId: 1,
+      reviews: {
+        summary: {
+          openCount: 2,
+          indexCount: 2,
+          referenceMatchingCount: 1,
+          conceptCount: 0,
+          topicGraphCount: 0,
+        },
+      },
+      concepts: {
+        reviewItems: [
+          {
+            review_id: "concept-review:1",
+            status: "open",
+            reason: "low_confidence_concept",
+            label: "DETR",
+          },
+        ],
+      },
+      topicGraph: {
+        reviewItems: [
+          {
+            review_id: "topic-review:1",
+            status: "open",
+            relation: "related_to",
+            source_topic_id: "topic:a",
+            target_topic_id: "topic:b",
+          },
+        ],
+      },
+    });
+
+    assert.deepEqual(snapshot.reviews.summary, {
+      openCount: 4,
+      indexCount: 2,
+      referenceMatchingCount: 1,
+      conceptCount: 1,
+      topicGraphCount: 1,
+    });
+  });
+
   it("renders Tags tab state with table workbench filters, selection, actions, and import preview", function () {
     const state = applySynthesisUiAction(createDefaultSynthesisUiState(), {
       action: "setFilters",
@@ -2053,8 +2097,40 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "renderTopicCard");
     assert.include(source, "Library Insights");
     assert.include(source, "Top Topics");
-    assert.include(source, "renderGitSyncPanel");
-    assert.include(source, "Sync review");
+    assert.include(source, "renderSyncPanel");
+    assert.include(source, "renderSyncFeedbackLog");
+    assert.include(source, "sync-feedback-terminal");
+    assert.include(source, "synthesis-home-sync");
+    assert.include(source, "synthesis-home-review-items");
+    assert.include(source, "synthesis-action-webdav-sync-now");
+    assert.notInclude(source, "renderGitSyncPanel");
+    assert.notInclude(extractFunctionBlock(source, "renderHome"), '"Sync",');
+    assert.notInclude(
+      extractFunctionBlock(source, "renderSyncPanel"),
+      "syncNow",
+    );
+    assert.notInclude(
+      extractFunctionBlock(source, "renderSyncPanel"),
+      "renderInsightCard",
+    );
+    assert.notInclude(
+      extractFunctionBlock(source, "renderSyncPanel"),
+      "resolveGitSyncConflict",
+    );
+    assert.include(
+      extractFunctionBlock(source, "renderSyncPanel"),
+      "syncWebDavNow",
+    );
+    assert.notInclude(
+      extractFunctionBlock(source, "renderSyncPanel"),
+      "Review items",
+    );
+    assert.notInclude(
+      extractFunctionBlock(source, "renderSyncPanel"),
+      "Last run",
+    );
+    assert.include(source, "sync-summary");
+    assert.include(source, "synthesis-sync-review");
     assert.include(source, "paper_count");
     assert.include(source, "source_materials_percent");
     assert.include(source, "sourceMaterialsLabel");
@@ -2098,14 +2174,45 @@ describe("Synthesis tab UI model", function () {
       /\.topics-list-definition-cell\s*{[\s\S]*?max-width:\s*none;[\s\S]*?overflow:\s*visible;[\s\S]*?white-space:\s*normal;/,
     );
     assert.include(css, ".panel-toolbar");
+    assert.include(css, ".sync-summary");
+    assert.include(css, ".sync-feedback-terminal");
+    assert.include(css, "--sync-terminal-bg");
+    assert.include(css, ':root[data-zs-theme="dark"]');
+    assert.include(css, ".sync-log-line");
     assert.include(css, ".immersive-reader");
     assert.include(css, ":focus-visible");
     assert.include(css, "@media (prefers-reduced-motion: reduce)");
   });
 
+  it("hides Git Sync from Preferences while keeping WebDAV preferences visible", async function () {
+    const preferences = await fs.readFile(
+      "addon/content/preferences.xhtml",
+      "utf8",
+    );
+    const script = await fs.readFile("src/modules/preferenceScript.ts", "utf8");
+
+    assert.notInclude(preferences, "git-sync-enabled");
+    assert.notInclude(preferences, "git-sync-token");
+    assert.notInclude(preferences, "pref-section-git-sync");
+    assert.notInclude(script, "git-sync-enabled");
+    assert.notInclude(script, "saveGitSyncPrefs");
+    assert.notInclude(script, "testGitSyncConfiguration");
+    assert.include(preferences, "webdav-sync-enabled");
+    assert.include(script, "saveWebDavSyncPrefs");
+    assert.include(script, "testWebDavSyncConfiguration");
+  });
+
   it("renders structured Topic Detail with design-token timeline and evidence interactions", async function () {
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
+    const timelineSource = await fs.readFile(
+      "src/shared/topicTimelineRenderer.ts",
+      "utf8",
+    );
+    const timelineCss = await fs.readFile(
+      "addon/content/shared/topicTimeline.css",
+      "utf8",
+    );
     const mockupApp = await fs.readFile("mockup/app.js", "utf8");
     const mockupCss = await fs.readFile("mockup/styles.css", "utf8");
 
@@ -2120,6 +2227,10 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(source, "renderTopicOverviewSection");
     assert.include(source, "renderTopicTaxonomySection");
+    assert.include(source, "taxonomy-axis-header");
+    assert.include(source, "taxonomy-axis-index");
+    assert.include(source, "taxonomy-axis-body");
+    assert.include(source, "TAXONOMY_AXIS_TONE_CLASSES");
     assert.include(source, "renderTopicClaimsSection");
     assert.include(source, "renderTopicCompareSection");
     assert.include(source, "renderTopicExternalCoverageSection");
@@ -2155,7 +2266,8 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(source, "Source Chapters");
     assert.include(source, "renderTopicDetailToolbar");
     assert.include(source, "renderSelectedEvidenceCard");
-    assert.include(source, "renderTimelineClusters");
+    assert.include(source, "renderSharedTopicTimeline");
+    assert.notInclude(source, "renderTimelineClusters");
     assert.include(source, "comparisonRows");
     assert.include(source, "renderMethodComparisonCard");
     assert.notInclude(source, "renderEvidenceMapSummary");
@@ -2166,42 +2278,45 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "renderEvidenceDrawer");
     assert.include(source, "renderTopicTimeline");
     assert.include(source, "timelineItems");
-    assert.include(source, "timelineLayoutFromItems");
-    assert.include(source, "TIMELINE_BASE_WIDTH_PX = 1080");
-    assert.include(source, "TIMELINE_YEAR_MIN_WIDTH_PX = 80");
-    assert.include(source, "TIMELINE_MARKER_MIN_WIDTH_PX = 34");
-    assert.include(source, "timelineYearCounts");
-    assert.include(source, "timelinePaperLeft");
-    assert.include(source, "itemIndex + 1");
-    assert.include(source, "count + 1");
+    assert.include(timelineSource, "timelineLayoutFromItems");
+    assert.include(timelineSource, "TIMELINE_BASE_WIDTH_PX = 1080");
+    assert.include(timelineSource, "TIMELINE_YEAR_MIN_WIDTH_PX = 80");
+    assert.include(timelineSource, "TIMELINE_MARKER_MIN_WIDTH_PX = 34");
+    assert.include(timelineSource, "timelineYearCounts");
+    assert.include(timelineSource, "timelinePaperLeft");
+    assert.include(timelineSource, "itemIndex + 1");
+    assert.include(timelineSource, "count + 1");
     assert.include(source, "timelineEventGroups");
     assert.include(source, "timelineEventDescription");
     assert.include(source, '"description"');
-    assert.include(source, "renderTimelineEventPopover");
-    assert.include(source, "showTimelineTooltip");
-    assert.include(source, "hideTimelineTooltip");
-    assert.include(source, "overlayRoot.appendChild(popover)");
+    assert.include(timelineSource, "renderTimelineEventPopover");
+    assert.include(timelineSource, "showTimelineTooltip");
+    assert.include(timelineSource, "hideTopicTimelineTooltip");
+    assert.include(timelineSource, "overlayRoot.appendChild(popover)");
     assert.include(
-      source,
+      timelineSource,
       'sortedItems.filter((item) => item.kind === "paper")',
     );
     assert.include(
-      source,
+      timelineSource,
       'sortedItems.filter((item) => item.kind === "event")',
     );
-    assert.include(source, "left: interval.end");
+    assert.include(timelineSource, "left: interval.end");
     assert.include(
-      source,
+      timelineSource,
       "const layout = timelineLayoutFromItems(paperItems)",
     );
     assert.notInclude(
       source,
       "timelineLayoutFromItems([...paperItems, ...milestoneItems])",
     );
-    assert.include(source, "denseTimelineMarkerKeys");
-    assert.include(source, "timeline.style.width = `${layout.widthPx}px`");
-    assert.include(source, 'markerClasses.push("near-left")');
-    assert.include(source, 'markerClasses.push("near-right")');
+    assert.include(timelineSource, "denseTimelineMarkerKeys");
+    assert.include(
+      timelineSource,
+      "timeline.style.width = `${layout.widthPx}px`",
+    );
+    assert.include(timelineSource, 'markerClasses.push("near-left")');
+    assert.include(timelineSource, 'markerClasses.push("near-right")');
     assert.include(source, '"paper_year"');
     assert.include(source, '"bibliographic"');
     assert.include(source, "return papers");
@@ -2260,33 +2375,47 @@ describe("Synthesis tab UI model", function () {
     assert.include(css, "--topic-explorer-width: 360px");
     assert.include(css, "--topic-timeline-height: 250px");
     assert.include(css, "--topic-pin-milestone-fill");
-    assert.include(css, ".timeline-tone-foundation");
+    assert.include(timelineCss, ".timeline-tone-foundation");
     assert.include(
-      css,
+      timelineCss,
       ".timeline-event.timeline-tone-milestone:hover .timeline-pin",
     );
-    assert.include(css, ".timeline-event:hover,");
-    assert.include(css, ".timeline-hover-popover");
-    assert.include(css, "position: fixed;");
-    assert.include(css, "height: 68px;");
-    assert.include(css, "overflow-x: auto;");
-    assert.include(css, "white-space: normal;");
-    assert.include(css, ".timeline-marker.near-left .timeline-event-label");
-    assert.include(css, ".timeline-marker.near-right .timeline-event-label");
-    assert.include(css, ".timeline-milestone-popover");
-    assert.include(css, ".timeline-milestone-row");
+    assert.include(timelineCss, ".timeline-event:hover,");
+    assert.include(timelineCss, ".timeline-hover-popover");
+    assert.include(timelineCss, "position: fixed;");
+    assert.include(timelineCss, "height: 68px;");
+    assert.include(timelineCss, ".legend-icon-current");
+    assert.include(timelineCss, "overflow-x: auto;");
+    assert.include(timelineCss, "white-space: normal;");
+    assert.include(timelineCss, ".time-axis span");
+    assert.include(timelineCss, "white-space: nowrap;");
+    assert.include(
+      timelineCss,
+      ".timeline-marker.near-left .timeline-event-label",
+    );
+    assert.include(
+      timelineCss,
+      ".timeline-marker.near-right .timeline-event-label",
+    );
+    assert.include(timelineCss, ".timeline-milestone-popover");
+    assert.include(timelineCss, ".timeline-milestone-row");
     assert.include(css, ".metric-grid");
     assert.include(css, ".topic-detail-shell");
     assert.include(css, ".detail-shell-in-workbench");
     assert.include(css, ".topic-detail-layout");
+    assert.include(css, ".taxonomy-axis-header");
+    assert.include(css, ".taxonomy-axis-index");
+    assert.include(css, ".taxonomy-axis-group .taxonomy-list-item");
+    assert.include(css, ".taxonomy-axis-group.axis-tone-green");
+    assert.include(css, ".taxonomy-axis-group.axis-tone-teal");
     assert.include(css, ".evidence-drawer");
     assert.include(css, ".evidence-drawer-panel");
     assert.include(css, ".explorer-empty");
     assert.include(css, ".selected-evidence-card");
-    assert.include(css, ".horizontal-timeline");
-    assert.include(css, ".time-axis");
-    assert.include(css, ".timeline-phase");
-    assert.include(css, ".marker-list");
+    assert.include(timelineCss, ".horizontal-timeline");
+    assert.include(timelineCss, ".time-axis");
+    assert.include(timelineCss, ".timeline-phase");
+    assert.include(timelineCss, ".marker-list");
     assert.include(css, ".topic-workspace");
     assert.include(css, ".topic-detail-tabs");
     assert.include(css, ".outline-group-grid");
@@ -2304,9 +2433,9 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(css, ".coverage-examples .topic-badge");
     assert.notInclude(css, ".topic-provenance-aside");
     assert.include(css, ".evidence-explorer");
-    assert.include(css, ".timeline-marker");
-    assert.include(css, ".timeline-pin-body");
-    assert.include(css, "clip-path: polygon");
+    assert.include(timelineCss, ".timeline-marker");
+    assert.include(timelineCss, ".timeline-pin-body");
+    assert.include(timelineCss, "clip-path: polygon");
     assert.include(css, ".paper-digest-modal");
     assert.include(css, ".paper-digest-body");
     assert.include(css, ".digest-outline");
@@ -2322,7 +2451,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "synthesis-evidence-select-hint");
     assert.include(source, "state.selectedEvidenceId");
     assert.include(source, "state.evidenceExplorerOpen");
-    assert.include(source, "openEvidenceExplorer(evidenceId(evidence))");
+    assert.include(source, "openEvidenceExplorer(evidenceId(paper.evidence))");
     assert.include(source, "openDigestModal(selected)");
     assert.include(source, "enhanceReportLiteratureDigestLinks");
     assert.include(source, "openDigestModal(evidence);");
@@ -2356,9 +2485,9 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(source, "renderExplorerSplitter");
     assert.notInclude(css, ".splitter");
     assert.notInclude(css, "resize: horizontal");
-    assert.notInclude(css, ".timeline-track");
-    assert.include(css, "top: 28px");
-    assert.include(css, "top: 40px");
+    assert.notInclude(timelineCss, ".timeline-track");
+    assert.include(timelineCss, "top: 28px");
+    assert.include(timelineCss, "top: 40px");
     assert.notInclude(source, "reader-panel topic-detail-panel");
     assert.include(source, "sidebarExpanded: false");
     assert.include(source, "brand brand-icon-only");
@@ -3074,7 +3203,7 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(
       workbenchTab,
-      "TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 4",
+      "TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 6",
     );
     assert.include(uiModel, "function normalizeGraphNodeMetrics");
     assert.include(uiModel, "internal_in_degree");
@@ -3177,7 +3306,7 @@ describe("Synthesis tab UI model", function () {
 
     assert.include(index, "../shared/theme.js");
     assert.include(index, "../shared/theme.css?ui=20260520-controls-v8");
-    assert.include(index, "./styles.css?ui=20260520-controls-v8");
+    assert.include(index, "./styles.css?ui=20260617-taxonomy-axis-v2");
     assert.include(css, "--topic-bg: var(--zs-bg)");
     assert.include(css, "--topic-panel: var(--zs-panel)");
     assert.include(css, "--topic-text: var(--zs-text)");

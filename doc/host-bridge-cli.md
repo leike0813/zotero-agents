@@ -1255,6 +1255,11 @@ zip，响应里的 `manifest_file` 仍指向 zip 内的
 `note` 命令；需要生成物事实时走 topic context、topic report、manifest 或
 paper artifact 读命令。
 
+`reference-index get` 默认返回 source paper registry rows。需要读取当前
+source paper 的逐条 references 及其库内绑定信息时，传
+`includeReferences:true` 和 `referenceSourceRefs:["<paper_ref>"]`；需要按
+raw reference 精确过滤时，可同时传 `rawReferenceIds`。
+
 成功 `data` 仍是 Host Bridge capability envelope：
 
 ```json

@@ -265,7 +265,7 @@ function resolveSynthesisPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/synthesis/index.html?ui=20260520-controls-v5`;
+  return `chrome://${addonRef}/content/synthesis/index.html?ui=20260617-taxonomy-axis-v2`;
 }
 
 function resolveWorkflowHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
@@ -414,6 +414,15 @@ function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
     },
     registry: {
       rows: [],
+    },
+    reviews: {
+      summary: {
+        openCount: 0,
+        indexCount: 0,
+        referenceMatchingCount: 0,
+        conceptCount: 0,
+        topicGraphCount: 0,
+      },
     },
     graph: {
       graph_hash: "",
@@ -1625,7 +1634,7 @@ async function buildTopicDetailHtmlExport(
 
 const TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID =
   "synthesis.topic_detail_html_export_metadata";
-const TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 4;
+const TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 6;
 
 type TopicDetailHtmlExportMetadata = {
   schema_id?: string;

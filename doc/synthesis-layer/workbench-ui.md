@@ -77,11 +77,11 @@ Canonical merge proposals must show readable source and target reference titles 
 
 ## Sync Status and Conflict Review
 
-The Workbench Sync panel is a runtime surface, not the long-term sync configuration editor. Git remote URL, branch, retry policy, WebDAV base URL, WebDAV remote path, username, and encrypted credential state are owned by Zotero Preferences. Git executable detection is service-owned and read-only. When a transport is disabled or incomplete, Workbench shows the config state and offers `Open preferences` as the primary action.
+The Workbench Sync panel is a runtime surface, not the long-term sync configuration editor. WebDAV base URL, WebDAV remote path, username, retry policy, and encrypted credential state are owned by Zotero Preferences. Git Sync is retained as hidden/deprecated service code and is not exposed by the Workbench Sync panel. When WebDAV Sync is disabled or incomplete, Workbench shows the config state and offers `Open preferences` as the primary action.
 
-When configuration is complete, Workbench may expose runtime actions such as `Sync now`, `Pause`, `Resume`, and `Retry` based on each transport's service-provided `allowedActions`. The panel should show remote, branch/path, branch or head state (`ready`, `will initialize`, or `failed`), queue state, last run, credential presence metadata, recent sanitized connection-test diagnostics, and conflict count. It must never display or accept a token or password. `will initialize` is not an error state; if the service allows sync, the primary action remains `Sync now`.
+When WebDAV configuration is complete, Workbench may expose runtime actions such as `WebDAV Sync now`, `Pause`, `Resume`, and `Retry` based on service-provided `allowedActions`. The panel should use a compact summary row for remote path, base URL, and queue state, then place last run, recent sanitized connection-test diagnostics, and execution feedback in the terminal-style log area. It must never display or accept a password in the Workbench.
 
-When Git Sync or WebDAV Sync enters `blocked_conflict`, the panel switches that transport to conflict review. Each conflict row should show entity kind/id when available, asset path, reason, and short base/local/remote hash summaries. Conflict actions are service-defined semantic commands: `keep_local`, `use_remote`, `save_remote_copy`, `mark_needs_attention`, and `clear_after_manual_edit`. In v1, Workbench should enable only actions present in the service projection. Unsupported actions may be visible for discoverability, but must be disabled with diagnostics rather than locally inventing behavior.
+When WebDAV Sync enters `blocked_conflict`, the panel switches to conflict review. Each conflict row should show entity kind/id when available, asset path, reason, and short base/local/remote hash summaries. Conflict actions are service-defined semantic commands: `keep_local`, `use_remote`, `save_remote_copy`, `mark_needs_attention`, and `clear_after_manual_edit`. In v1, Workbench should enable only actions present in the service projection. Unsupported actions may be visible for discoverability, but must be disabled with diagnostics rather than locally inventing behavior.
 
 `keep_local` closes the current report and queues export without writing remote facts into SQLite. `save_remote_copy` writes a review copy and leaves sync blocked. `clear_after_manual_edit` reruns validation and import preview before unblocking. `use_remote` and `mark_needs_attention` require backend guarantees for safe single-entity apply or durable review marking; otherwise they remain disabled.
 
@@ -118,6 +118,8 @@ Examples of manageable decisions:
 - user-confirmed merge/delete override.
 
 Review queues should be bounded and batchable. Reference binding, merge, and dedupe review are explicit workflows. If candidate generation detects a very large duplicate or reference-resolution candidate set, the UI should show an aggregate diagnostic with filters and bulk actions instead of rendering thousands of individual cards.
+
+The Home Library Insights section may show a Review items card, but the count must come from the snapshot's review summary or already-loaded domain arrays. It must not depend on opening the Review tab to initialize review data.
 
 ## Dangerous Actions
 

@@ -167,6 +167,50 @@ describe("skillrunner session sync lifecycle", function () {
     });
   });
 
+  it("backs off before replaying event history after a clean stream return", async function () {
+    let historyCount = 0;
+    let streamCount = 0;
+    let signalStream!: () => void;
+    const streamStarted = new Promise<void>((resolve) => {
+      signalStream = resolve;
+    });
+
+    setSkillRunnerSessionSyncDepsForTests({
+      buildManagementClient: () => ({
+        listRunEventHistory: async () => {
+          historyCount += 1;
+          return {
+            events: [],
+            cursor_ceiling: 0,
+          };
+        },
+        streamRunEvents: async () => {
+          streamCount += 1;
+          signalStream();
+        },
+      }),
+      markSkillRunnerBackendHealthSuccess: () => undefined,
+      markSkillRunnerBackendHealthFailure: () => undefined,
+      appendRuntimeLog: () => undefined,
+      updateSkillRunnerRequestLedgerSnapshot: () => null,
+      updateWorkflowTaskStateByRequest: () => undefined,
+      updateTaskDashboardHistoryStateByRequest: () => undefined,
+    });
+
+    ensureSkillRunnerSessionSync({
+      backend,
+      requestId: "req-clean-return",
+    });
+    await streamStarted;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.equal(historyCount, 1);
+    assert.equal(streamCount, 1);
+
+    stopAllSkillRunnerSessionSync();
+    await drainSkillRunnerSessionSyncForTests();
+  });
+
   it("resetForTests drains work and clears runtime caches", async function () {
     const unsubscribe = subscribeSkillRunnerSessionState({
       backendId: backend.id,

@@ -19,10 +19,23 @@ import {
   setDeferredWorkflowCompletionTrackerDepsForTests,
 } from "../../src/modules/workflowExecution/deferredCompletionTracker";
 import {
+  getAcpSkillRunRecord,
+  resetAcpSkillRunsForTests,
+} from "../../src/modules/acpSkillRunStore";
+import {
+  getSequenceRunState,
+  initializeSequenceRunState,
+  recordSequenceStepRequestCreated,
+} from "../../src/modules/workflowExecution/sequenceStateStore";
+import {
   resetWorkflowTasks,
   listWorkflowTasks,
   recordWorkflowTaskUpdate,
 } from "../../src/modules/taskRuntime";
+import {
+  getSkillRunnerSessionSyncRuntimeForTests,
+  resetSkillRunnerSessionSyncForTests,
+} from "../../src/modules/skillRunnerSessionSyncManager";
 import {
   listTaskDashboardHistory,
   recordTaskDashboardHistoryFromJob,
@@ -345,6 +358,7 @@ function setupSkillRunnerTaskReconcilerSuite() {
     clearRuntimeLogs();
     resetSkillRunnerBackendHealthRegistryForTests();
     resetDeferredWorkflowCompletionTrackerForTests();
+    resetAcpSkillRunsForTests();
     setDeferredWorkflowCompletionTrackerDepsForTests({
       emitWorkflowJobToasts: () => undefined,
       emitWorkflowFinishSummary: () => undefined,
@@ -365,9 +379,11 @@ function setupSkillRunnerTaskReconcilerSuite() {
     clearRuntimeLogs();
     resetSkillRunnerBackendHealthRegistryForTests();
     resetDeferredWorkflowCompletionTrackerForTests();
+    resetAcpSkillRunsForTests();
     setDeferredWorkflowCompletionTrackerDepsForTests();
     setSkillRunnerBackendReconcileFailureToastEmitterForTests();
     setSkillRunnerTaskLifecycleToastEmitterForTests();
+    await resetSkillRunnerSessionSyncForTests();
   });
 
   return { createTrackedReconciler };
@@ -621,6 +637,65 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
     assert.equal(payload.state, "waiting_user");
   });
 
+  it("backs off unchanged queued reconcile while preserving visible task rows", async function () {
+    let jobStateFetchCount = 0;
+    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+      if (isListRunsProbeUrl(url)) {
+        return createJsonResponse({
+          data: [],
+        });
+      }
+      if (url.endsWith("/v1/jobs/req-queued-backoff")) {
+        jobStateFetchCount += 1;
+        return createJsonResponse({
+          request_id: "req-queued-backoff",
+          status: "queued",
+        });
+      }
+      return createJsonResponse({ error: "unexpected route" }, 404);
+    };
+
+    const reconciler = createTrackedReconciler();
+    const job = makeDeferredJob({
+      id: "job-queued-backoff",
+      requestId: "req-queued-backoff",
+      state: "queued",
+      fetchType: "result",
+    });
+    recordWorkflowTaskUpdate(job);
+    recordTaskDashboardHistoryFromJob(job);
+    reconciler.registerFromJob({
+      workflowId: "literature-explainer",
+      workflowLabel: "Literature Explainer",
+      requestKind: "skillrunner.job.v1",
+      request: {
+        kind: "skillrunner.job.v1",
+        targetParentID: 123,
+      },
+      backend: {
+        id: TEST_SKILLRUNNER_BACKEND_ID,
+        type: "skillrunner",
+        baseUrl: TEST_SKILLRUNNER_BASE_URL,
+        auth: { kind: "none" },
+      },
+      providerId: "skillrunner",
+      providerOptions: { engine: "gemini" },
+      job,
+    });
+
+    await reconciler.reconcilePending();
+    await reconciler.reconcilePending();
+
+    assert.equal(jobStateFetchCount, 1);
+    const tasks = listWorkflowTasks();
+    assert.lengthOf(tasks, 1);
+    assert.equal(tasks[0].requestId, "req-queued-backoff");
+    assert.equal(tasks[0].state, "queued");
+    assert.deepInclude(getSkillRunnerSessionSyncRuntimeForTests(), {
+      sessionCount: 0,
+    });
+  });
+
   it("preserves existing non-terminal context when a request-created job later reports local failed state", async function () {
     const reconciler = createTrackedReconciler();
     const runningJob = makeDeferredJob({
@@ -797,7 +872,7 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
     const note = Zotero.Items.get(noteIds[0])!;
     assert.equal(note.parentItemID, parent.id);
     assert.match(note.getNote(), /data-zs-note-kind="conversation-note"/);
-    assert.match(note.getNote(), /data-zs-payload="conversation-note-markdown"/);
+    assert.match(note.getNote(), /data-zs-payload-anchor="conversation-note-markdown"/);
     assert.include(note.getNote(), "Interactive Bundle Note");
 
     const persisted = listPluginTaskContextEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER);
@@ -1337,9 +1412,7 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
     assert.isTrue(registered);
     assert.include(trackerStages, "deferred-outcome-replayed-after-register");
     assert.include(trackerStages, "deferred-run-summary-emitted");
-    assert.lengthOf(deferredJobToasts, 1);
-    assert.lengthOf(deferredJobToasts[0].outcomes, 1);
-    assert.equal(deferredJobToasts[0].outcomes[0].requestId, "req-race-summary");
+    assert.lengthOf(deferredJobToasts, 0);
     assert.deepEqual(summaries, [
       {
         succeeded: 1,
@@ -1524,6 +1597,200 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
       order: "asc",
     });
     assert.lengthOf(firstApplyLogs, 0);
+  });
+
+  it("applies SkillRunner sequence step results in reconciler and continues the next step without ACP store pollution", async function () {
+    this.timeout(8000);
+    await rescanWorkflowRegistry();
+    const backend = {
+      id: TEST_SKILLRUNNER_BACKEND_ID,
+      type: "skillrunner" as const,
+      baseUrl: TEST_SKILLRUNNER_BASE_URL,
+      auth: { kind: "none" as const },
+    };
+    const sequenceRunId = "workflow-run-sequence-reconcile";
+    const sequenceRequest = {
+      kind: "skillrunner.sequence.v1" as const,
+      taskName: "Debug Sequence",
+      runtime_options: {
+        execution_mode: "interactive",
+      },
+      steps: [
+        {
+          id: "emit",
+          skill_id: "debug-sequence-probe-emit",
+          fetch_type: "bundle" as const,
+          workspace: "new" as const,
+          parameter: {
+            probe_id: "linear",
+          },
+          apply_result: {
+            workflow_id: "debug-sequence-linear-probe",
+            on_failure: "fail_sequence" as const,
+          },
+        },
+        {
+          id: "check",
+          skill_id: "debug-sequence-probe-check",
+          fetch_type: "result" as const,
+          workspace: "reuse-workflow" as const,
+          parameter: {
+            probe_id: "linear",
+          },
+        },
+      ],
+      final_step_id: "check",
+    };
+    initializeSequenceRunState({
+      request: sequenceRequest,
+      backend,
+      providerOptions: { engine: "gemini" },
+      workflowId: "debug-sequence-linear-probe",
+      workflowLabel: "Debug: Sequence Linear Probe",
+      workflowRunId: sequenceRunId,
+      jobId: "job-sequence-root",
+    });
+    recordSequenceStepRequestCreated({
+      sequenceRunId,
+      stepIndex: 0,
+      requestId: "req-sequence-emit",
+    });
+
+    const bundleBytes = createZipFromNamedFiles([
+      {
+        name: "result/debug-sequence-probe-emit.1/result.json",
+        data: utf8Bytes(
+          JSON.stringify({
+            status: "ok",
+            probe_id: "linear",
+            checks: ["emit"],
+          }),
+        ),
+      },
+    ]);
+    const createPayloads: unknown[] = [];
+    let emitStatePolls = 0;
+    let checkStatePolls = 0;
+    (globalThis as { fetch?: typeof fetch }).fetch = async (
+      url: string,
+      init?: RequestInit,
+    ) => {
+      const urlText = String(url || "");
+      if (isListRunsProbeUrl(urlText)) {
+        return createJsonResponse({ data: [] });
+      }
+      if (
+        urlText.endsWith("/v1/jobs") &&
+        String(init?.method || "").toUpperCase() === "POST"
+      ) {
+        createPayloads.push(JSON.parse(String(init?.body || "{}")));
+        return createJsonResponse({ request_id: "req-sequence-check" });
+      }
+      if (urlText.endsWith("/v1/jobs/req-sequence-check/upload")) {
+        return createJsonResponse({ ok: true });
+      }
+      if (urlText.endsWith("/v1/jobs/req-sequence-check")) {
+        checkStatePolls += 1;
+        return createJsonResponse({
+          request_id: "req-sequence-check",
+          status: "running",
+        });
+      }
+      if (urlText.endsWith("/v1/jobs/req-sequence-emit")) {
+        emitStatePolls += 1;
+        return createJsonResponse({
+          request_id: "req-sequence-emit",
+          status: "succeeded",
+        });
+      }
+      if (urlText.endsWith("/v1/jobs/req-sequence-emit/bundle")) {
+        return createBinaryResponse(bundleBytes);
+      }
+      return createJsonResponse({ error: `unexpected route: ${urlText}` }, 404);
+    };
+
+    const firstStepJob = makeDeferredJob({
+      id: "job-sequence-root:emit",
+      runId: sequenceRunId,
+      requestId: "req-sequence-emit",
+      state: "running",
+      fetchType: "bundle",
+      targetParentID: null,
+    });
+    firstStepJob.workflowId = "debug-sequence-linear-probe";
+    firstStepJob.request = {
+      kind: "skillrunner.job.v1",
+      skill_id: "debug-sequence-probe-emit",
+      fetch_type: "bundle",
+      runtime_options: {
+        execution_mode: "interactive",
+      },
+      parameter: {
+        probe_id: "linear",
+      },
+    };
+    firstStepJob.meta = {
+      ...firstStepJob.meta,
+      workflowLabel: "Debug: Sequence Linear Probe",
+      workflowRunId: sequenceRunId,
+      taskName: "Debug Sequence / emit",
+      sequenceStepId: "emit",
+      sequenceStepIndex: 0,
+      sequenceStepSkillId: "debug-sequence-probe-emit",
+    } as JobRecord["meta"];
+
+    const reconciler = createTrackedReconciler();
+    recordWorkflowTaskUpdate(firstStepJob);
+    recordTaskDashboardHistoryFromJob(firstStepJob);
+    reconciler.registerFromJob({
+      workflowId: "debug-sequence-linear-probe",
+      workflowLabel: "Debug: Sequence Linear Probe",
+      requestKind: "skillrunner.job.v1",
+      request: firstStepJob.request,
+      backend,
+      providerId: "skillrunner",
+      providerOptions: { engine: "gemini" },
+      job: firstStepJob,
+    });
+
+    await reconciler.reconcilePending();
+
+    assert.isAtLeast(emitStatePolls, 2);
+    assert.isAtLeast(checkStatePolls, 1);
+    assert.lengthOf(createPayloads, 1);
+    const checkCreatePayload = createPayloads[0] as {
+      runtime_options?: Record<string, unknown>;
+    };
+    assert.deepInclude(checkCreatePayload.runtime_options || {}, {
+      execution_mode: "interactive",
+    });
+    assert.deepEqual(checkCreatePayload.runtime_options?.workspace, {
+      mode: "reuse",
+      request_id: "req-sequence-emit",
+    });
+
+    const sequenceState = getSequenceRunState(sequenceRunId);
+    assert.equal(sequenceState?.status, "waiting_recovery");
+    assert.equal(sequenceState?.steps[0]?.status, "succeeded");
+    assert.equal(sequenceState?.steps[0]?.applyResult?.status, "succeeded");
+    assert.equal(
+      sequenceState?.steps[0]?.applyResult?.workflowId,
+      "debug-sequence-linear-probe",
+    );
+    assert.equal(sequenceState?.steps[1]?.requestId, "req-sequence-check");
+    assert.equal(sequenceState?.steps[1]?.status, "deferred");
+
+    const persistedContexts = listPluginTaskContextEntries(
+      PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    );
+    assert.isTrue(
+      persistedContexts.some((entry) => entry.requestId === "req-sequence-check"),
+    );
+    assert.isFalse(
+      persistedContexts.some((entry) => entry.requestId === "req-sequence-emit"),
+    );
+    assert.isNull(getAcpSkillRunRecord("req-sequence-emit"));
+    assert.isNull(getAcpSkillRunRecord("req-sequence-check"));
   });
 
   it("falls back to interval retry after post-register apply failure without duplicating deferred summary", async function () {

@@ -960,6 +960,9 @@ describe("Synthesis MCP tools", function () {
     const response: any = await handleZoteroMcpRequestForTests(
       request(20, "reference_index.get", {
         sourceRefs: ["1:BBBB2222", "1:CCCC3333"],
+        includeReferences: true,
+        referenceSourceRefs: ["1:CCCC3333"],
+        rawReferenceIds: [],
         cursor: "1",
         limit: 1,
       }),

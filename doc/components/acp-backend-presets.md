@@ -2,9 +2,11 @@
 
 ## Overview
 
-ACP Backend Presets are templates for quickly creating ACP backends. Each preset defines a backend id, display name, command, arguments, and agent family. They are not runtime configuration — applying a preset populates the Backend Manager dialog fields, and the user can edit or override before saving.
+ACP Backend Presets are templates for quickly creating ACP backends. Each preset defines a backend id, display name, command, arguments, agent family, and optionally managed environment variables. Applying a preset populates the Backend Manager dialog fields, and the user can edit or override before saving.
 
-Six presets are defined in `src/modules/acpBackendPresets.ts`. One (`opencode`) is marked `builtIn: true` and is automatically injected into the backend registry at startup. The other five are available through the Backend Manager UI's "Add Preset" dropdown menu.
+Ten presets are defined in `src/modules/acpBackendPresets.ts`. One (`opencode`) is marked `builtIn: true` and is automatically injected into the backend registry at startup. The other presets are available through the Backend Manager UI's "Add Preset" dropdown menu.
+
+Four presets are isolated-environment variants. They target agent CLIs that support a documented environment variable for moving configuration and session/state persistence into a separate root. OpenCode and Qwen Code do not have isolated variants: OpenCode only exposes partial config relocation for this purpose, and Qwen Code does not currently expose a confirmed full config/session root override.
 
 ## Type Model
 
@@ -13,9 +15,13 @@ Six presets are defined in `src/modules/acpBackendPresets.ts`. One (`opencode`) 
 export type AcpBackendPresetId =
   | "opencode"
   | "codex"
+  | "codex-isolated"
   | "claude-code"
+  | "claude-code-isolated"
   | "gemini-cli"
+  | "gemini-cli-isolated"
   | "hermes"
+  | "hermes-isolated"
   | "qwen-code";
 
 export type AcpBackendPreset = {
@@ -38,19 +44,34 @@ export type AcpBackendPreset = {
 | — | `type` | Always set to `"acp"` |
 | — | `baseUrl` | Always set to `local://<backendId>` |
 | — | `auth` | Always `{ kind: "none" }` |
+| managed env | `env` | Only isolated presets set backend environment variables |
 | `agentFamily` | `acp.agentFamily` | Must match one of the known agent families |
 | `command` + `args` | (used by ACP transport) | Determines how the ACP process is launched |
 
 ## Preset Inventory
 
-| id | backendId | displayName | agentFamily | command | args | builtIn |
-|----|-----------|-------------|-------------|---------|------|---------|
-| `opencode` | `acp-opencode` | OpenCode ACP | `opencode` | `opencode` | `["acp"]` | ✅ |
-| `codex` | `acp-codex` | Codex ACP | `codex` | `npx` | `["@zed-industries/codex-acp@latest"]` | — |
-| `claude-code` | `acp-claude-code` | Claude Code ACP | `claude-code` | `npx` | `["@agentclientprotocol/claude-agent-acp@latest"]` | — |
-| `gemini-cli` | `acp-gemini-cli` | Gemini CLI ACP | `gemini-cli` | `npx` | `["@google/gemini-cli@latest", "--experimental-acp"]` | — |
-| `hermes` | `acp-hermes` | Hermes ACP | `hermes` | `hermes` | `["acp"]` | — |
-| `qwen-code` | `acp-qwen-code` | Qwen Code ACP | `qwen-code` | `npx` | `["@qwen-code/qwen-code@latest", "--acp", "--experimental-skills"]` | — |
+| id | backendId | displayName | agentFamily | command | args | env | builtIn |
+|----|-----------|-------------|-------------|---------|------|-----|---------|
+| `opencode` | `acp-opencode` | OpenCode ACP | `opencode` | `npx` | `["opencode-ai@latest", "acp"]` | — | ✅ |
+| `codex` | `acp-codex` | Codex ACP | `codex` | `npx` | `["@zed-industries/codex-acp@latest"]` | — | — |
+| `codex-isolated` | `acp-codex-isolated` | Codex ACP (Isolated Environment) | `codex` | `npx` | `["@zed-industries/codex-acp@latest"]` | `CODEX_HOME` | — |
+| `claude-code` | `acp-claude-code` | Claude Code ACP | `claude-code` | `npx` | `["@agentclientprotocol/claude-agent-acp@latest"]` | — | — |
+| `claude-code-isolated` | `acp-claude-code-isolated` | Claude Code ACP (Isolated Environment) | `claude-code` | `npx` | `["@agentclientprotocol/claude-agent-acp@latest"]` | `CLAUDE_CONFIG_DIR` | — |
+| `gemini-cli` | `acp-gemini-cli` | Gemini CLI ACP | `gemini-cli` | `npx` | `["@google/gemini-cli@latest", "--experimental-acp"]` | — | — |
+| `gemini-cli-isolated` | `acp-gemini-cli-isolated` | Gemini CLI ACP (Isolated Environment) | `gemini-cli` | `npx` | `["@google/gemini-cli@latest", "--experimental-acp"]` | `GEMINI_CLI_HOME` | — |
+| `hermes` | `acp-hermes` | Hermes ACP | `hermes` | `hermes` | `["acp"]` | — | — |
+| `hermes-isolated` | `acp-hermes-isolated` | Hermes ACP (Isolated Environment) | `hermes` | `hermes` | `["acp"]` | `HERMES_HOME` | — |
+| `qwen-code` | `acp-qwen-code` | Qwen Code ACP | `qwen-code` | `npx` | `["@qwen-code/qwen-code@latest", "--acp", "--experimental-skills"]` | — | — |
+
+## Isolated Environment Layout
+
+Isolated presets set a single environment variable pointing under the plugin persistence root:
+
+```text
+<getRuntimePersistencePaths().dataDir>/acp-backend-environments/<backendId>
+```
+
+Backend Manager creates these managed directories only when saving a backend that still has the matching isolated preset environment value. Adding a preset and then canceling the dialog does not create directories. If the user edits the env value to a custom path, the value is saved but the plugin does not create that custom directory.
 
 ## API
 

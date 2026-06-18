@@ -18,6 +18,12 @@ import {
   createAcpSkillRunnerWorkspace,
   writeAcpSkillRunnerInputManifest,
 } from "../../src/modules/acpSkillRunnerWorkspace";
+import {
+  getAcpSkillRunRecord,
+  markAcpSkillRunApplyResult,
+  resetAcpSkillRunsForTests,
+  upsertAcpSkillRun,
+} from "../../src/modules/acpSkillRunStore";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { mkTempDir } from "./workflow-test-utils";
 import { buildRequest as buildLiteratureDigestRequest } from "../../workflows_builtin/literature-workbench-package/literature-analysis/hooks/buildRequest.mjs";
@@ -58,23 +64,53 @@ function sequenceManifest(overrides: Record<string, unknown> = {}) {
 describe("skillrunner.sequence.v1 runtime", function () {
   beforeEach(function () {
     previousZotero = (globalThis as any).Zotero;
-    (globalThis as any).Zotero = {
-      ...(previousZotero || {}),
-      Prefs: {
-        ...(previousZotero?.Prefs || {}),
-        get: previousZotero?.Prefs?.get || ((_prefKey: string) => undefined),
-        set: previousZotero?.Prefs?.set || (() => undefined),
-        clear: previousZotero?.Prefs?.clear || (() => undefined),
-      },
-    };
+    if (!previousZotero) {
+      Object.defineProperty(globalThis, "Zotero", {
+        configurable: true,
+        writable: true,
+        value: {
+          Prefs: {
+            get: (_prefKey: string) => undefined,
+            set: () => undefined,
+            clear: () => undefined,
+          },
+        },
+      });
+    }
     resetPluginStateStoreForTests();
+    resetAcpSkillRunsForTests();
+  });
+
+  it("does not create ACP skill-run rows when applying unknown request ids", function () {
+    markAcpSkillRunApplyResult({
+      requestId: "skillrunner-request",
+      state: "succeeded",
+    });
+
+    assert.isNull(getAcpSkillRunRecord("skillrunner-request"));
+
+    upsertAcpSkillRun({
+      requestId: "acp-request",
+      status: "running",
+      backendType: "acp",
+    });
+    markAcpSkillRunApplyResult({
+      requestId: "acp-request",
+      state: "succeeded",
+    });
+
+    assert.equal(
+      getAcpSkillRunRecord("acp-request")?.applyResultState,
+      "succeeded",
+    );
   });
 
   afterEach(function () {
-    if (previousZotero === undefined) {
+    if (
+      previousZotero === undefined &&
+      Object.getOwnPropertyDescriptor(globalThis, "Zotero")?.configurable
+    ) {
       delete (globalThis as any).Zotero;
-    } else {
-      (globalThis as any).Zotero = previousZotero;
     }
   });
 
@@ -446,24 +482,30 @@ describe("skillrunner.sequence.v1 runtime", function () {
           workflowId: "sequence-workflow",
           workflowLabel: undefined,
           workflowRunId: "workflow-run-1",
-          jobId: "job-1",
+          jobId: "job-1:prepare",
           sequenceStepId: "prepare",
+          sequenceStepIndex: 0,
+          skillId: "prepare-skill",
           finalStepId: "finalize",
         },
         {
           workflowId: "sequence-workflow",
           workflowLabel: undefined,
           workflowRunId: "workflow-run-1",
-          jobId: "job-1",
+          jobId: "job-1:core",
           sequenceStepId: "core",
+          sequenceStepIndex: 1,
+          skillId: "core-skill",
           finalStepId: "finalize",
         },
         {
           workflowId: "sequence-workflow",
           workflowLabel: undefined,
           workflowRunId: "workflow-run-1",
-          jobId: "job-1",
+          jobId: "job-1:finalize",
           sequenceStepId: "finalize",
+          sequenceStepIndex: 2,
+          skillId: "finalize-skill",
           finalStepId: "finalize",
         },
       ],
@@ -1051,9 +1093,14 @@ describe("skillrunner.sequence.v1 runtime", function () {
     }
   });
 
-  it("compiles sequence steps to SkillRunner jobs with request_id workspace reuse", async function () {
-    const launched: Array<{ requestKind: string; request: any }> = [];
-    await executeSkillRunnerSequence({
+  it("compiles SkillRunner sequence steps with request_id reuse and step identity", async function () {
+    const launched: Array<{
+      requestKind: string;
+      request: any;
+      orchestrationContext: any;
+    }> = [];
+    const progressEvents: any[] = [];
+    const result = await executeSkillRunnerSequence({
       request: {
         kind: "skillrunner.sequence.v1",
         steps: [
@@ -1077,9 +1124,28 @@ describe("skillrunner.sequence.v1 runtime", function () {
       workflowRunId: "workflow-run-skillrunner",
       jobId: "job-skillrunner",
       appendRuntimeLog: () => {},
-      executeWithProvider: async ({ requestKind, request }) => {
-        launched.push({ requestKind, request });
+      applySequenceStepResult: async () => {
+        assert.fail("SkillRunner sequence step apply must be reconciler-owned");
+      },
+      onProgress: (event) => {
+        progressEvents.push(event);
+      },
+      executeWithProvider: async ({
+        requestKind,
+        request,
+        orchestrationContext,
+        onProgress,
+      }) => {
+        launched.push({ requestKind, request, orchestrationContext });
         const skillId = String((request as { skill_id?: unknown }).skill_id);
+        onProgress?.({
+          type: "request-created",
+          requestId: `${skillId}-request`,
+        });
+        onProgress?.({
+          type: "request-ready",
+          requestId: `${skillId}-request`,
+        });
         return {
           status: "succeeded",
           requestId: `${skillId}-request`,
@@ -1090,18 +1156,88 @@ describe("skillrunner.sequence.v1 runtime", function () {
       },
     });
 
+    assert.equal(result.status, "deferred");
+    assert.equal(result.requestId, "literature-analysis-request");
     assert.deepEqual(
       launched.map((entry) => entry.requestKind),
-      ["skillrunner.job.v1", "skillrunner.job.v1"],
+      ["skillrunner.job.v1"],
     );
     assert.equal(launched[0].request.kind, "skillrunner.job.v1");
     assert.notProperty(launched[0].request.runtime_options, "workspace");
-    assert.deepEqual(launched[1].request.runtime_options.workspace, {
+    assert.deepEqual(
+      launched.map((entry) => entry.orchestrationContext.jobId),
+      ["job-skillrunner:digest"],
+    );
+    assert.deepEqual(
+      launched.map((entry) => entry.orchestrationContext.skillId),
+      ["literature-analysis"],
+    );
+    assert.deepEqual(
+      progressEvents
+        .filter((entry) => entry.type === "request-ready")
+        .map((entry) => ({
+          requestId: entry.requestId,
+          sequenceStepId: entry.sequenceStepId,
+          sequenceStepSkillId: entry.sequenceStepSkillId,
+          hasStepRequest: !!entry.sequenceStepRequest,
+        })),
+      [
+        {
+          requestId: "literature-analysis-request",
+          sequenceStepId: "digest",
+          sequenceStepSkillId: "literature-analysis",
+          hasStepRequest: true,
+        },
+      ],
+    );
+
+    launched.length = 0;
+    const state = getSequenceRunStateByStepRequest("literature-analysis-request");
+    assert.isOk(state);
+    const continuation = await continueSkillRunnerSequence({
+      sequenceRunId: state!.sequenceRunId,
+      startIndex: 1,
+      backend: {
+        id: "skillrunner-backend",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      providerOptions: {},
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({
+        requestKind,
+        request,
+        orchestrationContext,
+        onProgress,
+      }) => {
+        launched.push({ requestKind, request, orchestrationContext });
+        const skillId = String((request as { skill_id?: unknown }).skill_id);
+        onProgress?.({
+          type: "request-created",
+          requestId: `${skillId}-request`,
+        });
+        onProgress?.({
+          type: "request-ready",
+          requestId: `${skillId}-request`,
+        });
+        return {
+          status: "succeeded",
+          requestId: `${skillId}-request`,
+          fetchType: "result",
+          resultJson: { skillId },
+          responseJson: {},
+        };
+      },
+    });
+    assert.equal(continuation.status, "deferred");
+    assert.equal(launched[0].request.kind, "skillrunner.job.v1");
+    assert.deepEqual(launched[0].request.runtime_options.workspace, {
       mode: "reuse",
       request_id: "literature-analysis-request",
     });
     assert.notProperty(
-      launched[1].request.runtime_options,
+      launched[0].request.runtime_options,
       "workflow_workspace",
     );
   });

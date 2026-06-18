@@ -484,13 +484,12 @@ describe("host bridge server phase 1", function () {
     });
   });
 
-  it("builds SkillRunner Host Bridge scope env from request id", function () {
-    const raw = buildSkillRunnerHostBridgeScopeEnv("skillrunner-task-1");
+  it("builds SkillRunner Host Bridge scope env from frontend scope id", function () {
+    const raw = buildSkillRunnerHostBridgeScopeEnv("skillrunner-scope-1");
 
     assert.deepEqual(JSON.parse(raw), {
       kind: "skillrunner-run",
-      requestId: "skillrunner-task-1",
-      runId: "skillrunner-task-1",
+      frontendScopeId: "skillrunner-scope-1",
     });
     assert.strictEqual(buildSkillRunnerHostBridgeScopeEnv(""), "");
   });
