@@ -3,15 +3,18 @@
   "type": "object",
   "properties": {
     "main_task": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
     "method_family": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
     "external_context_section_anchors": {
       "type": "array",
       "items": {
-        "type": "string"
+        "type": "string",
+        "minLength": 1
       },
       "default": []
     },
@@ -32,7 +35,8 @@
     "concept_labels": {
       "type": "array",
       "items": {
-        "type": "string"
+        "type": "string",
+        "minLength": 1
       },
       "default": []
     },
@@ -81,5 +85,15 @@
       "default": []
     }
   },
+  "required": [
+    "main_task",
+    "method_family",
+    "external_context_section_anchors",
+    "request_topic_context",
+    "request_concept_context",
+    "request_citation_graph",
+    "reference_digest_policy",
+    "priority_reference_indices"
+  ],
   "additionalProperties": false
 }

@@ -3,7 +3,7 @@
 ## 系统要求
 
 - **Zotero**：7.0 或更高版本
-- **平台**：Windows 10+、macOS 12+ 或 Linux（x86_64）
+- **平台**：Windows 10+、macOS 12+、Linux（x86_64 / x86 / ARM64 / ARM）
 
 ## 安装插件
 
@@ -43,5 +43,5 @@ npm run build
 
 1. 重启 Zotero
 2. 您应该能在 Zotero 工具栏中看到新的 **Zotero Skills** 区域
-3. 打开 **工具 → 后端管理器** 来配置后端连接
-4. 后端管理器对话框将显示可用的 provider 类型
+3. 打开 **工具 → [后端管理器](backends/backend-manager)** 来配置后端连接
+4. 在对话框中切换 Tab 查看可用的 provider 类型（ACP / SkillRunner / Generic HTTP）

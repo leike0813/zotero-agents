@@ -1,5 +1,13 @@
 # Git 同步
 
+:::warning 已弃用
+
+Git Sync 已在当前版本中弃用，不再对外开放。插件已切换为 **WebDAV Durable Bundle Sync** 方案，通过 WebDAV 协议交换 Synthesis 持久化状态快照（而非 Git 仓库），实现更轻量的跨设备同步。
+
+Git Sync 仅作为隐式内部传输通道保留（用于历史诊断和后续清理）。以下文档保留供历史参考。
+
+:::
+
 Git 同步是 Synthesis Workbench 的可选功能，将 Canonical Store 中的知识图谱数据同步到 Git 仓库，实现版本管理、备份和协作。
 
 ## 用途

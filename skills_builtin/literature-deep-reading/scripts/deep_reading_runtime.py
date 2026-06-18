@@ -33,6 +33,10 @@ RESULT_PATH = Path("literature-deep-reading.result.json")
 RESULT_DIR = Path("result")
 RESULT_SECTIONS_DIR = RESULT_DIR / "sections"
 FINAL_HTML_PATH = RESULT_DIR / "deep-reading.html"
+STAGE10_AGENT_PACKET_PATH = VIEWS_DIR / "stage-10-agent-packet.json"
+STAGE20_AGENT_PACKET_PATH = VIEWS_DIR / "stage-20-agent-packet.json"
+STAGE30_TRANSLATION_WORKLIST_PATH = VIEWS_DIR / "stage-30-translation-worklist.json"
+STAGE40_REVIEW_PACKET_PATH = VIEWS_DIR / "stage-40-review-packet.json"
 MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\n]+)\)")
 HTML_IMAGE_RE = re.compile(r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
@@ -68,6 +72,26 @@ FINAL_REVIEW_FIELDS = {"overall_assessment", "quality_observations"}
 FINAL_REVIEW_OBSERVATION_FIELDS = {"severity", "kind", "block_id", "section_anchor", "message"}
 FINAL_REVIEW_ASSESSMENTS = {"ready", "ready_with_notes", "needs_revision"}
 FINAL_REVIEW_SEVERITIES = {"info", "warning", "error"}
+CONTEXT_REQUEST_REQUIRED_FIELDS = {
+    "main_task",
+    "method_family",
+    "external_context_section_anchors",
+    "request_topic_context",
+    "request_concept_context",
+    "request_citation_graph",
+    "reference_digest_policy",
+    "priority_reference_indices",
+}
+READING_ENRICHMENT_REQUIRED_FIELDS = {
+    "preface_title",
+    "preface_cards",
+    "preface_reading_path",
+    "preface_goal",
+    "preface_questions",
+    "section_notes",
+    "summary_fallback_enabled",
+    "extensions",
+}
 TRANSLATION_BATCH_MAX_WORDS = 1600
 TRANSLATION_BATCH_MAX_CHARS = 6000
 TRANSLATION_BATCH_MAX_BLOCKS = 20
@@ -286,6 +310,389 @@ def clamp_int(value: Any, fallback: int, minimum: int, maximum: int) -> int:
 
 def read_view(name: str, default: Any = None) -> Any:
     return read_json(VIEWS_DIR / name, default)
+
+
+def view_path(name: str) -> str:
+    return normalize_posix(VIEWS_DIR / name)
+
+
+def payload_path(name: str) -> str:
+    return normalize_posix(PAYLOADS_DIR / name)
+
+
+def runtime_command(*parts: str) -> str:
+    return "python scripts/deep_reading_runtime.py " + " ".join(parts)
+
+
+def count_by_key(items: list[Any], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        value = clean_text(item.get(key)) or "unknown"
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def short_diagnostics(items: list[Any], limit: int = 12) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            {
+                "severity": clean_text(item.get("severity") or item.get("level") or "info"),
+                "code": clean_text(item.get("code") or item.get("kind") or item.get("status")),
+                "message": clean_text(item.get("message")),
+            }
+        )
+        if len(result) >= limit:
+            break
+    return result
+
+
+def diagnostics_summary(*sources: Any) -> dict[str, Any]:
+    items: list[Any] = []
+    for source in sources:
+        if isinstance(source, dict):
+            items.extend(as_list(source.get("diagnostics")))
+        elif isinstance(source, list):
+            items.extend(source)
+    return {
+        "count": len([item for item in items if isinstance(item, dict)]),
+        "by_severity": count_by_key(items, "severity"),
+        "codes": sorted(
+            {
+                clean_text(item.get("code") or item.get("kind") or item.get("status"))
+                for item in items
+                if isinstance(item, dict) and clean_text(item.get("code") or item.get("kind") or item.get("status"))
+            }
+        )[:40],
+        "items": short_diagnostics(items),
+    }
+
+
+def trace_paths(paths: dict[str, str]) -> dict[str, dict[str, str]]:
+    return {
+        key: {"path": value, "read": "if_needed"}
+        for key, value in paths.items()
+        if value
+    }
+
+
+def compact_sections(structure: dict[str, Any], limit: int = 30) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    for section in as_list(structure.get("sections"))[:limit]:
+        if not isinstance(section, dict):
+            continue
+        sections.append(
+            {
+                "anchor": clean_text(section.get("anchor")),
+                "title": clean_text(section.get("title")),
+                "role": clean_text(section.get("role")),
+                "level": safe_int(section.get("level"), 0),
+            }
+        )
+    return sections
+
+
+def compact_topic_candidates(topic_candidates: dict[str, Any], limit: int = 8) -> list[dict[str, str]]:
+    topics: list[dict[str, str]] = []
+    for topic in as_list(topic_candidates.get("topics"))[:limit]:
+        if not isinstance(topic, dict):
+            continue
+        topics.append(
+            {
+                "topic_id": clean_text(topic.get("topic_id")),
+                "title": clean_text(topic.get("title")),
+                "status": clean_text(topic.get("status")),
+            }
+        )
+    return topics
+
+
+def compact_concept_needs(concept_needs: dict[str, Any], limit: int = 30) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for item in as_list(concept_needs.get("items"))[:limit]:
+        if not isinstance(item, dict):
+            continue
+        items.append(
+            {
+                "label": clean_text(item.get("label")),
+                "source": clean_text(item.get("source")),
+                "status": clean_text(item.get("status")),
+            }
+        )
+    return items
+
+
+def compact_reference_items(view: dict[str, Any], limit: int = 20) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for item in as_list(view.get("references") or view.get("items"))[:limit]:
+        if not isinstance(item, dict):
+            continue
+        items.append(
+            {
+                "reference_id": clean_text(item.get("reference_id") or item.get("id")),
+                "reference_index": safe_int(item.get("reference_index") or item.get("index"), 0),
+                "title": first_text(item.get("title"), item.get("raw")),
+                "binding_status": clean_text(item.get("binding_status")),
+            }
+        )
+    return items
+
+
+def build_stage10_agent_packet(target_language: str, source_kind: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    structure = read_view("source-structure.json", {})
+    reading_blocks = read_view("reading-blocks.json", {})
+    references_seed = read_view("references-seed-view.json", {})
+    target_artifacts = read_view("target-artifacts-view.json", {})
+    host_preflight = read_view("host-preflight-view.json", {})
+    topic_candidates = read_view("topic-candidates-view.json", {})
+    concept_needs = read_view("concept-needs-view.json", {})
+    blocks = as_list(reading_blocks.get("blocks"))
+    references = as_list(references_seed.get("references"))
+    return {
+        "schema_version": "literature-deep-reading.stage-10-agent-packet.v0",
+        "stage_id": "stage_10_source_reading_context_request",
+        "payload_path": payload_path("context-request.json"),
+        "submit_command": runtime_command("submit-context-request", "--payload", "runtime/payloads/context-request.json"),
+        "validate_command": runtime_command("validate-context-request"),
+        "required_next_action": "write_context_request",
+        "summary": {
+            "target_language": target_language,
+            "source_kind": source_kind,
+            "section_count": len(as_list(structure.get("sections"))),
+            "block_count": len(blocks),
+            "block_roles": count_by_key(blocks, "role"),
+            "references_count": len(references),
+            "target_artifact_count": len(as_list(target_artifacts.get("artifacts"))),
+            "topic_candidate_count": len(as_list(topic_candidates.get("topics"))),
+            "concept_need_count": len(as_list(concept_needs.get("items"))),
+        },
+        "work_items": {
+            "sections": compact_sections(structure),
+            "references": compact_reference_items(references_seed),
+            "topic_candidates": compact_topic_candidates(topic_candidates),
+            "concept_needs": compact_concept_needs(concept_needs),
+        },
+        "diagnostics_summary": diagnostics_summary(diagnostics, host_preflight, topic_candidates, concept_needs),
+        "trace_paths": trace_paths(
+            {
+                "source_structure": view_path("source-structure.json"),
+                "source_reading": view_path("source-reading-view.json"),
+                "references_seed": view_path("references-seed-view.json"),
+                "target_artifacts": view_path("target-artifacts-view.json"),
+                "host_preflight": view_path("host-preflight-view.json"),
+                "topic_candidates": view_path("topic-candidates-view.json"),
+                "concept_needs": view_path("concept-needs-view.json"),
+                "diagnostics": view_path("diagnostics-bootstrap.json"),
+            }
+        ),
+    }
+
+
+def write_stage10_agent_packet(target_language: str, source_kind: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    packet = build_stage10_agent_packet(target_language, source_kind, diagnostics)
+    write_json(STAGE10_AGENT_PACKET_PATH, packet)
+    return packet
+
+
+def build_stage20_agent_packet(context: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    source_structure = read_view("source-structure.json", {})
+    host_context = read_view("host-context-view.json", {})
+    reference_bindings = read_view("reference-bindings-view.json", {})
+    reference_digests = read_view("reference-digests-view.json", {})
+    citation_snapshot = read_view("citation-graph-snapshot.json", {})
+    citation_layout = read_view("citation-graph-layout.json", {})
+    topic_context = read_view("topic-context.json", {})
+    topic_candidate_digests = read_view("topic-candidate-digests-view.json", {})
+    graph_context = read_view("graph-context.json", {})
+    concept_candidates = read_view("concept-candidates-view.json", {})
+    concept_needs = read_view("concept-needs-view.json", {})
+    digest_items = as_list(reference_digests.get("items"))
+    return {
+        "schema_version": "literature-deep-reading.stage-20-agent-packet.v0",
+        "stage_id": "stage_20_reading_enrichment",
+        "payload_path": payload_path("reading-enrichment.json"),
+        "submit_command": runtime_command("submit-reading-enrichment", "--payload", "runtime/payloads/reading-enrichment.json"),
+        "validate_command": runtime_command("validate-reading-enrichment"),
+        "required_next_action": "write_reading_enrichment",
+        "summary": {
+            "target_language": target_language_from_db(),
+            "requested_topic_context": bool(context.get("request_topic_context")),
+            "topic_context_source": clean_text(topic_context.get("source")),
+            "topic_id": clean_text(topic_context.get("topic_id")),
+            "reference_binding_count": len(as_list(reference_bindings.get("items"))),
+            "reference_digest_count": len(digest_items),
+            "available_reference_digest_count": sum(1 for item in digest_items if clean_text((item.get("digest") if isinstance(item, dict) and isinstance(item.get("digest"), dict) else {}).get("status")) == "available"),
+            "citation_node_count": len(as_list(citation_snapshot.get("nodes"))),
+            "citation_edge_count": len(as_list(citation_snapshot.get("edges"))),
+            "citation_layout_status": clean_text(citation_layout.get("status") or graph_context.get("layout_status")),
+            "concept_candidate_count": len(as_list(concept_candidates.get("concepts"))),
+            "concept_need_count": len(as_list(concept_needs.get("items"))),
+        },
+        "work_items": {
+            "sections": compact_sections(source_structure),
+            "concept_needs": compact_concept_needs(concept_needs),
+            "reference_bindings": compact_reference_items(reference_bindings),
+            "topic_candidates": compact_topic_candidates(read_view("topic-candidates-view.json", {})),
+        },
+        "diagnostics_summary": diagnostics_summary(
+            diagnostics,
+            host_context,
+            reference_bindings,
+            reference_digests,
+            citation_snapshot,
+            citation_layout,
+            topic_context,
+            topic_candidate_digests,
+            concept_candidates,
+            concept_needs,
+        ),
+        "trace_paths": trace_paths(
+            {
+                "source_structure": view_path("source-structure.json"),
+                "source_reading": view_path("source-reading-view.json"),
+                "host_context": view_path("host-context-view.json"),
+                "reference_bindings": view_path("reference-bindings-view.json"),
+                "reference_digests": view_path("reference-digests-view.json"),
+                "citation_graph_snapshot": view_path("citation-graph-snapshot.json"),
+                "citation_graph_layout": view_path("citation-graph-layout.json"),
+                "topic_context": view_path("topic-context.json"),
+                "topic_candidate_digests": view_path("topic-candidate-digests-view.json"),
+                "graph_context": view_path("graph-context.json"),
+                "concept_candidates": view_path("concept-candidates-view.json"),
+                "concept_needs": view_path("concept-needs-view.json"),
+                "diagnostics": view_path("diagnostics-host-context.json"),
+            }
+        ),
+    }
+
+
+def write_stage20_agent_packet(context: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    packet = build_stage20_agent_packet(context, diagnostics)
+    write_json(STAGE20_AGENT_PACKET_PATH, packet)
+    return packet
+
+
+def build_stage30_translation_worklist(translation_batches: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    batches = [
+        {
+            "batch_id": clean_text(batch.get("batch_id")),
+            "path": clean_text(batch.get("path")),
+            "block_count": safe_int(batch.get("block_count"), 0),
+            "required_translation_count": safe_int(batch.get("required_translation_count"), 0),
+            "estimated_words": safe_int(batch.get("estimated_words"), 0),
+            "chars": safe_int(batch.get("chars"), 0),
+            "section_anchors": [clean_text(item) for item in as_list(batch.get("section_anchors")) if clean_text(item)],
+        }
+        for batch in as_list(translation_batches.get("batches"))
+        if isinstance(batch, dict)
+    ]
+    batch_count = safe_int(translation_batches.get("batch_count"), 0)
+    source = clean_text(translation_batches.get("source"))
+    skip_translation = batch_count == 0 and source in {"translator_alignment", "source_only_alignment"}
+    return {
+        "schema_version": "literature-deep-reading.stage-30-translation-worklist.v0",
+        "stage_id": "stage_30_block_translation",
+        "payload_path": payload_path("block-translations.json"),
+        "submit_command": runtime_command("submit-block-translations", "--payload", "runtime/payloads/block-translations.json"),
+        "validate_command": runtime_command("validate-block-translations"),
+        "required_next_action": "skip_translation_submit" if skip_translation else "write_block_translations",
+        "summary": {
+            "target_language": clean_text(translation_batches.get("target_language")) or target_language_from_db(),
+            "source": source,
+            "batch_count": batch_count,
+            "required_translation_count": safe_int(translation_batches.get("required_translation_count"), 0),
+            "limits": translation_batches.get("limits") if isinstance(translation_batches.get("limits"), dict) else {},
+        },
+        "work_items": {
+            "required_block_ids": [clean_text(item) for item in as_list(translation_batches.get("required_block_ids")) if clean_text(item)],
+            "batches": batches,
+        },
+        "diagnostics_summary": diagnostics_summary(diagnostics, read_view("diagnostics-enrichment.json", {})),
+        "trace_paths": trace_paths(
+            {
+                "translation_batches": view_path("translation-batches-view.json"),
+                "translation_batch_dir": normalize_posix(TRANSLATION_BATCHES_DIR),
+                "concept_overlay": view_path("concept-overlay-view.json"),
+                "section_insights": view_path("section-insights-view.json"),
+                "reading_blocks": view_path("reading-blocks.json"),
+                "diagnostics": view_path("diagnostics-enrichment.json"),
+                "translation": view_path("translation-view.json") if skip_translation else "",
+            }
+        ),
+    }
+
+
+def write_stage30_translation_worklist(translation_batches: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    packet = build_stage30_translation_worklist(translation_batches, diagnostics)
+    write_json(STAGE30_TRANSLATION_WORKLIST_PATH, packet)
+    return packet
+
+
+def build_stage40_review_packet(translation_view: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    items = as_list(translation_view.get("items"))
+    by_status = count_by_key(items, "status")
+    diagnostics_view = read_view("diagnostics-translation.json", {})
+    return {
+        "schema_version": "literature-deep-reading.stage-40-review-packet.v0",
+        "stage_id": "stage_40_final_review_and_render",
+        "payload_path": payload_path("final-review.json"),
+        "submit_command": runtime_command("submit-final-review", "--payload", "runtime/payloads/final-review.json"),
+        "validate_command": runtime_command("validate-final-output"),
+        "required_next_action": "write_final_review",
+        "summary": {
+            "target_language": clean_text(translation_view.get("target_language")) or target_language_from_db(),
+            "translation_source": clean_text(translation_view.get("source")),
+            "translation_item_count": len(items),
+            "translated_count": safe_int(translation_view.get("translated_count"), 0),
+            "carried_over_count": safe_int(translation_view.get("carried_over_count"), 0),
+            "status_counts": by_status,
+        },
+        "work_items": {
+            "quality_observation_candidates": short_diagnostics(as_list(diagnostics_view.get("diagnostics")) + diagnostics, limit=20),
+        },
+        "diagnostics_summary": diagnostics_summary(
+            diagnostics,
+            read_view("diagnostics-bootstrap.json", {}),
+            read_view("diagnostics-host-context.json", {}),
+            read_view("diagnostics-enrichment.json", {}),
+            diagnostics_view,
+        ),
+        "trace_paths": trace_paths(
+            {
+                "translation": view_path("translation-view.json"),
+                "preface": view_path("preface-view.json"),
+                "section_insights": view_path("section-insights-view.json"),
+                "concept_overlay": view_path("concept-overlay-view.json"),
+                "references": view_path("references-view.json"),
+                "summary": view_path("summary-view.json"),
+                "extensions": view_path("extensions-view.json"),
+                "diagnostics_bootstrap": view_path("diagnostics-bootstrap.json"),
+                "diagnostics_host_context": view_path("diagnostics-host-context.json"),
+                "diagnostics_enrichment": view_path("diagnostics-enrichment.json"),
+                "diagnostics_translation": view_path("diagnostics-translation.json"),
+            }
+        ),
+    }
+
+
+def write_stage40_review_packet(translation_view: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    packet = build_stage40_review_packet(translation_view, diagnostics)
+    write_json(STAGE40_REVIEW_PACKET_PATH, packet)
+    return packet
+
+
+def validate_json_file(errors: list[str], path: Path) -> None:
+    if not path.exists():
+        errors.append(f"missing: {normalize_posix(path)}")
+        return
+    try:
+        read_json(path, {})
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"invalid json: {normalize_posix(path)}: {exc}")
 
 
 def source_manifest() -> dict[str, Any]:
@@ -2132,6 +2539,7 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
             },
         },
     )
+    write_stage10_agent_packet(target_language, source_kind, diagnostics)
     result = {
         "kind": "literature_deep_reading_bootstrap",
         "status": "bootstrapped",
@@ -2147,6 +2555,7 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
             "topic_candidates": normalize_posix(VIEWS_DIR / "topic-candidates-view.json"),
             "concept_needs": normalize_posix(VIEWS_DIR / "concept-needs-view.json"),
             "translator_alignment": normalize_posix(VIEWS_DIR / "translator-alignment-view.json"),
+            "stage_10_agent_packet": normalize_posix(STAGE10_AGENT_PACKET_PATH),
         },
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-bootstrap.json"),
         "final_html_available": False,
@@ -2194,14 +2603,42 @@ def validate_context_request_payload(payload: Any) -> list[str]:
     unknown = sorted(set(payload) - allowed)
     if unknown:
         errors.append("unknown fields: " + ", ".join(unknown))
+    missing = sorted(field for field in CONTEXT_REQUEST_REQUIRED_FIELDS if field not in payload)
+    if missing:
+        errors.append("missing required fields: " + ", ".join(missing))
+    for field in ["main_task", "method_family"]:
+        if not clean_text(payload.get(field)):
+            errors.append(f"{field} must be a non-empty string")
     structure = read_view("source-structure.json", {})
     anchors = {str(section.get("anchor")) for section in as_list(structure.get("sections")) if isinstance(section, dict)}
     for anchor in as_list(payload.get("external_context_section_anchors")):
         if clean_text(anchor) not in anchors:
             errors.append(f"external_context_section_anchors contains unknown anchor: {anchor}")
+    if bool(payload.get("request_topic_context")):
+        if not clean_text(payload.get("topic_context_reason")):
+            errors.append("topic_context_reason is required when request_topic_context is true")
+        topic_candidates = read_view("topic-candidates-view.json", {})
+        candidate_ids = {
+            clean_text(topic.get("topic_id"))
+            for topic in as_list(topic_candidates.get("topics"))
+            if isinstance(topic, dict) and clean_text(topic.get("topic_id"))
+        }
+        selected_topic_id = clean_text(payload.get("selected_topic_id"))
+        if candidate_ids and not selected_topic_id:
+            errors.append("selected_topic_id is required when request_topic_context is true and topic candidates are available")
+        elif candidate_ids and selected_topic_id not in candidate_ids:
+            errors.append(f"selected_topic_id must be one of available topic candidates: {selected_topic_id}")
+    if bool(payload.get("request_concept_context")) and not [clean_text(item) for item in as_list(payload.get("concept_labels")) if clean_text(item)]:
+        errors.append("concept_labels is required when request_concept_context is true")
+    if bool(payload.get("request_citation_graph")):
+        for field in ["citation_graph_depth", "citation_graph_direction", "citation_graph_max_nodes", "citation_graph_max_edges"]:
+            if field not in payload:
+                errors.append(f"{field} is required when request_citation_graph is true")
     policy = clean_text(payload.get("reference_digest_policy") or "none")
     if policy not in REFERENCE_DIGEST_POLICIES:
         errors.append(f"reference_digest_policy must be one of {sorted(REFERENCE_DIGEST_POLICIES)}")
+    if policy == "priority_only" and not [item for item in as_list(payload.get("priority_reference_indices")) if safe_int(item, 0) > 0]:
+        errors.append("priority_reference_indices is required when reference_digest_policy is priority_only")
     direction = clean_text(payload.get("citation_graph_direction") or "both")
     if direction not in CITATION_DIRECTIONS:
         errors.append(f"citation_graph_direction must be one of {sorted(CITATION_DIRECTIONS)}")
@@ -3113,6 +3550,14 @@ def validate_reading_enrichment_payload(payload: Any) -> list[str]:
     unknown = sorted(set(payload) - READING_ENRICHMENT_FIELDS)
     if unknown:
         errors.append("unknown fields: " + ", ".join(unknown))
+    missing = sorted(field for field in READING_ENRICHMENT_REQUIRED_FIELDS if field not in payload)
+    if missing:
+        errors.append("missing required fields: " + ", ".join(missing))
+    for field in ["preface_title", "preface_goal"]:
+        if not clean_text(payload.get(field)):
+            errors.append(f"{field} must be a non-empty string")
+    if "summary_fallback_enabled" in payload and not isinstance(payload.get("summary_fallback_enabled"), bool):
+        errors.append("summary_fallback_enabled must be a boolean")
 
     anchors = available_section_anchors()
     reference_ids = reference_ids_from_views()
@@ -3120,6 +3565,19 @@ def validate_reading_enrichment_payload(payload: Any) -> list[str]:
     for field in ["preface_cards", "preface_questions", "section_notes", "concepts", "reference_digest_notes", "summary_fallback_sections", "extensions"]:
         if field in payload and not isinstance(payload.get(field), list):
             errors.append(f"{field} must be an array")
+
+    expected_preface_titles = [title for _, title, _ in PREFACE_SLOT_DEFINITIONS]
+    preface_cards = as_list(payload.get("preface_cards"))
+    if "preface_cards" in payload and isinstance(payload.get("preface_cards"), list):
+        actual_titles = [clean_text(card.get("title")) for card in preface_cards if isinstance(card, dict)]
+        if len(preface_cards) != len(expected_preface_titles) or actual_titles != expected_preface_titles:
+            errors.append("preface_cards must contain exactly these titles in order: " + ", ".join(expected_preface_titles))
+    if "preface_reading_path" in payload and not [clean_text(item) for item in as_list(payload.get("preface_reading_path")) if clean_text(item)]:
+        errors.append("preface_reading_path must contain at least one item")
+    if "preface_questions" in payload and not as_list(payload.get("preface_questions")):
+        errors.append("preface_questions must contain at least one item")
+    if "section_notes" in payload and not as_list(payload.get("section_notes")):
+        errors.append("section_notes must contain at least one item")
 
     for index, card in enumerate(as_list(payload.get("preface_cards")), start=1):
         normalized = normalize_titled_text(card)
@@ -3140,6 +3598,21 @@ def validate_reading_enrichment_payload(payload: Any) -> list[str]:
             errors.append(f"section_notes[{index}] requires section_anchor")
         elif anchor not in anchors:
             errors.append(f"section_notes[{index}] references unknown section_anchor: {anchor}")
+        for required_field in ["reading_goal", "misread_warnings", "questions", "citation_note_body", "citation_reference_roles"]:
+            if required_field not in section_note:
+                errors.append(f"section_notes[{index}] missing required field: {required_field}")
+        if not clean_text(section_note.get("reading_goal")):
+            errors.append(f"section_notes[{index}] requires reading_goal")
+        if "misread_warnings" in section_note and not isinstance(section_note.get("misread_warnings"), list):
+            errors.append(f"section_notes[{index}].misread_warnings must be an array")
+        if "questions" in section_note and not isinstance(section_note.get("questions"), list):
+            errors.append(f"section_notes[{index}].questions must be an array")
+        elif "questions" in section_note and not as_list(section_note.get("questions")):
+            errors.append(f"section_notes[{index}].questions must contain at least one item")
+        if not clean_text(section_note.get("citation_note_body")):
+            errors.append(f"section_notes[{index}] requires citation_note_body")
+        if "citation_reference_roles" in section_note and not isinstance(section_note.get("citation_reference_roles"), list):
+            errors.append(f"section_notes[{index}].citation_reference_roles must be an array")
         for question_index, question in enumerate(as_list(section_note.get("questions")), start=1):
             normalized = normalize_question(question)
             if not normalized["question"] or not normalized["answer"]:
@@ -3153,13 +3626,20 @@ def validate_reading_enrichment_payload(payload: Any) -> list[str]:
                 errors.append(f"section_notes[{index}].citation_reference_roles[{role_index}] requires reference_id")
             elif reference_id not in reference_ids:
                 errors.append(f"section_notes[{index}].citation_reference_roles[{role_index}] references unknown reference_id: {reference_id}")
+            if not clean_text(role.get("role")):
+                errors.append(f"section_notes[{index}].citation_reference_roles[{role_index}] requires role")
 
     for index, concept in enumerate(as_list(payload.get("concepts")), start=1):
         if not isinstance(concept, dict):
             errors.append(f"concepts[{index}] must be an object")
             continue
+        row_unknown = sorted(set(concept) - {"label", "aliases", "kind", "definition"})
+        if row_unknown:
+            errors.append(f"concepts[{index}] has unknown fields: " + ", ".join(row_unknown))
         if not clean_text(concept.get("label")):
             errors.append(f"concepts[{index}] requires label")
+        if not clean_text(concept.get("definition")):
+            errors.append(f"concepts[{index}] requires definition")
 
     for index, note in enumerate(as_list(payload.get("reference_digest_notes")), start=1):
         if not isinstance(note, dict):
@@ -3170,6 +3650,10 @@ def validate_reading_enrichment_payload(payload: Any) -> list[str]:
             errors.append(f"reference_digest_notes[{index}] requires reference_id")
         elif reference_id not in reference_ids:
             errors.append(f"reference_digest_notes[{index}] references unknown reference_id: {reference_id}")
+        if not clean_text(note.get("role_in_current_paper")):
+            errors.append(f"reference_digest_notes[{index}] requires role_in_current_paper")
+        if not clean_text(note.get("why_open")):
+            errors.append(f"reference_digest_notes[{index}] requires why_open")
 
     for index, section in enumerate(as_list(payload.get("summary_fallback_sections")), start=1):
         normalized = normalize_titled_text(section)
@@ -4300,6 +4784,16 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
         view_map["translation-view"] = translator_translation
     for filename, view in view_map.items():
         write_json(VIEWS_DIR / f"{filename}.json", view)
+    write_stage30_translation_worklist(translation_batches, diagnostics)
+    if translator_translation:
+        write_json(
+            VIEWS_DIR / "diagnostics-translation.json",
+            {
+                "schema_version": "literature-deep-reading.diagnostics-translation.v0",
+                "diagnostics": diagnostics,
+            },
+        )
+        write_stage40_review_packet(translator_translation, diagnostics)
     persist_stage20_db(payload_path, view_map, diagnostics)
     result = {
         "kind": "literature_deep_reading_enriched",
@@ -4313,7 +4807,9 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
             "summary": normalize_posix(VIEWS_DIR / "summary-view.json"),
             "extensions": normalize_posix(VIEWS_DIR / "extensions-view.json"),
             "translation_batches": normalize_posix(VIEWS_DIR / "translation-batches-view.json"),
+            "stage_30_translation_worklist": normalize_posix(STAGE30_TRANSLATION_WORKLIST_PATH),
             **({"translation": normalize_posix(VIEWS_DIR / "translation-view.json")} if translator_translation else {}),
+            **({"stage_40_review_packet": normalize_posix(STAGE40_REVIEW_PACKET_PATH)} if translator_translation else {}),
         },
         "translation_batch_count": safe_int(translation_batches.get("batch_count"), 0),
         "required_translation_count": safe_int(translation_batches.get("required_translation_count"), 0),
@@ -4854,6 +5350,7 @@ def submit_block_translations(payload_path: Path) -> dict[str, Any]:
     }
     write_json(VIEWS_DIR / "translation-view.json", translation_view)
     write_json(VIEWS_DIR / "diagnostics-translation.json", diagnostics_view)
+    write_stage40_review_packet(translation_view, diagnostics)
     persist_stage30_db(payload_path, translation_view, diagnostics)
     result = {
         "kind": "literature_deep_reading_translated",
@@ -4861,6 +5358,7 @@ def submit_block_translations(payload_path: Path) -> dict[str, Any]:
         "db_path": normalize_posix(DB_PATH),
         "views": {
             "translation": normalize_posix(VIEWS_DIR / "translation-view.json"),
+            "stage_40_review_packet": normalize_posix(STAGE40_REVIEW_PACKET_PATH),
         },
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-translation.json"),
         "final_html_available": False,
@@ -4883,6 +5381,12 @@ def validate_final_review_payload(payload: Any) -> list[str]:
         errors.append(f"overall_assessment must be one of {sorted(FINAL_REVIEW_ASSESSMENTS)}")
     if "quality_observations" in payload and not isinstance(payload.get("quality_observations"), list):
         errors.append("quality_observations must be an array")
+    observations = [item for item in as_list(payload.get("quality_observations")) if isinstance(item, dict)]
+    severities = {clean_text(item.get("severity")) for item in observations}
+    if assessment == "needs_revision" and not severities.intersection({"warning", "error"}):
+        errors.append("needs_revision requires at least one warning or error quality_observation")
+    if assessment == "ready" and "error" in severities:
+        errors.append("ready final review cannot include error quality_observations")
     anchors = available_section_anchors()
     block_ids = {clean_text(block.get("block_id")) for block in reading_blocks() if clean_text(block.get("block_id"))}
     for index, observation in enumerate(as_list(payload.get("quality_observations")), start=1):
@@ -6251,6 +6755,7 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
     }
     for filename, view in view_map.items():
         write_json(VIEWS_DIR / f"{filename}.json", view)
+    write_stage20_agent_packet(context, diagnostics)
     persist_stage10_db(
         context,
         payload_path,
@@ -6266,11 +6771,15 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
         },
         diagnostics,
     )
+    result_views = {
+        **host_context["views"],
+        "stage_20_agent_packet": normalize_posix(STAGE20_AGENT_PACKET_PATH),
+    }
     result = {
         "kind": "literature_deep_reading_context_ready",
         "status": "context_ready",
         "db_path": normalize_posix(DB_PATH),
-        "views": host_context["views"],
+        "views": result_views,
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-host-context.json"),
         "final_html_available": False,
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics],
@@ -6305,6 +6814,7 @@ def validate_bootstrap() -> dict[str, Any]:
         VIEWS_DIR / "host-preflight-view.json",
         VIEWS_DIR / "concept-needs-view.json",
         VIEWS_DIR / "diagnostics-bootstrap.json",
+        STAGE10_AGENT_PACKET_PATH,
         RESULT_PATH,
     ]
     errors: list[str] = []
@@ -6363,6 +6873,7 @@ def validate_context_request(payload_path: Path | None = None) -> dict[str, Any]
         VIEWS_DIR / "concept-candidates-view.json",
         VIEWS_DIR / "concept-needs-view.json",
         VIEWS_DIR / "diagnostics-host-context.json",
+        STAGE20_AGENT_PACKET_PATH,
     ]
     if not any(errors):
         for path in required_views:
@@ -6417,6 +6928,7 @@ def validate_reading_enrichment(payload_path: Path | None = None) -> dict[str, A
         VIEWS_DIR / "extensions-view.json",
         VIEWS_DIR / "translation-batches-view.json",
         VIEWS_DIR / "diagnostics-enrichment.json",
+        STAGE30_TRANSLATION_WORKLIST_PATH,
     ]
     if not any(errors):
         for path in required_views:
@@ -6471,6 +6983,7 @@ def validate_block_translations(payload_path: Path | None = None) -> dict[str, A
     required_views = [
         VIEWS_DIR / "translation-view.json",
         VIEWS_DIR / "diagnostics-translation.json",
+        STAGE40_REVIEW_PACKET_PATH,
     ]
     if not any(errors):
         for path in required_views:

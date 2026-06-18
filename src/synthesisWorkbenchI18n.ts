@@ -614,6 +614,10 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-graph-legend-node-size": "Node size = incoming citations",
   "synthesis-graph-legend-halo": "Halo = top cited visible nodes",
   "synthesis-graph-legend-current-paper": "Current paper",
+  "synthesis-topic-graph-legend-hierarchy": "Hierarchy",
+  "synthesis-topic-graph-legend-related": "Related",
+  "synthesis-topic-graph-legend-overlap": "Overlap",
+  "synthesis-topic-graph-legend-contrast": "Contrast",
   "synthesis-graph-diagnostic-refreshing":
     "The citation graph layout is still being computed.",
   "synthesis-graph-diagnostic-missing":

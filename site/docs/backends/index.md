@@ -16,10 +16,11 @@ Zotero Skills 支持三种后端类型，每种后端适用于不同的使用场
 - **需要执行技能和工作流？** → [配置 Skill-Runner](./skill-runner)
 - **只需要运行 MinerU 文档解析？** → [配置 Generic HTTP 后端](./generic-http)
 
-所有后端均通过 **工具 → 后端管理器** 进行配置。
+所有后端均通过 **[工具 → 后端管理器](backend-manager)** 进行配置。
 
 ## 下一步
 
-- [ACP 后端配置](./acp)
-- [Skill-Runner 部署与配置](./skill-runner)
-- [Generic HTTP 后端配置](./generic-http)
+- [后端管理器使用说明](backend-manager)
+- [ACP 后端配置](acp)
+- [Skill-Runner 部署与配置](skill-runner)
+- [Generic HTTP 后端配置](generic-http)

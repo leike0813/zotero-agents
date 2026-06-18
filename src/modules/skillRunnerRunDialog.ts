@@ -289,6 +289,7 @@ export type RunWorkspaceTaskItem = {
   backendId: string;
   backendDisplayName: string;
   requestId?: string;
+  skillId?: string;
   workflowLabel?: string;
   status: string;
   stateLabel: string;
@@ -1446,6 +1447,7 @@ async function buildRunWorkspaceModel() {
         backendId,
         backendDisplayName,
         requestId: requestId || undefined,
+        skillId: String(row.skillId || "").trim() || undefined,
         workflowLabel:
           String(row.workflowLabel || "").trim() ||
           String((row as { workflowId?: unknown }).workflowId || "").trim() ||

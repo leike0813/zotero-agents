@@ -59,7 +59,22 @@ Banner 右侧显示三个状态指示灯：
 |------|------|
 | ● 连接 | 与 ACP 后端的连接状态（绿色=已连接/灰色=已断开/黄色=连接中） |
 | ● MCP | MCP 服务可用性 |
-| ● Host Bridge | Zotero Host Bridge 连接状态 |
+| ● Host Bridge | Zotero Host Bridge 连接状态（详见下文） |
+
+### Host Bridge 状态
+
+Host Bridge 是 Zotero 插件与后端之间的内部桥接通道。它负责将当前 Zotero 上下文（选中的条目、阅读器中的文献、文库数据等）传递给后端，使 AI 能够基于您的实际 Zotero 数据进行操作。
+
+Host Bridge 通过 `zotero-bridge` CLI 工具实现通信，插件在后台自动管理其生命周期。
+
+| 状态 | 含义 |
+|------|------|
+| 绿色 ● | Host Bridge 已连接，后端可以访问 Zotero 上下文 |
+| 黄色 ● | 正在连接或重连中 |
+| 灰色 ● | Host Bridge 不可用（未安装或未启动），后端无法获取 Zotero 上下文 |
+| 隐藏 | 当前不需要 Host Bridge（如后端不支持或未启用上下文功能） |
+
+当 Host Bridge 不可用时，ACP Chat 仍可正常对话，但 AI 无法获取您当前查看的文献信息作为上下文。
 
 ## 会话抽屉（左侧）
 

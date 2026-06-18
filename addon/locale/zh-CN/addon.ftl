@@ -1133,6 +1133,10 @@ synthesis-graph-legend-importance = 引文重要性
 synthesis-graph-legend-node-size = 节点大小 = 入站引用数
 synthesis-graph-legend-halo = 光环 = 可见节点中高被引项
 synthesis-graph-legend-current-paper = 当前论文
+synthesis-topic-graph-legend-hierarchy = 层级
+synthesis-topic-graph-legend-related = 相关
+synthesis-topic-graph-legend-overlap = 重叠
+synthesis-topic-graph-legend-contrast = 对比
 synthesis-graph-diagnostic-refreshing = 引文图谱布局仍在计算中。
 synthesis-graph-diagnostic-missing = 当前图谱缓存尚未生成图谱布局。
 synthesis-graph-diagnostic-stale = 图谱布局已过期，应重新构建。

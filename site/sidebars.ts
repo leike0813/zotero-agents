@@ -12,6 +12,7 @@ const sidebars: SidebarsConfig = {
       label: "⚙️ 后端配置",
       items: [
         "backends/index",
+        "backends/backend-manager",
         "backends/acp",
         "backends/skill-runner",
         "backends/generic-http",

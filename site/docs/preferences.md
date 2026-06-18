@@ -31,13 +31,13 @@ Zotero Skills 的设置位于 **Zotero → 设置 → Zotero Skills**（Windows/
 
 ## Synthesis Git Sync
 
-Synthesis Workbench 的可选 Git 同步功能，详情参见 [Git 同步](synthesis/git-sync)：
+:::warning 已弃用
 
-| 设置项 | 说明 |
-|-------|------|
-| 启用 Git 同步 | 开启/关闭 Canonical Store 的 Git 同步 |
-| 远程仓库 URL | Git 远程仓库地址 |
-| 分支名 | 同步使用的 Git 分支 |
+Git Sync 已在当前版本中弃用。插件已切换为 **WebDAV Durable Bundle Sync** 方案。如需跨设备同步 Synthesis Workbench 数据，请使用 WebDAV 同步（配置入口同上区域）。
+
+:::
+
+详情参见 [Git 同步](synthesis/git-sync)。
 
 ## 其他通用选项
 

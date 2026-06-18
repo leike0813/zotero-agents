@@ -3385,10 +3385,10 @@ function renderTopicGraphCanvas(snapshot: Snapshot) {
 
   const legend = el("div", "topic-graph-legend");
   [
-    ["broader_than", "Hierarchy"],
-    ["related_to", "Related"],
-    ["overlaps_with", "Overlap"],
-    ["contrasts_with", "Contrast"],
+    ["broader_than", t("synthesis-topic-graph-legend-hierarchy")],
+    ["related_to", t("synthesis-topic-graph-legend-related")],
+    ["overlaps_with", t("synthesis-topic-graph-legend-overlap")],
+    ["contrasts_with", t("synthesis-topic-graph-legend-contrast")],
   ].forEach(([relation, label]) => {
     const item = el("span", `topic-graph-legend-item relation-${relation}`);
     item.appendChild(el("span", "topic-graph-legend-line"));

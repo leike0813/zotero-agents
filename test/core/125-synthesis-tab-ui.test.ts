@@ -3555,6 +3555,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "topic-graph-canvas");
     assert.include(app, "topic-graph-link");
     assert.include(app, 'createSvgElement("path")');
+    assert.include(app, "synthesis-topic-graph-legend-related");
+    assert.include(app, "synthesis-topic-graph-legend-overlap");
+    assert.notInclude(app, '["related_to", "Related"]');
+    assert.notInclude(app, '["overlaps_with", "Overlap"]');
     assert.include(css, ".topic-graph-canvas");
     assert.include(css, ".topic-graph-link");
     assert.include(css, "stroke-width: 1.35;");

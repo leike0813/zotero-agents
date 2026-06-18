@@ -1133,6 +1133,10 @@ synthesis-graph-legend-importance = Importance de citation
 synthesis-graph-legend-node-size = Taille du nœud = citations entrantes
 synthesis-graph-legend-halo = Halo = nœuds visibles les plus cités
 synthesis-graph-legend-current-paper = Article courant
+synthesis-topic-graph-legend-hierarchy = Hiérarchie
+synthesis-topic-graph-legend-related = Relation
+synthesis-topic-graph-legend-overlap = Chevauchement
+synthesis-topic-graph-legend-contrast = Contraste
 synthesis-graph-diagnostic-refreshing = La disposition du graphe de citations est encore en cours de calcul.
 synthesis-graph-diagnostic-missing = Aucune disposition de graphe n'a été générée pour le cache actuel.
 synthesis-graph-diagnostic-stale = La disposition du graphe est obsolète et doit être reconstruite.

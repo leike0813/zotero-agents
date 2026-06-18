@@ -418,6 +418,44 @@ describe("acp ui smoke", function () {
     assert.isFalse(panel.reply.inputEnabled);
   });
 
+  it("projects the SkillRunner banner subtitle from the executed skill name", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      session: {
+        requestId: "skillrunner-request-1",
+        title: "Selected paper task",
+        status: "running",
+      },
+      workspace: {
+        selectedTaskKey: "local-skillrunner-backend:skillrunner-request-1",
+        groups: [
+          {
+            backendId: "local-skillrunner-backend",
+            backendDisplayName: "Local SkillRunner",
+            activeTasks: [
+              {
+                key: "local-skillrunner-backend:skillrunner-request-1",
+                requestId: "skillrunner-request-1",
+                title: "Selected paper task",
+                workflowLabel: "Debug: Host Bridge Connectivity Probe",
+                skillId: "debug-host-bridge-connectivity-probe",
+                status: "running",
+              },
+            ],
+            finishedTasks: [],
+          },
+        ],
+      },
+    });
+
+    assert.equal(panel.context.title, "Selected paper task");
+    assert.equal(
+      panel.context.subtitle,
+      "debug-host-bridge-connectivity-probe",
+    );
+    assert.notEqual(panel.context.subtitle, "skillrunner-request-1");
+  });
+
   it("exposes copy-friendly assistant transcript and reply history affordances", async function () {
     const transcriptRendererJs = await readProjectFile(
       "addon/content/dashboard/assistant-transcript-renderer.js",

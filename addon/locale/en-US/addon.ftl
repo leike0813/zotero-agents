@@ -1133,6 +1133,10 @@ synthesis-graph-legend-importance = Citation importance
 synthesis-graph-legend-node-size = Node size = incoming citations
 synthesis-graph-legend-halo = Halo = top cited visible nodes
 synthesis-graph-legend-current-paper = Current paper
+synthesis-topic-graph-legend-hierarchy = Hierarchy
+synthesis-topic-graph-legend-related = Related
+synthesis-topic-graph-legend-overlap = Overlap
+synthesis-topic-graph-legend-contrast = Contrast
 synthesis-graph-diagnostic-refreshing = The citation graph layout is still being computed.
 synthesis-graph-diagnostic-missing = No graph layout has been generated for the current graph cache.
 synthesis-graph-diagnostic-stale = The graph layout is stale and should be rebuilt.

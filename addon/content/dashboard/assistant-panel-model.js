@@ -1022,6 +1022,56 @@
     return contexts;
   }
 
+  function appendSkillRunnerTasksFromGroups(groups, target) {
+    (Array.isArray(groups) ? groups : []).forEach(function (group) {
+      if (!group || typeof group !== "object") return;
+      (Array.isArray(group.activeTasks) ? group.activeTasks : []).forEach(function (task) {
+        if (task && typeof task === "object") target.push(task);
+      });
+      (Array.isArray(group.finishedTasks) ? group.finishedTasks : []).forEach(function (task) {
+        if (task && typeof task === "object") target.push(task);
+      });
+    });
+  }
+
+  function findSkillRunnerPanelTask(envelope, session) {
+    const workspace = envelope && envelope.workspace && typeof envelope.workspace === "object"
+      ? envelope.workspace
+      : {};
+    const drawer = envelope && envelope.drawer && typeof envelope.drawer === "object"
+      ? envelope.drawer
+      : {};
+    const selectedTaskKey = safeText(workspace.selectedTaskKey || envelope.selectedTaskKey);
+    const requestId = safeText(session && (session.requestId || session.id));
+    const tasks = [];
+    appendSkillRunnerTasksFromGroups(workspace.groups, tasks);
+    (Array.isArray(drawer.sections) ? drawer.sections : []).forEach(function (section) {
+      if (!section || typeof section !== "object") return;
+      appendSkillRunnerTasksFromGroups(section.groups, tasks);
+      (Array.isArray(section.activeTasks) ? section.activeTasks : []).forEach(function (task) {
+        if (task && typeof task === "object") tasks.push(task);
+      });
+      (Array.isArray(section.finishedTasks) ? section.finishedTasks : []).forEach(function (task) {
+        if (task && typeof task === "object") tasks.push(task);
+      });
+    });
+    if (selectedTaskKey) {
+      const selected = tasks.find(function (task) {
+        return safeText(task.key || task.taskKey || task.id) === selectedTaskKey;
+      });
+      if (selected) return selected;
+    }
+    if (requestId) {
+      const byRequest = tasks.find(function (task) {
+        return safeText(task.requestId) === requestId;
+      });
+      if (byRequest) return byRequest;
+    }
+    return tasks.find(function (task) {
+      return task.active === true || task.selected === true;
+    }) || null;
+  }
+
   function decorateSkillRunnerWorkspaceTask(task) {
     if (!task || typeof task !== "object") return task;
     const requestId = safeText(task.requestId);
@@ -2086,13 +2136,34 @@
     }
     const skillRunnerBusy = status === "running" || status === "prompting";
     const skillRunnerWaiting = status === "waiting-user" || status === "waiting-auth";
+    const selectedTask = findSkillRunnerPanelTask(envelope, session);
+    const skillRunnerSkillName = safeText(
+      session.skillName ||
+        session.skillLabel ||
+        session.skillId ||
+        session.skill_id ||
+        session.workflowLabel ||
+        session.workflowId ||
+        (selectedTask &&
+          (selectedTask.skillName ||
+            selectedTask.skillLabel ||
+            selectedTask.skillId ||
+            selectedTask.skill_id ||
+            selectedTask.workflowLabel ||
+            selectedTask.workflowId)) ||
+        envelope.skillName ||
+        envelope.skillLabel ||
+        envelope.skillId ||
+        envelope.workflowLabel ||
+        envelope.workflowId,
+    );
     return normalizeAssistantPanelSnapshot({
       kind: "skillrunner",
       labels: envelope.labels && typeof envelope.labels === "object" ? envelope.labels : {},
       context: {
         id: safeText(session.requestId || session.id),
         title: safeText(session.title || envelope.title) || "SkillRunner Workspace",
-        subtitle: safeText(session.requestId),
+        subtitle: skillRunnerSkillName || safeText(session.requestId),
         status,
         statusLabel: status,
         backendId: safeText(session.backendId),

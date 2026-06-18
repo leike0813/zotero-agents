@@ -6,9 +6,8 @@ description: Debug-only Host Bridge connectivity probe for validating CLI inject
 # Debug Host Bridge Connectivity Probe
 
 This skill is only for Zotero Skills debug workflows. Do not write Zotero
-items, notes, preferences, or external files except `result/result.json` under
-the current working directory. Use the current working directory as the run
-workspace.
+items, notes, preferences, or external files. Use the current working directory
+as the run workspace.
 
 Read `parameter.probeDepth` and `parameter.expectedConnectionMode` from the run
 prompt. Defaults are `capability` and `auto`.
@@ -39,7 +38,7 @@ prompt. Defaults are `capability` and `auto`.
 7. Run `manifest` when `probeDepth` is `auth` or `capability`.
 8. Run `call diagnostic.get_status --input '{}'` when `probeDepth` is
    `capability`.
-9. Write `result/result.json` and also output the same JSON object.
+9. Output the probe result as one JSON object.
 
 Each command result must be recorded as a check object with `id`, `status`,
 `duration_ms`, and optional `failure_code`. Use an empty string for

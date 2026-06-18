@@ -1133,6 +1133,10 @@ synthesis-graph-legend-importance = 引用重要度
 synthesis-graph-legend-node-size = ノードサイズ = 被引用数
 synthesis-graph-legend-halo = ハロー = 可視ノード中の高被引用
 synthesis-graph-legend-current-paper = 現在の論文
+synthesis-topic-graph-legend-hierarchy = 階層
+synthesis-topic-graph-legend-related = 関連
+synthesis-topic-graph-legend-overlap = 重複
+synthesis-topic-graph-legend-contrast = 対比
 synthesis-graph-diagnostic-refreshing = 引用グラフレイアウトはまだ計算中です。
 synthesis-graph-diagnostic-missing = 現在のグラフキャッシュにグラフレイアウトが生成されていません。
 synthesis-graph-diagnostic-stale = グラフレイアウトが期限切れです。再構築する必要があります。

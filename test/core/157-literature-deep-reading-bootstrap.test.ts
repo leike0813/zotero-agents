@@ -296,6 +296,15 @@ function runRuntimeAllowFailure(args: string[], cwd: string) {
   }
 }
 
+async function readRuntimeView(runRoot: string, fileName: string) {
+  return JSON.parse(
+    await fs.readFile(
+      path.join(runRoot, "runtime", "views", fileName),
+      "utf8",
+    ),
+  );
+}
+
 function sampleTranslatorAlignment() {
   return {
     format: "v1",
@@ -358,7 +367,7 @@ async function writeContextRequest(
         external_context_section_anchors: ["sec-1-introduction"],
         request_topic_context: true,
         topic_context_reason: "Use the Host topic containing the target paper.",
-        selected_topic_id: "",
+        selected_topic_id: "computer-vision",
         request_concept_context: true,
         concept_labels: ["DETR", "object queries"],
         request_citation_graph: true,
@@ -942,6 +951,82 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.include(deepReadingCss, "height: 82px;");
   });
 
+  it("keeps skill and runner instructions packet-first and gate-driven", async function () {
+    const sourceSkill = await fs.readFile(
+      path.join(suiteRoot, "templates", "SKILL.md"),
+      "utf8",
+    );
+    const generatedSkill = await fs.readFile(
+      path.join(skillRoot, "SKILL.md"),
+      "utf8",
+    );
+    const runner = JSON.parse(
+      await fs.readFile(
+        path.join(skillRoot, "assets", "runner.json"),
+        "utf8",
+      ),
+    );
+    const runnerPrompt = String(runner.entrypoint.prompts.common);
+
+    for (const content of [sourceSkill, generatedSkill]) {
+      assert.include(content, "## 任务目标");
+      assert.include(content, "## 职责分工");
+      assert.include(content, "## 通用注意事项");
+      assert.include(content, "原文是主角");
+      assert.include(content, "译文、topic/context、citation graph");
+      assert.include(content, "不要把本 skill 当作通用综述生成器、纯翻译任务或普通报告生成器");
+      assert.include(content, "LLM 必须负责");
+      assert.include(content, "runtime 必须负责");
+      assert.include(content, "不要手工编辑 `runtime/views/*`");
+      assert.include(content, "不要用临时脚本替代 LLM 完成论文摘要");
+      assert.include(content, "subagent 只处理单个 runtime batch");
+      assert.include(content, "`batch_id`、`translations[]` 和 `quality_notes[]`");
+      assert.include(content, "主 agent 合并 batch 结果后写");
+      assert.include(content, "Stage 10 payload 必须表达明确的外部 context 意图");
+      assert.include(content, "Stage 20 payload 必须满足最低内容标准");
+      assert.include(content, "`background`、`baseline`、`contrast`、`component`、`dataset`、`tooling`、`historical`、`uncategorized`");
+      assert.include(content, "不要提交单独的 `category` 字段");
+      assert.include(content, "validate 失败时，按错误中的 `block_id` 或字段名定点修复");
+      assert.include(content, "stage-10-agent-packet.json");
+      assert.include(content, "stage-30-translation-worklist.json");
+      assert.include(content, "stage-40-review-packet.json");
+      assert.include(content, "每次 `submit-*` 成功后，必须立即运行对应的 `validate-*` 命令");
+      for (const historicalMarker of [
+        "旧版",
+        "历史协议",
+        "deprecated",
+        "previous version",
+        "changelog",
+      ]) {
+        assert.notInclude(content, historicalMarker);
+      }
+      assert.notInclude(
+        content,
+        "Stage 20 完成后，继续阅读：\n\n- `runtime/views/reading-blocks.json`",
+      );
+      assert.notInclude(
+        content,
+        "Stage 30 完成后，继续阅读：\n\n- `runtime/views/translation-view.json`",
+      );
+    }
+
+    assert.isBelow(runnerPrompt.length, 700);
+    assert.include(runnerPrompt, "Treat SKILL.md as the authoritative procedure");
+    assert.include(runnerPrompt, "scripts/deep_reading_runtime.py bootstrap");
+    assert.include(runnerPrompt, "runtime/input.json");
+    assert.include(runnerPrompt, "stage agent packets");
+    assert.include(runnerPrompt, "submit/validate gates");
+    assert.include(runnerPrompt, "literature-deep-reading.result.json");
+    assert.notInclude(runnerPrompt, "Recommended citation role words");
+    assert.notInclude(runnerPrompt, "exactly four preface cards");
+    assert.notInclude(runnerPrompt, "Main agent merges batch JSON");
+    assert.notInclude(runnerPrompt, "fixes only the block_ids or fields named by validation errors");
+    assert.notInclude(
+      runnerPrompt,
+      "Next read runtime/views/translation-batches-view.json.",
+    );
+  });
+
   it("keeps the fallback citation graph renderer SVG-only and read-only", async function () {
     const rendererSource = await fs.readFile(
       path.resolve("src/shared/citationGraphStandalone.ts"),
@@ -1040,6 +1125,27 @@ describe("Literature deep reading bootstrap skill", function () {
 
     const validation = runRuntime(["validate-bootstrap"], runRoot);
     assert.deepEqual(validation, { ok: true, errors: [] });
+
+    const stage10Packet = await readRuntimeView(
+      runRoot,
+      "stage-10-agent-packet.json",
+    );
+    assert.equal(
+      stage10Packet.stage_id,
+      "stage_10_source_reading_context_request",
+    );
+    assert.equal(
+      stage10Packet.payload_path,
+      "runtime/payloads/context-request.json",
+    );
+    assert.include(stage10Packet.submit_command, "submit-context-request");
+    assert.include(stage10Packet.validate_command, "validate-context-request");
+    assert.property(stage10Packet.trace_paths, "source_reading");
+    assert.property(stage10Packet.trace_paths, "diagnostics");
+    assert.notInclude(
+      JSON.stringify(stage10Packet),
+      "This paper introduces a small test method.",
+    );
 
     const structure = JSON.parse(
       await fs.readFile(
@@ -1143,6 +1249,33 @@ describe("Literature deep reading bootstrap skill", function () {
         (item: Record<string, unknown>) =>
           typeof item.raw_markdown === "string",
       ),
+    );
+  });
+
+  it("fails bootstrap validation when the Stage 10 packet is missing", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-bootstrap-packet-missing-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    await fs.rm(
+      path.join(runRoot, "runtime", "views", "stage-10-agent-packet.json"),
+    );
+
+    const validation = runRuntimeAllowFailure(["validate-bootstrap"], runRoot);
+    assert.notEqual(validation.exitCode, 0);
+    assert.equal(validation.output.ok, false);
+    assert.include(
+      validation.output.errors.join("\n"),
+      "stage-10-agent-packet.json",
     );
   });
 
@@ -1313,20 +1446,35 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     await writeReadingEnrichment(runRoot, {
       preface_title: "阅读前导读",
-      preface_cards: [{ title: "研究问题", body: "样例 alignment 复用。" }],
+      preface_cards: [
+        { title: "研究领域", body: "样例论文用于验证 translator alignment 复用。" },
+        { title: "研究方向", body: "本次运行关注已有译文对精读流程的衔接。" },
+        { title: "本文位置", body: "样例文本作为当前论文进入 deep reading 渲染链路。" },
+        { title: "核心创新", body: "测试重点是复用 alignment 而不重复翻译正文块。" },
+      ],
       preface_reading_path: ["先看样例"],
       preface_goal: "验证 translator alignment 复用。",
       preface_concepts: [],
       preface_warnings: [],
-      preface_questions: [],
+      preface_questions: [
+        {
+          question: "为什么不再提交 block translations？",
+          answer: "因为 translation view 已由 translator alignment 生成。",
+        },
+      ],
       section_notes: [
         {
           section_anchor: "sec-sample-paper",
           reading_goal: "理解样例论文。",
           concepts: [],
           misread_warnings: [],
-          questions: [],
-          citation_note_body: "",
+          questions: [
+            {
+              question: "这个样例验证什么？",
+              answer: "验证已有 alignment 可以直接形成 translation view。",
+            },
+          ],
+          citation_note_body: "本节没有额外引用角色需要展开。",
           citation_reference_roles: [],
         },
       ],
@@ -1362,6 +1510,20 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     assert.equal(translation.source, "translator_alignment");
     assert.equal(translation.translated_count, 2);
+    const worklist = await readRuntimeView(
+      runRoot,
+      "stage-30-translation-worklist.json",
+    );
+    assert.equal(worklist.summary.source, "translator_alignment");
+    assert.equal(worklist.summary.batch_count, 0);
+    assert.equal(worklist.required_next_action, "skip_translation_submit");
+    const reviewPacket = await readRuntimeView(
+      runRoot,
+      "stage-40-review-packet.json",
+    );
+    assert.equal(reviewPacket.required_next_action, "write_final_review");
+    assert.equal(reviewPacket.summary.translation_source, "translator_alignment");
+    assert.equal(reviewPacket.summary.translated_count, 2);
   });
 
   it("hydrates translator alignment input from ACP audit manifest", async function () {
@@ -1466,20 +1628,35 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     await writeReadingEnrichment(runRoot, {
       preface_title: "阅读前导读",
-      preface_cards: [{ title: "研究问题", body: "审计输入 alignment 复用。" }],
+      preface_cards: [
+        { title: "研究领域", body: "样例论文用于验证审计输入补齐后的精读流程。" },
+        { title: "研究方向", body: "本次运行关注 Host 提供 alignment 后的复用路径。" },
+        { title: "本文位置", body: "样例文本作为当前论文进入 deep reading 渲染链路。" },
+        { title: "核心创新", body: "测试重点是从 audit manifest 补齐 translator alignment。" },
+      ],
       preface_reading_path: ["先看样例"],
       preface_goal: "验证 audit manifest 输入补齐。",
       preface_concepts: [],
       preface_warnings: [],
-      preface_questions: [],
+      preface_questions: [
+        {
+          question: "审计输入为什么重要？",
+          answer: "它是 Host 提供 translator alignment 的权威补齐来源。",
+        },
+      ],
       section_notes: [
         {
           section_anchor: "sec-sample-paper",
           reading_goal: "理解样例论文。",
           concepts: [],
           misread_warnings: [],
-          questions: [],
-          citation_note_body: "",
+          questions: [
+            {
+              question: "这个样例验证什么？",
+              answer: "验证 runtime 可以从 audit manifest 恢复 alignment 输入。",
+            },
+          ],
+          citation_note_body: "本节没有额外引用角色需要展开。",
           citation_reference_roles: [],
         },
       ],
@@ -1636,7 +1813,13 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     await writeFinalReview(runRoot, {
       overall_assessment: "ready",
-      quality_observations: [],
+      quality_observations: [
+        {
+          severity: "warning",
+          kind: "alignment_reuse",
+          message: "Source-only alignment path has no translation batches to review.",
+        },
+      ],
     });
     runRuntime(
       [
@@ -1756,6 +1939,21 @@ describe("Literature deep reading bootstrap skill", function () {
     const validation = runRuntime(["validate-context-request"], runRoot);
     assert.deepEqual(validation, { ok: true, errors: [] });
 
+    const stage20Packet = await readRuntimeView(
+      runRoot,
+      "stage-20-agent-packet.json",
+    );
+    assert.equal(stage20Packet.stage_id, "stage_20_reading_enrichment");
+    assert.equal(
+      stage20Packet.payload_path,
+      "runtime/payloads/reading-enrichment.json",
+    );
+    assert.equal(stage20Packet.summary.topic_id, "computer-vision");
+    assert.isAtLeast(stage20Packet.summary.reference_digest_count, 1);
+    assert.equal(stage20Packet.summary.citation_layout_status, "ready");
+    assert.property(stage20Packet.trace_paths, "host_context");
+    assert.property(stage20Packet.trace_paths, "topic_context");
+
     const calls = (
       await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
     )
@@ -1864,7 +2062,7 @@ describe("Literature deep reading bootstrap skill", function () {
     );
   });
 
-  it("collects digest contexts for multiple topic candidates without guessing the selected topic", async function () {
+  it("rejects topic context requests that select outside the candidate list", async function () {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-topic-candidates-"),
     );
@@ -1894,7 +2092,7 @@ describe("Literature deep reading bootstrap skill", function () {
     });
     runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
     await writeContextRequest(runRoot);
-    runRuntime(
+    const result = runRuntimeAllowFailure(
       [
         "submit-context-request",
         "--payload",
@@ -1902,66 +2100,10 @@ describe("Literature deep reading bootstrap skill", function () {
       ],
       runRoot,
     );
-
-    const topicContext = JSON.parse(
-      await fs.readFile(
-        path.join(runRoot, "runtime", "views", "topic-context.json"),
-        "utf8",
-      ),
-    );
-    assert.equal(topicContext.topic_id, "");
-    assert.equal(topicContext.source, "none");
-    assert.equal(
-      topicContext.diagnostics[0].code,
-      "topic_context_multiple_candidates",
-    );
-
-    const candidateDigests = JSON.parse(
-      await fs.readFile(
-        path.join(
-          runRoot,
-          "runtime",
-          "views",
-          "topic-candidate-digests-view.json",
-        ),
-        "utf8",
-      ),
-    );
-    assert.deepEqual(
-      candidateDigests.items.map(
-        (item: Record<string, unknown>) => item.topic_id,
-      ),
-      ["object-detection", "vision-transformers"],
-    );
-    assert.deepEqual(
-      candidateDigests.items.map(
-        (item: Record<string, unknown>) =>
-          (item.digest as Record<string, unknown>).title,
-      ),
-      ["Object Detection", "Vision Transformers"],
-    );
-    const calls = (
-      await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
-    )
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-    assert.equal(
-      calls.filter(
-        (entry) =>
-          entry.command === "topics get-context" &&
-          entry.input.view === "semantic",
-      ).length,
-      0,
-    );
-    assert.equal(
-      calls.filter(
-        (entry) =>
-          entry.command === "topics get-context" &&
-          entry.input.view === "digest",
-      ).length,
-      2,
-    );
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.output.status, "failed");
+    assert.include(JSON.stringify(result.output.error), "selected_topic_id");
+    assert.include(JSON.stringify(result.output.error), "topic candidates");
   });
 
   it("uses selected topic semantic context and stores unselected candidate digests", async function () {
@@ -2250,6 +2392,31 @@ describe("Literature deep reading bootstrap skill", function () {
         "utf8",
       ),
     );
+    const worklist = await readRuntimeView(
+      runRoot,
+      "stage-30-translation-worklist.json",
+    );
+    assert.equal(worklist.stage_id, "stage_30_block_translation");
+    assert.equal(
+      worklist.payload_path,
+      "runtime/payloads/block-translations.json",
+    );
+    assert.equal(worklist.summary.batch_count, batchView.batch_count);
+    assert.equal(
+      worklist.summary.required_translation_count,
+      batchView.required_translation_count,
+    );
+    assert.sameMembers(
+      worklist.work_items.required_block_ids,
+      batchView.required_block_ids,
+    );
+    assert.deepEqual(
+      worklist.work_items.batches.map(
+        (batch: Record<string, unknown>) => batch.path,
+      ),
+      batchView.batches.map((batch: Record<string, unknown>) => batch.path),
+    );
+    assert.notInclude(JSON.stringify(worklist), "translation-source-0-0");
     assert.isAtLeast(batchView.batch_count, 2);
     assert.equal(
       batchView.required_translation_count,
@@ -2391,6 +2558,24 @@ describe("Literature deep reading bootstrap skill", function () {
     const validation = runRuntime(["validate-block-translations"], runRoot);
     assert.deepEqual(validation, { ok: true, errors: [] });
 
+    const reviewPacket = await readRuntimeView(
+      runRoot,
+      "stage-40-review-packet.json",
+    );
+    assert.equal(reviewPacket.stage_id, "stage_40_final_review_and_render");
+    assert.equal(
+      reviewPacket.payload_path,
+      "runtime/payloads/final-review.json",
+    );
+    assert.equal(
+      reviewPacket.summary.translation_source,
+      "agent_block_translations",
+    );
+    assert.isAtLeast(reviewPacket.summary.translation_item_count, 1);
+    assert.property(reviewPacket.summary.status_counts, "available");
+    assert.property(reviewPacket.trace_paths, "translation");
+    assert.property(reviewPacket.trace_paths, "diagnostics_translation");
+
     const blocks = JSON.parse(
       await fs.readFile(
         path.join(runRoot, "runtime", "views", "reading-blocks.json"),
@@ -2423,6 +2608,93 @@ describe("Literature deep reading bootstrap skill", function () {
           item.kind === "table" &&
           String(item.translated_markdown).includes("<table>"),
       ),
+    );
+  });
+
+  it("fails submit-stage validation when agent packet handoffs are missing", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-packet-validation-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+    await installFakeBridge(runRoot);
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+
+    await writeContextRequest(runRoot);
+    runRuntime(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+    await fs.rm(
+      path.join(runRoot, "runtime", "views", "stage-20-agent-packet.json"),
+    );
+    const contextValidation = runRuntimeAllowFailure(
+      ["validate-context-request"],
+      runRoot,
+    );
+    assert.notEqual(contextValidation.exitCode, 0);
+    assert.include(
+      contextValidation.output.errors.join("\n"),
+      "stage-20-agent-packet.json",
+    );
+
+    await writeReadingEnrichment(runRoot);
+    runRuntime(
+      [
+        "submit-reading-enrichment",
+        "--payload",
+        "runtime/payloads/reading-enrichment.json",
+      ],
+      runRoot,
+    );
+    await fs.rm(
+      path.join(
+        runRoot,
+        "runtime",
+        "views",
+        "stage-30-translation-worklist.json",
+      ),
+    );
+    const enrichmentValidation = runRuntimeAllowFailure(
+      ["validate-reading-enrichment"],
+      runRoot,
+    );
+    assert.notEqual(enrichmentValidation.exitCode, 0);
+    assert.include(
+      enrichmentValidation.output.errors.join("\n"),
+      "stage-30-translation-worklist.json",
+    );
+
+    await writeBlockTranslations(runRoot);
+    runRuntime(
+      [
+        "submit-block-translations",
+        "--payload",
+        "runtime/payloads/block-translations.json",
+      ],
+      runRoot,
+    );
+    await fs.rm(
+      path.join(runRoot, "runtime", "views", "stage-40-review-packet.json"),
+    );
+    const translationValidation = runRuntimeAllowFailure(
+      ["validate-block-translations"],
+      runRoot,
+    );
+    assert.notEqual(translationValidation.exitCode, 0);
+    assert.include(
+      translationValidation.output.errors.join("\n"),
+      "stage-40-review-packet.json",
     );
   });
 
@@ -3376,6 +3648,14 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.include(JSON.stringify(result.output.error), "section_anchor");
     assert.include(JSON.stringify(result.output.error), "reference_id");
     assert.include(JSON.stringify(result.output.error), "requires label");
+    assert.include(JSON.stringify(result.output.error), "preface_cards");
+    assert.include(JSON.stringify(result.output.error), "reading_goal");
+    assert.include(JSON.stringify(result.output.error), "requires definition");
+    assert.include(
+      JSON.stringify(result.output.error),
+      "role_in_current_paper",
+    );
+    assert.include(JSON.stringify(result.output.error), "why_open");
   });
 
   it("keeps citation graph snapshot when Host layout is missing", async function () {
@@ -3518,5 +3798,191 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify(result.output.error),
       "reference_digest_policy",
     );
+    assert.include(JSON.stringify(result.output.error), "main_task");
+    assert.include(JSON.stringify(result.output.error), "method_family");
+  });
+
+  it("rejects context requests that omit required semantic intent", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-context-intent-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    await writeContextRequest(runRoot, {
+      main_task: "object detection",
+      method_family: "transformer-based direct set prediction",
+      external_context_section_anchors: ["sec-1-introduction"],
+      request_topic_context: true,
+      topic_context_reason: "",
+      selected_topic_id: "",
+      request_concept_context: true,
+      concept_labels: [],
+      request_citation_graph: false,
+      citation_graph_depth: 2,
+      citation_graph_direction: "both",
+      citation_graph_max_nodes: 80,
+      citation_graph_max_edges: 160,
+      citation_graph_include_low_signal: false,
+      reference_digest_policy: "priority_only",
+      priority_reference_indices: [],
+    });
+
+    const result = runRuntimeAllowFailure(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.output.status, "failed");
+    assert.include(JSON.stringify(result.output.error), "topic_context_reason");
+    assert.include(JSON.stringify(result.output.error), "concept_labels");
+    assert.include(
+      JSON.stringify(result.output.error),
+      "priority_reference_indices",
+    );
+  });
+
+  it("accepts custom non-empty citation reference roles", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-custom-citation-role-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+    await installFakeBridge(runRoot);
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    await writeContextRequest(runRoot);
+    runRuntime(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+    await writeReadingEnrichment(runRoot);
+
+    const payloadPath = path.join(
+      runRoot,
+      "runtime",
+      "payloads",
+      "reading-enrichment.json",
+    );
+    const payload = JSON.parse(await fs.readFile(payloadPath, "utf8"));
+    payload.section_notes[0].citation_reference_roles[0].role =
+      "theoretical scaffolding for the paper's framing";
+    await fs.writeFile(payloadPath, JSON.stringify(payload, null, 2), "utf8");
+
+    const result = runRuntime(
+      [
+        "submit-reading-enrichment",
+        "--payload",
+        "runtime/payloads/reading-enrichment.json",
+      ],
+      runRoot,
+    );
+    assert.equal(result.status, "enriched");
+
+    const validation = runRuntime(["validate-reading-enrichment"], runRoot);
+    assert.deepEqual(validation, { ok: true, errors: [] });
+  });
+
+  it("rejects final review payloads with inconsistent assessment severity", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-invalid-final-review-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+    await installFakeBridge(runRoot);
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    await writeContextRequest(runRoot);
+    runRuntime(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+    await writeReadingEnrichment(runRoot);
+    runRuntime(
+      [
+        "submit-reading-enrichment",
+        "--payload",
+        "runtime/payloads/reading-enrichment.json",
+      ],
+      runRoot,
+    );
+    await writeBlockTranslations(runRoot);
+    runRuntime(
+      [
+        "submit-block-translations",
+        "--payload",
+        "runtime/payloads/block-translations.json",
+      ],
+      runRoot,
+    );
+
+    await writeFinalReview(runRoot, {
+      overall_assessment: "needs_revision",
+      quality_observations: [],
+    });
+    const needsRevisionResult = runRuntimeAllowFailure(
+      [
+        "submit-final-review",
+        "--payload",
+        "runtime/payloads/final-review.json",
+      ],
+      runRoot,
+    );
+    assert.equal(needsRevisionResult.exitCode, 1);
+    assert.include(
+      JSON.stringify(needsRevisionResult.output.error),
+      "needs_revision",
+    );
+
+    await writeFinalReview(runRoot, {
+      overall_assessment: "ready",
+      quality_observations: [
+        {
+          severity: "error",
+          kind: "translation_structure",
+          block_id: "block-0002",
+          message: "A blocking translation issue remains.",
+        },
+      ],
+    });
+    const readyResult = runRuntimeAllowFailure(
+      [
+        "submit-final-review",
+        "--payload",
+        "runtime/payloads/final-review.json",
+      ],
+      runRoot,
+    );
+    assert.equal(readyResult.exitCode, 1);
+    assert.include(JSON.stringify(readyResult.output.error), "ready");
+    assert.include(JSON.stringify(readyResult.output.error), "error");
   });
 });

@@ -79,6 +79,8 @@ export function buildRequest({ selectionContext, executionOptions }) {
 
 ## skillrunner.sequence.v1 — 多步骤技能串联
 
+当需要多个技能按顺序串联执行（前一步的输出作为后一步的输入）时使用序列执行。典型场景包括多阶段 pipeline（如 Topic Synthesis 的三步流程：准备 → 核心增强 → 最终化），每一步由不同的 skill 负责，通过 handoff 机制传递中间结果。
+
 将多个 skill 按顺序串联执行，前一步的输出可以作为后一步的输入（handoff）。
 
 ```json

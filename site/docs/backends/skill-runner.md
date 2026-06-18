@@ -41,15 +41,15 @@ Zotero 插件提供一键部署/启动/停止功能，自动管理 Skill-Runner 
 
 **配置步骤：**
 
-1. 打开 **工具 → 后端管理器**
-2. 点击 **添加**
-3. 在类型中选择 **SkillRunner**
+1. 打开 **工具 → [后端管理器](backend-manager)**
+2. 切换到 **SkillRunner** Tab
+3. 点击 **添加 SkillRunner**
 4. 填写：
    - **显示名称**：友好的名称
    - **Base URL**：远程实例地址（如 `https://skill-runner.example.com`）
-   - **Bearer Token**：认证令牌（如果后端需要认证）
+   - **认证方式**：选择 `bearer` 并填写 **认证令牌**（如果后端需要认证）
    - **超时时间**：请求超时（可选）
-5. 点击 **保存**
+5. 点击右下角 **保存**
 
 ## Docker 部署
 
