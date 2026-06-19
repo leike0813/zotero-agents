@@ -1,0 +1,17 @@
+{
+  "id": "debug-interactive-choice-probe",
+  "name": "Debug Interactive Choice Probe",
+  "description": "Debug-only interactive probe that asks one multiple-choice question and completes after any reply.",
+  "version": "0.1.0",
+  "debug_only": true,
+  "execution_modes": ["interactive"],
+  "schemas": {
+    "parameter": "assets/parameter.schema.json",
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "Execute this debug-only interactive probe exactly as described in SKILL.md. Parameters: {{ parameter }}. Output exactly one JSON object."
+    }
+  }
+}

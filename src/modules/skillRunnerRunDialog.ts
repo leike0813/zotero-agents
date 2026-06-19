@@ -42,8 +42,12 @@ import {
 } from "./taskRuntime";
 import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
 import {
+  archiveSkillRunnerRunRecordByRunKey,
   archiveSkillRunnerRunRecordByRequest,
+  buildSkillRunnerLocalRunKey,
+  getSkillRunnerRunRecord,
   getSkillRunnerRunRecordByRequest,
+  subscribeSkillRunnerRunStore,
   type SkillRunnerRunApplyState,
 } from "./skillRunnerRunStore";
 import {
@@ -144,6 +148,16 @@ type RunDialogSnapshot = {
   title: string;
   backendTitle: string;
   requestId: string;
+  requestAssigned?: boolean;
+  backendInteractive?: boolean;
+  canOpenStream?: boolean;
+  canCancelBackendRun?: boolean;
+  canReply?: boolean;
+  canArchiveLocalRun?: boolean;
+  submitPhase?: string;
+  submitStartedAt?: string;
+  submitTimeoutAt?: string;
+  submitError?: string;
   status: string;
   statusSemantics: {
     normalized: string;
@@ -294,6 +308,7 @@ const WAITING_AUTH_OBSERVER_INTERVAL_MS = 7000;
 
 export type RunWorkspaceTaskItem = {
   key: string;
+  localRunId?: string;
   backendId: string;
   backendDisplayName: string;
   requestId?: string;
@@ -313,6 +328,16 @@ export type RunWorkspaceTaskItem = {
   updatedAt: string;
   title: string;
   selectable: boolean;
+  requestAssigned?: boolean;
+  backendInteractive?: boolean;
+  canOpenStream?: boolean;
+  canCancelBackendRun?: boolean;
+  canReply?: boolean;
+  canArchiveLocalRun?: boolean;
+  submitPhase?: string;
+  submitStartedAt?: string;
+  submitTimeoutAt?: string;
+  submitError?: string;
   terminal: boolean;
   attention?: "" | "warning";
   inputUnitIdentity?: string;
@@ -396,6 +421,7 @@ type RunWorkspaceState = {
   isHostAlive?: () => boolean;
   removeMessageListener?: () => void;
   unsubscribeTasks?: () => void;
+  unsubscribeRunStore?: () => void;
   unsubscribeBackendHealth?: () => void;
   unsubscribeHostBridgePermissions?: () => void;
   decorateSnapshot?: (snapshot: RunWorkspaceSnapshot) => RunWorkspaceSnapshot;
@@ -1236,13 +1262,17 @@ function resolveRunWorkspaceTaskKey(args: {
 }) {
   const backendId = String(args.backendId || "").trim();
   const requestId = String(args.requestId || "").trim();
+  const taskId = String(args.taskId || "").trim();
   if (!backendId) {
     return "";
+  }
+  if (taskId) {
+    return `${backendId}::task:${taskId}`;
   }
   if (requestId) {
     return resolveRunDialogKey(backendId, requestId);
   }
-  return `${backendId}::task:${String(args.taskId || "").trim()}`;
+  return "";
 }
 
 function resolveRunWorkspaceTaskTitle(args: {
@@ -1274,7 +1304,7 @@ function resolveRunWorkspaceTitle() {
 }
 
 function isVisibleRunWorkspaceTaskForSelection(task: RunWorkspaceTaskItem) {
-  if (!task.selectable || !String(task.requestId || "").trim()) {
+  if (!task.selectable) {
     return false;
   }
   if (!task.terminal) {
@@ -1284,6 +1314,16 @@ function isVisibleRunWorkspaceTaskForSelection(task: RunWorkspaceTaskItem) {
 }
 
 function resolveRunWorkspaceStatusLabel(value: string) {
+  const raw = String(value || "").trim();
+  if (raw === "pre_request_id" || raw === "request_creating") {
+    return localize("task-dashboard-status-submitting", "Submitting");
+  }
+  if (raw === "uploading") {
+    return localize("task-dashboard-status-uploading", "Uploading Skill");
+  }
+  if (raw === "request_ready") {
+    return localize("task-dashboard-status-request-ready", "Request Ready");
+  }
   const normalized = normalizeStatus(value, "running");
   if (normalized === "queued") {
     return localize("task-manager-status-queued", "Queued");
@@ -1357,6 +1397,9 @@ function resolveSessionSnapshotFromTaskStores(entry: RunDialogEntry) {
 }
 
 function syncSessionStateFromRunStore(entry: RunDialogEntry) {
+  if (!String(entry.requestId || "").trim()) {
+    return;
+  }
   const fromRunStore = getSkillRunnerRunRecordByRequest({
     backendId: entry.backend.id,
     requestId: entry.requestId,
@@ -1494,13 +1537,17 @@ async function buildRunWorkspaceModel() {
     };
     for (const row of mergedRows) {
       const requestId = String(row.requestId || "").trim();
-      if (!requestId) {
-        continue;
-      }
-      const runRecord = getSkillRunnerRunRecordByRequest({
-        backendId,
-        requestId,
-      });
+      const localRunId = String(
+        (row as { localRunId?: unknown }).localRunId || row.id || "",
+      ).trim();
+      const runRecord = requestId
+        ? getSkillRunnerRunRecordByRequest({
+            backendId,
+            requestId,
+          })
+        : getSkillRunnerRunRecord(
+            localRunId ? `local:${localRunId}` : String(row.id || ""),
+          );
       if (runRecord?.archivedAt) {
         continue;
       }
@@ -1519,6 +1566,7 @@ async function buildRunWorkspaceModel() {
       const skillId = String(row.skillId || "").trim();
       const task: RunWorkspaceTaskItem = {
         key,
+        localRunId: localRunId || undefined,
         backendId,
         backendDisplayName,
         requestId: requestId || undefined,
@@ -1534,8 +1582,10 @@ async function buildRunWorkspaceModel() {
           String(row.workflowLabel || "").trim() ||
           String((row as { workflowId?: unknown }).workflowId || "").trim() ||
           undefined,
-        status: normalizedStatus,
-        stateLabel: resolveRunWorkspaceStatusLabel(normalizedStatus),
+        status: String(row.skillRunnerLifecycleState || "").trim() || normalizedStatus,
+        stateLabel: resolveRunWorkspaceStatusLabel(
+          String(row.skillRunnerLifecycleState || "").trim() || normalizedStatus,
+        ),
         applyState: runRecord?.apply.state,
         applyAttempt: runRecord?.apply.attempt,
         applyMaxAttempt: runRecord?.apply.maxAttempt,
@@ -1550,7 +1600,57 @@ async function buildRunWorkspaceModel() {
           requestId,
           waitingRequestIdLabel,
         }),
-        selectable: requestId.length > 0,
+        selectable: true,
+        requestAssigned:
+          typeof (row as { requestAssigned?: unknown }).requestAssigned ===
+          "boolean"
+            ? Boolean((row as { requestAssigned?: unknown }).requestAssigned)
+            : requestId.length > 0,
+        backendInteractive:
+          typeof (row as { backendInteractive?: unknown })
+            .backendInteractive === "boolean"
+            ? Boolean(
+                (row as { backendInteractive?: unknown }).backendInteractive,
+              )
+            : requestId.length > 0,
+        canOpenStream:
+          typeof (row as { canOpenStream?: unknown }).canOpenStream ===
+          "boolean"
+            ? Boolean((row as { canOpenStream?: unknown }).canOpenStream)
+            : requestId.length > 0,
+        canCancelBackendRun:
+          typeof (row as { canCancelBackendRun?: unknown })
+            .canCancelBackendRun === "boolean"
+            ? Boolean(
+                (row as { canCancelBackendRun?: unknown })
+                  .canCancelBackendRun,
+              )
+            : requestId.length > 0,
+        canReply:
+          typeof (row as { canReply?: unknown }).canReply === "boolean"
+            ? Boolean((row as { canReply?: unknown }).canReply)
+            : requestId.length > 0,
+        canArchiveLocalRun:
+          typeof (row as { canArchiveLocalRun?: unknown })
+            .canArchiveLocalRun === "boolean"
+            ? Boolean(
+                (row as { canArchiveLocalRun?: unknown }).canArchiveLocalRun,
+              )
+            : true,
+        submitPhase:
+          String((row as { submitPhase?: unknown }).submitPhase || "").trim() ||
+          undefined,
+        submitStartedAt:
+          String(
+            (row as { submitStartedAt?: unknown }).submitStartedAt || "",
+          ).trim() || undefined,
+        submitTimeoutAt:
+          String(
+            (row as { submitTimeoutAt?: unknown }).submitTimeoutAt || "",
+          ).trim() || undefined,
+        submitError:
+          String((row as { submitError?: unknown }).submitError || "").trim() ||
+          undefined,
         terminal: isTerminal(normalizedStatus),
         attention: pendingPermission ? "warning" : undefined,
         inputUnitIdentity:
@@ -1671,19 +1771,48 @@ function pickRunWorkspaceSelectedTaskKeyForSidebar(args: {
 function buildRunDialogSnapshot(
   entry: RunDialogEntry,
   displayTitle?: string,
+  selectedTask?: RunWorkspaceTaskItem,
 ): RunDialogSnapshot {
   const pending = entry.session.pendingInteraction;
   const pendingAuth = entry.session.pendingAuth;
-  const pendingPermission = getSkillRunnerHostBridgePermissionRequest(
-    entry.requestId,
-  );
+  const requestId = String(entry.requestId || "").trim();
+  const pendingPermission = requestId
+    ? getSkillRunnerHostBridgePermissionRequest(requestId)
+    : null;
   entry.session.pendingPermission = pendingPermission;
   const displayMessages = buildRunDialogDisplayMessages(entry.session.messages);
-  const normalizedStatus = normalizeStatus(entry.session.status, "running");
-  const runRecord = getSkillRunnerRunRecordByRequest({
-    backendId: entry.backend.id,
-    requestId: entry.requestId,
-  });
+  const rawStatus = String(entry.session.status || "").trim();
+  const normalizedStatus = rawStatus || normalizeStatus(entry.session.status, "running");
+  const runRecord = requestId
+    ? getSkillRunnerRunRecordByRequest({
+        backendId: entry.backend.id,
+        requestId,
+      })
+    : null;
+  const requestAssigned =
+    typeof selectedTask?.requestAssigned === "boolean"
+      ? selectedTask.requestAssigned
+      : !!requestId;
+  const backendInteractive =
+    typeof selectedTask?.backendInteractive === "boolean"
+      ? selectedTask.backendInteractive
+      : !!requestId;
+  const canOpenStream =
+    typeof selectedTask?.canOpenStream === "boolean"
+      ? selectedTask.canOpenStream
+      : backendInteractive;
+  const canCancelBackendRun =
+    typeof selectedTask?.canCancelBackendRun === "boolean"
+      ? selectedTask.canCancelBackendRun
+      : backendInteractive && !isTerminal(normalizeStatus(rawStatus, "running"));
+  const canReply =
+    typeof selectedTask?.canReply === "boolean"
+      ? selectedTask.canReply
+      : backendInteractive && isWaiting(normalizeStatus(rawStatus, "running"));
+  const canArchiveLocalRun =
+    typeof selectedTask?.canArchiveLocalRun === "boolean"
+      ? selectedTask.canArchiveLocalRun
+      : true;
   const backendDisplayName = resolveBackendDisplayName(
     entry.backend.id,
     entry.backend.displayName,
@@ -1691,19 +1820,30 @@ function buildRunDialogSnapshot(
   return {
     title: String(displayTitle || "").trim() || resolveRunWorkspaceTitle(),
     backendTitle: backendDisplayName,
-    requestId: entry.requestId,
+    requestId,
+    requestAssigned,
+    backendInteractive,
+    canOpenStream,
+    canCancelBackendRun,
+    canReply,
+    canArchiveLocalRun,
+    submitPhase: selectedTask?.submitPhase,
+    submitStartedAt: selectedTask?.submitStartedAt,
+    submitTimeoutAt: selectedTask?.submitTimeoutAt,
+    submitError: selectedTask?.submitError,
     status: normalizedStatus,
     statusSemantics: {
       normalized: normalizedStatus,
-      terminal: isTerminal(normalizedStatus),
-      waiting: isWaiting(normalizedStatus),
+      terminal: isTerminal(normalizeStatus(normalizedStatus, "running")),
+      waiting: isWaiting(normalizeStatus(normalizedStatus, "running")),
     },
-    applyState: runRecord?.apply.state,
-    applyAttempt: runRecord?.apply.attempt,
-    applyMaxAttempt: runRecord?.apply.maxAttempt,
-    applyNextRetryAt: runRecord?.apply.nextRetryAt,
-    applyError: runRecord?.apply.error,
-    applyUpdatedAt: runRecord?.apply.updatedAt,
+    applyState: runRecord?.apply.state || selectedTask?.applyState,
+    applyAttempt: runRecord?.apply.attempt || selectedTask?.applyAttempt,
+    applyMaxAttempt: runRecord?.apply.maxAttempt || selectedTask?.applyMaxAttempt,
+    applyNextRetryAt:
+      runRecord?.apply.nextRetryAt || selectedTask?.applyNextRetryAt,
+    applyError: runRecord?.apply.error || selectedTask?.applyError,
+    applyUpdatedAt: runRecord?.apply.updatedAt || selectedTask?.applyUpdatedAt,
     updatedAt: entry.session.updatedAt,
     engine: entry.session.engine,
     model: entry.session.model,
@@ -1947,6 +2087,20 @@ function buildRunWorkspaceSnapshot(
   session: RunDialogSnapshot | null,
   selectedTask?: RunWorkspaceTaskItem,
 ): RunWorkspaceSnapshot {
+  const runningGroups = runWorkspaceState.groups
+    .map((group) => ({
+      ...group,
+      activeTasks: group.activeTasks,
+      finishedTasks: [],
+    }))
+    .filter((group) => group.activeTasks.length > 0);
+  const completedGroups = runWorkspaceState.groups
+    .map((group) => ({
+      ...group,
+      activeTasks: [],
+      finishedTasks: group.finishedTasks,
+    }))
+    .filter((group) => group.finishedTasks.length > 0);
   return {
     title:
       String(selectedTask?.title || "").trim() ||
@@ -1990,6 +2144,26 @@ function buildRunWorkspaceSnapshot(
       groups: runWorkspaceState.groups,
     },
     session,
+    drawer: {
+      open: false,
+      sections: [
+        {
+          id: "running",
+          title: localize("task-dashboard-run-running-tasks-title", "Running"),
+          collapsed: false,
+          groups: runningGroups,
+        },
+        {
+          id: "completed",
+          title: localize(
+            "task-dashboard-run-completed-tasks-title",
+            "Completed Tasks",
+          ),
+          collapsed: false,
+          groups: completedGroups,
+        },
+      ],
+    },
   };
 }
 
@@ -2031,6 +2205,7 @@ function pushSnapshot(messageType: "init" | "snapshot") {
     ? buildRunDialogSnapshot(
         runWorkspaceState.currentEntry,
         selectedTask?.title,
+        selectedTask,
       )
     : null;
   const snapshot = runWorkspaceState.decorateSnapshot
@@ -2095,6 +2270,11 @@ function clearRunWorkspaceHostState() {
 function ensureRunWorkspaceSubscriptions() {
   if (!runWorkspaceState.unsubscribeTasks) {
     runWorkspaceState.unsubscribeTasks = subscribeWorkflowTasks(() => {
+      void refreshWorkspaceSnapshot();
+    });
+  }
+  if (!runWorkspaceState.unsubscribeRunStore) {
+    runWorkspaceState.unsubscribeRunStore = subscribeSkillRunnerRunStore(() => {
       void refreshWorkspaceSnapshot();
     });
   }
@@ -2730,6 +2910,10 @@ async function handleRunDialogActionForEntry(
     return;
   }
   if (action === "resolve-permission") {
+    if (!canCurrentRunUseBackend(entry)) {
+      pushSnapshot("snapshot");
+      return;
+    }
     resolveSkillRunnerHostBridgePermissionRequest({
       runRequestId:
         String(payload.requestId || "").trim() ||
@@ -2742,6 +2926,10 @@ async function handleRunDialogActionForEntry(
     return;
   }
   if (action === "cancel-run") {
+    if (!canCurrentRunUseBackend(entry)) {
+      pushSnapshot("snapshot");
+      return;
+    }
     if (isTerminalStatus(entry.session.status)) {
       pushSnapshot("snapshot");
       return;
@@ -2782,6 +2970,10 @@ async function handleRunDialogActionForEntry(
     return;
   }
   if (action === "reply-run") {
+    if (!canCurrentRunUseBackend(entry)) {
+      pushSnapshot("snapshot");
+      return;
+    }
     const mode = String(payload.mode || "interaction")
       .trim()
       .toLowerCase();
@@ -2944,6 +3136,10 @@ async function handleRunDialogActionForEntry(
     return;
   }
   if (action === "auth-import-run") {
+    if (!canCurrentRunUseBackend(entry)) {
+      pushSnapshot("snapshot");
+      return;
+    }
     const filesRaw = Array.isArray(payload.files) ? payload.files : [];
     const files = filesRaw
       .map((entryItem) =>
@@ -3082,6 +3278,10 @@ async function shutdownRunDialogRuntime() {
     runWorkspaceState.unsubscribeTasks();
     runWorkspaceState.unsubscribeTasks = undefined;
   }
+  if (runWorkspaceState.unsubscribeRunStore) {
+    runWorkspaceState.unsubscribeRunStore();
+    runWorkspaceState.unsubscribeRunStore = undefined;
+  }
   if (runWorkspaceState.unsubscribeBackendHealth) {
     runWorkspaceState.unsubscribeBackendHealth();
     runWorkspaceState.unsubscribeBackendHealth = undefined;
@@ -3108,6 +3308,7 @@ function buildRunDialogEntry(args: {
   backend: BackendInstance;
   requestId: string;
   initialStatus?: string;
+  task?: RunWorkspaceTaskItem;
 }): RunDialogEntry {
   return {
     key: args.key,
@@ -3116,13 +3317,159 @@ function buildRunDialogEntry(args: {
     alertWindow: runWorkspaceState.alertWindow,
     session: {
       requestId: args.requestId,
-      status: normalizeStatus(args.initialStatus, "running"),
-      messages: [],
+      status:
+        String(args.initialStatus || "").trim() ||
+        normalizeStatus(args.initialStatus, "running"),
+      messages: args.task ? buildLocalRunDialogMessages(args.task) : [],
       seenMessageKeys: new Set<string>(),
       lastSeq: 0,
       loading: true,
     },
   };
+}
+
+function isLocalRunDialogMessage(message: SkillRunnerConversationEntry) {
+  return (
+    isObject(message.raw) &&
+    String(message.raw.type || "").trim() === "local_submit_notice"
+  );
+}
+
+function makeLocalRunDialogMessage(args: {
+  seq: number;
+  ts?: string;
+  text: string;
+  phase: string;
+}): SkillRunnerConversationEntry {
+  return {
+    seq: args.seq,
+    ts: args.ts,
+    role: "system",
+    kind: "orchestration_notice",
+    text: args.text,
+    displayText: args.text,
+    raw: {
+      type: "local_submit_notice",
+      phase: args.phase,
+    },
+  };
+}
+
+function buildLocalRunDialogMessages(
+  task: RunWorkspaceTaskItem,
+): SkillRunnerConversationEntry[] {
+  const messages: SkillRunnerConversationEntry[] = [];
+  const createdAt = task.createdAt || task.updatedAt;
+  const phase = String(task.submitPhase || task.status || "").trim();
+  messages.push(
+    makeLocalRunDialogMessage({
+      seq: -5,
+      ts: createdAt,
+      phase: "local-submitted",
+      text: "Task submitted locally.",
+    }),
+  );
+  if (task.requestAssigned || task.requestId) {
+    messages.push(
+      makeLocalRunDialogMessage({
+        seq: -4,
+        ts: task.updatedAt,
+        phase: "request-created",
+        text: "Backend request created.",
+      }),
+    );
+  }
+  if (phase === "uploading") {
+    messages.push(
+      makeLocalRunDialogMessage({
+        seq: -3,
+        ts: task.updatedAt,
+        phase,
+        text: "Uploading skill payload.",
+      }),
+    );
+  }
+  if (phase === "request_ready" || task.backendInteractive) {
+    messages.push(
+      makeLocalRunDialogMessage({
+        seq: -2,
+        ts: task.updatedAt,
+        phase: "request-ready",
+        text: "Request ready; observing backend run.",
+      }),
+    );
+  }
+  if (task.submitError || task.status === "failed") {
+    messages.push(
+      makeLocalRunDialogMessage({
+        seq: -1,
+        ts: task.updatedAt,
+        phase: "submit-failed",
+        text: task.submitError || "Submit or upload failed.",
+      }),
+    );
+  }
+  return messages;
+}
+
+function maxBackendRunDialogSeq(messages: SkillRunnerConversationEntry[]) {
+  return messages.reduce((max, message) => {
+    if (isLocalRunDialogMessage(message)) {
+      return max;
+    }
+    return Math.max(max, Number(message.seq || 0));
+  }, 0);
+}
+
+function shouldRefreshLocalRunDialogMessages(
+  entry: RunDialogEntry,
+  task: RunWorkspaceTaskItem,
+) {
+  if (!task.backendInteractive) {
+    return true;
+  }
+  if (entry.session.messages.length === 0) {
+    return true;
+  }
+  return entry.session.messages.every(isLocalRunDialogMessage);
+}
+
+function syncLocalRunDialogEntryFromTask(
+  entry: RunDialogEntry,
+  task: RunWorkspaceTaskItem,
+) {
+  const requestId = String(task.requestId || "").trim();
+  if (requestId && entry.requestId !== requestId) {
+    entry.requestId = requestId;
+    entry.session.requestId = requestId;
+  }
+  entry.session.status =
+    String(task.status || "").trim() || normalizeStatus(task.status, "running");
+  entry.session.updatedAt = task.updatedAt || entry.session.updatedAt;
+  if (task.submitError || task.status === "failed") {
+    entry.session.error = task.submitError || entry.session.error;
+  }
+  if (shouldRefreshLocalRunDialogMessages(entry, task)) {
+    const previousBackendSeq = maxBackendRunDialogSeq(entry.session.messages);
+    entry.session.messages = buildLocalRunDialogMessages(task);
+    entry.session.lastSeq = Math.max(
+      entry.session.lastSeq,
+      previousBackendSeq,
+    );
+  }
+}
+
+function getCurrentRunWorkspaceTask() {
+  const key = String(runWorkspaceState.selectedTaskKey || "").trim();
+  return key ? runWorkspaceState.taskIndex.get(key)?.item : undefined;
+}
+
+function canCurrentRunUseBackend(entry: RunDialogEntry) {
+  const task = getCurrentRunWorkspaceTask();
+  if (typeof task?.backendInteractive === "boolean") {
+    return task.backendInteractive && !!String(entry.requestId || "").trim();
+  }
+  return !!String(entry.requestId || "").trim();
 }
 
 async function selectWorkspaceTask(taskKey: string) {
@@ -3134,10 +3481,13 @@ async function selectWorkspaceTask(taskKey: string) {
     return;
   }
   const target = runWorkspaceState.taskIndex.get(key);
-  if (!target || !target.item.selectable || !target.item.requestId) {
+  if (!target || !target.item.selectable) {
     return;
   }
-  if (isSkillRunnerBackendReconcileFlagged(target.backend.id)) {
+  if (
+    target.item.backendInteractive &&
+    isSkillRunnerBackendReconcileFlagged(target.backend.id)
+  ) {
     showWorkflowToast({
       text: resolveBackendUnavailableMessage(
         resolveBackendDisplayName(
@@ -3151,8 +3501,15 @@ async function selectWorkspaceTask(taskKey: string) {
     return;
   }
   if (runWorkspaceState.currentEntry?.key === key) {
+    syncLocalRunDialogEntryFromTask(
+      runWorkspaceState.currentEntry,
+      target.item,
+    );
     markRunDialogEntryFocused(runWorkspaceState.currentEntry);
-    if (!runWorkspaceState.currentEntry.stopObserver) {
+    if (
+      target.item.backendInteractive &&
+      !runWorkspaceState.currentEntry.stopObserver
+    ) {
       runWorkspaceState.currentEntry.stopObserver = await startRunObserver(
         runWorkspaceState.currentEntry,
       );
@@ -3170,21 +3527,25 @@ async function selectWorkspaceTask(taskKey: string) {
       backend: target.backend,
       requestId,
       initialStatus: target.item.status,
+      task: target.item,
     });
   entry.alertWindow = runWorkspaceState.alertWindow;
+  syncLocalRunDialogEntryFromTask(entry, target.item);
   markRunDialogEntryFocused(entry);
   runDialogMap.set(key, entry);
   runWorkspaceState.currentEntry = entry;
   runWorkspaceState.selectedTaskKey = key;
   pushSnapshot("snapshot");
-  await enforceRunDialogStreamPoolForBackend({
-    backendId: target.backend.id,
-    keepKey: key,
-  });
-  if (entry.stopObserver) {
-    void entry.refreshDisplay?.().catch(() => {});
-  } else {
-    entry.stopObserver = await startRunObserver(entry);
+  if (target.item.backendInteractive) {
+    await enforceRunDialogStreamPoolForBackend({
+      backendId: target.backend.id,
+      keepKey: key,
+    });
+    if (entry.stopObserver) {
+      void entry.refreshDisplay?.().catch(() => {});
+    } else {
+      entry.stopObserver = await startRunObserver(entry);
+    }
   }
 }
 
@@ -3251,9 +3612,29 @@ async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
   }
   if (action === "archive-run") {
     const requestId = String(payload.requestId || "").trim();
-    const record = getSkillRunnerRunRecordByRequest({ requestId });
+    const taskKey = String(payload.taskKey || "").trim();
+    const task = taskKey ? runWorkspaceState.taskIndex.get(taskKey)?.item : undefined;
+    const record = requestId
+      ? getSkillRunnerRunRecordByRequest({ requestId })
+      : null;
     if (record && isTerminal(record.status)) {
       archiveSkillRunnerRunRecordByRequest({ requestId });
+      await refreshWorkspaceSnapshot({
+        requestedTaskKey: "",
+      });
+    } else if (
+      task &&
+      (task.terminal || isTerminalStatus(task.status)) &&
+      task.canArchiveLocalRun !== false
+    ) {
+      const localRunId = String(task.localRunId || "").trim();
+      const runKey =
+        localRunId || taskKey
+          ? buildSkillRunnerLocalRunKey(localRunId || taskKey)
+          : "";
+      if (runKey) {
+        archiveSkillRunnerRunRecordByRunKey({ runKey });
+      }
       await refreshWorkspaceSnapshot({
         requestedTaskKey: "",
       });
@@ -3363,11 +3744,24 @@ export async function attachSkillRunnerSidebarHost(args: {
 export async function focusSkillRunnerWorkspace(args?: {
   backend?: BackendInstance;
   requestId?: string;
+  taskKey?: string;
+  taskId?: string;
+  localRunId?: string;
   selectionChanged?: boolean;
 }) {
   const backendId = String(args?.backend?.id || "").trim();
   const requestId = String(args?.requestId || "").trim();
-  if (backendId && requestId && args?.backend) {
+  const taskKey = String(args?.taskKey || "").trim();
+  const taskId = String(args?.taskId || "").trim();
+  const localRunId = String(args?.localRunId || "").trim();
+  if (taskKey) {
+    runWorkspaceState.requestedTaskKey = taskKey;
+  } else if (backendId && (localRunId || taskId)) {
+    runWorkspaceState.requestedTaskKey = resolveRunWorkspaceTaskKey({
+      backendId,
+      taskId: localRunId || taskId,
+    });
+  } else if (backendId && requestId && args?.backend) {
     runWorkspaceState.requestedTaskKey = resolveRunDialogKey(
       backendId,
       requestId,

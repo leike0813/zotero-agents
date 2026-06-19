@@ -13,6 +13,7 @@ import {
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
+  listActiveWorkflowTasks,
   listWorkflowTasks,
   recordWorkflowTaskUpdate,
   resetWorkflowTasks,
@@ -23,10 +24,17 @@ import {
   resetTaskDashboardHistory,
 } from "../../src/modules/taskDashboardHistory";
 import {
+  getSkillRunnerRunRecordByRequest,
+  getSkillRunnerSequenceRootState,
   listSkillRunnerRunProjections,
   listSkillRunnerRunRecords,
+  subscribeSkillRunnerRunStore,
   updateSkillRunnerRunStateByRequest,
 } from "../../src/modules/skillRunnerRunStore";
+import {
+  initializeSequenceRunState,
+  recordSequenceStepRequestCreated,
+} from "../../src/modules/workflowExecution/sequenceStateStore";
 
 describe("separated ACP and SkillRunner run stores", function () {
   beforeEach(function () {
@@ -131,7 +139,7 @@ describe("separated ACP and SkillRunner run stores", function () {
     );
   });
 
-  it("does not project SkillRunner jobs before request-ready", function () {
+  it("projects SkillRunner pre-ready jobs without backend interaction", function () {
     const job: JobRecord = {
       id: "job-1",
       workflowId: "workflow-debug-probe",
@@ -157,10 +165,23 @@ describe("separated ACP and SkillRunner run stores", function () {
     recordWorkflowTaskUpdate(job);
     recordTaskDashboardHistoryFromJob(job);
 
-    assert.deepEqual(listWorkflowTasks(), []);
-    assert.deepEqual(listTaskDashboardHistory(), []);
-    assert.deepEqual(listSkillRunnerRunRecords(), []);
-    assert.deepEqual(listSkillRunnerRunProjections(), []);
+    let tasks = listWorkflowTasks();
+    let activeTasks = listActiveWorkflowTasks();
+    let projections = listSkillRunnerRunProjections();
+    assert.lengthOf(tasks, 1);
+    assert.lengthOf(activeTasks, 1);
+    assert.lengthOf(projections, 1);
+    assert.isUndefined(tasks[0].requestId);
+    assert.equal(tasks[0].state, "running");
+    assert.equal(tasks[0].skillRunnerLifecycleState, "request_creating");
+    assert.isFalse(tasks[0].requestAssigned);
+    assert.isFalse(tasks[0].backendInteractive);
+    assert.isFalse(tasks[0].canOpenStream);
+    assert.isFalse(tasks[0].canCancelBackendRun);
+    assert.isFalse(tasks[0].canReply);
+    assert.lengthOf(listTaskDashboardHistory(), 1);
+    assert.lengthOf(listSkillRunnerRunRecords(), 1);
+    const localRunKey = listSkillRunnerRunRecords()[0].runKey;
 
     const createdOnlyJob: JobRecord = {
       ...job,
@@ -174,10 +195,18 @@ describe("separated ACP and SkillRunner run stores", function () {
     recordWorkflowTaskUpdate(createdOnlyJob);
     recordTaskDashboardHistoryFromJob(createdOnlyJob);
 
-    assert.deepEqual(listWorkflowTasks(), []);
-    assert.deepEqual(listTaskDashboardHistory(), []);
-    assert.deepEqual(listSkillRunnerRunRecords(), []);
-    assert.deepEqual(listSkillRunnerRunProjections(), []);
+    tasks = listWorkflowTasks();
+    activeTasks = listActiveWorkflowTasks();
+    projections = listSkillRunnerRunProjections();
+    assert.lengthOf(tasks, 1);
+    assert.lengthOf(activeTasks, 1);
+    assert.lengthOf(projections, 1);
+    assert.equal(tasks[0].requestId, "sr-created-only");
+    assert.equal(tasks[0].state, "running");
+    assert.equal(tasks[0].skillRunnerLifecycleState, "uploading");
+    assert.isTrue(tasks[0].requestAssigned);
+    assert.isFalse(tasks[0].backendInteractive);
+    assert.equal(listSkillRunnerRunRecords()[0].runKey, localRunKey);
 
     const readyJob: JobRecord = {
       ...createdOnlyJob,
@@ -191,12 +220,67 @@ describe("separated ACP and SkillRunner run stores", function () {
     recordWorkflowTaskUpdate(readyJob);
     recordTaskDashboardHistoryFromJob(readyJob);
 
-    const tasks = listWorkflowTasks();
+    tasks = listWorkflowTasks();
+    activeTasks = listActiveWorkflowTasks();
     assert.lengthOf(tasks, 1);
+    assert.lengthOf(activeTasks, 1);
     assert.equal(tasks[0].requestId, "sr-created-only");
+    assert.equal(tasks[0].state, "running");
+    assert.equal(tasks[0].skillRunnerLifecycleState, "request_ready");
+    assert.isTrue(tasks[0].backendInteractive);
     assert.lengthOf(listSkillRunnerRunRecords(), 1);
     assert.lengthOf(listSkillRunnerRunProjections(), 1);
+    assert.equal(listSkillRunnerRunRecords()[0].runKey, localRunKey);
     assert.equal(listTaskDashboardHistory()[0]?.requestId, "sr-created-only");
+
+    const terminal = updateSkillRunnerRunStateByRequest({
+      backendId: "skillrunner-local",
+      requestId: "sr-created-only",
+      state: "succeeded",
+      updatedAt: "2026-06-18T00:00:04.000Z",
+      eventType: "backend.terminal",
+    });
+    assert.equal(terminal?.runKey, localRunKey);
+    assert.equal(terminal?.status, "succeeded");
+    assert.equal(listSkillRunnerRunProjections()[0]?.state, "succeeded");
+  });
+
+  it("notifies SkillRunner run-store listeners when projectable runs change", function () {
+    let changeCount = 0;
+    const unsubscribe = subscribeSkillRunnerRunStore(() => {
+      changeCount += 1;
+    });
+    const job: JobRecord = {
+      id: "job-1",
+      workflowId: "workflow-debug-probe",
+      request: {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-host-bridge-connectivity-probe",
+      },
+      meta: {
+        runId: "workflow-run-pre-ready",
+        workflowLabel: "Debug Probe",
+        taskName: "debug-host-bridge-connectivity-probe",
+        providerId: "skillrunner",
+        backendId: "skillrunner-local",
+        backendType: "skillrunner",
+        backendBaseUrl: "http://127.0.0.1:8030",
+        skillId: "debug-host-bridge-connectivity-probe",
+      },
+      state: "running",
+      createdAt: "2026-06-18T00:00:00.000Z",
+      updatedAt: "2026-06-18T00:00:01.000Z",
+    };
+
+    recordWorkflowTaskUpdate(job);
+    assert.equal(changeCount, 1);
+
+    unsubscribe();
+    recordWorkflowTaskUpdate({
+      ...job,
+      updatedAt: "2026-06-18T00:00:02.000Z",
+    });
+    assert.equal(changeCount, 1);
   });
 
   it("keeps SkillRunner run updatedAt stable for same-state backend snapshots", function () {
@@ -235,6 +319,115 @@ describe("separated ACP and SkillRunner run stores", function () {
 
     assert.equal(updated?.updatedAt, "2026-06-18T00:00:01.000Z");
     assert.equal(updated?.taskProjection.updatedAt, "2026-06-18T00:00:01.000Z");
+  });
+
+  it("keeps SkillRunner sequence root out of the backend request index", function () {
+    initializeSequenceRunState({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "bundle_one",
+            skill_id: "debug-apply-bundle-probe",
+            workspace: "new",
+          },
+        ],
+        final_step_id: "bundle_one",
+      } as any,
+      backend: {
+        id: "skillrunner-local",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      providerOptions: {},
+      workflowId: "debug-apply-sequence-bundle",
+      workflowLabel: "Debug: Apply Sequence Bundle",
+      workflowRunId: "sequence-root-no-request-index",
+      jobId: "job-1",
+    });
+    recordSequenceStepRequestCreated({
+      sequenceRunId: "sequence-root-no-request-index",
+      stepIndex: 0,
+      requestId: "sr-sequence-root-step-request",
+    });
+
+    const root = listSkillRunnerRunRecords().find(
+      (entry) => entry.runKey === "sequence:sequence-root-no-request-index",
+    );
+    assert.equal(root?.role, "sequence_root");
+    assert.equal(root?.requestId, "");
+    assert.isUndefined(root?.taskProjection.requestId);
+    assert.isOk(getSkillRunnerSequenceRootState("sequence-root-no-request-index"));
+    assert.isNull(
+      getPluginRunStoreEntryByRequest({
+        kind: "skillrunner",
+        backendId: "skillrunner-local",
+        requestId: "sr-sequence-root-step-request",
+      }),
+    );
+  });
+
+  it("rejects duplicate projectable SkillRunner runs for the same backend request", function () {
+    const base: JobRecord = {
+      id: "job-1:bundle_one",
+      workflowId: "debug-apply-sequence-bundle",
+      request: {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-apply-bundle-probe",
+      },
+      meta: {
+        runId: "workflow-run-duplicate",
+        workflowRunId: "sequence-run-duplicate",
+        localRunId: "workflow-run-duplicate:job-1:bundle_one",
+        workflowLabel: "Debug: Apply Sequence Bundle",
+        taskName: "debug-apply-sequence-bundle / bundle_one",
+        providerId: "skillrunner",
+        backendId: "skillrunner-local",
+        backendType: "skillrunner",
+        backendBaseUrl: "http://127.0.0.1:8030",
+        requestId: "sr-duplicate-projectable",
+        requestKind: "skillrunner.job.v1",
+        sequenceStepId: "bundle_one",
+        sequenceStepIndex: 0,
+        sequenceJobId: "job-1",
+      },
+      state: "running",
+      result: {
+        status: "deferred",
+        requestId: "sr-duplicate-projectable",
+        fetchType: "bundle",
+        backendStatus: "running",
+      },
+      createdAt: "2026-06-18T00:00:00.000Z",
+      updatedAt: "2026-06-18T00:00:01.000Z",
+    };
+    recordWorkflowTaskUpdate(base);
+    recordWorkflowTaskUpdate({
+      ...base,
+      id: "job-1",
+      meta: {
+        ...base.meta,
+        localRunId: "workflow-run-duplicate:job-1",
+        taskName: "debug-apply-sequence-bundle",
+        sequenceStepId: undefined,
+        sequenceStepIndex: undefined,
+      },
+      updatedAt: "2026-06-18T00:00:02.000Z",
+    });
+
+    const runs = listSkillRunnerRunRecords().filter(
+      (entry) => entry.requestId === "sr-duplicate-projectable",
+    );
+    assert.lengthOf(runs, 1);
+    assert.equal(runs[0].runKey, "local:workflow-run-duplicate:job-1:bundle_one");
+    assert.equal(
+      getSkillRunnerRunRecordByRequest({
+        backendId: "skillrunner-local",
+        requestId: "sr-duplicate-projectable",
+      })?.runKey,
+      "local:workflow-run-duplicate:job-1:bundle_one",
+    );
   });
 
   it("syncs ACP terminal task state without touching SkillRunner run store", function () {

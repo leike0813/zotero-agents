@@ -15,6 +15,7 @@ import type { LoadedWorkflow } from "../../src/workflows/types";
 const PROBE_WORKFLOW_IDS = [
   "workflow-debug-probe",
   "debug-host-bridge-connectivity-probe",
+  "debug-interactive-choice-probe",
   "debug-sequence-linear-probe",
   "debug-sequence-workspace-reuse-probe",
   "debug-sequence-context-isolation-probe",
@@ -26,6 +27,7 @@ const RUNNABLE_PROBE_WORKFLOW_IDS = PROBE_WORKFLOW_IDS.filter(
 
 const PROBE_SKILL_IDS = [
   "debug-host-bridge-connectivity-probe",
+  "debug-interactive-choice-probe",
   "debug-sequence-probe-emit",
   "debug-sequence-probe-check",
   "debug-sequence-probe-finalize",

@@ -204,27 +204,38 @@ function applyStateSnapshot(args: {
       updatedAt: args.updatedAt,
     };
   }
+  const updatedRequestId = normalizeString(updated.requestId);
+  if (!updatedRequestId) {
+    return {
+      backendId,
+      requestId,
+      status: normalized,
+      updatedAt: args.updatedAt,
+    };
+  }
   const taskState =
-    updated.status === "request_ready" ? "running" : updated.status;
+    updated.status === "request_ready"
+      ? "running"
+      : normalizeStatus(updated.status, normalized);
   sessionSyncDeps.updateWorkflowTaskStateByRequest({
     backendId: updated.backendId,
     backendType: "skillrunner",
-    requestId: updated.requestId,
+    requestId: updatedRequestId,
     state: taskState,
     error: undefined,
     updatedAt: updated.updatedAt,
   });
   sessionSyncDeps.updateTaskDashboardHistoryStateByRequest({
     backendId: updated.backendId,
-    requestId: updated.requestId,
+    requestId: updatedRequestId,
     state: taskState,
     error: undefined,
     updatedAt: updated.updatedAt,
   });
   const payload = {
     backendId: updated.backendId,
-    requestId: updated.requestId,
-    status: updated.status,
+    requestId: updatedRequestId,
+    status: taskState,
     updatedAt: updated.updatedAt,
   };
   emitSessionStateChanged(payload);

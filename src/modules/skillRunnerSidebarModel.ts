@@ -26,6 +26,13 @@ export type SkillRunnerSidebarTaskItem = {
   updatedAt: string;
   title: string;
   selectable: boolean;
+  requestAssigned?: boolean;
+  backendInteractive?: boolean;
+  canOpenStream?: boolean;
+  canCancelBackendRun?: boolean;
+  canReply?: boolean;
+  canArchiveLocalRun?: boolean;
+  skillRunnerLifecycleState?: string;
   terminal: boolean;
   attention?: "warning" | "";
   attentionLabel?: string;
@@ -84,10 +91,6 @@ function resolveRelatedParentItemIds(
   return normalizeParentItemIds(context?.relatedParentItemIds || []);
 }
 
-function hasSelectableRequestId(task: SkillRunnerSidebarTaskItem) {
-  return task.selectable && String(task.requestId || "").trim().length > 0;
-}
-
 function isDeferredApplyVisibleRunning(task: SkillRunnerSidebarTaskItem) {
   const state = normalizeIdentity(task.applyState);
   return state === "pending" || state === "running" || state === "failed";
@@ -95,14 +98,14 @@ function isDeferredApplyVisibleRunning(task: SkillRunnerSidebarTaskItem) {
 
 function isVisibleSidebarRunningTask(task: SkillRunnerSidebarTaskItem) {
   return (
-    hasSelectableRequestId(task) &&
+    task.selectable &&
     (!task.terminal || isDeferredApplyVisibleRunning(task))
   );
 }
 
 function isVisibleSidebarCompletedTask(task: SkillRunnerSidebarTaskItem) {
   return (
-    hasSelectableRequestId(task) &&
+    task.selectable &&
     task.terminal &&
     !isDeferredApplyVisibleRunning(task) &&
     normalizeIdentity(task.status) === "succeeded"

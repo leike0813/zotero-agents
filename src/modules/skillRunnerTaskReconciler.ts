@@ -136,6 +136,7 @@ type ReconcileContext = {
   providerOptions: Record<string, unknown>;
   runId: string;
   jobId: string;
+  localRunId?: string;
   workflowRunId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
@@ -867,6 +868,7 @@ function contextToJobRecord(context: ReconcileContext): JobRecord {
     request: context.request,
     meta: {
       runId: context.runId,
+      localRunId: context.localRunId,
       workflowRunId: context.workflowRunId,
       workflowLabel: context.workflowLabel,
       taskName: context.taskName,
@@ -977,6 +979,7 @@ function runRecordToReconcileContext(
     providerOptions: record.providerOptions || {},
     runId: record.runId,
     jobId: record.jobId,
+    localRunId: record.localRunId || record.taskProjection.localRunId,
     workflowRunId: record.workflowRunId || record.sequence?.workflowRunId,
     sequenceStepId: record.sequence?.stepId,
     sequenceStepIndex: record.sequence?.stepIndex,
@@ -1568,6 +1571,18 @@ export class SkillRunnerTaskReconciler {
       updatedAt: nowIso(),
     });
     if (terminalState === "succeeded") {
+      updateSkillRunnerRunApplyState({
+        backendId: candidate.backendId,
+        requestId: candidate.requestId,
+        state: "skipped",
+        error: "missing recoverable context",
+        updatedAt: nowIso(),
+        eventType: "apply.skipped",
+        eventPayload: {
+          source: "skillRunnerTaskReconciler.reconcileMissingContextCandidate",
+          reason: "missing-context",
+        },
+      });
       appendRuntimeLog({
         level: "warn",
         scope: "job",
@@ -2052,6 +2067,10 @@ export class SkillRunnerTaskReconciler {
         existing?.runId ||
         `${args.workflowId}:${args.job.createdAt}`,
       jobId: normalizeString(args.job.id) || existing?.jobId || "",
+      localRunId:
+        normalizeString(args.job.meta.localRunId) ||
+        existing?.localRunId ||
+        undefined,
       workflowRunId:
         normalizeString(args.job.meta.workflowRunId) ||
         existing?.workflowRunId ||

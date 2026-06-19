@@ -966,6 +966,18 @@ async function executeSequenceFromState(args: {
         workspaceMode: resolveStepWorkspaceMode(stepRequest),
       },
     });
+    args.onProgress?.({
+      type: "sequence-step-started",
+      sequenceStepId: step.id,
+      sequenceStepIndex: index,
+      sequenceStepSkillId: step.skill_id,
+      sequenceStepRequest: stepRequest,
+      sequenceStepTaskName:
+        normalizeString((stepRequest as { taskName?: unknown }).taskName) ||
+        `${args.state.workflowLabel || args.state.workflowId} / ${step.id}`,
+      workflowRunId: args.state.workflowRunId,
+      sequenceJobId: args.state.jobId,
+    });
     let progressRequestId = "";
     const stepResult = await args.executeWithProvider({
       requestKind: stepRequestKind,

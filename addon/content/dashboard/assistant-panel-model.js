@@ -1151,6 +1151,7 @@
     if (!task || typeof task !== "object") return task;
     const requestId = safeText(task.requestId);
     const taskKey = safeText(task.key || task.taskKey || task.id);
+    const canArchiveLocalRun = task.canArchiveLocalRun !== false;
     const terminal =
       task.terminal === true || isTerminalStatus(task.status || task.state || task.stateLabel);
     const needsAttention = Boolean(task.attention);
@@ -1165,7 +1166,7 @@
       applyStateLabel: applyLabel,
       applyTone: applyStateTone(applyState),
       itemActions:
-        terminal && requestId
+        terminal && canArchiveLocalRun
           ? [
               archiveItemAction(
                 "archive-run",
@@ -2231,9 +2232,35 @@
         ]),
       };
     }
-    const skillRunnerBusy = status === "running" || status === "prompting";
-    const skillRunnerWaiting = status === "waiting-user" || status === "waiting-auth";
     const selectedTask = findSkillRunnerPanelTask(envelope, session);
+    const requestAssigned =
+      selectedTask && typeof selectedTask.requestAssigned === "boolean"
+        ? selectedTask.requestAssigned
+        : session && typeof session.requestAssigned === "boolean"
+          ? session.requestAssigned
+          : Boolean(safeText(session.requestId || session.id));
+    const backendInteractive =
+      selectedTask && typeof selectedTask.backendInteractive === "boolean"
+        ? selectedTask.backendInteractive
+        : session && typeof session.backendInteractive === "boolean"
+          ? session.backendInteractive
+          : requestAssigned;
+    const canCancelBackendRun =
+      selectedTask && typeof selectedTask.canCancelBackendRun === "boolean"
+        ? selectedTask.canCancelBackendRun
+        : session && typeof session.canCancelBackendRun === "boolean"
+          ? session.canCancelBackendRun
+          : backendInteractive && !isTerminalStatus(status);
+    const canReply =
+      selectedTask && typeof selectedTask.canReply === "boolean"
+        ? selectedTask.canReply
+        : session && typeof session.canReply === "boolean"
+          ? session.canReply
+          : backendInteractive && (status === "waiting-user" || status === "waiting-auth");
+    const skillRunnerBusy =
+      backendInteractive && (status === "running" || status === "prompting");
+    const skillRunnerWaiting =
+      backendInteractive && (status === "waiting-user" || status === "waiting-auth");
     const skillRunnerSkillName = resolveSkillDisplayName(
       selectedTask,
       session,
@@ -2266,7 +2293,7 @@
             "cancel-run",
             labelFrom(envelope, "actions.cancelRun", "Cancel Task"),
             { requestId: safeText(session.requestId) },
-            !isTerminalStatus(status),
+            canCancelBackendRun && !isTerminalStatus(status),
             "danger",
           ),
         ],
@@ -2281,8 +2308,8 @@
       plan: conversation.plan,
       interaction,
       reply: {
-        enabled: pendingPermission ? false : skillRunnerWaiting || skillRunnerBusy,
-        inputEnabled: pendingPermission ? false : skillRunnerWaiting,
+        enabled: pendingPermission ? false : canReply || skillRunnerBusy,
+        inputEnabled: pendingPermission ? false : canReply && skillRunnerWaiting,
         placeholder: labelFrom(envelope, "reply.placeholderSkillRunner", "Reply to the pending SkillRunner interaction..."),
         submitLabel: skillRunnerBusy
           ? labelFrom(envelope, "actions.cancel", "Cancel")
@@ -2297,10 +2324,12 @@
         contextTitle: labelFrom(envelope, "actions.runs", "Runs"),
         detailsTitle: labelFrom(envelope, "details.title", "SkillRunner Details"),
         contexts: buildSkillRunnerContexts(envelope),
-        skillrunnerSections:
+        skillrunnerSections: decorateSkillRunnerWorkspaceSections(
           envelope.drawer && Array.isArray(envelope.drawer.sections)
-            ? decorateSkillRunnerWorkspaceSections(envelope.drawer.sections, envelope)
+            ? envelope.drawer.sections
             : [],
+          envelope,
+        ),
         selectedTaskKey: safeText(
           envelope.workspace && envelope.workspace.selectedTaskKey,
         ),

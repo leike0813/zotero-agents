@@ -1371,6 +1371,9 @@ export async function openAssistantWorkspaceSidebar(args?: {
   tab?: AssistantWorkspaceTab;
   backend?: BackendInstance;
   requestId?: string;
+  taskKey?: string;
+  taskId?: string;
+  localRunId?: string;
   target?: AcpSidebarTarget;
 }) {
   const win =
@@ -1390,6 +1393,9 @@ export async function openAssistantWorkspaceSidebar(args?: {
     await focusSkillRunnerWorkspace({
       backend: args?.backend,
       requestId: args?.requestId,
+      taskKey: args?.taskKey,
+      taskId: args?.taskId,
+      localRunId: args?.localRunId,
       selectionChanged: true,
     });
   }

@@ -122,6 +122,7 @@ import {
   recordSynthesisZoteroItemNotifications,
 } from "./modules/synthesis/itemObserver";
 import { reconcileWorkflowTaskProjectionsOnStartup } from "./modules/taskRuntime";
+import { closeVisibleWorkflowToasts } from "./modules/workflowExecution/feedbackSeam";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
@@ -488,6 +489,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
 }
 
 async function onMainWindowUnload(win: Window): Promise<void> {
+  closeVisibleWorkflowToasts();
   removeDashboardToolbarButton(win);
   removeAssistantWorkspaceSidebarShell(win as _ZoteroTypes.MainWindow);
   unregisterToolkitSafely();
@@ -505,6 +507,7 @@ async function onShutdown(): Promise<void> {
     removeDashboardToolbarButton(win);
     removeAssistantWorkspaceSidebarShell(win);
   }
+  closeVisibleWorkflowToasts();
   unregisterToolkitSafely();
   unregisterZoteroPaneStylesheet();
   addon.data.dialog?.window?.close();

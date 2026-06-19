@@ -496,6 +496,16 @@
     return safeText(state.snapshot && state.snapshot.requestId);
   }
 
+  function currentTaskKey() {
+    const workspace =
+      state.workspaceEnvelope &&
+      state.workspaceEnvelope.workspace &&
+      typeof state.workspaceEnvelope.workspace === "object"
+        ? state.workspaceEnvelope.workspace
+        : {};
+    return safeText(workspace.selectedTaskKey);
+  }
+
   function pendingOptions() {
     const ask =
       state.snapshot &&
@@ -524,19 +534,21 @@
 
   function submitReply(message, payload) {
     if (!state.snapshot) return;
+    const requestId = currentRequestId();
+    if (!requestId) return;
     const textValue = safeText(message);
     const status = normalizedStatus();
     if (payload && payload.mode === "auth" && payload.submission) {
       sendAction(
         "reply-run",
-        Object.assign({ requestId: currentRequestId() }, payload),
+        Object.assign({ requestId }, payload),
       );
       return;
     }
     if (status === "waiting_auth") {
       if (!textValue) return;
       sendAction("reply-run", {
-        requestId: currentRequestId(),
+        requestId,
         mode: "auth",
         authSessionId: safeText(state.snapshot.authSessionId),
         submission: {
@@ -552,7 +564,7 @@
       return option.value === textValue || option.label === textValue;
     });
     sendAction("reply-run", {
-      requestId: currentRequestId(),
+      requestId,
       mode: "interaction",
       interactionId,
       responseObject: { text: textValue },
@@ -625,13 +637,15 @@
       return;
     }
     if (action === "cancel" || action === "cancel-run") {
-      sendAction("cancel-run", { requestId: currentRequestId() });
+      const requestId = currentRequestId();
+      if (!requestId) return;
+      sendAction("cancel-run", { requestId });
       return;
     }
     if (action === "archive-run") {
       sendAction("archive-run", {
         requestId: safeText(data.requestId || currentRequestId()),
-        taskKey: safeText(data.taskKey),
+        taskKey: safeText(data.taskKey || currentTaskKey()),
       });
       return;
     }
@@ -653,20 +667,24 @@
       return;
     }
     if (action === "resolve-permission") {
+      const requestId = safeText(data.requestId || currentRequestId());
+      if (!requestId) return;
       sendAction(
         "resolve-permission",
         Object.assign({}, data, {
-          requestId: safeText(data.requestId || currentRequestId()),
+          requestId,
         }),
       );
       return;
     }
     if (action === "auth-import-run") {
+      const requestId = currentRequestId();
+      if (!requestId) return;
       readAuthImportFiles()
         .then(function (files) {
           if (!files.length) return;
           sendAction("auth-import-run", {
-            requestId: currentRequestId(),
+            requestId,
             providerId: safeText(
               state.snapshot && state.snapshot.authProviderId,
             ),
@@ -675,7 +693,7 @@
         })
         .catch(function (error) {
           sendAction("auth-import-run", {
-            requestId: currentRequestId(),
+            requestId,
             providerId: safeText(
               state.snapshot && state.snapshot.authProviderId,
             ),

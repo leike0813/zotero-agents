@@ -1345,6 +1345,126 @@ describe("gui: preference scripts", function () {
     assert.lengthOf(confirmMessages, 1);
   });
 
+  it("disables all persistence cleanup buttons while a category cleanup is running", async function () {
+    let cleanupResolve:
+      | ((value: { usage: Record<string, unknown> }) => void)
+      | null = null;
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: any) => Promise<any>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      if (type === "scanPersistenceGovernance") {
+        return {
+          usage: {
+            root: "C:\\RuntimeRoot",
+            scannedAt: "2026-04-28T00:00:00.000Z",
+            totalBytes: 3072,
+            categories: [
+              {
+                category: "logs",
+                label: "Runtime logs",
+                path: "C:\\RuntimeRoot\\logs",
+                bytes: 1024,
+                exists: true,
+                cleanable: true,
+              },
+              {
+                category: "skillrunner-ledger",
+                label: "SkillRunner local ledger",
+                path: "C:\\RuntimeRoot\\state\\zotero-agents.db",
+                bytes: 2048,
+                exists: true,
+                cleanable: true,
+              },
+            ],
+          },
+          integrity: {
+            root: "C:\\RuntimeRoot",
+            issueCount: 1,
+            issues: [
+              {
+                id: "expired_runtime_asset:1",
+                type: "expired_runtime_asset",
+                severity: "info",
+                relativePath: "runtime/tmp/old.json",
+                eligibleForCleanup: true,
+              },
+            ],
+          },
+        };
+      }
+      if (type === "cleanupRuntimePersistenceCategory") {
+        return new Promise((resolve) => {
+          cleanupResolve = resolve;
+        });
+      }
+      return {};
+    };
+
+    const {
+      window,
+      runtimeDataCategories,
+      runtimeDataIssuesToggleButton,
+      runtimeDataIssuesPanel,
+    } = createPrefsWindow({
+      includeRuntimeDataControls: true,
+      confirmResults: [true],
+    });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    runtimeDataIssuesToggleButton?.dispatch("command");
+    await flushTasks();
+
+    assert.notEqual(
+      runtimeDataCategories?.children[2]?.getAttribute("disabled"),
+      "true",
+    );
+    assert.notEqual(
+      runtimeDataCategories?.children[5]?.getAttribute("disabled"),
+      "true",
+    );
+    assert.notEqual(
+      runtimeDataIssuesPanel?.children[0]?.children[2]?.getAttribute(
+        "disabled",
+      ),
+      "true",
+    );
+
+    runtimeDataCategories?.children[2]?.dispatch("click");
+    await flushTasks();
+
+    assert.equal(
+      runtimeDataCategories?.children[2]?.getAttribute("disabled"),
+      "true",
+    );
+    assert.equal(
+      runtimeDataCategories?.children[5]?.getAttribute("disabled"),
+      "true",
+    );
+    assert.equal(
+      runtimeDataIssuesPanel?.children[0]?.children[2]?.getAttribute(
+        "disabled",
+      ),
+      "true",
+    );
+
+    cleanupResolve?.({
+      usage: {
+        root: "C:\\RuntimeRoot",
+        scannedAt: "2026-04-28T00:01:00.000Z",
+        totalBytes: 0,
+        categories: [],
+      },
+    });
+    await flushTasks();
+  });
+
   it("hides legacy runtime data from persistence categories when debug mode is disabled", async function () {
     setDebugModeOverrideForTests(false);
     (

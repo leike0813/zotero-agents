@@ -470,9 +470,32 @@ describe("workflow debug probe", function () {
       "debug-apply-sequence-result",
       "debug-apply-bundle-then-result",
       "debug-apply-result-then-bundle",
+      "debug-interactive-choice-probe",
     ]) {
       assert.isTrue(workflowIds.has(workflowId), `${workflowId} should load`);
     }
+  });
+
+  it("debug interactive choice probe builds an interactive SkillRunner request", async function () {
+    const workflow = await getBuiltinDebugWorkflow("debug-interactive-choice-probe");
+    const requests = (await executeBuildRequests({
+      workflow,
+      selectionContext: {
+        selectionType: "empty",
+        items: { parents: [], attachments: [] },
+      },
+    })) as Array<{
+      kind: string;
+      skill_id?: string;
+      runtime_options?: Record<string, unknown>;
+      fetch_type?: string;
+    }>;
+
+    assert.lengthOf(requests, 1);
+    assert.equal(requests[0].kind, "skillrunner.job.v1");
+    assert.equal(requests[0].skill_id, "debug-interactive-choice-probe");
+    assert.equal(requests[0].runtime_options?.execution_mode, "interactive");
+    assert.equal(requests[0].fetch_type, "result");
   });
 
   it("debug apply buildRequest creates a unique parent and conditional sequence steps", async function () {

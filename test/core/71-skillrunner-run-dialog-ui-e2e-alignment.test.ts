@@ -68,6 +68,7 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(modelJs, 'contextTitle: labelFrom(envelope, "actions.runs", "Runs")');
     assert.include(modelJs, "skillrunnerSections:");
     assert.include(modelJs, "decorateSkillRunnerWorkspaceSections");
+    assert.notInclude(modelJs, "function buildSkillRunnerSectionsFromWorkspace(envelope)");
     assert.include(modelJs, '"archive-run"');
     assert.include(modelJs, "selectedTaskKey:");
     assert.include(modelJs, 'action: "open-context-drawer"');
@@ -253,6 +254,14 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(hostTs, "entry.refreshState = () =>");
     assert.include(hostTs, "entry.refreshDisplay = () =>");
     assert.include(hostTs, "syncSessionStateFromRunStore(entry)");
+    assert.include(hostTs, "drawer: {");
+    assert.include(hostTs, 'id: "running"');
+    assert.include(hostTs, "groups: runningGroups");
+    assert.include(hostTs, "function shouldRefreshLocalRunDialogMessages");
+    assert.include(hostTs, "entry.session.messages.every(isLocalRunDialogMessage)");
+    assert.include(hostTs, "function maxBackendRunDialogSeq");
+    assert.include(hostTs, "seq: -5");
+    assert.notInclude(hostTs, "entry.session.lastSeq = entry.session.messages.reduce");
     assert.include(hostTs, "subscribeSkillRunnerSessionState");
     assert.include(hostTs, "await syncPendingState()");
     assert.include(hostTs, "ensureSkillRunnerSessionSync");

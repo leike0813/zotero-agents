@@ -1231,12 +1231,19 @@ export class SkillRunnerClient {
       );
     }
 
+    options?.onProgress?.({
+      type: "request-creating",
+    });
     const requestId = await this.executeCreateStep(createStep);
     options?.onProgress?.({
       type: "request-created",
       requestId,
     });
     if (uploadStep) {
+      options?.onProgress?.({
+        type: "request-uploading",
+        requestId,
+      });
       await this.executeUploadStep(uploadStep, requestId);
     }
     options?.onProgress?.({

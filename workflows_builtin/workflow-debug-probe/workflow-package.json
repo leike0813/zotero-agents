@@ -4,6 +4,7 @@
   "workflows": [
     "workflow.json",
     "debug-host-bridge-connectivity-probe/workflow.json",
+    "debug-interactive-choice-probe/workflow.json",
     "debug-apply-single-bundle/workflow.json",
     "debug-apply-single-result/workflow.json",
     "debug-apply-sequence-bundle/workflow.json",

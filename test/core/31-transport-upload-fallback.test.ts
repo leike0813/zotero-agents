@@ -283,7 +283,15 @@ describe("transport: upload fallback without FormData", function () {
 
     assert.deepEqual(progressEvents, [
       {
+        type: "request-creating",
+        requestId: "",
+      },
+      {
         type: "request-created",
+        requestId: "req-progress-1",
+      },
+      {
+        type: "request-uploading",
         requestId: "req-progress-1",
       },
       {
@@ -1215,7 +1223,15 @@ describe("transport: upload fallback without FormData", function () {
     assert.equal((thrown as SkillRunnerHttpError).status, 422);
     assert.deepEqual(progressEvents, [
       {
+        type: "request-creating",
+        requestId: "",
+      },
+      {
         type: "request-created",
+        requestId: "req-upload-rejected",
+      },
+      {
+        type: "request-uploading",
         requestId: "req-upload-rejected",
       },
     ]);

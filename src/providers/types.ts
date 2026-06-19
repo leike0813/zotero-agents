@@ -6,13 +6,24 @@ export type ProviderProgressEventRequestCreated = {
   requestId: string;
 };
 
+export type ProviderProgressEventRequestCreating = {
+  type: "request-creating";
+};
+
+export type ProviderProgressEventRequestUploading = {
+  type: "request-uploading";
+  requestId: string;
+};
+
 export type ProviderProgressEventRequestReady = {
   type: "request-ready";
   requestId: string;
 };
 
 export type ProviderProgressEvent =
+  | ProviderProgressEventRequestCreating
   | ProviderProgressEventRequestCreated
+  | ProviderProgressEventRequestUploading
   | ProviderProgressEventRequestReady
   | {
       type: string;

@@ -300,6 +300,28 @@ export class JobQueueManager {
       this.logJobError(job, error);
       job.error = error instanceof Error ? error.message : String(error);
       const requestId = getSkillRunnerRequestIdFromJob(job);
+      const isSkillRunnerJob =
+        String(job.meta.backendType || "").trim() === "skillrunner" &&
+        String(job.meta.requestKind || "").trim() === "skillrunner.job.v1";
+      if (isSkillRunnerJob) {
+        job.meta.skillRunnerSubmitError = job.error;
+        if (!requestId) {
+          job.meta.skillRunnerLifecycleState = "failed";
+          job.meta.skillRunnerSubmitPhase =
+            String(job.meta.skillRunnerSubmitPhase || "").trim() ||
+            "request_creating";
+        } else if (
+          !(
+            job.meta.skillRunnerRequestReady === true ||
+            String(job.meta.skillRunnerRequestReady || "").trim() === "true"
+          )
+        ) {
+          job.meta.skillRunnerLifecycleState = "failed";
+          job.meta.skillRunnerSubmitPhase =
+            String(job.meta.skillRunnerSubmitPhase || "").trim() ||
+            "uploading";
+        }
+      }
       if (requestId && isNonRecoverableSkillRunnerFailure(error)) {
         job.meta.skillRunnerTerminalRunError = true;
         job.state = "failed";

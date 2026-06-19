@@ -82,6 +82,13 @@ export function resetWorkflowToastStateForTests() {
   visibleWorkflowToasts.splice(0, visibleWorkflowToasts.length);
 }
 
+export function closeVisibleWorkflowToasts() {
+  const toasts = visibleWorkflowToasts.splice(0, visibleWorkflowToasts.length);
+  for (const toast of toasts) {
+    closeProgressWindow(toast);
+  }
+}
+
 function resolveWorkflowToastEmoji(payload: WorkflowToastPayload) {
   if (payload.semantic === "start") {
     return "🚀";

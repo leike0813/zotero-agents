@@ -2122,13 +2122,28 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
         requestId: "req-sequence-check",
       });
       assert.equal(emitRun?.status, "succeeded");
+      assert.equal(
+        emitRun?.localRunId,
+        "workflow-run-sequence-reconcile:job-sequence-root:emit",
+      );
       assert.isOk(checkRun);
       assert.equal(checkRun?.role, "sequence_step");
+      assert.equal(
+        checkRun?.localRunId,
+        "workflow-run-sequence-reconcile:job-sequence-root:check",
+      );
       assert.equal(checkRun?.workflowRunId, sequenceRunId);
       assert.equal(checkRun?.sequence?.sequenceRunId, sequenceRunId);
       assert.equal(checkRun?.sequence?.jobId, "job-sequence-root");
       assert.equal(checkRun?.sequence?.stepId, "check");
       assert.equal(checkRun?.sequence?.stepIndex, 1);
+      assert.notExists(
+        listSkillRunnerRunRecords().find(
+          (run) =>
+            run.requestId === "req-sequence-emit" &&
+            run.runKey === "local:workflow-run-sequence-reconcile:job-sequence-root",
+        ),
+      );
       await waitForCondition(
         () =>
           getSequenceRunState(sequenceRunId)?.steps[0]?.applyResult?.status ===

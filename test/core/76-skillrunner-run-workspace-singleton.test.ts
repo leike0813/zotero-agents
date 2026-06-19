@@ -33,7 +33,9 @@ describe("skillrunner run workspace singleton", function () {
     assert.include(ts, "disabled = isSkillRunnerBackendReconcileFlagged");
     assert.include(ts, "resolveRunWorkspaceTaskTitle");
     assert.include(ts, "task-dashboard-run-waiting-request-id");
-    assert.include(ts, "selectable: requestId.length > 0");
+    assert.include(ts, "selectable: true");
+    assert.include(ts, "backendInteractive:");
+    assert.include(ts, "canOpenStream:");
   });
 
   it("extends host snapshot with workspace plus selected session", async function () {

@@ -30,6 +30,7 @@ import {
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import { getString } from "../utils/locale";
 import { localizeWorkflowLabel } from "../workflows/localization";
+import { SKILLRUNNER_SEQUENCE_REQUEST_KIND } from "../config/defaults";
 
 function stripRunOptionsForPersistence(
   options: WorkflowExecutionOptions,
@@ -241,26 +242,31 @@ export async function executeWorkflowFromCurrentSelection(args: {
       preparation.prepared.executionContext.backend.type || "",
     ).trim();
     if (registered && reconcileBackendType === "skillrunner") {
-      for (const pendingJob of applySummary.reconcileOwnedPendingJobs) {
-        const queueJob = runState.queue.getJob(pendingJob.jobId);
-        const request =
-          pendingJob.index >= 0 && pendingJob.index < runState.requests.length
-            ? runState.requests[pendingJob.index]
-            : undefined;
-        if (!queueJob || typeof request === "undefined") {
-          continue;
+      const requestKind = String(
+        preparation.prepared.executionContext.requestKind || "",
+      ).trim();
+      if (requestKind !== SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
+        for (const pendingJob of applySummary.reconcileOwnedPendingJobs) {
+          const queueJob = runState.queue.getJob(pendingJob.jobId);
+          const request =
+            pendingJob.index >= 0 && pendingJob.index < runState.requests.length
+              ? runState.requests[pendingJob.index]
+              : undefined;
+          if (!queueJob || typeof request === "undefined") {
+            continue;
+          }
+          registerSkillRunnerRunForSettlement({
+            workflowId: args.workflow.manifest.id,
+            workflowLabel,
+            requestKind: preparation.prepared.executionContext.requestKind,
+            request,
+            backend: preparation.prepared.executionContext.backend,
+            providerId: preparation.prepared.executionContext.providerId,
+            providerOptions:
+              preparation.prepared.executionContext.providerOptions,
+            job: queueJob,
+          });
         }
-        registerSkillRunnerRunForSettlement({
-          workflowId: args.workflow.manifest.id,
-          workflowLabel,
-          requestKind: preparation.prepared.executionContext.requestKind,
-          request,
-          backend: preparation.prepared.executionContext.backend,
-          providerId: preparation.prepared.executionContext.providerId,
-          providerOptions:
-            preparation.prepared.executionContext.providerOptions,
-          job: queueJob,
-        });
       }
       const promptBackendId =
         applySummary.reconcileOwnedPendingJobs

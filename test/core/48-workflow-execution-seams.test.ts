@@ -7,6 +7,7 @@ import {
   listRuntimeLogs,
 } from "../../src/modules/runtimeLogManager";
 import {
+  closeVisibleWorkflowToasts,
   emitWorkflowFinishSummary,
   emitWorkflowJobToasts,
   emitWorkflowStartToast,
@@ -1310,6 +1311,72 @@ describe("workflow execution seams", function () {
     assert.isTrue(options.every((entry) => entry?.closeTime === 0));
   });
 
+  it("closes visible workflow toasts when the plugin window unloads", function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const closed: string[] = [];
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      private text = "";
+
+      createLine(args: { text?: string }) {
+        this.text = String(args?.text || "");
+        return this;
+      }
+
+      show() {
+        return this;
+      }
+
+      startCloseTimer() {
+        return this;
+      }
+
+      close() {
+        closed.push(this.text);
+        return this;
+      }
+    };
+
+    try {
+      showWorkflowToast(
+        {
+          text: "one",
+          type: "default",
+        },
+        {
+          sticky: true,
+          bounded: true,
+        },
+      );
+      showWorkflowToast(
+        {
+          text: "two",
+          type: "default",
+        },
+        {
+          sticky: true,
+          bounded: true,
+        },
+      );
+
+      closeVisibleWorkflowToasts();
+      closeVisibleWorkflowToasts();
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) {
+        delete runtime.ztoolkit;
+      } else {
+        runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+      }
+    }
+
+    assert.deepEqual(closed, ["one", "two"]);
+  });
+
   it("uses full-parallel queue concurrency for backend-backed providers", function () {
     let capturedConcurrency = -1;
     let enqueueCount = 0;
@@ -1461,6 +1528,7 @@ describe("workflow execution seams", function () {
     const taskUpdates: any[] = [];
     const historyUpdates: any[] = [];
     const recoverableJobs: string[] = [];
+    const focusCalls: Array<Record<string, unknown>> = [];
     const runState = runWorkflowExecutionSeam(
       {
         prepared: {
@@ -1528,7 +1596,9 @@ describe("workflow execution seams", function () {
           recoverableJobs.push(args.job.id);
           return {} as any;
         },
-        focusSkillRunnerWorkspace: async () => undefined,
+        focusSkillRunnerWorkspace: async (args) => {
+          focusCalls.push(args as unknown as Record<string, unknown>);
+        },
       },
     );
 
@@ -1561,6 +1631,13 @@ describe("workflow execution seams", function () {
     );
     assert.includeMembers(recoverableJobs, ["job-1:digest"]);
     assert.isAtLeast(historyUpdates.length, 2);
+    const focusedStep = focusCalls.find(
+      (entry) =>
+        String(entry.taskId || "").endsWith(":job-1:digest") &&
+        entry.taskId === entry.localRunId,
+    );
+    assert.isOk(focusedStep);
+    assert.equal(focusedStep?.selectionChanged, true);
   });
 
   it("does not register ACP-compatible runs for SkillRunner settlement", async function () {
@@ -1819,7 +1896,115 @@ describe("workflow execution seams", function () {
     assert.equal(capturedConcurrency, 1);
   });
 
-  it("does not auto-focus interactive SkillRunner request-ready runs", function () {
+  it("selects auto SkillRunner tasks on submit without opening the Assistant shell", function () {
+    let capturedQueueConfig: Record<string, unknown> | undefined;
+    const assistantCalls: Array<Record<string, unknown>> = [];
+    const focusCalls: Array<Record<string, unknown>> = [];
+    const queueStub = {
+      enqueue() {
+        return "job-1";
+      },
+      waitForIdle() {
+        return Promise.resolve();
+      },
+    };
+
+    runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "seam-skillrunner-auto-focus",
+              label: "Seam SkillRunner Auto Focus",
+              execution: {
+                skillrunner_mode: "auto",
+              },
+            },
+          } as any,
+          requests: [{ targetParentID: 3 }],
+          skippedByFilter: 0,
+          executionContext: {
+            providerId: "skillrunner",
+            requestKind: "skillrunner.job.v1",
+            providerOptions: {},
+            backend: {
+              id: "backend-1",
+              type: "skillrunner",
+              baseUrl: "http://127.0.0.1:8030",
+            },
+          },
+        },
+      },
+      {
+        createQueue: (config) => {
+          capturedQueueConfig = config as unknown as Record<string, unknown>;
+          return queueStub as any;
+        },
+        openAssistantWorkspaceSidebar: (args) => {
+          assistantCalls.push(args as unknown as Record<string, unknown>);
+          return Promise.resolve();
+        },
+        focusSkillRunnerWorkspace: (args) => {
+          focusCalls.push(args as unknown as Record<string, unknown>);
+          return Promise.resolve();
+        },
+      } as any,
+    );
+
+    assert.isOk(capturedQueueConfig);
+    const onJobProgress = capturedQueueConfig?.onJobProgress as
+      | ((job: Record<string, unknown>, event: Record<string, unknown>) => void)
+      | undefined;
+    assert.isFunction(onJobProgress);
+    onJobProgress?.(
+      {
+        id: "job-1",
+        workflowId: "seam-skillrunner-auto-focus",
+        request: { targetParentID: 3 },
+        meta: { index: 0, runId: "run-sr-auto-focus" },
+        state: "running",
+        createdAt: "2026-04-17T00:00:00.000Z",
+        updatedAt: "2026-04-17T00:00:00.000Z",
+      },
+      {
+        type: "request-creating",
+      },
+    );
+
+    assert.lengthOf(assistantCalls, 0);
+    assert.lengthOf(focusCalls, 1);
+    assert.equal(focusCalls[0].taskId, "run-sr-auto-focus:job-1");
+    assert.equal(focusCalls[0].localRunId, "run-sr-auto-focus:job-1");
+    assert.isUndefined(focusCalls[0].requestId);
+
+    const onJobUpdated = capturedQueueConfig?.onJobUpdated as
+      | ((job: Record<string, unknown>) => void)
+      | undefined;
+    assert.isFunction(onJobUpdated);
+    const readyJob = {
+      id: "job-1",
+      workflowId: "seam-skillrunner-auto-focus",
+      request: { targetParentID: 3 },
+      meta: {
+        index: 0,
+        runId: "run-sr-auto-focus",
+        requestId: "req-auto-focus",
+      },
+      state: "running",
+      createdAt: "2026-04-17T00:00:00.000Z",
+      updatedAt: "2026-04-17T00:00:00.000Z",
+    };
+    onJobProgress?.(readyJob, {
+      type: "request-ready",
+      requestId: "req-auto-focus",
+    });
+    onJobUpdated?.(readyJob);
+
+    assert.lengthOf(assistantCalls, 0);
+    assert.lengthOf(focusCalls, 1);
+  });
+
+  it("opens interactive SkillRunner tasks in the Assistant shell on submit", function () {
     let capturedQueueConfig: Record<string, unknown> | undefined;
     const assistantCalls: Array<Record<string, unknown>> = [];
     const focusCalls: Array<Record<string, unknown>> = [];
@@ -1883,45 +2068,47 @@ describe("workflow execution seams", function () {
     const onJobProgress = capturedQueueConfig?.onJobProgress as
       | ((job: Record<string, unknown>, event: Record<string, unknown>) => void)
       | undefined;
+    const onJobUpdated = capturedQueueConfig?.onJobUpdated as
+      | ((job: Record<string, unknown>) => void)
+      | undefined;
     assert.isFunction(onJobProgress);
+    assert.isFunction(onJobUpdated);
+
     onJobProgress?.(
       {
         id: "job-1",
         workflowId: "seam-skillrunner-interactive-sidebar",
         request: { targetParentID: 3 },
-        meta: { index: 0 },
+        meta: { index: 0, runId: "run-sr-interactive-focus" },
         state: "running",
         createdAt: "2026-04-17T00:00:00.000Z",
         updatedAt: "2026-04-17T00:00:00.000Z",
       },
       {
-        type: "request-created",
-        requestId: "req-1",
+        type: "request-creating",
       },
     );
 
     assert.lengthOf(focusCalls, 0);
-    assert.lengthOf(assistantCalls, 0);
-    const onJobUpdated = capturedQueueConfig?.onJobUpdated as
-      | ((job: Record<string, unknown>) => void)
-      | undefined;
-    assert.isFunction(onJobUpdated);
-    onJobUpdated?.({
-      id: "job-1",
-      workflowId: "seam-skillrunner-interactive-sidebar",
-      request: { targetParentID: 3 },
-      meta: { index: 0, requestId: "req-1" },
-      state: "running",
-      createdAt: "2026-04-17T00:00:00.000Z",
-      updatedAt: "2026-04-17T00:00:00.000Z",
-    });
+    assert.lengthOf(assistantCalls, 1);
+    assert.equal(assistantCalls[0].tab, "skillrunner");
+    assert.equal(assistantCalls[0].taskId, "run-sr-interactive-focus:job-1");
+    assert.equal(
+      assistantCalls[0].localRunId,
+      "run-sr-interactive-focus:job-1",
+    );
+    assert.isUndefined(assistantCalls[0].requestId);
     assert.lengthOf(recoverableCalls, 0);
 
     const readyJob = {
       id: "job-1",
       workflowId: "seam-skillrunner-interactive-sidebar",
       request: { targetParentID: 3 },
-      meta: { index: 0, requestId: "req-1" },
+      meta: {
+        index: 0,
+        runId: "run-sr-interactive-focus",
+        requestId: "req-1",
+      },
       state: "running",
       createdAt: "2026-04-17T00:00:00.000Z",
       updatedAt: "2026-04-17T00:00:00.000Z",
@@ -1933,7 +2120,7 @@ describe("workflow execution seams", function () {
     onJobUpdated?.(readyJob);
 
     assert.lengthOf(focusCalls, 0);
-    assert.lengthOf(assistantCalls, 0);
+    assert.lengthOf(assistantCalls, 1);
     assert.isAtLeast(recoverableCalls.length, 1);
   });
 

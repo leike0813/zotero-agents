@@ -245,6 +245,61 @@ describe("skillrunner sidebar model", function () {
     assert.equal(sections[1].groups[0].finishedTasks[0].requestId, "req-3");
   });
 
+  it("keeps pre-ready selectable tasks visible without a backend request id", function () {
+    const sections = buildSkillRunnerSidebarSections({
+      groups: [
+        {
+          backendId: "alpha",
+          backendDisplayName: "Alpha",
+          disabled: false,
+          collapsed: false,
+          finishedCollapsed: true,
+          latestUpdatedAt: "2026-04-17T10:00:00.000Z",
+          activeTasks: [
+            {
+              key: "alpha::task:local-run-1",
+              backendId: "alpha",
+              backendDisplayName: "Alpha",
+              workflowLabel: "Flow Pending",
+              status: "request_creating",
+              stateLabel: "Submitting",
+              updatedAt: "2026-04-17T10:00:00.000Z",
+              title: "Pending Placeholder",
+              selectable: true,
+              requestAssigned: false,
+              backendInteractive: false,
+              canOpenStream: false,
+              canCancelBackendRun: false,
+              canReply: false,
+              skillRunnerLifecycleState: "request_creating",
+              terminal: false,
+              targetParentID: 101,
+            },
+          ],
+          finishedTasks: [],
+        },
+      ],
+      context: {
+        primaryParentItemId: 101,
+        relatedParentItemIds: [101],
+      },
+      selectedTaskKey: "alpha::task:local-run-1",
+      completedCollapsed: true,
+    });
+
+    assert.lengthOf(sections[0].groups, 1);
+    assert.lengthOf(sections[0].groups[0].activeTasks, 1);
+    const task = sections[0].groups[0].activeTasks[0];
+    assert.equal(task.key, "alpha::task:local-run-1");
+    assert.isUndefined(task.requestId);
+    assert.equal(task.relationState, "focused");
+    assert.isFalse(task.requestAssigned);
+    assert.isFalse(task.backendInteractive);
+    assert.isFalse(task.canOpenStream);
+    assert.isFalse(task.canCancelBackendRun);
+    assert.isFalse(task.canReply);
+  });
+
   it("keeps current focus when still related, otherwise falls back to the first primary related running task", function () {
     const groups = [
       {

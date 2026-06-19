@@ -559,7 +559,9 @@ function bindPrefEvents() {
         label,
         relativePath || "-",
         getString("pref-runtime-data-cleanup" as any),
-        issue?.eligibleForCleanup === true && Boolean(issueId),
+        runtimeDataScanState !== "scanning" &&
+          issue?.eligibleForCleanup === true &&
+          Boolean(issueId),
         () => {
           void cleanupPersistenceGovernanceIssue(
             issueId,
@@ -731,6 +733,7 @@ function bindPrefEvents() {
       runtimeDataScanState = "scanning";
       const cleaningText = runtimeDataCleaningText(label);
       setRuntimeDataProgress(true, 50, cleaningText);
+      renderRuntimeDataUsage(lastRuntimeDataSnapshot);
       const result = await addon.hooks.onPrefsEvent(
         "cleanupRuntimePersistenceCategory",
         {
@@ -759,8 +762,6 @@ function bindPrefEvents() {
     label: string,
     detailText: string,
   ) => {
-    const cleaningText = runtimeDataCleaningText(label);
-    setRuntimeDataProgress(true, 50, cleaningText);
     try {
       const preview = await addon.hooks.onPrefsEvent(
         "cleanupPersistenceGovernanceIssues",
@@ -778,6 +779,10 @@ function bindPrefEvents() {
         setRuntimeDataProgress(false);
         return;
       }
+      runtimeDataScanState = "scanning";
+      const cleaningText = runtimeDataCleaningText(label);
+      setRuntimeDataProgress(true, 50, cleaningText);
+      renderRuntimeDataUsage(lastRuntimeDataSnapshot);
       const result = await addon.hooks.onPrefsEvent(
         "cleanupPersistenceGovernanceIssues",
         {
@@ -786,8 +791,10 @@ function bindPrefEvents() {
           dryRun: false,
         },
       );
+      runtimeDataScanState = "ready";
       renderRuntimeDataUsage(result);
     } catch (error) {
+      runtimeDataScanState = "failed";
       if (runtimeDataSummary) {
         runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
       }
