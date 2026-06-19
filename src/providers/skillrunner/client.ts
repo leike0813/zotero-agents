@@ -10,6 +10,7 @@ import {
   runSkillRunnerConnection,
   type SkillRunnerConnectionLane,
 } from "../../modules/skillRunnerConnectionGovernor";
+import { markSkillRunnerBackendHealthSuccess } from "../../modules/skillRunnerBackendHealthRegistry";
 import { buildSkillRunnerSkillPackageBundle } from "./skillPackageBundler";
 import { SkillRunnerHttpError, SkillRunnerTerminalRunError } from "./errors";
 import {
@@ -488,7 +489,7 @@ export class SkillRunnerClient {
     const timeoutMs = normalizeTimeoutMs(args.timeoutMs, this.requestTimeoutMs);
     const startedAt = Date.now();
     try {
-      return await runSkillRunnerConnection({
+      const response = await runSkillRunnerConnection({
         backendId: this.backendId,
         lane: args.lane,
         requestId: args.requestId,
@@ -501,6 +502,10 @@ export class SkillRunnerClient {
             signal,
           }),
       });
+      if (response.ok) {
+        markSkillRunnerBackendHealthSuccess(this.backendId);
+      }
+      return response;
     } catch (error) {
       if (
         String((error as { name?: unknown })?.name || "") ===

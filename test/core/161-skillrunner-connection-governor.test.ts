@@ -595,4 +595,56 @@ describe("skillrunner connection governor", function () {
     releases.get("req-2")?.();
     await Promise.all([firstTask, secondTask, reconcileTask]);
   });
+
+  it("records physical debt on timeout and skips low-priority work while degraded", async function () {
+    const release = deferred<void>();
+    const timeoutTask = governor
+      .run({
+        backendId: "backend-a",
+        lane: "reconcile",
+        requestId: "req-timeout",
+        operation: "GET /v1/jobs/req-timeout",
+        timeoutMs: 5,
+        task: async () => {
+          await release.promise;
+        },
+      })
+      .catch((error) => error);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await timeoutTask;
+
+    let snapshot = governor.snapshot();
+    assert.equal(snapshot.summary.physicalDebtTotal, 1);
+    assert.equal(snapshot.summary.degradedBackendCount, 1);
+    assert.include(
+      snapshot.events.map((event) => event.type),
+      "physical_debt_recorded",
+    );
+
+    const skipped = await governor
+      .run({
+        backendId: "backend-a",
+        lane: "background",
+        operation: "GET /v1/jobs/req-timeout/events/history",
+        task: async () => undefined,
+      })
+      .catch((error) => error);
+    assert.equal((skipped as Error).name, "SkillRunnerConnectionSkippedError");
+
+    snapshot = governor.snapshot();
+    assert.equal(snapshot.summary.skippedHistoryCount, 1);
+
+    const submitResult = await governor.run({
+      backendId: "backend-a",
+      lane: "submit",
+      operation: "POST /v1/jobs",
+      task: async () => "ok",
+    });
+    assert.equal(submitResult, "ok");
+    assert.equal(governor.snapshot().summary.physicalDebtTotal, 0);
+
+    release.resolve();
+    await tick();
+  });
 });

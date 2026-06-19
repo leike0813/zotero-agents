@@ -2499,6 +2499,20 @@
         summary.lateSettlementCount || 0,
       ),
     );
+    metrics.appendChild(
+      renderAuditMetric("Physical debt", summary.physicalDebtTotal || 0),
+    );
+    metrics.appendChild(
+      renderAuditMetric("Degraded backends", summary.degradedBackendCount || 0),
+    );
+    metrics.appendChild(
+      renderAuditMetric(
+        "Skipped low-priority",
+        (summary.skippedReachabilityCount || 0) +
+          (summary.skippedBackgroundCount || 0) +
+          (summary.skippedHistoryCount || 0),
+      ),
+    );
     main.appendChild(metrics);
 
     const grids = el("div", "audit-grid");
@@ -2522,6 +2536,12 @@
             return { key: row.key + " queued", count: row.count };
           }),
         ),
+      ),
+    );
+    grids.appendChild(
+      renderAuditBars(
+        "Physical debt",
+        auditCountRows(summary.physicalDebtByBackend, "backendId"),
       ),
     );
     main.appendChild(grids);

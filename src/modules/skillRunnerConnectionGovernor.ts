@@ -13,10 +13,15 @@ export type SkillRunnerConnectionAuditEventType =
   | "started"
   | "finished"
   | "timeout"
+  | "skipped_reachability"
+  | "skipped_background"
+  | "skipped_history"
   | "abort_requested"
   | "aborted"
   | "evicted_stream"
   | "duplicate_stream_rejected"
+  | "physical_debt_recorded"
+  | "physical_debt_released"
   | "late_resolve_after_timeout"
   | "late_reject_after_timeout"
   | "late_resolve_after_abort"
@@ -59,9 +64,15 @@ export type SkillRunnerConnectionGovernorSnapshot = {
     streamTotal: number;
     timeoutCount: number;
     lateSettlementCount: number;
+    physicalDebtTotal: number;
+    degradedBackendCount: number;
+    skippedReachabilityCount: number;
+    skippedBackgroundCount: number;
+    skippedHistoryCount: number;
     recentTimeoutAt?: number;
     activeByBackend: Array<{ backendId: string; count: number }>;
     queuedByBackend: Array<{ backendId: string; count: number }>;
+    physicalDebtByBackend: Array<{ backendId: string; count: number }>;
     activeByLane: Array<{ lane: SkillRunnerConnectionLane; count: number }>;
     queuedByLane: Array<{ lane: SkillRunnerConnectionLane; count: number }>;
     streamByBackend: Array<{ backendId: string; count: number }>;
@@ -114,8 +125,10 @@ type AnyQueueEntry = QueueEntry<any>;
 
 const DEFAULT_MAX_ACTIVE_PER_BACKEND = 6;
 const MAX_FOREGROUND_STREAMS_PER_BACKEND = 2;
+const DEGRADED_FOREGROUND_STREAMS_PER_BACKEND = 1;
 const LOW_PRIORITY_RESERVED_CONNECTIONS = 2;
 const AUDIT_EVENT_LIMIT = 200;
+const PHYSICAL_DEBT_COOLDOWN_MS = 30000;
 
 const LANE_PRIORITY: Record<SkillRunnerConnectionLane, number> = {
   submit: 0,
@@ -178,6 +191,12 @@ function createTimeoutError(args: {
   return error;
 }
 
+function createSkippedError(reason: string) {
+  const error = new Error(reason);
+  error.name = "SkillRunnerConnectionSkippedError";
+  return error;
+}
+
 function scopeKey(backendId: string, lane: SkillRunnerConnectionLane) {
   return `${backendId}:${lane}`;
 }
@@ -201,6 +220,10 @@ export class SkillRunnerConnectionGovernor {
   private readonly active = new Map<number, QueueEntry>();
 
   private readonly auditEvents: SkillRunnerConnectionAuditEvent[] = [];
+
+  private readonly physicalDebtByBackend = new Map<string, number>();
+
+  private readonly physicalDebtRecordedAtByBackend = new Map<string, number>();
 
   constructor(args?: { maxActivePerBackend?: number }) {
     const configured = Number(args?.maxActivePerBackend);
@@ -242,8 +265,30 @@ export class SkillRunnerConnectionGovernor {
         ),
       );
     }
+    const skipType = this.resolveSkipTypeForConnection({
+      backendId,
+      lane: args.lane,
+      operation,
+    });
+    if (skipType) {
+      const reason =
+        skipType === "skipped_reachability"
+          ? "reachability probe skipped while backend is busy or degraded"
+          : "low-priority SkillRunner request skipped while backend is degraded";
+      this.recordAuditEvent({
+        type: skipType,
+        backendId,
+        lane: args.lane,
+        requestId,
+        operation,
+        reason,
+        errorName: "SkillRunnerConnectionSkippedError",
+      });
+      return Promise.reject(createSkippedError(reason));
+    }
     if (this.isCriticalLane(args.lane)) {
       this.evictForegroundStreamForBackendIfFull(backendId);
+      this.evictDegradedWarmStreams(backendId);
     }
     return new Promise<T>((resolve, reject) => {
       const entry: QueueEntry<T> = {
@@ -392,8 +437,26 @@ export class SkillRunnerConnectionGovernor {
     }
     this.queued.length = 0;
     this.active.clear();
+    this.physicalDebtByBackend.clear();
+    this.physicalDebtRecordedAtByBackend.clear();
     this.auditEvents.length = 0;
     this.nextAuditEventId = 1;
+  }
+
+  hasActiveOrQueuedForBackend(backendId: string) {
+    const normalized = normalizeString(backendId);
+    if (!normalized) {
+      return false;
+    }
+    return (
+      Array.from(this.active.values()).some(
+        (entry) => entry.backendId === normalized,
+      ) || this.queued.some((entry) => entry.backendId === normalized)
+    );
+  }
+
+  hasPhysicalDebt(backendId: string) {
+    return this.getPhysicalDebt(backendId) > 0;
   }
 
   private matches(
@@ -463,7 +526,7 @@ export class SkillRunnerConnectionGovernor {
           active.backendId === entry.backendId &&
           active.lane === "foreground-stream",
       ).length;
-      if (activeForegroundStreams >= MAX_FOREGROUND_STREAMS_PER_BACKEND) {
+      if (activeForegroundStreams >= this.maxForegroundStreams(entry.backendId)) {
         return false;
       }
       const activeForBackend = Array.from(this.active.values()).filter(
@@ -500,6 +563,93 @@ export class SkillRunnerConnectionGovernor {
     return lane === "background" || lane === "maintenance" || lane === "health";
   }
 
+  private resolveSkipTypeForConnection(args: {
+    backendId: string;
+    lane: SkillRunnerConnectionLane;
+    operation: string;
+  }):
+    | "skipped_reachability"
+    | "skipped_background"
+    | "skipped_history"
+    | undefined {
+    if (
+      args.lane === "health" &&
+      (this.hasActiveOrQueuedForBackend(args.backendId) ||
+        this.hasPhysicalDebt(args.backendId))
+    ) {
+      return "skipped_reachability";
+    }
+    if (!this.hasPhysicalDebt(args.backendId)) {
+      return undefined;
+    }
+    if (args.lane === "background" || args.lane === "maintenance") {
+      return /history/i.test(args.operation)
+        ? "skipped_history"
+        : "skipped_background";
+    }
+    return undefined;
+  }
+
+  private getPhysicalDebt(backendId: string) {
+    const normalized = normalizeString(backendId);
+    if (!normalized) {
+      return 0;
+    }
+    this.releaseExpiredPhysicalDebt(normalized);
+    return this.physicalDebtByBackend.get(normalized) || 0;
+  }
+
+  private releaseExpiredPhysicalDebt(backendId: string) {
+    const recordedAt = this.physicalDebtRecordedAtByBackend.get(backendId) || 0;
+    if (recordedAt <= 0 || Date.now() - recordedAt < PHYSICAL_DEBT_COOLDOWN_MS) {
+      return;
+    }
+    this.physicalDebtByBackend.delete(backendId);
+    this.physicalDebtRecordedAtByBackend.delete(backendId);
+    this.recordAuditEvent({
+      type: "physical_debt_released",
+      backendId,
+      reason: "physical debt cooldown elapsed",
+    });
+  }
+
+  private recordPhysicalDebt(entry: AnyQueueEntry) {
+    const current = this.getPhysicalDebt(entry.backendId);
+    this.physicalDebtByBackend.set(entry.backendId, current + 1);
+    this.physicalDebtRecordedAtByBackend.set(entry.backendId, Date.now());
+    this.recordAuditEvent({
+      type: "physical_debt_recorded",
+      entry,
+      reason: "timeout finished before underlying task settled",
+    });
+    this.evictDegradedWarmStreams(entry.backendId);
+  }
+
+  private releasePhysicalDebt(backendId: string, reason: string) {
+    const current = this.getPhysicalDebt(backendId);
+    if (current <= 0) {
+      return;
+    }
+    const next = current - 1;
+    if (next > 0) {
+      this.physicalDebtByBackend.set(backendId, next);
+    } else {
+      this.physicalDebtByBackend.delete(backendId);
+      this.physicalDebtRecordedAtByBackend.delete(backendId);
+    }
+    this.recordAuditEvent({
+      type: "physical_debt_released",
+      backendId,
+      reason,
+    });
+  }
+
+  private maxForegroundStreams(backendId: string) {
+    return this.hasPhysicalDebt(backendId)
+      ? DEGRADED_FOREGROUND_STREAMS_PER_BACKEND
+      : MAX_FOREGROUND_STREAMS_PER_BACKEND;
+  }
+
   private hasForegroundStreamForRequest(backendId: string, requestId: string) {
     const matches = (entry: QueueEntry) =>
       entry.backendId === backendId &&
@@ -529,7 +679,7 @@ export class SkillRunnerConnectionGovernor {
         active.backendId === entry.backendId &&
         active.lane === "foreground-stream",
     );
-    if (foregroundStreams.length < MAX_FOREGROUND_STREAMS_PER_BACKEND) {
+    if (foregroundStreams.length < this.maxForegroundStreams(entry.backendId)) {
       return;
     }
     this.abortForegroundStreamEntry(
@@ -567,6 +717,19 @@ export class SkillRunnerConnectionGovernor {
     entry.controller?.abort();
     entry.reject(createAbortError("foreground stream evicted"));
     this.finish(entry, "evict", createAbortError("foreground stream evicted"));
+  }
+
+  private evictDegradedWarmStreams(backendId: string) {
+    while (true) {
+      const streams = Array.from(this.active.values()).filter(
+        (entry) =>
+          entry.backendId === backendId && entry.lane === "foreground-stream",
+      );
+      if (streams.length <= this.maxForegroundStreams(backendId)) {
+        return;
+      }
+      this.abortForegroundStreamEntry(this.pickLeastRecentlyFocusedStream(backendId));
+    }
   }
 
   private start<T>(entry: QueueEntry<T>) {
@@ -632,6 +795,7 @@ export class SkillRunnerConnectionGovernor {
           reason: errorReason(timeoutError),
           errorName: errorName(timeoutError),
         });
+        this.recordPhysicalDebt(entry);
         entry.controller?.abort();
         finishReject(timeoutError, "timeout");
       }, entry.timeoutMs);
@@ -659,6 +823,9 @@ export class SkillRunnerConnectionGovernor {
     entry.externalAbortCleanup = undefined;
     entry.cleanup?.();
     this.active.delete(entry.id);
+    if (reason === "resolve") {
+      this.releasePhysicalDebt(entry.backendId, "successful request resolved");
+    }
     this.recordAuditEvent({
       type: reason === "abort" || reason === "evict" ? "aborted" : "finished",
       entry,
@@ -679,6 +846,12 @@ export class SkillRunnerConnectionGovernor {
     error?: unknown,
   ) {
     if (entry.finishReason === "timeout") {
+      this.releasePhysicalDebt(
+        entry.backendId,
+        settlement === "resolve"
+          ? "late resolve after timeout"
+          : "late reject after timeout",
+      );
       this.recordAuditEvent({
         type:
           settlement === "resolve"
@@ -757,6 +930,21 @@ export class SkillRunnerConnectionGovernor {
     const lateSettlementCount = this.auditEvents.filter((event) =>
       event.type.startsWith("late_"),
     ).length;
+    for (const backendId of Array.from(this.physicalDebtByBackend.keys())) {
+      this.releaseExpiredPhysicalDebt(backendId);
+    }
+    const physicalDebtByBackend = sortedCounts(
+      new Map(this.physicalDebtByBackend),
+    ).map(([backendId, count]) => ({
+      backendId,
+      count,
+    }));
+    const physicalDebtTotal = physicalDebtByBackend.reduce(
+      (sum, entry) => sum + entry.count,
+      0,
+    );
+    const countEvents = (type: SkillRunnerConnectionAuditEventType) =>
+      this.auditEvents.filter((event) => event.type === type).length;
     const recentTimeoutAt = timeoutEvents.length
       ? timeoutEvents[timeoutEvents.length - 1].ts
       : undefined;
@@ -766,9 +954,15 @@ export class SkillRunnerConnectionGovernor {
       streamTotal: streams.length,
       timeoutCount: timeoutEvents.length,
       lateSettlementCount,
+      physicalDebtTotal,
+      degradedBackendCount: physicalDebtByBackend.length,
+      skippedReachabilityCount: countEvents("skipped_reachability"),
+      skippedBackgroundCount: countEvents("skipped_background"),
+      skippedHistoryCount: countEvents("skipped_history"),
       recentTimeoutAt,
       activeByBackend,
       queuedByBackend,
+      physicalDebtByBackend,
       activeByLane,
       queuedByLane,
       streamByBackend,
@@ -832,4 +1026,23 @@ export function getSkillRunnerConnectionGovernorSnapshot() {
 
 export function resetSkillRunnerConnectionGovernorForTests() {
   defaultSkillRunnerConnectionGovernor.resetForTests();
+}
+
+export function hasSkillRunnerConnectionActivityForBackend(backendId: string) {
+  return defaultSkillRunnerConnectionGovernor.hasActiveOrQueuedForBackend(
+    backendId,
+  );
+}
+
+export function hasSkillRunnerPhysicalConnectionDebt(backendId: string) {
+  return defaultSkillRunnerConnectionGovernor.hasPhysicalDebt(backendId);
+}
+
+export function isSkillRunnerConnectionSkippedError(error: unknown) {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    normalizeString((error as { name?: unknown }).name) ===
+      "SkillRunnerConnectionSkippedError"
+  );
 }

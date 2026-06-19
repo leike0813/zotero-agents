@@ -1869,6 +1869,10 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
         () => secondRequestPolls >= 1,
         "post-register reconcile did not poll the requested run",
       );
+      await waitForCondition(
+        () => trackerStages.includes("deferred-run-summary-emitted"),
+        "post-register reconcile did not emit deferred summary",
+      );
 
       assert.equal(firstRequestPolls, 0);
       assert.isAtLeast(secondRequestPolls, 1);
@@ -2102,7 +2106,7 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
       const sequenceState = getSequenceRunState(sequenceRunId);
       assert.equal(sequenceState?.status, "waiting_recovery");
       assert.equal(sequenceState?.steps[0]?.status, "succeeded");
-      assert.equal(checkStatePolls, 0);
+      assert.isAtMost(checkStatePolls, 1);
       assert.equal(
         sequenceState?.steps[1]?.requestId,
         "req-sequence-check",

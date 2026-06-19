@@ -4,6 +4,7 @@ import {
   runSkillRunnerConnection,
   type SkillRunnerConnectionLane,
 } from "../../modules/skillRunnerConnectionGovernor";
+import { markSkillRunnerBackendHealthSuccess } from "../../modules/skillRunnerBackendHealthRegistry";
 import {
   SkillRunnerHttpError,
   formatSkillRunnerHttpErrorMessage,
@@ -145,6 +146,7 @@ export type SkillRunnerManagementRequestOptions = {
   timeoutMs?: number;
   signal?: AbortSignal;
   lastFocusedAt?: number;
+  allowGetFallback?: boolean;
 };
 
 type AbortLikeError = Error & {
@@ -182,6 +184,18 @@ async function readJsonBody(response: Response) {
     return {
       raw: text,
     };
+  }
+}
+
+async function releaseResponseBody(response: Response) {
+  try {
+    if (response.body && typeof response.body.cancel === "function") {
+      await response.body.cancel();
+      return;
+    }
+    await response.arrayBuffer();
+  } catch {
+    // Best-effort release; callers should not fail after a successful response.
   }
 }
 
@@ -329,9 +343,11 @@ async function streamSseResponse(args: {
   const reader = body.getReader() as {
     read: () => Promise<{ done: boolean; value?: Uint8Array }>;
     cancel?: (reason?: unknown) => Promise<void>;
+    releaseLock?: () => void;
   };
   let buffer = "";
   let aborted = false;
+  let completed = false;
 
   const emitFrame = (rawFrame: string) => {
     const lines = rawFrame.split(/\r?\n/);
@@ -390,6 +406,7 @@ async function streamSseResponse(args: {
       }
       if (next.done) {
         buffer += decoder.decode(new Uint8Array());
+        completed = true;
         break;
       }
       buffer += decoder.decode(next.value || new Uint8Array(), {
@@ -412,6 +429,16 @@ async function streamSseResponse(args: {
     }
   } finally {
     args.signal?.removeEventListener("abort", abortListener);
+    if (!completed && typeof reader.cancel === "function") {
+      await reader.cancel(createAbortError()).catch(() => {});
+    }
+    if (typeof reader.releaseLock === "function") {
+      try {
+        reader.releaseLock();
+      } catch {
+        // Some runtimes throw if the stream is already released.
+      }
+    }
   }
 }
 
@@ -559,10 +586,12 @@ export class SkillRunnerManagementClient {
             path: args.path,
           });
         }
+        markSkillRunnerBackendHealthSuccess(this.backendId);
         if (args.consumeResponse) {
           return args.consumeResponse(response, signal);
         }
         if (args.expectJson === false) {
+          await releaseResponseBody(response);
           return response as T;
         }
         return readJsonBody(response) as Promise<T>;
@@ -596,7 +625,8 @@ export class SkillRunnerManagementClient {
 
   async probeReachability(args?: SkillRunnerManagementRequestOptions) {
     let lastError: unknown;
-    const methods: Array<"HEAD" | "GET"> = ["HEAD", "GET"];
+    const methods: Array<"HEAD" | "GET"> =
+      args?.allowGetFallback === true ? ["HEAD", "GET"] : ["HEAD"];
     for (const method of methods) {
       try {
         await this.requestWithAuthRetry({

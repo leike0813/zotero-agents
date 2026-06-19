@@ -79,10 +79,16 @@ import {
 import { loadBackendsRegistry } from "../backends/registry";
 import { buildSkillRunnerManagementClient } from "./skillRunnerManagementClientFactory";
 import {
+  hasSkillRunnerConnectionActivityForBackend,
+  isSkillRunnerConnectionSkippedError,
+  hasSkillRunnerPhysicalConnectionDebt,
+} from "./skillRunnerConnectionGovernor";
+import {
   getSkillRunnerBackendHealthState,
   isSkillRunnerBackendReconcileFlagged,
   markSkillRunnerBackendHealthFailure,
   markSkillRunnerBackendHealthSuccess,
+  markSkillRunnerBackendRecoveryNeeded,
   pruneSkillRunnerBackendHealth,
   registerSkillRunnerBackendForHealthTracking,
   shouldProbeSkillRunnerBackendNow,
@@ -165,12 +171,12 @@ type PendingPromptReconcile = {
   source: ReconcileDispatchSource;
 };
 
-const POLL_INTERVAL_MS = 1600;
+const POLL_INTERVAL_MS = 3000;
 const BACKEND_RECONCILE_FAILURE_LOG_THROTTLE_MS = 60000;
 const APPLY_MAX_ATTEMPTS = 5;
 const APPLY_RETRY_BASE_MS = 1000;
 const APPLY_RETRY_MAX_MS = 30000;
-const RECONCILE_BACKOFF_INITIAL_MS = 5000;
+const RECONCILE_BACKOFF_INITIAL_MS = 3000;
 const RECONCILE_BACKOFF_MAX_MS = 30000;
 
 export type SkillRunnerBackendTaskLedgerReconcileSource =
@@ -1419,6 +1425,17 @@ export class SkillRunnerTaskReconciler {
     context.nextReconcileAt = new Date(Date.now() + nextBackoff).toISOString();
   }
 
+  private updateReconcileFailureCadence(context: ReconcileContext) {
+    const previousBackoff =
+      context.reconcileBackoffMs || RECONCILE_BACKOFF_INITIAL_MS;
+    const nextBackoff = Math.min(
+      RECONCILE_BACKOFF_MAX_MS,
+      Math.max(RECONCILE_BACKOFF_INITIAL_MS, previousBackoff * 2),
+    );
+    context.reconcileBackoffMs = nextBackoff;
+    context.nextReconcileAt = new Date(Date.now() + nextBackoff).toISOString();
+  }
+
   private buildMissingContextCandidates() {
     const existingKeys = new Set<string>();
     for (const context of this.contexts.values()) {
@@ -1730,6 +1747,12 @@ export class SkillRunnerTaskReconciler {
       if (!shouldProbeSkillRunnerBackendNow(backendId, Date.now())) {
         continue;
       }
+      if (
+        hasSkillRunnerConnectionActivityForBackend(backendId) ||
+        hasSkillRunnerPhysicalConnectionDebt(backendId)
+      ) {
+        continue;
+      }
       const backend = loadedBackends.find(
         (entry) => normalizeString(entry.id) === backendId,
       );
@@ -1760,6 +1783,9 @@ export class SkillRunnerTaskReconciler {
           }
         }
       } catch (error) {
+        if (isSkillRunnerConnectionSkippedError(error)) {
+          continue;
+        }
         if (
           typeof generation === "number" &&
           !this.isGenerationActive(generation)
@@ -1827,9 +1853,6 @@ export class SkillRunnerTaskReconciler {
     if (typeof timerLike.unref === "function") {
       timerLike.unref();
     }
-    this.spawnBackgroundTask("startup-health", generation, async () => {
-      await this.refreshTrackedBackendHealth(generation);
-    });
     this.spawnBackgroundTask("startup-reconcile", generation, async () => {
       await this.reconcilePending(generation);
     });
@@ -3421,7 +3444,17 @@ export class SkillRunnerTaskReconciler {
         writeContextsToRunStore(Array.from(this.contexts.values()));
         return;
       }
-      this.resetReconcileCadence(context);
+      const errorName = normalizeString((error as { name?: unknown })?.name);
+      if (
+        errorName === "SkillRunnerHttpTimeoutError" ||
+        errorName === "SkillRunnerConnectionTimeoutError"
+      ) {
+        markSkillRunnerBackendRecoveryNeeded({
+          backendId: context.backendId,
+          error,
+        });
+      }
+      this.updateReconcileFailureCadence(context);
       writeContextsToRunStore(Array.from(this.contexts.values()));
       const health = getSkillRunnerBackendHealthState(context.backendId);
       const now = Date.now();
@@ -3475,15 +3508,6 @@ export class SkillRunnerTaskReconciler {
         !this.isGenerationActive(generation)
       ) {
         return;
-      }
-      if (source === "post-register") {
-        await this.refreshContextBackendHealthForPrompt(context, generation);
-        if (
-          typeof generation === "number" &&
-          !this.isGenerationActive(generation)
-        ) {
-          return;
-        }
       }
       if (this.shouldSkipByReconcileCadence(context, source)) {
         if (normalizeStatus(context.state, "running") === "running") {
@@ -3580,13 +3604,6 @@ export class SkillRunnerTaskReconciler {
     this.pendingPromptReconciles.clear();
     this.isReconciling = true;
     try {
-      await this.refreshTrackedBackendHealth(generation);
-      if (
-        typeof generation === "number" &&
-        !this.isGenerationActive(generation)
-      ) {
-        return;
-      }
       const contexts = pending
         .map((entry) => {
           if (entry.backendId) {
@@ -3703,12 +3720,6 @@ export class SkillRunnerTaskReconciler {
     this.isReconciling = true;
     try {
       await this.refreshTrackedBackendHealth(generation);
-      if (
-        typeof generation === "number" &&
-        !this.isGenerationActive(generation)
-      ) {
-        return;
-      }
       const entries = Array.from(this.contexts.values());
       await this.reconcileTrackedContexts(entries, "interval", generation);
       if (

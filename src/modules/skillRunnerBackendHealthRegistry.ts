@@ -7,6 +7,7 @@ export type SkillRunnerBackendHealthState = {
   backendId: string;
   reachable: boolean;
   reconcileFlag: boolean;
+  reachabilityMode: "normal" | "recovery_needed" | "idle_probing";
   failureStreak: number;
   backoffLevel: number;
   nextProbeAt: number;
@@ -17,9 +18,10 @@ export type SkillRunnerBackendHealthState = {
 const listeners = new Set<SkillRunnerBackendHealthListener>();
 const states = new Map<string, SkillRunnerBackendHealthState>();
 export const SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS = [
-  5000,
   15000,
+  30000,
   60000,
+  120000,
 ] as const;
 export const SKILLRUNNER_BACKEND_PROBE_FAILURE_THRESHOLD_FOR_GATE = 2;
 export const SKILLRUNNER_BACKEND_PROBE_SUCCESS_THRESHOLD_FOR_RECOVERY = 1;
@@ -54,8 +56,9 @@ function ensureState(backendIdRaw: unknown) {
   }
   const next: SkillRunnerBackendHealthState = {
     backendId,
-    reachable: false,
-    reconcileFlag: true,
+    reachable: true,
+    reconcileFlag: false,
+    reachabilityMode: "normal",
     failureStreak: 0,
     backoffLevel: 0,
     nextProbeAt: 0,
@@ -108,6 +111,9 @@ export function shouldProbeSkillRunnerBackendNow(backendId: string, now = Date.n
   if (!state) {
     return false;
   }
+  if (state.reachabilityMode === "normal") {
+    return false;
+  }
   if (state.nextProbeAt <= 0) {
     return true;
   }
@@ -122,15 +128,16 @@ export function markSkillRunnerBackendHealthSuccess(backendId: string) {
   const changed =
     state.reachable !== true ||
     state.reconcileFlag !== false ||
+    state.reachabilityMode !== "normal" ||
     state.backoffLevel !== 0 ||
     state.failureStreak !== 0 ||
     state.lastError !== undefined;
   state.reachable = true;
   state.reconcileFlag = false;
+  state.reachabilityMode = "normal";
   state.failureStreak = 0;
   state.backoffLevel = 0;
-  state.nextProbeAt =
-    Date.now() + SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS[0];
+  state.nextProbeAt = 0;
   state.lastError = undefined;
   state.updatedAt = nowIso();
   if (changed) {
@@ -158,6 +165,7 @@ export function markSkillRunnerBackendHealthFailure(args: {
     nextFailureStreak >= SKILLRUNNER_BACKEND_PROBE_FAILURE_THRESHOLD_FOR_GATE;
   state.reachable = !shouldFlag ? previousReachable : false;
   state.reconcileFlag = shouldFlag;
+  state.reachabilityMode = "idle_probing";
   state.failureStreak = nextFailureStreak;
   state.backoffLevel = nextLevel;
   state.nextProbeAt =
@@ -172,6 +180,31 @@ export function markSkillRunnerBackendHealthFailure(args: {
     previousFlag !== state.reconcileFlag ||
     previousReachable !== state.reachable
   ) {
+    emit(state.backendId);
+  }
+  return { ...state };
+}
+
+export function markSkillRunnerBackendRecoveryNeeded(args: {
+  backendId: string;
+  error?: unknown;
+}) {
+  const state = ensureState(args.backendId);
+  if (!state) {
+    return null;
+  }
+  const changed = state.reachabilityMode === "normal";
+  state.reachabilityMode = "recovery_needed";
+  state.nextProbeAt =
+    Date.now() + SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS[0];
+  state.lastError =
+    normalizeString(
+      args.error && typeof args.error === "object" && "message" in args.error
+        ? (args.error as { message?: unknown }).message
+        : args.error,
+    ) || state.lastError;
+  state.updatedAt = nowIso();
+  if (changed) {
     emit(state.backendId);
   }
   return { ...state };

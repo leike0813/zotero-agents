@@ -290,7 +290,7 @@ type RunDialogEntry = {
   session: RunSessionState;
 };
 
-const WAITING_AUTH_OBSERVER_INTERVAL_MS = 1500;
+const WAITING_AUTH_OBSERVER_INTERVAL_MS = 7000;
 
 export type RunWorkspaceTaskItem = {
   key: string;

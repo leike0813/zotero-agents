@@ -64,6 +64,50 @@ describe("skillrunner management client", function () {
     });
   });
 
+  it("uses HEAD-only reachability probe by default and releases successful response bodies", async function () {
+    const methods: string[] = [];
+    let canceled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("ok"));
+      },
+      cancel() {
+        canceled = true;
+      },
+    });
+    const client = new SkillRunnerManagementClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (_url, init) => {
+        methods.push(String(init?.method || "GET"));
+        return new Response(stream, { status: 200 });
+      },
+    });
+
+    await client.probeReachability();
+
+    assert.deepEqual(methods, ["HEAD"]);
+    assert.isTrue(canceled);
+  });
+
+  it("uses GET reachability fallback only when explicitly allowed", async function () {
+    const methods: string[] = [];
+    const client = new SkillRunnerManagementClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (_url, init) => {
+        const method = String(init?.method || "GET");
+        methods.push(method);
+        if (method === "HEAD") {
+          return new Response("no head", { status: 405 });
+        }
+        return new Response("ok", { status: 200 });
+      },
+    });
+
+    await client.probeReachability({ allowGetFallback: true });
+
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  });
+
   it("parses SSE chat frames", async function () {
     const frames: SkillRunnerManagementSseFrame[] = [];
     const urls: string[] = [];
