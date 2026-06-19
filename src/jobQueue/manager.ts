@@ -9,6 +9,7 @@ import {
   getSkillRunnerRequestIdFromJob,
   hasRecoverableSkillRunnerRequest,
   isNonRecoverableSkillRunnerFailure,
+  isPreReadySkillRunnerRequest,
 } from "../modules/skillRunnerRecoverableState";
 import { settleSkillRunnerRunAsFailed } from "../modules/skillRunnerRunSettlement";
 import { purgeSkillRunnerRunByRequest } from "../modules/skillRunnerTaskReconciler";
@@ -62,7 +63,10 @@ export class JobQueueManager {
   ) => Promise<unknown>;
 
   private readonly onJobUpdated?: (job: JobRecord) => void;
-  private readonly onJobProgress?: (job: JobRecord, event: JobProgressEvent) => void;
+  private readonly onJobProgress?: (
+    job: JobRecord,
+    event: JobProgressEvent,
+  ) => void;
 
   private readonly jobs = new Map<string, JobRecord>();
 
@@ -208,7 +212,8 @@ export class JobQueueManager {
               scope: "job",
               workflowId: job.workflowId,
               backendId: String(job.meta.backendId || "").trim() || undefined,
-              backendType: String(job.meta.backendType || "").trim() || undefined,
+              backendType:
+                String(job.meta.backendType || "").trim() || undefined,
               providerId: String(job.meta.providerId || "").trim() || undefined,
               runId: String(job.meta.runId || "").trim() || undefined,
               jobId: job.id,
@@ -363,6 +368,7 @@ export class JobQueueManager {
           },
         });
       } else {
+        const preReadySkillRunnerRequest = isPreReadySkillRunnerRequest(job);
         job.state = "failed";
         this.touch(job);
         this.emitJobUpdated(job);
@@ -375,12 +381,23 @@ export class JobQueueManager {
           providerId: String(job.meta.providerId || "").trim() || undefined,
           runId: String(job.meta.runId || "").trim() || undefined,
           jobId: job.id,
+          requestId: requestId || undefined,
           component: "job-queue",
           operation: "dispatch-failed",
           phase: "terminal",
-          stage: "dispatch-failed",
-          message: "provider dispatch failed",
+          stage: preReadySkillRunnerRequest
+            ? "dispatch-failed-before-request-ready"
+            : "dispatch-failed",
+          message: preReadySkillRunnerRequest
+            ? "provider dispatch failed after request creation before request-ready"
+            : "provider dispatch failed",
           error,
+          details: preReadySkillRunnerRequest
+            ? {
+                requestReady: false,
+                recoverable: false,
+              }
+            : undefined,
         });
       }
     } finally {
@@ -394,7 +411,10 @@ export class JobQueueManager {
       Zotero?: { logError?: (err: unknown) => void };
     };
     try {
-      if (typeof console !== "undefined" && typeof console.error === "function") {
+      if (
+        typeof console !== "undefined" &&
+        typeof console.error === "function"
+      ) {
         console.error(label, error);
       }
     } catch {

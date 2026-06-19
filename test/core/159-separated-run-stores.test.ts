@@ -17,18 +17,29 @@ import {
   recordWorkflowTaskUpdate,
   resetWorkflowTasks,
 } from "../../src/modules/taskRuntime";
-import { listSkillRunnerRunRecords } from "../../src/modules/skillRunnerRunStore";
+import {
+  listTaskDashboardHistory,
+  recordTaskDashboardHistoryFromJob,
+  resetTaskDashboardHistory,
+} from "../../src/modules/taskDashboardHistory";
+import {
+  listSkillRunnerRunProjections,
+  listSkillRunnerRunRecords,
+  updateSkillRunnerRunStateByRequest,
+} from "../../src/modules/skillRunnerRunStore";
 
 describe("separated ACP and SkillRunner run stores", function () {
   beforeEach(function () {
     resetAcpSkillRunsForTests();
     resetWorkflowTasks();
+    resetTaskDashboardHistory();
     resetPluginStateStoreForTests();
   });
 
   afterEach(function () {
     resetAcpSkillRunsForTests();
     resetWorkflowTasks();
+    resetTaskDashboardHistory();
     resetPluginStateStoreForTests();
   });
 
@@ -118,6 +129,112 @@ describe("separated ACP and SkillRunner run stores", function () {
       ),
       0,
     );
+  });
+
+  it("does not project SkillRunner jobs before request-ready", function () {
+    const job: JobRecord = {
+      id: "job-1",
+      workflowId: "workflow-debug-probe",
+      request: {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-host-bridge-connectivity-probe",
+      },
+      meta: {
+        runId: "workflow-run-pre-ready",
+        workflowLabel: "Debug Probe",
+        taskName: "debug-host-bridge-connectivity-probe",
+        providerId: "skillrunner",
+        backendId: "skillrunner-local",
+        backendType: "skillrunner",
+        backendBaseUrl: "http://127.0.0.1:8030",
+        skillId: "debug-host-bridge-connectivity-probe",
+      },
+      state: "running",
+      createdAt: "2026-06-18T00:00:00.000Z",
+      updatedAt: "2026-06-18T00:00:01.000Z",
+    };
+
+    recordWorkflowTaskUpdate(job);
+    recordTaskDashboardHistoryFromJob(job);
+
+    assert.deepEqual(listWorkflowTasks(), []);
+    assert.deepEqual(listTaskDashboardHistory(), []);
+    assert.deepEqual(listSkillRunnerRunRecords(), []);
+    assert.deepEqual(listSkillRunnerRunProjections(), []);
+
+    const createdOnlyJob: JobRecord = {
+      ...job,
+      meta: {
+        ...job.meta,
+        requestId: "sr-created-only",
+      },
+      updatedAt: "2026-06-18T00:00:02.000Z",
+    };
+
+    recordWorkflowTaskUpdate(createdOnlyJob);
+    recordTaskDashboardHistoryFromJob(createdOnlyJob);
+
+    assert.deepEqual(listWorkflowTasks(), []);
+    assert.deepEqual(listTaskDashboardHistory(), []);
+    assert.deepEqual(listSkillRunnerRunRecords(), []);
+    assert.deepEqual(listSkillRunnerRunProjections(), []);
+
+    const readyJob: JobRecord = {
+      ...createdOnlyJob,
+      meta: {
+        ...createdOnlyJob.meta,
+        skillRunnerRequestReady: true,
+      },
+      updatedAt: "2026-06-18T00:00:03.000Z",
+    };
+
+    recordWorkflowTaskUpdate(readyJob);
+    recordTaskDashboardHistoryFromJob(readyJob);
+
+    const tasks = listWorkflowTasks();
+    assert.lengthOf(tasks, 1);
+    assert.equal(tasks[0].requestId, "sr-created-only");
+    assert.lengthOf(listSkillRunnerRunRecords(), 1);
+    assert.lengthOf(listSkillRunnerRunProjections(), 1);
+    assert.equal(listTaskDashboardHistory()[0]?.requestId, "sr-created-only");
+  });
+
+  it("keeps SkillRunner run updatedAt stable for same-state backend snapshots", function () {
+    const job: JobRecord = {
+      id: "job-1",
+      workflowId: "workflow-debug-probe",
+      request: {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-host-bridge-connectivity-probe",
+      },
+      meta: {
+        runId: "workflow-run-1",
+        workflowLabel: "Debug Probe",
+        taskName: "debug-host-bridge-connectivity-probe",
+        providerId: "skillrunner",
+        backendId: "skillrunner-local",
+        backendType: "skillrunner",
+        requestId: "sr-req-stable-snapshot",
+      },
+      state: "running",
+      result: {
+        requestId: "sr-req-stable-snapshot",
+      },
+      createdAt: "2026-06-18T00:00:00.000Z",
+      updatedAt: "2026-06-18T00:00:01.000Z",
+    };
+    recordWorkflowTaskUpdate(job);
+
+    const updated = updateSkillRunnerRunStateByRequest({
+      backendId: "skillrunner-local",
+      requestId: "sr-req-stable-snapshot",
+      state: "running",
+      updatedAt: "2026-06-18T00:00:10.000Z",
+      eventType: "backend.snapshot",
+    });
+
+    assert.equal(updated?.updatedAt, "2026-06-18T00:00:01.000Z");
+    assert.equal(updated?.taskProjection.updatedAt, "2026-06-18T00:00:01.000Z");
   });
 
   it("syncs ACP terminal task state without touching SkillRunner run store", function () {

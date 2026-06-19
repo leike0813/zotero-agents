@@ -265,3 +265,156 @@ ordinary backend requests.
 - **THEN** the step SHALL have its own SkillRunner run record and backend request id
 - **AND** the sequence root SHALL be stored as a non-projectable SkillRunner run
 - **AND** the sequence root SHALL NOT swallow the step projection.
+
+## ADDED Requirements
+
+### Requirement: SkillRunner HTTP requests MUST use governed connection lanes
+
+SkillRunner provider and management HTTP calls SHALL use application-level
+connection governance instead of relying on implicit browser connection pools.
+
+#### Scenario: submit requests keep priority
+
+- **WHEN** SkillRunner creates or uploads a backend job
+- **THEN** those requests SHALL run in the `submit` lane
+- **AND** background, maintenance, and stream work SHALL NOT consume the final
+  submit-reserved backend slot
+
+#### Scenario: pre-ready dispatch failure is not recoverable
+
+- **WHEN** `/v1/jobs` has returned a request id but upload or request
+  initialization fails before `request-ready`
+- **THEN** the provider dispatch SHALL fail the workflow job
+- **AND** the job SHALL NOT be reported as a recoverable backend-owned pending
+  run
+- **AND** runtime logs SHALL include the request id and a pre-ready failure
+  stage for audit
+
+#### Scenario: submit requests are bounded by timeout
+
+- **WHEN** SkillRunner create or upload does not complete
+- **THEN** the submit request SHALL be aborted by a bounded request timeout
+- **AND** the workflow job SHALL settle failed rather than remaining silently
+  in-flight
+
+#### Scenario: terminal settlement uses settlement lane
+
+- **WHEN** SkillRunner terminal success requires `/result` or `/bundle`
+- **THEN** result and bundle requests SHALL run in the `settlement` lane
+- **AND** settlement failure SHALL NOT block later submit requests
+
+#### Scenario: UI chat streams use a bounded stream pool
+
+- **WHEN** RunDialog opens `/chat` SSE for SkillRunner runs on one backend
+- **THEN** those streams SHALL run in the `foreground-stream` lane
+- **AND** no more than two distinct request ids SHALL hold active foreground
+  streams for that backend
+
+### Requirement: SkillRunner SSE parsing MUST support standard frame endings
+
+SkillRunner management SSE parsing SHALL handle both LF and CRLF empty-line
+frame boundaries.
+
+#### Scenario: CRLF-delimited frames are emitted
+
+- **WHEN** a SkillRunner SSE response uses `\r\n\r\n` between frames
+- **THEN** the management client SHALL emit each frame without waiting for the
+  stream to close
+- **AND** aborting the stream SHALL release the governed connection slot
+
+### Requirement: SkillRunner provider dispatch MUST stop at request-ready
+
+SkillRunner provider execution SHALL create and initialize the backend request,
+then hand post-ready work to reconciler-owned settlement.
+
+#### Scenario: upload success returns deferred without foreground polling
+
+- **WHEN** `/v1/jobs` returns a request id
+- **AND** the upload or initialization request succeeds
+- **THEN** the provider SHALL record a `request-ready` SkillRunner run
+- **AND** it SHALL return a deferred provider result
+- **AND** it SHALL NOT poll `/v1/jobs/{requestId}`
+- **AND** it SHALL NOT fetch `/result` or `/bundle`
+
+#### Scenario: pre-ready failure remains foreground terminal
+
+- **WHEN** create, upload, or initialization fails before `request-ready`
+- **THEN** the provider SHALL fail the workflow dispatch
+- **AND** no user-visible SkillRunner run projection SHALL be created
+- **AND** runtime diagnostics SHALL include the stage and request id when one
+  exists
+
+#### Scenario: request-ready run is registered for settlement
+
+- **WHEN** a SkillRunner request reaches `request-ready`
+- **THEN** plugin SHALL register the run for reconciler-owned terminal
+  settlement
+- **AND** foreground provider code SHALL NOT own apply, retry, or sequence
+  continuation for that run
+
+### Requirement: SkillRunner post-ready errors MUST be classified by run scope
+
+SkillRunner HTTP failures after `request-ready` SHALL distinguish terminal
+run-level client errors from backend-level recoverable failures.
+
+#### Scenario: run-level client error fails only current run
+
+- **WHEN** post-ready state, result, bundle, or interaction requests return
+  `400`, `404`, `410`, or `422`
+- **THEN** plugin SHALL settle the affected SkillRunner run as failed
+- **AND** it SHALL NOT mark the whole backend unreachable
+
+#### Scenario: recoverable backend failure preserves submit availability
+
+- **WHEN** post-ready state, result, bundle, or interaction requests fail with a
+  network error, timeout, `429`, or `5xx`
+- **THEN** plugin MAY use retry, backoff, or backend-health handling
+- **AND** later submit/create/upload requests SHALL remain able to run
+
+### Requirement: SkillRunner connection governance MUST separate reconcile and health lanes
+
+SkillRunner HTTP work SHALL route terminal state polling and backend health
+probing through separate governed lanes.
+
+#### Scenario: terminal polling uses reconcile lane
+
+- **WHEN** the frontend checks `/v1/jobs/{request_id}` for an already registered
+  SkillRunner run
+- **THEN** the request SHALL run in the `reconcile` lane
+- **AND** the request SHALL use a bounded timeout
+- **AND** it SHALL NOT share the `background` lane used by non-critical history
+  or gap sync
+
+#### Scenario: health probe uses health lane
+
+- **WHEN** the frontend probes backend reachability with `/v1/system/ping`
+- **THEN** the request SHALL run in the `health` lane
+- **AND** health lane queueing or skipping SHALL NOT by itself mark an active
+  run failed
+- **AND** health lane failure SHALL NOT consume critical submit, settlement, or
+  reconcile capacity
+
+### Requirement: SkillRunner backend connection budget MUST protect critical lanes
+
+The SkillRunner connection governor SHALL keep submit, settlement, and reconcile
+work able to start under normal UI stream load.
+
+#### Scenario: backend active cap is six
+
+- **WHEN** SkillRunner work is scheduled for one backend
+- **THEN** the default plugin-side active connection cap SHALL be six
+
+#### Scenario: critical lane may evict warm stream
+
+- **WHEN** a backend is at its active connection cap
+- **AND** a `submit`, `settlement`, or `reconcile` task is queued
+- **AND** an evictable warm foreground stream exists
+- **THEN** the governor SHALL abort the least-recently focused evictable stream
+- **AND** it SHALL start the critical task instead of waiting for background or
+  stream work to finish
+
+#### Scenario: low-priority lanes reserve budget
+
+- **WHEN** `background`, `maintenance`, or `health` work is queued
+- **THEN** that work SHALL leave at least two backend slots available for
+  critical lanes

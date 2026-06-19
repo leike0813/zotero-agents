@@ -429,7 +429,10 @@ function createSkillRunnerHostActionHandler(
       }
     }
     if (action === "open-backend-manager") {
-      await openBackendManagerDialog({ window: host.win });
+      await openBackendManagerDialog({
+        window: host.win,
+        initialProviderType: "skillrunner",
+      });
       return true;
     }
     if (action === "copy-request-id") {
@@ -929,6 +932,13 @@ async function handleAcpSkillRunAction(
       copyText(JSON.stringify(snapshot, null, 2));
       return;
     }
+    if (action === "open-backend-manager") {
+      await openBackendManagerDialog({
+        window: host.win,
+        initialProviderType: "acp",
+      });
+      return;
+    }
     if (action === "open-workspace") {
       openFolderInSystemFileManager(String(payload.workspaceDir || "").trim());
       return;
@@ -980,7 +990,10 @@ async function handleAcpChatAction(
       return;
     }
     if (action === "open-backend-manager") {
-      await openBackendManagerDialog({ window: host.win });
+      await openBackendManagerDialog({
+        window: host.win,
+        initialProviderType: "acp",
+      });
       return;
     }
     if (action === "close-sidebar") {

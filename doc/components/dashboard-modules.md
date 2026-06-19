@@ -182,9 +182,16 @@ Merges history and active tasks for a given backendId: deduplicates by `id`
 function normalizeDashboardTabKey(args: {
   requestedTabKey?: string;
   backends: BackendInstance[];
+  debugModeEnabled?: boolean;
 }): string
 ```
 Validates a requested tab key. Known non-backend values: `"home"`,
-`"products"`, `"workflow-options"`, `"runtime-logs"`. Backend keys are
-`"backend:<id>"` and are accepted only when the id exists in the backends
-array. Falls back to `"home"` when unrecognized.
+`"products"`, `"workflow-options"`, `"runtime-logs"`. The debug-only
+`"skillrunner-connection-audit"` value is accepted only when
+`debugModeEnabled` is true. Backend keys are `"backend:<id>"` and are accepted
+only when the id exists in the backends array. Falls back to `"home"` when
+unrecognized.
+
+The SkillRunner connection audit tab is a read-only diagnostic surface. Normal
+Dashboard snapshots do not read connection governor audit data; the read occurs
+only when debug mode is enabled and the audit tab is selected.

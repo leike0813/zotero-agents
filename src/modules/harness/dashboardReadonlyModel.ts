@@ -373,6 +373,21 @@ const DASHBOARD_LABELS = {
   productsListCollapse: "Collapse product list",
   productsListExpand: "Expand product list",
   productsListRail: "Products",
+  productsSectionFiles: "Products",
+  productsSectionFeedback: "Skill Feedback",
+  productsViewerWrap: "Wrap",
+  productsViewerCopy: "Copy",
+  productsViewerCopied: "Copied",
+  productsViewerCopyFailed: "Copy failed",
+  feedbackEmpty: "No skill feedback has been collected yet.",
+  feedbackFilterSkill: "Skill",
+  feedbackFilterAllSkills: "All skills",
+  feedbackSelectAll: "Select all",
+  feedbackExportSelected: "Export Selected",
+  feedbackDeleteSelected: "Delete Selected",
+  feedbackDeleteAll: "Delete All",
+  feedbackExportEmpty: "Select at least one feedback record to export.",
+  feedbackExportSuccess: "Skill feedback export file created.",
   homeWorkflowTitle: "Workflows",
   homeWorkflowDocButton: "Description",
   homeWorkflowRunButton: "Run workflow",
@@ -971,6 +986,14 @@ export async function createDashboardReadonlyModel(
     } else if (action === "export-selected-feedback") {
       log("dashboard", action, {
         productIds: Array.from(state.selectedFeedbackProductIds),
+      });
+    } else if (action === "delete-selected-feedback") {
+      log("dashboard", action, {
+        productIds: Array.from(state.selectedFeedbackProductIds),
+      });
+    } else if (action === "delete-all-feedback") {
+      log("dashboard", action, {
+        skillId: state.feedbackSkillFilter,
       });
     } else if (action === "runtime-logs-set-filters") {
       state.runtimeLogFilters =

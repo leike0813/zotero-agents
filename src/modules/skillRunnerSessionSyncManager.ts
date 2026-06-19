@@ -11,7 +11,6 @@ import {
 } from "./skillRunnerBackendHealthRegistry";
 import { updateWorkflowTaskStateByRequest } from "./taskRuntime";
 import { updateSkillRunnerRunStateByRequest } from "./skillRunnerRunStore";
-import { delay } from "../utils/runtimeCompatibility";
 
 type SessionLoopState = {
   requestId: string;
@@ -21,6 +20,7 @@ type SessionLoopState = {
   eventCursor: number;
   retryDelayMs: number;
   generation: number;
+  abortController?: AbortController;
 };
 
 type SessionSyncClient = ReturnType<typeof buildSkillRunnerManagementClient>;
@@ -91,19 +91,14 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-async function sleep(ms: number) {
-  if (ms <= 0) {
-    return;
-  }
-  await delay(ms);
-}
-
 function toSessionKey(backendId: string, requestId: string) {
   return `${normalizeString(backendId)}:${normalizeString(requestId)}`;
 }
 
 function resolveConversationStateChangedStatus(event: Record<string, unknown>) {
-  const type = normalizeString(event.type || event.kind || event.event).toLowerCase();
+  const type = normalizeString(
+    event.type || event.kind || event.event,
+  ).toLowerCase();
   if (type !== "conversation.state.changed") {
     return "";
   }
@@ -113,7 +108,9 @@ function resolveConversationStateChangedStatus(event: Record<string, unknown>) {
 
 function isSessionActive(session: SessionLoopState) {
   const key = toSessionKey(session.backend.id, session.requestId);
-  return !session.stopped && sessions.get(key)?.generation === session.generation;
+  return (
+    !session.stopped && sessions.get(key)?.generation === session.generation
+  );
 }
 
 function trackInFlightTask(task: Promise<void>) {
@@ -123,7 +120,10 @@ function trackInFlightTask(task: Promise<void>) {
   });
 }
 
-function spawnSessionTask(session: SessionLoopState, runner: () => Promise<void>) {
+function spawnSessionTask(
+  session: SessionLoopState,
+  runner: () => Promise<void>,
+) {
   if (!isSessionActive(session)) {
     return;
   }
@@ -148,6 +148,7 @@ function stopSessionByKey(key: string) {
     lastEventCursorBySession.set(key, session.eventCursor);
   }
   session.stopped = true;
+  session.abortController?.abort();
   session.generation += 1;
   sessions.delete(key);
 }
@@ -203,18 +204,20 @@ function applyStateSnapshot(args: {
       updatedAt: args.updatedAt,
     };
   }
+  const taskState =
+    updated.status === "request_ready" ? "running" : updated.status;
   sessionSyncDeps.updateWorkflowTaskStateByRequest({
     backendId: updated.backendId,
     backendType: "skillrunner",
     requestId: updated.requestId,
-    state: updated.status,
+    state: taskState,
     error: undefined,
     updatedAt: updated.updatedAt,
   });
   sessionSyncDeps.updateTaskDashboardHistoryStateByRequest({
     backendId: updated.backendId,
     requestId: updated.requestId,
-    state: updated.status,
+    state: taskState,
     error: undefined,
     updatedAt: updated.updatedAt,
   });
@@ -235,6 +238,8 @@ async function consumeEventHistory(
   const payload = await client.listRunEventHistory({
     requestId: session.requestId,
     fromSeq: session.eventCursor + 1,
+    lane: "background",
+    signal: session.abortController?.signal,
   });
   if (!isSessionActive(session)) {
     return;
@@ -282,124 +287,52 @@ async function streamEventLoop(session: SessionLoopState) {
     backend: session.backend,
     localize: (_key, fallback) => fallback,
   });
-  while (isSessionActive(session)) {
-    if (isSkillRunnerBackendReconcileFlagged(backendId)) {
-      stopSessionByKey(key);
+  if (!isSessionActive(session)) {
+    return;
+  }
+  if (isSkillRunnerBackendReconcileFlagged(backendId)) {
+    stopSessionByKey(key);
+    return;
+  }
+  try {
+    await consumeEventHistory(session, client);
+    stopSessionByKey(key);
+  } catch (error) {
+    if (!isSessionActive(session)) {
       return;
     }
-    try {
-      await consumeEventHistory(session, client);
-      if (!isSessionActive(session)) {
-        return;
-      }
-      sessionSyncDeps.markSkillRunnerBackendHealthSuccess(backendId);
-      await client.streamRunEvents({
+    if (isSkillRunnerRunTerminalClientError(error)) {
+      const updatedAt = new Date().toISOString();
+      const message =
+        error instanceof Error
+          ? error.message
+          : "SkillRunner request is unavailable";
+      sessionSyncDeps.updateSkillRunnerRunStateByRequest({
+        backendId,
         requestId,
-        cursor: session.eventCursor,
-        onFrame: (frame) => {
-          if (!isSessionActive(session)) {
-            return;
-          }
-          if (frame.event === "snapshot" && isObject(frame.data)) {
-            const cursor = Number(frame.data.cursor || 0);
-            if (Number.isFinite(cursor) && cursor > session.eventCursor) {
-              session.eventCursor = Math.floor(cursor);
-            }
-            return;
-          }
-          if (frame.event !== "chat_event" || !isObject(frame.data)) {
-            return;
-          }
-          const seq = Number(frame.data.seq || 0);
-          if (Number.isFinite(seq) && seq > session.eventCursor) {
-            session.eventCursor = Math.floor(seq);
-          }
-          const status = resolveConversationStateChangedStatus(
-            frame.data as Record<string, unknown>,
-          );
-          if (!status) {
-            return;
-          }
-          const current = applyStateSnapshot({
-            session,
-            status,
-            updatedAt:
-              normalizeString((frame.data as Record<string, unknown>).ts) ||
-              undefined,
-          });
-          if (current.status === "running") {
-            return;
-          }
-          if (shouldDisconnectEventStream(current.status)) {
-            stopSessionByKey(key);
-          }
+        state: "failed",
+        error: message,
+        updatedAt,
+        eventType: "run.terminal_client_error",
+        eventPayload: {
+          source: "events-history",
+          reason: message,
         },
       });
-      if (!isSessionActive(session)) {
-        return;
-      }
-      await sleep(session.retryDelayMs);
-      if (!isSessionActive(session)) {
-        return;
-      }
-      session.retryDelayMs = Math.min(30000, session.retryDelayMs * 2);
-    } catch (error) {
-      if (!isSessionActive(session)) {
-        return;
-      }
-      if (isSkillRunnerRunTerminalClientError(error)) {
-        const updatedAt = new Date().toISOString();
-        const message =
-          error instanceof Error
-            ? error.message
-            : "SkillRunner request is unavailable";
-        sessionSyncDeps.updateSkillRunnerRunStateByRequest({
-          backendId,
-          requestId,
-          state: "failed",
-          error: message,
-          updatedAt,
-          eventType: "run.terminal_client_error",
-          eventPayload: {
-            source: "events-stream",
-            reason: message,
-          },
-        });
-        sessionSyncDeps.updateWorkflowTaskStateByRequest({
-          backendId,
-          backendType: "skillrunner",
-          requestId,
-          state: "failed",
-          error: message,
-          updatedAt,
-        });
-        sessionSyncDeps.updateTaskDashboardHistoryStateByRequest({
-          backendId,
-          requestId,
-          state: "failed",
-          error: message,
-          updatedAt,
-        });
-        sessionSyncDeps.appendRuntimeLog({
-          level: "warn",
-          scope: "job",
-          backendId,
-          backendType: session.backend.type,
-          requestId,
-          component: "skillrunner-session-sync",
-          operation: "events-stream-terminal-run-error",
-          phase: "terminal",
-          stage: "events-stream-terminal-run-error",
-          message:
-            "skillrunner events stream stopped after terminal run-level error",
-          error,
-        });
-        stopSessionByKey(key);
-        return;
-      }
-      sessionSyncDeps.markSkillRunnerBackendHealthFailure({
+      sessionSyncDeps.updateWorkflowTaskStateByRequest({
         backendId,
-        error,
+        backendType: "skillrunner",
+        requestId,
+        state: "failed",
+        error: message,
+        updatedAt,
+      });
+      sessionSyncDeps.updateTaskDashboardHistoryStateByRequest({
+        backendId,
+        requestId,
+        state: "failed",
+        error: message,
+        updatedAt,
       });
       sessionSyncDeps.appendRuntimeLog({
         level: "warn",
@@ -408,23 +341,30 @@ async function streamEventLoop(session: SessionLoopState) {
         backendType: session.backend.type,
         requestId,
         component: "skillrunner-session-sync",
-        operation: "events-stream-disconnected",
-        phase: "reconcile",
-        stage: "events-stream-disconnected",
-        message: "skillrunner events stream disconnected; stopping current request stream",
+        operation: "events-history-terminal-run-error",
+        phase: "terminal",
+        stage: "events-history-terminal-run-error",
+        message:
+          "skillrunner events history sync stopped after terminal run-level error",
         error,
       });
       stopSessionByKey(key);
-      if (!isSessionActive(session)) {
-        return;
-      }
-      await sleep(session.retryDelayMs);
-      if (!isSessionActive(session)) {
-        return;
-      }
-      session.retryDelayMs = Math.min(30000, session.retryDelayMs * 2);
       return;
     }
+    sessionSyncDeps.appendRuntimeLog({
+      level: "debug",
+      scope: "job",
+      backendId,
+      backendType: session.backend.type,
+      requestId,
+      component: "skillrunner-session-sync",
+      operation: "events-history-sync-failed",
+      phase: "reconcile",
+      stage: "events-history-sync-failed",
+      message: "skillrunner events history sync failed; releasing session sync",
+      error,
+    });
+    stopSessionByKey(key);
   }
 }
 
@@ -450,9 +390,14 @@ export function ensureSkillRunnerSessionSync(args: {
     backend: args.backend,
     stopped: false,
     started: false,
-    eventCursor: Math.max(0, Math.floor(lastEventCursorBySession.get(key) || 0)),
+    eventCursor: Math.max(
+      0,
+      Math.floor(lastEventCursorBySession.get(key) || 0),
+    ),
     retryDelayMs: 800,
     generation: ++nextSessionGeneration,
+    abortController:
+      typeof AbortController === "function" ? new AbortController() : undefined,
   };
   sessions.set(key, session);
   if (!session.started) {

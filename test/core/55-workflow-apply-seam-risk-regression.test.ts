@@ -257,7 +257,7 @@ describe("workflow apply seam risk regression", function () {
     assert.lengthOf(summary.jobOutcomes, 0);
     assert.lengthOf(summary.reconcileOwnedPendingJobs, 1);
     assert.equal(summary.reconcileOwnedPendingJobs[0].requestId, "req-auto-1");
-    assert.include(runtimeStages, "foreground-apply-skipped-auto");
+    assert.include(runtimeStages, "foreground-apply-skipped-skillrunner");
   });
 
   it("does not skip foreground apply for ACP skillrunner-compatible auto succeeded job", async function () {
@@ -397,7 +397,7 @@ describe("workflow apply seam risk regression", function () {
     assert.notInclude(runtimeStages, "apply-succeeded");
   });
 
-  it("keeps request-created skillrunner auto job pending when local dispatch fails after request creation", async function () {
+  it("fails pre-ready skillrunner auto job instead of keeping it pending", async function () {
     const runtimeStages: string[] = [];
 
     const summary = await runWorkflowApplySeam(
@@ -442,6 +442,66 @@ describe("workflow apply seam risk regression", function () {
     );
 
     assert.equal(summary.succeeded, 0);
+    assert.equal(summary.failed, 1);
+    assert.equal(summary.pending, 0);
+    assert.lengthOf(summary.reconcileOwnedPendingJobs, 0);
+    assert.include(
+      summary.failureReasons[0],
+      "backend polling temporarily failed",
+    );
+    assert.notInclude(
+      runtimeStages,
+      "job-pending-recoverable-dispatch-failure",
+    );
+    assert.include(runtimeStages, "job-failed");
+  });
+
+  it("keeps request-ready skillrunner auto job pending when local dispatch fails after backend ownership", async function () {
+    const runtimeStages: string[] = [];
+
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: createRunState({
+          requests: [
+            {
+              kind: "skillrunner.job.v1",
+              targetParentID: 3,
+              runtime_options: {
+                execution_mode: "auto",
+              },
+            },
+          ],
+          jobIds: ["job-auto-recoverable-ready-1"],
+          jobsById: {
+            "job-auto-recoverable-ready-1": {
+              id: "job-auto-recoverable-ready-1",
+              state: "running",
+              error: "backend polling temporarily failed",
+              meta: {
+                requestId: "req-auto-recoverable-ready-1",
+                providerId: "skillrunner",
+                targetParentID: 3,
+                skillRunnerRequestReady: true,
+              },
+            },
+          },
+          workflowManifest: {
+            provider: "skillrunner",
+            request: {
+              kind: "skillrunner.job.v1",
+            },
+          },
+        }),
+        messageFormatter: createMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: (entry) => {
+          runtimeStages.push(entry.stage);
+        },
+      },
+    );
+
+    assert.equal(summary.succeeded, 0);
     assert.equal(summary.failed, 0);
     assert.equal(summary.pending, 1);
     assert.lengthOf(summary.failureReasons, 0);
@@ -449,7 +509,7 @@ describe("workflow apply seam risk regression", function () {
     assert.lengthOf(summary.reconcileOwnedPendingJobs, 1);
     assert.equal(
       summary.reconcileOwnedPendingJobs[0].requestId,
-      "req-auto-recoverable-1",
+      "req-auto-recoverable-ready-1",
     );
     assert.include(runtimeStages, "job-pending-recoverable-dispatch-failure");
   });
@@ -503,7 +563,10 @@ describe("workflow apply seam risk regression", function () {
     assert.equal(summary.pending, 0);
     assert.equal(summary.failed, 1);
     assert.lengthOf(summary.reconcileOwnedPendingJobs, 0);
-    assert.notInclude(runtimeStages, "job-pending-recoverable-dispatch-failure");
+    assert.notInclude(
+      runtimeStages,
+      "job-pending-recoverable-dispatch-failure",
+    );
   });
 
   it("propagates explicit bundle-entry path error into failureReasons", async function () {
@@ -530,7 +593,7 @@ describe("workflow apply seam risk regression", function () {
       {
         executeApplyResult: async () => {
           throw new Error(
-            "[digest_path] bundle entry not found; raw_path=uploads/inputs/source_path/artifacts/digest.md; candidates=[\"uploads/inputs/source_path/artifacts/digest.md\",\"artifacts/digest.md\"]",
+            '[digest_path] bundle entry not found; raw_path=uploads/inputs/source_path/artifacts/digest.md; candidates=["uploads/inputs/source_path/artifacts/digest.md","artifacts/digest.md"]',
           );
         },
       },
@@ -539,7 +602,13 @@ describe("workflow apply seam risk regression", function () {
     assert.equal(summary.succeeded, 0);
     assert.equal(summary.failed, 1);
     assert.notInclude(summary.failureReasons[0], "unknown error");
-    assert.include(summary.failureReasons[0], "[digest_path] bundle entry not found");
-    assert.include(summary.failureReasons[0], "uploads/inputs/source_path/artifacts/digest.md");
+    assert.include(
+      summary.failureReasons[0],
+      "[digest_path] bundle entry not found",
+    );
+    assert.include(
+      summary.failureReasons[0],
+      "uploads/inputs/source_path/artifacts/digest.md",
+    );
   });
 });

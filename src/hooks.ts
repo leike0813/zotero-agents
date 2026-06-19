@@ -730,10 +730,51 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         String(data.category || "") as RuntimePersistenceCategory,
       );
     case "scanPersistenceGovernance": {
-      const [usage, integrity] = await Promise.all([
-        scanRuntimePersistenceUsage(),
-        scanPersistenceIntegrity(),
-      ]);
+      const onProgress =
+        typeof data.onProgress === "function" ? data.onProgress : null;
+      const emitProgress = (progress: {
+        stage: string;
+        label: string;
+        current: number;
+        total: number;
+        percent: number;
+      }) => {
+        try {
+          onProgress?.(progress);
+        } catch (error) {
+          console.warn("[runtime-persistence] progress callback failed", error);
+        }
+      };
+      let usageStepCount = 0;
+      let integrityStepCount = 0;
+      const usage = await scanRuntimePersistenceUsage({
+        onProgress: (progress) => {
+          usageStepCount = Math.max(usageStepCount, progress.total);
+          emitProgress({
+            ...progress,
+            percent: Math.floor((progress.percent || 0) / 2),
+          });
+        },
+      });
+      const integrity = await scanPersistenceIntegrity({
+        onProgress: (progress) => {
+          integrityStepCount = Math.max(integrityStepCount, progress.total);
+          const total = usageStepCount + progress.total;
+          emitProgress({
+            ...progress,
+            current: usageStepCount + progress.current,
+            total,
+            percent: 50 + Math.floor((progress.percent || 0) / 2),
+          });
+        },
+      });
+      emitProgress({
+        stage: "complete",
+        label: "Persistence scan complete",
+        current: Math.max(usageStepCount + integrityStepCount, 0),
+        total: Math.max(usageStepCount + integrityStepCount, 0),
+        percent: 100,
+      });
       return { usage, integrity };
     }
     case "cleanupPersistenceGovernanceIssues": {

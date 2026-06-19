@@ -13,7 +13,6 @@ import { recordWorkflowTaskUpdate } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
 import { registerSkillRunnerRunForSettlement } from "../skillRunnerTaskReconciler";
 import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
-import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
 import { selectAcpSkillRun } from "../acpSkillRunStore";
 import type { PreparedWorkflowExecution, WorkflowRunState } from "./contracts";
 import {
@@ -43,7 +42,6 @@ type RunSeamDeps = {
   recordTaskDashboardHistoryFromJob: typeof recordTaskDashboardHistoryFromJob;
   registerSkillRunnerRunForSettlement: typeof registerSkillRunnerRunForSettlement;
   openAssistantWorkspaceSidebar: typeof openAssistantWorkspaceSidebar;
-  focusSkillRunnerWorkspace: typeof focusSkillRunnerWorkspace;
   selectAcpSkillRun: typeof selectAcpSkillRun;
   getLoadedWorkflowEntries: typeof getLoadedWorkflowEntries;
   executeSequenceStepApply: typeof executeSequenceStepApply;
@@ -57,7 +55,6 @@ const defaultRunSeamDeps: RunSeamDeps = {
   recordTaskDashboardHistoryFromJob,
   registerSkillRunnerRunForSettlement,
   openAssistantWorkspaceSidebar,
-  focusSkillRunnerWorkspace,
   selectAcpSkillRun,
   getLoadedWorkflowEntries,
   executeSequenceStepApply,
@@ -80,7 +77,9 @@ function normalizeSequenceStepIndex(value: unknown) {
   return Number.isFinite(parsed) ? Math.floor(parsed) : undefined;
 }
 
-function mapSequenceStepProgressState(event: Record<string, unknown>): JobState {
+function mapSequenceStepProgressState(
+  event: Record<string, unknown>,
+): JobState {
   const type = normalizeText(event.type);
   if (type === "sequence-step-succeeded") {
     return "succeeded";
@@ -208,11 +207,13 @@ export function runWorkflowExecutionSeam(
                     ...stepApply.stepResult,
                     resultJson: stepApply.output,
                     backendId:
-                      String(args.prepared.executionContext.backend.id || "").trim() ||
-                      undefined,
+                      String(
+                        args.prepared.executionContext.backend.id || "",
+                      ).trim() || undefined,
                     backendType:
-                      String(args.prepared.executionContext.backend.type || "").trim() ||
-                      undefined,
+                      String(
+                        args.prepared.executionContext.backend.type || "",
+                      ).trim() || undefined,
                     runId,
                     sequence: {
                       workflow_run_id: stepApply.workflowRunId,
@@ -293,24 +294,6 @@ export function runWorkflowExecutionSeam(
             providerOptions: args.prepared.executionContext.providerOptions,
             job: stepJob,
           });
-          const requestId = normalizeText(event.requestId);
-          if (requestId) {
-            void resolved.focusSkillRunnerWorkspace({
-              backend: executionContext.backend,
-              requestId,
-              selectionChanged: true,
-            });
-            if (
-              args.prepared.workflow.manifest.execution?.skillrunner_mode ===
-              "interactive"
-            ) {
-              void resolved.openAssistantWorkspaceSidebar({
-                tab: "skillrunner",
-                backend: executionContext.backend,
-                requestId,
-              });
-            }
-          }
         }
         return;
       }
@@ -364,20 +347,6 @@ export function runWorkflowExecutionSeam(
         const isAcpSkillRun =
           executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
           executionContext.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND;
-        if (isSkillRunnerJob && backendType === "skillrunner" && requestId) {
-          void resolved.focusSkillRunnerWorkspace({
-            backend: executionContext.backend,
-            requestId,
-            selectionChanged: true,
-          });
-          if (skillrunnerMode === "interactive") {
-            void resolved.openAssistantWorkspaceSidebar({
-              tab: "skillrunner",
-              backend: executionContext.backend,
-              requestId,
-            });
-          }
-        }
         if (isAcpSkillRun && backendType === "acp" && requestId) {
           resolved.selectAcpSkillRun(requestId);
           if (skillrunnerMode === "interactive") {

@@ -8,6 +8,9 @@ import {
   registerPluginTaskDomainExceptRowScopesByteEstimator,
   registerPluginTaskDomainCounter,
   registerPluginTaskDomainExceptRowScopesCounter,
+  registerPluginRunStoreByteEstimator,
+  registerPluginRunStoreClearer,
+  registerPluginRunStoreCounter,
   registerPluginTaskScopeByteEstimator,
   registerPluginTaskScopeClearer,
   registerPluginTaskScopeCounter,
@@ -1503,14 +1506,54 @@ export function deletePluginRunStoreEntry(
 export function clearPluginRunStore(kind: PluginRunStoreKind) {
   const db = getAdapter();
   const tables = runStoreTables(kind);
-  const count = Number(
+  const runCount = Number(
     db.get(`SELECT COUNT(*) AS value FROM ${tables.runs}`)?.value || 0,
+  );
+  const eventCount = Number(
+    db.get(`SELECT COUNT(*) AS value FROM ${tables.events}`)?.value || 0,
   );
   db.transaction(() => {
     db.run(`DELETE FROM ${tables.events}`);
     db.run(`DELETE FROM ${tables.runs}`);
   });
-  return Number.isFinite(count) ? count : 0;
+  const total =
+    (Number.isFinite(runCount) ? runCount : 0) +
+    (Number.isFinite(eventCount) ? eventCount : 0);
+  return total;
+}
+
+export function countPluginRunStore(kind: PluginRunStoreKind) {
+  const db = getAdapter();
+  const tables = runStoreTables(kind);
+  const runCount = Number(
+    db.get(`SELECT COUNT(*) AS value FROM ${tables.runs}`)?.value || 0,
+  );
+  const eventCount = Number(
+    db.get(`SELECT COUNT(*) AS value FROM ${tables.events}`)?.value || 0,
+  );
+  return (
+    (Number.isFinite(runCount) ? runCount : 0) +
+    (Number.isFinite(eventCount) ? eventCount : 0)
+  );
+}
+
+export function estimatePluginRunStoreBytes(kind: PluginRunStoreKind) {
+  const db = getAdapter();
+  const tables = runStoreTables(kind);
+  const runBytes = Number(
+    db.get(
+      `SELECT COALESCE(SUM(LENGTH(payload_json)), 0) AS value FROM ${tables.runs}`,
+    )?.value || 0,
+  );
+  const eventBytes = Number(
+    db.get(
+      `SELECT COALESCE(SUM(LENGTH(payload_json)), 0) AS value FROM ${tables.events}`,
+    )?.value || 0,
+  );
+  return (
+    (Number.isFinite(runBytes) ? runBytes : 0) +
+    (Number.isFinite(eventBytes) ? eventBytes : 0)
+  );
 }
 
 export function appendPluginRunEventStoreEntry(
@@ -2382,6 +2425,9 @@ registerPluginTaskDomainExceptRowScopesByteEstimator(
   estimatePluginTaskDomainExceptRowScopesBytes,
 );
 registerPluginTaskScopeByteEstimator(estimatePluginTaskScopeBytes);
+registerPluginRunStoreClearer(clearPluginRunStore);
+registerPluginRunStoreCounter(countPluginRunStore);
+registerPluginRunStoreByteEstimator(estimatePluginRunStoreBytes);
 
 export function exportPluginStateStoreRowsForTests() {
   const db = getAdapter();

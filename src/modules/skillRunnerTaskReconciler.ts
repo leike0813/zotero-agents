@@ -16,7 +16,10 @@ import {
   writeBytes,
 } from "./workflowExecution/bundleIO";
 import { appendRuntimeLog } from "./runtimeLogManager";
-import { getLoadedWorkflowEntries, rescanWorkflowRegistry } from "./workflowRuntime";
+import {
+  getLoadedWorkflowEntries,
+  rescanWorkflowRegistry,
+} from "./workflowRuntime";
 import {
   listTaskDashboardHistory,
   recordTaskDashboardHistoryFromJob,
@@ -70,7 +73,6 @@ import {
 } from "../providers/skillrunner/errors";
 import { settleSkillRunnerRunAsFailed } from "./skillRunnerRunSettlement";
 import {
-  ensureSkillRunnerSessionSync,
   stopSessionSync,
   stopAllSkillRunnerSessionSync,
 } from "./skillRunnerSessionSyncManager";
@@ -95,6 +97,7 @@ import {
   listSkillRunnerRunRecords,
   type SkillRunnerRunRecord,
   updateSkillRunnerRunApplyState,
+  updateSkillRunnerRunResult,
   upsertSkillRunnerRunFromTask,
 } from "./skillRunnerRunStore";
 
@@ -127,6 +130,11 @@ type ReconcileContext = {
   providerOptions: Record<string, unknown>;
   runId: string;
   jobId: string;
+  workflowRunId?: string;
+  sequenceStepId?: string;
+  sequenceStepIndex?: number;
+  sequenceJobId?: string;
+  sequenceStepSkillId?: string;
   taskName: string;
   inputUnitIdentity?: string;
   inputUnitLabel?: string;
@@ -224,32 +232,36 @@ let skillRunnerTaskLifecycleToastEmitter: (
 export function setSkillRunnerBackendReconcileFailureToastEmitterForTests(
   emitter?: (payload: BackendReconcileFailureToastPayload) => void,
 ) {
-  backendReconcileFailureToastEmitter = emitter || ((payload) => {
-    showWorkflowToast({
-      text: payload.text,
-      type: "error",
-      semantic: "error",
+  backendReconcileFailureToastEmitter =
+    emitter ||
+    ((payload) => {
+      showWorkflowToast({
+        text: payload.text,
+        type: "error",
+        semantic: "error",
+      });
     });
-  });
 }
 
 export function setSkillRunnerTaskLifecycleToastEmitterForTests(
   emitter?: (payload: SkillRunnerTaskLifecycleToastPayload) => void,
 ) {
-  skillRunnerTaskLifecycleToastEmitter = emitter || ((payload) => {
-    showWorkflowToast({
-      text: payload.text,
-      type: payload.type,
-      semantic:
-        payload.state === "waiting_user" || payload.state === "waiting_auth"
-          ? "waiting"
-          : payload.state === "canceled"
-            ? "canceled"
-            : payload.state === "succeeded"
-              ? "success"
-              : "error",
+  skillRunnerTaskLifecycleToastEmitter =
+    emitter ||
+    ((payload) => {
+      showWorkflowToast({
+        text: payload.text,
+        type: payload.type,
+        semantic:
+          payload.state === "waiting_user" || payload.state === "waiting_auth"
+            ? "waiting"
+            : payload.state === "canceled"
+              ? "canceled"
+              : payload.state === "succeeded"
+                ? "success"
+                : "error",
+      });
     });
-  });
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -265,7 +277,9 @@ function normalizeSequenceStepIndex(value: unknown) {
   return Number.isFinite(parsed) ? Math.floor(parsed) : undefined;
 }
 
-function mapSequenceStepProgressState(event: Record<string, unknown>): JobState {
+function mapSequenceStepProgressState(
+  event: Record<string, unknown>,
+): JobState {
   const type = normalizeString(event.type);
   if (type === "sequence-step-succeeded") {
     return "succeeded";
@@ -334,8 +348,7 @@ function extractHttpStatusFromError(error: unknown) {
     return 0;
   }
   const matched =
-    message.match(/HTTP\s+(\d{3})\b/i) ||
-    message.match(/status=(\d{3})\b/i);
+    message.match(/HTTP\s+(\d{3})\b/i) || message.match(/status=(\d{3})\b/i);
   if (!matched) {
     return 0;
   }
@@ -362,7 +375,9 @@ function collectRequestIdsForBackend(backendId: string) {
     }
     requestIds.add(requestId);
   }
-  for (const row of listTaskDashboardHistory({ backendId: normalizedBackendId })) {
+  for (const row of listTaskDashboardHistory({
+    backendId: normalizedBackendId,
+  })) {
     const requestId = normalizeString(row.requestId);
     if (!requestId) {
       continue;
@@ -396,7 +411,11 @@ type TaskLedgerRow = {
 
 function resolveTerminalJobState(value: unknown): TerminalJobState | "" {
   const normalized = normalizeStatus(value, "running");
-  if (normalized === "succeeded" || normalized === "failed" || normalized === "canceled") {
+  if (
+    normalized === "succeeded" ||
+    normalized === "failed" ||
+    normalized === "canceled"
+  ) {
     return normalized;
   }
   return "";
@@ -708,10 +727,13 @@ function parseContext(raw: unknown): ReconcileContext | null {
   const requestId = normalizeString(raw.requestId);
   const createdAt = normalizeString(raw.createdAt);
   const updatedAt = normalizeString(raw.updatedAt);
-  const fetchType = normalizeString(raw.fetchType) === "result" ? "result" : "bundle";
+  const fetchType =
+    normalizeString(raw.fetchType) === "result" ? "result" : "bundle";
   const executionMode = resolveSkillRunnerExecutionModeFromRequest(
     raw.request,
-    normalizeString(raw.executionMode) === "interactive" ? "interactive" : "auto",
+    normalizeString(raw.executionMode) === "interactive"
+      ? "interactive"
+      : "auto",
   );
   const state = normalizeStatusWithGuard({
     value: raw.state,
@@ -732,7 +754,8 @@ function parseContext(raw: unknown): ReconcileContext | null {
   const lastObservedAt = normalizeString(raw.lastObservedAt) || undefined;
   const nextReconcileAt = normalizeString(raw.nextReconcileAt) || undefined;
   const reconcileBackoffMsRaw =
-    typeof raw.reconcileBackoffMs === "number" && Number.isFinite(raw.reconcileBackoffMs)
+    typeof raw.reconcileBackoffMs === "number" &&
+    Number.isFinite(raw.reconcileBackoffMs)
       ? Math.floor(raw.reconcileBackoffMs)
       : 0;
   const events = Array.isArray(raw.events)
@@ -779,7 +802,8 @@ function parseContext(raw: unknown): ReconcileContext | null {
     inputUnitIdentity: normalizeString(raw.inputUnitIdentity) || undefined,
     inputUnitLabel: normalizeString(raw.inputUnitLabel) || undefined,
     targetParentID:
-      typeof raw.targetParentID === "number" && Number.isFinite(raw.targetParentID)
+      typeof raw.targetParentID === "number" &&
+      Number.isFinite(raw.targetParentID)
         ? Math.floor(raw.targetParentID)
         : undefined,
     requestId,
@@ -813,15 +837,13 @@ function parseIsoTime(value?: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function waitForMs(ms: number) {
-  await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.floor(ms))));
-}
-
 function contextToJobRecord(context: ReconcileContext): JobRecord {
   const requestRecord = isObject(context.request)
     ? (context.request as Record<string, unknown>)
     : {};
-  const skillId = normalizeString(requestRecord.skill_id);
+  const skillId =
+    normalizeString(context.sequenceStepSkillId) ||
+    normalizeString(requestRecord.skill_id);
   const resultPayload: Record<string, unknown> = {
     requestId: context.requestId,
   };
@@ -839,6 +861,7 @@ function contextToJobRecord(context: ReconcileContext): JobRecord {
     request: context.request,
     meta: {
       runId: context.runId,
+      workflowRunId: context.workflowRunId,
       workflowLabel: context.workflowLabel,
       taskName: context.taskName,
       inputUnitIdentity: context.inputUnitIdentity,
@@ -848,11 +871,19 @@ function contextToJobRecord(context: ReconcileContext): JobRecord {
       backendId: context.backendId,
       backendType: context.backendType,
       backendBaseUrl: context.backendBaseUrl,
+      requestKind: context.requestKind,
       requestId: context.requestId,
       skillId: skillId || undefined,
       skillName: skillId || undefined,
       executionMode: context.executionMode,
-      index: 0,
+      index:
+        typeof context.sequenceStepIndex === "number"
+          ? context.sequenceStepIndex
+          : 0,
+      sequenceStepId: context.sequenceStepId,
+      sequenceStepIndex: context.sequenceStepIndex,
+      sequenceJobId: context.sequenceJobId,
+      sequenceStepSkillId: context.sequenceStepSkillId,
     },
     state: context.state,
     error: context.error,
@@ -913,7 +944,10 @@ function runRecordToReconcileContext(
   if (!requestId || !record.requestPayload) {
     return null;
   }
-  const status = normalizeStatus(record.status, "running");
+  const status =
+    record.status === "request_ready"
+      ? "running"
+      : normalizeStatus(record.status, "running");
   const shouldRestore =
     !isTerminalState(status) ||
     (status === "succeeded" &&
@@ -922,6 +956,8 @@ function runRecordToReconcileContext(
   if (!shouldRestore) {
     return null;
   }
+  const sequenceRunId = normalizeString(record.sequence?.sequenceRunId);
+  const sequenceState = sequenceRunId ? getSequenceRunState(sequenceRunId) : null;
   return {
     id: record.runKey,
     workflowId: record.workflowId,
@@ -935,6 +971,12 @@ function runRecordToReconcileContext(
     providerOptions: record.providerOptions || {},
     runId: record.runId,
     jobId: record.jobId,
+    workflowRunId: record.workflowRunId || record.sequence?.workflowRunId,
+    sequenceStepId: record.sequence?.stepId,
+    sequenceStepIndex: record.sequence?.stepIndex,
+    sequenceJobId:
+      record.sequence?.jobId || sequenceState?.jobId || undefined,
+    sequenceStepSkillId: record.skillId,
     taskName: record.taskName,
     inputUnitIdentity: record.taskProjection.inputUnitIdentity,
     inputUnitLabel: record.taskProjection.inputUnitLabel,
@@ -1017,9 +1059,7 @@ function resolveSequenceStepResultJsonPath(args: {
   let occurrence = 0;
   for (let index = 0; index <= args.stepIndex; index += 1) {
     const candidate = args.sequenceState.request.steps[index];
-    if (
-      sanitizeResultNamespaceSegment(candidate?.skill_id) === skillSegment
-    ) {
+    if (sanitizeResultNamespaceSegment(candidate?.skill_id) === skillSegment) {
       occurrence += 1;
     }
   }
@@ -1028,8 +1068,10 @@ function resolveSequenceStepResultJsonPath(args: {
 
 function resolveSingleRunResultJsonPathFromRequest(request: unknown) {
   const skillId = normalizeString(
-    (request as { skill_id?: unknown; skillId?: unknown } | undefined)?.skill_id ||
-      (request as { skill_id?: unknown; skillId?: unknown } | undefined)?.skillId,
+    (request as { skill_id?: unknown; skillId?: unknown } | undefined)
+      ?.skill_id ||
+      (request as { skill_id?: unknown; skillId?: unknown } | undefined)
+        ?.skillId,
   );
   return skillId
     ? `result/${sanitizeResultNamespaceSegment(skillId)}.1/result.json`
@@ -1113,6 +1155,7 @@ export async function reconcileSkillRunnerBackendTaskLedgerOnce(args: {
   try {
     const client = new SkillRunnerClient({
       baseUrl,
+      backendId,
     });
     for (const requestId of requestIds) {
       try {
@@ -1146,14 +1189,20 @@ export async function reconcileSkillRunnerBackendTaskLedgerOnce(args: {
     let reconciledTerminalActiveCount = 0;
     let reconciledTerminalHistoryCount = 0;
     const reconciledTerminalRequestIds: string[] = [];
-    for (const [requestId, terminalState] of terminalConfirmedByRequestId.entries()) {
+    for (const [
+      requestId,
+      terminalState,
+    ] of terminalConfirmedByRequestId.entries()) {
       const reconciled = reconcileTerminalStateIntoTaskLedger({
         backendId,
         requestId,
         state: terminalState.state,
         error: terminalState.error,
       });
-      if (reconciled.updatedActiveCount > 0 || reconciled.updatedHistoryCount > 0) {
+      if (
+        reconciled.updatedActiveCount > 0 ||
+        reconciled.updatedHistoryCount > 0
+      ) {
         reconciledTerminalRequestIds.push(requestId);
       }
       reconciledTerminalActiveCount += reconciled.updatedActiveCount;
@@ -1193,7 +1242,10 @@ export async function reconcileSkillRunnerBackendTaskLedgerOnce(args: {
       removedHistoryCount,
     };
   } catch (error) {
-    const displayName = resolveBackendDisplayName(backendId, args.backend.displayName);
+    const displayName = resolveBackendDisplayName(
+      backendId,
+      args.backend.displayName,
+    );
     const toastText = resolveSkillRunnerBackendCommunicationFailedToastText(
       displayName || backendId,
     );
@@ -1231,11 +1283,12 @@ export async function reconcileSkillRunnerBackendTaskLedgerOnce(args: {
       source,
       backendId,
       stage: "backend-task-ledger-reconcile-failed",
-      message: normalizeString(
-        error && typeof error === "object" && "message" in error
-          ? (error as { message?: unknown }).message
-          : error,
-      ) || "backend task ledger reconcile failed",
+      message:
+        normalizeString(
+          error && typeof error === "object" && "message" in error
+            ? (error as { message?: unknown }).message
+            : error,
+        ) || "backend task ledger reconcile failed",
       checkedRequestIds: requestIds,
       missingRequestIds: [],
       removedActiveCount: 0,
@@ -1247,11 +1300,20 @@ export async function reconcileSkillRunnerBackendTaskLedgerOnce(args: {
 export class SkillRunnerTaskReconciler {
   private readonly contexts = new Map<string, ReconcileContext>();
 
-  private readonly reportedViolationKeysByContext = new Map<string, Set<string>>();
+  private readonly reportedViolationKeysByContext = new Map<
+    string,
+    Set<string>
+  >();
 
-  private readonly backendReconcileFailureLogUntilByBackend = new Map<string, number>();
+  private readonly backendReconcileFailureLogUntilByBackend = new Map<
+    string,
+    number
+  >();
 
-  private readonly pendingPromptReconciles = new Map<string, PendingPromptReconcile>();
+  private readonly pendingPromptReconciles = new Map<
+    string,
+    PendingPromptReconcile
+  >();
 
   private timer: ReturnType<typeof setInterval> | undefined;
 
@@ -1314,30 +1376,6 @@ export class SkillRunnerTaskReconciler {
     });
   }
 
-  private hasVisibleTaskProjection(context: ReconcileContext) {
-    const backendId = normalizeString(context.backendId);
-    const requestId = normalizeString(context.requestId);
-    if (!backendId || !requestId) {
-      return false;
-    }
-    const active = listActiveWorkflowTasks().some(
-      (entry) =>
-        normalizeString(entry.backendId) === backendId &&
-        normalizeString(entry.requestId) === requestId,
-    );
-    if (active) {
-      return true;
-    }
-    return listTaskDashboardHistory({
-      backendId,
-      requestId,
-    }).some(
-      (entry) =>
-        normalizeString(entry.backendId) === backendId &&
-        normalizeString(entry.requestId) === requestId,
-    );
-  }
-
   private resetReconcileCadence(context: ReconcileContext) {
     context.lastObservedState = undefined;
     context.lastObservedAt = undefined;
@@ -1349,15 +1387,22 @@ export class SkillRunnerTaskReconciler {
     context: ReconcileContext,
     source: ReconcileDispatchSource,
   ) {
-    if (source !== "interval" || isTerminalState(context.state) || isWaiting(context.state)) {
+    const nextApplyRetryAt = parseIsoTime(context.nextApplyRetryAt);
+    if (nextApplyRetryAt > Date.now()) {
+      return true;
+    }
+    if (source !== "interval") {
       return false;
     }
     const nextAt = parseIsoTime(context.nextReconcileAt);
     return nextAt > Date.now();
   }
 
-  private updateReconcileCadence(context: ReconcileContext, observedState: JobState) {
-    if (isTerminalState(observedState) || isWaiting(observedState)) {
+  private updateReconcileCadence(
+    context: ReconcileContext,
+    observedState: JobState,
+  ) {
+    if (isTerminalState(observedState)) {
       this.resetReconcileCadence(context);
       return;
     }
@@ -1407,8 +1452,12 @@ export class SkillRunnerTaskReconciler {
         backendType: normalizeString(row.backendType) || "skillrunner",
         backendBaseUrl,
         requestId,
-        workflowLabel: normalizeString(row.workflowLabel) || normalizeString(row.workflowId),
-        taskName: normalizeString(row.taskName) || normalizeString(row.jobId) || requestId,
+        workflowLabel:
+          normalizeString(row.workflowLabel) || normalizeString(row.workflowId),
+        taskName:
+          normalizeString(row.taskName) ||
+          normalizeString(row.jobId) ||
+          requestId,
       });
     }
     return Array.from(candidates.values());
@@ -1432,6 +1481,7 @@ export class SkillRunnerTaskReconciler {
     }
     const client = new SkillRunnerClient({
       baseUrl: candidate.backendBaseUrl,
+      backendId: candidate.backendId,
     });
     const runState = await client.getRunState({
       requestId: candidate.requestId,
@@ -1513,7 +1563,8 @@ export class SkillRunnerTaskReconciler {
         operation: "terminal-succeeded-missing-context",
         phase: "terminal",
         stage: "terminal-succeeded-missing-context",
-        message: "terminal succeeded but apply skipped due to missing recoverable context",
+        message:
+          "terminal succeeded but apply skipped due to missing recoverable context",
         details: {
           reason: "missing-context",
           workflowLabel: candidate.workflowLabel,
@@ -1586,47 +1637,16 @@ export class SkillRunnerTaskReconciler {
   }
 
   private ensureRunningSessionSync(context: ReconcileContext) {
-    const normalizedState = normalizeStatus(context.state, "running");
-    if (normalizedState !== "running") {
-      stopSessionSync({
-        backendId: context.backendId,
-        requestId: context.requestId,
-      });
-      return;
-    }
-    if (!this.hasVisibleTaskProjection(context)) {
-      stopSessionSync({
-        backendId: context.backendId,
-        requestId: context.requestId,
-      });
-      return;
-    }
-    if (!getSkillRunnerBackendHealthState(context.backendId)) {
-      stopSessionSync({
-        backendId: context.backendId,
-        requestId: context.requestId,
-      });
-      return;
-    }
-    if (isSkillRunnerBackendReconcileFlagged(context.backendId)) {
-      stopSessionSync({
-        backendId: context.backendId,
-        requestId: context.requestId,
-      });
-      return;
-    }
-    ensureSkillRunnerSessionSync({
-      backend: {
-        id: context.backendId,
-        type: context.backendType,
-        baseUrl: context.backendBaseUrl,
-        displayName: undefined,
-      } as BackendInstance,
+    stopSessionSync({
+      backendId: context.backendId,
       requestId: context.requestId,
     });
   }
 
-  private logTransitionViolation(context: ReconcileContext, violation?: SkillRunnerStateMachineViolation) {
+  private logTransitionViolation(
+    context: ReconcileContext,
+    violation?: SkillRunnerStateMachineViolation,
+  ) {
     appendStateMachineWarning({
       workflowId: context.workflowId,
       jobId: context.jobId,
@@ -1767,7 +1787,8 @@ export class SkillRunnerTaskReconciler {
             operation: "backend-health-probe-failed",
             phase: "reconcile",
             stage: "backend-health-probe-failed",
-            message: "backend reachability probe failed; backend may be reconcile-gated",
+            message:
+              "backend reachability probe failed; backend may be reconcile-gated",
             error,
             details: {
               failureStreak: backoff?.failureStreak,
@@ -1924,26 +1945,29 @@ export class SkillRunnerTaskReconciler {
     }
     const existingContextId = `${normalizeString(args.backend.id)}:${requestId}`;
     const existing = this.contexts.get(existingContextId);
-    const recoverableDispatchFailure = isRecoverableSkillRunnerDispatchFailure({
-      ...args.job,
-      meta: {
-        ...args.job.meta,
-        providerId:
-          normalizeString(args.providerId) ||
-          normalizeString(args.job.meta.providerId) ||
-          undefined,
-      },
-      result: {
-        ...(isObject(args.job.result) ? args.job.result : {}),
-        requestId,
-      },
-    });
-    const observedStatusRaw =
-      recoverableDispatchFailure
-        ? existing && !isTerminal(existing.state)
-          ? existing.state
-          : coerceRecoverableSkillRunnerState(args.job.state)
-        : normalizeString(deferred.status) === "deferred"
+    const localFailedAfterExistingActiveContext =
+      !!existing && !isTerminal(existing.state) && args.job.state === "failed";
+    const recoverableDispatchFailure =
+      localFailedAfterExistingActiveContext ||
+      isRecoverableSkillRunnerDispatchFailure({
+        ...args.job,
+        meta: {
+          ...args.job.meta,
+          providerId:
+            normalizeString(args.providerId) ||
+            normalizeString(args.job.meta.providerId) ||
+            undefined,
+        },
+        result: {
+          ...(isObject(args.job.result) ? args.job.result : {}),
+          requestId,
+        },
+      });
+    const observedStatusRaw = recoverableDispatchFailure
+      ? existing && !isTerminal(existing.state)
+        ? existing.state
+        : coerceRecoverableSkillRunnerState(args.job.state)
+      : normalizeString(deferred.status) === "deferred"
         ? deferred.backendStatus
         : args.job.state;
     const normalized = normalizeStatusWithGuard({
@@ -1968,7 +1992,9 @@ export class SkillRunnerTaskReconciler {
       requestId,
       violation: transition.violation,
     });
-    const transitionState = transition.ok ? transition.nextState : transition.prevState;
+    const transitionState = transition.ok
+      ? transition.nextState
+      : transition.prevState;
     const state =
       existing && isTerminal(existing.state) && !isTerminal(transitionState)
         ? existing.state
@@ -1976,22 +2002,24 @@ export class SkillRunnerTaskReconciler {
     const contextId = existingContextId;
     const context: ReconcileContext = {
       id: contextId,
-      workflowId: normalizeString(args.workflowId) || existing?.workflowId || "",
+      workflowId:
+        normalizeString(args.workflowId) || existing?.workflowId || "",
       workflowLabel:
         normalizeString(args.workflowLabel) ||
         normalizeString(args.workflowId) ||
         existing?.workflowLabel ||
         "",
-      requestKind: normalizeString(args.requestKind) || existing?.requestKind || "",
+      requestKind:
+        normalizeString(args.requestKind) || existing?.requestKind || "",
       request:
-        typeof args.request === "undefined"
-          ? existing?.request
-          : args.request,
+        typeof args.request === "undefined" ? existing?.request : args.request,
       backendId: normalizeString(args.backend.id) || existing?.backendId || "",
-      backendType: normalizeString(args.backend.type) || existing?.backendType || "",
+      backendType:
+        normalizeString(args.backend.type) || existing?.backendType || "",
       backendBaseUrl:
         normalizeString(args.backend.baseUrl) || existing?.backendBaseUrl || "",
-      providerId: normalizeString(args.providerId) || existing?.providerId || "",
+      providerId:
+        normalizeString(args.providerId) || existing?.providerId || "",
       providerOptions:
         args.providerOptions && isObject(args.providerOptions)
           ? { ...args.providerOptions }
@@ -2001,6 +2029,26 @@ export class SkillRunnerTaskReconciler {
         existing?.runId ||
         `${args.workflowId}:${args.job.createdAt}`,
       jobId: normalizeString(args.job.id) || existing?.jobId || "",
+      workflowRunId:
+        normalizeString(args.job.meta.workflowRunId) ||
+        existing?.workflowRunId ||
+        undefined,
+      sequenceStepId:
+        normalizeString(args.job.meta.sequenceStepId) ||
+        existing?.sequenceStepId ||
+        undefined,
+      sequenceStepIndex:
+        normalizeSequenceStepIndex(args.job.meta.sequenceStepIndex) ??
+        existing?.sequenceStepIndex,
+      sequenceJobId:
+        normalizeString(args.job.meta.sequenceJobId) ||
+        existing?.sequenceJobId ||
+        undefined,
+      sequenceStepSkillId:
+        normalizeString(args.job.meta.sequenceStepSkillId) ||
+        normalizeString(args.job.meta.skillId) ||
+        existing?.sequenceStepSkillId ||
+        undefined,
       taskName:
         normalizeString(args.job.meta.taskName) ||
         normalizeString(args.job.id) ||
@@ -2020,7 +2068,10 @@ export class SkillRunnerTaskReconciler {
           : existing?.targetParentID,
       requestId,
       executionMode: resolveExecutionModeForContext({
-        request: typeof args.request === "undefined" ? existing?.request : args.request,
+        request:
+          typeof args.request === "undefined"
+            ? existing?.request
+            : args.request,
         existing,
       }),
       fetchType: resolveFetchTypeForContext({
@@ -2042,7 +2093,12 @@ export class SkillRunnerTaskReconciler {
       createdAt: existing?.createdAt || args.job.createdAt,
       updatedAt: nowIso(),
     };
-    if (!existing || existing.state !== state || isWaiting(state) || isTerminalState(state)) {
+    if (
+      !existing ||
+      existing.state !== state ||
+      isWaiting(state) ||
+      isTerminalState(state)
+    ) {
       this.resetReconcileCadence(context);
     }
     if (recoverableDispatchFailure) {
@@ -2109,7 +2165,10 @@ export class SkillRunnerTaskReconciler {
     }
   }
 
-  private showWaitingToast(context: ReconcileContext, state: "waiting_user" | "waiting_auth") {
+  private showWaitingToast(
+    context: ReconcileContext,
+    state: "waiting_user" | "waiting_auth",
+  ) {
     skillRunnerTaskLifecycleToastEmitter({
       state,
       text: localizeWorkflowText(
@@ -2197,6 +2256,68 @@ export class SkillRunnerTaskReconciler {
       ),
       type: "default",
     });
+  }
+
+  private settleSequenceWorkflowCompletionIfNeeded(args: {
+    context: ReconcileContext;
+    terminalState: "succeeded" | "failed" | "canceled";
+    reason?: string;
+  }) {
+    let sequenceState = getSequenceRunStateByStepRequest(
+      args.context.requestId,
+    );
+    if (!sequenceState) {
+      return {
+        sequence: false,
+        terminal: false,
+        handled: false,
+      };
+    }
+    const sequenceRunId = normalizeString(sequenceState.sequenceRunId);
+    if (
+      args.terminalState !== "succeeded" &&
+      sequenceRunId &&
+      sequenceState.status !== "failed" &&
+      sequenceState.status !== "canceled"
+    ) {
+      markSequenceRunTerminal({
+        sequenceRunId,
+        status: args.terminalState === "canceled" ? "canceled" : "failed",
+        error: args.reason,
+      });
+      sequenceState =
+        getSequenceRunState(sequenceRunId) || sequenceState;
+    }
+    const sequenceTerminalState =
+      sequenceState.status === "completed"
+        ? "succeeded"
+        : sequenceState.status === "failed"
+          ? "failed"
+          : sequenceState.status === "canceled"
+            ? "canceled"
+            : undefined;
+    if (!sequenceTerminalState || !sequenceRunId) {
+      return {
+        sequence: true,
+        terminal: false,
+        handled: true,
+      };
+    }
+    const completion = settleDeferredWorkflowCompletion({
+      runId: args.context.runId,
+      requestId: sequenceRunId,
+      succeeded: sequenceTerminalState === "succeeded",
+      terminalState: sequenceTerminalState,
+      reason:
+        sequenceTerminalState === "succeeded"
+          ? undefined
+          : sequenceState.error || args.reason,
+    });
+    return {
+      sequence: true,
+      terminal: true,
+      handled: completion.handled,
+    };
   }
 
   private buildSequenceContinuationStepJob(args: {
@@ -2294,6 +2415,169 @@ export class SkillRunnerTaskReconciler {
     }
   }
 
+  private async applySequenceStepSideEffect(args: {
+    context: ReconcileContext;
+    sequenceState: SequenceRunState;
+    stepIndex: number;
+    stepRequest: SkillRunnerJobRequestV1;
+    stepResult: Extract<ProviderExecutionResult, { status: "succeeded" }> &
+      Record<string, unknown>;
+    output: unknown;
+    backend: BackendInstance;
+  }) {
+    const step = args.sequenceState.request.steps[args.stepIndex];
+    if (!step) {
+      return;
+    }
+    if (!step.apply_result) {
+      updateSkillRunnerRunApplyState({
+        backendId: args.context.backendId,
+        requestId: args.context.requestId,
+        state: "skipped",
+        attempt: args.context.applyAttempt,
+        maxAttempt: args.context.applyMaxAttempt,
+        updatedAt: nowIso(),
+        eventType: "apply.skipped",
+        eventPayload: {
+          source: "skillRunnerTaskReconciler.applySequenceStepSideEffect",
+          stepId: step.id,
+          stepIndex: args.stepIndex,
+        },
+      });
+      return;
+    }
+    updateSkillRunnerRunApplyState({
+      backendId: args.context.backendId,
+      requestId: args.context.requestId,
+      state: "running",
+      attempt: args.context.applyAttempt,
+      maxAttempt: args.context.applyMaxAttempt,
+      updatedAt: nowIso(),
+      eventType: "apply.started",
+      eventPayload: {
+        source: "skillRunnerTaskReconciler.applySequenceStepSideEffect",
+        stepId: step.id,
+        stepIndex: args.stepIndex,
+      },
+    });
+    const applyState: SequenceRunState = {
+      ...args.sequenceState,
+      request: {
+        ...args.sequenceState.request,
+        steps: args.sequenceState.request.steps.map((candidate, index) =>
+          index === args.stepIndex && candidate.apply_result
+            ? {
+                ...candidate,
+                apply_result: {
+                  ...candidate.apply_result,
+                  on_failure: "continue" as const,
+                },
+              }
+            : candidate,
+        ),
+      },
+    };
+    try {
+      await applySequenceStepResultIfNeeded({
+        state: applyState,
+        stepIndex: args.stepIndex,
+        stepRequest: args.stepRequest,
+        stepResult: args.stepResult,
+        output: args.output,
+        backend: args.backend,
+        appendRuntimeLog,
+        applySequenceStepResult: async (stepApply) => {
+          const applyWorkflow = await resolveWorkflow(
+            stepApply.applyWorkflowId,
+          );
+          if (!applyWorkflow) {
+            throw new Error(
+              `sequence step apply workflow not found: ${stepApply.applyWorkflowId}`,
+            );
+          }
+          return executeSequenceStepApply({
+            workflow: applyWorkflow,
+            parent:
+              resolveTargetParentIDFromRequest(stepApply.sequenceRequest) ||
+              null,
+            request: stepApply.stepRequest,
+            runResult: {
+              ...stepApply.stepResult,
+              resultJson: stepApply.output,
+              backendId: args.backend.id,
+              backendType: args.backend.type,
+              runId: args.context.runId,
+              sequence: {
+                workflow_run_id: stepApply.workflowRunId,
+                final_step_id: stepApply.sequenceRequest.final_step_id,
+                steps: stepApply.sequenceSteps,
+              },
+            },
+            sequenceStep: {
+              id: stepApply.step.id,
+              index: stepApply.stepIndex,
+              workflowId: stepApply.applyWorkflowId,
+              skillId: stepApply.step.skill_id,
+              finalStep: stepApply.finalStep,
+              phase: "sequence-step",
+            },
+          });
+        },
+      });
+      const latest =
+        getSequenceRunState(args.sequenceState.sequenceRunId) ||
+        args.sequenceState;
+      const applyResult = latest.steps[args.stepIndex]?.applyResult;
+      updateSkillRunnerRunApplyState({
+        backendId: args.context.backendId,
+        requestId: args.context.requestId,
+        state:
+          applyResult?.status === "failed"
+            ? "failed"
+            : applyResult?.status === "skipped"
+              ? "skipped"
+              : "succeeded",
+        attempt: args.context.applyAttempt,
+        maxAttempt: args.context.applyMaxAttempt,
+        error: applyResult?.error,
+        updatedAt: nowIso(),
+        eventType:
+          applyResult?.status === "failed"
+            ? "apply.failed"
+            : applyResult?.status === "skipped"
+              ? "apply.skipped"
+              : "apply.succeeded",
+        eventPayload: {
+          source: "skillRunnerTaskReconciler.applySequenceStepSideEffect",
+          stepId: step.id,
+          stepIndex: args.stepIndex,
+        },
+      });
+    } catch (error) {
+      const message =
+        normalizeString(
+          error && typeof error === "object" && "message" in error
+            ? (error as { message?: unknown }).message
+            : error,
+        ) || "sequence step apply failed";
+      updateSkillRunnerRunApplyState({
+        backendId: args.context.backendId,
+        requestId: args.context.requestId,
+        state: "failed",
+        attempt: args.context.applyAttempt + 1,
+        maxAttempt: args.context.applyMaxAttempt,
+        error: message,
+        updatedAt: nowIso(),
+        eventType: "apply.failed",
+        eventPayload: {
+          source: "skillRunnerTaskReconciler.applySequenceStepSideEffect",
+          stepId: step.id,
+          stepIndex: args.stepIndex,
+        },
+      });
+    }
+  }
+
   private async applySequenceTerminalSuccessContext(args: {
     context: ReconcileContext;
     client: SkillRunnerClient;
@@ -2373,100 +2657,115 @@ export class SkillRunnerTaskReconciler {
         output,
         result: runResult,
       });
+      updateSkillRunnerRunResult({
+        backendId: args.context.backendId,
+        requestId: args.context.requestId,
+        resultJson: resultContext.resultJson,
+        resultJsonPath:
+          typeof runResult.resultJsonPath === "string"
+            ? runResult.resultJsonPath
+            : undefined,
+        workspaceDir:
+          typeof runResult.workspaceDir === "string"
+            ? runResult.workspaceDir
+            : undefined,
+        bundleDir:
+          typeof runResult.bundleDir === "string"
+            ? runResult.bundleDir
+            : undefined,
+        updatedAt: nowIso(),
+        eventPayload: {
+          source:
+            "skillRunnerTaskReconciler.applySequenceTerminalSuccessContext",
+          fetchType: args.context.fetchType,
+          stepId: step.id,
+          stepIndex,
+        },
+      });
       const backend = await resolveBackendForContext(args.context);
-      await applySequenceStepResultIfNeeded({
-        state: getSequenceRunState(args.sequenceState.sequenceRunId) || args.sequenceState,
+      const isFinalOrShortCircuit =
+        step.id === args.sequenceState.request.final_step_id ||
+        matchesShortCircuitRule({ step, output });
+      if (isFinalOrShortCircuit) {
+        markSequenceRunTerminal({
+          sequenceRunId: args.sequenceState.sequenceRunId,
+          status: "completed",
+        });
+      } else {
+        const continuationResult = await continueSkillRunnerSequence({
+          sequenceRunId: args.sequenceState.sequenceRunId,
+          startIndex: stepIndex + 1,
+          backend,
+          providerOptions: args.sequenceState.providerOptions,
+          appendRuntimeLog,
+          executeWithProvider: ({
+            request,
+            backend,
+            providerOptions,
+            onProgress,
+          }) => {
+            const client = new SkillRunnerClient({
+              baseUrl: backend.baseUrl,
+              backendId: backend.id,
+            });
+            return client.executeSkillRunnerJob(
+              request as SkillRunnerJobRequestV1,
+              providerOptions || {},
+              { onProgress },
+            );
+          },
+          onProgress: (event) => {
+            this.handleSequenceContinuationProgress({
+              context: args.context,
+              sequenceState:
+                getSequenceRunState(args.sequenceState.sequenceRunId) ||
+                args.sequenceState,
+              backend,
+              event: event as Record<string, unknown>,
+            });
+          },
+        });
+        if (continuationResult.status === "deferred") {
+          this.enqueuePromptReconcileRequests({
+            backendId: backend.id,
+            requestIds: [continuationResult.requestId],
+            source: "post-register",
+          });
+        }
+      }
+      void this.applySequenceStepSideEffect({
+        context: args.context,
+        sequenceState:
+          getSequenceRunState(args.sequenceState.sequenceRunId) ||
+          args.sequenceState,
         stepIndex,
         stepRequest: args.context.request as SkillRunnerJobRequestV1,
         stepResult: runResult,
         output,
         backend,
-        appendRuntimeLog,
-        applySequenceStepResult: async (stepApply) => {
-          const applyWorkflow = await resolveWorkflow(stepApply.applyWorkflowId);
-          if (!applyWorkflow) {
-            throw new Error(
-              `sequence step apply workflow not found: ${stepApply.applyWorkflowId}`,
-            );
-          }
-          return executeSequenceStepApply({
-            workflow: applyWorkflow,
-            parent:
-              resolveTargetParentIDFromRequest(stepApply.sequenceRequest) ||
-              null,
-            request: stepApply.stepRequest,
-            runResult: {
-              ...stepApply.stepResult,
-              resultJson: stepApply.output,
-              backendId: backend.id,
-              backendType: backend.type,
-              runId: args.context.runId,
-              sequence: {
-                workflow_run_id: stepApply.workflowRunId,
-                final_step_id: stepApply.sequenceRequest.final_step_id,
-                steps: stepApply.sequenceSteps,
-              },
-            },
-            sequenceStep: {
-              id: stepApply.step.id,
-              index: stepApply.stepIndex,
-              workflowId: stepApply.applyWorkflowId,
-              skillId: stepApply.step.skill_id,
-              finalStep: stepApply.finalStep,
-              phase: "sequence-step",
-            },
-          });
-        },
-      });
-      if (
-        step.id === args.sequenceState.request.final_step_id ||
-        matchesShortCircuitRule({ step, output })
-      ) {
-        markSequenceRunTerminal({
-          sequenceRunId: args.sequenceState.sequenceRunId,
-          status: "completed",
+      }).catch((error) => {
+        appendRuntimeLog({
+          level: "error",
+          scope: "job",
+          workflowId: args.context.workflowId,
+          backendId: args.context.backendId,
+          backendType: args.context.backendType,
+          providerId: args.context.providerId,
+          runId: args.context.runId,
+          jobId: args.context.jobId,
+          requestId: args.context.requestId,
+          component: "skillrunner-reconciler",
+          operation: "sequence-step-apply-side-effect-failed",
+          phase: "terminal",
+          stage: "sequence-step-apply-side-effect-failed",
+          message: "sequence step side-effect apply failed after settlement",
+          error,
+          details: {
+            stepId: step.id,
+            stepIndex,
+          },
         });
-        return true;
-      }
-      const continuationResult = await continueSkillRunnerSequence({
-        sequenceRunId: args.sequenceState.sequenceRunId,
-        startIndex: stepIndex + 1,
-        backend,
-        providerOptions: args.sequenceState.providerOptions,
-        appendRuntimeLog,
-        executeWithProvider: ({
-          request,
-          backend,
-          providerOptions,
-          onProgress,
-        }) => {
-          const client = new SkillRunnerClient({
-            baseUrl: backend.baseUrl,
-          });
-          return client.executeSkillRunnerJob(
-            request as SkillRunnerJobRequestV1,
-            providerOptions || {},
-            { onProgress },
-          );
-        },
-        onProgress: (event) => {
-          this.handleSequenceContinuationProgress({
-            context: args.context,
-            sequenceState:
-              getSequenceRunState(args.sequenceState.sequenceRunId) ||
-              args.sequenceState,
-            backend,
-            event: event as Record<string, unknown>,
-          });
-        },
       });
-      if (continuationResult.status === "deferred") {
-        this.enqueuePromptReconcileRequests({
-          backendId: backend.id,
-          requestIds: [continuationResult.requestId],
-          source: "post-register",
-        });
-      }
       return true;
     } finally {
       if (bundlePath) {
@@ -2506,7 +2805,8 @@ export class SkillRunnerTaskReconciler {
       throw new Error(`workflow not found for apply: ${context.workflowId}`);
     }
     const targetParentID =
-      context.targetParentID || resolveTargetParentIDFromRequest(context.request);
+      context.targetParentID ||
+      resolveTargetParentIDFromRequest(context.request);
     const applyParent =
       typeof targetParentID === "number" && targetParentID > 0
         ? targetParentID
@@ -2516,7 +2816,11 @@ export class SkillRunnerTaskReconciler {
     }
     const applyDetails =
       applyParent === null
-        ? { executionMode: context.executionMode, fetchType: context.fetchType, source }
+        ? {
+            executionMode: context.executionMode,
+            fetchType: context.fetchType,
+            source,
+          }
         : {
             executionMode: context.executionMode,
             fetchType: context.fetchType,
@@ -2524,7 +2828,9 @@ export class SkillRunnerTaskReconciler {
             targetParentID: applyParent,
           };
     const fetchDetails =
-      applyParent === null ? { source } : { source, targetParentID: applyParent };
+      applyParent === null
+        ? { source }
+        : { source, targetParentID: applyParent };
     let bundlePath = "";
     try {
       appendRuntimeLog({
@@ -2562,7 +2868,9 @@ export class SkillRunnerTaskReconciler {
         requestId: context.requestId,
         fetchType: context.fetchType,
       };
-      const resultJsonPath = resolveSingleRunResultJsonPathFromRequest(context.request);
+      const resultJsonPath = resolveSingleRunResultJsonPathFromRequest(
+        context.request,
+      );
       if (resultJsonPath) {
         runResult.resultJsonPath = resultJsonPath;
         runResult.resultArtifactBasePath = parentEntryPath(resultJsonPath);
@@ -2646,6 +2954,28 @@ export class SkillRunnerTaskReconciler {
         manifest: workflow.manifest,
       });
       runResult.resultJson = resultContext.resultJson;
+      updateSkillRunnerRunResult({
+        backendId: context.backendId,
+        requestId: context.requestId,
+        resultJson: resultContext.resultJson,
+        resultJsonPath:
+          typeof runResult.resultJsonPath === "string"
+            ? runResult.resultJsonPath
+            : undefined,
+        workspaceDir:
+          typeof runResult.workspaceDir === "string"
+            ? runResult.workspaceDir
+            : undefined,
+        bundleDir:
+          typeof runResult.bundleDir === "string"
+            ? runResult.bundleDir
+            : undefined,
+        updatedAt: nowIso(),
+        eventPayload: {
+          source: "skillRunnerTaskReconciler.applyTerminalSuccessContext",
+          fetchType: context.fetchType,
+        },
+      });
       await executeApplyResult({
         workflow,
         parent: applyParent,
@@ -2674,7 +3004,8 @@ export class SkillRunnerTaskReconciler {
         operation: "reconcile-owned-terminal-apply",
         phase: "terminal",
         stage: "reconcile-owned-terminal-apply",
-        message: "reconciler executed terminal applyResult for recoverable request",
+        message:
+          "reconciler executed terminal applyResult for recoverable request",
         details: applyDetails,
       });
       appendRuntimeLog({
@@ -2695,7 +3026,11 @@ export class SkillRunnerTaskReconciler {
         details:
           applyParent === null
             ? { fetchType: context.fetchType, source }
-            : { fetchType: context.fetchType, source, targetParentID: applyParent },
+            : {
+                fetchType: context.fetchType,
+                source,
+                targetParentID: applyParent,
+              },
       });
       updateSkillRunnerRunApplyState({
         backendId: context.backendId,
@@ -2730,9 +3065,11 @@ export class SkillRunnerTaskReconciler {
     }
     const client = new SkillRunnerClient({
       baseUrl: context.backendBaseUrl,
+      backendId: context.backendId,
     });
     const previousState = context.state;
-    const backendFailureKey = normalizeString(context.backendId) || "__unknown_backend__";
+    const backendFailureKey =
+      normalizeString(context.backendId) || "__unknown_backend__";
     try {
       const runState = await client.getRunState({
         requestId: context.requestId,
@@ -2743,6 +3080,7 @@ export class SkillRunnerTaskReconciler {
       ) {
         return;
       }
+      markSkillRunnerBackendHealthSuccess(context.backendId);
       this.backendReconcileFailureLogUntilByBackend.delete(backendFailureKey);
       const observed = normalizeStatusWithGuard({
         value: runState.status,
@@ -2751,7 +3089,10 @@ export class SkillRunnerTaskReconciler {
       });
       this.logTransitionViolation(context, observed.violation);
       if (!isTerminalState(observed.status)) {
-        const nextObservedState = normalizeStatus(observed.status, context.state);
+        const nextObservedState = normalizeStatus(
+          observed.status,
+          context.state,
+        );
         const stateChanged = nextObservedState !== context.state;
         if (nextObservedState !== context.state) {
           context.state = nextObservedState;
@@ -2759,9 +3100,8 @@ export class SkillRunnerTaskReconciler {
         }
         if (stateChanged) {
           this.resetReconcileCadence(context);
-        } else {
-          this.updateReconcileCadence(context, nextObservedState);
         }
+        this.updateReconcileCadence(context, nextObservedState);
         writeContextsToRunStore(Array.from(this.contexts.values()));
         if (nextObservedState === "running") {
           this.ensureRunningSessionSync(context);
@@ -2801,9 +3141,12 @@ export class SkillRunnerTaskReconciler {
         requestId: context.requestId,
       });
       this.logTransitionViolation(context, transition.violation);
-      const nextState = transition.ok ? transition.nextState : transition.prevState;
+      const nextState = transition.ok
+        ? transition.nextState
+        : transition.prevState;
       const nextError = normalizeString(runState.error) || undefined;
-      const changed = nextState !== previousState || nextError !== context.error;
+      const changed =
+        nextState !== previousState || nextError !== context.error;
       context.state = nextState;
       context.error = nextError;
       context.updatedAt = nowIso();
@@ -2830,7 +3173,6 @@ export class SkillRunnerTaskReconciler {
         kind: "terminal",
         status: nextState,
       });
-      const shouldDeferWorkflowCompletion = context.executionMode === "auto";
       if (nextState === "succeeded") {
         if (context.nextApplyRetryAt) {
           const retryTs = Date.parse(context.nextApplyRetryAt);
@@ -2855,12 +3197,25 @@ export class SkillRunnerTaskReconciler {
           }
           context.applyAttempt = 0;
           context.nextApplyRetryAt = undefined;
+          context.nextReconcileAt = undefined;
           context.lastApplyError = undefined;
-          this.trackEvent(context, {
-            kind: "apply-succeeded",
-            status: nextState,
-          });
-          if (shouldDeferWorkflowCompletion) {
+          const sequenceCompletion =
+            this.settleSequenceWorkflowCompletionIfNeeded({
+              context,
+              terminalState: "succeeded",
+            });
+          if (sequenceCompletion.sequence) {
+            if (
+              sequenceCompletion.terminal &&
+              !sequenceCompletion.handled
+            ) {
+              this.showTerminalToast(context, "succeeded");
+            }
+          } else {
+            this.trackEvent(context, {
+              kind: "apply-succeeded",
+              status: nextState,
+            });
             const deferredCompletion = settleDeferredWorkflowCompletion({
               runId: context.runId,
               requestId: context.requestId,
@@ -2870,8 +3225,6 @@ export class SkillRunnerTaskReconciler {
             if (!deferredCompletion.handled) {
               this.showTerminalToast(context, "succeeded");
             }
-          } else {
-            this.showTerminalToast(context, "succeeded");
           }
         } catch (error) {
           const contractFailure = isDeferredApplyContractError(error);
@@ -2884,12 +3237,17 @@ export class SkillRunnerTaskReconciler {
               : error,
           );
           context.updatedAt = nowIso();
-          const willRetry = !contractFailure && context.applyAttempt < context.applyMaxAttempt;
+          const willRetry =
+            !contractFailure && context.applyAttempt < context.applyMaxAttempt;
           if (willRetry) {
             const delayMs = computeApplyRetryDelayMs(context.applyAttempt);
-            context.nextApplyRetryAt = new Date(Date.now() + delayMs).toISOString();
+            context.nextApplyRetryAt = new Date(
+              Date.now() + delayMs,
+            ).toISOString();
+            context.nextReconcileAt = context.nextApplyRetryAt;
           } else {
             context.nextApplyRetryAt = undefined;
+            context.nextReconcileAt = undefined;
           }
           updateSkillRunnerRunApplyState({
             backendId: context.backendId,
@@ -2973,23 +3331,19 @@ export class SkillRunnerTaskReconciler {
               backendId: context.backendId,
               requestId: context.requestId,
             });
-            if (shouldDeferWorkflowCompletion) {
-              const deferredCompletion = settleDeferredWorkflowCompletion({
-                runId: context.runId,
-                requestId: context.requestId,
-                succeeded: false,
-                terminalState: "failed",
-                reason:
-                  context.lastApplyError ||
-                  localizeWorkflowText(
-                    "workflow-execute-unknown-error",
-                    "unknown error",
-                    ),
-              });
-              if (!deferredCompletion.handled) {
-                this.showTerminalToast(context, "failed");
-              }
-            } else {
+            const deferredCompletion = settleDeferredWorkflowCompletion({
+              runId: context.runId,
+              requestId: context.requestId,
+              succeeded: false,
+              terminalState: "failed",
+              reason:
+                context.lastApplyError ||
+                localizeWorkflowText(
+                  "workflow-execute-unknown-error",
+                  "unknown error",
+                ),
+            });
+            if (!deferredCompletion.handled) {
               this.showTerminalToast(context, "failed");
             }
             writeContextsToRunStore(Array.from(this.contexts.values()));
@@ -2999,26 +3353,35 @@ export class SkillRunnerTaskReconciler {
           return;
         }
       } else if (nextState === "failed" || nextState === "canceled") {
-        if (shouldDeferWorkflowCompletion) {
+        const reason =
+          nextState === "failed"
+            ? context.error ||
+              localizeWorkflowText(
+                "workflow-execute-unknown-error",
+                "unknown error",
+              )
+            : "canceled";
+        const sequenceCompletion =
+          this.settleSequenceWorkflowCompletionIfNeeded({
+            context,
+            terminalState: nextState,
+            reason,
+          });
+        if (sequenceCompletion.sequence) {
+          if (sequenceCompletion.terminal && !sequenceCompletion.handled) {
+            this.showTerminalToast(context, nextState);
+          }
+        } else {
           const deferredCompletion = settleDeferredWorkflowCompletion({
             runId: context.runId,
             requestId: context.requestId,
             succeeded: false,
             terminalState: nextState,
-            reason:
-              nextState === "failed"
-                ? context.error ||
-                  localizeWorkflowText(
-                    "workflow-execute-unknown-error",
-                    "unknown error",
-                  )
-                : "canceled",
+            reason,
           });
           if (!deferredCompletion.handled) {
             this.showTerminalToast(context, nextState);
           }
-        } else {
-          this.showTerminalToast(context, nextState);
         }
       }
       this.contexts.delete(context.id);
@@ -3063,7 +3426,8 @@ export class SkillRunnerTaskReconciler {
       const health = getSkillRunnerBackendHealthState(context.backendId);
       const now = Date.now();
       const throttleUntil =
-        this.backendReconcileFailureLogUntilByBackend.get(backendFailureKey) || 0;
+        this.backendReconcileFailureLogUntilByBackend.get(backendFailureKey) ||
+        0;
       if (now < throttleUntil) {
         return;
       }
@@ -3121,62 +3485,6 @@ export class SkillRunnerTaskReconciler {
           return;
         }
       }
-      if (isSkillRunnerBackendReconcileFlagged(context.backendId)) {
-        if (source === "post-register") {
-          appendRuntimeLog({
-            level: "info",
-            scope: "job",
-            workflowId: context.workflowId,
-            backendId: context.backendId,
-            backendType: context.backendType,
-            providerId: context.providerId,
-            runId: context.runId,
-            jobId: context.jobId,
-            requestId: context.requestId,
-            component: "skillrunner-reconciler",
-            operation: "post-register-reconcile-skipped",
-            phase: "reconcile",
-            stage: "post-register-reconcile-skipped",
-            message: "post-register reconcile skipped because backend is reconcile-gated",
-            details: {
-              reason: "backend-flagged",
-            },
-          });
-        }
-        stopSessionSync({
-          backendId: context.backendId,
-          requestId: context.requestId,
-        });
-        continue;
-      }
-      if (!getSkillRunnerBackendHealthState(context.backendId)) {
-        if (source === "post-register") {
-          appendRuntimeLog({
-            level: "info",
-            scope: "job",
-            workflowId: context.workflowId,
-            backendId: context.backendId,
-            backendType: context.backendType,
-            providerId: context.providerId,
-            runId: context.runId,
-            jobId: context.jobId,
-            requestId: context.requestId,
-            component: "skillrunner-reconciler",
-            operation: "post-register-reconcile-skipped",
-            phase: "reconcile",
-            stage: "post-register-reconcile-skipped",
-            message: "post-register reconcile skipped because backend health is unavailable",
-            details: {
-              reason: "missing-health-state",
-            },
-          });
-        }
-        stopSessionSync({
-          backendId: context.backendId,
-          requestId: context.requestId,
-        });
-        continue;
-      }
       if (this.shouldSkipByReconcileCadence(context, source)) {
         if (normalizeStatus(context.state, "running") === "running") {
           this.ensureRunningSessionSync(context);
@@ -3188,7 +3496,14 @@ export class SkillRunnerTaskReconciler {
         }
         continue;
       }
-      this.ensureRunningSessionSync(context);
+      if (normalizeStatus(context.state, "running") === "running") {
+        this.ensureRunningSessionSync(context);
+      } else {
+        stopSessionSync({
+          backendId: context.backendId,
+          requestId: context.requestId,
+        });
+      }
       await this.reconcileOneContext(context, source, generation);
     }
   }
@@ -3290,14 +3605,19 @@ export class SkillRunnerTaskReconciler {
           operation: "post-register-reconcile-context-missing",
           phase: "reconcile",
           stage: "post-register-reconcile-context-missing",
-          message: "post-register reconcile could not find any recoverable contexts",
+          message:
+            "post-register reconcile could not find any recoverable contexts",
           details: {
             requestIds: pending.map((entry) => entry.requestId),
             backendIds: pending.map((entry) => entry.backendId || ""),
           },
         });
       }
-      await this.reconcileTrackedContexts(contexts, "post-register", generation);
+      await this.reconcileTrackedContexts(
+        contexts,
+        "post-register",
+        generation,
+      );
     } finally {
       this.isReconciling = false;
       if (
@@ -3349,10 +3669,25 @@ export class SkillRunnerTaskReconciler {
       requestIds,
       source,
     });
-    while (this.isReconciling) {
-      await waitForMs(10);
-    }
-    await this.flushPromptReconcileQueue();
+    void this.flushPromptReconcileQueue().catch((error) => {
+      appendRuntimeLog({
+        level: "warn",
+        scope: "workflow-trigger",
+        backendId,
+        backendType: "skillrunner",
+        providerId: "skillrunner",
+        component: "skillrunner-reconciler",
+        operation: "post-register-reconcile-flush-failed",
+        phase: "reconcile",
+        stage: "post-register-reconcile-flush-failed",
+        message: "post-register reconcile flush failed",
+        error,
+        details: {
+          requestIds,
+          backendId,
+        },
+      });
+    });
   }
 
   async reconcilePending(generation?: number) {
@@ -3521,7 +3856,8 @@ export function purgeSkillRunnerBackendReconcileState(backendIdRaw: string) {
     backendId,
     requestIds,
   });
-  const removedContextsInMemory = defaultReconciler.purgeBackendContexts(backendId);
+  const removedContextsInMemory =
+    defaultReconciler.purgeBackendContexts(backendId);
   const removedRuns = deleteSkillRunnerRunRecordsByBackend(backendId);
   return {
     backendId,

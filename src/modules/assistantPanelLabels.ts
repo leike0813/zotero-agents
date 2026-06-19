@@ -82,6 +82,19 @@ export function buildAssistantPanelLabels() {
       errors: l("assistant-panel-field-errors", "Errors"),
       conversation: l("assistant-panel-field-conversation", "Conversation"),
       applyResult: l("assistant-panel-field-apply-result", "Apply result"),
+      deferredApply: l(
+        "assistant-panel-field-deferred-apply",
+        "Deferred apply",
+      ),
+      applyAttempt: l("assistant-panel-field-apply-attempt", "Attempt"),
+      applyMaxAttempt: l(
+        "assistant-panel-field-apply-max-attempt",
+        "Max attempt",
+      ),
+      applyNextRetry: l(
+        "assistant-panel-field-apply-next-retry",
+        "Next retry",
+      ),
       appliedAt: l("assistant-panel-field-applied-at", "Applied at"),
       loading: l("assistant-panel-field-loading", "Loading"),
       terminal: l("assistant-panel-field-terminal", "Terminal"),
@@ -317,6 +330,15 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-status-backend-unavailable",
         "Backend unavailable",
       ),
+      applyPending: l("assistant-panel-status-apply-pending", "Pending apply"),
+      applyRunning: l("assistant-panel-status-apply-running", "Applying"),
+      applySucceeded: l("assistant-panel-status-apply-succeeded", "Applied"),
+      applyFailed: l("assistant-panel-status-apply-failed", "Apply failed"),
+      applyRetryScheduled: l(
+        "assistant-panel-status-apply-retry-scheduled",
+        "Retry scheduled",
+      ),
+      applySkipped: l("assistant-panel-status-apply-skipped", "Skipped"),
     },
   };
 }

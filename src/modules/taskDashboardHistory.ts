@@ -1,7 +1,11 @@
 import type { JobRecord } from "../jobQueue/manager";
-import { DEFAULT_BACKEND_TYPE, PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
+import {
+  DEFAULT_BACKEND_TYPE,
+  PASS_THROUGH_BACKEND_TYPE,
+} from "../config/defaults";
 import {
   buildWorkflowTaskRecordFromJob,
+  isSkillRunnerJobReadyForTaskProjection,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
 import { normalizeStatus } from "./skillRunnerProviderStateMachine";
@@ -203,6 +207,12 @@ export function resetTaskDashboardHistory() {
 
 export function recordTaskDashboardHistoryFromJob(job: JobRecord) {
   const record = buildWorkflowTaskRecordFromJob(job);
+  if (
+    String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE &&
+    !isSkillRunnerJobReadyForTaskProjection(job)
+  ) {
+    return null;
+  }
   return recordTaskDashboardHistoryFromTaskRecord(record);
 }
 
@@ -213,6 +223,9 @@ export function recordTaskDashboardHistoryFromTaskRecord(
     return null;
   }
   if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
+    if (!String(record.requestId || "").trim()) {
+      return null;
+    }
     upsertSkillRunnerRunFromTask(record, {
       eventType: "backend.snapshot",
       eventPayload: {
@@ -252,6 +265,9 @@ export function upsertTaskDashboardHistoryFromTaskRecord(
     return null;
   }
   if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
+    if (!String(record.requestId || "").trim()) {
+      return null;
+    }
     upsertSkillRunnerRunFromTask(record, {
       eventType: "backend.snapshot",
       eventPayload: {

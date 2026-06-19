@@ -107,14 +107,16 @@ export class SkillRunnerProvider implements Provider {
 
   supportsRequestKind(requestKind: string) {
     return (
-      requestKind === DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[DEFAULT_BACKEND_TYPE] ||
+      requestKind ===
+        DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[DEFAULT_BACKEND_TYPE] ||
       requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND
     );
   }
 
   getRuntimeOptionSchema() {
     const defaultEngine = getDefaultSkillRunnerEngine() || "gemini";
-    const defaultModelProvider = getSkillRunnerCanonicalProviderId(defaultEngine) || "";
+    const defaultModelProvider =
+      getSkillRunnerCanonicalProviderId(defaultEngine) || "";
     return {
       engine: {
         type: "string" as const,
@@ -188,7 +190,9 @@ export class SkillRunnerProvider implements Provider {
         ? rawEngine.trim()
         : getDefaultSkillRunnerEngine();
     if (args.key === "provider_id") {
-      if (!isSkillRunnerProviderScopedEngine(normalizedEngine, backendContext)) {
+      if (
+        !isSkillRunnerProviderScopedEngine(normalizedEngine, backendContext)
+      ) {
         return [];
       }
       return listSkillRunnerModelProviders(normalizedEngine, backendContext);
@@ -217,7 +221,9 @@ export class SkillRunnerProvider implements Provider {
         normalizedEngine,
         backendContext,
       )
-        ? String(args.options.provider_id || args.options.model_provider || "").trim()
+        ? String(
+            args.options.provider_id || args.options.model_provider || "",
+          ).trim()
         : getSkillRunnerCanonicalProviderId(normalizedEngine);
       return listSkillRunnerModelEffortOptions({
         engine: normalizedEngine,
@@ -335,7 +341,9 @@ export class SkillRunnerProvider implements Provider {
     const normalizedInteractiveAutoReply = normalizeBooleanOption(
       rawInteractiveAutoReply,
     );
-    const normalizedHardTimeout = normalizePositiveInteger(rawHardTimeoutSeconds);
+    const normalizedHardTimeout = normalizePositiveInteger(
+      rawHardTimeoutSeconds,
+    );
     if (typeof rawNoCache === "boolean") {
       return {
         engine: normalizedEngine,
@@ -375,9 +383,7 @@ export class SkillRunnerProvider implements Provider {
     };
   }
 
-  private resolveBackend(args: {
-    backend?: BackendInstance;
-  }) {
+  private resolveBackend(args: { backend?: BackendInstance }) {
     if (args.backend) {
       return args.backend;
     }
@@ -414,7 +420,9 @@ export class SkillRunnerProvider implements Provider {
     const backendId = backend?.id;
     const backendType = backend?.type || "skillrunner";
     if (backend && backend.type === "skillrunner") {
-      const ensureResult = await ensureManagedLocalRuntimeForBackend(backend.id);
+      const ensureResult = await ensureManagedLocalRuntimeForBackend(
+        backend.id,
+      );
       if (!ensureResult.ok) {
         throw new Error(
           `managed local runtime ensure failed: ${ensureResult.message}`,
@@ -440,7 +448,11 @@ export class SkillRunnerProvider implements Provider {
       },
     });
     const client =
-      this.staticClient || new SkillRunnerClient({ baseUrl: backend!.baseUrl });
+      this.staticClient ||
+      new SkillRunnerClient({
+        baseUrl: backend!.baseUrl,
+        backendId,
+      });
     try {
       let result: ProviderExecutionResult;
       if (

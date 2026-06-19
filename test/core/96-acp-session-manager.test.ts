@@ -1224,6 +1224,34 @@ describe("acp session manager", function () {
     );
   });
 
+  it("keeps conversation updatedAt stable while appending streaming text chunks", async function () {
+    await connectAcpConversation();
+    const before = getAcpConversationSnapshot().updatedAt;
+
+    await lastAdapter?.emitSessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "First " },
+      },
+    });
+    await lastAdapter?.emitSessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "second" },
+      },
+    });
+
+    const snapshot = getAcpConversationSnapshot();
+    const assistantItems = snapshot.items.filter(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.equal(snapshot.updatedAt, before);
+    assert.lengthOf(assistantItems, 1);
+    assert.equal(assistantItems[0].text, "First second");
+  });
+
   it("starts a new thought when assistant output appears between thought chunks", async function () {
     await connectAcpConversation();
 

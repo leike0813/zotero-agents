@@ -183,6 +183,25 @@ export function filterInputs({ selectionContext, runtime }) {
 
 当 `inputs.unit: "workflow"` 且 `trigger.requiresSelection: false` 时，workflow 可以在不选中任何条目的情况下触发。此时 `selectionContext.selectionType` 为 `"none"`，`items` 中所有数组为空。这种模式适合创建全局操作（如"创建 Topic 综合"）。
 
+## 声明式选择验证
+
+如果你的 workflow 只需要**跳过已有结果的条目**或**过滤特定类型的输入**，可以使用声明式 `validateSelection` 字段，无需编写 `filterInputs` Hook。
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "literature-source" },
+    "exclude": [
+      { "kind": "generated-notes-all", "noteKinds": ["digest"] }
+    ]
+  }
+}
+```
+
+参见 [清单文件编写](manifest#选择验证validateselection) 中的完整说明。
+
+> **选择指南：** 声明式 `validateSelection` 能覆盖的场景就用声明式（零 JS 代码、零维护成本）。只有需要复杂判断逻辑时才使用 `filterInputs` Hook。
+
 ## 下一步
 
 - [Host API 参考](host-api) — 在 hook 中操作 Zotero 数据的完整 API

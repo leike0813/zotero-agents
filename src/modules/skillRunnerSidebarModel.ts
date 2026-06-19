@@ -17,6 +17,12 @@ export type SkillRunnerSidebarTaskItem = {
   workflowLabel?: string;
   status: string;
   stateLabel: string;
+  applyState?: string;
+  applyAttempt?: number;
+  applyMaxAttempt?: number;
+  applyNextRetryAt?: string;
+  applyError?: string;
+  applyUpdatedAt?: string;
   updatedAt: string;
   title: string;
   selectable: boolean;
@@ -82,14 +88,23 @@ function hasSelectableRequestId(task: SkillRunnerSidebarTaskItem) {
   return task.selectable && String(task.requestId || "").trim().length > 0;
 }
 
+function isDeferredApplyVisibleRunning(task: SkillRunnerSidebarTaskItem) {
+  const state = normalizeIdentity(task.applyState);
+  return state === "pending" || state === "running" || state === "failed";
+}
+
 function isVisibleSidebarRunningTask(task: SkillRunnerSidebarTaskItem) {
-  return hasSelectableRequestId(task) && !task.terminal;
+  return (
+    hasSelectableRequestId(task) &&
+    (!task.terminal || isDeferredApplyVisibleRunning(task))
+  );
 }
 
 function isVisibleSidebarCompletedTask(task: SkillRunnerSidebarTaskItem) {
   return (
     hasSelectableRequestId(task) &&
     task.terminal &&
+    !isDeferredApplyVisibleRunning(task) &&
     normalizeIdentity(task.status) === "succeeded"
   );
 }
@@ -192,7 +207,8 @@ export function buildSkillRunnerSidebarSections<
     if (group.disabled) {
       continue;
     }
-    const runningTasks = group.activeTasks
+    const allTasks = [...group.activeTasks, ...group.finishedTasks];
+    const runningTasks = allTasks
       .filter((task) => isVisibleSidebarRunningTask(task))
       .map((task) => ({
         ...task,
@@ -225,7 +241,7 @@ export function buildSkillRunnerSidebarSections<
       });
     }
 
-    const completedTasks = group.finishedTasks.filter((task) =>
+    const completedTasks = allTasks.filter((task) =>
       isVisibleSidebarCompletedTask(task),
     );
     if (completedTasks.length > 0) {

@@ -108,6 +108,7 @@ export function mergeDashboardTaskRows(args: {
 export function normalizeDashboardTabKey(args: {
   requestedTabKey?: string;
   backends: BackendInstance[];
+  debugModeEnabled?: boolean;
 }) {
   const requested = String(args.requestedTabKey || "").trim();
   if (
@@ -115,6 +116,12 @@ export function normalizeDashboardTabKey(args: {
     requested === "products" ||
     requested === "workflow-options" ||
     requested === "runtime-logs"
+  ) {
+    return requested;
+  }
+  if (
+    args.debugModeEnabled === true &&
+    requested === "skillrunner-connection-audit"
   ) {
     return requested;
   }

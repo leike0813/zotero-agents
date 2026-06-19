@@ -63,7 +63,7 @@ describe("skillrunner session sync lifecycle", function () {
           };
         },
         streamRunEvents: async () => {
-          calls.push("stream");
+          throw new Error("session sync must not open background event stream");
         },
       }),
       markSkillRunnerBackendHealthSuccess: () => {
@@ -110,27 +110,21 @@ describe("skillrunner session sync lifecycle", function () {
     });
   });
 
-  it("suppresses stale stream disconnect side effects after stop and drain", async function () {
+  it("does not open a background event stream and releases after history sync", async function () {
     const calls: string[] = [];
-    let signalStreamStart!: () => void;
-    const streamStarted = new Promise<void>((resolve) => {
-      signalStreamStart = resolve;
-    });
-    let rejectStream!: (error?: unknown) => void;
-    const streamGate = new Promise<never>((_resolve, reject) => {
-      rejectStream = reject;
-    });
 
     setSkillRunnerSessionSyncDepsForTests({
       buildManagementClient: () => ({
-        listRunEventHistory: async () => ({
-          events: [],
-          cursor_ceiling: 0,
-        }),
+        listRunEventHistory: async () => {
+          calls.push("history");
+          return {
+            events: [],
+            cursor_ceiling: 0,
+          };
+        },
         streamRunEvents: async () => {
-          calls.push("stream:start");
-          signalStreamStart();
-          return streamGate;
+          calls.push("stream");
+          throw new Error("session sync must not open background event stream");
         },
       }),
       markSkillRunnerBackendHealthSuccess: () => {
@@ -149,16 +143,13 @@ describe("skillrunner session sync lifecycle", function () {
 
     ensureSkillRunnerSessionSync({
       backend,
-      requestId: "req-stream-stop",
+      requestId: "req-history-only",
     });
-    await streamStarted;
-    assert.include(calls, "stream:start");
-    assert.include(calls, "health:success");
-
-    stopAllSkillRunnerSessionSync();
-    rejectStream(new Error("stream disconnected after stop"));
     await drainSkillRunnerSessionSyncForTests();
 
+    assert.deepEqual(calls, ["history"]);
+    assert.notInclude(calls, "stream");
+    assert.notInclude(calls, "health:success");
     assert.notInclude(calls, "health:failure");
     assert.notInclude(calls, "log");
     assert.deepInclude(getSkillRunnerSessionSyncRuntimeForTests(), {
@@ -167,26 +158,26 @@ describe("skillrunner session sync lifecycle", function () {
     });
   });
 
-  it("backs off before replaying event history after a clean stream return", async function () {
-    let historyCount = 0;
-    let streamCount = 0;
-    let signalStream!: () => void;
-    const streamStarted = new Promise<void>((resolve) => {
-      signalStream = resolve;
-    });
+  it("reuses the last event cursor across short history sync sessions", async function () {
+    const fromSeqs: number[] = [];
 
     setSkillRunnerSessionSyncDepsForTests({
       buildManagementClient: () => ({
-        listRunEventHistory: async () => {
-          historyCount += 1;
+        listRunEventHistory: async (args: { fromSeq?: number }) => {
+          fromSeqs.push(Number(args.fromSeq || 0));
           return {
-            events: [],
-            cursor_ceiling: 0,
+            events: [
+              {
+                seq: 4,
+                type: "conversation.state.changed",
+                data: { to: "running" },
+              },
+            ],
+            cursor_ceiling: 4,
           };
         },
         streamRunEvents: async () => {
-          streamCount += 1;
-          signalStream();
+          throw new Error("session sync must not open background event stream");
         },
       }),
       markSkillRunnerBackendHealthSuccess: () => undefined,
@@ -199,16 +190,16 @@ describe("skillrunner session sync lifecycle", function () {
 
     ensureSkillRunnerSessionSync({
       backend,
-      requestId: "req-clean-return",
+      requestId: "req-cursor",
     });
-    await streamStarted;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    assert.equal(historyCount, 1);
-    assert.equal(streamCount, 1);
-
-    stopAllSkillRunnerSessionSync();
     await drainSkillRunnerSessionSyncForTests();
+    ensureSkillRunnerSessionSync({
+      backend,
+      requestId: "req-cursor",
+    });
+    await drainSkillRunnerSessionSyncForTests();
+
+    assert.deepEqual(fromSeqs, [1, 5]);
   });
 
   it("resetForTests drains work and clears runtime caches", async function () {

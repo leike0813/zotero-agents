@@ -2,24 +2,27 @@
 
 ## Overview
 
-`src/modules/pluginStateStore.ts` 是插件的状态持久化层。它提供双模态 SQLite 适配器，管理 4 个域、3 张数据表的 CRUD 操作，支持从遗留 Zotero 偏好迁移，并向 `runtimePersistence.ts` 注册治理钩子。
+`src/modules/pluginStateStore.ts` 是插件的状态持久化层。它提供双模态 SQLite 适配器，管理通用任务表、ACP 专用 run store、SkillRunner 专用 run store、workflow 产物表和迁移元数据，并向 `runtimePersistence.ts` 注册治理钩子。
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                     pluginStateStore.ts                      │
 │                                                              │
-│  Domains                              Tables                 │
-│  ┌──────────────┐              ┌────────────────────┐        │
-│  │ skillrunner   │──────────────► plugin_meta        │        │
-│  ├──────────────┤              ├────────────────────┤        │
-│  │ acp           │──────────────► plugin_task_requests       │
-│  ├──────────────┤              ├────────────────────┤        │
-│  │ workflow-     │──────────────► plugin_task_contexts       │
-│  │ products      │              ├────────────────────┤        │
-│  ├──────────────┤              │ plugin_task_rows    │        │
-│  │ workflow-     │──────────────└────────────────────┘        │
-│  │ sequence      │                                           │
-│  └──────────────┘                                           │
+│  Stores                               Tables                 │
+│  ┌──────────────┐              ┌──────────────────────────┐  │
+│  │ metadata      │──────────────► plugin_meta              │  │
+│  ├──────────────┤              ├──────────────────────────┤  │
+│  │ task domains  │──────────────► plugin_task_requests     │  │
+│  │              │              │ plugin_task_contexts     │  │
+│  │              │              │ plugin_task_rows         │  │
+│  ├──────────────┤              ├──────────────────────────┤  │
+│  │ ACP runs      │──────────────► plugin_acp_skill_runs    │  │
+│  │              │              │ plugin_acp_skill_run_events│ │
+│  ├──────────────┤              ├──────────────────────────┤  │
+│  │ SkillRunner   │──────────────► plugin_skillrunner_runs  │  │
+│  │ runs          │              │ plugin_skillrunner_      │  │
+│  │              │              │ run_events               │  │
+│  └──────────────┘              └──────────────────────────┘  │
 │                                                              │
 │  Adapter: SQLite (Zotero) / Map (Test)                       │
 └──────────────────────────────────────────────────────────────┘
@@ -27,8 +30,8 @@
 
 配套文档：
 - `doc/components/runtime-persistence-governance-ssot.md` — 运行时持久化治理
-- `doc/components/skillrunner-provider-state-machine-ssot.md` — SkillRunner 状态机集成
-- `doc/components/workflow-execution-seams.md` — 序列状态存储
+- `doc/components/skillrunner-provider-state-machine-ssot.md` — SkillRunner run settlement 状态机
+- `doc/components/workflow-execution-seams.md` — 工作流执行 seam 与 deferred completion 边界
 
 ## 数据库 Schema
 
@@ -42,7 +45,7 @@
 | value | TEXT | JSON 值 |
 | updated_at | TEXT | ISO 8601 时间戳 |
 
-当前使用的一行：`migration_task_state_v1 = "done"`
+当前使用的元数据包括 schema/migration 标记和 run store hard-cut/reset 标记。
 
 ### plugin_task_requests
 
@@ -58,7 +61,7 @@
 | payload | TEXT | JSON 载荷 |
 
 **主键**：`(domain, request_id)`
-**消费者**：`acpConversationStore`（ACP 对话记录）、`skillRunnerRequestLedger`（SkillRunner 请求账本）
+**消费者**：通用 task/request 域和 ACP conversation 路径。SkillRunner run 的当前 SSOT 不在该表。
 
 ### plugin_task_contexts
 
@@ -75,7 +78,7 @@
 | payload | TEXT | JSON 载荷 |
 
 **主键**：`(domain, context_id)`
-**消费者**：`sequenceStateStore`（序列运行状态）、`skillRunnerTaskReconciler`（reconcile 上下文）
+**消费者**：通用 task/context 域和 ACP conversation 使用的上下文路径。SkillRunner sequence 与 reconciler settlement 的当前 SSOT 不在该表。
 
 ### plugin_task_rows
 
@@ -93,7 +96,22 @@
 | payload | TEXT | JSON 载荷 |
 
 **主键**：`(domain, scope, task_id)`
-**消费者**：`acpSkillRunStore`、`taskRuntime`、`taskDashboardHistory`、`workflowProductStore`
+**消费者**：通用 task row、workflow product、ACP conversation 路径。SkillRunner Dashboard/Task projection 当前从 `plugin_skillrunner_runs` 派生。
+
+### plugin_acp_skill_runs / plugin_acp_skill_run_events
+
+ACP Skills 专用 run store。保存 ACP conversation、transcript、permission、reply、workspace、result 和 apply state。SkillRunner `request_id` 不写入 ACP run store。
+
+### plugin_skillrunner_runs / plugin_skillrunner_run_events
+
+SkillRunner 专用 run store。保存 SkillRunner backend/request/workflow/job identity、run state、apply state、retry state、request payload、provider options、result paths、bundle/workspace summary、sequence root/step metadata 和 projectable 标记。
+
+SkillRunner sequence root 和 step 都存在该 store 中：
+
+- root record：编排状态，`projectable=false`
+- step record：独立 run projection，`projectable=true`
+
+Dashboard、Task Manager、popover 和 RunDialog 读取由该 store 派生的 projection。
 
 ## 域（Domain）
 
@@ -101,10 +119,10 @@
 
 | 域常量 | 值 | 用途 | 消费者 |
 |--------|-----|------|--------|
-| `PLUGIN_TASK_DOMAIN_SKILLRUNNER` | `"skillrunner"` | 遗留 SkillRunner 追踪 | skillRunnerRequestLedger, skillRunnerTaskReconciler, taskRuntime, taskDashboardHistory |
+| `PLUGIN_TASK_DOMAIN_SKILLRUNNER` | `"skillrunner"` | SkillRunner task cleanup 域 | runtimePersistence cleanup |
 | `PLUGIN_TASK_DOMAIN_ACP` | `"acp"` | ACP 技能运行轨道 | acpConversationStore, acpSkillRunStore |
 | `PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS` | `"workflow-products"` | 工作流产物 | workflowProductStore |
-| `PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE` | `"workflow-sequence"` | 序列执行状态 | workflowExecution/sequenceStateStore |
+| `PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE` | `"workflow-sequence"` | 全局 sequence cleanup 域 | runtimePersistence cleanup |
 
 域分离防止不同子系统间的键冲突，并支持独立的清除/统计操作。
 

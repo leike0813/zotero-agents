@@ -1,6 +1,10 @@
 import { encodeBasicAuthHeader } from "../../backends/managementAuth";
 import type { BackendManagementAuth } from "../../backends/types";
 import {
+  runSkillRunnerConnection,
+  type SkillRunnerConnectionLane,
+} from "../../modules/skillRunnerConnectionGovernor";
+import {
   SkillRunnerHttpError,
   formatSkillRunnerHttpErrorMessage,
 } from "./errors";
@@ -13,6 +17,9 @@ const dynamicImport: DynamicImport = new Function(
   "specifier",
   "return import(specifier)",
 ) as DynamicImport;
+
+const DEFAULT_MANAGEMENT_REQUEST_TIMEOUT_MS = 30000;
+const DEFAULT_MANAGEMENT_PROBE_TIMEOUT_MS = 5000;
 
 export type SkillRunnerManagementRunSummary = {
   request_id: string;
@@ -114,13 +121,13 @@ export type SkillRunnerManagementCredentials = {
   password: string;
 };
 
-export type SkillRunnerManagementAuthPromptReason =
-  | "unauthorized"
-  | "missing";
+export type SkillRunnerManagementAuthPromptReason = "unauthorized" | "missing";
 
 export type SkillRunnerManagementClientArgs = {
   baseUrl: string;
+  backendId?: string;
   fetchImpl?: FetchLike;
+  requestTimeoutMs?: number;
   getManagementAuth?: () => BackendManagementAuth | undefined;
   saveManagementAuth?: (auth: BackendManagementAuth) => void;
   promptBasicAuth?: (args: {
@@ -133,12 +140,31 @@ export type SkillRunnerManagementSseFrame = {
   data: unknown;
 };
 
+export type SkillRunnerManagementRequestOptions = {
+  lane?: SkillRunnerConnectionLane;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  lastFocusedAt?: number;
+};
+
 type AbortLikeError = Error & {
   name: string;
 };
 
 function ensureLeadingSlash(path: string) {
   return path.startsWith("/") ? path : `/${path}`;
+}
+
+function normalizeString(value: unknown) {
+  return String(value || "").trim();
+}
+
+function normalizeTimeoutMs(value: unknown, fallback: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -195,7 +221,9 @@ function parseBasicCredentials(auth: BackendManagementAuth | undefined | null) {
 }
 
 function normalizeUrl(baseUrl: string, path: string, query?: URLSearchParams) {
-  const normalizedBase = String(baseUrl || "").trim().replace(/\/+$/, "");
+  const normalizedBase = String(baseUrl || "")
+    .trim()
+    .replace(/\/+$/, "");
   const url = `${normalizedBase}${ensureLeadingSlash(path)}`;
   if (!query || Array.from(query.keys()).length === 0) {
     return url;
@@ -255,6 +283,17 @@ function decodeBase64ToBytes(input: string) {
     return new Uint8Array(runtime.Buffer.from(normalized, "base64"));
   }
   throw new Error("base64 decoder is unavailable in current runtime");
+}
+
+function findSseFrameBoundary(buffer: string) {
+  const match = /\r?\n\r?\n/.exec(buffer);
+  if (!match || typeof match.index !== "number") {
+    return null;
+  }
+  return {
+    index: match.index,
+    length: match[0].length,
+  };
 }
 
 async function streamSseResponse(args: {
@@ -353,15 +392,17 @@ async function streamSseResponse(args: {
         buffer += decoder.decode(new Uint8Array());
         break;
       }
-      buffer += decoder.decode(next.value || new Uint8Array(), { stream: true });
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary >= 0) {
-        const frame = buffer.slice(0, boundary).trim();
-        buffer = buffer.slice(boundary + 2);
+      buffer += decoder.decode(next.value || new Uint8Array(), {
+        stream: true,
+      });
+      let boundary = findSseFrameBoundary(buffer);
+      while (boundary) {
+        const frame = buffer.slice(0, boundary.index).trim();
+        buffer = buffer.slice(boundary.index + boundary.length);
         if (frame) {
           emitFrame(frame);
         }
-        boundary = buffer.indexOf("\n\n");
+        boundary = findSseFrameBoundary(buffer);
       }
     }
     throwIfAborted(args.signal);
@@ -377,7 +418,11 @@ async function streamSseResponse(args: {
 export class SkillRunnerManagementClient {
   private readonly baseUrl: string;
 
+  private readonly backendId: string;
+
   private readonly fetchImpl: FetchLike;
+
+  private readonly requestTimeoutMs: number;
 
   private readonly getManagementAuth?: () => BackendManagementAuth | undefined;
 
@@ -388,10 +433,17 @@ export class SkillRunnerManagementClient {
   }) => Promise<SkillRunnerManagementCredentials | null>;
 
   constructor(args: SkillRunnerManagementClientArgs) {
-    this.baseUrl = String(args.baseUrl || "").trim().replace(/\/+$/, "");
+    this.baseUrl = String(args.baseUrl || "")
+      .trim()
+      .replace(/\/+$/, "");
     if (!this.baseUrl) {
       throw new Error("baseUrl is required");
     }
+    this.backendId = normalizeString(args.backendId) || this.baseUrl;
+    this.requestTimeoutMs = normalizeTimeoutMs(
+      args.requestTimeoutMs,
+      DEFAULT_MANAGEMENT_REQUEST_TIMEOUT_MS,
+    );
     const runtimeFetch = (globalThis as { fetch?: FetchLike }).fetch;
     this.fetchImpl = args.fetchImpl || (runtimeFetch as FetchLike);
     if (typeof this.fetchImpl !== "function") {
@@ -424,7 +476,7 @@ export class SkillRunnerManagementClient {
     return parseBasicCredentials(auth);
   }
 
-  private async requestWithAuthRetry(args: {
+  private async requestWithAuthRetry<T = unknown>(args: {
     path: string;
     method: string;
     query?: URLSearchParams;
@@ -432,64 +484,95 @@ export class SkillRunnerManagementClient {
     body?: BodyInit;
     expectJson?: boolean;
     allowUnauthorizedRetry?: boolean;
+    lane?: SkillRunnerConnectionLane;
+    timeoutMs?: number;
+    stream?: boolean;
+    lastFocusedAt?: number;
+    requestId?: string;
+    operation?: string;
     signal?: AbortSignal;
+    consumeResponse?: (response: Response, signal?: AbortSignal) => Promise<T>;
   }) {
     const url = normalizeUrl(this.baseUrl, args.path, args.query);
-    let credentials = this.resolveStoredCredentials();
-    throwIfAborted(args.signal);
-    let response = await this.fetchImpl(url, {
-      method: args.method,
-      headers: this.buildHeaders({
-        extra: args.headers,
-        auth: credentials,
-      }),
-      body: args.body,
+    const lane = args.lane || "maintenance";
+    const timeoutMs =
+      args.stream === true
+        ? 0
+        : normalizeTimeoutMs(args.timeoutMs, this.requestTimeoutMs);
+    return runSkillRunnerConnection({
+      backendId: this.backendId,
+      lane,
+      requestId: normalizeString(args.requestId) || undefined,
+      operation:
+        normalizeString(args.operation) ||
+        `${normalizeString(args.method) || "GET"} ${args.path}`,
+      lastFocusedAt: args.lastFocusedAt,
+      timeoutMs,
+      stream: args.stream === true,
       signal: args.signal,
-    });
-
-    if (
-      args.allowUnauthorizedRetry !== false &&
-      isUnauthorized(response) &&
-      typeof this.promptBasicAuth === "function"
-    ) {
-      const prompted = await this.promptBasicAuth({
-        reason: credentials ? "unauthorized" : "missing",
-      });
-      if (prompted && prompted.username && prompted.password) {
-        credentials = prompted;
-        this.saveManagementAuth?.({
-          kind: "basic",
-          username: prompted.username,
-          password: prompted.password,
-        });
-        throwIfAborted(args.signal);
-        response = await this.fetchImpl(url, {
+      task: async (signal) => {
+        let credentials = this.resolveStoredCredentials();
+        throwIfAborted(signal);
+        let response = await this.fetchImpl(url, {
           method: args.method,
           headers: this.buildHeaders({
             extra: args.headers,
             auth: credentials,
           }),
           body: args.body,
-          signal: args.signal,
+          signal,
         });
-      }
-    }
 
-    if (!response.ok) {
-      const body = await readJsonBody(response);
-      throw formatHttpError({
-        response,
-        body,
-        path: args.path,
-      });
-    }
-    if (args.expectJson === false) {
-      return response;
-    }
-    return readJsonBody(response);
+        if (
+          args.allowUnauthorizedRetry !== false &&
+          isUnauthorized(response) &&
+          typeof this.promptBasicAuth === "function"
+        ) {
+          const prompted = await this.promptBasicAuth({
+            reason: credentials ? "unauthorized" : "missing",
+          });
+          if (prompted && prompted.username && prompted.password) {
+            credentials = prompted;
+            this.saveManagementAuth?.({
+              kind: "basic",
+              username: prompted.username,
+              password: prompted.password,
+            });
+            throwIfAborted(signal);
+            response = await this.fetchImpl(url, {
+              method: args.method,
+              headers: this.buildHeaders({
+                extra: args.headers,
+                auth: credentials,
+              }),
+              body: args.body,
+              signal,
+            });
+          }
+        }
+
+        if (!response.ok) {
+          const body = await readJsonBody(response);
+          throw formatHttpError({
+            response,
+            body,
+            path: args.path,
+          });
+        }
+        if (args.consumeResponse) {
+          return args.consumeResponse(response, signal);
+        }
+        if (args.expectJson === false) {
+          return response as T;
+        }
+        return readJsonBody(response) as Promise<T>;
+      },
+    });
   }
 
-  async listRuns(args?: { limit?: number }) {
+  async listRuns(
+    args?: { limit?: number } & SkillRunnerManagementRequestOptions,
+  ) {
     const query = new URLSearchParams();
     const limit = Math.max(1, Math.min(1000, Number(args?.limit || 200)));
     query.set("limit", String(limit));
@@ -497,16 +580,21 @@ export class SkillRunnerManagementClient {
       method: "GET",
       path: "/v1/management/runs",
       query,
+      lane: args?.lane || "maintenance",
+      timeoutMs: args?.timeoutMs,
+      signal: args?.signal,
     });
     const runs = Array.isArray((body as { runs?: unknown }).runs)
-      ? ((body as { runs: unknown[] }).runs.filter(isObject) as SkillRunnerManagementRunSummary[])
+      ? ((body as { runs: unknown[] }).runs.filter(
+          isObject,
+        ) as SkillRunnerManagementRunSummary[])
       : [];
     return {
       runs,
     } as SkillRunnerManagementRunList;
   }
 
-  async probeReachability() {
+  async probeReachability(args?: SkillRunnerManagementRequestOptions) {
     let lastError: unknown;
     const methods: Array<"HEAD" | "GET"> = ["HEAD", "GET"];
     for (const method of methods) {
@@ -515,6 +603,9 @@ export class SkillRunnerManagementClient {
           method,
           path: "/v1/system/ping",
           expectJson: false,
+          lane: args?.lane || "health",
+          timeoutMs: args?.timeoutMs || DEFAULT_MANAGEMENT_PROBE_TIMEOUT_MS,
+          signal: args?.signal,
         });
         return;
       } catch (error) {
@@ -524,7 +615,9 @@ export class SkillRunnerManagementClient {
     throw lastError || new Error("skillrunner reachability probe failed");
   }
 
-  async getRun(args: { requestId: string }) {
+  async getRun(
+    args: { requestId: string } & SkillRunnerManagementRequestOptions,
+  ) {
     const requestId = String(args.requestId || "").trim();
     if (!requestId) {
       throw new Error("requestId is required");
@@ -532,6 +625,10 @@ export class SkillRunnerManagementClient {
     const body = await this.requestWithAuthRetry({
       method: "GET",
       path: `/v1/jobs/${encodeURIComponent(requestId)}`,
+      lane: args.lane || "background",
+      timeoutMs: args.timeoutMs,
+      signal: args.signal,
+      requestId,
     });
     if (!isObject(body)) {
       throw new Error("management run detail response must be object");
@@ -539,11 +636,13 @@ export class SkillRunnerManagementClient {
     return body as SkillRunnerManagementRunState;
   }
 
-  async listRunChatHistory(args: {
-    requestId: string;
-    fromSeq?: number;
-    toSeq?: number;
-  }) {
+  async listRunChatHistory(
+    args: {
+      requestId: string;
+      fromSeq?: number;
+      toSeq?: number;
+    } & SkillRunnerManagementRequestOptions,
+  ) {
     const requestId = String(args.requestId || "").trim();
     if (!requestId) {
       throw new Error("requestId is required");
@@ -559,6 +658,10 @@ export class SkillRunnerManagementClient {
       method: "GET",
       path: `/v1/jobs/${encodeURIComponent(requestId)}/chat/history`,
       query,
+      lane: args.lane || "foreground-query",
+      timeoutMs: args.timeoutMs,
+      signal: args.signal,
+      requestId,
     });
     if (!isObject(body)) {
       throw new Error("management chat history response must be object");
@@ -576,13 +679,15 @@ export class SkillRunnerManagementClient {
     } as SkillRunnerManagementChatHistoryPayload;
   }
 
-  async listRunEventHistory(args: {
-    requestId: string;
-    fromSeq?: number;
-    toSeq?: number;
-    fromTs?: string;
-    toTs?: string;
-  }) {
+  async listRunEventHistory(
+    args: {
+      requestId: string;
+      fromSeq?: number;
+      toSeq?: number;
+      fromTs?: string;
+      toTs?: string;
+    } & SkillRunnerManagementRequestOptions,
+  ) {
     const requestId = String(args.requestId || "").trim();
     if (!requestId) {
       throw new Error("requestId is required");
@@ -606,6 +711,10 @@ export class SkillRunnerManagementClient {
       method: "GET",
       path: `/v1/jobs/${encodeURIComponent(requestId)}/events/history`,
       query,
+      lane: args.lane || "background",
+      timeoutMs: args.timeoutMs,
+      signal: args.signal,
+      requestId,
     });
     if (!isObject(body)) {
       throw new Error("management events history response must be object");
@@ -623,7 +732,9 @@ export class SkillRunnerManagementClient {
     } as SkillRunnerManagementEventHistoryPayload;
   }
 
-  async getPending(args: { requestId: string }) {
+  async getPending(
+    args: { requestId: string } & SkillRunnerManagementRequestOptions,
+  ) {
     const requestId = String(args.requestId || "").trim();
     if (!requestId) {
       throw new Error("requestId is required");
@@ -631,6 +742,10 @@ export class SkillRunnerManagementClient {
     const body = await this.requestWithAuthRetry({
       method: "GET",
       path: `/v1/jobs/${encodeURIComponent(requestId)}/interaction/pending`,
+      lane: args.lane || "foreground-query",
+      timeoutMs: args.timeoutMs,
+      signal: args.signal,
+      requestId,
     });
     if (!isObject(body)) {
       throw new Error("management pending response must be object");
@@ -638,7 +753,9 @@ export class SkillRunnerManagementClient {
     return body as SkillRunnerManagementPending;
   }
 
-  async getAuthSession(args: { requestId: string }) {
+  async getAuthSession(
+    args: { requestId: string } & SkillRunnerManagementRequestOptions,
+  ) {
     const requestId = String(args.requestId || "").trim();
     if (!requestId) {
       throw new Error("requestId is required");
@@ -646,6 +763,10 @@ export class SkillRunnerManagementClient {
     const body = await this.requestWithAuthRetry({
       method: "GET",
       path: `/v1/jobs/${encodeURIComponent(requestId)}/auth/session`,
+      lane: args.lane || "foreground-query",
+      timeoutMs: args.timeoutMs,
+      signal: args.signal,
+      requestId,
     });
     if (!isObject(body)) {
       throw new Error("management auth session response must be object");
@@ -653,10 +774,12 @@ export class SkillRunnerManagementClient {
     return body as SkillRunnerManagementAuthSession;
   }
 
-  async submitReply(args: {
-    requestId: string;
-    payload: SkillRunnerManagementReplyPayload;
-  }) {
+  async submitReply(
+    args: {
+      requestId: string;
+      payload: SkillRunnerManagementReplyPayload;
+    } & SkillRunnerManagementRequestOptions,
+  ) {
     const requestId = String(args.requestId || "").trim();
     if (!requestId) {
       throw new Error("requestId is required");
@@ -668,6 +791,10 @@ export class SkillRunnerManagementClient {
         "content-type": "application/json",
       },
       body: JSON.stringify(args.payload || {}),
+      lane: args.lane || "foreground-query",
+      timeoutMs: args.timeoutMs,
+      signal: args.signal,
+      requestId,
     });
     if (!isObject(body)) {
       throw new Error("management reply response must be object");
@@ -675,7 +802,9 @@ export class SkillRunnerManagementClient {
     return body as SkillRunnerManagementReplyResponse;
   }
 
-  async cancelRun(args: { requestId: string }) {
+  async cancelRun(
+    args: { requestId: string } & SkillRunnerManagementRequestOptions,
+  ) {
     const requestId = String(args.requestId || "").trim();
     if (!requestId) {
       throw new Error("requestId is required");
@@ -687,6 +816,10 @@ export class SkillRunnerManagementClient {
         "content-type": "application/json",
       },
       body: "{}",
+      lane: args.lane || "foreground-query",
+      timeoutMs: args.timeoutMs,
+      signal: args.signal,
+      requestId,
     });
     if (!isObject(body)) {
       throw new Error("management cancel response must be object");
@@ -694,11 +827,13 @@ export class SkillRunnerManagementClient {
     return body as SkillRunnerManagementCancelResponse;
   }
 
-  async submitAuthImport(args: {
-    requestId: string;
-    providerId?: string;
-    files: SkillRunnerManagementAuthImportFile[];
-  }) {
+  async submitAuthImport(
+    args: {
+      requestId: string;
+      providerId?: string;
+      files: SkillRunnerManagementAuthImportFile[];
+    } & SkillRunnerManagementRequestOptions,
+  ) {
     const requestId = String(args.requestId || "").trim();
     if (!requestId) {
       throw new Error("requestId is required");
@@ -708,7 +843,9 @@ export class SkillRunnerManagementClient {
       throw new Error("files are required");
     }
     const form = new FormData();
-    const providerId = String(args.providerId || "").trim().toLowerCase();
+    const providerId = String(args.providerId || "")
+      .trim()
+      .toLowerCase();
     if (providerId) {
       form.append("provider_id", providerId);
     }
@@ -728,6 +865,10 @@ export class SkillRunnerManagementClient {
       method: "POST",
       path: `/v1/jobs/${encodeURIComponent(requestId)}/interaction/auth/import`,
       body: form,
+      lane: args.lane || "foreground-query",
+      timeoutMs: args.timeoutMs,
+      signal: args.signal,
+      requestId,
     });
     if (!isObject(body)) {
       throw new Error("auth import response must be object");
@@ -740,6 +881,7 @@ export class SkillRunnerManagementClient {
     cursor?: number;
     onFrame: (frame: SkillRunnerManagementSseFrame) => void;
     signal?: AbortSignal;
+    lastFocusedAt?: number;
   }) {
     const requestId = String(args.requestId || "").trim();
     if (!requestId) {
@@ -748,7 +890,7 @@ export class SkillRunnerManagementClient {
     const query = new URLSearchParams();
     const cursor = Math.max(0, Math.floor(Number(args.cursor || 0)));
     query.set("cursor", String(cursor));
-    const response = (await this.requestWithAuthRetry({
+    await this.requestWithAuthRetry<void>({
       method: "GET",
       path: `/v1/jobs/${encodeURIComponent(requestId)}/chat`,
       query,
@@ -757,11 +899,16 @@ export class SkillRunnerManagementClient {
       },
       expectJson: false,
       signal: args.signal,
-    })) as Response;
-    await streamSseResponse({
-      response,
-      onFrame: args.onFrame,
-      signal: args.signal,
+      lane: "foreground-stream",
+      stream: true,
+      lastFocusedAt: args.lastFocusedAt,
+      requestId,
+      consumeResponse: (response, signal) =>
+        streamSseResponse({
+          response,
+          onFrame: args.onFrame,
+          signal,
+        }),
     });
   }
 
@@ -778,7 +925,7 @@ export class SkillRunnerManagementClient {
     const query = new URLSearchParams();
     const cursor = Math.max(0, Math.floor(Number(args.cursor || 0)));
     query.set("cursor", String(cursor));
-    const response = (await this.requestWithAuthRetry({
+    await this.requestWithAuthRetry<void>({
       method: "GET",
       path: `/v1/jobs/${encodeURIComponent(requestId)}/events`,
       query,
@@ -787,11 +934,15 @@ export class SkillRunnerManagementClient {
       },
       expectJson: false,
       signal: args.signal,
-    })) as Response;
-    await streamSseResponse({
-      response,
-      onFrame: args.onFrame,
-      signal: args.signal,
+      lane: "background",
+      stream: true,
+      requestId,
+      consumeResponse: (response, signal) =>
+        streamSseResponse({
+          response,
+          onFrame: args.onFrame,
+          signal,
+        }),
     });
   }
 }

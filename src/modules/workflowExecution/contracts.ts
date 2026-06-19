@@ -42,6 +42,7 @@ export type WorkflowJobOutcome = {
   structuredApplyResult?: unknown;
   jobId: string;
   requestId?: string;
+  sequenceRunId?: string;
 };
 
 export type WorkflowApplySummary = {

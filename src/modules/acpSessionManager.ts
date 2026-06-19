@@ -104,6 +104,7 @@ type AcpEmitOptions = {
   persist?: boolean;
   throttleUi?: boolean;
   throttlePersist?: boolean;
+  touchUpdatedAt?: boolean;
 };
 
 let adapterFactory: (
@@ -478,7 +479,13 @@ function scheduleUiEmit(slot: AcpSessionSlot) {
 }
 
 function emitSlotSnapshot(slot: AcpSessionSlot, options: AcpEmitOptions = {}) {
-  updateSnapshotTimestamp(slot);
+  if (options.touchUpdatedAt !== false) {
+    updateSnapshotTimestamp(slot);
+  } else {
+    slot.snapshot.authMethodIds = slot.snapshot.authMethods.map(
+      (entry) => entry.id,
+    );
+  }
   const persist = options.persist !== false;
   if (persist) {
     if (options.throttlePersist) {
@@ -1480,7 +1487,11 @@ function handleSessionUpdate(
       target.text += chunk;
       target.state = "streaming";
       target.updatedAt = nowIso();
-      emitSlotSnapshot(slot, { throttleUi: true, throttlePersist: true });
+      emitSlotSnapshot(slot, {
+        throttleUi: true,
+        throttlePersist: true,
+        touchUpdatedAt: false,
+      });
       return;
     }
     case "agent_thought_chunk": {
@@ -1510,7 +1521,11 @@ function handleSessionUpdate(
       target.text += chunk;
       target.state = "streaming";
       target.updatedAt = nowIso();
-      emitSlotSnapshot(slot, { throttleUi: true, throttlePersist: true });
+      emitSlotSnapshot(slot, {
+        throttleUi: true,
+        throttlePersist: true,
+        touchUpdatedAt: false,
+      });
       return;
     }
     case "tool_call": {

@@ -5,7 +5,7 @@ import {
   getDefaultWorkflowDir,
   getEffectiveWorkflowDir,
 } from "./workflowRuntime";
-import { getString } from "../utils/locale";
+import { getString, getStringOrFallback } from "../utils/locale";
 import { isDebugModeEnabled } from "./debugMode";
 import { subscribeManagedLocalRuntimeStateChange } from "./skillRunnerLocalRuntimeManager";
 import { runtimeFileExists } from "../utils/runtimeCompatibility";
@@ -157,6 +157,15 @@ function bindPrefEvents() {
   ) as HTMLElement | null;
   const runtimeDataStateDbInfo = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-runtime-data-state-db-info`,
+  ) as HTMLElement | null;
+  const runtimeDataProgressRow = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-progress-row`,
+  ) as HTMLElement | null;
+  const runtimeDataProgressmeter = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-progressmeter`,
+  ) as (HTMLElement & { value?: string | number }) | null;
+  const runtimeDataProgressText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-progress-text`,
   ) as HTMLElement | null;
   const runtimeDataRescanButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-runtime-data-rescan`,
@@ -362,7 +371,17 @@ function bindPrefEvents() {
     "tmp",
   ];
 
-  const runtimeDataCategoryLabels: Record<string, string> = {
+  const runtimeDataCategoryLabelKeys: Record<string, string> = {
+    logs: "pref-runtime-data-category-logs",
+    "skillrunner-ledger": "pref-runtime-data-category-skillrunner-ledger",
+    "acp-conversations": "pref-runtime-data-category-acp-conversations",
+    "acp-skill-runs": "pref-runtime-data-category-acp-skill-runs",
+    "workflow-products": "pref-runtime-data-category-workflow-products",
+    cache: "pref-runtime-data-category-cache",
+    tmp: "pref-runtime-data-category-tmp",
+  };
+
+  const runtimeDataCategoryFallbackLabels: Record<string, string> = {
     logs: "Runtime logs",
     "skillrunner-ledger": "SkillRunner local ledger",
     "acp-conversations": "ACP conversations",
@@ -374,6 +393,54 @@ function bindPrefEvents() {
 
   let runtimeDataScanState: "idle" | "scanning" | "ready" | "failed" = "idle";
   let runtimeDataRefreshPromise: Promise<void> | null = null;
+
+  const runtimeDataCategoryLabel = (category: string, fallback = "") => {
+    const id = String(category || "").trim();
+    const key = runtimeDataCategoryLabelKeys[id];
+    const fallbackLabel = fallback || runtimeDataCategoryFallbackLabels[id] || id;
+    return key ? getStringOrFallback(key, fallbackLabel) : fallbackLabel;
+  };
+
+  const runtimeDataCleaningText = (target: string) =>
+    getStringOrFallback(
+      "pref-runtime-data-cleaning-target",
+      `Cleaning ${target || ""}...`,
+      { args: { target: target || "" } },
+    );
+
+  const runtimeDataScanningText = (progress?: {
+    current?: number;
+    total?: number;
+  }) => {
+    const base = getString("pref-runtime-data-scanning" as any);
+    const current = Number(progress?.current || 0);
+    const total = Number(progress?.total || 0);
+    return total > 0 && current > 0 ? `${base} ${current}/${total}` : base;
+  };
+
+  const setRuntimeDataProgress = (
+    visible: boolean,
+    percent = 0,
+    text = "",
+  ) => {
+    if (runtimeDataProgressRow) {
+      if (visible) {
+        runtimeDataProgressRow.classList.add("is-visible");
+      } else {
+        runtimeDataProgressRow.classList.remove("is-visible");
+      }
+    }
+    const normalizedPercent = Math.max(
+      0,
+      Math.min(100, Math.floor(Number(percent) || 0)),
+    );
+    if (runtimeDataProgressmeter) {
+      runtimeDataProgressmeter.style.width = `${normalizedPercent}%`;
+    }
+    if (runtimeDataProgressText) {
+      runtimeDataProgressText.textContent = visible ? text : "";
+    }
+  };
 
   const formatRuntimeDataDetail = (category: any, scanned: boolean) => {
     if (!scanned) {
@@ -520,11 +587,7 @@ function bindPrefEvents() {
       const issues = Array.isArray(integrity?.issues) ? integrity.issues : [];
       const issueCount = Number(integrity?.issueCount ?? issues.length ?? 0);
       const issueText = `${getString("pref-runtime-data-issue-count" as any)} ${issueCount}`;
-      if (runtimeDataScanState === "scanning") {
-        runtimeDataSummary.textContent = getString(
-          "pref-runtime-data-scanning" as any,
-        );
-      } else if (usage?.categories) {
+      if (usage?.categories) {
         runtimeDataSummary.textContent = `${getString("pref-runtime-data-summary" as any)} ${total} · ${issueText}${scannedAt ? ` · ${scannedAt}` : ""}`;
       } else {
         runtimeDataSummary.textContent = getString(
@@ -543,6 +606,8 @@ function bindPrefEvents() {
       runtimeDataStateDbInfo.textContent = stateDetail;
       if (statePath) {
         runtimeDataStateDbInfo.setAttribute("title", statePath);
+      } else {
+        runtimeDataStateDbInfo.removeAttribute("title");
       }
     }
     if (!runtimeDataCategories) {
@@ -551,12 +616,6 @@ function bindPrefEvents() {
     }
     clearChildren(runtimeDataCategories);
     runtimeDataCategories.textContent = "";
-    if (runtimeDataScanState === "scanning") {
-      const status = doc.createElement("div");
-      status.className = "zs-runtime-data-scan-status";
-      status.textContent = getString("pref-runtime-data-scanning" as any);
-      runtimeDataCategories.appendChild(status);
-    }
     const appendRow = (
       label: string,
       detail: string,
@@ -594,12 +653,13 @@ function bindPrefEvents() {
     for (const id of runtimeDataCategoryOrder) {
       const category = (categories.get(id) || {
         category: id,
-        label: runtimeDataCategoryLabels[id] || id,
+        label: runtimeDataCategoryLabel(id),
         cleanable: false,
       }) as any;
-      const label = String(
-        (category as any)?.label || runtimeDataCategoryLabels[id] || id || "-",
-      ).trim();
+      const label = runtimeDataCategoryLabel(
+        id,
+        String((category as any)?.label || id || "-").trim(),
+      );
       const path = String(category?.path || "").trim();
       appendRow(
         label,
@@ -621,15 +681,28 @@ function bindPrefEvents() {
     }
     runtimeDataRefreshPromise = (async () => {
       runtimeDataScanState = "scanning";
+      setRuntimeDataProgress(true, 0, runtimeDataScanningText());
       renderRuntimeDataUsage(lastRuntimeDataSnapshot);
       try {
         const snapshot = await addon.hooks.onPrefsEvent(
           "scanPersistenceGovernance",
           {
             window: addon.data.prefs?.window,
+            onProgress: (progress: {
+              percent?: number;
+              current?: number;
+              total?: number;
+            }) => {
+              setRuntimeDataProgress(
+                true,
+                Number(progress?.percent || 0),
+                runtimeDataScanningText(progress),
+              );
+            },
           },
         );
         runtimeDataScanState = "ready";
+        setRuntimeDataProgress(true, 100, runtimeDataScanningText());
         renderRuntimeDataUsage(snapshot);
       } catch (error) {
         runtimeDataScanState = "failed";
@@ -637,6 +710,7 @@ function bindPrefEvents() {
           runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
         }
       } finally {
+        setRuntimeDataProgress(false);
         runtimeDataRefreshPromise = null;
       }
     })();
@@ -655,11 +729,8 @@ function bindPrefEvents() {
     }
     try {
       runtimeDataScanState = "scanning";
-      if (runtimeDataSummary) {
-        runtimeDataSummary.textContent = getString(
-          "pref-runtime-data-cleaning" as any,
-        );
-      }
+      const cleaningText = runtimeDataCleaningText(label);
+      setRuntimeDataProgress(true, 50, cleaningText);
       const result = await addon.hooks.onPrefsEvent(
         "cleanupRuntimePersistenceCategory",
         {
@@ -676,6 +747,10 @@ function bindPrefEvents() {
       if (runtimeDataSummary) {
         runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
       }
+    } finally {
+      if (!runtimeDataRefreshPromise) {
+        setRuntimeDataProgress(false);
+      }
     }
   };
 
@@ -684,11 +759,8 @@ function bindPrefEvents() {
     label: string,
     detailText: string,
   ) => {
-    if (runtimeDataSummary) {
-      runtimeDataSummary.textContent = getString(
-        "pref-runtime-data-cleaning" as any,
-      );
-    }
+    const cleaningText = runtimeDataCleaningText(label);
+    setRuntimeDataProgress(true, 50, cleaningText);
     try {
       const preview = await addon.hooks.onPrefsEvent(
         "cleanupPersistenceGovernanceIssues",
@@ -703,6 +775,7 @@ function bindPrefEvents() {
       );
       if (!confirmed) {
         renderRuntimeDataUsage(preview);
+        setRuntimeDataProgress(false);
         return;
       }
       const result = await addon.hooks.onPrefsEvent(
@@ -718,6 +791,8 @@ function bindPrefEvents() {
       if (runtimeDataSummary) {
         runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
       }
+    } finally {
+      setRuntimeDataProgress(false);
     }
   };
 

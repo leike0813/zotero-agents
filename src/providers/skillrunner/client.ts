@@ -6,6 +6,10 @@ import type {
 } from "../contracts";
 import type { ProviderProgressEvent } from "../types";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
+import {
+  runSkillRunnerConnection,
+  type SkillRunnerConnectionLane,
+} from "../../modules/skillRunnerConnectionGovernor";
 import { buildSkillRunnerSkillPackageBundle } from "./skillPackageBundler";
 import { SkillRunnerHttpError, SkillRunnerTerminalRunError } from "./errors";
 import {
@@ -32,6 +36,7 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 type DynamicImport = (specifier: string) => Promise<any>;
 
 const DEFAULT_HTTP_REQUEST_TIMEOUT_MS = 120000;
+const DEFAULT_RECONCILE_REQUEST_TIMEOUT_MS = 10000;
 
 const dynamicImport: DynamicImport = new Function(
   "specifier",
@@ -393,16 +398,20 @@ async function readJsonOrThrow(
 export class SkillRunnerClient {
   private readonly baseUrl: string;
 
+  private readonly backendId: string;
+
   private readonly fetchImpl: FetchLike;
 
   private readonly requestTimeoutMs: number;
 
   constructor(args: {
     baseUrl: string;
+    backendId?: string;
     fetchImpl?: FetchLike;
     requestTimeoutMs?: number;
   }) {
     this.baseUrl = args.baseUrl.replace(/\/+$/, "");
+    this.backendId = normalizeString(args.backendId) || this.baseUrl;
     this.requestTimeoutMs = normalizeTimeoutMs(
       args.requestTimeoutMs,
       DEFAULT_HTTP_REQUEST_TIMEOUT_MS,
@@ -468,42 +477,40 @@ export class SkillRunnerClient {
   private async fetchWithTimeout(args: {
     url: string;
     init: RequestInit;
+    lane: SkillRunnerConnectionLane;
     method?: string;
     path?: string;
     requestId?: string;
     stepId?: string;
+    timeoutMs?: number;
     timeoutStage: string;
   }) {
-    const timeoutMs = this.requestTimeoutMs;
-    const runtime = globalThis as {
-      AbortController?: typeof AbortController;
-      setTimeout?: typeof setTimeout;
-      clearTimeout?: typeof clearTimeout;
-    };
-    if (
-      timeoutMs <= 0 ||
-      args.init.signal ||
-      typeof runtime.AbortController !== "function" ||
-      typeof runtime.setTimeout !== "function" ||
-      typeof runtime.clearTimeout !== "function"
-    ) {
-      return this.fetchImpl(args.url, args.init);
-    }
-    const AbortControllerCtor = runtime.AbortController;
-    const setTimer = runtime.setTimeout;
-    const clearTimer = runtime.clearTimeout;
-    const controller = new AbortControllerCtor();
-    let timedOut = false;
+    const timeoutMs = normalizeTimeoutMs(args.timeoutMs, this.requestTimeoutMs);
     const startedAt = Date.now();
-    let timeoutError: Error | undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeoutPromise = new Promise<Response>((_resolve, reject) => {
-      timer = setTimer(() => {
-        timedOut = true;
-        timeoutError = createTimeoutError({
+    try {
+      return await runSkillRunnerConnection({
+        backendId: this.backendId,
+        lane: args.lane,
+        requestId: args.requestId,
+        operation: `${normalizeString(args.method) || "GET"} ${normalizeString(args.path) || args.url}`,
+        timeoutMs,
+        signal: args.init.signal || undefined,
+        task: (signal) =>
+          this.fetchImpl(args.url, {
+            ...args.init,
+            signal,
+          }),
+      });
+    } catch (error) {
+      if (
+        String((error as { name?: unknown })?.name || "") ===
+        "SkillRunnerConnectionTimeoutError"
+      ) {
+        const timeoutError = createTimeoutError({
           method: args.method,
           path: args.path,
           timeoutMs,
+          cause: error,
         });
         this.appendTransportLog({
           level: "error",
@@ -517,36 +524,9 @@ export class SkillRunnerClient {
           duration: Date.now() - startedAt,
           error: timeoutError,
         });
-        controller.abort();
-        reject(timeoutError);
-      }, timeoutMs);
-    });
-    const fetchPromise = this.fetchImpl(args.url, {
-      ...args.init,
-      signal: controller.signal,
-    });
-    try {
-      return await Promise.race([fetchPromise, timeoutPromise]);
-    } catch (error) {
-      if (timedOut) {
-        if (timeoutError && error !== timeoutError) {
-          (timeoutError as { cause?: unknown }).cause = error;
-        }
-        throw (
-          timeoutError ||
-          createTimeoutError({
-            method: args.method,
-            path: args.path,
-            timeoutMs,
-            cause: error,
-          })
-        );
+        throw timeoutError;
       }
       throw error;
-    } finally {
-      if (timer) {
-        clearTimer(timer);
-      }
     }
   }
 
@@ -567,6 +547,7 @@ export class SkillRunnerClient {
     });
     const response = await this.fetchWithTimeout({
       url,
+      lane: "submit",
       method: step.request.method,
       path: step.request.path,
       stepId: step.id,
@@ -687,6 +668,7 @@ export class SkillRunnerClient {
     });
     const response = await this.fetchWithTimeout({
       url,
+      lane: "submit",
       method: step.request.method,
       path,
       requestId,
@@ -790,6 +772,8 @@ export class SkillRunnerClient {
     requestPath: string;
     requestMethod: string;
     requestId: string;
+    lane?: SkillRunnerConnectionLane;
+    timeoutMs?: number;
   }) {
     const path = interpolatePath(args.requestPath, {
       request_id: args.requestId,
@@ -798,10 +782,12 @@ export class SkillRunnerClient {
     const startedAt = Date.now();
     const response = await this.fetchWithTimeout({
       url,
+      lane: args.lane || "background",
       method: args.requestMethod,
       path,
       requestId: args.requestId,
       stepId: "poll",
+      timeoutMs: args.timeoutMs,
       timeoutStage: "provider-http-get-state-timeout",
       init: {
         method: args.requestMethod,
@@ -840,6 +826,7 @@ export class SkillRunnerClient {
     const startedAt = Date.now();
     const response = await this.fetchWithTimeout({
       url,
+      lane: "settlement",
       method: step.request.method,
       path,
       requestId,
@@ -944,6 +931,7 @@ export class SkillRunnerClient {
     const startedAt = Date.now();
     const response = await this.fetchWithTimeout({
       url,
+      lane: "settlement",
       method: step.request.method,
       path,
       requestId,
@@ -981,6 +969,8 @@ export class SkillRunnerClient {
       requestPath: "/v1/jobs/{request_id}",
       requestMethod: "GET",
       requestId,
+      lane: "reconcile",
+      timeoutMs: DEFAULT_RECONCILE_REQUEST_TIMEOUT_MS,
     });
   }
 
@@ -1018,7 +1008,10 @@ export class SkillRunnerClient {
     return normalized.resultJson;
   }
 
-  async fetchRunResultPayload(args: { requestId: string; stateJson?: unknown }) {
+  async fetchRunResultPayload(args: {
+    requestId: string;
+    stateJson?: unknown;
+  }) {
     const requestId = String(args.requestId || "").trim();
     if (!requestId) {
       throw new Error("requestId is required");
@@ -1222,11 +1215,10 @@ export class SkillRunnerClient {
 
     const createStep = this.findStep(request, "create");
     const uploadStep = this.findStep(request, "upload");
-    const pollStep = this.findStep(request, "poll");
     const bundleStep = this.findStep(request, "bundle");
     const resultStep = this.findStep(request, "result");
-    if (!createStep || !pollStep) {
-      throw new Error("http.steps request missing create/poll step");
+    if (!createStep) {
+      throw new Error("http.steps request missing create step");
     }
     if (!bundleStep && !resultStep) {
       throw new Error(
@@ -1246,40 +1238,17 @@ export class SkillRunnerClient {
       type: "request-ready",
       requestId,
     });
-    const pollResult = await this.executePollStep(request, pollStep, requestId);
-    if (bundleStep) {
-      const bundleBytes = await this.executeBundleStep(bundleStep, requestId);
-      const normalized = await this.normalizeBundleTerminalResult({
-        requestId,
-        skillId: options?.skillId,
-        bundleBytes,
-        responseJson: pollResult,
-      });
-      return {
-        status: "succeeded",
-        requestId,
-        fetchType: "bundle",
-        bundleBytes,
-        resultJson: normalized.resultJson,
-        resultJsonPath: normalized.resultJsonPath,
-        workspaceDir: normalized.workspaceDir,
-        resultArtifactBasePath: normalized.resultArtifactBasePath,
-        responseJson: pollResult,
-      };
-    }
-    const resultResponseJson = await this.executeResultStep(resultStep!, requestId);
-    const normalized = this.normalizeResultTerminalResult({
-      resultResponseJson,
-      stateJson: pollResult,
-    });
     return {
-      status: "succeeded",
+      status: "deferred",
       requestId,
-      fetchType: "result",
-      resultJson: normalized.resultJson,
-      resultJsonPath: normalized.resultJsonPath,
-      workspaceDir: normalized.workspaceDir,
-      responseJson: normalized.responseJson,
+      fetchType: bundleStep ? "bundle" : "result",
+      backendStatus: "running",
+      frontendStatus: "request_ready",
+      responseJson: {
+        request_id: requestId,
+        status: "request_ready",
+        fetch_type: bundleStep ? "bundle" : "result",
+      },
     };
   }
 
@@ -1294,109 +1263,9 @@ export class SkillRunnerClient {
       request,
       providerOptions,
     );
-    const executionMode = String(
-      request.runtime_options?.execution_mode || "",
-    ).trim();
-    if (executionMode !== "interactive") {
-      return this.executeHttpSteps(httpStepsRequest, {
-        ...options,
-        skillId: request.skill_id,
-      });
-    }
-
-    const createStep = this.findStep(httpStepsRequest, "create");
-    const uploadStep = this.findStep(httpStepsRequest, "upload");
-    const pollStep = this.findStep(httpStepsRequest, "poll");
-    const bundleStep = this.findStep(httpStepsRequest, "bundle");
-    const resultStep = this.findStep(httpStepsRequest, "result");
-    if (!createStep || !pollStep) {
-      throw new Error("http.steps request missing create/poll step");
-    }
-    if (!bundleStep && !resultStep) {
-      throw new Error(
-        "http.steps request missing terminal fetch step (bundle or result)",
-      );
-    }
-
-    const requestId = await this.executeCreateStep(createStep);
-    options?.onProgress?.({
-      type: "request-created",
-      requestId,
+    return this.executeHttpSteps(httpStepsRequest, {
+      ...options,
+      skillId: request.skill_id,
     });
-    if (uploadStep) {
-      await this.executeUploadStep(uploadStep, requestId);
-    }
-    options?.onProgress?.({
-      type: "request-ready",
-      requestId,
-    });
-
-    const runState = await this.getJobState({
-      requestPath: pollStep.request.path,
-      requestMethod: pollStep.request.method,
-      requestId,
-    });
-    const backendStatus = normalizeStatusWithGuard({
-      value: runState.status,
-      fallback: "running",
-      requestId,
-    }).status;
-    if (backendStatus === "failed" || backendStatus === "canceled") {
-      const terminalError =
-        String(runState.error || "").trim() || "unknown error";
-      throw new SkillRunnerTerminalRunError({
-        requestId,
-        status: backendStatus,
-        error: terminalError,
-      });
-    }
-    if (backendStatus === "succeeded") {
-      if (bundleStep) {
-        const bundleBytes = await this.executeBundleStep(bundleStep, requestId);
-        const normalized = await this.normalizeBundleTerminalResult({
-          requestId,
-          skillId: request.skill_id,
-          bundleBytes,
-          responseJson: runState,
-        });
-        return {
-          status: "succeeded" as const,
-          requestId,
-          fetchType: "bundle" as const,
-          bundleBytes,
-          resultJson: normalized.resultJson,
-          resultJsonPath: normalized.resultJsonPath,
-          workspaceDir: normalized.workspaceDir,
-          resultArtifactBasePath: normalized.resultArtifactBasePath,
-          responseJson: runState,
-        };
-      }
-      const resultResponseJson = await this.executeResultStep(resultStep!, requestId);
-      const normalized = this.normalizeResultTerminalResult({
-        resultResponseJson,
-        stateJson: runState,
-      });
-      return {
-        status: "succeeded" as const,
-        requestId,
-        fetchType: "result" as const,
-        resultJson: normalized.resultJson,
-        resultJsonPath: normalized.resultJsonPath,
-        workspaceDir: normalized.workspaceDir,
-        responseJson: normalized.responseJson,
-      };
-    }
-
-    return {
-      status: "deferred" as const,
-      requestId,
-      fetchType: (bundleStep ? "bundle" : "result") as "bundle" | "result",
-      backendStatus: isWaiting(backendStatus)
-        ? backendStatus
-        : backendStatus === "queued"
-          ? "queued"
-          : "running",
-      responseJson: runState,
-    };
   }
 }

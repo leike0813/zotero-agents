@@ -105,10 +105,46 @@ describe("skillrunner management client", function () {
       seq: 1,
       text: "hello",
     });
-    assert.equal(
-      urls[0],
-      "http://127.0.0.1:8030/v1/jobs/req-1/chat?cursor=0",
-    );
+    assert.equal(urls[0], "http://127.0.0.1:8030/v1/jobs/req-1/chat?cursor=0");
+  });
+
+  it("parses CRLF-delimited SSE chat frames", async function () {
+    const frames: SkillRunnerManagementSseFrame[] = [];
+    const payload =
+      "event: snapshot\r\n" +
+      'data: {"status":"running","cursor":0}\r\n\r\n' +
+      "event: chat_event\r\n" +
+      'data: {"seq":2,"text":"hello crlf"}\r\n\r\n';
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(payload));
+        controller.close();
+      },
+    });
+    const client = new SkillRunnerManagementClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async () =>
+        new Response(stream, {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+          },
+        }),
+    });
+
+    await client.streamRunChat({
+      requestId: "req-1",
+      onFrame: (frame) => {
+        frames.push(frame);
+      },
+    });
+
+    assert.lengthOf(frames, 2);
+    assert.equal(frames[1].event, "chat_event");
+    assert.deepEqual(frames[1].data, {
+      seq: 2,
+      text: "hello crlf",
+    });
   });
 
   it("parses SSE event frames from jobs events endpoint", async function () {
@@ -197,7 +233,8 @@ describe("skillrunner management client", function () {
     } catch (error) {
       rejected = error;
     }
-    assert.equal(requests[0]?.signal, controller.signal);
+    assert.instanceOf(requests[0]?.signal, AbortSignal);
+    assert.isTrue(requests[0]?.signal?.aborted);
     assert.equal(
       requests[0]?.url,
       "http://127.0.0.1:8030/v1/jobs/req-1/chat?cursor=0",
@@ -305,10 +342,7 @@ describe("skillrunner management client", function () {
 
     assert.instanceOf(thrown, SkillRunnerHttpError);
     assert.equal((thrown as SkillRunnerHttpError).status, 404);
-    assert.equal(
-      (thrown as SkillRunnerHttpError).path,
-      "/v1/jobs/req-missing",
-    );
+    assert.equal((thrown as SkillRunnerHttpError).path, "/v1/jobs/req-missing");
   });
 
   it("passes assistant_revision rows through chat history without reshaping", async function () {
@@ -419,10 +453,7 @@ describe("skillrunner management client", function () {
       interaction_id: 3,
       response: "ok",
     });
-    assert.equal(
-      requests[1].url,
-      "http://127.0.0.1:8030/v1/jobs/req-1/cancel",
-    );
+    assert.equal(requests[1].url, "http://127.0.0.1:8030/v1/jobs/req-1/cancel");
     assert.equal(requests[1].method, "POST");
     assert.equal(requests[1].body, "{}");
   });

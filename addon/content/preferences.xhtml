@@ -13,7 +13,6 @@
     flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .zs-runtime-data-grid { display: grid; grid-template-columns: minmax(140px,
     1fr) auto auto; gap: 6px 10px; align-items: center; font-size: 12px; }
-    .zs-runtime-data-scan-status { grid-column: 1 / -1; color: #475569; }
     .zs-runtime-data-path { font-family: ui-monospace, SFMono-Regular, Consolas,
     monospace; font-size: 11px; word-break: break-all; color: #334155; }
     .zs-runtime-data-category { color: #334155; } .zs-runtime-data-size { color:
@@ -38,9 +37,12 @@
     font-size: 13px; font-weight: 700; line-height: 1; color: #dc2626;
     user-select: none; } .zs-autostart-icon.is-green { color: #16a34a; }
     .zs-autostart-icon.is-red { color: #dc2626; }
-    #zotero-prefpane-__addonRef__-skillrunner-local-progress-row { display:
-    none; align-items: center; gap: 8px; margin-top: 4px; }
+    #zotero-prefpane-__addonRef__-skillrunner-local-progress-row,
+    #zotero-prefpane-__addonRef__-runtime-data-progress-row { display: none;
+    align-items: center; gap: 8px; margin-top: 4px; }
     #zotero-prefpane-__addonRef__-skillrunner-local-progress-row.is-visible {
+    display: flex; }
+    #zotero-prefpane-__addonRef__-runtime-data-progress-row.is-visible {
     display: flex; } .custom-progress-container { width: 220px; min-width:
     220px; height: 6px; background-color: var(--fill-quaternary, rgba(128, 128,
     128, 0.2)); border-radius: 3px; overflow: hidden; margin-top: 1px;
@@ -285,6 +287,17 @@
         id="zotero-prefpane-__addonRef__-runtime-data-summary"
         data-l10n-id="pref-runtime-data-summary-idle"
       ></description>
+      <html:div id="zotero-prefpane-__addonRef__-runtime-data-progress-row">
+        <html:div class="custom-progress-container">
+          <html:div
+            id="zotero-prefpane-__addonRef__-runtime-data-progressmeter"
+            class="custom-progress-bar"
+          ></html:div>
+        </html:div>
+        <html:span
+          id="zotero-prefpane-__addonRef__-runtime-data-progress-text"
+        ></html:span>
+      </html:div>
       <html:div
         id="zotero-prefpane-__addonRef__-runtime-data-categories"
         class="zs-runtime-data-grid"

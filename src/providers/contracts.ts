@@ -256,6 +256,7 @@ export type ProviderExecutionDeferredResult = {
   requestId: string;
   fetchType: "bundle" | "result";
   backendStatus: "queued" | "running" | "waiting_user" | "waiting_auth";
+  frontendStatus?: "request_ready";
   bundleBytes?: undefined;
   resultJson?: undefined;
   responseJson?: unknown;

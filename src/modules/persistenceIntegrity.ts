@@ -57,6 +57,14 @@ export type PersistenceCleanupResult = {
   report: PersistenceIntegrityReport;
 };
 
+export type PersistenceIntegrityScanProgress = {
+  stage: string;
+  label: string;
+  current: number;
+  total: number;
+  percent: number;
+};
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ORPHAN_PRODUCT_ASSET_TTL_MS = 7 * DAY_MS;
 
@@ -218,11 +226,24 @@ async function collectManagedPathPolicyIssues(args: {
 export async function scanPersistenceIntegrity(args?: {
   root?: string;
   nowMs?: number;
+  onProgress?: (progress: PersistenceIntegrityScanProgress) => void;
 }): Promise<PersistenceIntegrityReport> {
   const paths = getRuntimePersistencePaths(args?.root);
   const nowMs = Math.max(0, Math.floor(Number(args?.nowMs || Date.now())));
   const issues: PersistenceIntegrityIssue[] = [];
   const referencedFiles = new Set<string>();
+  const totalSteps = 6;
+  let completedSteps = 0;
+  const reportProgress = (stage: string, label: string) => {
+    completedSteps = Math.min(totalSteps, completedSteps + 1);
+    args?.onProgress?.({
+      stage,
+      label,
+      current: completedSteps,
+      total: totalSteps,
+      percent: Math.floor((completedSteps / totalSteps) * 100),
+    });
+  };
 
   for (const product of listWorkflowProducts()) {
     for (const asset of product.assets || []) {
@@ -246,6 +267,7 @@ export async function scanPersistenceIntegrity(args?: {
       }
     }
   }
+  reportProgress("integrity:workflow-products-db", "Workflow product records");
 
   const workflowProductsRoot = joinPath(
     paths.runtimeRoot,
@@ -273,6 +295,7 @@ export async function scanPersistenceIntegrity(args?: {
         : undefined,
     });
   }
+  reportProgress("integrity:workflow-products-assets", "Workflow product assets");
 
   for (const asset of await collectExpiredRuntimeAssets({
     root: args?.root,
@@ -292,6 +315,7 @@ export async function scanPersistenceIntegrity(args?: {
         : undefined,
     });
   }
+  reportProgress("integrity:expired-assets", "Expired runtime assets");
 
   const runtimeSynthesis = joinPath(paths.runtimeRoot, "synthesis");
   if (await runtimePathExists(runtimeSynthesis)) {
@@ -318,6 +342,7 @@ export async function scanPersistenceIntegrity(args?: {
       });
     }
   }
+  reportProgress("integrity:runtime-synthesis", "Runtime synthesis workspace");
 
   const oldRuntimeSynthesis = joinPath(paths.root, "synthesis");
   if (
@@ -335,6 +360,7 @@ export async function scanPersistenceIntegrity(args?: {
       reason: "legacy synthesis root requires explicit migration",
     });
   }
+  reportProgress("integrity:legacy-roots", "Legacy persistence roots");
 
   for (const issue of await collectManagedPathPolicyIssues({
     root: paths.synthesisDataRoot,
@@ -342,6 +368,7 @@ export async function scanPersistenceIntegrity(args?: {
   })) {
     issues.push(issue);
   }
+  reportProgress("integrity:managed-paths", "Managed synthesis paths");
 
   const report: PersistenceIntegrityReport = {
     schema: "zotero-agents.persistence_integrity_report.v1",

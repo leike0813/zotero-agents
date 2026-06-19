@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { buildSkillRunnerSidebarSections } from "../../src/modules/skillRunnerSidebarModel";
 
 function isRealZoteroRuntime() {
   const runtime = globalThis as {
@@ -494,6 +495,126 @@ describe("acp ui smoke", function () {
       panel.context.subtitle,
       "debug-host-bridge-connectivity-probe",
     );
+  });
+
+  it("projects deferred apply state into the SkillRunner banner and drawer tasks", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const labels = {
+      fields: {
+        deferredApply: "延迟应用",
+        status: "状态",
+        updated: "更新时间",
+        error: "错误",
+      },
+      status: {
+        applyRunning: "应用中",
+        applyFailed: "应用失败",
+        applyRetryScheduled: "等待重试",
+      },
+    };
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      labels,
+      session: {
+        requestId: "skillrunner-request-apply",
+        title: "Selected apply task",
+        status: "succeeded",
+        applyState: "failed",
+        applyAttempt: 2,
+        applyMaxAttempt: 3,
+        applyNextRetryAt: "2026-01-01T00:10:00.000Z",
+        applyError: "apply target missing",
+      },
+      workspace: {
+        selectedTaskKey: "local-skillrunner-backend:skillrunner-request-apply",
+      },
+      drawer: {
+        sections: [
+          {
+            id: "running",
+            groups: [
+              {
+                backendId: "local-skillrunner-backend",
+                backendDisplayName: "Local SkillRunner",
+                activeTasks: [
+                  {
+                    key: "local-skillrunner-backend:skillrunner-request-apply",
+                    requestId: "skillrunner-request-apply",
+                    title: "Selected apply task",
+                    workflowLabel: "Debug Workflow",
+                    skillName: "Debug Apply",
+                    status: "succeeded",
+                    terminal: true,
+                    applyState: "failed",
+                    applyAttempt: 2,
+                    applyMaxAttempt: 3,
+                    applyNextRetryAt: "2026-01-01T00:10:00.000Z",
+                    applyError: "apply target missing",
+                  },
+                ],
+                finishedTasks: [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const applyIndicator = panel.context.indicators.find(
+      (entry: any) => entry.id === "deferred-apply",
+    );
+    assert.deepInclude(applyIndicator, {
+      label: "延迟应用",
+      value: "等待重试",
+      tone: "error",
+    });
+    assert.equal(panel.lifecycle.applyState, "failed");
+    const task = panel.drawers.skillrunnerSections[0].groups[0].activeTasks[0];
+    assert.equal(task.applyState, "failed");
+    assert.equal(task.applyStateLabel, "等待重试");
+    assert.equal(task.applyTone, "error");
+    assert.isTrue(
+      panel.drawers.details.some((section: any) => section.title === "延迟应用"),
+    );
+  });
+
+  it("keeps terminal SkillRunner runs with pending deferred apply visible in Running", function () {
+    const sections = buildSkillRunnerSidebarSections({
+      groups: [
+        {
+          backendId: "local-skillrunner-backend",
+          backendDisplayName: "Local SkillRunner",
+          disabled: false,
+          collapsed: false,
+          finishedCollapsed: true,
+          latestUpdatedAt: "2026-01-01T00:00:00.000Z",
+          activeTasks: [],
+          finishedTasks: [
+            {
+              key: "local-skillrunner-backend:skillrunner-request-apply",
+              backendId: "local-skillrunner-backend",
+              backendDisplayName: "Local SkillRunner",
+              requestId: "skillrunner-request-apply",
+              workflowLabel: "Debug Workflow",
+              status: "succeeded",
+              stateLabel: "Succeeded",
+              applyState: "running",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              title: "Selected apply task",
+              selectable: true,
+              terminal: true,
+            },
+          ],
+        },
+      ],
+      completedCollapsed: true,
+    });
+
+    assert.equal(sections[0].id, "running");
+    assert.equal(
+      sections[0].groups[0].activeTasks[0].requestId,
+      "skillrunner-request-apply",
+    );
+    assert.lengthOf(sections[1].groups, 0);
   });
 
   it("exposes copy-friendly assistant transcript and reply history affordances", async function () {
@@ -1926,6 +2047,8 @@ describe("acp ui smoke", function () {
     );
     assert.include(assistantSidebar, "set-reasoning-effort");
     assert.include(assistantSidebar, "open-backend-manager");
+    assert.include(assistantSidebar, 'initialProviderType: "acp"');
+    assert.include(assistantSidebar, 'initialProviderType: "skillrunner"');
     assert.include(assistantSidebar, 'action === "open-workspace"');
     assert.include(assistantSidebar, "openFolderInSystemFileManager");
     assert.include(assistantSidebar, "set-chat-display-mode");
@@ -2257,6 +2380,10 @@ describe("acp ui smoke", function () {
       "task-dashboard-products-viewer-copy-failed",
       "task-dashboard-feedback-select-all",
       "task-dashboard-feedback-export-selected",
+      "task-dashboard-feedback-delete-selected",
+      "task-dashboard-feedback-delete-all",
+      "task-dashboard-feedback-delete-selected-confirm",
+      "task-dashboard-feedback-delete-all-confirm",
     ];
     locales.forEach(({ locale, text }) => {
       requiredKeys.forEach((key) => {
@@ -2286,7 +2413,11 @@ describe("acp ui smoke", function () {
 
     assert.include(app, "productsListCollapsed");
     assert.include(app, 'labelText(labels, "feedbackSelectAll")');
+    assert.include(app, 'labelText(labels, "feedbackDeleteSelected")');
+    assert.include(app, 'labelText(labels, "feedbackDeleteAll")');
     assert.include(app, 'sendAction("toggle-all-feedback-products-selected"');
+    assert.include(app, 'sendAction("delete-selected-feedback")');
+    assert.include(app, 'sendAction("delete-all-feedback")');
     assert.include(app, "selectedVisibleFeedbackCount");
     assert.include(app, "selectAllCheckbox.indeterminate");
     assert.include(css, ".feedback-select-all");
@@ -2294,6 +2425,8 @@ describe("acp ui smoke", function () {
       taskManagerDialogTs,
       'action === "toggle-all-feedback-products-selected"',
     );
+    assert.include(taskManagerDialogTs, 'action === "delete-selected-feedback"');
+    assert.include(taskManagerDialogTs, 'action === "delete-all-feedback"');
     assert.include(taskManagerDialogTs, "listSkillRunFeedbackProducts(");
     assert.include(app, "buildProductAssetTree");
     assert.include(app, "renderProductTreeNode");

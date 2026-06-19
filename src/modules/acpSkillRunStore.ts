@@ -2182,15 +2182,19 @@ export function recordAcpSkillRunSessionUpdate(
   if (!existing) {
     return;
   }
+  const update = event.update || { sessionUpdate: "" };
+  const kind = normalizeString(update.sessionUpdate);
+  const isTextChunkUpdate =
+    kind === "agent_message_chunk" ||
+    kind === "user_message_chunk" ||
+    kind === "agent_thought_chunk";
   const next: AcpSkillRunRecord = {
     ...existing,
-    updatedAt: now,
+    updatedAt: isTextChunkUpdate ? existing.updatedAt : now,
     transcriptItems: [...existing.transcriptItems],
     planEntries: existing.planEntries ? [...existing.planEntries] : undefined,
     usage: existing.usage ? { ...existing.usage } : undefined,
   };
-  const update = event.update || { sessionUpdate: "" };
-  const kind = normalizeString(update.sessionUpdate);
   if (kind === "agent_message_chunk" || kind === "user_message_chunk") {
     const content = (
       update as { content?: { type?: string | null; text?: string | null } }

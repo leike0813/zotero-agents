@@ -447,6 +447,42 @@ function createPrefsWindow(args?: {
   if (runtimeDataStateDbInfo) {
     runtimeDataStateDbInfo.id = `zotero-prefpane-${config.addonRef}-runtime-data-state-db-info`;
   }
+  const runtimeDataProgressRow = args?.includeRuntimeDataControls
+    ? document.createXULElement("hbox")
+    : null;
+  const runtimeDataProgressmeterContainer = args?.includeRuntimeDataControls
+    ? document.createXULElement("div")
+    : null;
+  const runtimeDataProgressmeter = args?.includeRuntimeDataControls
+    ? document.createXULElement("div")
+    : null;
+  const runtimeDataProgressText = args?.includeRuntimeDataControls
+    ? document.createXULElement("span")
+    : null;
+  if (runtimeDataProgressRow) {
+    runtimeDataProgressRow.id = `zotero-prefpane-${config.addonRef}-runtime-data-progress-row`;
+  }
+  if (runtimeDataProgressmeterContainer) {
+    runtimeDataProgressmeterContainer.className = "custom-progress-container";
+  }
+  if (runtimeDataProgressmeter) {
+    runtimeDataProgressmeter.id = `zotero-prefpane-${config.addonRef}-runtime-data-progressmeter`;
+    runtimeDataProgressmeter.className = "custom-progress-bar";
+    runtimeDataProgressmeter.style.width = "0%";
+  }
+  if (runtimeDataProgressText) {
+    runtimeDataProgressText.id = `zotero-prefpane-${config.addonRef}-runtime-data-progress-text`;
+  }
+  if (
+    runtimeDataProgressRow &&
+    runtimeDataProgressmeterContainer &&
+    runtimeDataProgressmeter &&
+    runtimeDataProgressText
+  ) {
+    runtimeDataProgressmeterContainer.appendChild(runtimeDataProgressmeter);
+    runtimeDataProgressRow.appendChild(runtimeDataProgressmeterContainer);
+    runtimeDataProgressRow.appendChild(runtimeDataProgressText);
+  }
   const runtimeDataRescanButton = args?.includeRuntimeDataControls
     ? document.createXULElement("button")
     : null;
@@ -567,6 +603,9 @@ function createPrefsWindow(args?: {
     runtimeDataIssuesToggleButton,
     runtimeDataIssuesPanel,
     runtimeDataStateDbInfo,
+    runtimeDataProgressRow,
+    runtimeDataProgressmeter,
+    runtimeDataProgressText,
     runtimeDataRescanButton,
     runtimeDataCopyRootButton,
     runtimeDataOpenRootButton,
@@ -1143,6 +1182,13 @@ describe("gui: preference scripts", function () {
       calls.push({ type, data });
       if (type === "scanPersistenceGovernance") {
         scanCalls += 1;
+        data.onProgress?.({
+          stage: "usage:logs",
+          label: "Runtime logs",
+          current: 2,
+          total: 14,
+          percent: 14,
+        });
         if (scanCalls > 1) {
           return {
             usage: {
@@ -1197,6 +1243,9 @@ describe("gui: preference scripts", function () {
       window,
       runtimeDataSummary,
       runtimeDataCategories,
+      runtimeDataProgressRow,
+      runtimeDataProgressmeter,
+      runtimeDataProgressText,
       runtimeDataRescanButton,
       confirmMessages,
     } = createPrefsWindow({
@@ -1205,14 +1254,27 @@ describe("gui: preference scripts", function () {
     });
     await registerPrefsScripts(window);
 
-    assert.lengthOf(runtimeDataCategories?.children || [], 22);
-    assert.include(
+    assert.lengthOf(runtimeDataCategories?.children || [], 21);
+    assert.notInclude(
       String(runtimeDataSummary?.textContent || ""),
       "pref-runtime-data-scanning",
     );
-    assert.notInclude(String(runtimeDataSummary?.textContent || ""), "1/7");
     assert.include(
-      String(runtimeDataCategories?.children[0]?.textContent || ""),
+      String(runtimeDataSummary?.textContent || ""),
+      "pref-runtime-data-summary-idle",
+    );
+    assert.match(String(runtimeDataProgressRow?.className || ""), /is-visible/);
+    assert.equal(runtimeDataProgressmeter?.style.width, "14%");
+    assert.include(
+      String(runtimeDataProgressText?.textContent || ""),
+      "pref-runtime-data-scanning",
+    );
+    assert.include(String(runtimeDataProgressText?.textContent || ""), "2/14");
+    assert.notInclude(String(runtimeDataSummary?.textContent || ""), "1/7");
+    assert.notInclude(
+      (runtimeDataCategories?.children || [])
+        .map((entry) => entry.textContent)
+        .join("\n"),
       "pref-runtime-data-scanning",
     );
     assert.notInclude(
@@ -1228,7 +1290,7 @@ describe("gui: preference scripts", function () {
       "pref-runtime-data-not-scanned",
     );
     assert.equal(
-      runtimeDataCategories?.children[3]?.getAttribute("disabled"),
+      runtimeDataCategories?.children[2]?.getAttribute("disabled"),
       "true",
     );
     runtimeDataRescanButton?.dispatch("command");
@@ -1254,6 +1316,12 @@ describe("gui: preference scripts", function () {
       integrity: { root: "C:\\RuntimeRoot", issueCount: 0, issues: [] },
     });
     await flushTasks();
+
+    assert.notMatch(
+      String(runtimeDataProgressRow?.className || ""),
+      /is-visible/,
+    );
+    assert.equal(runtimeDataProgressmeter?.style.width, "0%");
 
     assert.notEqual(
       runtimeDataCategories?.children[2]?.getAttribute("disabled"),
@@ -1347,6 +1415,8 @@ describe("gui: preference scripts", function () {
     assert.include(xhtml, "runtime-data-toggle-issues");
     assert.include(xhtml, "runtime-data-issues-panel");
     assert.include(xhtml, "runtime-data-state-db-info");
+    assert.include(xhtml, "runtime-data-progress-row");
+    assert.include(xhtml, "runtime-data-progressmeter");
     assert.include(xhtml, "host-bridge-disable-write-approval");
     assert.include(xhtml, "zs-host-bridge-write-approval-danger");
     assert.include(xhtml, "skill-dir");
@@ -1355,6 +1425,10 @@ describe("gui: preference scripts", function () {
     assert.include(enLocale, "pref-runtime-data-show-issues");
     assert.include(enLocale, "pref-runtime-data-hide-issues");
     assert.include(enLocale, "pref-runtime-data-category-cleanup-confirm");
+    assert.include(enLocale, "pref-runtime-data-cleaning-target");
+    assert.include(enLocale, "pref-runtime-data-category-logs");
+    assert.include(enLocale, "pref-runtime-data-category-workflow-products");
+    assert.include(enLocale, "pref-runtime-data-category-tmp");
     assert.include(enLocale, "pref-runtime-data-state-db-idle");
     assert.include(enLocale, "pref-synthesis-db-reset-confirm-message");
     assert.include(enLocale, "pref-host-bridge-disable-write-approval");
@@ -1364,6 +1438,10 @@ describe("gui: preference scripts", function () {
     assert.include(zhLocale, "pref-runtime-data-show-issues");
     assert.include(zhLocale, "pref-runtime-data-hide-issues");
     assert.include(zhLocale, "pref-runtime-data-category-cleanup-confirm");
+    assert.include(zhLocale, "pref-runtime-data-cleaning-target");
+    assert.include(zhLocale, "pref-runtime-data-category-logs");
+    assert.include(zhLocale, "pref-runtime-data-category-workflow-products");
+    assert.include(zhLocale, "pref-runtime-data-category-tmp");
     assert.include(zhLocale, "pref-runtime-data-state-db-idle");
     assert.include(zhLocale, "pref-synthesis-db-reset-confirm-message");
     assert.include(zhLocale, "pref-host-bridge-disable-write-approval");

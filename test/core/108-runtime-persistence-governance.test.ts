@@ -32,10 +32,14 @@ import {
   PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
   PLUGIN_TASK_DOMAIN_ACP,
   PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+  appendPluginRunEventStoreEntry,
   clearPluginTaskDomain,
   inspectPluginStateStoreCounts,
+  listPluginRunEventStoreEntries,
+  listPluginRunStoreEntries,
   listPluginTaskRowEntries,
   resetPluginStateStoreForTests,
+  upsertPluginRunStoreEntry,
   upsertPluginTaskRequestEntry,
   upsertPluginTaskRowEntry,
 } from "../../src/modules/pluginStateStore";
@@ -261,6 +265,23 @@ describe("runtime persistence governance", function () {
       updatedAt: "2026-04-28T00:00:00.000Z",
       payload: "{}",
     });
+    upsertPluginRunStoreEntry("skillrunner", {
+      runKey: "skillrunner-run",
+      requestId: "skillrunner-request",
+      backendId: "backend",
+      state: "running",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: '{"kind":"skillrunner"}',
+    });
+    appendPluginRunEventStoreEntry("skillrunner", {
+      eventId: "skillrunner-event",
+      runKey: "skillrunner-run",
+      requestId: "skillrunner-request",
+      backendId: "backend",
+      type: "request.ready",
+      createdAt: "2026-04-28T00:00:01.000Z",
+      payload: '{"event":true}',
+    });
     upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, {
       requestId: "acp-chat-req",
       backendId: "backend",
@@ -275,6 +296,23 @@ describe("runtime persistence governance", function () {
       state: "running",
       updatedAt: "2026-04-28T00:00:00.000Z",
       payload: "{}",
+    });
+    upsertPluginRunStoreEntry("acp", {
+      runKey: "acp-run",
+      requestId: "acp-run-request",
+      backendId: "backend",
+      state: "running",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: '{"kind":"acp"}',
+    });
+    appendPluginRunEventStoreEntry("acp", {
+      eventId: "acp-event",
+      runKey: "acp-run",
+      requestId: "acp-run-request",
+      backendId: "backend",
+      type: "request.ready",
+      createdAt: "2026-04-28T00:00:01.000Z",
+      payload: '{"event":true}',
     });
 
     const snapshot = await scanRuntimePersistenceUsage();
@@ -292,7 +330,7 @@ describe("runtime persistence governance", function () {
       snapshot.categories.find(
         (entry) => entry.category === "skillrunner-ledger",
       )?.recordCount,
-      1,
+      3,
     );
     assert.isAbove(
       snapshot.categories.find(
@@ -315,7 +353,7 @@ describe("runtime persistence governance", function () {
     assert.equal(
       snapshot.categories.find((entry) => entry.category === "acp-skill-runs")
         ?.recordCount,
-      1,
+      3,
     );
     assert.isAbove(
       snapshot.categories.find((entry) => entry.category === "acp-skill-runs")
@@ -422,6 +460,23 @@ describe("runtime persistence governance", function () {
       updatedAt: "2026-04-28T00:00:00.000Z",
       payload: "{}",
     });
+    upsertPluginRunStoreEntry("skillrunner", {
+      runKey: "skillrunner-cleanup-run",
+      requestId: "skillrunner-cleanup-request",
+      backendId: "backend",
+      state: "running",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: '{"kind":"skillrunner"}',
+    });
+    appendPluginRunEventStoreEntry("skillrunner", {
+      eventId: "skillrunner-cleanup-event",
+      runKey: "skillrunner-cleanup-run",
+      requestId: "skillrunner-cleanup-request",
+      backendId: "backend",
+      type: "request.ready",
+      createdAt: "2026-04-28T00:00:01.000Z",
+      payload: "{}",
+    });
     upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, {
       requestId: "acp-req",
       backendId: "backend",
@@ -430,8 +485,19 @@ describe("runtime persistence governance", function () {
       payload: "{}",
     });
 
-    await cleanupRuntimePersistenceCategory("skillrunner-ledger");
+    const skillRunnerCleanup =
+      await cleanupRuntimePersistenceCategory("skillrunner-ledger");
     assert.equal(inspectPluginStateStoreCounts().requestCount, 1);
+    assert.equal(inspectPluginStateStoreCounts().skillRunnerRunCount, 0);
+    assert.equal(
+      listPluginRunEventStoreEntries({
+        kind: "skillrunner",
+        runKey: "skillrunner-cleanup-run",
+      }).length,
+      0,
+    );
+    assert.equal(skillRunnerCleanup.details.runStoreRowsDeleted, 2);
+    assert.equal(skillRunnerCleanup.details.legacyRowsDeleted, 1);
 
     await cleanupRuntimePersistenceCategory("acp-conversations");
     assert.equal(inspectPluginStateStoreCounts().requestCount, 0);
@@ -526,6 +592,23 @@ describe("runtime persistence governance", function () {
       updatedAt: "2026-04-28T00:00:00.000Z",
       payload: "{}",
     });
+    upsertPluginRunStoreEntry("acp", {
+      runKey: "acp-skill-run-store",
+      requestId: "acp-skill-run-store-request",
+      backendId: "backend",
+      state: "succeeded",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: '{"kind":"acp"}',
+    });
+    appendPluginRunEventStoreEntry("acp", {
+      eventId: "acp-skill-run-store-event",
+      runKey: "acp-skill-run-store",
+      requestId: "acp-skill-run-store-request",
+      backendId: "backend",
+      type: "apply.succeeded",
+      createdAt: "2026-04-28T00:00:01.000Z",
+      payload: "{}",
+    });
 
     await cleanupRuntimePersistenceCategory("acp-conversations");
 
@@ -537,11 +620,20 @@ describe("runtime persistence governance", function () {
       listPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, "skill-runs"),
       1,
     );
+    assert.lengthOf(listPluginRunStoreEntries("acp"), 1);
 
     await cleanupRuntimePersistenceCategory("acp-skill-runs");
 
     assert.lengthOf(
       listPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, "skill-runs"),
+      0,
+    );
+    assert.lengthOf(listPluginRunStoreEntries("acp"), 0);
+    assert.lengthOf(
+      listPluginRunEventStoreEntries({
+        kind: "acp",
+        runKey: "acp-skill-run-store",
+      }),
       0,
     );
   });

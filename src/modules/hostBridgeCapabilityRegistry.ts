@@ -8,6 +8,7 @@ import {
 import { scanPersistenceIntegrity } from "./persistenceIntegrity";
 import { listActiveWorkflowTasks, listWorkflowTasks } from "./taskRuntime";
 import { listAcpSkillRuns } from "./acpSkillRunStore";
+import { getSkillRunnerConnectionGovernorSnapshot } from "./skillRunnerConnectionGovernor";
 import { reapplyAcpSkillRunResult } from "./acpSkillRunnerOrchestrator";
 import type {
   HostBridgeApprovalRequirement,
@@ -550,6 +551,18 @@ async function debugTasksSnapshot(input: unknown) {
   });
 }
 
+async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
+  const object = asObject(input);
+  return debugEnvelope(
+    "host_bridge.debug.skillrunner.connections.snapshot.v1",
+    object,
+    {
+      skillRunnerConnections: getSkillRunnerConnectionGovernorSnapshot(),
+      truncated: false,
+    },
+  );
+}
+
 function synthesisCapability(
   name: string,
   category: HostBridgeCapabilityCategory,
@@ -736,6 +749,11 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "debug.tasks.snapshot",
     "Return debug-only workflow task and ACP run diagnostics.",
     debugTasksSnapshot,
+  ),
+  debugCapability(
+    "debug.skillrunner.connections.snapshot",
+    "Return debug-only SkillRunner connection governor diagnostics.",
+    debugSkillRunnerConnectionsSnapshot,
   ),
   debugCapability(
     "debug.acpSkillRun.reapplyResult",

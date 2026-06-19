@@ -11,6 +11,7 @@ import {
 } from "../../src/modules/skillRunnerTaskReconciler";
 import {
   getSkillRunnerBackendHealthState,
+  markSkillRunnerBackendHealthFailure,
   resetSkillRunnerBackendHealthRegistryForTests,
 } from "../../src/modules/skillRunnerBackendHealthRegistry";
 import {
@@ -41,7 +42,11 @@ import {
   listTaskDashboardHistory,
   recordTaskDashboardHistoryFromJob,
 } from "../../src/modules/taskDashboardHistory";
-import { clearRuntimeLogs, listRuntimeLogs } from "../../src/modules/runtimeLogManager";
+import {
+  appendRuntimeLog,
+  clearRuntimeLogs,
+  listRuntimeLogs,
+} from "../../src/modules/runtimeLogManager";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import {
   getSkillRunnerRunRecordByRequest,
@@ -49,7 +54,7 @@ import {
   updateSkillRunnerRunApplyState,
   upsertSkillRunnerRunFromTask,
 } from "../../src/modules/skillRunnerRunStore";
-import { getPref, setPref } from "../../src/utils/prefs";
+import { setPref } from "../../src/utils/prefs";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
@@ -138,6 +143,21 @@ function utf8Bytes(input: string) {
   return new TextEncoder().encode(input);
 }
 
+async function waitForCondition(
+  condition: () => boolean,
+  message: string,
+  timeoutMs = 1000,
+) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= timeoutMs) {
+    if (condition()) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  assert.fail(message);
+}
+
 async function getLiteratureExplainerWorkflow() {
   const loaded = await loadWorkflowManifests(workflowsPath());
   const workflow = loaded.workflows.find(
@@ -150,7 +170,9 @@ async function getLiteratureExplainerWorkflow() {
   return workflow!;
 }
 
-function createZipFromNamedFiles(entries: Array<{ name: string; data: Uint8Array }>) {
+function createZipFromNamedFiles(
+  entries: Array<{ name: string; data: Uint8Array }>,
+) {
   const ZIP_UTF8_FILENAME_FLAG = 0x0800;
   const localChunks: Uint8Array[] = [];
   const centralChunks: Uint8Array[] = [];
@@ -238,8 +260,7 @@ function makeDeferredJob(args?: {
   return {
     id: jobId,
     workflowId: "literature-explainer",
-    request:
-      typeof targetParentID === "number" ? { targetParentID } : {},
+    request: typeof targetParentID === "number" ? { targetParentID } : {},
     meta: {
       runId,
       taskName: "paper.md",
@@ -302,6 +323,7 @@ function forceApplyRetryDueNow(reconciler: SkillRunnerTaskReconciler) {
   };
   for (const context of runtime.contexts?.values?.() || []) {
     context.nextApplyRetryAt = "1970-01-01T00:00:00.000Z";
+    context.nextReconcileAt = "1970-01-01T00:00:00.000Z";
   }
   for (const record of listSkillRunnerRunRecords()) {
     updateSkillRunnerRunApplyState({
@@ -351,7 +373,8 @@ function persistReconcilerRunRecord(raw: Record<string, unknown>) {
         ? (raw.providerOptions as Record<string, unknown>)
         : undefined,
     executionMode: "auto",
-    fetchType: String(raw.fetchType || "bundle") === "result" ? "result" : "bundle",
+    fetchType:
+      String(raw.fetchType || "bundle") === "result" ? "result" : "bundle",
     apply: {
       state: "idle",
       attempt: 0,
@@ -428,366 +451,371 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
   describe("skillrunner task reconciler: state restore", function () {
     const { createTrackedReconciler } = setupSkillRunnerTaskReconcilerSuite();
 
-  it("maps backend status to local job state one-to-one", function () {
-    assert.equal(mapSkillRunnerBackendStatusToJobState("queued"), "queued");
-    assert.equal(mapSkillRunnerBackendStatusToJobState("running"), "running");
-    assert.equal(
-      mapSkillRunnerBackendStatusToJobState("waiting_user"),
-      "waiting_user",
-    );
-    assert.equal(
-      mapSkillRunnerBackendStatusToJobState("waiting_auth"),
-      "waiting_auth",
-    );
-    assert.equal(mapSkillRunnerBackendStatusToJobState("succeeded"), "succeeded");
-    assert.equal(mapSkillRunnerBackendStatusToJobState("failed"), "failed");
-    assert.equal(mapSkillRunnerBackendStatusToJobState("canceled"), "canceled");
-    assert.equal(
-      mapSkillRunnerBackendStatusToJobState("unknown-status", "running"),
-      "running",
-    );
-  });
-
-  it("registers deferred task and settles the run record after terminal reconcile", async function () {
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-1")) {
-        return createJsonResponse({
-          request_id: "req-1",
-          status: "failed",
-          error: "mock terminal failure",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Deferred Apply Retry Success Parent" },
+    it("maps backend status to local job state one-to-one", function () {
+      assert.equal(mapSkillRunnerBackendStatusToJobState("queued"), "queued");
+      assert.equal(mapSkillRunnerBackendStatusToJobState("running"), "running");
+      assert.equal(
+        mapSkillRunnerBackendStatusToJobState("waiting_user"),
+        "waiting_user",
+      );
+      assert.equal(
+        mapSkillRunnerBackendStatusToJobState("waiting_auth"),
+        "waiting_auth",
+      );
+      assert.equal(
+        mapSkillRunnerBackendStatusToJobState("succeeded"),
+        "succeeded",
+      );
+      assert.equal(mapSkillRunnerBackendStatusToJobState("failed"), "failed");
+      assert.equal(
+        mapSkillRunnerBackendStatusToJobState("canceled"),
+        "canceled",
+      );
+      assert.equal(
+        mapSkillRunnerBackendStatusToJobState("unknown-status", "running"),
+        "running",
+      );
     });
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: parent.id,
-        runtime_options: {
-          execution_mode: "interactive",
+
+    it("registers deferred task and settles the run record after terminal reconcile", async function () {
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-1")) {
+          return createJsonResponse({
+            request_id: "req-1",
+            status: "failed",
+            error: "mock terminal failure",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const reconciler = createTrackedReconciler();
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Deferred Apply Retry Success Parent" },
+      });
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: parent.id,
+          runtime_options: {
+            execution_mode: "interactive",
+          },
         },
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob(),
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob(),
+      });
+
+      const persistedBefore = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-1",
+      });
+      assert.isOk(persistedBefore);
+
+      await reconciler.reconcilePending();
+
+      const persistedAfter = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-1",
+      });
+      assert.equal(persistedAfter?.status, "failed");
+      const tasks = listWorkflowTasks();
+      assert.lengthOf(tasks, 1);
+      assert.equal(tasks[0].state, "failed");
+      assert.equal(tasks[0].requestId, "req-1");
     });
 
-    const persistedBefore = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-1",
-    });
-    assert.isOk(persistedBefore);
-
-    await reconciler.reconcilePending();
-
-    const persistedAfter = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-1",
-    });
-    assert.equal(persistedAfter?.status, "failed");
-    const tasks = listWorkflowTasks();
-    assert.lengthOf(tasks, 1);
-    assert.equal(tasks[0].state, "failed");
-    assert.equal(tasks[0].requestId, "req-1");
-  });
-
-  it("restores pending runs from SkillRunner run store on start", async function () {
-    const record = {
-      id: `${TEST_SKILLRUNNER_BACKEND_ID}:req-restore-1`,
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: { kind: "skillrunner.job.v1", targetParentID: 123 },
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      backendType: "skillrunner",
-      backendBaseUrl: TEST_SKILLRUNNER_BASE_URL,
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      runId: "run-restore-1",
-      jobId: "job-restore-1",
-      taskName: "paper.md",
-      targetParentID: 123,
-      requestId: "req-restore-1",
-      fetchType: "bundle",
-      state: "waiting_user",
-      createdAt: "2026-03-12T00:00:00.000Z",
-      updatedAt: "2026-03-12T00:00:00.000Z",
-    };
-    persistReconcilerRunRecord(record);
-
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (url.endsWith("/v1/jobs/req-restore-1")) {
-        return createJsonResponse({
-          request_id: "req-restore-1",
-          status: "waiting_user",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    reconciler.start();
-    await reconciler.reconcilePending();
-    reconciler.stop();
-
-    const tasks = listWorkflowTasks();
-    assert.lengthOf(tasks, 1);
-    assert.equal(tasks[0].jobId, "job-restore-1");
-    assert.equal(tasks[0].state, "waiting_user");
-    assert.equal(tasks[0].requestId, "req-restore-1");
-  });
-
-  it("degrades persisted unknown state to running on restore", async function () {
-    const unknownRecord = {
-      id: `${TEST_SKILLRUNNER_BACKEND_ID}:req-restore-unknown`,
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: { kind: "skillrunner.job.v1", targetParentID: 123 },
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      backendType: "skillrunner",
-      backendBaseUrl: TEST_SKILLRUNNER_BASE_URL,
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      runId: "run-restore-unknown",
-      jobId: "job-restore-unknown",
-      taskName: "paper.md",
-      targetParentID: 123,
-      requestId: "req-restore-unknown",
-      fetchType: "bundle",
-      state: "unknown_status",
-      createdAt: "2026-03-12T00:00:00.000Z",
-      updatedAt: "2026-03-12T00:00:00.000Z",
-    };
-    persistReconcilerRunRecord(unknownRecord);
-
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (url.endsWith("/v1/jobs/req-restore-unknown")) {
-        return createJsonResponse({
-          request_id: "req-restore-unknown",
-          status: "running",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    reconciler.start();
-    await reconciler.reconcilePending();
-    reconciler.stop();
-
-    const tasks = listWorkflowTasks();
-    assert.lengthOf(tasks, 1);
-    assert.equal(tasks[0].state, "running");
-    assert.equal(tasks[0].requestId, "req-restore-unknown");
-  });
-
-  it("updates persisted non-terminal context state from observed backend state", async function () {
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (String(url).includes("/v1/jobs/req-observed-waiting")) {
-        return createJsonResponse({
-          request_id: "req-observed-waiting",
-          status: "waiting_user",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
+    it("restores pending runs from SkillRunner run store on start", async function () {
+      const record = {
+        id: `${TEST_SKILLRUNNER_BACKEND_ID}:req-restore-1`,
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: { kind: "skillrunner.job.v1", targetParentID: 123 },
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        backendType: "skillrunner",
+        backendBaseUrl: TEST_SKILLRUNNER_BASE_URL,
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        runId: "run-restore-1",
+        jobId: "job-restore-1",
+        taskName: "paper.md",
         targetParentID: 123,
-        runtime_options: {
-          execution_mode: "interactive",
+        requestId: "req-restore-1",
+        fetchType: "bundle",
+        state: "waiting_user",
+        createdAt: "2026-03-12T00:00:00.000Z",
+        updatedAt: "2026-03-12T00:00:00.000Z",
+      };
+      persistReconcilerRunRecord(record);
+
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (url.endsWith("/v1/jobs/req-restore-1")) {
+          return createJsonResponse({
+            request_id: "req-restore-1",
+            status: "waiting_user",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const reconciler = createTrackedReconciler();
+      reconciler.start();
+      await reconciler.reconcilePending();
+      reconciler.stop();
+
+      const tasks = listWorkflowTasks();
+      assert.lengthOf(tasks, 1);
+      assert.equal(tasks[0].jobId, "job-restore-1");
+      assert.equal(tasks[0].state, "waiting_user");
+      assert.equal(tasks[0].requestId, "req-restore-1");
+    });
+
+    it("degrades persisted unknown state to running on restore", async function () {
+      const unknownRecord = {
+        id: `${TEST_SKILLRUNNER_BACKEND_ID}:req-restore-unknown`,
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: { kind: "skillrunner.job.v1", targetParentID: 123 },
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        backendType: "skillrunner",
+        backendBaseUrl: TEST_SKILLRUNNER_BASE_URL,
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        runId: "run-restore-unknown",
+        jobId: "job-restore-unknown",
+        taskName: "paper.md",
+        targetParentID: 123,
+        requestId: "req-restore-unknown",
+        fetchType: "bundle",
+        state: "unknown_status",
+        createdAt: "2026-03-12T00:00:00.000Z",
+        updatedAt: "2026-03-12T00:00:00.000Z",
+      };
+      persistReconcilerRunRecord(unknownRecord);
+
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (url.endsWith("/v1/jobs/req-restore-unknown")) {
+          return createJsonResponse({
+            request_id: "req-restore-unknown",
+            status: "running",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const reconciler = createTrackedReconciler();
+      reconciler.start();
+      await reconciler.reconcilePending();
+      reconciler.stop();
+
+      const tasks = listWorkflowTasks();
+      assert.lengthOf(tasks, 1);
+      assert.equal(tasks[0].state, "running");
+      assert.equal(tasks[0].requestId, "req-restore-unknown");
+    });
+
+    it("updates persisted non-terminal context state from observed backend state", async function () {
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (String(url).includes("/v1/jobs/req-observed-waiting")) {
+          return createJsonResponse({
+            request_id: "req-observed-waiting",
+            status: "waiting_user",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: 123,
+          runtime_options: {
+            execution_mode: "interactive",
+          },
         },
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-observed-waiting",
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-observed-waiting",
+          requestId: "req-observed-waiting",
+          state: "running",
+          fetchType: "result",
+        }),
+      });
+
+      await reconciler.reconcilePending();
+      const matched = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
         requestId: "req-observed-waiting",
+      });
+      assert.isOk(matched);
+      assert.equal(matched?.status, "waiting_user");
+    });
+
+    it("backs off unchanged queued reconcile while preserving visible task rows", async function () {
+      let jobStateFetchCount = 0;
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-queued-backoff")) {
+          jobStateFetchCount += 1;
+          return createJsonResponse({
+            request_id: "req-queued-backoff",
+            status: "queued",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const reconciler = createTrackedReconciler();
+      const job = makeDeferredJob({
+        id: "job-queued-backoff",
+        requestId: "req-queued-backoff",
+        state: "queued",
+        fetchType: "result",
+      });
+      recordWorkflowTaskUpdate(job);
+      recordTaskDashboardHistoryFromJob(job);
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: 123,
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job,
+      });
+
+      await reconciler.reconcilePending();
+      await reconciler.reconcilePending();
+
+      assert.equal(jobStateFetchCount, 1);
+      const tasks = listWorkflowTasks();
+      assert.lengthOf(tasks, 1);
+      assert.equal(tasks[0].requestId, "req-queued-backoff");
+      assert.equal(tasks[0].state, "queued");
+      assert.deepInclude(getSkillRunnerSessionSyncRuntimeForTests(), {
+        sessionCount: 0,
+      });
+    });
+
+    it("preserves existing non-terminal context when a request-created job later reports local failed state", async function () {
+      const reconciler = createTrackedReconciler();
+      const runningJob = makeDeferredJob({
+        id: "job-recoverable-existing",
+        requestId: "req-recoverable-existing",
+        runId: "run-recoverable-existing",
         state: "running",
         fetchType: "result",
-      }),
-    });
-
-    await reconciler.reconcilePending();
-    const matched = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-observed-waiting",
-    });
-    assert.isOk(matched);
-    assert.equal(matched?.status, "waiting_user");
-  });
-
-  it("backs off unchanged queued reconcile while preserving visible task rows", async function () {
-    let jobStateFetchCount = 0;
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-queued-backoff")) {
-        jobStateFetchCount += 1;
-        return createJsonResponse({
-          request_id: "req-queued-backoff",
-          status: "queued",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    const job = makeDeferredJob({
-      id: "job-queued-backoff",
-      requestId: "req-queued-backoff",
-      state: "queued",
-      fetchType: "result",
-    });
-    recordWorkflowTaskUpdate(job);
-    recordTaskDashboardHistoryFromJob(job);
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: 123,
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job,
-    });
-
-    await reconciler.reconcilePending();
-    await reconciler.reconcilePending();
-
-    assert.equal(jobStateFetchCount, 1);
-    const tasks = listWorkflowTasks();
-    assert.lengthOf(tasks, 1);
-    assert.equal(tasks[0].requestId, "req-queued-backoff");
-    assert.equal(tasks[0].state, "queued");
-    assert.deepInclude(getSkillRunnerSessionSyncRuntimeForTests(), {
-      sessionCount: 0,
-    });
-  });
-
-  it("preserves existing non-terminal context when a request-created job later reports local failed state", async function () {
-    const reconciler = createTrackedReconciler();
-    const runningJob = makeDeferredJob({
-      id: "job-recoverable-existing",
-      requestId: "req-recoverable-existing",
-      runId: "run-recoverable-existing",
-      state: "running",
-      fetchType: "result",
-    });
-    runningJob.result = {
-      requestId: "req-recoverable-existing",
-    };
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: 123,
-        runtime_options: {
-          execution_mode: "auto",
-        },
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: runningJob,
-    });
-
-    const failedJob = {
-      ...runningJob,
-      state: "failed" as const,
-      error: "poll request disconnected",
-      updatedAt: "2026-03-12T00:00:02.000Z",
-      result: {
+      });
+      runningJob.result = {
         requestId: "req-recoverable-existing",
-      },
-    };
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: 123,
-        runtime_options: {
-          execution_mode: "auto",
+      };
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: 123,
+          runtime_options: {
+            execution_mode: "auto",
+          },
         },
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: failedJob,
-    });
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: runningJob,
+      });
 
-    const matched = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-recoverable-existing",
-    });
-    assert.isOk(matched);
-    assert.equal(matched?.status, "running");
-    assert.equal(matched?.error, "poll request disconnected");
-  });
+      const failedJob = {
+        ...runningJob,
+        state: "failed" as const,
+        error: "poll request disconnected",
+        updatedAt: "2026-03-12T00:00:02.000Z",
+        result: {
+          requestId: "req-recoverable-existing",
+        },
+      };
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: 123,
+          runtime_options: {
+            execution_mode: "auto",
+          },
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: failedJob,
+      });
 
+      const matched = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-recoverable-existing",
+      });
+      assert.isOk(matched);
+      assert.equal(matched?.status, "running");
+      assert.equal(matched?.error, "poll request disconnected");
+    });
   });
 }
 
@@ -795,1405 +823,1483 @@ export function registerSkillRunnerTaskReconcilerApplyBundleRetryTests() {
   describe("skillrunner task reconciler: apply bundle retry", function () {
     const { createTrackedReconciler } = setupSkillRunnerTaskReconcilerSuite();
 
-  it("applies interactive bundle success to the parent note using backend-shaped result bundle", async function () {
-    this.timeout(5000);
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Interactive Bundle Apply Parent" },
-    });
-    const notePath = "artifacts/note.3dcbb6ddcea81cb8.md";
-    const markdown = "# Interactive Bundle Note\n\n- Created from reconciler bundle apply\n";
-    const bundleBytes = createZipFromNamedFiles([
-      {
-        name: "result/result.json",
-        data: utf8Bytes(
-          JSON.stringify({
-            status: "success",
-            data: {
-              note_path: notePath,
-              provenance: {
-                generated_at: "2026-04-05T08:05:58Z",
-                input_hash: "sha256:3dcbb6ddcea81cb8",
-                model: "pymupdf4llm",
+    it("applies interactive bundle success to the parent note using backend-shaped result bundle", async function () {
+      this.timeout(5000);
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Interactive Bundle Apply Parent" },
+      });
+      const notePath = "artifacts/note.3dcbb6ddcea81cb8.md";
+      const markdown =
+        "# Interactive Bundle Note\n\n- Created from reconciler bundle apply\n";
+      const bundleBytes = createZipFromNamedFiles([
+        {
+          name: "result/result.json",
+          data: utf8Bytes(
+            JSON.stringify({
+              status: "success",
+              data: {
+                note_path: notePath,
+                provenance: {
+                  generated_at: "2026-04-05T08:05:58Z",
+                  input_hash: "sha256:3dcbb6ddcea81cb8",
+                  model: "pymupdf4llm",
+                },
+                warnings: [],
+                error: null,
               },
-              warnings: [],
+              artifacts: [notePath],
               error: null,
-            },
-            artifacts: [notePath],
-            error: null,
-          }),
-        ),
-      },
-      {
-        name: notePath,
-        data: utf8Bytes(markdown),
-      },
-    ]);
-
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-bundle-note")) {
-        return createJsonResponse({
-          request_id: "req-bundle-note",
-          status: "succeeded",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-bundle-note/bundle")) {
-        return createBinaryResponse(bundleBytes);
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: parent.id,
-        runtime_options: {
-          execution_mode: "interactive",
+            }),
+          ),
         },
-        fetch_type: "bundle",
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-bundle-note",
-        requestId: "req-bundle-note",
-        state: "running",
-        fetchType: "bundle",
-        targetParentID: parent.id,
-      }),
-    });
-
-    await reconciler.reconcilePending();
-
-    const noteIds = parent.getNotes();
-    assert.lengthOf(noteIds, 1);
-    const note = Zotero.Items.get(noteIds[0])!;
-    assert.equal(note.parentItemID, parent.id);
-    assert.match(note.getNote(), /data-zs-note-kind="conversation-note"/);
-    assert.match(note.getNote(), /data-zs-payload-anchor="conversation-note-markdown"/);
-    assert.include(note.getNote(), "Interactive Bundle Note");
-
-    const persisted = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-bundle-note",
-    });
-    assert.equal(persisted?.status, "succeeded");
-    assert.equal(
-      persisted?.apply.state,
-      "succeeded",
-      JSON.stringify(persisted?.apply || {}),
-    );
-
-    const applyLog = listRuntimeLogs({
-      requestId: "req-bundle-note",
-      operation: "reconcile-owned-terminal-apply",
-      order: "asc",
-    })[0] as { details?: Record<string, unknown> } | undefined;
-    assert.isOk(applyLog);
-    assert.equal(String(applyLog?.details?.fetchType || ""), "bundle");
-    assert.equal(Number(applyLog?.details?.targetParentID || 0), parent.id);
-    assert.isAtLeast(
-      listRuntimeLogs({
-        requestId: "req-bundle-note",
-        operation: "deferred-bundle-fetch-succeeded",
-        order: "asc",
-      }).length,
-      1,
-    );
-  });
-
-  it("applies namespaced SkillRunner envelope bundle result for debug bundle workflow", async function () {
-    this.timeout(5000);
-    await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Debug Bundle Namespaced Parent" },
-    });
-    const resultJsonPath = "result/debug-apply-bundle-probe.1/result.json";
-    const artifactPath = "result/debug-apply-artifact.txt";
-    const bundleBytes = createZipFromNamedFiles([
-      {
-        name: resultJsonPath,
-        data: utf8Bytes(
-          JSON.stringify({
-            status: "success",
-            data: {
-              apply_mode: "bundle",
-              artifact_path: artifactPath,
-              kind: "debug_apply_contract_result",
-              message: "debug namespaced bundle",
-              run_key: "namespaced",
-              step_id: "bundle",
-              workflow_id: "debug-apply-single-bundle",
-            },
-            success_source: "done_signal_payload",
-            artifacts: [artifactPath],
-            repair_level: "none",
-            validation_warnings: [],
-            error: null,
-          }),
-        ),
-      },
-      {
-        name: "result/debug-apply-bundle-probe.1/debug-apply-artifact.txt",
-        data: utf8Bytes("debug namespaced artifact body"),
-      },
-    ]);
-
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({ data: [] });
-      }
-      if (url.endsWith("/v1/jobs/req-debug-namespaced-bundle")) {
-        return createJsonResponse({
-          request_id: "req-debug-namespaced-bundle",
-          status: "succeeded",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-debug-namespaced-bundle/bundle")) {
-        return createBinaryResponse(bundleBytes);
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "debug-apply-single-bundle",
-      workflowLabel: "Debug: Apply Single Bundle",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        skill_id: "debug-apply-bundle-probe",
-        targetParentID: parent.id,
-        runtime_options: {
-          execution_mode: "interactive",
+        {
+          name: notePath,
+          data: utf8Bytes(markdown),
         },
-        fetch_type: "bundle",
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-debug-namespaced-bundle",
-        requestId: "req-debug-namespaced-bundle",
-        state: "running",
-        fetchType: "bundle",
-        targetParentID: parent.id,
-      }),
-    });
+      ]);
 
-    await reconciler.reconcilePending();
-
-    const attachmentIds = parent.getAttachments();
-    assert.lengthOf(attachmentIds, 1);
-    const persisted = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-debug-namespaced-bundle",
-    });
-    assert.equal(persisted?.apply.state, "succeeded");
-  });
-
-  it("settles missing bundle artifact as non-retryable deferred apply failure", async function () {
-    this.timeout(5000);
-    await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Debug Bundle Missing Artifact Parent" },
-    });
-    let bundleFetchCount = 0;
-    const bundleBytes = createZipFromNamedFiles([
-      {
-        name: "result/debug-apply-bundle-probe.1/result.json",
-        data: utf8Bytes(
-          JSON.stringify({
-            status: "success",
-            data: {
-              apply_mode: "bundle",
-              artifact_path: "result/debug-apply-artifact.txt",
-              kind: "debug_apply_contract_result",
-              message: "debug missing artifact",
-              run_key: "missing-artifact",
-              step_id: "bundle",
-              workflow_id: "debug-apply-single-bundle",
-            },
-            success_source: "done_signal_payload",
-            artifacts: ["result/debug-apply-artifact.txt"],
-            repair_level: "none",
-            validation_warnings: [],
-            error: null,
-          }),
-        ),
-      },
-    ]);
-
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({ data: [] });
-      }
-      if (url.endsWith("/v1/jobs/req-debug-missing-artifact")) {
-        return createJsonResponse({
-          request_id: "req-debug-missing-artifact",
-          status: "succeeded",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-debug-missing-artifact/bundle")) {
-        bundleFetchCount += 1;
-        return createBinaryResponse(bundleBytes);
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "debug-apply-single-bundle",
-      workflowLabel: "Debug: Apply Single Bundle",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        skill_id: "debug-apply-bundle-probe",
-        targetParentID: parent.id,
-        runtime_options: {
-          execution_mode: "interactive",
-        },
-        fetch_type: "bundle",
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-debug-missing-artifact",
-        requestId: "req-debug-missing-artifact",
-        state: "running",
-        fetchType: "bundle",
-        targetParentID: parent.id,
-      }),
-    });
-
-    await reconciler.reconcilePending();
-    forceApplyRetryDueNow(reconciler);
-    await reconciler.reconcilePending();
-
-    assert.equal(bundleFetchCount, 1);
-    const persisted = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-debug-missing-artifact",
-    });
-    assert.equal(persisted?.apply.state, "failed");
-    assert.equal(persisted?.apply.attempt, persisted?.apply.maxAttempt);
-    const failedLog = listRuntimeLogs({
-      requestId: "req-debug-missing-artifact",
-      operation: "deferred-apply-failed",
-      order: "asc",
-    })[0] as { details?: Record<string, unknown> } | undefined;
-    assert.isOk(failedLog);
-    assert.equal(failedLog?.details?.contractFailure, true);
-    assert.equal(failedLog?.details?.retry, false);
-  });
-
-  it("applies interactive bundle success for a real literature-explainer built request", async function () {
-    this.timeout(5000);
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Interactive Bundle Real Request Parent" },
-    });
-    const sourceDir = await mkTempDir("zotero-skills-literature-explainer-reconcile");
-    const mdPath = joinPath(sourceDir, "paper.md");
-    await writeUtf8(mdPath, "# Real Request Source");
-    const attachment = await handlers.attachment.createFromPath({
-      parent,
-      path: mdPath,
-      title: "paper.md",
-      mimeType: "text/markdown",
-    });
-    const selectionContext = await buildSelectionContext([attachment]);
-    const workflow = await getLiteratureExplainerWorkflow();
-    const requests = (await executeBuildRequests({
-      workflow,
-      selectionContext,
-      executionOptions: {
-        providerOptions: {
-          engine: "gemini",
-        },
-      },
-    })) as Array<{
-      kind: string;
-      skill_id?: string;
-      targetParentID?: number;
-      taskName?: string;
-      runtime_options?: {
-        execution_mode?: string;
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-bundle-note")) {
+          return createJsonResponse({
+            request_id: "req-bundle-note",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-bundle-note/bundle")) {
+          return createBinaryResponse(bundleBytes);
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
       };
-      fetch_type?: string;
-    }>;
 
-    assert.lengthOf(requests, 1);
-    const request = requests[0];
-    assert.equal(request.kind, "skillrunner.job.v1");
-    assert.equal(request.skill_id, "literature-explainer");
-    assert.equal(request.targetParentID, parent.id);
-    assert.equal(request.taskName, "paper.md");
-    assert.equal(request.runtime_options?.execution_mode, "interactive");
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: parent.id,
+          runtime_options: {
+            execution_mode: "interactive",
+          },
+          fetch_type: "bundle",
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-bundle-note",
+          requestId: "req-bundle-note",
+          state: "running",
+          fetchType: "bundle",
+          targetParentID: parent.id,
+        }),
+      });
 
-    const notePath = "artifacts/note.real-request.md";
-    const markdown =
-      "# Real Request Bundle Note\n\n- Created from a real executeBuildRequests payload\n";
-    const bundleBytes = createZipFromNamedFiles([
-      {
-        name: "result/result.json",
-        data: utf8Bytes(
-          JSON.stringify({
-            status: "success",
-            data: {
-              note_path: notePath,
-              warnings: [],
+      await reconciler.reconcilePending();
+
+      const noteIds = parent.getNotes();
+      assert.lengthOf(noteIds, 1);
+      const note = Zotero.Items.get(noteIds[0])!;
+      assert.equal(note.parentItemID, parent.id);
+      assert.match(note.getNote(), /data-zs-note-kind="conversation-note"/);
+      assert.match(
+        note.getNote(),
+        /data-zs-payload-anchor="conversation-note-markdown"/,
+      );
+      assert.include(note.getNote(), "Interactive Bundle Note");
+
+      const persisted = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-bundle-note",
+      });
+      assert.equal(persisted?.status, "succeeded");
+      assert.equal(
+        persisted?.apply.state,
+        "succeeded",
+        JSON.stringify(persisted?.apply || {}),
+      );
+
+      const applyLog = listRuntimeLogs({
+        requestId: "req-bundle-note",
+        operation: "reconcile-owned-terminal-apply",
+        order: "asc",
+      })[0] as { details?: Record<string, unknown> } | undefined;
+      assert.isOk(applyLog);
+      assert.equal(String(applyLog?.details?.fetchType || ""), "bundle");
+      assert.equal(Number(applyLog?.details?.targetParentID || 0), parent.id);
+      assert.isAtLeast(
+        listRuntimeLogs({
+          requestId: "req-bundle-note",
+          operation: "deferred-bundle-fetch-succeeded",
+          order: "asc",
+        }).length,
+        1,
+      );
+    });
+
+    it("applies namespaced SkillRunner envelope bundle result for debug bundle workflow", async function () {
+      this.timeout(5000);
+      await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Debug Bundle Namespaced Parent" },
+      });
+      const resultJsonPath = "result/debug-apply-bundle-probe.1/result.json";
+      const artifactPath = "result/debug-apply-artifact.txt";
+      const bundleBytes = createZipFromNamedFiles([
+        {
+          name: resultJsonPath,
+          data: utf8Bytes(
+            JSON.stringify({
+              status: "success",
+              data: {
+                apply_mode: "bundle",
+                artifact_path: artifactPath,
+                kind: "debug_apply_contract_result",
+                message: "debug namespaced bundle",
+                run_key: "namespaced",
+                step_id: "bundle",
+                workflow_id: "debug-apply-single-bundle",
+              },
+              success_source: "done_signal_payload",
+              artifacts: [artifactPath],
+              repair_level: "none",
+              validation_warnings: [],
+              error: null,
+            }),
+          ),
+        },
+        {
+          name: "result/debug-apply-bundle-probe.1/debug-apply-artifact.txt",
+          data: utf8Bytes("debug namespaced artifact body"),
+        },
+      ]);
+
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({ data: [] });
+        }
+        if (url.endsWith("/v1/jobs/req-debug-namespaced-bundle")) {
+          return createJsonResponse({
+            request_id: "req-debug-namespaced-bundle",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-debug-namespaced-bundle/bundle")) {
+          return createBinaryResponse(bundleBytes);
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "debug-apply-single-bundle",
+        workflowLabel: "Debug: Apply Single Bundle",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          skill_id: "debug-apply-bundle-probe",
+          targetParentID: parent.id,
+          runtime_options: {
+            execution_mode: "interactive",
+          },
+          fetch_type: "bundle",
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-debug-namespaced-bundle",
+          requestId: "req-debug-namespaced-bundle",
+          state: "running",
+          fetchType: "bundle",
+          targetParentID: parent.id,
+        }),
+      });
+
+      await reconciler.reconcilePending();
+
+      const attachmentIds = parent.getAttachments();
+      assert.lengthOf(attachmentIds, 1);
+      const persisted = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-debug-namespaced-bundle",
+      });
+      assert.equal(persisted?.apply.state, "succeeded");
+    });
+
+    it("settles missing bundle artifact as non-retryable deferred apply failure", async function () {
+      this.timeout(5000);
+      await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Debug Bundle Missing Artifact Parent" },
+      });
+      let bundleFetchCount = 0;
+      const bundleBytes = createZipFromNamedFiles([
+        {
+          name: "result/debug-apply-bundle-probe.1/result.json",
+          data: utf8Bytes(
+            JSON.stringify({
+              status: "success",
+              data: {
+                apply_mode: "bundle",
+                artifact_path: "result/debug-apply-artifact.txt",
+                kind: "debug_apply_contract_result",
+                message: "debug missing artifact",
+                run_key: "missing-artifact",
+                step_id: "bundle",
+                workflow_id: "debug-apply-single-bundle",
+              },
+              success_source: "done_signal_payload",
+              artifacts: ["result/debug-apply-artifact.txt"],
+              repair_level: "none",
+              validation_warnings: [],
+              error: null,
+            }),
+          ),
+        },
+      ]);
+
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({ data: [] });
+        }
+        if (url.endsWith("/v1/jobs/req-debug-missing-artifact")) {
+          return createJsonResponse({
+            request_id: "req-debug-missing-artifact",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-debug-missing-artifact/bundle")) {
+          bundleFetchCount += 1;
+          return createBinaryResponse(bundleBytes);
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "debug-apply-single-bundle",
+        workflowLabel: "Debug: Apply Single Bundle",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          skill_id: "debug-apply-bundle-probe",
+          targetParentID: parent.id,
+          runtime_options: {
+            execution_mode: "interactive",
+          },
+          fetch_type: "bundle",
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-debug-missing-artifact",
+          requestId: "req-debug-missing-artifact",
+          state: "running",
+          fetchType: "bundle",
+          targetParentID: parent.id,
+        }),
+      });
+
+      await reconciler.reconcilePending();
+      forceApplyRetryDueNow(reconciler);
+      await reconciler.reconcilePending();
+
+      assert.equal(bundleFetchCount, 1);
+      const persisted = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-debug-missing-artifact",
+      });
+      assert.equal(persisted?.apply.state, "failed");
+      assert.equal(persisted?.apply.attempt, persisted?.apply.maxAttempt);
+      const failedLog = listRuntimeLogs({
+        requestId: "req-debug-missing-artifact",
+        operation: "deferred-apply-failed",
+        order: "asc",
+      })[0] as { details?: Record<string, unknown> } | undefined;
+      assert.isOk(failedLog);
+      assert.equal(failedLog?.details?.contractFailure, true);
+      assert.equal(failedLog?.details?.retry, false);
+    });
+
+    it("applies interactive bundle success for a real literature-explainer built request", async function () {
+      this.timeout(5000);
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Interactive Bundle Real Request Parent" },
+      });
+      const sourceDir = await mkTempDir(
+        "zotero-skills-literature-explainer-reconcile",
+      );
+      const mdPath = joinPath(sourceDir, "paper.md");
+      await writeUtf8(mdPath, "# Real Request Source");
+      const attachment = await handlers.attachment.createFromPath({
+        parent,
+        path: mdPath,
+        title: "paper.md",
+        mimeType: "text/markdown",
+      });
+      const selectionContext = await buildSelectionContext([attachment]);
+      const workflow = await getLiteratureExplainerWorkflow();
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext,
+        executionOptions: {
+          providerOptions: {
+            engine: "gemini",
+          },
+        },
+      })) as Array<{
+        kind: string;
+        skill_id?: string;
+        targetParentID?: number;
+        taskName?: string;
+        runtime_options?: {
+          execution_mode?: string;
+        };
+        fetch_type?: string;
+      }>;
+
+      assert.lengthOf(requests, 1);
+      const request = requests[0];
+      assert.equal(request.kind, "skillrunner.job.v1");
+      assert.equal(request.skill_id, "literature-explainer");
+      assert.equal(request.targetParentID, parent.id);
+      assert.equal(request.taskName, "paper.md");
+      assert.equal(request.runtime_options?.execution_mode, "interactive");
+
+      const notePath = "artifacts/note.real-request.md";
+      const markdown =
+        "# Real Request Bundle Note\n\n- Created from a real executeBuildRequests payload\n";
+      const bundleBytes = createZipFromNamedFiles([
+        {
+          name: "result/result.json",
+          data: utf8Bytes(
+            JSON.stringify({
+              status: "success",
+              data: {
+                note_path: notePath,
+                warnings: [],
+                error: null,
+              },
+              artifacts: [notePath],
+              error: null,
+            }),
+          ),
+        },
+        {
+          name: notePath,
+          data: utf8Bytes(markdown),
+        },
+      ]);
+
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-real-built-bundle")) {
+          return createJsonResponse({
+            request_id: "req-real-built-bundle",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-real-built-bundle/bundle")) {
+          return createBinaryResponse(bundleBytes);
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: workflow.manifest.id,
+        workflowLabel: workflow.manifest.label || workflow.manifest.id,
+        requestKind: request.kind,
+        request: {
+          ...request,
+          fetch_type: "bundle",
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-real-built-bundle",
+          requestId: "req-real-built-bundle",
+          state: "running",
+          fetchType: "bundle",
+          targetParentID: parent.id,
+        }),
+      });
+
+      const noteCountBefore = parent.getNotes().length;
+      await reconciler.reconcilePending();
+
+      const noteIds = parent.getNotes();
+      assert.equal(noteIds.length, noteCountBefore + 1);
+      const note = Zotero.Items.get(noteIds[noteIds.length - 1])!;
+      assert.equal(Number(note.parentItemID || 0), parent.id);
+      assert.match(note.getNote(), /data-zs-note-kind="conversation-note"/);
+      assert.include(note.getNote(), "Real Request Bundle Note");
+
+      const applyLog = listRuntimeLogs({
+        requestId: "req-real-built-bundle",
+        operation: "reconcile-owned-terminal-apply",
+        order: "asc",
+      })[0] as { details?: Record<string, unknown> } | undefined;
+      assert.isOk(applyLog);
+      assert.equal(Number(applyLog?.details?.targetParentID || 0), parent.id);
+    });
+
+    it("retries deferred apply after transient result fetch failure and then clears context", async function () {
+      let resultAttempts = 0;
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-retry-success")) {
+          return createJsonResponse({
+            request_id: "req-retry-success",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-retry-success/result")) {
+          resultAttempts += 1;
+          if (resultAttempts === 1) {
+            return createJsonResponse(
+              { detail: "transient fetch failure" },
+              500,
+            );
+          }
+          return createJsonResponse({
+            note_path: "",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Deferred Apply Retry Success Parent" },
+      });
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: parent.id,
+          runtime_options: {
+            execution_mode: "interactive",
+          },
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-retry-success",
+          requestId: "req-retry-success",
+          fetchType: "result",
+          targetParentID: parent.id,
+        }),
+      });
+
+      await reconciler.reconcilePending();
+      let persisted = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-retry-success",
+      });
+      assert.equal(persisted?.apply.state, "failed");
+      assert.equal(persisted?.apply.attempt, 1);
+
+      forceApplyRetryDueNow(reconciler);
+      await reconciler.reconcilePending();
+      persisted = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-retry-success",
+      });
+      assert.equal(persisted?.apply.state, "succeeded");
+      assert.isAtLeast(resultAttempts, 2);
+    });
+
+    it("applies no-selection deferred success when workflow allows empty selection", async function () {
+      await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (String(url).includes("/v1/jobs/req-no-selection-success/result")) {
+          return createJsonResponse({
+            request_id: "req-no-selection-success",
+            result: {
+              status: "success",
+              data: {
+                ok: true,
+                checks: [],
+                connection: {},
+                diagnostics: {},
+              },
+              success_source: "done_signal_payload",
               error: null,
             },
-            artifacts: [notePath],
-            error: null,
-          }),
-        ),
-      },
-      {
-        name: notePath,
-        data: utf8Bytes(markdown),
-      },
-    ]);
+          });
+        }
+        if (String(url).includes("/v1/jobs/req-no-selection-success")) {
+          return createJsonResponse({
+            request_id: "req-no-selection-success",
+            status: "succeeded",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
 
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-real-built-bundle")) {
-        return createJsonResponse({
-          request_id: "req-real-built-bundle",
-          status: "succeeded",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-real-built-bundle/bundle")) {
-        return createBinaryResponse(bundleBytes);
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "debug-host-bridge-connectivity-probe",
+        workflowLabel: "Debug: Host Bridge Connectivity Probe",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          skill_id: "debug-host-bridge-connectivity-probe",
+          fetch_type: "result",
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-no-selection-success",
+          requestId: "req-no-selection-success",
+          state: "running",
+          fetchType: "result",
+          targetParentID: null,
+        }),
+      });
 
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: workflow.manifest.id,
-      workflowLabel: workflow.manifest.label || workflow.manifest.id,
-      requestKind: request.kind,
-      request: {
-        ...request,
-        fetch_type: "bundle",
-      },
-      backend: {
+      await reconciler.reconcilePending();
+
+      const persisted = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-no-selection-success",
+      });
+      assert.equal(
+        persisted?.status,
+        "succeeded",
+        JSON.stringify({
+          status: persisted?.status,
+          error: persisted?.error,
+          apply: persisted?.apply,
+        }),
+      );
+      assert.equal(
+        persisted?.apply.state,
+        "succeeded",
+        JSON.stringify(persisted?.apply || {}),
+      );
+      const applyLog = listRuntimeLogs({
+        requestId: "req-no-selection-success",
+        operation: "reconcile-owned-terminal-apply",
+        order: "asc",
+      })[0] as { details?: Record<string, unknown> } | undefined;
+      assert.isOk(applyLog);
+      assert.equal(String(applyLog?.details?.fetchType || ""), "result");
+      assert.notProperty(applyLog?.details || {}, "targetParentID");
+    });
+
+    it("keeps deferred apply parent guard for workflows that require selection", async function () {
+      await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-parent-required")) {
+          return createJsonResponse({
+            request_id: "req-parent-required",
+            status: "succeeded",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          skill_id: "literature-explainer",
+          fetch_type: "result",
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-parent-required",
+          requestId: "req-parent-required",
+          state: "running",
+          fetchType: "result",
+          targetParentID: null,
+        }),
+      });
+
+      await reconciler.reconcilePending();
+
+      const persisted = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-parent-required",
+      });
+      assert.equal(persisted?.apply.state, "failed");
+      assert.equal(persisted?.apply.attempt, 1);
+      assert.include(String(persisted?.apply.error || ""), "target parent");
+    });
+
+    it("buffers interactive terminal success for deferred summary settlement", async function () {
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-toast-succeeded")) {
+          return createJsonResponse({
+            request_id: "req-toast-succeeded",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-toast-succeeded/result")) {
+          return createJsonResponse({
+            note_path: "",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const toasts: Array<{ state: string; text: string; type: string }> = [];
+      setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
+        toasts.push(payload);
+      });
+
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Toast Succeeded Parent" },
+      });
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: parent.id,
+          runtime_options: {
+            execution_mode: "interactive",
+          },
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-toast-succeeded",
+          requestId: "req-toast-succeeded",
+          state: "running",
+          fetchType: "result",
+          targetParentID: parent.id,
+        }),
+      });
+
+      await reconciler.reconcilePending();
+      assert.equal(toasts.length, 0);
+      const buffered = listRuntimeLogs({
+        requestId: "req-toast-succeeded",
+        stage: "deferred-outcome-buffered-before-register",
+      });
+      assert.isAtLeast(buffered.length, 1);
+    });
+
+    it("replays deferred summary after reconciler settles terminal success before tracker registration", async function () {
+      const trackerStages: string[] = [];
+      const deferredJobToasts: any[] = [];
+      const summaries: Array<{
+        succeeded: number;
+        failed: number;
+        skipped: number;
+      }> = [];
+      setDeferredWorkflowCompletionTrackerDepsForTests({
+        emitWorkflowJobToasts: (payload) => {
+          deferredJobToasts.push(payload);
+        },
+        emitWorkflowFinishSummary: (payload) => {
+          summaries.push({
+            succeeded: payload.succeeded,
+            failed: payload.failed,
+            skipped: payload.skipped,
+          });
+        },
+        appendRuntimeLog: (entry) => {
+          trackerStages.push(String(entry.stage || ""));
+        },
+      });
+
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-race-summary")) {
+          return createJsonResponse({
+            request_id: "req-race-summary",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-race-summary/result")) {
+          return createJsonResponse({
+            note_path: "",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const toasts: Array<{ state: string; text: string; type: string }> = [];
+      setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
+        toasts.push(payload);
+      });
+
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Deferred Summary Replay Parent" },
+      });
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: parent.id,
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-race-summary",
+          requestId: "req-race-summary",
+          state: "running",
+          fetchType: "result",
+          targetParentID: parent.id,
+        }),
+      });
+
+      await reconciler.reconcilePending();
+
+      assert.include(
+        trackerStages,
+        "deferred-outcome-buffered-before-register",
+      );
+      assert.notInclude(trackerStages, "deferred-run-summary-emitted");
+      assert.lengthOf(deferredJobToasts, 0);
+      assert.lengthOf(summaries, 0);
+      assert.lengthOf(
+        toasts,
+        0,
+        "buffered settle should suppress fallback lifecycle toast before registration",
+      );
+
+      const registered = registerDeferredWorkflowCompletion({
+        runId: "run-1",
+        win: {} as _ZoteroTypes.MainWindow,
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        totalJobs: 1,
+        skipped: 0,
+        succeeded: 0,
+        failed: 0,
+        failureReasons: [],
+        pendingJobs: [
+          {
+            index: 0,
+            taskLabel: "paper.md",
+            succeeded: true,
+            terminalState: "succeeded",
+            jobId: "job-race-summary",
+            requestId: "req-race-summary",
+          },
+        ],
+        messageFormatter: {
+          summary: () => "",
+          failureReasonsTitle: "Failure reasons:",
+          overflow: () => "",
+          unknownError: "unknown error",
+          startToast: () => "",
+          waitingToast: () => "",
+          jobToastSuccess: () => "",
+          jobToastFailed: () => "",
+          jobToastCanceled: () => "",
+        } as any,
+      });
+
+      assert.isTrue(registered);
+      assert.include(trackerStages, "deferred-outcome-replayed-after-register");
+      assert.include(trackerStages, "deferred-run-summary-emitted");
+      assert.lengthOf(deferredJobToasts, 0);
+      assert.deepEqual(summaries, [
+        {
+          succeeded: 1,
+          failed: 0,
+          skipped: 0,
+        },
+      ]);
+      assert.lengthOf(toasts, 0);
+    });
+
+    it("prompts post-register reconcile only for the requested auto run and preserves its target parent", async function () {
+      const trackerStages: string[] = [];
+      const summaries: Array<{
+        succeeded: number;
+        failed: number;
+        skipped: number;
+      }> = [];
+      setDeferredWorkflowCompletionTrackerDepsForTests({
+        emitWorkflowJobToasts: () => undefined,
+        emitWorkflowFinishSummary: (payload) => {
+          summaries.push({
+            succeeded: payload.succeeded,
+            failed: payload.failed,
+            skipped: payload.skipped,
+          });
+        },
+        appendRuntimeLog: (entry) => {
+          trackerStages.push(String(entry.stage || ""));
+        },
+      });
+
+      const firstParent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Prompt Reconcile Parent First" },
+      });
+      const secondParent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Prompt Reconcile Parent Second" },
+      });
+
+      let firstRequestPolls = 0;
+      let secondRequestPolls = 0;
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-prompt-first")) {
+          firstRequestPolls += 1;
+          return createJsonResponse({
+            request_id: "req-prompt-first",
+            status: "running",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-prompt-second")) {
+          secondRequestPolls += 1;
+          return createJsonResponse({
+            request_id: "req-prompt-second",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-prompt-second/result")) {
+          return createJsonResponse({
+            note_path: "",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: firstParent.id,
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-prompt-first",
+          requestId: "req-prompt-first",
+          runId: "run-prompt-first",
+          state: "running",
+          fetchType: "result",
+          targetParentID: firstParent.id,
+        }),
+      });
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: secondParent.id,
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-prompt-second",
+          requestId: "req-prompt-second",
+          runId: "run-prompt-second",
+          state: "running",
+          fetchType: "result",
+          targetParentID: secondParent.id,
+        }),
+      });
+
+      const registered = registerDeferredWorkflowCompletion({
+        runId: "run-prompt-second",
+        win: {} as _ZoteroTypes.MainWindow,
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        totalJobs: 1,
+        skipped: 0,
+        succeeded: 0,
+        failed: 0,
+        failureReasons: [],
+        pendingJobs: [
+          {
+            index: 0,
+            taskLabel: "paper.md",
+            succeeded: true,
+            terminalState: "succeeded",
+            jobId: "job-prompt-second",
+            requestId: "req-prompt-second",
+          },
+        ],
+        messageFormatter: {
+          summary: () => "",
+          failureReasonsTitle: "Failure reasons:",
+          overflow: () => "",
+          unknownError: "unknown error",
+          startToast: () => "",
+          waitingToast: () => "",
+          jobToastSuccess: () => "",
+          jobToastFailed: () => "",
+          jobToastCanceled: () => "",
+        } as any,
+      });
+
+      assert.isTrue(registered);
+      await reconciler.promptReconcileRequests({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestIds: ["req-prompt-second"],
+        source: "post-register",
+      });
+      await waitForCondition(
+        () => secondRequestPolls >= 1,
+        "post-register reconcile did not poll the requested run",
+      );
+
+      assert.equal(firstRequestPolls, 0);
+      assert.isAtLeast(secondRequestPolls, 1);
+      assert.include(trackerStages, "deferred-run-summary-emitted");
+      assert.deepEqual(summaries, [
+        {
+          succeeded: 1,
+          failed: 0,
+          skipped: 0,
+        },
+      ]);
+
+      const secondApplyLog = listRuntimeLogs({
+        requestId: "req-prompt-second",
+        operation: "reconcile-owned-terminal-apply",
+        order: "asc",
+      })[0] as { details?: Record<string, unknown> } | undefined;
+      assert.isOk(secondApplyLog);
+      assert.equal(
+        Number(secondApplyLog?.details?.targetParentID || 0),
+        secondParent.id,
+      );
+      assert.equal(
+        String(secondApplyLog?.details?.source || ""),
+        "post-register",
+      );
+
+      const firstApplyLogs = listRuntimeLogs({
+        requestId: "req-prompt-first",
+        operation: "reconcile-owned-terminal-apply",
+        order: "asc",
+      });
+      assert.lengthOf(firstApplyLogs, 0);
+    });
+
+    it("applies SkillRunner sequence step results in reconciler and continues the next step without ACP store pollution", async function () {
+      this.timeout(8000);
+      await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
+      const backend = {
         id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
+        type: "skillrunner" as const,
         baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-real-built-bundle",
-        requestId: "req-real-built-bundle",
+        auth: { kind: "none" as const },
+      };
+      const sequenceRunId = "workflow-run-sequence-reconcile";
+      const sequenceRequest = {
+        kind: "skillrunner.sequence.v1" as const,
+        taskName: "Debug Sequence",
+        runtime_options: {
+          execution_mode: "interactive",
+        },
+        steps: [
+          {
+            id: "emit",
+            skill_id: "debug-sequence-probe-emit",
+            fetch_type: "bundle" as const,
+            workspace: "new" as const,
+            parameter: {
+              probe_id: "linear",
+            },
+            apply_result: {
+              workflow_id: "debug-sequence-linear-probe",
+              on_failure: "fail_sequence" as const,
+            },
+          },
+          {
+            id: "check",
+            skill_id: "debug-sequence-probe-check",
+            fetch_type: "result" as const,
+            workspace: "reuse-workflow" as const,
+            parameter: {
+              probe_id: "linear",
+            },
+          },
+        ],
+        final_step_id: "check",
+      };
+      initializeSequenceRunState({
+        request: sequenceRequest,
+        backend,
+        providerOptions: { engine: "gemini" },
+        workflowId: "debug-sequence-linear-probe",
+        workflowLabel: "Debug: Sequence Linear Probe",
+        workflowRunId: sequenceRunId,
+        jobId: "job-sequence-root",
+      });
+      recordSequenceStepRequestCreated({
+        sequenceRunId,
+        stepIndex: 0,
+        requestId: "req-sequence-emit",
+      });
+
+      const bundleBytes = createZipFromNamedFiles([
+        {
+          name: "result/debug-sequence-probe-emit.1/result.json",
+          data: utf8Bytes(
+            JSON.stringify({
+              status: "ok",
+              probe_id: "linear",
+              checks: ["emit"],
+            }),
+          ),
+        },
+      ]);
+      const createPayloads: unknown[] = [];
+      let emitStatePolls = 0;
+      let checkStatePolls = 0;
+      (globalThis as { fetch?: typeof fetch }).fetch = async (
+        url: string,
+        init?: RequestInit,
+      ) => {
+        const urlText = String(url || "");
+        if (isListRunsProbeUrl(urlText)) {
+          return createJsonResponse({ data: [] });
+        }
+        if (
+          urlText.endsWith("/v1/jobs") &&
+          String(init?.method || "").toUpperCase() === "POST"
+        ) {
+          createPayloads.push(JSON.parse(String(init?.body || "{}")));
+          return createJsonResponse({ request_id: "req-sequence-check" });
+        }
+        if (urlText.endsWith("/v1/jobs/req-sequence-check/upload")) {
+          return createJsonResponse({ ok: true });
+        }
+        if (
+          urlText.includes("/v1/jobs/req-sequence-check") &&
+          !urlText.includes("/upload")
+        ) {
+          checkStatePolls += 1;
+          return createJsonResponse({
+            request_id: "req-sequence-check",
+            status: "running",
+          });
+        }
+        if (
+          urlText.includes("/v1/jobs/req-sequence-emit") &&
+          !urlText.includes("/bundle")
+        ) {
+          emitStatePolls += 1;
+          return createJsonResponse({
+            request_id: "req-sequence-emit",
+            status: "succeeded",
+          });
+        }
+        if (urlText.endsWith("/v1/jobs/req-sequence-emit/bundle")) {
+          return createBinaryResponse(bundleBytes);
+        }
+        return createJsonResponse(
+          { error: `unexpected route: ${urlText}` },
+          404,
+        );
+      };
+
+      const firstStepJob = makeDeferredJob({
+        id: "job-sequence-root:emit",
+        runId: sequenceRunId,
+        requestId: "req-sequence-emit",
         state: "running",
         fetchType: "bundle",
-        targetParentID: parent.id,
-      }),
-    });
-
-    const noteCountBefore = parent.getNotes().length;
-    await reconciler.reconcilePending();
-
-    const noteIds = parent.getNotes();
-    assert.equal(noteIds.length, noteCountBefore + 1);
-    const note = Zotero.Items.get(noteIds[noteIds.length - 1])!;
-    assert.equal(Number(note.parentItemID || 0), parent.id);
-    assert.match(note.getNote(), /data-zs-note-kind="conversation-note"/);
-    assert.include(note.getNote(), "Real Request Bundle Note");
-
-    const applyLog = listRuntimeLogs({
-      requestId: "req-real-built-bundle",
-      operation: "reconcile-owned-terminal-apply",
-      order: "asc",
-    })[0] as { details?: Record<string, unknown> } | undefined;
-    assert.isOk(applyLog);
-    assert.equal(Number(applyLog?.details?.targetParentID || 0), parent.id);
-  });
-
-  it("retries deferred apply after transient result fetch failure and then clears context", async function () {
-    let resultAttempts = 0;
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-retry-success")) {
-        return createJsonResponse({
-          request_id: "req-retry-success",
-          status: "succeeded",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-retry-success/result")) {
-        resultAttempts += 1;
-        if (resultAttempts === 1) {
-          return createJsonResponse({ detail: "transient fetch failure" }, 500);
-        }
-        return createJsonResponse({
-          note_path: "",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Deferred Apply Retry Success Parent" },
-    });
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
+        targetParentID: null,
+      });
+      firstStepJob.workflowId = "debug-sequence-linear-probe";
+      firstStepJob.request = {
         kind: "skillrunner.job.v1",
-        targetParentID: parent.id,
+        skill_id: "debug-sequence-probe-emit",
+        fetch_type: "bundle",
         runtime_options: {
           execution_mode: "interactive",
         },
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-retry-success",
-        requestId: "req-retry-success",
-        fetchType: "result",
-        targetParentID: parent.id,
-      }),
-    });
-
-    await reconciler.reconcilePending();
-    let persisted = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-retry-success",
-    });
-    assert.equal(persisted?.apply.state, "failed");
-    assert.equal(persisted?.apply.attempt, 1);
-
-    forceApplyRetryDueNow(reconciler);
-    await reconciler.reconcilePending();
-    persisted = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-retry-success",
-    });
-    assert.equal(persisted?.apply.state, "succeeded");
-    assert.isAtLeast(resultAttempts, 2);
-  });
-
-  it("applies no-selection deferred success when workflow allows empty selection", async function () {
-    await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (String(url).includes("/v1/jobs/req-no-selection-success/result")) {
-        return createJsonResponse({
-          request_id: "req-no-selection-success",
-          result: {
-            status: "success",
-            data: {
-              ok: true,
-              checks: [],
-              connection: {},
-              diagnostics: {},
-            },
-            success_source: "done_signal_payload",
-            error: null,
-          },
-        });
-      }
-      if (String(url).includes("/v1/jobs/req-no-selection-success")) {
-        return createJsonResponse({
-          request_id: "req-no-selection-success",
-          status: "succeeded",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "debug-host-bridge-connectivity-probe",
-      workflowLabel: "Debug: Host Bridge Connectivity Probe",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        skill_id: "debug-host-bridge-connectivity-probe",
-        fetch_type: "result",
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-no-selection-success",
-        requestId: "req-no-selection-success",
-        state: "running",
-        fetchType: "result",
-        targetParentID: null,
-      }),
-    });
-
-    await reconciler.reconcilePending();
-
-    const persisted = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-no-selection-success",
-    });
-    assert.equal(
-      persisted?.status,
-      "succeeded",
-      JSON.stringify({
-        status: persisted?.status,
-        error: persisted?.error,
-        apply: persisted?.apply,
-      }),
-    );
-    assert.equal(
-      persisted?.apply.state,
-      "succeeded",
-      JSON.stringify(persisted?.apply || {}),
-    );
-    const applyLog = listRuntimeLogs({
-      requestId: "req-no-selection-success",
-      operation: "reconcile-owned-terminal-apply",
-      order: "asc",
-    })[0] as { details?: Record<string, unknown> } | undefined;
-    assert.isOk(applyLog);
-    assert.equal(String(applyLog?.details?.fetchType || ""), "result");
-    assert.notProperty(applyLog?.details || {}, "targetParentID");
-  });
-
-  it("keeps deferred apply parent guard for workflows that require selection", async function () {
-    await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-parent-required")) {
-        return createJsonResponse({
-          request_id: "req-parent-required",
-          status: "succeeded",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        skill_id: "literature-explainer",
-        fetch_type: "result",
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-parent-required",
-        requestId: "req-parent-required",
-        state: "running",
-        fetchType: "result",
-        targetParentID: null,
-      }),
-    });
-
-    await reconciler.reconcilePending();
-
-    const persisted = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-parent-required",
-    });
-    assert.equal(persisted?.apply.state, "failed");
-    assert.equal(persisted?.apply.attempt, 1);
-    assert.include(String(persisted?.apply.error || ""), "target parent");
-  });
-
-  it("emits succeeded toast when interactive task reaches terminal succeeded and apply completes", async function () {
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-toast-succeeded")) {
-        return createJsonResponse({
-          request_id: "req-toast-succeeded",
-          status: "succeeded",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-toast-succeeded/result")) {
-        return createJsonResponse({
-          note_path: "",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const toasts: Array<{ state: string; text: string; type: string }> = [];
-    setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
-      toasts.push(payload);
-    });
-
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Toast Succeeded Parent" },
-    });
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: parent.id,
-        runtime_options: {
-          execution_mode: "interactive",
+        parameter: {
+          probe_id: "linear",
         },
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-toast-succeeded",
-        requestId: "req-toast-succeeded",
-        state: "running",
-        fetchType: "result",
-        targetParentID: parent.id,
-      }),
-    });
+      };
+      firstStepJob.meta = {
+        ...firstStepJob.meta,
+        workflowLabel: "Debug: Sequence Linear Probe",
+        workflowRunId: sequenceRunId,
+        taskName: "Debug Sequence / emit",
+        sequenceStepId: "emit",
+        sequenceStepIndex: 0,
+        sequenceJobId: "job-sequence-root",
+        sequenceStepSkillId: "debug-sequence-probe-emit",
+      } as JobRecord["meta"];
 
-    await reconciler.reconcilePending();
-    assert.equal(toasts.length, 1);
-    assert.equal(toasts[0].state, "succeeded");
-    assert.equal(toasts[0].type, "success");
-    assert.include(toasts[0].text, "Literature Explainer");
-    assert.include(toasts[0].text, "paper.md");
-  });
+      const reconciler = createTrackedReconciler();
+      recordWorkflowTaskUpdate(firstStepJob);
+      recordTaskDashboardHistoryFromJob(firstStepJob);
+      reconciler.registerFromJob({
+        workflowId: "debug-sequence-linear-probe",
+        workflowLabel: "Debug: Sequence Linear Probe",
+        requestKind: "skillrunner.job.v1",
+        request: firstStepJob.request,
+        backend,
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: firstStepJob,
+      });
+      const persistedFirstStep = getSkillRunnerRunRecordByRequest({
+        backendId: backend.id,
+        requestId: "req-sequence-emit",
+      });
+      assert.equal(persistedFirstStep?.role, "sequence_step");
+      assert.equal(
+        persistedFirstStep?.workflowRunId,
+        sequenceRunId,
+      );
+      assert.equal(
+        persistedFirstStep?.sequence?.sequenceRunId,
+        sequenceRunId,
+      );
+      assert.equal(persistedFirstStep?.sequence?.jobId, "job-sequence-root");
+      assert.equal(persistedFirstStep?.sequence?.stepId, "emit");
+      assert.equal(persistedFirstStep?.sequence?.stepIndex, 0);
 
-  it("replays deferred summary after reconciler settles terminal success before tracker registration", async function () {
-    const trackerStages: string[] = [];
-    const deferredJobToasts: any[] = [];
-    const summaries: Array<{ succeeded: number; failed: number; skipped: number }> = [];
-    setDeferredWorkflowCompletionTrackerDepsForTests({
-      emitWorkflowJobToasts: (payload) => {
-        deferredJobToasts.push(payload);
-      },
-      emitWorkflowFinishSummary: (payload) => {
-        summaries.push({
-          succeeded: payload.succeeded,
-          failed: payload.failed,
-          skipped: payload.skipped,
-        });
-      },
-      appendRuntimeLog: (entry) => {
-        trackerStages.push(String(entry.stage || ""));
-      },
-    });
+      await reconciler.reconcilePending();
 
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-race-summary")) {
-        return createJsonResponse({
-          request_id: "req-race-summary",
-          status: "succeeded",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-race-summary/result")) {
-        return createJsonResponse({
-          note_path: "",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const toasts: Array<{ state: string; text: string; type: string }> = [];
-    setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
-      toasts.push(payload);
-    });
-
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Deferred Summary Replay Parent" },
-    });
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: parent.id,
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-race-summary",
-        requestId: "req-race-summary",
-        state: "running",
-        fetchType: "result",
-        targetParentID: parent.id,
-      }),
-    });
-
-    await reconciler.reconcilePending();
-
-    assert.include(trackerStages, "deferred-outcome-buffered-before-register");
-    assert.notInclude(trackerStages, "deferred-run-summary-emitted");
-    assert.lengthOf(deferredJobToasts, 0);
-    assert.lengthOf(summaries, 0);
-    assert.lengthOf(
-      toasts,
-      0,
-      "buffered settle should suppress fallback lifecycle toast before registration",
-    );
-
-    const registered = registerDeferredWorkflowCompletion({
-      runId: "run-1",
-      win: {} as _ZoteroTypes.MainWindow,
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      totalJobs: 1,
-      skipped: 0,
-      succeeded: 0,
-      failed: 0,
-      failureReasons: [],
-      pendingJobs: [
-        {
-          index: 0,
-          taskLabel: "paper.md",
-          succeeded: true,
-          terminalState: "succeeded",
-          jobId: "job-race-summary",
-          requestId: "req-race-summary",
-        },
-      ],
-      messageFormatter: {
-        summary: () => "",
-        failureReasonsTitle: "Failure reasons:",
-        overflow: () => "",
-        unknownError: "unknown error",
-        startToast: () => "",
-        waitingToast: () => "",
-        jobToastSuccess: () => "",
-        jobToastFailed: () => "",
-        jobToastCanceled: () => "",
-      } as any,
-    });
-
-    assert.isTrue(registered);
-    assert.include(trackerStages, "deferred-outcome-replayed-after-register");
-    assert.include(trackerStages, "deferred-run-summary-emitted");
-    assert.lengthOf(deferredJobToasts, 0);
-    assert.deepEqual(summaries, [
-      {
-        succeeded: 1,
-        failed: 0,
-        skipped: 0,
-      },
-    ]);
-    assert.lengthOf(toasts, 0);
-  });
-
-  it("prompts post-register reconcile only for the requested auto run and preserves its target parent", async function () {
-    const trackerStages: string[] = [];
-    const summaries: Array<{ succeeded: number; failed: number; skipped: number }> = [];
-    setDeferredWorkflowCompletionTrackerDepsForTests({
-      emitWorkflowJobToasts: () => undefined,
-      emitWorkflowFinishSummary: (payload) => {
-        summaries.push({
-          succeeded: payload.succeeded,
-          failed: payload.failed,
-          skipped: payload.skipped,
-        });
-      },
-      appendRuntimeLog: (entry) => {
-        trackerStages.push(String(entry.stage || ""));
-      },
-    });
-
-    const firstParent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Prompt Reconcile Parent First" },
-    });
-    const secondParent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Prompt Reconcile Parent Second" },
-    });
-
-    let firstRequestPolls = 0;
-    let secondRequestPolls = 0;
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-prompt-first")) {
-        firstRequestPolls += 1;
-        return createJsonResponse({
-          request_id: "req-prompt-first",
-          status: "running",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-prompt-second")) {
-        secondRequestPolls += 1;
-        return createJsonResponse({
-          request_id: "req-prompt-second",
-          status: "succeeded",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-prompt-second/result")) {
-        return createJsonResponse({
-          note_path: "",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: firstParent.id,
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-prompt-first",
-        requestId: "req-prompt-first",
-        runId: "run-prompt-first",
-        state: "running",
-        fetchType: "result",
-        targetParentID: firstParent.id,
-      }),
-    });
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: secondParent.id,
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-prompt-second",
-        requestId: "req-prompt-second",
-        runId: "run-prompt-second",
-        state: "running",
-        fetchType: "result",
-        targetParentID: secondParent.id,
-      }),
-    });
-
-    const registered = registerDeferredWorkflowCompletion({
-      runId: "run-prompt-second",
-      win: {} as _ZoteroTypes.MainWindow,
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      totalJobs: 1,
-      skipped: 0,
-      succeeded: 0,
-      failed: 0,
-      failureReasons: [],
-      pendingJobs: [
-        {
-          index: 0,
-          taskLabel: "paper.md",
-          succeeded: true,
-          terminalState: "succeeded",
-          jobId: "job-prompt-second",
-          requestId: "req-prompt-second",
-        },
-      ],
-      messageFormatter: {
-        summary: () => "",
-        failureReasonsTitle: "Failure reasons:",
-        overflow: () => "",
-        unknownError: "unknown error",
-        startToast: () => "",
-        waitingToast: () => "",
-        jobToastSuccess: () => "",
-        jobToastFailed: () => "",
-        jobToastCanceled: () => "",
-      } as any,
-    });
-
-    assert.isTrue(registered);
-    await reconciler.promptReconcileRequests({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestIds: ["req-prompt-second"],
-      source: "post-register",
-    });
-
-    assert.equal(firstRequestPolls, 0);
-    assert.isAtLeast(secondRequestPolls, 1);
-    assert.include(trackerStages, "deferred-run-summary-emitted");
-    assert.deepEqual(summaries, [
-      {
-        succeeded: 1,
-        failed: 0,
-        skipped: 0,
-      },
-    ]);
-
-    const secondApplyLog = listRuntimeLogs({
-      requestId: "req-prompt-second",
-      operation: "reconcile-owned-terminal-apply",
-      order: "asc",
-    })[0] as { details?: Record<string, unknown> } | undefined;
-    assert.isOk(secondApplyLog);
-    assert.equal(Number(secondApplyLog?.details?.targetParentID || 0), secondParent.id);
-    assert.equal(String(secondApplyLog?.details?.source || ""), "post-register");
-
-    const firstApplyLogs = listRuntimeLogs({
-      requestId: "req-prompt-first",
-      operation: "reconcile-owned-terminal-apply",
-      order: "asc",
-    });
-    assert.lengthOf(firstApplyLogs, 0);
-  });
-
-  it("applies SkillRunner sequence step results in reconciler and continues the next step without ACP store pollution", async function () {
-    this.timeout(8000);
-    await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
-    const backend = {
-      id: TEST_SKILLRUNNER_BACKEND_ID,
-      type: "skillrunner" as const,
-      baseUrl: TEST_SKILLRUNNER_BASE_URL,
-      auth: { kind: "none" as const },
-    };
-    const sequenceRunId = "workflow-run-sequence-reconcile";
-    const sequenceRequest = {
-      kind: "skillrunner.sequence.v1" as const,
-      taskName: "Debug Sequence",
-      runtime_options: {
+      assert.isAtLeast(emitStatePolls, 2);
+      assert.lengthOf(createPayloads, 1);
+      const checkCreatePayload = createPayloads[0] as {
+        runtime_options?: Record<string, unknown>;
+      };
+      assert.deepInclude(checkCreatePayload.runtime_options || {}, {
         execution_mode: "interactive",
-      },
-      steps: [
-        {
-          id: "emit",
-          skill_id: "debug-sequence-probe-emit",
-          fetch_type: "bundle" as const,
-          workspace: "new" as const,
-          parameter: {
-            probe_id: "linear",
-          },
-          apply_result: {
-            workflow_id: "debug-sequence-linear-probe",
-            on_failure: "fail_sequence" as const,
-          },
+      });
+      assert.deepEqual(checkCreatePayload.runtime_options?.workspace, {
+        mode: "reuse",
+        request_id: "req-sequence-emit",
+      });
+
+      const sequenceState = getSequenceRunState(sequenceRunId);
+      assert.equal(sequenceState?.status, "waiting_recovery");
+      assert.equal(sequenceState?.steps[0]?.status, "succeeded");
+      assert.equal(checkStatePolls, 0);
+      assert.equal(
+        sequenceState?.steps[1]?.requestId,
+        "req-sequence-check",
+      );
+      assert.equal(sequenceState?.steps[1]?.status, "deferred");
+
+      const emitRun = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-sequence-emit",
+      });
+      const checkRun = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-sequence-check",
+      });
+      assert.equal(emitRun?.status, "succeeded");
+      assert.isOk(checkRun);
+      assert.equal(checkRun?.role, "sequence_step");
+      assert.equal(checkRun?.workflowRunId, sequenceRunId);
+      assert.equal(checkRun?.sequence?.sequenceRunId, sequenceRunId);
+      assert.equal(checkRun?.sequence?.jobId, "job-sequence-root");
+      assert.equal(checkRun?.sequence?.stepId, "check");
+      assert.equal(checkRun?.sequence?.stepIndex, 1);
+      await waitForCondition(
+        () =>
+          getSequenceRunState(sequenceRunId)?.steps[0]?.applyResult?.status ===
+          "succeeded",
+        "sequence step side-effect apply did not settle",
+      );
+      const appliedSequenceState = getSequenceRunState(sequenceRunId);
+      assert.equal(
+        appliedSequenceState?.steps[0]?.applyResult?.workflowId,
+        "debug-sequence-linear-probe",
+      );
+      assert.isNull(getAcpSkillRunRecord("req-sequence-emit"));
+      assert.isNull(getAcpSkillRunRecord("req-sequence-check"));
+    });
+
+    it("falls back to interval retry after post-register apply failure without duplicating deferred summary", async function () {
+      const trackerStages: string[] = [];
+      const summaries: Array<{
+        succeeded: number;
+        failed: number;
+        skipped: number;
+      }> = [];
+      setDeferredWorkflowCompletionTrackerDepsForTests({
+        emitWorkflowJobToasts: () => undefined,
+        emitWorkflowFinishSummary: (payload) => {
+          summaries.push({
+            succeeded: payload.succeeded,
+            failed: payload.failed,
+            skipped: payload.skipped,
+          });
         },
-        {
-          id: "check",
-          skill_id: "debug-sequence-probe-check",
-          fetch_type: "result" as const,
-          workspace: "reuse-workflow" as const,
-          parameter: {
-            probe_id: "linear",
-          },
+        appendRuntimeLog: (entry) => {
+          trackerStages.push(String(entry.stage || ""));
         },
-      ],
-      final_step_id: "check",
-    };
-    initializeSequenceRunState({
-      request: sequenceRequest,
-      backend,
-      providerOptions: { engine: "gemini" },
-      workflowId: "debug-sequence-linear-probe",
-      workflowLabel: "Debug: Sequence Linear Probe",
-      workflowRunId: sequenceRunId,
-      jobId: "job-sequence-root",
-    });
-    recordSequenceStepRequestCreated({
-      sequenceRunId,
-      stepIndex: 0,
-      requestId: "req-sequence-emit",
-    });
+      });
 
-    const bundleBytes = createZipFromNamedFiles([
-      {
-        name: "result/debug-sequence-probe-emit.1/result.json",
-        data: utf8Bytes(
-          JSON.stringify({
-            status: "ok",
-            probe_id: "linear",
-            checks: ["emit"],
-          }),
-        ),
-      },
-    ]);
-    const createPayloads: unknown[] = [];
-    let emitStatePolls = 0;
-    let checkStatePolls = 0;
-    (globalThis as { fetch?: typeof fetch }).fetch = async (
-      url: string,
-      init?: RequestInit,
-    ) => {
-      const urlText = String(url || "");
-      if (isListRunsProbeUrl(urlText)) {
-        return createJsonResponse({ data: [] });
-      }
-      if (
-        urlText.endsWith("/v1/jobs") &&
-        String(init?.method || "").toUpperCase() === "POST"
-      ) {
-        createPayloads.push(JSON.parse(String(init?.body || "{}")));
-        return createJsonResponse({ request_id: "req-sequence-check" });
-      }
-      if (urlText.endsWith("/v1/jobs/req-sequence-check/upload")) {
-        return createJsonResponse({ ok: true });
-      }
-      if (
-        urlText.includes("/v1/jobs/req-sequence-check") &&
-        !urlText.includes("/upload")
-      ) {
-        checkStatePolls += 1;
-        return createJsonResponse({
-          request_id: "req-sequence-check",
-          status: "running",
-        });
-      }
-      if (
-        urlText.includes("/v1/jobs/req-sequence-emit") &&
-        !urlText.includes("/bundle")
-      ) {
-        emitStatePolls += 1;
-        return createJsonResponse({
-          request_id: "req-sequence-emit",
-          status: "succeeded",
-        });
-      }
-      if (urlText.endsWith("/v1/jobs/req-sequence-emit/bundle")) {
-        return createBinaryResponse(bundleBytes);
-      }
-      return createJsonResponse({ error: `unexpected route: ${urlText}` }, 404);
-    };
-
-    const firstStepJob = makeDeferredJob({
-      id: "job-sequence-root:emit",
-      runId: sequenceRunId,
-      requestId: "req-sequence-emit",
-      state: "running",
-      fetchType: "bundle",
-      targetParentID: null,
-    });
-    firstStepJob.workflowId = "debug-sequence-linear-probe";
-    firstStepJob.request = {
-      kind: "skillrunner.job.v1",
-      skill_id: "debug-sequence-probe-emit",
-      fetch_type: "bundle",
-      runtime_options: {
-        execution_mode: "interactive",
-      },
-      parameter: {
-        probe_id: "linear",
-      },
-    };
-    firstStepJob.meta = {
-      ...firstStepJob.meta,
-      workflowLabel: "Debug: Sequence Linear Probe",
-      workflowRunId: sequenceRunId,
-      taskName: "Debug Sequence / emit",
-      sequenceStepId: "emit",
-      sequenceStepIndex: 0,
-      sequenceStepSkillId: "debug-sequence-probe-emit",
-    } as JobRecord["meta"];
-
-    const reconciler = createTrackedReconciler();
-    recordWorkflowTaskUpdate(firstStepJob);
-    recordTaskDashboardHistoryFromJob(firstStepJob);
-    reconciler.registerFromJob({
-      workflowId: "debug-sequence-linear-probe",
-      workflowLabel: "Debug: Sequence Linear Probe",
-      requestKind: "skillrunner.job.v1",
-      request: firstStepJob.request,
-      backend,
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: firstStepJob,
-    });
-
-    await reconciler.reconcilePending();
-
-    assert.isAtLeast(emitStatePolls, 2);
-    assert.isAtLeast(checkStatePolls, 1);
-    assert.lengthOf(createPayloads, 1);
-    const checkCreatePayload = createPayloads[0] as {
-      runtime_options?: Record<string, unknown>;
-    };
-    assert.deepInclude(checkCreatePayload.runtime_options || {}, {
-      execution_mode: "interactive",
-    });
-    assert.deepEqual(checkCreatePayload.runtime_options?.workspace, {
-      mode: "reuse",
-      request_id: "req-sequence-emit",
-    });
-
-    const sequenceState = getSequenceRunState(sequenceRunId);
-    assert.equal(sequenceState?.status, "waiting_recovery");
-    assert.equal(sequenceState?.steps[0]?.status, "succeeded");
-    assert.equal(sequenceState?.steps[0]?.applyResult?.status, "succeeded");
-    assert.equal(
-      sequenceState?.steps[0]?.applyResult?.workflowId,
-      "debug-sequence-linear-probe",
-    );
-    assert.equal(sequenceState?.steps[1]?.requestId, "req-sequence-check");
-    assert.equal(sequenceState?.steps[1]?.status, "deferred");
-
-    const emitRun = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-sequence-emit",
-    });
-    const checkRun = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-sequence-check",
-    });
-    assert.equal(emitRun?.status, "succeeded");
-    assert.isOk(checkRun);
-    assert.isNull(getAcpSkillRunRecord("req-sequence-emit"));
-    assert.isNull(getAcpSkillRunRecord("req-sequence-check"));
-  });
-
-  it("falls back to interval retry after post-register apply failure without duplicating deferred summary", async function () {
-    const trackerStages: string[] = [];
-    const summaries: Array<{ succeeded: number; failed: number; skipped: number }> = [];
-    setDeferredWorkflowCompletionTrackerDepsForTests({
-      emitWorkflowJobToasts: () => undefined,
-      emitWorkflowFinishSummary: (payload) => {
-        summaries.push({
-          succeeded: payload.succeeded,
-          failed: payload.failed,
-          skipped: payload.skipped,
-        });
-      },
-      appendRuntimeLog: (entry) => {
-        trackerStages.push(String(entry.stage || ""));
-      },
-    });
-
-    let resultFetchCount = 0;
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-post-register-retry")) {
-        return createJsonResponse({
-          request_id: "req-post-register-retry",
-          status: "succeeded",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-post-register-retry/result")) {
-        resultFetchCount += 1;
-        if (resultFetchCount === 1) {
-          return createJsonResponse({ detail: "transient apply failure" }, 500);
+      let resultFetchCount = 0;
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
         }
-        return createJsonResponse({
-          note_path: "",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
+        if (url.endsWith("/v1/jobs/req-post-register-retry")) {
+          return createJsonResponse({
+            request_id: "req-post-register-retry",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-post-register-retry/result")) {
+          resultFetchCount += 1;
+          if (resultFetchCount === 1) {
+            return createJsonResponse(
+              { detail: "transient apply failure" },
+              500,
+            );
+          }
+          return createJsonResponse({
+            note_path: "",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
 
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Prompt Retry Parent" },
-    });
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: parent.id,
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-post-register-retry",
-        requestId: "req-post-register-retry",
-        runId: "run-post-register-retry",
-        state: "running",
-        fetchType: "result",
-        targetParentID: parent.id,
-      }),
-    });
-
-    const registered = registerDeferredWorkflowCompletion({
-      runId: "run-post-register-retry",
-      win: {} as _ZoteroTypes.MainWindow,
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      totalJobs: 1,
-      skipped: 0,
-      succeeded: 0,
-      failed: 0,
-      failureReasons: [],
-      pendingJobs: [
-        {
-          index: 0,
-          taskLabel: "paper.md",
-          succeeded: true,
-          terminalState: "succeeded",
-          jobId: "job-post-register-retry",
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Prompt Retry Parent" },
+      });
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: parent.id,
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-post-register-retry",
           requestId: "req-post-register-retry",
-        },
-      ],
-      messageFormatter: {
-        summary: () => "",
-        failureReasonsTitle: "Failure reasons:",
-        overflow: () => "",
-        unknownError: "unknown error",
-        startToast: () => "",
-        waitingToast: () => "",
-        jobToastSuccess: () => "",
-        jobToastFailed: () => "",
-        jobToastCanceled: () => "",
-      } as any,
-    });
+          runId: "run-post-register-retry",
+          state: "running",
+          fetchType: "result",
+          targetParentID: parent.id,
+        }),
+      });
 
-    assert.isTrue(registered);
-    await reconciler.promptReconcileRequests({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestIds: ["req-post-register-retry"],
-      source: "post-register",
-    });
-
-    assert.equal(resultFetchCount, 1);
-    assert.notInclude(trackerStages, "deferred-run-summary-emitted");
-    forceApplyRetryDueNow(reconciler);
-    await reconciler.reconcilePending();
-
-    assert.equal(resultFetchCount, 2);
-    assert.deepEqual(summaries, [
-      {
-        succeeded: 1,
-        failed: 0,
+      const registered = registerDeferredWorkflowCompletion({
+        runId: "run-post-register-retry",
+        win: {} as _ZoteroTypes.MainWindow,
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        totalJobs: 1,
         skipped: 0,
-      },
-    ]);
-    assert.lengthOf(
-      trackerStages.filter((stage) => stage === "deferred-run-summary-emitted"),
-      1,
-    );
+        succeeded: 0,
+        failed: 0,
+        failureReasons: [],
+        pendingJobs: [
+          {
+            index: 0,
+            taskLabel: "paper.md",
+            succeeded: true,
+            terminalState: "succeeded",
+            jobId: "job-post-register-retry",
+            requestId: "req-post-register-retry",
+          },
+        ],
+        messageFormatter: {
+          summary: () => "",
+          failureReasonsTitle: "Failure reasons:",
+          overflow: () => "",
+          unknownError: "unknown error",
+          startToast: () => "",
+          waitingToast: () => "",
+          jobToastSuccess: () => "",
+          jobToastFailed: () => "",
+          jobToastCanceled: () => "",
+        } as any,
+      });
 
-    const failedLog = listRuntimeLogs({
-      requestId: "req-post-register-retry",
-      operation: "deferred-apply-failed",
-      order: "asc",
-    })[0] as { details?: Record<string, unknown> } | undefined;
-    assert.isOk(failedLog);
-    assert.equal(String(failedLog?.details?.source || ""), "post-register");
+      assert.isTrue(registered);
+      await reconciler.promptReconcileRequests({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestIds: ["req-post-register-retry"],
+        source: "post-register",
+      });
+      await waitForCondition(
+        () => resultFetchCount >= 1,
+        "post-register reconcile did not attempt the first result fetch",
+      );
 
-    const applyLog = listRuntimeLogs({
-      requestId: "req-post-register-retry",
-      operation: "reconcile-owned-terminal-apply",
-      order: "desc",
-    })[0] as { details?: Record<string, unknown> } | undefined;
-    assert.isOk(applyLog);
-    assert.equal(String(applyLog?.details?.source || ""), "interval");
-  });
+      assert.equal(resultFetchCount, 1);
+      assert.notInclude(trackerStages, "deferred-run-summary-emitted");
+      forceApplyRetryDueNow(reconciler);
+      await reconciler.reconcilePending();
 
+      assert.equal(resultFetchCount, 2);
+      assert.deepEqual(summaries, [
+        {
+          succeeded: 1,
+          failed: 0,
+          skipped: 0,
+        },
+      ]);
+      assert.lengthOf(
+        trackerStages.filter(
+          (stage) => stage === "deferred-run-summary-emitted",
+        ),
+        1,
+      );
+
+      const failedLog = listRuntimeLogs({
+        requestId: "req-post-register-retry",
+        operation: "deferred-apply-failed",
+        order: "asc",
+      })[0] as { details?: Record<string, unknown> } | undefined;
+      assert.isOk(failedLog);
+      assert.equal(String(failedLog?.details?.source || ""), "post-register");
+
+      const applyLog = listRuntimeLogs({
+        requestId: "req-post-register-retry",
+        operation: "reconcile-owned-terminal-apply",
+        order: "desc",
+      })[0] as { details?: Record<string, unknown> } | undefined;
+      assert.isOk(applyLog);
+      assert.equal(String(applyLog?.details?.source || ""), "interval");
+    });
   });
 }
 
@@ -2201,537 +2307,536 @@ export function registerSkillRunnerTaskReconcilerLedgerReconcileTests() {
   describe("skillrunner task reconciler: ledger reconcile", function () {
     const { createTrackedReconciler } = setupSkillRunnerTaskReconcilerSuite();
 
-  it("emits failed toast when interactive task reaches terminal failed", async function () {
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-toast-failed")) {
-        return createJsonResponse({
-          request_id: "req-toast-failed",
-          status: "failed",
-          error: "backend failed",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const toasts: Array<{ state: string; text: string; type: string }> = [];
-    setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
-      toasts.push(payload);
-    });
-
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: 123,
-        runtime_options: {
-          execution_mode: "interactive",
-        },
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-toast-failed",
-        requestId: "req-toast-failed",
-        state: "running",
-        fetchType: "result",
-      }),
-    });
-
-    await reconciler.reconcilePending();
-    assert.equal(toasts.length, 1);
-    assert.equal(toasts[0].state, "failed");
-    assert.equal(toasts[0].type, "error");
-    assert.include(toasts[0].text, "Literature Explainer");
-    assert.include(toasts[0].text, "backend failed");
-  });
-
-  it("emits canceled toast when interactive task reaches terminal canceled", async function () {
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-toast-canceled")) {
-        return createJsonResponse({
-          request_id: "req-toast-canceled",
-          status: "canceled",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const toasts: Array<{ state: string; text: string; type: string }> = [];
-    setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
-      toasts.push(payload);
-    });
-
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: 123,
-        runtime_options: {
-          execution_mode: "interactive",
-        },
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-toast-canceled",
-        requestId: "req-toast-canceled",
-        state: "running",
-        fetchType: "result",
-      }),
-    });
-
-    await reconciler.reconcilePending();
-    assert.equal(toasts.length, 1);
-    assert.equal(toasts[0].state, "canceled");
-    assert.equal(toasts[0].type, "default");
-    assert.include(toasts[0].text, "Literature Explainer");
-    assert.include(toasts[0].text, "paper.md");
-  });
-
-  it("stops apply retries after limit and drops deferred context", async function () {
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-retry-exhausted")) {
-        return createJsonResponse({
-          request_id: "req-retry-exhausted",
-          status: "succeeded",
-        });
-      }
-      if (url.endsWith("/v1/jobs/req-retry-exhausted/result")) {
-        return createJsonResponse({ detail: "always fail" }, 500);
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: 123,
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-retry-exhausted",
-        requestId: "req-retry-exhausted",
-        fetchType: "result",
-      }),
-    });
-
-    for (let i = 0; i < 6; i += 1) {
-      await reconciler.reconcilePending();
-      forceApplyRetryDueNow(reconciler);
-    }
-
-    const persisted = getSkillRunnerRunRecordByRequest({
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      requestId: "req-retry-exhausted",
-    });
-    assert.equal(persisted?.status, "succeeded");
-    assert.equal(persisted?.apply.state, "failed");
-    assert.isAtLeast(persisted?.apply.attempt || 0, 5);
-    const tasks = listWorkflowTasks();
-    assert.equal(tasks[0]?.state, "succeeded");
-  });
-
-  it("reconciles backend task ledger and preserves missing request ids as failed", async function () {
-    recordWorkflowTaskUpdate(
-      makeDashboardJob({
-        id: "active-missing",
-        runId: "run-active-missing",
-        requestId: "req-missing",
-        state: "running",
-        backendId: "remote-skillrunner",
-        backendBaseUrl: "http://127.0.0.1:8031",
-      }),
-    );
-    recordWorkflowTaskUpdate(
-      makeDashboardJob({
-        id: "active-live",
-        runId: "run-active-live",
-        requestId: "req-live",
-        state: "running",
-        backendId: "remote-skillrunner",
-        backendBaseUrl: "http://127.0.0.1:8031",
-      }),
-    );
-    recordTaskDashboardHistoryFromJob(
-      makeDashboardJob({
-        id: "history-missing",
-        runId: "run-history-missing",
-        requestId: "req-missing",
-        state: "failed",
-        backendId: "remote-skillrunner",
-        backendBaseUrl: "http://127.0.0.1:8031",
-      }),
-    );
-    recordTaskDashboardHistoryFromJob(
-      makeDashboardJob({
-        id: "history-live",
-        runId: "run-history-live",
-        requestId: "req-live",
-        state: "succeeded",
-        backendId: "remote-skillrunner",
-        backendBaseUrl: "http://127.0.0.1:8031",
-      }),
-    );
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (url.endsWith("/v1/jobs/req-missing")) {
-        return createJsonResponse({ detail: "not found" }, 404);
-      }
-      if (url.endsWith("/v1/jobs/req-live")) {
-        return createJsonResponse({
-          request_id: "req-live",
-          status: "running",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const result = await reconcileSkillRunnerBackendTaskLedgerOnce({
-      backend: {
-        id: "remote-skillrunner",
-        displayName: "Remote SkillRunner",
-        type: "skillrunner",
-        baseUrl: "http://127.0.0.1:8031",
-        auth: { kind: "none" },
-      },
-      source: "startup",
-    });
-
-    assert.isTrue(result.ok);
-    assert.include(result.missingRequestIds, "req-missing");
-    assert.notInclude(result.missingRequestIds, "req-live");
-    assert.equal(result.removedActiveCount, 0);
-    assert.equal(result.removedHistoryCount, 0);
-    const activeRows = listWorkflowTasks();
-    assert.sameMembers(
-      activeRows.map((entry) => String(entry.requestId || "")),
-      ["req-missing", "req-live"],
-    );
-    assert.equal(
-      activeRows.find((entry) => entry.requestId === "req-missing")?.state,
-      "failed",
-    );
-    const historyRows = listTaskDashboardHistory({
-      backendId: "remote-skillrunner",
-    });
-    assert.sameMembers(
-      historyRows.map((entry) => String(entry.requestId || "")),
-      ["req-missing", "req-live"],
-    );
-    assert.equal(
-      historyRows.find((entry) => entry.requestId === "req-missing")?.state,
-      "failed",
-    );
-  });
-
-  it("reconciles running task to terminal failed after double-confirming backend terminal state", async function () {
-    recordWorkflowTaskUpdate(
-      makeDashboardJob({
-        id: "active-terminal-failed",
-        runId: "run-active-terminal-failed",
-        requestId: "req-terminal-failed",
-        state: "running",
-        backendId: "remote-skillrunner",
-        backendBaseUrl: "http://127.0.0.1:8031",
-      }),
-    );
-    recordTaskDashboardHistoryFromJob(
-      makeDashboardJob({
-        id: "history-terminal-failed",
-        runId: "run-history-terminal-failed",
-        requestId: "req-terminal-failed",
-        state: "running",
-        backendId: "remote-skillrunner",
-        backendBaseUrl: "http://127.0.0.1:8031",
-      }),
-    );
-    const toasts: Array<{ state: string; text: string; type: string }> = [];
-    setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
-      toasts.push(payload);
-    });
-    let pollCount = 0;
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (url.endsWith("/v1/jobs/req-terminal-failed")) {
-        pollCount += 1;
-        return createJsonResponse({
-          request_id: "req-terminal-failed",
-          status: "failed",
-          error: "backend hard terminated",
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const result = await reconcileSkillRunnerBackendTaskLedgerOnce({
-      backend: {
-        id: "remote-skillrunner",
-        displayName: "Remote SkillRunner",
-        type: "skillrunner",
-        baseUrl: "http://127.0.0.1:8031",
-        auth: { kind: "none" },
-      },
-      source: "startup",
-    });
-
-    assert.isTrue(result.ok);
-    assert.isAtLeast(pollCount, 2);
-    const task = listWorkflowTasks().find(
-      (entry) => entry.requestId === "req-terminal-failed",
-    );
-    assert.isOk(task);
-    assert.equal(task?.state, "failed");
-    assert.equal(task?.error, "backend hard terminated");
-    const historyRows = listTaskDashboardHistory({
-      backendId: "remote-skillrunner",
-      requestId: "req-terminal-failed",
-    });
-    assert.lengthOf(historyRows, 1);
-    assert.equal(historyRows[0].state, "failed");
-    assert.equal(historyRows[0].error, "backend hard terminated");
-    assert.lengthOf(toasts, 1);
-    assert.equal(toasts[0].state, "failed");
-    assert.equal(toasts[0].type, "error");
-  });
-
-  it("keeps running task unchanged when double-confirm terminal check is not stable", async function () {
-    recordWorkflowTaskUpdate(
-      makeDashboardJob({
-        id: "active-terminal-unstable",
-        runId: "run-active-terminal-unstable",
-        requestId: "req-terminal-unstable",
-        state: "running",
-        backendId: "remote-skillrunner",
-        backendBaseUrl: "http://127.0.0.1:8031",
-      }),
-    );
-    recordTaskDashboardHistoryFromJob(
-      makeDashboardJob({
-        id: "history-terminal-unstable",
-        runId: "run-history-terminal-unstable",
-        requestId: "req-terminal-unstable",
-        state: "running",
-        backendId: "remote-skillrunner",
-        backendBaseUrl: "http://127.0.0.1:8031",
-      }),
-    );
-    const toasts: Array<{ state: string; text: string; type: string }> = [];
-    setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
-      toasts.push(payload);
-    });
-    let pollCount = 0;
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (url.endsWith("/v1/jobs/req-terminal-unstable")) {
-        pollCount += 1;
-        return createJsonResponse({
-          request_id: "req-terminal-unstable",
-          status: pollCount === 1 ? "failed" : "running",
-          error: pollCount === 1 ? "transient terminal report" : null,
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const result = await reconcileSkillRunnerBackendTaskLedgerOnce({
-      backend: {
-        id: "remote-skillrunner",
-        displayName: "Remote SkillRunner",
-        type: "skillrunner",
-        baseUrl: "http://127.0.0.1:8031",
-        auth: { kind: "none" },
-      },
-      source: "startup",
-    });
-
-    assert.isTrue(result.ok);
-    assert.equal(pollCount, 2);
-    const task = listWorkflowTasks().find(
-      (entry) => entry.requestId === "req-terminal-unstable",
-    );
-    assert.isOk(task);
-    assert.equal(task?.state, "running");
-    const historyRows = listTaskDashboardHistory({
-      backendId: "remote-skillrunner",
-      requestId: "req-terminal-unstable",
-    });
-    assert.lengthOf(historyRows, 1);
-    assert.equal(historyRows[0].state, "running");
-    assert.lengthOf(toasts, 0);
-  });
-
-  itFullOnly("reports toast when backend reconcile fails due to communication error", async function () {
-    recordTaskDashboardHistoryFromJob(
-      makeDashboardJob({
-        id: "history-live",
-        runId: "run-history-live",
-        requestId: "req-live",
-        state: "succeeded",
-        backendId: "remote-skillrunner",
-        backendBaseUrl: "http://127.0.0.1:8031",
-      }),
-    );
-    const toasts: string[] = [];
-    setSkillRunnerBackendReconcileFailureToastEmitterForTests((payload) => {
-      toasts.push(payload.text);
-    });
-    (globalThis as { fetch?: typeof fetch }).fetch = async () => {
-      throw new Error("network down");
-    };
-
-    const result = await reconcileSkillRunnerBackendTaskLedgerOnce({
-      backend: {
-        id: "remote-skillrunner",
-        displayName: "Remote SkillRunner",
-        type: "skillrunner",
-        baseUrl: "http://127.0.0.1:8031",
-        auth: { kind: "none" },
-      },
-      source: "startup",
-      emitFailureToast: true,
-    });
-
-    assert.isFalse(result.ok);
-    assert.lengthOf(toasts, 1);
-    assert.include(toasts[0], "Remote SkillRunner");
-  });
-
-  itFullOnly("throttles repeated backend-reconcile-failed logs when backend is unreachable", async function () {
-    let networkDown = true;
-    (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
-      if (isListRunsProbeUrl(url)) {
-        if (networkDown) {
-          throw new TypeError("NetworkError when attempting to fetch resource.");
-        }
-        return createJsonResponse({
-          data: [],
-        });
-      }
-      return createJsonResponse({ error: "unexpected route" }, 404);
-    };
-
-    const reconciler = createTrackedReconciler();
-    reconciler.registerFromJob({
-      workflowId: "literature-explainer",
-      workflowLabel: "Literature Explainer",
-      requestKind: "skillrunner.job.v1",
-      request: {
-        kind: "skillrunner.job.v1",
-        targetParentID: 123,
-      },
-      backend: {
-        id: TEST_SKILLRUNNER_BACKEND_ID,
-        type: "skillrunner",
-        baseUrl: TEST_SKILLRUNNER_BASE_URL,
-        auth: { kind: "none" },
-      },
-      providerId: "skillrunner",
-      providerOptions: { engine: "gemini" },
-      job: makeDeferredJob({
-        id: "job-reconcile-throttle",
-        requestId: "req-reconcile-throttle",
-        state: "running",
-        fetchType: "result",
-      }),
-    });
-
-    await reconciler.reconcilePending();
-    await reconciler.reconcilePending();
-    let failedLogs = listRuntimeLogs({
-      operation: "backend-health-probe-failed",
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      order: "asc",
-    });
-    assert.lengthOf(failedLogs, 1);
-
-    networkDown = true;
-    await reconciler.reconcilePending();
-    failedLogs = listRuntimeLogs({
-      operation: "backend-health-probe-failed",
-      backendId: TEST_SKILLRUNNER_BACKEND_ID,
-      order: "asc",
-    });
-    assert.lengthOf(failedLogs, 1);
-  });
-
-  it("degrades reconcile poll frequency after sustained failures and restores after recovery", async function () {
-    let networkDown = true;
-    let fetchCount = 0;
-    const previousBackendsPref = String(getPref("backendsConfigJson") || "");
-    setPref(
-      "backendsConfigJson",
-      JSON.stringify({
-        schemaVersion: 2,
-        backends: [
-          {
-            id: TEST_SKILLRUNNER_BACKEND_ID,
-            displayName: "Local Backend",
-            type: "skillrunner",
-            baseUrl: TEST_SKILLRUNNER_BASE_URL,
-            auth: { kind: "none" },
-          },
-        ],
-      }),
-    );
-    const dateNowDescriptor = Object.getOwnPropertyDescriptor(Date, "now");
-    let fakeNow = Date.now();
-    Object.defineProperty(Date, "now", {
-      configurable: true,
-      value: () => fakeNow,
-    });
-    try {
+    it("buffers interactive terminal failure for deferred summary settlement", async function () {
+      setDeferredWorkflowCompletionTrackerDepsForTests({
+        emitWorkflowJobToasts: () => undefined,
+        emitWorkflowFinishSummary: () => undefined,
+        appendRuntimeLog,
+      });
       (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
         if (isListRunsProbeUrl(url)) {
-          fetchCount += 1;
-          if (networkDown) {
-            throw new TypeError("NetworkError when attempting to fetch resource.");
-          }
           return createJsonResponse({
             data: [],
           });
         }
+        if (url.endsWith("/v1/jobs/req-toast-failed")) {
+          return createJsonResponse({
+            request_id: "req-toast-failed",
+            status: "failed",
+            error: "backend failed",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const toasts: Array<{ state: string; text: string; type: string }> = [];
+      setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
+        toasts.push(payload);
+      });
+
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: 123,
+          runtime_options: {
+            execution_mode: "interactive",
+          },
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-toast-failed",
+          requestId: "req-toast-failed",
+          state: "running",
+          fetchType: "result",
+        }),
+      });
+
+      await reconciler.reconcilePending();
+      assert.equal(toasts.length, 0);
+      const buffered = listRuntimeLogs({
+        requestId: "req-toast-failed",
+        stage: "deferred-outcome-buffered-before-register",
+      });
+      assert.lengthOf(buffered, 1);
+    });
+
+    it("buffers interactive terminal cancel for deferred summary settlement", async function () {
+      setDeferredWorkflowCompletionTrackerDepsForTests({
+        emitWorkflowJobToasts: () => undefined,
+        emitWorkflowFinishSummary: () => undefined,
+        appendRuntimeLog,
+      });
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-toast-canceled")) {
+          return createJsonResponse({
+            request_id: "req-toast-canceled",
+            status: "canceled",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const toasts: Array<{ state: string; text: string; type: string }> = [];
+      setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
+        toasts.push(payload);
+      });
+
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: 123,
+          runtime_options: {
+            execution_mode: "interactive",
+          },
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-toast-canceled",
+          requestId: "req-toast-canceled",
+          state: "running",
+          fetchType: "result",
+        }),
+      });
+
+      await reconciler.reconcilePending();
+      assert.equal(toasts.length, 0);
+      const buffered = listRuntimeLogs({
+        requestId: "req-toast-canceled",
+        stage: "deferred-outcome-buffered-before-register",
+      });
+      assert.lengthOf(buffered, 1);
+    });
+
+    it("stops apply retries after limit and drops deferred context", async function () {
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (isListRunsProbeUrl(url)) {
+          return createJsonResponse({
+            data: [],
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-retry-exhausted")) {
+          return createJsonResponse({
+            request_id: "req-retry-exhausted",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-retry-exhausted/result")) {
+          return createJsonResponse({ detail: "always fail" }, 500);
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const reconciler = createTrackedReconciler();
+      reconciler.registerFromJob({
+        workflowId: "literature-explainer",
+        workflowLabel: "Literature Explainer",
+        requestKind: "skillrunner.job.v1",
+        request: {
+          kind: "skillrunner.job.v1",
+          targetParentID: 123,
+        },
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        providerId: "skillrunner",
+        providerOptions: { engine: "gemini" },
+        job: makeDeferredJob({
+          id: "job-retry-exhausted",
+          requestId: "req-retry-exhausted",
+          fetchType: "result",
+        }),
+      });
+
+      for (let i = 0; i < 6; i += 1) {
+        await reconciler.reconcilePending();
+        forceApplyRetryDueNow(reconciler);
+      }
+
+      const persisted = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-retry-exhausted",
+      });
+      assert.equal(persisted?.status, "succeeded");
+      assert.equal(persisted?.apply.state, "failed");
+      assert.isAtLeast(persisted?.apply.attempt || 0, 5);
+      const tasks = listWorkflowTasks();
+      assert.equal(tasks[0]?.state, "succeeded");
+    });
+
+    it("reconciles backend task ledger and preserves missing request ids as failed", async function () {
+      recordWorkflowTaskUpdate(
+        makeDashboardJob({
+          id: "active-missing",
+          runId: "run-active-missing",
+          requestId: "req-missing",
+          state: "running",
+          backendId: "remote-skillrunner",
+          backendBaseUrl: "http://127.0.0.1:8031",
+        }),
+      );
+      recordWorkflowTaskUpdate(
+        makeDashboardJob({
+          id: "active-live",
+          runId: "run-active-live",
+          requestId: "req-live",
+          state: "running",
+          backendId: "remote-skillrunner",
+          backendBaseUrl: "http://127.0.0.1:8031",
+        }),
+      );
+      recordTaskDashboardHistoryFromJob(
+        makeDashboardJob({
+          id: "history-missing",
+          runId: "run-history-missing",
+          requestId: "req-missing",
+          state: "failed",
+          backendId: "remote-skillrunner",
+          backendBaseUrl: "http://127.0.0.1:8031",
+        }),
+      );
+      recordTaskDashboardHistoryFromJob(
+        makeDashboardJob({
+          id: "history-live",
+          runId: "run-history-live",
+          requestId: "req-live",
+          state: "succeeded",
+          backendId: "remote-skillrunner",
+          backendBaseUrl: "http://127.0.0.1:8031",
+        }),
+      );
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (url.endsWith("/v1/jobs/req-missing")) {
+          return createJsonResponse({ detail: "not found" }, 404);
+        }
+        if (url.endsWith("/v1/jobs/req-live")) {
+          return createJsonResponse({
+            request_id: "req-live",
+            status: "running",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const result = await reconcileSkillRunnerBackendTaskLedgerOnce({
+        backend: {
+          id: "remote-skillrunner",
+          displayName: "Remote SkillRunner",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:8031",
+          auth: { kind: "none" },
+        },
+        source: "startup",
+      });
+
+      assert.isTrue(result.ok);
+      assert.include(result.missingRequestIds, "req-missing");
+      assert.notInclude(result.missingRequestIds, "req-live");
+      assert.equal(result.removedActiveCount, 0);
+      assert.equal(result.removedHistoryCount, 0);
+      const activeRows = listWorkflowTasks();
+      assert.sameMembers(
+        activeRows.map((entry) => String(entry.requestId || "")),
+        ["req-missing", "req-live"],
+      );
+      assert.equal(
+        activeRows.find((entry) => entry.requestId === "req-missing")?.state,
+        "failed",
+      );
+      const historyRows = listTaskDashboardHistory({
+        backendId: "remote-skillrunner",
+      });
+      assert.sameMembers(
+        historyRows.map((entry) => String(entry.requestId || "")),
+        ["req-missing", "req-live"],
+      );
+      assert.equal(
+        historyRows.find((entry) => entry.requestId === "req-missing")?.state,
+        "failed",
+      );
+    });
+
+    it("reconciles running task to terminal failed after double-confirming backend terminal state", async function () {
+      recordWorkflowTaskUpdate(
+        makeDashboardJob({
+          id: "active-terminal-failed",
+          runId: "run-active-terminal-failed",
+          requestId: "req-terminal-failed",
+          state: "running",
+          backendId: "remote-skillrunner",
+          backendBaseUrl: "http://127.0.0.1:8031",
+        }),
+      );
+      recordTaskDashboardHistoryFromJob(
+        makeDashboardJob({
+          id: "history-terminal-failed",
+          runId: "run-history-terminal-failed",
+          requestId: "req-terminal-failed",
+          state: "running",
+          backendId: "remote-skillrunner",
+          backendBaseUrl: "http://127.0.0.1:8031",
+        }),
+      );
+      const toasts: Array<{ state: string; text: string; type: string }> = [];
+      setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
+        toasts.push(payload);
+      });
+      let pollCount = 0;
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (url.endsWith("/v1/jobs/req-terminal-failed")) {
+          pollCount += 1;
+          return createJsonResponse({
+            request_id: "req-terminal-failed",
+            status: "failed",
+            error: "backend hard terminated",
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const result = await reconcileSkillRunnerBackendTaskLedgerOnce({
+        backend: {
+          id: "remote-skillrunner",
+          displayName: "Remote SkillRunner",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:8031",
+          auth: { kind: "none" },
+        },
+        source: "startup",
+      });
+
+      assert.isTrue(result.ok);
+      assert.isAtLeast(pollCount, 2);
+      const task = listWorkflowTasks().find(
+        (entry) => entry.requestId === "req-terminal-failed",
+      );
+      assert.isOk(task);
+      assert.equal(task?.state, "failed");
+      assert.equal(task?.error, "backend hard terminated");
+      const historyRows = listTaskDashboardHistory({
+        backendId: "remote-skillrunner",
+        requestId: "req-terminal-failed",
+      });
+      assert.lengthOf(historyRows, 1);
+      assert.equal(historyRows[0].state, "failed");
+      assert.equal(historyRows[0].error, "backend hard terminated");
+      assert.lengthOf(toasts, 1);
+      assert.equal(toasts[0].state, "failed");
+      assert.equal(toasts[0].type, "error");
+    });
+
+    it("keeps running task unchanged when double-confirm terminal check is not stable", async function () {
+      recordWorkflowTaskUpdate(
+        makeDashboardJob({
+          id: "active-terminal-unstable",
+          runId: "run-active-terminal-unstable",
+          requestId: "req-terminal-unstable",
+          state: "running",
+          backendId: "remote-skillrunner",
+          backendBaseUrl: "http://127.0.0.1:8031",
+        }),
+      );
+      recordTaskDashboardHistoryFromJob(
+        makeDashboardJob({
+          id: "history-terminal-unstable",
+          runId: "run-history-terminal-unstable",
+          requestId: "req-terminal-unstable",
+          state: "running",
+          backendId: "remote-skillrunner",
+          backendBaseUrl: "http://127.0.0.1:8031",
+        }),
+      );
+      const toasts: Array<{ state: string; text: string; type: string }> = [];
+      setSkillRunnerTaskLifecycleToastEmitterForTests((payload) => {
+        toasts.push(payload);
+      });
+      let pollCount = 0;
+      (globalThis as { fetch?: typeof fetch }).fetch = async (url: string) => {
+        if (url.endsWith("/v1/jobs/req-terminal-unstable")) {
+          pollCount += 1;
+          return createJsonResponse({
+            request_id: "req-terminal-unstable",
+            status: pollCount === 1 ? "failed" : "running",
+            error: pollCount === 1 ? "transient terminal report" : null,
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      };
+
+      const result = await reconcileSkillRunnerBackendTaskLedgerOnce({
+        backend: {
+          id: "remote-skillrunner",
+          displayName: "Remote SkillRunner",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:8031",
+          auth: { kind: "none" },
+        },
+        source: "startup",
+      });
+
+      assert.isTrue(result.ok);
+      assert.equal(pollCount, 2);
+      const task = listWorkflowTasks().find(
+        (entry) => entry.requestId === "req-terminal-unstable",
+      );
+      assert.isOk(task);
+      assert.equal(task?.state, "running");
+      const historyRows = listTaskDashboardHistory({
+        backendId: "remote-skillrunner",
+        requestId: "req-terminal-unstable",
+      });
+      assert.lengthOf(historyRows, 1);
+      assert.equal(historyRows[0].state, "running");
+      assert.lengthOf(toasts, 0);
+    });
+
+    itFullOnly(
+      "reports toast when backend reconcile fails due to communication error",
+      async function () {
+        recordTaskDashboardHistoryFromJob(
+          makeDashboardJob({
+            id: "history-live",
+            runId: "run-history-live",
+            requestId: "req-live",
+            state: "succeeded",
+            backendId: "remote-skillrunner",
+            backendBaseUrl: "http://127.0.0.1:8031",
+          }),
+        );
+        const toasts: string[] = [];
+        setSkillRunnerBackendReconcileFailureToastEmitterForTests((payload) => {
+          toasts.push(payload.text);
+        });
+        (globalThis as { fetch?: typeof fetch }).fetch = async () => {
+          throw new Error("network down");
+        };
+
+        const result = await reconcileSkillRunnerBackendTaskLedgerOnce({
+          backend: {
+            id: "remote-skillrunner",
+            displayName: "Remote SkillRunner",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8031",
+            auth: { kind: "none" },
+          },
+          source: "startup",
+          emitFailureToast: true,
+        });
+
+        assert.isFalse(result.ok);
+        assert.lengthOf(toasts, 1);
+        assert.include(toasts[0], "Remote SkillRunner");
+      },
+    );
+
+    itFullOnly(
+      "throttles repeated backend-reconcile-failed logs when backend is unreachable",
+      async function () {
+        let networkDown = true;
+        (globalThis as { fetch?: typeof fetch }).fetch = async (
+          url: string,
+        ) => {
+          if (isListRunsProbeUrl(url)) {
+            if (networkDown) {
+              throw new TypeError(
+                "NetworkError when attempting to fetch resource.",
+              );
+            }
+            return createJsonResponse({
+              data: [],
+            });
+          }
+          return createJsonResponse({ error: "unexpected route" }, 404);
+        };
+
+        const reconciler = createTrackedReconciler();
+        reconciler.registerFromJob({
+          workflowId: "literature-explainer",
+          workflowLabel: "Literature Explainer",
+          requestKind: "skillrunner.job.v1",
+          request: {
+            kind: "skillrunner.job.v1",
+            targetParentID: 123,
+          },
+          backend: {
+            id: TEST_SKILLRUNNER_BACKEND_ID,
+            type: "skillrunner",
+            baseUrl: TEST_SKILLRUNNER_BASE_URL,
+            auth: { kind: "none" },
+          },
+          providerId: "skillrunner",
+          providerOptions: { engine: "gemini" },
+          job: makeDeferredJob({
+            id: "job-reconcile-throttle",
+            requestId: "req-reconcile-throttle",
+            state: "running",
+            fetchType: "result",
+          }),
+        });
+
+        await reconciler.reconcilePending();
+        await reconciler.reconcilePending();
+        let failedLogs = listRuntimeLogs({
+          operation: "backend-health-probe-failed",
+          backendId: TEST_SKILLRUNNER_BACKEND_ID,
+          order: "asc",
+        });
+        assert.lengthOf(failedLogs, 1);
+
+        networkDown = true;
+        await reconciler.reconcilePending();
+        failedLogs = listRuntimeLogs({
+          operation: "backend-health-probe-failed",
+          backendId: TEST_SKILLRUNNER_BACKEND_ID,
+          order: "asc",
+        });
+        assert.lengthOf(failedLogs, 1);
+      },
+    );
+
+    it("directly reconciles active runs even while backend health is flagged", async function () {
+      let healthProbeCount = 0;
+      let runStatePolls = 0;
+      (globalThis as { fetch?: typeof fetch }).fetch = async (
+        url: string,
+      ) => {
+        if (isListRunsProbeUrl(url)) {
+          healthProbeCount += 1;
+          throw new TypeError(
+            "NetworkError when attempting to fetch resource.",
+          );
+        }
         if (url.endsWith("/v1/jobs/req-reconcile-backoff")) {
+          runStatePolls += 1;
           return createJsonResponse({
             request_id: "req-reconcile-backoff",
             status: "running",
@@ -2766,49 +2871,30 @@ export function registerSkillRunnerTaskReconcilerLedgerReconcileTests() {
       });
 
       const key = TEST_SKILLRUNNER_BACKEND_ID;
-
-      await reconciler.reconcilePending();
-      assert.isAtLeast(fetchCount, 1);
+      markSkillRunnerBackendHealthFailure({
+        backendId: key,
+        error: new TypeError("ping failed once"),
+      });
+      markSkillRunnerBackendHealthFailure({
+        backendId: key,
+        error: new TypeError("ping failed twice"),
+      });
       let health = getSkillRunnerBackendHealthState(key);
-      assert.isOk(health);
-      assert.equal(health?.backoffLevel, 1);
-      assert.isFalse(health?.reconcileFlag);
-      assert.isTrue((health?.nextProbeAt || 0) > fakeNow);
-      const countAfterFirstProbe = fetchCount;
-      await reconciler.reconcilePending();
-      assert.equal(fetchCount, countAfterFirstProbe);
-
-      fakeNow = (health?.nextProbeAt || fakeNow) + 1;
-      await reconciler.reconcilePending();
-      assert.isAbove(fetchCount, countAfterFirstProbe);
-      const countAfterSecondProbe = fetchCount;
-      health = getSkillRunnerBackendHealthState(key);
-      assert.equal(health?.backoffLevel, 2);
       assert.isTrue(health?.reconcileFlag);
-
-      fakeNow = (health?.nextProbeAt || fakeNow) + 1;
-      await reconciler.reconcilePending();
-      assert.isAbove(fetchCount, countAfterSecondProbe);
-      const countAfterThirdProbe = fetchCount;
-      health = getSkillRunnerBackendHealthState(key);
       assert.equal(health?.backoffLevel, 2);
 
       await reconciler.reconcilePending();
-      assert.equal(fetchCount, countAfterThirdProbe);
 
-      fakeNow = (health?.nextProbeAt || fakeNow) + 1;
-      networkDown = false;
-      await reconciler.reconcilePending();
-      assert.isAbove(fetchCount, countAfterThirdProbe);
+      assert.equal(healthProbeCount, 0);
+      assert.equal(runStatePolls, 1);
       health = getSkillRunnerBackendHealthState(key);
       assert.equal(health?.backoffLevel, 0);
       assert.isFalse(health?.reconcileFlag);
-    } finally {
-      if (dateNowDescriptor) {
-        Object.defineProperty(Date, "now", dateNowDescriptor);
-      }
-      setPref("backendsConfigJson", previousBackendsPref);
-    }
-  });
+      assert.isTrue(health?.reachable);
+
+      await reconciler.reconcilePending();
+      assert.equal(runStatePolls, 1);
+      assert.equal(healthProbeCount, 0);
+    });
   });
 }

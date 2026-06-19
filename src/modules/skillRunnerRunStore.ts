@@ -21,6 +21,8 @@ export type SkillRunnerRunApplyState =
   | "failed"
   | "skipped";
 
+export type SkillRunnerRunLifecycleState = "request_ready" | JobState;
+
 export type SkillRunnerRunRecord = {
   schemaVersion: "1.0.0";
   runKey: string;
@@ -44,7 +46,7 @@ export type SkillRunnerRunRecord = {
   skillLabel?: string;
   requestKind?: string;
   requestPayload?: unknown;
-  status: JobState;
+  status: SkillRunnerRunLifecycleState;
   error?: string;
   executionMode?: "auto" | "interactive" | string;
   fetchType?: "bundle" | "result";
@@ -66,6 +68,7 @@ export type SkillRunnerRunRecord = {
     rootRunKey?: string;
     sequenceRunId?: string;
     workflowRunId?: string;
+    jobId?: string;
     stepId?: string;
     stepIndex?: number;
     finalStepId?: string;
@@ -159,7 +162,7 @@ function parseRecord(payload: string): SkillRunnerRunRecord | null {
     const runKey = normalizeString(parsed.runKey);
     const requestId = normalizeString(parsed.requestId);
     const backendId = normalizeString(parsed.backendId);
-    const status = normalizeString(parsed.status) as JobState;
+    const status = normalizeString(parsed.status) as SkillRunnerRunLifecycleState;
     if (!runKey || !status) {
       return null;
     }
@@ -195,15 +198,25 @@ function parseEvent(payload: string): SkillRunnerRunEventRecord | null {
 
 function shouldAcceptStateTransition(
   previous: SkillRunnerRunRecord | undefined,
-  next: JobState,
+  next: SkillRunnerRunLifecycleState,
 ) {
   if (!previous) {
     return true;
   }
-  if (isTerminal(previous.status) && !isTerminal(next)) {
+  if (isTerminalRunLifecycleState(previous.status) && !isTerminalRunLifecycleState(next)) {
     return false;
   }
   return true;
+}
+
+function isTerminalRunLifecycleState(state: SkillRunnerRunLifecycleState) {
+  return state !== "request_ready" && isTerminal(state);
+}
+
+function taskStateFromRunLifecycleState(
+  state: SkillRunnerRunLifecycleState,
+): JobState {
+  return state === "request_ready" ? "running" : state;
 }
 
 function recordToEntry(record: SkillRunnerRunRecord) {
@@ -211,7 +224,7 @@ function recordToEntry(record: SkillRunnerRunRecord) {
     runKey: record.runKey,
     requestId: record.requestId,
     backendId: record.backendId,
-    state: record.status,
+    state: taskStateFromRunLifecycleState(record.status),
     updatedAt: record.updatedAt,
     payload: JSON.stringify(record),
   };
@@ -244,14 +257,19 @@ export function getSkillRunnerRunRecordByRequest(args: {
     return exact;
   }
   const matched = parseRecord(entry.payload);
-  if (matched && matched.role !== "sequence_root" && matched.projectable !== false) {
+  if (
+    matched &&
+    matched.role !== "sequence_root" &&
+    matched.projectable !== false
+  ) {
     return matched;
   }
   const projectable = listSkillRunnerRunRecords().find(
     (record) =>
       normalizeString(record.requestId) === normalizeString(args.requestId) &&
       (!normalizeString(args.backendId) ||
-        normalizeString(record.backendId) === normalizeString(args.backendId)) &&
+        normalizeString(record.backendId) ===
+          normalizeString(args.backendId)) &&
       record.role !== "sequence_root" &&
       record.projectable !== false,
   );
@@ -319,7 +337,8 @@ export function upsertSkillRunnerRunRecord(
     error: status === update.status ? update.error : previous?.error,
     taskProjection: {
       ...update.taskProjection,
-      state: status,
+      state: taskStateFromRunLifecycleState(status),
+      skillRunnerLifecycleState: status,
       error: status === update.status ? update.error : previous?.error,
       updatedAt: update.updatedAt,
     },
@@ -359,9 +378,13 @@ export function upsertSkillRunnerRunFromTask(
   if (normalizeString(task.backendType) !== DEFAULT_BACKEND_TYPE) {
     return null;
   }
+  const requestId = normalizeString(task.requestId);
+  if (!requestId && args.projectable !== false) {
+    return null;
+  }
   const runKey = buildSkillRunnerRunKey({
     backendId: task.backendId,
-    requestId: task.requestId,
+    requestId,
     runId: task.runId,
     jobId: task.jobId,
   });
@@ -373,12 +396,15 @@ export function upsertSkillRunnerRunFromTask(
   const record: SkillRunnerRunRecord = {
     schemaVersion: "1.0.0",
     runKey,
-    role: args.role || previous?.role || (task.sequenceStepId ? "sequence_step" : "single"),
+    role:
+      args.role ||
+      previous?.role ||
+      (task.sequenceStepId ? "sequence_step" : "single"),
     projectable:
       typeof args.projectable === "boolean"
         ? args.projectable
         : previous?.projectable !== false,
-    requestId: normalizeString(task.requestId),
+    requestId,
     backendId: normalizeString(task.backendId),
     backendType: normalizeString(task.backendType) || DEFAULT_BACKEND_TYPE,
     backendBaseUrl: normalizeString(task.backendBaseUrl) || undefined,
@@ -399,7 +425,16 @@ export function upsertSkillRunnerRunFromTask(
       typeof args.requestPayload === "undefined"
         ? previous?.requestPayload
         : args.requestPayload,
-    status: task.state,
+    status:
+      args.eventType === "request.ready"
+        ? "request_ready"
+        : previous?.status === "request_ready" &&
+            args.eventType === "backend.snapshot" &&
+            isObject(args.eventPayload) &&
+            normalizeString(args.eventPayload.source) ===
+              "taskRuntime.recordWorkflowTaskUpdate"
+          ? "request_ready"
+          : task.state,
     error: normalizeString(task.error) || undefined,
     executionMode: args.executionMode || previous?.executionMode,
     fetchType: args.fetchType || previous?.fetchType,
@@ -412,11 +447,22 @@ export function upsertSkillRunnerRunFromTask(
     },
     result: args.result || previous?.result,
     sequence:
-      task.sequenceStepId || task.workflowRunId || args.sequence || previous?.sequence
+      task.sequenceStepId ||
+      task.workflowRunId ||
+      args.sequence ||
+      previous?.sequence
         ? {
             ...previous?.sequence,
             ...(args.sequence || {}),
+            sequenceRunId:
+              normalizeString(task.workflowRunId) ||
+              normalizeString(args.sequence?.sequenceRunId) ||
+              previous?.sequence?.sequenceRunId,
             workflowRunId: normalizeString(task.workflowRunId) || undefined,
+            jobId:
+              normalizeString(task.sequenceJobId) ||
+              normalizeString(args.sequence?.jobId) ||
+              previous?.sequence?.jobId,
             stepId: normalizeString(task.sequenceStepId) || undefined,
             stepIndex: task.sequenceStepIndex,
           }
@@ -425,7 +471,8 @@ export function upsertSkillRunnerRunFromTask(
     stateEvents: args.stateEvents || previous?.stateEvents,
     taskProjection: { ...task, updatedAt },
     archivedAt: previous?.archivedAt,
-    createdAt: previous?.createdAt || normalizeString(task.createdAt) || updatedAt,
+    createdAt:
+      previous?.createdAt || normalizeString(task.createdAt) || updatedAt,
     updatedAt,
   };
   return upsertSkillRunnerRunRecord(
@@ -452,16 +499,24 @@ export function updateSkillRunnerRunStateByRequest(args: {
   if (!existing) {
     return null;
   }
-  const updatedAt = normalizeString(args.updatedAt) || nowIso();
+  const nextError = normalizeString(args.error) || undefined;
+  const stableBackendSnapshot =
+    args.eventType === "backend.snapshot" &&
+    existing.status === args.state &&
+    normalizeString(existing.error) === normalizeString(nextError);
+  const updatedAt = stableBackendSnapshot
+    ? existing.updatedAt
+    : normalizeString(args.updatedAt) || nowIso();
   return upsertSkillRunnerRunRecord(
     {
       ...existing,
       status: args.state,
-      error: normalizeString(args.error) || undefined,
+      error: nextError,
       taskProjection: {
         ...existing.taskProjection,
         state: args.state,
-        error: normalizeString(args.error) || undefined,
+        skillRunnerLifecycleState: args.state,
+        error: nextError,
         updatedAt,
       },
       updatedAt,
@@ -511,6 +566,56 @@ export function updateSkillRunnerRunApplyState(args: {
     args.eventType
       ? { type: args.eventType, payload: args.eventPayload }
       : undefined,
+  );
+}
+
+export function updateSkillRunnerRunResult(args: {
+  backendId?: string;
+  requestId: string;
+  resultJson?: unknown;
+  resultJsonPath?: string;
+  workspaceDir?: string;
+  bundleDir?: string;
+  updatedAt?: string;
+  eventPayload?: unknown;
+}) {
+  const existing = getSkillRunnerRunRecordByRequest({
+    backendId: args.backendId,
+    requestId: args.requestId,
+  });
+  if (!existing) {
+    return null;
+  }
+  const updatedAt = normalizeString(args.updatedAt) || nowIso();
+  const result = {
+    ...(existing.result || {}),
+    resultJson:
+      typeof args.resultJson === "undefined"
+        ? existing.result?.resultJson
+        : args.resultJson,
+    resultJsonPath:
+      normalizeString(args.resultJsonPath) ||
+      existing.result?.resultJsonPath,
+    workspaceDir:
+      normalizeString(args.workspaceDir) || existing.result?.workspaceDir,
+    bundleDir: normalizeString(args.bundleDir) || existing.result?.bundleDir,
+  };
+  return upsertSkillRunnerRunRecord(
+    {
+      ...existing,
+      result,
+      taskProjection: {
+        ...existing.taskProjection,
+        resultJsonPath: result.resultJsonPath,
+        workspaceDir: result.workspaceDir,
+        updatedAt,
+      },
+      updatedAt,
+    },
+    {
+      type: "result.fetched",
+      payload: args.eventPayload,
+    },
   );
 }
 
@@ -635,7 +740,8 @@ export function getSkillRunnerSequenceRootStateByStepRequest(
     }
     if (
       state.steps.some(
-        (step) => isObject(step) && normalizeString(step.requestId) === requestId,
+        (step) =>
+          isObject(step) && normalizeString(step.requestId) === requestId,
       )
     ) {
       return state;
@@ -649,12 +755,20 @@ export function listSkillRunnerRunProjections() {
     .filter(
       (record) =>
         !normalizeString(record.archivedAt) &&
+        !!normalizeString(record.requestId) &&
         record.projectable !== false &&
         record.role !== "sequence_root",
     )
     .map((record) => ({
       ...record.taskProjection,
-      state: record.status,
+      state: taskStateFromRunLifecycleState(record.status),
+      skillRunnerLifecycleState: record.status,
+      applyState: record.apply.state,
+      applyError: record.apply.error,
+      applyNextRetryAt: record.apply.nextRetryAt,
+      resultJsonPath: record.result?.resultJsonPath,
+      workspaceDir: record.result?.workspaceDir,
+      role: record.role,
       error: record.error,
       updatedAt: record.updatedAt,
     }));

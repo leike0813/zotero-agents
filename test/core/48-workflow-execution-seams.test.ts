@@ -616,7 +616,10 @@ describe("workflow execution seams", function () {
         },
         appendRuntimeLog: (entry) => {
           if (entry.stage === "skillrunner-host-bridge-env-unavailable") {
-            assert.include(JSON.stringify(entry.details), "advertisedHostSource");
+            assert.include(
+              JSON.stringify(entry.details),
+              "advertisedHostSource",
+            );
             assert.notInclude(JSON.stringify(entry.details), "must-not-appear");
           }
         },
@@ -1539,9 +1542,7 @@ describe("workflow execution seams", function () {
       taskUpdates.map((job) => job.id),
       ["job-1:digest"],
     );
-    const terminalRows = taskUpdates.filter(
-      (job) => job.state === "succeeded",
-    );
+    const terminalRows = taskUpdates.filter((job) => job.state === "succeeded");
     assert.deepEqual(
       terminalRows.map((job) => ({
         id: job.id,
@@ -1627,9 +1628,7 @@ describe("workflow execution seams", function () {
 
     assert.deepEqual(registeredSettlementJobs, []);
     assert.deepEqual(selectedAcpRuns, ["acp-skill-compatible-request"]);
-    assert.isTrue(
-      taskUpdates.every((job) => job.meta.backendType === "acp"),
-    );
+    assert.isTrue(taskUpdates.every((job) => job.meta.backendType === "acp"));
   });
 
   it("skips final apply when the final sequence step owns applyResult", async function () {
@@ -1820,7 +1819,7 @@ describe("workflow execution seams", function () {
     assert.equal(capturedConcurrency, 1);
   });
 
-  it("routes interactive skillrunner request-ready openings to the Assistant shell skillrunner tab", function () {
+  it("does not auto-focus interactive SkillRunner request-ready runs", function () {
     let capturedQueueConfig: Record<string, unknown> | undefined;
     const assistantCalls: Array<Record<string, unknown>> = [];
     const focusCalls: Array<Record<string, unknown>> = [];
@@ -1919,32 +1918,22 @@ describe("workflow execution seams", function () {
     assert.lengthOf(recoverableCalls, 0);
 
     const readyJob = {
-        id: "job-1",
-        workflowId: "seam-skillrunner-interactive-sidebar",
-        request: { targetParentID: 3 },
-        meta: { index: 0, requestId: "req-1" },
-        state: "running",
-        createdAt: "2026-04-17T00:00:00.000Z",
-        updatedAt: "2026-04-17T00:00:00.000Z",
-      };
-    onJobProgress?.(
-      readyJob,
-      {
-        type: "request-ready",
-        requestId: "req-1",
-      },
-    );
+      id: "job-1",
+      workflowId: "seam-skillrunner-interactive-sidebar",
+      request: { targetParentID: 3 },
+      meta: { index: 0, requestId: "req-1" },
+      state: "running",
+      createdAt: "2026-04-17T00:00:00.000Z",
+      updatedAt: "2026-04-17T00:00:00.000Z",
+    };
+    onJobProgress?.(readyJob, {
+      type: "request-ready",
+      requestId: "req-1",
+    });
     onJobUpdated?.(readyJob);
 
-    assert.lengthOf(focusCalls, 1);
-    assert.equal(focusCalls[0].requestId, "req-1");
-    assert.lengthOf(assistantCalls, 1);
-    assert.equal(assistantCalls[0].tab, "skillrunner");
-    assert.equal(assistantCalls[0].requestId, "req-1");
-    assert.equal(
-      (assistantCalls[0].backend as { id?: string }).id,
-      "backend-1",
-    );
+    assert.lengthOf(focusCalls, 0);
+    assert.lengthOf(assistantCalls, 0);
     assert.isAtLeast(recoverableCalls.length, 1);
   });
 

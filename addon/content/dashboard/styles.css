@@ -870,6 +870,95 @@ tr.clickable {
   font-size: 11px;
 }
 
+.audit-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.audit-metric {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.audit-metric-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.audit-metric-value {
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.audit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.audit-bars-section {
+  min-width: 0;
+}
+
+.audit-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.audit-bar-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(80px, 2fr) 36px;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.audit-bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.audit-bar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--zs-subtle-bg);
+  overflow: hidden;
+}
+
+.audit-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.audit-bar-count {
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.audit-events-table td {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .btn.active {
   border-color: var(--accent);
   background: var(--zs-surface-selected);

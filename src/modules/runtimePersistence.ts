@@ -66,6 +66,14 @@ export type RuntimePersistenceUsageSnapshot = {
   stateDatabase?: RuntimePersistenceStateDatabaseUsage;
 };
 
+export type RuntimePersistenceScanProgress = {
+  stage: string;
+  label: string;
+  current: number;
+  total: number;
+  percent: number;
+};
+
 export type ManagedPathDiagnosticCode =
   | "managed_path_invalid"
   | "managed_path_reserved_name"
@@ -188,6 +196,13 @@ let pluginTaskDomainExceptRowScopesByteEstimator:
 let pluginTaskScopeByteEstimator:
   | ((domain: string, scope: string) => number)
   | null = null;
+let pluginRunStoreCounter: ((kind: "acp" | "skillrunner") => number) | null =
+  null;
+let pluginRunStoreByteEstimator:
+  | ((kind: "acp" | "skillrunner") => number)
+  | null = null;
+let pluginRunStoreClearer: ((kind: "acp" | "skillrunner") => number) | null =
+  null;
 let acpSkillRunsMemoryClearer: (() => void) | null = null;
 let acpSkillRunsRetentionCleaner:
   | ((args: { retentionMs: number; nowMs: number }) => {
@@ -253,6 +268,24 @@ export function registerPluginTaskScopeByteEstimator(
   estimator: ((domain: string, scope: string) => number) | null,
 ) {
   pluginTaskScopeByteEstimator = estimator;
+}
+
+export function registerPluginRunStoreCounter(
+  counter: ((kind: "acp" | "skillrunner") => number) | null,
+) {
+  pluginRunStoreCounter = counter;
+}
+
+export function registerPluginRunStoreByteEstimator(
+  estimator: ((kind: "acp" | "skillrunner") => number) | null,
+) {
+  pluginRunStoreByteEstimator = estimator;
+}
+
+export function registerPluginRunStoreClearer(
+  clearer: ((kind: "acp" | "skillrunner") => number) | null,
+) {
+  pluginRunStoreClearer = clearer;
 }
 
 export function registerAcpSkillRunsMemoryClearer(
@@ -1355,7 +1388,9 @@ export async function copyRuntimeDirectory(args: {
   }
 }
 
-export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceUsageSnapshot> {
+export async function scanRuntimePersistenceUsage(args: {
+  onProgress?: (progress: RuntimePersistenceScanProgress) => void;
+} = {}): Promise<RuntimePersistenceUsageSnapshot> {
   const paths = getRuntimePersistencePaths();
   const categoryDefs: Array<{
     category: RuntimePersistenceCategory;
@@ -1378,8 +1413,12 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
       label: "SkillRunner local ledger",
       path: paths.stateDbPath,
       cleanable: true,
-      recordCount: () => pluginTaskDomainCounter?.("skillrunner") || 0,
-      recordBytes: () => pluginTaskDomainByteEstimator?.("skillrunner") || 0,
+      recordCount: () =>
+        (pluginRunStoreCounter?.("skillrunner") || 0) +
+        (pluginTaskDomainCounter?.("skillrunner") || 0),
+      recordBytes: () =>
+        (pluginRunStoreByteEstimator?.("skillrunner") || 0) +
+        (pluginTaskDomainByteEstimator?.("skillrunner") || 0),
     },
     {
       category: "acp-conversations",
@@ -1398,9 +1437,12 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
       label: "ACP skill runs",
       path: paths.acpSkillRunsDir,
       cleanable: true,
-      recordCount: () => pluginTaskScopeCounter?.("acp", "skill-runs") || 0,
+      recordCount: () =>
+        (pluginRunStoreCounter?.("acp") || 0) +
+        (pluginTaskScopeCounter?.("acp", "skill-runs") || 0),
       recordBytes: () =>
-        pluginTaskScopeByteEstimator?.("acp", "skill-runs") || 0,
+        (pluginRunStoreByteEstimator?.("acp") || 0) +
+        (pluginTaskScopeByteEstimator?.("acp", "skill-runs") || 0),
       fileBacked: true,
     },
     {
@@ -1430,6 +1472,18 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
     },
   ];
   const categories: RuntimePersistenceCategoryUsage[] = [];
+  const totalSteps = categoryDefs.length + 1;
+  let completedSteps = 0;
+  const reportProgress = (stage: string, label: string) => {
+    completedSteps = Math.min(totalSteps, completedSteps + 1);
+    args.onProgress?.({
+      stage,
+      label,
+      current: completedSteps,
+      total: totalSteps,
+      percent: Math.floor((completedSteps / totalSteps) * 100),
+    });
+  };
   for (const def of categoryDefs) {
     const size =
       def.path && def.fileBacked
@@ -1447,8 +1501,10 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
       itemCount: size.itemCount,
       recordCount,
     });
+    reportProgress(`usage:${def.category}`, def.label);
   }
   const stateDatabaseSize = await getRuntimePathSize(paths.stateDbPath);
+  reportProgress("usage:state-db", "State database");
   return {
     root: paths.root,
     scannedAt: new Date().toISOString(),
@@ -1479,13 +1535,22 @@ export async function cleanupRuntimePersistenceCategory(
     runtimeLogClearer?.();
     await removeAndTrack(paths.logsDir);
   } else if (category === "skillrunner-ledger") {
-    details.rowsDeleted = pluginTaskDomainClearer?.("skillrunner") || 0;
+    const runRowsDeleted = pluginRunStoreClearer?.("skillrunner") || 0;
+    const legacyRowsDeleted = pluginTaskDomainClearer?.("skillrunner") || 0;
+    details.rowsDeleted = runRowsDeleted + legacyRowsDeleted;
+    details.runStoreRowsDeleted = runRowsDeleted;
+    details.legacyRowsDeleted = legacyRowsDeleted;
   } else if (category === "acp-conversations") {
     details.rowsDeleted =
       pluginTaskDomainExceptRowScopesClearer?.("acp", ["skill-runs"]) || 0;
     await removeAndTrack(paths.acpChatRoot);
   } else if (category === "acp-skill-runs") {
-    details.rowsDeleted = pluginTaskScopeClearer?.("acp", "skill-runs") || 0;
+    const runRowsDeleted = pluginRunStoreClearer?.("acp") || 0;
+    const legacyRowsDeleted =
+      pluginTaskScopeClearer?.("acp", "skill-runs") || 0;
+    details.rowsDeleted = runRowsDeleted + legacyRowsDeleted;
+    details.runStoreRowsDeleted = runRowsDeleted;
+    details.legacyRowsDeleted = legacyRowsDeleted;
     acpSkillRunsMemoryClearer?.();
     await removeAndTrack(paths.acpSkillRunsDir);
   } else if (category === "workflow-products") {

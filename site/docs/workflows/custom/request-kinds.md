@@ -125,16 +125,71 @@ export function buildRequest({ selectionContext, executionOptions }) {
 | `workspace` | 工作区策略。`"new"`（为每一步创建新工作区）、`"reuse-workflow"`（复用上级工作区） |
 | `parameter` | 传递给 skill 的参数 |
 | `input` | 传递给 skill 的输入数据 |
+| `short_circuit` | 提前终止规则。见下方 |
+| `fetch_type` | 按步骤指定获取类型。`"bundle"`（下载 zip 产物包），不指定则使用 workflow 级别的 `result.fetch.type` |
+
+### 提前终止（short_circuit）
+
+当某个步骤的返回值满足条件时，跳过后续步骤，将当前步骤的输出作为最终结果。
+
+```json
+{
+  "id": "prepare",
+  "skill_id": "create-topic-synthesis-prepare",
+  "workspace": "new",
+  "short_circuit": {
+    "when": {
+      "path": "status",
+      "equals": "canceled"
+    },
+    "result": "step_output"
+  }
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `when.path` | 检查步骤输出 JSON 中的哪个字段 |
+| `when.equals` | 当字段值等于此值时触发终止 |
+| `result` | 终止后使用什么作为结果。`"step_output"`（当前步骤的完整输出）、`"none"`（无结果） |
 
 ### Handoff 配置
 
 | 字段 | 说明 |
 |------|------|
 | `from_step` | 从哪一步获取输出 |
-| `required` | 前置步骤是否必须成功 |
-| `pass_through` | 是否直接将前置步骤的输出传递进来 |
-| `input` / `parameter` | 选择性地映射前置步骤输出的字段 |
-| `defaults` | 当 `pass_through` 为 undefined 时的默认值 |
+| `pass_through` | 是否直接将前置步骤的完整输出传递进来（默认 `true`） |
+| `input` | 当 `pass_through: false` 时，**选择性映射**前置步骤输出的字段。键为当前步骤接收的字段名，值为前置步骤输出中的字段路径 |
+| `defaults` | 当指定字段为 `undefined` 时的默认值 |
+
+**透传模式（默认）：**
+
+```json
+{
+  "handoff": {
+    "from_step": "prepare",
+    "pass_through": true
+  }
+}
+```
+
+前置步骤的**全部输出**直接作为当前步骤的输入。
+
+**选择性映射模式：**
+
+```json
+{
+  "handoff": {
+    "from_step": "emit-secret",
+    "pass_through": false,
+    "input": {
+      "public_marker": "public_marker"
+    }
+  }
+}
+```
+
+只提取前置步骤输出中的 `public_marker` 字段传递给当前步骤。适合需要**工作区隔离**（`workspace: "new"`）但仍要传递特定字段的场景。
 
 ## generic-http.request.v1 — HTTP API 调用
 

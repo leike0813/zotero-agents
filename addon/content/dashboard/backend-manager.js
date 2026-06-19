@@ -77,6 +77,20 @@
     return fallback;
   }
 
+  function setActiveProviderType(providerType) {
+    const next = String(providerType || "").trim();
+    if (
+      !next ||
+      !providerList().some(function (provider) {
+        return provider.type === next;
+      })
+    ) {
+      return false;
+    }
+    state.activeProviderType = next;
+    return true;
+  }
+
   function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -606,9 +620,17 @@
       state.rows = Array.isArray(state.snapshot.rows)
         ? state.snapshot.rows.map(cleanRow)
         : [];
+      setActiveProviderType(state.snapshot.initialProviderType);
       activeProvider();
       render();
       emitDraftChanged();
+      return;
+    }
+    if (data.type === "backend-manager-dialog:select-provider") {
+      const payload = data.payload || {};
+      if (setActiveProviderType(payload.providerType)) {
+        render({ preserveScroll: true });
+      }
       return;
     }
     if (data.type === "backend-manager-dialog:action-result") {

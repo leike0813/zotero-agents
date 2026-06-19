@@ -36,9 +36,40 @@ Plugin MUST maintain reachability/reconcile gating at backend level and apply it
 - **THEN** dashboard home running list MUST hide tasks belonging to that backend
 - **AND** hidden tasks MUST remain stored (no cleanup side effect)
 
-### Requirement: SkillRunner stream lifecycle MUST be bounded by state and session ownership
+### Requirement: SkillRunner stream lifecycle MUST be bounded by state and UI stream ownership
 
-Plugin MUST minimize long-lived stream connections.
+Plugin MUST minimize long-lived stream connections while preserving stable
+RunDialog switching for recently focused runs.
+
+#### Scenario: UI foreground stream pool ownership
+
+- **WHEN** run workspace selection moves between SkillRunner runs on the same
+  backend
+- **THEN** the selected running run SHALL have a foreground chat stream
+- **AND** the most recently selected previous running run MAY keep a warm
+  foreground chat stream
+- **AND** the backend SHALL keep at most two active UI foreground chat streams
+
+#### Scenario: third selected run evicts least-recently focused stream
+
+- **WHEN** two runs on a backend already hold warm foreground chat streams
+- **AND** a third running run on the same backend becomes selected
+- **THEN** plugin SHALL abort the least-recently focused existing stream
+- **AND** plugin SHALL start or reuse the selected run stream
+
+#### Scenario: two-run switching reuses warm streams
+
+- **WHEN** the user switches repeatedly between the same two running runs on one
+  backend
+- **THEN** plugin SHALL reuse the existing streams
+- **AND** switching SHALL NOT repeatedly disconnect and reconnect those streams
+
+#### Scenario: state boundaries release stream sessions
+
+- **WHEN** a stream-owned run becomes waiting, terminal, backend-gated, or the
+  workspace closes
+- **THEN** plugin SHALL abort that run's foreground stream
+- **AND** stream disconnect SHALL NOT mark the backend unreachable
 
 #### Scenario: chat stream singleton ownership
 
@@ -568,4 +599,117 @@ SkillRunner run store as the source for SkillRunner task projections.
 - **THEN** plugin SHALL settle that run as failed in the SkillRunner run store
 - **AND** plugin SHALL NOT mark the backend unreachable solely from that run-level error.
 - **AND** plugin MUST NOT open parallel event-history loops for the same request
+
+### Requirement: Foreground chat stream MUST be isolated from background session sync
+
+RunDialog chat stream frames SHALL update the selected or warm run session
+without starting background event-session sync.
+
+#### Scenario: interaction event does not start background sync
+
+- **WHEN** a foreground `/chat` stream emits an interaction or auth event
+- **THEN** RunDialog MAY refresh pending/auth state for that run
+- **AND** it SHALL NOT call the background session sync entrypoint for that
+  event
+
+#### Scenario: clean stream close reconnects lightly
+
+- **WHEN** a foreground chat stream ends without a terminal run error
+- **THEN** RunDialog SHALL use reconnect backoff
+- **AND** it SHALL NOT immediately run a full metadata, pending, and history
+  refresh chain unless a cursor gap, stream error, or explicit refresh requires
+  catch-up
+
+### Requirement: SkillRunner observation MUST read run-store projections
+
+Dashboard, popover, RunDialog, and assistant workspace observation SHALL use
+SkillRunner run-store projections as their source of task state.
+
+#### Scenario: request-ready is first visible projection
+
+- **WHEN** a SkillRunner request is created but upload or initialization has not
+  reached request-ready
+- **THEN** observers SHALL NOT show a task row for that run
+- **AND** pre-ready failure SHALL be surfaced by dispatch diagnostics or toast
+
+#### Scenario: deferred apply remains visible after terminal success
+
+- **WHEN** a SkillRunner run is terminal succeeded
+- **AND** its apply state is `pending`, `running`, or `failed`
+- **THEN** observers SHALL keep the run visible with the apply state and error
+  summary
+- **AND** the run SHALL NOT silently disappear from Dashboard or popover
+
+#### Scenario: host-side settlement failure is observable
+
+- **WHEN** result parse, bundle artifact lookup, apply hook, Host Bridge, or
+  store write failure occurs during settlement
+- **THEN** observers SHALL receive a failed or retryable apply projection
+- **AND** no UI indicator SHALL remain indefinitely in waiting state without a
+  recorded error or next retry time
+
+### Requirement: Backend health gating MUST NOT suppress direct observation of active SkillRunner runs
+
+SkillRunner observe and reconcile logic SHALL distinguish backend-level health
+state from direct state checks for already-known active runs.
+
+#### Scenario: flagged backend still polls active run
+
+- **WHEN** a SkillRunner backend is marked health-flagged
+- **AND** a projectable active run with a backend request id is already known
+- **THEN** the reconciler SHALL still attempt direct `/v1/jobs/{request_id}`
+  polling in the `reconcile` lane
+- **AND** a successful poll SHALL clear the backend health failure state
+
+#### Scenario: health failure gates only non-critical observe
+
+- **WHEN** a backend health probe fails or is delayed
+- **THEN** non-critical background observe MAY be backed off or gated
+- **AND** submit, terminal settlement, and direct active-run reconciliation SHALL
+  remain schedulable
+
+### Requirement: Background history sync MUST NOT drive terminal settlement
+
+SkillRunner terminal settlement SHALL be driven by reconciler state polling and
+settlement fetches, not by background history synchronization.
+
+#### Scenario: history timeout does not block state poll
+
+- **WHEN** a background history or gap-sync request is slow or times out
+- **THEN** `/v1/jobs/{request_id}` terminal polling SHALL still be able to run
+  in the `reconcile` lane
+- **AND** the history timeout SHALL NOT mark the backend unreachable by itself
+
+### Requirement: Dashboard SHALL expose SkillRunner connection audit only in debug mode
+
+The Dashboard SHALL provide a read-only SkillRunner connection audit tab only
+when debug mode is enabled.
+
+#### Scenario: debug mode shows audit tab
+
+- **WHEN** debug mode is enabled
+- **THEN** the Dashboard tab list SHALL include
+  `skillrunner-connection-audit`
+- **AND** selecting that tab SHALL render active connections, queued
+  connections, backend/lane summaries, and recent governor lifecycle events
+
+#### Scenario: debug mode disabled hides and gates audit data
+
+- **WHEN** debug mode is disabled
+- **THEN** the Dashboard tab list SHALL NOT include
+  `skillrunner-connection-audit`
+- **AND** requesting that tab SHALL fall back to `home`
+- **AND** Dashboard snapshot construction SHALL NOT read the SkillRunner
+  connection governor audit snapshot
+
+### Requirement: SkillRunner connection audit SHALL be read-only
+
+The connection audit UI SHALL NOT mutate connection governor state.
+
+#### Scenario: audit tab has no connection mutation controls
+
+- **WHEN** the audit tab is rendered
+- **THEN** it MAY offer copy-current-JSON
+- **AND** it SHALL NOT offer abort, retry, cleanup, clear-events, or other
+  connection mutation actions
 

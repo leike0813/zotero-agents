@@ -1,7 +1,19 @@
 import { assert } from "chai";
 import { JobQueueManager } from "../../src/jobQueue/manager";
+import {
+  clearRuntimeLogs,
+  listRuntimeLogs,
+} from "../../src/modules/runtimeLogManager";
 
 describe("job queue progress", function () {
+  beforeEach(function () {
+    clearRuntimeLogs();
+  });
+
+  afterEach(function () {
+    clearRuntimeLogs();
+  });
+
   it("writes requestId into running job meta through progress callback", async function () {
     const updates: Array<{
       state: string;
@@ -52,12 +64,10 @@ describe("job queue progress", function () {
     assert.isOk(job);
     assert.equal(job!.state, "succeeded");
     assert.equal(String(job!.meta.requestId || ""), "req-progress-job-1");
-    assert.deepEqual(updates.map((entry) => entry.state), [
-      "queued",
-      "running",
-      "running",
-      "succeeded",
-    ]);
+    assert.deepEqual(
+      updates.map((entry) => entry.state),
+      ["queued", "running", "running", "succeeded"],
+    );
     assert.equal(updates[2].requestId, "req-progress-job-1");
   });
 
@@ -116,7 +126,7 @@ describe("job queue progress", function () {
     assert.equal(job!.state, "running");
   });
 
-  it("keeps request-created skillrunner job non-terminal when later dispatch steps fail", async function () {
+  it("fails request-created skillrunner job when dispatch fails before request-ready", async function () {
     const updates: Array<{
       state: string;
       requestId?: string;
@@ -160,16 +170,81 @@ describe("job queue progress", function () {
 
     const job = queue.getJob(jobId);
     assert.isOk(job);
-    assert.equal(job!.state, "running");
+    assert.equal(job!.state, "failed");
     assert.equal(String(job!.meta.requestId || ""), "req-recoverable-1");
     assert.equal(job!.error, "backend polling temporarily failed");
-    assert.deepEqual(updates.map((entry) => entry.state), [
-      "queued",
-      "running",
-      "running",
-      "running",
-    ]);
+    assert.deepEqual(
+      updates.map((entry) => entry.state),
+      ["queued", "running", "running", "failed"],
+    );
     assert.equal(updates[3].requestId, "req-recoverable-1");
     assert.equal(updates[3].error, "backend polling temporarily failed");
+    assert.isTrue(
+      listRuntimeLogs().some(
+        (entry) =>
+          entry.stage === "dispatch-failed-before-request-ready" &&
+          entry.requestId === "req-recoverable-1",
+      ),
+    );
+  });
+
+  it("keeps request-ready skillrunner job non-terminal when later dispatch steps fail", async function () {
+    const updates: Array<{
+      state: string;
+      requestId?: string;
+      error?: string;
+    }> = [];
+    const queue = new JobQueueManager({
+      concurrency: 1,
+      executeJob: async (_job, runtime) => {
+        runtime.reportProgress({
+          type: "request-created",
+          requestId: "req-recoverable-ready-1",
+        });
+        runtime.reportProgress({
+          type: "request-ready",
+          requestId: "req-recoverable-ready-1",
+        });
+        throw new Error("backend polling temporarily failed");
+      },
+      onJobProgress: (job, event) => {
+        const requestId = String(event.requestId || "").trim();
+        if (requestId) {
+          job.meta.requestId = requestId;
+        }
+        if (event.type === "request-ready") {
+          job.meta.skillRunnerRequestReady = true;
+        }
+      },
+      onJobUpdated: (job) => {
+        updates.push({
+          state: job.state,
+          requestId: String(job.meta.requestId || "").trim() || undefined,
+          error: String(job.error || "").trim() || undefined,
+        });
+      },
+    });
+
+    const jobId = queue.enqueue({
+      workflowId: "test-workflow",
+      request: { ok: true },
+      meta: {
+        runId: "run-1",
+        providerId: "skillrunner",
+      },
+    });
+    await queue.waitForIdle();
+
+    const job = queue.getJob(jobId);
+    assert.isOk(job);
+    assert.equal(job!.state, "running");
+    assert.equal(String(job!.meta.requestId || ""), "req-recoverable-ready-1");
+    assert.equal(job!.error, "backend polling temporarily failed");
+    assert.deepEqual(
+      updates.map((entry) => entry.state),
+      ["queued", "running", "running", "running", "running"],
+    );
+    assert.equal(updates[4].requestId, "req-recoverable-ready-1");
+    assert.equal(updates[4].error, "backend polling temporarily failed");
   });
 });

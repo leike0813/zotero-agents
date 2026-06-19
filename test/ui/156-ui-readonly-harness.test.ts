@@ -152,6 +152,12 @@ async function createPluginStateFixture() {
         skillLabel: "Auth Skill Label",
         skillId: "skill.auth",
         status: "waiting_auth",
+        apply: {
+          state: "running",
+          attempt: 1,
+          maxAttempt: 3,
+          updatedAt: "2026-01-01T00:03:30.000Z",
+        },
         pendingAuth: {
           phase: "challenge_active",
           auth_session_id: "auth-1",
@@ -394,11 +400,18 @@ describe("UI readonly harness", function () {
         (snapshots.skillrunner as any).session.authSessionId,
         "auth-1",
       );
+      assert.equal((snapshots.skillrunner as any).session.applyState, "running");
+      assert.equal((snapshots.skillrunner as any).session.applyAttempt, 1);
       assert.ok(Array.isArray((snapshots.skillrunner as any).drawer.sections));
       assert.equal(
         (snapshots.skillrunner as any).drawer.sections[0].groups[0]
           .activeTasks[0].skillName,
         "Auth Skill",
+      );
+      assert.equal(
+        (snapshots.skillrunner as any).drawer.sections[0].groups[0]
+          .activeTasks[0].applyState,
+        "running",
       );
       assert.equal(
         (snapshots.skillrunner as any).drawer.sections[0].groups[0]
@@ -412,6 +425,17 @@ describe("UI readonly harness", function () {
       assistant.close();
       await rm(fixture.dir, { recursive: true, force: true });
     }
+  });
+
+  it("keeps SkillRunner connection audit renderer read-only in the Dashboard app", async function () {
+    const source = await readFile(
+      path.join(process.cwd(), "addon/content/dashboard/app.js"),
+      "utf8",
+    );
+    assert.match(source, /skillrunner-connection-audit/);
+    assert.match(source, /function renderSkillRunnerConnectionAudit/);
+    assert.match(source, /copyTextToClipboard\(JSON\.stringify\(view, null, 2\)\)/);
+    assert.doesNotMatch(source, /skillrunner-connection-audit[\s\S]{0,800}abortSkillRunnerConnections/);
   });
 
   it("maps a minimal Zotero DB fixture to synthesis library inputs", async function () {

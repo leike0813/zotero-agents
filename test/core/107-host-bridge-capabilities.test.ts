@@ -364,6 +364,7 @@ describe("host bridge capability calls", function () {
       (capability: { name: string }) => capability.name,
     );
     assert.notInclude(names, "debug.status");
+    assert.notInclude(names, "debug.skillrunner.connections.snapshot");
     assert.notInclude(names, "debug.zotero.eval");
 
     const call = await callBridgeCapability({
@@ -401,6 +402,12 @@ describe("host bridge capability calls", function () {
     );
     assert.isObject(evalCapability);
     assert.strictEqual(evalCapability.approval, "zotero-ui-required");
+    const connectionAuditCapability = manifest.json.result.capabilities.find(
+      (capability: { name: string }) =>
+        capability.name === "debug.skillrunner.connections.snapshot",
+    );
+    assert.isObject(connectionAuditCapability);
+    assert.strictEqual(connectionAuditCapability.approval, "none");
 
     const status = await callBridgeCapability({
       token,
@@ -414,6 +421,19 @@ describe("host bridge capability calls", function () {
       "host_bridge.debug.status.v1",
     );
     assert.isTrue(status.json.result.data.debugMode);
+
+    const connections = await callBridgeCapability({
+      token,
+      capability: "debug.skillrunner.connections.snapshot",
+      input: {},
+    });
+    assert.strictEqual(connections.status, 200);
+    assert.strictEqual(
+      connections.json.result.data.schema,
+      "host_bridge.debug.skillrunner.connections.snapshot.v1",
+    );
+    assert.isObject(connections.json.result.data.skillRunnerConnections);
+    assert.isArray(connections.json.result.data.skillRunnerConnections.events);
 
     const snapshot = await callBridgeCapability({
       token,

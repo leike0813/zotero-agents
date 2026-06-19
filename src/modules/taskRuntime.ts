@@ -24,6 +24,7 @@ export type WorkflowTaskRecord = {
   skillId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
+  sequenceJobId?: string;
   workflowRunId?: string;
   engine?: string;
   targetParentID?: number;
@@ -38,6 +39,13 @@ export type WorkflowTaskRecord = {
   backendType?: string;
   backendBaseUrl?: string;
   state: JobState;
+  skillRunnerLifecycleState?: "request_ready" | JobState;
+  applyState?: "idle" | "pending" | "running" | "succeeded" | "failed" | "skipped";
+  applyError?: string;
+  applyNextRetryAt?: string;
+  resultJsonPath?: string;
+  workspaceDir?: string;
+  role?: "single" | "sequence_root" | "sequence_step";
   error?: string;
   createdAt: string;
   updatedAt: string;
@@ -78,6 +86,50 @@ function resolveRequestIdFromJob(job: JobRecord) {
   return "";
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSkillRunnerProtocolJob(job: JobRecord) {
+  if (String(job.meta.backendType || "").trim() !== DEFAULT_BACKEND_TYPE) {
+    return false;
+  }
+  const requestKind = normalizeMetaString(job.meta, "requestKind");
+  if (requestKind === "skillrunner.job.v1") {
+    return true;
+  }
+  if (isObjectRecord(job.request)) {
+    return String(job.request.kind || "").trim() === "skillrunner.job.v1";
+  }
+  return false;
+}
+
+function hasProviderResultRequestId(job: JobRecord) {
+  const result = job.result;
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return false;
+  }
+  return typeof (result as { requestId?: unknown }).requestId === "string"
+    ? !!String((result as { requestId?: unknown }).requestId || "").trim()
+    : false;
+}
+
+export function isSkillRunnerJobReadyForTaskProjection(job: JobRecord) {
+  if (!isSkillRunnerProtocolJob(job)) {
+    return true;
+  }
+  if (!resolveRequestIdFromJob(job)) {
+    return false;
+  }
+  if (
+    job.meta.skillRunnerRequestReady === true ||
+    String(job.meta.skillRunnerRequestReady || "").trim() === "true"
+  ) {
+    return true;
+  }
+  return hasProviderResultRequestId(job);
+}
+
 function resolveOptionalIntegerFromJobMeta(job: JobRecord, key: string) {
   const value = job.meta[key];
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -114,6 +166,7 @@ export function buildWorkflowTaskRecordFromJob(
     job,
     "sequenceStepIndex",
   );
+  const sequenceJobId = normalizeMetaString(job.meta, "sequenceJobId");
   const workflowRunId = normalizeMetaString(job.meta, "workflowRunId");
   const engine = normalizeMetaString(job.meta, "engine");
   const providerId = normalizeMetaString(job.meta, "providerId");
@@ -131,6 +184,7 @@ export function buildWorkflowTaskRecordFromJob(
     skillId: skillId || undefined,
     sequenceStepId: sequenceStepId || undefined,
     sequenceStepIndex,
+    sequenceJobId: sequenceJobId || undefined,
     workflowRunId: workflowRunId || undefined,
     engine: engine || undefined,
     targetParentID: resolveTargetParentIDFromJob(job),
@@ -202,6 +256,7 @@ function parsePersistedTaskRecord(raw: unknown): WorkflowTaskRecord | null {
       Number.isFinite(raw.sequenceStepIndex)
         ? Math.floor(raw.sequenceStepIndex)
         : undefined,
+    sequenceJobId: String(raw.sequenceJobId || "").trim() || undefined,
     workflowRunId: String(raw.workflowRunId || "").trim() || undefined,
     engine: String(raw.engine || "").trim() || undefined,
     targetParentID:
@@ -282,6 +337,13 @@ function mergeSkillRunnerProjection(
 export function recordWorkflowTaskUpdate(job: JobRecord) {
   ensureHydratedFromStore();
   const record = buildWorkflowTaskRecordFromJob(job);
+  if (
+    String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE &&
+    !isSkillRunnerJobReadyForTaskProjection(job)
+  ) {
+    taskRecords.delete(record.id);
+    return;
+  }
   taskRecords.set(record.id, record);
   if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
     upsertSkillRunnerRunFromTask(record, {
@@ -397,7 +459,9 @@ export function updateWorkflowTaskStateByRequest(args: {
       state: nextState,
       error: nextError,
       updatedAt: nextUpdatedAt,
-      eventType: isTerminal(nextState) ? "backend.terminal" : "backend.snapshot",
+      eventType: isTerminal(nextState)
+        ? "backend.terminal"
+        : "backend.snapshot",
       eventPayload: {
         source: "taskRuntime.updateWorkflowTaskStateByRequest",
         state: nextState,

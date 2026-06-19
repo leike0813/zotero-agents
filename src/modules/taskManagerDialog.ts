@@ -28,6 +28,11 @@ import {
 } from "./taskRuntime";
 import { filterDashboardActiveTasks } from "./dashboardActiveTasks";
 import { buildSkillRunnerManagementUiUrl } from "./skillRunnerManagementDialog";
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  getSkillRunnerConnectionGovernorSnapshot,
+  type SkillRunnerConnectionGovernorSnapshot,
+} from "./skillRunnerConnectionGovernor";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
 import { config } from "../../package.json";
 import { resolveAddonRef } from "../utils/runtimeBridge";
@@ -265,6 +270,10 @@ type DashboardSnapshot = {
       workflows: { value: string; label: string }[];
     };
   };
+  skillRunnerConnectionAuditView?: {
+    generatedAt: string;
+    governor: SkillRunnerConnectionGovernorSnapshot;
+  };
   surfaceSignatures?: {
     chrome: string;
     selectedSurface: string;
@@ -333,6 +342,12 @@ function dashboardSelectedSurfaceSignatureInput(snapshot: DashboardSnapshot) {
     return {
       surfaceKey,
       runtimeLogsView: snapshot.runtimeLogsView,
+    };
+  }
+  if (surfaceKey === "skillrunner-connection-audit") {
+    return {
+      surfaceKey,
+      skillRunnerConnectionAuditView: snapshot.skillRunnerConnectionAuditView,
     };
   }
   if (surfaceKey === "backend") {
@@ -1317,9 +1332,11 @@ async function buildDashboardSnapshot(args: {
   active: WorkflowTaskRecord[];
 }) {
   const summary = summarizeTaskDashboardHistory(args.history);
+  const debugModeEnabled = isDebugModeEnabled();
   let selectedTabKey = normalizeDashboardTabKey({
     requestedTabKey: args.state.selectedTabKey,
     backends: args.backends,
+    debugModeEnabled,
   });
   args.state.selectedTabKey = selectedTabKey;
 
@@ -1553,6 +1570,19 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-runtime-logs-tab-title",
       "Runtime Logs",
     ),
+    skillRunnerConnectionAuditTabTitle: "SkillRunner 连接审计",
+    skillRunnerConnectionAuditTitle: "SkillRunner 连接审计",
+    skillRunnerConnectionAuditEmpty: "暂无 SkillRunner 连接事件。",
+    skillRunnerConnectionAuditCopyJson: "复制 JSON",
+    skillRunnerConnectionAuditCopied: "连接审计 JSON 已复制。",
+    skillRunnerConnectionAuditMetricActive: "活跃连接",
+    skillRunnerConnectionAuditMetricQueued: "排队请求",
+    skillRunnerConnectionAuditMetricStreams: "Stream",
+    skillRunnerConnectionAuditMetricTimeouts: "超时",
+    skillRunnerConnectionAuditMetricLate: "迟到完成",
+    skillRunnerConnectionAuditByBackend: "按后端",
+    skillRunnerConnectionAuditByLane: "按 Lane",
+    skillRunnerConnectionAuditEvents: "最近事件",
     runtimeLogsClear: localize(
       "task-dashboard-runtime-logs-clear",
       "Clear Logs",
@@ -1702,6 +1732,14 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-feedback-export-selected",
       "Export Selected",
     ),
+    feedbackDeleteSelected: localize(
+      "task-dashboard-feedback-delete-selected",
+      "Delete Selected",
+    ),
+    feedbackDeleteAll: localize(
+      "task-dashboard-feedback-delete-all",
+      "Delete All",
+    ),
     feedbackExportEmpty: localize(
       "task-dashboard-feedback-export-empty",
       "Select at least one feedback record to export.",
@@ -1777,6 +1815,14 @@ async function buildDashboardSnapshot(args: {
       key: "runtime-logs",
       label: labels.runtimeLogsTabTitle,
     },
+    ...(debugModeEnabled
+      ? [
+          {
+            key: "skillrunner-connection-audit",
+            label: labels.skillRunnerConnectionAuditTabTitle,
+          },
+        ]
+      : []),
     ...args.backends.map((backend) => {
       const backendId = String(backend.id || "").trim();
       const backendType = String(backend.type || "").trim();
@@ -1985,6 +2031,17 @@ async function buildDashboardSnapshot(args: {
         backends: mappedBackends,
         workflows: mappedWorkflows,
       },
+    };
+    return finalizeDashboardSnapshot(snapshot);
+  }
+
+  if (
+    debugModeEnabled &&
+    resolvedSelectedTabKey === "skillrunner-connection-audit"
+  ) {
+    snapshot.skillRunnerConnectionAuditView = {
+      generatedAt: new Date().toISOString(),
+      governor: getSkillRunnerConnectionGovernorSnapshot(),
     };
     return finalizeDashboardSnapshot(snapshot);
   }
@@ -2224,6 +2281,13 @@ export async function openTaskManagerDialog(args?: {
     if (typeof win?.alert === "function") {
       win.alert(message);
     }
+  };
+  const confirmRuntimeWindow = (message: string) => {
+    const win = getRuntimeWindow();
+    if (typeof win?.confirm === "function") {
+      return win.confirm(message);
+    }
+    return true;
   };
 
   const refreshConfiguredBackends = async () => {
@@ -2537,6 +2601,78 @@ export async function openTaskManagerDialog(args?: {
           ),
         );
       }
+      return;
+    }
+    if (action === "delete-selected-feedback") {
+      const visibleFeedbackProductIds = new Set(
+        listSkillRunFeedbackProducts(state.feedbackSkillFilter)
+          .map((product) => String(product.productId || "").trim())
+          .filter(Boolean),
+      );
+      const productIds = Array.from(state.selectedFeedbackProductIds).filter(
+        (productId) => visibleFeedbackProductIds.has(productId),
+      );
+      if (productIds.length === 0) {
+        state.selectedTabKey = "products";
+        state.selectedProductSection = "feedback";
+        refresh("user-action");
+        return;
+      }
+      const confirmed = confirmRuntimeWindow(
+        localize(
+          "task-dashboard-feedback-delete-selected-confirm",
+          `Delete ${productIds.length} selected feedback record(s)?`,
+          { args: { count: productIds.length } },
+        ),
+      );
+      if (!confirmed) {
+        return;
+      }
+      for (const productId of productIds) {
+        removeWorkflowProduct(productId);
+        state.selectedFeedbackProductIds.delete(productId);
+      }
+      if (productIds.includes(state.selectedFeedbackProductId)) {
+        state.selectedFeedbackProductId = "";
+      }
+      state.selectedTabKey = "products";
+      state.selectedProductSection = "feedback";
+      refresh("user-action");
+      return;
+    }
+    if (action === "delete-all-feedback") {
+      const feedbackProducts = listSkillRunFeedbackProducts(
+        state.feedbackSkillFilter,
+      );
+      const productIds = feedbackProducts
+        .map((product) => String(product.productId || "").trim())
+        .filter(Boolean);
+      if (productIds.length === 0) {
+        state.selectedTabKey = "products";
+        state.selectedProductSection = "feedback";
+        refresh("user-action");
+        return;
+      }
+      const confirmed = confirmRuntimeWindow(
+        localize(
+          "task-dashboard-feedback-delete-all-confirm",
+          `Delete all ${productIds.length} visible feedback record(s)?`,
+          { args: { count: productIds.length } },
+        ),
+      );
+      if (!confirmed) {
+        return;
+      }
+      for (const productId of productIds) {
+        removeWorkflowProduct(productId);
+        state.selectedFeedbackProductIds.delete(productId);
+      }
+      if (productIds.includes(state.selectedFeedbackProductId)) {
+        state.selectedFeedbackProductId = "";
+      }
+      state.selectedTabKey = "products";
+      state.selectedProductSection = "feedback";
+      refresh("user-action");
       return;
     }
     if (action === "open-product-folder") {

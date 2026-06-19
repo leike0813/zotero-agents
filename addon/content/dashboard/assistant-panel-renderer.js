@@ -1003,6 +1003,48 @@
     return button;
   }
 
+  function applyPillToneClass(toneValue, stateValue) {
+    const tone = safeText(toneValue);
+    const state = safeText(stateValue);
+    if (tone === "error" || tone === "danger" || state === "failed") return " is-error";
+    if (tone === "success" || state === "succeeded" || state === "skipped") return " is-success";
+    if (tone === "warning") return " is-warning";
+    if (tone === "accent" || state === "pending" || state === "running") return " is-running";
+    return " is-muted";
+  }
+
+  function applyPillLedClass(toneValue, stateValue) {
+    const className = applyPillToneClass(toneValue, stateValue);
+    if (className.indexOf("is-error") >= 0) return "is-error";
+    if (className.indexOf("is-success") >= 0) return "is-success";
+    if (className.indexOf("is-warning") >= 0) return "is-warning";
+    if (className.indexOf("is-running") >= 0) return "is-running";
+    return "is-muted";
+  }
+
+  function renderAssistantWorkspaceApplyPill(item) {
+    const state = safeText(item.applyState || item.apply_state);
+    if (!state || state === "idle") return null;
+    const label = safeText(item.applyStateLabel || item.applyLabel || item.apply_state_label) || state;
+    const pill = el(
+      "span",
+      "assistant-workspace-drawer-task-apply" +
+        applyPillToneClass(item.applyTone, state),
+      "",
+    );
+    const title = [
+      label,
+      safeText(item.applyError || item.apply_error),
+      safeText(item.applyNextRetryAt || item.apply_next_retry_at)
+        ? "next retry: " + safeText(item.applyNextRetryAt || item.apply_next_retry_at)
+        : "",
+    ].filter(Boolean).join(" · ");
+    if (title) pill.title = title;
+    pill.appendChild(el("span", "asst-led " + applyPillLedClass(item.applyTone, state), ""));
+    pill.appendChild(el("span", "assistant-workspace-drawer-task-apply-label", label));
+    return pill;
+  }
+
   function renderAssistantWorkspaceTask(task, selectedTaskKey, labels, options) {
     const item = task && typeof task === "object" ? task : {};
     const taskKey = safeText(item.key || item.taskKey || item.id);
@@ -1037,6 +1079,8 @@
     );
     const meta = el("div", "assistant-workspace-drawer-task-meta skillrunner-workspace-task-meta");
     meta.appendChild(el("span", "", safeText(item.stateLabel || item.status || item.state) || "-"));
+    const applyPill = renderAssistantWorkspaceApplyPill(item);
+    if (applyPill) meta.appendChild(applyPill);
     const updatedAt = safeText(item.updatedAt);
     if (updatedAt) meta.appendChild(el("span", "assistant-workspace-drawer-task-updated-at", updatedAt));
     const content = el("div", "assistant-workspace-drawer-task-content");
@@ -1081,6 +1125,11 @@
       safeText(item.stateLabel || item.status || item.state),
       safeText(item.attention),
       safeText(item.relationState),
+      safeText(item.applyState || item.apply_state),
+      safeText(item.applyStateLabel || item.apply_state_label),
+      safeText(item.applyTone),
+      safeText(item.applyError || item.apply_error),
+      safeText(item.applyNextRetryAt || item.apply_next_retry_at),
       item.selectable === true ? "selectable" : "static",
       item.terminal === true ? "terminal" : "active",
       (Array.isArray(item.itemActions) ? item.itemActions : [])

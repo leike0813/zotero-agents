@@ -401,7 +401,9 @@ describeEditorIntegrationSuite(
       await waitForCondition(
         () => {
           const foregroundLog = listNewWorkflowLogs("tag-regulator", seenLogIds).find(
-            (entry) => String(entry.stage || "") === "foreground-apply-skipped-auto",
+            (entry) =>
+              String(entry.stage || "") ===
+              "foreground-apply-skipped-skillrunner",
           ) as
             | {
                 requestId?: string;

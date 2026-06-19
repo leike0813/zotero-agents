@@ -3575,6 +3575,41 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
   });
 
+  it("keeps run updatedAt stable while appending streaming text chunks", function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-stream-updated-at-stable",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      activePrompt: true,
+      updatedAt: "2026-06-18T00:00:00.000Z",
+    });
+    recordAcpSkillRunSessionUpdate("run-stream-updated-at-stable", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "first " },
+      },
+    } as any);
+    recordAcpSkillRunSessionUpdate("run-stream-updated-at-stable", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "second" },
+      },
+    } as any);
+
+    const run = getAcpSkillRunRecord("run-stream-updated-at-stable");
+    assert.equal(run?.updatedAt, "2026-06-18T00:00:00.000Z");
+    const assistantMessages =
+      run?.transcriptItems.filter(
+        (item) => item.kind === "message" && item.role === "assistant",
+      ) || [];
+    assert.lengthOf(assistantMessages, 1);
+    assert.equal(assistantMessages[0].text, "first second");
+  });
+
   it("keeps tool calls as assistant streaming message boundaries around workspace activity", function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({

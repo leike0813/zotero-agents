@@ -9,62 +9,70 @@ invariants:
     doc_refs:
       - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
     spec_refs:
-      - openspec/specs/skillrunner-ssot-yaml-invariants-governance/spec.md
-    must: SkillRunner 运行详情窗口必须单例。
+      - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
+    must: SkillRunner run workspace must be a single workspace context so stream ownership cannot be split across parallel dialogs.
 
   - id: INV-WS-CHAT-SSE-SINGLE-OWNER
     domain: skillrunner-workspace
     type: stream-lifecycle
     current_value:
-      chatOwnership: singleton-selected-session
+      chatOwnership: two-stream-mru-pool
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.streamLifecycle.chatOwnership
     doc_refs:
       - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
     spec_refs:
-      - openspec/specs/skillrunner-ssot-yaml-invariants-governance/spec.md
-    must: chat SSE 仅由当前选中会话持有，切换或关闭即断开旧连接。
+      - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
+    must: UI chat stream ownership must use a per-backend two-stream MRU pool with at most one stream per request id.
 
   - id: INV-WS-STATE-RENDER-FROM-LEDGER
     domain: skillrunner-workspace
     type: render-source
     current_value:
-      stateRenderSource: ledger-snapshot
+      stateRenderSource: skillrunner-run-store-projection
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.workspace.stateRenderSource
     doc_refs:
       - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
     spec_refs:
-      - openspec/specs/skillrunner-ssot-yaml-invariants-governance/spec.md
-    must: 对话窗口状态展示必须来自统一 ledger 快照投影，不得本地猜测。
+      - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
+    must: Workspace render state must come from SkillRunnerRunStore projections.
 
   - id: INV-WS-BACKEND-FLAGGED-GROUP-DISABLED
     domain: skillrunner-workspace
     type: ui-gating
     current_value:
       flaggedGroupDisabled: true
-      flaggedGroupNoBubbles: true
+      flaggedGroupNoBubbles: false
+      flaggedGroupReleasesStreams: true
+      flaggedGroupPreservesProjections: true
     code_refs:
-      - SKILLRUNNER_SSOT_FACTS.workspace.flaggedGroupRules
+      - SKILLRUNNER_SSOT_FACTS.workspace.flaggedGroupRules.flaggedGroupDisabled
+      - SKILLRUNNER_SSOT_FACTS.workspace.flaggedGroupRules.flaggedGroupNoBubbles
+      - SKILLRUNNER_SSOT_FACTS.workspace.flaggedGroupRules.flaggedGroupReleasesStreams
+      - SKILLRUNNER_SSOT_FACTS.workspace.flaggedGroupRules.flaggedGroupPreservesProjections
     doc_refs:
       - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
     spec_refs:
-      - openspec/specs/skillrunner-ssot-yaml-invariants-governance/spec.md
-    must: reconcileFlag 后端在 workspace 左侧必须禁交互且不渲染任务气泡。
+      - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
+    must: Backend-gated groups must disable interactive access and release streams while preserving stored run projections.
 
   - id: INV-WS-FIRST-FRAME-NO-FORCED-RUNNING
     domain: skillrunner-workspace
     type: render-policy
     current_value:
-      firstFrameUsesLedgerSnapshot: true
+      firstFrameUsesRunStoreProjection: true
       refreshFailureNoForcedRunning: true
+      noFallbackAutoSelection: true
     code_refs:
-      - SKILLRUNNER_SSOT_FACTS.workspace.firstFrameRules
+      - SKILLRUNNER_SSOT_FACTS.workspace.firstFrameRules.firstFrameUsesRunStoreProjection
+      - SKILLRUNNER_SSOT_FACTS.workspace.firstFrameRules.refreshFailureNoForcedRunning
+      - SKILLRUNNER_SSOT_FACTS.workspace.firstFrameRules.noFallbackAutoSelection
     doc_refs:
       - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
     spec_refs:
-      - openspec/specs/skillrunner-ssot-yaml-invariants-governance/spec.md
-    must: 首帧不允许被刷新失败强制改写为 running。
+      - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
+    must: Workspace first frame must render stored run projection and must not force running state or fallback selection on refresh failure.
 
   - id: INV-WS-PENDING-EDGE-RULES
     domain: skillrunner-workspace
@@ -73,10 +81,44 @@ invariants:
       waitingEdgeFetchPending: true
       leaveWaitingClearsPending: true
       pendingFailureRetainsLastGood: true
+      selectedWaitingOnly: true
     code_refs:
-      - SKILLRUNNER_SSOT_FACTS.workspace.pendingRules
+      - SKILLRUNNER_SSOT_FACTS.workspace.pendingRules.waitingEdgeFetchPending
+      - SKILLRUNNER_SSOT_FACTS.workspace.pendingRules.leaveWaitingClearsPending
+      - SKILLRUNNER_SSOT_FACTS.workspace.pendingRules.pendingFailureRetainsLastGood
+      - SKILLRUNNER_SSOT_FACTS.workspace.pendingRules.selectedWaitingOnly
     doc_refs:
       - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
     spec_refs:
-      - openspec/specs/skillrunner-ssot-yaml-invariants-governance/spec.md
-    must: waiting 边沿触发 pending 渲染，失败时保留 last-good。
+      - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
+    must: Pending/auth UI must refresh only for selected waiting runs and retain last-good state on transient refresh failure.
+
+  - id: INV-WS-STREAM-POOL-MRU
+    domain: skillrunner-workspace
+    type: stream-pool
+    current_value:
+      chatOwnership: two-stream-mru-pool
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.streamLifecycle.chatOwnership
+    doc_refs:
+      - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
+    spec_refs:
+      - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
+    must: UI foreground streams must use a per-backend MRU pool with at most two active request ids.
+
+  - id: INV-WS-DEFERRED-APPLY-VISIBLE
+    domain: skillrunner-workspace
+    type: apply-visibility
+    current_value:
+      terminalApplyPendingVisible: true
+      terminalApplyRunningVisible: true
+      terminalApplyFailedVisible: true
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.workspace.terminalApplyPendingVisible
+      - SKILLRUNNER_SSOT_FACTS.workspace.terminalApplyRunningVisible
+      - SKILLRUNNER_SSOT_FACTS.workspace.terminalApplyFailedVisible
+    doc_refs:
+      - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
+    spec_refs:
+      - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
+    must: Terminal runs with pending, running, or failed apply must remain visible until apply state settles.

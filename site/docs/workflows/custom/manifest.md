@@ -92,6 +92,55 @@
 
 当 `unit: "workflow"` 时，不需要用户选中任何条目即可触发（如"创建 Topic 综合"）。
 
+### 选择验证（validateSelection）
+
+`validateSelection` 是声明式的选择验证——无需编写 `filterInputs` Hook。用于常见的"跳过已有结果的条目"、"只接受特定类型的选择"等场景。
+
+**与 `filterInputs` 的关系：** 这两个字段**互斥**。声明式 `validateSelection` 能覆盖的场景不需要写 JS 代码；复杂逻辑才用 `filterInputs`。
+
+```json
+{
+  "validateSelection": {
+    "select": {
+      "policy": "literature-source"
+    },
+    "exclude": [
+      {
+        "kind": "generated-notes-all",
+        "noteKinds": ["digest", "references", "citation-analysis"]
+      }
+    ]
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `select.policy` | string | 选择策略。`"literature-source"` 接受文献来源（附件或可展开附件的父条目） |
+| `exclude[]` | array | 排除规则列表。命中任一规则则跳过当前条目 |
+
+**支持的 `exclude.kind`：**
+
+| kind | 说明 | 附加参数 |
+|------|------|---------|
+| `generated-notes-all` | 条目下已有指定类型的生成笔记 | `noteKinds`：笔记类型列表，如 `["digest", "references", "citation-analysis"]` |
+| `artifact-exists` | 条目下已有指定产物（避免重复执行） | `target`：产物标识，如 `"deep-reading-html"` |
+
+**示例：**
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "literature-source" },
+    "exclude": [
+      { "kind": "artifact-exists", "target": "deep-reading-html" }
+    ]
+  }
+}
+```
+
+> 此例中，已有深度阅读 HTML 产物的条目会被自动跳过，无需用户手动筛选。
+
 ### 触发控制
 
 ```json

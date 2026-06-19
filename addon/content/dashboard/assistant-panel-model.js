@@ -71,6 +71,61 @@
     return TERMINAL_STATES.has(normalizeStatusToken(status));
   }
 
+  function normalizeApplyState(source) {
+    if (!source || typeof source !== "object") return "";
+    const state = safeText(
+      source.applyState ||
+        source.apply_state ||
+        (source.apply && typeof source.apply === "object" ? source.apply.state : ""),
+    )
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-");
+    return state;
+  }
+
+  function applyStateLabel(source, state, data) {
+    const token = safeText(state || normalizeApplyState(source));
+    if (token === "pending") return labelFrom(source, "status.applyPending", "Pending apply");
+    if (token === "running") return labelFrom(source, "status.applyRunning", "Applying");
+    if (token === "succeeded") return labelFrom(source, "status.applySucceeded", "Applied");
+    if (token === "failed") {
+      const retrySource = data && typeof data === "object" ? data : source;
+      return safeText(retrySource && (retrySource.applyNextRetryAt || retrySource.apply_next_retry_at))
+        ? labelFrom(source, "status.applyRetryScheduled", "Retry scheduled")
+        : labelFrom(source, "status.applyFailed", "Apply failed");
+    }
+    if (token === "skipped") return labelFrom(source, "status.applySkipped", "Skipped");
+    return "";
+  }
+
+  function applyStateTone(state) {
+    const token = safeText(state);
+    if (token === "succeeded" || token === "skipped") return "success";
+    if (token === "failed") return "error";
+    if (token === "pending" || token === "running") return "accent";
+    return "muted";
+  }
+
+  function buildDeferredApplyIndicator(source, labelSource) {
+    const state = normalizeApplyState(source);
+    if (!state || state === "idle") return null;
+    const value = applyStateLabel(labelSource || source, state, source);
+    if (!value) return null;
+    const details = [
+      safeText(source && (source.applyError || source.apply_error)),
+      safeText(source && (source.applyNextRetryAt || source.apply_next_retry_at))
+        ? "next retry: " + safeText(source.applyNextRetryAt || source.apply_next_retry_at)
+        : "",
+    ].filter(Boolean).join(" · ");
+    return indicator(
+      "deferred-apply",
+      labelFrom(labelSource || source, "fields.deferredApply", "Deferred apply"),
+      value,
+      applyStateTone(state),
+      details || value,
+    );
+  }
+
   function conversationHelper() {
     return window.AssistantConversationView &&
       typeof window.AssistantConversationView === "object"
@@ -1092,18 +1147,23 @@
     }) || null;
   }
 
-  function decorateSkillRunnerWorkspaceTask(task) {
+  function decorateSkillRunnerWorkspaceTask(task, source) {
     if (!task || typeof task !== "object") return task;
     const requestId = safeText(task.requestId);
     const taskKey = safeText(task.key || task.taskKey || task.id);
     const terminal =
       task.terminal === true || isTerminalStatus(task.status || task.state || task.stateLabel);
     const needsAttention = Boolean(task.attention);
+    const applyState = normalizeApplyState(task);
+    const applyLabel = applyStateLabel(source || task, applyState, task);
     return Object.assign({}, task, {
       attention: needsAttention ? "warning" : "",
       attentionLabel: needsAttention
         ? labelFrom({}, "interaction.needsUserInteraction", "Needs user interaction")
         : "",
+      applyState,
+      applyStateLabel: applyLabel,
+      applyTone: applyStateTone(applyState),
       itemActions:
         terminal && requestId
           ? [
@@ -1118,26 +1178,34 @@
     });
   }
 
-  function decorateSkillRunnerWorkspaceSections(sections) {
+  function decorateSkillRunnerWorkspaceSections(sections, source) {
     return (Array.isArray(sections) ? sections : []).map(function (section) {
       const next = Object.assign({}, section);
       if (Array.isArray(section && section.groups)) {
         next.groups = section.groups.map(function (group) {
           return Object.assign({}, group, {
             activeTasks: (Array.isArray(group && group.activeTasks) ? group.activeTasks : []).map(
-              decorateSkillRunnerWorkspaceTask,
+              function (task) {
+                return decorateSkillRunnerWorkspaceTask(task, source);
+              },
             ),
             finishedTasks: (Array.isArray(group && group.finishedTasks) ? group.finishedTasks : []).map(
-              decorateSkillRunnerWorkspaceTask,
+              function (task) {
+                return decorateSkillRunnerWorkspaceTask(task, source);
+              },
             ),
           });
         });
       }
       if (Array.isArray(section && section.activeTasks)) {
-        next.activeTasks = section.activeTasks.map(decorateSkillRunnerWorkspaceTask);
+        next.activeTasks = section.activeTasks.map(function (task) {
+          return decorateSkillRunnerWorkspaceTask(task, source);
+        });
       }
       if (Array.isArray(section && section.finishedTasks)) {
-        next.finishedTasks = section.finishedTasks.map(decorateSkillRunnerWorkspaceTask);
+        next.finishedTasks = section.finishedTasks.map(function (task) {
+          return decorateSkillRunnerWorkspaceTask(task, source);
+        });
       }
       return next;
     });
@@ -1148,6 +1216,7 @@
       return normalizeSkillRunnerMessageKind(entry && entry.kind) === "assistant_revision";
     });
     const latestRevision = revisions.length > 0 ? revisions[revisions.length - 1] : null;
+    const applyState = normalizeApplyState(session);
     return [
       detailSection(labelFrom(envelope, "details.run", "Run"), [
         detailEntry("Title", session && session.title),
@@ -1162,6 +1231,14 @@
         detailEntry(labelFrom(envelope, "fields.updated", "Updated"), session && session.updatedAt),
         detailEntry(labelFrom(envelope, "fields.loading", "Loading"), session ? String(Boolean(session.loading)) : ""),
         detailEntry(labelFrom(envelope, "fields.error", "Error"), session && session.error),
+      ]),
+      detailSection(labelFrom(envelope, "fields.deferredApply", "Deferred apply"), [
+        detailEntry(labelFrom(envelope, "fields.status", "Status"), applyStateLabel(envelope, applyState, session) || applyState),
+        detailEntry(labelFrom(envelope, "fields.applyAttempt", "Attempt"), session && session.applyAttempt ? String(session.applyAttempt) : ""),
+        detailEntry(labelFrom(envelope, "fields.applyMaxAttempt", "Max attempt"), session && session.applyMaxAttempt ? String(session.applyMaxAttempt) : ""),
+        detailEntry(labelFrom(envelope, "fields.applyNextRetry", "Next retry"), session && session.applyNextRetryAt),
+        detailEntry(labelFrom(envelope, "fields.updated", "Updated"), session && session.applyUpdatedAt),
+        detailEntry(labelFrom(envelope, "fields.error", "Error"), session && session.applyError),
       ]),
       detailSection(labelFrom(envelope, "details.pending", "Pending"), [
         detailEntry("Interaction", session && session.pendingInteractionId),
@@ -2162,6 +2239,10 @@
       session,
       envelope,
     );
+    const deferredApplyIndicator = buildDeferredApplyIndicator(
+      selectedTask || session,
+      envelope,
+    );
     return normalizeAssistantPanelSnapshot({
       kind: "skillrunner",
       labels: envelope.labels && typeof envelope.labels === "object" ? envelope.labels : {},
@@ -2179,6 +2260,7 @@
           metadataItem(labelFrom(envelope, "fields.model", "Model"), session.model, "model"),
           metadataItem(labelFrom(envelope, "fields.updated", "Updated"), session.updatedAt, "updatedAt"),
         ]),
+        indicators: [deferredApplyIndicator].filter(Boolean),
         actions: [
           contextAction(
             "cancel-run",
@@ -2192,6 +2274,7 @@
       lifecycle: {
         connectionState: "managed-by-skillrunner",
         executionState: status,
+        applyState: normalizeApplyState(selectedTask || session),
         terminal: isTerminalStatus(status),
       },
       conversation,
@@ -2216,7 +2299,7 @@
         contexts: buildSkillRunnerContexts(envelope),
         skillrunnerSections:
           envelope.drawer && Array.isArray(envelope.drawer.sections)
-            ? decorateSkillRunnerWorkspaceSections(envelope.drawer.sections)
+            ? decorateSkillRunnerWorkspaceSections(envelope.drawer.sections, envelope)
             : [],
         selectedTaskKey: safeText(
           envelope.workspace && envelope.workspace.selectedTaskKey,

@@ -434,6 +434,7 @@ function skillRunnerTask(
   row: PluginStateReadonlyRow,
 ): SkillRunnerSidebarTaskItem {
   const payload = rowPayload(row);
+  const apply = parseJsonObject(payload.apply);
   const status = cleanString(payload.status || row.state) || "unknown";
   return {
     key:
@@ -450,6 +451,15 @@ function skillRunnerTask(
     workflowLabel: cleanString(payload.workflowLabel || payload.workflowId),
     status,
     stateLabel: status.replace(/[_-]+/g, " "),
+    applyState: cleanString(payload.applyState || apply.state),
+    applyAttempt: Number(payload.applyAttempt || apply.attempt || 0) || undefined,
+    applyMaxAttempt:
+      Number(payload.applyMaxAttempt || apply.maxAttempt || 0) || undefined,
+    applyNextRetryAt: cleanString(
+      payload.applyNextRetryAt || apply.nextRetryAt,
+    ),
+    applyError: cleanString(payload.applyError || apply.error),
+    applyUpdatedAt: cleanString(payload.applyUpdatedAt || apply.updatedAt),
     updatedAt: cleanString(payload.updatedAt || row.updatedAt),
     title:
       cleanString(
@@ -465,6 +475,7 @@ function skillRunnerTask(
 function skillRunnerSession(row?: PluginStateReadonlyRow) {
   if (!row) return null;
   const payload = rowPayload(row);
+  const apply = parseJsonObject(payload.apply);
   const status = cleanString(payload.status || row.state) || "unknown";
   const pendingAuth =
     payload.pendingAuth ||
@@ -488,6 +499,15 @@ function skillRunnerSession(row?: PluginStateReadonlyRow) {
       terminal: terminalStatus(status),
       waiting: status === "waiting_user" || status === "waiting_auth",
     },
+    applyState: cleanString(payload.applyState || apply.state),
+    applyAttempt: Number(payload.applyAttempt || apply.attempt || 0) || undefined,
+    applyMaxAttempt:
+      Number(payload.applyMaxAttempt || apply.maxAttempt || 0) || undefined,
+    applyNextRetryAt: cleanString(
+      payload.applyNextRetryAt || apply.nextRetryAt,
+    ),
+    applyError: cleanString(payload.applyError || apply.error),
+    applyUpdatedAt: cleanString(payload.applyUpdatedAt || apply.updatedAt),
     updatedAt: cleanString(payload.updatedAt || row.updatedAt),
     engine: cleanString(payload.engine),
     model: cleanString(payload.model),

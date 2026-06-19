@@ -56,6 +56,8 @@ const PROVIDER_SECTIONS = [
   },
 ];
 
+type BackendManagerProviderType = "acp" | "skillrunner" | "generic-http";
+
 type BackendPersistenceDeps = {
   setPref: typeof setPref;
   refreshWorkflowMenus: typeof refreshWorkflowMenus;
@@ -107,6 +109,7 @@ type BackendManagerSnapshot = {
   title: string;
   help: string;
   labels: Record<string, string>;
+  initialProviderType?: string;
   providers: Array<{ type: string; label: string; title: string }>;
   rows: BackendManagerDraftRow[];
   acpPresets: Array<{ id: string; label: string }>;
@@ -118,6 +121,11 @@ type BackendManagerActionEnvelope = {
   payload?: Record<string, unknown>;
 };
 
+type OpenBackendManagerDialogArgs = {
+  window?: Window;
+  initialProviderType?: string;
+};
+
 export type SkillRunnerManagementLaunchPayload = {
   backendId: string;
   baseUrl: string;
@@ -125,6 +133,8 @@ export type SkillRunnerManagementLaunchPayload = {
 };
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
+
+let activeBackendManagerFrameWindow: Window | null = null;
 
 function createHtmlElement<K extends keyof HTMLElementTagNameMap>(
   doc: Document,
@@ -2072,6 +2082,33 @@ function resolveFrameWindow(frame: Element | null) {
   return candidate.contentWindow || null;
 }
 
+function normalizeBackendManagerProviderType(
+  value: unknown,
+): BackendManagerProviderType | undefined {
+  const text = String(value || "").trim();
+  return PROVIDER_SECTIONS.some((provider) => provider.type === text)
+    ? (text as BackendManagerProviderType)
+    : undefined;
+}
+
+function postBackendManagerProviderSelection(providerType?: string) {
+  const selectedProviderType = normalizeBackendManagerProviderType(providerType);
+  if (!selectedProviderType) {
+    return;
+  }
+  try {
+    activeBackendManagerFrameWindow?.postMessage(
+      {
+        type: "backend-manager-dialog:select-provider",
+        payload: { providerType: selectedProviderType },
+      },
+      "*",
+    );
+  } catch {
+    activeBackendManagerFrameWindow = null;
+  }
+}
+
 function createBackendManagerDraftSignature(rows: BackendManagerDraftRow[]) {
   return JSON.stringify(
     normalizeDraftRows(rows).map((row) => ({
@@ -2181,6 +2218,7 @@ function buildBackendManagerLabels() {
 
 function buildBackendManagerSnapshot(
   rows: BackendManagerDraftRow[],
+  args?: { initialProviderType?: string },
 ): BackendManagerSnapshot {
   return {
     title: localizeBackendManager("backend-manager-title", "Backend Manager"),
@@ -2189,6 +2227,9 @@ function buildBackendManagerSnapshot(
       'Profiles are managed by provider. Click "Save" to persist.',
     ),
     labels: buildBackendManagerLabels(),
+    initialProviderType: normalizeBackendManagerProviderType(
+      args?.initialProviderType,
+    ),
     providers: PROVIDER_SECTIONS.map((provider) => {
       const label = localizeBackendManager(provider.labelKey, provider.type);
       return {
@@ -2232,13 +2273,17 @@ async function persistAcpBackendProbeResultFromDraft(
   return backend;
 }
 
-export async function openBackendManagerDialog(args?: { window?: Window }) {
+export async function openBackendManagerDialog(args?: OpenBackendManagerDialogArgs) {
   if (isWindowAlive(addon.data.dialog?.window)) {
     addon.data.dialog?.window?.focus();
+    postBackendManagerProviderSelection(args?.initialProviderType);
     return;
   }
 
   const alertWindow = getAlertWindow(args?.window);
+  const initialProviderType = normalizeBackendManagerProviderType(
+    args?.initialProviderType,
+  );
   const loaded = await loadBackendsRegistry();
   const initialRows = (
     loaded.fatalError
@@ -2296,7 +2341,12 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
       const pushSnapshot = (
         type: "backend-manager-dialog:init" | "backend-manager-dialog:snapshot",
       ) => {
-        postToFrame(type, buildBackendManagerSnapshot(currentDraftRows));
+        postToFrame(
+          type,
+          buildBackendManagerSnapshot(currentDraftRows, {
+            initialProviderType,
+          }),
+        );
       };
       const onMessage = (event: MessageEvent) => {
         const sourceWindow =
@@ -2316,6 +2366,7 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
           return;
         }
         frameWindow = sourceWindow || currentFrameWindow;
+        activeBackendManagerFrameWindow = frameWindow;
         const envelope = data as BackendManagerActionEnvelope;
         const action = String(envelope.action || "").trim();
         const payload = envelope.payload || {};
@@ -2472,6 +2523,7 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
       };
       frame.addEventListener("load", () => {
         frameWindow = resolveFrameWindow(frame);
+        activeBackendManagerFrameWindow = frameWindow;
         pushSnapshot("backend-manager-dialog:init");
       });
       root.appendChild(frame);
@@ -2484,6 +2536,7 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
         removeMessageListener = undefined;
       }
       frameWindow = null;
+      activeBackendManagerFrameWindow = null;
       removeBackendManagerBeforeUnloadPrompt(
         addon.data.dialog?.window?.document,
         dialogData,

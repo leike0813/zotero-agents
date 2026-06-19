@@ -20,6 +20,7 @@ type BuildClientArgs = {
 export function buildSkillRunnerManagementClient(args: BuildClientArgs) {
   return new SkillRunnerManagementClient({
     baseUrl: args.backend.baseUrl,
+    backendId: args.backend.id,
     getManagementAuth: () => resolveBackendManagementAuth(args.backend),
     saveManagementAuth: (auth: BackendManagementAuth) => {
       try {
@@ -86,4 +87,3 @@ export function buildSkillRunnerManagementClient(args: BuildClientArgs) {
     },
   });
 }
-

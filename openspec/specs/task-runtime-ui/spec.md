@@ -335,3 +335,147 @@ SkillRunner local run state.
 - **WHEN** legacy SkillRunner task/request/context rows remain in local state
 - **THEN** Dashboard, Task Manager, and assistant workspace SHALL list SkillRunner tasks from the SkillRunner run store
 - **AND** they SHALL NOT restore or display tasks from legacy SkillRunner rows.
+
+### Requirement: SkillRunner run workspace MUST preserve warm stream session state
+
+The SkillRunner run workspace SHALL separate selected-task projection from
+per-run chat stream session state.
+
+#### Scenario: warm run state remains available after selection changes
+
+- **WHEN** a selected running run is switched to the warm stream pool
+- **THEN** its messages and cursor SHALL remain associated with that request id
+- **AND** returning to that run SHALL render the preserved session without
+  forcing a reconnect
+
+#### Scenario: warm stream does not drive unrelated selected UI
+
+- **WHEN** a warm non-selected run receives chat stream frames
+- **THEN** those frames SHALL update that run's session state
+- **AND** the currently selected run's transcript SHALL NOT be replaced by the
+  warm run's transcript
+
+#### Scenario: backend-gated workspace releases streams
+
+- **WHEN** a backend becomes reconcile-gated or the run workspace closes
+- **THEN** all UI stream sessions owned by that backend/workspace SHALL be
+  aborted
+- **AND** task history/projection rows SHALL remain preserved
+
+### Requirement: SkillRunner workspace selection MUST be user-driven
+
+SkillRunner run workspace selection SHALL change only from explicit user UI
+actions and SHALL NOT be driven by provider progress or temporary request
+placeholders.
+
+#### Scenario: newly submitted SkillRunner run does not steal focus
+
+- **WHEN** a SkillRunner job emits `request-created` or `request-ready`
+- **THEN** plugin SHALL register the run for projection and settlement
+- **AND** plugin SHALL NOT change the currently selected SkillRunner run
+
+#### Scenario: request-created job is not user-visible before request-ready
+
+- **WHEN** a SkillRunner job is queued, running, or has emitted
+  `request-created` but has not emitted `request-ready`
+- **THEN** task runtime and dashboard history SHALL NOT expose that job as a
+  SkillRunner run row
+- **AND** the SkillRunner run store SHALL NOT create a projectable run record
+  for that job
+
+#### Scenario: missing projection is not represented as a temporary task
+
+- **WHEN** a request id is known from provider progress but the SkillRunner run
+  store has not exposed a projection for it
+- **THEN** the workspace SHALL NOT synthesize a selectable temporary task row
+- **AND** the task SHALL appear only after the run store projection exists
+
+#### Scenario: refresh does not auto-pick fallback run
+
+- **WHEN** workspace data refreshes without a user-selected task key
+- **THEN** the currently selected visible run SHALL remain selected
+- **AND** if the current run is unavailable, the workspace SHALL show no
+  selected run instead of selecting the newest or first visible task
+
+### Requirement: SkillRunner UI MUST separate run state from apply state
+
+Task runtime UI SHALL render SkillRunner backend execution state and deferred
+apply state as separate lifecycle fields.
+
+#### Scenario: terminal run with pending apply stays projectable
+
+- **WHEN** a SkillRunner run state is `succeeded`
+- **AND** apply state is `pending` or `running`
+- **THEN** task runtime UI SHALL keep the run in projections with a deferred
+  apply indicator
+- **AND** it SHALL NOT archive the run solely because backend execution is
+  terminal
+
+#### Scenario: failed apply is visible and cancellable only where meaningful
+
+- **WHEN** a SkillRunner run state is terminal
+- **AND** apply state is `failed`
+- **THEN** task runtime UI SHALL show the apply error summary
+- **AND** it SHALL NOT continue chat stream, pending, reply, or cancel loops for
+  that terminal backend run
+
+#### Scenario: SkillRunner request ids do not pollute ACP UI state
+
+- **WHEN** a SkillRunner request reaches terminal or apply settlement
+- **THEN** task runtime UI SHALL derive its row from SkillRunner projections
+- **AND** it SHALL NOT require or create ACP `skill-runs` state for that request
+
+### Requirement: SkillRunner sequence step task identity MUST remain stable
+
+Task runtime and UI projections SHALL preserve sequence step identity across
+submission, settlement, persistence, and restore.
+
+#### Scenario: sequence step run record keeps full identity
+
+- **WHEN** a SkillRunner sequence step reaches request-ready
+- **THEN** its projectable run record SHALL include `workflowRunId`,
+  `sequenceStepId`, `sequenceStepIndex`, `sequenceJobId`, and
+  `sequenceStepSkillId`
+- **AND** restoring that record into the reconciler SHALL preserve those fields
+
+#### Scenario: sequence root is not a task row
+
+- **WHEN** a SkillRunner sequence root exists only as orchestration state
+- **THEN** it SHALL be stored with `projectable=false`
+- **AND** it SHALL NOT appear as a separate Dashboard, popover, or RunDialog
+  task row
+
+### Requirement: Sequence apply state MUST remain visible independently of run state
+
+UI projections SHALL keep terminal run state and deferred apply state separate.
+
+#### Scenario: terminal step with pending apply remains visible
+
+- **WHEN** a SkillRunner sequence step run is terminal succeeded
+- **AND** side-effect apply is still pending, running, retrying, or failed
+- **THEN** the step SHALL remain visible in task projections
+- **AND** the projection SHALL expose apply state, error, and next retry time
+  when available
+
+### Requirement: SkillRunner connection audit snapshots SHALL be metadata-only
+
+Runtime UI and debug capability snapshots for SkillRunner connection audit SHALL
+contain only redacted connection metadata.
+
+#### Scenario: governor audit event is redacted
+
+- **WHEN** a SkillRunner connection lifecycle event is captured
+- **THEN** the event SHALL include backend id, lane, request id when present,
+  operation label, timestamps, duration, timeout, reason, and error name when
+  available
+- **AND** the event SHALL NOT include request payloads, response bodies,
+  parameters, tokens, local paths, or result contents
+
+#### Scenario: late settlement is visible
+
+- **WHEN** a governed task settles after the governor already timed out or
+  aborted it
+- **THEN** the governor audit event buffer SHALL record a
+  `late_resolve_after_timeout`, `late_reject_after_timeout`, or corresponding
+  late-abort settlement event
+- **AND** that event SHALL be visible in the debug audit snapshot

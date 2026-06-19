@@ -18,7 +18,6 @@ import {
   resolveTaskNameFromRequest,
 } from "./requestMeta";
 import { isActive } from "../skillRunnerProviderStateMachine";
-import { resolveSkillRunnerExecutionModeFromRequest } from "../skillRunnerExecutionMode";
 import {
   getSkillRunnerRequestIdFromJob,
   hasRecoverableSkillRunnerRequest,
@@ -43,10 +42,19 @@ type RunResultLike = {
   };
 };
 
-function isSkillRunnerAutoRequest(args: {
+function isSkillRunnerReconcilerOwnedRequest(args: {
   workflow: { manifest?: { provider?: string; request?: { kind?: string } } };
   request: unknown;
+  job?: { meta?: Record<string, unknown> };
+  result?: RunResultLike;
 }) {
+  if (isAcpProviderResult({ result: args.result, job: args.job })) {
+    return false;
+  }
+  const backendType = String(args.job?.meta?.backendType || "").trim();
+  if (backendType) {
+    return backendType === "skillrunner";
+  }
   const provider = String(args.workflow.manifest?.provider || "").trim();
   const manifestRequestKind = String(
     args.workflow.manifest?.request?.kind || "",
@@ -54,14 +62,11 @@ function isSkillRunnerAutoRequest(args: {
   const requestKind =
     manifestRequestKind ||
     (isRecord(args.request) ? String(args.request.kind || "").trim() : "");
-  if (
-    provider !== "skillrunner" &&
-    requestKind !== "skillrunner.job.v1" &&
-    requestKind !== "skillrunner.sequence.v1"
-  ) {
-    return false;
-  }
-  return resolveSkillRunnerExecutionModeFromRequest(args.request) === "auto";
+  return (
+    provider === "skillrunner" ||
+    requestKind === "skillrunner.job.v1" ||
+    requestKind === "skillrunner.sequence.v1"
+  );
 }
 
 function resolveReconcilePendingJobId(args: {
@@ -83,6 +88,25 @@ function resolveReconcilePendingJobId(args: {
     }
   }
   return args.jobId;
+}
+
+function resolveReconcilePendingSequenceRunId(result?: RunResultLike) {
+  const direct = String(result?.sequence?.workflow_run_id || "").trim();
+  if (direct) {
+    return direct;
+  }
+  const sequence =
+    result?.responseJson &&
+    typeof result.responseJson === "object" &&
+    !Array.isArray(result.responseJson)
+      ? (result.responseJson as Record<string, unknown>).sequence
+      : undefined;
+  if (sequence && typeof sequence === "object" && !Array.isArray(sequence)) {
+    return String(
+      (sequence as Record<string, unknown>).workflow_run_id || "",
+    ).trim();
+  }
+  return "";
 }
 
 function isPendingWorkflowJobState(state: string) {
@@ -310,9 +334,11 @@ export async function runWorkflowApplySeam(args: {
         pending += 1;
         const result = job.result as RunResultLike | undefined;
         if (
-          isSkillRunnerAutoRequest({
+          isSkillRunnerReconcilerOwnedRequest({
             workflow: args.runState.workflow,
             request: args.runState.requests[i],
+            job: job as { meta?: Record<string, unknown> },
+            result,
           })
         ) {
           reconcileOwnedPendingJobs.push({
@@ -325,6 +351,8 @@ export async function runWorkflowApplySeam(args: {
               result,
             }),
             requestId: recoverableRequestId,
+            sequenceRunId:
+              resolveReconcilePendingSequenceRunId(result) || undefined,
           });
         }
         resolved.appendRuntimeLog({
@@ -504,9 +532,11 @@ export async function runWorkflowApplySeam(args: {
     }
 
     if (
-      isSkillRunnerAutoRequest({
+      isSkillRunnerReconcilerOwnedRequest({
         workflow: args.runState.workflow,
         request: args.runState.requests[i],
+        job: job as { meta?: Record<string, unknown> },
+        result,
       }) &&
       !isAcpProviderResult({
         result,
@@ -521,6 +551,8 @@ export async function runWorkflowApplySeam(args: {
         terminalState: "succeeded",
         jobId: job.id,
         requestId: result.requestId,
+        sequenceRunId:
+          resolveReconcilePendingSequenceRunId(result) || undefined,
       });
       resolved.appendRuntimeLog({
         level: "info",
@@ -528,8 +560,9 @@ export async function runWorkflowApplySeam(args: {
         workflowId: args.runState.workflow.manifest.id,
         jobId: job.id,
         requestId: result.requestId,
-        stage: "foreground-apply-skipped-auto",
-        message: "foreground apply skipped for reconcile-owned skillrunner auto terminal result",
+        stage: "foreground-apply-skipped-skillrunner",
+        message:
+          "foreground apply skipped for reconcile-owned skillrunner result",
         details: {
           index: i,
           taskLabel,

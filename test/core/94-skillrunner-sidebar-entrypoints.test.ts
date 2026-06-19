@@ -103,9 +103,9 @@ describe("skillrunner sidebar entrypoints", function () {
       "src/modules/workflowExecution/runSeam.ts",
     );
     assert.include(ts, "openAssistantWorkspaceSidebar");
-    assert.include(ts, "focusSkillRunnerWorkspace");
     assert.include(ts, 'event.type === "request-ready"');
     assert.include(ts, "selectAcpSkillRun");
+    assert.notInclude(ts, "focusSkillRunnerWorkspace");
     assert.notInclude(ts, "resolved.openSkillRunnerRunDialog({");
     assert.notInclude(ts, "openSkillRunnerSidebar");
   });

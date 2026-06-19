@@ -33,6 +33,8 @@
 - `src/modules/workflowPackageDiagnostics.ts`：Workflow Package 诊断工具
 - `src/modules/skillRunnerCtlBridge.ts`：SkillRunner 本地后端控制桥接
 - `src/modules/skillRunnerTaskReconciler.ts`：SkillRunner 任务收敛器
+- `src/modules/skillRunnerRunStore.ts`：SkillRunner 专用 run store 与 UI projection 来源
+- `src/modules/skillRunnerConnectionGovernor.ts`：SkillRunner HTTP/SSE 连接治理
 - `src/modules/workflowExecution/deferredCompletionTracker.ts`：延迟完成追踪器
 
 说明：`src/transport/` 当前未启用，网络逻辑在 provider 内部实现。
@@ -138,8 +140,8 @@ SkillRunner skill source：
 2. `executeBuildRequests` 产生每个合法输入单元的 request
 3. 解析 workflow execution context（backend/profile/options）
 4. JobQueue 执行 provider
-5. 根据 provider 结果调用 `applyResult`
-6. 汇总 succeeded/failed/skipped 消息
+5. 对 foreground-owned provider 结果调用 `applyResult`；SkillRunner request-ready 后进入 reconciler-owned deferred settlement
+6. 汇总 succeeded/failed/skipped/pending 消息
 
 ## 8. Dashboard 与日志窗口
 
@@ -155,10 +157,10 @@ Dashboard 当前能力：
 - Detail：
   - Generic HTTP：任务表格 + runtime logs 过滤
   - SkillRunner：run 表格、状态、聊天记录、pending、reply、cancel
-- SkillRunner 观察链路：SSE 主通道 + history 补偿
+- SkillRunner 观察链路：`SkillRunnerRunStore` projection + UI chat stream pool + targeted history/pending 补偿
 - 历史持久化：本地 JSON，固定保留 30 天
-- backend 视图数据源：running 任务 + 历史任务合并
-- SkillRunner requestId 早可见：`/v1/jobs` create 后 progress 回写 `job.meta.requestId`
+- backend 视图数据源：run store projection + history projection 合并
+- SkillRunner request-ready 可见：`/v1/jobs` create/upload 完成后进入 `SkillRunnerRunStore` projection；pre-ready 不创建可见任务行
 - Pass-through：不展示、不计数、不入历史
 
 - 执行链与 Dashboard 边界：
@@ -206,4 +208,6 @@ Dashboard 当前不支持：
 - Mock：`doc/components/zotero-mock.md`
 - 测试：`doc/testing-framework.md`
 - SkillRunner 状态机 SSOT：`doc/components/skillrunner-provider-state-machine-ssot.md`
+- SkillRunner sequence 状态机：`doc/skillrunner-sequence-recovery-state-machine.md`
+- SkillRunner run workspace SSOT：`doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md`
 - 本地后端一键部署状态机：`doc/components/skillrunner-local-runtime-oneclick-state-machine-ssot.md`

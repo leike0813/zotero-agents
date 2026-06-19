@@ -1,147 +1,175 @@
-# SkillRunner Sequence Recovery State Machine
+# SkillRunner Sequence State Machine
 
-## Scope
+This document defines the current SkillRunner `skillrunner.sequence.v1`
+frontend orchestration contract.
 
-This document defines Host orchestration behavior for
-`skillrunner.sequence.v1` workflows executed through ACP SkillRunner-compatible
-steps or SkillRunner backend job steps. The state machine belongs to the Host orchestrator. It does not change
-skill-facing `input`, `parameter`, `runtime_options`, workspace files, payload
-schemas, or final result contracts.
-
-ACP Skills prompt-turn controls are defined by
-`doc/acp-skills-state-machine-ssot.md`. In this sequence document, `canceled`
-means terminal task cancellation or provider terminal cancellation. It does not
-mean current-turn cancel or local disconnect.
+SkillRunner sequence execution is Host-orchestrated. The backend receives
+ordinary single-run `/v1/jobs` requests. It does not receive a native sequence
+request. ACP Skills may execute sequence steps through their own conversation
+model, but ACP foreground step apply is not the SkillRunner model.
 
 ## Entities
 
-- Sequence run: one workflow job executing a `skillrunner.sequence.v1` request.
-- Step run: one ACP skill run or SkillRunner job launched for a sequence step.
-- Sequence state: Host-persisted orchestration state keyed by
-  `workflowRunId`.
-- Step run record: Host-persisted step record keyed by the step `requestId`.
+- Sequence root: non-projectable orchestration record stored in
+  `SkillRunnerRunStore`.
+- Sequence step: one projectable SkillRunner run with its own backend
+  `request_id`.
+- Step result projection: normalized JSON output and paths recovered from
+  `/result` or `/bundle`.
+- Handoff projection: JSON object built from step result projection for later
+  step request construction.
+- Step apply task: Host-side deferred apply owned by the reconciler.
 
-Each ACP step run record stores:
+Root records do not appear as task rows. Step records appear independently in
+Dashboard, popover, and RunDialog projections.
 
-- `workflowId`: parent workflow id.
-- `workflowLabel`: parent workflow label.
-- `workflowRunId`: parent workflow run id.
-- `jobId`: parent workflow job id.
-- `skillId`: current step skill id.
-- `sequenceStepId`: current sequence step id.
-- `finalStepId`: declared final sequence step id.
-
-The sequence state stores the original sequence request, backend id,
-provider options, current step index, final step id, root request id, and the
-completed step outputs needed for downstream handoff mapping. For steps that
-declare `apply_result`, it also stores step apply status so recovery can skip
-already applied step outputs.
-
-## States
+## Sequence State
 
 ```mermaid
 stateDiagram-v2
-  [*] --> running_step
-  running_step --> applying_step: step succeeded and declares apply_result
-  applying_step --> running_step: apply succeeds or non-blocking apply fails
-  running_step --> running_step: step succeeded without step apply and next step starts
-  running_step --> waiting_recovery: step deferred or local orchestration disconnects
-  waiting_recovery --> continuing: recovered non-final step succeeds
-  continuing --> applying_step: recovered step declares pending apply_result
-  continuing --> running_step: next step starts
-  running_step --> completed: final step succeeds and apply succeeds
-  waiting_recovery --> completed: recovered final step succeeds and apply succeeds
-  running_step --> failed: step failed
-  running_step --> canceled: step canceled
-  waiting_recovery --> failed: recovered step output invalid or continuation fails
-  waiting_recovery --> canceled: user explicitly cancels the step
-  continuing --> failed: downstream continuation fails
+  [*] --> planning
+  planning --> step_submitting: prepare step 0
+  step_submitting --> step_ready: request_ready
+  step_ready --> step_running: backend observes queued/running/waiting
+  step_ready --> step_terminal_success: backend success
+  step_running --> step_terminal_success: backend success
+  step_running --> step_terminal_failed: backend failed/canceled/client error
+
+  step_terminal_success --> result_projection
+  result_projection --> handoff_ready
+  result_projection --> handoff_failed
+
+  handoff_ready --> next_step_submitting: non-final step
+  handoff_ready --> completed: final step
+  handoff_failed --> next_step_submitting: next step does not require handoff
+  handoff_failed --> failed: next step requires handoff
+
+  step_terminal_failed --> failed
+  next_step_submitting --> step_submitting
 ```
 
-### `running_step`
+The sequence state machine does not wait for apply success before starting the
+next step.
 
-The Host has launched a step or is about to launch it. Before launching, the
-Host records the current step index. When ACP creates the step request, the
-Host records the step `requestId` in sequence state.
+## Step Workspace Rules
 
-### `waiting_recovery`
+```mermaid
+sequenceDiagram
+  participant Root as Sequence Root
+  participant Step0 as Step 0 Request
+  participant StepN as Step N Request
+  participant Backend as SkillRunner Backend
 
-The current step has a recoverable ACP request and the local sequence loop is
-not continuing. The Host must not launch downstream steps while this state is
-active.
+  Root->>Step0: build request without workspace reuse
+  Step0->>Backend: POST /v1/jobs + upload
+  Backend-->>Step0: request_id A
+  Step0-->>Root: terminal success with workspace owner A
 
-### `continuing`
+  Root->>StepN: build request with runtime_options.workspace.request_id=A
+  StepN->>Backend: POST /v1/jobs + upload
+  Backend-->>StepN: request_id B
+```
 
-A non-final step recovered successfully. The Host records the recovered output
-as that step result, rebuilds handoff context from persisted sequence state,
-applies any pending opt-in step result, and starts the next step.
+Rules:
 
-### `applying_step`
+- Step 0 starts a new backend workspace and must not send a fabricated
+  `runtime_options.workspace.request_id`.
+- Step N reuses the previous successful SkillRunner step's backend
+  `request_id`.
+- Each step has its own task identity, request id, result projection, and apply
+  state.
+- Workspace reuse is independent of whether the previous step's Host-side apply
+  has succeeded.
 
-The current step has returned a successful result and declares `apply_result`.
-The Host invokes the declared workflow `applyResult` using step-scoped result
-context. A successful apply is persisted on the step. A failed apply is
-persisted and the sequence continues unless the step declares
-`on_failure = "fail_sequence"`.
+## Result, Handoff, And Apply Split
 
-### `completed`
+```mermaid
+sequenceDiagram
+  participant R as SkillRunnerTaskReconciler
+  participant Store as SkillRunnerRunStore
+  participant Seq as Sequence Orchestrator
+  participant Apply as Deferred Apply
 
-The final step has succeeded and the workflow apply path has completed.
+  R->>Store: step terminal success
+  R->>R: fetch and normalize result or bundle
+  R->>Store: write result projection
+  R->>Seq: build handoff projection
+  Seq->>Store: record handoff ready or failed
 
-### `failed` / `canceled`
+  par continue sequence
+    Seq->>Seq: check next step handoff dependency
+    Seq->>Store: create next step or terminal root state
+  and settle apply
+    R->>Apply: enqueue step apply when declared
+    Apply->>Store: apply pending/running/succeeded/failed/skipped
+  end
+```
 
-The sequence is terminal. Downstream steps must not start after a failed or
-explicitly canceled step.
+Rules:
 
-## Events
+- Execution success enables result projection.
+- Result projection enables handoff projection.
+- Handoff projection is a JSON input to later request construction.
+- Apply is a Host-side side effect and does not gate sequence continuation.
+- A step with failed apply remains visible with failed apply state.
 
-### Step Request Created
+## Handoff Failure Policy
 
-When the ACP provider reports `request-created`, Host records the step
-`requestId`. The first step request id becomes `rootRequestId`, which is used to
-keep the parent workflow task row connected to the sequence.
+If result or handoff projection fails:
 
-### Step Succeeded
+- The step remains terminal-success from the backend perspective.
+- The projection error is recorded on the step and sequence root.
+- If the next step declares that it requires the failed handoff, the sequence
+  stops failed.
+- If the next step does not require that handoff, the sequence continues using
+  workspace reuse and available defaults.
+- Apply failure is not handoff failure unless the workflow explicitly uses
+  apply output as handoff input, which SkillRunner sequence does not do by
+  default.
 
-Host records the step output and provider result. If the step declares
-`apply_result`, Host applies the step result before downstream execution. If
-the step is not final, the next step starts with normal handoff mapping. If the
-step is final and declares `apply_result`, final foreground apply does not run
-again for the same result.
+## Deferred Apply Policy
 
-### Step Deferred
+Step apply states are:
 
-Host records the current step result and moves the sequence to
-`waiting_recovery`. Downstream steps are not started. If the deferred step is
-ACP-backed, workflow `applyResult` is also skipped until the recovered step
-produces a non-deferred successful result.
+- `idle`
+- `pending`
+- `running`
+- `succeeded`
+- `failed`
+- `skipped`
 
-### Step Failed Or Task Canceled
+Deferred apply may complete after later steps have already started. UI must show
+the step apply state on the owning step, not on the sequence root alone.
 
-Host marks the sequence `failed` or `canceled` and stops. Current-turn cancel
-and local disconnect keep the step recoverable and do not trigger sequence
-terminal cancellation.
+Host-side failures:
 
-### Recovered Step Output Succeeded
+- result parse failure: visible failed projection or failed apply depending on
+  where it is detected
+- bundle artifact missing: visible failed apply when the apply hook requires the
+  artifact
+- apply hook failure: visible failed apply
+- Host Bridge failure: visible failed apply
+- transient settlement fetch failure: retry state with `nextRetryAt`
+- store write failure: runtime diagnostics and user feedback; if the store is
+  writable again, failed or retry state is recorded
 
-If the recovered ACP run is a non-final sequence step, Host locates the sequence
-state by step `requestId`, records the recovered result, and continues from the
-next step. If the recovered ACP run is the final step, Host uses the existing
-workflow apply path with the parent workflow id stored in the ACP run record.
+## Terminal Rules
 
-If no sequence state exists for a recovered non-final step, Host returns a
-structured error that includes `requestId`, `workflowId`, `skillId`, and
-`sequenceStepId`.
+- A failed or canceled step stops the sequence unless the step contract
+  explicitly supports non-terminal continuation for that failure class.
+- A final step with successful result projection completes the sequence root.
+- Final step apply may still be pending, running, failed, or succeeded after
+  root completion.
+- A sequence root is not a task row. The user's visible work is represented by
+  projectable step records.
 
 ## Invariants
 
-- Sequence continuation is Host orchestration state, not skill state.
-- No sequence recovery file is written into the ACP workspace.
-- Step `skillId` remains the current skill id; parent workflow ownership is
-  recorded separately in `workflowId`.
-- Intermediate recovered steps run workflow apply only when their sequence step
-  declares `apply_result`.
-- A step with succeeded apply state is not applied again during continuation.
-- A failed or task-canceled step terminates the sequence.
-- Current-turn cancel and local disconnect do not terminate the sequence.
-- Downstream handoff mapping uses only persisted completed step outputs.
+- Sequence continuation is Host orchestration state, not backend skill state.
+- SkillRunner sequence state is stored in `SkillRunnerRunStore`.
+- Step result and handoff projection are independent from Host-side apply.
+- Downstream execution depends on step execution, workspace reuse, and required
+  handoff availability.
+- Downstream execution does not depend on apply success.
+- Each step owns its request id, result projection, apply state, and visible
+  task row.

@@ -202,10 +202,9 @@ describe("deferred workflow completion tracker", function () {
     });
 
     assert.isTrue(registered);
-    assert.lengthOf(deferredJobToasts, 1);
-    assert.lengthOf(deferredJobToasts[0].outcomes, 1);
-    assert.equal(deferredJobToasts[0].outcomes[0].requestId, "req-buffered-1");
-    assert.lengthOf(summaries, 0);
+    assert.lengthOf(deferredJobToasts, 0);
+    assert.lengthOf(summaries, 1);
+    assert.include(summaries[0], "succeeded=1");
     assert.include(runtimeStages, "deferred-outcome-replayed-after-register");
     assert.include(runtimeStages, "deferred-run-summary-emitted");
   });
@@ -297,6 +296,77 @@ describe("deferred workflow completion tracker", function () {
     assert.include(runtimeStages, "deferred-run-summary-emitted");
   });
 
+  it("tracks SkillRunner sequence completion by sequence run id", function () {
+    const summaries: string[] = [];
+    const runtimeStages: string[] = [];
+    setDeferredWorkflowCompletionTrackerDepsForTests({
+      emitWorkflowJobToasts: () => undefined,
+      emitWorkflowFinishSummary: (payload) => {
+        summaries.push(
+          `succeeded=${payload.succeeded};failed=${payload.failed};skipped=${payload.skipped}`,
+        );
+      },
+      appendRuntimeLog: (entry) => {
+        runtimeStages.push(String(entry.stage || ""));
+      },
+    });
+
+    const registered = registerDeferredWorkflowCompletion({
+      runId: "run-sequence-1",
+      win: {} as _ZoteroTypes.MainWindow,
+      workflowId: "debug-apply-sequence-bundle",
+      workflowLabel: "Debug Sequence",
+      totalJobs: 1,
+      skipped: 0,
+      succeeded: 0,
+      failed: 0,
+      failureReasons: [],
+      pendingJobs: [
+        {
+          index: 0,
+          taskLabel: "debug sequence",
+          succeeded: true,
+          terminalState: "succeeded",
+          jobId: "job-sequence-root",
+          requestId: "req-step-one",
+          sequenceRunId: "sequence-run-1",
+        },
+      ],
+      messageFormatter: createFormatter() as any,
+    });
+
+    assert.isTrue(registered);
+    assert.deepEqual(
+      settleDeferredWorkflowCompletion({
+        runId: "run-sequence-1",
+        requestId: "req-step-one",
+        succeeded: true,
+        terminalState: "succeeded",
+      }),
+      {
+        handled: false,
+        completed: false,
+      },
+    );
+    assert.lengthOf(summaries, 0);
+
+    assert.deepEqual(
+      settleDeferredWorkflowCompletion({
+        runId: "run-sequence-1",
+        requestId: "sequence-run-1",
+        succeeded: true,
+        terminalState: "succeeded",
+      }),
+      {
+        handled: true,
+        completed: true,
+      },
+    );
+    assert.lengthOf(summaries, 1);
+    assert.include(summaries[0], "succeeded=1");
+    assert.include(runtimeStages, "deferred-run-summary-emitted");
+  });
+
   it("keeps buffered settle idempotent for the same run and request", function () {
     const deferredJobToasts: any[] = [];
     const summaries: string[] = [];
@@ -364,9 +434,8 @@ describe("deferred workflow completion tracker", function () {
       runtimeStages.filter((stage) => stage === "deferred-outcome-buffered-before-register"),
       1,
     );
-    assert.lengthOf(deferredJobToasts, 1);
-    assert.lengthOf(deferredJobToasts[0].outcomes, 1);
-    assert.lengthOf(summaries, 0);
+    assert.lengthOf(deferredJobToasts, 0);
+    assert.lengthOf(summaries, 1);
 
     const settledAfterCompletion = settleDeferredWorkflowCompletion({
       runId: "run-idempotent-1",
@@ -378,8 +447,8 @@ describe("deferred workflow completion tracker", function () {
       handled: false,
       completed: false,
     });
-    assert.lengthOf(deferredJobToasts, 1);
-    assert.lengthOf(summaries, 0);
+    assert.lengthOf(deferredJobToasts, 0);
+    assert.lengthOf(summaries, 1);
   });
 
   it("drops orphan buffered outcomes that do not match registered pending jobs", function () {
@@ -450,7 +519,7 @@ describe("deferred workflow completion tracker", function () {
       handled: true,
       completed: true,
     });
-    assert.lengthOf(deferredJobToasts, 1);
-    assert.lengthOf(summaries, 0);
+    assert.lengthOf(deferredJobToasts, 0);
+    assert.lengthOf(summaries, 1);
   });
 });

@@ -70,6 +70,7 @@
       "workflow-options": "zs-icon-settings-applications",
       products: "zs-icon-inventory-2",
       "runtime-logs": "zs-icon-terminal",
+      "skillrunner-connection-audit": "zs-icon-terminal",
     };
     return icons[String(tabKey || "")] || "";
   }
@@ -2117,6 +2118,26 @@
         sendAction("export-selected-feedback");
       });
       actions.appendChild(exportBtn);
+      const deleteSelectedBtn = el(
+        "button",
+        "btn danger",
+        labelText(labels, "feedbackDeleteSelected"),
+      );
+      deleteSelectedBtn.disabled = selectedFeedbackIds.size === 0;
+      deleteSelectedBtn.addEventListener("click", function () {
+        sendAction("delete-selected-feedback");
+      });
+      actions.appendChild(deleteSelectedBtn);
+      const deleteAllBtn = el(
+        "button",
+        "btn danger",
+        labelText(labels, "feedbackDeleteAll"),
+      );
+      deleteAllBtn.disabled = feedbackProducts.length === 0;
+      deleteAllBtn.addEventListener("click", function () {
+        sendAction("delete-all-feedback");
+      });
+      actions.appendChild(deleteAllBtn);
       toolbar.appendChild(actions);
     }
     main.appendChild(toolbar);
@@ -2346,6 +2367,248 @@
     }
     layout.appendChild(detail);
     main.appendChild(layout);
+  }
+
+  function formatAuditTimestamp(value) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return formatMillis(new Date(parsed).toISOString());
+    }
+    return formatTime(value);
+  }
+
+  function auditCountRows(rows, keyName) {
+    return Array.isArray(rows)
+      ? rows
+          .map(function (row) {
+            return {
+              key: String((row && row[keyName]) || "").trim() || "-",
+              count: Number((row && row.count) || 0),
+            };
+          })
+          .filter(function (row) {
+            return row.count > 0;
+          })
+      : [];
+  }
+
+  function renderAuditMetric(label, value) {
+    const card = el("div", "audit-metric");
+    card.appendChild(el("span", "audit-metric-label", label));
+    card.appendChild(el("strong", "audit-metric-value", String(value || 0)));
+    return card;
+  }
+
+  function renderAuditBars(title, rows) {
+    const section = el("section", "section audit-bars-section");
+    section.appendChild(el("h3", "section-title", title));
+    const panel = el("div", "panel audit-bars");
+    if (!rows.length) {
+      panel.appendChild(el("div", "empty", "-"));
+      section.appendChild(panel);
+      return section;
+    }
+    const max = rows.reduce(function (value, row) {
+      return Math.max(value, row.count);
+    }, 1);
+    rows.forEach(function (row) {
+      const item = el("div", "audit-bar-row");
+      item.appendChild(el("span", "audit-bar-label mono", row.key));
+      const track = el("span", "audit-bar-track");
+      const fill = el("span", "audit-bar-fill");
+      fill.style.width = Math.max(4, Math.round((row.count / max) * 100)) + "%";
+      track.appendChild(fill);
+      item.appendChild(track);
+      item.appendChild(el("span", "audit-bar-count", String(row.count)));
+      panel.appendChild(item);
+    });
+    section.appendChild(panel);
+    return section;
+  }
+
+  function renderSkillRunnerConnectionAudit(main, snapshot) {
+    const labels = snapshot.labels || {};
+    const view = snapshot.skillRunnerConnectionAuditView;
+    if (!view || !view.governor) {
+      main.appendChild(
+        el(
+          "div",
+          "empty",
+          labelText(labels, "skillRunnerConnectionAuditEmpty"),
+        ),
+      );
+      return;
+    }
+    const governor = view.governor || {};
+    const summary = governor.summary || {};
+    const events = Array.isArray(governor.events) ? governor.events : [];
+    const active = Array.isArray(governor.active) ? governor.active : [];
+    const queued = Array.isArray(governor.queued) ? governor.queued : [];
+
+    const toolbar = el("div", "toolbar");
+    toolbar.appendChild(
+      el(
+        "h2",
+        "page-title",
+        labelText(labels, "skillRunnerConnectionAuditTitle"),
+      ),
+    );
+    const actions = el("div", "toolbar-actions");
+    const copy = el(
+      "button",
+      "",
+      labelText(labels, "skillRunnerConnectionAuditCopyJson"),
+    );
+    copy.addEventListener("click", function () {
+      copyTextToClipboard(JSON.stringify(view, null, 2)).then(function () {
+        showToast(labelText(labels, "skillRunnerConnectionAuditCopied"));
+      });
+    });
+    actions.appendChild(copy);
+    toolbar.appendChild(actions);
+    main.appendChild(toolbar);
+
+    const metrics = el("div", "audit-metrics");
+    metrics.appendChild(
+      renderAuditMetric(
+        labelText(labels, "skillRunnerConnectionAuditMetricActive"),
+        summary.activeTotal || active.length,
+      ),
+    );
+    metrics.appendChild(
+      renderAuditMetric(
+        labelText(labels, "skillRunnerConnectionAuditMetricQueued"),
+        summary.queuedTotal || queued.length,
+      ),
+    );
+    metrics.appendChild(
+      renderAuditMetric(
+        labelText(labels, "skillRunnerConnectionAuditMetricStreams"),
+        summary.streamTotal || 0,
+      ),
+    );
+    metrics.appendChild(
+      renderAuditMetric(
+        labelText(labels, "skillRunnerConnectionAuditMetricTimeouts"),
+        summary.timeoutCount || 0,
+      ),
+    );
+    metrics.appendChild(
+      renderAuditMetric(
+        labelText(labels, "skillRunnerConnectionAuditMetricLate"),
+        summary.lateSettlementCount || 0,
+      ),
+    );
+    main.appendChild(metrics);
+
+    const grids = el("div", "audit-grid");
+    grids.appendChild(
+      renderAuditBars(
+        labelText(labels, "skillRunnerConnectionAuditByBackend"),
+        auditCountRows(summary.activeByBackend, "backendId").concat(
+          auditCountRows(summary.queuedByBackend, "backendId").map(function (
+            row,
+          ) {
+            return { key: row.key + " queued", count: row.count };
+          }),
+        ),
+      ),
+    );
+    grids.appendChild(
+      renderAuditBars(
+        labelText(labels, "skillRunnerConnectionAuditByLane"),
+        auditCountRows(summary.activeByLane, "lane").concat(
+          auditCountRows(summary.queuedByLane, "lane").map(function (row) {
+            return { key: row.key + " queued", count: row.count };
+          }),
+        ),
+      ),
+    );
+    main.appendChild(grids);
+
+    const eventRows = events
+      .slice()
+      .reverse()
+      .map(function (event) {
+        return {
+          id: String(event.id || ""),
+          ts: event.ts,
+          type: event.type,
+          backendId: event.backendId || "",
+          lane: event.lane || "",
+          requestId: event.requestId || "",
+          operation: event.operation || "",
+          durationMs: event.durationMs,
+          reason: event.reason || event.errorName || "",
+        };
+      });
+    const section = el("section", "section");
+    section.appendChild(
+      el(
+        "h3",
+        "section-title",
+        labelText(labels, "skillRunnerConnectionAuditEvents"),
+      ),
+    );
+    section.appendChild(
+      renderTaskTable({
+        rows: eventRows,
+        labels,
+        emptyText: labelText(labels, "skillRunnerConnectionAuditEmpty"),
+        tableClassName: "logs-table audit-events-table",
+        tableWrapClassName: "logs-table-wrap",
+        columns: [
+          "时间",
+          "事件",
+          "后端",
+          "Lane",
+          "Request ID",
+          "操作",
+          "耗时",
+          "原因",
+        ],
+        renderRow: function (tr, row) {
+          const timeCell = document.createElement("td");
+          timeCell.textContent = formatAuditTimestamp(row.ts);
+          tr.appendChild(timeCell);
+
+          const eventCell = document.createElement("td");
+          eventCell.appendChild(renderStatusBadge(row.type, row.type));
+          tr.appendChild(eventCell);
+
+          const backendCell = document.createElement("td");
+          backendCell.className = "mono";
+          backendCell.textContent = row.backendId || "-";
+          tr.appendChild(backendCell);
+
+          const laneCell = document.createElement("td");
+          laneCell.className = "mono";
+          laneCell.textContent = row.lane || "-";
+          tr.appendChild(laneCell);
+
+          const requestCell = document.createElement("td");
+          requestCell.className = "mono";
+          requestCell.textContent = row.requestId || "-";
+          tr.appendChild(requestCell);
+
+          const operationCell = document.createElement("td");
+          operationCell.className = "mono";
+          operationCell.textContent = row.operation || "-";
+          tr.appendChild(operationCell);
+
+          const durationCell = document.createElement("td");
+          durationCell.className = "center-cell";
+          durationCell.textContent =
+            typeof row.durationMs === "number" ? row.durationMs + " ms" : "-";
+          tr.appendChild(durationCell);
+
+          const reasonCell = document.createElement("td");
+          reasonCell.textContent = row.reason || "-";
+          tr.appendChild(reasonCell);
+        },
+      }),
+    );
+    main.appendChild(section);
   }
 
   function renderRuntimeLogs(main, snapshot) {
@@ -3083,6 +3346,18 @@
         });
         sidebar.appendChild(btn);
       }
+      const connectionAuditTab = tabs.find(
+        (tab) => tab.key === "skillrunner-connection-audit",
+      );
+      if (connectionAuditTab) {
+        const btn = createTabButton(connectionAuditTab, snapshot);
+        btn.addEventListener("click", function () {
+          sendAction("select-tab", {
+            tabKey: connectionAuditTab.key,
+          });
+        });
+        sidebar.appendChild(btn);
+      }
       const divider = el("div", "tab-divider");
       sidebar.appendChild(divider);
       sidebar.appendChild(
@@ -3094,7 +3369,8 @@
             tab.key !== "home" &&
             tab.key !== "workflow-options" &&
             tab.key !== "products" &&
-            tab.key !== "runtime-logs",
+            tab.key !== "runtime-logs" &&
+            tab.key !== "skillrunner-connection-audit",
         )
         .forEach(function (tab) {
           const isDisabled = tab.disabled === true;
@@ -3143,6 +3419,9 @@
     } else if (snapshot.selectedTabKey === "runtime-logs") {
       main.classList.add("skillrunner-fill"); // reuse the full-height flex config
       renderRuntimeLogs(main, snapshot);
+    } else if (snapshot.selectedTabKey === "skillrunner-connection-audit") {
+      main.classList.add("skillrunner-fill");
+      renderSkillRunnerConnectionAudit(main, snapshot);
     } else if (
       snapshot.backendView &&
       snapshot.backendView.backendType === "skillrunner"

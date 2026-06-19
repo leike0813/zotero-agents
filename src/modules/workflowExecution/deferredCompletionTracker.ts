@@ -10,6 +10,7 @@ import type { WorkflowMessageFormatter } from "../workflowExecuteMessage";
 
 type DeferredTrackedJob = WorkflowJobOutcome & {
   requestId: string;
+  sequenceRunId?: string;
 };
 
 type BufferedDeferredOutcome = {
@@ -258,12 +259,15 @@ export function registerDeferredWorkflowCompletion(args: {
   const pendingByRequestId = new Map<string, DeferredTrackedJob>();
   for (const job of args.pendingJobs) {
     const requestId = normalizeString(job.requestId);
-    if (!requestId) {
+    const sequenceRunId = normalizeString(job.sequenceRunId);
+    const trackingRequestId = sequenceRunId || requestId;
+    if (!trackingRequestId) {
       continue;
     }
-    pendingByRequestId.set(requestId, {
+    pendingByRequestId.set(trackingRequestId, {
       ...job,
-      requestId,
+      requestId: trackingRequestId,
+      sequenceRunId: sequenceRunId || undefined,
     });
   }
   if (pendingByRequestId.size === 0) {
