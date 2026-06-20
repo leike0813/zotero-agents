@@ -708,9 +708,6 @@ export class SkillRunnerTaskReconciler {
     if (!normalizeString(record.backendBaseUrl)) {
       return { action: "fail", reason: "missing-backend-base-url" };
     }
-    if (!record.requestPayload) {
-      return { action: "fail", reason: "missing-request-payload" };
-    }
     if (!normalizeString(record.workflowId) || !(await resolveWorkflow(record.workflowId))) {
       return { action: "fail", reason: "missing-workflow" };
     }

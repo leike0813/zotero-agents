@@ -67,6 +67,7 @@ function makeJob(args: {
   state: JobState;
   runId?: string;
   workflowId?: string;
+  backendBaseUrl?: string;
   targetParentID?: number;
   role?: "single" | "sequence_step";
   sequenceRunId?: string;
@@ -94,7 +95,10 @@ function makeJob(args: {
       providerId: "skillrunner",
       backendId: TEST_SKILLRUNNER_BACKEND_ID,
       backendType: "skillrunner",
-      backendBaseUrl: TEST_SKILLRUNNER_BASE_URL,
+      backendBaseUrl:
+        typeof args.backendBaseUrl === "string"
+          ? args.backendBaseUrl
+          : TEST_SKILLRUNNER_BASE_URL,
       requestKind: "skillrunner.job.v1",
       requestId: args.requestId,
       skillId: "debug-apply-contract",
@@ -122,6 +126,8 @@ function persistRun(args: {
   requestId: string;
   state: JobState;
   applyState?: "idle" | "pending" | "running" | "succeeded" | "failed" | "skipped";
+  includeRequestPayload?: boolean;
+  backendBaseUrl?: string;
   targetParentID?: number;
   role?: "single" | "sequence_step";
   sequenceRunId?: string;
@@ -132,6 +138,7 @@ function persistRun(args: {
     id: `job-${args.requestId}`,
     requestId: args.requestId,
     state: args.state,
+    backendBaseUrl: args.backendBaseUrl,
     targetParentID: args.targetParentID,
     role: args.role,
     sequenceRunId: args.sequenceRunId,
@@ -140,7 +147,8 @@ function persistRun(args: {
   });
   upsertSkillRunnerRunFromTask(buildWorkflowTaskRecordFromJob(job), {
     role: args.role || "single",
-    requestPayload: job.request,
+    requestPayload:
+      args.includeRequestPayload === false ? undefined : job.request,
     providerOptions: {},
     fetchType: "result",
     apply: {
@@ -295,6 +303,7 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
       persistRun({
         requestId: "req-running",
         state: "running",
+        includeRequestPayload: false,
       });
 
       const reconciler = createTrackedReconciler();
@@ -314,29 +323,32 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
       assert.equal(stored?.status, "waiting_user");
       assert.isFalse(
         listRuntimeLogs().some((entry) =>
+          JSON.stringify(entry.details || {}).includes("missing-request-payload"),
+        ),
+      );
+      assert.isFalse(
+        listRuntimeLogs().some((entry) =>
           String(entry.stage || "").startsWith("recovery-owned-terminal-"),
         ),
       );
     });
 
-    it("fails active missing-context tasks without backend polling or skipped apply", async function () {
+    it("fails unrecoverable run records without backend polling or skipped apply", async function () {
       const counts: Record<string, number> = {};
       installFetchRouter(
         {
-          "/v1/jobs/req-missing-context": {
-            request_id: "req-missing-context",
+          "/v1/jobs/req-missing-backend": {
+            request_id: "req-missing-backend",
             status: "succeeded",
           },
         },
         counts,
       );
-      recordWorkflowTaskUpdate(
-        makeJob({
-          id: "job-missing-context",
-          requestId: "req-missing-context",
-          state: "running",
-        }),
-      );
+      persistRun({
+        requestId: "req-missing-backend",
+        state: "running",
+        backendBaseUrl: "",
+      });
 
       await reconcileSkillRunnerMissingContextOnce({
         backendId: TEST_SKILLRUNNER_BACKEND_ID,
@@ -344,9 +356,9 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
       });
 
       const tasks = listWorkflowTasks();
-      assert.equal(counts["/v1/jobs/req-missing-context"] || 0, 0);
+      assert.equal(counts["/v1/jobs/req-missing-backend"] || 0, 0);
       assert.equal(tasks[0]?.state, "failed");
-      assert.include(tasks[0]?.error || "", "missing");
+      assert.include(tasks[0]?.error || "", "missing-backend-base-url");
       assert.isFalse(
         listRuntimeLogs().some(
           (entry) => entry.stage === "terminal-succeeded-missing-context",
@@ -390,9 +402,10 @@ export function registerSkillRunnerTaskReconcilerForegroundHandoffTests() {
         targetParentID: parent.id,
       });
 
-      const reconciler = createTrackedReconciler();
-      reconciler.start();
-      await reconciler.drain();
+      await reconcileSkillRunnerMissingContextOnce({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        source: "startup",
+      });
 
       const stored = getSkillRunnerRunRecordByRequest({
         backendId: TEST_SKILLRUNNER_BACKEND_ID,
@@ -668,6 +681,7 @@ export function registerSkillRunnerTaskReconcilerLedgerReconcileTests() {
       persistRun({
         requestId: "req-sequence-waiting",
         state: "running",
+        includeRequestPayload: false,
         role: "sequence_step",
         sequenceRunId: "sequence-existing-state",
         sequenceStepId: "step-one",

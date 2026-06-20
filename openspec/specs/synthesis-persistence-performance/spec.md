@@ -196,8 +196,10 @@ Durable import SHALL write Synthesis facts only through repository/domain servic
 WebDAV Sync SHALL only upload durable bundle assets and SHALL exclude runtime state, cache, projection, SQLite, WAL, SHM, logs, locks, and temporary files.
 
 #### Scenario: WebDAV export runs
+
 - **WHEN** WebDAV Sync uploads a snapshot
-- **THEN** uploaded paths SHALL be limited to `manifest.json` and `bundles/**` under a snapshot root plus the final `HEAD.json`.
+- **THEN** uploaded paths SHALL be limited to `manifest.json` and `bundles/**` under a snapshot root plus the final `HEAD.json`
+- **AND** it SHALL exclude `zotero-agents.db`, `synthesis.db`, and their WAL/SHM companion files.
 
 ## ADDED Requirements
 

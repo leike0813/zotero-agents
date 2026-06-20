@@ -5,49 +5,33 @@ Runtime persistence governance defines where indexed operational state is stored
 ## Requirements
 ### Requirement: SQLite state stores indexed operational state
 
+Runtime persistence governance SHALL separate plugin workflow/runtime SQLite state from Synthesis SQLite state.
 
-Runtime persistence governance SHALL treat `state/zotero-agents.db` as the
-primary location for indexed operational state, including Synthesis local
-working state.
+#### Scenario: Runtime paths expose separate databases
 
-#### Scenario: Synthesis stores hot state
+- **WHEN** the plugin resolves runtime persistence paths
+- **THEN** `stateDbPath` SHALL point to `state/zotero-agents.db`
+- **AND** `synthesisDbPath` SHALL point to `state/synthesis.db`.
 
-- **WHEN** Synthesis needs state for UI, MCP, Host Bridge, review actions, dirty
-  events, workers, or graph queries
-- **THEN** it SHALL store that state in indexed SQLite tables
-- **AND** it SHALL NOT store the hot state primarily as large JSON payloads in
-  prefs, runtime files, or `plugin_task_rows.payload_json`.
+#### Scenario: Workflow runtime state remains in the plugin DB
 
-#### Scenario: Durable JSON assets exist
+- **WHEN** workflow execution, ACP, SkillRunner, workflow product metadata, or plugin task persistence writes indexed operational state
+- **THEN** it SHALL use `state/zotero-agents.db`.
 
-- **WHEN** `data/synthesis/` contains JSON canonical assets
-- **THEN** they SHALL be treated as durable cold-path checkpoint/import/export
-  assets
-- **AND** runtime cleanup SHALL still avoid deleting them.
+#### Scenario: Synthesis uses the Synthesis DB
+
+- **WHEN** Synthesis needs state for UI, MCP, Host Bridge, review actions, workers, operation progress, or graph queries
+- **THEN** it SHALL use indexed SQLite tables in `state/synthesis.db`
+- **AND** it SHALL NOT store that hot state in `state/zotero-agents.db`, prefs, runtime files, or `plugin_task_rows.payload_json`.
 ### Requirement: Runtime SQLite access is concurrency guarded
 
-
-Plugin-owned access to `state/zotero-agents.db` SHALL use a guarded SQLite
-execution path that prevents transient busy/locked storage failures from
-immediately aborting user-visible startup or task execution.
-
-#### Scenario: Transient busy write is retried
-
-- **WHEN** a plugin-owned runtime SQLite statement or transaction boundary fails
-  with a classified busy/locked storage error
-- **THEN** the guarded execution path SHALL retry the operation a bounded number
-  of times
-- **AND** it SHALL preserve the original diagnostic context if the busy condition
-  persists.
+Plugin-owned access to runtime SQLite databases SHALL use guarded SQLite execution paths.
 
 #### Scenario: Same-path plugin transactions are coordinated
 
-- **WHEN** plugin-owned runtime persistence code opens or writes
-  `state/zotero-agents.db`
-- **THEN** access for the same normalized DB path SHALL reuse one guarded
-  connection/coordinator inside the process
-- **AND** nested guarded transactions on that connection SHALL not issue nested
-  `BEGIN IMMEDIATE` statements.
+- **WHEN** plugin-owned runtime persistence code opens or writes `state/zotero-agents.db` or `state/synthesis.db`
+- **THEN** access for the same normalized DB path SHALL reuse one guarded connection/coordinator inside the process
+- **AND** nested guarded transactions on that connection SHALL not issue nested `BEGIN IMMEDIATE` statements.
 ### Requirement: Runtime persistence usage exposes cleanable runtime categories
 
 Runtime persistence governance SHALL expose cleanable runtime data categories for prefs diagnostics and cleanup.
