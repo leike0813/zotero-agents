@@ -123,6 +123,7 @@ zotero-bridge file --help
 | `diagnostic.get_status` | diagnostic | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 | `debug.acpSkillRun.reapplyResult` | debug | `none` | `object` | `debug acp-skill-run reapply-result` | debug-only, mcp-mirror |
 | `debug.persistence.snapshot` | debug | `none` | `object` | `debug persistence` | debug-only, mcp-mirror |
+| `debug.skillrunner.connections.snapshot` | debug | `none` | `object` |  | debug-only, mcp-mirror |
 | `debug.status` | debug | `none` | `object` | `debug status` | debug-only, mcp-mirror |
 | `debug.synthesis.cache.list` | debug | `none` | `object` |  | debug-only, mcp-mirror |
 | `debug.synthesis.cleanInstallReset` | debug | `zotero-ui-required` | `object` |  | debug-only, dangerous, mcp-mirror |

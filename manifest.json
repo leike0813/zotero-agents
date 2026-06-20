@@ -2,10 +2,10 @@
   "schema": "zotero-bridge-cli-bundle.v1",
   "source": {
     "repository": "Zotero-Skills",
-    "commit": "446c2725d7152ff0df5a08088b11bae8a4c7faba",
+    "commit": "e2ccfd59281ec698d1515940c7bfbafbe2cb367b",
     "dirty": true
   },
-  "publishedAt": "2026-06-17T13:36:32.159Z",
+  "publishedAt": "2026-06-20T08:38:00.658Z",
   "branch": "host-bridge/zotero-bridge-cli-bundle",
   "cli": {
     "name": "zotero-bridge",
