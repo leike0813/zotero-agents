@@ -35,7 +35,6 @@
 - `src/modules/skillRunnerTaskReconciler.ts`：SkillRunner 任务收敛器
 - `src/modules/skillRunnerRunStore.ts`：SkillRunner 专用 run store 与 UI projection 来源
 - `src/modules/skillRunnerConnectionGovernor.ts`：SkillRunner HTTP/SSE 连接治理
-- `src/modules/workflowExecution/deferredCompletionTracker.ts`：延迟完成追踪器
 
 说明：`src/transport/` 当前未启用，网络逻辑在 provider 内部实现。
 
@@ -140,7 +139,7 @@ SkillRunner skill source：
 2. `executeBuildRequests` 产生每个合法输入单元的 request
 3. 解析 workflow execution context（backend/profile/options）
 4. JobQueue 执行 provider
-5. 对 foreground-owned provider 结果调用 `applyResult`；SkillRunner request-ready 后进入 reconciler-owned deferred settlement
+5. 对 foreground-owned provider 结果调用 `applyResult`；SkillRunner 正常单体与 sequence 路径在前台 poll/fetch/apply，reconciler 只处理 recovery-owned settlement
 6. 汇总 succeeded/failed/skipped/pending 消息
 
 ## 8. Dashboard 与日志窗口

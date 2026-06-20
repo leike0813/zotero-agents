@@ -190,15 +190,6 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function resolveSkillRunnerExecutionMode(manifest: LoadedWorkflow["manifest"]) {
-  const provider = String(manifest.provider || "").trim();
-  const requestKind = String(manifest.request?.kind || "").trim();
-  if (provider !== "skillrunner" && requestKind !== "skillrunner.job.v1") {
-    return "";
-  }
-  return String(manifest.execution?.skillrunner_mode || "").trim();
-}
-
 function normalizeStringArray(value: unknown) {
   if (!Array.isArray(value)) {
     return [] as string[];
@@ -216,7 +207,12 @@ function resolveWorkflowRequiredMcpTools(manifest: LoadedWorkflow["manifest"]) {
   return normalizeStringArray(manifest.execution?.mcp?.requiredTools);
 }
 
-function withInjectedSkillRunnerExecutionMode(args: {
+function normalizeSkillRunnerRequestMode(value: unknown) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "auto" || normalized === "interactive" ? normalized : "";
+}
+
+function withNormalizedSkillRunnerRuntimeOptions(args: {
   workflow: LoadedWorkflow;
   requestKind: string;
   request: unknown;
@@ -232,7 +228,6 @@ function withInjectedSkillRunnerExecutionMode(args: {
   ) {
     return args.request;
   }
-  const executionMode = resolveSkillRunnerExecutionMode(args.workflow.manifest);
   const requiredTools = resolveWorkflowRequiredMcpTools(args.workflow.manifest);
   if (!isObjectRecord(args.request)) {
     return args.request;
@@ -245,8 +240,12 @@ function withInjectedSkillRunnerExecutionMode(args: {
         ...next.runtime_options,
       }
     : {};
-  if (executionMode) {
-    runtimeOptions.execution_mode = executionMode;
+  if (args.requestKind === "skillrunner.job.v1") {
+    const requestMode = normalizeSkillRunnerRequestMode(next.mode);
+    delete next.mode;
+    if (requestMode) {
+      runtimeOptions.execution_mode = requestMode;
+    }
   }
   if (requiredTools.length > 0) {
     runtimeOptions.workflow_mcp = {
@@ -952,7 +951,7 @@ export async function executeBuildRequests(args: {
             }),
             selectionContext,
           );
-          const finalBuiltRequest = withInjectedSkillRunnerExecutionMode({
+          const finalBuiltRequest = withNormalizedSkillRunnerRuntimeOptions({
             workflow: args.workflow,
             requestKind,
             request: builtRequest,
@@ -987,7 +986,7 @@ export async function executeBuildRequests(args: {
           }),
           selectionContext,
         );
-        const finalCompiledRequest = withInjectedSkillRunnerExecutionMode({
+        const finalCompiledRequest = withNormalizedSkillRunnerRuntimeOptions({
           workflow: args.workflow,
           requestKind: requestKindFromManifest,
           request: compiledRequest,

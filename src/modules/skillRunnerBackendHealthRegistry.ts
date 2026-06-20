@@ -3,28 +3,54 @@ type SkillRunnerBackendHealthListener = (
   state: SkillRunnerBackendHealthState,
 ) => void;
 
+export type SkillRunnerBackendReachabilityStatus =
+  | "disabled"
+  | "unknown"
+  | "probing"
+  | "reachable"
+  | "unreachable";
+
 export type SkillRunnerBackendHealthState = {
   backendId: string;
+  status: SkillRunnerBackendReachabilityStatus;
   reachable: boolean;
-  reconcileFlag: boolean;
-  reachabilityMode: "normal" | "recovery_needed" | "idle_probing";
+  lastReachableAt?: string;
+  lastProbeAt?: string;
+  nextProbeAt?: number;
+  firstUnreachableAt?: string;
   failureStreak: number;
   backoffLevel: number;
-  nextProbeAt: number;
   lastError?: string;
   updatedAt: string;
 };
 
+export type SkillRunnerBackendVisibilityState = {
+  backendId: string;
+  enabled: boolean;
+  reachable: boolean;
+  status: SkillRunnerBackendReachabilityStatus;
+  unavailable: boolean;
+  disabled: boolean;
+  lastReachableAt?: string;
+  lastProbeAt?: string;
+  lastError?: string;
+};
+
 const listeners = new Set<SkillRunnerBackendHealthListener>();
 const states = new Map<string, SkillRunnerBackendHealthState>();
+
 export const SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS = [
   15000,
   30000,
   60000,
   120000,
+  300000,
+  600000,
 ] as const;
-export const SKILLRUNNER_BACKEND_PROBE_FAILURE_THRESHOLD_FOR_GATE = 2;
-export const SKILLRUNNER_BACKEND_PROBE_SUCCESS_THRESHOLD_FOR_RECOVERY = 1;
+export const SKILLRUNNER_BACKEND_PROBE_TICK_MS = 60000;
+export const SKILLRUNNER_BACKEND_ENABLE_PROBE_DEBOUNCE_MS = 1000;
+export const SKILLRUNNER_BACKEND_AUTO_DISABLE_AFTER_MS = 6 * 60 * 60 * 1000;
+export const SKILLRUNNER_BACKEND_RECENT_SUCCESS_SKIP_MS = 60 * 1000;
 
 function nowIso() {
   return new Date().toISOString();
@@ -34,18 +60,53 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
+function errorText(error: unknown) {
+  return (
+    normalizeString(
+      error && typeof error === "object" && "message" in error
+        ? (error as { message?: unknown }).message
+        : error,
+    ) || undefined
+  );
+}
+
+function cloneState(state: SkillRunnerBackendHealthState) {
+  return { ...state };
+}
+
 function emit(backendId: string) {
   const state = states.get(backendId);
   if (!state) {
     return;
   }
-  const snapshot = { ...state };
+  const snapshot = cloneState(state);
   for (const listener of listeners) {
     listener(backendId, snapshot);
   }
 }
 
-function ensureState(backendIdRaw: unknown) {
+function createState(
+  backendId: string,
+  status: SkillRunnerBackendReachabilityStatus,
+): SkillRunnerBackendHealthState {
+  const now = nowIso();
+  return {
+    backendId,
+    status,
+    reachable: status === "reachable",
+    firstUnreachableAt:
+      status === "unknown" || status === "unreachable" ? now : undefined,
+    failureStreak: 0,
+    backoffLevel: 0,
+    nextProbeAt: status === "unknown" ? 0 : undefined,
+    updatedAt: now,
+  };
+}
+
+function ensureState(
+  backendIdRaw: unknown,
+  status: SkillRunnerBackendReachabilityStatus = "unknown",
+) {
   const backendId = normalizeString(backendIdRaw);
   if (!backendId) {
     return null;
@@ -54,35 +115,59 @@ function ensureState(backendIdRaw: unknown) {
   if (current) {
     return current;
   }
-  const next: SkillRunnerBackendHealthState = {
-    backendId,
-    reachable: true,
-    reconcileFlag: false,
-    reachabilityMode: "normal",
-    failureStreak: 0,
-    backoffLevel: 0,
-    nextProbeAt: 0,
-    updatedAt: nowIso(),
-  };
+  const next = createState(backendId, status);
   states.set(backendId, next);
   return next;
 }
 
-export function registerSkillRunnerBackendForHealthTracking(backendId: string) {
+function setDisabledState(state: SkillRunnerBackendHealthState) {
+  state.status = "disabled";
+  state.reachable = false;
+  state.nextProbeAt = undefined;
+  state.lastError = undefined;
+  state.updatedAt = nowIso();
+}
+
+function setUnknownState(state: SkillRunnerBackendHealthState) {
+  const now = nowIso();
+  state.status = "unknown";
+  state.reachable = false;
+  state.nextProbeAt = 0;
+  state.firstUnreachableAt = state.firstUnreachableAt || now;
+  state.updatedAt = now;
+}
+
+export function isSkillRunnerBackendConfigEnabled(backend: {
+  enabled?: unknown;
+}) {
+  return backend.enabled !== false;
+}
+
+export function registerSkillRunnerBackendForHealthTracking(
+  backendId: string,
+  options?: { enabled?: boolean },
+) {
   const normalized = normalizeString(backendId);
   const existed = normalized ? states.has(normalized) : false;
-  const state = ensureState(backendId);
+  const enabled = options?.enabled !== false;
+  const state = ensureState(backendId, enabled ? "unknown" : "disabled");
   if (!state) {
     return null;
   }
-  if (!existed) {
+  const before = JSON.stringify(state);
+  if (!enabled) {
+    setDisabledState(state);
+  } else if (state.status === "disabled") {
+    setUnknownState(state);
+  }
+  if (!existed || before !== JSON.stringify(state)) {
     emit(state.backendId);
   }
-  return { ...state };
+  return cloneState(state);
 }
 
 export function listSkillRunnerBackendHealthStates() {
-  return Array.from(states.values()).map((entry) => ({ ...entry }));
+  return Array.from(states.values()).map(cloneState);
 }
 
 export function getSkillRunnerBackendHealthState(backendId: string) {
@@ -91,33 +176,151 @@ export function getSkillRunnerBackendHealthState(backendId: string) {
     return null;
   }
   const state = states.get(normalized);
-  return state ? { ...state } : null;
+  return state ? cloneState(state) : null;
 }
 
-export function isSkillRunnerBackendReconcileFlagged(backendId: string) {
+export function isSkillRunnerBackendEnabled(backendId: string) {
   const normalized = normalizeString(backendId);
   if (!normalized) {
     return false;
   }
   const state = states.get(normalized);
-  if (!state) {
-    return true;
-  }
-  return state.reconcileFlag === true || state.reachable !== true;
+  return state ? state.status !== "disabled" : true;
 }
 
-export function shouldProbeSkillRunnerBackendNow(backendId: string, now = Date.now()) {
+export function isSkillRunnerBackendReachable(backendId: string) {
+  const normalized = normalizeString(backendId);
+  if (!normalized) {
+    return false;
+  }
+  const state = states.get(normalized);
+  return state?.status === "reachable" && state.reachable === true;
+}
+
+export function getSkillRunnerBackendVisibilityState(
+  backendId: string,
+): SkillRunnerBackendVisibilityState {
+  const normalized = normalizeString(backendId);
+  const state = normalized ? states.get(normalized) : undefined;
+  const status = state?.status || "unknown";
+  const enabled = status !== "disabled";
+  const reachable = enabled && state?.reachable === true && status === "reachable";
+  return {
+    backendId: normalized,
+    enabled,
+    reachable,
+    status,
+    unavailable: !reachable,
+    disabled: !enabled,
+    lastReachableAt: state?.lastReachableAt,
+    lastProbeAt: state?.lastProbeAt,
+    lastError: state?.lastError,
+  };
+}
+
+export function isSkillRunnerBackendAvailable(backendId: string) {
+  const visibility = getSkillRunnerBackendVisibilityState(backendId);
+  return visibility.enabled && visibility.reachable;
+}
+
+export function syncSkillRunnerBackendHealthForConfiguredBackends(
+  backends: Iterable<{
+    id?: unknown;
+    type?: unknown;
+    enabled?: unknown;
+  }>,
+  options?: {
+    prune?: boolean;
+  },
+) {
+  const activeSkillRunnerIds: string[] = [];
+  for (const backend of backends) {
+    if (normalizeString(backend.type) !== "skillrunner") {
+      continue;
+    }
+    const backendId = normalizeString(backend.id);
+    if (!backendId) {
+      continue;
+    }
+    activeSkillRunnerIds.push(backendId);
+    registerSkillRunnerBackendForHealthTracking(backendId, {
+      enabled: backend.enabled !== false,
+    });
+  }
+  const removed = options?.prune
+    ? pruneSkillRunnerBackendHealth(activeSkillRunnerIds)
+    : [];
+  return {
+    tracked: activeSkillRunnerIds,
+    removed,
+  };
+}
+
+export function shouldProbeSkillRunnerBackendNow(
+  backendId: string,
+  now = Date.now(),
+) {
   const state = ensureState(backendId);
-  if (!state) {
+  if (!state || state.status === "disabled" || state.status === "probing") {
     return false;
   }
-  if (state.reachabilityMode === "normal") {
+  if (
+    state.lastReachableAt &&
+    now - Date.parse(state.lastReachableAt) <
+      SKILLRUNNER_BACKEND_RECENT_SUCCESS_SKIP_MS
+  ) {
     return false;
   }
-  if (state.nextProbeAt <= 0) {
+  if (!state.nextProbeAt || state.nextProbeAt <= 0) {
     return true;
   }
   return now >= state.nextProbeAt;
+}
+
+export function shouldAutoDisableSkillRunnerBackend(
+  backendId: string,
+  now = Date.now(),
+) {
+  const state = states.get(normalizeString(backendId));
+  if (!state || state.status === "disabled") {
+    return false;
+  }
+  const anchor =
+    Date.parse(state.lastReachableAt || "") ||
+    Date.parse(state.firstUnreachableAt || "") ||
+    0;
+  return (
+    anchor > 0 &&
+    now - anchor >= SKILLRUNNER_BACKEND_AUTO_DISABLE_AFTER_MS
+  );
+}
+
+export function markSkillRunnerBackendProbeStarted(backendId: string) {
+  const state = ensureState(backendId);
+  if (!state || state.status === "disabled") {
+    return null;
+  }
+  state.status = "probing";
+  state.reachable = false;
+  state.lastProbeAt = nowIso();
+  state.updatedAt = state.lastProbeAt;
+  emit(state.backendId);
+  return cloneState(state);
+}
+
+export function deferSkillRunnerBackendProbe(args: {
+  backendId: string;
+  delayMs?: number;
+}) {
+  const state = ensureState(args.backendId);
+  if (!state || state.status === "disabled") {
+    return null;
+  }
+  state.status = state.reachable ? "reachable" : "unknown";
+  state.nextProbeAt = Date.now() + Math.max(0, Number(args.delayMs || 0));
+  state.updatedAt = nowIso();
+  emit(state.backendId);
+  return cloneState(state);
 }
 
 export function markSkillRunnerBackendHealthSuccess(backendId: string) {
@@ -125,25 +328,27 @@ export function markSkillRunnerBackendHealthSuccess(backendId: string) {
   if (!state) {
     return null;
   }
+  if (state.status === "disabled") {
+    return cloneState(state);
+  }
   const changed =
+    state.status !== "reachable" ||
     state.reachable !== true ||
-    state.reconcileFlag !== false ||
-    state.reachabilityMode !== "normal" ||
     state.backoffLevel !== 0 ||
     state.failureStreak !== 0 ||
     state.lastError !== undefined;
+  state.status = "reachable";
   state.reachable = true;
-  state.reconcileFlag = false;
-  state.reachabilityMode = "normal";
   state.failureStreak = 0;
   state.backoffLevel = 0;
-  state.nextProbeAt = 0;
+  state.nextProbeAt = undefined;
   state.lastError = undefined;
-  state.updatedAt = nowIso();
+  state.lastReachableAt = nowIso();
+  state.updatedAt = state.lastReachableAt;
   if (changed) {
     emit(state.backendId);
   }
-  return { ...state };
+  return cloneState(state);
 }
 
 export function markSkillRunnerBackendHealthFailure(args: {
@@ -151,63 +356,47 @@ export function markSkillRunnerBackendHealthFailure(args: {
   error?: unknown;
 }) {
   const state = ensureState(args.backendId);
-  if (!state) {
+  if (!state || state.status === "disabled") {
     return null;
   }
-  const previousFlag = state.reconcileFlag;
-  const previousReachable = state.reachable;
+  const now = nowIso();
   const nextFailureStreak = state.failureStreak + 1;
   const nextLevel = Math.min(
     SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS.length - 1,
     state.backoffLevel + 1,
   );
-  const shouldFlag =
-    nextFailureStreak >= SKILLRUNNER_BACKEND_PROBE_FAILURE_THRESHOLD_FOR_GATE;
-  state.reachable = !shouldFlag ? previousReachable : false;
-  state.reconcileFlag = shouldFlag;
-  state.reachabilityMode = "idle_probing";
+  state.status = "unreachable";
+  state.reachable = false;
   state.failureStreak = nextFailureStreak;
   state.backoffLevel = nextLevel;
+  state.lastProbeAt = now;
+  state.firstUnreachableAt = state.firstUnreachableAt || now;
   state.nextProbeAt =
     Date.now() + SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS[nextLevel];
-  state.lastError = normalizeString(
-    args.error && typeof args.error === "object" && "message" in args.error
-      ? (args.error as { message?: unknown }).message
-      : args.error,
-  ) || undefined;
-  state.updatedAt = nowIso();
-  if (
-    previousFlag !== state.reconcileFlag ||
-    previousReachable !== state.reachable
-  ) {
-    emit(state.backendId);
-  }
-  return { ...state };
+  state.lastError = errorText(args.error);
+  state.updatedAt = now;
+  emit(state.backendId);
+  return cloneState(state);
 }
 
-export function markSkillRunnerBackendRecoveryNeeded(args: {
-  backendId: string;
-  error?: unknown;
-}) {
-  const state = ensureState(args.backendId);
+export function markSkillRunnerBackendDisabled(backendId: string) {
+  const state = ensureState(backendId, "disabled");
   if (!state) {
     return null;
   }
-  const changed = state.reachabilityMode === "normal";
-  state.reachabilityMode = "recovery_needed";
-  state.nextProbeAt =
-    Date.now() + SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS[0];
-  state.lastError =
-    normalizeString(
-      args.error && typeof args.error === "object" && "message" in args.error
-        ? (args.error as { message?: unknown }).message
-        : args.error,
-    ) || state.lastError;
-  state.updatedAt = nowIso();
-  if (changed) {
-    emit(state.backendId);
+  setDisabledState(state);
+  emit(state.backendId);
+  return cloneState(state);
+}
+
+export function markSkillRunnerBackendEnabledForProbe(backendId: string) {
+  const state = ensureState(backendId, "unknown");
+  if (!state) {
+    return null;
   }
-  return { ...state };
+  setUnknownState(state);
+  emit(state.backendId);
+  return cloneState(state);
 }
 
 export function untrackSkillRunnerBackendHealth(backendId: string) {
@@ -218,7 +407,9 @@ export function untrackSkillRunnerBackendHealth(backendId: string) {
   return states.delete(normalized);
 }
 
-export function pruneSkillRunnerBackendHealth(activeBackendIds: Iterable<string>) {
+export function pruneSkillRunnerBackendHealth(
+  activeBackendIds: Iterable<string>,
+) {
   const active = new Set<string>();
   for (const id of activeBackendIds) {
     const normalized = normalizeString(id);
@@ -248,11 +439,11 @@ export function subscribeSkillRunnerBackendHealth(
 }
 
 export function getSkillRunnerBackendHealthRegistryRuntimeForTests() {
-  let flaggedBackendCount = 0;
+  let unavailableBackendCount = 0;
   let failureBackoffEntryCount = 0;
   for (const state of states.values()) {
-    if (state.reconcileFlag) {
-      flaggedBackendCount += 1;
+    if (state.status !== "reachable") {
+      unavailableBackendCount += 1;
     }
     if (state.failureStreak > 0 || state.backoffLevel > 0) {
       failureBackoffEntryCount += 1;
@@ -260,7 +451,8 @@ export function getSkillRunnerBackendHealthRegistryRuntimeForTests() {
   }
   return {
     trackedBackendCount: states.size,
-    flaggedBackendCount,
+    flaggedBackendCount: unavailableBackendCount,
+    unavailableBackendCount,
     failureBackoffEntryCount,
     listenerCount: listeners.size,
   };

@@ -52,6 +52,24 @@ type QueueConfig = {
   onJobProgress?: (job: JobRecord, event: JobProgressEvent) => void;
 };
 
+function getExecutionResultRecord(
+  result: unknown,
+): Record<string, unknown> | null {
+  return result && typeof result === "object" && !Array.isArray(result)
+    ? (result as Record<string, unknown>)
+    : null;
+}
+
+function getExecutionResultStatus(result: unknown) {
+  const record = getExecutionResultRecord(result);
+  return String(record?.status || "").trim();
+}
+
+function getExecutionResultError(result: unknown) {
+  const record = getExecutionResultRecord(result);
+  return String(record?.error || "").trim();
+}
+
 export class JobQueueManager {
   private readonly concurrency: number;
 
@@ -229,11 +247,8 @@ export class JobQueueManager {
         },
       );
       job.result = executionResult;
-      if (
-        executionResult &&
-        typeof executionResult === "object" &&
-        (executionResult as { status?: unknown }).status === "deferred"
-      ) {
+      const executionStatus = getExecutionResultStatus(executionResult);
+      if (executionStatus === "deferred") {
         const requestId = String(
           (executionResult as { requestId?: unknown }).requestId ||
             job.meta.requestId ||
@@ -263,6 +278,16 @@ export class JobQueueManager {
           violation: transition.violation,
         });
         job.state = transition.ok ? transition.nextState : transition.prevState;
+      } else if (
+        executionStatus === "failed" ||
+        executionStatus === "canceled"
+      ) {
+        job.state = executionStatus;
+        job.error =
+          getExecutionResultError(executionResult) ||
+          (executionStatus === "canceled"
+            ? "provider execution canceled"
+            : "provider execution failed");
       } else {
         job.state = "succeeded";
       }
@@ -272,11 +297,13 @@ export class JobQueueManager {
         (executionResult as { requestId?: unknown })?.requestId || "",
       ).trim();
       const stage =
-        executionResult &&
-        typeof executionResult === "object" &&
-        (executionResult as { status?: unknown }).status === "deferred"
+        executionStatus === "deferred"
           ? "dispatch-deferred"
-          : "dispatch-succeeded";
+          : executionStatus === "failed"
+            ? "dispatch-failed"
+            : executionStatus === "canceled"
+              ? "dispatch-canceled"
+              : "dispatch-succeeded";
       appendRuntimeLog({
         level: "info",
         scope: "job",
@@ -294,7 +321,11 @@ export class JobQueueManager {
         message:
           stage === "dispatch-deferred"
             ? "provider dispatch deferred to backend reconciler"
-            : "provider dispatch finished",
+            : stage === "dispatch-failed"
+              ? "provider dispatch finished with terminal failure"
+              : stage === "dispatch-canceled"
+                ? "provider dispatch finished with cancellation"
+                : "provider dispatch finished",
       });
     } catch (error) {
       this.logJobError(job, error);
@@ -318,8 +349,7 @@ export class JobQueueManager {
         ) {
           job.meta.skillRunnerLifecycleState = "failed";
           job.meta.skillRunnerSubmitPhase =
-            String(job.meta.skillRunnerSubmitPhase || "").trim() ||
-            "uploading";
+            String(job.meta.skillRunnerSubmitPhase || "").trim() || "uploading";
         }
       }
       if (requestId && isNonRecoverableSkillRunnerFailure(error)) {

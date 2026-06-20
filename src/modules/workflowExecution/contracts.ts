@@ -51,11 +51,6 @@ export type WorkflowApplySummary = {
   pending: number;
   failureReasons: string[];
   jobOutcomes: WorkflowJobOutcome[];
-  reconcileOwnedPendingJobs: Array<
-    WorkflowJobOutcome & {
-      requestId: string;
-    }
-  >;
 };
 
 export type WorkflowToastPayload = {

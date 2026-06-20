@@ -155,7 +155,6 @@ export type WorkflowTriggerSpec = {
 };
 
 export type WorkflowExecutionSpec = {
-  mode?: "auto" | "sync" | "async";
   mcp?: {
     requiredTools?: string[];
   };
@@ -163,7 +162,6 @@ export type WorkflowExecutionSpec = {
     required?: boolean;
     allowWriteApprovalBypass?: boolean;
   };
-  skillrunner_mode?: "auto" | "interactive";
   poll_interval_ms?: number;
   timeout_ms?: number;
   feedback?: {
@@ -186,6 +184,7 @@ export type WorkflowRequestSpec = {
   kind: string;
   create?: {
     skill_id?: string;
+    mode?: "auto" | "interactive";
     skill_source?: "local-package" | "installed";
   };
   input?: {
@@ -205,6 +204,7 @@ export type WorkflowRequestSpec = {
     steps?: Array<{
       id?: string;
       skill_id?: string;
+      mode?: "auto" | "interactive";
       input?: Record<string, unknown>;
       parameter?: Record<string, unknown>;
       fetch_type?: "bundle" | "result";

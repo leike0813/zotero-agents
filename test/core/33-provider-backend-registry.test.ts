@@ -561,6 +561,7 @@ describe("provider/backend registry", function () {
         request: {
           kind: "skillrunner.job.v1",
           skill_id: "tag-regulator",
+          runtime_options: { execution_mode: "auto" },
           upload_files: [{ key: "md_path", path: "D:/fixtures/example.md" }],
           parameter: { language: "zh-CN" },
           input: {
@@ -616,6 +617,7 @@ describe("provider/backend registry", function () {
         request: {
           kind: "skillrunner.job.v1",
           skill_id: "tag-regulator",
+          runtime_options: { execution_mode: "auto" },
           skill_source: "local-package",
         },
       });
@@ -625,6 +627,7 @@ describe("provider/backend registry", function () {
         request: {
           kind: "skillrunner.job.v1",
           skill_id: "tag-regulator",
+          runtime_options: { execution_mode: "auto" },
           skill_source: "installed",
         },
       });
@@ -640,6 +643,7 @@ describe("provider/backend registry", function () {
           request: {
             kind: "skillrunner.job.v1",
             skill_id: "tag-regulator",
+            runtime_options: { execution_mode: "auto" },
             skill_source: "backend",
           },
         });
@@ -689,6 +693,7 @@ describe("provider/backend registry", function () {
       const baseRequest = {
         kind: "skillrunner.job.v1" as const,
         skill_id: "tag-regulator",
+        runtime_options: { execution_mode: "auto" },
       };
       const stringResult = await executeWithProvider({
         requestKind: "skillrunner.job.v1",
@@ -730,6 +735,7 @@ describe("provider/backend registry", function () {
         request: {
           kind: "skillrunner.job.v1",
           skill_id: "tag-regulator",
+          runtime_options: { execution_mode: "auto" },
           input: {
             metadata: { itemKey: "AAA111" },
           },
@@ -1083,12 +1089,11 @@ describe("provider/backend registry", function () {
           kind: "skillrunner.job.v1",
           create: {
             skill_id: "legacy-supported-backends",
+            mode: "interactive",
           },
         },
         execution: {
-          mode: "auto",
           supportedBackends: ["acp"],
-          skillrunner_mode: "interactive",
         },
         hooks: {
           applyResult: "hooks/applyResult.js",

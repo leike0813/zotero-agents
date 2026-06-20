@@ -649,16 +649,17 @@ async function scanPersistenceRootDiagnostics(args: {
     );
   }
 
-  const shadowDbPath = joinPath(
-    args.persistenceRoot,
-    "data",
-    "state",
-    "zotero-agents.db",
-  );
-  if (
-    normalizedPathForCompare(shadowDbPath) !==
-    normalizedPathForCompare(expectedDbPath)
-  ) {
+  const shadowDbPaths = [
+    joinPath(args.persistenceRoot, "data", "state", "zotero-agents.db"),
+    joinPath(args.persistenceRoot, "data", "state", "synthesis.db"),
+  ];
+  for (const shadowDbPath of shadowDbPaths) {
+    if (
+      normalizedPathForCompare(shadowDbPath) ===
+      normalizedPathForCompare(expectedDbPath)
+    ) {
+      continue;
+    }
     const stat = await statRuntimePath(shadowDbPath);
     if (stat.exists) {
       diagnostics.push(

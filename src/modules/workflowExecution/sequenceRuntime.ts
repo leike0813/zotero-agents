@@ -21,14 +21,14 @@ import {
   initializeSequenceRunState,
   markSequenceRunContinuing,
   markSequenceRunTerminal,
-  markSequenceRunWaitingRecovery,
   recordSequenceStepApplyResult,
-  recordSequenceStepDeferred,
+  recordSequenceStepWaiting,
   recordSequenceStepRequestCreated,
   recordSequenceStepStarted,
   recordSequenceStepSucceeded,
   type SequenceRunState,
 } from "./sequenceStateStore";
+import { updateSkillRunnerRunApplyState } from "../skillRunnerRunStore";
 
 export type ExecuteWithProvider = (args: {
   requestKind: string;
@@ -86,6 +86,18 @@ function cloneRecord(value: unknown) {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizeStepExecutionMode(value: unknown) {
+  const normalized = normalizeString(value).toLowerCase();
+  if (normalized === "auto" || normalized === "interactive") {
+    return normalized;
+  }
+  return "";
+}
+
+function nowIso() {
+  return new Date().toISOString();
 }
 
 function primitiveEquals(left: unknown, right: unknown) {
@@ -282,6 +294,11 @@ export function buildStepRequest(args: {
     declaredWorkspace === "reuse-workflow" ? "reuse" : "new";
   const runtimeOptions = cloneRecord(args.sequence.runtime_options);
   delete runtimeOptions.workflow_workspace;
+  const stepMode = normalizeStepExecutionMode(args.step.mode);
+  if (!stepMode) {
+    throw new Error(`sequence step '${args.step.id}' requires mode`);
+  }
+  runtimeOptions.execution_mode = stepMode;
   const sharedMeta = {
     ...(args.sequence.taskName
       ? { taskName: `${args.sequence.taskName} / ${args.step.id}` }
@@ -500,6 +517,34 @@ function sequenceStepsMetadata(outputsByStep: Map<string, StepOutput>) {
   }));
 }
 
+function buildSequenceDeferredResult(args: {
+  state: SequenceRunState;
+  step: SkillRunnerSequenceStepV1;
+  stepIndex: number;
+  requestId: string;
+  stepResult: Extract<ProviderExecutionResult, { status: "deferred" }>;
+  outputsByStep: Map<string, StepOutput>;
+}) {
+  const responseJson = cloneRecord(args.stepResult.responseJson);
+  const existingSequence = cloneRecord(responseJson.sequence);
+  return {
+    ...args.stepResult,
+    requestId: args.requestId || args.stepResult.requestId,
+    responseJson: {
+      ...responseJson,
+      sequence: {
+        ...existingSequence,
+        workflow_run_id: args.state.workflowRunId,
+        final_step_id: args.state.request.final_step_id,
+        steps: sequenceStepsMetadata(args.outputsByStep),
+        pending_step_id: args.step.id,
+        pending_step_index: args.stepIndex,
+        pending_step_job_id: `${args.state.jobId}:${args.step.id}`,
+      },
+    },
+  } satisfies Extract<ProviderExecutionResult, { status: "deferred" }>;
+}
+
 function sequenceStepsWithOutputs(outputsByStep: Map<string, StepOutput>) {
   return Array.from(outputsByStep.values()).map((entry) => ({
     step_id: entry.stepId,
@@ -547,6 +592,59 @@ function stringifyUnknownError(error: unknown) {
   }
 }
 
+function sequenceStepApplyEventType(
+  state: "running" | "succeeded" | "failed" | "skipped",
+) {
+  if (state === "running") {
+    return "apply.started";
+  }
+  if (state === "succeeded") {
+    return "apply.succeeded";
+  }
+  if (state === "failed") {
+    return "apply.failed";
+  }
+  return "apply.skipped";
+}
+
+function syncSkillRunnerSequenceStepApplyState(args: {
+  state: SequenceRunState;
+  step: SkillRunnerSequenceStepV1;
+  stepIndex: number;
+  backend: BackendInstance;
+  requestId: string;
+  applyState: "running" | "succeeded" | "failed" | "skipped";
+  applyWorkflowId?: string;
+  error?: string;
+  source: string;
+  reason?: string;
+}) {
+  if (normalizeString(args.backend.type) !== DEFAULT_BACKEND_TYPE) {
+    return;
+  }
+  const requestId = normalizeString(args.requestId);
+  if (!requestId) {
+    return;
+  }
+  updateSkillRunnerRunApplyState({
+    backendId: args.backend.id,
+    requestId,
+    state: args.applyState,
+    error: args.error,
+    updatedAt: nowIso(),
+    eventType: sequenceStepApplyEventType(args.applyState),
+    eventPayload: {
+      source: args.source,
+      sequenceRunId: args.state.sequenceRunId,
+      workflowRunId: args.state.workflowRunId,
+      stepId: args.step.id,
+      stepIndex: args.stepIndex,
+      applyWorkflowId: normalizeString(args.applyWorkflowId) || undefined,
+      reason: normalizeString(args.reason) || undefined,
+    },
+  });
+}
+
 async function applySequenceStepIfNeeded(args: {
   state: SequenceRunState;
   step: SkillRunnerSequenceStepV1;
@@ -558,9 +656,23 @@ async function applySequenceStepIfNeeded(args: {
   backend: BackendInstance;
   appendRuntimeLog: typeof appendRuntimeLog;
   applySequenceStepResult?: ApplySequenceStepResult;
+  syncSkillRunnerRunApplyState?: boolean;
 }) {
   const applyWorkflowId = resolveStepApplyWorkflowId(args.step);
+  const shouldSyncRunApplyState = args.syncSkillRunnerRunApplyState !== false;
   if (!applyWorkflowId) {
+    if (shouldSyncRunApplyState) {
+      syncSkillRunnerSequenceStepApplyState({
+        state: args.state,
+        step: args.step,
+        stepIndex: args.stepIndex,
+        backend: args.backend,
+        requestId: args.stepResult.requestId,
+        applyState: "skipped",
+        source: "workflowExecution.sequenceRuntime.stepApplySkipped",
+        reason: "no-apply-result",
+      });
+    }
     return;
   }
   const existing = args.state.steps[args.stepIndex]?.applyResult;
@@ -570,6 +682,18 @@ async function applySequenceStepIfNeeded(args: {
       args.outputsByStep.set(args.step.id, {
         ...current,
         applyResult: existing,
+      });
+    }
+    if (shouldSyncRunApplyState) {
+      syncSkillRunnerSequenceStepApplyState({
+        state: args.state,
+        step: args.step,
+        stepIndex: args.stepIndex,
+        backend: args.backend,
+        requestId: args.stepResult.requestId,
+        applyState: "succeeded",
+        applyWorkflowId: existing.workflowId || applyWorkflowId,
+        source: "workflowExecution.sequenceRuntime.stepApplyExisting",
       });
     }
     return;
@@ -586,6 +710,19 @@ async function applySequenceStepIfNeeded(args: {
     const current = args.outputsByStep.get(args.step.id);
     if (current && applyResult) {
       args.outputsByStep.set(args.step.id, { ...current, applyResult });
+    }
+    if (shouldSyncRunApplyState) {
+      syncSkillRunnerSequenceStepApplyState({
+        state: args.state,
+        step: args.step,
+        stepIndex: args.stepIndex,
+        backend: args.backend,
+        requestId: args.stepResult.requestId,
+        applyState: "skipped",
+        applyWorkflowId,
+        error: applyResult?.error || "sequence step apply callback unavailable",
+        source: "workflowExecution.sequenceRuntime.stepApplyUnavailable",
+      });
     }
     return;
   }
@@ -605,6 +742,18 @@ async function applySequenceStepIfNeeded(args: {
       applyWorkflowId,
     },
   });
+  if (shouldSyncRunApplyState) {
+    syncSkillRunnerSequenceStepApplyState({
+      state: args.state,
+      step: args.step,
+      stepIndex: args.stepIndex,
+      backend: args.backend,
+      requestId: args.stepResult.requestId,
+      applyState: "running",
+      applyWorkflowId,
+      source: "workflowExecution.sequenceRuntime.stepApply",
+    });
+  }
   try {
     const result = await args.applySequenceStepResult({
       sequenceRequest: args.state.request,
@@ -632,6 +781,18 @@ async function applySequenceStepIfNeeded(args: {
     const current = args.outputsByStep.get(args.step.id);
     if (current && applyResult) {
       args.outputsByStep.set(args.step.id, { ...current, applyResult });
+    }
+    if (shouldSyncRunApplyState) {
+      syncSkillRunnerSequenceStepApplyState({
+        state: args.state,
+        step: args.step,
+        stepIndex: args.stepIndex,
+        backend: args.backend,
+        requestId: args.stepResult.requestId,
+        applyState: "succeeded",
+        applyWorkflowId,
+        source: "workflowExecution.sequenceRuntime.stepApply",
+      });
     }
     args.appendRuntimeLog({
       level: "info",
@@ -661,6 +822,19 @@ async function applySequenceStepIfNeeded(args: {
     const current = args.outputsByStep.get(args.step.id);
     if (current && applyResult) {
       args.outputsByStep.set(args.step.id, { ...current, applyResult });
+    }
+    if (shouldSyncRunApplyState) {
+      syncSkillRunnerSequenceStepApplyState({
+        state: args.state,
+        step: args.step,
+        stepIndex: args.stepIndex,
+        backend: args.backend,
+        requestId: args.stepResult.requestId,
+        applyState: "failed",
+        applyWorkflowId,
+        error: message,
+        source: "workflowExecution.sequenceRuntime.stepApply",
+      });
     }
     args.appendRuntimeLog({
       level: "error",
@@ -698,6 +872,7 @@ export async function applySequenceStepResultIfNeeded(args: {
   backend: BackendInstance;
   appendRuntimeLog: typeof appendRuntimeLog;
   applySequenceStepResult: ApplySequenceStepResult;
+  syncSkillRunnerRunApplyState?: boolean;
 }) {
   const step = args.state.request.steps[args.stepIndex];
   if (!step) {
@@ -723,6 +898,7 @@ export async function applySequenceStepResultIfNeeded(args: {
     backend: args.backend,
     appendRuntimeLog: args.appendRuntimeLog,
     applySequenceStepResult: args.applySequenceStepResult,
+    syncSkillRunnerRunApplyState: args.syncSkillRunnerRunApplyState,
   });
   return true;
 }
@@ -782,7 +958,7 @@ async function applyPendingSucceededStepsBeforeStart(args: {
   }
 }
 
-function buildSequenceResult(args: {
+export function buildSequenceResult(args: {
   finalResult: Extract<ProviderExecutionResult, { status: "succeeded" }>;
   workflowRunId: string;
   finalStepId: string;
@@ -819,38 +995,6 @@ function buildSequenceResult(args: {
   } satisfies ProviderExecutionResult;
 }
 
-function buildSkillRunnerSequenceReconcileDeferredResult(args: {
-  step: SkillRunnerSequenceStepV1;
-  stepIndex: number;
-  stepResult: Extract<ProviderExecutionResult, { status: "succeeded" }>;
-  workflowRunId: string;
-  finalStepId: string;
-  outputsByStep: Map<string, StepOutput>;
-  sequenceJobId: string;
-}) {
-  const sequenceMetadata = {
-    workflow_run_id: args.workflowRunId,
-    final_step_id: args.finalStepId,
-    steps: sequenceStepsMetadata(args.outputsByStep),
-    pending_step_id: args.step.id,
-    pending_step_index: args.stepIndex,
-    pending_step_job_id: `${args.sequenceJobId}:${args.step.id}`,
-    pending_reconciler_apply: true,
-  };
-  return {
-    status: "deferred" as const,
-    requestId: args.stepResult.requestId,
-    fetchType: args.stepResult.fetchType,
-    backendStatus: "running" as const,
-    responseJson: {
-      ...(isRecord(args.stepResult.responseJson)
-        ? args.stepResult.responseJson
-        : {}),
-      sequence: sequenceMetadata,
-    },
-  } satisfies ProviderExecutionResult;
-}
-
 async function executeSequenceFromState(args: {
   state: SequenceRunState;
   startIndex: number;
@@ -867,7 +1011,7 @@ async function executeSequenceFromState(args: {
       `skillrunner.sequence.v1 is only supported on ACP or SkillRunner backends; got ${backendType || "unknown"}`,
     );
   }
-  const foregroundStepApply = backendType === ACP_BACKEND_TYPE;
+  const foregroundStepApply = true;
   const stepRequestKind = resolveStepRequestKind(backendType);
   const outputsByStep = outputsByStepFromState(args.state);
   if (foregroundStepApply) {
@@ -1020,11 +1164,19 @@ async function executeSequenceFromState(args: {
     const resultRequestId =
       normalizeString(stepResult.requestId) || progressRequestId;
     if (stepResult.status === "deferred") {
-      recordSequenceStepDeferred({
+      const sequenceDeferredResult = buildSequenceDeferredResult({
+        state: args.state,
+        step,
+        stepIndex: index,
+        requestId: resultRequestId,
+        stepResult,
+        outputsByStep,
+      });
+      recordSequenceStepWaiting({
         sequenceRunId: args.state.sequenceRunId,
         stepIndex: index,
         requestId: resultRequestId,
-        result: stepResult,
+        result: sequenceDeferredResult,
       });
       args.onProgress?.({
         type: "sequence-step-deferred",
@@ -1040,7 +1192,7 @@ async function executeSequenceFromState(args: {
         workflowRunId: args.state.workflowRunId,
         sequenceJobId: args.state.jobId,
       });
-      return stepResult;
+      return sequenceDeferredResult;
     }
     if (stepResult.status !== "succeeded") {
       markSequenceRunTerminal({
@@ -1099,18 +1251,6 @@ async function executeSequenceFromState(args: {
       workflowRunId: args.state.workflowRunId,
       sequenceJobId: args.state.jobId,
     });
-    if (!foregroundStepApply) {
-      markSequenceRunWaitingRecovery(args.state.sequenceRunId);
-      return buildSkillRunnerSequenceReconcileDeferredResult({
-        step,
-        stepIndex: index,
-        stepResult,
-        workflowRunId: args.state.workflowRunId,
-        finalStepId: args.state.request.final_step_id,
-        outputsByStep,
-        sequenceJobId: args.state.jobId,
-      });
-    }
     await applySequenceStepIfNeeded({
       state: args.state,
       step,

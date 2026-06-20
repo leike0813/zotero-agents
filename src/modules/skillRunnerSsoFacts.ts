@@ -3,9 +3,10 @@ import {
   SKILLRUNNER_TERMINAL_STATES,
 } from "./skillRunnerProviderStateMachine";
 import {
+  SKILLRUNNER_BACKEND_AUTO_DISABLE_AFTER_MS,
+  SKILLRUNNER_BACKEND_PROBE_TICK_MS,
   SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS,
-  SKILLRUNNER_BACKEND_PROBE_FAILURE_THRESHOLD_FOR_GATE,
-  SKILLRUNNER_BACKEND_PROBE_SUCCESS_THRESHOLD_FOR_RECOVERY,
+  SKILLRUNNER_BACKEND_RECENT_SUCCESS_SKIP_MS,
 } from "./skillRunnerBackendHealthRegistry";
 import {
   SKILLRUNNER_EVENT_STREAM_CONNECT_SNAPSHOT,
@@ -22,10 +23,11 @@ export const SKILLRUNNER_SSOT_FACTS = {
   terminalWriteSource: "jobs-terminal",
   backendHealth: {
     probeBackoffMs: [...SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS],
-    failureThresholdForGate:
-      SKILLRUNNER_BACKEND_PROBE_FAILURE_THRESHOLD_FOR_GATE,
-    successThresholdForRecovery:
-      SKILLRUNNER_BACKEND_PROBE_SUCCESS_THRESHOLD_FOR_RECOVERY,
+    probeTickMs: SKILLRUNNER_BACKEND_PROBE_TICK_MS,
+    recentSuccessSkipMs: SKILLRUNNER_BACKEND_RECENT_SUCCESS_SKIP_MS,
+    autoDisableAfterMs: SKILLRUNNER_BACKEND_AUTO_DISABLE_AFTER_MS,
+    submitVisibility: "enabled_and_reachable",
+    recoveryTrigger: "unreachable_to_reachable",
   },
   streamLifecycle: {
     eventConnectOnlySnapshot: SKILLRUNNER_EVENT_STREAM_CONNECT_SNAPSHOT,
@@ -40,15 +42,15 @@ export const SKILLRUNNER_SSOT_FACTS = {
     probePolicy: "probe-only-if-registry-present",
   },
   applyOwnership: {
-    autoApplyOwner: "reconciler",
-    interactiveApplyOwner: "reconciler",
-    foregroundAutoApply: "skip-and-defer-to-reconciler",
-    providerSubmitBoundary: "request_ready",
-    providerPollsTerminalAfterReady: false,
-    providerFetchesResultAfterReady: false,
-    resultNormalizationOwner: "reconciler",
-    bundleNormalizationOwner: "reconciler",
-    sequenceContinueOwner: "reconciler",
+    autoApplyOwner: "foreground-orchestrator",
+    interactiveApplyOwner: "foreground-orchestrator",
+    foregroundAutoApply: "apply-single-terminal-success",
+    providerSubmitBoundary: "submit_phase_request_ready",
+    providerPollsTerminalAfterReady: true,
+    providerFetchesResultAfterReady: true,
+    resultNormalizationOwner: "foreground-provider-continuation",
+    bundleNormalizationOwner: "foreground-provider-continuation",
+    sequenceContinueOwner: "foreground-continuation",
     resultParseFailure: "visible_failed_apply",
     bundleArtifactMissing: "visible_failed_apply",
     applyHookFailure: "visible_failed_apply",
@@ -64,16 +66,30 @@ export const SKILLRUNNER_SSOT_FACTS = {
       "skipped",
     ],
   },
+  reconciler: {
+    missingContextIntervalScan: false,
+    missingContextOneShotBoundaries: [
+      "startup",
+      "backend_recovery",
+      "managed_local_post_up",
+    ],
+    missingContextSkipsNonIdleApply: false,
+    recoveryOwnership: "one_shot_handoff",
+    pollsJobsContinuously: false,
+    fetchesResults: false,
+    appliesResults: false,
+    missingContextOutcome: "failed",
+  },
   uiGating: {
-    flaggedBackendBlocksRunDialog: true,
-    flaggedBackendHiddenInHome: true,
-    flaggedBackendTabDisabled: true,
-    flaggedBackendWorkspaceDisabled: true,
+    unavailableBackendBlocksRunDialog: true,
+    unavailableBackendHiddenInHome: true,
+    unavailableBackendTabDisabled: true,
+    unavailableBackendWorkspaceDisabled: true,
   },
   workspace: {
     singletonRunWorkspace: true,
     stateRenderSource: "skillrunner-run-store-projection",
-    firstVisibleSkillRunnerState: "request_ready",
+    firstVisibleSkillRunnerState: "running",
     preReadyProjectable: false,
     flaggedGroupRules: {
       flaggedGroupDisabled: true,

@@ -623,6 +623,14 @@ function postShellInit(
   postShellMessage(pane, "assistant-workspace:init", { activeTab });
 }
 
+function postActiveShellInit(host: AssistantWorkspaceHostRuntime) {
+  const target = host.activeTarget;
+  if (!target) {
+    return;
+  }
+  postShellInit(target === "reader" ? host.reader : host.library, host.activeTab);
+}
+
 function postAllSnapshots(host: AssistantWorkspaceHostRuntime) {
   const target = host.activeTarget;
   if (!target) {
@@ -1383,9 +1391,23 @@ export async function openAssistantWorkspaceSidebar(args?: {
   const host = installAssistantWorkspaceSidebarShell(win);
   if (args && "tab" in args && args.tab) {
     host.activeTab = normalizeTab(args.tab);
+    postActiveShellInit(host);
   }
   if (host.activeTab === "acp-skills" && args?.requestId) {
     selectAcpSkillRun(args.requestId);
+  }
+  if (
+    host.activeTab === "skillrunner" &&
+    (args?.taskKey || args?.taskId || args?.localRunId || args?.requestId)
+  ) {
+    await focusSkillRunnerWorkspace({
+      backend: args?.backend,
+      requestId: args?.requestId,
+      taskKey: args?.taskKey,
+      taskId: args?.taskId,
+      localRunId: args?.localRunId,
+      selectionChanged: true,
+    });
   }
   const target = args?.target || resolvePreferredTarget(win);
   const activated = await activateTarget(host, target);

@@ -1,11 +1,11 @@
 import {
   JobQueueManager,
   type JobRecord,
-  type JobState,
 } from "../../jobQueue/manager";
 import { executeWithProvider } from "../../providers/registry";
 import {
   ACP_SKILL_RUN_REQUEST_KIND,
+  DEFAULT_BACKEND_TYPE,
   SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../../config/defaults";
 import { appendRuntimeLog } from "../runtimeLogManager";
@@ -14,7 +14,6 @@ import {
   recordWorkflowTaskUpdate,
 } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
-import { registerSkillRunnerRunForSettlement } from "../skillRunnerTaskReconciler";
 import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
 import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
 import { selectAcpSkillRun } from "../acpSkillRunStore";
@@ -35,6 +34,12 @@ import { localizeWorkflowLabel } from "../../workflows/localization";
 import type { LoadedWorkflow } from "../../workflows/types";
 import { getLoadedWorkflowEntries } from "../workflowRuntime";
 import { executeSequenceStepApply } from "./sequenceStepApply";
+import { resolveSkillRunnerExecutionModeFromRequest } from "../skillRunnerExecutionMode";
+import {
+  mapSkillRunnerProgressLifecycle,
+  mapSkillRunnerSequenceStepProgressState,
+  mapSkillRunnerSubmitPhase,
+} from "../skillRunnerProgressMapping";
 
 type RunSeamDeps = {
   createQueue: (
@@ -44,7 +49,6 @@ type RunSeamDeps = {
   appendRuntimeLog: typeof appendRuntimeLog;
   recordWorkflowTaskUpdate: typeof recordWorkflowTaskUpdate;
   recordTaskDashboardHistoryFromJob: typeof recordTaskDashboardHistoryFromJob;
-  registerSkillRunnerRunForSettlement: typeof registerSkillRunnerRunForSettlement;
   openAssistantWorkspaceSidebar: typeof openAssistantWorkspaceSidebar;
   focusSkillRunnerWorkspace: typeof focusSkillRunnerWorkspace;
   selectAcpSkillRun: typeof selectAcpSkillRun;
@@ -58,7 +62,6 @@ const defaultRunSeamDeps: RunSeamDeps = {
   appendRuntimeLog,
   recordWorkflowTaskUpdate,
   recordTaskDashboardHistoryFromJob,
-  registerSkillRunnerRunForSettlement,
   openAssistantWorkspaceSidebar,
   focusSkillRunnerWorkspace,
   selectAcpSkillRun,
@@ -78,49 +81,17 @@ function normalizeText(value: unknown) {
   return String(value || "").trim();
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 function normalizeSequenceStepIndex(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.floor(parsed) : undefined;
 }
 
-function mapSequenceStepProgressState(
-  event: Record<string, unknown>,
-): JobState {
-  const type = normalizeText(event.type);
-  if (type === "sequence-step-succeeded") {
-    return "succeeded";
-  }
-  if (type === "sequence-step-canceled") {
-    return "canceled";
-  }
-  if (type === "sequence-step-failed") {
-    return "failed";
-  }
-  if (type === "sequence-step-deferred") {
-    const backendStatus = normalizeText(event.backendStatus);
-    if (
-      backendStatus === "queued" ||
-      backendStatus === "waiting_user" ||
-      backendStatus === "waiting_auth"
-    ) {
-      return backendStatus;
-    }
-  }
-  return "running";
-}
-
-function mapSkillRunnerProgressLifecycle(event: Record<string, unknown>) {
-  const type = normalizeText(event.type);
-  if (type === "request-created" || type === "request-uploading") {
-    return "uploading";
-  }
-  if (type === "request-ready" || type === "sequence-step-deferred") {
-    return "request_ready";
-  }
-  if (type === "request-creating" || type === "sequence-step-started") {
-    return "request_creating";
-  }
-  return "";
+function resolveSkillIdFromRequest(request: unknown) {
+  return isRecord(request) ? normalizeText(request.skill_id) : "";
 }
 
 function buildSequenceStepJobRecord(args: {
@@ -143,6 +114,7 @@ function buildSequenceStepJobRecord(args: {
     args.event.sequenceStepIndex,
   );
   const skillId = normalizeText(args.event.sequenceStepSkillId);
+  const eventType = normalizeText(args.event.type);
   const taskName =
     normalizeText(args.event.sequenceStepTaskName) ||
     normalizeText(args.parentJob.meta.taskName) ||
@@ -164,15 +136,18 @@ function buildSequenceStepJobRecord(args: {
     skillId: skillId || undefined,
     sequenceStepId: stepId,
     sequenceStepIndex,
-    sequenceJobId:
-      normalizeText(args.event.sequenceJobId) || args.parentJob.id,
+    sequenceJobId: normalizeText(args.event.sequenceJobId) || args.parentJob.id,
+    skillRunnerRequestReady:
+      eventType === "request-ready" ||
+      eventType === "sequence-step-deferred" ||
+      eventType === "sequence-step-succeeded",
   };
   return {
     ...args.parentJob,
     id: `${args.parentJob.id}:${stepId}`,
     request: args.event.sequenceStepRequest || args.parentJob.request,
     meta,
-    state: mapSequenceStepProgressState(args.event),
+    state: mapSkillRunnerSequenceStepProgressState(args.event),
     error: normalizeText(args.event.error) || undefined,
     updatedAt: now,
   } satisfies JobRecord;
@@ -237,7 +212,7 @@ export function runWorkflowExecutionSeam(
           args.prepared.executionContext.backend.type,
         );
         const applySequenceStepResult: ApplySequenceStepResult | undefined =
-          backendType === "acp"
+          backendType === "acp" || backendType === DEFAULT_BACKEND_TYPE
             ? async (stepApply) => {
                 const applyWorkflow = findWorkflowById(
                   resolved.getLoadedWorkflowEntries(),
@@ -315,9 +290,6 @@ export function runWorkflowExecutionSeam(
       const isRequestCreated = event.type === "request-created";
       const isRequestUploading = event.type === "request-uploading";
       const isRequestReady = event.type === "request-ready";
-      const isSequenceStepReconcilePoint =
-        event.type === "sequence-step-deferred" ||
-        event.type === "sequence-step-succeeded";
       const executionContext = args.prepared.executionContext;
       const backendType = String(executionContext.backend.type || "").trim();
       const isSkillRunnerSequence =
@@ -332,9 +304,12 @@ export function runWorkflowExecutionSeam(
         });
         if (stepJob) {
           const lifecycle = mapSkillRunnerProgressLifecycle(event);
+          const submitPhase = mapSkillRunnerSubmitPhase(event);
           if (lifecycle) {
             stepJob.meta.skillRunnerLifecycleState = lifecycle;
-            stepJob.meta.skillRunnerSubmitPhase = lifecycle;
+          }
+          if (submitPhase) {
+            stepJob.meta.skillRunnerSubmitPhase = submitPhase;
             stepJob.meta.skillRunnerSubmitStartedAt =
               stepJob.meta.skillRunnerSubmitStartedAt || stepJob.createdAt;
           }
@@ -344,26 +319,16 @@ export function runWorkflowExecutionSeam(
             requestSkillRunnerSubmitFocus({
               resolved,
               backend: executionContext.backend,
-              skillrunnerMode:
-                args.prepared.workflow.manifest.execution?.skillrunner_mode,
+              skillrunnerMode: resolveSkillRunnerExecutionModeFromRequest(
+                stepJob.request,
+                "auto",
+              ),
               job: stepJob,
             });
           }
         }
         if (isRequestCreated) {
           return;
-        }
-        if ((isRequestReady || isSequenceStepReconcilePoint) && stepJob) {
-          resolved.registerSkillRunnerRunForSettlement({
-            workflowId: args.prepared.workflow.manifest.id,
-            workflowLabel,
-            requestKind: "skillrunner.job.v1",
-            request: stepJob.request,
-            backend: executionContext.backend,
-            providerId: args.prepared.executionContext.providerId,
-            providerOptions: args.prepared.executionContext.providerOptions,
-            job: stepJob,
-          });
         }
         return;
       }
@@ -374,9 +339,12 @@ export function runWorkflowExecutionSeam(
         isRequestReady
       ) {
         const lifecycle = mapSkillRunnerProgressLifecycle(event);
+        const submitPhase = mapSkillRunnerSubmitPhase(event);
         if (lifecycle) {
           job.meta.skillRunnerLifecycleState = lifecycle;
-          job.meta.skillRunnerSubmitPhase = lifecycle;
+        }
+        if (submitPhase) {
+          job.meta.skillRunnerSubmitPhase = submitPhase;
           job.meta.skillRunnerSubmitStartedAt =
             job.meta.skillRunnerSubmitStartedAt || job.createdAt;
         }
@@ -395,28 +363,9 @@ export function runWorkflowExecutionSeam(
           requestIndex >= 0 && requestIndex < args.prepared.requests.length
             ? args.prepared.requests[requestIndex]
             : undefined;
-        const isSkillRunnerJob =
-          executionContext.requestKind === "skillrunner.job.v1";
-        const isSkillRunnerReady =
-          String(job.meta.skillRunnerRequestReady || "").trim() === "true" ||
-          job.meta.skillRunnerRequestReady === true;
-        if (
-          request &&
-          backendType === "skillrunner" &&
-          executionContext.requestKind === "skillrunner.job.v1" &&
-          (!isSkillRunnerJob || isSkillRunnerReady)
-        ) {
-          resolved.registerSkillRunnerRunForSettlement({
-            workflowId: args.prepared.workflow.manifest.id,
-            workflowLabel,
-            requestKind: args.prepared.executionContext.requestKind,
-            request,
-            backend: args.prepared.executionContext.backend,
-            providerId: args.prepared.executionContext.providerId,
-            providerOptions: args.prepared.executionContext.providerOptions,
-            job,
-          });
-        }
+        const requestForMode = isRecord(event.sequenceStepRequest)
+          ? event.sequenceStepRequest
+          : request;
         if (
           executionContext.requestKind === "skillrunner.job.v1" &&
           backendType === "skillrunner"
@@ -427,14 +376,18 @@ export function runWorkflowExecutionSeam(
             requestSkillRunnerSubmitFocus({
               resolved,
               backend: executionContext.backend,
-              skillrunnerMode:
-                args.prepared.workflow.manifest.execution?.skillrunner_mode,
+              skillrunnerMode: resolveSkillRunnerExecutionModeFromRequest(
+                requestForMode,
+                "auto",
+              ),
               job,
             });
           }
         }
         const skillrunnerMode =
-          args.prepared.workflow.manifest.execution?.skillrunner_mode;
+          requestForMode
+            ? resolveSkillRunnerExecutionModeFromRequest(requestForMode, "auto")
+            : "auto";
         const isAcpSkillRun =
           executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
           executionContext.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND;
@@ -461,32 +414,6 @@ export function runWorkflowExecutionSeam(
       }
       resolved.recordWorkflowTaskUpdate(job);
       resolved.recordTaskDashboardHistoryFromJob(job);
-      const requestIndex =
-        typeof job.meta.index === "number" && Number.isFinite(job.meta.index)
-          ? Math.floor(job.meta.index)
-          : -1;
-      const request =
-        requestIndex >= 0 && requestIndex < args.prepared.requests.length
-          ? args.prepared.requests[requestIndex]
-          : undefined;
-      const isSkillRunnerJob =
-        executionContext.requestKind === "skillrunner.job.v1" &&
-        backendType === "skillrunner";
-      const isSkillRunnerReady =
-        String(job.meta.skillRunnerRequestReady || "").trim() === "true" ||
-        job.meta.skillRunnerRequestReady === true;
-      if (request && isSkillRunnerJob && isSkillRunnerReady) {
-        resolved.registerSkillRunnerRunForSettlement({
-          workflowId: args.prepared.workflow.manifest.id,
-          workflowLabel,
-          requestKind: args.prepared.executionContext.requestKind,
-          request,
-          backend: args.prepared.executionContext.backend,
-          providerId: args.prepared.executionContext.providerId,
-          providerOptions: args.prepared.executionContext.providerOptions,
-          job,
-        });
-      }
     },
   });
 
@@ -494,6 +421,7 @@ export function runWorkflowExecutionSeam(
     const taskName = resolveTaskNameFromRequest(request, index);
     const inputUnitIdentity = resolveInputUnitIdentityFromRequest(request);
     const inputUnitLabel = resolveInputUnitLabelFromRequest(request, index);
+    const skillId = resolveSkillIdFromRequest(request);
     const engine = String(
       args.prepared.executionContext.providerOptions?.engine || "",
     ).trim();
@@ -513,6 +441,7 @@ export function runWorkflowExecutionSeam(
         backendId: args.prepared.executionContext.backend.id,
         backendType: args.prepared.executionContext.backend.type,
         backendBaseUrl: args.prepared.executionContext.backend.baseUrl,
+        skillId: skillId || undefined,
         engine: engine || undefined,
       },
     });

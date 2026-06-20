@@ -44,6 +44,35 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(ts, "createSkillRunnerHostActionHandler");
   });
 
+  it("pre-arms SkillRunner task focus before activating the sidebar host", async function () {
+    const ts = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const preArmIndex = ts.indexOf(
+      'host.activeTab === "skillrunner" &&\n    (args?.taskKey || args?.taskId || args?.localRunId || args?.requestId)',
+    );
+    const activateIndex = ts.indexOf(
+      "const activated = await activateTarget(host, target);",
+    );
+    assert.isAtLeast(preArmIndex, 0);
+    assert.isAbove(activateIndex, preArmIndex);
+  });
+
+  it("syncs the active Assistant shell tab before reactivating an open sidebar", async function () {
+    const ts = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    assert.include(ts, "function postActiveShellInit");
+    const setTabIndex = ts.indexOf("host.activeTab = normalizeTab(args.tab);");
+    const syncIndex = ts.indexOf("postActiveShellInit(host);", setTabIndex);
+    const activateIndex = ts.indexOf(
+      "const activated = await activateTarget(host, target);",
+    );
+    assert.isAtLeast(setTabIndex, 0);
+    assert.isAbove(syncIndex, setTabIndex);
+    assert.isAbove(activateIndex, syncIndex);
+  });
+
   it("keeps live subscriptions and waiting-task feedback in the unified workspace host", async function () {
     const ts = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
@@ -155,8 +184,9 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(workspaceHost, "task-dashboard-run-completed-tasks-title");
     assert.include(sidebarModel, "activeTasks:");
     assert.include(sidebarModel, "finishedTasks:");
-    assert.include(sidebarModel, "const runningTasks = group.activeTasks");
-    assert.include(sidebarModel, "const completedTasks = group.finishedTasks");
+    assert.include(sidebarModel, "const allTasks = [...group.activeTasks, ...group.finishedTasks]");
+    assert.include(sidebarModel, "const runningTasks = allTasks");
+    assert.include(sidebarModel, "const completedTasks = allTasks.filter");
     assert.include(runDialog, "task-dashboard-run-selection-tasks-title");
     assert.include(runDialog, "task-dashboard-run-tasks-toggle");
     assert.include(en, "task-dashboard-run-backend = Backend");

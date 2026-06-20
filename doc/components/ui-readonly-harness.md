@@ -268,6 +268,7 @@ installReadonlyZoteroPrefs(prefsStore);
 const service = await createSynthesisReadonlyService({
   zoteroDbPath: "/path/to/zotero.sqlite",
   pluginDbPath: "/path/to/zotero-agents.db",
+  synthesisDbPath: "/path/to/synthesis.db",
   pluginRuntimeRoot: "/path/to/runtime",
 });
 

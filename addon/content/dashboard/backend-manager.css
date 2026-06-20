@@ -169,6 +169,23 @@
   align-items: end;
 }
 
+.backend-profile-card.is-skillrunner .backend-http-grid {
+  grid-template-columns:
+    minmax(96px, 0.72fr) minmax(240px, 1.9fr) minmax(84px, 0.35fr)
+    minmax(72px, 0.38fr) minmax(170px, 1.05fr) minmax(82px, 0.42fr)
+    minmax(250px, auto);
+}
+
+.backend-checkbox-field {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  color: var(--zs-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .backend-acp-grid {
   display: grid;
   grid-template-columns:
@@ -329,11 +346,37 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 8px;
   padding: 9px 16px;
   border-top: 1px solid var(--zs-border);
   background: var(--zs-panel);
+}
+
+.backend-footer-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--zs-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backend-footer-status[data-tone="success"] {
+  color: var(--zs-success);
+}
+
+.backend-footer-status[data-tone="error"] {
+  color: var(--zs-danger);
+}
+
+.backend-footer-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .backend-button {

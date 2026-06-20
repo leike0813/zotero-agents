@@ -76,7 +76,7 @@ describe("workflow: literature-explainer", function () {
         ?.skill_id,
       "literature-explainer",
     );
-    assert.equal(workflow.manifest.execution?.skillrunner_mode, "interactive");
+    assert.equal(workflow.manifest.request?.create?.mode, "interactive");
   });
 
   it("builds request from selected markdown attachment", async function () {

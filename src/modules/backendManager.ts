@@ -26,7 +26,14 @@ import {
 } from "../backends/identity";
 import { MANAGED_LOCAL_BACKEND_ID } from "./skillRunnerLocalRuntimeConstants";
 import { stopSessionSync } from "./skillRunnerSessionSyncManager";
-import { untrackSkillRunnerBackendHealth } from "./skillRunnerBackendHealthRegistry";
+import {
+  getSkillRunnerBackendHealthState,
+  markSkillRunnerBackendHealthFailure,
+  markSkillRunnerBackendHealthSuccess,
+  syncSkillRunnerBackendHealthForConfiguredBackends,
+  untrackSkillRunnerBackendHealth,
+} from "./skillRunnerBackendHealthRegistry";
+import { scheduleSkillRunnerBackendReachabilityProbe } from "./skillRunnerBackendReachabilityCoordinator";
 import { purgeSkillRunnerBackendReconcileState } from "./skillRunnerTaskReconciler";
 import { pruneAcpSessionSlotsForBackends } from "./acpSessionManager";
 import {
@@ -68,6 +75,7 @@ type EditableBackendRow = {
   internalId: string;
   displayName: string;
   type: string;
+  enabled: boolean;
   baseUrl: string;
   authKind: "none" | "bearer";
   authToken: string;
@@ -95,6 +103,7 @@ type BackendManagerDraftRow = {
   internalId: string;
   displayName: string;
   type: string;
+  enabled: boolean;
   baseUrl: string;
   authKind: "none" | "bearer";
   authToken: string;
@@ -112,6 +121,18 @@ type BackendManagerSnapshot = {
   initialProviderType?: string;
   providers: Array<{ type: string; label: string; title: string }>;
   rows: BackendManagerDraftRow[];
+  skillRunnerHealth: Record<
+    string,
+    {
+      enabled: boolean;
+      reachable: boolean;
+      status?: string;
+      updatedAt?: string;
+      lastReachableAt?: string;
+      lastProbeAt?: string;
+      lastError?: string;
+    }
+  >;
   acpPresets: Array<{ id: string; label: string }>;
 };
 
@@ -225,6 +246,9 @@ function setChoiceSelection(args: {
 function getElementValue(control: Element) {
   if (control.getAttribute("data-zs-choice-control") === "1") {
     return String(control.getAttribute("data-zs-choice-value") || "").trim();
+  }
+  if ((control as HTMLInputElement).type === "checkbox") {
+    return (control as HTMLInputElement).checked ? "true" : "false";
   }
   return String(
     (control as HTMLInputElement | HTMLSelectElement).value || "",
@@ -464,6 +488,7 @@ function buildFallbackBackendRow(): EditableBackendRow {
     internalId: DEFAULT_BACKEND_ID,
     displayName: DEFAULT_BACKEND_ID,
     type: DEFAULT_BACKEND_TYPE,
+    enabled: true,
     baseUrl: String(
       getPref("skillRunnerEndpoint") || DEFAULT_SKILLRUNNER_ENDPOINT,
     ).trim(),
@@ -482,6 +507,7 @@ function normalizeRowFromBackend(backend: BackendInstance): EditableBackendRow {
     internalId: backend.id,
     displayName: normalizeBackendDisplayName(backend.displayName, backend.id),
     type: backend.type,
+    enabled: backend.enabled !== false,
     baseUrl: backend.baseUrl,
     authKind: backend.auth?.kind === "bearer" ? "bearer" : "none",
     authToken: backend.auth?.kind === "bearer" ? backend.auth.token || "" : "",
@@ -516,6 +542,7 @@ function editableRowToDraft(row: EditableBackendRow): BackendManagerDraftRow {
     internalId: row.internalId,
     displayName: row.displayName,
     type: row.type,
+    enabled: row.enabled !== false,
     baseUrl: row.baseUrl,
     authKind: row.authKind,
     authToken: row.authToken,
@@ -559,6 +586,7 @@ function normalizeDraftRows(raw: unknown): BackendManagerDraftRow[] {
         internalId: String(row.internalId || "").trim(),
         displayName: String(row.displayName || ""),
         type: String(row.type || "").trim(),
+        enabled: row.enabled !== false,
         baseUrl: String(row.baseUrl || ""),
         authKind,
         authToken: String(row.authToken || ""),
@@ -625,6 +653,15 @@ function appendSelectCell(
   control.setAttribute("data-zs-backend-field", label);
   applySelectVisualStyle(control, width);
   cell.appendChild(control);
+}
+
+function appendCheckboxCell(row: HTMLElement, label: string, checked: boolean) {
+  const cell = appendCell(row);
+  const input = createHtmlElement(row.ownerDocument!, "input");
+  input.type = "checkbox";
+  input.checked = checked;
+  input.setAttribute("data-zs-backend-field", label);
+  cell.appendChild(input);
 }
 
 function readAcpMetadataFromRow(
@@ -851,6 +888,9 @@ function appendBackendRow(args: {
   }
 
   appendTextCell(row, "displayName", args.backend.displayName, "190px");
+  if (args.backend.type === DEFAULT_BACKEND_TYPE) {
+    appendCheckboxCell(row, "enabled", args.backend.enabled !== false);
+  }
   if (args.backend.type === ACP_BACKEND_TYPE) {
     appendTextCell(row, "command", args.backend.command, "180px");
     appendTextAreaCell(row, "args", args.backend.argsText, "240px");
@@ -955,6 +995,9 @@ function appendProviderSection(args: {
         ]
       : [
           "backend-manager-column-id",
+          ...(args.provider.type === DEFAULT_BACKEND_TYPE
+            ? ["backend-manager-column-enabled"]
+            : []),
           "backend-manager-column-base-url",
           "backend-manager-column-auth",
           "backend-manager-column-token",
@@ -1110,6 +1153,7 @@ function createBackendManagerDomDraftSignature(doc: Document) {
       type: String(row.getAttribute("data-zs-backend-type") || "").trim(),
       internalId: readRowInternalId(row),
       displayName: readRowField(row, "displayName"),
+      enabled: readRowField(row, "enabled"),
       baseUrl: readRowField(row, "baseUrl"),
       authKind: readRowField(row, "authKind"),
       authToken: readRowField(row, "authToken"),
@@ -1259,6 +1303,7 @@ function resolveSkillRunnerBackendFromRow(row: Element): BackendInstance {
     id: backendId,
     displayName: normalizeBackendDisplayName(displayName, backendId),
     type: DEFAULT_BACKEND_TYPE,
+    ...(readRowField(row, "enabled") === "false" ? { enabled: false } : {}),
     baseUrl,
     auth:
       authKind === "bearer"
@@ -1367,6 +1412,9 @@ export async function launchSkillRunnerManagementFromRow(args: {
   row: Element;
   openDialog?: (payload: SkillRunnerManagementLaunchPayload) => Promise<void>;
 }) {
+  if (readRowField(args.row, "enabled") === "false") {
+    throw new Error("SkillRunner backend is disabled");
+  }
   const payload = resolveSkillRunnerManagementLaunchPayloadFromRow(args.row);
   if (args.openDialog) {
     await args.openDialog(payload);
@@ -1390,6 +1438,9 @@ function resolveSkillRunnerManagementLaunchPayloadFromDraft(
         args: { row: "?", type: backend.type },
       }),
     );
+  }
+  if (backend.enabled === false) {
+    throw new Error("SkillRunner backend is disabled");
   }
   const uiUrl = buildSkillRunnerManagementUiUrl(backend.baseUrl);
   return {
@@ -1416,6 +1467,9 @@ export async function refreshSkillRunnerModelCacheFromRow(args: {
   refresh?: (args: { backend: BackendInstance }) => Promise<unknown>;
 }) {
   const backend = resolveSkillRunnerBackendFromRow(args.row);
+  if (backend.enabled === false) {
+    throw new Error("SkillRunner backend is disabled");
+  }
   const refresh = args.refresh || refreshSkillRunnerModelCacheForBackend;
   return refresh({
     backend,
@@ -1432,6 +1486,9 @@ async function refreshSkillRunnerModelCacheFromDraft(args: {
         args: { row: "?", type: backend.type },
       }),
     );
+  }
+  if (backend.enabled === false) {
+    throw new Error("SkillRunner backend is disabled");
   }
   return refreshSkillRunnerModelCacheForBackend({ backend });
 }
@@ -1507,6 +1564,7 @@ export function collectBackendsFromDialog(doc: Document): {
     const authKind = readRowField(row, "authKind") || "none";
     const authToken = readRowField(row, "authToken");
     const timeoutText = readRowField(row, "timeoutMs");
+    const enabled = readRowField(row, "enabled") !== "false";
     const command = readRowField(row, "command");
     const argsText = readRowField(row, "args");
     const envText = readRowField(row, "env");
@@ -1622,6 +1680,9 @@ export function collectBackendsFromDialog(doc: Document): {
       id,
       displayName: normalizeBackendDisplayName(displayName, id),
       type,
+      ...(type === DEFAULT_BACKEND_TYPE && enabled === false
+        ? { enabled: false }
+        : {}),
       baseUrl,
       auth:
         authKind === "bearer"
@@ -1816,6 +1877,9 @@ export function collectBackendsFromDraftRows(rawRows: unknown): {
       id,
       displayName: normalizeBackendDisplayName(displayName, id),
       type,
+      ...(type === DEFAULT_BACKEND_TYPE && row.enabled === false
+        ? { enabled: false }
+        : {}),
       baseUrl,
       auth:
         authKind === "bearer"
@@ -1901,6 +1965,7 @@ function triggerSilentModelCacheRefreshForAddedSkillRunnerBackends(args: {
     const backendId = String(backend.id || "").trim();
     return (
       String(backend.type || "").trim() === "skillrunner" &&
+      backend.enabled !== false &&
       !!backendId &&
       !args.existingSkillRunnerIds.has(backendId)
     );
@@ -2011,6 +2076,20 @@ export function persistBackendsConfig(
     BACKENDS_CONFIG_PREF_KEY,
     JSON.stringify(createBackendsPrefsDocument(mergedBackends)),
   );
+  syncSkillRunnerBackendHealthForConfiguredBackends(mergedBackends, {
+    prune: true,
+  });
+  for (const backend of mergedBackends) {
+    if (
+      String(backend.type || "").trim() === DEFAULT_BACKEND_TYPE &&
+      backend.enabled !== false
+    ) {
+      scheduleSkillRunnerBackendReachabilityProbe({
+        backendId: backend.id,
+        source: "settings",
+      });
+    }
+  }
   syncBackendReferenceState({
     idMapping,
     removedIds,
@@ -2092,7 +2171,8 @@ function normalizeBackendManagerProviderType(
 }
 
 function postBackendManagerProviderSelection(providerType?: string) {
-  const selectedProviderType = normalizeBackendManagerProviderType(providerType);
+  const selectedProviderType =
+    normalizeBackendManagerProviderType(providerType);
   if (!selectedProviderType) {
     return;
   }
@@ -2115,6 +2195,7 @@ function createBackendManagerDraftSignature(rows: BackendManagerDraftRow[]) {
       internalId: row.internalId,
       displayName: row.displayName,
       type: row.type,
+      enabled: row.enabled !== false,
       baseUrl: row.baseUrl,
       authKind: row.authKind,
       authToken: row.authToken,
@@ -2147,6 +2228,7 @@ function buildBackendManagerLabels() {
       "Custom ACP",
     ),
     displayName: localizeBackendManager("backend-manager-column-id", "ID"),
+    enabled: localizeBackendManager("backend-manager-column-enabled", "Enabled"),
     baseUrl: localizeBackendManager(
       "backend-manager-column-base-url",
       "Base URL",
@@ -2179,6 +2261,30 @@ function buildBackendManagerLabels() {
     refreshModelCache: localizeBackendManager(
       "backend-manager-refresh-model-cache",
       "Refresh Model Cache",
+    ),
+    unreachable: localizeBackendManager(
+      "backend-manager-status-unreachable",
+      "Unreachable",
+    ),
+    disabled: localizeBackendManager(
+      "backend-manager-status-disabled",
+      "Disabled",
+    ),
+    statusModelCacheRefreshed: localizeBackendManager(
+      "backend-manager-status-model-cache-refreshed",
+      "Model cache refreshed",
+    ),
+    statusModelCacheRefreshFailed: localizeBackendManager(
+      "backend-manager-status-model-cache-refresh-failed",
+      "Model cache refresh failed",
+    ),
+    statusAcpRuntimeCacheRefreshed: localizeBackendManager(
+      "backend-manager-status-acp-runtime-cache-refreshed",
+      "ACP config cache refreshed",
+    ),
+    statusAcpRuntimeCacheRefreshFailed: localizeBackendManager(
+      "backend-manager-status-acp-runtime-cache-refresh-failed",
+      "ACP config cache refresh failed",
     ),
     refreshAcpRuntimeCache: localizeBackendManager(
       "backend-manager-refresh-acp-runtime-cache",
@@ -2216,6 +2322,27 @@ function buildBackendManagerLabels() {
   };
 }
 
+function buildSkillRunnerHealthSnapshot(rows: BackendManagerDraftRow[]) {
+  const healthById: BackendManagerSnapshot["skillRunnerHealth"] = {};
+  for (const row of rows) {
+    if (row.type !== DEFAULT_BACKEND_TYPE || !row.internalId) {
+      continue;
+    }
+    const health = getSkillRunnerBackendHealthState(row.internalId);
+    healthById[row.internalId] = {
+      enabled: row.enabled !== false && health?.status !== "disabled",
+      reachable: health?.reachable === true && health?.status === "reachable",
+      status:
+        row.enabled === false ? "disabled" : health?.status || "unknown",
+      updatedAt: health?.updatedAt,
+      lastReachableAt: health?.lastReachableAt,
+      lastProbeAt: health?.lastProbeAt,
+      ...(health?.lastError ? { lastError: health.lastError } : {}),
+    };
+  }
+  return healthById;
+}
+
 function buildBackendManagerSnapshot(
   rows: BackendManagerDraftRow[],
   args?: { initialProviderType?: string },
@@ -2247,6 +2374,7 @@ function buildBackendManagerSnapshot(
       id: preset.id,
       label: preset.displayName,
     })),
+    skillRunnerHealth: buildSkillRunnerHealthSnapshot(rows),
   };
 }
 
@@ -2273,7 +2401,9 @@ async function persistAcpBackendProbeResultFromDraft(
   return backend;
 }
 
-export async function openBackendManagerDialog(args?: OpenBackendManagerDialogArgs) {
+export async function openBackendManagerDialog(
+  args?: OpenBackendManagerDialogArgs,
+) {
   if (isWindowAlive(addon.data.dialog?.window)) {
     addon.data.dialog?.window?.focus();
     postBackendManagerProviderSelection(args?.initialProviderType);
@@ -2422,43 +2552,53 @@ export async function openBackendManagerDialog(args?: OpenBackendManagerDialogAr
           return;
         }
         if (action === "refresh-model-cache") {
+          const rowIndex = Number(payload.rowIndex);
+          const row = normalizeDraftRows([payload.row])[0];
+          const backendId = row?.internalId || "";
           void refreshSkillRunnerModelCacheFromDraft({
-            row: normalizeDraftRows([payload.row])[0],
+            row,
           })
             .then((result) => {
               const typed = (result || {}) as {
                 ok?: boolean;
                 refreshedAt?: string;
                 error?: string;
+                backendId?: string;
               };
+              const resultBackendId = String(
+                typed.backendId || backendId || "",
+              ).trim();
               if (typed.ok === true) {
-                alertWindow?.alert?.(
-                  getString(
-                    "backend-manager-refresh-model-cache-success" as any,
-                    {
-                      args: {
-                        refreshedAt: String(typed.refreshedAt || ""),
-                      },
-                    },
-                  ),
-                );
+                markSkillRunnerBackendHealthSuccess(resultBackendId);
+                postToFrame("backend-manager-dialog:action-result", {
+                  action,
+                  rowIndex,
+                  backendId: resultBackendId,
+                  refreshedAt: String(typed.refreshedAt || ""),
+                  ok: true,
+                });
                 return;
               }
               throw new Error(String(typed.error || "unknown error"));
             })
             .catch((error) => {
-              alertWindow?.alert?.(
-                getString("backend-manager-refresh-model-cache-failed" as any, {
-                  args: { error: String(error) },
-                }),
-              );
+              markSkillRunnerBackendHealthFailure({ backendId, error });
+              postToFrame("backend-manager-dialog:action-result", {
+                action,
+                rowIndex,
+                backendId,
+                error: String(error),
+                ok: false,
+              });
             });
           return;
         }
         if (action === "refresh-acp-runtime-options") {
           const rowIndex = Number(payload.rowIndex);
+          const row = normalizeDraftRows([payload.row])[0];
+          const backendId = row?.internalId || "";
           void refreshAcpRuntimeOptionsFromDraft({
-            row: normalizeDraftRows([payload.row])[0],
+            row,
           })
             .then(async (result) => {
               const updatedRow = normalizeDraftRows([payload.row])[0];
@@ -2467,6 +2607,7 @@ export async function openBackendManagerDialog(args?: OpenBackendManagerDialogAr
               postToFrame("backend-manager-dialog:action-result", {
                 action,
                 rowIndex,
+                backendId,
                 acp: result.backend.acp,
                 ok: result.ok,
               });
@@ -2475,6 +2616,7 @@ export async function openBackendManagerDialog(args?: OpenBackendManagerDialogAr
               postToFrame("backend-manager-dialog:action-result", {
                 action,
                 rowIndex,
+                backendId,
                 acp: {
                   connectionTest: {
                     status: "failed",
@@ -2482,6 +2624,7 @@ export async function openBackendManagerDialog(args?: OpenBackendManagerDialogAr
                     error: String(error),
                   },
                 },
+                error: String(error),
                 ok: false,
               });
             });

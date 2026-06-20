@@ -220,6 +220,9 @@ describe("Synthesis git sync", function () {
         path.join(artifactRoot, "state", "zotero-agents.db"),
       ),
     );
+    assert.isFalse(
+      await runtimePathExists(path.join(artifactRoot, "state", "synthesis.db")),
+    );
   });
 
   it("blocks sync when persistence root points at the artifact data directory", async function () {
@@ -251,17 +254,16 @@ describe("Synthesis git sync", function () {
         path.join(artifactRoot, "state", "zotero-agents.db"),
       ),
     );
+    assert.isFalse(
+      await runtimePathExists(path.join(artifactRoot, "state", "synthesis.db")),
+    );
   });
 
   it("reports an existing shadow database under artifact data root without deleting it", async function () {
     const base = await makeRuntimeRoot();
     const persistenceRoot = path.join(base, "zotero-agents");
     const artifactRoot = path.join(persistenceRoot, "data");
-    const shadowDbPath = path.join(
-      artifactRoot,
-      "state",
-      "zotero-agents.db",
-    );
+    const shadowDbPath = path.join(artifactRoot, "state", "synthesis.db");
     await writeRuntimeTextFile(shadowDbPath, "shadow");
     const service = createBaseSynthesisGitSyncService({
       root: artifactRoot,
@@ -785,17 +787,18 @@ describe("Synthesis git sync", function () {
     });
 
     const state = await service.runSync();
-    const paths = buildSynthesisKnowledgeGraphPaths(root);
-    const events = (await readRuntimeTextFile(paths.eventsLog))
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
-    const receipts = (await readRuntimeTextFile(paths.receiptsLog))
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
+    const events = createSynthesisRepository({ runtimeRoot: root })
+      .listCanonicalStoreRecords({
+        recordKinds: ["event"],
+        scopes: ["sync"],
+      })
+      .map((record) => JSON.parse(record.payloadJson));
+    const receipts = createSynthesisRepository({ runtimeRoot: root })
+      .listCanonicalStoreRecords({
+        recordKinds: ["receipt"],
+        scopes: ["sync"],
+      })
+      .map((record) => JSON.parse(record.payloadJson));
     const projections = await readProjectionRegistryState(root);
 
     assert.equal(state.queue_state, "idle");

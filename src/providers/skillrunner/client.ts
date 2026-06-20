@@ -12,7 +12,7 @@ import {
 } from "../../modules/skillRunnerConnectionGovernor";
 import { markSkillRunnerBackendHealthSuccess } from "../../modules/skillRunnerBackendHealthRegistry";
 import { buildSkillRunnerSkillPackageBundle } from "./skillPackageBundler";
-import { SkillRunnerHttpError, SkillRunnerTerminalRunError } from "./errors";
+import { SkillRunnerHttpError, SkillRunnerPollingTimeoutError } from "./errors";
 import {
   createMultipartZipPayload,
   createZipFromNamedFiles,
@@ -734,20 +734,7 @@ export class SkillRunnerClient {
         return body;
       }
       if (status === "failed" || status === "canceled") {
-        const normalizedRequestId = String(
-          body.request_id || requestId || "",
-        ).trim();
-        const terminalStatus = String(status || "unknown").trim() || "unknown";
-        const terminalError =
-          String(body.error || "").trim() || "unknown error";
-        throw new SkillRunnerTerminalRunError({
-          requestId: normalizedRequestId,
-          status,
-          error: terminalError,
-        });
-      }
-      if (timeoutEnabled && Date.now() - timeoutAnchorAt > timeoutMs) {
-        throw new Error(`SkillRunner polling timeout after ${timeoutMs}ms`);
+        return body;
       }
       if (isWaiting(status)) {
         this.appendTransportLog({
@@ -764,9 +751,13 @@ export class SkillRunnerClient {
             status,
           },
         });
-        pollRetry += 1;
-        await sleep(intervalMs);
-        continue;
+        return body;
+      }
+      if (timeoutEnabled && Date.now() - timeoutAnchorAt > timeoutMs) {
+        throw new SkillRunnerPollingTimeoutError({
+          requestId,
+          timeoutMs,
+        });
       }
       pollRetry += 1;
       await sleep(intervalMs);
@@ -1037,6 +1028,94 @@ export class SkillRunnerClient {
     });
   }
 
+  async settleExistingRun(args: {
+    requestId: string;
+    fetchType: "bundle" | "result";
+    poll?: SkillRunnerHttpStepsRequest["poll"];
+    skillId?: string;
+    stateJson?: unknown;
+  }): Promise<ProviderExecutionResult> {
+    const requestId = normalizeString(args.requestId);
+    if (!requestId) {
+      throw new Error("requestId is required");
+    }
+    const pollStep: SkillRunnerHttpStepDefinition = {
+      id: "poll",
+      request: {
+        method: "GET",
+        path: "/v1/jobs/{request_id}",
+      },
+    };
+    const terminalState = await this.executePollStep(
+      {
+        kind: "http.steps",
+        steps: [pollStep],
+        poll: args.poll,
+      },
+      pollStep,
+      requestId,
+    );
+    const terminalStatus = normalizeStatus(terminalState.status, "running");
+    const responseJson = {
+      ...terminalState,
+      request_id: normalizeString(terminalState.request_id) || requestId,
+      status: terminalStatus,
+      fetch_type: args.fetchType,
+    };
+    if (isWaiting(terminalStatus)) {
+      return {
+        status: "deferred",
+        requestId,
+        fetchType: args.fetchType,
+        backendStatus: terminalStatus,
+        detachReason: "waiting",
+        continuationOwner: "foreground",
+        responseJson,
+      };
+    }
+    if (terminalStatus === "failed" || terminalStatus === "canceled") {
+      return {
+        status: terminalStatus,
+        requestId,
+        fetchType: args.fetchType,
+        error: normalizeString(terminalState.error) || undefined,
+        responseJson,
+      };
+    }
+    if (terminalStatus !== "succeeded") {
+      throw new Error(
+        `SkillRunner polling ended without terminal status: ${terminalStatus}`,
+      );
+    }
+    if (args.fetchType === "bundle") {
+      const bundleBytes = await this.fetchRunBundle({ requestId });
+      const normalized = await this.normalizeBundleTerminalResult({
+        requestId,
+        skillId: args.skillId,
+        bundleBytes,
+        responseJson,
+      });
+      return {
+        status: "succeeded",
+        requestId,
+        fetchType: "bundle",
+        bundleBytes,
+        ...normalized,
+        responseJson,
+      };
+    }
+    const normalized = await this.fetchRunResultPayload({
+      requestId,
+      stateJson: args.stateJson || responseJson,
+    });
+    return {
+      status: "succeeded",
+      requestId,
+      fetchType: "result",
+      ...normalized,
+    };
+  }
+
   private async toHttpStepsRequest(
     request: SkillRunnerJobRequestV1,
     providerOptions: Record<string, unknown>,
@@ -1220,16 +1299,21 @@ export class SkillRunnerClient {
 
     const createStep = this.findStep(request, "create");
     const uploadStep = this.findStep(request, "upload");
+    const pollStep = this.findStep(request, "poll");
     const bundleStep = this.findStep(request, "bundle");
     const resultStep = this.findStep(request, "result");
     if (!createStep) {
       throw new Error("http.steps request missing create step");
+    }
+    if (!pollStep) {
+      throw new Error("http.steps request missing poll step");
     }
     if (!bundleStep && !resultStep) {
       throw new Error(
         "http.steps request missing terminal fetch step (bundle or result)",
       );
     }
+    const fetchType = bundleStep ? "bundle" : "result";
 
     options?.onProgress?.({
       type: "request-creating",
@@ -1250,17 +1334,73 @@ export class SkillRunnerClient {
       type: "request-ready",
       requestId,
     });
-    return {
-      status: "deferred",
+    const terminalState = await this.executePollStep(
+      request,
+      pollStep,
       requestId,
-      fetchType: bundleStep ? "bundle" : "result",
-      backendStatus: "running",
-      frontendStatus: "request_ready",
-      responseJson: {
-        request_id: requestId,
-        status: "request_ready",
-        fetch_type: bundleStep ? "bundle" : "result",
-      },
+    );
+    const terminalStatus = normalizeStatus(terminalState.status, "running");
+    const responseJson = {
+      ...terminalState,
+      request_id: normalizeString(terminalState.request_id) || requestId,
+      status: terminalStatus,
+      fetch_type: fetchType,
+    };
+    if (isWaiting(terminalStatus)) {
+      return {
+        status: "deferred",
+        requestId,
+        fetchType,
+        backendStatus: terminalStatus,
+        detachReason: "waiting",
+        continuationOwner: "foreground",
+        responseJson,
+      };
+    }
+    if (terminalStatus === "failed" || terminalStatus === "canceled") {
+      return {
+        status: terminalStatus,
+        requestId,
+        fetchType,
+        error: normalizeString(terminalState.error) || undefined,
+        responseJson,
+      };
+    }
+    if (terminalStatus !== "succeeded") {
+      throw new Error(
+        `SkillRunner polling ended without terminal status: ${terminalStatus}`,
+      );
+    }
+    if (bundleStep) {
+      const bundleBytes = await this.executeBundleStep(bundleStep, requestId);
+      const normalized = await this.normalizeBundleTerminalResult({
+        requestId,
+        skillId: options?.skillId,
+        bundleBytes,
+        responseJson,
+      });
+      return {
+        status: "succeeded",
+        requestId,
+        fetchType,
+        bundleBytes,
+        ...normalized,
+        responseJson,
+      };
+    }
+    const resultResponseJson = await this.executeResultStep(
+      resultStep!,
+      requestId,
+    );
+    const normalized = this.normalizeResultTerminalResult({
+      resultResponseJson,
+      stateJson: responseJson,
+    });
+    return {
+      status: "succeeded",
+      requestId,
+      fetchType,
+      ...normalized,
     };
   }
 

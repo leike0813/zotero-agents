@@ -1,6 +1,9 @@
 import { assert } from "chai";
 import { SkillRunnerClient } from "../../src/providers/skillrunner/client";
-import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
+import {
+  SkillRunnerHttpError,
+  SkillRunnerPollingTimeoutError,
+} from "../../src/providers/skillrunner/errors";
 import { createZipFromNamedFiles } from "../../src/providers/skillrunner/zipTransport";
 import { fixturePath } from "./workflow-test-utils";
 
@@ -183,7 +186,8 @@ describe("transport: upload fallback without FormData", function () {
       workspaceDir: "/tmp/skillrunner-workspace",
     });
     assert.deepEqual(
-      (result.responseJson as { resultResponseJson?: unknown }).resultResponseJson,
+      (result.responseJson as { resultResponseJson?: unknown })
+        .resultResponseJson,
       {
         request_id: "req-result-envelope",
         result: {
@@ -357,8 +361,8 @@ describe("transport: upload fallback without FormData", function () {
       },
     );
 
-    assert.equal(result.status, "deferred");
-    assert.equal(result.frontendStatus, "request_ready");
+    assert.equal(result.status, "succeeded");
+    assert.equal(result.fetchType, "result");
     assert.deepEqual(
       (capturedCreateBody as { input?: unknown })?.input,
       {
@@ -795,8 +799,8 @@ describe("transport: upload fallback without FormData", function () {
       },
     );
 
-    assert.equal(result.status, "deferred");
-    assert.equal(result.frontendStatus, "request_ready");
+    assert.equal(result.status, "succeeded");
+    assert.equal(result.fetchType, "result");
     assert.isFalse(
       uploadCalled,
       "upload step should be skipped for inline-only payload",
@@ -903,8 +907,7 @@ describe("transport: upload fallback without FormData", function () {
         ],
       });
 
-      assert.equal(result.status, "deferred");
-      assert.equal(result.frontendStatus, "request_ready");
+      assert.equal(result.status, "succeeded");
       assert.equal(result.fetchType, "result");
       const contentType = String(
         capturedUpload.headers?.["content-type"] || "",
@@ -927,7 +930,7 @@ describe("transport: upload fallback without FormData", function () {
     }
   });
 
-  it("returns deferred after upload succeeds without reading terminal failure", async function () {
+  it("returns terminal failed after upload succeeds and backend fails", async function () {
     let pollCalled = false;
     const client = new SkillRunnerClient({
       baseUrl: "http://127.0.0.1:8030",
@@ -969,12 +972,12 @@ describe("transport: upload fallback without FormData", function () {
       { engine: "gemini" },
     );
 
-    assert.equal(result.status, "deferred");
-    assert.equal(result.frontendStatus, "request_ready");
-    assert.isFalse(pollCalled);
+    assert.equal(result.status, "failed");
+    assert.equal(result.error, "mock backend failed");
+    assert.isTrue(pollCalled);
   });
 
-  it("stops executeHttpSteps at request-ready even when poll/result steps are present", async function () {
+  it("times out while polling non-terminal backend state", async function () {
     let pollCount = 0;
     let resultFetchCalled = false;
     const client = new SkillRunnerClient({
@@ -992,52 +995,58 @@ describe("transport: upload fallback without FormData", function () {
         }
         if (url.endsWith("/v1/jobs/req-submit-only/result")) {
           resultFetchCalled = true;
-          return createJsonResponse({ result: { status: "success", data: {} } });
+          return createJsonResponse({
+            result: { status: "success", data: {} },
+          });
         }
         return createJsonResponse({ error: "unexpected route" }, 404);
       },
     });
 
-    const result = await client.executeHttpSteps({
-      kind: "http.steps",
-      poll: { interval_ms: 0, timeout_ms: 5 },
-      steps: [
-        {
-          id: "create",
-          request: {
-            method: "POST",
-            path: "/v1/jobs",
-            json: {
-              skill_id: "literature-analysis",
-              engine: "gemini",
+    let rejected: unknown;
+    try {
+      await client.executeHttpSteps({
+        kind: "http.steps",
+        poll: { interval_ms: 0, timeout_ms: 5 },
+        steps: [
+          {
+            id: "create",
+            request: {
+              method: "POST",
+              path: "/v1/jobs",
+              json: {
+                skill_id: "literature-analysis",
+                engine: "gemini",
+              },
+            },
+            extract: { request_id: "$.request_id" },
+          },
+          {
+            id: "poll",
+            request: {
+              method: "GET",
+              path: "/v1/jobs/{request_id}",
             },
           },
-          extract: { request_id: "$.request_id" },
-        },
-        {
-          id: "poll",
-          request: {
-            method: "GET",
-            path: "/v1/jobs/{request_id}",
+          {
+            id: "result",
+            request: {
+              method: "GET",
+              path: "/v1/jobs/{request_id}/result",
+            },
           },
-        },
-        {
-          id: "result",
-          request: {
-            method: "GET",
-            path: "/v1/jobs/{request_id}/result",
-          },
-        },
-      ],
-    });
+        ],
+      });
+    } catch (error) {
+      rejected = error;
+    }
 
-    assert.equal(result.status, "deferred");
-    assert.equal(result.frontendStatus, "request_ready");
-    assert.equal(pollCount, 0);
+    assert.instanceOf(rejected, SkillRunnerPollingTimeoutError);
+    assert.isAtLeast(pollCount, 1);
     assert.isFalse(resultFetchCalled);
   });
 
-  it("returns deferred status for interactive waiting_user without local timeout failure", async function () {
+  it("detaches foreground interactive waiting_user without result fetch", async function () {
     let pollCount = 0;
     let resultFetchCalled = false;
     const client = new SkillRunnerClient({
@@ -1095,18 +1104,19 @@ describe("transport: upload fallback without FormData", function () {
     );
 
     assert.equal(result.status, "deferred");
-    assert.equal(result.requestId, "req-waiting-user");
-    assert.equal(result.fetchType, "result");
-    assert.equal(result.backendStatus, "running");
-    assert.equal(result.frontendStatus, "request_ready");
-    assert.equal(pollCount, 0);
+    if (result.status === "deferred") {
+      assert.equal(result.backendStatus, "waiting_user");
+      assert.equal(result.detachReason, "waiting");
+      assert.equal(result.continuationOwner, "foreground");
+    }
+    assert.isAtLeast(pollCount, 1);
     assert.isFalse(
       resultFetchCalled,
-      "result fetch should be deferred to backend reconciler",
+      "result fetch should wait for terminal success",
     );
   });
 
-  it("does not read canceled terminal state during provider submit", async function () {
+  it("returns canceled terminal state without fetching result", async function () {
     let pollCalled = false;
     let resultFetchCalled = false;
     const client = new SkillRunnerClient({
@@ -1156,9 +1166,9 @@ describe("transport: upload fallback without FormData", function () {
       { engine: "gemini" },
     );
 
-    assert.equal(result.status, "deferred");
-    assert.equal(result.frontendStatus, "request_ready");
-    assert.isFalse(pollCalled);
+    assert.equal(result.status, "canceled");
+    assert.equal(result.error, "canceled by mock");
+    assert.isTrue(pollCalled);
     assert.isFalse(resultFetchCalled, "result fetch should be skipped");
   });
 

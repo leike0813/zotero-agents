@@ -2355,9 +2355,12 @@ describe("gui: workflow runtime scan", function () {
           id: "gui-scan-workflow",
           label: "GUI Scan Workflow",
           provider: "skillrunner",
-          request: { kind: "skillrunner.job.v1" },
-          execution: {
-            skillrunner_mode: "auto",
+          request: {
+            kind: "skillrunner.job.v1",
+            create: {
+              skill_id: "gui-scan-workflow",
+              mode: "auto",
+            },
           },
           hooks: { applyResult: "hooks/applyResult.js" },
         },

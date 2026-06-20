@@ -26,7 +26,7 @@ describe("Manuscript Literature Framing workflow contract", function () {
       "Frame manuscript literature: {paperTitle}",
     );
     assert.equal(workflow.inputs?.unit, "workflow");
-    assert.equal(workflow.execution?.skillrunner_mode, "interactive");
+    assert.equal(workflow.request?.create?.mode, "interactive");
     assert.equal(workflow.provider, "skillrunner");
     assert.equal(workflow.result?.fetch?.type, "bundle");
     assert.deepEqual(workflow.result?.expects?.artifacts, [

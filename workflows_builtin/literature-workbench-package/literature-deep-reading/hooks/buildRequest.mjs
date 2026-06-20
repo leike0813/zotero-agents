@@ -55,6 +55,7 @@ async function buildRequestImpl({
   const deepReadingStep = {
     id: "deep_reading",
     skill_id: "literature-deep-reading",
+    mode: "auto",
     workspace: existingAlignment.status === "available" ? "new" : "reuse-workflow",
     fetch_type: "bundle",
     apply_result: {
@@ -88,6 +89,7 @@ async function buildRequestImpl({
           {
             id: "translate",
             skill_id: "literature-translator",
+            mode: "auto",
             workspace: "new",
             fetch_type: "bundle",
             apply_result: {

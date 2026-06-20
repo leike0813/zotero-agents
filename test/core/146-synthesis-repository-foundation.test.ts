@@ -42,10 +42,10 @@ describe("Synthesis repository foundation", function () {
     resetDefaultSynthesisServiceForTests();
   });
 
-  it("uses the shared local state database path", function () {
+  it("uses the dedicated Synthesis state database path", function () {
     assert.match(
       getSynthesisRepositoryDatabasePath("C:/runtime").replace(/\\/g, "/"),
-      /C:\/runtime\/state\/zotero-agents\.db$/,
+      /C:\/runtime\/state\/synthesis\.db$/,
     );
   });
 
@@ -87,7 +87,7 @@ describe("Synthesis repository foundation", function () {
     try {
       getDefaultSynthesisService();
       const expected = getRuntimePersistencePaths(runtimeRoot)
-        .stateDbPath.replace(/\\/g, "/")
+        .synthesisDbPath.replace(/\\/g, "/")
         .toLowerCase();
       assert.equal(openedPaths[0].replace(/\\/g, "/").toLowerCase(), expected);
       assert.notInclude(openedPaths[0].replace(/\\/g, "/"), "/data/state/");

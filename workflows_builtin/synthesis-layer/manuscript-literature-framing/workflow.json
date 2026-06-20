@@ -48,15 +48,14 @@
   "request": {
     "kind": "skillrunner.job.v1",
     "create": {
-      "skill_id": "manuscript-literature-framing"
+      "skill_id": "manuscript-literature-framing",
+      "mode": "interactive"
     }
   },
   "execution": {
-    "mode": "auto",
     "zoteroHostAccess": {
       "required": true
     },
-    "skillrunner_mode": "interactive",
     "timeout_ms": 1200000
   },
   "result": {

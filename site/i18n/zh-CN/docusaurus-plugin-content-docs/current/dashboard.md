@@ -19,6 +19,7 @@ Dashboard 的默认页面，展示：
 - **Workflow 列表**：所有可用的 workflow，配有运行和设置按钮
 - **ACP Chat 区域**：快速访问 ACP 对话
 - **ACP Skill Runs**：ACP 后端的技能运行状态
+- **Skill Feedback**：查看近期的 Skill 运行反馈评分和备注
 - **任务摘要**：当前正在运行的任务概览
 
 ### Workflow Options
@@ -52,6 +53,22 @@ Workflow 产物的浏览和管理：
 - 查看 workflow 运行的输出产物
 - 打开产物文件夹
 - 预览和移除产物
+
+## Skill Feedback
+
+Skill Feedback 面板显示近期的技能运行反馈：
+
+| 列 | 说明 |
+|---|---|
+| Workflow | 运行的 workflow 名称 |
+| Backend | 执行的后端 |
+| Rating | 用户评分 (1-5) |
+| Comment | 反馈备注 |
+| Timestamp | 反馈时间 |
+
+操作：
+- **筛选**：按 rating、workflow、时间范围筛选
+- **导出**：导出 feedback 数据用于分析
 
 ## 任务状态
 

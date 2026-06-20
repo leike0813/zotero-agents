@@ -59,7 +59,7 @@ import {
   normalizeStatus,
 } from "./skillRunnerProviderStateMachine";
 import {
-  isSkillRunnerBackendReconcileFlagged,
+  isSkillRunnerBackendAvailable,
   subscribeSkillRunnerBackendHealth,
 } from "./skillRunnerBackendHealthRegistry";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
@@ -809,6 +809,15 @@ function isAcpSkillRunnerTask(row: {
   );
 }
 
+function filterWorkflowSubmitVisibleBackends(backends: BackendInstance[]) {
+  return backends.filter((backend) => {
+    if (String(backend.type || "").trim() !== "skillrunner") {
+      return true;
+    }
+    return backend.enabled !== false && isSkillRunnerBackendAvailable(backend.id);
+  });
+}
+
 function isBackendReconcileFlagged(args: {
   backendId?: string;
   backendType?: string;
@@ -820,7 +829,7 @@ function isBackendReconcileFlagged(args: {
   if (!backendId || backendType !== "skillrunner") {
     return false;
   }
-  return isSkillRunnerBackendReconcileFlagged(backendId);
+  return !isSkillRunnerBackendAvailable(backendId);
 }
 
 function resolveBackendUnavailableMessageForDialog(args: {
@@ -1139,6 +1148,7 @@ async function buildWorkflowOptionsView(args: {
   backends: BackendInstance[];
 }) {
   const loaded = getVisibleLoadedWorkflowEntries();
+  const candidateBackends = filterWorkflowSubmitVisibleBackends(args.backends);
   if (loaded.length === 0) {
     return {
       workflows: [],
@@ -1151,7 +1161,7 @@ async function buildWorkflowOptionsView(args: {
       workflow,
       descriptor: await buildWorkflowSettingsUiDescriptor({
         workflow,
-        candidateBackends: args.backends,
+        candidateBackends,
         resolveDynamicOptions: false,
       }),
     })),
@@ -1180,7 +1190,7 @@ async function buildWorkflowOptionsView(args: {
   const selectedDescriptor = selectedWorkflow
     ? await buildWorkflowSettingsUiDescriptor({
         workflow: selectedWorkflow,
-        candidateBackends: args.backends,
+        candidateBackends,
         draft: args.state.workflowSettingsDraftById.get(selectedWorkflowId),
       })
     : undefined;
@@ -1205,11 +1215,12 @@ async function buildHomeWorkflowSummaries(args: {
   backends: BackendInstance[];
 }) {
   const loaded = getVisibleLoadedWorkflowEntries();
+  const candidateBackends = filterWorkflowSubmitVisibleBackends(args.backends);
   const entries = await Promise.all(
     [...loaded].sort(compareWorkflowDisplayOrder).map(async (workflow) => {
       const descriptor = await buildWorkflowSettingsUiDescriptor({
         workflow,
-        candidateBackends: args.backends,
+        candidateBackends,
         resolveDynamicOptions: false,
       });
       return {
@@ -1266,7 +1277,7 @@ async function resolveHomeWorkflowQuickRun(args: {
   }
   const descriptor = await buildWorkflowSettingsUiDescriptor({
     workflow,
-    candidateBackends: args.backends,
+    candidateBackends: filterWorkflowSubmitVisibleBackends(args.backends),
     resolveDynamicOptions: false,
   });
   if (descriptor.blockedReason) {
@@ -1864,7 +1875,7 @@ async function buildDashboardSnapshot(args: {
     tabs,
     summary: {
       total: summary.total,
-      running: args.active.length,
+      running: runningRows.length,
       succeeded: summary.succeeded,
       failed: summary.failed,
       canceled: summary.canceled,

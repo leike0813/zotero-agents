@@ -11,6 +11,7 @@
     "debug-apply-sequence-result/workflow.json",
     "debug-apply-bundle-then-result/workflow.json",
     "debug-apply-result-then-bundle/workflow.json",
+    "debug-interactive-then-result/workflow.json",
     "debug-sequence-linear-probe/workflow.json",
     "debug-sequence-workspace-reuse-probe/workflow.json",
     "debug-sequence-context-isolation-probe/workflow.json"

@@ -88,6 +88,7 @@
     "workflow-debug-probe/debug-apply-single-result/workflow.json",
     "workflow-debug-probe/debug-host-bridge-connectivity-probe/workflow.json",
     "workflow-debug-probe/debug-interactive-choice-probe/workflow.json",
+    "workflow-debug-probe/debug-interactive-then-result/workflow.json",
     "workflow-debug-probe/debug-sequence-linear-probe/workflow.json",
     "workflow-debug-probe/debug-sequence-workspace-reuse-probe/workflow.json",
     "workflow-debug-probe/debug-sequence-context-isolation-probe/workflow.json",

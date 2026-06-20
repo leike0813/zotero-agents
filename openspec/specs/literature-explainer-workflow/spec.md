@@ -11,7 +11,7 @@ TBD - created by archiving change add-literature-explainer-workflow. Update Purp
 - **THEN** 系统 MUST 成功加载 `id=literature-explainer` 的 manifest
 - **AND** request kind MUST 为 `skillrunner.job.v1`
 - **AND** skill id MUST 为 `literature-explainer`
-- **AND** execution `skillrunner_mode` MUST 为 `interactive`
+- **AND** `request.create.mode` MUST 为 `interactive`
 
 ### Requirement: Workflow 输入路由 MUST 遵循 Markdown 优先策略
 系统 MUST 在每个父条目上仅选择一个输入文件，并按既定规则决策：Markdown 优先；多个 Markdown 时优先匹配“最早 PDF 同名 Markdown”；无匹配回退最早 Markdown；无 Markdown 时回退 PDF（单一 PDF 直接使用，多 PDF 取最早）。
@@ -56,4 +56,3 @@ TBD - created by archiving change add-literature-explainer-workflow. Update Purp
 - **THEN** it SHALL create a conversation note with visible rendered markdown
 - **AND** it SHALL store `conversation-note-markdown` in a v2 embedded payload attachment
 - **AND** the note HTML SHALL NOT contain a hidden `data-zs-payload="conversation-note-markdown"` block.
-

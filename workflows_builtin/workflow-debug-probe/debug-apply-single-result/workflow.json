@@ -11,10 +11,12 @@
     "unit": "workflow"
   },
   "request": {
-    "kind": "skillrunner.job.v1"
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "mode": "auto"
+    }
   },
   "execution": {
-    "skillrunner_mode": "auto",
     "feedback": {
       "showNotifications": true
     },
@@ -28,4 +30,3 @@
     "applyResult": "../hooks/applyDebugApplyContractResult.mjs"
   }
 }
-

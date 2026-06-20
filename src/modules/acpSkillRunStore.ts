@@ -1706,7 +1706,76 @@ export function appendAcpSkillRunUserReply(args: {
 function formatFinalEnvelopeMarkdown(payload: Record<string, unknown>) {
   const displayPayload = { ...payload };
   delete displayPayload.__SKILL_DONE__;
-  return `\`\`\`json\n${JSON.stringify(displayPayload, null, 2)}\n\`\`\``;
+  const lines = formatJsonMarkdownList(displayPayload);
+  return lines.length > 0 ? lines.join("\n") : "- result: complete";
+}
+
+function isMarkdownListComposite(value: unknown) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    (Array.isArray(value) ||
+      Object.keys(value as Record<string, unknown>).length > 0)
+  );
+}
+
+function formatMarkdownListKey(value: string) {
+  return String(value || "").replace(/\s+/g, " ").trim() || "value";
+}
+
+function formatMarkdownListScalar(value: unknown) {
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "string") {
+    const text = value.replace(/\s+/g, " ").trim();
+    return text || '""';
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0 ? JSON.stringify(value) : "[]";
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value as Record<string, unknown>).length > 0
+      ? JSON.stringify(value)
+      : "{}";
+  }
+  return String(value ?? "");
+}
+
+function formatJsonMarkdownList(value: unknown, depth = 0): string[] {
+  const indent = "  ".repeat(Math.max(0, depth));
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return [`${indent}- []`];
+    }
+    return value.flatMap((entry, index) => {
+      if (isMarkdownListComposite(entry)) {
+        return [
+          `${indent}- item ${index + 1}:`,
+          ...formatJsonMarkdownList(entry, depth + 1),
+        ];
+      }
+      return [`${indent}- ${formatMarkdownListScalar(entry)}`];
+    });
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(
+      ([key, entry]) => {
+        const label = formatMarkdownListKey(key);
+        if (isMarkdownListComposite(entry)) {
+          return [
+            `${indent}- ${label}:`,
+            ...formatJsonMarkdownList(entry, depth + 1),
+          ];
+        }
+        return [`${indent}- ${label}: ${formatMarkdownListScalar(entry)}`];
+      },
+    );
+  }
+  return [`${indent}- ${formatMarkdownListScalar(value)}`];
 }
 
 function replaceLatestAssistantMessage(args: {

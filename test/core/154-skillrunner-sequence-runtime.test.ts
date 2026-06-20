@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import fs from "node:fs/promises";
+import type { JobRecord } from "../../src/jobQueue/manager";
 import { parseWorkflowManifestFromText } from "../../src/workflows/loaderContracts";
 import { compileDeclarativeRequest } from "../../src/workflows/declarativeRequestCompiler";
 import { assertRequestPayloadContract } from "../../src/providers/requestContracts";
@@ -11,6 +12,7 @@ import {
   getSequenceRunState,
   getSequenceRunStateByStepRequest,
   initializeSequenceRunState,
+  recordSequenceStepApplyResult,
   recordSequenceStepRequestCreated,
   recordSequenceStepSucceeded,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
@@ -25,27 +27,47 @@ import {
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
+import {
+  getSkillRunnerRunRecordByRequest,
+  upsertSkillRunnerRunFromTask,
+} from "../../src/modules/skillRunnerRunStore";
+import { continueSkillRunnerForegroundRun } from "../../src/modules/skillRunnerForegroundContinuation";
 import { mkTempDir } from "./workflow-test-utils";
 import { buildRequest as buildLiteratureDigestRequest } from "../../workflows_builtin/literature-workbench-package/literature-analysis/hooks/buildRequest.mjs";
 
 let previousZotero: any;
+
+function createJsonResponse(payload: unknown, status = 200): Response {
+  const text = JSON.stringify(payload);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? "OK" : "ERROR",
+    text: async () => text,
+    arrayBuffer: async () => new TextEncoder().encode(text).buffer,
+  } as unknown as Response;
+}
 
 function sequenceManifest(overrides: Record<string, unknown> = {}) {
   return {
     id: "sequence-workflow",
     label: "Sequence Workflow",
     provider: "acp",
-    execution: {
-      skillrunner_mode: "auto",
-    },
     request: {
       kind: "skillrunner.sequence.v1",
       sequence: {
         steps: [
-          { id: "prepare", skill_id: "prepare-skill", workspace: "new" },
+          {
+            id: "prepare",
+            skill_id: "prepare-skill",
+            mode: "auto",
+            workspace: "new",
+          },
           {
             id: "finalize",
             skill_id: "finalize-skill",
+            mode: "auto",
             workspace: "reuse-workflow",
           },
         ],
@@ -59,6 +81,67 @@ function sequenceManifest(overrides: Record<string, unknown> = {}) {
     },
     ...overrides,
   };
+}
+
+function upsertSkillRunnerSequenceStepRunForTest(args: {
+  requestId: string;
+  request: unknown;
+  workflowId: string;
+  workflowRunId: string;
+  sequenceRunId: string;
+  sequenceJobId: string;
+  stepId: string;
+  stepIndex: number;
+  finalStepId: string;
+  skillId: string;
+}) {
+  const job: JobRecord = {
+    id: `${args.sequenceJobId}:${args.stepId}`,
+    workflowId: args.workflowId,
+    request: args.request,
+    meta: {
+      runId: args.workflowRunId,
+      localRunId: `${args.workflowRunId}:${args.sequenceJobId}:${args.stepId}`,
+      workflowRunId: args.workflowRunId,
+      workflowLabel: "Sequence Workflow",
+      requestId: args.requestId,
+      requestKind: "skillrunner.job.v1",
+      backendId: "skillrunner-backend",
+      backendType: "skillrunner",
+      backendBaseUrl: "http://127.0.0.1:8030",
+      providerId: "skillrunner",
+      taskName: `Sequence Workflow / ${args.stepId}`,
+      inputUnitLabel: `Sequence Workflow / ${args.stepId}`,
+      skillId: args.skillId,
+      sequenceStepId: args.stepId,
+      sequenceStepIndex: args.stepIndex,
+      sequenceJobId: args.sequenceJobId,
+    },
+    state: "running",
+    createdAt: "2026-04-18T00:00:00.000Z",
+    updatedAt: "2026-04-18T00:00:01.000Z",
+    result: {
+      requestId: args.requestId,
+    },
+  };
+  upsertSkillRunnerRunFromTask(buildWorkflowTaskRecordFromJob(job), {
+    role: "sequence_step",
+    requestPayload: args.request,
+    fetchType: "result",
+    apply: {
+      state: "idle",
+      attempt: 0,
+      maxAttempt: 5,
+    },
+    sequence: {
+      sequenceRunId: args.sequenceRunId,
+      workflowRunId: args.workflowRunId,
+      jobId: args.sequenceJobId,
+      stepId: args.stepId,
+      stepIndex: args.stepIndex,
+      finalStepId: args.finalStepId,
+    },
+  });
 }
 
 describe("skillrunner.sequence.v1 runtime", function () {
@@ -129,8 +212,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
             kind: "skillrunner.sequence.v1",
             sequence: {
               steps: [
-                { id: "dup", skill_id: "one" },
-                { id: "dup", skill_id: "two" },
+                { id: "dup", skill_id: "one", mode: "auto" },
+                { id: "dup", skill_id: "two", mode: "auto" },
               ],
             },
           },
@@ -160,6 +243,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
                 {
                   id: "prepare",
                   skill_id: "prepare-skill",
+                  mode: "auto",
                   workspace: "new",
                   short_circuit: {
                     when: { path: "status", equals: "canceled" },
@@ -169,6 +253,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
                 {
                   id: "finalize",
                   skill_id: "finalize-skill",
+                  mode: "auto",
                   workspace: "reuse-workflow",
                 },
               ],
@@ -214,6 +299,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
                 {
                   id: "prepare",
                   skill_id: "prepare-skill",
+                  mode: "auto",
                   workspace: "new",
                   apply_result: {
                     workflow_id: "prepare-workflow",
@@ -223,6 +309,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
                 {
                   id: "finalize",
                   skill_id: "finalize-skill",
+                  mode: "auto",
                   workspace: "reuse-workflow",
                 },
               ],
@@ -267,12 +354,13 @@ describe("skillrunner.sequence.v1 runtime", function () {
                 {
                   id: "prepare",
                   skill_id: "prepare-skill",
+                  mode: "auto",
                   short_circuit: {
                     when: { equals: "canceled" },
                     result: "step_output",
                   },
                 },
-                { id: "finalize", skill_id: "finalize-skill" },
+                { id: "finalize", skill_id: "finalize-skill", mode: "auto" },
               ],
             },
           },
@@ -286,12 +374,13 @@ describe("skillrunner.sequence.v1 runtime", function () {
         {
           id: "prepare",
           skill_id: "prepare-skill",
+          mode: "auto",
           short_circuit: {
             when: { path: "status", equals: "canceled" },
             result: "final_output",
           },
         },
-        { id: "finalize", skill_id: "finalize-skill" },
+        { id: "finalize", skill_id: "finalize-skill", mode: "auto" },
       ],
       final_step_id: "finalize",
     };
@@ -343,16 +432,19 @@ describe("skillrunner.sequence.v1 runtime", function () {
           {
             id: "prepare",
             skill_id: "prepare-skill",
+            mode: "auto",
             workspace: "new",
           },
           {
             id: "core",
             skill_id: "core-skill",
+            mode: "auto",
             workspace: "reuse-workflow",
           },
           {
             id: "finalize",
             skill_id: "finalize-skill",
+            mode: "auto",
             workspace: "reuse-workflow",
             input: { static_value: "kept" },
             handoff: {
@@ -522,11 +614,13 @@ describe("skillrunner.sequence.v1 runtime", function () {
           {
             id: "first",
             skill_id: "first-skill",
+            mode: "auto",
             workspace: "new",
           },
           {
             id: "second",
             skill_id: "second-skill",
+            mode: "auto",
             workspace: "reuse-workflow",
             input: {},
             handoff: {
@@ -577,6 +671,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
           {
             id: "prepare",
             skill_id: "prepare-skill",
+            mode: "auto",
             workspace: "new",
             apply_result: {
               workflow_id: "prepare-workflow",
@@ -586,27 +681,41 @@ describe("skillrunner.sequence.v1 runtime", function () {
           {
             id: "finalize",
             skill_id: "finalize-skill",
+            mode: "auto",
             workspace: "reuse-workflow",
           },
         ],
         final_step_id: "finalize",
       },
       backend: {
-        id: "acp-backend",
-        type: "acp",
-        baseUrl: "local://acp",
+        id: "skillrunner-backend",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
         auth: { kind: "none" },
       },
       workflowId: "sequence-workflow",
       workflowRunId: "workflow-run-apply",
       jobId: "job-apply",
       appendRuntimeLog: () => {},
-      executeWithProvider: async ({ request }) => {
+      executeWithProvider: async ({ request, orchestrationContext }) => {
         const skillId = String((request as { skill_id?: unknown }).skill_id);
+        const requestId = `${skillId}-request`;
         events.push(`run:${skillId}`);
+        upsertSkillRunnerSequenceStepRunForTest({
+          requestId,
+          request,
+          workflowId: "sequence-workflow",
+          workflowRunId: "workflow-run-apply",
+          sequenceRunId: "workflow-run-apply",
+          sequenceJobId: "job-apply",
+          stepId: String(orchestrationContext?.sequenceStepId || ""),
+          stepIndex: Number(orchestrationContext?.sequenceStepIndex || 0),
+          finalStepId: "finalize",
+          skillId,
+        });
         return {
           status: "succeeded",
-          requestId: `${skillId}-request`,
+          requestId,
           fetchType: "result",
           resultJson: { skillId },
           responseJson: {},
@@ -628,6 +737,20 @@ describe("skillrunner.sequence.v1 runtime", function () {
       result.sequence?.steps?.[0]?.apply_result?.status,
       "succeeded",
     );
+    assert.equal(
+      getSkillRunnerRunRecordByRequest({
+        backendId: "skillrunner-backend",
+        requestId: "prepare-skill-request",
+      })?.apply.state,
+      "succeeded",
+    );
+    assert.equal(
+      getSkillRunnerRunRecordByRequest({
+        backendId: "skillrunner-backend",
+        requestId: "finalize-skill-request",
+      })?.apply.state,
+      "skipped",
+    );
   });
 
   it("records non-blocking step apply failures and continues downstream", async function () {
@@ -639,6 +762,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
           {
             id: "prepare",
             skill_id: "prepare-skill",
+            mode: "auto",
             workspace: "new",
             apply_result: {
               workflow_id: "prepare-workflow",
@@ -648,27 +772,41 @@ describe("skillrunner.sequence.v1 runtime", function () {
           {
             id: "finalize",
             skill_id: "finalize-skill",
+            mode: "auto",
             workspace: "reuse-workflow",
           },
         ],
         final_step_id: "finalize",
       },
       backend: {
-        id: "acp-backend",
-        type: "acp",
-        baseUrl: "local://acp",
+        id: "skillrunner-backend",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
         auth: { kind: "none" },
       },
       workflowId: "sequence-workflow",
       workflowRunId: "workflow-run-apply-failure",
       jobId: "job-apply-failure",
       appendRuntimeLog: () => {},
-      executeWithProvider: async ({ request }) => {
+      executeWithProvider: async ({ request, orchestrationContext }) => {
         const skillId = String((request as { skill_id?: unknown }).skill_id);
+        const requestId = `${skillId}-request`;
         events.push(`run:${skillId}`);
+        upsertSkillRunnerSequenceStepRunForTest({
+          requestId,
+          request,
+          workflowId: "sequence-workflow",
+          workflowRunId: "workflow-run-apply-failure",
+          sequenceRunId: "workflow-run-apply-failure",
+          sequenceJobId: "job-apply-failure",
+          stepId: String(orchestrationContext?.sequenceStepId || ""),
+          stepIndex: Number(orchestrationContext?.sequenceStepIndex || 0),
+          finalStepId: "finalize",
+          skillId,
+        });
         return {
           status: "succeeded",
-          requestId: `${skillId}-request`,
+          requestId,
           fetchType: "result",
           resultJson: { skillId },
           responseJson: {},
@@ -691,6 +829,116 @@ describe("skillrunner.sequence.v1 runtime", function () {
       String(result.sequence?.steps?.[0]?.apply_result?.error || ""),
       "apply broke",
     );
+    assert.equal(
+      getSkillRunnerRunRecordByRequest({
+        backendId: "skillrunner-backend",
+        requestId: "prepare-skill-request",
+      })?.apply.state,
+      "failed",
+    );
+    assert.equal(
+      getSkillRunnerRunRecordByRequest({
+        backendId: "skillrunner-backend",
+        requestId: "finalize-skill-request",
+      })?.apply.state,
+      "skipped",
+    );
+  });
+
+  it("marks the final request root apply skipped when foreground continuation sees final step apply_result", async function () {
+    const backend = {
+      id: "skillrunner-backend",
+      type: "skillrunner",
+      baseUrl: "http://127.0.0.1:8030",
+      auth: { kind: "none" },
+    };
+    const sequenceRunId = "workflow-run-root-skip";
+    const finalRequestId = "final-request";
+    const finalStepRequest = {
+      kind: "skillrunner.job.v1",
+      skill_id: "final-skill",
+      runtime_options: { execution_mode: "auto" },
+      fetch_type: "result",
+    };
+    initializeSequenceRunState({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "final",
+            skill_id: "final-skill",
+            mode: "auto",
+            apply_result: { workflow_id: "final-workflow" },
+          },
+        ],
+        final_step_id: "final",
+      },
+      backend,
+      workflowId: "sequence-workflow",
+      workflowRunId: sequenceRunId,
+      jobId: "job-root-skip",
+    });
+    recordSequenceStepRequestCreated({
+      sequenceRunId,
+      stepIndex: 0,
+      requestId: finalRequestId,
+    });
+    recordSequenceStepApplyResult({
+      sequenceRunId,
+      stepIndex: 0,
+      workflowId: "final-workflow",
+      status: "succeeded",
+      result: { applied: true },
+    });
+    upsertSkillRunnerSequenceStepRunForTest({
+      requestId: finalRequestId,
+      request: finalStepRequest,
+      workflowId: "sequence-workflow",
+      workflowRunId: sequenceRunId,
+      sequenceRunId,
+      sequenceJobId: "job-root-skip",
+      stepId: "final",
+      stepIndex: 0,
+      finalStepId: "final",
+      skillId: "final-skill",
+    });
+
+    const originalFetch = (globalThis as { fetch?: typeof fetch }).fetch;
+    (globalThis as { fetch?: typeof fetch }).fetch = (async (url: unknown) => {
+      const target = String(url);
+      if (target.endsWith(`/v1/jobs/${finalRequestId}`)) {
+        return createJsonResponse({
+          request_id: finalRequestId,
+          status: "succeeded",
+        });
+      }
+      if (target.endsWith(`/v1/jobs/${finalRequestId}/result`)) {
+        return createJsonResponse({
+          request_id: finalRequestId,
+          result: { done: true },
+        });
+      }
+      return createJsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+    try {
+      const outcome = await continueSkillRunnerForegroundRun({
+        backend,
+        requestId: finalRequestId,
+        source: "test.foreground-root-skip",
+      });
+
+      assert.equal(outcome.status, "succeeded");
+      assert.equal(
+        getSkillRunnerRunRecordByRequest({
+          backendId: "skillrunner-backend",
+          requestId: finalRequestId,
+        })?.apply.state,
+        "skipped",
+      );
+      assert.equal(getSequenceRunState(sequenceRunId)?.status, "completed");
+    } finally {
+      (globalThis as { fetch?: typeof fetch }).fetch = originalFetch;
+    }
   });
 
   it("short-circuits downstream steps when a successful step output matches the rule", async function () {
@@ -708,6 +956,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
           {
             id: "prepare",
             skill_id: "prepare-skill",
+            mode: "auto",
             workspace: "new",
             short_circuit: {
               when: { path: "status", equals: "canceled" },
@@ -717,11 +966,13 @@ describe("skillrunner.sequence.v1 runtime", function () {
           {
             id: "core",
             skill_id: "core-skill",
+            mode: "auto",
             workspace: "reuse-workflow",
           },
           {
             id: "finalize",
             skill_id: "finalize-skill",
+            mode: "auto",
             workspace: "reuse-workflow",
           },
         ],
@@ -781,11 +1032,13 @@ describe("skillrunner.sequence.v1 runtime", function () {
             {
               id: "prepare",
               skill_id: "prepare-skill",
+              mode: "auto",
               workspace: "new",
             },
             {
               id: "finalize",
               skill_id: "finalize-skill",
+              mode: "auto",
               workspace: "reuse-workflow",
             },
           ],
@@ -832,11 +1085,13 @@ describe("skillrunner.sequence.v1 runtime", function () {
             {
               id: "prepare",
               skill_id: "prepare-skill",
+              mode: "auto",
               workspace: "new",
             },
             {
               id: "finalize",
               skill_id: "finalize-skill",
+              mode: "auto",
               workspace: "reuse-workflow",
             },
           ],
@@ -883,6 +1138,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
         {
           id: "prepare",
           skill_id: "prepare-skill",
+          mode: "auto",
           workspace: "new" as const,
           short_circuit: {
             when: { path: "status", equals: "canceled" },
@@ -892,11 +1148,13 @@ describe("skillrunner.sequence.v1 runtime", function () {
         {
           id: "core",
           skill_id: "core-skill",
+          mode: "auto",
           workspace: "reuse-workflow" as const,
         },
         {
           id: "finalize",
           skill_id: "finalize-skill",
+          mode: "auto",
           workspace: "reuse-workflow" as const,
         },
       ],
@@ -970,11 +1228,13 @@ describe("skillrunner.sequence.v1 runtime", function () {
           {
             id: "prepare",
             skill_id: "prepare-skill",
+            mode: "auto",
             workspace: "new",
           },
           {
             id: "finalize",
             skill_id: "finalize-skill",
+            mode: "auto",
             workspace: "reuse-workflow",
           },
         ],
@@ -1010,9 +1270,17 @@ describe("skillrunner.sequence.v1 runtime", function () {
 
     assert.equal(result.status, "deferred");
     assert.equal(result.requestId, "prepare-skill-request");
+    assert.deepInclude((result.responseJson as any)?.sequence || {}, {
+      workflow_run_id: "workflow-run-deferred",
+      final_step_id: "finalize",
+      pending_step_id: "prepare",
+      pending_step_index: 0,
+      pending_step_job_id: "job-deferred:prepare",
+    });
+    assert.deepEqual((result.responseJson as any)?.sequence?.steps, []);
     assert.deepEqual(launched, ["prepare-skill"]);
     const state = getSequenceRunStateByStepRequest("prepare-skill-request");
-    assert.equal(state?.status, "waiting_recovery");
+    assert.equal(state?.status, "waiting_interaction");
     assert.equal(state?.rootRequestId, "prepare-skill-request");
     assert.equal(state?.steps[0].status, "deferred");
     assert.equal(state?.steps[1].requestId, undefined);
@@ -1207,10 +1475,16 @@ describe("skillrunner.sequence.v1 runtime", function () {
       request: {
         kind: "skillrunner.sequence.v1",
         steps: [
-          { id: "digest", skill_id: "literature-analysis", workspace: "new" },
+          {
+            id: "digest",
+            skill_id: "literature-analysis",
+            mode: "auto",
+            workspace: "new",
+          },
           {
             id: "tag",
             skill_id: "tag-regulator",
+            mode: "auto",
             workspace: "reuse-workflow",
           },
         ],
@@ -1228,7 +1502,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
       jobId: "job-skillrunner",
       appendRuntimeLog: () => {},
       applySequenceStepResult: async () => {
-        assert.fail("SkillRunner sequence step apply must be reconciler-owned");
+        assert.fail("sequence steps without apply_result should not apply");
       },
       onProgress: (event) => {
         progressEvents.push(event);
@@ -1259,21 +1533,30 @@ describe("skillrunner.sequence.v1 runtime", function () {
       },
     });
 
-    assert.equal(result.status, "deferred");
-    assert.equal(result.requestId, "literature-analysis-request");
+    assert.equal(result.status, "succeeded");
+    assert.equal(result.requestId, "tag-regulator-request");
     assert.deepEqual(
       launched.map((entry) => entry.requestKind),
-      ["skillrunner.job.v1"],
+      ["skillrunner.job.v1", "skillrunner.job.v1"],
     );
     assert.equal(launched[0].request.kind, "skillrunner.job.v1");
     assert.notProperty(launched[0].request.runtime_options, "workspace");
+    assert.equal(launched[1].request.kind, "skillrunner.job.v1");
+    assert.deepEqual(launched[1].request.runtime_options.workspace, {
+      mode: "reuse",
+      request_id: "literature-analysis-request",
+    });
+    assert.notProperty(
+      launched[1].request.runtime_options,
+      "workflow_workspace",
+    );
     assert.deepEqual(
       launched.map((entry) => entry.orchestrationContext.jobId),
-      ["job-skillrunner:digest"],
+      ["job-skillrunner:digest", "job-skillrunner:tag"],
     );
     assert.deepEqual(
       launched.map((entry) => entry.orchestrationContext.skillId),
-      ["literature-analysis"],
+      ["literature-analysis", "tag-regulator"],
     );
     assert.deepEqual(
       progressEvents
@@ -1291,57 +1574,13 @@ describe("skillrunner.sequence.v1 runtime", function () {
           sequenceStepSkillId: "literature-analysis",
           hasStepRequest: true,
         },
+        {
+          requestId: "tag-regulator-request",
+          sequenceStepId: "tag",
+          sequenceStepSkillId: "tag-regulator",
+          hasStepRequest: true,
+        },
       ],
-    );
-
-    launched.length = 0;
-    const state = getSequenceRunStateByStepRequest("literature-analysis-request");
-    assert.isOk(state);
-    const continuation = await continueSkillRunnerSequence({
-      sequenceRunId: state!.sequenceRunId,
-      startIndex: 1,
-      backend: {
-        id: "skillrunner-backend",
-        type: "skillrunner",
-        baseUrl: "http://127.0.0.1:8030",
-        auth: { kind: "none" },
-      },
-      providerOptions: {},
-      appendRuntimeLog: () => {},
-      executeWithProvider: async ({
-        requestKind,
-        request,
-        orchestrationContext,
-        onProgress,
-      }) => {
-        launched.push({ requestKind, request, orchestrationContext });
-        const skillId = String((request as { skill_id?: unknown }).skill_id);
-        onProgress?.({
-          type: "request-created",
-          requestId: `${skillId}-request`,
-        });
-        onProgress?.({
-          type: "request-ready",
-          requestId: `${skillId}-request`,
-        });
-        return {
-          status: "succeeded",
-          requestId: `${skillId}-request`,
-          fetchType: "result",
-          resultJson: { skillId },
-          responseJson: {},
-        };
-      },
-    });
-    assert.equal(continuation.status, "deferred");
-    assert.equal(launched[0].request.kind, "skillrunner.job.v1");
-    assert.deepEqual(launched[0].request.runtime_options.workspace, {
-      mode: "reuse",
-      request_id: "literature-analysis-request",
-    });
-    assert.notProperty(
-      launched[0].request.runtime_options,
-      "workflow_workspace",
     );
   });
 });

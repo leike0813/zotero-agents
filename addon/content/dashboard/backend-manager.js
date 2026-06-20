@@ -8,6 +8,10 @@
     rows: [],
     activeProviderType: "",
     pendingAcpRows: new Set(),
+    pendingModelCacheRows: new Set(),
+    skillRunnerReachableById: {},
+    statusMessage: null,
+    statusTimer: null,
     scrollByProvider: {},
     acpSelectedPresetId: "",
   };
@@ -32,6 +36,7 @@
       internalId: String(row && row.internalId ? row.internalId : ""),
       displayName: String(row && row.displayName ? row.displayName : ""),
       type: String(row && row.type ? row.type : ""),
+      enabled: row && row.enabled === false ? false : true,
       baseUrl: String(row && row.baseUrl ? row.baseUrl : ""),
       authKind:
         String(row && row.authKind ? row.authKind : "none") === "bearer"
@@ -55,6 +60,82 @@
 
   function labels() {
     return (state.snapshot && state.snapshot.labels) || {};
+  }
+
+  function rowBackendId(row) {
+    return String(row && row.internalId ? row.internalId : "").trim();
+  }
+
+  function isSkillRunnerReachable(row) {
+    const backendId = rowBackendId(row);
+    return (
+      row &&
+      row.enabled !== false &&
+      !!backendId &&
+      state.skillRunnerReachableById[backendId] === true
+    );
+  }
+
+  function setSkillRunnerReachability(rowOrId, reachable) {
+    const backendId =
+      typeof rowOrId === "string"
+        ? String(rowOrId).trim()
+        : rowBackendId(rowOrId);
+    if (!backendId) return;
+    state.skillRunnerReachableById = Object.assign(
+      {},
+      state.skillRunnerReachableById,
+      { [backendId]: reachable === true },
+    );
+  }
+
+  function syncSkillRunnerReachabilityFromSnapshot() {
+    const healthById =
+      (state.snapshot && state.snapshot.skillRunnerHealth) || {};
+    const next = {};
+    state.rows.forEach(function (row) {
+      const backendId = rowBackendId(row);
+      if (row.type !== "skillrunner" || !backendId) return;
+      const health = healthById[backendId] || {};
+      next[backendId] =
+        row.enabled !== false &&
+        health.enabled !== false &&
+        health.reachable === true;
+    });
+    state.skillRunnerReachableById = next;
+  }
+
+  function statusText(kind, backendId, error) {
+    const l = labels();
+    const messages = {
+      modelRefreshed: l.statusModelCacheRefreshed || "Model cache refreshed",
+      modelFailed:
+        l.statusModelCacheRefreshFailed || "Model cache refresh failed",
+      acpRefreshed:
+        l.statusAcpRuntimeCacheRefreshed || "ACP config cache refreshed",
+      acpFailed:
+        l.statusAcpRuntimeCacheRefreshFailed ||
+        "ACP config cache refresh failed",
+    };
+    const idPart = backendId ? backendId + ": " : "";
+    const errorPart = error ? " - " + String(error) : "";
+    return idPart + (messages[kind] || "") + errorPart;
+  }
+
+  function showStatusMessage(text, tone) {
+    if (state.statusTimer) {
+      clearTimeout(state.statusTimer);
+    }
+    state.statusMessage = {
+      text: String(text || ""),
+      tone: tone || "info",
+    };
+    renderWithScroll();
+    state.statusTimer = setTimeout(function () {
+      state.statusMessage = null;
+      state.statusTimer = null;
+      renderWithScroll();
+    }, 5000);
   }
 
   function providerList() {
@@ -167,6 +248,18 @@
       args.onChange(select.value);
     });
     field.append(label, select);
+    return field;
+  }
+
+  function checkboxField(args) {
+    const field = el("label", "backend-field backend-checkbox-field");
+    const input = el("input", "");
+    input.type = "checkbox";
+    input.checked = args.checked !== false;
+    input.addEventListener("change", function () {
+      args.onChange(input.checked);
+    });
+    field.append(input, document.createTextNode(args.label || ""));
     return field;
   }
 
@@ -313,12 +406,24 @@
     const l = labels();
     const actions = el("div", "backend-row-actions backend-http-actions");
     if (row.type === "skillrunner") {
-      const manage = button(l.openManagement || "Open Management");
+      const enabled = row.enabled !== false;
+      const reachable = isSkillRunnerReachable(row);
+      const manage = button(
+        !enabled
+          ? l.disabled || "Disabled"
+          : reachable
+          ? l.openManagement || "Open Management"
+          : l.unreachable || "Unreachable",
+      );
+      manage.disabled = !enabled || !reachable;
       manage.addEventListener("click", function () {
         post("open-management", { row: state.rows[index], rowIndex: index });
       });
       const refresh = button(l.refreshModelCache || "Refresh Model Cache");
+      refresh.disabled = !enabled || state.pendingModelCacheRows.has(index);
       refresh.addEventListener("click", function () {
+        state.pendingModelCacheRows.add(index);
+        renderWithScroll();
         post("refresh-model-cache", {
           row: state.rows[index],
           rowIndex: index,
@@ -373,6 +478,9 @@
   function renderHttpRow(row, index) {
     const l = labels();
     const card = el("article", "backend-profile-card is-http");
+    if (row.type === "skillrunner") {
+      card.classList.add("is-skillrunner");
+    }
     const grid = el("div", "backend-http-grid");
     grid.append(
       inputField({
@@ -391,6 +499,17 @@
           updateRow(index, { baseUrl: value });
         },
       }),
+      row.type === "skillrunner"
+        ? checkboxField({
+            label: l.enabled || "Enabled",
+            checked: row.enabled !== false,
+            onChange: function (checked) {
+              updateRow(index, { enabled: checked });
+              setSkillRunnerReachability(row, false);
+              renderWithScroll();
+            },
+          })
+        : document.createDocumentFragment(),
       selectField({
         className: "backend-field-auth",
         label: l.auth || "Auth",
@@ -514,6 +633,7 @@
   }
 
   function renderProvider(provider) {
+    const l = labels();
     const section = el("section", "backend-provider-section");
     const header = el("header", "backend-provider-header");
     header.appendChild(
@@ -595,6 +715,14 @@
       body.appendChild(renderProvider(provider));
     }
     const footer = el("footer", "backend-footer");
+    const status = el("div", "backend-footer-status");
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    if (state.statusMessage && state.statusMessage.text) {
+      status.textContent = state.statusMessage.text;
+      status.dataset.tone = state.statusMessage.tone || "info";
+    }
+    const footerActions = el("div", "backend-footer-actions");
     const cancel = button(labels().cancel || "Cancel");
     cancel.addEventListener("click", function () {
       post("cancel", { rows: state.rows });
@@ -603,7 +731,8 @@
     save.addEventListener("click", function () {
       post("save", { rows: state.rows });
     });
-    footer.append(cancel, save);
+    footerActions.append(cancel, save);
+    footer.append(status, footerActions);
     root.append(header, body, footer);
     if (preserveScroll) {
       requestAnimationFrame(restoreScroll);
@@ -620,6 +749,7 @@
       state.rows = Array.isArray(state.snapshot.rows)
         ? state.snapshot.rows.map(cleanRow)
         : [];
+      syncSkillRunnerReachabilityFromSnapshot();
       setActiveProviderType(state.snapshot.initialProviderType);
       activeProvider();
       render();
@@ -644,11 +774,44 @@
       if (payload.action === "refresh-acp-runtime-options") {
         const rowIndex = Number(payload.rowIndex);
         state.pendingAcpRows.delete(rowIndex);
+        const row = Number.isInteger(rowIndex) ? state.rows[rowIndex] : null;
+        const backendId = String(
+          payload.backendId || (row && row.internalId) || "",
+        );
         if (Number.isInteger(rowIndex) && state.rows[rowIndex]) {
           state.rows[rowIndex].acp = payload.acp || state.rows[rowIndex].acp;
           emitDraftChanged();
         }
-        renderWithScroll();
+        showStatusMessage(
+          statusText(
+            payload.ok === false ? "acpFailed" : "acpRefreshed",
+            backendId,
+            payload.ok === false ? payload.error : "",
+          ),
+          payload.ok === false ? "error" : "success",
+        );
+        return;
+      }
+      if (payload.action === "refresh-model-cache") {
+        const rowIndex = Number(payload.rowIndex);
+        state.pendingModelCacheRows.delete(rowIndex);
+        const row = Number.isInteger(rowIndex) ? state.rows[rowIndex] : null;
+        const backendId = String(
+          payload.backendId || (row && row.internalId) || "",
+        );
+        if (payload.ok === true) {
+          setSkillRunnerReachability(backendId, true);
+        } else if (backendId) {
+          setSkillRunnerReachability(backendId, false);
+        }
+        showStatusMessage(
+          statusText(
+            payload.ok === true ? "modelRefreshed" : "modelFailed",
+            backendId,
+            payload.ok === true ? "" : payload.error,
+          ),
+          payload.ok === true ? "success" : "error",
+        );
       }
     }
   });

@@ -499,5 +499,5 @@ export function buildReferenceSidecarIndexRows(
 }
 
 export function buildSynthesisLayerDbPath(runtimeRoot?: string) {
-  return getRuntimePersistencePaths(runtimeRoot).stateDbPath;
+  return getRuntimePersistencePaths(runtimeRoot).synthesisDbPath;
 }

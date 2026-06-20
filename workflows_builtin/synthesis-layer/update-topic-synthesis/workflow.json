@@ -35,6 +35,7 @@
         {
           "id": "prepare",
           "skill_id": "update-topic-synthesis-prepare",
+          "mode": "auto",
           "workspace": "new",
           "short_circuit": {
             "when": {
@@ -47,11 +48,13 @@
         {
           "id": "core",
           "skill_id": "topic-synthesis-core-enrichment",
+          "mode": "auto",
           "workspace": "reuse-workflow"
         },
         {
           "id": "finalize",
           "skill_id": "topic-synthesis-finalize",
+          "mode": "auto",
           "workspace": "reuse-workflow",
           "fetch_type": "bundle"
         }
@@ -59,11 +62,9 @@
     }
   },
   "execution": {
-    "mode": "auto",
     "zoteroHostAccess": {
       "required": true
     },
-    "skillrunner_mode": "auto",
     "timeout_ms": 1200000
   },
   "result": {

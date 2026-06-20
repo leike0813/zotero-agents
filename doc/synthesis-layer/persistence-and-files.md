@@ -8,7 +8,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 
 | Class | Location | Role |
 | --- | --- | --- |
-| Runtime DB | `state/zotero-agents.db` | Synthesis `synt_*` artifact sidecar rows, raw/canonical references, graph cache, review/override state, user-approved reference/binding decisions |
+| Synthesis runtime DB | `state/synthesis.db` | Synthesis `synt_*` artifact sidecar rows, raw/canonical references, graph cache, review/override state, user-approved reference/binding decisions |
 | Topic artifact store | `data/synthesis/topics/<topicId>/current/**` | Current topic source artifacts and section JSON files that are not stored in SQLite |
 | Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
@@ -27,6 +27,7 @@ The persistence root is the `zotero-agents` directory. Its active structure is:
 zotero-agents/
   state/
     zotero-agents.db
+    synthesis.db
     workflow-registry-status.json
     *.bak
   data/
@@ -44,7 +45,8 @@ zotero-agents/
     tmp/**
 ```
 
-`state/zotero-agents.db` is the only SQLite sidecar database. `data/synthesis/sidecar`
+`state/synthesis.db` is the live Synthesis SQLite sidecar database. The sibling
+`state/zotero-agents.db` stores workflow/plugin runtime ledgers. `data/synthesis/sidecar`
 must not be called `state`: it is scoped to topic artifact companion files and
 must not be confused with the persistence-root `state/` directory.
 

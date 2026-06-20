@@ -376,6 +376,7 @@ export async function buildTagRegulatorStandaloneRequest(args) {
   return {
     kind: "skillrunner.job.v1",
     skill_id: "tag-regulator",
+    mode: "auto",
     targetParentID: parentItem.id,
     input,
     parameter: resolveRequestParameters(args.executionOptions),

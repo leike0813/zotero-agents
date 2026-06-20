@@ -200,6 +200,10 @@ async function seedDurableFacts(root: string, label = "Alpha concept") {
     path.join(root, "state", "zotero-agents.db"),
     "sqlite should not be exported",
   );
+  await writeRuntimeTextFile(
+    path.join(root, "state", "synthesis.db"),
+    "synthesis sqlite should not be exported",
+  );
   return repository;
 }
 
@@ -223,6 +227,9 @@ describe("Synthesis durable sync exchange", function () {
     }
     assert.isFalse(
       await runtimePathExists(path.join(root, "state", "zotero-agents.db")),
+    );
+    assert.isFalse(
+      await runtimePathExists(path.join(root, "state", "synthesis.db")),
     );
   });
 
@@ -283,6 +290,9 @@ describe("Synthesis durable sync exchange", function () {
       first.manifest.assets.some((asset) =>
         asset.path.includes("zotero-agents.db"),
       ),
+    );
+    assert.isFalse(
+      first.manifest.assets.some((asset) => asset.path.includes("synthesis.db")),
     );
     assert.isFalse(
       listSynthesisDurableManifestEntities(first.manifest).some(

@@ -256,7 +256,7 @@ Constraints:
 - Validation and dry-run happen before any SQLite write.
 - Same-entity local and remote edits block import.
 - Projection rows are not imported as durable facts; they become stale after durable import.
-- `zotero-agents.db`, WAL/SHM, operations, logs, locks, credentials, and temp workspaces never enter Git.
+- `zotero-agents.db`, `synthesis.db`, WAL/SHM, operations, logs, locks, credentials, and temp workspaces never enter Git.
 
 Constraints:
 

@@ -404,7 +404,8 @@ export async function cleanupPersistenceIssues(args?: {
       path &&
       isUnderPath(paths.runtimeRoot, path) &&
       !isUnderPath(paths.dataDir, path) &&
-      path !== paths.stateDbPath;
+      path !== paths.stateDbPath &&
+      path !== paths.synthesisDbPath;
     if (!cleanable) {
       skippedIssueIds.push(issue.id);
       continue;

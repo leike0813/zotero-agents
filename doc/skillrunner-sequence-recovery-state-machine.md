@@ -18,7 +18,8 @@ model, but ACP foreground step apply is not the SkillRunner model.
   `/result` or `/bundle`.
 - Handoff projection: JSON object built from step result projection for later
   step request construction.
-- Step apply task: Host-side deferred apply owned by the reconciler.
+- Step apply task: Host-side foreground apply owned by the sequence runtime in
+  normal execution. Recovery-owned apply remains reconciler work.
 
 Root records do not appear as task rows. Step records appear independently in
 Dashboard, popover, and RunDialog projections.
@@ -30,7 +31,9 @@ stateDiagram-v2
   [*] --> planning
   planning --> step_submitting: prepare step 0
   step_submitting --> step_ready: request_ready
-  step_ready --> step_running: backend observes queued/running/waiting
+  step_ready --> step_running: backend observes queued/running
+  step_running --> step_waiting_detached: waiting_user/waiting_auth
+  step_waiting_detached --> step_running: reply/auth foreground continuation
   step_ready --> step_terminal_success: backend success
   step_running --> step_terminal_success: backend success
   step_running --> step_terminal_failed: backend failed/canceled/client error
@@ -85,22 +88,21 @@ Rules:
 
 ```mermaid
 sequenceDiagram
-  participant R as SkillRunnerTaskReconciler
-  participant Store as SkillRunnerRunStore
   participant Seq as Sequence Orchestrator
-  participant Apply as Deferred Apply
+  participant Store as SkillRunnerRunStore
+  participant Apply as Foreground Apply
 
-  R->>Store: step terminal success
-  R->>R: fetch and normalize result or bundle
-  R->>Store: write result projection
-  R->>Seq: build handoff projection
+  Seq->>Store: step terminal success
+  Seq->>Seq: fetch and normalize result or bundle
+  Seq->>Store: write result projection
+  Seq->>Seq: build handoff projection
   Seq->>Store: record handoff ready or failed
 
   par continue sequence
     Seq->>Seq: check next step handoff dependency
     Seq->>Store: create next step or terminal root state
   and settle apply
-    R->>Apply: enqueue step apply when declared
+    Seq->>Apply: execute step apply when declared
     Apply->>Store: apply pending/running/succeeded/failed/skipped
   end
 ```
@@ -127,7 +129,7 @@ If result or handoff projection fails:
   apply output as handoff input, which SkillRunner sequence does not do by
   default.
 
-## Deferred Apply Policy
+## Apply Policy
 
 Step apply states are:
 
@@ -138,8 +140,8 @@ Step apply states are:
 - `failed`
 - `skipped`
 
-Deferred apply may complete after later steps have already started. UI must show
-the step apply state on the owning step, not on the sequence root alone.
+Step apply may complete after later steps have already started. UI must show the
+step apply state on the owning step, not on the sequence root alone.
 
 Host-side failures:
 

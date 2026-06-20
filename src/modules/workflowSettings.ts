@@ -269,7 +269,18 @@ function resolveSkillRunnerMode(
   ) {
     return "";
   }
-  const mode = String(workflow.manifest.execution?.skillrunner_mode || "")
+  if (requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
+    const steps = workflow.manifest.request?.sequence?.steps || [];
+    const modes = Array.from(
+      new Set(
+        steps
+          .map((step) => String(step.mode || "").trim().toLowerCase())
+          .filter((mode) => mode === "auto" || mode === "interactive"),
+      ),
+    );
+    return modes.length === 1 ? (modes[0] as "auto" | "interactive") : "";
+  }
+  const mode = String(workflow.manifest.request?.create?.mode || "")
     .trim()
     .toLowerCase();
   if (mode === "interactive") {

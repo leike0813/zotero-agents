@@ -11,7 +11,10 @@
     "unit": "parent"
   },
   "request": {
-    "kind": "skillrunner.job.v1"
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "mode": "auto"
+    }
   },
   "parameters": {
     "infer_tag": {
@@ -35,10 +38,6 @@
       "allowCustom": true,
       "default": "zh-CN"
     }
-  },
-  "execution": {
-    "mode": "auto",
-    "skillrunner_mode": "auto"
   },
   "result": {
     "fetch": {

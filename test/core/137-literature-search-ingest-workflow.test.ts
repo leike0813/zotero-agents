@@ -97,7 +97,7 @@ describe("Literature Search Ingest workflow contract", function () {
       workflow.taskNameTemplate,
       "Search and ingest literature: {query}",
     );
-    assert.equal(workflow.execution?.skillrunner_mode, "interactive");
+    assert.equal(workflow.request?.create?.mode, "interactive");
     assert.notProperty(workflow.execution || {}, "supportedBackends");
     assert.isTrue(workflow.execution?.zoteroHostAccess?.required);
     assert.isTrue(

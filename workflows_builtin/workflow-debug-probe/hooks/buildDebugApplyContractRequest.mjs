@@ -50,6 +50,7 @@ function buildSingleRequest({ workflowId, parent, parentTitle, runKey, applyMode
   return {
     kind: "skillrunner.job.v1",
     skill_id: skillId,
+    mode: "auto",
     targetParentID: parent.id,
     taskName: parentTitle,
     input: {},
@@ -68,17 +69,27 @@ function buildSequenceStep({
   runKey,
   applyMode,
   workspace,
+  mode = "auto",
+  skillId,
+  applyResult = true,
 }) {
-  const skillId = applyMode === "bundle" ? BUNDLE_SKILL_ID : RESULT_SKILL_ID;
+  const resolvedSkillId =
+    normalizeString(skillId) ||
+    (applyMode === "bundle" ? BUNDLE_SKILL_ID : RESULT_SKILL_ID);
   return {
     id: stepId,
-    skill_id: skillId,
+    skill_id: resolvedSkillId,
+    mode,
     workspace,
     fetch_type: applyMode,
-    apply_result: {
-      workflow_id: workflowId,
-      on_failure: "fail_sequence",
-    },
+    ...(applyResult
+      ? {
+          apply_result: {
+            workflow_id: workflowId,
+            on_failure: "fail_sequence",
+          },
+        }
+      : {}),
     handoff: {
       pass_through: false,
       required: false,
@@ -242,6 +253,33 @@ async function buildRequestImpl({ manifest, executionOptions, runtime }) {
         steps,
       });
     }
+    case "debug-interactive-then-result":
+      return buildSequenceRequest({
+        workflowId,
+        parent,
+        parentTitle: title,
+        runKey,
+        steps: [
+          buildSequenceStep({
+            workflowId,
+            stepId: "interactive",
+            runKey,
+            applyMode: "result",
+            workspace: "new",
+            mode: "interactive",
+            skillId: "debug-interactive-choice-probe",
+            applyResult: false,
+          }),
+          buildSequenceStep({
+            workflowId,
+            stepId: "result",
+            runKey,
+            applyMode: "result",
+            workspace: "reuse-workflow",
+            mode: "auto",
+          }),
+        ],
+      });
     default:
       throw new Error(`unsupported debug apply contract workflow: ${workflowId}`);
   }

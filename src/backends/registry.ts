@@ -309,6 +309,7 @@ function normalizeBackendEntry(
   const id = idRaw.trim();
   const displayName = normalizeBackendDisplayName(rawEntry.displayName, id);
   const type = typeRaw.trim();
+  const enabled = rawEntry.enabled !== false;
   const isAcp = isAcpBackendType(type);
   const baseUrl = isAcp
     ? isNonEmptyString(baseUrlRaw)
@@ -512,6 +513,7 @@ function normalizeBackendEntry(
     displayName,
     type,
     baseUrl,
+    ...(enabled === false ? { enabled: false } : {}),
     ...(command ? { command } : {}),
     ...(args.length > 0 ? { args } : {}),
     ...(Object.keys(env).length > 0 ? { env } : {}),

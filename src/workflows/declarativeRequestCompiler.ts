@@ -363,6 +363,12 @@ function buildSkillRunnerJobRequest(args: {
       `Workflow ${args.manifest.id} skillrunner.job.v1 requires request.create.skill_id`,
     );
   }
+  const mode = String(request.create?.mode || "").trim();
+  if (mode !== "auto" && mode !== "interactive") {
+    throw new Error(
+      `Workflow ${args.manifest.id} skillrunner.job.v1 requires request.create.mode`,
+    );
+  }
   const declaredSkillSource = String(request.create?.skill_source || "").trim();
   const skillSource =
     declaredSkillSource === "installed" ? "installed" : "local-package";
@@ -419,6 +425,9 @@ function buildSkillRunnerJobRequest(args: {
     sourceAttachmentPaths,
     skill_id: skillId,
     skill_source: skillSource,
+    runtime_options: {
+      execution_mode: mode,
+    },
     ...(uploadFiles.length > 0 ? { upload_files: uploadFiles } : {}),
     parameter: workflowParams,
     ...(Object.keys(inlineInput).length > 0 ? { input: inlineInput } : {}),
@@ -489,6 +498,7 @@ function buildSkillRunnerSequenceRequest(args: {
     steps: steps.map((step) => ({
       id: String(step.id || "").trim(),
       skill_id: String(step.skill_id || "").trim(),
+      mode: String(step.mode || "").trim(),
       ...(step.input ? { input: cloneRecord(step.input) } : {}),
       ...(step.parameter ? { parameter: cloneRecord(step.parameter) } : {}),
       ...(step.fetch_type ? { fetch_type: step.fetch_type } : {}),

@@ -25,7 +25,8 @@
   "request": {
     "kind": "skillrunner.job.v1",
     "create": {
-      "skill_id": "literature-explainer"
+      "skill_id": "literature-explainer",
+      "mode": "interactive"
     },
     "input": {
       "upload": {
@@ -54,8 +55,6 @@
     }
   },
   "execution": {
-    "mode": "auto",
-    "skillrunner_mode": "interactive",
     "poll_interval_ms": 2000,
     "timeout_ms": 1200000
   },

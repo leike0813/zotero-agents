@@ -59,43 +59,47 @@
   "allOf": [
     {
       "if": {
-        "anyOf": [
-          {
-            "properties": {
-              "provider": {
-                "const": "skillrunner"
-              }
-            },
-            "required": ["provider"]
-          },
+        "allOf": [
           {
             "properties": {
               "request": {
                 "type": "object",
                 "properties": {
                   "kind": {
-                    "enum": ["skillrunner.job.v1", "skillrunner.sequence.v1"]
+                    "const": "skillrunner.job.v1"
                   }
                 },
                 "required": ["kind"]
               }
             },
             "required": ["request"]
+          },
+          {
+            "not": {
+              "properties": {
+                "hooks": {
+                  "type": "object",
+                  "properties": {
+                    "buildRequest": {}
+                  },
+                  "required": ["buildRequest"]
+                }
+              },
+              "required": ["hooks"]
+            }
           }
         ]
       },
       "then": {
-        "required": ["execution"],
         "properties": {
-          "execution": {
+          "request": {
             "type": "object",
             "properties": {
-              "skillrunner_mode": {
-                "type": "string",
-                "enum": ["auto", "interactive"]
+              "create": {
+                "$ref": "#/$defs/requestCreateSpec"
               }
             },
-            "required": ["skillrunner_mode"]
+            "required": ["create"]
           }
         }
       }
@@ -500,10 +504,6 @@
     "executionSpec": {
       "type": "object",
       "properties": {
-        "mode": {
-          "type": "string",
-          "enum": ["auto", "sync", "async"]
-        },
         "mcp": {
           "type": "object",
           "properties": {
@@ -528,10 +528,6 @@
             }
           },
           "additionalProperties": false
-        },
-        "skillrunner_mode": {
-          "type": "string",
-          "enum": ["auto", "interactive"]
         },
         "poll_interval_ms": {
           "type": "number"
@@ -613,9 +609,14 @@
     },
     "requestCreateSpec": {
       "type": "object",
+      "required": ["mode"],
       "properties": {
         "skill_id": {
           "$ref": "#/$defs/nonEmptyString"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["auto", "interactive"]
         },
         "skill_source": {
           "type": "string",
@@ -677,13 +678,17 @@
     },
     "requestSequenceStepSpec": {
       "type": "object",
-      "required": ["id", "skill_id"],
+      "required": ["id", "skill_id", "mode"],
       "properties": {
         "id": {
           "$ref": "#/$defs/nonEmptyString"
         },
         "skill_id": {
           "$ref": "#/$defs/nonEmptyString"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["auto", "interactive"]
         },
         "input": {
           "type": "object",

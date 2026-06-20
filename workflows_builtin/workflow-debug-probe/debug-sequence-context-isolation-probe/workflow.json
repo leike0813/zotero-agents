@@ -11,7 +11,6 @@
     "unit": "workflow"
   },
   "execution": {
-    "skillrunner_mode": "auto",
     "feedback": {
       "showNotifications": false
     }
@@ -26,6 +25,7 @@
         {
           "id": "emit-secret",
           "skill_id": "debug-sequence-probe-emit",
+          "mode": "auto",
           "workspace": "new",
           "parameter": {
             "probe_id": "context-isolation",
@@ -38,6 +38,7 @@
         {
           "id": "check-isolated",
           "skill_id": "debug-sequence-probe-check",
+          "mode": "auto",
           "workspace": "new",
           "handoff": {
             "from_step": "emit-secret",
@@ -58,6 +59,7 @@
         {
           "id": "finalize",
           "skill_id": "debug-sequence-probe-finalize",
+          "mode": "auto",
           "workspace": "reuse-workflow",
           "parameter": {
             "probe_id": "context-isolation"

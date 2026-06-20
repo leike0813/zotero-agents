@@ -24,7 +24,10 @@ export type RuntimePersistencePaths = {
   dataDir: string;
   synthesisDataRoot: string;
   stateDir: string;
+  /** Workflow/plugin runtime database for task rows, ACP/SkillRunner ledgers, and product metadata. */
   stateDbPath: string;
+  /** Synthesis repository database for synt_* sidecar/runtime state. */
+  synthesisDbPath: string;
   logsDir: string;
   runtimeLogPath: string;
   acpChatRoot: string;
@@ -52,6 +55,7 @@ export type RuntimePersistenceCategoryUsage = {
 };
 
 export type RuntimePersistenceStateDatabaseUsage = {
+  kind?: "runtime" | "synthesis";
   path: string;
   bytes: number;
   exists: boolean;
@@ -64,6 +68,7 @@ export type RuntimePersistenceUsageSnapshot = {
   totalBytes: number;
   categories: RuntimePersistenceCategoryUsage[];
   stateDatabase?: RuntimePersistenceStateDatabaseUsage;
+  stateDatabases?: RuntimePersistenceStateDatabaseUsage[];
 };
 
 export type RuntimePersistenceScanProgress = {
@@ -154,6 +159,7 @@ const WINDOWS_RESERVED_BASENAMES = new Set([
 const INTERNAL_APP_DIR_NAME = "zotero-agents";
 const LEGACY_APP_DIR_NAME = "zotero-skills";
 const SQLITE_FILE_NAME = "zotero-agents.db";
+const SYNTHESIS_SQLITE_FILE_NAME = "synthesis.db";
 const LEGACY_SQLITE_FILE_NAME = "zotero-skills.db";
 const RUNTIME_LOG_FILE_NAME = "runtime-logs.json";
 const PLUGIN_PREFS_PREFIX = "extensions.zotero.zotero-skills";
@@ -700,6 +706,7 @@ export function getRuntimePersistencePaths(
     synthesisDataRoot: joinPath(dataDir, "synthesis"),
     stateDir,
     stateDbPath: joinPath(stateDir, SQLITE_FILE_NAME),
+    synthesisDbPath: joinPath(stateDir, SYNTHESIS_SQLITE_FILE_NAME),
     logsDir,
     runtimeLogPath: joinPath(logsDir, RUNTIME_LOG_FILE_NAME),
     acpChatRoot,
@@ -1472,7 +1479,7 @@ export async function scanRuntimePersistenceUsage(args: {
     },
   ];
   const categories: RuntimePersistenceCategoryUsage[] = [];
-  const totalSteps = categoryDefs.length + 1;
+  const totalSteps = categoryDefs.length + 2;
   let completedSteps = 0;
   const reportProgress = (stage: string, label: string) => {
     completedSteps = Math.min(totalSteps, completedSteps + 1);
@@ -1504,18 +1511,32 @@ export async function scanRuntimePersistenceUsage(args: {
     reportProgress(`usage:${def.category}`, def.label);
   }
   const stateDatabaseSize = await getRuntimePathSize(paths.stateDbPath);
+  const synthesisDatabaseSize = await getRuntimePathSize(paths.synthesisDbPath);
   reportProgress("usage:state-db", "State database");
-  return {
-    root: paths.root,
-    scannedAt: new Date().toISOString(),
-    totalBytes: categories.reduce((sum, entry) => sum + entry.bytes, 0),
-    categories,
-    stateDatabase: {
+  reportProgress("usage:synthesis-db", "Synthesis database");
+  const stateDatabases: RuntimePersistenceStateDatabaseUsage[] = [
+    {
+      kind: "runtime",
       path: paths.stateDbPath,
       bytes: stateDatabaseSize.bytes,
       exists: stateDatabaseSize.exists,
       itemCount: stateDatabaseSize.itemCount,
     },
+    {
+      kind: "synthesis",
+      path: paths.synthesisDbPath,
+      bytes: synthesisDatabaseSize.bytes,
+      exists: synthesisDatabaseSize.exists,
+      itemCount: synthesisDatabaseSize.itemCount,
+    },
+  ];
+  return {
+    root: paths.root,
+    scannedAt: new Date().toISOString(),
+    totalBytes: categories.reduce((sum, entry) => sum + entry.bytes, 0),
+    categories,
+    stateDatabase: stateDatabases[0],
+    stateDatabases,
   };
 }
 

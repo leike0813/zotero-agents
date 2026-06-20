@@ -95,7 +95,6 @@ Additional core domain files (created in-place in `test/core/`, not migrated fro
 - `70c-skillrunner-task-reconciler-ledger-reconcile.test.ts`
 - `71-skillrunner-run-dialog-ui-e2e-alignment.test.ts`
 - `83-skillrunner-run-dialog-waiting-auth-observer.test.ts`
-- `85-deferred-workflow-completion-tracker.test.ts`
 - `87-workflow-package-runtime-diagnostics.test.ts`
 - `88-workflow-runtime-scope-diagnostics.test.ts`
 - `89-workflow-debug-probe.test.ts`

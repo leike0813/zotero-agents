@@ -8,15 +8,10 @@ import {
   listPluginRunStoreEntries,
   upsertPluginRunStoreEntry,
 } from "../pluginStateStore";
-import {
-  getSkillRunnerSequenceRootState,
-  getSkillRunnerSequenceRootStateByStepRequest,
-  upsertSkillRunnerSequenceRootState,
-} from "../skillRunnerRunStore";
 
 export type SequenceRunStateStatus =
   | "running_step"
-  | "waiting_recovery"
+  | "waiting_interaction"
   | "continuing"
   | "completed"
   | "failed"
@@ -41,7 +36,7 @@ export type SequenceStepRunState = {
 };
 
 export type SequenceRunState = {
-  schemaVersion: "1.0.0";
+  schemaVersion: "2.0.0";
   sequenceRunId: string;
   workflowId: string;
   workflowLabel?: string;
@@ -115,6 +110,16 @@ function parseProviderResult(
         backendStatus === "waiting_auth"
           ? backendStatus
           : "running",
+      detachReason:
+        normalizeString(raw.detachReason) === "waiting"
+          ? "waiting"
+          : undefined,
+      continuationOwner:
+        normalizeString(raw.continuationOwner) === "foreground"
+          ? "foreground"
+          : normalizeString(raw.continuationOwner) === "recovery"
+            ? "recovery"
+            : undefined,
       responseJson: raw.responseJson,
     };
   }
@@ -157,6 +162,8 @@ function cloneProviderResult(result: ProviderExecutionResult) {
       requestId: result.requestId,
       fetchType: result.fetchType,
       backendStatus: result.backendStatus,
+      detachReason: result.detachReason,
+      continuationOwner: result.continuationOwner,
       responseJson: result.responseJson,
     } satisfies ProviderExecutionResult;
   }
@@ -225,6 +232,9 @@ function parseState(raw: unknown): SequenceRunState | null {
   if (!isRecord(raw)) {
     return null;
   }
+  if (normalizeString(raw.schemaVersion) !== "2.0.0") {
+    return null;
+  }
   const sequenceRunId = normalizeString(raw.sequenceRunId);
   const workflowId = normalizeString(raw.workflowId);
   const workflowRunId = normalizeString(raw.workflowRunId) || sequenceRunId;
@@ -243,7 +253,7 @@ function parseState(raw: unknown): SequenceRunState | null {
         .filter((entry): entry is SequenceStepRunState => !!entry)
     : [];
   return {
-    schemaVersion: "1.0.0",
+    schemaVersion: "2.0.0",
     sequenceRunId,
     workflowId,
     workflowLabel: normalizeString(raw.workflowLabel) || undefined,
@@ -263,7 +273,7 @@ function parseState(raw: unknown): SequenceRunState | null {
     rootRequestId: normalizeString(raw.rootRequestId) || undefined,
     status:
       status === "running_step" ||
-      status === "waiting_recovery" ||
+      status === "waiting_interaction" ||
       status === "continuing" ||
       status === "completed" ||
       status === "failed" ||
@@ -294,21 +304,28 @@ function parseStoredSequencePayload(payload: string) {
 }
 
 function persistState(state: SequenceRunState) {
-  if (normalizeString(state.backendType) === DEFAULT_BACKEND_TYPE) {
-    upsertSkillRunnerSequenceRootState(state as unknown as Record<string, unknown>);
-    return;
-  }
-  upsertPluginRunStoreEntry("acp", {
+  const storeKind =
+    normalizeString(state.backendType) === DEFAULT_BACKEND_TYPE
+      ? "skillrunner"
+      : "acp";
+  upsertPluginRunStoreEntry(storeKind, {
     runKey: sequenceRunKey(state.sequenceRunId),
     requestId: state.rootRequestId || "",
     backendId: state.backendId,
     state: state.status,
     updatedAt: state.updatedAt,
     payload: JSON.stringify({
-      schema: "workflow.sequence.state.v1",
+      schema: "workflow.sequence.state.v2",
       sequenceState: state,
     }),
   });
+}
+
+function listSequenceStateEntries() {
+  return [
+    ...listPluginRunStoreEntries("skillrunner"),
+    ...listPluginRunStoreEntries("acp"),
+  ];
 }
 
 function updateState(
@@ -352,7 +369,7 @@ export function initializeSequenceRunState(args: {
 }) {
   const now = nowIso();
   const state: SequenceRunState = {
-    schemaVersion: "1.0.0",
+    schemaVersion: "2.0.0",
     sequenceRunId: args.workflowRunId,
     workflowId: args.workflowId,
     workflowLabel: args.workflowLabel,
@@ -385,17 +402,11 @@ export function getSequenceRunState(sequenceRunIdRaw: string) {
   if (!sequenceRunId) {
     return null;
   }
-  const skillRunnerState = parseState(
-    getSkillRunnerSequenceRootState(sequenceRunId),
-  );
-  if (skillRunnerState) {
-    return skillRunnerState;
-  }
-  const acpEntry = listPluginRunStoreEntries("acp").find(
+  const entry = listSequenceStateEntries().find(
     (entry) => entry.runKey === sequenceRunKey(sequenceRunId),
   );
-  if (acpEntry) {
-    return parseStoredSequencePayload(acpEntry.payload);
+  if (entry) {
+    return parseStoredSequencePayload(entry.payload);
   }
   return null;
 }
@@ -405,13 +416,7 @@ export function getSequenceRunStateByStepRequest(requestIdRaw: string) {
   if (!requestId) {
     return null;
   }
-  const skillRunnerState = parseState(
-    getSkillRunnerSequenceRootStateByStepRequest(requestId),
-  );
-  if (skillRunnerState) {
-    return skillRunnerState;
-  }
-  for (const entry of listPluginRunStoreEntries("acp")) {
+  for (const entry of listSequenceStateEntries()) {
     const state = parseStoredSequencePayload(entry.payload);
     if (
       state?.steps.some(
@@ -484,7 +489,7 @@ export function recordSequenceStepSucceeded(args: {
   );
 }
 
-export function recordSequenceStepDeferred(args: {
+export function recordSequenceStepWaiting(args: {
   sequenceRunId: string;
   stepIndex: number;
   requestId: string;
@@ -494,7 +499,7 @@ export function recordSequenceStepDeferred(args: {
     const next = updateStep(
       {
         ...state,
-        status: "waiting_recovery",
+        status: "waiting_interaction",
       },
       args.stepIndex,
       (step) => ({
@@ -542,10 +547,10 @@ export function markSequenceRunContinuing(sequenceRunId: string) {
   }));
 }
 
-export function markSequenceRunWaitingRecovery(sequenceRunId: string) {
+export function markSequenceRunWaitingInteraction(sequenceRunId: string) {
   return updateState(sequenceRunId, (state) => ({
     ...state,
-    status: "waiting_recovery",
+    status: "waiting_interaction",
     error: undefined,
     updatedAt: nowIso(),
   }));

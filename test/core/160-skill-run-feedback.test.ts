@@ -15,10 +15,9 @@ function workflow(): LoadedWorkflow {
       provider: "skillrunner",
       trigger: { requiresSelection: false },
       inputs: { unit: "workflow" },
-      execution: { skillrunner_mode: "interactive" },
       request: {
         kind: "skillrunner.job.v1",
-        create: { skill_id: "demo-skill" },
+        create: { skill_id: "demo-skill", mode: "interactive" },
       },
       hooks: {},
     },

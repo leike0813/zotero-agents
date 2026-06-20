@@ -9,9 +9,8 @@ import {
   resetSkillRunnerBackendHealthRegistryForTests,
 } from "./skillRunnerBackendHealthRegistry";
 import {
-  setDeferredWorkflowCompletionTrackerDepsForTests,
-  resetDeferredWorkflowCompletionTrackerForTests,
-} from "./workflowExecution/deferredCompletionTracker";
+  stopSkillRunnerBackendReachabilityCoordinator,
+} from "./skillRunnerBackendReachabilityCoordinator";
 import { resetPluginStateStoreForTests } from "./pluginStateStore";
 import {
   resetSkillRunnerTaskReconcilerForTests,
@@ -25,15 +24,14 @@ import { resetTaskManagerDialogRuntimeForTests } from "./taskManagerDialog";
 
 type CleanupDeps = {
   stopSkillRunnerModelCacheAutoRefresh: () => void;
+  stopSkillRunnerBackendReachabilityCoordinator: () => void;
   resetManagedLocalRuntimeLoopsForTests: () => void;
   resetManagedLocalRuntimeStateChangeListenersForTests: () => void;
   resetLocalRuntimeToastStateForTests: () => void;
   resetSkillRunnerBackendHealthRegistryForTests: () => void;
-  resetDeferredWorkflowCompletionTrackerForTests: () => void;
   resetPluginStateStoreForTests: () => void;
   setSkillRunnerBackendReconcileFailureToastEmitterForTests: () => void;
   setSkillRunnerTaskLifecycleToastEmitterForTests: () => void;
-  setDeferredWorkflowCompletionTrackerDepsForTests: () => void;
   resetWorkflowTasks: () => void;
   clearRuntimeLogs: () => void;
   resetSkillRunnerSessionSyncForTests: () => void | Promise<void>;
@@ -44,15 +42,14 @@ type CleanupDeps = {
 
 const defaultCleanupDeps: CleanupDeps = {
   stopSkillRunnerModelCacheAutoRefresh,
+  stopSkillRunnerBackendReachabilityCoordinator,
   resetManagedLocalRuntimeLoopsForTests,
   resetManagedLocalRuntimeStateChangeListenersForTests,
   resetLocalRuntimeToastStateForTests,
   resetSkillRunnerBackendHealthRegistryForTests,
-  resetDeferredWorkflowCompletionTrackerForTests,
   resetPluginStateStoreForTests,
   setSkillRunnerBackendReconcileFailureToastEmitterForTests,
   setSkillRunnerTaskLifecycleToastEmitterForTests,
-  setDeferredWorkflowCompletionTrackerDepsForTests,
   resetWorkflowTasks,
   clearRuntimeLogs,
   resetSkillRunnerSessionSyncForTests,
@@ -80,15 +77,14 @@ export async function cleanupBackgroundRuntimeForZoteroTests() {
   await Promise.resolve(cleanupDeps.resetSkillRunnerTaskReconcilerForTests());
   await Promise.resolve(cleanupDeps.resetSkillRunnerSessionSyncForTests());
   cleanupDeps.stopSkillRunnerModelCacheAutoRefresh();
+  cleanupDeps.stopSkillRunnerBackendReachabilityCoordinator();
   cleanupDeps.resetManagedLocalRuntimeLoopsForTests();
   cleanupDeps.resetManagedLocalRuntimeStateChangeListenersForTests();
   cleanupDeps.resetLocalRuntimeToastStateForTests();
   cleanupDeps.resetSkillRunnerBackendHealthRegistryForTests();
-  cleanupDeps.resetDeferredWorkflowCompletionTrackerForTests();
   cleanupDeps.resetPluginStateStoreForTests();
   cleanupDeps.setSkillRunnerBackendReconcileFailureToastEmitterForTests();
   cleanupDeps.setSkillRunnerTaskLifecycleToastEmitterForTests();
-  cleanupDeps.setDeferredWorkflowCompletionTrackerDepsForTests();
   cleanupDeps.resetWorkflowTasks();
   cleanupDeps.clearRuntimeLogs();
 }

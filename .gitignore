@@ -34,6 +34,8 @@ logs
 .agents/skills/*
 !.agents/skills/synthesis-reference-resolution-harness/
 !.agents/skills/synthesis-reference-resolution-harness/**
+!.agents/skills/host-bridge-release-pipeline/
+!.agents/skills/host-bridge-release-pipeline/**
 
 .pnpmfile.cjs
 

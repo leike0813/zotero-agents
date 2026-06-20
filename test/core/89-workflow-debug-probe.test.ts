@@ -471,6 +471,7 @@ describe("workflow debug probe", function () {
       "debug-apply-bundle-then-result",
       "debug-apply-result-then-bundle",
       "debug-interactive-choice-probe",
+      "debug-interactive-then-result",
     ]) {
       assert.isTrue(workflowIds.has(workflowId), `${workflowId} should load`);
     }
@@ -608,6 +609,57 @@ describe("workflow debug probe", function () {
       "step_id",
       "run_key",
     ]);
+
+    const interactiveThenResult = await getBuiltinDebugWorkflow(
+      "debug-interactive-then-result",
+    );
+    const mixedModeRequests = (await executeBuildRequests({
+      workflow: interactiveThenResult,
+      selectionContext,
+    })) as Array<{
+      targetParentID: number;
+      parameter: { run_key?: string };
+      steps: Array<{
+        id: string;
+        skill_id: string;
+        mode: string;
+        fetch_type: string;
+        workspace: string;
+        apply_result?: Record<string, unknown>;
+        input?: Record<string, unknown>;
+      }>;
+    }>;
+    assert.lengthOf(mixedModeRequests, 1);
+    assert.deepEqual(
+      mixedModeRequests[0].steps.map(
+        (step) => `${step.id}:${step.mode}:${step.fetch_type}:${step.workspace}`,
+      ),
+      ["interactive:interactive:result:new", "result:auto:result:reuse-workflow"],
+    );
+    assert.deepEqual(
+      mixedModeRequests[0].steps.map((step) => step.skill_id),
+      ["debug-interactive-choice-probe", "debug-apply-result-probe"],
+    );
+    assert.isUndefined(mixedModeRequests[0].steps[0].apply_result);
+    assert.deepInclude(mixedModeRequests[0].steps[1].apply_result || {}, {
+      workflow_id: "debug-interactive-then-result",
+      on_failure: "fail_sequence",
+    });
+    assert.deepEqual(
+      mixedModeRequests[0].steps.map((step) => step.input),
+      [{}, {}],
+    );
+    const mixedModeParent = Zotero.Items.get(
+      mixedModeRequests[0].targetParentID,
+    )!;
+    assert.include(
+      String(mixedModeParent.getField("title") || ""),
+      "debug-interactive-then-result",
+    );
+    assert.include(
+      String(mixedModeParent.getField("title") || ""),
+      String(mixedModeRequests[0].parameter.run_key || ""),
+    );
   });
 
   it("debug apply hook applies canonical resultJson and ignores stale responseJson", async function () {

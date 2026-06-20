@@ -13,12 +13,11 @@
   "request": {
     "kind": "skillrunner.job.v1",
     "create": {
-      "skill_id": "debug-interactive-choice-probe"
+      "skill_id": "debug-interactive-choice-probe",
+      "mode": "interactive"
     }
   },
   "execution": {
-    "mode": "auto",
-    "skillrunner_mode": "interactive",
     "feedback": {
       "showNotifications": true
     },

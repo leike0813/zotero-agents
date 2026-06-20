@@ -127,6 +127,10 @@ function validateSkillRunnerJobPayload(request: unknown) {
   if (workspaceDetail) {
     return workspaceDetail;
   }
+  const executionModeDetail = validateRuntimeExecutionMode(request);
+  if (executionModeDetail) {
+    return executionModeDetail;
+  }
   if (!Object.prototype.hasOwnProperty.call(request, "upload_files")) {
     return null;
   }
@@ -237,6 +241,20 @@ function validateSkillRunnerRuntimeWorkspace(request: Record<string, unknown>) {
   }
   if (!isNonEmptyString(workspace.request_id)) {
     return "payload.runtime_options.workspace.request_id must be non-empty string";
+  }
+  return null;
+}
+
+function validateRuntimeExecutionMode(request: Record<string, unknown>) {
+  if (Object.prototype.hasOwnProperty.call(request, "mode")) {
+    return "payload.mode must be normalized to runtime_options.execution_mode before provider dispatch";
+  }
+  const runtimeOptions = isObject(request.runtime_options)
+    ? request.runtime_options
+    : null;
+  const mode = String(runtimeOptions?.execution_mode || "").trim();
+  if (mode !== "auto" && mode !== "interactive") {
+    return "payload.runtime_options.execution_mode must be auto or interactive";
   }
   return null;
 }
@@ -399,6 +417,10 @@ function validateSkillRunnerSequencePayload(request: unknown) {
     seen.add(id);
     if (!isNonEmptyString(step.skill_id)) {
       return `payload.steps[${i}].skill_id must be non-empty string`;
+    }
+    const stepMode = String(step.mode || "").trim();
+    if (stepMode !== "auto" && stepMode !== "interactive") {
+      return `payload.steps[${i}].mode must be auto or interactive`;
     }
     const workspaceDetail = validateSequenceWorkspace(
       step.workspace,

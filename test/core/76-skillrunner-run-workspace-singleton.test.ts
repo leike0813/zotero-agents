@@ -30,7 +30,7 @@ describe("skillrunner run workspace singleton", function () {
       ts,
       "finishedTasks: disabled ? [] : sorted.filter((task) => task.terminal)",
     );
-    assert.include(ts, "disabled = isSkillRunnerBackendReconcileFlagged");
+    assert.include(ts, "disabled = !isSkillRunnerBackendAvailable");
     assert.include(ts, "resolveRunWorkspaceTaskTitle");
     assert.include(ts, "task-dashboard-run-waiting-request-id");
     assert.include(ts, "selectable: true");
@@ -53,6 +53,46 @@ describe("skillrunner run workspace singleton", function () {
     assert.notInclude(ts, "target.requestId");
     assert.notInclude(ts, "for (const task of group.activeTasks)");
     assert.include(ts, 'return "";');
+  });
+
+  it("focuses SkillRunner workspace tasks by drawer task id before local run fallback", async function () {
+    const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
+    assert.include(ts, "taskId: taskId || localRunId");
+    assert.notInclude(ts, "taskId: localRunId || taskId");
+  });
+
+  it("keeps pending SkillRunner focus requests until the drawer task exists", async function () {
+    const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
+    assert.include(
+      ts,
+      "!runWorkspaceState.requestedTaskKey ||\n        nextSelected === runWorkspaceState.requestedTaskKey",
+    );
+    assert.notInclude(ts, "runWorkspaceState.requestedTaskKey = \"\";\n      await selectWorkspaceTask(nextSelected);");
+  });
+
+  it("focuses continuation-created steps only from user-originated RunDialog continuation", async function () {
+    const dialog = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
+    const continuation = await readProjectFile(
+      "src/modules/skillRunnerForegroundContinuation.ts",
+    );
+    const reconciler = await readProjectFile(
+      "src/modules/skillRunnerTaskReconciler.ts",
+    );
+
+    assert.include(dialog, 'uiFocusPolicy: "focus-started-step"');
+    assert.include(dialog, "onSequenceStepFocus: ({ job }) =>");
+    assert.include(dialog, "void focusSkillRunnerWorkspace({");
+    assert.include(
+      continuation,
+      "onSequenceStepFocus?: ContinuationSequenceStepFocusHandler",
+    );
+    assert.include(continuation, "shouldFocusContinuationStep");
+    assert.include(
+      continuation,
+      'eventType === "sequence-step-started"',
+    );
+    assert.include(reconciler, 'uiFocusPolicy: "none"');
+    assert.notInclude(reconciler, "onSequenceStepFocus");
   });
 
   it("keeps a bounded warm SSE stream pool while switching tasks in the singleton workspace", async function () {

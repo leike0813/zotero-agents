@@ -9,6 +9,7 @@ export type BackendInstance = {
   displayName?: string;
   type: string;
   baseUrl: string;
+  enabled?: boolean;
   command?: string;
   args?: string[];
   env?: Record<string, string>;

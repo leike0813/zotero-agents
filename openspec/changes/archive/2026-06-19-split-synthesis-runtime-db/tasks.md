@@ -1,0 +1,6 @@
+- [x] 1. Update runtime persistence contracts and tests for separate workflow/plugin and Synthesis DB paths.
+- [x] 2. Route Synthesis repository path resolution and Synthesis index helpers to `state/synthesis.db`.
+- [x] 3. Add same-root legacy migration from old `synt_*` rows in `state/zotero-agents.db` to `state/synthesis.db`.
+- [x] 4. Update reset, diagnostics, readonly harness, and durable sync exclusion behavior for the split DB layout.
+- [x] 5. Update docs, locale strings, and OpenSpec deltas for the new persistence layout.
+- [x] 6. Run focused validation and fix regressions.

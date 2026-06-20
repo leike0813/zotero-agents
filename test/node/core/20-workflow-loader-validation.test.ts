@@ -36,14 +36,14 @@ async function makeWorkflow(
     provider?: unknown;
     execution?: Record<string, unknown>;
     __test_skip_provider_autofill?: unknown;
-    __test_skip_skillrunner_mode_autofill?: unknown;
+    __test_skip_skillrunner_request_mode_autofill?: unknown;
   };
   const skipProviderAutoFill =
     normalizedManifest.__test_skip_provider_autofill === true;
-  const skipSkillRunnerModeAutoFill =
-    normalizedManifest.__test_skip_skillrunner_mode_autofill === true;
+  const skipSkillRunnerRequestModeAutoFill =
+    normalizedManifest.__test_skip_skillrunner_request_mode_autofill === true;
   delete normalizedManifest.__test_skip_provider_autofill;
-  delete normalizedManifest.__test_skip_skillrunner_mode_autofill;
+  delete normalizedManifest.__test_skip_skillrunner_request_mode_autofill;
   const provider = String(normalizedManifest.provider || "").trim();
   const requestKind = String(normalizedManifest.request?.kind || "").trim();
   if (!provider && !skipProviderAutoFill) {
@@ -60,14 +60,44 @@ async function makeWorkflow(
   }
   const isSkillRunnerWorkflow =
     String(normalizedManifest.provider || "").trim() === "skillrunner" ||
-    requestKind === "skillrunner.job.v1";
-  if (isSkillRunnerWorkflow && !skipSkillRunnerModeAutoFill) {
-    normalizedManifest.execution = {
-      ...(normalizedManifest.execution || {}),
-      skillrunner_mode:
-        String(normalizedManifest.execution?.skillrunner_mode || "").trim() ||
-        "auto",
-    };
+    requestKind === "skillrunner.job.v1" ||
+    requestKind === "skillrunner.sequence.v1";
+  if (isSkillRunnerWorkflow && !skipSkillRunnerRequestModeAutoFill) {
+    if (requestKind === "skillrunner.job.v1") {
+      const request = (normalizedManifest.request || {}) as Record<string, unknown>;
+      const create =
+        request.create && typeof request.create === "object" && !Array.isArray(request.create)
+          ? { ...(request.create as Record<string, unknown>) }
+          : {};
+      create.skill_id = String(create.skill_id || "").trim() || id;
+      create.mode = String(create.mode || "").trim() || "auto";
+      normalizedManifest.request = {
+        ...request,
+        create,
+      };
+    } else if (requestKind === "skillrunner.sequence.v1") {
+      const request = (normalizedManifest.request || {}) as Record<string, unknown>;
+      const sequence =
+        request.sequence && typeof request.sequence === "object" && !Array.isArray(request.sequence)
+          ? { ...(request.sequence as Record<string, unknown>) }
+          : null;
+      const steps = Array.isArray(sequence?.steps)
+        ? sequence.steps.map((step: unknown) =>
+            step && typeof step === "object" && !Array.isArray(step)
+              ? { mode: "auto", ...(step as Record<string, unknown>) }
+              : step,
+          )
+        : undefined;
+      if (sequence && steps) {
+        normalizedManifest.request = {
+          ...request,
+          sequence: {
+            ...sequence,
+            steps,
+          },
+        };
+      }
+    }
   }
   const workflowDir = joinPath(rootDir, id);
   const hooksDir = joinPath(workflowDir, "hooks");
@@ -1386,34 +1416,82 @@ describe("workflow loader validation", function () {
     }
   });
 
-  it("validates execution.skillrunner_mode presence for skillrunner workflows", async function () {
+  it("validates skill-level mode presence for skillrunner workflows", async function () {
     const cases = [
       {
-        id: "skillrunner-mode-valid",
+        id: "skillrunner-job-mode-valid",
         manifest: {
-          id: "skillrunner-mode-valid",
-          label: "SkillRunner Mode Valid",
-          request: { kind: "skillrunner.job.v1" },
-          execution: { skillrunner_mode: "interactive" },
+          id: "skillrunner-job-mode-valid",
+          label: "SkillRunner Job Mode Valid",
+          request: {
+            kind: "skillrunner.job.v1",
+            create: {
+              skill_id: "demo",
+              mode: "interactive",
+            },
+          },
           hooks: { applyResult: "hooks/applyResult.js" },
         },
         expectValid: true,
         verifyLoaded: (loaded: Awaited<ReturnType<typeof loadWorkflowManifests>>) => {
-          assert.equal(loaded.workflows[0].manifest.execution?.skillrunner_mode, "interactive");
+          assert.equal(loaded.workflows[0].manifest.request?.create?.mode, "interactive");
         },
       },
       {
-        id: "skillrunner-mode-missing",
+        id: "skillrunner-job-mode-missing",
         manifest: {
-          id: "skillrunner-mode-missing",
-          label: "SkillRunner Mode Missing",
-          request: { kind: "skillrunner.job.v1" },
-          __test_skip_skillrunner_mode_autofill: true,
+          id: "skillrunner-job-mode-missing",
+          label: "SkillRunner Job Mode Missing",
+          request: {
+            kind: "skillrunner.job.v1",
+            create: {
+              skill_id: "demo",
+            },
+          },
+          __test_skip_skillrunner_request_mode_autofill: true,
           hooks: { applyResult: "hooks/applyResult.js" },
         },
         expectValid: false,
         expectedReasonIncludes: ["missing required property"],
-        expectedReasonPattern: /execution|skillrunner_mode/i,
+        expectedReasonPattern: /create|mode/i,
+      },
+      {
+        id: "skillrunner-execution-mode-rejected",
+        manifest: {
+          id: "skillrunner-execution-mode-rejected",
+          label: "SkillRunner Execution Mode Rejected",
+          request: {
+            kind: "skillrunner.job.v1",
+            create: {
+              skill_id: "demo",
+              mode: "auto",
+            },
+          },
+          execution: { mode: "auto" },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+        expectValid: false,
+        expectedReasonIncludes: ["mode"],
+        expectedReasonPattern: /mode/i,
+      },
+      {
+        id: "skillrunner-execution-skillrunner-mode-rejected",
+        manifest: {
+          id: "skillrunner-execution-skillrunner-mode-rejected",
+          label: "SkillRunner Execution SkillRunner Mode Rejected",
+          request: {
+            kind: "skillrunner.job.v1",
+            create: {
+              skill_id: "demo",
+              mode: "auto",
+            },
+          },
+          execution: { skillrunner_mode: "auto" },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+        expectValid: false,
+        expectedReasonIncludes: ["skillrunner_mode"],
+        expectedReasonPattern: /skillrunner_mode/i,
       },
     ];
 

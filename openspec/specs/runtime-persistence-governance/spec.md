@@ -65,3 +65,17 @@ Runtime persistence governance SHALL expose cleanable runtime data categories fo
 - **THEN** runtime persistence governance SHALL clear `workflow-products/products` rows
 - **AND** delete `runtime/workflow-products`
 - **AND** leave original run workspaces untouched.
+
+## ADDED Requirements
+
+### Requirement: Runtime persistence usage exposes state databases
+
+Runtime persistence governance SHALL expose both runtime SQLite databases for diagnostics without making them generic cleanable categories.
+
+#### Scenario: Runtime persistence usage is scanned
+
+- **WHEN** runtime persistence usage is scanned
+- **THEN** the usage snapshot SHALL include `state/zotero-agents.db`
+- **AND** it SHALL include `state/synthesis.db`
+- **AND** neither database SHALL be removed by runtime retention cleanup.
+

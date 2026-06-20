@@ -41,8 +41,7 @@
 
 ### 执行模式
 
-- `execution.mode`: `auto` - 自动执行
-- `skillrunner_mode`: `interactive` - 交互模式，打开聊天面板
+- `request.create.mode`: `interactive` - 交互模式，打开聊天面板
 - `poll_interval_ms`: 2000 - 轮询间隔 2 秒
 - `timeout_ms`: 1200000 - 超时 20 分钟
 

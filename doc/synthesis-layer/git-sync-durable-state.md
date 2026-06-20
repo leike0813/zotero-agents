@@ -19,7 +19,7 @@ Git Sync covers long-lived Synthesis facts that cannot be fully rebuilt from Zot
 | Tags | vocabulary, aliases, abbreviations, protocol |
 | Related items | external side-effect provenance/effect rows |
 
-Durable bundle sync does not cover `zotero-agents.db`, WAL/SHM files, `synt_operation`, `synt_cache_basis`, citation graph cache rows, graph layout, metrics, runtime logs, locks, credentials, or temporary workspaces.
+Durable bundle sync does not cover `zotero-agents.db`, `synthesis.db`, WAL/SHM files, `synt_operation`, `synt_cache_basis`, citation graph cache rows, graph layout, metrics, runtime logs, locks, credentials, or temporary workspaces.
 
 ## WebDAV Durable Bundle Sync
 

@@ -929,11 +929,10 @@ function normalizeTopicDiscoveryHintStatus(value: unknown) {
   if (normalized === "filtered") {
     return "rejected";
   }
-  if (
-    normalized === "accepted" ||
-    normalized === "rejected" ||
-    normalized === "superseded"
-  ) {
+  if (normalized === "accepted") {
+    return "open";
+  }
+  if (normalized === "rejected" || normalized === "superseded") {
     return normalized;
   }
   return "open";
@@ -1082,6 +1081,35 @@ function ensureZoteroDirectorySync(
   const directoryType =
     runtime.Components?.interfaces?.nsIFile?.DIRECTORY_TYPE ?? 1;
   target.create?.(directoryType, 0o755);
+}
+
+function sqliteStringLiteral(value: string) {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function sqliteIdentifier(value: string) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function normalizeDbPathForCompare(pathRaw: string) {
+  return cleanString(pathRaw).replace(/\\/g, "/").toLowerCase();
+}
+
+function zoteroFileExists(pathRaw: string) {
+  const runtime = globalThis as {
+    Zotero?: {
+      File?: {
+        pathToFile?: (path: string) => {
+          exists?: () => boolean;
+        };
+      };
+    };
+  };
+  const file = runtime.Zotero?.File?.pathToFile?.(pathRaw);
+  if (!file || typeof file.exists !== "function") {
+    return false;
+  }
+  return file.exists();
 }
 
 function buildZoteroAdapter(dbPath: string): SqlAdapter {
@@ -2401,6 +2429,108 @@ function resolveAdapter(runtimeRoot?: string) {
     return adapter;
   }
   return createMemoryAdapter();
+}
+
+function synthesisSchemaMetaExists(db: SqlAdapter) {
+  const row = db.get(
+    `
+      SELECT name
+      FROM sqlite_master
+      WHERE type='table' AND name='synt_schema_meta'
+      LIMIT 1
+    `,
+  );
+  return Boolean(row?.name);
+}
+
+function attachedTableExists(
+  db: SqlAdapter,
+  schemaName: string,
+  tableName: string,
+) {
+  const row = db.get(
+    `
+      SELECT name
+      FROM ${sqliteIdentifier(schemaName)}.sqlite_master
+      WHERE type='table' AND name=@table_name
+      LIMIT 1
+    `,
+    { table_name: tableName },
+  );
+  return Boolean(row?.name);
+}
+
+function listTableColumns(db: SqlAdapter, tableName: string) {
+  return db
+    .all(`PRAGMA table_info(${sqliteIdentifier(tableName)})`)
+    .map((row) => cleanString(row.name))
+    .filter(Boolean);
+}
+
+function listAttachedTableColumns(
+  db: SqlAdapter,
+  schemaName: string,
+  tableName: string,
+) {
+  return db
+    .all(
+      `PRAGMA ${sqliteIdentifier(schemaName)}.table_info(${sqliteIdentifier(tableName)})`,
+    )
+    .map((row) => cleanString(row.name))
+    .filter(Boolean);
+}
+
+function copyLegacySynthesisTable(
+  db: SqlAdapter,
+  schemaName: string,
+  tableName: string,
+) {
+  if (!attachedTableExists(db, schemaName, tableName)) {
+    return;
+  }
+  const targetColumns = new Set(listTableColumns(db, tableName));
+  const sourceColumns = listAttachedTableColumns(db, schemaName, tableName);
+  const commonColumns = sourceColumns.filter((column) => targetColumns.has(column));
+  if (commonColumns.length === 0) {
+    return;
+  }
+  const columnSql = commonColumns.map(sqliteIdentifier).join(", ");
+  db.run(`
+    INSERT OR REPLACE INTO ${sqliteIdentifier(tableName)} (${columnSql})
+    SELECT ${columnSql}
+    FROM ${sqliteIdentifier(schemaName)}.${sqliteIdentifier(tableName)}
+  `);
+}
+
+function migrateLegacySynthesisRowsIfNeeded(args: {
+  db: SqlAdapter;
+  runtimeRoot?: string;
+}) {
+  if (!args.runtimeRoot || synthesisSchemaMetaExists(args.db)) {
+    return;
+  }
+  const paths = getRuntimePersistencePaths(args.runtimeRoot);
+  const legacyDbPath = paths.stateDbPath;
+  if (
+    normalizeDbPathForCompare(legacyDbPath) ===
+      normalizeDbPathForCompare(paths.synthesisDbPath) ||
+    !zoteroFileExists(legacyDbPath)
+  ) {
+    return;
+  }
+  ensureSchema(args.db);
+  const schemaName = "legacy_synthesis";
+  args.db.run(
+    `ATTACH DATABASE ${sqliteStringLiteral(legacyDbPath)} AS ${sqliteIdentifier(schemaName)}`,
+  );
+  try {
+    copyLegacySynthesisTable(args.db, schemaName, "synt_schema_meta");
+    for (const tableName of SYNTHESIS_RESET_TABLES) {
+      copyLegacySynthesisTable(args.db, schemaName, tableName);
+    }
+  } finally {
+    args.db.run(`DETACH DATABASE ${sqliteIdentifier(schemaName)}`);
+  }
 }
 
 function ensureSchema(db: SqlAdapter) {
@@ -4319,22 +4449,32 @@ function scoreDiscoveryPair(args: {
 }
 
 export function getSynthesisRepositoryDatabasePath(runtimeRoot?: string) {
-  return getRuntimePersistencePaths(runtimeRoot).stateDbPath;
+  return getRuntimePersistencePaths(runtimeRoot).synthesisDbPath;
 }
 
 export class SynthesisRepository {
   private initialized = false;
   private readonly db: SqlAdapter;
   private readonly now: () => string;
+  private readonly runtimeRoot?: string;
+  private readonly hasExternalAdapter: boolean;
 
   constructor(options: SynthesisRepositoryOptions = {}) {
     this.db = options.adapter || resolveAdapter(options.runtimeRoot);
     this.now = options.now || nowIso;
+    this.runtimeRoot = options.runtimeRoot;
+    this.hasExternalAdapter = Boolean(options.adapter);
   }
 
   initialize() {
     if (this.initialized) {
       return;
+    }
+    if (!this.hasExternalAdapter) {
+      migrateLegacySynthesisRowsIfNeeded({
+        db: this.db,
+        runtimeRoot: this.runtimeRoot,
+      });
     }
     ensureSchema(this.db);
     this.initialized = true;

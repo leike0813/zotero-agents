@@ -19,7 +19,6 @@ import {
   resetSkillRunnerLocalDeployDebugSession,
 } from "./skillRunnerLocalDeployDebugStore";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
-import { reconcileSkillRunnerBackendTaskLedgerOnce } from "./skillRunnerTaskReconciler";
 import {
   markSkillRunnerBackendHealthSuccess,
   registerSkillRunnerBackendForHealthTracking,
@@ -43,7 +42,7 @@ const MANAGED_PROFILE_ID = MANAGED_LOCAL_BACKEND_ID;
 const DEFAULT_MANAGED_LOCAL_HOST = "127.0.0.1";
 const DEFAULT_MANAGED_LOCAL_PORT = 29813;
 const DEFAULT_MANAGED_LOCAL_PORT_FALLBACK_SPAN = 10;
-export const DEFAULT_LOCAL_RUNTIME_VERSION = "v0.6.0";
+export const DEFAULT_LOCAL_RUNTIME_VERSION = "v0.7.0";
 const DEFAULT_SKILL_RUNNER_RELEASE_REPO = "leike0813/Skill-Runner";
 const STATE_PREF_KEY = "skillRunnerLocalRuntimeStateJson";
 const VERSION_PREF_KEY = "skillRunnerLocalRuntimeVersion";
@@ -179,21 +178,7 @@ type LocalRuntimePostUpTaskReconcileArgs = {
 
 let localRuntimePostUpTaskReconcileRunner: (
   args: LocalRuntimePostUpTaskReconcileArgs,
-) => Promise<void> = async (args) => {
-  await reconcileSkillRunnerBackendTaskLedgerOnce({
-    backend: {
-      id: args.backendId,
-      displayName: args.displayName,
-      type: "skillrunner",
-      baseUrl: args.baseUrl,
-      auth: {
-        kind: "none",
-      },
-    },
-    source: args.source,
-    emitFailureToast: true,
-  });
-};
+) => Promise<void> = async () => undefined;
 
 function notifyManagedLocalRuntimeStateChanged() {
   for (const listener of Array.from(managedLocalRuntimeStateChangeListeners)) {
@@ -334,23 +319,7 @@ export function resetLocalRuntimeToastStateForTests() {
 export function setManagedLocalRuntimePostUpTaskReconcileRunnerForTests(
   runner?: (args: LocalRuntimePostUpTaskReconcileArgs) => Promise<void>,
 ) {
-  localRuntimePostUpTaskReconcileRunner =
-    runner ||
-    (async (args) => {
-      await reconcileSkillRunnerBackendTaskLedgerOnce({
-        backend: {
-          id: args.backendId,
-          displayName: args.displayName,
-          type: "skillrunner",
-          baseUrl: args.baseUrl,
-          auth: {
-            kind: "none",
-          },
-        },
-        source: args.source,
-        emitFailureToast: true,
-      });
-    });
+  localRuntimePostUpTaskReconcileRunner = runner || (async () => undefined);
 }
 
 function triggerManagedLocalRuntimePostUpTaskReconcile(state: ManagedLocalRuntimeState) {

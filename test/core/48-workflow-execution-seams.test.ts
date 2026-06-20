@@ -405,7 +405,13 @@ describe("workflow execution seams", function () {
           [
             {
               kind: "skillrunner.sequence.v1",
-              steps: [{ id: "one", skill_id: "debug-sequence-probe-emit" }],
+              steps: [
+                {
+                  id: "one",
+                  skill_id: "debug-sequence-probe-emit",
+                  mode: "auto",
+                },
+              ],
               final_step_id: "one",
               runtime_options: {
                 env: {
@@ -507,7 +513,13 @@ describe("workflow execution seams", function () {
           [
             {
               kind: "skillrunner.sequence.v1",
-              steps: [{ id: "one", skill_id: "debug-sequence-probe-emit" }],
+              steps: [
+                {
+                  id: "one",
+                  skill_id: "debug-sequence-probe-emit",
+                  mode: "auto",
+                },
+              ],
               final_step_id: "one",
               runtime_options: {
                 zotero_host_access: {
@@ -1425,6 +1437,56 @@ describe("workflow execution seams", function () {
     assert.deepEqual(runState.jobIds, ["job-1", "job-2", "job-3"]);
   });
 
+  it("carries single SkillRunner request skill id into task metadata", function () {
+    const enqueuedJobs: any[] = [];
+    const queueStub = {
+      enqueue(job: any) {
+        enqueuedJobs.push(job);
+        return `job-${enqueuedJobs.length}`;
+      },
+      waitForIdle() {
+        return Promise.resolve();
+      },
+    };
+
+    const runState = runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "seam-single-skillrunner-skill",
+              label: "Seam Single SkillRunner Skill",
+            },
+          } as any,
+          requests: [
+            {
+              kind: "skillrunner.job.v1",
+              skill_id: "literature-analysis",
+              taskName: "Selected Paper",
+            },
+          ],
+          skippedByFilter: 0,
+          executionContext: {
+            providerId: "skillrunner",
+            requestKind: "skillrunner.job.v1",
+            providerOptions: {},
+            backend: {
+              id: "backend-1",
+              type: "skillrunner",
+              baseUrl: "http://127.0.0.1:8030",
+            },
+          },
+        },
+      },
+      {
+        createQueue: () => queueStub as any,
+      },
+    );
+
+    assert.deepEqual(runState.jobIds, ["job-1"]);
+    assert.equal(enqueuedJobs[0].meta.skillId, "literature-analysis");
+  });
+
   it("passes sequence step result contexts to applyResult hooks", async function () {
     let capturedSequence: any;
     const queueStub = {
@@ -1527,7 +1589,6 @@ describe("workflow execution seams", function () {
   it("projects SkillRunner sequence steps as independent task rows", async function () {
     const taskUpdates: any[] = [];
     const historyUpdates: any[] = [];
-    const recoverableJobs: string[] = [];
     const focusCalls: Array<Record<string, unknown>> = [];
     const runState = runWorkflowExecutionSeam(
       {
@@ -1543,10 +1604,15 @@ describe("workflow execution seams", function () {
             {
               kind: "skillrunner.sequence.v1",
               steps: [
-                { id: "digest", skill_id: "literature-analysis" },
+                {
+                  id: "digest",
+                  skill_id: "literature-analysis",
+                  mode: "auto",
+                },
                 {
                   id: "tag",
                   skill_id: "tag-regulator",
+                  mode: "auto",
                   workspace: "reuse-workflow",
                 },
               ],
@@ -1592,10 +1658,6 @@ describe("workflow execution seams", function () {
           historyUpdates.push(job);
           return null as any;
         },
-        registerSkillRunnerRunForSettlement: (args: any) => {
-          recoverableJobs.push(args.job.id);
-          return {} as any;
-        },
         focusSkillRunnerWorkspace: async (args) => {
           focusCalls.push(args as unknown as Record<string, unknown>);
         },
@@ -1612,6 +1674,30 @@ describe("workflow execution seams", function () {
       taskUpdates.map((job) => job.id),
       ["job-1:digest"],
     );
+    const requestReadyRows = taskUpdates.filter(
+      (job) =>
+        job.state === "running" &&
+        job.meta.skillRunnerSubmitPhase === "request_ready",
+    );
+    assert.deepEqual(
+      requestReadyRows.map((job) => ({
+        id: job.id,
+        requestId: job.meta.requestId,
+        requestReady: job.meta.skillRunnerRequestReady,
+      })),
+      [
+        {
+          id: "job-1:digest",
+          requestId: "literature-analysis-request",
+          requestReady: true,
+        },
+        {
+          id: "job-1:tag",
+          requestId: "tag-regulator-request",
+          requestReady: true,
+        },
+      ],
+    );
     const terminalRows = taskUpdates.filter((job) => job.state === "succeeded");
     assert.deepEqual(
       terminalRows.map((job) => ({
@@ -1627,21 +1713,25 @@ describe("workflow execution seams", function () {
           skillId: "literature-analysis",
           sequenceStepId: "digest",
         },
+        {
+          id: "job-1:tag",
+          requestId: "tag-regulator-request",
+          skillId: "tag-regulator",
+          sequenceStepId: "tag",
+        },
       ],
     );
-    assert.includeMembers(recoverableJobs, ["job-1:digest"]);
     assert.isAtLeast(historyUpdates.length, 2);
     const focusedStep = focusCalls.find(
       (entry) =>
-        String(entry.taskId || "").endsWith(":job-1:digest") &&
-        entry.taskId === entry.localRunId,
+        String(entry.taskId || "").endsWith(":job-1:digest"),
     );
     assert.isOk(focusedStep);
+    assert.isString(focusedStep?.localRunId);
     assert.equal(focusedStep?.selectionChanged, true);
   });
 
   it("does not register ACP-compatible runs for SkillRunner settlement", async function () {
-    const registeredSettlementJobs: string[] = [];
     const selectedAcpRuns: string[] = [];
     const taskUpdates: any[] = [];
     const runState = runWorkflowExecutionSeam(
@@ -1691,10 +1781,6 @@ describe("workflow execution seams", function () {
           taskUpdates.push(job);
         },
         recordTaskDashboardHistoryFromJob: () => null as any,
-        registerSkillRunnerRunForSettlement: (args: any) => {
-          registeredSettlementJobs.push(args.job.id);
-          return {} as any;
-        },
         selectAcpSkillRun: (requestId: string) => {
           selectedAcpRuns.push(requestId);
         },
@@ -1703,7 +1789,6 @@ describe("workflow execution seams", function () {
 
     await runState.idlePromise;
 
-    assert.deepEqual(registeredSettlementJobs, []);
     assert.deepEqual(selectedAcpRuns, ["acp-skill-compatible-request"]);
     assert.isTrue(taskUpdates.every((job) => job.meta.backendType === "acp"));
   });
@@ -1776,6 +1861,7 @@ describe("workflow execution seams", function () {
                 {
                   id: "final",
                   skill_id: "final-skill",
+                  mode: "auto",
                   apply_result: { workflow_id: "final-workflow" },
                 },
               ],
@@ -1916,12 +2002,11 @@ describe("workflow execution seams", function () {
             manifest: {
               id: "seam-skillrunner-auto-focus",
               label: "Seam SkillRunner Auto Focus",
-              execution: {
-                skillrunner_mode: "auto",
-              },
             },
           } as any,
-          requests: [{ targetParentID: 3 }],
+          requests: [
+            { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
+          ],
           skippedByFilter: 0,
           executionContext: {
             providerId: "skillrunner",
@@ -1960,7 +2045,7 @@ describe("workflow execution seams", function () {
       {
         id: "job-1",
         workflowId: "seam-skillrunner-auto-focus",
-        request: { targetParentID: 3 },
+        request: { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
         meta: { index: 0, runId: "run-sr-auto-focus" },
         state: "running",
         createdAt: "2026-04-17T00:00:00.000Z",
@@ -1984,7 +2069,7 @@ describe("workflow execution seams", function () {
     const readyJob = {
       id: "job-1",
       workflowId: "seam-skillrunner-auto-focus",
-      request: { targetParentID: 3 },
+      request: { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
       meta: {
         index: 0,
         runId: "run-sr-auto-focus",
@@ -2008,7 +2093,6 @@ describe("workflow execution seams", function () {
     let capturedQueueConfig: Record<string, unknown> | undefined;
     const assistantCalls: Array<Record<string, unknown>> = [];
     const focusCalls: Array<Record<string, unknown>> = [];
-    const recoverableCalls: Array<Record<string, unknown>> = [];
     const queueStub = {
       enqueue() {
         return "job-1";
@@ -2025,12 +2109,14 @@ describe("workflow execution seams", function () {
             manifest: {
               id: "seam-skillrunner-interactive-sidebar",
               label: "Seam SkillRunner Interactive Sidebar",
-              execution: {
-                skillrunner_mode: "interactive",
-              },
             },
           } as any,
-          requests: [{ targetParentID: 3 }],
+          requests: [
+            {
+              targetParentID: 3,
+              runtime_options: { execution_mode: "interactive" },
+            },
+          ],
           skippedByFilter: 0,
           executionContext: {
             providerId: "skillrunner",
@@ -2057,10 +2143,6 @@ describe("workflow execution seams", function () {
           focusCalls.push(args as unknown as Record<string, unknown>);
           return Promise.resolve();
         },
-        registerSkillRunnerRunForSettlement: (args) => {
-          recoverableCalls.push(args as unknown as Record<string, unknown>);
-          return {} as any;
-        },
       } as any,
     );
 
@@ -2078,7 +2160,10 @@ describe("workflow execution seams", function () {
       {
         id: "job-1",
         workflowId: "seam-skillrunner-interactive-sidebar",
-        request: { targetParentID: 3 },
+        request: {
+          targetParentID: 3,
+          runtime_options: { execution_mode: "interactive" },
+        },
         meta: { index: 0, runId: "run-sr-interactive-focus" },
         state: "running",
         createdAt: "2026-04-17T00:00:00.000Z",
@@ -2098,12 +2183,14 @@ describe("workflow execution seams", function () {
       "run-sr-interactive-focus:job-1",
     );
     assert.isUndefined(assistantCalls[0].requestId);
-    assert.lengthOf(recoverableCalls, 0);
 
     const readyJob = {
       id: "job-1",
       workflowId: "seam-skillrunner-interactive-sidebar",
-      request: { targetParentID: 3 },
+      request: {
+        targetParentID: 3,
+        runtime_options: { execution_mode: "interactive" },
+      },
       meta: {
         index: 0,
         runId: "run-sr-interactive-focus",
@@ -2121,7 +2208,6 @@ describe("workflow execution seams", function () {
 
     assert.lengthOf(focusCalls, 0);
     assert.lengthOf(assistantCalls, 1);
-    assert.isAtLeast(recoverableCalls.length, 1);
   });
 
   it("selects auto ACP skill runs without opening the Assistant shell", function () {
@@ -2144,12 +2230,11 @@ describe("workflow execution seams", function () {
             manifest: {
               id: "seam-acp-auto-select",
               label: "Seam ACP Auto Select",
-              execution: {
-                skillrunner_mode: "auto",
-              },
             },
           } as any,
-          requests: [{ targetParentID: 3 }],
+          requests: [
+            { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
+          ],
           skippedByFilter: 0,
           executionContext: {
             providerId: "acp",
@@ -2185,7 +2270,7 @@ describe("workflow execution seams", function () {
       {
         id: "job-1",
         workflowId: "seam-acp-auto-select",
-        request: { targetParentID: 3 },
+        request: { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
         meta: { index: 0 },
         state: "running",
         createdAt: "2026-04-17T00:00:00.000Z",
@@ -2221,12 +2306,14 @@ describe("workflow execution seams", function () {
             manifest: {
               id: "seam-acp-interactive-open",
               label: "Seam ACP Interactive Open",
-              execution: {
-                skillrunner_mode: "interactive",
-              },
             },
           } as any,
-          requests: [{ targetParentID: 3 }],
+          requests: [
+            {
+              targetParentID: 3,
+              runtime_options: { execution_mode: "interactive" },
+            },
+          ],
           skippedByFilter: 0,
           executionContext: {
             providerId: "acp",

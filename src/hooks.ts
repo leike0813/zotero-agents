@@ -33,7 +33,6 @@ import { resolveRuntimeToolkit } from "./utils/runtimeBridge";
 import { openFolderInSystemFileManager } from "./utils/fileSystem";
 import { startSkillRunnerModelCacheAutoRefresh } from "./providers/skillrunner/modelCache";
 import {
-  reconcileSkillRunnerBackendTaskLedgerOnce,
   purgeSkillRunnerBackendReconcileState,
   startSkillRunnerTaskReconciler,
 } from "./modules/skillRunnerTaskReconciler";
@@ -56,6 +55,10 @@ import { refreshSkillRunnerModelCacheForBackend } from "./providers/skillrunner/
 import { MANAGED_LOCAL_BACKEND_ID } from "./modules/skillRunnerLocalRuntimeConstants";
 import { isDebugModeEnabled } from "./modules/debugMode";
 import { untrackSkillRunnerBackendHealth } from "./modules/skillRunnerBackendHealthRegistry";
+import {
+  startSkillRunnerBackendReachabilityCoordinator,
+  stopSkillRunnerBackendReachabilityCoordinator,
+} from "./modules/skillRunnerBackendReachabilityCoordinator";
 import { shutdownSkillRunnerAsyncLifecycle } from "./modules/skillRunnerAsyncLifecycle";
 import { flushRuntimeLogsPersistence } from "./modules/runtimeLogManager";
 import {
@@ -226,40 +229,6 @@ function registerPrefsPane() {
   });
 }
 
-async function reconcileSkillRunnerBackendsOnStartup() {
-  try {
-    const loaded = await loadBackendsRegistry();
-    if (loaded.fatalError) {
-      return;
-    }
-    for (const backend of loaded.backends) {
-      if (String(backend.type || "").trim() !== "skillrunner") {
-        continue;
-      }
-      if (String(backend.id || "").trim() === MANAGED_LOCAL_BACKEND_ID) {
-        continue;
-      }
-      await reconcileSkillRunnerBackendTaskLedgerOnce({
-        backend,
-        source: "startup",
-        emitFailureToast: true,
-      });
-    }
-  } catch {
-    // Keep external SkillRunner ledger reconciliation background/non-blocking.
-  }
-}
-
-let startupSkillRunnerBackendReconcileRunner: () => Promise<void> =
-  reconcileSkillRunnerBackendsOnStartup;
-
-export function setSkillRunnerStartupBackendReconcileRunnerForTests(
-  runner?: () => Promise<void>,
-) {
-  startupSkillRunnerBackendReconcileRunner =
-    runner || reconcileSkillRunnerBackendsOnStartup;
-}
-
 async function delayMs(ms: number) {
   await delay(ms);
 }
@@ -410,13 +379,13 @@ async function onStartup() {
   purgeSkillRunnerBackendReconcileState(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   untrackSkillRunnerBackendHealth(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   startSkillRunnerModelCacheAutoRefresh();
+  startSkillRunnerBackendReachabilityCoordinator();
   startSkillRunnerTaskReconciler();
   void cleanupRuntimePersistenceRetention().catch((error) => {
     if (typeof console !== "undefined") {
       console.warn("[runtime-persistence] retention cleanup failed", error);
     }
   });
-  void startupSkillRunnerBackendReconcileRunner();
   hydrateLocalRuntimeAutoStartSessionStateFromPersistedState();
   if (!isLocalRuntimeAutoStartPaused()) {
     await runManagedRuntimeStartupPreflightProbe();
@@ -497,6 +466,7 @@ async function onMainWindowUnload(win: Window): Promise<void> {
 }
 
 async function onShutdown(): Promise<void> {
+  stopSkillRunnerBackendReachabilityCoordinator();
   await shutdownAcpSkillRunConversations();
   await shutdownAcpSessionManager();
   await shutdownZoteroMcpServer();

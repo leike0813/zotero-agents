@@ -27,12 +27,11 @@
   "request": {
     "kind": "skillrunner.job.v1",
     "create": {
-      "skill_id": "debug-host-bridge-connectivity-probe"
+      "skill_id": "debug-host-bridge-connectivity-probe",
+      "mode": "auto"
     }
   },
   "execution": {
-    "mode": "auto",
-    "skillrunner_mode": "auto",
     "zoteroHostAccess": {
       "required": true
     },

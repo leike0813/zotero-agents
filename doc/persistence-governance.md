@@ -12,9 +12,10 @@ not need another rename during the next product naming pass.
 
 ## Storage Classes
 
-- `state/zotero-agents.db` stores indexed operational state: task requests,
-  task rows, ACP conversation indexes, workflow product metadata, queue state,
-  job state, and SQLite-first Synthesis runtime state.
+- `state/zotero-agents.db` stores indexed workflow/plugin operational state:
+  task requests, task rows, ACP conversation indexes, workflow product metadata,
+  queue state, and job state.
+- `state/synthesis.db` stores SQLite-first Synthesis runtime state.
 - `data/synthesis/` stores durable Synthesis canonical/checkpoint assets for
   explicit import, export, audit, and future sync. It is user data, not runtime
   cache, and it is not the normal Synthesis UI hot-path source.
@@ -38,7 +39,7 @@ Default TTL rules:
 - completed/cancelled/failed skill-run workspaces: eligible after 30 days.
 - orphan workflow product cached assets: eligible after 7 days.
 - `runtime/logs`: eligible after 30 days or by size policy.
-- `data/synthesis` and `state/zotero-agents.db`: no TTL cleanup.
+- `data/synthesis`, `state/zotero-agents.db`, and `state/synthesis.db`: no TTL cleanup.
 
 ## Managed Path Contract
 

@@ -70,6 +70,7 @@ function buildRequestImpl({ selectionContext, executionOptions, runtime }) {
       {
         id: "translate",
         skill_id: "literature-translator",
+        mode: "auto",
         workspace: "new",
         fetch_type: "bundle",
         input: {

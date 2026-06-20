@@ -4,7 +4,11 @@ import {
   DEFAULT_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
 } from "../config/defaults";
-import { isActive, isTerminal } from "./skillRunnerProviderStateMachine";
+import {
+  isActive,
+  isTerminal,
+  isWaiting,
+} from "./skillRunnerProviderStateMachine";
 import {
   buildSkillRunnerRunKey,
   buildSkillRunnerLocalRunKey,
@@ -45,7 +49,6 @@ export type WorkflowTaskRecord = {
     | "pre_request_id"
     | "request_creating"
     | "uploading"
-    | "request_ready"
     | JobState;
   requestAssigned?: boolean;
   backendInteractive?: boolean;
@@ -135,14 +138,18 @@ function hasProviderResultRequestId(job: JobRecord) {
     : false;
 }
 
+function isSkillRunnerRequestReady(job: JobRecord) {
+  return (
+    job.meta.skillRunnerRequestReady === true ||
+    String(job.meta.skillRunnerRequestReady || "").trim() === "true"
+  );
+}
+
 export function isSkillRunnerJobReadyForTaskProjection(job: JobRecord) {
   if (!isSkillRunnerProtocolJob(job)) {
     return true;
   }
-  if (
-    job.meta.skillRunnerRequestReady === true ||
-    String(job.meta.skillRunnerRequestReady || "").trim() === "true"
-  ) {
+  if (isSkillRunnerRequestReady(job)) {
     return true;
   }
   return (
@@ -162,19 +169,18 @@ function resolveSkillRunnerLifecycleStateFromJob(
   if (
     explicit === "pre_request_id" ||
     explicit === "request_creating" ||
-    explicit === "uploading" ||
-    explicit === "request_ready"
+    explicit === "uploading"
   ) {
     return explicit;
   }
   if (isTerminal(job.state)) {
     return job.state;
   }
-  if (
-    job.meta.skillRunnerRequestReady === true ||
-    String(job.meta.skillRunnerRequestReady || "").trim() === "true"
-  ) {
-    return "request_ready";
+  if (isWaiting(job.state)) {
+    return job.state;
+  }
+  if (isSkillRunnerRequestReady(job)) {
+    return "running";
   }
   if (hasProviderResultRequestId(job)) {
     return job.state;
@@ -230,6 +236,15 @@ export function buildWorkflowTaskRecordFromJob(
   const backendId = normalizeMetaString(job.meta, "backendId");
   const backendType = normalizeMetaString(job.meta, "backendType");
   const backendBaseUrl = normalizeMetaString(job.meta, "backendBaseUrl");
+  const skillRunnerLifecycleState = resolveSkillRunnerLifecycleStateFromJob(job);
+  const skillRunnerReady =
+    isSkillRunnerRequestReady(job) || hasProviderResultRequestId(job);
+  const skillRunnerBackendInteractive = !!requestId && skillRunnerReady;
+  const skillRunnerTerminal = isTerminal(skillRunnerLifecycleState || job.state);
+  const skillRunnerWaiting = isWaiting(skillRunnerLifecycleState || job.state);
+  const skillRunnerSubmitPhase =
+    normalizeMetaString(job.meta, "skillRunnerSubmitPhase") ||
+    (isSkillRunnerRequestReady(job) ? "request_ready" : "");
   return {
     id: getTaskIdFromJob(job),
     localRunId: localRunId || undefined,
@@ -256,30 +271,15 @@ export function buildWorkflowTaskRecordFromJob(
     backendType: backendType || undefined,
     backendBaseUrl: backendBaseUrl || undefined,
     state: job.state,
-    skillRunnerLifecycleState: resolveSkillRunnerLifecycleStateFromJob(job),
+    skillRunnerLifecycleState,
     requestAssigned: !!requestId,
-    backendInteractive:
-      !!requestId &&
-      (job.meta.skillRunnerRequestReady === true ||
-        String(job.meta.skillRunnerRequestReady || "").trim() === "true" ||
-        hasProviderResultRequestId(job)),
+    backendInteractive: skillRunnerBackendInteractive,
     canOpenStream:
-      !!requestId &&
-      (job.meta.skillRunnerRequestReady === true ||
-        String(job.meta.skillRunnerRequestReady || "").trim() === "true" ||
-        hasProviderResultRequestId(job)),
-    canCancelBackendRun:
-      !!requestId &&
-      (job.meta.skillRunnerRequestReady === true ||
-        String(job.meta.skillRunnerRequestReady || "").trim() === "true" ||
-        hasProviderResultRequestId(job)),
-    canReply:
-      !!requestId &&
-      (job.meta.skillRunnerRequestReady === true ||
-        String(job.meta.skillRunnerRequestReady || "").trim() === "true" ||
-        hasProviderResultRequestId(job)),
+      skillRunnerBackendInteractive && !skillRunnerTerminal && !skillRunnerWaiting,
+    canCancelBackendRun: skillRunnerBackendInteractive && !skillRunnerTerminal,
+    canReply: skillRunnerBackendInteractive && skillRunnerWaiting,
     canArchiveLocalRun: true,
-    submitPhase: normalizeMetaString(job.meta, "skillRunnerSubmitPhase") || undefined,
+    submitPhase: skillRunnerSubmitPhase || undefined,
     submitStartedAt:
       normalizeMetaString(job.meta, "skillRunnerSubmitStartedAt") || undefined,
     submitTimeoutAt:

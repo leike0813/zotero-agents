@@ -23,6 +23,8 @@ import { buildSkillRunnerManagementUiUrl } from "../../src/modules/skillRunnerMa
 import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 import {
   getSkillRunnerBackendHealthState,
+  isSkillRunnerBackendAvailable,
+  markSkillRunnerBackendHealthSuccess,
   registerSkillRunnerBackendForHealthTracking,
   resetSkillRunnerBackendHealthRegistryForTests,
 } from "../../src/modules/skillRunnerBackendHealthRegistry";
@@ -200,6 +202,11 @@ describe("backend manager risk regression", function () {
     );
     assert.include(js, "backend-provider-tabs");
     assert.include(js, "renderAcpPresetSelect");
+    assert.include(
+      js,
+      "function renderProvider(provider) {\n    const l = labels();",
+    );
+    assert.include(js, 'el("p", "backend-empty", l.noProfiles');
     assert.include(js, "window.createCustomSelect");
     assert.include(js, "state.acpSelectedPresetId");
     assert.include(js, "backend-http-grid");
@@ -207,6 +214,10 @@ describe("backend manager risk regression", function () {
     assert.include(js, 'input.type = "password"');
     assert.include(js, 'input.autocomplete = "off"');
     assert.include(js, "state.scrollByProvider");
+    assert.include(js, "state.pendingModelCacheRows");
+    assert.include(js, "state.skillRunnerReachableById");
+    assert.include(js, "syncSkillRunnerReachabilityFromSnapshot");
+    assert.include(js, "showStatusMessage");
     assert.include(js, "rememberScroll");
     assert.include(js, "restoreScroll");
     assert.include(js, "preventDefault");
@@ -225,6 +236,8 @@ describe("backend manager risk regression", function () {
     assert.include(css, ".backend-preset-select .custom-select-menu");
     assert.include(css, ".backend-manager-body");
     assert.include(css, ".backend-footer");
+    assert.include(css, ".backend-footer-status");
+    assert.include(css, ".backend-footer-actions");
     assert.include(css, ".backend-list-editor");
     assert.include(css, ".backend-http-grid");
     assert.include(css, ".backend-acp-grid");
@@ -243,6 +256,10 @@ describe("backend manager risk regression", function () {
       source,
       '"backend-manager-refresh-acp-runtime-cache-success"',
     );
+    assert.include(source, "getSkillRunnerBackendHealthState");
+    assert.include(source, "markSkillRunnerBackendHealthSuccess");
+    assert.include(source, "backend-manager-status-unreachable");
+    assert.include(source, "skillRunnerHealth");
   });
 
   it("rejects duplicated backend internal ids during dialog collection", function () {
@@ -1059,5 +1076,111 @@ describe("backend manager risk regression", function () {
     assert.isNull(
       getSkillRunnerBackendHealthState("backend-skillrunner-removed"),
     );
+  });
+
+  it("does not treat unknown SkillRunner backends as submit-available", function () {
+    assert.isFalse(isSkillRunnerBackendAvailable("unknown-skillrunner"));
+  });
+
+  it("registers SkillRunner backend health as tracked but not confirmed reachable", function () {
+    const state = registerSkillRunnerBackendForHealthTracking(
+      "backend-skillrunner-unconfirmed",
+    );
+
+    assert.isOk(state);
+    assert.isFalse(state?.reachable);
+    assert.equal(state?.status, "unknown");
+    assert.isFalse(isSkillRunnerBackendAvailable("backend-skillrunner-unconfirmed"));
+    markSkillRunnerBackendHealthSuccess("backend-skillrunner-unconfirmed");
+    assert.isTrue(isSkillRunnerBackendAvailable("backend-skillrunner-unconfirmed"));
+  });
+
+  it("tracks SkillRunner backend health immediately when profiles are saved", function () {
+    const prefKey = `${config.prefsPrefix}.backendsConfigJson`;
+    const previous = Zotero.Prefs.get(prefKey, true);
+    try {
+      persistBackendsConfig(
+        [
+          {
+            id: "backend-skillrunner-added",
+            displayName: "Added Backend",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8030",
+            auth: { kind: "none" },
+          },
+        ],
+        {
+          setPref: ((_: string, value: string) => {
+            Zotero.Prefs.set(prefKey, value, true);
+          }) as any,
+          refreshWorkflowMenus: () => {},
+          refreshModelCache: async () => ({
+            ok: true,
+            backendId: "backend-skillrunner-added",
+            baseUrl: "http://127.0.0.1:8030",
+            refreshedAt: "2026-06-20T00:00:00.000Z",
+          }),
+        },
+      );
+    } finally {
+      if (typeof previous === "undefined") {
+        Zotero.Prefs.clear(prefKey, true);
+      } else {
+        Zotero.Prefs.set(prefKey, previous, true);
+      }
+    }
+
+    const state = getSkillRunnerBackendHealthState("backend-skillrunner-added");
+    assert.isOk(state);
+    assert.isFalse(state?.reachable);
+    assert.equal(state?.status, "unknown");
+    assert.isFalse(isSkillRunnerBackendAvailable("backend-skillrunner-added"));
+  });
+
+  it("persists disabled SkillRunner backend profiles and marks them disabled", function () {
+    const prefKey = `${config.prefsPrefix}.backendsConfigJson`;
+    const previous = Zotero.Prefs.get(prefKey, true);
+    try {
+      const collected = collectBackendsFromDraftRows([
+        {
+          internalId: "backend-skillrunner-disabled",
+          displayName: "Disabled Backend",
+          type: "skillrunner",
+          enabled: false,
+          baseUrl: "http://127.0.0.1:8030",
+          authKind: "none",
+          authToken: "",
+          timeoutMs: "",
+          command: "",
+          args: [],
+          env: [],
+        },
+      ]);
+      assert.equal(collected.backends[0].enabled, false);
+      persistBackendsConfig(collected.backends, {
+        setPref: ((_: string, value: string) => {
+          Zotero.Prefs.set(prefKey, value, true);
+        }) as any,
+        refreshWorkflowMenus: () => {},
+        refreshModelCache: async () => ({
+          ok: true,
+          backendId: "backend-skillrunner-disabled",
+          baseUrl: "http://127.0.0.1:8030",
+          refreshedAt: "2026-06-20T00:00:00.000Z",
+        }),
+      });
+    } finally {
+      if (typeof previous === "undefined") {
+        Zotero.Prefs.clear(prefKey, true);
+      } else {
+        Zotero.Prefs.set(prefKey, previous, true);
+      }
+    }
+
+    const state = getSkillRunnerBackendHealthState(
+      "backend-skillrunner-disabled",
+    );
+    assert.equal(state?.status, "disabled");
+    assert.isFalse(isSkillRunnerBackendAvailable("backend-skillrunner-disabled"));
   });
 });

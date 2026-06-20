@@ -37,6 +37,7 @@ export type SkillRunnerHttpStepsRequest = ProviderExecutionRequestMeta & {
 export type SkillRunnerJobRequestV1 = ProviderExecutionRequestMeta & {
   kind: "skillrunner.job.v1";
   skill_id: string;
+  mode?: "auto" | "interactive" | string;
   skill_source?: "local-package" | "installed";
   upload_files?: Array<{ key: string; path: string }>;
   input?: unknown;
@@ -92,6 +93,7 @@ export type SkillRunnerSequenceStepApplySpec = {
 export type SkillRunnerSequenceStepV1 = {
   id: string;
   skill_id: string;
+  mode?: "auto" | "interactive" | string;
   input?: Record<string, unknown>;
   parameter?: Record<string, unknown>;
   fetch_type?: "bundle" | "result";
@@ -256,7 +258,8 @@ export type ProviderExecutionDeferredResult = {
   requestId: string;
   fetchType: "bundle" | "result";
   backendStatus: "queued" | "running" | "waiting_user" | "waiting_auth";
-  frontendStatus?: "request_ready";
+  detachReason?: "waiting";
+  continuationOwner?: "foreground" | "recovery";
   bundleBytes?: undefined;
   resultJson?: undefined;
   responseJson?: unknown;

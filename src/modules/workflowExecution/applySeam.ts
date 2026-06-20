@@ -1,5 +1,8 @@
 import { appendRuntimeLog } from "../runtimeLogManager";
-import { normalizeErrorMessage, type WorkflowMessageFormatter } from "../workflowExecuteMessage";
+import {
+  normalizeErrorMessage,
+  type WorkflowMessageFormatter,
+} from "../workflowExecuteMessage";
 import { executeApplyResult } from "../../workflows/runtime";
 import { ZipBundleReader } from "../../workflows/zipBundleReader";
 import type { BundleReader } from "./bundleIO";
@@ -12,6 +15,11 @@ import {
 } from "./bundleIO";
 import { createWorkflowResultContext } from "./resultContext";
 import { markAcpSkillRunApplyResult } from "../acpSkillRunStore";
+import {
+  updateSkillRunnerRunApplyState,
+  updateSkillRunnerRunResult,
+  updateSkillRunnerRunStateByRequest,
+} from "../skillRunnerRunStore";
 import type { WorkflowApplySummary, WorkflowRunState } from "./contracts";
 import {
   resolveTargetParentIDFromRequest,
@@ -42,71 +50,48 @@ type RunResultLike = {
   };
 };
 
-function isSkillRunnerReconcilerOwnedRequest(args: {
-  workflow: { manifest?: { provider?: string; request?: { kind?: string } } };
+function resolveWorkflowRequestKind(args: {
+  workflow: { manifest?: { request?: { kind?: string } } };
+  request: unknown;
+}) {
+  const manifestRequestKind = String(
+    args.workflow.manifest?.request?.kind || "",
+  ).trim();
+  if (manifestRequestKind) {
+    return manifestRequestKind;
+  }
+  return isRecord(args.request) ? String(args.request.kind || "").trim() : "";
+}
+
+function isSkillRunnerSingleJobRequest(args: {
+  workflow: { manifest?: { request?: { kind?: string } } };
   request: unknown;
   job?: { meta?: Record<string, unknown> };
   result?: RunResultLike;
 }) {
-  if (isAcpProviderResult({ result: args.result, job: args.job })) {
+  if (
+    isAcpProviderResult({
+      result: args.result,
+      job: args.job,
+    })
+  ) {
     return false;
   }
-  const backendType = String(args.job?.meta?.backendType || "").trim();
-  if (backendType) {
-    return backendType === "skillrunner";
-  }
-  const provider = String(args.workflow.manifest?.provider || "").trim();
-  const manifestRequestKind = String(
-    args.workflow.manifest?.request?.kind || "",
-  ).trim();
-  const requestKind =
-    manifestRequestKind ||
-    (isRecord(args.request) ? String(args.request.kind || "").trim() : "");
   return (
-    provider === "skillrunner" ||
-    requestKind === "skillrunner.job.v1" ||
-    requestKind === "skillrunner.sequence.v1"
+    String(args.job?.meta?.backendType || "").trim() === "skillrunner" &&
+    resolveWorkflowRequestKind({
+      workflow: args.workflow,
+      request: args.request,
+    }) === "skillrunner.job.v1"
   );
 }
 
-function resolveReconcilePendingJobId(args: {
-  jobId: string;
-  result?: RunResultLike;
-}) {
-  const sequence =
-    args.result?.responseJson &&
-    typeof args.result.responseJson === "object" &&
-    !Array.isArray(args.result.responseJson)
-      ? (args.result.responseJson as Record<string, unknown>).sequence
+function getJobResultStatus(job?: { result?: unknown }) {
+  const result =
+    job?.result && typeof job.result === "object" && !Array.isArray(job.result)
+      ? (job.result as { status?: unknown })
       : undefined;
-  if (sequence && typeof sequence === "object" && !Array.isArray(sequence)) {
-    const pendingStepJobId = String(
-      (sequence as Record<string, unknown>).pending_step_job_id || "",
-    ).trim();
-    if (pendingStepJobId) {
-      return pendingStepJobId;
-    }
-  }
-  return args.jobId;
-}
-
-function resolveReconcilePendingSequenceRunId(result?: RunResultLike) {
-  const direct = String(result?.sequence?.workflow_run_id || "").trim();
-  if (direct) {
-    return direct;
-  }
-  const sequence =
-    result?.responseJson &&
-    typeof result.responseJson === "object" &&
-    !Array.isArray(result.responseJson)
-      ? (result.responseJson as Record<string, unknown>).sequence
-      : undefined;
-  if (sequence && typeof sequence === "object" && !Array.isArray(sequence)) {
-    return String(
-      (sequence as Record<string, unknown>).workflow_run_id || "",
-    ).trim();
-  }
-  return "";
+  return String(result?.status || "").trim();
 }
 
 function isPendingWorkflowJobState(state: string) {
@@ -267,7 +252,9 @@ async function createSequenceApplyContext(args: {
   const enrichedSteps = [];
   for (const step of steps) {
     const stepResult =
-      step.result && typeof step.result === "object" && !Array.isArray(step.result)
+      step.result &&
+      typeof step.result === "object" &&
+      !Array.isArray(step.result)
         ? (step.result as RunResultLike)
         : undefined;
     if (!stepResult) {
@@ -305,10 +292,13 @@ async function createSequenceApplyContext(args: {
   };
 }
 
-export async function runWorkflowApplySeam(args: {
-  runState: WorkflowRunState;
-  messageFormatter: WorkflowMessageFormatter;
-}, deps: Partial<ApplySeamDeps> = {}): Promise<WorkflowApplySummary> {
+export async function runWorkflowApplySeam(
+  args: {
+    runState: WorkflowRunState;
+    messageFormatter: WorkflowMessageFormatter;
+  },
+  deps: Partial<ApplySeamDeps> = {},
+): Promise<WorkflowApplySummary> {
   const resolved = {
     ...defaultApplySeamDeps,
     ...deps,
@@ -318,7 +308,6 @@ export async function runWorkflowApplySeam(args: {
   let pending = 0;
   const failureReasons: string[] = [];
   const jobOutcomes: WorkflowApplySummary["jobOutcomes"] = [];
-  const reconcileOwnedPendingJobs: WorkflowApplySummary["reconcileOwnedPendingJobs"] = [];
 
   for (let i = 0; i < args.runState.jobIds.length; i++) {
     const taskLabel = resolveTaskNameFromRequest(args.runState.requests[i], i);
@@ -326,35 +315,16 @@ export async function runWorkflowApplySeam(args: {
     const job = args.runState.queue.getJob(jobId);
     if (!job || job.state !== "succeeded") {
       const recoverableRequestId = getSkillRunnerRequestIdFromJob(job as any);
+      const jobResultStatus = getJobResultStatus(job as any);
+      const terminalProviderResult =
+        jobResultStatus === "failed" || jobResultStatus === "canceled";
       const recoverableSkillRunnerFailure =
         !!job &&
+        !terminalProviderResult &&
         hasRecoverableSkillRunnerRequest(job as any) &&
         (isPendingWorkflowJobState(job.state) || job.state === "failed");
       if (recoverableSkillRunnerFailure) {
         pending += 1;
-        const result = job.result as RunResultLike | undefined;
-        if (
-          isSkillRunnerReconcilerOwnedRequest({
-            workflow: args.runState.workflow,
-            request: args.runState.requests[i],
-            job: job as { meta?: Record<string, unknown> },
-            result,
-          })
-        ) {
-          reconcileOwnedPendingJobs.push({
-            index: i,
-            taskLabel,
-            succeeded: true,
-            terminalState: "succeeded",
-            jobId: resolveReconcilePendingJobId({
-              jobId: job.id,
-              result,
-            }),
-            requestId: recoverableRequestId,
-            sequenceRunId:
-              resolveReconcilePendingSequenceRunId(result) || undefined,
-          });
-        }
         resolved.appendRuntimeLog({
           level: "warn",
           scope: "job",
@@ -433,6 +403,87 @@ export async function runWorkflowApplySeam(args: {
       continue;
     }
 
+    const result = job.result as RunResultLike;
+    const resultStatus = String(result?.status || "").trim();
+    if (resultStatus && resultStatus !== "succeeded") {
+      if (!result?.requestId) {
+        failed += 1;
+        const reason = "missing requestId in execution result";
+        failureReasons.push(`job-${i}: ${reason}`);
+        jobOutcomes.push({
+          index: i,
+          taskLabel,
+          succeeded: false,
+          reason,
+          jobId: job.id,
+        });
+        resolved.appendRuntimeLog({
+          level: "error",
+          scope: "job",
+          workflowId: args.runState.workflow.manifest.id,
+          jobId: job.id,
+          stage: "provider-result-missing-request-id",
+          message: "provider result missing requestId",
+          details: { index: i, taskLabel, status: resultStatus },
+        });
+        continue;
+      }
+      if (resultStatus === "deferred") {
+        pending += 1;
+        resolved.appendRuntimeLog({
+          level: "info",
+          scope: "job",
+          workflowId: args.runState.workflow.manifest.id,
+          jobId: job.id,
+          requestId: result.requestId,
+          stage: "provider-result-deferred-after-succeeded-job",
+          message:
+            "provider returned deferred result for a locally succeeded job",
+          details: {
+            index: i,
+            taskLabel,
+            status: resultStatus,
+            backendStatus: result.backendStatus,
+          },
+        });
+        continue;
+      }
+      failed += 1;
+      const terminalState = resultStatus === "canceled" ? "canceled" : "failed";
+      const reason =
+        resultStatus === "failed"
+          ? "provider result failed after local job success"
+          : resultStatus === "canceled"
+            ? "provider result canceled after local job success"
+            : `unexpected provider result status: ${resultStatus}`;
+      failureReasons.push(`job-${i} (request_id=${result.requestId}): ${reason}`);
+      jobOutcomes.push({
+        index: i,
+        taskLabel,
+        succeeded: false,
+        terminalState,
+        reason,
+        jobId: job.id,
+        requestId: result.requestId,
+      });
+      resolved.appendRuntimeLog({
+        level: "error",
+        scope: "job",
+        workflowId: args.runState.workflow.manifest.id,
+        jobId: job.id,
+        requestId: result.requestId,
+        stage: "provider-result-non-succeeded-after-succeeded-job",
+        message: "provider result status does not match local job success",
+        details: {
+          index: i,
+          taskLabel,
+          status: resultStatus,
+          terminalState,
+        },
+      });
+      continue;
+    }
+
     const targetParentID =
       typeof job.meta.targetParentID === "number"
         ? job.meta.targetParentID
@@ -467,7 +518,6 @@ export async function runWorkflowApplySeam(args: {
       continue;
     }
 
-    const result = job.result as RunResultLike;
     if (!result?.requestId) {
       failed += 1;
       const reason = "missing requestId in execution result";
@@ -499,7 +549,11 @@ export async function runWorkflowApplySeam(args: {
       requestId: result.requestId,
       stage: "provider-finished",
       message: "provider execution finished for job",
-      details: { index: i, taskLabel, targetParentID: applyParent || undefined },
+      details: {
+        index: i,
+        taskLabel,
+        targetParentID: applyParent || undefined,
+      },
     });
 
     if (
@@ -516,57 +570,12 @@ export async function runWorkflowApplySeam(args: {
         jobId: job.id,
         requestId: result.requestId,
         stage: "foreground-apply-skipped-acp-recoverable",
-        message:
-          "foreground apply skipped for recoverable ACP skill run state",
+        message: "foreground apply skipped for recoverable ACP skill run state",
         details: {
           index: i,
           taskLabel,
           status: result.status,
-          responseStatus: String(
-            getResponseJson(result).status || "",
-          ).trim(),
-          targetParentID: applyParent || undefined,
-        },
-      });
-      continue;
-    }
-
-    if (
-      isSkillRunnerReconcilerOwnedRequest({
-        workflow: args.runState.workflow,
-        request: args.runState.requests[i],
-        job: job as { meta?: Record<string, unknown> },
-        result,
-      }) &&
-      !isAcpProviderResult({
-        result,
-        job: job as { meta?: Record<string, unknown> },
-      })
-    ) {
-      pending += 1;
-      reconcileOwnedPendingJobs.push({
-        index: i,
-        taskLabel,
-        succeeded: true,
-        terminalState: "succeeded",
-        jobId: job.id,
-        requestId: result.requestId,
-        sequenceRunId:
-          resolveReconcilePendingSequenceRunId(result) || undefined,
-      });
-      resolved.appendRuntimeLog({
-        level: "info",
-        scope: "job",
-        workflowId: args.runState.workflow.manifest.id,
-        jobId: job.id,
-        requestId: result.requestId,
-        stage: "foreground-apply-skipped-skillrunner",
-        message:
-          "foreground apply skipped for reconcile-owned skillrunner result",
-        details: {
-          index: i,
-          taskLabel,
-          runId: args.runState.runId,
+          responseStatus: String(getResponseJson(result).status || "").trim(),
           targetParentID: applyParent || undefined,
         },
       });
@@ -614,6 +623,14 @@ export async function runWorkflowApplySeam(args: {
 
     let bundlePath = "";
     const sequenceBundlePaths: string[] = [];
+    const isForegroundSkillRunnerSingleJob = isSkillRunnerSingleJobRequest({
+      workflow: args.runState.workflow,
+      request: args.runState.requests[i],
+      job: job as { meta?: Record<string, unknown> },
+      result,
+    });
+    const skillRunnerBackendId =
+      String(job.meta.backendId || "").trim() || undefined;
     try {
       resolved.appendRuntimeLog({
         level: "info",
@@ -623,8 +640,37 @@ export async function runWorkflowApplySeam(args: {
         requestId: result.requestId,
         stage: "apply-start",
         message: "applyResult started",
-        details: { index: i, taskLabel, targetParentID: applyParent || undefined },
+        details: {
+          index: i,
+          taskLabel,
+          targetParentID: applyParent || undefined,
+        },
       });
+      if (isForegroundSkillRunnerSingleJob) {
+        const updatedAt = new Date().toISOString();
+        updateSkillRunnerRunStateByRequest({
+          backendId: skillRunnerBackendId,
+          requestId: result.requestId,
+          state: "succeeded",
+          updatedAt,
+          eventType: "backend.terminal",
+          eventPayload: {
+            source: "workflowExecution.applySeam",
+            foreground: true,
+          },
+        });
+        updateSkillRunnerRunApplyState({
+          backendId: skillRunnerBackendId,
+          requestId: result.requestId,
+          state: "running",
+          updatedAt,
+          eventType: "apply.started",
+          eventPayload: {
+            source: "workflowExecution.applySeam",
+            foreground: true,
+          },
+        });
+      }
       const bundleResource = await createBundleReaderForRunResult({
         result,
         requestId: result.requestId,
@@ -637,6 +683,28 @@ export async function runWorkflowApplySeam(args: {
         bundleReader,
         manifest: args.runState.workflow.manifest,
       });
+      if (isForegroundSkillRunnerSingleJob) {
+        updateSkillRunnerRunResult({
+          backendId: skillRunnerBackendId,
+          requestId: result.requestId,
+          resultJson: resultContext.resultJson,
+          resultJsonPath:
+            typeof result.resultJsonPath === "string"
+              ? result.resultJsonPath
+              : undefined,
+          workspaceDir:
+            typeof result.workspaceDir === "string"
+              ? result.workspaceDir
+              : undefined,
+          bundleDir:
+            typeof result.bundleDir === "string" ? result.bundleDir : undefined,
+          updatedAt: new Date().toISOString(),
+          eventPayload: {
+            source: "workflowExecution.applySeam",
+            foreground: true,
+          },
+        });
+      }
       const sequenceApplyContext = await createSequenceApplyContext({
         result,
         manifest: args.runState.workflow.manifest,
@@ -648,9 +716,7 @@ export async function runWorkflowApplySeam(args: {
         backendId: String(job.meta.backendId || "").trim() || undefined,
         backendType: String(job.meta.backendType || "").trim() || undefined,
         runId: String(job.meta.runId || "").trim() || undefined,
-        ...(sequenceApplyContext
-          ? { sequence: sequenceApplyContext }
-          : {}),
+        ...(sequenceApplyContext ? { sequence: sequenceApplyContext } : {}),
       };
       await resolved.executeApplyResult({
         workflow: args.runState.workflow,
@@ -669,10 +735,29 @@ export async function runWorkflowApplySeam(args: {
         jobId: job.id,
         appendRuntimeLog: resolved.appendRuntimeLog,
       });
-      if (isAcpProviderResult({ result, job: job as { meta?: Record<string, unknown> } })) {
+      if (
+        isAcpProviderResult({
+          result,
+          job: job as { meta?: Record<string, unknown> },
+        })
+      ) {
         markAcpSkillRunApplyResult({
           requestId: result.requestId,
           state: "succeeded",
+        });
+      }
+      if (isForegroundSkillRunnerSingleJob) {
+        updateSkillRunnerRunApplyState({
+          backendId: skillRunnerBackendId,
+          requestId: result.requestId,
+          state: "succeeded",
+          attempt: 0,
+          updatedAt: new Date().toISOString(),
+          eventType: "apply.succeeded",
+          eventPayload: {
+            source: "workflowExecution.applySeam",
+            foreground: true,
+          },
         });
       }
       succeeded += 1;
@@ -692,11 +777,18 @@ export async function runWorkflowApplySeam(args: {
         requestId: result.requestId,
         stage: "apply-succeeded",
         message: "applyResult succeeded",
-        details: { index: i, taskLabel, targetParentID: applyParent || undefined },
+        details: {
+          index: i,
+          taskLabel,
+          targetParentID: applyParent || undefined,
+        },
       });
     } catch (error) {
       failed += 1;
-      const reason = resolved.normalizeErrorMessage(error, args.messageFormatter);
+      const reason = resolved.normalizeErrorMessage(
+        error,
+        args.messageFormatter,
+      );
       const structuredApplyResult =
         error && typeof error === "object" && "structuredResult" in error
           ? (error as { structuredResult?: unknown }).structuredResult
@@ -731,11 +823,30 @@ export async function runWorkflowApplySeam(args: {
         },
         error,
       });
-      if (isAcpProviderResult({ result, job: job as { meta?: Record<string, unknown> } })) {
+      if (
+        isAcpProviderResult({
+          result,
+          job: job as { meta?: Record<string, unknown> },
+        })
+      ) {
         markAcpSkillRunApplyResult({
           requestId: result.requestId,
           state: "failed",
           error: reason,
+        });
+      }
+      if (isForegroundSkillRunnerSingleJob) {
+        updateSkillRunnerRunApplyState({
+          backendId: skillRunnerBackendId,
+          requestId: result.requestId,
+          state: "failed",
+          error: reason,
+          updatedAt: new Date().toISOString(),
+          eventType: "apply.failed",
+          eventPayload: {
+            source: "workflowExecution.applySeam",
+            foreground: true,
+          },
         });
       }
     } finally {
@@ -754,6 +865,5 @@ export async function runWorkflowApplySeam(args: {
     pending,
     failureReasons,
     jobOutcomes,
-    reconcileOwnedPendingJobs,
   };
 }

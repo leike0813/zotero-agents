@@ -240,12 +240,12 @@ async function createRecoveryApplyWorkflowRoot(root: string) {
             {
               id: "finalize",
               skill_id: "topic-synthesis-finalize",
+              mode: "interactive",
               workspace: "reuse-workflow",
             },
           ],
         },
       },
-      execution: { mode: "auto", skillrunner_mode: "interactive" },
       result: { final_step_id: "finalize" },
       hooks: { applyResult: "hooks/applyResult.mjs" },
     }),
@@ -4873,15 +4873,22 @@ describe("ACP SkillRunner-compatible runner", function () {
     const sequenceRequest = {
       kind: "skillrunner.sequence.v1" as const,
       steps: [
-        { id: "prepare", skill_id: "prepare-skill", workspace: "new" as const },
+        {
+          id: "prepare",
+          skill_id: "prepare-skill",
+          mode: "interactive",
+          workspace: "new" as const,
+        },
         {
           id: "core",
           skill_id: "core-skill",
+          mode: "interactive",
           workspace: "reuse-workflow" as const,
         },
         {
           id: "finalize",
           skill_id: "finalize-skill",
+          mode: "interactive",
           workspace: "reuse-workflow" as const,
         },
       ],
@@ -5735,9 +5742,11 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
     assert.isTrue(
       assistantMessages.some(
-        (item) =>
-          item.text.includes("```json") && item.text.includes('"ok": true'),
+        (item) => item.text.includes("- ok: true"),
       ),
+    );
+    assert.isFalse(
+      assistantMessages.some((item) => item.text.includes("```json")),
     );
     assert.isFalse(
       assistantMessages.some((item) => item.text.includes("__SKILL_DONE__")),
@@ -5982,9 +5991,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       ) || [];
     assert.isTrue(
       finalAssistantMessages.some(
-        (item) =>
-          item.text.includes("```json") && item.text.includes('"ok": true'),
+        (item) => item.text.includes("- ok: true"),
       ),
+    );
+    assert.isFalse(
+      finalAssistantMessages.some((item) => item.text.includes("```json")),
     );
     assert.isFalse(
       finalAssistantMessages.some((item) =>
@@ -6230,6 +6241,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         {
           id: "finalize",
           skill_id: "topic-synthesis-finalize",
+          mode: "interactive",
           workspace: "reuse-workflow" as const,
         },
       ],
@@ -6334,9 +6346,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.isTrue(
         assistantMessages.some(
           (item) =>
-            item.text.includes("```json") &&
-            item.text.includes('"kind": "live_deferred_final"'),
+            item.text.includes("- kind: live_deferred_final"),
         ),
+      );
+      assert.isFalse(
+        assistantMessages.some((item) => item.text.includes("```json")),
       );
       assert.isFalse(
         assistantMessages.some((item) =>
@@ -6456,6 +6470,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         {
           id: "finalize",
           skill_id: "topic-synthesis-finalize",
+          mode: "interactive",
           workspace: "reuse-workflow" as const,
         },
       ],

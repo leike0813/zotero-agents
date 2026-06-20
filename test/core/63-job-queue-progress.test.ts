@@ -126,6 +126,112 @@ describe("job queue progress", function () {
     assert.equal(job!.state, "running");
   });
 
+  it("maps terminal failed provider result to failed job state", async function () {
+    const queue = new JobQueueManager({
+      concurrency: 1,
+      executeJob: async () => ({
+        status: "failed",
+        requestId: "req-terminal-failed-1",
+        fetchType: "result",
+        error: "backend failed",
+      }),
+    });
+
+    const jobId = queue.enqueue({
+      workflowId: "test-workflow",
+      request: { ok: true },
+      meta: {
+        runId: "run-1",
+      },
+    });
+    await queue.waitForIdle();
+
+    const job = queue.getJob(jobId);
+    assert.isOk(job);
+    assert.equal(job!.state, "failed");
+    assert.equal(job!.error, "backend failed");
+  });
+
+  it("maps terminal canceled provider result to canceled job state", async function () {
+    const queue = new JobQueueManager({
+      concurrency: 1,
+      executeJob: async () => ({
+        status: "canceled",
+        requestId: "req-terminal-canceled-1",
+        fetchType: "result",
+        error: "backend canceled",
+      }),
+    });
+
+    const jobId = queue.enqueue({
+      workflowId: "test-workflow",
+      request: { ok: true },
+      meta: {
+        runId: "run-1",
+      },
+    });
+    await queue.waitForIdle();
+
+    const job = queue.getJob(jobId);
+    assert.isOk(job);
+    assert.equal(job!.state, "canceled");
+    assert.equal(job!.error, "backend canceled");
+  });
+
+  it("fails skillrunner job when dispatch times out before request id", async function () {
+    const updates: Array<{
+      state: string;
+      requestId?: string;
+      error?: string;
+    }> = [];
+    const queue = new JobQueueManager({
+      concurrency: 1,
+      executeJob: async () => {
+        const error = new Error("SkillRunner HTTP request timed out");
+        error.name = "SkillRunnerHttpTimeoutError";
+        throw error;
+      },
+      onJobUpdated: (job) => {
+        updates.push({
+          state: job.state,
+          requestId: String(job.meta.requestId || "").trim() || undefined,
+          error: String(job.error || "").trim() || undefined,
+        });
+      },
+    });
+
+    const jobId = queue.enqueue({
+      workflowId: "test-workflow",
+      request: { ok: true },
+      meta: {
+        runId: "run-1",
+        providerId: "skillrunner",
+        backendType: "skillrunner",
+        requestKind: "skillrunner.job.v1",
+      },
+    });
+    await queue.waitForIdle();
+
+    const job = queue.getJob(jobId);
+    assert.isOk(job);
+    assert.equal(job!.state, "failed");
+    assert.equal(String(job!.meta.requestId || ""), "");
+    assert.equal(job!.meta.skillRunnerLifecycleState, "failed");
+    assert.equal(job!.meta.skillRunnerSubmitPhase, "request_creating");
+    assert.deepEqual(
+      updates.map((entry) => entry.state),
+      ["queued", "running", "failed"],
+    );
+    assert.equal(updates[2].error, "SkillRunner HTTP request timed out");
+    assert.isTrue(
+      listRuntimeLogs().some(
+        (entry) =>
+          entry.stage === "dispatch-failed" &&
+          entry.requestId === undefined,
+      ),
+    );
+  });
+
   it("fails request-created skillrunner job when dispatch fails before request-ready", async function () {
     const updates: Array<{
       state: string;

@@ -5,7 +5,7 @@ import { buildSkillRunnerManagementClient } from "./skillRunnerManagementClientF
 import { updateTaskDashboardHistoryStateByRequest } from "./taskDashboardHistory";
 import { isTerminal, normalizeStatus } from "./skillRunnerProviderStateMachine";
 import {
-  isSkillRunnerBackendReconcileFlagged,
+  isSkillRunnerBackendAvailable,
   markSkillRunnerBackendHealthFailure,
   markSkillRunnerBackendHealthSuccess,
 } from "./skillRunnerBackendHealthRegistry";
@@ -213,10 +213,7 @@ function applyStateSnapshot(args: {
       updatedAt: args.updatedAt,
     };
   }
-  const taskState =
-    updated.status === "request_ready"
-      ? "running"
-      : normalizeStatus(updated.status, normalized);
+  const taskState = normalizeStatus(updated.status, normalized);
   sessionSyncDeps.updateWorkflowTaskStateByRequest({
     backendId: updated.backendId,
     backendType: "skillrunner",
@@ -301,7 +298,7 @@ async function streamEventLoop(session: SessionLoopState) {
   if (!isSessionActive(session)) {
     return;
   }
-  if (isSkillRunnerBackendReconcileFlagged(backendId)) {
+  if (!isSkillRunnerBackendAvailable(backendId)) {
     stopSessionByKey(key);
     return;
   }
@@ -388,7 +385,7 @@ export function ensureSkillRunnerSessionSync(args: {
   if (!requestId || !backendId) {
     return;
   }
-  if (isSkillRunnerBackendReconcileFlagged(backendId)) {
+  if (!isSkillRunnerBackendAvailable(backendId)) {
     return;
   }
   const key = toSessionKey(backendId, requestId);

@@ -530,6 +530,61 @@ describe("skillrunner run dialog bubble message model", function () {
     });
   });
 
+  it("normalizes choose_one string options from pending ui_hints", function () {
+    const normalized = normalizeRunDialogPendingState({
+      request_id: "req-1",
+      status: "waiting_user",
+      pending_owner: "waiting_user",
+      pending: {
+        interaction_id: 19,
+        kind: "choose_one",
+        prompt: "choose one",
+        ui_hints: {
+          kind: "choose_one",
+          prompt: "choose any option",
+          options: ["Alpha", "Beta", "Gamma"],
+        },
+      },
+    });
+    assert.equal(normalized.pendingInteraction?.kind, "choose_one");
+    assert.deepEqual(normalized.pendingInteraction?.options, [
+      { label: "Alpha", value: "Alpha" },
+      { label: "Beta", value: "Beta" },
+      { label: "Gamma", value: "Gamma" },
+    ]);
+    assert.deepEqual(normalized.pendingInteraction?.uiHints, {
+      kind: "choose_one",
+      prompt: "choose any option",
+      options: ["Alpha", "Beta", "Gamma"],
+    });
+  });
+
+  it("normalizes raw pending branch message and ui_hints", function () {
+    const normalized = normalizeRunDialogPendingState({
+      request_id: "req-1",
+      status: "waiting_user",
+      pending_owner: "waiting_user",
+      pending: {
+        __SKILL_DONE__: false,
+        message: "Debug interactive probe: choose any option to continue.",
+        ui_hints: {
+          kind: "choose_one",
+          prompt: "Choose any option.",
+          options: ["Alpha", "Beta"],
+        },
+      },
+    });
+    assert.equal(normalized.pendingInteraction?.kind, "choose_one");
+    assert.equal(
+      normalized.pendingInteraction?.prompt,
+      "Debug interactive probe: choose any option to continue.",
+    );
+    assert.deepEqual(normalized.pendingInteraction?.options, [
+      { label: "Alpha", value: "Alpha" },
+      { label: "Beta", value: "Beta" },
+    ]);
+  });
+
   it("normalizes waiting_auth method selection fields for e2e parity", function () {
     const normalized = normalizeRunDialogPendingState({
       request_id: "req-1",

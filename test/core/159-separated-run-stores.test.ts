@@ -25,13 +25,13 @@ import {
 } from "../../src/modules/taskDashboardHistory";
 import {
   getSkillRunnerRunRecordByRequest,
-  getSkillRunnerSequenceRootState,
   listSkillRunnerRunProjections,
   listSkillRunnerRunRecords,
   subscribeSkillRunnerRunStore,
   updateSkillRunnerRunStateByRequest,
 } from "../../src/modules/skillRunnerRunStore";
 import {
+  getSequenceRunState,
   initializeSequenceRunState,
   recordSequenceStepRequestCreated,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
@@ -226,12 +226,52 @@ describe("separated ACP and SkillRunner run stores", function () {
     assert.lengthOf(activeTasks, 1);
     assert.equal(tasks[0].requestId, "sr-created-only");
     assert.equal(tasks[0].state, "running");
-    assert.equal(tasks[0].skillRunnerLifecycleState, "request_ready");
+    assert.equal(tasks[0].skillRunnerLifecycleState, "running");
+    assert.equal(tasks[0].submitPhase, "request_ready");
     assert.isTrue(tasks[0].backendInteractive);
     assert.lengthOf(listSkillRunnerRunRecords(), 1);
     assert.lengthOf(listSkillRunnerRunProjections(), 1);
     assert.equal(listSkillRunnerRunRecords()[0].runKey, localRunKey);
     assert.equal(listTaskDashboardHistory()[0]?.requestId, "sr-created-only");
+
+    const defensiveRequestReady = updateSkillRunnerRunStateByRequest({
+      backendId: "skillrunner-local",
+      requestId: "sr-created-only",
+      state: "request_ready" as any,
+      updatedAt: "2026-06-18T00:00:03.500Z",
+      eventType: "backend.snapshot",
+    });
+    assert.equal(defensiveRequestReady?.runKey, localRunKey);
+    assert.equal(defensiveRequestReady?.status, "running");
+    assert.equal(
+      defensiveRequestReady?.taskProjection.skillRunnerLifecycleState,
+      "running",
+    );
+    assert.equal(defensiveRequestReady?.submitPhase, "request_ready");
+
+    const waitingJob: JobRecord = {
+      ...readyJob,
+      state: "waiting_user",
+      result: {
+        status: "deferred",
+        requestId: "sr-created-only",
+        fetchType: "result",
+        backendStatus: "waiting_user",
+      },
+      updatedAt: "2026-06-18T00:00:04.000Z",
+    };
+
+    recordWorkflowTaskUpdate(waitingJob);
+
+    tasks = listWorkflowTasks();
+    assert.equal(tasks[0].state, "waiting_user");
+    assert.equal(tasks[0].skillRunnerLifecycleState, "waiting_user");
+    assert.isTrue(tasks[0].canReply);
+    assert.equal(listSkillRunnerRunRecords()[0].status, "waiting_user");
+    assert.equal(
+      listSkillRunnerRunProjections()[0]?.submitPhase,
+      "request_ready",
+    );
 
     const terminal = updateSkillRunnerRunStateByRequest({
       backendId: "skillrunner-local",
@@ -352,19 +392,19 @@ describe("separated ACP and SkillRunner run stores", function () {
       requestId: "sr-sequence-root-step-request",
     });
 
-    const root = listSkillRunnerRunRecords().find(
+    const root = listPluginRunStoreEntries("skillrunner").find(
       (entry) => entry.runKey === "sequence:sequence-root-no-request-index",
     );
-    assert.equal(root?.role, "sequence_root");
-    assert.equal(root?.requestId, "");
-    assert.isUndefined(root?.taskProjection.requestId);
-    assert.isOk(getSkillRunnerSequenceRootState("sequence-root-no-request-index"));
-    assert.isNull(
+    assert.equal(root?.requestId, "sr-sequence-root-step-request");
+    assert.equal(root?.state, "running_step");
+    assert.isOk(getSequenceRunState("sequence-root-no-request-index"));
+    assert.equal(
       getPluginRunStoreEntryByRequest({
         kind: "skillrunner",
         backendId: "skillrunner-local",
         requestId: "sr-sequence-root-step-request",
-      }),
+      })?.runKey,
+      "sequence:sequence-root-no-request-index",
     );
   });
 

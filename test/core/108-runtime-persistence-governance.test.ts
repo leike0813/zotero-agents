@@ -98,6 +98,10 @@ describe("runtime persistence governance", function () {
       paths.stateDbPath,
       path.join(tempRoot, "state", "zotero-agents.db"),
     );
+    assert.equal(
+      paths.synthesisDbPath,
+      path.join(tempRoot, "state", "synthesis.db"),
+    );
     assert.equal(paths.dataDir, path.join(tempRoot, "data"));
     assert.equal(
       paths.synthesisDataRoot,
@@ -361,6 +365,10 @@ describe("runtime persistence governance", function () {
       0,
     );
     assert.equal(snapshot.stateDatabase?.path, paths.stateDbPath);
+    assert.deepEqual(
+      snapshot.stateDatabases?.map((entry) => entry.path),
+      [paths.stateDbPath, paths.synthesisDbPath],
+    );
   });
 
   it("does not report legacy runtime data as a persistence category", async function () {

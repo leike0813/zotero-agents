@@ -598,16 +598,26 @@ function bindPrefEvents() {
       }
     }
     if (runtimeDataStateDbInfo) {
-      const stateDb = usage?.stateDatabase;
-      const statePath = String(stateDb?.path || "").trim();
-      const stateDetail = stateDb
+      const stateDbs = Array.isArray(usage?.stateDatabases)
+        ? usage.stateDatabases
+        : usage?.stateDatabase
+          ? [usage.stateDatabase]
+          : [];
+      const statePaths = stateDbs
+        .map((entry: any) => String(entry?.path || "").trim())
+        .filter(Boolean);
+      const stateBytes = stateDbs.reduce(
+        (sum: number, entry: any) => sum + Math.max(0, Number(entry?.bytes) || 0),
+        0,
+      );
+      const stateDetail = stateDbs.length
         ? `${getString("pref-runtime-data-state-db" as any)}: ${formatBytes(
-            stateDb.bytes,
-          )}${statePath ? ` · ${statePath}` : ""}`
+            stateBytes,
+          )}${statePaths.length ? ` · ${statePaths.join(" · ")}` : ""}`
         : getString("pref-runtime-data-state-db-idle" as any);
       runtimeDataStateDbInfo.textContent = stateDetail;
-      if (statePath) {
-        runtimeDataStateDbInfo.setAttribute("title", statePath);
+      if (statePaths.length) {
+        runtimeDataStateDbInfo.setAttribute("title", statePaths.join("\n"));
       } else {
         runtimeDataStateDbInfo.removeAttribute("title");
       }

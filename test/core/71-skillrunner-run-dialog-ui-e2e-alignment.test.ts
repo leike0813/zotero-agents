@@ -264,9 +264,11 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.notInclude(hostTs, "entry.session.lastSeq = entry.session.messages.reduce");
     assert.include(hostTs, "subscribeSkillRunnerSessionState");
     assert.include(hostTs, "await syncPendingState()");
-    assert.include(hostTs, "ensureSkillRunnerSessionSync");
+    assert.include(hostTs, "continueSkillRunnerForegroundRun");
+    assert.include(hostTs, "startRunDialogEntryForegroundContinuation");
     assert.include(hostTs, "streamRunChat");
-    assert.include(hostTs, "restartSessionSyncAfterWaitingExit");
+    assert.notInclude(hostTs, "ensureSkillRunnerSessionSync");
+    assert.notInclude(hostTs, "restartSessionSyncAfterWaitingExit");
     assert.include(hostTs, "hasRunDialogWaitingAuthExited");
     assert.notInclude(hostTs, "runWorkspaceState.refreshTimer = dialogWindow.setInterval");
   });

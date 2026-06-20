@@ -142,6 +142,7 @@ type SqlAdapter = {
 - 运行时检测：存在 `globalThis.Services` 和 `globalThis.Zotero`
 - 数据库：`getGuardedSqliteConnection()` → `Services.storage.openDatabase`
 - 文件路径：`<Zotero.DataDirectory>/zotero-agents/state/zotero-agents.db`
+- 边界：该库只承载 workflow/plugin runtime state；Synthesis `synt_*` state 使用 sibling `state/synthesis.db`
 - SQL 方言：SQLite
 
 ### 内存适配器（测试）

@@ -40,17 +40,23 @@ SkillRunner job progress:
 - `request-created` is request-scoped audit metadata.
 - `request-ready` is the first point where a SkillRunner run becomes visible
   through `SkillRunnerRunStore`.
-- SkillRunner provider dispatch returns deferred after `request-ready`.
-- SkillRunner terminal settlement and apply are reconciler-owned.
+- `skillrunner.job.v1` provider dispatch continues after `request-ready` to
+  poll terminal state and fetch `/result` or `/bundle`.
+- `skillrunner.job.v1` terminal success is applied by the foreground workflow
+  apply seam.
+- `skillrunner.sequence.v1` steps use the foreground sequence loop;
+  recovery-owned runs use deferred reconciler settlement.
 
 ## Apply Summary Seam
 
 Apply summary inspects job outcomes and reports workflow-level completion.
 
-For SkillRunner jobs, a successful `request-ready` dispatch is not the final
-business completion. It is recorded as reconciler-owned pending work. Final
-success, failure, apply state, and sequence continuation are settled later by
-the SkillRunner reconciler and reflected through deferred completion tracking.
+For single SkillRunner jobs, terminal provider success is final workflow
+business completion only after foreground `applyResult` succeeds. Backend
+terminal failure, cancellation, and poll timeout settle as local terminal job
+outcomes. Normal SkillRunner sequence work is foreground-owned; only
+recovery-owned SkillRunner work is recorded as reconciler-owned pending work and
+reflected through deferred completion tracking.
 
 For ACP skill runs, ACP's conversation path continues to own its foreground
 result and apply behavior.
@@ -76,15 +82,14 @@ sequenceDiagram
   participant Queue as Job Queue
   participant Provider as SkillRunner Provider
   participant Store as SkillRunnerRunStore
-  participant R as SkillRunner Reconciler
 
   Seq->>Queue: enqueue step 0
   Queue->>Provider: create and upload step 0
   Provider->>Store: request_ready step 0
-  Provider-->>Seq: deferred step result
-  R->>Store: observe terminal success
-  R->>Store: write result and handoff projection
-  R->>Seq: continue next step when dependencies are satisfied
+  Provider-->>Seq: terminal success or waiting detach
+  Seq->>Store: write result and handoff projection
+  Seq->>Seq: run step apply when declared
+  Seq->>Queue: continue when dependencies are satisfied
   Seq->>Queue: enqueue step 1 with workspace reuse
 ```
 
@@ -119,7 +124,21 @@ not require that handoff.
 
 ## Apply Ownership
 
-SkillRunner apply is deferred reconciler work:
+Single SkillRunner apply is foreground workflow work:
+
+- terminal success triggers provider result or bundle fetch
+- provider settlement writes result metadata
+- foreground apply state moves through `running` and terminal apply states
+- apply failure is visible on the owning run
+
+Normal sequence SkillRunner apply is foreground sequence runtime work:
+
+- terminal success triggers result or bundle settlement
+- settlement writes result projection
+- step/root apply state moves through `running` and terminal apply states
+- apply failure is visible on the owning run
+
+Recovery-owned SkillRunner apply is deferred reconciler work:
 
 - terminal success triggers result or bundle settlement
 - settlement writes result projection

@@ -21,7 +21,6 @@
     "kind": "skillrunner.sequence.v1"
   },
   "execution": {
-    "skillrunner_mode": "auto",
     "feedback": {
       "showNotifications": true
     },

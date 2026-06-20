@@ -57,8 +57,6 @@
     }
   },
   "execution": {
-    "mode": "auto",
-    "skillrunner_mode": "auto",
     "poll_interval_ms": 2000,
     "timeout_ms": 1200000
   },

@@ -40,8 +40,7 @@
 
 ### 执行模式
 
-- `execution.mode`: `auto` - 自动执行
-- `skillrunner_mode`: `auto` - 非交互模式
+- `request.sequence.steps[].mode`: `auto` - 各阶段非交互模式
 - `poll_interval_ms`: 2000 - 轮询间隔 2 秒
 - `timeout_ms`: 1200000 - 超时 20 分钟
 

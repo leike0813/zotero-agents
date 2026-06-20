@@ -49,6 +49,7 @@ async function buildRequestImpl({ selectionContext, executionOptions, runtime })
   const digestStep = {
     id: "digest",
     skill_id: "literature-analysis",
+    mode: "auto",
     workspace: "new",
     fetch_type: "bundle",
     apply_result: {
@@ -74,6 +75,7 @@ async function buildRequestImpl({ selectionContext, executionOptions, runtime })
     steps.push({
       id: "tag-regulator",
       skill_id: "tag-regulator",
+      mode: "auto",
       workspace: "reuse-workflow",
       fetch_type: "result",
       apply_result: {

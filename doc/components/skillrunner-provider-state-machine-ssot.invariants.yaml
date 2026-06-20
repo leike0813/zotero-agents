@@ -22,7 +22,7 @@ invariants:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     spec_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
-    must: SkillRunner backend state parsing must use the seven canonical backend states; local request_ready is a frontend projection state, not a backend state.
+    must: SkillRunner backend state parsing must use the seven canonical backend states; request_ready is a submit phase, not a backend or visible lifecycle state.
 
   - id: INV-PROV-WRITE-NONTERMINAL-EVENTS
     domain: skillrunner-provider
@@ -48,16 +48,19 @@ invariants:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     spec_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
-    must: Terminal backend convergence may be confirmed by the jobs endpoint and written only through reconciler settlement.
+    must: Terminal backend convergence may be confirmed by the jobs endpoint and written by foreground single-job, sequence, or foreground continuation settlement; recovery does not own terminal apply.
 
   - id: INV-PROV-BACKEND-HEALTH-BACKOFF
     domain: skillrunner-provider
     type: timing
     current_value:
       probeBackoffMs:
-        - 5000
         - 15000
+        - 30000
         - 60000
+        - 120000
+        - 300000
+        - 600000
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.backendHealth.probeBackoffMs
     doc_refs:
@@ -66,20 +69,26 @@ invariants:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     must: Backend health probes must use bounded backoff and stay independent from single-run client errors.
 
-  - id: INV-PROV-BACKEND-HEALTH-THRESHOLDS
+  - id: INV-PROV-BACKEND-REACHABILITY-POLICY
     domain: skillrunner-provider
-    type: threshold
+    type: reachability-policy
     current_value:
-      failureThresholdForGate: 2
-      successThresholdForRecovery: 1
+      probeTickMs: 60000
+      recentSuccessSkipMs: 60000
+      autoDisableAfterMs: 21600000
+      submitVisibility: enabled_and_reachable
+      recoveryTrigger: unreachable_to_reachable
     code_refs:
-      - SKILLRUNNER_SSOT_FACTS.backendHealth.failureThresholdForGate
-      - SKILLRUNNER_SSOT_FACTS.backendHealth.successThresholdForRecovery
+      - SKILLRUNNER_SSOT_FACTS.backendHealth.probeTickMs
+      - SKILLRUNNER_SSOT_FACTS.backendHealth.recentSuccessSkipMs
+      - SKILLRUNNER_SSOT_FACTS.backendHealth.autoDisableAfterMs
+      - SKILLRUNNER_SSOT_FACTS.backendHealth.submitVisibility
+      - SKILLRUNNER_SSOT_FACTS.backendHealth.recoveryTrigger
     doc_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     spec_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
-    must: Backend gating must require configured probe thresholds; a single run-level terminal client error must not gate the backend.
+    must: SkillRunner backend submission visibility must require enabled and reachable, health probes must be idle-only, and recovery must be triggered by an unavailable-to-reachable transition.
 
   - id: INV-PROV-STREAM-EVENT-RUNNING-ONLY
     domain: skillrunner-provider
@@ -112,23 +121,23 @@ invariants:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     spec_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
-    must: Startup reconnect must target active running records only; waiting, terminal, and apply-retry records are reconciler short work.
+    must: Startup recovery must hand active running records to foreground continuation; waiting records stay detached and apply-retry records are not retried by recovery.
 
   - id: INV-PROV-UI-GATING-BACKEND-FLAG
     domain: skillrunner-provider
     type: ui-gating
     current_value:
-      flaggedBackendBlocksRunDialog: true
-      flaggedBackendHiddenInHome: true
-      flaggedBackendTabDisabled: true
-      flaggedBackendWorkspaceDisabled: true
+      unavailableBackendBlocksRunDialog: true
+      unavailableBackendHiddenInHome: true
+      unavailableBackendTabDisabled: true
+      unavailableBackendWorkspaceDisabled: true
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.uiGating
     doc_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     spec_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
-    must: Backend health gating must block interactive backend access consistently while preserving stored run projections.
+    must: Backend reachability gating must block interactive backend access consistently while preserving stored run projections.
 
   - id: INV-PROV-NO-LEGACY-ID
     domain: skillrunner-provider
@@ -164,48 +173,48 @@ invariants:
     domain: skillrunner-provider
     type: apply-ownership
     current_value:
-      autoApplyOwner: reconciler
+      autoApplyOwner: foreground-orchestrator
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.applyOwnership.autoApplyOwner
     doc_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     spec_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
-    must: SkillRunner auto jobs must be applied only by the reconciler.
+    must: SkillRunner auto ownership must remain with the foreground orchestrator for normal and recovered execution.
 
   - id: INV-PROV-APPLY-OWNER-INTERACTIVE
     domain: skillrunner-provider
     type: apply-ownership
     current_value:
-      interactiveApplyOwner: reconciler
+      interactiveApplyOwner: foreground-orchestrator
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.applyOwnership.interactiveApplyOwner
     doc_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     spec_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
-    must: SkillRunner interactive jobs must be applied only by the reconciler.
+    must: SkillRunner interactive ownership must remain with the foreground orchestrator for normal execution, waiting continuation, and recovered execution.
 
-  - id: INV-PROV-FOREGROUND-APPLY-SKIP-AUTO
+  - id: INV-PROV-FOREGROUND-APPLY-SINGLE
     domain: skillrunner-provider
     type: apply-policy
     current_value:
-      foregroundAutoApply: skip-and-defer-to-reconciler
+      foregroundAutoApply: apply-single-terminal-success
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.applyOwnership.foregroundAutoApply
     doc_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     spec_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
-    must: Workflow summary handling must defer SkillRunner apply to the reconciler and never execute terminal apply for the job itself.
+    must: Workflow summary handling must apply SkillRunner single-job terminal success in the foreground; recovery may only hand work to foreground continuation.
 
-  - id: INV-PROV-SUBMIT-ONLY-REQUEST-READY
+  - id: INV-PROV-SUBMIT-REQUEST-READY-THEN-POLL
     domain: skillrunner-provider
     type: submit-boundary
     current_value:
-      providerSubmitBoundary: request_ready
-      providerPollsTerminalAfterReady: false
-      providerFetchesResultAfterReady: false
+      providerSubmitBoundary: submit_phase_request_ready
+      providerPollsTerminalAfterReady: true
+      providerFetchesResultAfterReady: true
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.applyOwnership.providerSubmitBoundary
       - SKILLRUNNER_SSOT_FACTS.applyOwnership.providerPollsTerminalAfterReady
@@ -214,13 +223,13 @@ invariants:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     spec_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
-    must: SkillRunner provider execution must stop at request_ready after successful create/upload and return deferred.
+    must: SkillRunner single-job provider execution must continue after request_ready to poll terminal state and fetch result or bundle.
 
-  - id: INV-PROV-FIRST-VISIBLE-REQUEST-READY
+  - id: INV-PROV-FIRST-VISIBLE-RUNNING
     domain: skillrunner-provider
     type: projection-boundary
     current_value:
-      firstVisibleSkillRunnerState: request_ready
+      firstVisibleSkillRunnerState: running
       preReadyProjectable: false
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.workspace.firstVisibleSkillRunnerState
@@ -229,15 +238,15 @@ invariants:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     spec_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
-    must: request_ready must be the first user-visible SkillRunner projection point.
+    must: request_ready must remain a submit phase only; the first user-visible SkillRunner lifecycle projection after submit readiness is running unless a backend waiting or terminal state has already been observed.
 
   - id: INV-PROV-RESULT-NORMALIZATION-OWNER
     domain: skillrunner-provider
     type: settlement-owner
     current_value:
-      resultNormalizationOwner: reconciler
-      bundleNormalizationOwner: reconciler
-      sequenceContinueOwner: reconciler
+      resultNormalizationOwner: foreground-provider-continuation
+      bundleNormalizationOwner: foreground-provider-continuation
+      sequenceContinueOwner: foreground-continuation
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.applyOwnership.resultNormalizationOwner
       - SKILLRUNNER_SSOT_FACTS.applyOwnership.bundleNormalizationOwner
@@ -246,7 +255,37 @@ invariants:
       - doc/components/skillrunner-provider-state-machine-ssot.md
     spec_refs:
       - doc/components/skillrunner-provider-state-machine-ssot.md
-    must: Result and bundle normalization must be reconciler-owned settlement work.
+    must: Result and bundle normalization must happen in foreground provider or continuation paths; recovery must not fetch or normalize results.
+
+  - id: INV-PROV-RECONCILER-ONE-SHOT-MISSING-CONTEXT
+    domain: skillrunner-provider
+    type: reconciler-policy
+    current_value:
+      missingContextIntervalScan: false
+      missingContextOneShotBoundaries:
+        - startup
+        - backend_recovery
+        - managed_local_post_up
+      missingContextSkipsNonIdleApply: false
+      recoveryOwnership: one_shot_handoff
+      pollsJobsContinuously: false
+      fetchesResults: false
+      appliesResults: false
+      missingContextOutcome: failed
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.reconciler.missingContextIntervalScan
+      - SKILLRUNNER_SSOT_FACTS.reconciler.missingContextOneShotBoundaries
+      - SKILLRUNNER_SSOT_FACTS.reconciler.missingContextSkipsNonIdleApply
+      - SKILLRUNNER_SSOT_FACTS.reconciler.recoveryOwnership
+      - SKILLRUNNER_SSOT_FACTS.reconciler.pollsJobsContinuously
+      - SKILLRUNNER_SSOT_FACTS.reconciler.fetchesResults
+      - SKILLRUNNER_SSOT_FACTS.reconciler.appliesResults
+      - SKILLRUNNER_SSOT_FACTS.reconciler.missingContextOutcome
+    doc_refs:
+      - doc/components/skillrunner-provider-state-machine-ssot.md
+    spec_refs:
+      - doc/components/skillrunner-provider-state-machine-ssot.md
+    must: Recovery must not run normal interval jobs polling, must run only at one-shot recovery boundaries, must hand recoverable work to foreground continuation, and must fail missing-context tasks locally without result fetch or apply.
 
   - id: INV-PROV-HOST-FAILURE-VISIBLE
     domain: skillrunner-provider

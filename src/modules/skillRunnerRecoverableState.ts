@@ -1,5 +1,6 @@
 import type { JobRecord, JobState } from "../jobQueue/manager";
 import {
+  isSkillRunnerPollingTimeoutError,
   isSkillRunnerRunTerminalClientError,
   isSkillRunnerTerminalRunError,
 } from "../providers/skillrunner/errors";
@@ -77,7 +78,8 @@ export function hasRecoverableSkillRunnerRequest(
 export function isNonRecoverableSkillRunnerFailure(error: unknown) {
   return (
     isSkillRunnerRunTerminalClientError(error) ||
-    isSkillRunnerTerminalRunError(error)
+    isSkillRunnerTerminalRunError(error) ||
+    isSkillRunnerPollingTimeoutError(error)
   );
 }
 
