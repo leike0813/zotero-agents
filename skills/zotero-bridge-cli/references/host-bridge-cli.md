@@ -4,13 +4,16 @@ This reference is generated from the Host Bridge surface catalog. Edit the Host
 Bridge capability registry or Rust CLI source, then run
 `npm run render:host-bridge-surface`.
 
-The published bundle includes `assets/profile.template.json`. Copy it to the Host
-Bridge well-known profile location or set `ZOTERO_BRIDGE_PROFILE` to its path.
-Override the template at runtime with `ZOTERO_BRIDGE_ENDPOINT`,
-`ZOTERO_BRIDGE_TOKEN`, `ZOTERO_BRIDGE_SCOPE`, and
-`ZOTERO_BRIDGE_CONNECTION_MODE=local|remote`. `ZOTERO_BRIDGE_SCOPE` may contain
-`{"kind":"skillrunner-run","frontendScopeId":"..."}` so Host Bridge write
-approvals return to the SkillRunner panel.
+The published bundle includes `install.ps1`, `install.sh`, and
+`assets/profile.template.json`. Use `.\install.ps1 --yes --json` on Windows or
+`./install.sh --yes --json` on POSIX to install or upgrade without a Node
+dependency. The installer auto-detects the platform and does not accept a
+platform override. Copy the template to the Host Bridge well-known profile
+location or set `ZOTERO_BRIDGE_PROFILE` to its path. Override the template at
+runtime with `ZOTERO_BRIDGE_ENDPOINT`, `ZOTERO_BRIDGE_TOKEN`,
+`ZOTERO_BRIDGE_SCOPE`, and `ZOTERO_BRIDGE_CONNECTION_MODE=local|remote`.
+`ZOTERO_BRIDGE_SCOPE` may contain `{"kind":"skillrunner-run","frontendScopeId":"..."}`
+so Host Bridge write approvals return to the SkillRunner panel.
 
 ## Resolver Payloads
 

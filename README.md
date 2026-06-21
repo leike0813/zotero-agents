@@ -5,23 +5,50 @@ This branch is generated from the Zotero-Skills repository and contains only:
 - prebuilt zotero-bridge CLI binaries under bin/
 - the zotero-bridge-cli wrapper skill under skills/zotero-bridge-cli/
 - assets/profile.template.json, a well-known profile template for local and remote use
+- install.ps1 and install.sh for installing or upgrading the current-platform CLI
 - manifest.json with source commit, platform list, sizes, and checksums
 
 Source commit: 04e5af297811925ac534233a55cf508dbaa77de1
-Published at: 2026-06-21T10:43:46.824Z
+Published at: 2026-06-21T12:20:07.484Z
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin
 repository.
+
+## Install or upgrade
+
+Windows:
+
+`powershell
+.\install.ps1 --yes --json --write-profile
+`
+
+Linux/macOS:
+
+`sh
+./install.sh --yes --json --write-profile
+`
+
+The installer auto-detects the current platform. It does not accept a platform
+override. Pass --install-dir or ZOTERO_BRIDGE_INSTALL_DIR only when the
+default user-level location is not appropriate. Re-running the installer is an
+upgrade: the target binary is replaced only when the bundled checksum differs.
+
+For agents, use --yes --json and pass runtime configuration through
+environment variables or explicit flags:
+
+`sh
+./install.sh --yes --json --write-profile --endpoint http://127.0.0.1:26570/bridge/v1 --token-env ZOTERO_BRIDGE_TOKEN
+`
 
 ## Profile template and environment overrides
 
 Copy assets/profile.template.json to the Host Bridge well-known profile location, or set
 ZOTERO_BRIDGE_PROFILE to its path. The well-known profile paths are:
 
-- Windows: %LOCALAPPDATA%\Zotero-Skills\bridge-profile.json
-- macOS: ~/Library/Application Support/Zotero-Skills/bridge-profile.json
-- Linux: ${XDG_DATA_HOME:-~/.local/share}/Zotero-Skills/bridge-profile.json
+- Windows: %LOCALAPPDATA%\zotero-agents\bridge-profile.json
+- macOS: ~/Library/Application Support/zotero-agents/bridge-profile.json
+- Linux: ${XDG_DATA_HOME:-~/.local/share}/zotero-agents/bridge-profile.json
 
 The template defaults to local loopback access and reads the bearer token from
 ZOTERO_BRIDGE_TOKEN.

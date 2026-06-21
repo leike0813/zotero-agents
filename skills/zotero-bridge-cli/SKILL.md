@@ -28,6 +28,9 @@ Host Bridge capability registry and Rust CLI source.
 - Keep `ZOTERO_BRIDGE_ENDPOINT`, `ZOTERO_BRIDGE_TOKEN`, and
   `ZOTERO_BRIDGE_CONNECTION_MODE` from the injected environment. The endpoint
   and connection mode override the profile template at runtime.
+- Published CLI bundles install or upgrade through `install.ps1` on Windows and
+  `install.sh` on POSIX. Agents should use `--yes --json` and must not pass a
+  platform override.
 - Never print, summarize, persist, or expose bearer token values.
 - Parse stdout as exactly one JSON object. Check both the process exit code and
   the top-level `ok` field.

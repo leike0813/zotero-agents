@@ -5,7 +5,7 @@
     "commit": "04e5af297811925ac534233a55cf508dbaa77de1",
     "dirty": true
   },
-  "publishedAt": "2026-06-21T10:43:46.824Z",
+  "publishedAt": "2026-06-21T12:20:07.484Z",
   "branch": "host-bridge/zotero-bridge-cli-bundle",
   "cli": {
     "name": "zotero-bridge",
@@ -13,35 +13,35 @@
       {
         "platform": "linux-arm",
         "binary": "bin/linux-arm/zotero-bridge",
-        "sha256": "515f9d780347a4358dfacf1564820ab5dbea718795f50632259462ccec7f35cf",
+        "sha256": "40df491246fd9f1869e22455259fa6445d368b1fdad95e9192cd69d8e44c9c7d",
         "sha256File": "bin/linux-arm/zotero-bridge.sha256",
         "size": 1110368
       },
       {
         "platform": "linux-arm64",
         "binary": "bin/linux-arm64/zotero-bridge",
-        "sha256": "d9b86f4fa37dea23d3175685afaebce855dda0189a85d65ee8a15d439da3415a",
+        "sha256": "4dd35134a642173b68d8ceb6f9c07d203e9aeddb9a446d5e1e641fcc6cccbc55",
         "sha256File": "bin/linux-arm64/zotero-bridge.sha256",
         "size": 1179712
       },
       {
         "platform": "linux-x64",
         "binary": "bin/linux-x64/zotero-bridge",
-        "sha256": "c2f92b1e6a7d858acb0d6297d5ad1e72cdafca6c5debc0877265054a1fb7ffb3",
+        "sha256": "05b61bca6dd6ba9ed012df657fd0d9cef687560d9fa4bb6da16c82cad93c5837",
         "sha256File": "bin/linux-x64/zotero-bridge.sha256",
         "size": 1375680
       },
       {
         "platform": "linux-x86",
         "binary": "bin/linux-x86/zotero-bridge",
-        "sha256": "2fadb9af651e99ee3dfb70e345de86bf5d1ada290680aba67a4107b6cb49a6e3",
+        "sha256": "d94535f7d610239a92cb66a7271f2e8b6e29f461ab786b03865ea86bef6fd093",
         "sha256File": "bin/linux-x86/zotero-bridge.sha256",
         "size": 1502816
       },
       {
         "platform": "win32-x64",
         "binary": "bin/win32-x64/zotero-bridge.exe",
-        "sha256": "65f6cd3c965fdb8bad4aa1f16e360bae5aba2152a9214050c9b83cc021d229a2",
+        "sha256": "f34784132492a4f7ba737eca3fadf6647ddc21fe91023a7fc9af90f9333820db",
         "sha256File": "bin/win32-x64/zotero-bridge.exe.sha256",
         "size": 1292800
       }
@@ -59,5 +59,16 @@
     "tokenEnv": "ZOTERO_BRIDGE_TOKEN",
     "scopeEnv": "ZOTERO_BRIDGE_SCOPE",
     "connectionModeEnv": "ZOTERO_BRIDGE_CONNECTION_MODE"
+  },
+  "installer": {
+    "schema": "zotero-bridge-cli-installer.v1",
+    "windowsEntrypoint": "install.ps1",
+    "posixEntrypoint": "install.sh",
+    "defaultAppDirName": "zotero-agents",
+    "supportsJson": true,
+    "supportsUpgrade": true,
+    "supportsPlatformFlag": false,
+    "installDirEnv": "ZOTERO_BRIDGE_INSTALL_DIR",
+    "tokenEnvDefault": "ZOTERO_BRIDGE_TOKEN"
   }
 }
