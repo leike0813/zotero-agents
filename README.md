@@ -7,8 +7,8 @@ This branch is generated from the Zotero-Skills repository and contains only:
 - assets/profile.template.json, a well-known profile template for local and remote use
 - manifest.json with source commit, platform list, sizes, and checksums
 
-Source commit: e2ccfd59281ec698d1515940c7bfbafbe2cb367b
-Published at: 2026-06-20T08:38:00.658Z
+Source commit: 04e5af297811925ac534233a55cf508dbaa77de1
+Published at: 2026-06-21T10:43:46.824Z
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin

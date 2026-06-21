@@ -88,6 +88,7 @@ zotero-bridge file --help
 | `paper-artifacts resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
 | `insights attention-queue` | `insights.get_attention_queue` | capability | - |
 | `literature ingest` | `mutation.execute` | capability | - |
+| `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
 | `workflow run` | `GET /bridge/v1/workflows/runs/{runId}` | endpoint | - |
 | `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
@@ -109,6 +110,13 @@ zotero-bridge file --help
 - `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.
 - Examples: `zotero-bridge resolvers resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge resolvers resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
 - Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
+
+### Workflow payloads
+
+- Use `workflow describe --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.
+- `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use legacy `--input`.
+- Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.
+- Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.
 
 ### Raw-only and debug capabilities
 

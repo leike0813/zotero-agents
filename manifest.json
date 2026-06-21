@@ -2,10 +2,10 @@
   "schema": "zotero-bridge-cli-bundle.v1",
   "source": {
     "repository": "Zotero-Skills",
-    "commit": "e2ccfd59281ec698d1515940c7bfbafbe2cb367b",
+    "commit": "04e5af297811925ac534233a55cf508dbaa77de1",
     "dirty": true
   },
-  "publishedAt": "2026-06-20T08:38:00.658Z",
+  "publishedAt": "2026-06-21T10:43:46.824Z",
   "branch": "host-bridge/zotero-bridge-cli-bundle",
   "cli": {
     "name": "zotero-bridge",
@@ -13,37 +13,37 @@
       {
         "platform": "linux-arm",
         "binary": "bin/linux-arm/zotero-bridge",
-        "sha256": "31c9c383462695d2296443fdff87f0d1917a75a8ee2ebf97d00f2ba8b13c65f3",
+        "sha256": "515f9d780347a4358dfacf1564820ab5dbea718795f50632259462ccec7f35cf",
         "sha256File": "bin/linux-arm/zotero-bridge.sha256",
-        "size": 1093720
+        "size": 1110368
       },
       {
         "platform": "linux-arm64",
         "binary": "bin/linux-arm64/zotero-bridge",
-        "sha256": "8b0b3e2da5a5a0b88c15b66a4a7256da64f12099961f0d17c75add989df2c648",
+        "sha256": "d9b86f4fa37dea23d3175685afaebce855dda0189a85d65ee8a15d439da3415a",
         "sha256File": "bin/linux-arm64/zotero-bridge.sha256",
-        "size": 1163696
+        "size": 1179712
       },
       {
         "platform": "linux-x64",
         "binary": "bin/linux-x64/zotero-bridge",
-        "sha256": "3e929325c40db4337b594ff121ecf6602520bf234b10149028dba4c183653fef",
+        "sha256": "c2f92b1e6a7d858acb0d6297d5ad1e72cdafca6c5debc0877265054a1fb7ffb3",
         "sha256File": "bin/linux-x64/zotero-bridge.sha256",
-        "size": 1352576
+        "size": 1375680
       },
       {
         "platform": "linux-x86",
         "binary": "bin/linux-x86/zotero-bridge",
-        "sha256": "79d9604a75d076863bff25267f1132a9ace3e8b8e304103cba8fe4d257e54f88",
+        "sha256": "2fadb9af651e99ee3dfb70e345de86bf5d1ada290680aba67a4107b6cb49a6e3",
         "sha256File": "bin/linux-x86/zotero-bridge.sha256",
-        "size": 1478984
+        "size": 1502816
       },
       {
         "platform": "win32-x64",
         "binary": "bin/win32-x64/zotero-bridge.exe",
-        "sha256": "2b7c813cd398e6289a804882380d6d6ca31ee86c793b4304cb6e21ac19d309f9",
+        "sha256": "65f6cd3c965fdb8bad4aa1f16e360bae5aba2152a9214050c9b83cc021d229a2",
         "sha256File": "bin/win32-x64/zotero-bridge.exe.sha256",
-        "size": 1258496
+        "size": 1292800
       }
     ]
   },
