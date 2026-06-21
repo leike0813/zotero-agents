@@ -87,20 +87,69 @@ async function resolveParent(args, result) {
 async function readBundleArtifact(args, result) {
   const artifactPath = normalizeString(result.artifact_path);
   const fallbackPath = "result/debug-apply-artifact.txt";
+  if (!artifactPath && normalizeString(result.artifact_manifest_path)) {
+    const manifest = await readArtifactManifest(args, result);
+    const manifestArtifactPath =
+      normalizeString(manifest.debug_apply_artifact) ||
+      normalizeString(manifest.artifact) ||
+      Object.values(manifest).map(normalizeString).find(Boolean) ||
+      "";
+    if (!manifestArtifactPath) {
+      throw new Error("debug apply artifact manifest does not contain an artifact path");
+    }
+    return readArtifactText(args, {
+      fieldName: "artifact_manifest_path.debug_apply_artifact",
+      rawPath: manifestArtifactPath,
+    });
+  }
+  return readArtifactText(args, {
+    fieldName: "artifact_path",
+    rawPath: artifactPath,
+    fallbackPath,
+  });
+}
+
+async function readArtifactText(args, { fieldName, rawPath, fallbackPath }) {
   if (args?.resultContext?.readArtifactText) {
     return args.resultContext.readArtifactText({
-      fieldName: "artifact_path",
-      rawPath: artifactPath,
+      fieldName,
+      rawPath,
       fallbackPath,
     });
   }
-  const entryPath = artifactPath || fallbackPath;
+  const entryPath = rawPath || fallbackPath;
   const text = await args.bundleReader.readText(entryPath);
   return {
     text,
     entryPath,
     candidates: [entryPath],
   };
+}
+
+async function readArtifactManifest(args, result) {
+  const manifestPath = normalizeString(result.artifact_manifest_path);
+  if (!manifestPath) {
+    return {};
+  }
+  const artifact = await readArtifactText(args, {
+    fieldName: "artifact_manifest_path",
+    rawPath: manifestPath,
+  });
+  let manifest;
+  try {
+    manifest = JSON.parse(artifact.text);
+  } catch (error) {
+    throw new Error(`debug apply artifact manifest is not valid JSON: ${error.message}`);
+  }
+  if (!isRecord(manifest)) {
+    throw new Error("debug apply artifact manifest must be a flat JSON object");
+  }
+  for (const [key, value] of Object.entries(manifest)) {
+    if (typeof value !== "string" || !normalizeString(value)) {
+      throw new Error(`debug apply artifact manifest value must be a path string: ${key}`);
+    }
+  }
+  return manifest;
 }
 
 async function writeAttachmentSource(args, result, text) {

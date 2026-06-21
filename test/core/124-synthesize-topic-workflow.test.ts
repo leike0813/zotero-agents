@@ -472,7 +472,7 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(skillText, "zotero-bridge topics list");
     assert.include(skillText, "title/description/aliases");
     assert.include(skillText, "ACP interactive confirmation");
-    assert.include(skillText, "analysis_manifest_path");
+    assert.include(skillText, "artifact_manifest_path");
     assert.include(skillText, "result/topic-analysis.json");
     assert.include(skillText, "resolver cascade");
     assert.include(skillText, "查询 citation graph metrics");
@@ -909,6 +909,15 @@ function v2CompleteBundle(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function v2ManifestOnlyBundle(overrides: Record<string, unknown> = {}) {
+  return v2CompleteBundle({
+    resolver_manifest_path: "",
+    analysis_manifest_path: "",
+    artifact_manifest_path: "result/topic-synthesis-artifacts.json",
+    ...overrides,
+  });
+}
+
 function v2PatchBundle(overrides: Record<string, unknown> = {}) {
   return {
     kind: "topic_synthesis",
@@ -986,6 +995,33 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     }
   });
 
+  it("accepts manifest-only create and full-update bundles", function () {
+    for (const operation of ["create", "update_full"] as const) {
+      const result = validateSynthesisResultBundle(
+        v2ManifestOnlyBundle({
+          operation,
+          ...(operation === "update_full"
+            ? {
+                base_hashes: {
+                  manifest: "sha256:manifest",
+                  artifact: "sha256:artifact",
+                  metadata: "sha256:metadata",
+                },
+              }
+            : {}),
+        }),
+      );
+
+      assert.isTrue(result.ok);
+      assert.equal(
+        (result.bundle as any).artifact_manifest_path,
+        "result/topic-synthesis-artifacts.json",
+      );
+      assert.equal((result.bundle as any).analysis_manifest_path, "");
+      assert.equal((result.bundle as any).resolver_manifest_path, "");
+    }
+  });
+
   it("tolerates legacy create base hashes but marks them ignored", function () {
     const result = validateSynthesisResultBundle(
       v2CompleteBundle({
@@ -1028,7 +1064,7 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     }
   });
 
-  it("rejects v2 final bundles without topic_definition.id or resolver manifest path", function () {
+  it("rejects v2 final bundles without topic_definition.id or any artifact manifest", function () {
     assert.throws(
       () =>
         validateSynthesisResultBundle(
@@ -1042,10 +1078,11 @@ describe("Synthesize topic workflow v2 structured contract", function () {
       () =>
         validateSynthesisResultBundle(
           v2CompleteBundle({
-            resolver_manifest_path: "",
+            analysis_manifest_path: "",
+            artifact_manifest_path: "",
           }),
         ),
-      /resolver_manifest_path/i,
+      /analysis_manifest_path|artifact_manifest_path/i,
     );
   });
 
@@ -1116,15 +1153,16 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     );
   });
 
-  it("rejects v2 final bundles missing required section manifest paths", function () {
+  it("rejects v2 final bundles missing required section or artifact manifest paths", function () {
     assert.throws(
       () =>
         validateSynthesisResultBundle(
           v2CompleteBundle({
             analysis_manifest_path: "",
+            artifact_manifest_path: "",
           }),
         ),
-      /analysis_manifest_path|section manifest/i,
+      /analysis_manifest_path|artifact_manifest_path|section manifest/i,
     );
   });
 

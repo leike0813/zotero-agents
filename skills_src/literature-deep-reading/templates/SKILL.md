@@ -382,6 +382,7 @@ runtime/payloads/final-review.json
 
 - `result/deep-reading.html`
 - `result/deep-reading-manifest.json`
+- `result/deep-reading-artifacts.json`
 - `result/final-output.candidate.json`
 - `result/sections/sections.json`
 - `result/sections/source-images.json`

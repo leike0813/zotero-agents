@@ -5591,6 +5591,70 @@ async function readRunWorkspaceJson(
   return JSON.parse(await readRunWorkspaceText(context, fieldName, rawPath));
 }
 
+function isWorkspaceRelativeArtifactPath(value: string) {
+  const normalized = cleanString(value).replace(/\\/g, "/");
+  return (
+    Boolean(normalized) &&
+    !/^[A-Za-z]:\//.test(normalized) &&
+    !normalized.startsWith("/") &&
+    !normalized.split("/").some((segment) => segment === "..")
+  );
+}
+
+async function readFlatArtifactManifest(args: {
+  bundle: SynthesisResultBundle;
+  context?: ApplyContext;
+}) {
+  const manifestPath = cleanString(args.bundle.artifact_manifest_path);
+  if (!manifestPath) {
+    return {};
+  }
+  const manifest = await readRunWorkspaceJson(
+    args.context,
+    "artifact_manifest_path",
+    manifestPath,
+  );
+  if (!isObject(manifest)) {
+    throw new Error("artifact_manifest_path must reference a flat JSON object");
+  }
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(manifest)) {
+    if (typeof value !== "string" || !isWorkspaceRelativeArtifactPath(value)) {
+      throw new Error(
+        `artifact_manifest_path contains invalid artifact path for ${key}`,
+      );
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
+async function resolveBundleArtifactPath(args: {
+  bundle: SynthesisResultBundle;
+  context?: ApplyContext;
+  fieldName: string;
+  legacyPath?: string;
+  manifestKeys: string[];
+}) {
+  const legacyPath = cleanString(args.legacyPath);
+  if (legacyPath) {
+    return legacyPath;
+  }
+  const manifest = await readFlatArtifactManifest({
+    bundle: args.bundle,
+    context: args.context,
+  });
+  for (const key of args.manifestKeys) {
+    const pathValue = cleanString(manifest[key]);
+    if (pathValue) {
+      return pathValue;
+    }
+  }
+  throw new Error(
+    `${args.fieldName} is required; provide it directly or in artifact_manifest_path`,
+  );
+}
+
 async function readRunWorkspaceJsonFromCandidates(
   context: ApplyContext | undefined,
   fieldName: string,
@@ -5960,7 +6024,13 @@ async function loadCompleteManifestAndSections(args: {
   const manifest = await readRunWorkspaceJson(
     args.context,
     "analysis_manifest_path",
-    args.bundle.analysis_manifest_path || "",
+    await resolveBundleArtifactPath({
+      bundle: args.bundle,
+      context: args.context,
+      fieldName: "analysis_manifest_path",
+      legacyPath: args.bundle.analysis_manifest_path,
+      manifestKeys: ["topic_analysis", "analysis_manifest"],
+    }),
   );
   const validation = validateTopicAnalysisManifest(manifest);
   if (!validation.ok) {
@@ -5992,11 +6062,32 @@ async function loadResolverManifest(args: {
   bundle: SynthesisResultBundle;
   context?: ApplyContext;
 }) {
-  if (args.bundle.resolver_manifest_path) {
+  let resolverManifestPath = cleanString(args.bundle.resolver_manifest_path);
+  if (
+    !resolverManifestPath &&
+    args.bundle.topic_resolver &&
+    args.bundle.resolved_paper_set
+  ) {
+    return {
+      topicResolver: args.bundle.topic_resolver,
+      resolvedPaperSet: args.bundle.resolved_paper_set,
+      resolverDiagnostics: args.bundle.resolver_diagnostics || {},
+    };
+  }
+  if (!resolverManifestPath) {
+    resolverManifestPath = await resolveBundleArtifactPath({
+      bundle: args.bundle,
+      context: args.context,
+      fieldName: "resolver_manifest_path",
+      legacyPath: "",
+      manifestKeys: ["resolver_manifest", "resolver"],
+    }).catch(() => "");
+  }
+  if (resolverManifestPath) {
     const manifest = await readRunWorkspaceJson(
       args.context,
       "resolver_manifest_path",
-      args.bundle.resolver_manifest_path,
+      resolverManifestPath,
     );
     if (!isObject(manifest)) {
       throw new Error("resolver_manifest_path must reference a JSON object");
@@ -6029,13 +6120,6 @@ async function loadResolverManifest(args: {
             isObject((manifest.resolution_result as any).diagnostics)
           ? (manifest.resolution_result as any).diagnostics
           : args.bundle.resolver_diagnostics || {},
-    };
-  }
-  if (args.bundle.topic_resolver && args.bundle.resolved_paper_set) {
-    return {
-      topicResolver: args.bundle.topic_resolver,
-      resolvedPaperSet: args.bundle.resolved_paper_set,
-      resolverDiagnostics: args.bundle.resolver_diagnostics || {},
     };
   }
   throw new Error("synthesis result bundle requires resolver_manifest_path");
@@ -19723,9 +19807,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       kind: { const: "topic_synthesis" },
       language: { type: "string", minLength: 1 },
       topic_definition: topicDefinition,
-      resolver_manifest_path: { type: "string", minLength: 1 },
-      analysis_manifest_path: { type: "string", minLength: 1 },
-      candidate_output_path: { type: "string", minLength: 1 },
+      artifact_manifest_path: {
+        type: "string",
+        minLength: 1,
+        "x-type": "artifact",
+        "x-role": "artifact-manifest",
+      },
     };
     const baseHashes = {
       type: "object",
@@ -19747,9 +19834,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             "operation",
             "language",
             "topic_definition",
-            "resolver_manifest_path",
-            "analysis_manifest_path",
-            "candidate_output_path",
+            "artifact_manifest_path",
           ],
           properties: { ...common, operation: { const: "create" } },
         },
@@ -19761,9 +19846,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             "language",
             "topic_definition",
             "base_hashes",
-            "resolver_manifest_path",
-            "analysis_manifest_path",
-            "candidate_output_path",
+            "artifact_manifest_path",
           ],
           properties: {
             ...common,
@@ -19778,9 +19861,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             "operation",
             "language",
             "topic_definition",
-            "resolver_manifest_path",
-            "analysis_manifest_path",
-            "candidate_output_path",
+            "artifact_manifest_path",
           ],
           properties: {
             ...common,

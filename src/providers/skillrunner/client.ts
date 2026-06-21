@@ -12,7 +12,7 @@ import {
 } from "../../modules/skillRunnerConnectionGovernor";
 import { markSkillRunnerBackendHealthSuccess } from "../../modules/skillRunnerBackendHealthRegistry";
 import { buildSkillRunnerSkillPackageBundle } from "./skillPackageBundler";
-import { SkillRunnerHttpError, SkillRunnerPollingTimeoutError } from "./errors";
+import { SkillRunnerHttpError } from "./errors";
 import {
   createMultipartZipPayload,
   createZipFromNamedFiles,
@@ -713,14 +713,7 @@ export class SkillRunnerClient {
     step: SkillRunnerHttpStepDefinition,
     requestId: string,
   ) {
-    const timeoutAnchorAt = Date.now();
     const intervalMs = Math.max(0, request.poll?.interval_ms ?? 2000);
-    const timeoutRaw = request.poll?.timeout_ms;
-    const timeoutMs =
-      typeof timeoutRaw === "number" && Number.isFinite(timeoutRaw)
-        ? timeoutRaw
-        : 600000;
-    const timeoutEnabled = timeoutMs > 0;
     let pollRetry = 0;
     while (true) {
       const pollStartedAt = Date.now();
@@ -752,12 +745,6 @@ export class SkillRunnerClient {
           },
         });
         return body;
-      }
-      if (timeoutEnabled && Date.now() - timeoutAnchorAt > timeoutMs) {
-        throw new SkillRunnerPollingTimeoutError({
-          requestId,
-          timeoutMs,
-        });
       }
       pollRetry += 1;
       await sleep(intervalMs);
@@ -1281,7 +1268,6 @@ export class SkillRunnerClient {
       steps,
       poll: {
         interval_ms: request.poll?.interval_ms,
-        timeout_ms: request.poll?.timeout_ms,
       },
     };
   }

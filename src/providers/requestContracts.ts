@@ -294,38 +294,49 @@ function validateSequenceHandoff(value: unknown, label: string) {
   if (!isObject(value)) {
     return `${label} must be object`;
   }
-  if (
-    typeof value.from_step !== "undefined" &&
-    !isNonEmptyString(value.from_step)
-  ) {
-    return `${label}.from_step must be non-empty string when provided`;
+  if (!Array.isArray(value.bindings) || value.bindings.length === 0) {
+    return `${label}.bindings must be non-empty array`;
   }
-  if (
-    typeof value.required !== "undefined" &&
-    typeof value.required !== "boolean"
-  ) {
-    return `${label}.required must be boolean when provided`;
-  }
-  if (
-    typeof value.pass_through !== "undefined" &&
-    typeof value.pass_through !== "boolean"
-  ) {
-    return `${label}.pass_through must be boolean when provided`;
-  }
-  if (typeof value.input !== "undefined") {
-    const detail = validateStringMap(value.input, `${label}.input`);
-    if (detail) {
-      return detail;
+  for (let index = 0; index < value.bindings.length; index++) {
+    const binding = value.bindings[index];
+    const bindingLabel = `${label}.bindings[${index}]`;
+    if (!isObject(binding)) {
+      return `${bindingLabel} must be object`;
     }
-  }
-  if (typeof value.parameter !== "undefined") {
-    const detail = validateStringMap(value.parameter, `${label}.parameter`);
-    if (detail) {
-      return detail;
+    if (binding.kind !== "value" && binding.kind !== "file") {
+      return `${bindingLabel}.kind must be value or file`;
     }
-  }
-  if (typeof value.defaults !== "undefined" && !isObject(value.defaults)) {
-    return `${label}.defaults must be object when provided`;
+    const target = String(binding.target || "").trim();
+    if (!target) {
+      return `${bindingLabel}.target must be non-empty string`;
+    }
+    if (!target.startsWith("/input/") && !target.startsWith("/parameter/")) {
+      return `${bindingLabel}.target must start with /input/ or /parameter/`;
+    }
+    if (binding.kind === "file") {
+      const parts = target.split("/").filter(Boolean);
+      if (parts.length !== 2 || parts[0] !== "input") {
+        return `${bindingLabel}.target for file handoff must be /input/<key>`;
+      }
+    }
+    if (
+      typeof binding.source !== "undefined" &&
+      !isNonEmptyString(binding.source)
+    ) {
+      return `${bindingLabel}.source must be non-empty string when provided`;
+    }
+    if (
+      typeof binding.step !== "undefined" &&
+      !isNonEmptyString(binding.step)
+    ) {
+      return `${bindingLabel}.step must be non-empty string when provided`;
+    }
+    if (
+      typeof binding.required !== "undefined" &&
+      typeof binding.required !== "boolean"
+    ) {
+      return `${bindingLabel}.required must be boolean when provided`;
+    }
   }
   return null;
 }
@@ -464,9 +475,15 @@ function validateSkillRunnerSequencePayload(request: unknown) {
   for (let i = 0; i < request.steps.length; i++) {
     const step = request.steps[i] as Record<string, unknown>;
     const handoff = isObject(step.handoff) ? step.handoff : null;
-    const fromStep = String(handoff?.from_step || "").trim();
-    if (fromStep && !seen.has(fromStep)) {
-      return `payload.steps[${i}].handoff.from_step must match a declared step id`;
+    const bindings = Array.isArray(handoff?.bindings)
+      ? handoff?.bindings || []
+      : [];
+    for (let j = 0; j < bindings.length; j++) {
+      const binding = isObject(bindings[j]) ? bindings[j] : null;
+      const sourceStep = String(binding?.step || "").trim();
+      if (sourceStep && !seen.has(sourceStep)) {
+        return `payload.steps[${i}].handoff.bindings[${j}].step must match a declared step id`;
+      }
     }
   }
   return null;

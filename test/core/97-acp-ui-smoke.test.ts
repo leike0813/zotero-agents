@@ -110,6 +110,7 @@ function createFakeDocumentForAssistantPanel() {
     selectionEnd: number | null = 0;
     type = "";
     onclick: any = null;
+    listeners = new Map<string, any[]>();
     style = {
       setProperty: (_name: string, _value: string) => undefined,
     };
@@ -144,6 +145,10 @@ function createFakeDocumentForAssistantPanel() {
       return this.children[0] || null;
     }
 
+    get lastChild() {
+      return this.children[this.children.length - 1] || null;
+    }
+
     appendChild(child: FakeElement) {
       child.parentNode = this;
       this.children.push(child);
@@ -164,8 +169,25 @@ function createFakeDocumentForAssistantPanel() {
       return this.attributes.has(name) ? this.attributes.get(name) || "" : null;
     }
 
-    addEventListener(_type: string, _handler: any) {
-      // Event behavior is not needed for this focused renderer smoke.
+    addEventListener(type: string, handler: any) {
+      const entries = this.listeners.get(type) || [];
+      entries.push(handler);
+      this.listeners.set(type, entries);
+    }
+
+    click() {
+      const event = {
+        preventDefault: () => undefined,
+        stopPropagation: () => undefined,
+        target: this,
+        currentTarget: this,
+      };
+      if (typeof this.onclick === "function") {
+        this.onclick(event);
+      }
+      for (const handler of this.listeners.get("click") || []) {
+        handler(event);
+      }
     }
 
     focus() {
@@ -497,11 +519,98 @@ describe("acp ui smoke", function () {
     );
   });
 
-  it("projects deferred apply state into the SkillRunner banner and drawer tasks", async function () {
+  it("projects SkillRunner control state into the banner", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const labels = {
+      fields: { control: "交互" },
+      status: {
+        controlPreparing: "准备中",
+        controlInput: "需输入",
+        controlLive: "接收中",
+        controlReadOnly: "只读",
+      },
+    };
+    const makePanel = (overrides: any) =>
+      model.projectSkillRunnerPanelSnapshot({
+        labels,
+        session: {
+          requestId: "skillrunner-request-control",
+          title: "Selected control task",
+          status: "running",
+          ...overrides.session,
+        },
+        workspace: {
+          selectedTaskKey: "local-skillrunner-backend:skillrunner-request-control",
+          groups: [
+            {
+              backendId: "local-skillrunner-backend",
+              backendDisplayName: "Local SkillRunner",
+              activeTasks: [
+                {
+                  key: "local-skillrunner-backend:skillrunner-request-control",
+                  requestId: "skillrunner-request-control",
+                  title: "Selected control task",
+                  status: "running",
+                  backendInteractive: true,
+                  ...overrides.task,
+                },
+              ],
+              finishedTasks: [],
+            },
+          ],
+        },
+      });
+
+    const live = makePanel({ session: {}, task: {} });
+    assert.deepInclude(live.context.indicators[0], {
+      id: "skillrunner-control",
+      label: "交互",
+      value: "接收中",
+      tone: "success",
+    });
+
+    const input = makePanel({
+      session: { status: "waiting_user" },
+      task: { status: "waiting_user", canReply: true },
+    });
+    assert.deepInclude(input.context.indicators[0], {
+      id: "skillrunner-control",
+      value: "需输入",
+      tone: "warning",
+    });
+
+    const preparing = makePanel({
+      session: { requestId: "", status: "request_creating" },
+      task: {
+        requestId: "",
+        requestAssigned: false,
+        backendInteractive: false,
+        status: "request_creating",
+      },
+    });
+    assert.deepInclude(preparing.context.indicators[0], {
+      id: "skillrunner-control",
+      value: "准备中",
+      tone: "accent",
+    });
+
+    const readOnly = makePanel({
+      session: { status: "succeeded" },
+      task: { status: "succeeded", terminal: true },
+    });
+    assert.deepInclude(readOnly.context.indicators[0], {
+      id: "skillrunner-control",
+      value: "只读",
+      tone: "muted",
+    });
+  });
+
+  it("keeps apply state in SkillRunner drawer tasks without using it as the banner indicator", async function () {
     const model = await loadAssistantPanelModelForSmoke();
     const labels = {
       fields: {
         deferredApply: "延迟应用",
+        control: "交互",
         status: "状态",
         updated: "更新时间",
         error: "错误",
@@ -510,6 +619,7 @@ describe("acp ui smoke", function () {
         applyRunning: "应用中",
         applyFailed: "应用失败",
         applyRetryScheduled: "等待重试",
+        controlReadOnly: "只读",
       },
     };
     const panel = model.projectSkillRunnerPanelSnapshot({
@@ -559,19 +669,25 @@ describe("acp ui smoke", function () {
       },
     });
 
-    const applyIndicator = panel.context.indicators.find(
-      (entry: any) => entry.id === "deferred-apply",
+    const controlIndicator = panel.context.indicators.find(
+      (entry: any) => entry.id === "skillrunner-control",
     );
-    assert.deepInclude(applyIndicator, {
-      label: "延迟应用",
-      value: "等待重试",
-      tone: "error",
+    assert.deepInclude(controlIndicator, {
+      label: "交互",
+      value: "只读",
+      tone: "muted",
     });
+    assert.isUndefined(
+      panel.context.indicators.find((entry: any) => entry.id === "deferred-apply"),
+    );
     assert.equal(panel.lifecycle.applyState, "failed");
     const task = panel.drawers.skillrunnerSections[0].groups[0].activeTasks[0];
     assert.equal(task.applyState, "failed");
     assert.equal(task.applyStateLabel, "等待重试");
     assert.equal(task.applyTone, "error");
+    assert.equal(task.mainStatus, "failed");
+    assert.equal(task.backendStatus, "succeeded");
+    assert.equal(task.applyStatus, "failed");
     assert.isTrue(
       panel.drawers.details.some((section: any) => section.title === "延迟应用"),
     );
@@ -615,6 +731,46 @@ describe("acp ui smoke", function () {
       "skillrunner-request-apply",
     );
     assert.lengthOf(sections[1].groups, 0);
+  });
+
+  it("keeps terminal SkillRunner runs with failed foreground apply visible in Completed", function () {
+    const sections = buildSkillRunnerSidebarSections({
+      groups: [
+        {
+          backendId: "local-skillrunner-backend",
+          backendDisplayName: "Local SkillRunner",
+          disabled: false,
+          collapsed: false,
+          finishedCollapsed: true,
+          latestUpdatedAt: "2026-01-01T00:00:00.000Z",
+          activeTasks: [],
+          finishedTasks: [
+            {
+              key: "local-skillrunner-backend:skillrunner-request-apply",
+              backendId: "local-skillrunner-backend",
+              backendDisplayName: "Local SkillRunner",
+              requestId: "skillrunner-request-apply",
+              workflowLabel: "Debug Workflow",
+              status: "succeeded",
+              stateLabel: "Succeeded",
+              applyState: "failed",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              title: "Selected apply task",
+              selectable: true,
+              terminal: true,
+            },
+          ],
+        },
+      ],
+      completedCollapsed: true,
+    });
+
+    assert.lengthOf(sections[0].groups, 0);
+    assert.lengthOf(sections[1].groups, 1);
+    assert.equal(
+      sections[1].groups[0].finishedTasks[0].requestId,
+      "skillrunner-request-apply",
+    );
   });
 
   it("exposes copy-friendly assistant transcript and reply history affordances", async function () {
@@ -2659,18 +2815,22 @@ describe("acp ui smoke", function () {
         portMode: "pinned",
       },
       items: [],
-      labels: {},
+      labels: {
+        fields: { connection: "连接", hostBridge: "宿主桥" },
+        status: { connecting: "连接中", ready: "就绪" },
+      },
     });
     assert.equal(connectingPanel.interaction.kind, "hidden");
     assert.deepEqual(
       connectingPanel.context.indicators.map((entry: any) => [
         entry.id,
+        entry.label,
         entry.value,
         entry.tone,
       ]),
       [
-        ["connection", "Connecting", "accent"],
-        ["host-bridge", "Ready", "success"],
+        ["connection", "连接", "连接中", "accent"],
+        ["host-bridge", "宿主桥", "就绪", "success"],
       ],
     );
     assert.notInclude(
@@ -2712,6 +2872,10 @@ describe("acp ui smoke", function () {
     );
 
     const skillPanel = model.projectAcpSkillRunPanelSnapshot({
+      labels: {
+        fields: { connection: "连接", hostBridge: "宿主桥" },
+        status: { connected: "已连接", fallback: "备用端口" },
+      },
       mcpHealth: { state: "listening", severity: "ok", summary: "MCP ready" },
       hostBridge: {
         status: "running",
@@ -2783,12 +2947,13 @@ describe("acp ui smoke", function () {
     assert.deepEqual(
       skillPanel.context.indicators.map((entry: any) => [
         entry.id,
+        entry.label,
         entry.value,
         entry.tone,
       ]),
       [
-        ["connection", "Connected", "success"],
-        ["host-bridge", "Fallback", "warning"],
+        ["connection", "连接", "已连接", "success"],
+        ["host-bridge", "宿主桥", "备用端口", "warning"],
       ],
     );
     assert.notInclude(
@@ -3355,11 +3520,14 @@ describe("acp ui smoke", function () {
       sharedPanelCss,
       ':root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task',
     );
-    assert.include(
+    assert.include(sharedPanelCss, ".assistant-workspace-drawer-task-main-status");
+    assert.include(sharedPanelCss, ".assistant-workspace-drawer-task-status-axis");
+    assert.include(assistantPanelRendererJs, "zs-icon-archive");
+    assert.notInclude(
       sharedPanelCss,
       ".assistant-workspace-drawer-task-action.is-archive::before",
     );
-    assert.include(
+    assert.notInclude(
       sharedPanelCss,
       ".assistant-workspace-drawer-task-action.is-archive::after",
     );
@@ -3444,6 +3612,62 @@ describe("acp ui smoke", function () {
     assert.equal(nextInput.selectionStart, 2);
     assert.equal(nextInput.selectionEnd, 7);
     assert.strictEqual(fakeDocument.activeElement, input);
+  });
+
+  it("renders waiting_user choice options as clickable reply buttons", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const hintRegion = fakeDocument.createElement("div");
+    const actions: Array<{ action: string; data: Record<string, unknown> }> = [];
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      session: {
+        requestId: "req-waiting-options",
+        status: "waiting_user",
+        pendingInteractionId: 77,
+        pendingKind: "choose_one",
+        pendingAskUser: {
+          kind: "choose_one",
+          prompt: "choose one",
+          options: [
+            { label: "Alpha label", value: "alpha_value" },
+            { label: "Beta label", value: "beta_value" },
+          ],
+        },
+      },
+    });
+
+    renderer.renderAssistantPanelSnapshot(panel, {
+      managed: true,
+      managedRegions: { hint: true },
+      regions: { hint: hintRegion },
+      onAction: (action: string, data: Record<string, unknown>) => {
+        actions.push({ action, data });
+      },
+    });
+
+    const buttons = hintRegion.querySelectorAll(".assistant-panel-hint-option");
+    assert.lengthOf(buttons, 2);
+    assert.equal(buttons[0].textContent, "Alpha label");
+    assert.equal(buttons[1].textContent, "Beta label");
+    buttons[1].click();
+    assert.deepEqual(actions, [
+      {
+        action: "reply",
+        data: {
+          message: "beta_value",
+        },
+      },
+    ]);
+
+    const runDialogJs = await readProjectFile("addon/content/dashboard/run-dialog.js");
+    assert.include(
+      runDialogJs,
+      'if (action === "reply" || action === "reply-run")',
+    );
+    assert.include(runDialogJs, "const matchedOption = pendingOptions().find");
+    assert.include(runDialogJs, "responseValue: matchedOption.value");
+    assert.include(runDialogJs, "interactionId");
   });
 
   it("updates workspace drawer active session without reordering unchanged rows", async function () {

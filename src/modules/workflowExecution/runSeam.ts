@@ -16,7 +16,7 @@ import {
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
 import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
 import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
-import { selectAcpSkillRun } from "../acpSkillRunStore";
+import { selectAcpSkillRun, upsertAcpSkillRun } from "../acpSkillRunStore";
 import type { PreparedWorkflowExecution, WorkflowRunState } from "./contracts";
 import {
   resolveInputUnitIdentityFromRequest,
@@ -392,6 +392,29 @@ export function runWorkflowExecutionSeam(
           executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
           executionContext.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND;
         if (isAcpSkillRun && backendType === "acp" && requestId) {
+          upsertAcpSkillRun({
+            requestId,
+            status: "running",
+            backendId: executionContext.backend.id,
+            backendType: "acp",
+            backendLabel:
+              String(
+                (executionContext.backend as { label?: unknown; name?: unknown; displayName?: unknown }).label ||
+                  (executionContext.backend as { name?: unknown }).name ||
+                  (executionContext.backend as { displayName?: unknown }).displayName ||
+                  "",
+              ).trim() || undefined,
+            workflowId: args.prepared.workflow.manifest.id,
+            workflowLabel: localizeWorkflowLabel(args.prepared.workflow),
+            jobId: job.id,
+            runId: String(job.meta.runId || "").trim() || undefined,
+            taskName: resolveTaskNameFromRequest(requestForMode, requestIndex),
+            skillId:
+              requestForMode && typeof requestForMode === "object"
+                ? String((requestForMode as { skill_id?: unknown }).skill_id || "").trim() || undefined
+                : undefined,
+            requestPayload: requestForMode,
+          });
           resolved.selectAcpSkillRun(requestId);
           if (skillrunnerMode === "interactive") {
             void resolved.openAssistantWorkspaceSidebar({

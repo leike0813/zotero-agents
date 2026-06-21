@@ -1,0 +1,7 @@
+- [x] 1. Add OpenSpec deltas for typed sequence handoff.
+- [x] 2. Replace workflow schema, provider contracts, and manifest types with `bindings`.
+- [x] 3. Update sequence runtime to resolve typed value/file bindings.
+- [x] 4. Materialize file bindings per provider, including SkillRunner reused-workspace file binding metadata.
+- [x] 5. Migrate builtin sequence workflows and debug probes to the new handoff shape.
+- [x] 6. Update focused schema/runtime/workflow tests.
+- [x] 7. Run minimal relevant verification.

@@ -994,6 +994,9 @@
     const label = safeText(item.label) || "Archive";
     button.title = label;
     button.setAttribute("aria-label", label);
+    if (safeText(item.icon) === "archive") {
+      button.appendChild(el("span", "zs-icon zs-icon-sm zs-icon-archive", ""));
+    }
     button.addEventListener("click", function (event) {
       event.preventDefault();
       event.stopPropagation();
@@ -1003,7 +1006,15 @@
     return button;
   }
 
-  function applyPillToneClass(toneValue, stateValue) {
+  function workspaceStatusTone(status) {
+    const helper = model();
+    if (helper && typeof helper.statusTone === "function") {
+      return helper.statusTone(status);
+    }
+    return "muted";
+  }
+
+  function statusToneClass(toneValue, stateValue) {
     const tone = safeText(toneValue);
     const state = safeText(stateValue);
     if (tone === "error" || tone === "danger" || state === "failed") return " is-error";
@@ -1013,8 +1024,8 @@
     return " is-muted";
   }
 
-  function applyPillLedClass(toneValue, stateValue) {
-    const className = applyPillToneClass(toneValue, stateValue);
+  function statusLedClass(toneValue, stateValue) {
+    const className = statusToneClass(toneValue, stateValue);
     if (className.indexOf("is-error") >= 0) return "is-error";
     if (className.indexOf("is-success") >= 0) return "is-success";
     if (className.indexOf("is-warning") >= 0) return "is-warning";
@@ -1022,27 +1033,42 @@
     return "is-muted";
   }
 
-  function renderAssistantWorkspaceApplyPill(item) {
-    const state = safeText(item.applyState || item.apply_state);
-    if (!state || state === "idle") return null;
-    const label = safeText(item.applyStateLabel || item.applyLabel || item.apply_state_label) || state;
-    const pill = el(
+  function renderAssistantWorkspaceMainStatusBadge(item) {
+    const status = safeText(item.mainStatus || item.status || item.state);
+    const label = safeText(item.mainStatusLabel || item.stateLabel || item.status || item.state) || "-";
+    const tone = safeText(item.mainStatusTone) || workspaceStatusTone(status);
+    return el(
       "span",
-      "assistant-workspace-drawer-task-apply" +
-        applyPillToneClass(item.applyTone, state),
-      "",
-    );
-    const title = [
+      "assistant-workspace-drawer-task-main-status is-" + (tone || "muted"),
       label,
-      safeText(item.applyError || item.apply_error),
-      safeText(item.applyNextRetryAt || item.apply_next_retry_at)
-        ? "next retry: " + safeText(item.applyNextRetryAt || item.apply_next_retry_at)
-        : "",
-    ].filter(Boolean).join(" · ");
-    if (title) pill.title = title;
-    pill.appendChild(el("span", "asst-led " + applyPillLedClass(item.applyTone, state), ""));
-    pill.appendChild(el("span", "assistant-workspace-drawer-task-apply-label", label));
-    return pill;
+    );
+  }
+
+  function renderAssistantWorkspaceStatusAxis(label, value, tone) {
+    const row = el("span", "assistant-workspace-drawer-task-status-axis", "");
+    row.appendChild(el("span", "assistant-workspace-drawer-task-status-axis-label", label));
+    row.appendChild(el("span", "asst-led " + statusLedClass(tone, value), ""));
+    row.appendChild(el("span", "assistant-workspace-drawer-task-status-axis-value", value || "-"));
+    return row;
+  }
+
+  function renderAssistantWorkspaceStatusAxes(item, labels) {
+    const axes = el("span", "assistant-workspace-drawer-task-status-axes", "");
+    axes.appendChild(
+      renderAssistantWorkspaceStatusAxis(
+        safeText(labels.statusBackend || labels.backendStatus || labels.backend) || "Backend",
+        safeText(item.backendStatusLabel || item.backendStatus || item.backend_status) || "-",
+        safeText(item.backendStatusTone) || workspaceStatusTone(item.backendStatus || item.backend_status),
+      ),
+    );
+    axes.appendChild(
+      renderAssistantWorkspaceStatusAxis(
+        safeText(labels.statusApply || labels.applyStatus || labels.apply) || "Apply",
+        safeText(item.applyStatusLabel || item.applyStateLabel || item.applyStatus || item.applyState) || "-",
+        safeText(item.applyStatusTone || item.applyTone),
+      ),
+    );
+    return axes;
   }
 
   function renderAssistantWorkspaceTask(task, selectedTaskKey, labels, options) {
@@ -1078,9 +1104,8 @@
       safeText(item.workflowLabel) || "-",
     );
     const meta = el("div", "assistant-workspace-drawer-task-meta skillrunner-workspace-task-meta");
-    meta.appendChild(el("span", "", safeText(item.stateLabel || item.status || item.state) || "-"));
-    const applyPill = renderAssistantWorkspaceApplyPill(item);
-    if (applyPill) meta.appendChild(applyPill);
+    meta.appendChild(renderAssistantWorkspaceMainStatusBadge(item));
+    meta.appendChild(renderAssistantWorkspaceStatusAxes(item, labels));
     const updatedAt = safeText(item.updatedAt);
     if (updatedAt) meta.appendChild(el("span", "assistant-workspace-drawer-task-updated-at", updatedAt));
     const content = el("div", "assistant-workspace-drawer-task-content");
@@ -1123,6 +1148,15 @@
       safeText(item.title || item.taskName || item.inputUnitLabel),
       safeText(item.workflowLabel),
       safeText(item.stateLabel || item.status || item.state),
+      safeText(item.mainStatus || item.main_status),
+      safeText(item.mainStatusLabel || item.main_status_label),
+      safeText(item.mainStatusTone || item.main_status_tone),
+      safeText(item.backendStatus || item.backend_status),
+      safeText(item.backendStatusLabel || item.backend_status_label),
+      safeText(item.backendStatusTone || item.backend_status_tone),
+      safeText(item.applyStatus || item.apply_status),
+      safeText(item.applyStatusLabel || item.apply_status_label),
+      safeText(item.applyStatusTone || item.apply_status_tone),
       safeText(item.attention),
       safeText(item.relationState),
       safeText(item.applyState || item.apply_state),

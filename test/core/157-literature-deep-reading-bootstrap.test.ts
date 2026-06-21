@@ -2805,9 +2805,28 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.equal(result.status, "completed");
     assert.equal(result.final_html_available, true);
     assert.equal(result.html_path, "result/deep-reading.html");
+    assert.equal(
+      result.artifact_manifest_path,
+      "result/deep-reading-artifacts.json",
+    );
+    assert.notProperty(result, "db_path");
+    assert.notProperty(result, "views");
 
     const validation = runRuntime(["validate-final-output"], runRoot);
     assert.deepEqual(validation, { ok: true, errors: [] });
+
+    const artifactManifest = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "result", "deep-reading-artifacts.json"),
+        "utf8",
+      ),
+    );
+    assert.deepInclude(artifactManifest, {
+      deep_reading_html: "result/deep-reading.html",
+      deep_reading_manifest: "result/deep-reading-manifest.json",
+      final_output_candidate: "result/final-output.candidate.json",
+      diagnostics: "result/sections/diagnostics.json",
+    });
 
     const html = await fs.readFile(
       path.join(runRoot, "result", "deep-reading.html"),

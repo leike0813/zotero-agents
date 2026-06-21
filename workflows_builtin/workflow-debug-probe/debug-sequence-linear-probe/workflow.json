@@ -38,6 +38,14 @@
           "skill_id": "debug-sequence-probe-check",
           "mode": "auto",
           "workspace": "reuse-workflow",
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "value",
+                "target": "/input/handoff"
+              }
+            ]
+          },
           "parameter": {
             "probe_id": "linear",
             "expect_handoff_present": true,

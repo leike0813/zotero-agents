@@ -3563,18 +3563,30 @@ def materialize_final_output(
     write_json(run_root / "result/topic-analysis.json", manifest)
     register_artifact(conn, skill_id=skill_id, stage_id=stage_id, key="topic_analysis_manifest", path="result/topic-analysis.json", hash_value="")
     resolver = artifact_entry(conn, "resolver_manifest")
+    artifact_manifest_path = "result/topic-synthesis-artifacts.json"
+    artifact_manifest = {
+        "resolver_manifest": resolver["path"] if resolver else "runtime/payloads/resolver.json",
+        "topic_analysis": "result/topic-analysis.json",
+        "final_output_candidate": "result/final-output.candidate.json",
+    }
+    for section_key, entry in sections.items():
+        if isinstance(entry, dict) and entry.get("path"):
+            artifact_manifest[f"{section_key}_section"] = entry["path"]
+    for sidecar_key, entry in sidecars.items():
+        if isinstance(entry, dict) and entry.get("path"):
+            artifact_manifest[f"{sidecar_key}_sidecar"] = entry["path"]
     final = {
         "kind": "topic_synthesis",
         "operation": operation,
         "language": get_meta(conn, "language", "zh-CN"),
         "topic_definition": topic,
-        "resolver_manifest_path": resolver["path"] if resolver else "runtime/payloads/resolver.json",
-        "analysis_manifest_path": "result/topic-analysis.json",
-        "candidate_output_path": "result/final-output.candidate.json",
+        "artifact_manifest_path": artifact_manifest_path,
     }
     if operation == "update_full":
         final["base_hashes"] = get_meta(conn, "base_hashes", {})
+    write_json(run_root / artifact_manifest_path, artifact_manifest)
     write_json(run_root / "result/final-output.candidate.json", final)
+    register_artifact(conn, skill_id=skill_id, stage_id=stage_id, key="artifact_manifest", path=artifact_manifest_path, hash_value="")
     register_artifact(conn, skill_id=skill_id, stage_id=stage_id, key="final_candidate", path="result/final-output.candidate.json", hash_value="")
     record_stage(conn, skill_id=skill_id, stage_id="stage_12_completed", result={"final_output_path": "result/final-output.candidate.json"})
     return final

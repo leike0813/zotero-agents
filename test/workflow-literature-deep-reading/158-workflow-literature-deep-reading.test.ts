@@ -287,7 +287,15 @@ describe("workflow: literature-deep-reading", function () {
         fetch_type?: string;
         input?: { source_bundle_path?: string; source_path?: string };
         parameter?: { target_language?: string; mode?: string };
-        handoff?: { input?: Record<string, string> };
+        handoff?: {
+          bindings?: Array<{
+            kind?: string;
+            step?: string;
+            source?: string;
+            target?: string;
+            required?: boolean;
+          }>;
+        };
         apply_result?: { workflow_id?: string; on_failure?: string };
       }>;
       parameter: { target_language: string };
@@ -317,10 +325,13 @@ describe("workflow: literature-deep-reading", function () {
       workflow_id: "literature-deep-reading",
       on_failure: "continue",
     });
-    assert.equal(
-      request.steps[1].handoff?.input?.translator_alignment_path,
-      "alignment_path",
-    );
+    assert.deepInclude(request.steps[1].handoff?.bindings || [], {
+      kind: "value",
+      step: "translate",
+      source: "alignment_path",
+      target: "/input/translator_alignment_path",
+      required: false,
+    });
     assert.match(
       request.steps[1].input?.source_bundle_path || "",
       /source_bundle\.zip$/,

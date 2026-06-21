@@ -424,6 +424,12 @@ export class JobQueueManager {
         job.state = "failed";
         this.touch(job);
         this.emitJobUpdated(job);
+        if (preReadySkillRunnerRequest && requestId) {
+          purgeSkillRunnerRunByRequest({
+            backendId: String(job.meta.backendId || "").trim(),
+            requestId,
+          });
+        }
         appendRuntimeLog({
           level: "error",
           scope: "job",

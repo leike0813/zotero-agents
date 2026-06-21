@@ -93,7 +93,7 @@ function resolveRelatedParentItemIds(
 
 function isDeferredApplyVisibleRunning(task: SkillRunnerSidebarTaskItem) {
   const state = normalizeIdentity(task.applyState);
-  return state === "pending" || state === "running" || state === "failed";
+  return state === "pending" || state === "running";
 }
 
 function isVisibleSidebarRunningTask(task: SkillRunnerSidebarTaskItem) {
@@ -107,8 +107,7 @@ function isVisibleSidebarCompletedTask(task: SkillRunnerSidebarTaskItem) {
   return (
     task.selectable &&
     task.terminal &&
-    !isDeferredApplyVisibleRunning(task) &&
-    normalizeIdentity(task.status) === "succeeded"
+    !isDeferredApplyVisibleRunning(task)
   );
 }
 

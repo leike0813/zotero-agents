@@ -41,11 +41,14 @@
           "mode": "auto",
           "workspace": "new",
           "handoff": {
-            "from_step": "emit-secret",
-            "pass_through": false,
-            "input": {
-              "public_marker": "public_marker"
-            }
+            "bindings": [
+              {
+                "kind": "value",
+                "step": "emit-secret",
+                "source": "public_marker",
+                "target": "/input/public_marker"
+              }
+            ]
           },
           "parameter": {
             "probe_id": "context-isolation",

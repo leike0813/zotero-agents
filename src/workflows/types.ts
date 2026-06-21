@@ -214,15 +214,14 @@ export type WorkflowRequestSpec = {
         on_failure?: "continue" | "fail_sequence";
       };
       handoff?: {
-        from_step?: string;
-        required?: boolean;
-        pass_through?: boolean;
-        input?: Record<string, string>;
-        parameter?: Record<string, string>;
-        defaults?: {
-          input?: Record<string, unknown>;
-          parameter?: Record<string, unknown>;
-        };
+        bindings: Array<{
+          kind: "value" | "file";
+          target: string;
+          source?: string;
+          step?: string;
+          required?: boolean;
+          value?: unknown;
+        }>;
       };
       short_circuit?: {
         when?: {

@@ -56,6 +56,9 @@ export function buildAssistantPanelLabels() {
       workspace: l("assistant-panel-field-workspace", "Workspace"),
       hostContext: l("assistant-panel-field-host-context", "Host context"),
       backend: l("assistant-panel-field-backend", "Backend"),
+      connection: l("assistant-panel-field-connection", "Connection"),
+      hostBridge: l("assistant-panel-field-host-bridge", "Host Bridge"),
+      mcp: l("assistant-panel-field-mcp", "MCP"),
       mode: l("assistant-panel-field-mode", "Mode"),
       model: l("assistant-panel-field-model", "Model"),
       reasoning: l("assistant-panel-field-reasoning", "Reasoning"),
@@ -82,6 +85,7 @@ export function buildAssistantPanelLabels() {
       errors: l("assistant-panel-field-errors", "Errors"),
       conversation: l("assistant-panel-field-conversation", "Conversation"),
       applyResult: l("assistant-panel-field-apply-result", "Apply result"),
+      control: l("assistant-panel-field-control", "Interaction"),
       deferredApply: l(
         "assistant-panel-field-deferred-apply",
         "Deferred apply",
@@ -91,10 +95,7 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-field-apply-max-attempt",
         "Max attempt",
       ),
-      applyNextRetry: l(
-        "assistant-panel-field-apply-next-retry",
-        "Next retry",
-      ),
+      applyNextRetry: l("assistant-panel-field-apply-next-retry", "Next retry"),
       appliedAt: l("assistant-panel-field-applied-at", "Applied at"),
       loading: l("assistant-panel-field-loading", "Loading"),
       terminal: l("assistant-panel-field-terminal", "Terminal"),
@@ -324,11 +325,54 @@ export function buildAssistantPanelLabels() {
       tokens: l("assistant-panel-usage-tokens", "tokens"),
     },
     status: {
+      overall: l("assistant-panel-status-overall", "Overall"),
+      backend: l("assistant-panel-status-backend", "Backend"),
+      apply: l("assistant-panel-status-apply", "Apply"),
       running: l("assistant-panel-status-running", "Running"),
+      ready: l("assistant-panel-status-ready", "Ready"),
+      starting: l("assistant-panel-status-starting", "Starting"),
+      fallback: l("assistant-panel-status-fallback", "Fallback"),
+      recovering: l("assistant-panel-status-recovering", "Recovering"),
       completed: l("assistant-panel-status-completed", "Completed"),
+      waiting: l("assistant-panel-status-waiting", "Waiting"),
+      pending: l("assistant-panel-status-pending", "Pending"),
+      succeeded: l("assistant-panel-status-succeeded", "Succeeded"),
+      failed: l("assistant-panel-status-failed", "Failed"),
+      error: l("assistant-panel-status-error", "Error"),
+      canceled: l("assistant-panel-status-canceled", "Canceled"),
+      idle: l("assistant-panel-status-idle", "Idle"),
+      connected: l("assistant-panel-status-connected", "Connected"),
+      connecting: l("assistant-panel-status-connecting", "Connecting"),
+      disconnected: l("assistant-panel-status-disconnected", "Disconnected"),
+      unavailable: l("assistant-panel-status-unavailable", "Unavailable"),
+      limited: l("assistant-panel-status-limited", "Limited"),
       backendUnavailable: l(
         "assistant-panel-status-backend-unavailable",
         "Backend unavailable",
+      ),
+      controlApproval: l("assistant-panel-status-control-approval", "Approval"),
+      controlAuth: l("assistant-panel-status-control-auth", "Auth"),
+      controlInput: l("assistant-panel-status-control-input", "Needs input"),
+      controlPreparing: l(
+        "assistant-panel-status-control-preparing",
+        "Preparing",
+      ),
+      controlUploading: l(
+        "assistant-panel-status-control-uploading",
+        "Submitting",
+      ),
+      controlReadOnly: l(
+        "assistant-panel-status-control-read-only",
+        "Read-only",
+      ),
+      controlLive: l("assistant-panel-status-control-live", "Streaming"),
+      controlUnavailable: l(
+        "assistant-panel-status-control-unavailable",
+        "Unavailable",
+      ),
+      applyNotRequired: l(
+        "assistant-panel-status-apply-not-required",
+        "Not required",
       ),
       applyPending: l("assistant-panel-status-apply-pending", "Pending apply"),
       applyRunning: l("assistant-panel-status-apply-running", "Applying"),
@@ -339,6 +383,52 @@ export function buildAssistantPanelLabels() {
         "Retry scheduled",
       ),
       applySkipped: l("assistant-panel-status-apply-skipped", "Skipped"),
+    },
+    indicatorTitles: {
+      acpConnectionActive: l(
+        "assistant-panel-indicator-acp-connection-active",
+        "ACP connection is active.",
+      ),
+      acpBackendConnecting: l(
+        "assistant-panel-indicator-acp-backend-connecting",
+        "ACP backend is connecting.",
+      ),
+      acpConnectionInactive: l(
+        "assistant-panel-indicator-acp-connection-inactive",
+        "ACP connection is not active.",
+      ),
+      hostBridgeFallback: l(
+        "assistant-panel-indicator-host-bridge-fallback",
+        "Host Bridge is running on a fallback random port.",
+      ),
+      hostBridgeReady: l(
+        "assistant-panel-indicator-host-bridge-ready",
+        "Host Bridge is ready.",
+      ),
+      hostBridgeStarting: l(
+        "assistant-panel-indicator-host-bridge-starting",
+        "Host Bridge is starting.",
+      ),
+      hostBridgeFailed: l(
+        "assistant-panel-indicator-host-bridge-failed",
+        "Host Bridge failed.",
+      ),
+      hostBridgeUnavailable: l(
+        "assistant-panel-indicator-host-bridge-unavailable",
+        "Host Bridge is not running.",
+      ),
+      zoteroMcpStatus: l(
+        "assistant-panel-indicator-zotero-mcp-status",
+        "Zotero MCP status",
+      ),
+      zoteroMcpDiagnostic: l(
+        "assistant-panel-indicator-zotero-mcp-diagnostic",
+        "Zotero MCP diagnostic",
+      ),
+      zoteroMcpPending: l(
+        "assistant-panel-indicator-zotero-mcp-pending",
+        "Zotero MCP status pending.",
+      ),
     },
   };
 }

@@ -51,6 +51,7 @@ export const SKILLRUNNER_BACKEND_PROBE_TICK_MS = 60000;
 export const SKILLRUNNER_BACKEND_ENABLE_PROBE_DEBOUNCE_MS = 1000;
 export const SKILLRUNNER_BACKEND_AUTO_DISABLE_AFTER_MS = 6 * 60 * 60 * 1000;
 export const SKILLRUNNER_BACKEND_RECENT_SUCCESS_SKIP_MS = 60 * 1000;
+export const SKILLRUNNER_BACKEND_FAILURES_BEFORE_UNREACHABLE = 2;
 
 function nowIso() {
   return new Date().toISOString();
@@ -365,12 +366,24 @@ export function markSkillRunnerBackendHealthFailure(args: {
     SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS.length - 1,
     state.backoffLevel + 1,
   );
-  state.status = "unreachable";
-  state.reachable = false;
+  const confirmedUnreachable =
+    nextFailureStreak >= SKILLRUNNER_BACKEND_FAILURES_BEFORE_UNREACHABLE;
+  if (confirmedUnreachable) {
+    state.status = "unreachable";
+    state.reachable = false;
+  } else if (state.lastReachableAt) {
+    state.status = "reachable";
+    state.reachable = true;
+  } else {
+    state.status = "unknown";
+    state.reachable = false;
+  }
   state.failureStreak = nextFailureStreak;
   state.backoffLevel = nextLevel;
   state.lastProbeAt = now;
-  state.firstUnreachableAt = state.firstUnreachableAt || now;
+  if (confirmedUnreachable) {
+    state.firstUnreachableAt = state.firstUnreachableAt || now;
+  }
   state.nextProbeAt =
     Date.now() + SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS[nextLevel];
   state.lastError = errorText(args.error);

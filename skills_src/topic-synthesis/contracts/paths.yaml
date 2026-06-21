@@ -6,6 +6,7 @@ handoff_paths:
   finalize_output: runtime/handoff/finalize-output.json
 result_paths:
   candidate_output: result/final-output.candidate.json
+  artifact_manifest: result/topic-synthesis-artifacts.json
   create_manifest: result/topic-analysis.json
 schema_paths:
   handoff: assets/schemas/handoff.schema.json

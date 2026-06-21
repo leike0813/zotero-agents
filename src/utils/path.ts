@@ -50,3 +50,14 @@ export function getBaseName(targetPath: string) {
   const parts = normalized.split("/").filter(Boolean);
   return parts.length > 0 ? parts[parts.length - 1] : "";
 }
+
+export function normalizeNativeLocalPath(targetPath: string) {
+  const path = String(targetPath || "").trim();
+  if (!path) {
+    return "";
+  }
+  if (getPathSeparator() === "\\" && /^[A-Za-z]:\//.test(path)) {
+    return path.replace(/\//g, "\\");
+  }
+  return path;
+}

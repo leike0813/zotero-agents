@@ -46,6 +46,7 @@ import {
   subscribeSkillRunnerBackendHealth,
 } from "./skillRunnerBackendHealthRegistry";
 import {
+  archiveSkillRunnerRunRecordByRequest,
   deleteSkillRunnerRunRecordsByBackend,
   getSkillRunnerRunRecordByRequest,
   listSkillRunnerRunRecords,
@@ -1043,11 +1044,24 @@ export class SkillRunnerTaskReconciler {
   }
 
   purgeRequestContext(args: { backendId?: string; requestId: string }) {
+    const backendId = normalizeString(args.backendId);
+    const requestId = normalizeString(args.requestId);
     stopSessionSync({
-      backendId: normalizeString(args.backendId),
-      requestId: normalizeString(args.requestId),
+      backendId,
+      requestId,
     });
-    return 0;
+    if (!requestId) {
+      return 0;
+    }
+    const removedTasks = removeWorkflowTasksByBackendAndRequestIds({
+      backendId,
+      requestIds: [requestId],
+    });
+    const archivedRun = archiveSkillRunnerRunRecordByRequest({
+      backendId,
+      requestId,
+    });
+    return removedTasks + (archivedRun ? 1 : 0);
   }
 
   async reconcileMissingContextOnce(args?: {

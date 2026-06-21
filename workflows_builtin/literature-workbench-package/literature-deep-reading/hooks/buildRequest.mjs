@@ -71,14 +71,29 @@ async function buildRequestImpl({
   };
   if (existingAlignment.status !== "available") {
     deepReadingStep.handoff = {
-      from_step: "translate",
-      required: false,
-      pass_through: false,
-      input: {
-        translator_alignment_path: "alignment_path",
-        translator_output_path: "output_path",
-        translator_status: "status",
-      },
+      bindings: [
+        {
+          kind: "value",
+          step: "translate",
+          source: "alignment_path",
+          target: "/input/translator_alignment_path",
+          required: false,
+        },
+        {
+          kind: "value",
+          step: "translate",
+          source: "output_path",
+          target: "/input/translator_output_path",
+          required: false,
+        },
+        {
+          kind: "value",
+          step: "translate",
+          source: "status",
+          target: "/input/translator_status",
+          required: false,
+        },
+      ],
     };
   }
 

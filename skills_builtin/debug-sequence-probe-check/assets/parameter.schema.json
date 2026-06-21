@@ -7,6 +7,7 @@
     "expected_public_marker": { "type": "string" },
     "expected_secret_marker": { "type": "string" },
     "forbid_secret_marker": { "type": "boolean" },
+    "expect_artifact_file": { "type": "boolean" },
     "expected_sentinel": { "type": "string", "enum": ["present", "absent"] },
     "sentinel_path": { "type": "string" }
   },

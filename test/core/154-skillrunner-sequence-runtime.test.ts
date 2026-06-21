@@ -20,6 +20,8 @@ import {
   createAcpSkillRunnerWorkspace,
   writeAcpSkillRunnerInputManifest,
 } from "../../src/modules/acpSkillRunnerWorkspace";
+import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
+import { normalizeNativeLocalPath } from "../../src/utils/path";
 import {
   getAcpSkillRunRecord,
   markAcpSkillRunApplyResult,
@@ -230,6 +232,32 @@ describe("skillrunner.sequence.v1 runtime", function () {
     });
     assert.equal(nonAcp.diagnostic, null);
     assert.equal(nonAcp.manifest?.provider, "skillrunner");
+
+    const legacyHandoff = parseWorkflowManifestFromText({
+      raw: JSON.stringify(
+        sequenceManifest({
+          request: {
+            kind: "skillrunner.sequence.v1",
+            sequence: {
+              steps: [
+                { id: "prepare", skill_id: "one", mode: "auto" },
+                {
+                  id: "finalize",
+                  skill_id: "two",
+                  mode: "auto",
+                  handoff: {
+                    input: { digest_markdown: "digest_path" },
+                  },
+                },
+              ],
+            },
+          },
+        }),
+      ),
+      manifestPath: "workflow.json",
+    });
+    assert.equal(legacyHandoff.manifest, null);
+    assert.include(legacyHandoff.diagnostic?.reason || "", "bindings");
   });
 
   it("accepts and compiles sequence step short-circuit rules", function () {
@@ -419,7 +447,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.equal(accepted.manifest?.request?.kind, "skillrunner.sequence.v1");
   });
 
-  it("passes previous handoff by default and applies explicit mapping to downstream input", async function () {
+  it("applies explicit value bindings to downstream input and parameter", async function () {
     const launched: Array<{
       request: Record<string, unknown>;
       orchestrationContext: Record<string, unknown>;
@@ -440,6 +468,14 @@ describe("skillrunner.sequence.v1 runtime", function () {
             skill_id: "core-skill",
             mode: "auto",
             workspace: "reuse-workflow",
+            handoff: {
+              bindings: [
+                {
+                  kind: "value",
+                  target: "/input/handoff",
+                },
+              ],
+            },
           },
           {
             id: "finalize",
@@ -448,13 +484,20 @@ describe("skillrunner.sequence.v1 runtime", function () {
             workspace: "reuse-workflow",
             input: { static_value: "kept" },
             handoff: {
-              from_step: "core",
-              input: {
-                manifest_path: "handoff_manifest_path",
-              },
-              parameter: {
-                operation: "operation",
-              },
+              bindings: [
+                {
+                  kind: "value",
+                  step: "core",
+                  source: "handoff_manifest_path",
+                  target: "/input/manifest_path",
+                },
+                {
+                  kind: "value",
+                  step: "core",
+                  source: "operation",
+                  target: "/parameter/operation",
+                },
+              ],
             },
           },
         ],
@@ -604,7 +647,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     );
   });
 
-  it("does not inject handoff when pass_through is false without explicit mapping", async function () {
+  it("does not inject handoff when no explicit bindings are declared", async function () {
     const launched: Array<Record<string, unknown>> = [];
     await executeSkillRunnerSequence({
       request: {
@@ -623,10 +666,6 @@ describe("skillrunner.sequence.v1 runtime", function () {
             mode: "auto",
             workspace: "reuse-workflow",
             input: {},
-            handoff: {
-              pass_through: false,
-              required: false,
-            },
           },
         ],
         final_step_id: "second",
@@ -659,6 +698,164 @@ describe("skillrunner.sequence.v1 runtime", function () {
       ((launched[1].input || {}) as Record<string, unknown>),
       "handoff",
     );
+  });
+
+  it("materializes file handoff for ACP as native local input path", async function () {
+    const tempRoot = await mkTempDir("zotero-skills-acp-file-handoff");
+    const digestPath = `${tempRoot}\\digest.md`;
+    await fs.writeFile(digestPath, "# Digest\n", "utf8");
+    const launched: Array<Record<string, unknown>> = [];
+
+    await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "digest",
+            skill_id: "literature-analysis",
+            mode: "auto",
+            workspace: "new",
+          },
+          {
+            id: "tag",
+            skill_id: "tag-regulator",
+            mode: "auto",
+            workspace: "reuse-workflow",
+            handoff: {
+              bindings: [
+                {
+                  kind: "file",
+                  step: "digest",
+                  source: "digest_path",
+                  target: "/input/digest_markdown",
+                },
+              ],
+            },
+          },
+        ],
+        final_step_id: "tag",
+      },
+      backend: {
+        id: "acp-backend",
+        type: "acp",
+        baseUrl: "local://acp",
+        auth: { kind: "none" },
+      },
+      providerOptions: {},
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-acp-file-handoff",
+      jobId: "job-acp-file-handoff",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        launched.push(request as Record<string, unknown>);
+        const skillId = String((request as { skill_id?: unknown }).skill_id);
+        return {
+          status: "succeeded",
+          requestId: `${skillId}-request`,
+          fetchType: "result",
+          resultJson:
+            skillId === "literature-analysis"
+              ? { digest_path: digestPath.replace(/\\/g, "/") }
+              : { ok: true },
+          responseJson: {},
+        };
+      },
+    });
+
+    assert.equal(
+      (launched[1].input as Record<string, unknown>).digest_markdown,
+      normalizeNativeLocalPath(digestPath.replace(/\\/g, "/")),
+    );
+    assert.notProperty(launched[1], "upload_files");
+
+    const runnerJson = JSON.parse(
+      await fs.readFile("skills_builtin/tag-regulator/assets/runner.json", "utf8"),
+    );
+    const validation = await validateAcpSkillRunRequestAgainstSchemas({
+      request: launched[1] as any,
+      runnerJson,
+      skillDir: "skills_builtin/tag-regulator",
+      workspaceDir: tempRoot,
+    });
+    assert.isTrue(validation.ok, validation.errors.join("\n"));
+  });
+
+  it("materializes reused SkillRunner file handoff as workspace file binding", async function () {
+    const launched: Array<Record<string, unknown>> = [];
+
+    await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "digest",
+            skill_id: "literature-analysis",
+            mode: "auto",
+            workspace: "new",
+          },
+          {
+            id: "tag",
+            skill_id: "tag-regulator",
+            mode: "auto",
+            workspace: "reuse-workflow",
+            handoff: {
+              bindings: [
+                {
+                  kind: "file",
+                  step: "digest",
+                  source: "digest_path",
+                  target: "/input/digest_markdown",
+                },
+              ],
+            },
+          },
+        ],
+        final_step_id: "tag",
+      },
+      backend: {
+        id: "skillrunner-backend",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      providerOptions: {},
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-skillrunner-file-handoff",
+      jobId: "job-skillrunner-file-handoff",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        launched.push(request as Record<string, unknown>);
+        const skillId = String((request as { skill_id?: unknown }).skill_id);
+        return {
+          status: "succeeded",
+          requestId: `${skillId}-request`,
+          fetchType: "result",
+          resultJson:
+            skillId === "literature-analysis"
+              ? { digest_path: "uploads/digest.md" }
+              : { ok: true },
+          responseJson: {},
+        };
+      },
+    });
+
+    assert.equal(
+      (launched[1].input as Record<string, unknown>).digest_markdown,
+      "inputs/digest_markdown/digest.md",
+    );
+    assert.notProperty(launched[1], "upload_files");
+    assert.deepEqual((launched[1].runtime_options as any).workspace, {
+      mode: "reuse",
+      request_id: "literature-analysis-request",
+      file_bindings: [
+        {
+          input_key: "digest_markdown",
+          source_request_id: "literature-analysis-request",
+          source_path: "uploads/digest.md",
+          target_path: "inputs/digest_markdown/digest.md",
+        },
+      ],
+    });
   });
 
   it("applies opt-in steps before launching downstream steps", async function () {
@@ -843,6 +1040,165 @@ describe("skillrunner.sequence.v1 runtime", function () {
       })?.apply.state,
       "skipped",
     );
+  });
+
+  for (const backendType of ["skillrunner", "acp"] as const) {
+    it(`stops ${backendType} sequence before downstream steps when required step apply fails`, async function () {
+      const launched: string[] = [];
+      const sequenceRunId = `workflow-run-${backendType}-step-apply-fail`;
+      try {
+        await executeSkillRunnerSequence({
+          request: {
+            kind: "skillrunner.sequence.v1",
+            steps: [
+              {
+                id: "prepare",
+                skill_id: "prepare-skill",
+                mode: "auto",
+                workspace: "new",
+                apply_result: {
+                  workflow_id: "prepare-workflow",
+                  on_failure: "fail_sequence",
+                },
+              },
+              {
+                id: "finalize",
+                skill_id: "finalize-skill",
+                mode: "auto",
+                workspace: "reuse-workflow",
+              },
+            ],
+            final_step_id: "finalize",
+          },
+          backend: {
+            id: `${backendType}-backend`,
+            type: backendType,
+            baseUrl:
+              backendType === "skillrunner"
+                ? "http://127.0.0.1:8030"
+                : "local://acp",
+            auth: { kind: "none" },
+          },
+          workflowId: "sequence-workflow",
+          workflowRunId: sequenceRunId,
+          jobId: `job-${backendType}-step-apply-fail`,
+          appendRuntimeLog: () => {},
+          executeWithProvider: async ({ request }) => {
+            const skillId = String((request as { skill_id?: unknown }).skill_id);
+            launched.push(skillId);
+            return {
+              status: "succeeded",
+              requestId: `${skillId}-request`,
+              fetchType: "result",
+              resultJson: { skillId },
+              responseJson: {},
+            };
+          },
+          applySequenceStepResult: async () => {
+            throw new Error("apply broke");
+          },
+        });
+        assert.fail("expected required step apply failure to stop sequence");
+      } catch (error) {
+        assert.include(String(error), "apply broke");
+      }
+
+      assert.deepEqual(launched, ["prepare-skill"]);
+      assert.equal(getSequenceRunState(sequenceRunId)?.status, "failed");
+    });
+  }
+
+  it("marks the active sequence step failed when provider dispatch throws", async function () {
+    const launched: string[] = [];
+    const events: string[] = [];
+    const sequenceRunId = "workflow-run-provider-throws";
+
+    try {
+      await executeSkillRunnerSequence({
+        request: {
+          kind: "skillrunner.sequence.v1",
+          steps: [
+            {
+              id: "prepare",
+              skill_id: "prepare-skill",
+              mode: "auto",
+              workspace: "new",
+            },
+            {
+              id: "tag",
+              skill_id: "tag-regulator",
+              mode: "auto",
+              workspace: "reuse-workflow",
+              handoff: {
+                bindings: [
+                  {
+                    kind: "file",
+                    step: "prepare",
+                    source: "digest_path",
+                    target: "/input/digest_markdown",
+                  },
+                ],
+              },
+            },
+            {
+              id: "finalize",
+              skill_id: "finalize-skill",
+              mode: "auto",
+              workspace: "reuse-workflow",
+            },
+          ],
+          final_step_id: "finalize",
+        },
+        backend: {
+          id: "acp-backend",
+          type: "acp",
+          baseUrl: "local://acp",
+          auth: { kind: "none" },
+        },
+        workflowId: "sequence-workflow",
+        workflowRunId: sequenceRunId,
+        jobId: "job-provider-throws",
+        appendRuntimeLog: () => {},
+        onProgress: (event) => {
+          if (event.type === "sequence-step-failed") {
+            events.push(
+              `${event.sequenceStepId}:${event.requestId || ""}:${event.error || ""}`,
+            );
+          }
+        },
+        executeWithProvider: async ({ request, onProgress }) => {
+          const skillId = String((request as { skill_id?: unknown }).skill_id);
+          launched.push(skillId);
+          if (skillId === "tag-regulator") {
+            onProgress?.({
+              type: "request-created",
+              requestId: "tag-request",
+            });
+            throw new Error("schema validation failed");
+          }
+          return {
+            status: "succeeded",
+            requestId: "prepare-request",
+            fetchType: "result",
+            resultJson: { digest_path: "D:/workspace/digest.md" },
+            responseJson: {},
+          };
+        },
+      });
+      assert.fail("expected provider dispatch failure to stop sequence");
+    } catch (error) {
+      assert.include(String(error), "schema validation failed");
+    }
+
+    assert.deepEqual(launched, ["prepare-skill", "tag-regulator"]);
+    assert.deepEqual(events, ["tag:tag-request:schema validation failed"]);
+    const state = getSequenceRunState(sequenceRunId);
+    assert.equal(state?.status, "failed");
+    assert.equal(state?.error, "schema validation failed");
+    assert.equal(state?.steps[1]?.status, "failed");
+    assert.equal(state?.steps[1]?.requestId, "tag-request");
+    assert.equal(state?.steps[1]?.error, "schema validation failed");
+    assert.isUndefined(state?.steps[2]?.status);
   });
 
   it("marks the final request root apply skipped when foreground continuation sees final step apply_result", async function () {
@@ -1370,12 +1726,15 @@ describe("skillrunner.sequence.v1 runtime", function () {
       /valid_tags-parent-42/,
     );
     assert.deepEqual(tagStep.handoff, {
-      from_step: "digest",
-      required: true,
-      pass_through: false,
-      input: {
-        digest_markdown: "digest_path",
-      },
+      bindings: [
+        {
+          kind: "file",
+          step: "digest",
+          source: "digest_path",
+          target: "/input/digest_markdown",
+          required: true,
+        },
+      ],
     });
   });
 

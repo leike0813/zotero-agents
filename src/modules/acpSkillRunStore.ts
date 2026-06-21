@@ -189,6 +189,7 @@ export type AcpSkillRunHostBridgeCliState = {
 export type AcpSkillRunRecord = {
   requestId: string;
   status: AcpSkillRunStatus;
+  backendStatus?: AcpSkillRunStatus;
   backendId: string;
   backendType: string;
   backendLabel?: string;
@@ -277,6 +278,7 @@ export type AcpSkillRunSummary = Pick<
   AcpSkillRunRecord,
   | "requestId"
   | "status"
+  | "backendStatus"
   | "backendId"
   | "backendType"
   | "backendLabel"
@@ -992,6 +994,9 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
   return {
     requestId,
     status: normalizeStatus(raw.status),
+    backendStatus: raw.backendStatus
+      ? normalizeStatus(raw.backendStatus)
+      : normalizeStatus(raw.status),
     backendId: normalizeString(raw.backendId),
     backendType: normalizeString(raw.backendType) || "acp",
     backendLabel: normalizeString(raw.backendLabel) || undefined,
@@ -1235,6 +1240,7 @@ function syncWorkflowTaskForAcpSkillRun(record: AcpSkillRunRecord) {
     backendType: ACP_BACKEND_TYPE,
     requestId,
     state: record.status,
+    backendStatus: record.backendStatus,
     error: record.error || record.conversationError,
     updatedAt: record.updatedAt,
   });
@@ -1401,6 +1407,7 @@ function scheduleChangedEmit() {
 export function upsertAcpSkillRun(update: {
   requestId: string;
   status?: AcpSkillRunStatus;
+  backendStatus?: AcpSkillRunStatus;
   backendId?: string;
   backendType?: string;
   backendLabel?: string;
@@ -1510,6 +1517,15 @@ export function upsertAcpSkillRun(update: {
   assignString("createdAt", update.createdAt);
   assignString("updatedAt", update.updatedAt);
   if (update.status) next.status = update.status;
+  if (update.backendStatus) {
+    next.backendStatus = update.backendStatus;
+  } else if (
+    update.status &&
+    isTerminalAcpSkillRunStatus(update.status) &&
+    update.applyResultState !== "failed"
+  ) {
+    next.backendStatus = update.status;
+  }
   assignString("backendId", update.backendId);
   assignString("backendType", update.backendType);
   assignString("backendLabel", update.backendLabel);
@@ -3135,11 +3151,24 @@ export function markAcpSkillRunApplyResult(args: {
   if (!requestId) {
     return;
   }
-  if (!getAcpSkillRunRecord(requestId)) {
+  const existing = getAcpSkillRunRecord(requestId);
+  if (!existing) {
     return;
   }
+  const backendStatus =
+    existing.backendStatus ||
+    (isTerminalAcpSkillRunStatus(existing.status)
+      ? existing.status
+      : "succeeded");
   upsertAcpSkillRun({
     requestId,
+    status:
+      args.state === "failed"
+        ? "failed"
+        : args.state === "succeeded"
+          ? "succeeded"
+          : existing.status,
+    backendStatus,
     applyResultState: args.state,
     appliedAt: args.state === "succeeded" ? nowIso() : undefined,
     error: args.state === "failed" ? normalizeString(args.error) : undefined,
@@ -3258,6 +3287,7 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
   return {
     requestId: run.requestId,
     status: run.status,
+    backendStatus: run.backendStatus,
     backendId: run.backendId,
     backendType: run.backendType,
     backendLabel: run.backendLabel,

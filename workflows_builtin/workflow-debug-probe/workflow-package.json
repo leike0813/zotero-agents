@@ -5,6 +5,7 @@
     "workflow.json",
     "debug-host-bridge-connectivity-probe/workflow.json",
     "debug-interactive-choice-probe/workflow.json",
+    "debug-apply-manifest-bundle/workflow.json",
     "debug-apply-single-bundle/workflow.json",
     "debug-apply-single-result/workflow.json",
     "debug-apply-sequence-bundle/workflow.json",
@@ -14,6 +15,7 @@
     "debug-interactive-then-result/workflow.json",
     "debug-sequence-linear-probe/workflow.json",
     "debug-sequence-workspace-reuse-probe/workflow.json",
+    "debug-sequence-file-handoff-probe/workflow.json",
     "debug-sequence-context-isolation-probe/workflow.json"
   ]
 }

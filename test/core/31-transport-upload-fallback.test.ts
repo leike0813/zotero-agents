@@ -1,9 +1,6 @@
 import { assert } from "chai";
 import { SkillRunnerClient } from "../../src/providers/skillrunner/client";
-import {
-  SkillRunnerHttpError,
-  SkillRunnerPollingTimeoutError,
-} from "../../src/providers/skillrunner/errors";
+import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
 import { createZipFromNamedFiles } from "../../src/providers/skillrunner/zipTransport";
 import { fixturePath } from "./workflow-test-utils";
 
@@ -977,9 +974,8 @@ describe("transport: upload fallback without FormData", function () {
     assert.isTrue(pollCalled);
   });
 
-  it("times out while polling non-terminal backend state", async function () {
+  it("waits for backend terminal state instead of enforcing frontend poll timeout", async function () {
     let pollCount = 0;
-    let resultFetchCalled = false;
     const client = new SkillRunnerClient({
       baseUrl: "http://127.0.0.1:8030",
       fetchImpl: async (url: string) => {
@@ -990,60 +986,54 @@ describe("transport: upload fallback without FormData", function () {
           pollCount += 1;
           return createJsonResponse({
             request_id: "req-submit-only",
-            status: "queued",
+            status: pollCount >= 3 ? "succeeded" : "queued",
           });
         }
         if (url.endsWith("/v1/jobs/req-submit-only/result")) {
-          resultFetchCalled = true;
           return createJsonResponse({
-            result: { status: "success", data: {} },
+            result: { status: "success", data: { ok: true } },
           });
         }
         return createJsonResponse({ error: "unexpected route" }, 404);
       },
     });
 
-    let rejected: unknown;
-    try {
-      await client.executeHttpSteps({
-        kind: "http.steps",
-        poll: { interval_ms: 0, timeout_ms: 5 },
-        steps: [
-          {
-            id: "create",
-            request: {
-              method: "POST",
-              path: "/v1/jobs",
-              json: {
-                skill_id: "literature-analysis",
-                engine: "gemini",
-              },
-            },
-            extract: { request_id: "$.request_id" },
-          },
-          {
-            id: "poll",
-            request: {
-              method: "GET",
-              path: "/v1/jobs/{request_id}",
+    const result = await client.executeHttpSteps({
+      kind: "http.steps",
+      poll: { interval_ms: 0, timeout_ms: 1 },
+      steps: [
+        {
+          id: "create",
+          request: {
+            method: "POST",
+            path: "/v1/jobs",
+            json: {
+              skill_id: "literature-analysis",
+              engine: "gemini",
             },
           },
-          {
-            id: "result",
-            request: {
-              method: "GET",
-              path: "/v1/jobs/{request_id}/result",
-            },
+          extract: { request_id: "$.request_id" },
+        },
+        {
+          id: "poll",
+          request: {
+            method: "GET",
+            path: "/v1/jobs/{request_id}",
           },
-        ],
-      });
-    } catch (error) {
-      rejected = error;
-    }
+        },
+        {
+          id: "result",
+          request: {
+            method: "GET",
+            path: "/v1/jobs/{request_id}/result",
+          },
+        },
+      ],
+    });
 
-    assert.instanceOf(rejected, SkillRunnerPollingTimeoutError);
-    assert.isAtLeast(pollCount, 1);
-    assert.isFalse(resultFetchCalled);
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(result.resultJson, { ok: true });
+    assert.equal(pollCount, 3);
   });
 
   it("detaches foreground interactive waiting_user without result fetch", async function () {

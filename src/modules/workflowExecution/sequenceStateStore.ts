@@ -23,6 +23,7 @@ export type SequenceStepRunState = {
   index: number;
   requestId?: string;
   status?: "running" | ProviderExecutionResult["status"];
+  error?: string;
   output?: unknown;
   result?: ProviderExecutionResult;
   applyResult?: {
@@ -221,6 +222,7 @@ function parseStep(raw: unknown): SequenceStepRunState | null {
       status === "canceled"
         ? status
         : undefined,
+    error: normalizeString(raw.error) || undefined,
     output: raw.output,
     result: parseProviderResult(raw.result),
     applyResult: parseStepApplyResult(raw.applyResult),
@@ -514,6 +516,31 @@ export function recordSequenceStepWaiting(args: {
       rootRequestId: next.rootRequestId || normalizeString(args.requestId),
     };
   });
+}
+
+export function recordSequenceStepTerminal(args: {
+  sequenceRunId: string;
+  stepIndex: number;
+  requestId?: string;
+  status: "failed" | "canceled";
+  error?: string;
+}) {
+  return updateState(args.sequenceRunId, (state) =>
+    updateStep(
+      {
+        ...state,
+        status: args.status,
+        error: normalizeString(args.error) || undefined,
+      },
+      args.stepIndex,
+      (step) => ({
+        ...step,
+        requestId: normalizeString(args.requestId) || step.requestId,
+        status: args.status,
+        error: normalizeString(args.error) || undefined,
+      }),
+    ),
+  );
 }
 
 export function recordSequenceStepApplyResult(args: {

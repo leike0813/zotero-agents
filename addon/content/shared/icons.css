@@ -37,7 +37,8 @@
   mask-image: url("../icons/material-symbols/settings_applications.svg");
 }
 
-.zs-icon-inventory-2 {
+.zs-icon-inventory-2,
+.zs-icon-archive {
   -webkit-mask-image: url("../icons/material-symbols/inventory_2.svg");
   mask-image: url("../icons/material-symbols/inventory_2.svg");
 }

@@ -1530,6 +1530,7 @@ describe("topic synthesis split skill runtime", function () {
       "runtime/handoff/core-enrichment.json",
       "result/sidecars/concept-cards-proposal.json",
       "result/topic-analysis.json",
+      "result/topic-synthesis-artifacts.json",
       "result/final-output.candidate.json",
     ]) {
       await fs.access(path.join(runRoot, filePath));
@@ -1554,7 +1555,21 @@ describe("topic synthesis split skill runtime", function () {
     );
     assert.notProperty(finalCandidate, "__SKILL_DONE__");
     assert.notProperty(finalCandidate, "forged");
+    assert.notProperty(finalCandidate, "analysis_manifest_path");
+    assert.notProperty(finalCandidate, "candidate_output_path");
     assert.equal(finalCandidate.kind, "topic_synthesis");
+    assert.equal(
+      finalCandidate.artifact_manifest_path,
+      "result/topic-synthesis-artifacts.json",
+    );
+    const artifactManifest = await readJson<Record<string, string>>(
+      path.join(runRoot, "result/topic-synthesis-artifacts.json"),
+    );
+    assert.equal(artifactManifest.topic_analysis, "result/topic-analysis.json");
+    assert.equal(
+      artifactManifest.final_output_candidate,
+      "result/final-output.candidate.json",
+    );
     const finalSchema = await readJson(
       path.join(packages.finalize, "assets/output.schema.json"),
     );

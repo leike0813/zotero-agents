@@ -33,6 +33,7 @@ RESULT_PATH = Path("literature-deep-reading.result.json")
 RESULT_DIR = Path("result")
 RESULT_SECTIONS_DIR = RESULT_DIR / "sections"
 FINAL_HTML_PATH = RESULT_DIR / "deep-reading.html"
+FINAL_ARTIFACT_MANIFEST_PATH = RESULT_DIR / "deep-reading-artifacts.json"
 STAGE10_AGENT_PACKET_PATH = VIEWS_DIR / "stage-10-agent-packet.json"
 STAGE20_AGENT_PACKET_PATH = VIEWS_DIR / "stage-20-agent-packet.json"
 STAGE30_TRANSLATION_WORKLIST_PATH = VIEWS_DIR / "stage-30-translation-worklist.json"
@@ -6519,26 +6520,29 @@ def submit_final_review(payload_path: Path) -> dict[str, Any]:
         "diagnostics_count": len(diagnostics_view["diagnostics"]),
     }
     write_json(RESULT_DIR / "deep-reading-manifest.json", manifest)
+    artifact_manifest = {
+        "deep_reading_html": normalize_posix(FINAL_HTML_PATH),
+        "deep_reading_manifest": normalize_posix(RESULT_DIR / "deep-reading-manifest.json"),
+        "final_output_candidate": normalize_posix(RESULT_DIR / "final-output.candidate.json"),
+        "sections": normalize_posix(RESULT_SECTIONS_DIR / "sections.json"),
+        "source_images": normalize_posix(RESULT_SECTIONS_DIR / "source-images.json"),
+        "diagnostics": normalize_posix(RESULT_SECTIONS_DIR / "diagnostics.json"),
+    }
     candidate = {
         "html": normalize_posix(FINAL_HTML_PATH),
         "sections": [normalize_posix(RESULT_SECTIONS_DIR / "sections.json")],
         "diagnostics": diagnostics_view["diagnostics"],
     }
     write_json(RESULT_DIR / "final-output.candidate.json", candidate)
+    write_json(FINAL_ARTIFACT_MANIFEST_PATH, artifact_manifest)
     persist_stage40_db(payload_path, final_review, diagnostics_view["diagnostics"])
     result = {
         "kind": "literature_deep_reading_finalized",
         "status": "completed",
-        "db_path": normalize_posix(DB_PATH),
-        "views": {
-            "sections": normalize_posix(RESULT_SECTIONS_DIR / "sections.json"),
-            "source_images": normalize_posix(RESULT_SECTIONS_DIR / "source-images.json"),
-            "diagnostics": normalize_posix(RESULT_SECTIONS_DIR / "diagnostics.json"),
-            "manifest": normalize_posix(RESULT_DIR / "deep-reading-manifest.json"),
-        },
         "diagnostics_path": normalize_posix(RESULT_SECTIONS_DIR / "diagnostics.json"),
         "final_html_available": True,
         "html_path": normalize_posix(FINAL_HTML_PATH),
+        "artifact_manifest_path": normalize_posix(FINAL_ARTIFACT_MANIFEST_PATH),
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics_view["diagnostics"]],
         "error": None,
     }
@@ -7038,6 +7042,7 @@ def validate_final_output(payload_path: Path | None = None) -> dict[str, Any]:
     required = [
         FINAL_HTML_PATH,
         RESULT_DIR / "deep-reading-manifest.json",
+        FINAL_ARTIFACT_MANIFEST_PATH,
         RESULT_DIR / "final-output.candidate.json",
         RESULT_SECTIONS_DIR / "sections.json",
         RESULT_SECTIONS_DIR / "source-images.json",

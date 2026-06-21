@@ -88,12 +88,15 @@ async function buildRequestImpl({ selectionContext, executionOptions, runtime })
         inferTag: params.autoTagInferTag,
       }),
       handoff: {
-        from_step: "digest",
-        required: true,
-        pass_through: false,
-        input: {
-          digest_markdown: "digest_path",
-        },
+        bindings: [
+          {
+            kind: "file",
+            step: "digest",
+            source: "digest_path",
+            target: "/input/digest_markdown",
+            required: true,
+          },
+        ],
       },
     });
     finalStepId = "tag-regulator";

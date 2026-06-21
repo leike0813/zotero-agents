@@ -3,13 +3,12 @@ import {
   ACP_SKILL_RUN_REQUEST_KIND,
   DEFAULT_BACKEND_TYPE,
 } from "../../config/defaults";
-import { getBaseName } from "../../utils/path";
+import { getBaseName, normalizeNativeLocalPath } from "../../utils/path";
 import type { BackendInstance } from "../../backends/types";
 import type {
   AcpSkillRunRequestV1,
   ProviderExecutionResult,
   SkillRunnerJobRequestV1,
-  SkillRunnerSequenceHandoffSpec,
   SkillRunnerSequenceRequestV1,
   SkillRunnerSequenceStepV1,
 } from "../../providers/contracts";
@@ -26,6 +25,7 @@ import {
   recordSequenceStepRequestCreated,
   recordSequenceStepStarted,
   recordSequenceStepSucceeded,
+  recordSequenceStepTerminal,
   type SequenceRunState,
 } from "./sequenceStateStore";
 import { updateSkillRunnerRunApplyState } from "../skillRunnerRunStore";
@@ -76,6 +76,13 @@ export type ApplySequenceStepResult = (args: {
 
 type SequenceStepRequest = AcpSkillRunRequestV1 | SkillRunnerJobRequestV1;
 
+type SkillRunnerWorkspaceFileBinding = {
+  input_key: string;
+  source_request_id: string;
+  source_path: string;
+  target_path: string;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -112,7 +119,7 @@ function primitiveEquals(left: unknown, right: unknown) {
   return false;
 }
 
-function getPath(source: unknown, path: string) {
+function getDotPath(source: unknown, path: string) {
   const normalized = normalizeString(path);
   if (!normalized || normalized === "$") {
     return source;
@@ -130,12 +137,52 @@ function getPath(source: unknown, path: string) {
   return current;
 }
 
-function setPath(
+function parseJsonPointer(pointer: string) {
+  const normalized = normalizeString(pointer);
+  if (!normalized || !normalized.startsWith("/")) {
+    throw new Error("handoff target must be a JSON Pointer");
+  }
+  return normalized
+    .split("/")
+    .slice(1)
+    .map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"))
+    .filter((part) => part.length > 0);
+}
+
+function getJsonPointer(source: unknown, pointer: string) {
+  const normalized = normalizeString(pointer);
+  if (!normalized || normalized === "/") {
+    return source;
+  }
+  let current = source as unknown;
+  for (const part of parseJsonPointer(pointer)) {
+    if (
+      !isRecord(current) ||
+      !Object.prototype.hasOwnProperty.call(current, part)
+    ) {
+      return undefined;
+    }
+    current = current[part];
+  }
+  return current;
+}
+
+function getHandoffSourceValue(source: unknown, path: string) {
+  const normalized = normalizeString(path);
+  if (!normalized || normalized === "$") {
+    return source;
+  }
+  if (normalized.startsWith("/")) {
+    return getJsonPointer(source, normalized);
+  }
+  return getDotPath(source, normalized);
+}
+
+function setNestedPath(
   target: Record<string, unknown>,
-  path: string,
+  parts: string[],
   value: unknown,
 ) {
-  const parts = normalizeString(path).split(".").filter(Boolean);
   if (parts.length === 0) {
     throw new Error("handoff target path must be non-empty");
   }
@@ -151,6 +198,21 @@ function setPath(
   current[parts[parts.length - 1]] = value;
 }
 
+function resolveHandoffTarget(target: string) {
+  const parts = parseJsonPointer(target);
+  const scope = parts[0];
+  const path = parts.slice(1);
+  if ((scope !== "input" && scope !== "parameter") || path.length === 0) {
+    throw new Error(
+      "handoff target must point under /input/<key> or /parameter/<key>",
+    );
+  }
+  return {
+    scope: scope as "input" | "parameter",
+    path,
+  };
+}
+
 export function resolveStepOutput(result: ProviderExecutionResult) {
   if (typeof result.resultJson !== "undefined") {
     return result.resultJson;
@@ -163,100 +225,106 @@ export function resolveStepOutput(result: ProviderExecutionResult) {
   return result.responseJson;
 }
 
-function resolveHandoffSource(args: {
-  step: SkillRunnerSequenceStepV1;
-  previousStepId: string;
-  outputsByStep: Map<string, StepOutput>;
-}) {
-  const handoff = args.step.handoff;
-  const fromStep = normalizeString(handoff?.from_step) || args.previousStepId;
-  if (!fromStep) {
-    return { fromStep, output: undefined };
-  }
-  return {
-    fromStep,
-    output: args.outputsByStep.get(fromStep)?.output,
-  };
-}
-
-function applyHandoffMapping(args: {
+function applyHandoffBindings(args: {
   step: SkillRunnerSequenceStepV1;
   previousStepId: string;
   outputsByStep: Map<string, StepOutput>;
   input: Record<string, unknown>;
   parameter: Record<string, unknown>;
+  backendType?: string;
+  workspaceMode: "new" | "reuse";
 }) {
+  const fileBindings: SkillRunnerWorkspaceFileBinding[] = [];
   const handoff = args.step.handoff;
-  const { fromStep, output } = resolveHandoffSource({
-    step: args.step,
-    previousStepId: args.previousStepId,
-    outputsByStep: args.outputsByStep,
-  });
-  if (!fromStep) {
-    return;
+  if (!handoff || !Array.isArray(handoff.bindings)) {
+    return fileBindings;
   }
-  const required = handoff?.required !== false;
-  if (typeof output === "undefined") {
-    if (required) {
+  for (let index = 0; index < handoff.bindings.length; index++) {
+    const binding = handoff.bindings[index];
+    const required = binding.required !== false;
+    const target = resolveHandoffTarget(binding.target);
+    if (
+      binding.kind === "file" &&
+      (target.scope !== "input" || target.path.length !== 1)
+    ) {
       throw new Error(
-        `sequence step '${args.step.id}' requires handoff from '${fromStep}', but no output is available`,
+        `sequence step '${args.step.id}' file handoff binding ${index} must target /input/<key>`,
       );
     }
-    return;
-  }
-  const hasExplicitMapping =
-    Object.keys(handoff?.input || {}).length > 0 ||
-    Object.keys(handoff?.parameter || {}).length > 0;
-  const passThrough = handoff
-    ? handoff.pass_through === true ||
-      (!hasExplicitMapping && handoff.pass_through !== false)
-    : true;
-  if (passThrough) {
-    args.input.handoff = output;
-  }
-  for (const [targetPath, sourcePath] of Object.entries(handoff?.input || {})) {
-    const value = getPath(output, sourcePath);
+    let value: unknown;
+    let sourceOutput: StepOutput | undefined;
+    let sourceStep = "";
+    if (Object.prototype.hasOwnProperty.call(binding, "value")) {
+      value = binding.value;
+    } else {
+      sourceStep = normalizeString(binding.step) || args.previousStepId;
+      if (!sourceStep) {
+        if (required) {
+          throw new Error(
+            `sequence step '${args.step.id}' handoff binding ${index} has no source step`,
+          );
+        }
+        continue;
+      }
+      sourceOutput = args.outputsByStep.get(sourceStep);
+      if (typeof sourceOutput?.output === "undefined") {
+        if (required) {
+          throw new Error(
+            `sequence step '${args.step.id}' requires handoff from '${sourceStep}', but no output is available`,
+          );
+        }
+        continue;
+      }
+      value = getHandoffSourceValue(sourceOutput.output, binding.source || "$");
+    }
     if (typeof value === "undefined" && required) {
       throw new Error(
-        `sequence step '${args.step.id}' missing handoff input source '${sourcePath}' from '${fromStep}'`,
+        `sequence step '${args.step.id}' missing handoff source '${binding.source || "$"}' for target '${binding.target}'`,
       );
     }
-    if (typeof value !== "undefined") {
-      setPath(args.input, targetPath, value);
+    if (typeof value === "undefined") {
+      continue;
+    }
+    if (binding.kind === "file") {
+      const filePath = normalizeString(value);
+      if (!filePath && required) {
+        throw new Error(
+          `sequence step '${args.step.id}' file handoff target '${binding.target}' must resolve to a non-empty local path`,
+        );
+      }
+      const inputKey = target.path[0];
+      const isSkillRunner =
+        normalizeString(args.backendType) === DEFAULT_BACKEND_TYPE;
+      if (
+        isSkillRunner &&
+        args.workspaceMode === "reuse" &&
+        sourceOutput?.requestId
+      ) {
+        const sourcePath = normalizeSkillRunnerWorkspaceSourcePath({
+          value: filePath,
+          result: sourceOutput.result,
+          stepId: sourceStep,
+          target: binding.target,
+        });
+        const targetPath = buildUploadRelativePath(inputKey, sourcePath);
+        value = targetPath;
+        fileBindings.push({
+          input_key: inputKey,
+          source_request_id: sourceOutput.requestId,
+          source_path: sourcePath,
+          target_path: targetPath,
+        });
+      } else {
+        value = normalizeNativeLocalPath(filePath);
+      }
+    }
+    if (target.scope === "input") {
+      setNestedPath(args.input, target.path, value);
+    } else {
+      setNestedPath(args.parameter, target.path, value);
     }
   }
-  for (const [targetPath, sourcePath] of Object.entries(
-    handoff?.parameter || {},
-  )) {
-    const value = getPath(output, sourcePath);
-    if (typeof value === "undefined" && required) {
-      throw new Error(
-        `sequence step '${args.step.id}' missing handoff parameter source '${sourcePath}' from '${fromStep}'`,
-      );
-    }
-    if (typeof value !== "undefined") {
-      setPath(args.parameter, targetPath, value);
-    }
-  }
-}
-
-function mergeHandoffDefaults(args: {
-  handoff: SkillRunnerSequenceHandoffSpec | undefined;
-  input: Record<string, unknown>;
-  parameter: Record<string, unknown>;
-}) {
-  if (isRecord(args.handoff?.defaults?.input)) {
-    Object.assign(args.input, {
-      ...args.handoff!.defaults!.input,
-      ...args.input,
-    });
-  }
-  if (isRecord(args.handoff?.defaults?.parameter)) {
-    Object.assign(args.parameter, {
-      ...args.handoff!.defaults!.parameter,
-      ...args.parameter,
-    });
-  }
+  return fileBindings;
 }
 
 export function buildStepRequest(args: {
@@ -274,24 +342,22 @@ export function buildStepRequest(args: {
     ...cloneRecord(args.sequence.parameter),
     ...cloneRecord(args.step.parameter),
   };
-  mergeHandoffDefaults({
-    handoff: args.step.handoff,
-    input,
-    parameter,
-  });
+  const declaredWorkspace =
+    args.step.workspace || (args.stepIndex === 0 ? "new" : "reuse-workflow");
+  const workspaceMode =
+    declaredWorkspace === "reuse-workflow" ? "reuse" : "new";
+  let skillRunnerFileBindings: SkillRunnerWorkspaceFileBinding[] = [];
   if (args.stepIndex > 0) {
-    applyHandoffMapping({
+    skillRunnerFileBindings = applyHandoffBindings({
       step: args.step,
       previousStepId: args.previousStepId,
       outputsByStep: args.outputsByStep,
       input,
       parameter,
+      backendType: args.backendType,
+      workspaceMode,
     });
   }
-  const declaredWorkspace =
-    args.step.workspace || (args.stepIndex === 0 ? "new" : "reuse-workflow");
-  const workspaceMode =
-    declaredWorkspace === "reuse-workflow" ? "reuse" : "new";
   const runtimeOptions = cloneRecord(args.sequence.runtime_options);
   delete runtimeOptions.workflow_workspace;
   const stepMode = normalizeStepExecutionMode(args.step.mode);
@@ -326,6 +392,9 @@ export function buildStepRequest(args: {
       runtimeOptions.workspace = {
         mode: "reuse",
         request_id: requestId,
+        ...(skillRunnerFileBindings.length > 0
+          ? { file_bindings: skillRunnerFileBindings }
+          : {}),
       };
     } else {
       delete runtimeOptions.workspace;
@@ -377,6 +446,86 @@ function buildUploadRelativePath(fileKey: string, localPath: string) {
   );
 }
 
+function normalizePathForPrefix(value: string) {
+  return normalizeString(value)
+    .replace(/^file:\/\/+/, "")
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/\/+$/, "");
+}
+
+function getNestedString(source: unknown, path: string[]) {
+  let current = source;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return "";
+    }
+    current = current[segment];
+  }
+  return normalizeString(current);
+}
+
+function resolveResultWorkspaceDir(result: ProviderExecutionResult) {
+  const direct = "workspaceDir" in result ? result.workspaceDir : undefined;
+  return (
+    normalizeString(direct) ||
+    getNestedString(result.responseJson, ["workspaceDir"]) ||
+    getNestedString(result.responseJson, ["workspace_dir"])
+  );
+}
+
+function normalizeWorkspaceRelativePath(value: string) {
+  const normalized = normalizeString(value)
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+/g, "/")
+    .replace(/^\/+/, "");
+  const segments = normalized.split("/").filter(Boolean);
+  if (
+    segments.length === 0 ||
+    segments.some((segment) => segment === "." || segment === "..")
+  ) {
+    return "";
+  }
+  return segments.join("/");
+}
+
+function normalizeSkillRunnerWorkspaceSourcePath(args: {
+  value: string;
+  result: ProviderExecutionResult;
+  stepId: string;
+  target: string;
+}) {
+  const raw = normalizeString(args.value);
+  if (!raw) {
+    return "";
+  }
+  const normalizedRaw = normalizePathForPrefix(raw);
+  const workspaceDir = normalizePathForPrefix(
+    resolveResultWorkspaceDir(args.result),
+  );
+  if (isAbsoluteLocalPath(raw)) {
+    if (workspaceDir && normalizedRaw.startsWith(`${workspaceDir}/`)) {
+      const relative = normalizeWorkspaceRelativePath(
+        normalizedRaw.slice(workspaceDir.length + 1),
+      );
+      if (relative) {
+        return relative;
+      }
+    }
+    throw new Error(
+      `sequence step '${args.stepId}' file handoff source for '${args.target}' must be workspace-relative for SkillRunner reuse`,
+    );
+  }
+  const relative = normalizeWorkspaceRelativePath(raw);
+  if (!relative) {
+    throw new Error(
+      `sequence step '${args.stepId}' file handoff source for '${args.target}' contains invalid path segments`,
+    );
+  }
+  return relative;
+}
+
 function buildSkillRunnerUploadMapping(input: Record<string, unknown>) {
   const mappedInput = { ...input };
   const upload_files: Array<{ key: string; path: string }> = [];
@@ -384,8 +533,9 @@ function buildSkillRunnerUploadMapping(input: Record<string, unknown>) {
     if (typeof value !== "string" || !isAbsoluteLocalPath(value)) {
       continue;
     }
-    mappedInput[key] = buildUploadRelativePath(key, value);
-    upload_files.push({ key, path: value });
+    const localPath = normalizeNativeLocalPath(value);
+    mappedInput[key] = buildUploadRelativePath(key, localPath);
+    upload_files.push({ key, path: localPath });
   }
   return {
     input: mappedInput,
@@ -481,7 +631,7 @@ export function matchesShortCircuitRule(args: {
   if (!path) {
     return false;
   }
-  return primitiveEquals(getPath(args.output, path), spec.when.equals);
+  return primitiveEquals(getDotPath(args.output, path), spec.when.equals);
 }
 
 function findRecoveredShortCircuit(args: {
@@ -1123,44 +1273,71 @@ async function executeSequenceFromState(args: {
       sequenceJobId: args.state.jobId,
     });
     let progressRequestId = "";
-    const stepResult = await args.executeWithProvider({
-      requestKind: stepRequestKind,
-      request: stepRequest,
-      backend: args.backend,
-      providerOptions: args.providerOptions,
-      orchestrationContext: {
-        workflowId: args.state.workflowId,
-        workflowLabel: args.state.workflowLabel,
-        workflowRunId: args.state.workflowRunId,
-        jobId: `${args.state.jobId}:${step.id}`,
-        sequenceStepId: step.id,
-        sequenceStepIndex: index,
-        skillId: step.skill_id,
-        finalStepId: args.state.request.final_step_id,
-      },
-      onProgress: (event) => {
-        if (event.type === "request-created") {
-          progressRequestId = normalizeString(event.requestId);
-          recordSequenceStepRequestCreated({
-            sequenceRunId: args.state.sequenceRunId,
-            stepIndex: index,
-            requestId: progressRequestId,
-          });
-        }
-        args.onProgress?.({
-          ...event,
+    let stepResult: ProviderExecutionResult;
+    try {
+      stepResult = await args.executeWithProvider({
+        requestKind: stepRequestKind,
+        request: stepRequest,
+        backend: args.backend,
+        providerOptions: args.providerOptions,
+        orchestrationContext: {
+          workflowId: args.state.workflowId,
+          workflowLabel: args.state.workflowLabel,
+          workflowRunId: args.state.workflowRunId,
+          jobId: `${args.state.jobId}:${step.id}`,
           sequenceStepId: step.id,
           sequenceStepIndex: index,
-          sequenceStepSkillId: step.skill_id,
-          sequenceStepRequest: stepRequest,
-          sequenceStepTaskName:
-            normalizeString((stepRequest as { taskName?: unknown }).taskName) ||
-            `${args.state.workflowLabel || args.state.workflowId} / ${step.id}`,
-          workflowRunId: args.state.workflowRunId,
-          sequenceJobId: args.state.jobId,
-        });
-      },
-    });
+          skillId: step.skill_id,
+          finalStepId: args.state.request.final_step_id,
+        },
+        onProgress: (event) => {
+          if (event.type === "request-created") {
+            progressRequestId = normalizeString(event.requestId);
+            recordSequenceStepRequestCreated({
+              sequenceRunId: args.state.sequenceRunId,
+              stepIndex: index,
+              requestId: progressRequestId,
+            });
+          }
+          args.onProgress?.({
+            ...event,
+            sequenceStepId: step.id,
+            sequenceStepIndex: index,
+            sequenceStepSkillId: step.skill_id,
+            sequenceStepRequest: stepRequest,
+            sequenceStepTaskName:
+              normalizeString((stepRequest as { taskName?: unknown }).taskName) ||
+              `${args.state.workflowLabel || args.state.workflowId} / ${step.id}`,
+            workflowRunId: args.state.workflowRunId,
+            sequenceJobId: args.state.jobId,
+          });
+        },
+      });
+    } catch (error) {
+      const message = stringifyUnknownError(error);
+      recordSequenceStepTerminal({
+        sequenceRunId: args.state.sequenceRunId,
+        stepIndex: index,
+        requestId: progressRequestId,
+        status: "failed",
+        error: message,
+      });
+      args.onProgress?.({
+        type: "sequence-step-failed",
+        requestId: progressRequestId,
+        error: message,
+        sequenceStepId: step.id,
+        sequenceStepIndex: index,
+        sequenceStepSkillId: step.skill_id,
+        sequenceStepRequest: stepRequest,
+        sequenceStepTaskName:
+          normalizeString((stepRequest as { taskName?: unknown }).taskName) ||
+          `${args.state.workflowLabel || args.state.workflowId} / ${step.id}`,
+        workflowRunId: args.state.workflowRunId,
+        sequenceJobId: args.state.jobId,
+      });
+      throw error;
+    }
     const resultRequestId =
       normalizeString(stepResult.requestId) || progressRequestId;
     if (stepResult.status === "deferred") {
@@ -1195,13 +1372,16 @@ async function executeSequenceFromState(args: {
       return sequenceDeferredResult;
     }
     if (stepResult.status !== "succeeded") {
-      markSequenceRunTerminal({
+      const terminalError =
+        stepResult.status === "failed"
+          ? stepResult.error || `sequence step '${step.id}' failed`
+          : `sequence step '${step.id}' canceled`;
+      recordSequenceStepTerminal({
         sequenceRunId: args.state.sequenceRunId,
+        stepIndex: index,
+        requestId: resultRequestId,
         status: stepResult.status === "canceled" ? "canceled" : "failed",
-        error:
-          stepResult.status === "failed"
-            ? stepResult.error || `sequence step '${step.id}' failed`
-            : `sequence step '${step.id}' canceled`,
+        error: terminalError,
       });
       args.onProgress?.({
         type:
@@ -1209,7 +1389,7 @@ async function executeSequenceFromState(args: {
             ? "sequence-step-canceled"
             : "sequence-step-failed",
         requestId: resultRequestId,
-        error: stepResult.status === "failed" ? stepResult.error : undefined,
+        error: stepResult.status === "failed" ? terminalError : undefined,
         sequenceStepId: step.id,
         sequenceStepIndex: index,
         sequenceStepSkillId: step.skill_id,

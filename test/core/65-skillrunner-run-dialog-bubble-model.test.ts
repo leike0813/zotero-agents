@@ -559,6 +559,41 @@ describe("skillrunner run dialog bubble message model", function () {
     });
   });
 
+  it("normalizes object choice options from ask_user with stable response values", function () {
+    const normalized = normalizeRunDialogPendingState({
+      request_id: "req-object-options",
+      status: "waiting_user",
+      pending_owner: "waiting_user",
+      pending: {
+        interaction_id: 20,
+        kind: "choose_one",
+        prompt: "choose by value",
+        ask_user: {
+          kind: "choose_one",
+          prompt: "choose by value",
+          options: [
+            { label: "Continue", value: "continue_value" },
+            { label: "Stop", value: "stop_value" },
+          ],
+        },
+      },
+    });
+    assert.deepEqual(normalized.pendingInteraction?.options, [
+      { label: "Continue", value: "continue_value" },
+      { label: "Stop", value: "stop_value" },
+    ]);
+    assert.deepEqual(
+      resolveRunDialogInteractionResponse({
+        responseValue: normalized.pendingInteraction?.options?.[0]?.value,
+        replyText: normalized.pendingInteraction?.options?.[0]?.label,
+      }),
+      {
+        hasResponse: true,
+        response: "continue_value",
+      },
+    );
+  });
+
   it("normalizes raw pending branch message and ui_hints", function () {
     const normalized = normalizeRunDialogPendingState({
       request_id: "req-1",

@@ -11,6 +11,7 @@ export type SynthesisResultBundle = {
   topic_resolver?: Record<string, unknown>;
   resolved_paper_set?: Record<string, unknown>;
   resolver_manifest_path?: string;
+  artifact_manifest_path?: string;
   resolver_diagnostics?: Record<string, unknown>;
   artifact_metadata?: Record<string, unknown>;
   analysis_manifest_path?: string;
@@ -116,7 +117,13 @@ export function validateSynthesisResultBundle(input: unknown): {
     if (cleanString(input.markdown)) {
       throw new Error("synthesis result bundle must not embed markdown");
     }
-    const analysisManifestPath = requireString(input, "analysis_manifest_path");
+    const analysisManifestPath = cleanString(input.analysis_manifest_path);
+    const artifactManifestPath = cleanString(input.artifact_manifest_path);
+    if (!analysisManifestPath && !artifactManifestPath) {
+      throw new Error(
+        "synthesis result bundle requires analysis_manifest_path or artifact_manifest_path",
+      );
+    }
     const topicInterestMetadataPath = cleanString(
       input.topic_interest_metadata_path,
     );
@@ -148,9 +155,16 @@ export function validateSynthesisResultBundle(input: unknown): {
             ? input.topic_definition
             : {},
           resolver_manifest_path: cleanString(input.resolver_manifest_path),
+          artifact_manifest_path: artifactManifestPath,
           resolver_diagnostics: {},
           artifact_metadata: artifactMetadata,
           analysis_manifest_path: analysisManifestPath,
+          base_hashes: isObject(input.base_hashes)
+            ? (input.base_hashes as Record<string, string>)
+            : {},
+          read_section_hashes: isObject(input.read_section_hashes)
+            ? (input.read_section_hashes as Record<string, string>)
+            : {},
           topic_interest_metadata_path: topicInterestMetadataPath,
           concept_cards_proposal_path: conceptCardsProposalPath,
           topic_graph_relation_proposals_path: relationProposalsPath,
@@ -173,7 +187,8 @@ export function validateSynthesisResultBundle(input: unknown): {
         mode: operation === "create" ? "create" : "update",
         language,
         topic_definition: requireTopicDefinition(input),
-        resolver_manifest_path: requireString(input, "resolver_manifest_path"),
+        resolver_manifest_path: cleanString(input.resolver_manifest_path),
+        artifact_manifest_path: artifactManifestPath,
         resolver_diagnostics: isObject(input.resolver_diagnostics)
           ? input.resolver_diagnostics
           : {},

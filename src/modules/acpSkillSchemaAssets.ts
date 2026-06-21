@@ -1,6 +1,6 @@
 import Ajv, { type ErrorObject } from "ajv";
 import Ajv2020 from "ajv/dist/2020";
-import { getBaseName, joinPath } from "../utils/path";
+import { getBaseName, joinPath, normalizeNativeLocalPath } from "../utils/path";
 import type { AcpSkillRunRequestV1 } from "../providers/contracts";
 import skillInputSchemaMetaSchema from "../schemas/skill/skill_input_schema.schema.json";
 import skillOutputSchemaMetaSchema from "../schemas/skill/skill_output_schema.schema.json";
@@ -253,7 +253,7 @@ async function validateFileInput(args: {
   key: string;
   value: unknown;
 }) {
-  const path = normalizeString(args.value);
+  const path = normalizeNativeLocalPath(normalizeString(args.value));
   if (!path) {
     return `input validation error: key '${args.key}' must be a non-empty absolute local path`;
   }
@@ -325,7 +325,9 @@ export async function validateAcpSkillRunRequestAgainstSchemas(args: {
               errors.push(fileError);
               continue;
             }
-            inputContext[key] = requestInput[key];
+            inputContext[key] = normalizeNativeLocalPath(
+              normalizeString(requestInput[key]),
+            );
             continue;
           }
           if (hasValue) {

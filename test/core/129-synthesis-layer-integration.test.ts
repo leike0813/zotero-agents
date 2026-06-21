@@ -3856,6 +3856,20 @@ function v2SectionContext(
   const files = new Map<string, string>([
     ["result/topic-analysis.json", JSON.stringify(manifest)],
     [
+      "result/topic-synthesis-artifacts.json",
+      JSON.stringify({
+        resolver_manifest: "runtime/payloads/resolver.json",
+        topic_analysis: "result/topic-analysis.json",
+        final_output_candidate: "result/final-output.candidate.json",
+        ...Object.fromEntries(
+          Object.keys(sections).map((section) => [
+            `${section}_section`,
+            `result/sections/${section.replace(/_/g, "-")}.json`,
+          ]),
+        ),
+      }),
+    ],
+    [
       "result/sidecars/topic-interest-metadata.json",
       JSON.stringify({
         schema: "topic_interest_metadata.v1",
@@ -4323,7 +4337,9 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
           runtime: "split-skill",
           topic_id: "object-detection",
         },
-        candidate_output_path: "result/final-output.candidate.json",
+        resolver_manifest_path: "",
+        analysis_manifest_path: "",
+        artifact_manifest_path: "result/topic-synthesis-artifacts.json",
       }),
       v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR"))),
     );

@@ -151,9 +151,14 @@ function validateSequenceManifestSemantics(manifest: WorkflowManifest) {
     return "/result/final_step_id must match a declared sequence step";
   }
   for (let index = 0; index < steps.length; index++) {
-    const fromStep = String(steps[index]?.handoff?.from_step || "").trim();
-    if (fromStep && !seen.has(fromStep)) {
-      return `/request/sequence/steps/${index}/handoff/from_step must match a declared sequence step`;
+    const bindings = Array.isArray(steps[index]?.handoff?.bindings)
+      ? steps[index]?.handoff?.bindings || []
+      : [];
+    for (let bindingIndex = 0; bindingIndex < bindings.length; bindingIndex++) {
+      const fromStep = String(bindings[bindingIndex]?.step || "").trim();
+      if (fromStep && !seen.has(fromStep)) {
+        return `/request/sequence/steps/${index}/handoff/bindings/${bindingIndex}/step must match a declared sequence step`;
+      }
     }
     const shortCircuit = steps[index]?.short_circuit;
     if (shortCircuit !== undefined) {

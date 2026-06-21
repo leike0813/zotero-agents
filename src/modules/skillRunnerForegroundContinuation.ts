@@ -164,10 +164,8 @@ function resolvePollOptions(request: unknown) {
     return undefined;
   }
   const intervalMs = Number(request.poll.interval_ms);
-  const timeoutMs = Number(request.poll.timeout_ms);
   return {
     ...(Number.isFinite(intervalMs) ? { interval_ms: intervalMs } : {}),
-    ...(Number.isFinite(timeoutMs) ? { timeout_ms: timeoutMs } : {}),
   };
 }
 
@@ -318,7 +316,9 @@ async function applySingleTerminalSuccess(args: {
   if (!workflow) {
     throw new Error(`workflow not found for apply: ${args.record.workflowId}`);
   }
-  const request = args.record.requestPayload;
+  const request = isRecord(args.record.requestPayload)
+    ? args.record.requestPayload
+    : {};
   const targetParentID =
     args.record.taskProjection.targetParentID ||
     resolveTargetParentIDFromRequest(request);

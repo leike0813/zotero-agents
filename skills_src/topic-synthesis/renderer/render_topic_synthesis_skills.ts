@@ -293,7 +293,7 @@ function renderOutputContractBody(skill: SkillContract): string {
     "本技能输出一个 `topic_synthesis` JSON 对象，或一个 `topic_synthesis_canceled` JSON 对象。",
     "",
     "- 返回对象必须符合 `assets/output.schema.json`。",
-    "- 成功输出包含 operation、language、topic definition 和 analysis manifest path。",
+    "- 成功输出包含 operation、language、topic definition 和 artifact manifest path。",
     "- 运行器负责把通过校验的结果接受为 `result/result.json`。",
   ].join("\n");
 }
@@ -671,9 +671,7 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
           "operation",
           "language",
           "topic_definition",
-          "resolver_manifest_path",
-          "analysis_manifest_path",
-          "candidate_output_path",
+          "artifact_manifest_path",
         ],
         properties: {
           kind: { const: "topic_synthesis" },
@@ -687,10 +685,11 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
               title: { type: "string", minLength: 1 },
             },
           },
-          resolver_manifest_path: { type: "string", minLength: 1 },
-          analysis_manifest_path: { type: "string", minLength: 1 },
-          candidate_output_path: {
-            const: "result/final-output.candidate.json",
+          artifact_manifest_path: {
+            type: "string",
+            minLength: 1,
+            "x-type": "artifact",
+            "x-role": "artifact-manifest",
           },
         },
       },
@@ -704,9 +703,7 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
           "language",
           "topic_definition",
           "base_hashes",
-          "resolver_manifest_path",
-          "analysis_manifest_path",
-          "candidate_output_path",
+          "artifact_manifest_path",
         ],
         properties: {
           kind: { const: "topic_synthesis" },
@@ -729,10 +726,11 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
               metadata: { type: "string", minLength: 1 },
             },
           },
-          resolver_manifest_path: { type: "string", minLength: 1 },
-          analysis_manifest_path: { type: "string", minLength: 1 },
-          candidate_output_path: {
-            const: "result/final-output.candidate.json",
+          artifact_manifest_path: {
+            type: "string",
+            minLength: 1,
+            "x-type": "artifact",
+            "x-role": "artifact-manifest",
           },
         },
       },

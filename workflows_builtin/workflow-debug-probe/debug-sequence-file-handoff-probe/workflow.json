@@ -1,0 +1,67 @@
+{
+  "id": "debug-sequence-file-handoff-probe",
+  "label": "Debug: Sequence File Handoff Probe",
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "execution": {
+    "feedback": {
+      "showNotifications": false
+    }
+  },
+  "result": {
+    "final_step_id": "check-file"
+  },
+  "request": {
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "emit-file",
+          "skill_id": "debug-sequence-probe-emit",
+          "mode": "auto",
+          "workspace": "new",
+          "parameter": {
+            "probe_id": "file-handoff",
+            "public_marker": "file-handoff-public",
+            "secret_marker": "file-handoff-secret",
+            "write_sentinel": true,
+            "sentinel_path": "runtime/sequence-file-handoff-artifact.json"
+          }
+        },
+        {
+          "id": "check-file",
+          "skill_id": "debug-sequence-probe-check",
+          "mode": "auto",
+          "workspace": "reuse-workflow",
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "file",
+                "step": "emit-file",
+                "source": "artifact_path",
+                "target": "/input/artifact_file"
+              }
+            ]
+          },
+          "parameter": {
+            "probe_id": "file-handoff",
+            "expect_handoff_present": false,
+            "expect_artifact_file": true,
+            "expected_sentinel": "present",
+            "sentinel_path": "runtime/sequence-file-handoff-artifact.json"
+          }
+        }
+      ]
+    }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applySequenceProbeResult.mjs"
+  }
+}

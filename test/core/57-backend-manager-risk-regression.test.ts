@@ -24,6 +24,7 @@ import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence
 import {
   getSkillRunnerBackendHealthState,
   isSkillRunnerBackendAvailable,
+  markSkillRunnerBackendHealthFailure,
   markSkillRunnerBackendHealthSuccess,
   registerSkillRunnerBackendForHealthTracking,
   resetSkillRunnerBackendHealthRegistryForTests,
@@ -1093,6 +1094,31 @@ describe("backend manager risk regression", function () {
     assert.isFalse(isSkillRunnerBackendAvailable("backend-skillrunner-unconfirmed"));
     markSkillRunnerBackendHealthSuccess("backend-skillrunner-unconfirmed");
     assert.isTrue(isSkillRunnerBackendAvailable("backend-skillrunner-unconfirmed"));
+  });
+
+  it("buffers one SkillRunner health probe failure before gating a reachable backend", function () {
+    registerSkillRunnerBackendForHealthTracking("backend-skillrunner-buffered");
+    markSkillRunnerBackendHealthSuccess("backend-skillrunner-buffered");
+
+    const firstFailure = markSkillRunnerBackendHealthFailure({
+      backendId: "backend-skillrunner-buffered",
+      error: new Error("probe timeout"),
+    });
+
+    assert.equal(firstFailure?.status, "reachable");
+    assert.isTrue(firstFailure?.reachable);
+    assert.equal(firstFailure?.failureStreak, 1);
+    assert.isTrue(isSkillRunnerBackendAvailable("backend-skillrunner-buffered"));
+
+    const secondFailure = markSkillRunnerBackendHealthFailure({
+      backendId: "backend-skillrunner-buffered",
+      error: new Error("probe timeout"),
+    });
+
+    assert.equal(secondFailure?.status, "unreachable");
+    assert.isFalse(secondFailure?.reachable);
+    assert.equal(secondFailure?.failureStreak, 2);
+    assert.isFalse(isSkillRunnerBackendAvailable("backend-skillrunner-buffered"));
   });
 
   it("tracks SkillRunner backend health immediately when profiles are saved", function () {

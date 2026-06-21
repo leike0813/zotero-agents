@@ -1,0 +1,6 @@
+- [x] 1. Add OpenSpec deltas for bundle artifact manifest output contracts.
+- [x] 2. Update deep reading runtime and output schema to emit a flat artifact manifest.
+- [x] 3. Update topic synthesis runtime/renderer/output schemas to emit and accept `artifact_manifest_path`.
+- [x] 4. Update topic synthesis apply to resolve required artifacts from the flat manifest.
+- [x] 5. Add focused tests for output schemas, runtime manifests, and apply compatibility.
+- [x] 6. Run minimal relevant verification.

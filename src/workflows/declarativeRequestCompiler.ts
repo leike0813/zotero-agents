@@ -434,8 +434,6 @@ function buildSkillRunnerJobRequest(args: {
     poll: {
       interval_ms:
         request.poll?.interval_ms || args.manifest.execution?.poll_interval_ms,
-      timeout_ms:
-        request.poll?.timeout_ms || args.manifest.execution?.timeout_ms,
     },
     fetch_type: fetchType === "result" ? "result" : "bundle",
   };
@@ -516,8 +514,6 @@ function buildSkillRunnerSequenceRequest(args: {
     poll: {
       interval_ms:
         request?.poll?.interval_ms || args.manifest.execution?.poll_interval_ms,
-      timeout_ms:
-        request?.poll?.timeout_ms || args.manifest.execution?.timeout_ms,
     },
   };
   if (targetParentID) {

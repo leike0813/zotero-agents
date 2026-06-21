@@ -770,36 +770,39 @@
     },
     "requestSequenceHandoffSpec": {
       "type": "object",
+      "required": ["bindings"],
       "properties": {
-        "from_step": {
+        "bindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/requestSequenceHandoffBindingSpec"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "requestSequenceHandoffBindingSpec": {
+      "type": "object",
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["value", "file"]
+        },
+        "target": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "source": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "step": {
           "$ref": "#/$defs/nonEmptyString"
         },
         "required": {
           "type": "boolean"
         },
-        "pass_through": {
-          "type": "boolean"
-        },
-        "input": {
-          "$ref": "#/$defs/stringMap"
-        },
-        "parameter": {
-          "$ref": "#/$defs/stringMap"
-        },
-        "defaults": {
-          "type": "object",
-          "properties": {
-            "input": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "parameter": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "additionalProperties": false
-        }
+        "value": {}
       },
       "additionalProperties": false
     },

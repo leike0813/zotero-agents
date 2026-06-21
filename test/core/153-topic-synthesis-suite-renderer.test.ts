@@ -448,6 +448,9 @@ describe("Topic synthesis suite renderer", function () {
         assert.include(serialized, "topic_synthesis_canceled");
         assert.notInclude(serialized, "topic_synthesis_handoff");
         assert.notInclude(serialized, "handoff_manifest_path");
+        assert.include(serialized, "artifact_manifest_path");
+        assert.include(serialized, "artifact-manifest");
+        assert.notInclude(serialized, "analysis_manifest_path");
         assert.isFalse(
           validate({
             __SKILL_DONE__: true,
@@ -455,9 +458,7 @@ describe("Topic synthesis suite renderer", function () {
             operation: "create",
             language: "zh-CN",
             topic_definition: { id: "detr", title: "DETR" },
-            resolver_manifest_path: "runtime/payloads/resolver.json",
-            analysis_manifest_path: "result/topic-analysis.json",
-            candidate_output_path: "result/final-output.candidate.json",
+            artifact_manifest_path: "result/topic-synthesis-artifacts.json",
           }),
           `${skillId} output schema must reject ACP control fields`,
         );

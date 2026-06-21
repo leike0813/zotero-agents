@@ -4,14 +4,21 @@ import {
   clearRuntimeLogs,
   listRuntimeLogs,
 } from "../../src/modules/runtimeLogManager";
+import {
+  listWorkflowTasks,
+  recordWorkflowTaskUpdate,
+  resetWorkflowTasks,
+} from "../../src/modules/taskRuntime";
 
 describe("job queue progress", function () {
   beforeEach(function () {
     clearRuntimeLogs();
+    resetWorkflowTasks();
   });
 
   afterEach(function () {
     clearRuntimeLogs();
+    resetWorkflowTasks();
   });
 
   it("writes requestId into running job meta through progress callback", async function () {
@@ -44,6 +51,7 @@ describe("job queue progress", function () {
         }
       },
       onJobUpdated: (job) => {
+        recordWorkflowTaskUpdate(job);
         updates.push({
           state: job.state,
           requestId: String(job.meta.requestId || "").trim() || undefined,
@@ -270,6 +278,9 @@ describe("job queue progress", function () {
       meta: {
         runId: "run-1",
         providerId: "skillrunner",
+        backendId: "backend-skillrunner-local",
+        backendType: "skillrunner",
+        requestKind: "skillrunner.job.v1",
       },
     });
     await queue.waitForIdle();
@@ -285,6 +296,11 @@ describe("job queue progress", function () {
     );
     assert.equal(updates[3].requestId, "req-recoverable-1");
     assert.equal(updates[3].error, "backend polling temporarily failed");
+    assert.isUndefined(
+      listWorkflowTasks().find(
+        (entry) => entry.requestId === "req-recoverable-1",
+      ),
+    );
     assert.isTrue(
       listRuntimeLogs().some(
         (entry) =>

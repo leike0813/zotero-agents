@@ -45,6 +45,8 @@ export type WorkflowTaskRecord = {
   backendType?: string;
   backendBaseUrl?: string;
   state: JobState;
+  mainStatus?: JobState;
+  backendStatus?: string;
   skillRunnerLifecycleState?:
     | "pre_request_id"
     | "request_creating"
@@ -145,9 +147,22 @@ function isSkillRunnerRequestReady(job: JobRecord) {
   );
 }
 
+function isPreReadySkillRunnerTerminalFailure(job: JobRecord) {
+  return (
+    isSkillRunnerProtocolJob(job) &&
+    isTerminal(job.state) &&
+    !!resolveRequestIdFromJob(job) &&
+    !isSkillRunnerRequestReady(job) &&
+    !hasProviderResultRequestId(job)
+  );
+}
+
 export function isSkillRunnerJobReadyForTaskProjection(job: JobRecord) {
   if (!isSkillRunnerProtocolJob(job)) {
     return true;
+  }
+  if (isPreReadySkillRunnerTerminalFailure(job)) {
+    return false;
   }
   if (isSkillRunnerRequestReady(job)) {
     return true;
@@ -301,6 +316,18 @@ function emitTasksChanged() {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function resolveSkillRunnerFetchTypeFromJob(job: JobRecord) {
+  const result = isObject(job.result) ? job.result : {};
+  const responseJson = isObject(result.responseJson) ? result.responseJson : {};
+  const request = isObject(job.request) ? job.request : {};
+  const raw =
+    result.fetchType ||
+    result.fetch_type ||
+    responseJson.fetch_type ||
+    request.fetch_type;
+  return raw === "result" ? "result" : raw === "bundle" ? "bundle" : undefined;
 }
 
 function parsePersistedTaskRecord(raw: unknown): WorkflowTaskRecord | null {
@@ -461,12 +488,26 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
     String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE &&
     !isSkillRunnerJobReadyForTaskProjection(job)
   ) {
-    taskRecords.delete(record.id);
+    const removedTask = taskRecords.delete(record.id);
+    const removedRun = deleteSkillRunnerRunRecord(
+      buildSkillRunnerRunKey({
+        backendId: record.backendId,
+        requestId: record.requestId,
+        runId: record.runId,
+        jobId: record.jobId,
+        localRunId: record.localRunId,
+      }) || buildSkillRunnerLocalRunKey(record.localRunId || record.id),
+    );
+    if (removedTask || removedRun) {
+      persistTaskRecordsToStore();
+      emitTasksChanged();
+    }
     return;
   }
   taskRecords.set(record.id, record);
   if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
     upsertSkillRunnerRunFromTask(record, {
+      fetchType: resolveSkillRunnerFetchTypeFromJob(job),
       eventType: "backend.snapshot",
       eventPayload: {
         source: "taskRuntime.recordWorkflowTaskUpdate",
@@ -559,6 +600,7 @@ export function updateWorkflowTaskStateByRequest(args: {
   backendType?: string;
   requestId: string;
   state: JobState;
+  backendStatus?: string;
   error?: string;
   updatedAt?: string;
 }) {
@@ -579,6 +621,7 @@ export function updateWorkflowTaskStateByRequest(args: {
       backendId,
       requestId,
       state: nextState,
+      backendStatus: args.backendStatus as JobState | undefined,
       error: nextError,
       updatedAt: nextUpdatedAt,
       eventType: isTerminal(nextState)
@@ -610,6 +653,8 @@ export function updateWorkflowTaskStateByRequest(args: {
     taskRecords.set(id, {
       ...record,
       state: nextState,
+      mainStatus: nextState,
+      backendStatus: args.backendStatus || record.backendStatus,
       error: nextError,
       updatedAt: nextUpdatedAt,
     });

@@ -464,6 +464,7 @@ describe("workflow debug probe", function () {
       loaded.workflows.map((entry) => entry.manifest.id),
     );
     for (const workflowId of [
+      "debug-apply-manifest-bundle",
       "debug-apply-single-bundle",
       "debug-apply-single-result",
       "debug-apply-sequence-bundle",
@@ -526,10 +527,7 @@ describe("workflow debug probe", function () {
     assert.lengthOf(defaultRequests, 1);
     assert.lengthOf(defaultRequests[0].steps, 1);
     assert.deepEqual(defaultRequests[0].steps[0].input, {});
-    assert.deepEqual(defaultRequests[0].steps[0].handoff, {
-      pass_through: false,
-      required: false,
-    });
+    assert.isUndefined(defaultRequests[0].steps[0].handoff);
     assert.containsAllKeys(defaultRequests[0].steps[0].parameter || {}, [
       "workflow_id",
       "step_id",
@@ -572,10 +570,7 @@ describe("workflow debug probe", function () {
     );
     assert.deepEqual(
       enabledRequests[0].steps.map((step) => step.handoff),
-      [
-        { pass_through: false, required: false },
-        { pass_through: false, required: false },
-      ],
+      [undefined, undefined],
     );
 
     const resultThenBundle = await getBuiltinDebugWorkflow(
@@ -605,6 +600,32 @@ describe("workflow debug probe", function () {
     }>;
     assert.deepEqual(singleRequests[0].input, {});
     assert.containsAllKeys(singleRequests[0].parameter || {}, [
+      "workflow_id",
+      "step_id",
+      "run_key",
+    ]);
+
+    const manifestBundle = await getBuiltinDebugWorkflow(
+      "debug-apply-manifest-bundle",
+    );
+    const manifestRequests = (await executeBuildRequests({
+      workflow: manifestBundle,
+      selectionContext,
+    })) as Array<{
+      kind: string;
+      skill_id?: string;
+      fetch_type?: string;
+      input?: Record<string, unknown>;
+      parameter?: Record<string, unknown>;
+    }>;
+    assert.equal(manifestRequests[0].kind, "skillrunner.job.v1");
+    assert.equal(
+      manifestRequests[0].skill_id,
+      "debug-apply-manifest-bundle-probe",
+    );
+    assert.equal(manifestRequests[0].fetch_type, "bundle");
+    assert.deepEqual(manifestRequests[0].input, {});
+    assert.containsAllKeys(manifestRequests[0].parameter || {}, [
       "workflow_id",
       "step_id",
       "run_key",
@@ -755,6 +776,71 @@ describe("workflow debug probe", function () {
     assert.equal(applied.mode, "bundle");
     assert.equal(applied.artifactEntryPath, "result/debug-apply-artifact.txt");
     assert.equal(applied.artifactText, "debug bundle artifact body");
+    assert.include(parent.getAttachments(), applied.attachmentId);
+  });
+
+  it("debug apply manifest-bundle hook reads artifacts listed by resultJson manifest path", async function () {
+    const workflow = await getBuiltinDebugWorkflow("debug-apply-manifest-bundle");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "debug-apply-manifest-bundle apply-test" },
+    });
+    const resultJson = {
+      kind: "debug_apply_contract_result",
+      workflow_id: "debug-apply-manifest-bundle",
+      step_id: "bundle",
+      run_key: "manifest1",
+      apply_mode: "bundle",
+      artifact_manifest_path: "result/debug-apply-artifacts.json",
+      message: "canonical manifest bundle",
+    };
+    assert.notProperty(resultJson, "artifact_path");
+    const bundleEntries: Record<string, string> = {
+      "result/result.json": JSON.stringify(resultJson),
+      "result/debug-apply-artifacts.json": JSON.stringify({
+        debug_apply_artifact: "result/manifest-artifacts/debug-apply-artifact.txt",
+      }),
+      "result/manifest-artifacts/debug-apply-artifact.txt":
+        "debug manifest bundle artifact body",
+    };
+    const bundleReader = {
+      readText: async (entryPath: string) => {
+        if (Object.prototype.hasOwnProperty.call(bundleEntries, entryPath)) {
+          return bundleEntries[entryPath];
+        }
+        throw new Error(`missing bundle entry: ${entryPath}`);
+      },
+    };
+    const runResult = {
+      status: "succeeded",
+      requestId: "debug-manifest-bundle-request",
+      fetchType: "bundle",
+    };
+    const resultContext = await createWorkflowResultContext({
+      runResult,
+      bundleReader,
+      manifest: workflow.manifest,
+    });
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader,
+      resultContext,
+      request: { targetParentID: parent.id },
+      runResult,
+    })) as {
+      mode: string;
+      artifactEntryPath: string;
+      artifactText: string;
+      attachmentId: number;
+    };
+
+    assert.equal(applied.mode, "bundle");
+    assert.equal(
+      applied.artifactEntryPath,
+      "result/manifest-artifacts/debug-apply-artifact.txt",
+    );
+    assert.equal(applied.artifactText, "debug manifest bundle artifact body");
     assert.include(parent.getAttachments(), applied.attachmentId);
   });
 

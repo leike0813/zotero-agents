@@ -1,0 +1,32 @@
+{
+  "id": "debug-apply-manifest-bundle",
+  "label": "Debug: Apply Manifest Bundle",
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "mode": "auto"
+    }
+  },
+  "execution": {
+    "feedback": {
+      "showNotifications": true
+    },
+    "timeout_ms": 180000
+  },
+  "result": {
+    "fetch": { "type": "bundle" }
+  },
+  "hooks": {
+    "buildRequest": "../hooks/buildDebugApplyContractRequest.mjs",
+    "applyResult": "../hooks/applyDebugApplyContractResult.mjs"
+  }
+}

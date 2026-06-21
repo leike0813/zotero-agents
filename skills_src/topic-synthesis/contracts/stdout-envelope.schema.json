@@ -33,17 +33,18 @@
       "required": [
         "kind",
         "operation",
-        "analysis_manifest_path",
-        "candidate_output_path"
+        "artifact_manifest_path"
       ],
       "properties": {
         "kind": { "const": "topic_synthesis" },
         "operation": {
           "enum": ["create", "update_full"]
         },
-        "analysis_manifest_path": { "type": "string", "minLength": 1 },
-        "candidate_output_path": {
-          "const": "result/final-output.candidate.json"
+        "artifact_manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact",
+          "x-role": "artifact-manifest"
         }
       }
     }

@@ -106,6 +106,81 @@
     return "muted";
   }
 
+  function statusLabel(source, status) {
+    const token = normalizeStatusToken(status);
+    if (token === "succeeded" || token === "success" || token === "done" || token === "completed") {
+      return labelFrom(source, "status.succeeded", "Succeeded");
+    }
+    if (token === "failed" || token === "error" || token === "errored") {
+      return labelFrom(source, "status.failed", "Failed");
+    }
+    if (token === "canceled" || token === "cancelled") {
+      return labelFrom(source, "status.canceled", "Canceled");
+    }
+    if (token === "waiting-user" || token === "waiting-auth" || token === "waiting_user" || token === "waiting_auth") {
+      return labelFrom(source, "status.waiting", "Waiting");
+    }
+    if (BUSY_STATES.has(token) || token === "queued") {
+      return labelFrom(source, "status.running", "Running");
+    }
+    if (token === "idle") return labelFrom(source, "status.idle", "Idle");
+    return safeText(status) || labelFrom(source, "status.idle", "Idle");
+  }
+
+  function normalizeTaskApplyStatus(source, mainStatus) {
+    const state = normalizeApplyState(source);
+    if (state && state !== "idle") return state;
+    if (safeText(source && (source.applyResultState || source.apply_result_state))) {
+      return normalizeStatusToken(source.applyResultState || source.apply_result_state);
+    }
+    const main = normalizeStatusToken(mainStatus);
+    if (main === "succeeded" || main === "completed") return "not-required";
+    return state || "idle";
+  }
+
+  function taskStatusFields(source, labelSource) {
+    const data = source && typeof source === "object" ? source : {};
+    const labels = labelSource || data;
+    let mainStatus = normalizeStatusToken(
+      data.mainStatus || data.main_status || data.status || data.state,
+    );
+    const backendStatus = normalizeStatusToken(
+      data.backendStatus || data.backend_status || data.providerStatus || data.provider_status || data.status || data.state,
+    );
+    const applyStatus = normalizeTaskApplyStatus(data, mainStatus);
+    if (backendStatus === "failed" || backendStatus === "error" || applyStatus === "failed") {
+      mainStatus = "failed";
+    } else if (backendStatus === "canceled" || backendStatus === "cancelled") {
+      mainStatus = "canceled";
+    } else if (
+      backendStatus === "succeeded" &&
+      (applyStatus === "succeeded" || applyStatus === "skipped" || applyStatus === "not-required")
+    ) {
+      mainStatus = "succeeded";
+    }
+    const applyLabel =
+      applyStatus === "not-required"
+        ? labelFrom(labels, "status.applyNotRequired", "Not required")
+        : applyStateLabel(labels, applyStatus, data) ||
+          (applyStatus === "idle"
+            ? labelFrom(labels, "status.idle", "Idle")
+            : statusLabel(labels, applyStatus));
+    return {
+      mainStatus,
+      mainStatusLabel: statusLabel(labels, mainStatus),
+      mainStatusTone: statusTone(mainStatus),
+      backendStatus,
+      backendStatusLabel: statusLabel(labels, backendStatus),
+      backendStatusTone: statusTone(backendStatus),
+      applyStatus,
+      applyStatusLabel: applyLabel,
+      applyStatusTone:
+        applyStatus === "not-required"
+          ? "success"
+          : applyStateTone(applyStatus),
+    };
+  }
+
   function buildDeferredApplyIndicator(source, labelSource) {
     const state = normalizeApplyState(source);
     if (!state || state === "idle") return null;
@@ -123,6 +198,74 @@
       value,
       applyStateTone(state),
       details || value,
+    );
+  }
+
+  function buildSkillRunnerControlIndicator(source, labelSource, statusRaw) {
+    const data = source && typeof source === "object" ? source : {};
+    const labels = labelSource || data;
+    const status = normalizeStatusToken(statusRaw || data.status || data.state);
+    const submitPhase = normalizeStatusToken(data.submitPhase || data.submit_phase);
+    const requestId = safeText(data.requestId || data.request_id || data.id);
+    const requestAssigned =
+      typeof data.requestAssigned === "boolean"
+        ? data.requestAssigned
+        : Boolean(requestId);
+    const backendInteractive =
+      typeof data.backendInteractive === "boolean"
+        ? data.backendInteractive
+        : requestAssigned;
+    const canReply =
+      typeof data.canReply === "boolean"
+        ? data.canReply
+        : backendInteractive && (status === "waiting-user" || status === "waiting-auth");
+    const pendingPermission =
+      data.pendingPermission && typeof data.pendingPermission === "object"
+        ? data.pendingPermission
+        : null;
+    const authPhase = safeText(data.authPhase || data.auth_phase);
+    const label = labelFrom(labels, "fields.control", "Interaction");
+    let value = "";
+    let tone = "muted";
+    let title = "";
+    if (pendingPermission) {
+      value = labelFrom(labels, "status.controlApproval", "Approval");
+      tone = "warning";
+      title = safeText(pendingPermission.summary || pendingPermission.toolTitle) || value;
+    } else if (authPhase || status === "waiting-auth") {
+      value = labelFrom(labels, "status.controlAuth", "Auth");
+      tone = "warning";
+    } else if (canReply || status === "waiting-user") {
+      value = labelFrom(labels, "status.controlInput", "Needs input");
+      tone = "warning";
+    } else if (!requestAssigned || !requestId) {
+      value = labelFrom(labels, "status.controlPreparing", "Preparing");
+      tone = "accent";
+    } else if (!backendInteractive) {
+      const uploading =
+        submitPhase === "uploading" ||
+        status === "uploading" ||
+        status === "request-creating";
+      value = uploading
+        ? labelFrom(labels, "status.controlUploading", "Submitting")
+        : labelFrom(labels, "status.controlPreparing", "Preparing");
+      tone = "accent";
+    } else if (isTerminalStatus(status)) {
+      value = labelFrom(labels, "status.controlReadOnly", "Read-only");
+      tone = "muted";
+    } else if (backendInteractive) {
+      value = labelFrom(labels, "status.controlLive", "Streaming");
+      tone = "success";
+    } else {
+      value = labelFrom(labels, "status.controlUnavailable", "Unavailable");
+      tone = "muted";
+    }
+    return indicator(
+      "skillrunner-control",
+      label,
+      value,
+      tone,
+      title || value,
     );
   }
 
@@ -279,24 +422,67 @@
     };
   }
 
-  function connectionIndicator(state, errorText) {
+  function connectionIndicator(state, errorText, labelSource) {
+    const source = labelSource || {};
+    const label = labelFrom(source, "fields.connection", "Connection");
     const token = normalizeStatusToken(state || "idle");
     if (["connected", "active"].indexOf(token) >= 0) {
-      return indicator("connection", "Connection", "Connected", "success", "ACP connection is active.");
+      return indicator(
+        "connection",
+        label,
+        labelFrom(source, "status.connected", "Connected"),
+        "success",
+        labelFrom(
+          source,
+          "indicatorTitles.acpConnectionActive",
+          "ACP connection is active.",
+        ),
+      );
     }
-    if (["connecting", "initializing", "checking-command", "spawning"].indexOf(token) >= 0) {
-      return indicator("connection", "Connection", "Connecting", "accent", "ACP backend is connecting.");
+    if (
+      ["connecting", "initializing", "checking-command", "spawning"].indexOf(
+        token,
+      ) >= 0
+    ) {
+      return indicator(
+        "connection",
+        label,
+        labelFrom(source, "status.connecting", "Connecting"),
+        "accent",
+        labelFrom(
+          source,
+          "indicatorTitles.acpBackendConnecting",
+          "ACP backend is connecting.",
+        ),
+      );
     }
     if (["failed", "error", "closed", "disconnected"].indexOf(token) >= 0) {
       return indicator(
         "connection",
-        "Connection",
-        token === "disconnected" ? "Disconnected" : "Error",
+        label,
+        token === "disconnected"
+          ? labelFrom(source, "status.disconnected", "Disconnected")
+          : labelFrom(source, "status.error", "Error"),
         token === "disconnected" ? "muted" : "error",
-        safeText(errorText) || "ACP connection is not active.",
+        safeText(errorText) ||
+          labelFrom(
+            source,
+            "indicatorTitles.acpConnectionInactive",
+            "ACP connection is not active.",
+          ),
       );
     }
-    return indicator("connection", "Connection", "Disconnected", "muted", "ACP connection is not active.");
+    return indicator(
+      "connection",
+      label,
+      labelFrom(source, "status.disconnected", "Disconnected"),
+      "muted",
+      labelFrom(
+        source,
+        "indicatorTitles.acpConnectionInactive",
+        "ACP connection is not active.",
+      ),
+    );
   }
 
   function latestDiagnosticLike(entries, predicate) {
@@ -322,6 +508,7 @@
     if (!bridge) {
       return null;
     }
+    const label = labelFrom(snap, "fields.hostBridge", "Host Bridge");
     const status = normalizeStatusToken(bridge.status || "");
     const portMode = normalizeStatusToken(bridge.portMode || "");
     const endpoint = safeText(bridge.endpoint);
@@ -337,35 +524,50 @@
     if (status === "running" && portMode === "fallback") {
       return indicator(
         "host-bridge",
-        "Host Bridge",
-        "Fallback",
+        label,
+        labelFrom(snap, "status.fallback", "Fallback"),
         "warning",
-        title || "Host Bridge is running on a fallback random port.",
+        title ||
+          labelFrom(
+            snap,
+            "indicatorTitles.hostBridgeFallback",
+            "Host Bridge is running on a fallback random port.",
+          ),
       );
     }
     if (status === "running") {
       return indicator(
         "host-bridge",
-        "Host Bridge",
-        "Ready",
+        label,
+        labelFrom(snap, "status.ready", "Ready"),
         "success",
-        title || "Host Bridge is ready.",
+        title ||
+          labelFrom(
+            snap,
+            "indicatorTitles.hostBridgeReady",
+            "Host Bridge is ready.",
+          ),
       );
     }
     if (status === "starting") {
       return indicator(
         "host-bridge",
-        "Host Bridge",
-        "Starting",
+        label,
+        labelFrom(snap, "status.starting", "Starting"),
         "accent",
-        title || "Host Bridge is starting.",
+        title ||
+          labelFrom(
+            snap,
+            "indicatorTitles.hostBridgeStarting",
+            "Host Bridge is starting.",
+          ),
       );
     }
     if (recovery && status !== "error") {
       return indicator(
         "host-bridge",
-        "Host Bridge",
-        "Recovering",
+        label,
+        labelFrom(snap, "status.recovering", "Recovering"),
         "accent",
         title || recovery,
       );
@@ -373,23 +575,34 @@
     if (status === "error") {
       return indicator(
         "host-bridge",
-        "Host Bridge",
-        "Error",
+        label,
+        labelFrom(snap, "status.error", "Error"),
         "error",
-        title || "Host Bridge failed.",
+        title ||
+          labelFrom(
+            snap,
+            "indicatorTitles.hostBridgeFailed",
+            "Host Bridge failed.",
+          ),
       );
     }
     return indicator(
       "host-bridge",
-      "Host Bridge",
-      "Unavailable",
+      label,
+      labelFrom(snap, "status.unavailable", "Unavailable"),
       "warning",
-      title || "Host Bridge is not running.",
+      title ||
+        labelFrom(
+          snap,
+          "indicatorTitles.hostBridgeUnavailable",
+          "Host Bridge is not running.",
+        ),
     );
   }
 
   function buildAcpMcpIndicator(source) {
     const snap = source && typeof source === "object" ? source : {};
+    const label = labelFrom(snap, "fields.mcp", "MCP");
     const health = snap.mcpHealth && typeof snap.mcpHealth === "object" ? snap.mcpHealth : null;
     if (health) {
       const state = normalizeStatusToken(health.state || "");
@@ -405,18 +618,26 @@
               : indicatorToneFromSeverity(severity, "muted");
       const value =
         tone === "success"
-          ? "Ready"
+          ? labelFrom(snap, "status.ready", "Ready")
           : tone === "accent"
-            ? "Starting"
+            ? labelFrom(snap, "status.starting", "Starting")
             : tone === "warning"
-              ? "Limited"
+              ? labelFrom(snap, "status.limited", "Limited")
               : tone === "error"
-                ? "Error"
-                : "Pending";
+                ? labelFrom(snap, "status.error", "Error")
+                : labelFrom(snap, "status.pending", "Pending");
       const tooltip = Array.isArray(health.tooltip)
         ? health.tooltip.join("\n")
-        : safeText(health.summary || health.state || "Zotero MCP status");
-      return indicator("mcp", "MCP", value, tone, tooltip);
+        : safeText(
+            health.summary ||
+              health.state ||
+              labelFrom(
+                snap,
+                "indicatorTitles.zoteroMcpStatus",
+                "Zotero MCP status",
+              ),
+          );
+      return indicator("mcp", label, value, tone, tooltip);
     }
     const diagnostics = Array.isArray(snap.diagnostics) ? snap.diagnostics : [];
     const found = latestDiagnosticLike(diagnostics, function (entry) {
@@ -428,13 +649,32 @@
       const level = safeText(found.level);
       return indicator(
         "mcp",
-        "MCP",
-        level === "error" ? "Error" : level === "warn" || level === "warning" ? "Limited" : "Ready",
+        label,
+        level === "error"
+          ? labelFrom(snap, "status.error", "Error")
+          : level === "warn" || level === "warning"
+            ? labelFrom(snap, "status.limited", "Limited")
+            : labelFrom(snap, "status.ready", "Ready"),
         indicatorToneFromSeverity(level, "success"),
-        safeText(found.message || found.detail) || "Zotero MCP diagnostic",
+        safeText(found.message || found.detail) ||
+          labelFrom(
+            snap,
+            "indicatorTitles.zoteroMcpDiagnostic",
+            "Zotero MCP diagnostic",
+          ),
       );
     }
-    return indicator("mcp", "MCP", "Pending", "muted", "Zotero MCP status pending.");
+    return indicator(
+      "mcp",
+      label,
+      labelFrom(snap, "status.pending", "Pending"),
+      "muted",
+      labelFrom(
+        snap,
+        "indicatorTitles.zoteroMcpPending",
+        "Zotero MCP status pending.",
+      ),
+    );
   }
 
   function buildAcpSkillMcpIndicator(panel, run) {
@@ -451,14 +691,35 @@
       const message = safeText(entry.message || entry.text).toLowerCase();
       return stage.indexOf("mcp") >= 0 || message.indexOf("mcp") >= 0;
     });
-    if (!found) return indicator("mcp", "MCP", "Pending", "muted", "Zotero MCP status pending.");
+    if (!found) {
+      return indicator(
+        "mcp",
+        labelFrom(snap, "fields.mcp", "MCP"),
+        labelFrom(snap, "status.pending", "Pending"),
+        "muted",
+        labelFrom(
+          snap,
+          "indicatorTitles.zoteroMcpPending",
+          "Zotero MCP status pending.",
+        ),
+      );
+    }
     const level = safeText(found.level);
     return indicator(
       "mcp",
-      "MCP",
-      level === "error" ? "Error" : level === "warn" || level === "warning" ? "Limited" : "Ready",
+      labelFrom(snap, "fields.mcp", "MCP"),
+      level === "error"
+        ? labelFrom(snap, "status.error", "Error")
+        : level === "warn" || level === "warning"
+          ? labelFrom(snap, "status.limited", "Limited")
+          : labelFrom(snap, "status.ready", "Ready"),
       indicatorToneFromSeverity(level, "success"),
-      safeText(found.message || found.text) || "Zotero MCP diagnostic",
+      safeText(found.message || found.text) ||
+        labelFrom(
+          snap,
+          "indicatorTitles.zoteroMcpDiagnostic",
+          "Zotero MCP diagnostic",
+        ),
     );
   }
 
@@ -541,6 +802,9 @@
         "interaction.backendUnavailable",
         "Backend unavailable",
       ),
+      statusOverall: labelFrom(source, "status.overall", "Overall"),
+      statusBackend: labelFrom(source, "status.backend", "Backend"),
+      statusApply: labelFrom(source, "status.apply", "Apply"),
       emptyTasks: labelFrom(source, "drawer.emptyTasks", "No runs."),
     });
   }
@@ -1157,7 +1421,8 @@
     const needsAttention = Boolean(task.attention);
     const applyState = normalizeApplyState(task);
     const applyLabel = applyStateLabel(source || task, applyState, task);
-    return Object.assign({}, task, {
+    const statusFields = taskStatusFields(task, source || task);
+    return Object.assign({}, task, statusFields, {
       attention: needsAttention ? "warning" : "",
       attentionLabel: needsAttention
         ? labelFrom({}, "interaction.needsUserInteraction", "Needs user interaction")
@@ -1528,7 +1793,7 @@
           metadataItem(labelFrom(snap, "fields.updated", labels.updated || "Updated"), snap.updatedAt, "updatedAt"),
         ]),
         indicators: [
-          connectionIndicator(connectionState, snap.lastError || snap.prerequisiteError),
+          connectionIndicator(connectionState, snap.lastError || snap.prerequisiteError, snap),
           buildHostBridgeIndicator(snap),
         ].filter(Boolean),
         selectors: [
@@ -1774,6 +2039,19 @@
         backendDisplayName: backendLabel,
         selectable: Boolean(requestId),
         terminal,
+        backendStatus: safeText(entry && entry.backendStatus) || statusText,
+        applyStatus: safeText(entry && entry.applyResultState),
+        applyState: safeText(entry && entry.applyResultState),
+        applyStateLabel: applyStateLabel(panel, safeText(entry && entry.applyResultState), entry),
+        applyTone: applyStateTone(normalizeStatusToken(entry && entry.applyResultState)),
+        ...taskStatusFields(
+          Object.assign({}, entry, {
+            status: statusText,
+            backendStatus: safeText(entry && entry.backendStatus) || statusText,
+            applyState: safeText(entry && entry.applyResultState),
+          }),
+          panel,
+        ),
         active: Boolean(requestId && run && requestId === safeText(run.requestId)),
         itemActions:
           terminal && requestId
@@ -2050,6 +2328,7 @@
           connectionIndicator(
             connected ? "connected" : recoveryState === "connecting" ? "connecting" : conversationState,
             run && (run.conversationError || run.error),
+            panel,
           ),
           buildHostBridgeIndicator(panel),
         ].filter(Boolean),
@@ -2266,9 +2545,16 @@
       session,
       envelope,
     );
-    const deferredApplyIndicator = buildDeferredApplyIndicator(
-      selectedTask || session,
+    const controlIndicator = buildSkillRunnerControlIndicator(
+      Object.assign({}, session, selectedTask || {}, {
+        status,
+        requestAssigned,
+        backendInteractive,
+        canReply,
+        pendingPermission,
+      }),
       envelope,
+      status,
     );
     return normalizeAssistantPanelSnapshot({
       kind: "skillrunner",
@@ -2287,7 +2573,7 @@
           metadataItem(labelFrom(envelope, "fields.model", "Model"), session.model, "model"),
           metadataItem(labelFrom(envelope, "fields.updated", "Updated"), session.updatedAt, "updatedAt"),
         ]),
-        indicators: [deferredApplyIndicator].filter(Boolean),
+        indicators: [controlIndicator].filter(Boolean),
         actions: [
           contextAction(
             "cancel-run",

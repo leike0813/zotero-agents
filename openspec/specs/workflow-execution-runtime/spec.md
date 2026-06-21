@@ -203,3 +203,54 @@ request fields and map it to provider `runtime_options.execution_mode`.
 - **WHEN** the runtime launches each step
 - **THEN** the first concrete step request SHALL use `runtime_options.execution_mode = interactive`
 - **AND** the second concrete step request SHALL use `runtime_options.execution_mode = auto`.
+
+### Requirement: Sequence handoff SHALL use typed bindings
+
+Sequence workflow runtime SHALL resolve step handoff from explicit `bindings` with `kind: "value" | "file"`.
+
+#### Scenario: Value binding copies a previous step field
+
+- **WHEN** a step declares a `value` binding from a previous step result path
+- **THEN** the resolved value SHALL be written to the declared request target.
+
+#### Scenario: No implicit pass-through
+
+- **WHEN** a step declares no handoff binding
+- **THEN** the runtime SHALL NOT inject previous step output into `input.handoff`.
+
+### Requirement: File handoff SHALL be provider-neutral
+
+Sequence file handoff SHALL represent a logical file artifact and SHALL be materialized by the provider dispatch boundary.
+
+#### Scenario: ACP file handoff
+
+- **WHEN** a sequence runs on an ACP backend
+- **AND** a file binding resolves to a local file path
+- **THEN** the next ACP step SHALL receive a native absolute path in input
+- **AND** the request SHALL NOT contain `upload_files`.
+
+#### Scenario: SkillRunner local file handoff
+
+- **WHEN** a sequence runs on a SkillRunner backend
+- **AND** a file binding resolves to a frontend-local file path
+- **THEN** the next SkillRunner step SHALL receive an upload-relative input path
+- **AND** the request SHALL include the matching `upload_files` entry.
+
+#### Scenario: SkillRunner reused workspace file handoff
+
+- **WHEN** a sequence runs on a SkillRunner backend
+- **AND** a file binding resolves to a file produced by a previous step in the reused workspace
+- **THEN** the next SkillRunner step SHALL receive an upload-relative input path
+- **AND** the request SHALL include `runtime_options.workspace.file_bindings`
+- **AND** the request SHALL NOT include an `upload_files` entry for the backend-local source file.
+
+### Requirement: Sequence continuation SHALL use main step status
+
+Sequence workflow runtime SHALL only start a downstream step when the previous step's main status is `succeeded`.
+
+#### Scenario: Step apply failure stops sequence
+
+- **WHEN** a sequence step backend succeeds
+- **AND** its required step apply fails with `on_failure: "fail_sequence"`
+- **THEN** no downstream step SHALL be submitted
+- **AND** the sequence/root main status SHALL be failed.

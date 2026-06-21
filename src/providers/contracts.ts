@@ -48,6 +48,12 @@ export type SkillRunnerJobRequestV1 = ProviderExecutionRequestMeta & {
     workspace?: {
       mode?: "reuse";
       request_id?: string;
+      file_bindings?: Array<{
+        input_key: string;
+        source_request_id: string;
+        source_path: string;
+        target_path: string;
+      }>;
     };
     env?: Record<string, string>;
     zotero_host_access?: {
@@ -65,16 +71,17 @@ export type SkillRunnerJobRequestV1 = ProviderExecutionRequestMeta & {
 
 export type SkillRunnerSequenceWorkspaceMode = "new" | "reuse-workflow";
 
-export type SkillRunnerSequenceHandoffSpec = {
-  from_step?: string;
+export type SkillRunnerSequenceHandoffBinding = {
+  kind: "value" | "file";
+  target: string;
+  source?: string;
+  step?: string;
   required?: boolean;
-  pass_through?: boolean;
-  input?: Record<string, string>;
-  parameter?: Record<string, string>;
-  defaults?: {
-    input?: Record<string, unknown>;
-    parameter?: Record<string, unknown>;
-  };
+  value?: unknown;
+};
+
+export type SkillRunnerSequenceHandoffSpec = {
+  bindings: SkillRunnerSequenceHandoffBinding[];
 };
 
 export type SkillRunnerSequenceShortCircuitSpec = {
@@ -118,6 +125,12 @@ export type SkillRunnerSequenceRequestV1 = ProviderExecutionRequestMeta & {
     workspace?: {
       mode?: "reuse";
       request_id?: string;
+      file_bindings?: Array<{
+        input_key: string;
+        source_request_id: string;
+        source_path: string;
+        target_path: string;
+      }>;
     };
     env?: Record<string, string>;
     zotero_host_access?: {

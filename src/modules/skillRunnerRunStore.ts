@@ -55,6 +55,7 @@ export type SkillRunnerRunRecord = {
   requestKind?: string;
   requestPayload?: unknown;
   status: SkillRunnerLocalRunLifecycleState;
+  backendStatus?: JobState;
   error?: string;
   submitPhase?: string;
   submitStartedAt?: string;
@@ -209,6 +210,11 @@ function parseRecord(payload: string): SkillRunnerRunRecord | null {
       requestId,
       backendId,
       status,
+      backendStatus: normalizeString(parsed.backendStatus)
+        ? (normalizeString(parsed.backendStatus) as JobState)
+        : isTerminalRunLifecycleState(status)
+          ? taskStateFromRunLifecycleState(status)
+          : undefined,
     };
   } catch {
     return null;
@@ -428,10 +434,13 @@ export function upsertSkillRunnerRunRecord(
   const next: SkillRunnerRunRecord = {
     ...update,
     status,
+    backendStatus: update.backendStatus || previous?.backendStatus,
     error: status === update.status ? update.error : previous?.error,
     taskProjection: {
       ...update.taskProjection,
       state: taskStateFromRunLifecycleState(status),
+      mainStatus: taskStateFromRunLifecycleState(status),
+      backendStatus: update.backendStatus || previous?.backendStatus,
       skillRunnerLifecycleState: status,
       error: status === update.status ? update.error : previous?.error,
       ...buildProjectionCapabilities({
@@ -515,6 +524,12 @@ export function upsertSkillRunnerRunFromTask(
   const status = (nextStatusRaw === "request_ready"
     ? "running"
     : nextStatusRaw) as SkillRunnerLocalRunLifecycleState;
+  const backendStatus =
+    task.backendStatus ||
+    previous?.backendStatus ||
+    (isTerminalRunLifecycleState(status)
+      ? taskStateFromRunLifecycleState(status)
+      : undefined);
   const updatedAt = normalizeString(task.updatedAt) || nowIso();
   const record: SkillRunnerRunRecord = {
     schemaVersion: SKILLRUNNER_RUN_SCHEMA_VERSION,
@@ -544,6 +559,7 @@ export function upsertSkillRunnerRunFromTask(
         ? previous?.requestPayload
         : args.requestPayload,
     status,
+    backendStatus: backendStatus as JobState | undefined,
     error: normalizeString(task.error) || undefined,
     submitPhase: normalizeString(task.submitPhase) || previous?.submitPhase,
     submitStartedAt:
@@ -608,6 +624,7 @@ export function updateSkillRunnerRunStateByRequest(args: {
   backendId?: string;
   requestId: string;
   state: JobState;
+  backendStatus?: JobState;
   error?: string;
   updatedAt?: string;
   eventType?: SkillRunnerRunEventType;
@@ -629,6 +646,13 @@ export function updateSkillRunnerRunStateByRequest(args: {
     nextStateRaw === "request_ready"
       ? "request_ready"
       : existing.submitPhase;
+  const nextBackendStatus =
+    args.backendStatus ||
+    (nextStateRaw === "request_ready"
+      ? existing.backendStatus
+      : isTerminal(nextState)
+        ? nextState
+        : existing.backendStatus);
   const stableBackendSnapshot =
     args.eventType === "backend.snapshot" &&
     existing.status === nextState &&
@@ -640,11 +664,14 @@ export function updateSkillRunnerRunStateByRequest(args: {
     {
       ...existing,
       status: nextState,
+      backendStatus: nextBackendStatus,
       error: nextError,
       submitPhase: nextSubmitPhase,
       taskProjection: {
         ...existing.taskProjection,
         state: nextState,
+        mainStatus: nextState,
+        backendStatus: nextBackendStatus,
         skillRunnerLifecycleState: nextState,
         submitPhase: nextSubmitPhase,
         error: nextError,
@@ -678,9 +705,21 @@ export function updateSkillRunnerRunApplyState(args: {
     return null;
   }
   const updatedAt = normalizeString(args.updatedAt) || nowIso();
+  const applyFailed = args.state === "failed";
+  const nextBackendStatus =
+    existing.backendStatus ||
+    (isTerminalRunLifecycleState(existing.status)
+      ? taskStateFromRunLifecycleState(existing.status)
+      : undefined);
+  const nextStatus = applyFailed ? "failed" : existing.status;
   return upsertSkillRunnerRunRecord(
     {
       ...existing,
+      status: nextStatus,
+      backendStatus: nextBackendStatus,
+      error: applyFailed
+        ? normalizeString(args.error) || existing.error
+        : existing.error,
       apply: {
         state: args.state,
         attempt:
@@ -690,6 +729,17 @@ export function updateSkillRunnerRunApplyState(args: {
         maxAttempt: args.maxAttempt || existing.apply.maxAttempt,
         nextRetryAt: normalizeString(args.nextRetryAt) || undefined,
         error: normalizeString(args.error) || undefined,
+        updatedAt,
+      },
+      taskProjection: {
+        ...existing.taskProjection,
+        state: taskStateFromRunLifecycleState(nextStatus),
+        mainStatus: taskStateFromRunLifecycleState(nextStatus),
+        backendStatus: nextBackendStatus,
+        skillRunnerLifecycleState: nextStatus,
+        error: applyFailed
+          ? normalizeString(args.error) || existing.taskProjection.error
+          : existing.taskProjection.error,
         updatedAt,
       },
       updatedAt,
@@ -766,6 +816,8 @@ export function listSkillRunnerRunProjections() {
       skillLabel: record.skillLabel || record.taskProjection.skillLabel,
       skillId: record.skillId || record.taskProjection.skillId,
       state: taskStateFromRunLifecycleState(record.status),
+      mainStatus: taskStateFromRunLifecycleState(record.status),
+      backendStatus: record.backendStatus,
       skillRunnerLifecycleState: record.status,
       ...buildProjectionCapabilities({
         requestId: record.requestId,

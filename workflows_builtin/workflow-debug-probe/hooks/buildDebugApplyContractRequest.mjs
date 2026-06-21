@@ -1,4 +1,5 @@
 const BUNDLE_SKILL_ID = "debug-apply-bundle-probe";
+const MANIFEST_BUNDLE_SKILL_ID = "debug-apply-manifest-bundle-probe";
 const RESULT_SKILL_ID = "debug-apply-result-probe";
 
 function normalizeString(value) {
@@ -44,12 +45,21 @@ function buildStepParameter({ workflowId, stepId, runKey, applyMode }) {
   };
 }
 
-function buildSingleRequest({ workflowId, parent, parentTitle, runKey, applyMode }) {
+function buildSingleRequest({
+  workflowId,
+  parent,
+  parentTitle,
+  runKey,
+  applyMode,
+  skillId,
+}) {
   const stepId = applyMode === "bundle" ? "bundle" : "result";
-  const skillId = applyMode === "bundle" ? BUNDLE_SKILL_ID : RESULT_SKILL_ID;
+  const resolvedSkillId =
+    normalizeString(skillId) ||
+    (applyMode === "bundle" ? BUNDLE_SKILL_ID : RESULT_SKILL_ID);
   return {
     kind: "skillrunner.job.v1",
-    skill_id: skillId,
+    skill_id: resolvedSkillId,
     mode: "auto",
     targetParentID: parent.id,
     taskName: parentTitle,
@@ -90,10 +100,6 @@ function buildSequenceStep({
           },
         }
       : {}),
-    handoff: {
-      pass_through: false,
-      required: false,
-    },
     input: {},
     parameter: buildStepParameter({ workflowId, stepId, runKey, applyMode }),
   };
@@ -133,6 +139,15 @@ async function buildRequestImpl({ manifest, executionOptions, runtime }) {
   const params = resolveWorkflowParams(executionOptions);
 
   switch (workflowId) {
+    case "debug-apply-manifest-bundle":
+      return buildSingleRequest({
+        workflowId,
+        parent,
+        parentTitle: title,
+        runKey,
+        applyMode: "bundle",
+        skillId: MANIFEST_BUNDLE_SKILL_ID,
+      });
     case "debug-apply-single-bundle":
       return buildSingleRequest({
         workflowId,

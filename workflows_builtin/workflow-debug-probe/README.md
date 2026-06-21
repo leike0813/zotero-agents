@@ -7,8 +7,10 @@ manual validation of sequence orchestration:
 
 - `debug-host-bridge-connectivity-probe`: Host Bridge CLI injection,
   endpoint reachability, authentication, and read-only capability routing.
-- `debug-sequence-linear-probe`: serial execution and default handoff passthrough.
+- `debug-sequence-linear-probe`: serial execution and explicit value handoff.
 - `debug-sequence-workspace-reuse-probe`: workflow workspace reuse across steps.
+- `debug-sequence-file-handoff-probe`: provider-neutral file handoff from one
+  step result into the next step file input.
 - `debug-sequence-context-isolation-probe`: explicit handoff filtering and fresh
   workspace isolation.
 

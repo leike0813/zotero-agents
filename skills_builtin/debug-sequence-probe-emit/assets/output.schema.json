@@ -16,6 +16,11 @@
     "public_marker": { "type": "string" },
     "secret_marker": { "type": "string" },
     "sentinel_path": { "type": "string" },
+    "artifact_path": {
+      "type": "string",
+      "x-type": "artifact",
+      "x-role": "sequence-file-handoff-artifact"
+    },
     "workspace_cwd": { "type": "string" },
     "checks": { "type": "array", "items": { "type": "object" } },
     "diagnostics": { "type": "array", "items": { "type": "object" } }

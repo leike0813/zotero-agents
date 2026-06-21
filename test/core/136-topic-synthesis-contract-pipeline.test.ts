@@ -525,7 +525,6 @@ function createResultBundle(overrides: Record<string, unknown> = {}) {
       id: "object-detection",
       title: "Object Detection",
     },
-    resolver_manifest_path: "runtime/payloads/resolver.json",
     resolver_diagnostics: {
       final_count: 1,
       manifest_hash: "sha256:resolver",
@@ -541,8 +540,30 @@ function createResultBundle(overrides: Record<string, unknown> = {}) {
         ],
       },
     },
-    analysis_manifest_path: "result/topic-analysis.json",
+    artifact_manifest_path: "result/topic-synthesis-artifacts.json",
     ...overrides,
+  };
+}
+
+function createArtifactManifest(sections: Record<string, unknown>) {
+  return {
+    resolver_manifest: "runtime/payloads/resolver.json",
+    topic_analysis: "result/topic-analysis.json",
+    final_output_candidate: "result/final-output.candidate.json",
+    ...Object.fromEntries(
+      Object.keys(sections).map((section) => [
+        `${section}_section`,
+        `result/sections/${sectionFileName(section)}`,
+      ]),
+    ),
+    topic_interest_metadata_sidecar:
+      "result/sidecars/topic-interest-metadata.json",
+    concept_cards_proposal_sidecar:
+      "result/sidecars/concept-cards-proposal.json",
+    topic_graph_relation_proposals_sidecar:
+      "result/sidecars/topic-graph-relation-proposals.json",
+    prospective_topic_relation_proposals_sidecar:
+      "result/sidecars/prospective-topic-relation-proposals.json",
   };
 }
 
@@ -667,6 +688,11 @@ async function createRunWorkspace(args: {
     __SKILL_DONE__: true,
   });
   await writeJsonFile(runRoot, "result/topic-analysis.json", analysisManifest);
+  await writeJsonFile(
+    runRoot,
+    "result/topic-synthesis-artifacts.json",
+    createArtifactManifest(args.sections),
+  );
   await writeJsonFile(
     runRoot,
     "runtime/payloads/resolver.json",
