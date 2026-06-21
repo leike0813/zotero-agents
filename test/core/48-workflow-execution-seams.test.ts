@@ -1722,13 +1722,31 @@ describe("workflow execution seams", function () {
       ],
     );
     assert.isAtLeast(historyUpdates.length, 2);
-    const focusedStep = focusCalls.find(
-      (entry) =>
-        String(entry.taskId || "").endsWith(":job-1:digest"),
+    const focusedSteps = focusCalls
+      .map((entry) => ({
+        taskId: String(entry.taskId || ""),
+        localRunId: String(entry.localRunId || ""),
+        selectionChanged: entry.selectionChanged,
+      }))
+      .filter((entry) => entry.taskId.includes(":job-1:"));
+    assert.isTrue(
+      focusedSteps.some(
+        (entry) =>
+          entry.taskId.endsWith(":job-1:digest") &&
+          entry.localRunId.includes(":job-1:digest") &&
+          entry.selectionChanged === true,
+      ),
+      JSON.stringify(focusedSteps),
     );
-    assert.isOk(focusedStep);
-    assert.isString(focusedStep?.localRunId);
-    assert.equal(focusedStep?.selectionChanged, true);
+    assert.isTrue(
+      focusedSteps.some(
+        (entry) =>
+          entry.taskId.endsWith(":job-1:tag") &&
+          entry.localRunId.includes(":job-1:tag") &&
+          entry.selectionChanged === true,
+      ),
+      JSON.stringify(focusedSteps),
+    );
   });
 
   it("does not register ACP-compatible runs for SkillRunner settlement", async function () {
@@ -2045,7 +2063,10 @@ describe("workflow execution seams", function () {
       {
         id: "job-1",
         workflowId: "seam-skillrunner-auto-focus",
-        request: { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
+        request: {
+          targetParentID: 3,
+          runtime_options: { execution_mode: "auto" },
+        },
         meta: { index: 0, runId: "run-sr-auto-focus" },
         state: "running",
         createdAt: "2026-04-17T00:00:00.000Z",
@@ -2069,7 +2090,10 @@ describe("workflow execution seams", function () {
     const readyJob = {
       id: "job-1",
       workflowId: "seam-skillrunner-auto-focus",
-      request: { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
+      request: {
+        targetParentID: 3,
+        runtime_options: { execution_mode: "auto" },
+      },
       meta: {
         index: 0,
         runId: "run-sr-auto-focus",
@@ -2270,7 +2294,10 @@ describe("workflow execution seams", function () {
       {
         id: "job-1",
         workflowId: "seam-acp-auto-select",
-        request: { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
+        request: {
+          targetParentID: 3,
+          runtime_options: { execution_mode: "auto" },
+        },
         meta: { index: 0 },
         state: "running",
         createdAt: "2026-04-17T00:00:00.000Z",

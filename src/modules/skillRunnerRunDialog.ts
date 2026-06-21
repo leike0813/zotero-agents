@@ -185,6 +185,7 @@ type RunDialogSnapshot = {
   autoReplyObserverSource?: string;
   autoReplyObserverStartedAt?: string;
   autoReplyObserverDeadlineAt?: string;
+  autoReplyObserverTimeoutSeconds?: number;
   autoReplyObserverShowTimer?: boolean;
   autoReplyObserverRemainingSeconds?: number;
   updatedAt?: string;
@@ -346,6 +347,7 @@ export type RunWorkspaceTaskItem = {
   autoReplyObserverSource?: string;
   autoReplyObserverStartedAt?: string;
   autoReplyObserverDeadlineAt?: string;
+  autoReplyObserverTimeoutSeconds?: number;
   autoReplyObserverShowTimer?: boolean;
   autoReplyObserverRemainingSeconds?: number;
   createdAt?: string;
@@ -1648,8 +1650,18 @@ function getSkillRunnerPanelLocalCandidates(row: {
   localRunId?: unknown;
   runId?: unknown;
   jobId?: unknown;
+  role?: unknown;
+  sequenceStepId?: unknown;
 }) {
-  const candidates = [row.localRunId, row.id, row.runId, row.jobId]
+  const isSequenceStep =
+    String(row.role || "").trim() === "sequence_step" ||
+    !!String(row.sequenceStepId || "").trim();
+  const candidates = [
+    row.localRunId,
+    row.id,
+    row.jobId,
+    isSequenceStep ? "" : row.runId,
+  ]
     .map((entry) => String(entry || "").trim())
     .filter(Boolean);
   return Array.from(new Set(candidates));
@@ -2059,6 +2071,7 @@ async function buildRunWorkspaceModel(args: {
         autoReplyObserverSource: autoReplyObserverState?.source,
         autoReplyObserverStartedAt: autoReplyObserverState?.startedAt,
         autoReplyObserverDeadlineAt: autoReplyObserverState?.deadlineAt,
+        autoReplyObserverTimeoutSeconds: autoReplyObserverState?.timeoutSeconds,
         autoReplyObserverShowTimer: autoReplyObserverState?.showTimer,
         autoReplyObserverRemainingSeconds:
           autoReplyObserverState?.remainingSeconds,
@@ -2340,9 +2353,16 @@ function pickRunWorkspaceSelectedTaskKey(args: {
   }
   const current = String(args.currentTaskKey || "").trim();
   if (current) {
-    const row = args.index.get(current);
+    const resolvedCurrent =
+      resolveRunWorkspaceSelectionKey({
+        selection: selectionRequestFromTaskKey(current),
+        index: args.index,
+        requestIndex: args.requestIndex,
+        localTaskIndex: args.localTaskIndex,
+      }) || current;
+    const row = args.index.get(resolvedCurrent);
     if (row && isVisibleRunWorkspaceTaskForSelection(row.item)) {
-      return row.item.key || current;
+      return row.item.key || resolvedCurrent;
     }
   }
   return "";
@@ -2378,6 +2398,33 @@ function pickRunWorkspaceSelectedTaskKeyForSidebar(args: {
     requestedSelection: null,
     currentTaskKey: args.currentTaskKey,
   });
+}
+
+function shouldClearRunWorkspaceRequestedSelection(args: {
+  selection?: RunWorkspaceSelectionRequest | null;
+  resolvedKey: string;
+  nextSelected: string;
+  index: RunWorkspaceState["taskIndex"];
+}) {
+  const selection = args.selection || null;
+  if (!selection) {
+    return true;
+  }
+  const resolvedKey = String(args.resolvedKey || "").trim();
+  if (!resolvedKey || args.nextSelected !== resolvedKey) {
+    return false;
+  }
+  if (String(selection.requestId || "").trim()) {
+    return true;
+  }
+  const selectedTask = args.index.get(resolvedKey)?.item;
+  if (String(selectedTask?.requestId || "").trim()) {
+    return true;
+  }
+  const localIdentity =
+    String(selection.taskId || "").trim() ||
+    String(selection.localRunId || "").trim();
+  return !localIdentity;
 }
 
 function buildRunDialogSnapshot(
@@ -2477,6 +2524,9 @@ function buildRunDialogSnapshot(
     autoReplyObserverDeadlineAt:
       autoReplyObserverState?.deadlineAt ||
       selectedTask?.autoReplyObserverDeadlineAt,
+    autoReplyObserverTimeoutSeconds:
+      autoReplyObserverState?.timeoutSeconds ??
+      selectedTask?.autoReplyObserverTimeoutSeconds,
     autoReplyObserverShowTimer:
       autoReplyObserverState?.showTimer ||
       selectedTask?.autoReplyObserverShowTimer,
@@ -4119,6 +4169,21 @@ function canTaskOpenForegroundStream(task: RunWorkspaceTaskItem) {
   return true;
 }
 
+function canTaskStartForegroundObserver(task: RunWorkspaceTaskItem) {
+  if (canTaskOpenForegroundStream(task)) {
+    return true;
+  }
+  const requestId = String(task.requestId || "").trim();
+  if (!requestId || isFinishedRunWorkspaceTask(task)) {
+    return false;
+  }
+  if (task.backendInteractive === false) {
+    return false;
+  }
+  const normalized = normalizeStatus(task.status, "running");
+  return isWaiting(normalized) || task.canReply === true;
+}
+
 function warnSkillRunnerWorkspaceAsyncFailure(args: {
   stage: string;
   error: unknown;
@@ -4187,7 +4252,7 @@ function startRunWorkspaceObserverInBackground(args: {
   backend: BackendInstance;
   key: string;
 }) {
-  if (!canTaskOpenForegroundStream(args.task)) {
+  if (!canTaskStartForegroundObserver(args.task)) {
     hydrateSelectedRunHistoryInBackground({
       entry: args.entry,
       task: args.task,
@@ -4251,7 +4316,7 @@ async function selectWorkspaceTask(taskKey: string) {
       runWorkspaceState.currentEntry,
       target.item,
     );
-    if (!canTaskOpenForegroundStream(target.item)) {
+    if (!canTaskStartForegroundObserver(target.item)) {
       runWorkspaceState.currentEntry.session.loading = false;
     }
     markRunDialogEntryFocused(runWorkspaceState.currentEntry);
@@ -4277,7 +4342,7 @@ async function selectWorkspaceTask(taskKey: string) {
     });
   entry.alertWindow = runWorkspaceState.alertWindow;
   syncLocalRunDialogEntryFromTask(entry, target.item);
-  if (!canTaskOpenForegroundStream(target.item)) {
+  if (!canTaskStartForegroundObserver(target.item)) {
     entry.session.loading = false;
   }
   markRunDialogEntryFocused(entry);
@@ -4366,8 +4431,12 @@ async function refreshWorkspaceSnapshot(args?: {
               currentTaskKey: runWorkspaceState.selectedTaskKey,
             });
       if (
-        !requestedSelection ||
-        (resolvedRequestedKey && nextSelected === resolvedRequestedKey)
+        shouldClearRunWorkspaceRequestedSelection({
+          selection: requestedSelection,
+          resolvedKey: resolvedRequestedKey,
+          nextSelected,
+          index: model.index,
+        })
       ) {
         runWorkspaceState.requestedSelection = null;
         runWorkspaceState.requestedTaskKey = "";
@@ -4618,8 +4687,6 @@ export async function focusSkillRunnerWorkspace(args?: {
       localTaskIndex: runWorkspaceState.localTaskIndex,
     });
     if (resolvedExisting) {
-      runWorkspaceState.requestedSelection = null;
-      runWorkspaceState.requestedTaskKey = "";
       await selectWorkspaceTask(resolvedExisting);
       return;
     }

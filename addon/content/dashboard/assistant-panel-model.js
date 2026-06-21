@@ -375,8 +375,20 @@
     let value = active
       ? labelFrom(labels, "status.autoReplyActive", "Active")
       : labelFrom(labels, "status.autoReplyInactive", "Inactive");
+    let extraValue = "";
+    let progressPercent;
     if (active && showTimer && Number.isFinite(remaining)) {
-      value = String(Math.max(0, Math.ceil(remaining))) + "s";
+      extraValue = String(Math.max(0, Math.ceil(remaining))) + "s";
+      const startedAt = Date.parse(safeText(data.autoReplyObserverStartedAt));
+      const deadlineAt = Date.parse(safeText(data.autoReplyObserverDeadlineAt));
+      if (
+        Number.isFinite(startedAt) &&
+        Number.isFinite(deadlineAt) &&
+        deadlineAt > startedAt
+      ) {
+        const remainingRatio = (deadlineAt - Date.now()) / (deadlineAt - startedAt);
+        progressPercent = Math.max(0, Math.min(100, remainingRatio * 100));
+      }
     }
     return indicator(
       "skillrunner-auto-reply",
@@ -394,6 +406,11 @@
             "indicatorTitles.skillRunnerAutoReplyInactive",
             "Auto reply is enabled; observer is inactive.",
           ),
+      {
+        valueVisible: true,
+        extraValue,
+        progressPercent,
+      },
     );
   }
 
@@ -540,13 +557,20 @@
     };
   }
 
-  function indicator(id, label, value, tone, title) {
+  function indicator(id, label, value, tone, title, extra) {
+    const metadata = extra && typeof extra === "object" ? extra : {};
+    const progressPercent = Number(metadata.progressPercent);
     return {
       id: safeText(id),
       label: safeText(label),
       value: safeText(value),
       tone: safeText(tone || "muted"),
       title: safeText(title || value || label),
+      valueVisible: metadata.valueVisible === true,
+      extraValue: safeText(metadata.extraValue),
+      progressPercent: Number.isFinite(progressPercent)
+        ? Math.max(0, Math.min(100, progressPercent))
+        : undefined,
     };
   }
 

@@ -96,6 +96,7 @@ describe("SkillRunner auto-reply observer", function () {
   });
 
   it("does not observe waiting runs while the feature switch is disabled", function () {
+    setSkillRunnerInteractiveAutoReplyEnabledForTests(false);
     recordWorkflowTaskUpdate(waitingJob());
 
     const started = maybeObserveSkillRunnerAutoReplyRun({
@@ -172,6 +173,7 @@ describe("SkillRunner auto-reply observer", function () {
     assert.equal(state?.active, true);
     assert.equal(state?.source, "workflowExecution.runSeam.job-waiting");
     assert.equal(state?.showTimer, true);
+    assert.equal(state?.timeoutSeconds, 30);
     assert.isAtLeast(state?.remainingSeconds || 0, 1);
     assert.isAtLeast(notifications, 1);
     unsubscribe();

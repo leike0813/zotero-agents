@@ -484,6 +484,9 @@
       const node = el("span", "assistant-panel-indicator");
       node.setAttribute("data-assistant-indicator-id", safeText(source.id));
       node.setAttribute("data-assistant-indicator-tone", safeText(source.tone || "muted"));
+      if (source.valueVisible === true) {
+        node.setAttribute("data-assistant-indicator-value-visible", "true");
+      }
       const title = safeText(source.title || source.tooltip || source.value || source.label);
       if (title) {
         node.title = title;
@@ -492,6 +495,22 @@
       node.appendChild(el("span", "asst-led " + indicatorLedClass(source.tone)));
       node.appendChild(el("span", "assistant-panel-indicator-label", safeText(source.label || source.id)));
       node.appendChild(el("strong", "assistant-panel-indicator-value", safeText(source.value) || "-"));
+      const extraValue = safeText(source.extraValue);
+      if (extraValue) {
+        node.appendChild(el("span", "assistant-panel-indicator-extra", extraValue));
+      }
+      const progressPercent = Number(source.progressPercent);
+      if (Number.isFinite(progressPercent)) {
+        const progress = el("span", "assistant-panel-indicator-progress");
+        progress.setAttribute("role", "progressbar");
+        progress.setAttribute("aria-valuemin", "0");
+        progress.setAttribute("aria-valuemax", "100");
+        progress.setAttribute("aria-valuenow", String(Math.max(0, Math.min(100, progressPercent))));
+        const fill = el("span", "assistant-panel-indicator-progress-fill");
+        fill.style.width = String(Math.max(0, Math.min(100, progressPercent))) + "%";
+        progress.appendChild(fill);
+        node.appendChild(progress);
+      }
       row.appendChild(node);
     });
     container.appendChild(row);

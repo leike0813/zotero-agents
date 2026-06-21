@@ -37,6 +37,7 @@ type ObserverContext = {
   source: string;
   startedAt: string;
   deadlineAt?: string;
+  timeoutSeconds?: number;
   showTimer: boolean;
   timer?: ReturnType<typeof setTimeout>;
   uiTimer?: ReturnType<typeof setInterval>;
@@ -359,6 +360,7 @@ export function maybeObserveSkillRunnerAutoReplyRun(args: {
     deadlineAt: showTimer
       ? new Date(Date.parse(startedAt) + timeoutSeconds * 1000).toISOString()
       : undefined,
+    timeoutSeconds: showTimer ? timeoutSeconds : undefined,
     showTimer,
   };
   observers.set(key, context);
@@ -496,6 +498,7 @@ export function getSkillRunnerAutoReplyObserverState(args: {
     source: context?.source,
     startedAt: context?.startedAt,
     deadlineAt: context?.deadlineAt,
+    timeoutSeconds: context?.timeoutSeconds,
     showTimer: context?.showTimer === true,
     remainingSeconds,
   };

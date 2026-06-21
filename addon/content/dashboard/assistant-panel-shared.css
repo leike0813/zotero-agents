@@ -901,6 +901,34 @@ summary,
   text-overflow: ellipsis;
 }
 
+.assistant-panel-indicator[data-assistant-indicator-value-visible="true"] .assistant-panel-indicator-value {
+  display: inline;
+}
+
+.assistant-panel-indicator-extra {
+  color: var(--asst-text-soft);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.assistant-panel-indicator-progress {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--asst-line);
+}
+
+.assistant-panel-indicator-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--asst-accent);
+}
+
 .assistant-panel-plan-header,
 .assistant-panel-hint-row,
 .assistant-panel-reply-secondary {

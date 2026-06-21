@@ -530,8 +530,16 @@ function skillRunnerRequestProjectionKey(record: WorkflowTaskRecord) {
 }
 
 function getSkillRunnerLocalIdentityValues(record: WorkflowTaskRecord) {
+  const isSequenceStep =
+    String(record.role || "").trim() === "sequence_step" ||
+    !!String(record.sequenceStepId || "").trim();
   return new Set(
-    [record.localRunId, record.id, record.runId, record.jobId]
+    [
+      record.localRunId,
+      record.id,
+      record.jobId,
+      isSequenceStep ? "" : record.runId,
+    ]
       .map((entry) => String(entry || "").trim())
       .filter(Boolean),
   );

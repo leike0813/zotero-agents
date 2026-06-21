@@ -205,12 +205,19 @@ Zotero 启动时，插件自动运行一个本地 Host Bridge 服务。外部 AI
 | 🖥 **MCP 工具** | 内嵌 MCP Server，为 ACP Agent 提供结构化的 Zotero 操作工具 |
 | 🔒 **安全** | Token 认证 + 写操作审批，数据不离开本地 |
 
-```
-外部 Agent ←── zotero-bridge CLI / HTTP ──► Host Bridge (localhost)
-                                              │
-                                              ├─ 文献库 API
-                                              ├─ Synthesis API
-                                              └─ MCP Protocol
+```mermaid
+graph TD
+    Agent([外部 Agent <br/> Claude Code / Codex / CLI / 外部服务]) <-->|"zotero-bridge CLI / HTTP (Auth + Token)"| HB[Host Bridge <br/> localhost:port]
+    
+    subgraph Zotero [Zotero 宿主进程]
+        HB --> API[文献库 API <br/> items / notes / attachments / tags]
+        HB --> Synth[Synthesis API <br/> citation graph / concepts / topics]
+        HB --> MCP[MCP Protocol <br/> 40+ MCP tools]
+    end
+
+    style Agent fill:#f9f,stroke:#333,stroke-width:2px
+    style HB fill:#bbf,stroke:#333,stroke-width:2px
+    style Zotero fill:#f5f5f5,stroke:#999,stroke-width:1px,stroke-dasharray: 5 5
 ```
 
 Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS / Linux（含 ARM）。
@@ -438,29 +445,42 @@ Tag Bootstrapper 初始化词表 → 选中一批论文 → 标签规范化 → 
 <details>
 <summary>展开架构图</summary>
 
-```
-用户触发（右键菜单 / Dashboard / 侧边栏）
-    │
-    ▼
- 选择上下文 ──► validateSelection ──► Workflow 引擎 ──► Provider 注册中心
-                                          │                   │
-                                    workflow.json        后端配置解析
-                                    + hook 脚本          (多后端路由)
-                                          │                   │
-                                          ▼                   ▼
-                                    构建请求 ──────► 解析 Provider ──► 任务队列
-                                                                        │
-                                                                  FIFO + 并发控制
-                                                                        │
-                                                        ┌───────────────┼───────────────┐
-                                                        ▼               ▼               ▼
-                                                  Single Run    Sequence Run    Pass-Through
-                                                        │               │               │
-                                                        └───────┬───────┘               │
-                                                                ▼                       ▼
-                                                         applyResult hook ──► Zotero Handlers
-                                                                              笔记 / 标签 /
-                                                                              附件 / 条目
+```mermaid
+flowchart TD
+    Trigger([用户触发: 右键菜单 / Dashboard / 侧边栏]) --> Context[选择上下文]
+    Context --> Validate[validateSelection 验证输入]
+    Validate --> Engine[Workflow 引擎]
+    
+    subgraph Metadata [元数据与配置]
+        Manifest[workflow.json + hook 脚本]
+        Config[后端配置解析: 多后端路由]
+    end
+    
+    Engine --> Manifest
+    ProviderReg[Provider 注册中心] --> Config
+    
+    Manifest --> BuildReq[构建请求]
+    Config --> ResolveProv[解析 Provider]
+    
+    BuildReq --> ResolveProv
+    ResolveProv --> Queue[(任务队列 <br/> FIFO + 并发控制)]
+    
+    Queue --> RunType{执行类型}
+    
+    RunType -->|Single| Single[Single Run]
+    RunType -->|Sequence| Seq[Sequence Run]
+    RunType -->|Pass-Through| Pass[Pass-Through]
+    
+    Single --> ApplyHook[applyResult hook]
+    Seq --> ApplyHook
+    
+    ApplyHook --> Handlers[Zotero Handlers <br/> 笔记 / 标签 / 附件 / 条目]
+    Pass --> Handlers
+    
+    style Trigger fill:#f9f,stroke:#333,stroke-width:2px
+    style Handlers fill:#bbf,stroke:#333,stroke-width:2px
+    style Queue fill:#ffd27f,stroke:#333,stroke-width:2px
+    style Metadata fill:#fdfdfd,stroke:#ccc,stroke-width:1px,stroke-dasharray: 5 5
 ```
 
 核心设计理念：插件本身是一个**执行外壳**，不包含具体业务逻辑。通过声明式 `workflow.json` manifest 和 hook 脚本定义"做什么"，插件负责"怎么执行"。

@@ -771,14 +771,19 @@ describe("acp ui smoke", function () {
     const countdown = makePanel({
       autoReplyEnabled: true,
       autoReplyObserverActive: true,
+      autoReplyObserverStartedAt: new Date(Date.now() - 2_000).toISOString(),
+      autoReplyObserverDeadlineAt: new Date(Date.now() + 8_000).toISOString(),
       autoReplyObserverShowTimer: true,
       autoReplyObserverRemainingSeconds: 8,
     });
     assert.deepInclude(countdown.context.indicators[1], {
       id: "skillrunner-auto-reply",
-      value: "8s",
+      value: "已启动",
+      extraValue: "8s",
       tone: "success",
+      valueVisible: true,
     });
+    assert.isNumber(countdown.context.indicators[1].progressPercent);
 
     const recovery = makePanel({
       autoReplyEnabled: true,
@@ -1661,6 +1666,8 @@ describe("acp ui smoke", function () {
     assert.include(assistantPanelRendererJs, "renderAssistantBanner");
     assert.include(assistantPanelRendererJs, "renderBannerIndicators");
     assert.include(assistantPanelRendererJs, "assistant-panel-indicator");
+    assert.include(assistantPanelRendererJs, "assistant-panel-indicator-extra");
+    assert.include(assistantPanelRendererJs, "assistant-panel-indicator-progress");
     assert.include(assistantPanelRendererJs, "renderAssistantPlan");
     assert.include(
       assistantPanelRendererJs,
@@ -1823,6 +1830,8 @@ describe("acp ui smoke", function () {
     );
     assert.include(sharedPanelCss, ".assistant-panel-indicators");
     assert.include(sharedPanelCss, ".assistant-panel-indicator");
+    assert.include(sharedPanelCss, ".assistant-panel-indicator-extra");
+    assert.include(sharedPanelCss, ".assistant-panel-indicator-progress");
     assert.include(
       sharedPanelCss,
       ".asst-panel-details-overlay .asst-drawer-panel",

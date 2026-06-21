@@ -63,11 +63,40 @@ describe("skillrunner run workspace singleton", function () {
 
   it("keeps pending SkillRunner focus requests until the drawer task exists", async function () {
     const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
-    assert.include(
+    assert.include(ts, "shouldClearRunWorkspaceRequestedSelection({");
+    assert.include(ts, 'String(selectedTask?.requestId || "").trim()');
+    assert.include(ts, 'String(selection.localRunId || "").trim()');
+    assert.notInclude(
       ts,
-      "!runWorkspaceState.requestedTaskKey ||\n        nextSelected === runWorkspaceState.requestedTaskKey",
+      'runWorkspaceState.requestedTaskKey = "";\n      await selectWorkspaceTask(nextSelected);',
     );
-    assert.notInclude(ts, "runWorkspaceState.requestedTaskKey = \"\";\n      await selectWorkspaceTask(nextSelected);");
+    const focusStart = ts.indexOf(
+      "export async function focusSkillRunnerWorkspace",
+    );
+    const focusEnd = ts.indexOf(
+      "export async function openSkillRunnerRunDialog",
+      focusStart,
+    );
+    const focusBody = ts.slice(focusStart, focusEnd);
+    assert.include(focusBody, "await selectWorkspaceTask(resolvedExisting);");
+    assert.notInclude(
+      focusBody,
+      'runWorkspaceState.requestedSelection = null;\n      runWorkspaceState.requestedTaskKey = "";',
+    );
+  });
+
+  it("keeps selection when a local task key migrates to a request canonical key", async function () {
+    const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
+    const pickerStart = ts.indexOf("function pickRunWorkspaceSelectedTaskKey");
+    const pickerEnd = ts.indexOf(
+      "function pickRunWorkspaceSelectedTaskKeyForSidebar",
+      pickerStart,
+    );
+    const pickerBody = ts.slice(pickerStart, pickerEnd);
+    assert.include(pickerBody, "selectionRequestFromTaskKey(current)");
+    assert.include(pickerBody, "resolveRunWorkspaceSelectionKey({");
+    assert.include(pickerBody, "localTaskIndex: args.localTaskIndex");
+    assert.include(pickerBody, "return row.item.key || resolvedCurrent");
   });
 
   it("focuses continuation-created steps only from user-originated RunDialog continuation", async function () {
@@ -87,10 +116,7 @@ describe("skillrunner run workspace singleton", function () {
       "onSequenceStepFocus?: ContinuationSequenceStepFocusHandler",
     );
     assert.include(continuation, "shouldFocusContinuationStep");
-    assert.include(
-      continuation,
-      'eventType === "sequence-step-started"',
-    );
+    assert.include(continuation, 'eventType === "sequence-step-started"');
     assert.include(reconciler, 'uiFocusPolicy: "none"');
     assert.notInclude(reconciler, "onSequenceStepFocus");
   });
@@ -109,7 +135,8 @@ describe("skillrunner run workspace singleton", function () {
     assert.include(ts, "signal: chatStreamAbortController?.signal");
     assert.include(ts, "lastFocusedAt: entry.streamLastFocusedAt");
     assert.include(ts, "isAbortErrorLike(error)");
-    assert.include(ts, "void entry.refreshDisplay?.().catch(() => {});");
+    assert.include(ts, "if (args.entry.stopObserver)");
+    assert.include(ts, "await args.entry.refreshDisplay?.();");
     assert.notInclude(
       ts,
       "await stopRunDialogEntryObserver(runWorkspaceState.currentEntry);\n\n  const requestId",

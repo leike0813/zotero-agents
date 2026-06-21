@@ -306,6 +306,12 @@ describe("skillrunner sidebar host runtime", function () {
       observerGateEnd,
     );
     assert.include(observerGateBody, "isFinishedRunWorkspaceTask(task)");
+    assert.include(observerGateBody, "function canTaskStartForegroundObserver");
+    assert.include(observerGateBody, "isWaiting(normalized)");
+    assert.include(
+      runDialog,
+      "if (!canTaskStartForegroundObserver(args.task))",
+    );
 
     const modelStart = runDialog.indexOf(
       "async function buildRunWorkspaceModel",

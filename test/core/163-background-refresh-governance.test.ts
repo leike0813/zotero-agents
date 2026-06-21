@@ -434,6 +434,67 @@ describe("background refresh governance", function () {
     assert.lengthOf(activeAfterTerminal, 0);
   });
 
+  it("keeps SkillRunner sequence steps distinct when they share the root run id", function () {
+    const rootRunId = "skillrunner-sequence-root-300";
+    const makeSequenceStepJob = (args: {
+      stepId: string;
+      stepIndex: number;
+      requestId: string;
+      updatedAt: string;
+    }): JobRecord => ({
+      ...makeSkillRunnerJob(300 + args.stepIndex, "skillrunner-a"),
+      id: `skillrunner-sequence-parent:${args.stepId}`,
+      meta: {
+        ...makeSkillRunnerJob(300 + args.stepIndex, "skillrunner-a").meta,
+        runId: rootRunId,
+        workflowRunId: rootRunId,
+        jobId: `skillrunner-sequence-parent:${args.stepId}`,
+        localRunId: `${rootRunId}:skillrunner-sequence-parent:${args.stepId}`,
+        requestId: args.requestId,
+        sequenceStepId: args.stepId,
+        sequenceStepIndex: args.stepIndex,
+        sequenceJobId: "skillrunner-sequence-parent",
+        skillRunnerRequestReady: true,
+        skillRunnerLifecycleState: "running",
+      },
+      result: {
+        requestId: args.requestId,
+      },
+      state: "running",
+      updatedAt: args.updatedAt,
+    });
+
+    recordWorkflowTaskUpdate(
+      makeSequenceStepJob({
+        stepId: "first-step",
+        stepIndex: 0,
+        requestId: "skillrunner-sequence-request-1",
+        updatedAt: "2026-06-18T06:00:00.000Z",
+      }),
+    );
+    recordWorkflowTaskUpdate(
+      makeSequenceStepJob({
+        stepId: "second-step",
+        stepIndex: 1,
+        requestId: "skillrunner-sequence-request-2",
+        updatedAt: "2026-06-18T06:00:01.000Z",
+      }),
+    );
+
+    const activeRows = listActiveWorkflowTaskSummaries({
+      backendId: "skillrunner-a",
+    });
+    assert.lengthOf(activeRows, 2);
+    assert.sameMembers(
+      activeRows.map((row) => row.requestId),
+      ["skillrunner-sequence-request-1", "skillrunner-sequence-request-2"],
+    );
+    assert.sameMembers(
+      activeRows.map((row) => row.sequenceStepId),
+      ["first-step", "second-step"],
+    );
+  });
+
   it("bounds ACP Skills panel summaries while preserving selected run details", function () {
     for (let index = 0; index < 120; index += 1) {
       const createdAt = `2026-06-18T${String(4 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00.000Z`;
