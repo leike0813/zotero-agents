@@ -51,11 +51,7 @@ function skillRunnerHistoryKey(record: TaskDashboardHistoryRecord) {
   if (String(record.backendType || "").trim() !== DEFAULT_BACKEND_TYPE) {
     return record.id;
   }
-  const requestId = String(record.requestId || "").trim();
-  if (!requestId) {
-    return record.id;
-  }
-  return `${String(record.backendId || "").trim()}:${requestId}`;
+  return String(record.runKey || "").trim();
 }
 
 function writeHistoryRecords(records: TaskDashboardHistoryRecord[]) {
@@ -96,7 +92,10 @@ export function listTaskDashboardHistory(args?: {
   const requestId = String(args?.requestId || "").trim();
   const byId = new Map<string, TaskDashboardHistoryRecord>();
   for (const record of readHistoryRecords()) {
-    byId.set(skillRunnerHistoryKey(record), record);
+    const key = skillRunnerHistoryKey(record);
+    if (key) {
+      byId.set(key, record);
+    }
   }
   for (const projection of listSkillRunnerRunProjections({
     backendId,
@@ -107,7 +106,10 @@ export function listTaskDashboardHistory(args?: {
       ...projection,
       archivedAt: projection.updatedAt,
     };
-    byId.set(skillRunnerHistoryKey(record), record);
+    const key = skillRunnerHistoryKey(record);
+    if (key) {
+      byId.set(key, record);
+    }
   }
   const rows = Array.from(byId.values())
     .filter((record) => {
@@ -248,7 +250,7 @@ export function recordTaskDashboardHistoryFromTaskRecord(
     if (!String(record.requestId || "").trim()) {
       return null;
     }
-    upsertSkillRunnerRunFromTask(record, {
+    const runRecord = upsertSkillRunnerRunFromTask(record, {
       eventType: "backend.snapshot",
       eventPayload: {
         source: "taskDashboardHistory.recordTaskDashboardHistoryFromTaskRecord",
@@ -257,6 +259,7 @@ export function recordTaskDashboardHistoryFromTaskRecord(
     });
     return {
       ...record,
+      runKey: runRecord?.runKey || record.runKey,
       archivedAt: new Date().toISOString(),
     };
   }
@@ -290,7 +293,7 @@ export function upsertTaskDashboardHistoryFromTaskRecord(
     if (!String(record.requestId || "").trim()) {
       return null;
     }
-    upsertSkillRunnerRunFromTask(record, {
+    const runRecord = upsertSkillRunnerRunFromTask(record, {
       eventType: "backend.snapshot",
       eventPayload: {
         source: "taskDashboardHistory.upsertTaskDashboardHistoryFromTaskRecord",
@@ -299,6 +302,7 @@ export function upsertTaskDashboardHistoryFromTaskRecord(
     });
     return {
       ...record,
+      runKey: runRecord?.runKey || record.runKey,
       archivedAt: new Date().toISOString(),
     };
   }

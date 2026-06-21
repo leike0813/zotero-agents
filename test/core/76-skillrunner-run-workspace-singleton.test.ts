@@ -55,21 +55,26 @@ describe("skillrunner run workspace singleton", function () {
     assert.include(ts, 'return "";');
   });
 
-  it("focuses SkillRunner workspace tasks by drawer task id before local run fallback", async function () {
+  it("focuses SkillRunner workspace tasks by runKey only", async function () {
     const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
-    assert.include(ts, "taskId: taskId || localRunId");
+    assert.include(ts, "runKey: args?.runKey");
+    assert.include(ts, "selectionIntentFromRunKey(runKey, \"user\")");
+    assert.notInclude(ts, "taskRecord.runKey");
+    assert.notInclude(ts, "taskId: taskId || localRunId");
     assert.notInclude(ts, "taskId: localRunId || taskId");
   });
 
   it("keeps pending SkillRunner focus requests until the drawer task exists", async function () {
     const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
-    assert.include(ts, "shouldClearRunWorkspaceRequestedSelection({");
-    assert.include(ts, 'String(selectedTask?.requestId || "").trim()');
-    assert.include(ts, 'String(selection.localRunId || "").trim()');
-    assert.notInclude(
+    assert.include(ts, "selectionIntent: RunWorkspaceSelectionIntent | null");
+    assert.include(ts, "canonicalizeRunWorkspaceSelectionIntent({");
+    assert.include(
       ts,
-      'runWorkspaceState.requestedTaskKey = "";\n      await selectWorkspaceTask(nextSelected);',
+      "const resolvedIntentKey = resolveRunWorkspaceSelectionKey({",
     );
+    assert.include(ts, "runWorkspaceState.selectionIntent =");
+    assert.notInclude(ts, "runWorkspaceState.requestedSelection");
+    assert.notInclude(ts, "runWorkspaceState.requestedTaskKey");
     const focusStart = ts.indexOf(
       "export async function focusSkillRunnerWorkspace",
     );
@@ -78,14 +83,14 @@ describe("skillrunner run workspace singleton", function () {
       focusStart,
     );
     const focusBody = ts.slice(focusStart, focusEnd);
-    assert.include(focusBody, "await selectWorkspaceTask(resolvedExisting);");
-    assert.notInclude(
-      focusBody,
-      'runWorkspaceState.requestedSelection = null;\n      runWorkspaceState.requestedTaskKey = "";',
-    );
+    assert.include(focusBody, "runWorkspaceState.selectionIntent = selection;");
+    assert.include(focusBody, "selection: runWorkspaceState.selectionIntent");
+    assert.include(focusBody, "runWorkspaceState.taskIndex.has(runKey)");
+    assert.include(focusBody, "await selectWorkspaceTask(runKey)");
+    assert.notInclude(focusBody, "resolvedExisting");
   });
 
-  it("keeps selection when a local task key migrates to a request canonical key", async function () {
+  it("keeps selection through the canonical runKey without alias indexes", async function () {
     const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
     const pickerStart = ts.indexOf("function pickRunWorkspaceSelectedTaskKey");
     const pickerEnd = ts.indexOf(
@@ -93,10 +98,32 @@ describe("skillrunner run workspace singleton", function () {
       pickerStart,
     );
     const pickerBody = ts.slice(pickerStart, pickerEnd);
-    assert.include(pickerBody, "selectionRequestFromTaskKey(current)");
+    assert.include(pickerBody, "selectionIntentFromRunKey(current)");
     assert.include(pickerBody, "resolveRunWorkspaceSelectionKey({");
-    assert.include(pickerBody, "localTaskIndex: args.localTaskIndex");
+    assert.notInclude(pickerBody, "identityIndex");
     assert.include(pickerBody, "return row.item.key || resolvedCurrent");
+  });
+
+  it("commits SkillRunner workspace refreshes against the latest selection intent", async function () {
+    const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
+    const refreshStart = ts.indexOf("async function refreshWorkspaceSnapshot");
+    const refreshEnd = ts.indexOf(
+      "async function handleRunWorkspaceAction",
+      refreshStart,
+    );
+    const refreshBody = ts.slice(refreshStart, refreshEnd);
+    assert.include(refreshBody, "const buildSelectionIntent =");
+    assert.include(refreshBody, "selection: buildSelectionIntent");
+    assert.include(refreshBody, "const latestSelectionIntent =");
+    assert.include(refreshBody, "selection: latestSelectionIntent");
+    assert.include(refreshBody, "intent: latestSelectionIntent");
+    assert.include(refreshBody, "!resolvedIntentKey");
+    assert.include(refreshBody, "const unresolvedProgrammaticIntent =");
+    assert.include(
+      refreshBody,
+      'latestSelectionIntent?.source === "programmatic"',
+    );
+    assert.include(refreshBody, "? latestSelectionIntent");
   });
 
   it("focuses continuation-created steps only from user-originated RunDialog continuation", async function () {
@@ -109,14 +136,17 @@ describe("skillrunner run workspace singleton", function () {
     );
 
     assert.include(dialog, 'uiFocusPolicy: "focus-started-step"');
-    assert.include(dialog, "onSequenceStepFocus: ({ job }) =>");
+    assert.include(dialog, "onSequenceStepFocus: ({ runKey }) =>");
+    assert.notInclude(dialog, "buildWorkflowTaskRecordFromJob");
     assert.include(dialog, "void focusSkillRunnerWorkspace({");
     assert.include(
       continuation,
       "onSequenceStepFocus?: ContinuationSequenceStepFocusHandler",
     );
+    assert.include(continuation, "runRecord?.runKey || canonicalTaskRecord.runKey");
     assert.include(continuation, "shouldFocusContinuationStep");
-    assert.include(continuation, 'eventType === "sequence-step-started"');
+    assert.include(continuation, 'eventType === "request-created"');
+    assert.notInclude(continuation, 'eventType === "sequence-step-started"');
     assert.include(reconciler, 'uiFocusPolicy: "none"');
     assert.notInclude(reconciler, "onSequenceStepFocus");
   });

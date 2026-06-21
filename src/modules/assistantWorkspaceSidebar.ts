@@ -813,7 +813,7 @@ async function handleShellAction(
       postAcpSkillRunSnapshot(host, pane);
       return;
     }
-    postAcpChatSnapshot(host, pane, target);
+    await postFreshAcpChatSnapshot(host, pane, target);
     return;
   }
   if (action === "close-sidebar") {
@@ -1415,9 +1415,7 @@ export async function openAssistantWorkspaceSidebar(args?: {
   tab?: AssistantWorkspaceTab;
   backend?: BackendInstance;
   requestId?: string;
-  taskKey?: string;
-  taskId?: string;
-  localRunId?: string;
+  runKey?: string;
   target?: AcpSidebarTarget;
 }) {
   const win =
@@ -1439,11 +1437,7 @@ export async function openAssistantWorkspaceSidebar(args?: {
   const activated = await activateTarget(host, target);
   if (activated && host.activeTab === "skillrunner") {
     await focusSkillRunnerWorkspace({
-      backend: args?.backend,
-      requestId: args?.requestId,
-      taskKey: args?.taskKey,
-      taskId: args?.taskId,
-      localRunId: args?.localRunId,
+      runKey: args?.runKey,
       selectionChanged: true,
     });
   }

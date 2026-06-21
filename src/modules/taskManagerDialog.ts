@@ -149,6 +149,7 @@ type DashboardRow = {
     waiting: boolean;
   };
   stateLabel: string;
+  runKey?: string;
   requestId?: string;
   requestKind?: string;
   skillId?: string;
@@ -1023,6 +1024,7 @@ function mapTaskRowWithMeta(
       waiting: isWaiting(normalizedState),
     },
     stateLabel: resolveStatusLabel(normalizedState),
+    runKey: task.runKey,
     requestId: task.requestId,
     requestKind: task.requestKind,
     skillId: task.skillId,
@@ -3211,6 +3213,7 @@ export async function openTaskManagerDialog(args?: {
       const taskId = String(payload.taskId || "").trim();
       const backendId = String(payload.backendId || "").trim();
       const requestId = String(payload.requestId || "").trim();
+      const runKey = String(payload.runKey || "").trim();
       const payloadBackendType = String(payload.backendType || "").trim();
       const requestKind = String(payload.requestKind || "").trim();
       if (
@@ -3252,13 +3255,7 @@ export async function openTaskManagerDialog(args?: {
         return;
       }
       if (backendType === "skillrunner") {
-        if (!requestId) {
-          alertRuntimeWindow(
-            localize(
-              "task-dashboard-open-run-missing-request-id",
-              "This run does not have a request ID yet. Try again later.",
-            ),
-          );
+        if (!runKey) {
           return;
         }
         if (!backend || !isSkillRunnerBackend(backend)) {
@@ -3267,8 +3264,7 @@ export async function openTaskManagerDialog(args?: {
         await openAssistantWorkspaceSidebar({
           window: getChromeWindow(),
           tab: "skillrunner",
-          backend,
-          requestId,
+          runKey,
         });
         return;
       }
@@ -3367,19 +3363,22 @@ export async function openTaskManagerDialog(args?: {
     if (action === "open-run") {
       const backendId = String(payload.backendId || "").trim();
       const requestId = String(payload.requestId || "").trim();
+      const runKey = String(payload.runKey || "").trim();
       if (!ensureBackendInteractable(backendId)) {
         return;
       }
-      if (backendId && requestId) {
+      if (backendId) {
         const backend = state.backends.find((entry) => entry.id === backendId);
         if (backend && isSkillRunnerBackend(backend)) {
+          if (!runKey) {
+            return;
+          }
           await openAssistantWorkspaceSidebar({
             window: getChromeWindow(),
             tab: "skillrunner",
-            backend,
-            requestId,
+            runKey,
           });
-        } else if (backend && isAcpBackend(backend)) {
+        } else if (backend && isAcpBackend(backend) && requestId) {
           selectAcpSkillRun(requestId);
           await openAssistantWorkspaceSidebar({
             window: getChromeWindow(),

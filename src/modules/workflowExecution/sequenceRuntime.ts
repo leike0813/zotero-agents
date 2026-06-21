@@ -15,6 +15,7 @@ import type {
 import type { ProviderProgressEvent } from "../../providers/types";
 import type { ProviderOrchestrationContext } from "../../providers/types";
 import type { appendRuntimeLog } from "../runtimeLogManager";
+import type { SkillRunnerSkillDisplayById } from "../skillRunnerSubmissionContext";
 import {
   getSequenceRunState,
   initializeSequenceRunState,
@@ -93,6 +94,29 @@ function cloneRecord(value: unknown) {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function buildSequenceStepProgressContext(args: {
+  state: SequenceRunState;
+  step: SkillRunnerSequenceStepV1;
+  stepIndex: number;
+  stepRequest: SequenceStepRequest;
+}) {
+  const stepState = args.state.steps[args.stepIndex];
+  return {
+    sequenceStepId: args.step.id,
+    sequenceStepIndex: args.stepIndex,
+    sequenceStepSkillId: args.step.skill_id,
+    sequenceStepSkillName:
+      normalizeString(stepState?.skillName) || undefined,
+    sequenceStepRequest: args.stepRequest,
+    sequenceStepTaskName:
+      normalizeString(
+        (args.stepRequest as { taskName?: unknown }).taskName,
+      ) || `${args.state.workflowLabel || args.state.workflowId} / ${args.step.id}`,
+    workflowRunId: args.state.workflowRunId,
+    sequenceJobId: args.state.jobId,
+  };
 }
 
 function normalizeStepExecutionMode(value: unknown) {
@@ -1245,6 +1269,12 @@ async function executeSequenceFromState(args: {
       backendType,
       workspaceRequestId,
     });
+    const stepProgressContext = buildSequenceStepProgressContext({
+      state: args.state,
+      step,
+      stepIndex: index,
+      stepRequest,
+    });
     args.appendRuntimeLog({
       level: "info",
       scope: "job",
@@ -1262,15 +1292,7 @@ async function executeSequenceFromState(args: {
     });
     args.onProgress?.({
       type: "sequence-step-started",
-      sequenceStepId: step.id,
-      sequenceStepIndex: index,
-      sequenceStepSkillId: step.skill_id,
-      sequenceStepRequest: stepRequest,
-      sequenceStepTaskName:
-        normalizeString((stepRequest as { taskName?: unknown }).taskName) ||
-        `${args.state.workflowLabel || args.state.workflowId} / ${step.id}`,
-      workflowRunId: args.state.workflowRunId,
-      sequenceJobId: args.state.jobId,
+      ...stepProgressContext,
     });
     let progressRequestId = "";
     let stepResult: ProviderExecutionResult;
@@ -1301,15 +1323,7 @@ async function executeSequenceFromState(args: {
           }
           args.onProgress?.({
             ...event,
-            sequenceStepId: step.id,
-            sequenceStepIndex: index,
-            sequenceStepSkillId: step.skill_id,
-            sequenceStepRequest: stepRequest,
-            sequenceStepTaskName:
-              normalizeString((stepRequest as { taskName?: unknown }).taskName) ||
-              `${args.state.workflowLabel || args.state.workflowId} / ${step.id}`,
-            workflowRunId: args.state.workflowRunId,
-            sequenceJobId: args.state.jobId,
+            ...stepProgressContext,
           });
         },
       });
@@ -1326,15 +1340,7 @@ async function executeSequenceFromState(args: {
         type: "sequence-step-failed",
         requestId: progressRequestId,
         error: message,
-        sequenceStepId: step.id,
-        sequenceStepIndex: index,
-        sequenceStepSkillId: step.skill_id,
-        sequenceStepRequest: stepRequest,
-        sequenceStepTaskName:
-          normalizeString((stepRequest as { taskName?: unknown }).taskName) ||
-          `${args.state.workflowLabel || args.state.workflowId} / ${step.id}`,
-        workflowRunId: args.state.workflowRunId,
-        sequenceJobId: args.state.jobId,
+        ...stepProgressContext,
       });
       throw error;
     }
@@ -1359,15 +1365,7 @@ async function executeSequenceFromState(args: {
         type: "sequence-step-deferred",
         requestId: resultRequestId,
         backendStatus: stepResult.backendStatus,
-        sequenceStepId: step.id,
-        sequenceStepIndex: index,
-        sequenceStepSkillId: step.skill_id,
-        sequenceStepRequest: stepRequest,
-        sequenceStepTaskName:
-          normalizeString((stepRequest as { taskName?: unknown }).taskName) ||
-          `${args.state.workflowLabel || args.state.workflowId} / ${step.id}`,
-        workflowRunId: args.state.workflowRunId,
-        sequenceJobId: args.state.jobId,
+        ...stepProgressContext,
       });
       return sequenceDeferredResult;
     }
@@ -1390,15 +1388,7 @@ async function executeSequenceFromState(args: {
             : "sequence-step-failed",
         requestId: resultRequestId,
         error: stepResult.status === "failed" ? terminalError : undefined,
-        sequenceStepId: step.id,
-        sequenceStepIndex: index,
-        sequenceStepSkillId: step.skill_id,
-        sequenceStepRequest: stepRequest,
-        sequenceStepTaskName:
-          normalizeString((stepRequest as { taskName?: unknown }).taskName) ||
-          `${args.state.workflowLabel || args.state.workflowId} / ${step.id}`,
-        workflowRunId: args.state.workflowRunId,
-        sequenceJobId: args.state.jobId,
+        ...stepProgressContext,
       });
       throw new Error(
         `skillrunner.sequence.v1 step '${step.id}' did not succeed; status=${String(stepResult.status || "unknown")}`,
@@ -1421,15 +1411,7 @@ async function executeSequenceFromState(args: {
     args.onProgress?.({
       type: "sequence-step-succeeded",
       requestId: stepResult.requestId,
-      sequenceStepId: step.id,
-      sequenceStepIndex: index,
-      sequenceStepSkillId: step.skill_id,
-      sequenceStepRequest: stepRequest,
-      sequenceStepTaskName:
-        normalizeString((stepRequest as { taskName?: unknown }).taskName) ||
-        `${args.state.workflowLabel || args.state.workflowId} / ${step.id}`,
-      workflowRunId: args.state.workflowRunId,
-      sequenceJobId: args.state.jobId,
+      ...stepProgressContext,
     });
     await applySequenceStepIfNeeded({
       state: args.state,
@@ -1522,6 +1504,7 @@ export async function executeSkillRunnerSequence(args: {
   request: SkillRunnerSequenceRequestV1;
   backend: BackendInstance;
   providerOptions?: Record<string, unknown>;
+  skillDisplayById?: SkillRunnerSkillDisplayById;
   workflowId: string;
   workflowLabel?: string;
   workflowRunId: string;
@@ -1539,6 +1522,7 @@ export async function executeSkillRunnerSequence(args: {
     workflowLabel: args.workflowLabel,
     workflowRunId: args.workflowRunId,
     jobId: args.jobId,
+    skillDisplayById: args.skillDisplayById,
   });
   return executeSequenceFromState({
     state,

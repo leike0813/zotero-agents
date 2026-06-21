@@ -20,11 +20,32 @@ export type ProviderProgressEventRequestReady = {
   requestId: string;
 };
 
+export type ProviderProgressEventSequenceStep = {
+  type:
+    | "sequence-step-started"
+    | "sequence-step-succeeded"
+    | "sequence-step-deferred"
+    | "sequence-step-failed"
+    | "sequence-step-canceled"
+    | string;
+  requestId?: string;
+  sequenceStepId: string;
+  sequenceStepIndex?: number;
+  sequenceStepSkillId?: string;
+  sequenceStepSkillName?: string;
+  sequenceStepTaskName?: string;
+  sequenceJobId?: string;
+  workflowRunId?: string;
+  sequenceStepRequest?: unknown;
+  [key: string]: unknown;
+};
+
 export type ProviderProgressEvent =
   | ProviderProgressEventRequestCreating
   | ProviderProgressEventRequestCreated
   | ProviderProgressEventRequestUploading
   | ProviderProgressEventRequestReady
+  | ProviderProgressEventSequenceStep
   | {
       type: string;
       [key: string]: unknown;

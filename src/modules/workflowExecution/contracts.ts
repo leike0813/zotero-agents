@@ -10,6 +10,13 @@ export type WorkflowExecutionContext = Awaited<
 export type PreparedWorkflowExecution = {
   workflow: LoadedWorkflow;
   requests: unknown[];
+  skillDisplayById?: Record<
+    string,
+    {
+      skillId: string;
+      skillName?: string;
+    }
+  >;
   skippedByFilter: number;
   executionContext: WorkflowExecutionContext;
 };

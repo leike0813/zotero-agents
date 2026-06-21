@@ -10,6 +10,7 @@ import {
   deletePluginTaskRowEntriesByBackend,
   getPluginRunStoreEntry,
   getPluginRunStoreEntryByRequest,
+  getPluginTaskRowEntry,
   listPluginRunEventStoreEntries,
   listPluginRunStoreEntries,
   listPluginRunStoreEntriesFiltered,
@@ -124,6 +125,7 @@ export type SkillRunnerRunStoreReadDiagnostics = {
   lightweightProjectionUnscopedQueryCount: number;
   lightweightProjectionSummaryQueryCount: number;
   lightweightProjectionSummaryReadCount: number;
+  requestIdentityViolationCount: number;
 };
 
 export type SkillRunnerRunProjectionStateCount = {
@@ -174,6 +176,7 @@ const readDiagnostics: SkillRunnerRunStoreReadDiagnostics = {
   lightweightProjectionUnscopedQueryCount: 0,
   lightweightProjectionSummaryQueryCount: 0,
   lightweightProjectionSummaryReadCount: 0,
+  requestIdentityViolationCount: 0,
 };
 
 function normalizeString(value: unknown) {
@@ -231,6 +234,7 @@ export function resetSkillRunnerRunStoreReadDiagnosticsForTests() {
   readDiagnostics.lightweightProjectionUnscopedQueryCount = 0;
   readDiagnostics.lightweightProjectionSummaryQueryCount = 0;
   readDiagnostics.lightweightProjectionSummaryReadCount = 0;
+  readDiagnostics.requestIdentityViolationCount = 0;
 }
 
 function nowIso() {
@@ -258,12 +262,11 @@ export function buildSkillRunnerRunKey(args: {
     return buildSkillRunnerLocalRunKey(localRunId);
   }
   const backendId = normalizeString(args.backendId);
-  const requestId = normalizeString(args.requestId);
-  if (backendId && requestId) {
-    return `${backendId}:${requestId}`;
-  }
   const runId = normalizeString(args.runId);
   const jobId = normalizeString(args.jobId);
+  if (!runId && !jobId) {
+    return "";
+  }
   return [backendId || "__skillrunner__", runId, jobId]
     .filter(Boolean)
     .join(":");
@@ -421,6 +424,7 @@ function buildProjectionFromRecord(
 ): WorkflowTaskRecord {
   return {
     ...record.taskProjection,
+    runKey: record.runKey,
     localRunId: record.localRunId || record.taskProjection.localRunId,
     requestId: normalizeString(record.requestId) || undefined,
     skillName: record.skillName || record.taskProjection.skillName,
@@ -481,6 +485,14 @@ function parseProjectionPayload(payload: string): WorkflowTaskRecord | null {
   } catch {
     return null;
   }
+}
+
+function withProjectionRunKey(
+  projection: WorkflowTaskRecord,
+  taskIdRaw: string,
+): WorkflowTaskRecord {
+  const runKey = normalizeString(taskIdRaw) || normalizeString(projection.runKey);
+  return runKey ? { ...projection, runKey } : projection;
 }
 
 function deleteSkillRunnerProjectionRows(runKey: string) {
@@ -563,26 +575,90 @@ function backfillProjectionRowsForScopedRead(
   }
 }
 
-function findProjectableRunByRequest(args: {
+function reportSkillRunnerRequestIdentityViolation(args: {
+  backendId?: string;
+  requestId: string;
+  existingRunKey?: string;
+  incomingRunKey?: string;
+  source: string;
+}) {
+  readDiagnostics.requestIdentityViolationCount += 1;
+  const runtime = globalThis as {
+    console?: {
+      warn?: (message?: unknown, ...optionalParams: unknown[]) => void;
+    };
+    Zotero?: { debug?: (message: string) => void };
+  };
+  const payload = {
+    backendId: normalizeString(args.backendId),
+    requestId: normalizeString(args.requestId),
+    existingRunKey: normalizeString(args.existingRunKey),
+    incomingRunKey: normalizeString(args.incomingRunKey),
+    source: args.source,
+  };
+  const message =
+    "[skillRunnerRunStore] invariant violation: backend request is bound to multiple runKeys";
+  if (runtime.console && typeof runtime.console.warn === "function") {
+    runtime.console.warn(message, payload);
+    return;
+  }
+  if (runtime.Zotero && typeof runtime.Zotero.debug === "function") {
+    runtime.Zotero.debug(`${message} ${JSON.stringify(payload)}`);
+  }
+}
+
+function listProjectableRunsByRequest(args: {
   backendId?: string;
   requestId: string;
 }) {
   const requestId = normalizeString(args.requestId);
   if (!requestId) {
-    return null;
+    return [];
   }
   const backendId = normalizeString(args.backendId);
-  return (
-    listSkillRunnerRunRecords({
-      backendId: backendId || undefined,
-      requestId,
-    }).find(
-      (record) =>
-        isProjectableRunRecord(record) &&
-        normalizeString(record.requestId) === requestId &&
-        (!backendId || normalizeString(record.backendId) === backendId),
-    ) || null
+  return listSkillRunnerRunRecords({
+    backendId: backendId || undefined,
+    requestId,
+  }).filter(
+    (record) =>
+      isProjectableRunRecord(record) &&
+      normalizeString(record.requestId) === requestId &&
+      (!backendId || normalizeString(record.backendId) === backendId),
   );
+}
+
+function findProjectableRunByRequest(args: {
+  backendId?: string;
+  requestId: string;
+  expectedRunKey?: string;
+  source?: string;
+}) {
+  const runs = listProjectableRunsByRequest(args);
+  if (runs.length <= 1) {
+    return runs[0] || null;
+  }
+  const expectedRunKey = normalizeString(args.expectedRunKey);
+  const distinctRunKeys = Array.from(
+    new Set(runs.map((record) => normalizeString(record.runKey))),
+  ).filter(Boolean);
+  if (distinctRunKeys.length > 1) {
+    reportSkillRunnerRequestIdentityViolation({
+      backendId: args.backendId,
+      requestId: args.requestId,
+      existingRunKey:
+        distinctRunKeys.find((runKey) => runKey !== expectedRunKey) ||
+        distinctRunKeys[0],
+      incomingRunKey: expectedRunKey,
+      source: args.source || "findProjectableRunByRequest",
+    });
+  }
+  if (expectedRunKey) {
+    const exact = runs.find((record) => record.runKey === expectedRunKey);
+    if (exact) {
+      return exact;
+    }
+  }
+  return runs[0] || null;
 }
 
 export function getSkillRunnerRunRecord(runKeyRaw: string) {
@@ -692,6 +768,29 @@ export function upsertSkillRunnerRunRecord(
   },
 ) {
   const previous = getSkillRunnerRunRecord(update.runKey) || undefined;
+  const requestId = normalizeString(update.requestId);
+  if (requestId && isProjectableRunRecord(update)) {
+    const existingForRequest = findProjectableRunByRequest({
+      backendId: update.backendId,
+      requestId,
+      expectedRunKey: update.runKey,
+      source: "upsertSkillRunnerRunRecord",
+    });
+    if (
+      existingForRequest &&
+      normalizeString(existingForRequest.runKey) !==
+        normalizeString(update.runKey)
+    ) {
+      reportSkillRunnerRequestIdentityViolation({
+        backendId: update.backendId,
+        requestId,
+        existingRunKey: existingForRequest.runKey,
+        incomingRunKey: update.runKey,
+        source: "upsertSkillRunnerRunRecord",
+      });
+      return existingForRequest;
+    }
+  }
   const status = shouldAcceptStateTransition(previous, update.status)
     ? update.status
     : previous?.status || update.status;
@@ -775,15 +874,6 @@ export function upsertSkillRunnerRunFromTask(
     typeof args.projectable === "boolean"
       ? args.projectable
       : previous?.projectable !== false;
-  if (requestId && role !== "sequence_root" && projectable !== false) {
-    const existingForRequest = findProjectableRunByRequest({
-      backendId: task.backendId,
-      requestId,
-    });
-    if (existingForRequest && existingForRequest.runKey !== runKey) {
-      return existingForRequest;
-    }
-  }
   const nextStatusRaw = normalizeString(
     task.skillRunnerLifecycleState ||
       task.state ||
@@ -869,6 +959,7 @@ export function upsertSkillRunnerRunFromTask(
         : previous?.sequence,
     taskProjection: {
       ...task,
+      runKey,
       localRunId: localRunId || task.localRunId,
       requestId: requestId || previous?.requestId || undefined,
       state: taskStateFromRunLifecycleState(status),
@@ -1099,7 +1190,10 @@ export function listSkillRunnerRunProjectionSummaries(
     readDiagnostics.lightweightProjectionScopedReadCount += entries.length;
   }
   return entries
-    .map((entry) => parseProjectionPayload(entry.payload))
+    .map((entry) => {
+      const projection = parseProjectionPayload(entry.payload);
+      return projection ? withProjectionRunKey(projection, entry.taskId) : null;
+    })
     .filter((entry): entry is WorkflowTaskRecord => !!entry);
 }
 
@@ -1107,6 +1201,33 @@ export function listSkillRunnerRunProjections(
   options: SkillRunnerRunProjectionListOptions = {},
 ) {
   return listSkillRunnerRunProjectionSummaries(options);
+}
+
+export function getSkillRunnerRunProjection(runKeyRaw: string) {
+  const runKey = normalizeString(runKeyRaw);
+  if (!runKey) {
+    return null;
+  }
+  const entry =
+    getPluginTaskRowEntry(
+      PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+      SKILLRUNNER_PROJECTION_ACTIVE_SCOPE,
+      runKey,
+    ) ||
+    getPluginTaskRowEntry(
+      PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+      SKILLRUNNER_PROJECTION_HISTORY_SCOPE,
+      runKey,
+    );
+  readDiagnostics.lightweightProjectionQueryCount += 1;
+  readDiagnostics.lightweightProjectionScopedQueryCount += 1;
+  if (!entry) {
+    return null;
+  }
+  readDiagnostics.lightweightProjectionReadCount += 1;
+  readDiagnostics.lightweightProjectionScopedReadCount += 1;
+  const projection = parseProjectionPayload(entry.payload);
+  return projection ? withProjectionRunKey(projection, entry.taskId) : null;
 }
 
 export function countSkillRunnerRunProjectionStates(
@@ -1139,6 +1260,10 @@ export function deleteSkillRunnerRunRecord(runKey: string) {
   return removed;
 }
 
+/**
+ * Backend-internal cleanup helper for request-context reconciliation only.
+ * UI open/archive/focus actions must use runKey and must not call this path.
+ */
 export function archiveSkillRunnerRunRecordByRequest(args: {
   backendId?: string;
   requestId: string;

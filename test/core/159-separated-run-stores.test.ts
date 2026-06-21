@@ -8,6 +8,7 @@ import {
   PLUGIN_TASK_DOMAIN_SKILLRUNNER,
   resetPluginStateStoreForTests,
   upsertPluginRunStoreEntry,
+  upsertPluginTaskRowEntry,
 } from "../../src/modules/pluginStateStore";
 import {
   appendAcpSkillRunUserReply,
@@ -655,7 +656,7 @@ describe("separated ACP and SkillRunner run stores", function () {
     );
   });
 
-  it("rejects duplicate projectable SkillRunner runs for the same backend request", function () {
+  it("rejects duplicate projectable runKeys for the same backend request", function () {
     const base: JobRecord = {
       id: "job-1:bundle_one",
       workflowId: "debug-apply-sequence-bundle",
@@ -690,7 +691,10 @@ describe("separated ACP and SkillRunner run stores", function () {
       updatedAt: "2026-06-18T00:00:01.000Z",
     };
     recordWorkflowTaskUpdate(base);
-    recordWorkflowTaskUpdate({
+    const firstRunKey = listSkillRunnerRunRecords()[0]?.runKey;
+    resetSkillRunnerRunStoreReadDiagnosticsForTests();
+
+    const duplicate = recordWorkflowTaskUpdate({
       ...base,
       id: "job-1",
       meta: {
@@ -707,16 +711,96 @@ describe("separated ACP and SkillRunner run stores", function () {
       (entry) => entry.requestId === "sr-duplicate-projectable",
     );
     assert.lengthOf(runs, 1);
+    assert.equal(runs[0].runKey, firstRunKey);
+    assert.equal(duplicate?.runKey, firstRunKey);
     assert.equal(
-      runs[0].runKey,
-      "local:workflow-run-duplicate:job-1:bundle_one",
+      getSkillRunnerRunStoreReadDiagnosticsForTests()
+        .requestIdentityViolationCount,
+      1,
+    );
+    assert.lengthOf(
+      listSkillRunnerRunProjections().filter(
+        (entry) => entry.requestId === "sr-duplicate-projectable",
+      ),
+      1,
+    );
+    assert.lengthOf(
+      listWorkflowTasks().filter(
+        (entry) => entry.requestId === "sr-duplicate-projectable",
+      ),
+      1,
     );
     assert.equal(
       getSkillRunnerRunRecordByRequest({
         backendId: "skillrunner-local",
         requestId: "sr-duplicate-projectable",
       })?.runKey,
-      "local:workflow-run-duplicate:job-1:bundle_one",
+      firstRunKey,
+    );
+  });
+
+  it("keeps SkillRunner workflow task projection merges scoped by runKey before requestId", function () {
+    recordWorkflowTaskUpdate({
+      id: "job-a",
+      workflowId: "workflow-debug-probe",
+      request: {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-probe",
+      },
+      meta: {
+        runId: "workflow-run-merge",
+        localRunId: "workflow-run-merge:job-a",
+        workflowLabel: "Debug Probe",
+        taskName: "Debug Probe / A",
+        providerId: "skillrunner",
+        backendId: "skillrunner-local",
+        backendType: "skillrunner",
+        backendBaseUrl: "http://127.0.0.1:8030",
+        requestId: "sr-shared-request-for-runkey-merge",
+        requestKind: "skillrunner.job.v1",
+      },
+      state: "running",
+      result: {
+        requestId: "sr-shared-request-for-runkey-merge",
+        backendStatus: "running",
+      },
+      createdAt: "2026-06-18T00:00:00.000Z",
+      updatedAt: "2026-06-18T00:00:01.000Z",
+    });
+
+    upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_SKILLRUNNER, "history", {
+      taskId: "local:workflow-run-merge:job-b",
+      requestId: "sr-shared-request-for-runkey-merge",
+      backendId: "skillrunner-local",
+      state: "succeeded",
+      updatedAt: "2026-06-18T00:00:02.000Z",
+      payload: JSON.stringify({
+        id: "workflow-run-merge:job-b",
+        runKey: "local:workflow-run-merge:job-b",
+        localRunId: "workflow-run-merge:job-b",
+        runId: "workflow-run-merge",
+        jobId: "job-b",
+        requestId: "sr-shared-request-for-runkey-merge",
+        backendId: "skillrunner-local",
+        backendType: "skillrunner",
+        workflowId: "workflow-debug-probe",
+        workflowLabel: "Debug Probe",
+        taskName: "Debug Probe / B",
+        state: "succeeded",
+        createdAt: "2026-06-18T00:00:00.000Z",
+        updatedAt: "2026-06-18T00:00:02.000Z",
+      }),
+    });
+
+    const rows = listWorkflowTasks().filter(
+      (entry) => entry.requestId === "sr-shared-request-for-runkey-merge",
+    );
+    assert.sameMembers(
+      rows.map((entry) => entry.runKey || ""),
+      [
+        "local:workflow-run-merge:job-a",
+        "local:workflow-run-merge:job-b",
+      ],
     );
   });
 

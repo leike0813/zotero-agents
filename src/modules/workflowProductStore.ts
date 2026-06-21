@@ -44,6 +44,7 @@ export type WorkflowProductRecord = {
   workflowLabel: string;
   backendId?: string;
   backendType: string;
+  runKey?: string;
   requestId: string;
   runId?: string;
   storageMode: WorkflowProductStorageMode;
@@ -302,6 +303,7 @@ function normalizeProductRecord(
     workflowLabel: cleanString(raw.workflowLabel),
     backendId: cleanString(raw.backendId) || undefined,
     backendType: cleanString(raw.backendType),
+    runKey: cleanString(raw.runKey) || undefined,
     requestId: cleanString(raw.requestId),
     runId: cleanString(raw.runId) || undefined,
     storageMode: [
@@ -483,6 +485,14 @@ function resolveRunId(source: unknown) {
   );
 }
 
+function resolveRunKey(source: unknown) {
+  if (!isRecord(source)) return "";
+  const response = isRecord(source.responseJson) ? source.responseJson : {};
+  return cleanString(
+    source.runKey || source.run_key || response.runKey || response.run_key,
+  );
+}
+
 function resolveBackendType(source: unknown) {
   if (!isRecord(source)) return "";
   const response = isRecord(source.responseJson) ? source.responseJson : {};
@@ -523,6 +533,7 @@ export function createProductStorageApi(args: {
     resolveRequestId(args.request) ||
     `request-${Date.now()}`;
   const runId = resolveRunId(args.runResult) || undefined;
+  const runKey = resolveRunKey(args.runResult) || undefined;
   const workflowId = cleanString(args.manifest?.id);
   const workflowLabel = cleanString(args.manifest?.label) || workflowId;
   const backendId = resolveBackendId(args.runResult);
@@ -642,6 +653,7 @@ export function createProductStorageApi(args: {
         workflowLabel,
         backendId: backendId || undefined,
         backendType,
+        runKey,
         requestId,
         runId,
         storageMode: "persistent-cache",

@@ -624,6 +624,54 @@ describe("acp session manager", function () {
     assert.isNull(lastAdapter);
   });
 
+  it("projects all configured ACP backends with display names for ACP chat selectors", async function () {
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-one",
+            displayName: "ACP One Visible",
+            type: "acp",
+            command: "node",
+            args: ["one.js"],
+          },
+          {
+            id: "acp-two",
+            displayName: "ACP Two Visible",
+            type: "acp",
+            command: "node",
+            args: ["two.js"],
+          },
+          {
+            id: "skillrunner-one",
+            displayName: "SkillRunner One",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8000",
+          },
+        ],
+      }),
+      true,
+    );
+
+    await refreshAcpConversationBackends();
+
+    const frontend = getAcpFrontendSnapshot();
+    assert.deepInclude(
+      frontend.backends.map((entry) => [entry.backendId, entry.displayName]),
+      ["acp-one", "ACP One Visible"],
+    );
+    assert.deepInclude(
+      frontend.backends.map((entry) => [entry.backendId, entry.displayName]),
+      ["acp-two", "ACP Two Visible"],
+    );
+    assert.notDeepInclude(
+      frontend.backends.map((entry) => [entry.backendId, entry.displayName]),
+      ["skillrunner-one", "SkillRunner One"],
+    );
+  });
+
   it("hydrates ACP chat runtime selectors from backend cache when session attach omits options", async function () {
     Zotero.Prefs.set(
       `${config.prefsPrefix}.backendsConfigJson`,
@@ -1235,6 +1283,10 @@ describe("acp session manager", function () {
         content: { type: "text", text: "First " },
       },
     });
+    const afterFirstChunk = getAcpConversationSnapshot();
+    const firstStreamingItem = afterFirstChunk.items.find(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
     await lastAdapter?.emitSessionUpdate({
       sessionId: "session-1",
       update: {
@@ -1250,6 +1302,7 @@ describe("acp session manager", function () {
     assert.equal(snapshot.updatedAt, before);
     assert.lengthOf(assistantItems, 1);
     assert.equal(assistantItems[0].text, "First second");
+    assert.equal(assistantItems[0].updatedAt, firstStreamingItem?.updatedAt);
   });
 
   it("starts a new thought when assistant output appears between thought chunks", async function () {

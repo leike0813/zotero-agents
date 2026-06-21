@@ -643,9 +643,9 @@
       return;
     }
     if (action === "archive-run") {
+      const runKey = safeText(data.runKey || currentTaskKey());
       sendAction("archive-run", {
-        requestId: safeText(data.requestId || currentRequestId()),
-        taskKey: safeText(data.taskKey || currentTaskKey()),
+        runKey,
       });
       return;
     }

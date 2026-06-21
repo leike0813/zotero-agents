@@ -210,11 +210,17 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(runDialog, "listSkillRunnerPanelRows");
     assert.include(runDialog, "listSkillRunnerRunProjections");
     assert.include(runDialog, "mergeSkillRunnerPanelRows");
-    assert.include(runDialog, "requestKey || localRunKey || taskKey");
-    assert.include(runDialog, "requestedSelection");
-    assert.include(runDialog, "requestIndex");
-    assert.include(runDialog, "localTaskIndex");
+    assert.include(runDialog, "selectionIntent: RunWorkspaceSelectionIntent");
+    assert.include(runDialog, "runKey: string");
+    assert.include(runDialog, "getSkillRunnerRunProjection(selectedRunKey)");
     assert.include(runDialog, "resolveRunWorkspaceSelectionKey");
+    assert.notInclude(runDialog, "requestKey || localRunKey || taskKey");
+    assert.notInclude(runDialog, "identityIndex: Map<string, string>");
+    assert.notInclude(runDialog, "resolveRunWorkspaceIdentityKey");
+    assert.notInclude(runDialog, "runWorkspaceState.requestedSelection");
+    assert.notInclude(runDialog, "runWorkspaceState.requestedTaskKey");
+    assert.notInclude(runDialog, "runWorkspaceState.requestIndex");
+    assert.notInclude(runDialog, "runWorkspaceState.localTaskIndex");
     assert.notInclude(runDialog, "includeCompletedHistory");
     assert.notInclude(runDialog, "preserveSidebarCompletedWindow");
     assert.notInclude(runDialog, "preserveSidebarSelectedTask");
@@ -265,15 +271,24 @@ describe("skillrunner sidebar host runtime", function () {
       selectActionStart,
       selectActionEnd,
     );
-    assert.include(
-      selectActionBody,
-      "runWorkspaceState.taskIndex.has(requestedTaskKey)",
-    );
-    assert.include(
-      selectActionBody,
-      "await selectWorkspaceTask(requestedTaskKey)",
-    );
+    assert.include(selectActionBody, "runWorkspaceState.taskIndex.has(runKey)");
+    assert.include(selectActionBody, 'selectionIntentFromTask(task, "user")');
+    assert.include(selectActionBody, "await selectWorkspaceTask(runKey)");
     assert.include(selectActionBody, '"sidebar-active"');
+
+    const archiveActionStart = runDialog.indexOf(
+      'if (action === "archive-run")',
+    );
+    const archiveActionEnd = runDialog.indexOf(
+      'if (action === "copy-request-id"',
+      archiveActionStart,
+    );
+    const archiveActionBody = runDialog.slice(
+      archiveActionStart,
+      archiveActionEnd,
+    );
+    assert.include(archiveActionBody, "payload.runKey");
+    assert.notInclude(archiveActionBody, "payload.taskKey");
 
     const selectFunctionStart = runDialog.indexOf(
       "async function selectWorkspaceTask",
@@ -320,7 +335,7 @@ describe("skillrunner sidebar host runtime", function () {
     const modelBody = runDialog.slice(modelStart, modelEnd);
     assert.notInclude(modelBody, '"sidebar-completed-window"');
     assert.include(modelBody, 'if (args.profile === "dialog-full")');
-    assert.include(modelBody, "scanPluginSkillRegistry()");
+    assert.notInclude(modelBody, "scanPluginSkillRegistry()");
     assert.include(modelBody, "listSkillRunnerPanelRows");
     assert.include(modelBody, "historyTruncated = panelRows.truncated");
     assert.include(runDialog, '"sidebar-active"');
@@ -377,6 +392,26 @@ describe("skillrunner sidebar host runtime", function () {
     assert.notInclude(
       paneCss,
       ".zs-skillrunner-sidebar-button[data-badge]::after",
+    );
+  });
+
+  it("keeps SkillRunner submission metadata in execution paths instead of UI fallbacks", async function () {
+    const runDialog = await readProjectFile(
+      "src/modules/skillRunnerRunDialog.ts",
+    );
+    const runSeam = await readProjectFile(
+      "src/modules/workflowExecution/runSeam.ts",
+    );
+    const foregroundContinuation = await readProjectFile(
+      "src/modules/skillRunnerForegroundContinuation.ts",
+    );
+
+    assert.notInclude(runDialog, "scanPluginSkillRegistry");
+    assert.notInclude(runDialog, "skillNameById");
+    assert.include(runSeam, "buildSkillRunnerSequenceStepJobRecord({");
+    assert.include(
+      foregroundContinuation,
+      "buildSkillRunnerSequenceStepJobRecord({",
     );
   });
 

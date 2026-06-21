@@ -40,6 +40,10 @@ import {
   buildSkillRunnerHostBridgeScopeEnv,
   type SkillRunnerHostBridgeEnvResult,
 } from "../hostBridgeSkillRunnerEnv";
+import {
+  scanPluginSkillRegistry,
+  type PluginSkillRegistrySnapshot,
+} from "../pluginSkillRegistry";
 
 function isNoValidInputUnitsError(error: unknown) {
   if (
@@ -200,6 +204,84 @@ function isSkillRunnerBackend(backendType: unknown) {
   return String(backendType || "").trim() === "skillrunner";
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function collectSkillRunnerSkillIdsFromRequests(requests: unknown[]) {
+  const skillIds = new Set<string>();
+  for (const request of requests) {
+    if (!isRecord(request)) {
+      continue;
+    }
+    const skillId = String(request.skill_id || "").trim();
+    if (skillId) {
+      skillIds.add(skillId);
+    }
+    const steps = Array.isArray(request.steps) ? request.steps : [];
+    for (const step of steps) {
+      if (!isRecord(step)) {
+        continue;
+      }
+      const stepSkillId = String(step.skill_id || "").trim();
+      if (stepSkillId) {
+        skillIds.add(stepSkillId);
+      }
+    }
+  }
+  return Array.from(skillIds);
+}
+
+function buildSkillDisplayMap(args: {
+  skillIds: string[];
+  registry: PluginSkillRegistrySnapshot;
+}) {
+  const result: Record<string, { skillId: string; skillName?: string }> = {};
+  for (const skillId of args.skillIds) {
+    const skill = args.registry.entriesById[skillId];
+    result[skillId] = {
+      skillId,
+      skillName: skill?.skillName || undefined,
+    };
+  }
+  return result;
+}
+
+async function resolveSkillRunnerSkillDisplayById(args: {
+  workflow: LoadedWorkflow;
+  requests: unknown[];
+  executionContext: WorkflowExecutionContext;
+  scanPluginSkillRegistry: typeof scanPluginSkillRegistry;
+  appendRuntimeLog: typeof appendRuntimeLog;
+}) {
+  if (
+    !isSkillRunnerBackend(args.executionContext.backend?.type) ||
+    !isSkillRunnerRuntimeEnvRequestKind(args.executionContext.requestKind)
+  ) {
+    return undefined;
+  }
+  const skillIds = collectSkillRunnerSkillIdsFromRequests(args.requests);
+  if (skillIds.length === 0) {
+    return undefined;
+  }
+  try {
+    const registry = await args.scanPluginSkillRegistry();
+    return buildSkillDisplayMap({ skillIds, registry });
+  } catch (error) {
+    args.appendRuntimeLog({
+      level: "warn",
+      scope: "workflow-trigger",
+      workflowId: args.workflow.manifest.id,
+      stage: "skillrunner-skill-display-scan-failed",
+      message: "failed to resolve SkillRunner skill display metadata",
+      error,
+    });
+    return Object.fromEntries(
+      skillIds.map((skillId) => [skillId, { skillId }]),
+    );
+  }
+}
+
 function resolveSkippedUnitsFromNoValidInputError(error: unknown) {
   if (!error || typeof error !== "object") {
     return isNoValidInputUnitsError(error) ? 1 : 0;
@@ -226,6 +308,7 @@ type PreparationDeps = {
   buildSelectionContext: typeof buildSelectionContext;
   executeBuildRequests: typeof executeBuildRequests;
   buildSkillRunnerHostBridgeEnv: typeof buildSkillRunnerHostBridgeRuntimeEnv;
+  scanPluginSkillRegistry: typeof scanPluginSkillRegistry;
   alertWindow: typeof alertWindow;
 };
 
@@ -236,6 +319,7 @@ const defaultPreparationDeps: PreparationDeps = {
   buildSelectionContext,
   executeBuildRequests,
   buildSkillRunnerHostBridgeEnv: buildSkillRunnerHostBridgeRuntimeEnv,
+  scanPluginSkillRegistry,
   alertWindow,
 };
 
@@ -645,11 +729,20 @@ export async function runWorkflowPreparationSeam(
     };
   }
 
+  const skillDisplayById = await resolveSkillRunnerSkillDisplayById({
+    workflow: args.workflow,
+    requests: adaptedRequests,
+    executionContext,
+    scanPluginSkillRegistry: resolved.scanPluginSkillRegistry,
+    appendRuntimeLog: resolved.appendRuntimeLog,
+  });
+
   return {
     status: "ready",
     prepared: {
       workflow: args.workflow,
       requests: adaptedRequests,
+      skillDisplayById,
       skippedByFilter,
       executionContext,
     },

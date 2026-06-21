@@ -1473,12 +1473,14 @@ function handleSessionUpdate(
       }
       let target = getLatestActiveAssistantItem(slot);
       if (!target) {
+        const createdAt = nowIso();
         target = {
           id: nextOpaqueId("acp-msg-assistant"),
           kind: "message",
           role: "assistant",
           text: "",
-          createdAt: nowIso(),
+          createdAt,
+          updatedAt: createdAt,
           state: "streaming",
         };
         slot.activeAssistantItemId = target.id;
@@ -1486,7 +1488,6 @@ function handleSessionUpdate(
       }
       target.text += chunk;
       target.state = "streaming";
-      target.updatedAt = nowIso();
       emitSlotSnapshot(slot, {
         throttleUi: true,
         throttlePersist: true,
@@ -1508,11 +1509,13 @@ function handleSessionUpdate(
       }
       let target = getLatestActiveThoughtItem(slot);
       if (!target) {
+        const createdAt = nowIso();
         target = {
           id: nextOpaqueId("acp-thought"),
           kind: "thought",
           text: "",
-          createdAt: nowIso(),
+          createdAt,
+          updatedAt: createdAt,
           state: "streaming",
         };
         slot.activeThoughtItemId = target.id;
@@ -1520,7 +1523,6 @@ function handleSessionUpdate(
       }
       target.text += chunk;
       target.state = "streaming";
-      target.updatedAt = nowIso();
       emitSlotSnapshot(slot, {
         throttleUi: true,
         throttlePersist: true,

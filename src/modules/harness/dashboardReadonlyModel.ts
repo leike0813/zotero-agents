@@ -4,6 +4,7 @@ import path from "node:path";
 import type { BackendInstance } from "../../backends/types";
 import {
   ACP_BACKEND_TYPE,
+  DEFAULT_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
 } from "../../config/defaults";
 import { loadWorkflowManifests } from "../../workflows/loader";
@@ -239,9 +240,16 @@ function normalizeDashboardRow(
     cleanString(row.taskId) ||
     cleanString(payload.taskId) ||
     cleanString(row.requestId);
+  const runKey =
+    cleanString(row.runKey) ||
+    cleanString(payload.runKey) ||
+    cleanString(payload.run_key) ||
+    (backendType === DEFAULT_BACKEND_TYPE ? id : "");
+  const requestId = cleanString(row.requestId || payload.requestId);
   return {
     id,
     taskId: id,
+    runKey: runKey || undefined,
     workflowId:
       cleanString(payload.workflowId) ||
       cleanString(payload.workflow_id) ||
@@ -261,7 +269,7 @@ function normalizeDashboardRow(
     stateSemantics: stateSemantics(state),
     stateLabel: stateLabel(state),
     statusLabel: stateLabel(state),
-    requestId: cleanString(row.requestId || payload.requestId),
+    requestId,
     requestKind,
     engine:
       cleanString(payload.engine) ||
@@ -272,7 +280,8 @@ function normalizeDashboardRow(
     createdAt: cleanString(payload.createdAt || payload.created_at),
     updatedAt: cleanString(row.updatedAt || payload.updatedAt),
     canCancel: false,
-    canOpen: Boolean(cleanString(row.requestId || payload.requestId)),
+    canOpen:
+      backendType === DEFAULT_BACKEND_TYPE ? Boolean(runKey) : Boolean(requestId),
     raw: payload,
   };
 }

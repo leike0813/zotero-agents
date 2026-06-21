@@ -38,7 +38,10 @@ import {
   getSkillRunnerRunRecordByRequest,
   upsertSkillRunnerRunFromTask,
 } from "../../src/modules/skillRunnerRunStore";
-import { continueSkillRunnerForegroundRun } from "../../src/modules/skillRunnerForegroundContinuation";
+import {
+  buildSkillRunnerForegroundContinuationStepJobForTests,
+  continueSkillRunnerForegroundRun,
+} from "../../src/modules/skillRunnerForegroundContinuation";
 import { mkTempDir } from "./workflow-test-utils";
 import { buildRequest as buildLiteratureDigestRequest } from "../../workflows_builtin/literature-workbench-package/literature-analysis/hooks/buildRequest.mjs";
 
@@ -100,6 +103,12 @@ function upsertSkillRunnerSequenceStepRunForTest(args: {
   stepIndex: number;
   finalStepId: string;
   skillId: string;
+  skillName?: string;
+  providerOptions?: Record<string, unknown>;
+  engine?: string;
+  inputUnitIdentity?: string;
+  targetParentID?: number;
+  executionMode?: "auto" | "interactive" | string;
 }) {
   const job: JobRecord = {
     id: `${args.sequenceJobId}:${args.stepId}`,
@@ -116,9 +125,15 @@ function upsertSkillRunnerSequenceStepRunForTest(args: {
       backendType: "skillrunner",
       backendBaseUrl: "http://127.0.0.1:8030",
       providerId: "skillrunner",
+      providerOptions: args.providerOptions,
+      engine: args.engine,
+      executionMode: args.executionMode,
       taskName: `Sequence Workflow / ${args.stepId}`,
+      inputUnitIdentity: args.inputUnitIdentity,
       inputUnitLabel: `Sequence Workflow / ${args.stepId}`,
+      targetParentID: args.targetParentID,
       skillId: args.skillId,
+      skillName: args.skillName,
       sequenceStepId: args.stepId,
       sequenceStepIndex: args.stepIndex,
       sequenceJobId: args.sequenceJobId,
@@ -133,6 +148,8 @@ function upsertSkillRunnerSequenceStepRunForTest(args: {
   upsertSkillRunnerRunFromTask(buildWorkflowTaskRecordFromJob(job), {
     role: "sequence_step",
     requestPayload: args.request,
+    providerOptions: args.providerOptions,
+    executionMode: args.executionMode,
     fetchType: "result",
     apply: {
       state: "idle",
@@ -191,6 +208,351 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.equal(
       getAcpSkillRunRecord("acp-request")?.applyResultState,
       "succeeded",
+    );
+  });
+
+  it("emits prepared skill display metadata for initial sequence steps", async function () {
+    const events: Array<Record<string, unknown>> = [];
+    const backend = {
+      id: "skillrunner-backend",
+      type: "skillrunner" as const,
+      baseUrl: "http://127.0.0.1:8030",
+      auth: { kind: "none" as const },
+    };
+
+    await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "prepare",
+            skill_id: "prepare-skill",
+            mode: "auto",
+            workspace: "new",
+          },
+          {
+            id: "finalize",
+            skill_id: "finalize-skill",
+            mode: "auto",
+            workspace: "reuse-workflow",
+          },
+        ],
+        final_step_id: "finalize",
+      },
+      backend,
+      providerOptions: {},
+      skillDisplayById: {
+        "prepare-skill": {
+          skillId: "prepare-skill",
+          skillName: "Prepare Skill",
+        },
+        "finalize-skill": {
+          skillId: "finalize-skill",
+          skillName: "Finalize Skill",
+        },
+      },
+      workflowId: "sequence-workflow",
+      workflowLabel: "Sequence Workflow",
+      workflowRunId: "workflow-run-skill-display",
+      jobId: "job-skill-display",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        const skillId = String((request as { skill_id?: unknown }).skill_id);
+        return {
+          status: "succeeded",
+          requestId: `${skillId}-request`,
+          fetchType: "result",
+          resultJson: { skillId },
+          responseJson: {},
+        };
+      },
+      onProgress: (event) => {
+        events.push(event as Record<string, unknown>);
+      },
+    });
+
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === "sequence-step-started")
+        .map((event) => ({
+          stepId: event.sequenceStepId,
+          skillId: event.sequenceStepSkillId,
+          skillName: event.sequenceStepSkillName,
+        })),
+      [
+        {
+          stepId: "prepare",
+          skillId: "prepare-skill",
+          skillName: "Prepare Skill",
+        },
+        {
+          stepId: "finalize",
+          skillId: "finalize-skill",
+          skillName: "Finalize Skill",
+        },
+      ],
+    );
+  });
+
+  it("emits persisted skill display metadata for continuation steps", async function () {
+    const events: Array<Record<string, unknown>> = [];
+    const backend = {
+      id: "skillrunner-backend",
+      type: "skillrunner" as const,
+      baseUrl: "http://127.0.0.1:8030",
+      auth: { kind: "none" as const },
+    };
+    initializeSequenceRunState({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "prepare",
+            skill_id: "prepare-skill",
+            mode: "auto",
+            workspace: "new",
+          },
+          {
+            id: "finalize",
+            skill_id: "finalize-skill",
+            mode: "auto",
+            workspace: "reuse-workflow",
+          },
+        ],
+        final_step_id: "finalize",
+      },
+      backend,
+      providerOptions: {},
+      workflowId: "sequence-workflow",
+      workflowLabel: "Sequence Workflow",
+      workflowRunId: "workflow-run-continuation-skill-display",
+      jobId: "job-continuation-skill-display",
+      skillDisplayById: {
+        "prepare-skill": {
+          skillId: "prepare-skill",
+          skillName: "Prepare Skill",
+        },
+        "finalize-skill": {
+          skillId: "finalize-skill",
+          skillName: "Finalize Skill",
+        },
+      },
+    });
+    recordSequenceStepSucceeded({
+      sequenceRunId: "workflow-run-continuation-skill-display",
+      stepIndex: 0,
+      requestId: "prepare-request",
+      output: { ok: true },
+      result: {
+        status: "succeeded",
+        requestId: "prepare-request",
+        fetchType: "result",
+        resultJson: { ok: true },
+        responseJson: {},
+      },
+    });
+
+    await continueSkillRunnerSequence({
+      sequenceRunId: "workflow-run-continuation-skill-display",
+      startIndex: 1,
+      backend,
+      providerOptions: {},
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        const skillId = String((request as { skill_id?: unknown }).skill_id);
+        return {
+          status: "succeeded",
+          requestId: `${skillId}-request`,
+          fetchType: "result",
+          resultJson: { skillId },
+          responseJson: {},
+        };
+      },
+      onProgress: (event) => {
+        events.push(event as Record<string, unknown>);
+      },
+    });
+
+    assert.deepInclude(
+      events.find((event) => event.type === "sequence-step-started") || {},
+      {
+        sequenceStepId: "finalize",
+        sequenceStepSkillId: "finalize-skill",
+        sequenceStepSkillName: "Finalize Skill",
+      },
+    );
+    assert.equal(
+      getSequenceRunState("workflow-run-continuation-skill-display")?.steps[1]
+        ?.skillName,
+      "Finalize Skill",
+    );
+  });
+
+  it("builds foreground continuation steps with the full submission context", function () {
+    const backend = {
+      id: "skillrunner-backend",
+      type: "skillrunner" as const,
+      baseUrl: "http://127.0.0.1:8030",
+      auth: { kind: "none" as const },
+    };
+    const providerOptions = {
+      engine: "context-engine",
+      model: "context-model",
+      effort: "low",
+    };
+    const sequenceRunId = "workflow-run-foreground-context";
+    const sequenceJobId = "job-foreground-context";
+    const sequenceRequest = {
+      kind: "skillrunner.sequence.v1" as const,
+      targetParentID: 42,
+      taskName: "Sequence Task",
+      runtime_options: {
+        collect_skill_run_feedback: true,
+      },
+      steps: [
+        {
+          id: "prepare",
+          skill_id: "prepare-skill",
+          mode: "interactive",
+          workspace: "new" as const,
+        },
+        {
+          id: "finalize",
+          skill_id: "finalize-skill",
+          mode: "auto",
+          workspace: "reuse-workflow" as const,
+        },
+      ],
+      final_step_id: "finalize",
+    };
+
+    initializeSequenceRunState({
+      request: sequenceRequest,
+      backend,
+      providerOptions,
+      workflowId: "sequence-workflow",
+      workflowLabel: "Sequence Workflow",
+      workflowRunId: sequenceRunId,
+      jobId: sequenceJobId,
+      skillDisplayById: {
+        "prepare-skill": {
+          skillId: "prepare-skill",
+          skillName: "Prepare Skill",
+        },
+        "finalize-skill": {
+          skillId: "finalize-skill",
+          skillName: "Finalize Skill",
+        },
+      },
+    });
+    recordSequenceStepRequestCreated({
+      sequenceRunId,
+      stepIndex: 0,
+      requestId: "prepare-request",
+    });
+    upsertSkillRunnerSequenceStepRunForTest({
+      requestId: "prepare-request",
+      request: {
+        kind: "skillrunner.job.v1",
+        skill_id: "prepare-skill",
+        runtime_options: {
+          execution_mode: "interactive",
+        },
+        fetch_type: "result",
+      },
+      workflowId: "sequence-workflow",
+      workflowRunId: sequenceRunId,
+      sequenceRunId,
+      sequenceJobId,
+      stepId: "prepare",
+      stepIndex: 0,
+      finalStepId: "finalize",
+      skillId: "prepare-skill",
+      skillName: "Prepare Skill",
+      providerOptions,
+      engine: "context-engine",
+      inputUnitIdentity: "zotero:item:42",
+      targetParentID: 42,
+      executionMode: "interactive",
+    });
+
+    const record = getSkillRunnerRunRecordByRequest({
+      backendId: backend.id,
+      requestId: "prepare-request",
+    });
+    const sequenceState = getSequenceRunState(sequenceRunId);
+    assert.isOk(record);
+    assert.isOk(sequenceState);
+
+    const finalizeRequest = {
+      kind: "skillrunner.job.v1" as const,
+      skill_id: "finalize-skill",
+      targetParentID: 42,
+      taskName: "Sequence Task / finalize",
+      runtime_options: {
+        collect_skill_run_feedback: true,
+        execution_mode: "auto",
+        workspace: {
+          mode: "reuse" as const,
+          request_id: "prepare-request",
+        },
+      },
+      fetch_type: "result" as const,
+    };
+    const job = buildSkillRunnerForegroundContinuationStepJobForTests({
+      record: record!,
+      sequenceState: sequenceState!,
+      backend,
+      event: {
+        type: "request-created",
+        requestId: "finalize-request",
+        sequenceStepId: "finalize",
+        sequenceStepIndex: 1,
+        sequenceStepSkillId: "finalize-skill",
+        sequenceStepSkillName: "Finalize Skill",
+        sequenceStepTaskName: "Sequence Task / finalize",
+        sequenceStepRequest: finalizeRequest,
+        workflowRunId: sequenceRunId,
+        sequenceJobId,
+      },
+    });
+    assert.isOk(job);
+
+    assert.equal(job!.meta.runId, sequenceRunId);
+    assert.deepEqual(job!.meta.providerOptions, providerOptions);
+    assert.equal(job!.meta.engine, "context-engine");
+    assert.equal(job!.meta.executionMode, "auto");
+    assert.equal(job!.meta.inputUnitIdentity, "zotero:item:42");
+    assert.equal(job!.meta.targetParentID, 42);
+    assert.equal(job!.meta.skillName, "Finalize Skill");
+
+    const task = buildWorkflowTaskRecordFromJob(job!);
+    assert.equal(task.engine, "context-engine");
+    assert.equal(task.inputUnitIdentity, "zotero:item:42");
+    assert.equal(task.skillName, "Finalize Skill");
+
+    const runRecord = upsertSkillRunnerRunFromTask(task, {
+      role: "sequence_step",
+      requestPayload: job!.request,
+      providerOptions: job!.meta.providerOptions as Record<string, unknown>,
+      executionMode: String(job!.meta.executionMode || ""),
+      fetchType: "result",
+      sequence: {
+        sequenceRunId,
+        workflowRunId: sequenceRunId,
+        jobId: sequenceJobId,
+        stepId: "finalize",
+        stepIndex: 1,
+        finalStepId: "finalize",
+      },
+    });
+
+    assert.equal(runRecord?.providerOptions?.engine, "context-engine");
+    assert.equal(runRecord?.executionMode, "auto");
+    assert.equal(runRecord?.taskProjection.engine, "context-engine");
+    assert.equal(
+      runRecord?.taskProjection.inputUnitIdentity,
+      "zotero:item:42",
     );
   });
 

@@ -1533,7 +1533,6 @@
       ? envelope.drawer
       : {};
     const selectedTaskKey = safeText(workspace.selectedTaskKey || envelope.selectedTaskKey);
-    const requestId = safeText(session && (session.requestId || session.id));
     const tasks = [];
     appendSkillRunnerTasksFromGroups(workspace.groups, tasks);
     (Array.isArray(drawer.sections) ? drawer.sections : []).forEach(function (section) {
@@ -1552,12 +1551,6 @@
       });
       if (selected) return selected;
     }
-    if (requestId) {
-      const byRequest = tasks.find(function (task) {
-        return safeText(task.requestId) === requestId;
-      });
-      if (byRequest) return byRequest;
-    }
     return tasks.find(function (task) {
       return task.active === true || task.selected === true;
     }) || null;
@@ -1565,7 +1558,6 @@
 
   function decorateSkillRunnerWorkspaceTask(task, source) {
     if (!task || typeof task !== "object") return task;
-    const requestId = safeText(task.requestId);
     const taskKey = safeText(task.key || task.taskKey || task.id);
     const canArchiveLocalRun = task.canArchiveLocalRun !== false;
     const terminal =
@@ -1589,7 +1581,7 @@
               archiveItemAction(
                 "archive-run",
                 "归档",
-                { requestId, taskKey },
+                { runKey: taskKey },
                 true,
               ),
             ]

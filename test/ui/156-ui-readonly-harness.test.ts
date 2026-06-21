@@ -139,12 +139,14 @@ async function createPluginStateFixture() {
     INSERT INTO plugin_task_rows VALUES (
       'skillrunner',
       'active',
-      'sr-task-1',
+      'local:sr-task-1',
       'sr-req-1',
       'skillrunner-backend',
       'waiting_auth',
       '2026-01-01T00:03:00.000Z',
       '${sqlJson({
+        taskId: "sr-task-1",
+        runKey: "local:sr-task-1",
         requestId: "sr-req-1",
         taskName: "Auth Run",
         workflowLabel: "SkillRunner Workflow",
@@ -381,6 +383,11 @@ describe("UI readonly harness", function () {
         tabKey: "runtime-logs",
       });
       assert.ok(Array.isArray((runtimeLogs.runtimeLogsView as any).logs));
+      const skillrunnerDashboardRow = (dashboardHome.runningRows as any[]).find(
+        (row) => row.backendType === "skillrunner",
+      );
+      assert.equal(skillrunnerDashboardRow.runKey, "local:sr-task-1");
+      assert.equal(skillrunnerDashboardRow.canOpen, true);
 
       const snapshots = assistant.snapshot();
       assert.ok((snapshots.acpChat as any).activeSnapshot);
@@ -407,6 +414,11 @@ describe("UI readonly harness", function () {
         (snapshots.skillrunner as any).drawer.sections[0].groups[0]
           .activeTasks[0].skillName,
         "Auth Skill",
+      );
+      assert.equal(
+        (snapshots.skillrunner as any).drawer.sections[0].groups[0]
+          .activeTasks[0].key,
+        "local:sr-task-1",
       );
       assert.equal(
         (snapshots.skillrunner as any).drawer.sections[0].groups[0]

@@ -20,6 +20,7 @@ import { createLocalizedMessageFormatter } from "../../src/modules/workflowExecu
 import { runWorkflowPreparationSeam } from "../../src/modules/workflowExecution/preparationSeam";
 import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
 import { runWorkflowExecutionSeam } from "../../src/modules/workflowExecution/runSeam";
+import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
 
@@ -153,6 +154,97 @@ describe("workflow execution seams", function () {
     assert.equal(result.status, "halted");
     assert.include(alerts[0], "skipped=2");
     assert.include(logs, "trigger-no-valid-input");
+  });
+
+  it("resolves SkillRunner skill display metadata during preparation", async function () {
+    const fakeWorkflow = {
+      manifest: {
+        id: "seam-prepare-skill-display",
+        label: "Seam Prepare Skill Display",
+        hooks: {
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+    } as any;
+    const fakeExecutionContext = {
+      backend: {
+        id: "skillrunner-local",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+        auth: { kind: "none" },
+      },
+      requestKind: "skillrunner.sequence.v1",
+      workflowParams: {},
+      providerOptions: {},
+      providerId: "skillrunner",
+    };
+
+    const result = await runWorkflowPreparationSeam(
+      {
+        win: {
+          ZoteroPane: {
+            getSelectedItems: () => [{ id: 1 }],
+          },
+          alert: () => undefined,
+        } as unknown as _ZoteroTypes.MainWindow,
+        workflow: fakeWorkflow,
+        messageFormatter: createLocalizedMessageFormatter(),
+        suppressUiFeedback: true,
+      },
+      {
+        appendRuntimeLog: () => undefined,
+        resolveWorkflowExecutionContext: async () =>
+          fakeExecutionContext as any,
+        resolveWorkflowExecutionOptionsPreview: () =>
+          ({
+            workflowParams: {},
+            providerOptions: {},
+            runOptions: {},
+          }) as any,
+        buildSelectionContext: async () => ({ items: [] }) as any,
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [
+                { id: "digest", skill_id: "literature-analysis" },
+                { id: "tag", skill_id: "tag-regulator" },
+              ],
+              final_step_id: "tag",
+            },
+          ] as any,
+        scanPluginSkillRegistry: async () =>
+          ({
+            entries: [],
+            entriesById: {
+              "literature-analysis": {
+                skillId: "literature-analysis",
+                skillName: "Literature Analysis",
+              },
+              "tag-regulator": {
+                skillId: "tag-regulator",
+                skillName: "Tag Regulator",
+              },
+            },
+            diagnostics: [],
+          }) as any,
+      },
+    );
+
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") {
+      return;
+    }
+    assert.deepEqual(result.prepared.skillDisplayById, {
+      "literature-analysis": {
+        skillId: "literature-analysis",
+        skillName: "Literature Analysis",
+      },
+      "tag-regulator": {
+        skillId: "tag-regulator",
+        skillName: "Tag Regulator",
+      },
+    });
   });
 
   it("adapts SkillRunner-style requests to ACP skill run requests during preparation", async function () {
@@ -1465,6 +1557,12 @@ describe("workflow execution seams", function () {
               taskName: "Selected Paper",
             },
           ],
+          skillDisplayById: {
+            "literature-analysis": {
+              skillId: "literature-analysis",
+              skillName: "Literature Analysis",
+            },
+          },
           skippedByFilter: 0,
           executionContext: {
             providerId: "skillrunner",
@@ -1485,6 +1583,7 @@ describe("workflow execution seams", function () {
 
     assert.deepEqual(runState.jobIds, ["job-1"]);
     assert.equal(enqueuedJobs[0].meta.skillId, "literature-analysis");
+    assert.equal(enqueuedJobs[0].meta.skillName, "Literature Analysis");
   });
 
   it("passes sequence step result contexts to applyResult hooks", async function () {
@@ -1619,6 +1718,16 @@ describe("workflow execution seams", function () {
               final_step_id: "tag",
             },
           ],
+          skillDisplayById: {
+            "literature-analysis": {
+              skillId: "literature-analysis",
+              skillName: "Literature Analysis",
+            },
+            "tag-regulator": {
+              skillId: "tag-regulator",
+              skillName: "Tag Regulator",
+            },
+          },
           skippedByFilter: 0,
           executionContext: {
             providerId: "skillrunner",
@@ -1653,6 +1762,7 @@ describe("workflow execution seams", function () {
         },
         recordWorkflowTaskUpdate: (job: any) => {
           taskUpdates.push(job);
+          return buildWorkflowTaskRecordFromJob(job);
         },
         recordTaskDashboardHistoryFromJob: (job: any) => {
           historyUpdates.push(job);
@@ -1682,17 +1792,20 @@ describe("workflow execution seams", function () {
     assert.deepEqual(
       requestReadyRows.map((job) => ({
         id: job.id,
+        localRunId: job.meta.localRunId,
         requestId: job.meta.requestId,
         requestReady: job.meta.skillRunnerRequestReady,
       })),
       [
         {
           id: "job-1:digest",
+          localRunId: `${runState.runId}-job-1:job-1:digest`,
           requestId: "literature-analysis-request",
           requestReady: true,
         },
         {
           id: "job-1:tag",
+          localRunId: `${runState.runId}-job-1:job-1:tag`,
           requestId: "tag-regulator-request",
           requestReady: true,
         },
@@ -1704,6 +1817,7 @@ describe("workflow execution seams", function () {
         id: job.id,
         requestId: job.meta.requestId,
         skillId: job.meta.skillId,
+        skillName: job.meta.skillName,
         sequenceStepId: job.meta.sequenceStepId,
       })),
       [
@@ -1711,12 +1825,14 @@ describe("workflow execution seams", function () {
           id: "job-1:digest",
           requestId: "literature-analysis-request",
           skillId: "literature-analysis",
+          skillName: "Literature Analysis",
           sequenceStepId: "digest",
         },
         {
           id: "job-1:tag",
           requestId: "tag-regulator-request",
           skillId: "tag-regulator",
+          skillName: "Tag Regulator",
           sequenceStepId: "tag",
         },
       ],
@@ -1724,16 +1840,21 @@ describe("workflow execution seams", function () {
     assert.isAtLeast(historyUpdates.length, 2);
     const focusedSteps = focusCalls
       .map((entry) => ({
-        taskId: String(entry.taskId || ""),
-        localRunId: String(entry.localRunId || ""),
+        runKey: String(entry.runKey || ""),
         selectionChanged: entry.selectionChanged,
       }))
-      .filter((entry) => entry.taskId.includes(":job-1:"));
+      .filter((entry) => entry.runKey.includes(":job-1:"));
+    assert.includeMembers(
+      focusedSteps.map((entry) => entry.runKey),
+      [
+        `local:${runState.runId}-job-1:job-1:digest`,
+        `local:${runState.runId}-job-1:job-1:tag`,
+      ],
+    );
     assert.isTrue(
       focusedSteps.some(
         (entry) =>
-          entry.taskId.endsWith(":job-1:digest") &&
-          entry.localRunId.includes(":job-1:digest") &&
+          entry.runKey.endsWith(":job-1:digest") &&
           entry.selectionChanged === true,
       ),
       JSON.stringify(focusedSteps),
@@ -1741,8 +1862,7 @@ describe("workflow execution seams", function () {
     assert.isTrue(
       focusedSteps.some(
         (entry) =>
-          entry.taskId.endsWith(":job-1:tag") &&
-          entry.localRunId.includes(":job-1:tag") &&
+          entry.runKey.endsWith(":job-1:tag") &&
           entry.selectionChanged === true,
       ),
       JSON.stringify(focusedSteps),
@@ -2067,7 +2187,15 @@ describe("workflow execution seams", function () {
           targetParentID: 3,
           runtime_options: { execution_mode: "auto" },
         },
-        meta: { index: 0, runId: "run-sr-auto-focus" },
+        meta: {
+          index: 0,
+          runId: "run-sr-auto-focus",
+          providerId: "skillrunner",
+          requestKind: "skillrunner.job.v1",
+          backendId: "backend-1",
+          backendType: "skillrunner",
+          backendBaseUrl: "http://127.0.0.1:8030",
+        },
         state: "running",
         createdAt: "2026-04-17T00:00:00.000Z",
         updatedAt: "2026-04-17T00:00:00.000Z",
@@ -2079,8 +2207,9 @@ describe("workflow execution seams", function () {
 
     assert.lengthOf(assistantCalls, 0);
     assert.lengthOf(focusCalls, 1);
-    assert.equal(focusCalls[0].taskId, "run-sr-auto-focus:job-1");
-    assert.equal(focusCalls[0].localRunId, "run-sr-auto-focus:job-1");
+    assert.equal(focusCalls[0].runKey, "local:run-sr-auto-focus:job-1");
+    assert.isUndefined(focusCalls[0].taskId);
+    assert.isUndefined(focusCalls[0].localRunId);
     assert.isUndefined(focusCalls[0].requestId);
 
     const onJobUpdated = capturedQueueConfig?.onJobUpdated as
@@ -2097,6 +2226,11 @@ describe("workflow execution seams", function () {
       meta: {
         index: 0,
         runId: "run-sr-auto-focus",
+        providerId: "skillrunner",
+        requestKind: "skillrunner.job.v1",
+        backendId: "backend-1",
+        backendType: "skillrunner",
+        backendBaseUrl: "http://127.0.0.1:8030",
         requestId: "req-auto-focus",
       },
       state: "running",
@@ -2188,7 +2322,15 @@ describe("workflow execution seams", function () {
           targetParentID: 3,
           runtime_options: { execution_mode: "interactive" },
         },
-        meta: { index: 0, runId: "run-sr-interactive-focus" },
+        meta: {
+          index: 0,
+          runId: "run-sr-interactive-focus",
+          providerId: "skillrunner",
+          requestKind: "skillrunner.job.v1",
+          backendId: "backend-1",
+          backendType: "skillrunner",
+          backendBaseUrl: "http://127.0.0.1:8030",
+        },
         state: "running",
         createdAt: "2026-04-17T00:00:00.000Z",
         updatedAt: "2026-04-17T00:00:00.000Z",
@@ -2201,11 +2343,12 @@ describe("workflow execution seams", function () {
     assert.lengthOf(focusCalls, 0);
     assert.lengthOf(assistantCalls, 1);
     assert.equal(assistantCalls[0].tab, "skillrunner");
-    assert.equal(assistantCalls[0].taskId, "run-sr-interactive-focus:job-1");
     assert.equal(
-      assistantCalls[0].localRunId,
-      "run-sr-interactive-focus:job-1",
+      assistantCalls[0].runKey,
+      "local:run-sr-interactive-focus:job-1",
     );
+    assert.isUndefined(assistantCalls[0].taskId);
+    assert.isUndefined(assistantCalls[0].localRunId);
     assert.isUndefined(assistantCalls[0].requestId);
 
     const readyJob = {
@@ -2218,6 +2361,11 @@ describe("workflow execution seams", function () {
       meta: {
         index: 0,
         runId: "run-sr-interactive-focus",
+        providerId: "skillrunner",
+        requestKind: "skillrunner.job.v1",
+        backendId: "backend-1",
+        backendType: "skillrunner",
+        backendBaseUrl: "http://127.0.0.1:8030",
         requestId: "req-1",
       },
       state: "running",

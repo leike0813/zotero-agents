@@ -138,6 +138,8 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(js, 'action === "select-task"');
     assert.include(js, 'action === "cancel" || action === "cancel-run"');
     assert.include(js, 'action === "archive-run"');
+    assert.notInclude(js, "taskKey: runKey");
+    assert.notInclude(modelJs, "{ runKey: taskKey, taskKey }");
     assert.include(js, 'action === "reply" || action === "reply-run"');
     assert.include(js, 'action === "resolve-permission"');
     assert.include(js, 'action === "auth-import-run"');

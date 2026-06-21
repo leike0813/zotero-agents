@@ -9,6 +9,7 @@ export type PluginStateReadonlyRow = Record<string, unknown> & {
   requestId: string;
   backendId: string;
   taskId: string;
+  runKey?: string;
   state: string;
   updatedAt: string;
   payload: Record<string, any>;
@@ -67,12 +68,18 @@ function rowPayload(row: Record<string, unknown>) {
 
 function normalizeTaskRow(row: Record<string, unknown>) {
   const payload = rowPayload(row);
+  const domain = cleanHarnessString(row.domain);
   const taskId =
     cleanHarnessString(row.task_id) ||
     cleanHarnessString(payload.taskId) ||
     cleanHarnessString(payload.id) ||
     cleanHarnessString(row.request_id) ||
     cleanHarnessString(payload.requestId);
+  const runKey =
+    cleanHarnessString(row.runKey) ||
+    cleanHarnessString(payload.runKey) ||
+    cleanHarnessString(payload.run_key) ||
+    (domain === "skillrunner" ? taskId : "");
   const requestId =
     cleanHarnessString(row.request_id) || cleanHarnessString(payload.requestId);
   const backendId =
@@ -88,9 +95,10 @@ function normalizeTaskRow(row: Record<string, unknown>) {
   return {
     ...payload,
     ...row,
-    domain: cleanHarnessString(row.domain),
+    domain,
     scope: cleanHarnessString(row.scope),
     taskId,
+    runKey: runKey || undefined,
     requestId,
     backendId,
     state,

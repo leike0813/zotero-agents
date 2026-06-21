@@ -12,6 +12,7 @@ import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { resetWorkflowHostApiForTests } from "../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
+import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import { createLocalizedMessageFormatter } from "../../src/modules/workflowExecution/messageFormatter";
 import { runWorkflowPreparationSeam } from "../../src/modules/workflowExecution/preparationSeam";
@@ -399,7 +400,7 @@ async function runDebugApplyWorkflow(args: {
       },
       recordWorkflowTaskUpdate: (job) => {
         taskUpdates.push(clone(job as unknown as Record<string, any>));
-        recordWorkflowTaskUpdate(job);
+        return recordWorkflowTaskUpdate(job);
       },
       recordTaskDashboardHistoryFromJob: (job) => {
         historyUpdates.push(clone(job as unknown as Record<string, any>));
@@ -534,7 +535,9 @@ function findRequestReadyUpdate(run: IntegrationRun, requestId: string) {
 }
 
 describe("workflow single-result behavior integration", function () {
-  beforeEach(function () {
+  this.timeout(10000);
+
+  beforeEach(async function () {
     clearRuntimeLogs();
     resetWorkflowTasks();
     resetTaskDashboardHistory();
@@ -543,6 +546,7 @@ describe("workflow single-result behavior integration", function () {
     resetPluginStateStoreForTests();
     resetWorkflowHostApiForTests();
     setDebugModeOverrideForTests(true);
+    await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
   });
 
   afterEach(function () {
@@ -583,8 +587,10 @@ describe("workflow single-result behavior integration", function () {
     assert.isOk(findRequestReadyUpdate(run, requestId));
     assert.lengthOf(run.focusCalls, 1);
     assert.equal(run.focusCalls[0].selectionChanged, true);
-    assert.include(normalizeString(run.focusCalls[0].taskId), "job-1");
+    assert.match(normalizeString(run.focusCalls[0].runKey), /^local:/);
+    assert.include(normalizeString(run.focusCalls[0].runKey), "job-1");
     assert.isUndefined(run.focusCalls[0].requestId);
+    assert.isUndefined(run.focusCalls[0].taskId);
     assert.lengthOf(run.assistantCalls, 0);
 
     const stored = getSkillRunnerRunRecordByRequest({
@@ -730,7 +736,7 @@ describe("workflow single-result behavior integration", function () {
     assert.equal(run.applySummary.failed, 0);
     assert.lengthOf(run.assistantCalls, 0);
     const resultFocusTaskIds = run.focusCalls.map((entry) =>
-      normalizeString(entry.taskId),
+      normalizeString(entry.runKey),
     );
     assert.isTrue(
       resultFocusTaskIds.some((taskId) => taskId.endsWith(":result_one")),
@@ -867,7 +873,7 @@ describe("workflow single-result behavior integration", function () {
     assert.equal(run.applySummary.failed, 0);
     assert.lengthOf(run.assistantCalls, 0);
     const bundleFocusTaskIds = run.focusCalls.map((entry) =>
-      normalizeString(entry.taskId),
+      normalizeString(entry.runKey),
     );
     assert.isTrue(
       bundleFocusTaskIds.some((taskId) => taskId.endsWith(":bundle_one")),
@@ -1056,7 +1062,7 @@ describe("workflow single-result behavior integration", function () {
     );
     assertParentDoesNotHaveTag(run.request);
 
-    const focusedStepTaskIds: string[] = [];
+    const focusedStepRunKeys: string[] = [];
     const createdRequests: Array<Record<string, unknown>> = [];
     const replyBodies: unknown[] = [];
     await withMockedFetch(
@@ -1139,8 +1145,8 @@ describe("workflow single-result behavior integration", function () {
           requestId: interactiveRequestId,
           source: "test.interactive-then-result-reply",
           uiFocusPolicy: "focus-started-step",
-          onSequenceStepFocus: ({ job }) => {
-            focusedStepTaskIds.push(job.id);
+          onSequenceStepFocus: ({ runKey }) => {
+            focusedStepRunKeys.push(runKey);
           },
         });
         assert.equal(outcome.status, "succeeded");
@@ -1156,10 +1162,6 @@ describe("workflow single-result behavior integration", function () {
       },
     ]);
     assert.lengthOf(createdRequests, 1);
-    assert.isTrue(
-      focusedStepTaskIds.some((taskId) => taskId.endsWith(":result")),
-      "reply continuation should focus the result step task",
-    );
     const resultTask = listWorkflowTasks().find(
       (task) => task.requestId === resultRequestId,
     );
@@ -1172,6 +1174,12 @@ describe("workflow single-result behavior integration", function () {
       backendId: SKILLRUNNER_BACKEND.id,
       requestId: resultRequestId,
     });
+    assert.isOk(resultRecord?.runKey);
+    assert.include(
+      focusedStepRunKeys,
+      resultRecord?.runKey || "",
+      "reply continuation should focus the canonical result step runKey",
+    );
     assert.equal(resultRecord?.status, "succeeded");
     assert.equal(resultRecord?.apply.state, "skipped");
   });

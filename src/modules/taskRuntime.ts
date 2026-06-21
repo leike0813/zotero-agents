@@ -11,7 +11,6 @@ import {
 } from "./skillRunnerProviderStateMachine";
 import {
   buildSkillRunnerRunKey,
-  buildSkillRunnerLocalRunKey,
   deleteSkillRunnerRunRecord,
   listSkillRunnerRunProjections,
   resetSkillRunnerRunStoreForTests,
@@ -21,6 +20,7 @@ import {
 
 export type WorkflowTaskRecord = {
   id: string;
+  runKey?: string;
   localRunId?: string;
   runId: string;
   jobId: string;
@@ -283,6 +283,16 @@ export function buildWorkflowTaskRecordFromJob(
   const backendId = normalizeMetaString(job.meta, "backendId");
   const backendType = normalizeMetaString(job.meta, "backendType");
   const backendBaseUrl = normalizeMetaString(job.meta, "backendBaseUrl");
+  const runKey =
+    backendType === DEFAULT_BACKEND_TYPE
+      ? buildSkillRunnerRunKey({
+          backendId,
+          requestId,
+          runId,
+          jobId: job.id,
+          localRunId,
+        })
+      : "";
   const skillRunnerLifecycleState =
     resolveSkillRunnerLifecycleStateFromJob(job);
   const skillRunnerReady =
@@ -297,6 +307,7 @@ export function buildWorkflowTaskRecordFromJob(
     (isSkillRunnerRequestReady(job) ? "request_ready" : "");
   return {
     id: getTaskIdFromJob(job),
+    runKey: runKey || undefined,
     localRunId: localRunId || undefined,
     runId,
     jobId: job.id,
@@ -401,6 +412,7 @@ function parsePersistedTaskRecord(raw: unknown): WorkflowTaskRecord | null {
   }
   return {
     id,
+    runKey: String(raw.runKey || "").trim() || undefined,
     localRunId: String(raw.localRunId || "").trim() || undefined,
     runId,
     jobId,
@@ -529,12 +541,20 @@ function skillRunnerRequestProjectionKey(record: WorkflowTaskRecord) {
   return `${String(record.backendId || "").trim()}:${requestId}`;
 }
 
+function skillRunnerRunKeyProjectionKey(record: WorkflowTaskRecord) {
+  if (!isSkillRunnerWorkflowTaskRecord(record)) {
+    return "";
+  }
+  return String(record.runKey || "").trim();
+}
+
 function getSkillRunnerLocalIdentityValues(record: WorkflowTaskRecord) {
   const isSequenceStep =
     String(record.role || "").trim() === "sequence_step" ||
     !!String(record.sequenceStepId || "").trim();
   return new Set(
     [
+      record.runKey,
       record.localRunId,
       record.id,
       record.jobId,
@@ -615,27 +635,78 @@ function pruneStaleSkillRunnerLocalRows(
   return removed;
 }
 
+function applySkillRunnerProjectionMerge(args: {
+  records: Map<string, WorkflowTaskRecord>;
+  id: string;
+  existing: WorkflowTaskRecord;
+  projection: WorkflowTaskRecord;
+  preserveRuntimeIds: boolean;
+}) {
+  const next = args.preserveRuntimeIds
+    ? {
+        ...args.existing,
+        ...args.projection,
+        id: args.existing.id,
+        runId: args.existing.runId,
+        jobId: args.existing.jobId,
+      }
+    : {
+        ...args.existing,
+        ...args.projection,
+      };
+  const nextId = String(next.id || args.id).trim() || args.id;
+  if (nextId !== args.id) {
+    args.records.delete(args.id);
+    if (args.records === taskRecords) {
+      syncTaskRecordActiveIndex(args.id, undefined);
+    }
+  }
+  args.records.set(nextId, next);
+  if (args.records === taskRecords) {
+    syncTaskRecordActiveIndex(nextId, next);
+  }
+  pruneStaleSkillRunnerLocalRows(args.records, args.projection, nextId);
+}
+
 function mergeSkillRunnerProjection(
   records: Map<string, WorkflowTaskRecord>,
   projection: WorkflowTaskRecord,
 ) {
+  const runKey = skillRunnerRunKeyProjectionKey(projection);
+  if (runKey) {
+    for (const [id, existing] of records.entries()) {
+      if (skillRunnerRunKeyProjectionKey(existing) !== runKey) {
+        continue;
+      }
+      applySkillRunnerProjectionMerge({
+        records,
+        id,
+        existing,
+        projection,
+        preserveRuntimeIds: false,
+      });
+      return;
+    }
+    records.set(projection.id, projection);
+    if (records === taskRecords) {
+      syncTaskRecordActiveIndex(projection.id, projection);
+    }
+    pruneStaleSkillRunnerLocalRows(records, projection, projection.id);
+    return;
+  }
   const projectionKey = skillRunnerRequestProjectionKey(projection);
   if (projectionKey) {
     for (const [id, existing] of records.entries()) {
       if (skillRunnerRequestProjectionKey(existing) !== projectionKey) {
         continue;
       }
-      records.set(id, {
-        ...existing,
-        ...projection,
-        id: existing.id,
-        runId: existing.runId,
-        jobId: existing.jobId,
+      applySkillRunnerProjectionMerge({
+        records,
+        id,
+        existing,
+        projection,
+        preserveRuntimeIds: true,
       });
-      if (records === taskRecords) {
-        syncTaskRecordActiveIndex(id, records.get(id));
-      }
-      pruneStaleSkillRunnerLocalRows(records, projection, id);
       return;
     }
     for (const [id, existing] of records.entries()) {
@@ -645,17 +716,13 @@ function mergeSkillRunnerProjection(
       ) {
         continue;
       }
-      records.set(id, {
-        ...existing,
-        ...projection,
-        id: existing.id,
-        runId: existing.runId,
-        jobId: existing.jobId,
+      applySkillRunnerProjectionMerge({
+        records,
+        id,
+        existing,
+        projection,
+        preserveRuntimeIds: true,
       });
-      if (records === taskRecords) {
-        syncTaskRecordActiveIndex(id, records.get(id));
-      }
-      pruneStaleSkillRunnerLocalRows(records, projection, id);
       return;
     }
   }
@@ -668,20 +735,20 @@ function mergeSkillRunnerProjection(
 
 export function recordWorkflowTaskUpdate(job: JobRecord) {
   const record = buildWorkflowTaskRecordFromJob(job);
+  let returnedRecord = record;
   if (
     String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE &&
     !isSkillRunnerJobReadyForTaskProjection(job)
   ) {
     const removedTask = deleteTaskRecord(record.id);
-    const removedRun = deleteSkillRunnerRunRecord(
-      buildSkillRunnerRunKey({
-        backendId: record.backendId,
-        requestId: record.requestId,
-        runId: record.runId,
-        jobId: record.jobId,
-        localRunId: record.localRunId,
-      }) || buildSkillRunnerLocalRunKey(record.localRunId || record.id),
-    );
+    const runKey = buildSkillRunnerRunKey({
+      backendId: record.backendId,
+      requestId: record.requestId,
+      runId: record.runId,
+      jobId: record.jobId,
+      localRunId: record.localRunId,
+    });
+    const removedRun = runKey ? deleteSkillRunnerRunRecord(runKey) : false;
     if (removedTask || removedRun) {
       persistTaskRecordsToStore();
       emitTasksChanged({
@@ -699,7 +766,7 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
   }
   setTaskRecord(record.id, record);
   if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
-    upsertSkillRunnerRunFromTask(record, {
+    const runRecord = upsertSkillRunnerRunFromTask(record, {
       requestPayload: job.request,
       providerOptions: isObjectRecord(job.meta.providerOptions)
         ? { ...job.meta.providerOptions }
@@ -713,6 +780,24 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
         state: record.state,
       },
     });
+    if (runRecord?.runKey) {
+      if (
+        record.runKey &&
+        runRecord.runKey !== record.runKey &&
+        String(record.requestId || "").trim()
+      ) {
+        deleteTaskRecord(record.id);
+        mergeSkillRunnerProjection(taskRecords, {
+          ...runRecord.taskProjection,
+          runKey: runRecord.runKey,
+        });
+        returnedRecord = {
+          ...runRecord.taskProjection,
+          runKey: runRecord.runKey,
+        };
+      }
+      record.runKey = runRecord.runKey;
+    }
   }
   persistTaskRecordsToStore();
   emitTasksChanged({
@@ -722,6 +807,7 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
     state: record.state,
     reason: "record-updated",
   });
+  return returnedRecord;
 }
 
 export function listWorkflowTasks() {
@@ -818,15 +904,16 @@ export function clearFinishedWorkflowTasks() {
     }
     deleteTaskRecord(id);
     if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
-      deleteSkillRunnerRunRecord(
-        buildSkillRunnerRunKey({
-          backendId: record.backendId,
-          requestId: record.requestId,
-          runId: record.runId,
-          jobId: record.jobId,
-          localRunId: record.localRunId,
-        }) || buildSkillRunnerLocalRunKey(record.localRunId || record.id),
-      );
+      const runKey = buildSkillRunnerRunKey({
+        backendId: record.backendId,
+        requestId: record.requestId,
+        runId: record.runId,
+        jobId: record.jobId,
+        localRunId: record.localRunId,
+      });
+      if (runKey) {
+        deleteSkillRunnerRunRecord(runKey);
+      }
     }
     removed = true;
   }

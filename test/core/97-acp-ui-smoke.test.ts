@@ -1209,7 +1209,7 @@ describe("acp ui smoke", function () {
     assert.notInclude(dialog, "javascript:[^");
     assert.include(dialog, "openAssistantWorkspaceSidebar");
     assert.include(dialog, "buildAcpSkillRunPanelSnapshot");
-    assert.include(dialog, "listAcpSkillRuns");
+    assert.include(dialog, "listAcpSkillRunSummaries");
     assert.include(dialog, "mergeAcpBackendTaskRows");
     assert.include(dialog, "!run.removedAt && !run.archivedAt");
     assert.include(dialog, "taskMergeKey");
@@ -2414,6 +2414,14 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "schedulePostSnapshot");
     assert.include(assistantSidebar, "postFreshAcpChatSnapshot");
     assert.include(assistantSidebar, "await refreshAcpConversationBackends();");
+    assert.include(
+      assistantSidebar,
+      "await postFreshAcpChatSnapshot(host, pane, target);",
+    );
+    assert.include(
+      assistantSidebar,
+      "postAcpChatSnapshot(host, pane, target);\n    return;",
+    );
     assert.include(assistantSidebar, "set-active-backend");
     assert.include(assistantSidebar, "archive-conversation");
     assert.include(assistantSidebar, '"connect"');
@@ -2881,7 +2889,10 @@ describe("acp ui smoke", function () {
       status: "connected",
       sessionId: "session-1",
       activeBackendId: "backend-a",
-      backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
+      backendOptions: [
+        { backendId: "backend-a", displayName: "Backend A" },
+        { backendId: "backend-b", displayName: "Backend B" },
+      ],
       activeConversationId: "conversation-a",
       chatSessions: [
         {
@@ -2908,6 +2919,20 @@ describe("acp ui smoke", function () {
       items: [],
       labels: {},
     });
+    const backendSelector = panel.context.selectors.find(
+      (entry: any) => entry.id === "backend",
+    );
+    assert.deepEqual(
+      backendSelector.options.map((entry: any) => [
+        entry.value,
+        entry.backendId,
+        entry.label,
+      ]),
+      [
+        ["backend-a", "backend-a", "Backend A"],
+        ["backend-b", "backend-b", "Backend B"],
+      ],
+    );
     const conversationSelector = panel.context.selectors.find(
       (entry: any) => entry.id === "conversation",
     );

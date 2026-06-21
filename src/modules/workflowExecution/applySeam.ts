@@ -30,6 +30,7 @@ import {
   getSkillRunnerRequestIdFromJob,
   hasRecoverableSkillRunnerRequest,
 } from "../skillRunnerRecoverableState";
+import { buildWorkflowTaskRecordFromJob } from "../taskRuntime";
 import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
 import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
 
@@ -713,6 +714,7 @@ export async function runWorkflowApplySeam(
         ...(job.result as Record<string, unknown>),
         backendId: String(job.meta.backendId || "").trim() || undefined,
         backendType: String(job.meta.backendType || "").trim() || undefined,
+        runKey: buildWorkflowTaskRecordFromJob(job).runKey || undefined,
         runId: String(job.meta.runId || "").trim() || undefined,
         ...(sequenceApplyContext ? { sequence: sequenceApplyContext } : {}),
       };

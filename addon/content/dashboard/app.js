@@ -880,6 +880,7 @@
             taskId: row.id,
             backendId: row.backendId || "",
             backendType: row.backendType || "",
+            runKey: row.runKey || "",
             requestId: row.requestId || "",
             requestKind: row.requestKind || "",
           });
@@ -1155,15 +1156,17 @@
           actionCell.className = "actions-cell";
           const actionsWrap = el("div", "actions-wrap");
           const actionButtons = [];
-          if (row.requestId) {
+          if (row.runKey) {
             const openRun = el("button", "btn", labels.openRun);
             openRun.addEventListener("click", function () {
               sendAction("open-run", {
                 backendId: backend.backendId,
-                requestId: row.requestId,
+                runKey: row.runKey,
               });
             });
             actionButtons.push(openRun);
+          }
+          if (row.requestId) {
             const cancelRun = el("button", "btn", labels.cancelRun);
             cancelRun.disabled = isTerminalStatus(
               row.state,
@@ -2157,7 +2160,12 @@
         sendAction("open-product-folder", { productId: selected.productId });
       });
       actions.appendChild(openFolder);
-      if (selected.requestId && selected.backendId) {
+      const selectedBackendType = String(selected.backendType || "").trim();
+      const canOpenSelectedRun =
+        selected.backendId &&
+        ((selectedBackendType === "skillrunner" && selected.runKey) ||
+          (selectedBackendType !== "skillrunner" && selected.requestId));
+      if (canOpenSelectedRun) {
         const openRun = el(
           "button",
           "btn",
@@ -2166,7 +2174,8 @@
         openRun.addEventListener("click", function () {
           sendAction("open-run", {
             backendId: selected.backendId,
-            requestId: selected.requestId,
+            runKey: selected.runKey || "",
+            requestId: selected.requestId || "",
           });
         });
         actions.appendChild(openRun);

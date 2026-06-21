@@ -8,6 +8,7 @@ import {
   listPluginRunStoreEntries,
   upsertPluginRunStoreEntry,
 } from "../pluginStateStore";
+import type { SkillRunnerSkillDisplayById } from "../skillRunnerSubmissionContext";
 
 export type SequenceRunStateStatus =
   | "running_step"
@@ -20,6 +21,8 @@ export type SequenceRunStateStatus =
 export type SequenceStepRunState = {
   stepId: string;
   skillId: string;
+  skillName?: string;
+  skillLabel?: string;
   index: number;
   requestId?: string;
   status?: "running" | ProviderExecutionResult["status"];
@@ -207,6 +210,8 @@ function parseStep(raw: unknown): SequenceStepRunState | null {
   return {
     stepId,
     skillId,
+    skillName: normalizeString(raw.skillName) || undefined,
+    skillLabel: normalizeString(raw.skillLabel) || undefined,
     index,
     requestId: normalizeString(raw.requestId) || undefined,
     status:
@@ -363,6 +368,7 @@ export function initializeSequenceRunState(args: {
   workflowLabel?: string;
   workflowRunId: string;
   jobId: string;
+  skillDisplayById?: SkillRunnerSkillDisplayById;
 }) {
   const now = nowIso();
   const state: SequenceRunState = {
@@ -384,6 +390,12 @@ export function initializeSequenceRunState(args: {
     steps: args.request.steps.map((step, index) => ({
       stepId: step.id,
       skillId: step.skill_id,
+      skillName:
+        normalizeString(args.skillDisplayById?.[step.skill_id]?.skillName) ||
+        undefined,
+      skillLabel:
+        normalizeString(args.skillDisplayById?.[step.skill_id]?.skillLabel) ||
+        undefined,
       index,
       updatedAt: now,
     })),

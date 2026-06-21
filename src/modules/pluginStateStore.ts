@@ -777,6 +777,7 @@ function buildMemoryAdapter(): SqlAdapter {
       ) {
         const domain = normalizeString(params.domain);
         const scope = normalizeString(params.scope);
+        const taskId = normalizeString(params.task_id);
         const requestId = normalizeString(params.request_id);
         const backendId = normalizeString(params.backend_id);
         const counts = new Map<string, number>();
@@ -805,6 +806,7 @@ function buildMemoryAdapter(): SqlAdapter {
       if (normalizedSql.includes("from plugin_task_rows")) {
         const domain = normalizeString(params.domain);
         const scope = normalizeString(params.scope);
+        const taskId = normalizeString(params.task_id);
         const requestId = normalizeString(params.request_id);
         const backendId = normalizeString(params.backend_id);
         const stateSet = new Set(
@@ -828,6 +830,9 @@ function buildMemoryAdapter(): SqlAdapter {
             return false;
           }
           if (scope && row.scope !== scope) {
+            return false;
+          }
+          if (taskId && row.task_id !== taskId) {
             return false;
           }
           if (requestId && row.request_id !== requestId) {
@@ -2052,6 +2057,42 @@ export function listPluginTaskRowEntries(
   scopeRaw: PluginTaskScope,
 ) {
   return listPluginTaskRowEntriesFiltered(domainRaw, scopeRaw);
+}
+
+export function getPluginTaskRowEntry(
+  domainRaw: string,
+  scopeRaw: PluginTaskScope,
+  taskIdRaw: string,
+) {
+  const domain = normalizeString(domainRaw);
+  const scope = normalizeString(scopeRaw);
+  const taskId = normalizeString(taskIdRaw);
+  if (!domain || !scope || !taskId) {
+    return null;
+  }
+  const db = getAdapter();
+  const row = db.get(
+    `
+      SELECT task_id, request_id, backend_id, state, updated_at, payload_json
+      FROM plugin_task_rows
+      WHERE domain=@domain AND scope=@scope AND task_id=@task_id
+    `,
+    {
+      domain,
+      scope,
+      task_id: taskId,
+    },
+  );
+  return row
+    ? {
+        taskId: normalizeString(row.task_id),
+        requestId: normalizeString(row.request_id),
+        backendId: normalizeString(row.backend_id),
+        state: normalizeString(row.state),
+        updatedAt: normalizeString(row.updated_at),
+        payload: ensureJsonPayload(normalizeString(row.payload_json)),
+      }
+    : null;
 }
 
 function normalizeTaskRowStates(values: string[] | undefined) {

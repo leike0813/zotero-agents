@@ -26,6 +26,7 @@ import { isWaiting } from "./skillRunnerProviderStateMachine";
 import {
   buildWorkflowTaskRecordFromJob,
   recordWorkflowTaskUpdate,
+  type WorkflowTaskRecord,
   updateWorkflowTaskStateByRequest,
 } from "./taskRuntime";
 import {
@@ -66,11 +67,7 @@ import {
   getLoadedWorkflowEntries,
   rescanWorkflowRegistry,
 } from "./workflowRuntime";
-import {
-  mapSkillRunnerProgressLifecycle,
-  mapSkillRunnerSequenceStepProgressState,
-  mapSkillRunnerSubmitPhase,
-} from "./skillRunnerProgressMapping";
+import { buildSkillRunnerSequenceStepJobRecord } from "./skillRunnerSubmissionContext";
 
 type ContinuationOutcome =
   | {
@@ -93,6 +90,9 @@ type ContinuationUiFocusPolicy = "none" | "focus-started-step";
 
 type ContinuationSequenceStepFocusHandler = (args: {
   job: JobRecord;
+  taskRecord: WorkflowTaskRecord;
+  runRecord: SkillRunnerRunRecord | null;
+  runKey: string;
   event: Record<string, unknown>;
 }) => void;
 
@@ -103,10 +103,7 @@ function shouldFocusContinuationStep(args: {
 }) {
   const policy = args.policy || "none";
   const eventType = normalizeString(args.event.type);
-  if (
-    eventType === "sequence-step-started" &&
-    policy === "focus-started-step"
-  ) {
+  if (eventType === "request-created" && policy === "focus-started-step") {
     return true;
   }
   return false;
@@ -181,6 +178,63 @@ function backendFromRecord(record: SkillRunnerRunRecord): BackendInstance {
     id: record.backendId,
     type: DEFAULT_BACKEND_TYPE,
     baseUrl: record.backendBaseUrl || "",
+  };
+}
+
+function cloneProviderOptions(value: unknown) {
+  return isRecord(value) ? { ...value } : undefined;
+}
+
+function resolveContinuationProviderOptions(args: {
+  record: SkillRunnerRunRecord;
+  sequenceState: SequenceRunState;
+}) {
+  const recordOptions = cloneProviderOptions(args.record.providerOptions);
+  const stateOptions = cloneProviderOptions(args.sequenceState.providerOptions);
+  if (!recordOptions && !stateOptions) {
+    return undefined;
+  }
+  return {
+    ...(recordOptions || {}),
+    ...(stateOptions || {}),
+  };
+}
+
+function resolveContinuationTargetParentID(args: {
+  record: SkillRunnerRunRecord;
+  sequenceState: SequenceRunState;
+}) {
+  const projectionTargetParentID = args.record.taskProjection.targetParentID;
+  if (
+    typeof projectionTargetParentID === "number" &&
+    Number.isFinite(projectionTargetParentID)
+  ) {
+    return Math.floor(projectionTargetParentID);
+  }
+  return (
+    resolveTargetParentIDFromRequest(args.sequenceState.request) ?? undefined
+  );
+}
+
+function buildContinuationBaseMeta(args: {
+  record: SkillRunnerRunRecord;
+  sequenceState: SequenceRunState;
+}) {
+  const providerOptions = resolveContinuationProviderOptions(args);
+  const projection = args.record.taskProjection;
+  return {
+    providerId:
+      normalizeString(args.record.providerId) ||
+      normalizeString(projection.providerId) ||
+      "skillrunner",
+    providerOptions,
+    engine:
+      normalizeString(providerOptions?.engine) ||
+      normalizeString(projection.engine) ||
+      undefined,
+    inputUnitIdentity:
+      normalizeString(projection.inputUnitIdentity) || undefined,
+    targetParentID: resolveContinuationTargetParentID(args),
   };
 }
 
@@ -414,61 +468,19 @@ function buildContinuationStepJob(args: {
   backend: BackendInstance;
   event: Record<string, unknown>;
 }) {
-  const stepId = normalizeString(args.event.sequenceStepId);
-  if (!stepId) {
-    return null;
-  }
-  const requestId = normalizeString(args.event.requestId);
-  const sequenceStepIndex = normalizeSequenceStepIndex(
-    args.event.sequenceStepIndex,
-  );
-  const taskName =
-    normalizeString(args.event.sequenceStepTaskName) ||
-    `${args.sequenceState.workflowLabel || args.sequenceState.workflowId} / ${stepId}`;
-  const now = nowIso();
-  const lifecycle = mapSkillRunnerProgressLifecycle(args.event);
-  const submitPhase = mapSkillRunnerSubmitPhase(args.event);
-  const job: JobRecord = {
-    id: `${args.sequenceState.jobId}:${stepId}`,
+  return buildSkillRunnerSequenceStepJobRecord({
     workflowId: args.sequenceState.workflowId,
-    request: args.event.sequenceStepRequest || args.sequenceState.request,
-    meta: {
-      index: sequenceStepIndex,
-      runId: args.record.runId || args.sequenceState.workflowRunId,
-      workflowRunId: args.sequenceState.workflowRunId,
-      workflowLabel: args.sequenceState.workflowLabel,
-      jobId: `${args.sequenceState.jobId}:${stepId}`,
-      localRunId: `${args.record.runId || args.sequenceState.workflowRunId}:${args.sequenceState.jobId}:${stepId}`,
-      requestId: requestId || undefined,
-      requestKind: "skillrunner.job.v1",
-      backendId: args.backend.id,
-      backendType: args.backend.type,
-      backendBaseUrl: args.backend.baseUrl,
-      providerId: args.record.providerId || "skillrunner",
-      taskName,
-      inputUnitLabel: taskName,
-      targetParentID:
-        resolveTargetParentIDFromRequest(args.sequenceState.request) ??
-        undefined,
-      skillId: normalizeString(args.event.sequenceStepSkillId) || undefined,
-      sequenceStepId: stepId,
-      sequenceStepIndex,
-      sequenceJobId:
-        normalizeString(args.event.sequenceJobId) || args.sequenceState.jobId,
-      skillRunnerRequestReady:
-        args.event.type === "request-ready" ||
-        args.event.type === "sequence-step-deferred" ||
-        args.event.type === "sequence-step-succeeded",
-      skillRunnerLifecycleState: lifecycle || undefined,
-      skillRunnerSubmitPhase: submitPhase || undefined,
-      skillRunnerSubmitStartedAt: now,
-    },
-    state: mapSkillRunnerSequenceStepProgressState(args.event),
-    error: normalizeString(args.event.error) || undefined,
-    createdAt: now,
-    updatedAt: now,
-  };
-  return job;
+    workflowLabel: args.sequenceState.workflowLabel,
+    workflowRunId: args.sequenceState.workflowRunId,
+    runId: args.sequenceState.workflowRunId,
+    sequenceJobId: args.sequenceState.jobId,
+    backend: args.backend,
+    event: args.event,
+    fallbackRequest: args.sequenceState.request,
+    baseMeta: buildContinuationBaseMeta(args),
+    providerOptions: resolveContinuationProviderOptions(args),
+    createdAt: nowIso(),
+  });
 }
 
 function persistContinuationStepJob(args: {
@@ -481,13 +493,15 @@ function persistContinuationStepJob(args: {
   if (!job) {
     return null;
   }
-  recordWorkflowTaskUpdate(job);
+  const taskRecord = recordWorkflowTaskUpdate(job);
+  if (!taskRecord) {
+    return null;
+  }
   recordTaskDashboardHistoryFromJob(job);
-  const task = buildWorkflowTaskRecordFromJob(job);
-  upsertSkillRunnerRunFromTask(task, {
+  const runRecord = upsertSkillRunnerRunFromTask(taskRecord, {
     role: "sequence_step",
     requestPayload: job.request,
-    providerOptions: args.sequenceState.providerOptions,
+    providerOptions: resolveContinuationProviderOptions(args),
     fetchType: resolveFetchType({
       record: args.record,
       request: job.request,
@@ -506,7 +520,25 @@ function persistContinuationStepJob(args: {
       eventType: normalizeString(args.event.type),
     },
   });
-  return job;
+  const canonicalTaskRecord = runRecord?.taskProjection || taskRecord;
+  const runKey = normalizeString(
+    runRecord?.runKey || canonicalTaskRecord.runKey,
+  );
+  return {
+    job,
+    taskRecord: canonicalTaskRecord,
+    runRecord,
+    runKey,
+  };
+}
+
+export function buildSkillRunnerForegroundContinuationStepJobForTests(args: {
+  record: SkillRunnerRunRecord;
+  sequenceState: SequenceRunState;
+  backend: BackendInstance;
+  event: Record<string, unknown>;
+}) {
+  return buildContinuationStepJob(args);
 }
 
 function shouldSkipFinalSequenceApply(args: {
@@ -819,7 +851,7 @@ async function applySequenceTerminalStep(args: {
       }),
     applySequenceStepResult,
     onProgress: (event) => {
-      const job = persistContinuationStepJob({
+      const persisted = persistContinuationStepJob({
         record: args.record,
         sequenceState:
           getSequenceRunState(latestState.sequenceRunId) || latestState,
@@ -827,15 +859,18 @@ async function applySequenceTerminalStep(args: {
         event: event as Record<string, unknown>,
       });
       if (
-        job &&
+        persisted &&
         shouldFocusContinuationStep({
           policy: args.uiFocusPolicy,
           event: event as Record<string, unknown>,
-          job,
+          job: persisted.job,
         })
       ) {
         args.onSequenceStepFocus?.({
-          job,
+          job: persisted.job,
+          taskRecord: persisted.taskRecord,
+          runRecord: persisted.runRecord,
+          runKey: persisted.runKey,
           event: event as Record<string, unknown>,
         });
       }

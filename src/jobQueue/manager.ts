@@ -38,8 +38,11 @@ export type JobRecordMeta = {
   sequenceStepIndex?: number;
   sequenceJobId?: string;
   sequenceStepSkillId?: string;
+  sequenceStepSkillName?: string;
   engine?: string;
+  executionMode?: string;
   providerId?: string;
+  providerOptions?: Record<string, unknown>;
   requestKind?: string;
   requestId?: string;
   backendId?: string;
@@ -118,7 +121,9 @@ const JOB_META_STRING_FIELDS = [
   "sequenceStepId",
   "sequenceJobId",
   "sequenceStepSkillId",
+  "sequenceStepSkillName",
   "engine",
+  "executionMode",
   "providerId",
   "requestKind",
   "requestId",
