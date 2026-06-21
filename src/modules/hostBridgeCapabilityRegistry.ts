@@ -6,8 +6,11 @@ import {
   scanRuntimePersistenceUsage,
 } from "./runtimePersistence";
 import { scanPersistenceIntegrity } from "./persistenceIntegrity";
-import { listActiveWorkflowTasks, listWorkflowTasks } from "./taskRuntime";
-import { listAcpSkillRuns } from "./acpSkillRunStore";
+import {
+  listActiveWorkflowTaskSummaries,
+  listWorkflowTasks,
+} from "./taskRuntime";
+import { listAcpSkillRunSummaries } from "./acpSkillRunStore";
 import { getSkillRunnerConnectionGovernorSnapshot } from "./skillRunnerConnectionGovernor";
 import { reapplyAcpSkillRunResult } from "./acpSkillRunnerOrchestrator";
 import type {
@@ -483,8 +486,8 @@ async function debugStatus(
 ) {
   const object = asObject(input);
   const tasks = listWorkflowTasks();
-  const activeTasks = listActiveWorkflowTasks();
-  const runs = listAcpSkillRuns();
+  const activeTasks = listActiveWorkflowTaskSummaries();
+  const runs = listAcpSkillRunSummaries();
   return debugEnvelope("host_bridge.debug.status.v1", object, {
     hostBridge: context.getStatus(),
     capabilityCounts: {
@@ -535,8 +538,8 @@ async function debugTasksSnapshot(input: unknown) {
   const object = asObject(input);
   const limit = debugLimit(object);
   const tasks = listWorkflowTasks();
-  const activeTasks = listActiveWorkflowTasks();
-  const runs = listAcpSkillRuns();
+  const activeTasks = listActiveWorkflowTaskSummaries({ limit });
+  const runs = listAcpSkillRunSummaries({ limit });
   return debugEnvelope("host_bridge.debug.tasks.snapshot.v1", object, {
     tasks: tasks.slice(0, limit),
     activeTasks: activeTasks.slice(0, limit),
@@ -573,28 +576,22 @@ function synthesisCapability(
     required: false,
   },
 ): HostBridgeCapabilityDefinition {
-  return capability(
-    name,
-    category,
-    summary,
-    input,
-    async (input, context) => {
-      const service =
-        context.resolveSynthesisService?.() ||
-        (getDefaultSynthesisService() as unknown as SynthesisMcpService);
-      const method = service?.[methodName];
-      if (typeof method !== "function") {
-        throw new Error(
-          `Synthesis service method is unavailable: ${String(methodName)}`,
-        );
-      }
-      return method(asObject(input), {
-        hostBridge: {
-          connectionMode: context.connectionMode,
-        },
-      });
-    },
-  );
+  return capability(name, category, summary, input, async (input, context) => {
+    const service =
+      context.resolveSynthesisService?.() ||
+      (getDefaultSynthesisService() as unknown as SynthesisMcpService);
+    const method = service?.[methodName];
+    if (typeof method !== "function") {
+      throw new Error(
+        `Synthesis service method is unavailable: ${String(methodName)}`,
+      );
+    }
+    return method(asObject(input), {
+      hostBridge: {
+        connectionMode: context.connectionMode,
+      },
+    });
+  });
 }
 
 async function callSynthesisDebugService(methodName: string, input: unknown) {

@@ -29,6 +29,7 @@ import { resolveWorkflowRequestKind } from "./workflowRequestKind";
 import {
   ACP_BACKEND_TYPE,
   ACP_SKILL_RUN_REQUEST_KIND,
+  BACKEND_TYPES,
   PASS_THROUGH_BACKEND_TYPE,
   SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../config/defaults";
@@ -41,6 +42,7 @@ import {
   mergeExecutionOptions,
   normalizeWorkflowParamsBySchema,
   parseSettingsRecord,
+  serializeSettingsRecord,
 } from "./workflowSettingsDomain";
 import {
   applyExecutionWorkflowParamsNormalizer,
@@ -108,6 +110,22 @@ export type WorkflowSettingsUiDescriptor = {
   blockedReason?: string;
 };
 
+type WorkflowSettingsCacheEntry = {
+  rawText: string;
+  record: WorkflowSettingsRecord;
+};
+
+const workflowSettingsReadDiagnostics = {
+  prefReadCount: 0,
+  parseCount: 0,
+  cacheHitCount: 0,
+  cacheMissCount: 0,
+  writeCount: 0,
+};
+
+let workflowSettingsCache: WorkflowSettingsCacheEntry | null = null;
+let workflowSettingsRevision = 0;
+
 function dynamicOptionsUnavailableReason(args: {
   key: string;
   title?: string;
@@ -127,20 +145,90 @@ function dynamicOptionsUnavailableReason(args: {
   return `No selectable options are available for ${label}.`;
 }
 
-function readSettingsRecord(): WorkflowSettingsRecord {
+function cloneJsonValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value ?? {})) as T;
+}
+
+function cloneSettingsRecord(
+  record: WorkflowSettingsRecord,
+): WorkflowSettingsRecord {
+  return cloneJsonValue(record);
+}
+
+function cloneExecutionOptions(
+  options: WorkflowExecutionOptions | undefined,
+): WorkflowExecutionOptions {
+  return cloneJsonValue(options || {});
+}
+
+function readSettingsRecordCached(): WorkflowSettingsRecord {
   const rawText = String(getPref(WORKFLOW_SETTINGS_PREF_KEY) || "").trim();
+  workflowSettingsReadDiagnostics.prefReadCount += 1;
+  if (workflowSettingsCache?.rawText === rawText) {
+    workflowSettingsReadDiagnostics.cacheHitCount += 1;
+    return workflowSettingsCache.record;
+  }
+  workflowSettingsReadDiagnostics.cacheMissCount += 1;
   if (!rawText) {
+    workflowSettingsCache = { rawText, record: {} };
+    workflowSettingsRevision += 1;
     return {};
   }
   try {
-    return parseSettingsRecord(JSON.parse(rawText));
+    workflowSettingsReadDiagnostics.parseCount += 1;
+    const record = parseSettingsRecord(JSON.parse(rawText));
+    workflowSettingsCache = {
+      rawText,
+      record,
+    };
+    workflowSettingsRevision += 1;
+    return record;
   } catch {
+    workflowSettingsCache = { rawText, record: {} };
+    workflowSettingsRevision += 1;
     return {};
   }
 }
 
+function readSettingsRecord(): WorkflowSettingsRecord {
+  return cloneSettingsRecord(readSettingsRecordCached());
+}
+
 function writeSettingsRecord(record: WorkflowSettingsRecord) {
-  setPref(WORKFLOW_SETTINGS_PREF_KEY, JSON.stringify(record));
+  const rawText = serializeSettingsRecord(record);
+  setPref(WORKFLOW_SETTINGS_PREF_KEY, rawText);
+  workflowSettingsReadDiagnostics.writeCount += 1;
+  try {
+    workflowSettingsCache = {
+      rawText,
+      record: parseSettingsRecord(JSON.parse(rawText)),
+    };
+  } catch {
+    workflowSettingsCache = { rawText, record: {} };
+  }
+  workflowSettingsRevision += 1;
+}
+
+export function getWorkflowSettingsRevision() {
+  readSettingsRecordCached();
+  return workflowSettingsRevision;
+}
+
+export function getWorkflowSettingsReadDiagnosticsForTests() {
+  return {
+    ...workflowSettingsReadDiagnostics,
+    revision: workflowSettingsRevision,
+  };
+}
+
+export function resetWorkflowSettingsReadDiagnosticsForTests() {
+  workflowSettingsReadDiagnostics.prefReadCount = 0;
+  workflowSettingsReadDiagnostics.parseCount = 0;
+  workflowSettingsReadDiagnostics.cacheHitCount = 0;
+  workflowSettingsReadDiagnostics.cacheMissCount = 0;
+  workflowSettingsReadDiagnostics.writeCount = 0;
+  workflowSettingsRevision = 0;
+  workflowSettingsCache = null;
 }
 
 function resolveProviderId(workflow: LoadedWorkflow) {
@@ -168,7 +256,10 @@ function isSkillRunnerSequenceWorkflow(workflow: LoadedWorkflow) {
 }
 
 function isSkillRunnerContractWorkflow(workflow: LoadedWorkflow) {
-  return isSkillRunnerJobWorkflow(workflow) || isSkillRunnerSequenceWorkflow(workflow);
+  return (
+    isSkillRunnerJobWorkflow(workflow) ||
+    isSkillRunnerSequenceWorkflow(workflow)
+  );
 }
 
 function resolveEffectiveRequestKindForBackend(args: {
@@ -205,7 +296,11 @@ function resolveProviderIdForBackend(args: {
 
 function buildLocalBackendForProvider(providerId: string): BackendInstance {
   const normalizedProvider = String(providerId || "").trim();
-  const backendType = normalizedProvider || PASS_THROUGH_BACKEND_TYPE;
+  const backendType = (BACKEND_TYPES as readonly string[]).includes(
+    normalizedProvider,
+  )
+    ? (normalizedProvider as BackendInstance["type"])
+    : PASS_THROUGH_BACKEND_TYPE;
   return {
     id: `${backendType}-local`,
     type: backendType,
@@ -274,7 +369,11 @@ function resolveSkillRunnerMode(
     const modes = Array.from(
       new Set(
         steps
-          .map((step) => String(step.mode || "").trim().toLowerCase())
+          .map((step) =>
+            String(step.mode || "")
+              .trim()
+              .toLowerCase(),
+          )
           .filter((mode) => mode === "auto" || mode === "interactive"),
       ),
     );
@@ -428,8 +527,8 @@ export type {
 export function getWorkflowSettings(
   workflowId: string,
 ): WorkflowExecutionOptions {
-  const record = readSettingsRecord();
-  return record[String(workflowId || "").trim()] || {};
+  const record = readSettingsRecordCached();
+  return cloneExecutionOptions(record[String(workflowId || "").trim()]);
 }
 
 export function updateWorkflowSettings(
@@ -652,6 +751,7 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
   excludedBackendIds?: string[];
   autoSelectFallbackProfile?: boolean;
   resolveDynamicOptions?: boolean;
+  ignoreSavedSettings?: boolean;
 }): Promise<WorkflowSettingsUiDescriptor> {
   const manifestProviderId = resolveProviderId(args.workflow);
   if (!isSkillRunnerContractWorkflow(args.workflow)) {
@@ -699,7 +799,9 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
         label: `${resolveBackendDisplayName(backend.id, backend.displayName)} (${backend.type})`,
       }))
     : [];
-  const saved = getWorkflowSettings(args.workflow.manifest.id);
+  const saved = args.ignoreSavedSettings
+    ? {}
+    : getWorkflowSettings(args.workflow.manifest.id);
   const merged = mergeExecutionOptions(saved, args.draft);
   const profileFromMerged = String(merged.backendId || "").trim();
   const canAutoSelectProfile = requiresBackendProfile && profiles.length > 0;
@@ -860,13 +962,16 @@ export async function listProviderProfilesForWorkflow(
 export async function resolveWorkflowExecutionContext(args: {
   workflow: LoadedWorkflow;
   executionOptionsOverride?: WorkflowExecutionOptions;
+  ignoreSavedSettings?: boolean;
 }): Promise<WorkflowExecutionContext> {
   const manifestProviderId = resolveProviderId(args.workflow);
   if (!isSkillRunnerContractWorkflow(args.workflow)) {
     assertWorkflowExecutionProviderSupported(manifestProviderId);
   }
   const manifestProvider = resolveProviderById(manifestProviderId);
-  const saved = getWorkflowSettings(args.workflow.manifest.id);
+  const saved = args.ignoreSavedSettings
+    ? {}
+    : getWorkflowSettings(args.workflow.manifest.id);
   const merged = mergeExecutionOptions(saved, args.executionOptionsOverride);
 
   const backend =
@@ -933,8 +1038,11 @@ export async function resolveWorkflowExecutionContext(args: {
 export function resolveWorkflowExecutionOptionsPreview(args: {
   workflow: LoadedWorkflow;
   executionOptionsOverride?: WorkflowExecutionOptions;
+  ignoreSavedSettings?: boolean;
 }) {
-  const saved = getWorkflowSettings(args.workflow.manifest.id);
+  const saved = args.ignoreSavedSettings
+    ? {}
+    : getWorkflowSettings(args.workflow.manifest.id);
   const merged = mergeExecutionOptions(saved, args.executionOptionsOverride);
   const schemaNormalizedWorkflowParams = normalizeWorkflowParamsBySchema(
     args.workflow.manifest,

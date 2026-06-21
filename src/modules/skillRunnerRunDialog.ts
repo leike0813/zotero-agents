@@ -37,8 +37,8 @@ import {
 import { delay } from "../utils/runtimeCompatibility";
 import {
   buildWorkflowTaskRecordFromJob,
-  listActiveWorkflowTasks,
-  subscribeWorkflowTasks,
+  listActiveWorkflowTaskSummaries,
+  subscribeWorkflowTaskChanges,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
 import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
@@ -304,7 +304,6 @@ type RunDialogEntry = {
   streamLastFocusedAt?: number;
   session: RunSessionState;
 };
-
 
 export type RunWorkspaceTaskItem = {
   key: string;
@@ -1294,6 +1293,28 @@ function resolveRunWorkspaceTaskKey(args: {
   return "";
 }
 
+function parseRunWorkspaceTaskKey(taskKeyRaw: unknown) {
+  const taskKey = String(taskKeyRaw || "").trim();
+  const separator = taskKey.indexOf("::");
+  if (separator < 0) {
+    return { backendId: "", requestId: "", taskId: "" };
+  }
+  const backendId = taskKey.slice(0, separator).trim();
+  const rest = taskKey.slice(separator + 2).trim();
+  if (rest.startsWith("task:")) {
+    return {
+      backendId,
+      requestId: "",
+      taskId: rest.slice("task:".length).trim(),
+    };
+  }
+  return {
+    backendId,
+    requestId: rest,
+    taskId: "",
+  };
+}
+
 function resolveRunWorkspaceTaskTitle(args: {
   taskName?: string;
   workflowLabel?: string;
@@ -1383,11 +1404,10 @@ function resolveSessionSnapshotFromTaskStores(entry: RunDialogEntry) {
   if (!backendId || !requestId) {
     return null;
   }
-  const activeMatches = listActiveWorkflowTasks().filter(
-    (row) =>
-      String(row.backendId || "").trim() === backendId &&
-      String(row.requestId || "").trim() === requestId,
-  );
+  const activeMatches = listActiveWorkflowTaskSummaries({
+    backendId,
+    requestId,
+  });
   const historyMatches = listTaskDashboardHistory({
     backendId,
     requestId,
@@ -1496,14 +1516,28 @@ function startRunDialogEntryForegroundContinuation(
   return task;
 }
 
-async function buildRunWorkspaceModel() {
+async function buildRunWorkspaceModel(args: {
+  includeHistory: boolean;
+  backendId?: string;
+  requestId?: string;
+  selectedTaskKey?: string;
+}) {
   cleanupTaskDashboardHistory();
-  const history = listTaskDashboardHistory().filter((entry) =>
-    isSkillRunnerRecord(entry),
-  ) as TaskDashboardHistoryRecord[];
-  const active = listActiveWorkflowTasks().filter((entry) =>
-    isSkillRunnerRecord(entry),
-  ) as WorkflowTaskRecord[];
+  const backendIdScope = String(args.backendId || "").trim();
+  const requestIdScope = String(args.requestId || "").trim();
+  const history =
+    args.includeHistory || requestIdScope
+      ? (listTaskDashboardHistory({
+          backendId: backendIdScope || undefined,
+          requestId: requestIdScope || undefined,
+        }).filter((entry) =>
+          isSkillRunnerRecord(entry),
+        ) as TaskDashboardHistoryRecord[])
+      : [];
+  const active = listActiveWorkflowTaskSummaries({
+    backendId: backendIdScope || undefined,
+    requestId: requestIdScope || undefined,
+  }).filter((entry) => isSkillRunnerRecord(entry)) as WorkflowTaskRecord[];
   let configured: BackendInstance[] = [];
   try {
     const loaded = await loadBackendsRegistry();
@@ -1597,17 +1631,6 @@ async function buildRunWorkspaceModel() {
       const localRunId = String(
         (row as { localRunId?: unknown }).localRunId || row.id || "",
       ).trim();
-      const runRecord = requestId
-        ? getSkillRunnerRunRecordByRequest({
-            backendId,
-            requestId,
-          })
-        : getSkillRunnerRunRecord(
-            localRunId ? `local:${localRunId}` : String(row.id || ""),
-          );
-      if (runRecord?.archivedAt) {
-        continue;
-      }
       const key = resolveRunWorkspaceTaskKey({
         backendId,
         requestId,
@@ -1616,10 +1639,27 @@ async function buildRunWorkspaceModel() {
       if (!key) {
         continue;
       }
+      const shouldReadFullRunRecord =
+        args.includeHistory ||
+        (args.selectedTaskKey && key === args.selectedTaskKey) ||
+        (requestIdScope && requestId === requestIdScope);
       const normalizedStatus = normalizeStatus(row.state, "running");
       const pendingPermission = requestId
         ? getSkillRunnerHostBridgePermissionRequest(requestId)
         : null;
+      const runRecord = shouldReadFullRunRecord
+        ? requestId
+          ? getSkillRunnerRunRecordByRequest({
+              backendId,
+              requestId,
+            })
+          : getSkillRunnerRunRecord(
+              localRunId ? `local:${localRunId}` : String(row.id || ""),
+            )
+        : null;
+      if (runRecord?.archivedAt) {
+        continue;
+      }
       const skillId = String(row.skillId || "").trim();
       const task: RunWorkspaceTaskItem = {
         key,
@@ -1639,9 +1679,12 @@ async function buildRunWorkspaceModel() {
           String(row.workflowLabel || "").trim() ||
           String((row as { workflowId?: unknown }).workflowId || "").trim() ||
           undefined,
-        status: String(row.skillRunnerLifecycleState || "").trim() || normalizedStatus,
+        status:
+          String(row.skillRunnerLifecycleState || "").trim() ||
+          normalizedStatus,
         stateLabel: resolveRunWorkspaceStatusLabel(
-          String(row.skillRunnerLifecycleState || "").trim() || normalizedStatus,
+          String(row.skillRunnerLifecycleState || "").trim() ||
+            normalizedStatus,
         ),
         applyState: runRecord?.apply.state,
         applyAttempt: runRecord?.apply.attempt,
@@ -1679,8 +1722,7 @@ async function buildRunWorkspaceModel() {
           typeof (row as { canCancelBackendRun?: unknown })
             .canCancelBackendRun === "boolean"
             ? Boolean(
-                (row as { canCancelBackendRun?: unknown })
-                  .canCancelBackendRun,
+                (row as { canCancelBackendRun?: unknown }).canCancelBackendRun,
               )
             : requestId.length > 0,
         canReply:
@@ -1840,7 +1882,8 @@ function buildRunDialogSnapshot(
   entry.session.pendingPermission = pendingPermission;
   const displayMessages = buildRunDialogDisplayMessages(entry.session.messages);
   const rawStatus = String(entry.session.status || "").trim();
-  const normalizedStatus = rawStatus || normalizeStatus(entry.session.status, "running");
+  const normalizedStatus =
+    rawStatus || normalizeStatus(entry.session.status, "running");
   const runRecord = requestId
     ? getSkillRunnerRunRecordByRequest({
         backendId: entry.backend.id,
@@ -1862,7 +1905,8 @@ function buildRunDialogSnapshot(
   const canCancelBackendRun =
     typeof selectedTask?.canCancelBackendRun === "boolean"
       ? selectedTask.canCancelBackendRun
-      : backendInteractive && !isTerminal(normalizeStatus(rawStatus, "running"));
+      : backendInteractive &&
+        !isTerminal(normalizeStatus(rawStatus, "running"));
   const canReply =
     typeof selectedTask?.canReply === "boolean"
       ? selectedTask.canReply
@@ -1897,7 +1941,8 @@ function buildRunDialogSnapshot(
     },
     applyState: runRecord?.apply.state || selectedTask?.applyState,
     applyAttempt: runRecord?.apply.attempt || selectedTask?.applyAttempt,
-    applyMaxAttempt: runRecord?.apply.maxAttempt || selectedTask?.applyMaxAttempt,
+    applyMaxAttempt:
+      runRecord?.apply.maxAttempt || selectedTask?.applyMaxAttempt,
     applyNextRetryAt:
       runRecord?.apply.nextRetryAt || selectedTask?.applyNextRetryAt,
     applyError: runRecord?.apply.error || selectedTask?.applyError,
@@ -2327,7 +2372,7 @@ function clearRunWorkspaceHostState() {
 
 function ensureRunWorkspaceSubscriptions() {
   if (!runWorkspaceState.unsubscribeTasks) {
-    runWorkspaceState.unsubscribeTasks = subscribeWorkflowTasks(() => {
+    runWorkspaceState.unsubscribeTasks = subscribeWorkflowTaskChanges(() => {
       void refreshWorkspaceSnapshot();
     });
   }
@@ -3434,10 +3479,7 @@ function syncLocalRunDialogEntryFromTask(
   if (shouldRefreshLocalRunDialogMessages(entry, task)) {
     const previousBackendSeq = maxBackendRunDialogSeq(entry.session.messages);
     entry.session.messages = buildLocalRunDialogMessages(task);
-    entry.session.lastSeq = Math.max(
-      entry.session.lastSeq,
-      previousBackendSeq,
-    );
+    entry.session.lastSeq = Math.max(entry.session.lastSeq, previousBackendSeq);
   }
 }
 
@@ -3543,7 +3585,20 @@ async function refreshWorkspaceSnapshot(args?: {
   }
   runWorkspaceState.refreshChain = runWorkspaceState.refreshChain.then(
     async () => {
-      const model = await buildRunWorkspaceModel();
+      const selectedKey =
+        runWorkspaceState.requestedTaskKey || runWorkspaceState.selectedTaskKey;
+      const selectedScope = parseRunWorkspaceTaskKey(selectedKey);
+      const includeHistory = runWorkspaceState.hostMode === "dialog";
+      const model = await buildRunWorkspaceModel({
+        includeHistory,
+        backendId: includeHistory
+          ? undefined
+          : selectedScope.backendId || undefined,
+        requestId: includeHistory
+          ? undefined
+          : selectedScope.requestId || undefined,
+        selectedTaskKey: selectedKey || undefined,
+      });
       runWorkspaceState.groups = model.groups;
       runWorkspaceState.taskIndex = model.index;
       const selectionContext =
@@ -3600,7 +3655,9 @@ async function handleRunWorkspaceAction(envelope: RunDialogActionEnvelope) {
   if (action === "archive-run") {
     const requestId = String(payload.requestId || "").trim();
     const taskKey = String(payload.taskKey || "").trim();
-    const task = taskKey ? runWorkspaceState.taskIndex.get(taskKey)?.item : undefined;
+    const task = taskKey
+      ? runWorkspaceState.taskIndex.get(taskKey)?.item
+      : undefined;
     const record = requestId
       ? getSkillRunnerRunRecordByRequest({ requestId })
       : null;

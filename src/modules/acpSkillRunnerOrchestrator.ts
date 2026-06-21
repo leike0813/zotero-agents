@@ -49,6 +49,7 @@ import {
   materializeAcpSkill,
   type AcpSkillMaterializationResult,
 } from "./acpSkillMaterializer";
+import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
   buildAcpSkillRunPrompt,
   materializeAcpRunExecutionInstructions,
@@ -1269,8 +1270,7 @@ async function continueRecoveredSequenceStep(args: {
         return executeSequenceStepApply({
           workflow: applyWorkflow,
           parent:
-            resolveTargetParentIDFromRequest(stepApply.sequenceRequest) ||
-            null,
+            resolveTargetParentIDFromRequest(stepApply.sequenceRequest) || null,
           request: stepApply.stepRequest,
           runResult: {
             ...stepApply.stepResult,
@@ -2905,6 +2905,16 @@ export async function executeAcpSkillRunnerJob(args: {
       return;
     }
     void scanWorkspaceActivity();
+    registerBackgroundRefreshTimer({
+      owner: "acp-workspace-activity",
+      activationCondition: "ACP skill run workspace is active",
+      scopeKey: "current ACP workspace request",
+      allowedDataSources: ["current ACP workspace activity"],
+      maxReadShape: "current workspace activity hint only",
+      requiresForegroundSurface: false,
+      minimumIntervalMs: 15000,
+      intervalMs: 15000,
+    });
     workspaceActivityTimer = setInterval(() => {
       void scanWorkspaceActivity();
     }, 15000);

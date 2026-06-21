@@ -471,10 +471,40 @@ describe("acp ui smoke", function () {
           },
         ],
       },
+      drawer: {
+        sections: [
+          {
+            id: "running",
+            groups: [
+              {
+                backendId: "local-skillrunner-backend",
+                backendDisplayName: "Local SkillRunner",
+                activeTasks: [
+                  {
+                    key: "local-skillrunner-backend:skillrunner-request-1",
+                    requestId: "skillrunner-request-1",
+                    title: "Selected paper task",
+                    workflowLabel: "Debug: Host Bridge Connectivity Probe",
+                    skillName: "Host Bridge Probe",
+                    skillId: "debug-host-bridge-connectivity-probe",
+                    status: "running",
+                  },
+                ],
+                finishedTasks: [],
+              },
+            ],
+          },
+        ],
+      },
     });
 
     assert.equal(panel.context.title, "Selected paper task");
     assert.equal(panel.context.subtitle, "Host Bridge Probe");
+    assert.equal(
+      panel.drawers.skillrunnerSections[0].groups[0].activeTasks[0]
+        .workflowLabel,
+      "Host Bridge Probe",
+    );
     assert.notEqual(panel.context.subtitle, "skillrunner-request-1");
     assert.notEqual(
       panel.context.subtitle,
@@ -516,6 +546,81 @@ describe("acp ui smoke", function () {
     assert.equal(
       panel.context.subtitle,
       "debug-host-bridge-connectivity-probe",
+    );
+  });
+
+  it("projects SkillRunner sequence secondary labels with step and workflow", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      session: {
+        requestId: "skillrunner-sequence-request-1",
+        title: "Sequence step task",
+        status: "running",
+        workflowId: "debug-sequence-workflow",
+        workflowLabel: "Debug Sequence",
+      },
+      workspace: {
+        selectedTaskKey:
+          "local-skillrunner-backend:skillrunner-sequence-request-1",
+        groups: [
+          {
+            backendId: "local-skillrunner-backend",
+            backendDisplayName: "Local SkillRunner",
+            activeTasks: [
+              {
+                key: "local-skillrunner-backend:skillrunner-sequence-request-1",
+                requestId: "skillrunner-sequence-request-1",
+                title: "Sequence step task",
+                role: "sequence_step",
+                sequenceStepId: "step-1",
+                sequenceStepIndex: 0,
+                workflowId: "debug-sequence-workflow",
+                workflowLabel: "Debug Sequence",
+                skillName: "Step Skill",
+                skillId: "step-skill",
+                status: "running",
+              },
+            ],
+            finishedTasks: [],
+          },
+        ],
+      },
+      drawer: {
+        sections: [
+          {
+            id: "running",
+            groups: [
+              {
+                backendId: "local-skillrunner-backend",
+                backendDisplayName: "Local SkillRunner",
+                activeTasks: [
+                  {
+                    key: "local-skillrunner-backend:skillrunner-sequence-request-1",
+                    requestId: "skillrunner-sequence-request-1",
+                    title: "Sequence step task",
+                    role: "sequence_step",
+                    sequenceStepId: "step-1",
+                    sequenceStepIndex: 0,
+                    workflowId: "debug-sequence-workflow",
+                    workflowLabel: "Debug Sequence",
+                    skillName: "Step Skill",
+                    skillId: "step-skill",
+                    status: "running",
+                  },
+                ],
+                finishedTasks: [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    assert.equal(panel.context.subtitle, "1️⃣ Step Skill/Debug Sequence");
+    assert.equal(
+      panel.drawers.skillrunnerSections[0].groups[0].activeTasks[0]
+        .workflowLabel,
+      "1️⃣ Step Skill/Debug Sequence",
     );
   });
 
@@ -1072,6 +1177,8 @@ describe("acp ui smoke", function () {
     assert.include(sharedThemeCss, "--zs-selection-text: var(--zs-text);");
     assert.include(sharedThemeCss, "background: var(--zs-selection-bg);");
     assert.include(sharedThemeCss, "::-moz-selection");
+    assert.include(assistantHtml, "assistant-workspace-loading");
+    assert.include(assistantHtml, "assistant-workspace-loading-spinner");
     assert.include(assistantHtml, 'src="./run-dialog.html"');
     assert.notInclude(assistantHtml, "assistant-workspace-title");
     assert.notInclude(assistantHtml, "assistant-workspace-subtitle");
@@ -1088,6 +1195,12 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, "__zsAcpSkillRunSidebarBridge");
     assert.include(assistantJs, "__zsSkillRunnerSidebarBridge");
     assert.include(assistantJs, "latestChildPayloads");
+    assert.include(assistantJs, "loadedFrames");
+    assert.include(assistantJs, "function updateLoadingState()");
+    assert.include(
+      assistantJs,
+      "const isLoading = !state.loadedFrames.has(state.activeTab)",
+    );
     assert.include(
       assistantJs,
       "function cacheChildPayload(tab, phase, payload)",
@@ -1147,6 +1260,10 @@ describe("acp ui smoke", function () {
     assert.include(assistantCss, ".assistant-tab.is-active");
     assert.notInclude(assistantCss, "color-scheme: light;");
     assert.notInclude(assistantCss, ".assistant-workspace-title");
+    assert.include(assistantCss, ".assistant-workspace-loading");
+    assert.include(assistantCss, ".assistant-workspace-loading-spinner");
+    assert.include(assistantCss, "@keyframes assistant-workspace-spin");
+    assert.include(assistantCss, "prefers-reduced-motion: reduce");
     assert.include(assistantCss, ".assistant-workspace-close");
     assert.include(acpChatHtml, "../shared/theme.js");
     assert.include(acpChatHtml, "../shared/theme.css");
@@ -2284,6 +2401,7 @@ describe("acp ui smoke", function () {
 
     assert.include(en, "task-dashboard-sidebar-assistant = Assistant");
     assert.include(en, "task-dashboard-home-acp-title = ACP Chat");
+    assert.include(en, "task-dashboard-acp-subtitle = Chat with your Zotero library.");
     assert.include(
       en,
       "task-dashboard-home-acp-skill-runs-title = ACP Skill Runs",
@@ -2310,6 +2428,7 @@ describe("acp ui smoke", function () {
     assert.include(en, "task-dashboard-acp-disconnect = Disconnect");
     assert.include(zh, "task-dashboard-sidebar-assistant = Assistant");
     assert.include(zh, "task-dashboard-home-acp-title = ACP 对话");
+    assert.include(zh, "task-dashboard-acp-subtitle = 与你的文献库对话。");
     assert.include(
       zh,
       "task-dashboard-home-acp-skill-runs-title = ACP Skill 运行",
@@ -2979,6 +3098,10 @@ describe("acp ui smoke", function () {
       "Selected Paper Title",
     );
     assert.equal(
+      skillPanel.drawers.sections[0].groups[0].activeTasks[0].workflowLabel,
+      "literature-analysis",
+    );
+    assert.equal(
       skillPanel.drawers.sections[0].groups[0].activeTasks[0].action,
       "select-run",
     );
@@ -3002,6 +3125,10 @@ describe("acp ui smoke", function () {
     assert.equal(
       skillPanel.drawers.sections[1].groups[0].finishedTasks[0].title,
       "Completed Paper Title",
+    );
+    assert.equal(
+      skillPanel.drawers.sections[1].groups[0].finishedTasks[0].workflowLabel,
+      "literature-explainer",
     );
     assert.equal(
       skillPanel.drawers.sections[1].groups[0].finishedTasks[0].itemActions[0]
@@ -3359,6 +3486,52 @@ describe("acp ui smoke", function () {
         ["model", "sonnet", "sonnet", "sonnet"],
         ["reasoning", "medium", "medium", "medium"],
       ],
+    );
+  });
+
+  it("projects ACP Skills sequence secondary labels with step and workflow", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const panel = model.projectAcpSkillRunPanelSnapshot({
+      selectedRun: {
+        requestId: "acp-sequence-step-2",
+        status: "running",
+        conversationState: "active",
+        activePrompt: true,
+        sessionId: "session-sequence-2",
+        taskName: "Sequence step task",
+        workflowId: "literature-workbench",
+        workflowLabel: "Literature Workbench",
+        sequenceStepId: "step-2",
+        sequenceStepIndex: 1,
+        skillName: "Literature Analysis",
+        skillId: "literature-analysis",
+        transcriptItems: [],
+      },
+      runs: [
+        {
+          requestId: "acp-sequence-step-2",
+          status: "running",
+          taskName: "Sequence step task",
+          workflowId: "literature-workbench",
+          workflowLabel: "Literature Workbench",
+          sequenceStepId: "step-2",
+          sequenceStepIndex: 1,
+          skillName: "Literature Analysis",
+          skillId: "literature-analysis",
+          backendId: "backend-a",
+          backendLabel: "Backend A",
+        },
+      ],
+      logs: [],
+    });
+
+    assert.equal(
+      panel.context.subtitle,
+      "2️⃣ Literature Analysis/Literature Workbench",
+    );
+    assert.equal(
+      panel.drawers.sections[0].groups[0].activeTasks[0].workflowLabel,
+      "2️⃣ Literature Analysis/Literature Workbench",
     );
   });
 

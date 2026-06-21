@@ -13,12 +13,14 @@ import {
 } from "./hostBridgeCapabilityRegistry";
 import type { SynthesisMcpService } from "./synthesis/mcpService";
 import {
+  describeHostBridgeWorkflow,
   getHostBridgeWorkflowControlManifest,
   getHostBridgeWorkflowRunStatus,
   listHostBridgeTasks,
   listHostBridgeWorkflows,
   submitHostBridgeWorkflow,
   type HostBridgeTaskFilters,
+  type HostBridgeWorkflowDescribeRequest,
   type HostBridgeWorkflowSubmitRequest,
 } from "./hostBridgeWorkflowControl";
 import {
@@ -35,6 +37,7 @@ import {
   isHostBridgeWriteAutoApprovalScope,
   resetHostBridgeWriteAutoApprovalScopesForTests,
 } from "./hostBridgeWriteAutoApprovalRegistry";
+import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
   HOST_BRIDGE_PROTOCOL_VERSION,
   hostBridgeError,
@@ -42,6 +45,7 @@ import {
   type HostBridgeCallRequest,
   type HostBridgeBindMode,
   type HostBridgeHealth,
+  type HostBridgeErrorCode,
   type HostBridgeManifest,
   type HostBridgeResponse,
   type HostBridgeServiceStatus,
@@ -121,9 +125,8 @@ let serverSocketFactory: (port: number, bindMode: HostBridgeBindMode) => any =
   createServerSocket;
 let state: HostBridgeServerState = createEmptyState("idle");
 let startingPromise: Promise<HostBridgeStatusSnapshot> | null = null;
-let synthesisServiceResolverForTests:
-  | (() => SynthesisMcpService)
-  | undefined = undefined;
+let synthesisServiceResolverForTests: (() => SynthesisMcpService) | undefined =
+  undefined;
 
 function nowIso() {
   return new Date().toISOString();
@@ -331,6 +334,16 @@ function ensureSupervisorTimer() {
   if (supervisorTimer || !supervisorEnabled) {
     return;
   }
+  registerBackgroundRefreshTimer({
+    owner: "host-bridge-supervisor",
+    activationCondition: "Host Bridge supervisor enabled",
+    scopeKey: "host bridge service status",
+    allowedDataSources: ["host bridge process state"],
+    maxReadShape: "service state flags only",
+    requiresForegroundSurface: false,
+    minimumIntervalMs: SUPERVISOR_INTERVAL_MS,
+    intervalMs: SUPERVISOR_INTERVAL_MS,
+  });
   supervisorTimer = setInterval(() => {
     if (shouldRecover()) {
       scheduleHostBridgeRecovery(
@@ -578,6 +591,17 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "");
 }
 
+function workflowValidationErrorCode(
+  error: unknown,
+  fallback: HostBridgeErrorCode,
+): HostBridgeErrorCode {
+  const code = (error as { code?: string })?.code;
+  return code === "invalid_workflow_describe_request" ||
+    code === "invalid_workflow_submit_request"
+    ? code
+    : fallback;
+}
+
 function parsePermissionScopeHeader(request: HttpRequest) {
   const raw = String(request.headers["x-zotero-bridge-scope"] || "").trim();
   if (!raw) {
@@ -593,9 +617,7 @@ function parsePermissionScopeHeader(request: HttpRequest) {
 function parseConnectionModeHeader(
   request: HttpRequest,
 ): HostBridgeConnectionMode {
-  const value = String(
-    request.headers["x-zotero-bridge-connection-mode"] || "",
-  )
+  const value = String(request.headers["x-zotero-bridge-connection-mode"] || "")
     .trim()
     .toLowerCase();
   return value === "remote" ? "remote" : "local";
@@ -1195,6 +1217,66 @@ async function listWorkflows(request: HttpRequest) {
   );
 }
 
+async function describeWorkflow(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow describe endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: HostBridgeWorkflowDescribeRequest;
+  try {
+    payload = parseJsonBody(request.body) as HostBridgeWorkflowDescribeRequest;
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_workflow_describe_request",
+        "Workflow describe request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_workflow_describe_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await describeHostBridgeWorkflow(payload)),
+    );
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "workflow_not_found") {
+      return response(
+        404,
+        "Not Found",
+        hostBridgeError(
+          "workflow_not_found",
+          "Workflow not found",
+          "workflow",
+          { workflowId: String(payload?.workflowId || "").trim() },
+        ),
+        "workflow_not_found",
+      );
+    }
+    const validationCode = workflowValidationErrorCode(
+      error,
+      "invalid_workflow_describe_request",
+    );
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        validationCode,
+        errorMessage(error),
+        "validation",
+      ),
+      validationCode,
+    );
+  }
+}
+
 async function submitWorkflow(request: HttpRequest) {
   if (request.method !== "POST") {
     return methodNotAllowed(
@@ -1210,11 +1292,11 @@ async function submitWorkflow(request: HttpRequest) {
       400,
       "Bad Request",
       hostBridgeError(
-        "invalid_workflow_input",
+        "invalid_workflow_submit_request",
         "Workflow submit request body must be valid JSON",
         "validation",
       ),
-      "invalid_workflow_input",
+      "invalid_workflow_submit_request",
     );
   }
   try {
@@ -1253,15 +1335,19 @@ async function submitWorkflow(request: HttpRequest) {
         "workflow_submit_failed",
       );
     }
+    const validationCode = workflowValidationErrorCode(
+      error,
+      "invalid_workflow_submit_request",
+    );
     return response(
       400,
       "Bad Request",
       hostBridgeError(
-        "invalid_workflow_input",
+        validationCode,
         errorMessage(error),
         "validation",
       ),
-      "invalid_workflow_input",
+      validationCode,
     );
   }
 }
@@ -1447,6 +1533,10 @@ async function handleHttpRequest(request: HttpRequest) {
 
   if (request.path === "/bridge/v1/workflows") {
     return listWorkflows(request);
+  }
+
+  if (request.path === "/bridge/v1/workflows/describe") {
+    return describeWorkflow(request);
   }
 
   if (request.path === "/bridge/v1/workflows/submit") {
@@ -1750,7 +1840,9 @@ export function getHostBridgeServerStatus(): HostBridgeStatusSnapshot {
     advertisedHostSource,
     advertisedHostDiagnostics:
       advertisedHostSource === "placeholder"
-        ? ["hostBridgeAdvertisedHost is empty; remote endpoint uses placeholder"]
+        ? [
+            "hostBridgeAdvertisedHost is empty; remote endpoint uses placeholder",
+          ]
         : [],
     remoteEndpointUsesPlaceholder: advertisedHost === "<zotero-host-ip>",
     bindMode: state.bindMode,

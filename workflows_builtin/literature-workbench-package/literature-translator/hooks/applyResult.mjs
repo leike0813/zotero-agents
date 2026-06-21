@@ -1,4 +1,9 @@
 import { resolveSourcePathFromRequest } from "../../lib/deepReadingResultTarget.mjs";
+import {
+  appendSkillDiagnosticsToResult,
+  collectSkillOutputDiagnostics,
+  formatSkillDiagnosticsForError,
+} from "../../lib/resultOutput.mjs";
 import { withPackageRuntimeScope } from "../../lib/runtime.mjs";
 import {
   materializeTranslatorArtifacts,
@@ -59,10 +64,7 @@ async function readTranslatorArtifactTexts({
   alignmentPath,
   targetLanguage,
 }) {
-  if (
-    !resultContext ||
-    typeof resultContext.readArtifactText !== "function"
-  ) {
+  if (!resultContext || typeof resultContext.readArtifactText !== "function") {
     return null;
   }
   const output = await resultContext.readArtifactText({
@@ -90,17 +92,15 @@ async function applyResultImpl({
   runtime,
 }) {
   let stage = "resolve-result";
+  let skillOutputDiagnostics = { warnings: [] };
   try {
     const parentItem = runtime.helpers.resolveItemRef(parent);
-    const result = await readResultJson({ bundleReader, resultContext, runResult });
-    const status = normalizeString(result?.status);
-    if (status && status !== "success") {
-      return {
-        skipped: true,
-        status,
-        reason: normalizeString(result?.reason) || "translation did not succeed",
-      };
-    }
+    const result = await readResultJson({
+      bundleReader,
+      resultContext,
+      runResult,
+    });
+    skillOutputDiagnostics = collectSkillOutputDiagnostics(result);
 
     stage = "resolve-paths";
     const sourcePath =
@@ -146,21 +146,24 @@ async function applyResultImpl({
           alignmentPath,
         });
 
-    return {
-      ok: true,
-      source_path: sourcePath,
-      output_path: outputPath,
-      alignment_path: alignmentPath,
-      markdown_path: materialized.markdownPath,
-      materialized_alignment_path: materialized.alignmentPath,
-      target_language: targetLanguage,
-      attached_to_parent_id: parentItem.id,
-      attachment_id: materialized.attachment?.id || null,
-      attachment_key: normalizeString(materialized.attachment?.key),
-    };
+    return appendSkillDiagnosticsToResult(
+      {
+        ok: true,
+        source_path: sourcePath,
+        output_path: outputPath,
+        alignment_path: alignmentPath,
+        markdown_path: materialized.markdownPath,
+        materialized_alignment_path: materialized.alignmentPath,
+        target_language: targetLanguage,
+        attached_to_parent_id: parentItem.id,
+        attachment_id: materialized.attachment?.id || null,
+        attachment_key: normalizeString(materialized.attachment?.key),
+      },
+      skillOutputDiagnostics,
+    );
   } catch (error) {
     throw new Error(
-      `literature-translator applyResult failed at ${stage}: ${stringifyUnknownError(error)}`,
+      `literature-translator applyResult failed at ${stage}: ${stringifyUnknownError(error)}${formatSkillDiagnosticsForError(skillOutputDiagnostics)}`,
     );
   }
 }

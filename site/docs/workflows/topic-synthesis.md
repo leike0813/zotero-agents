@@ -80,6 +80,15 @@
 - **Synthesis 系统**：需要 Synthesis Workbench 已初始化
 - **库内文献**：建议已有足够的相关文献条目
 
+:::tip 前置准备建议
+在创建 Topic 之前，建议：
+1. 确保相关文献已全部运行过 [文献分析](literature-analysis)
+2. 在 Synthesis Workbench 的 Index 页面执行一次 **Advance Matching**（高级引用匹配去重）
+3. 在 Review 页面处理好所有审批项（记得将 pending 的决策「应用」）
+
+准确的引文图谱关系会直接影响 Topic 综合中文献重要程度的计算质量（PageRank、frontier score 等），进而提升 Topic 导览的整体质量。
+:::
+
 ## 相关工作流
 
 - [Synthesis Workbench 概览](../synthesis/) — 综合工作台使用指南

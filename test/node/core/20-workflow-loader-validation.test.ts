@@ -1416,6 +1416,54 @@ describe("workflow loader validation", function () {
     }
   });
 
+  it("defaults workflow input unit and no-selection trigger as equivalent", async function () {
+    const cases = [
+      {
+        id: "workflow-unit-defaults-trigger",
+        manifest: {
+          id: "workflow-unit-defaults-trigger",
+          label: "Workflow Unit Defaults Trigger",
+          provider: "pass-through",
+          inputs: { unit: "workflow" },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+        verifyLoaded: (manifest: any) => {
+          assert.strictEqual(manifest.inputs?.unit, "workflow");
+          assert.strictEqual(manifest.trigger?.requiresSelection, false);
+        },
+      },
+      {
+        id: "no-selection-trigger-defaults-workflow-unit",
+        manifest: {
+          id: "no-selection-trigger-defaults-workflow-unit",
+          label: "No Selection Trigger Defaults Workflow Unit",
+          provider: "pass-through",
+          trigger: { requiresSelection: false },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+        verifyLoaded: (manifest: any) => {
+          assert.strictEqual(manifest.inputs?.unit, "workflow");
+          assert.strictEqual(manifest.trigger?.requiresSelection, false);
+        },
+      },
+    ];
+
+    for (const entry of cases) {
+      const tmpRoot = await mkTempDir("zotero-skills-wf");
+      await makeWorkflow(tmpRoot, entry.id, entry.manifest, {
+        "applyResult.js":
+          "export async function applyResult(){ return { ok: true }; }",
+      });
+      const loaded = await loadWorkflowManifests(tmpRoot);
+      assert.lengthOf(
+        loaded.workflows,
+        1,
+        `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`,
+      );
+      entry.verifyLoaded(loaded.workflows[0].manifest);
+    }
+  });
+
   it("validates skill-level mode presence for skillrunner workflows", async function () {
     const cases = [
       {

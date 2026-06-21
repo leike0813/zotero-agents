@@ -1,18 +1,23 @@
 import { assert } from "chai";
 import type { JobRecord } from "../../src/jobQueue/manager";
 import {
+  clearPluginTaskRowEntries,
   exportPluginStateStoreRowsForTests,
   getPluginRunStoreEntryByRequest,
   listPluginRunStoreEntries,
+  PLUGIN_TASK_DOMAIN_SKILLRUNNER,
   resetPluginStateStoreForTests,
   upsertPluginRunStoreEntry,
 } from "../../src/modules/pluginStateStore";
 import {
+  appendAcpSkillRunUserReply,
   listAcpSkillRuns,
+  listAcpSkillRunSummaries,
   resetAcpSkillRunsForTests,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
+  listActiveWorkflowTaskSummaries,
   listActiveWorkflowTasks,
   listWorkflowTasks,
   recordWorkflowTaskUpdate,
@@ -24,10 +29,14 @@ import {
   resetTaskDashboardHistory,
 } from "../../src/modules/taskDashboardHistory";
 import {
+  getSkillRunnerRunStoreReadDiagnosticsForTests,
   getSkillRunnerRunRecordByRequest,
+  listSkillRunnerRunProjectionSummaries,
   listSkillRunnerRunProjections,
   listSkillRunnerRunRecords,
+  resetSkillRunnerRunStoreReadDiagnosticsForTests,
   subscribeSkillRunnerRunStore,
+  updateSkillRunnerRunResult,
   updateSkillRunnerRunStateByRequest,
 } from "../../src/modules/skillRunnerRunStore";
 import {
@@ -90,6 +99,25 @@ describe("separated ACP and SkillRunner run stores", function () {
     assert.lengthOf(listAcpSkillRuns(), 0);
   });
 
+  it("preserves ACP sequence step index in run summaries", function () {
+    upsertAcpSkillRun({
+      requestId: "acp-sequence-step-2",
+      backendId: "acp-backend",
+      backendType: "acp",
+      status: "running",
+      workflowId: "literature-workbench",
+      workflowLabel: "Literature Workbench",
+      sequenceStepId: "step-2",
+      sequenceStepIndex: 1,
+      skillName: "Literature Analysis",
+      skillId: "literature-analysis",
+    });
+
+    const [run] = listAcpSkillRuns();
+    assert.equal(run.sequenceStepId, "step-2");
+    assert.equal(run.sequenceStepIndex, 1);
+  });
+
   it("projects SkillRunner tasks from the SkillRunner run store", function () {
     const job: JobRecord = {
       id: "job-1",
@@ -135,7 +163,226 @@ describe("separated ACP and SkillRunner run stores", function () {
       raw.rows.filter(
         (row: any) => row.domain === "skillrunner" && row.scope === "active",
       ),
+      1,
+    );
+    assert.lengthOf(
+      raw.rows.filter(
+        (row: any) => row.domain === "skillrunner" && row.scope === "history",
+      ),
+      1,
+    );
+  });
+
+  it("reads scoped SkillRunner projections without full run payload reads", function () {
+    for (let index = 0; index < 6; index += 1) {
+      const backendId = index % 2 === 0 ? "skillrunner-a" : "skillrunner-b";
+      recordWorkflowTaskUpdate({
+        id: `job-${index}`,
+        workflowId: "workflow-debug-probe",
+        request: {
+          kind: "skillrunner.job.v1",
+          skill_id: "debug-host-bridge-connectivity-probe",
+        },
+        meta: {
+          runId: `workflow-run-${index}`,
+          workflowLabel: "Debug Probe",
+          taskName: "debug-host-bridge-connectivity-probe",
+          providerId: "skillrunner",
+          backendId,
+          backendType: "skillrunner",
+          backendBaseUrl: "http://127.0.0.1:8030",
+          requestId: `sr-projection-${index}`,
+          skillId: "debug-host-bridge-connectivity-probe",
+        },
+        state: "running",
+        result: {
+          requestId: `sr-projection-${index}`,
+        },
+        createdAt: `2026-06-18T00:00:0${index}.000Z`,
+        updatedAt: `2026-06-18T00:00:1${index}.000Z`,
+      });
+      if (index % 2 === 1) {
+        updateSkillRunnerRunStateByRequest({
+          backendId,
+          requestId: `sr-projection-${index}`,
+          state: "succeeded",
+          updatedAt: `2026-06-18T00:01:1${index}.000Z`,
+        });
+      }
+    }
+
+    resetSkillRunnerRunStoreReadDiagnosticsForTests();
+
+    const activeForA = listSkillRunnerRunProjectionSummaries({
+      activeOnly: true,
+      backendId: "skillrunner-a",
+      limit: 2,
+    });
+    assert.lengthOf(activeForA, 2);
+    assert.isTrue(
+      activeForA.every((entry) => entry.backendId === "skillrunner-a"),
+    );
+    assert.isTrue(activeForA.every((entry) => entry.state === "running"));
+
+    const selectedHistory = listSkillRunnerRunProjectionSummaries({
+      backendId: "skillrunner-b",
+      requestId: "sr-projection-3",
+    });
+    assert.lengthOf(selectedHistory, 1);
+    assert.equal(selectedHistory[0].state, "succeeded");
+
+    const activeTasks = listActiveWorkflowTaskSummaries({
+      backendId: "skillrunner-a",
+    });
+    assert.isAtLeast(activeTasks.length, 2);
+    assert.isTrue(
+      activeTasks.every((entry) => entry.backendId === "skillrunner-a"),
+    );
+
+    const diagnostics = getSkillRunnerRunStoreReadDiagnosticsForTests();
+    assert.equal(diagnostics.fullPayloadReadCount, 0);
+    assert.equal(diagnostics.fullPayloadQueryCount, 0);
+    assert.isAtLeast(diagnostics.lightweightProjectionReadCount, 3);
+  });
+
+  it("backfills legacy SkillRunner projections only for explicit scoped reads", function () {
+    recordWorkflowTaskUpdate({
+      id: "job-legacy-projection",
+      workflowId: "workflow-debug-probe",
+      request: {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-host-bridge-connectivity-probe",
+      },
+      meta: {
+        runId: "workflow-run-legacy-projection",
+        workflowLabel: "Debug Probe",
+        taskName: "debug-host-bridge-connectivity-probe",
+        providerId: "skillrunner",
+        backendId: "skillrunner-legacy",
+        backendType: "skillrunner",
+        backendBaseUrl: "http://127.0.0.1:8030",
+        requestId: "sr-legacy-projection",
+        skillId: "debug-host-bridge-connectivity-probe",
+      },
+      state: "running",
+      result: {
+        requestId: "sr-legacy-projection",
+      },
+      createdAt: "2026-06-18T00:00:00.000Z",
+      updatedAt: "2026-06-18T00:00:01.000Z",
+    });
+    clearPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER, "active");
+    clearPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_SKILLRUNNER, "history");
+    resetSkillRunnerRunStoreReadDiagnosticsForTests();
+
+    assert.lengthOf(listSkillRunnerRunProjectionSummaries(), 0);
+    assert.equal(
+      getSkillRunnerRunStoreReadDiagnosticsForTests().fullPayloadReadCount,
       0,
+    );
+
+    const scoped = listSkillRunnerRunProjectionSummaries({
+      backendId: "skillrunner-legacy",
+    });
+    assert.lengthOf(scoped, 1);
+    assert.equal(scoped[0].requestId, "sr-legacy-projection");
+    assert.isAbove(
+      getSkillRunnerRunStoreReadDiagnosticsForTests().fullPayloadReadCount,
+      0,
+    );
+  });
+
+  it("returns ACP skill-run summaries without transcript or events", function () {
+    upsertAcpSkillRun({
+      requestId: "acp-summary-1",
+      backendId: "acp-backend",
+      backendType: "acp",
+      status: "waiting_user",
+      workflowId: "literature-workbench",
+      workflowLabel: "Literature Workbench",
+      taskName: "Review paper",
+      skillId: "literature-analysis",
+      event: {
+        stage: "prompt",
+        level: "info",
+        message: "Waiting for user input",
+      },
+    });
+    appendAcpSkillRunUserReply({
+      requestId: "acp-summary-1",
+      message: "Approved",
+    });
+
+    const [fullRun] = listAcpSkillRuns();
+    assert.isAbove(fullRun.transcriptItems.length, 0);
+    assert.isAbove(fullRun.events.length, 0);
+
+    const [summary] = listAcpSkillRunSummaries({ activeOnly: true });
+    assert.equal(summary.requestId, "acp-summary-1");
+    assert.equal(summary.pendingPermission || null, null);
+    assert.notProperty(summary as any, "transcriptItems");
+    assert.notProperty(summary as any, "events");
+    assert.notProperty(summary as any, "outputRevisions");
+  });
+
+  it("does not persist transient SkillRunner bundle locations in run results", function () {
+    const job: JobRecord = {
+      id: "job-bundle-result",
+      workflowId: "debug-apply-single-bundle",
+      request: {
+        kind: "skillrunner.job.v1",
+        skill_id: "debug-apply-bundle-probe",
+      },
+      meta: {
+        runId: "workflow-run-bundle-result",
+        workflowLabel: "Debug Bundle",
+        taskName: "debug-apply-bundle-probe",
+        providerId: "skillrunner",
+        backendId: "skillrunner-local",
+        backendType: "skillrunner",
+        backendBaseUrl: "http://127.0.0.1:8030",
+        requestId: "sr-bundle-result",
+        skillId: "debug-apply-bundle-probe",
+      },
+      state: "running",
+      result: {
+        requestId: "sr-bundle-result",
+      },
+      createdAt: "2026-06-18T00:00:00.000Z",
+      updatedAt: "2026-06-18T00:00:01.000Z",
+    };
+
+    recordWorkflowTaskUpdate(job);
+    updateSkillRunnerRunResult({
+      backendId: "skillrunner-local",
+      requestId: "sr-bundle-result",
+      resultJson: { ok: true },
+      resultJsonPath: "result/debug-apply-bundle-probe.1/result.json",
+      workspaceDir: "/remote/workspace",
+      bundleDir: "C:/tmp/extracted-bundle",
+      updatedAt: "2026-06-18T00:00:02.000Z",
+    } as Parameters<typeof updateSkillRunnerRunResult>[0] & {
+      bundleDir: string;
+    });
+
+    const entry = getPluginRunStoreEntryByRequest({
+      kind: "skillrunner",
+      backendId: "skillrunner-local",
+      requestId: "sr-bundle-result",
+    });
+    assert.isOk(entry);
+    assert.notInclude(entry!.payload, "bundleDir");
+    assert.notInclude(entry!.payload, "bundleBytes");
+    assert.deepEqual(
+      getSkillRunnerRunRecordByRequest({
+        backendId: "skillrunner-local",
+        requestId: "sr-bundle-result",
+      })?.result,
+      {
+        resultJson: { ok: true },
+        resultJsonPath: "result/debug-apply-bundle-probe.1/result.json",
+        workspaceDir: "/remote/workspace",
+      },
     );
   });
 
@@ -460,7 +707,10 @@ describe("separated ACP and SkillRunner run stores", function () {
       (entry) => entry.requestId === "sr-duplicate-projectable",
     );
     assert.lengthOf(runs, 1);
-    assert.equal(runs[0].runKey, "local:workflow-run-duplicate:job-1:bundle_one");
+    assert.equal(
+      runs[0].runKey,
+      "local:workflow-run-duplicate:job-1:bundle_one",
+    );
     assert.equal(
       getSkillRunnerRunRecordByRequest({
         backendId: "skillrunner-local",

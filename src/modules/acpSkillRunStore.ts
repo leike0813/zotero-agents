@@ -198,6 +198,7 @@ export type AcpSkillRunRecord = {
   jobId?: string;
   runId?: string;
   sequenceStepId?: string;
+  sequenceStepIndex?: number;
   sequenceFinalStepId?: string;
   taskName?: string;
   skillName?: string;
@@ -286,6 +287,8 @@ export type AcpSkillRunSummary = Pick<
   | "workflowLabel"
   | "jobId"
   | "runId"
+  | "sequenceStepId"
+  | "sequenceStepIndex"
   | "taskName"
   | "skillName"
   | "skillLabel"
@@ -295,8 +298,10 @@ export type AcpSkillRunSummary = Pick<
   | "acpModeId"
   | "acpModelId"
   | "acpReasoningEffort"
+  | "agentFamily"
   | "conversationState"
   | "conversationRecoveryState"
+  | "conversationError"
   | "replyState"
   | "connectionActionState"
   | "applyResultState"
@@ -308,6 +313,14 @@ export type AcpSkillRunSummary = Pick<
   | "createdAt"
   | "updatedAt"
 >;
+
+export type AcpSkillRunSummaryListOptions = {
+  activeOnly?: boolean;
+  backendId?: string;
+  requestId?: string;
+  includeArchived?: boolean;
+  limit?: number;
+};
 
 export type AcpSkillRunPanelSnapshot = {
   generatedAt: string;
@@ -388,6 +401,13 @@ let hydrated = false;
 let selectedRequestId = "";
 let recoveryHandler: AcpSkillRunRecoveryHandler | null = null;
 let changedEmitTimer: ReturnType<typeof setTimeout> | null = null;
+const activeRunRequestIds = new Set<string>();
+const acpSkillRunSummaryDiagnostics = {
+  summaryQueryCount: 0,
+  fullRunRecordScanCount: 0,
+  activeIndexScanCount: 0,
+  runCandidateReadCount: 0,
+};
 
 function nowIso() {
   return new Date().toISOString();
@@ -395,6 +415,51 @@ function nowIso() {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function isActiveAcpSkillRunRecordForSummary(record: AcpSkillRunRecord) {
+  return (
+    !record.removedAt &&
+    !record.archivedAt &&
+    record.status !== "succeeded" &&
+    record.status !== "failed" &&
+    record.status !== "canceled"
+  );
+}
+
+function syncAcpSkillRunActiveIndex(record: AcpSkillRunRecord) {
+  if (isActiveAcpSkillRunRecordForSummary(record)) {
+    activeRunRequestIds.add(record.requestId);
+  } else {
+    activeRunRequestIds.delete(record.requestId);
+  }
+}
+
+function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
+  runRecords.set(record.requestId, record);
+  syncAcpSkillRunActiveIndex(record);
+}
+
+function deleteAcpSkillRunRecord(requestId: string) {
+  const removed = runRecords.delete(requestId);
+  activeRunRequestIds.delete(requestId);
+  return removed;
+}
+
+function clearAcpSkillRunRecords() {
+  runRecords.clear();
+  activeRunRequestIds.clear();
+}
+
+function normalizeOptionalNonNegativeInteger(value: unknown) {
+  if (value === null || typeof value === "undefined" || value === "") {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return undefined;
+  }
+  return Math.floor(parsed);
 }
 
 function normalizeSelectableOption(value: unknown): AcpSelectableOption | null {
@@ -1005,6 +1070,9 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     jobId: normalizeString(raw.jobId) || undefined,
     runId: normalizeString(raw.runId) || undefined,
     sequenceStepId: normalizeString(raw.sequenceStepId) || undefined,
+    sequenceStepIndex: normalizeOptionalNonNegativeInteger(
+      raw.sequenceStepIndex,
+    ),
     sequenceFinalStepId: normalizeString(raw.sequenceFinalStepId) || undefined,
     taskName: normalizeString(raw.taskName) || undefined,
     skillName: normalizeString(raw.skillName) || undefined,
@@ -1159,7 +1227,7 @@ function ensureHydrated() {
       if (!parsed) {
         continue;
       }
-      runRecords.set(parsed.requestId, parsed);
+      setAcpSkillRunRecord(parsed);
     } catch {
       continue;
     }
@@ -1416,6 +1484,7 @@ export function upsertAcpSkillRun(update: {
   jobId?: string;
   runId?: string;
   sequenceStepId?: string;
+  sequenceStepIndex?: number;
   sequenceFinalStepId?: string;
   taskName?: string;
   skillName?: string;
@@ -1534,6 +1603,14 @@ export function upsertAcpSkillRun(update: {
   assignString("jobId", update.jobId);
   assignString("runId", update.runId);
   assignString("sequenceStepId", update.sequenceStepId);
+  if (Object.prototype.hasOwnProperty.call(update, "sequenceStepIndex")) {
+    const sequenceStepIndex = normalizeOptionalNonNegativeInteger(
+      update.sequenceStepIndex,
+    );
+    if (typeof sequenceStepIndex === "number") {
+      next.sequenceStepIndex = sequenceStepIndex;
+    }
+  }
   assignString("sequenceFinalStepId", update.sequenceFinalStepId);
   assignString("taskName", update.taskName);
   assignString("skillName", update.skillName);
@@ -1673,7 +1750,7 @@ export function upsertAcpSkillRun(update: {
     next.events = [...next.events, event].slice(-80);
     appendStatusTranscriptItem(next, event);
   }
-  runRecords.set(requestId, next);
+  setAcpSkillRunRecord(next);
   selectedRequestId = selectedRequestId || requestId;
   persistRun(next);
   syncWorkflowTaskForAcpSkillRun(next);
@@ -1714,7 +1791,7 @@ export function appendAcpSkillRunUserReply(args: {
     updatedAt: now,
     transcriptItems: [...existing.transcriptItems, item].slice(-200),
   };
-  runRecords.set(requestId, next);
+  setAcpSkillRunRecord(next);
   persistRun(next);
   scheduleChangedEmit();
 }
@@ -1736,7 +1813,11 @@ function isMarkdownListComposite(value: unknown) {
 }
 
 function formatMarkdownListKey(value: string) {
-  return String(value || "").replace(/\s+/g, " ").trim() || "value";
+  return (
+    String(value || "")
+      .replace(/\s+/g, " ")
+      .trim() || "value"
+  );
 }
 
 function formatMarkdownListScalar(value: unknown) {
@@ -1938,7 +2019,7 @@ export function recordAcpSkillRunOutputRevision(args: {
     now,
   });
   removeLatestAssistantCandidateMessage(next, args.candidateText);
-  runRecords.set(requestId, next);
+  setAcpSkillRunRecord(next);
   persistRun(next);
   emitChanged();
 }
@@ -2000,7 +2081,7 @@ export function projectAcpSkillRunOutputEnvelopeToTranscript(
     now,
     revision,
   });
-  runRecords.set(requestId, next);
+  setAcpSkillRunRecord(next);
   persistRun(next);
   emitChanged();
 }
@@ -2322,7 +2403,7 @@ export function recordAcpSkillRunSessionUpdate(
       };
     }
   }
-  runRecords.set(requestId, next);
+  setAcpSkillRunRecord(next);
   persistRun(next);
   scheduleChangedEmit();
 }
@@ -3213,6 +3294,115 @@ export function listAcpSkillRuns() {
     });
 }
 
+function isActiveAcpSkillRunForSummary(run: AcpSkillRunRecord) {
+  return isActiveAcpSkillRunRecordForSummary(run);
+}
+
+function normalizeSummaryListLimit(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  const normalized = Math.floor(value);
+  return normalized > 0 ? normalized : 0;
+}
+
+export function listAcpSkillRunSummaries(
+  options: AcpSkillRunSummaryListOptions = {},
+) {
+  ensureHydrated();
+  const backendId = String(options.backendId || "").trim();
+  const requestId = String(options.requestId || "").trim();
+  const limit = normalizeSummaryListLimit(options.limit);
+  acpSkillRunSummaryDiagnostics.summaryQueryCount += 1;
+  const candidates = requestId
+    ? [runRecords.get(requestId)].filter(
+        (run): run is AcpSkillRunRecord => !!run,
+      )
+    : options.activeOnly && !options.includeArchived
+      ? Array.from(activeRunRequestIds.values())
+          .map((id) => runRecords.get(id))
+          .filter((run): run is AcpSkillRunRecord => !!run)
+      : Array.from(runRecords.values());
+  if (requestId) {
+    acpSkillRunSummaryDiagnostics.runCandidateReadCount += candidates.length;
+  } else if (options.activeOnly && !options.includeArchived) {
+    acpSkillRunSummaryDiagnostics.activeIndexScanCount += 1;
+    acpSkillRunSummaryDiagnostics.runCandidateReadCount += candidates.length;
+  } else {
+    acpSkillRunSummaryDiagnostics.fullRunRecordScanCount += 1;
+    acpSkillRunSummaryDiagnostics.runCandidateReadCount += candidates.length;
+  }
+  const rows = candidates
+    .filter((run) => {
+      if (!options.includeArchived && (run.removedAt || run.archivedAt)) {
+        return false;
+      }
+      if (options.activeOnly && !isActiveAcpSkillRunForSummary(run)) {
+        return false;
+      }
+      if (backendId && String(run.backendId || "").trim() !== backendId) {
+        return false;
+      }
+      if (requestId && String(run.requestId || "").trim() !== requestId) {
+        return false;
+      }
+      return true;
+    })
+    .map(summarizeAcpSkillRun)
+    .sort((a, b) => {
+      const created = b.createdAt.localeCompare(a.createdAt);
+      if (created !== 0) return created;
+      return b.requestId.localeCompare(a.requestId);
+    });
+  return limit ? rows.slice(0, limit) : rows;
+}
+
+export function countActiveAcpSkillRunSummaries(
+  options: {
+    backendId?: string;
+    waitingOnly?: boolean;
+  } = {},
+) {
+  ensureHydrated();
+  acpSkillRunSummaryDiagnostics.summaryQueryCount += 1;
+  acpSkillRunSummaryDiagnostics.activeIndexScanCount += 1;
+  const backendId = normalizeString(options.backendId);
+  let count = 0;
+  for (const requestId of activeRunRequestIds.values()) {
+    const run = runRecords.get(requestId);
+    if (!run) {
+      continue;
+    }
+    acpSkillRunSummaryDiagnostics.runCandidateReadCount += 1;
+    if (backendId && normalizeString(run.backendId) !== backendId) {
+      continue;
+    }
+    if (options.waitingOnly) {
+      const normalized = normalizeString(run.status).toLowerCase();
+      if (
+        normalized !== "waiting_user" &&
+        normalized !== "waiting_auth" &&
+        !run.pendingPermission
+      ) {
+        continue;
+      }
+    }
+    count += 1;
+  }
+  return count;
+}
+
+export function getAcpSkillRunSummaryDiagnosticsForTests() {
+  return { ...acpSkillRunSummaryDiagnostics };
+}
+
+export function resetAcpSkillRunSummaryDiagnosticsForTests() {
+  acpSkillRunSummaryDiagnostics.summaryQueryCount = 0;
+  acpSkillRunSummaryDiagnostics.fullRunRecordScanCount = 0;
+  acpSkillRunSummaryDiagnostics.activeIndexScanCount = 0;
+  acpSkillRunSummaryDiagnostics.runCandidateReadCount = 0;
+}
+
 export function cleanupExpiredAcpSkillRunsForRetention(args: {
   retentionMs: number;
   nowMs?: number;
@@ -3240,7 +3430,7 @@ export function cleanupExpiredAcpSkillRunsForRetention(args: {
       workspaceDirs.push(workspaceDir);
     }
     deletePluginRunStoreEntry("acp", record.requestId);
-    runRecords.delete(record.requestId);
+    deleteAcpSkillRunRecord(record.requestId);
     if (selectedRequestId === record.requestId) {
       selectedRequestId = "";
     }
@@ -3295,6 +3485,8 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
     workflowLabel: run.workflowLabel,
     jobId: run.jobId,
     runId: run.runId,
+    sequenceStepId: run.sequenceStepId,
+    sequenceStepIndex: run.sequenceStepIndex,
     taskName: run.taskName,
     skillName: run.skillName,
     skillLabel: run.skillLabel,
@@ -3304,8 +3496,10 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
     acpModeId: run.acpModeId,
     acpModelId: run.acpModelId,
     acpReasoningEffort: run.acpReasoningEffort,
+    agentFamily: run.agentFamily,
     conversationState: run.conversationState,
     conversationRecoveryState: run.conversationRecoveryState,
+    conversationError: run.conversationError,
     replyState: run.replyState,
     connectionActionState: run.connectionActionState,
     applyResultState: run.applyResultState,
@@ -3443,18 +3637,19 @@ export function resetAcpSkillRunsForTests() {
     clearTimeout(changedEmitTimer);
     changedEmitTimer = null;
   }
-  runRecords.clear();
+  clearAcpSkillRunRecords();
   controllers.clear();
   runtimeOptionsByRequestId.clear();
   permissionResolvers.clear();
   listeners.clear();
   selectedRequestId = "";
   hydrated = false;
+  resetAcpSkillRunSummaryDiagnosticsForTests();
   clearPluginRunStore("acp");
 }
 
 registerAcpSkillRunsMemoryClearer(() => {
-  runRecords.clear();
+  clearAcpSkillRunRecords();
   runtimeOptionsByRequestId.clear();
   selectedRequestId = "";
   hydrated = false;

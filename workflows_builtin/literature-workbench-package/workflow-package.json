@@ -21,6 +21,7 @@
     "literature-analysis/workflow.json",
     "literature-translator/workflow.json",
     "literature-search-ingest/workflow.json",
+    "tag-bootstrapper/workflow.json",
     "tag-regulator/workflow.json"
   ]
 }

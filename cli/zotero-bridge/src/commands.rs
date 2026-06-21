@@ -16,8 +16,8 @@ use crate::{
         LiteratureIngestArgs, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
         PaperArtifactsArgs, PaperArtifactsCommand, ReferenceIndexArgs, ReferenceIndexCommand,
         ResolversArgs, ResolversCommand, SchemasArgs, SchemasCommand, TaskArgs, TaskCommand,
-        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowArgs, WorkflowCommand, WorkflowRunArgs,
-        WorkflowSubmitArgs,
+        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowArgs, WorkflowCommand,
+        WorkflowDescribeArgs, WorkflowRunArgs, WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
@@ -139,6 +139,11 @@ pub fn literature(config: &BridgeConfig, args: LiteratureArgs) -> Result<Value, 
 pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliError> {
     match args.command {
         WorkflowCommand::List => client::get(config, "/workflows"),
+        WorkflowCommand::Describe(args) => client::post(
+            config,
+            "/workflows/describe",
+            workflow_describe_input(args)?,
+        ),
         WorkflowCommand::Submit(args) => {
             client::post(config, "/workflows/submit", workflow_submit_input(args)?)
         }
@@ -401,18 +406,80 @@ fn literature_ingest_input(args: LiteratureIngestArgs) -> Result<Value, CliError
     Ok(Value::Object(object))
 }
 
-fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
-    let workflow = args.workflow.trim();
+fn json_object_arg(input: Option<&str>, code: &str, message: &str) -> Result<Value, CliError> {
+    let value = read_json_arg(input)?;
+    match value {
+        Value::Object(_) => Ok(value),
+        _ => Err(CliError::validation(code, message)),
+    }
+}
+
+fn workflow_id_arg(workflow: &str, command: &str) -> Result<String, CliError> {
+    let workflow = workflow.trim();
     if workflow.is_empty() {
         return Err(CliError::validation(
             "missing_workflow_id",
-            "Workflow submit requires --workflow",
+            format!("Workflow {command} requires --workflow"),
         ));
     }
-    let input = read_json_arg(Some(&args.input))?;
+    Ok(workflow.to_string())
+}
+
+fn workflow_options_arg(input: Option<&str>) -> Result<Value, CliError> {
+    json_object_arg(
+        input,
+        "invalid_workflow_options",
+        "Workflow options must be a JSON object",
+    )
+}
+
+fn provider_profile_arg(input: Option<&str>) -> Result<Value, CliError> {
+    json_object_arg(
+        input,
+        "invalid_provider_profile",
+        "Provider profile must be a JSON object",
+    )
+}
+
+fn workflow_describe_input(args: WorkflowDescribeArgs) -> Result<Value, CliError> {
+    let workflow = workflow_id_arg(&args.workflow, "describe")?;
     Ok(json!({
         "workflowId": workflow,
-        "input": input
+        "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
+        "providerProfile": provider_profile_arg(args.provider_profile.as_deref())?
+    }))
+}
+
+fn workflow_selection(args: &WorkflowSubmitArgs) -> Result<Value, CliError> {
+    if args.none {
+        return Ok(json!({ "kind": "none" }));
+    }
+    let Some(items_input) = args.items.as_deref() else {
+        return Err(CliError::validation(
+            "missing_workflow_selection",
+            "Workflow submit requires --items or --none",
+        ));
+    };
+    let items = read_json_arg(Some(items_input))?;
+    if !items.is_array() {
+        return Err(CliError::validation(
+            "invalid_workflow_items",
+            "Workflow --items must be a JSON array",
+        ));
+    }
+    Ok(json!({
+        "kind": "items",
+        "items": items
+    }))
+}
+
+fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
+    let workflow = workflow_id_arg(&args.workflow, "submit")?;
+    Ok(json!({
+        "workflowId": workflow,
+        "selection": workflow_selection(&args)?,
+        "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
+        "providerProfile": provider_profile_arg(args.provider_profile.as_deref())?
     }))
 }
 
@@ -1086,20 +1153,81 @@ mod tests {
     fn maps_workflow_submit_to_bridge_input() {
         let input = workflow_submit_input(WorkflowSubmitArgs {
             workflow: "topic-synthesis".to_string(),
-            input: "{\"items\":[{\"key\":\"ABC\",\"libraryId\":1}]}".to_string(),
+            items: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
+            none: false,
+            workflow_options: Some("{\"language\":\"zh-CN\"}".to_string()),
+            provider_profile: Some(
+                "{\"schema\":\"zotero-bridge.provider-profile.v1\",\"backendId\":\"acp-opencode\",\"providerOptions\":{\"acpModelId\":\"gpt-5.2\"}}".to_string(),
+            ),
         })
         .unwrap();
         assert_eq!(
             input,
             json!({
                 "workflowId": "topic-synthesis",
-                "input": {
+                "selection": {
+                    "kind": "items",
                     "items": [
                         {
                             "key": "ABC",
                             "libraryId": 1
                         }
                     ]
+                },
+                "workflowOptions": {
+                    "language": "zh-CN"
+                },
+                "providerProfile": {
+                    "schema": "zotero-bridge.provider-profile.v1",
+                    "backendId": "acp-opencode",
+                    "providerOptions": {
+                        "acpModelId": "gpt-5.2"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_submit_none_selection() {
+        let input = workflow_submit_input(WorkflowSubmitArgs {
+            workflow: "global-workflow".to_string(),
+            items: None,
+            none: true,
+            workflow_options: None,
+            provider_profile: None,
+        })
+        .unwrap();
+        assert_eq!(
+            input,
+            json!({
+                "workflowId": "global-workflow",
+                "selection": {
+                    "kind": "none"
+                },
+                "workflowOptions": {},
+                "providerProfile": {}
+            })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_describe_to_bridge_input() {
+        let input = workflow_describe_input(WorkflowDescribeArgs {
+            workflow: "topic-synthesis".to_string(),
+            workflow_options: Some("{\"language\":\"en-US\"}".to_string()),
+            provider_profile: Some("{\"backendId\":\"skillrunner\"}".to_string()),
+        })
+        .unwrap();
+        assert_eq!(
+            input,
+            json!({
+                "workflowId": "topic-synthesis",
+                "workflowOptions": {
+                    "language": "en-US"
+                },
+                "providerProfile": {
+                    "backendId": "skillrunner"
                 }
             })
         );

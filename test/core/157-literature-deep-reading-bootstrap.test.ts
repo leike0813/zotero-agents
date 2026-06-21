@@ -36,20 +36,22 @@ async function collectFileMap(root: string): Promise<Record<string, string>> {
   return result;
 }
 
-function pythonCommand(args: string[], cwd: string) {
+function pythonCommand(args: string[], cwd: string, env?: NodeJS.ProcessEnv) {
   const arProject = path.join(os.homedir(), ".ar");
   const arPyproject = path.join(arProject, "pyproject.toml");
+  const processEnv = { ...process.env, ...env };
   if (fsSync.existsSync(arPyproject)) {
     return execFileSync(
       "uv",
       ["run", `--project=${arProject}`, "--locked", "--", "python", ...args],
-      { cwd, encoding: "utf8", stdio: "pipe" },
+      { cwd, encoding: "utf8", stdio: "pipe", env: processEnv },
     );
   }
   return execFileSync(process.env.PYTHON || "python", args, {
     cwd,
     encoding: "utf8",
     stdio: "pipe",
+    env: processEnv,
   });
 }
 
@@ -343,6 +345,71 @@ function sampleTranslatorAlignment() {
             repair_count: 0,
           },
         ],
+      },
+    ],
+  };
+}
+
+function postReferencesAppendixAlignment() {
+  return {
+    format: "v1",
+    doc_id: "D2",
+    source_language: "en",
+    target_language: "zh-CN",
+    metadata: {
+      source: "test",
+    },
+    blocks: [
+      {
+        b: "b_001",
+        type: "heading",
+        heading: "Paper > Sample Paper",
+        source_markdown: "# Sample Paper",
+        translated_markdown: "# 示例论文",
+        pairs: [],
+      },
+      {
+        b: "b_002",
+        type: "paragraph",
+        heading: "Paper > Sample Paper",
+        source_markdown: "The main body introduces the method.",
+        translated_markdown: "正文介绍该方法。",
+        pairs: [],
+      },
+      {
+        b: "b_003",
+        type: "heading",
+        heading: "Paper > References",
+        source_markdown: "## References",
+        translated_markdown: "## 参考文献",
+        pairs: [],
+      },
+      {
+        b: "b_004",
+        type: "paragraph",
+        heading: "Paper > References",
+        source_markdown:
+          "Abadi, M. Tensorflow: A system for large-scale machine learning. 2016.",
+        translated_markdown:
+          "Abadi, M. Tensorflow: A system for large-scale machine learning. 2016.",
+        pairs: [],
+      },
+      {
+        b: "b_005",
+        type: "heading",
+        heading: "Paper > A. Linear-probe evaluation",
+        source_markdown: "## A. Linear-probe evaluation",
+        translated_markdown: "## A. 线性探针评估",
+        pairs: [],
+      },
+      {
+        b: "b_006",
+        type: "paragraph",
+        heading: "Paper > A. Linear-probe evaluation",
+        source_markdown:
+          "We provide additional details for linear probe experiments.",
+        translated_markdown: "我们提供线性探针实验的更多细节。",
+        pairs: [],
       },
     ],
   };
@@ -871,6 +938,71 @@ if (command === "reference-index get") {
 
 describe("Literature deep reading bootstrap skill", function () {
   this.timeout(30000);
+
+  it("resolves Host Bridge CLI from PATH when run-local shim is absent", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "bridge-path-resolution-"),
+    );
+    const binDir = path.join(tempRoot, "bin");
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(binDir, { recursive: true });
+    await fs.mkdir(runRoot, { recursive: true });
+    const bridgeName =
+      process.platform === "win32" ? "zotero-bridge.cmd" : "zotero-bridge";
+    const bridgePath = path.join(binDir, bridgeName);
+    if (process.platform === "win32") {
+      await fs.writeFile(bridgePath, "@echo off\r\n", "utf8");
+    } else {
+      await fs.writeFile(bridgePath, "#!/usr/bin/env sh\n", "utf8");
+      await fs.chmod(bridgePath, 0o755);
+    }
+    const probePath = path.join(tempRoot, "probe_bridge.py");
+    await fs.writeFile(
+      probePath,
+      [
+        "from pathlib import Path",
+        "import importlib.util",
+        "import sys",
+        "module_path = Path(sys.argv[1])",
+        "run_root = Path(sys.argv[2])",
+        "spec = importlib.util.spec_from_file_location('runtime_module', module_path)",
+        "module = importlib.util.module_from_spec(spec)",
+        "assert spec.loader is not None",
+        "spec.loader.exec_module(module)",
+        "print(Path(module.bridge_executable(run_root)).name)",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    const env = {
+      PATH: `${binDir}${path.delimiter}${process.env.PATH || ""}`,
+      ZOTERO_BRIDGE_BIN: "",
+    };
+    const deepName = pythonCommand(
+      [
+        probePath,
+        path.resolve(
+          "skills_src/literature-deep-reading/runtime/deep_reading_runtime.py",
+        ),
+        runRoot,
+      ],
+      process.cwd(),
+      env,
+    ).trim();
+    const topicName = pythonCommand(
+      [
+        probePath,
+        path.resolve(
+          "skills_src/topic-synthesis/runtime/topic_synthesis_runtime/common/topic_synthesis_db.py",
+        ),
+        runRoot,
+      ],
+      process.cwd(),
+      env,
+    ).trim();
+    assert.equal(deepName, bridgeName);
+    assert.equal(topicName, bridgeName);
+  });
 
   it("keeps the source and generated package structure complete", async function () {
     const requiredSourceFiles = [
@@ -1726,6 +1858,193 @@ describe("Literature deep reading bootstrap skill", function () {
     );
     assert.equal(batches.source, "translator_alignment");
     assert.equal(batches.batch_count, 0);
+  });
+
+  it("keeps post-reference appendix sections out of raw references and hides missing citation graph", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-post-ref-appendix-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot, {
+      translatorAlignment: postReferencesAppendixAlignment(),
+    });
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+    await installFakeBridge(runRoot);
+
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    await writeContextRequest(runRoot, {
+      main_task: "vision-language transfer",
+      method_family: "contrastive pretraining",
+      external_context_section_anchors: ["sec-sample-paper"],
+      request_topic_context: false,
+      topic_context_reason: "",
+      selected_topic_id: "",
+      request_concept_context: false,
+      concept_labels: [],
+      request_citation_graph: false,
+      citation_graph_depth: 1,
+      citation_graph_direction: "both",
+      citation_graph_max_nodes: 20,
+      citation_graph_max_edges: 40,
+      citation_graph_include_low_signal: false,
+      reference_digest_policy: "none",
+      priority_reference_indices: [],
+    });
+    runRuntime(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+    await writeReadingEnrichment(runRoot, {
+      preface_title: "阅读前导读",
+      preface_cards: [
+        { title: "研究领域", body: "视觉语言迁移。" },
+        { title: "研究方向", body: "对比式预训练。" },
+        { title: "本文位置", body: "该文作为代表性节点。" },
+        { title: "核心创新", body: "用自然语言监督迁移视觉模型。" },
+      ],
+      preface_reading_path: ["先看正文", "再看附录"],
+      preface_goal: "区分参考文献和附录。",
+      preface_concepts: [],
+      preface_warnings: [],
+      preface_questions: [
+        {
+          question: "为什么要看附录？",
+          answer: "附录提供实验设置和额外结果。",
+        },
+      ],
+      section_notes: [
+        {
+          section_anchor: "sec-sample-paper",
+          reading_goal: "理解正文主张。",
+          concepts: [],
+          misread_warnings: [],
+          questions: [{ question: "正文讲什么？", answer: "方法主体。" }],
+          citation_note_body: "本节没有引用角色需要展开。",
+          citation_reference_roles: [],
+        },
+      ],
+      section_roles: [
+        {
+          section_anchor: "sec-references",
+          role: "bibliography",
+          reason: "该节包含参考文献条目。",
+        },
+        {
+          section_anchor: "sec-a-linear-probe-evaluation",
+          role: "appendix",
+          reason: "该节是 References 后的补充实验章节。",
+        },
+      ],
+      concepts: [],
+      reference_digest_notes: [],
+      summary_fallback_enabled: true,
+      summary_fallback_sections: [{ title: "TL;DR", body: "样例。" }],
+      extensions: [],
+    });
+    runRuntime(
+      [
+        "submit-reading-enrichment",
+        "--payload",
+        "runtime/payloads/reading-enrichment.json",
+      ],
+      runRoot,
+    );
+    await writeFinalReview(runRoot, {
+      overall_assessment: "ready",
+      quality_observations: [
+        {
+          severity: "info",
+          kind: "structure",
+          block_id: "b_002",
+          message: "结构分区已检查。",
+        },
+      ],
+    });
+    runRuntime(
+      [
+        "submit-final-review",
+        "--payload",
+        "runtime/payloads/final-review.json",
+      ],
+      runRoot,
+    );
+
+    const references = await readRuntimeView(runRoot, "references-view.json");
+    assert.equal(references.raw_view.items.length, 1);
+    assert.include(
+      references.raw_view.raw_markdown,
+      "Tensorflow: A system for large-scale machine learning",
+    );
+    assert.notInclude(
+      references.raw_view.raw_markdown,
+      "linear probe experiments",
+    );
+
+    const sections = await readRuntimeView(
+      runRoot,
+      path.join("..", "..", "result", "sections", "sections.json"),
+    );
+    assert.equal(sections.appendix_reading_blocks.length, 2);
+    assert.include(
+      sections.appendix_reading_blocks[0].source_markdown,
+      "A. Linear-probe evaluation",
+    );
+    assert.isFalse(sections.citation_graph.available);
+    assert.isFalse(
+      sections.navigation.some(
+        (item: { anchor?: string }) => item.anchor === "citation-graph",
+      ),
+    );
+
+    const html = await fs.readFile(
+      path.join(runRoot, "result", "deep-reading.html"),
+      "utf8",
+    );
+    assert.match(
+      html,
+      /<section class="citation-graph-section" data-citation-graph hidden>/,
+    );
+
+    const { chromium } = await import("playwright");
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 1400, height: 900 },
+      });
+      await page.goto(
+        pathToFileURL(path.join(runRoot, "result", "deep-reading.html")).href,
+      );
+      await page.waitForFunction(() =>
+        document.body.classList.contains("js-ready"),
+      );
+      const browserState = await page.evaluate(() => {
+        const graph = document.querySelector(
+          "[data-citation-graph]",
+        ) as HTMLElement | null;
+        const warning = document.querySelector(
+          "[data-zotero-viewer-warning]",
+        ) as HTMLElement | null;
+        return {
+          graphHidden: Boolean(graph?.hidden),
+          warningDisplay: warning ? getComputedStyle(warning).display : "",
+          warningHidden: warning?.classList.contains("is-hidden") || false,
+        };
+      });
+      assert.isTrue(browserState.graphHidden);
+      assert.equal(browserState.warningDisplay, "none");
+      assert.isTrue(browserState.warningHidden);
+    } finally {
+      await browser.close();
+    }
   });
 
   it("fails bootstrap when translator succeeded but alignment is unavailable", async function () {

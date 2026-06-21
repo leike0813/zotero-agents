@@ -3,6 +3,7 @@ import {
   ACP_PROMPT_REQUEST_KIND,
   ACP_SKILL_RUN_REQUEST_KIND,
   DEFAULT_BACKEND_TYPE,
+  GENERIC_HTTP_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
   PASS_THROUGH_REQUEST_KIND,
   SKILLRUNNER_SEQUENCE_REQUEST_KIND,
@@ -40,13 +41,13 @@ const PROVIDER_REQUEST_CONTRACTS: Record<
     validatePayload: validateSkillRunnerSequencePayload,
   },
   "generic-http.request.v1": {
-    providerType: "generic-http",
-    backendType: "generic-http",
+    providerType: GENERIC_HTTP_BACKEND_TYPE,
+    backendType: GENERIC_HTTP_BACKEND_TYPE,
     validatePayload: validateGenericHttpRequestPayload,
   },
   "generic-http.steps.v1": {
-    providerType: "generic-http",
-    backendType: "generic-http",
+    providerType: GENERIC_HTTP_BACKEND_TYPE,
+    backendType: GENERIC_HTTP_BACKEND_TYPE,
     validatePayload: validateGenericHttpStepsPayload,
   },
   [ACP_PROMPT_REQUEST_KIND]: {

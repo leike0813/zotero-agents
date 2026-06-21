@@ -3,6 +3,7 @@ import {
   DEFAULT_BACKEND_ID,
   DEFAULT_BACKEND_TYPE,
   DEFAULT_SKILLRUNNER_ENDPOINT,
+  GENERIC_HTTP_BACKEND_TYPE,
 } from "../config/defaults";
 import { config } from "../../package.json";
 import { refreshWorkflowMenus } from "./workflowMenu";
@@ -58,12 +59,12 @@ const PROVIDER_SECTIONS = [
     labelKey: "backend-manager-provider-skillrunner",
   },
   {
-    type: "generic-http",
+    type: GENERIC_HTTP_BACKEND_TYPE,
     labelKey: "backend-manager-provider-generic-http",
   },
-];
+] as const;
 
-type BackendManagerProviderType = "acp" | "skillrunner" | "generic-http";
+type BackendManagerProviderType = (typeof PROVIDER_SECTIONS)[number]["type"];
 
 type BackendPersistenceDeps = {
   setPref: typeof setPref;
@@ -1553,11 +1554,13 @@ export function collectBackendsFromDialog(doc: Document): {
 
   const seen = new Set<string>();
   const usedIds = new Set<string>();
-  const supportedTypes = new Set(PROVIDER_SECTIONS.map((entry) => entry.type));
   const backends: BackendInstance[] = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const type = String(row.getAttribute("data-zs-backend-type") || "").trim();
+    const typeText = String(
+      row.getAttribute("data-zs-backend-type") || "",
+    ).trim();
+    const type = normalizeBackendManagerProviderType(typeText);
     let id = readRowInternalId(row);
     const displayName = String(readRowField(row, "displayName") || "").trim();
     const baseUrl = readRowField(row, "baseUrl");
@@ -1573,6 +1576,13 @@ export function collectBackendsFromDialog(doc: Document): {
       throw new Error(
         getString("backend-manager-error-id-required" as any, {
           args: { row: i + 1 },
+        }),
+      );
+    }
+    if (!type) {
+      throw new Error(
+        getString("backend-manager-error-unsupported-provider" as any, {
+          args: { row: i + 1, type: typeText },
         }),
       );
     }
@@ -1593,13 +1603,6 @@ export function collectBackendsFromDialog(doc: Document): {
       );
     }
     seen.add(id);
-    if (!type || !supportedTypes.has(type)) {
-      throw new Error(
-        getString("backend-manager-error-unsupported-provider" as any, {
-          args: { row: i + 1, type },
-        }),
-      );
-    }
     if (type === ACP_BACKEND_TYPE) {
       if (!command) {
         throw new Error(
@@ -1752,13 +1755,13 @@ export function collectBackendsFromDraftRows(rawRows: unknown): {
   const rows = normalizeDraftRows(rawRows);
   const seen = new Set<string>();
   const usedIds = new Set<string>();
-  const supportedTypes = new Set(PROVIDER_SECTIONS.map((entry) => entry.type));
   const backends: BackendInstance[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rowNumber = i + 1;
-    const type = String(row.type || "").trim();
+    const typeText = String(row.type || "").trim();
+    const type = normalizeBackendManagerProviderType(typeText);
     let id = String(row.internalId || "").trim();
     const displayName = String(row.displayName || "").trim();
     const baseUrl = String(row.baseUrl || "").trim();
@@ -1774,10 +1777,10 @@ export function collectBackendsFromDraftRows(rawRows: unknown): {
         }),
       );
     }
-    if (!type || !supportedTypes.has(type)) {
+    if (!type) {
       throw new Error(
         getString("backend-manager-error-unsupported-provider" as any, {
-          args: { row: rowNumber, type },
+          args: { row: rowNumber, type: typeText },
         }),
       );
     }
@@ -2228,7 +2231,10 @@ function buildBackendManagerLabels() {
       "Custom ACP",
     ),
     displayName: localizeBackendManager("backend-manager-column-id", "ID"),
-    enabled: localizeBackendManager("backend-manager-column-enabled", "Enabled"),
+    enabled: localizeBackendManager(
+      "backend-manager-column-enabled",
+      "Enabled",
+    ),
     baseUrl: localizeBackendManager(
       "backend-manager-column-base-url",
       "Base URL",
@@ -2332,8 +2338,7 @@ function buildSkillRunnerHealthSnapshot(rows: BackendManagerDraftRow[]) {
     healthById[row.internalId] = {
       enabled: row.enabled !== false && health?.status !== "disabled",
       reachable: health?.reachable === true && health?.status === "reachable",
-      status:
-        row.enabled === false ? "disabled" : health?.status || "unknown",
+      status: row.enabled === false ? "disabled" : health?.status || "unknown",
       updatedAt: health?.updatedAt,
       lastReachableAt: health?.lastReachableAt,
       lastProbeAt: health?.lastProbeAt,

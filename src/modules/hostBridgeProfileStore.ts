@@ -78,16 +78,16 @@ function resolveLocalAppDataDir() {
 function resolveWellKnownProfileRoot() {
   const platform = resolvePlatform();
   if (platform === "win32") {
-    return joinPath(resolveLocalAppDataDir(), "Zotero-Skills");
+    return joinPath(resolveLocalAppDataDir(), "zotero-agents");
   }
   const home = resolveHomeDir();
   if (platform === "darwin") {
-    return joinPath(home, "Library", "Application Support", "Zotero-Skills");
+    return joinPath(home, "Library", "Application Support", "zotero-agents");
   }
   const xdgDataHome = readEnv("XDG_DATA_HOME");
   return joinPath(
     xdgDataHome || joinPath(home, ".local", "share"),
-    "Zotero-Skills",
+    "zotero-agents",
   );
 }
 

@@ -7,6 +7,8 @@ manual validation of sequence orchestration:
 
 - `debug-host-bridge-connectivity-probe`: Host Bridge CLI injection,
   endpoint reachability, authentication, and read-only capability routing.
+- `debug-host-bridge-connectivity-sequence-probe`: the same Host Bridge
+  connectivity checks through the SkillRunner sequence orchestration path.
 - `debug-sequence-linear-probe`: serial execution and explicit value handoff.
 - `debug-sequence-workspace-reuse-probe`: workflow workspace reuse across steps.
 - `debug-sequence-file-handoff-probe`: provider-neutral file handoff from one

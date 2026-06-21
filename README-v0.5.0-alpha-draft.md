@@ -105,13 +105,16 @@
 
 | 功能 | 说明 | 触发方式 |
 |------|------|----------|
-| 🔍 **文献摘要** | AI 自动生成论文摘要、提取参考文献、输出引文分析报告 | 右键论文 → `文献分析` |
-| 💬 **交互式文献解读** | 多轮对话深入理解论文，对话记录自动保存为笔记 | 右键论文 → `文献解读` |
+| 🔍 **文献分析** | AI 自动生成论文摘要、提取参考文献、输出引文分析报告。可级联执行标签规范化 | 右键论文 → `文献分析` |
+| 💬 **交互式文献解读** | 多轮对话深入理解论文。AI 回答经过验证门禁，有疑问的答案会被显式提醒，不用担心幻觉问题。对话记录可生成为学习笔记 | 右键论文 → `文献解读` |
 | 📖 **深度阅读** | 生成结构化精读视图，支持多段翻译和概念解析 | 右键论文 → `深度阅读` |
+| 🌱 **标签词表初始化** | 与 AI 交互式创建研究领域的受控标签词表。建议在开始文献分析前先初始化 | Dashboard → `Tag Bootstrapper` |
 | 🏷️ **标签规范化** | 基于受控词表自动规整标签，AI 推断新标签并等待审核 | 右键条目 → `标签规范化` |
-| 🔎 **文献搜索与入库** | 搜索新文献，确认后通过 Host Bridge 直接入库到 Zotero | Dashboard → `文献搜索与入库` |
+| 🔎 **文献搜索与入库** | 让 Agent 帮你快速扩充文献库：搜索、筛选、确认后直接入库 | Dashboard → `文献搜索与入库` |
 | 📋 **PDF 解析** | 将 PDF 转为 Markdown（调用 MinerU 服务） | 右键 PDF → `MinerU` |
 | 📤 **笔记导出/导入** | 批量导出摘要和笔记为 Markdown，或导入外部笔记 | 右键选中条目 → 导出/导入 |
+
+> **💡 关于产物笔记**：文献分析的产物（摘要、参考文献、引文分析）会以 Note 附件的形式添加到父条目。笔记中显示的内容是从后台数据**渲染**出来的，直接修改笔记内容不会改变后台数据。如需编辑，请使用「导出笔记」导出 → 修改 → 再通过「导入笔记」重新导入。
 
 <!-- 📸 TODO: 截图 — 右键菜单展开效果 -->
 
@@ -223,20 +226,29 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS 
 
 ---
 
-## AI 引擎推荐
+## AI 引擎与费用
 
 本插件不绑定任何 AI 服务商。你用自己的订阅额度、Coding Plan 或 API Key 直接连接后端 — **没有中间商，没有 per-token 加价**。
 
-### 为什么用 Coding Plan 而不是 API？
+### 担心 Token 太贵？
 
-文献处理是 **token 消耗大户**：论文摘要、引文分析、主题综合、交互式 Q&A — 每次运行轻松消耗数万 token。按量付费的 API 价格很快就会变得不划算。而 Coding Plan（如阿里百炼、智谱等）提供包月额度，更适合这种大吞吐场景。
+好消息：本项目的所有 Skill 都经过精心设计，**即便是较弱的模型（甚至本地部署的模型！）也能实现很惊艳的执行效果**。你不需要最贵的模型就能获得出色的结果。
+
+### 费用参考
+
+| 方案 | 费用 | 说明 |
+|------|------|------|
+| **DeepSeek V4 Flash** | 约 ￥2/篇 | 按量付费。每篇文献的 Literature Analysis 大约只需不到 ￥2 |
+| **Coding Plan** | 包月固定价 | 如果你有幸抢购到按次计费的 Coding Plan（百炼、智谱等），完全可以廉价、批量处理文献 — 我们通过 Coding Agent 调用，**完全合规** |
+| **[OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW)** | \$10/月（首月 \$5） | 几乎不限量的 DeepSeek V4 Flash 额度。通过[此链接](https://opencode.ai/go?ref=SZDFT9GZKW)订阅，你和作者各获 $5 抵扣 |
+| **Codex 免费版** | 免费 | 模型受限，但依然能跑出很好的结果 |
 
 ### 引擎对比
 
 | 引擎 | 适合场景 | 费用 | 推荐度 |
 |------|---------|------|--------|
 | **Codex** | 综合最佳，速度与质量兼得。支持思维流式展示 | 免费版可用（模型受限） | ⭐⭐⭐ 首选 |
-| **Opencode** | 配合国内 Coding Plan（百炼、智谱等），Qwen3.5-Plus / Kimi-K2.5 / GLM-5 等模型在文献任务上表现优秀 | 低成本 | ⭐⭐⭐ 强推 |
+| **Opencode** | 配合 Coding Plan 或 [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW)，Qwen3.5-Plus / Kimi-K2.5 / GLM-5 等模型在文献任务上表现优秀 | 低成本 | ⭐⭐⭐ 强推 |
 | **Qwen Code** | 阿里生态用户，配合百炼 Coding Plan | 自带额度已结束，依赖 Plan | ⭐⭐ 可选 |
 | **Gemini CLI** | 简单任务 | 免费版可用 | ⭐ 一般 |
 | **Claude Code** | 指令执行质量高，但效率较低 | 付费 | 按需选 |
@@ -288,69 +300,97 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS 
 
 ---
 
-## 常见使用场景
+## 推荐工作流程
+
+从零开始到写出文献综述，推荐按以下顺序推进：
+
+### 📋 第一步：建立标签词表
+
+在开始文献分析前，建议先用 **Tag Bootstrapper** 初始化一个研究领域的受控标签词表。这样后续的文献分析就能自动为每篇论文规整标签。
+
+```
+Dashboard → Tag Bootstrapper → 与 AI 交互定义你的研究领域标签体系
+```
+
+### 📥 第二步：入库与分析
+
+**Literature Analysis 是 Agentic 文献管理的核心** — 所有入库文献都应该跑一次。
+
+```
+拿到原文 PDF
+  → 右键 PDF → MinerU（转 Markdown，效果最佳）
+  → 右键论文 → 文献分析
+     └── AI 自动生成摘要 + 参考文献 + 引文分析
+     └── 同时自动执行标签规范化（默认开启，建议保持）
+```
+
+> **💡 扩充文献库**：需要快速补充大量相关文献？用 **Literature Search & Ingest** 让 Agent 帮你搜索、筛选和批量入库。
+
+### 🔗 第三步：引用去重与图谱
+
+当文献库有一定规模且都运行过 Analysis 后：
+
+```
+打开 Synthesis Workbench → Index 页面
+  → 执行 Advance Matching（高级匹配算法进行引用文献去重）
+  → 前往 Review 页面处理审批项（不确定的匹配需要你手动确认）
+  → ⚠️ 别忘了将 pending 的决策「应用」！
+  → 打开 Graph 页面 → 你会看到一张完整、准确的引文图谱 ✨
+```
+
+> 准确的图谱关系有助于计算各文献的重要程度（PageRank、frontier score 等），这会直接影响后续 Topic 综合的质量。
+
+### 📊 第四步：创建 Topic 综合
+
+当你觉得文献量已足够，且都经过 Analysis 和 Advance Matching：
+
+```
+Dashboard → Create Topic Synthesis → 输入主题种子
+  → Agent 自动执行 3 步流水线（准备 → 核心增强 → 定稿）
+  → 打开 Synthesis Workbench → Topics 页面
+  → 查看专业、细致且精美的 Topic 导览 ✨
+```
+
+### ✍️ 第五步：生成文献综述
+
+当你有一个研究思路，想要了解并总结相关领域的研究进展时：
+
+```
+收集并入库文献 → 执行文献分析 → 创建几个 Topic
+  → Dashboard → Manuscript Literature Framing
+  → 与 Agent 交互确定论文定位和写作风格
+  → 生成 Introduction + Related Work 的 LaTeX 草稿
+  → 产物在 Dashboard 的产物区下载
+  → 直接放入 LaTeX 文稿，或导出后进一步加工
+```
+
+### 💡 更多场景
 
 <details>
-<summary><b>场景 A：新论文入库 → 快速了解</b></summary>
+<summary><b>对某篇论文有疑问？交互式文献解读</b></summary>
 
-```
-下载新论文 → 右键 PDF → MinerU（转 Markdown）
-           → 右键论文 → 文献分析（AI 摘要 + 参考文献 + 引文分析）
-           → 右键论文 → 文献解读（交互式问答深入理解）
-```
+右键论文 → `文献解读` → 在 Dashboard 中与 AI 交互式讨论。不用担心幻觉问题 — AI 的回答必须经过**验证门禁**，有疑问的答案会被显式提醒。对话结束后可将问答记录生成为学习笔记，以 Note 附件保存。
 
 </details>
 
 <details>
-<summary><b>场景 B：撰写文献综述</b></summary>
+<summary><b>以文献为上下文与 AI 自由对话</b></summary>
 
-```
-打开文献综合工作台（Workspace Tab）
-  → Home 页面查看当前库的论文分布和热门主题
-  → 创建新 Topic（触发 3 步 AI 流水线自动分析）
-  → 在 Topic Reader 中浏览 Taxonomy / Claims / Compare / Report
-  → 在 Graph 页面查看引文图谱，检查引用完整性
-  → 通过 WebDAV 同步保存研究进度
-```
+选中论文 → 打开侧边栏 ACP Chat → 选择后端 → 围绕论文内容自由对话。Host Bridge 自动提供文献上下文，支持模型/模式切换。
 
 </details>
 
 <details>
-<summary><b>场景 C：团队标签规范</b></summary>
+<summary><b>引文溯源与图谱分析</b></summary>
 
-```
-打开工作台 → 进入 Tags 页面
-  → 导入或定义团队受控词表（8 个 Facet）
-  → 选中一批论文 → 触发"标签规范化"
-  → AI 建议的标签通过 Staged 审核后加入词表
-  → 词表通过 WebDAV 同步给团队成员
-```
+打开 Synthesis Workbench → Graph 页面 → 搜索关键论文 → 切换到 Radial 布局以该论文为中心展开 → 查看引用/被引关系、PageRank 和 frontier score 指标。
 
 </details>
 
 <details>
-<summary><b>场景 D：以文献为上下文与 AI 对话</b></summary>
+<summary><b>团队标签规范</b></summary>
 
-```
-选中一篇论文 → 打开侧边栏 ACP Chat
-  → 选择 ACP 后端（如 Codex）
-  → 围绕论文内容自由对话
-  → Host Bridge 自动提供文献上下文
-  → 切换模型/模式以调整回答风格
-```
-
-</details>
-
-<details>
-<summary><b>场景 E：引文溯源与图谱分析</b></summary>
-
-```
-打开工作台 → Graph 页面
-  → 搜索关键论文 → 查看其引用和被引关系
-  → 切换到 Radial 布局以该论文为中心展开
-  → 检查 PageRank、frontier score 等指标
-  → 进入 Index 页面审查引用绑定状态
-```
+Tag Bootstrapper 初始化词表 → 选中一批论文 → 标签规范化 → AI 建议的标签通过 Staged 审核后加入词表 → 词表通过 WebDAV 同步给团队成员。
 
 </details>
 
@@ -362,25 +402,26 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS 
 
 | Workflow | 后端 | 说明 |
 |----------|------|------|
-| **文献分析** | `skillrunner` | 生成摘要 + 参考文献 + 引文分析笔记 |
-| **文献解读** | `skillrunner` | 多轮对话式文献理解，记录保存为笔记 |
+| **文献分析** ⭐ | `skillrunner` | 生成摘要 + 参考文献 + 引文分析笔记。可级联执行标签规范化（默认开启） |
+| **文献解读** | `skillrunner` | 多轮对话式文献理解，答案经验证门禁防幻觉。记录可保存为学习笔记 |
 | **深度阅读** | `acp` | 结构化精读视图（HTML），含概念覆盖和引文上下文 |
-| **文献搜索与入库** | `acp` | 搜索、筛选、确认后直接入库到 Zotero |
+| **文献搜索与入库** | `acp` | 让 Agent 帮你搜索、筛选文献，确认后直接入库 |
 | **MinerU** | `generic-http` | PDF → Markdown 转换（调用 MinerU 服务） |
 
 ### 综合与整理
 
 | Workflow | 后端 | 说明 |
 |----------|------|------|
-| **Topic 综合** | `acp` | 3 步 Sequence：准备 → 核心增强 → 定稿 |
-| **文稿文献框架** | `acp` | 交互式生成 Introduction + Related Work |
+| **Topic 综合** | `acp` | 3 步 Sequence：准备 → 核心增强 → 定稿。Agent 全自动处理 |
+| **文稿文献框架** | `acp` | 交互式生成 Introduction + Related Work 的 LaTeX 草稿 |
+| **标签词表初始化** | `skillrunner` | 与 AI 交互创建研究领域的受控标签词表。建议首先运行 |
 | **标签规范化** | `skillrunner` | LLM 驱动的标签推断 + 受控词表规整 |
 
 ### 工具
 
 | Workflow | 后端 | 说明 |
 |----------|------|------|
-| **笔记导出** | `pass-through` | 批量导出摘要/笔记为 Markdown |
+| **笔记导出** | `pass-through` | 批量导出摘要/笔记为 Markdown（修改后可重新导入） |
 | **笔记导入** | `pass-through` | 导入外部 Markdown 为 Zotero 笔记 |
 | **Debug Probe** | 多种 | 13 个调试探针，验证序列执行、apply 合约、Host Bridge 连通性等 |
 
@@ -427,12 +468,22 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS 
 ## 过渡版本说明
 
 > **v0.5.0-alpha 是迈向"Zotero Agents"的重要里程碑。** 相比 v0.4.0（纯 Skill-Runner 前端），v0.5.0 完成了向通用 Agent 执行框架的全面转型 — 新增 ACP 后端支持、文献综合工作台、引文图谱、概念知识库、Host Bridge、MCP Server 等核心能力，已可在日常研究中稳定使用。
->
-> 后续版本将继续：
-> - 完善多语言支持和用户引导
-> - 提升跨后端的一致性体验
-> - 持续打磨稳定性和性能
->
+
+### ⚠️ 已知限制
+
+| 限制 | 说明 | 计划 |
+|------|------|------|
+| **Synthesis 重计算会阻塞 UI** | 刷新索引、重建 Citation Graph、Advance Matching 等操作计算量较大，在 Zotero 单一宿主进程的架构下会导致 UI 短暂卡顿。执行时请耐心等待 | 计划在后续重构中解决 |
+| **WebDAV 同步尚未完整测试** | 自动同步功能尚未经过充分测试，若要使用请尽量只使用手动同步 | 后续版本完善 |
+| **大型文献库性能** | 尚未在大规模文献库下进行充分的性能测试 | 待后续更新解决 |
+
+### 后续计划
+
+- 完善多语言支持和用户引导
+- 提升跨后端的一致性体验
+- 优化 Synthesis 重计算的 UI 响应性
+- 持续打磨稳定性和性能
+
 > 如遇到问题请在 [Issues](https://github.com/leike0813/Zotero-Skills/issues) 反馈。
 
 ---

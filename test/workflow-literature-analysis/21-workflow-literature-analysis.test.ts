@@ -255,8 +255,7 @@ describe("workflow: literature-analysis", function () {
     const warning = classifyReferenceExtractionQuality({
       title:
         "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
-      raw:
-        "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
+      raw: "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
       year: "2021",
     });
     assert.equal(warning.disposition, "accept");
@@ -529,6 +528,63 @@ describe("workflow: literature-analysis", function () {
     assert.include(parentNotes, thirdNote.id);
   });
 
+  it("applies valid artifacts when skill output includes a non-null error diagnostic", async function () {
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Diagnostic Error Parent" },
+    });
+    const workflow = await getLiteratureDigestWorkflow();
+
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: {
+        async readText(entryPath: string) {
+          if (entryPath === "result/result.json") {
+            return JSON.stringify({
+              status: "failed",
+              data: {
+                digest_path: "artifacts/digest.md",
+                references_path: "artifacts/references.json",
+                citation_analysis_path: "artifacts/citation_analysis.json",
+                warnings: ["partial extraction"],
+                error: {
+                  type: "agent_warning",
+                  message: "agent reported a recoverable issue",
+                },
+              },
+            });
+          }
+          if (entryPath === "artifacts/digest.md") {
+            return "# Digest\n\nDiagnostic apply still works.";
+          }
+          if (entryPath === "artifacts/references.json") {
+            return "[]";
+          }
+          if (entryPath === "artifacts/citation_analysis.json") {
+            return '{"report_md":"# Citation Analysis"}';
+          }
+          throw new Error(`missing bundle entry: ${entryPath}`);
+        },
+      },
+    })) as {
+      notes?: Zotero.Item[];
+      warnings?: string[];
+      skill_diagnostics?: {
+        status?: string;
+        error?: { message?: string };
+      };
+    };
+
+    assert.lengthOf(applied.notes || [], 3);
+    assert.deepEqual(applied.warnings, ["partial extraction"]);
+    assert.equal(applied.skill_diagnostics?.status, "failed");
+    assert.equal(
+      applied.skill_diagnostics?.error?.message,
+      "agent reported a recoverable issue",
+    );
+  });
+
   it("filters deterministic invalid references before writing the references note", async function () {
     this.timeout(5000);
     const parent = await handlers.item.create({
@@ -560,8 +616,7 @@ describe("workflow: literature-analysis", function () {
               {
                 title: "Attention is all you need",
                 year: "2017",
-                raw:
-                  "Ashish Vaswani et al. Attention is all you need. In NeurIPS, 2017.",
+                raw: "Ashish Vaswani et al. Attention is all you need. In NeurIPS, 2017.",
               },
               {
                 title: "https://doi.org/10.1007/978-3-319-10602-1_48",
@@ -579,8 +634,7 @@ describe("workflow: literature-analysis", function () {
                 title:
                   "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
                 year: "2021",
-                raw:
-                  "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
+                raw: "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
               },
             ]);
           }
@@ -614,7 +668,10 @@ describe("workflow: literature-analysis", function () {
     const payload = (await parseStoredPayload(
       Zotero.Items.get(referencesNote!.id)!,
       "references-json",
-    )) as { references?: Array<{ title?: string }>; reference_quality?: unknown };
+    )) as {
+      references?: Array<{ title?: string }>;
+      reference_quality?: unknown;
+    };
     assert.deepEqual(
       (payload.references || []).map((entry) => entry.title),
       [
@@ -627,13 +684,15 @@ describe("workflow: literature-analysis", function () {
     assert.equal(applied.reference_quality?.rejected_count, 3);
     assert.isAtLeast(applied.reference_quality?.warning_count || 0, 1);
     assert.include(
-      applied.reference_quality?.rejected?.flatMap((row) => row.reasons || []) ||
-        [],
+      applied.reference_quality?.rejected?.flatMap(
+        (row) => row.reasons || [],
+      ) || [],
       "bare_identifier_or_url_title",
     );
     assert.include(
-      applied.reference_quality?.warnings?.flatMap((row) => row.reasons || []) ||
-        [],
+      applied.reference_quality?.warnings?.flatMap(
+        (row) => row.reasons || [],
+      ) || [],
       "bibliographic_suffix_in_title",
     );
   });
@@ -889,54 +948,57 @@ describe("workflow: literature-analysis", function () {
     },
   );
 
-  itNodeOnly("ignores removed auto reference matching parameter", async function () {
-    this.timeout(5000);
-    await handlers.item.create({
-      itemType: "journalArticle",
-      fields: {
-        title: "Character-level language modeling with deeper self-attention",
-        date: "2019",
-        extra: "Citation Key: DisabledAutoMatching2019",
-      },
-    });
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Workflow Auto Matching Disabled Parent" },
-    });
-    const workflow = await getLiteratureDigestWorkflow();
-
-    const applied = (await executeApplyResult({
-      workflow,
-      parent,
-      bundleReader: new ZipBundleReader(
-        fixturePath("literature-analysis", "run_bundle.zip"),
-      ),
-      request: {
-        parameter: {
-          auto_reference_matching: false,
+  itNodeOnly(
+    "ignores removed auto reference matching parameter",
+    async function () {
+      this.timeout(5000);
+      await handlers.item.create({
+        itemType: "journalArticle",
+        fields: {
+          title: "Character-level language modeling with deeper self-attention",
+          date: "2019",
+          extra: "Citation Key: DisabledAutoMatching2019",
         },
-      },
-    })) as {
-      notes: Zotero.Item[];
-      auto_reference_matching?: unknown;
-    };
+      });
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Workflow Auto Matching Disabled Parent" },
+      });
+      const workflow = await getLiteratureDigestWorkflow();
 
-    const referencesNote = applied.notes.find(
-      (note) =>
-        parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
-    );
-    assert.isOk(referencesNote);
-    const payload = (await parseStoredPayload(
-      Zotero.Items.get(referencesNote!.id)!,
-      "references-json",
-    )) as {
-      references?: Array<{ citekey?: string }>;
-      reference_matching?: unknown;
-    };
-    assert.isUndefined(payload.references?.[0]?.citekey);
-    assert.isUndefined(payload.reference_matching);
-    assert.isUndefined(applied.auto_reference_matching);
-  });
+      const applied = (await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader: new ZipBundleReader(
+          fixturePath("literature-analysis", "run_bundle.zip"),
+        ),
+        request: {
+          parameter: {
+            auto_reference_matching: false,
+          },
+        },
+      })) as {
+        notes: Zotero.Item[];
+        auto_reference_matching?: unknown;
+      };
+
+      const referencesNote = applied.notes.find(
+        (note) =>
+          parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+      );
+      assert.isOk(referencesNote);
+      const payload = (await parseStoredPayload(
+        Zotero.Items.get(referencesNote!.id)!,
+        "references-json",
+      )) as {
+        references?: Array<{ citekey?: string }>;
+        reference_matching?: unknown;
+      };
+      assert.isUndefined(payload.references?.[0]?.citekey);
+      assert.isUndefined(payload.reference_matching);
+      assert.isUndefined(applied.auto_reference_matching);
+    },
+  );
 
   itNodeOnly(
     "updates an existing references note without automatic reference matching",

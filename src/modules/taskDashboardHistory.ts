@@ -11,12 +11,24 @@ import {
 import { normalizeStatus } from "./skillRunnerProviderStateMachine";
 import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
 import {
+  countSkillRunnerRunProjectionStates,
   listSkillRunnerRunProjections,
   upsertSkillRunnerRunFromTask,
 } from "./skillRunnerRunStore";
 
 export type TaskDashboardHistoryRecord = WorkflowTaskRecord & {
   archivedAt: string;
+};
+
+export type TaskDashboardHistorySummary = {
+  total: number;
+  queued: number;
+  running: number;
+  waiting_user: number;
+  waiting_auth: number;
+  succeeded: number;
+  failed: number;
+  canceled: number;
 };
 
 const historyRecords = new Map<string, TaskDashboardHistoryRecord>();
@@ -76,6 +88,7 @@ export function listTaskDashboardHistory(args?: {
   backendType?: string;
   workflowId?: string;
   requestId?: string;
+  limit?: number;
 }) {
   const backendId = String(args?.backendId || "").trim();
   const backendType = String(args?.backendType || "").trim();
@@ -85,14 +98,18 @@ export function listTaskDashboardHistory(args?: {
   for (const record of readHistoryRecords()) {
     byId.set(skillRunnerHistoryKey(record), record);
   }
-  for (const projection of listSkillRunnerRunProjections()) {
+  for (const projection of listSkillRunnerRunProjections({
+    backendId,
+    requestId,
+    limit: args?.limit,
+  })) {
     const record = {
       ...projection,
       archivedAt: projection.updatedAt,
     };
     byId.set(skillRunnerHistoryKey(record), record);
   }
-  return Array.from(byId.values())
+  const rows = Array.from(byId.values())
     .filter((record) => {
       if (backendId && record.backendId !== backendId) {
         return false;
@@ -110,6 +127,11 @@ export function listTaskDashboardHistory(args?: {
     })
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map((record) => ({ ...record }));
+  const limit =
+    typeof args?.limit === "number" && Number.isFinite(args.limit)
+      ? Math.max(0, Math.floor(args.limit))
+      : 0;
+  return limit ? rows.slice(0, limit) : rows;
 }
 
 export function cleanupTaskDashboardHistory() {
@@ -289,11 +311,9 @@ export function upsertTaskDashboardHistoryFromTaskRecord(
   return { ...entry };
 }
 
-export function summarizeTaskDashboardHistory(
-  records: TaskDashboardHistoryRecord[],
-) {
-  const summary = {
-    total: records.length,
+function createEmptyTaskDashboardHistorySummary(): TaskDashboardHistorySummary {
+  return {
+    total: 0,
     queued: 0,
     running: 0,
     waiting_user: 0,
@@ -302,30 +322,76 @@ export function summarizeTaskDashboardHistory(
     failed: 0,
     canceled: 0,
   };
+}
+
+function addStateToTaskDashboardHistorySummary(
+  summary: TaskDashboardHistorySummary,
+  stateRaw: unknown,
+  countRaw = 1,
+) {
+  const count = Math.max(0, Math.floor(Number(countRaw) || 0));
+  if (count <= 0) {
+    return;
+  }
+  summary.total += count;
+  switch (normalizeStatus(String(stateRaw || ""))) {
+    case "queued":
+      summary.queued += count;
+      break;
+    case "running":
+      summary.running += count;
+      break;
+    case "waiting_user":
+      summary.waiting_user += count;
+      break;
+    case "waiting_auth":
+      summary.waiting_auth += count;
+      break;
+    case "succeeded":
+      summary.succeeded += count;
+      break;
+    case "failed":
+      summary.failed += count;
+      break;
+    case "canceled":
+      summary.canceled += count;
+      break;
+  }
+}
+
+export function summarizeTaskDashboardHistory(
+  records: TaskDashboardHistoryRecord[],
+) {
+  const summary = createEmptyTaskDashboardHistorySummary();
   for (const record of records) {
-    switch (normalizeStatus(record.state)) {
-      case "queued":
-        summary.queued += 1;
-        break;
-      case "running":
-        summary.running += 1;
-        break;
-      case "waiting_user":
-        summary.waiting_user += 1;
-        break;
-      case "waiting_auth":
-        summary.waiting_auth += 1;
-        break;
-      case "succeeded":
-        summary.succeeded += 1;
-        break;
-      case "failed":
-        summary.failed += 1;
-        break;
-      case "canceled":
-        summary.canceled += 1;
-        break;
+    addStateToTaskDashboardHistorySummary(summary, record.state);
+  }
+  return summary;
+}
+
+export function summarizeTaskDashboardHistoryScope(args?: {
+  backendId?: string;
+  requestId?: string;
+}) {
+  const backendId = String(args?.backendId || "").trim();
+  const requestId = String(args?.requestId || "").trim();
+  const summary = {
+    ...createEmptyTaskDashboardHistorySummary(),
+  };
+  for (const record of historyRecords.values()) {
+    if (backendId && String(record.backendId || "").trim() !== backendId) {
+      continue;
     }
+    if (requestId && String(record.requestId || "").trim() !== requestId) {
+      continue;
+    }
+    addStateToTaskDashboardHistorySummary(summary, record.state);
+  }
+  for (const row of countSkillRunnerRunProjectionStates({
+    backendId,
+    requestId,
+  })) {
+    addStateToTaskDashboardHistorySummary(summary, row.state, row.count);
   }
   return summary;
 }

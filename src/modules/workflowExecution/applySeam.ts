@@ -696,8 +696,6 @@ export async function runWorkflowApplySeam(
             typeof result.workspaceDir === "string"
               ? result.workspaceDir
               : undefined,
-          bundleDir:
-            typeof result.bundleDir === "string" ? result.bundleDir : undefined,
           updatedAt: new Date().toISOString(),
           eventPayload: {
             source: "workflowExecution.applySeam",

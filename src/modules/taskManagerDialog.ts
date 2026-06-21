@@ -13,6 +13,8 @@ import {
   cleanupTaskDashboardHistory,
   listTaskDashboardHistory,
   summarizeTaskDashboardHistory,
+  summarizeTaskDashboardHistoryScope,
+  type TaskDashboardHistorySummary,
   type TaskDashboardHistoryRecord,
 } from "./taskDashboardHistory";
 import {
@@ -22,8 +24,8 @@ import {
 } from "./taskDashboardSnapshot";
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import {
-  listActiveWorkflowTasks,
-  subscribeWorkflowTasks,
+  listActiveWorkflowTaskSummaries,
+  subscribeWorkflowTaskChanges,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
 import { filterDashboardActiveTasks } from "./dashboardActiveTasks";
@@ -42,6 +44,7 @@ import { settleSkillRunnerRunAsFailed } from "./skillRunnerRunSettlement";
 import { joinPath } from "../utils/path";
 import {
   buildWorkflowSettingsUiDescriptor,
+  getWorkflowSettingsRevision,
   updateWorkflowSettings,
   type WorkflowSettingsUiDescriptor,
 } from "./workflowSettings";
@@ -66,10 +69,10 @@ import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 import {
   buildAcpSkillRunPanelSnapshot,
   cancelAcpSkillRun,
-  listAcpSkillRuns,
+  listAcpSkillRunSummaries,
   selectAcpSkillRun,
   subscribeAcpSkillRunSnapshots,
-  type AcpSkillRunRecord,
+  type AcpSkillRunSummary,
 } from "./acpSkillRunStore";
 import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
 import {
@@ -84,6 +87,10 @@ import {
   type WorkflowProductPreview,
 } from "./workflowProductStore";
 import { openFolderInSystemFileManager } from "../utils/fileSystem";
+import {
+  recordBackgroundRefreshRead,
+  registerBackgroundRefreshTimer,
+} from "./backgroundRefreshGovernance";
 
 type DashboardState = {
   backends: BackendInstance[];
@@ -347,7 +354,7 @@ function dashboardSelectedSurfaceSignatureInput(snapshot: DashboardSnapshot) {
   if (surfaceKey === "skillrunner-connection-audit") {
     return {
       surfaceKey,
-      skillRunnerConnectionAuditView: snapshot.skillRunnerConnectionAuditView,
+      governor: snapshot.skillRunnerConnectionAuditView?.governor,
     };
   }
   if (surfaceKey === "backend") {
@@ -814,7 +821,9 @@ function filterWorkflowSubmitVisibleBackends(backends: BackendInstance[]) {
     if (String(backend.type || "").trim() !== "skillrunner") {
       return true;
     }
-    return backend.enabled !== false && isSkillRunnerBackendAvailable(backend.id);
+    return (
+      backend.enabled !== false && isSkillRunnerBackendAvailable(backend.id)
+    );
   });
 }
 
@@ -888,7 +897,7 @@ function mapTaskRow(task: WorkflowTaskRecord): DashboardRow {
 }
 
 function mapAcpSkillRunToWorkflowTask(
-  run: AcpSkillRunRecord,
+  run: AcpSkillRunSummary,
 ): WorkflowTaskRecord {
   const status =
     run.status === "repairing"
@@ -952,7 +961,9 @@ function mergeAcpBackendTaskRows(args: {
     }
   };
   args.history.forEach((row) => accept({ ...row }));
-  listAcpSkillRuns()
+  listAcpSkillRunSummaries({
+    backendId,
+  })
     .filter((run) => !run.removedAt && !run.archivedAt)
     .map((run) => mapAcpSkillRunToWorkflowTask(run))
     .forEach(accept);
@@ -1341,8 +1352,11 @@ async function buildDashboardSnapshot(args: {
   backends: BackendInstance[];
   history: TaskDashboardHistoryRecord[];
   active: WorkflowTaskRecord[];
+  historySummary?: TaskDashboardHistorySummary;
+  homeWorkflows?: DashboardSnapshot["homeWorkflows"];
 }) {
-  const summary = summarizeTaskDashboardHistory(args.history);
+  const summary =
+    args.historySummary || summarizeTaskDashboardHistory(args.history);
   const debugModeEnabled = isDebugModeEnabled();
   let selectedTabKey = normalizeDashboardTabKey({
     requestedTabKey: args.state.selectedTabKey,
@@ -1398,9 +1412,11 @@ async function buildDashboardSnapshot(args: {
     args.state.selectedTabKey = "home";
   }
   if (selectedTabKey === "home") {
-    homeWorkflows = await buildHomeWorkflowSummaries({
-      backends: args.backends,
-    });
+    homeWorkflows =
+      args.homeWorkflows ||
+      (await buildHomeWorkflowSummaries({
+        backends: args.backends,
+      }));
     const requestedWorkflowId = String(
       args.state.homeWorkflowDocWorkflowId || "",
     ).trim();
@@ -1695,10 +1711,7 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-products-list-expand",
       "Expand product list",
     ),
-    productsListRail: localize(
-      "task-dashboard-products-list-rail",
-      "Products",
-    ),
+    productsListRail: localize("task-dashboard-products-list-rail", "Products"),
     productsSectionFiles: localize(
       "task-dashboard-products-section-files",
       "Products",
@@ -1707,14 +1720,8 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-products-section-feedback",
       "Skill Feedback",
     ),
-    productsViewerWrap: localize(
-      "task-dashboard-products-viewer-wrap",
-      "Wrap",
-    ),
-    productsViewerCopy: localize(
-      "task-dashboard-products-viewer-copy",
-      "Copy",
-    ),
+    productsViewerWrap: localize("task-dashboard-products-viewer-wrap", "Wrap"),
+    productsViewerCopy: localize("task-dashboard-products-viewer-copy", "Copy"),
     productsViewerCopied: localize(
       "task-dashboard-products-viewer-copied",
       "Copied",
@@ -1945,7 +1952,9 @@ async function buildDashboardSnapshot(args: {
       null;
     args.state.selectedFeedbackProductId =
       selectedFeedbackProduct?.productId || "";
-    for (const selectedId of Array.from(args.state.selectedFeedbackProductIds)) {
+    for (const selectedId of Array.from(
+      args.state.selectedFeedbackProductIds,
+    )) {
       if (!feedbackProducts.some((entry) => entry.productId === selectedId)) {
         args.state.selectedFeedbackProductIds.delete(selectedId);
       }
@@ -2189,17 +2198,92 @@ async function buildDashboardSnapshot(args: {
   return finalizeDashboardSnapshot(snapshot);
 }
 
-function normalizeFilteredHistory() {
-  return listTaskDashboardHistory().filter(
+function normalizeFilteredHistory(args?: {
+  backendId?: string;
+  requestId?: string;
+}) {
+  return listTaskDashboardHistory(args).filter(
     (entry) => entry.backendType !== PASS_THROUGH_BACKEND_TYPE,
   );
 }
 
-function normalizeFilteredActive() {
+function normalizeFilteredActive(args?: {
+  backendId?: string;
+  requestId?: string;
+}) {
   return filterDashboardActiveTasks({
-    activeTasks: listActiveWorkflowTasks(),
-    acpSkillRuns: listAcpSkillRuns(),
+    activeTasks: listActiveWorkflowTaskSummaries(args),
+    acpSkillRuns: listAcpSkillRunSummaries({
+      activeOnly: true,
+      backendId: args?.backendId,
+      requestId: args?.requestId,
+    }),
   });
+}
+
+type RefreshReason =
+  | "init"
+  | "user-action"
+  | "periodic"
+  | "task-update"
+  | "backend-health"
+  | "backend-load"
+  | "save-state";
+
+const DASHBOARD_BACKEND_PERIODIC_REFRESH_MIN_INTERVAL_MS = 5000;
+const DASHBOARD_HOME_PERIODIC_REFRESH_MIN_INTERVAL_MS = 15000;
+
+function shouldDashboardReadBackendRows(args: {
+  selectedBackendId?: string;
+  reason: RefreshReason;
+  lastReadAtByBackendId: Map<string, number>;
+}) {
+  if (!args.selectedBackendId) {
+    return false;
+  }
+  if (args.reason !== "periodic") {
+    return true;
+  }
+  const now = Date.now();
+  const lastReadAt =
+    args.lastReadAtByBackendId.get(args.selectedBackendId) || 0;
+  if (now - lastReadAt < DASHBOARD_BACKEND_PERIODIC_REFRESH_MIN_INTERVAL_MS) {
+    return false;
+  }
+  args.lastReadAtByBackendId.set(args.selectedBackendId, now);
+  return true;
+}
+
+function buildDashboardBackendsSignature(backends: BackendInstance[]) {
+  return backends
+    .map((backend) =>
+      [
+        backend.id,
+        backend.type,
+        backend.enabled === false ? "disabled" : "enabled",
+        backend.displayName || "",
+      ].join(":"),
+    )
+    .sort()
+    .join("|");
+}
+
+function buildHomeWorkflowSummariesCacheKey(backends: BackendInstance[]) {
+  const workflows = getVisibleLoadedWorkflowEntries()
+    .map((workflow) =>
+      [
+        workflow.manifest.id,
+        getLoadedWorkflowSourceById(workflow.manifest.id),
+      ].join(":"),
+    )
+    .sort()
+    .join("|");
+  return [
+    workflows,
+    isDebugModeEnabled() ? "debug" : "normal",
+    buildDashboardBackendsSignature(backends),
+    String(getWorkflowSettingsRevision()),
+  ].join("||");
 }
 
 export async function openTaskManagerDialog(args?: {
@@ -2264,14 +2348,7 @@ export async function openTaskManagerDialog(args?: {
   let refreshTimer: number | undefined;
   let deferredDashboardRefreshTimer: number | undefined;
   let dashboardRefreshQueued = false;
-  type RefreshReason =
-    | "init"
-    | "user-action"
-    | "periodic"
-    | "task-update"
-    | "backend-health"
-    | "backend-load"
-    | "save-state";
+  const backendRowsReadAtByBackendId = new Map<string, number>();
   let queuedRefreshReason: RefreshReason = "user-action";
   let lastPostedDashboardSignatures:
     | {
@@ -2280,6 +2357,26 @@ export async function openTaskManagerDialog(args?: {
         selectedSurfaceKey: string;
       }
     | undefined;
+  const activeRowsCacheByScope = new Map<
+    string,
+    { revision: number; rows: WorkflowTaskRecord[] }
+  >();
+  let activeRowsRevision = 0;
+  let historySummaryRevision = 0;
+  let historySummaryCache:
+    | { revision: number; summary: TaskDashboardHistorySummary }
+    | undefined;
+  let backendsLoaded = false;
+  let backendsDirty = true;
+  let lastBackendRegistryReadAt = 0;
+  let homeWorkflowSummariesDirty = true;
+  let homeWorkflowSummariesCache:
+    | {
+        key: string;
+        rows: DashboardSnapshot["homeWorkflows"];
+      }
+    | undefined;
+  let lastHomePeriodicReadAt = 0;
   let frameWindow: Window | null = null;
   let removeMessageListener: (() => void) | undefined;
   const getRuntimeWindow = () =>
@@ -2301,7 +2398,55 @@ export async function openTaskManagerDialog(args?: {
     return true;
   };
 
-  const refreshConfiguredBackends = async () => {
+  const taskReadScopeKey = (args?: {
+    backendId?: string;
+    requestId?: string;
+  }) =>
+    `${String(args?.backendId || "").trim()}|${String(
+      args?.requestId || "",
+    ).trim()}`;
+
+  const cloneTaskRows = <T extends WorkflowTaskRecord>(rows: T[]) =>
+    rows.map((entry) => ({ ...entry }));
+
+  const markTaskSummaryDirty = () => {
+    activeRowsRevision += 1;
+    historySummaryRevision += 1;
+  };
+
+  const isActiveScopeDirty = (scope?: {
+    backendId?: string;
+    requestId?: string;
+  }) => {
+    const key = taskReadScopeKey(scope);
+    const cached = activeRowsCacheByScope.get(key);
+    return !cached || cached.revision !== activeRowsRevision;
+  };
+
+  const isHistorySummaryDirty = () =>
+    !historySummaryCache ||
+    historySummaryCache.revision !== historySummaryRevision;
+
+  const isHomeWorkflowSummariesDirty = () => {
+    if (homeWorkflowSummariesDirty || !homeWorkflowSummariesCache) {
+      return true;
+    }
+    return (
+      homeWorkflowSummariesCache.key !==
+      buildHomeWorkflowSummariesCacheKey(state.backends)
+    );
+  };
+
+  const refreshConfiguredBackends = async (force = false) => {
+    if (backendsLoaded && !force && !backendsDirty) {
+      recordBackgroundRefreshRead({
+        owner: "task-dashboard-refresh",
+        surface: state.selectedTabKey || "home",
+        scopeKey: "configured-backends",
+        readShape: "cache-hit",
+      });
+      return;
+    }
     try {
       const loaded = await loadBackendsRegistry();
       const nextBackends = normalizeDashboardBackends({
@@ -2310,12 +2455,114 @@ export async function openTaskManagerDialog(args?: {
         active: [],
       });
       state.backends = nextBackends;
+      backendsLoaded = true;
+      backendsDirty = false;
+      lastBackendRegistryReadAt = Date.now();
+      homeWorkflowSummariesDirty = true;
       state.backendLoadError = loaded.fatalError
         ? compactError(loaded.fatalError)
         : undefined;
     } catch (error) {
       state.backendLoadError = compactError(error);
     }
+  };
+
+  const readCachedHistorySummary = (surface: string) => {
+    if (
+      historySummaryCache &&
+      historySummaryCache.revision === historySummaryRevision
+    ) {
+      recordBackgroundRefreshRead({
+        owner: "task-dashboard-refresh",
+        surface,
+        scopeKey: "dashboard-home",
+        readShape: "cache-hit",
+      });
+      return { ...historySummaryCache.summary };
+    }
+    cleanupTaskDashboardHistory();
+    recordBackgroundRefreshRead({
+      owner: "task-dashboard-refresh",
+      surface,
+      scopeKey: "dashboard-home",
+      readShape: "metadata-count",
+    });
+    const summary = summarizeTaskDashboardHistoryScope();
+    historySummaryCache = {
+      revision: historySummaryRevision,
+      summary,
+    };
+    recordBackgroundRefreshRead({
+      owner: "task-dashboard-refresh",
+      surface,
+      scopeKey: "dashboard-home",
+      readShape: "history-summary",
+    });
+    return { ...summary };
+  };
+
+  const readCachedActiveRows = (
+    surface: string,
+    scope?: {
+      backendId?: string;
+      requestId?: string;
+    },
+  ) => {
+    const key = taskReadScopeKey(scope);
+    const cached = activeRowsCacheByScope.get(key);
+    if (cached && cached.revision === activeRowsRevision) {
+      recordBackgroundRefreshRead({
+        owner: "task-dashboard-refresh",
+        surface,
+        scopeKey: scope?.backendId || "dashboard-home",
+        readShape: "cache-hit",
+      });
+      return cloneTaskRows(cached.rows);
+    }
+    const rows = normalizeFilteredActive(scope);
+    activeRowsCacheByScope.set(key, {
+      revision: activeRowsRevision,
+      rows,
+    });
+    recordBackgroundRefreshRead({
+      owner: "task-dashboard-refresh",
+      surface,
+      scopeKey: scope?.backendId || "dashboard-home",
+      readShape: "active-summary",
+    });
+    return cloneTaskRows(rows);
+  };
+
+  const readCachedHomeWorkflowSummaries = async (
+    backends: BackendInstance[],
+  ) => {
+    const key = buildHomeWorkflowSummariesCacheKey(backends);
+    if (
+      !homeWorkflowSummariesDirty &&
+      homeWorkflowSummariesCache &&
+      homeWorkflowSummariesCache.key === key
+    ) {
+      recordBackgroundRefreshRead({
+        owner: "task-dashboard-refresh",
+        surface: "home",
+        scopeKey: "home-workflows",
+        readShape: "cache-hit",
+      });
+      return homeWorkflowSummariesCache.rows?.map((entry) => ({ ...entry }));
+    }
+    recordBackgroundRefreshRead({
+      owner: "task-dashboard-refresh",
+      surface: "home",
+      scopeKey: "home-workflows",
+      readShape: "model-build",
+    });
+    const rows = await buildHomeWorkflowSummaries({ backends });
+    homeWorkflowSummariesCache = {
+      key,
+      rows,
+    };
+    homeWorkflowSummariesDirty = false;
+    return rows.map((entry) => ({ ...entry }));
   };
 
   const pushSnapshot = async (
@@ -2325,10 +2572,112 @@ export async function openTaskManagerDialog(args?: {
     if (!frameWindow) {
       return;
     }
-    await refreshConfiguredBackends();
-    cleanupTaskDashboardHistory();
-    const history = normalizeFilteredHistory();
-    const active = normalizeFilteredActive();
+    const initialSelectedBackendId = fromBackendTabKey(state.selectedTabKey);
+    const initialSurfaceKey = initialSelectedBackendId
+      ? "backend"
+      : state.selectedTabKey || "home";
+    const initialTaskReadScope = initialSelectedBackendId
+      ? { backendId: initialSelectedBackendId }
+      : undefined;
+    let periodicBackendRowsAllowed: boolean | undefined;
+    if (reason === "periodic") {
+      if (
+        state.selectedTabKey === "home" &&
+        !backendsDirty &&
+        !isActiveScopeDirty() &&
+        !isHistorySummaryDirty() &&
+        !isHomeWorkflowSummariesDirty() &&
+        Date.now() - lastHomePeriodicReadAt <
+          DASHBOARD_HOME_PERIODIC_REFRESH_MIN_INTERVAL_MS
+      ) {
+        recordBackgroundRefreshRead({
+          owner: "task-dashboard-refresh",
+          surface: "home",
+          scopeKey: "dashboard-home",
+          readShape: "dirty-gate",
+        });
+        return;
+      }
+      if (initialSelectedBackendId) {
+        periodicBackendRowsAllowed = shouldDashboardReadBackendRows({
+          selectedBackendId: initialSelectedBackendId,
+          reason,
+          lastReadAtByBackendId: backendRowsReadAtByBackendId,
+        });
+        if (
+          !periodicBackendRowsAllowed &&
+          !isActiveScopeDirty(initialTaskReadScope)
+        ) {
+          recordBackgroundRefreshRead({
+            owner: "task-dashboard-refresh",
+            surface: initialSurfaceKey,
+            scopeKey: initialSelectedBackendId,
+            readShape: "scope-gate",
+          });
+          return;
+        }
+      }
+    }
+    await refreshConfiguredBackends(
+      reason === "init" ||
+        reason === "backend-load" ||
+        (reason === "periodic" &&
+          Date.now() - lastBackendRegistryReadAt > 30000),
+    );
+    const debugModeEnabled = isDebugModeEnabled();
+    state.selectedTabKey = normalizeDashboardTabKey({
+      requestedTabKey: state.selectedTabKey,
+      backends: state.backends,
+      debugModeEnabled,
+    });
+    const selectedBackendId = fromBackendTabKey(state.selectedTabKey);
+    const taskReadScope = selectedBackendId
+      ? { backendId: selectedBackendId }
+      : undefined;
+    const selectedSurfaceKey = selectedBackendId
+      ? "backend"
+      : state.selectedTabKey || "home";
+    const shouldReadBackendRows =
+      typeof periodicBackendRowsAllowed === "boolean"
+        ? periodicBackendRowsAllowed
+        : shouldDashboardReadBackendRows({
+            selectedBackendId,
+            reason,
+            lastReadAtByBackendId: backendRowsReadAtByBackendId,
+          });
+    if (selectedBackendId && !shouldReadBackendRows) {
+      recordBackgroundRefreshRead({
+        owner: "task-dashboard-refresh",
+        surface: selectedSurfaceKey,
+        scopeKey: selectedBackendId,
+        readShape: "scope-gate",
+      });
+      return;
+    }
+    const shouldReadActive =
+      state.selectedTabKey === "home" || !!selectedBackendId;
+    const shouldReadHistoryRows = !!selectedBackendId && shouldReadBackendRows;
+    const historySummary =
+      state.selectedTabKey === "home"
+        ? readCachedHistorySummary(selectedSurfaceKey)
+        : undefined;
+    let history: TaskDashboardHistoryRecord[] = [];
+    if (shouldReadHistoryRows) {
+      cleanupTaskDashboardHistory();
+      history = normalizeFilteredHistory(taskReadScope);
+    }
+    if (shouldReadHistoryRows) {
+      backendRowsReadAtByBackendId.set(selectedBackendId, Date.now());
+      recordBackgroundRefreshRead({
+        owner: "task-dashboard-refresh",
+        surface: selectedSurfaceKey,
+        scopeKey: selectedBackendId,
+        readShape: "scoped-history-rows",
+      });
+    }
+    const active = shouldReadActive
+      ? readCachedActiveRows(selectedSurfaceKey, taskReadScope)
+      : [];
     const backends = normalizeDashboardBackends({
       configured: state.backends,
       history,
@@ -2336,11 +2685,21 @@ export async function openTaskManagerDialog(args?: {
     });
     state.backends = backends;
 
+    const homeWorkflows =
+      state.selectedTabKey === "home"
+        ? await readCachedHomeWorkflowSummaries(backends)
+        : undefined;
+    if (state.selectedTabKey === "home") {
+      lastHomePeriodicReadAt = Date.now();
+    }
+
     const snapshot = await buildDashboardSnapshot({
       state,
       backends,
       history,
       active,
+      historySummary,
+      homeWorkflows,
     });
     const signatures = snapshot.surfaceSignatures;
     if (
@@ -2375,10 +2734,15 @@ export async function openTaskManagerDialog(args?: {
 
   let refreshChain: Promise<void> = Promise.resolve();
   const shouldSkipRefresh = (reason: RefreshReason) => {
-    if (state.selectedTabKey !== "workflow-options") {
+    if (reason !== "periodic" && reason !== "task-update") {
       return false;
     }
-    return reason === "periodic" || reason === "task-update";
+    return (
+      state.selectedTabKey === "workflow-options" ||
+      state.selectedTabKey === "products" ||
+      state.selectedTabKey === "runtime-logs" ||
+      state.selectedTabKey === "skillrunner-connection-audit"
+    );
   };
   const enqueueRefresh = (
     messageType: "dashboard:init" | "dashboard:snapshot",
@@ -2815,8 +3179,10 @@ export async function openTaskManagerDialog(args?: {
         try {
           const draft = state.workflowSettingsDraftById.get(workflowId) || {};
           updateWorkflowSettings(workflowId, draft);
+          homeWorkflowSummariesDirty = true;
           state.workflowSettingsSaveStateById.set(workflowId, "saved");
           state.workflowSettingsSaveErrorById.delete(workflowId);
+          refresh("save-state");
           const idleTimer = getRuntimeWindow()?.setTimeout(() => {
             state.workflowSettingsSaveStateById.set(workflowId, "idle");
           }, 900);
@@ -2953,8 +3319,9 @@ export async function openTaskManagerDialog(args?: {
       if (!backend || !taskId) {
         return;
       }
-      const active = normalizeFilteredActive();
-      const history = normalizeFilteredHistory();
+      const taskReadScope = { backendId: backend.id };
+      const active = normalizeFilteredActive(taskReadScope);
+      const history = normalizeFilteredHistory(taskReadScope);
       const rows = mergeDashboardTaskRows({
         backendId: backend.id,
         history,
@@ -3139,8 +3506,9 @@ export async function openTaskManagerDialog(args?: {
       if (!isSkillRunnerBackend(backend)) {
         return;
       }
-      const active = normalizeFilteredActive();
-      const history = normalizeFilteredHistory();
+      const taskReadScope = { backendId: backend.id };
+      const active = normalizeFilteredActive(taskReadScope);
+      const history = normalizeFilteredHistory(taskReadScope);
       const rows = mergeDashboardTaskRows({
         backendId: backend.id,
         history,
@@ -3592,14 +3960,34 @@ export async function openTaskManagerDialog(args?: {
     }
 
     refresh("init");
-    unsubscribeTasks = subscribeWorkflowTasks(() => {
+    unsubscribeTasks = subscribeWorkflowTaskChanges(() => {
+      markTaskSummaryDirty();
       refresh("task-update");
     });
     unsubscribeBackendHealth = subscribeSkillRunnerBackendHealth(() => {
+      activeRowsRevision += 1;
       refresh("backend-health");
     });
     unsubscribeAcpSkillRuns = subscribeAcpSkillRunSnapshots(() => {
+      markTaskSummaryDirty();
       refresh("task-update");
+    });
+    registerBackgroundRefreshTimer({
+      owner: "task-dashboard-refresh",
+      activationCondition: "dashboard frame mounted",
+      scopeKey: "selected dashboard tab and selected backend id",
+      allowedDataSources: [
+        "workflow active summaries",
+        "task dashboard history projections",
+        "acp skill run summaries",
+        "selected backend runtime logs",
+        "backend health registry",
+      ],
+      maxReadShape:
+        "active/count summaries globally; history/log rows scoped to selected backend or explicit action",
+      requiresForegroundSurface: true,
+      minimumIntervalMs: 1200,
+      intervalMs: 1200,
     });
     refreshTimer = hostWindow.setInterval(() => {
       refresh("periodic");

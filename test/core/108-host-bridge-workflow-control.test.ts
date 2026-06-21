@@ -239,7 +239,7 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v1/workflows/submit",
       body: {
         workflowId: "debug-workflow",
-        input: {
+        selection: {
           items: [{ key: "ABCD1234", libraryId: 1 }],
         },
       },
@@ -271,7 +271,7 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v1/workflows/submit",
       body: {
         workflowId: "debug-workflow",
-        input: {
+        selection: {
           items: [{ id: parent.id }],
         },
       },
@@ -283,7 +283,7 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.json.result.permission.channel, "global");
   });
 
-  it("rejects workflow submit without explicit input before reading UI selection", async function () {
+  it("rejects workflow submit without explicit selection before reading UI selection", async function () {
     installWorkflowRegistryForTests([workflow("bridge-workflow")]);
     const token = configureHostBridgeServerForTests({
       token: "workflow-token",
@@ -300,10 +300,13 @@ describe("host bridge workflow control", function () {
 
     assert.strictEqual(parsed.status, 400);
     assert.strictEqual(parsed.json.status, "error");
-    assert.strictEqual(parsed.json.error.code, "invalid_workflow_input");
+    assert.strictEqual(
+      parsed.json.error.code,
+      "invalid_workflow_submit_request",
+    );
   });
 
-  it("requires Zotero-side approval for explicit workflow submit", async function () {
+  it("rejects legacy workflow submit input body", async function () {
     installWorkflowRegistryForTests([workflow("bridge-workflow")]);
     const token = configureHostBridgeServerForTests({
       token: "workflow-token",
@@ -321,12 +324,141 @@ describe("host bridge workflow control", function () {
       },
     });
 
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.status, "error");
+    assert.strictEqual(
+      parsed.json.error.code,
+      "invalid_workflow_submit_request",
+    );
+  });
+
+  it("describes workflow selection and explicit option drafts", async function () {
+    const entry = workflow("bridge-workflow");
+    entry.manifest.parameters = {
+      language: {
+        type: "string",
+        default: "zh-CN",
+        enum: ["zh-CN", "en-US"],
+      },
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/describe",
+      body: {
+        workflowId: "bridge-workflow",
+        workflowOptions: {
+          language: "en-US",
+        },
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.status, "ok");
+    assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
+    assert.strictEqual(parsed.json.result.selection.inputUnit, "parent");
+    assert.deepEqual(parsed.json.result.workflowOptions.normalized, {
+      language: "en-US",
+    });
+    assert.deepEqual(
+      parsed.json.result.workflowOptions.schema.map(
+        (entry: { key: string }) => entry.key,
+      ),
+      ["language"],
+    );
+    assert.strictEqual(
+      parsed.json.result.providerProfile.requiresBackendProfile,
+      false,
+    );
+  });
+
+  it("rejects unsafe provider profile fields before workflow describe", async function () {
+    installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/describe",
+      body: {
+        workflowId: "bridge-workflow",
+        providerProfile: {
+          backendId: "backend-1",
+          providerOptions: {
+            baseUrl: "http://127.0.0.1:9999",
+          },
+        },
+      },
+    });
+
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.status, "error");
+    assert.strictEqual(
+      parsed.json.error.code,
+      "invalid_workflow_describe_request",
+    );
+  });
+
+  it("rejects submit provider profile backend incompatible with workflow", async function () {
+    installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/submit",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: {
+          items: [{ key: "ABCD1234", libraryId: 1 }],
+        },
+        providerProfile: {
+          backendId: "backend-1",
+        },
+      },
+    });
+
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.status, "error");
+    assert.strictEqual(
+      parsed.json.error.code,
+      "invalid_workflow_submit_request",
+    );
+  });
+
+  it("requires Zotero-side approval for explicit workflow submit", async function () {
+    installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/submit",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: {
+          items: [{ key: "ABCD1234", libraryId: 1 }],
+        },
+      },
+    });
+
     assert.strictEqual(parsed.status, 503);
     assert.strictEqual(parsed.json.error.code, "permission_ui_unavailable");
     assert.strictEqual(parsed.json.error.category, "permission");
   });
 
-  it("submits explicit workflow input after global approval", async function () {
+  it("submits explicit workflow selection after global approval", async function () {
     installWorkflowRegistryForTests([workflow("bridge-workflow")]);
     const token = configureHostBridgeServerForTests({
       token: "workflow-token",
@@ -350,7 +482,7 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v1/workflows/submit",
       body: {
         workflowId: "bridge-workflow",
-        input: {
+        selection: {
           items: [{ id: parent.id }],
         },
       },
@@ -505,7 +637,7 @@ describe("host bridge workflow control", function () {
       },
       body: {
         workflowId: "bridge-workflow",
-        input: {
+        selection: {
           items: [{ id: parent.id }],
         },
       },
@@ -565,7 +697,7 @@ describe("host bridge workflow control", function () {
       },
       body: {
         workflowId: "bridge-workflow",
-        input: {
+        selection: {
           items: [{ id: parent.id }],
         },
       },
@@ -631,7 +763,7 @@ describe("host bridge workflow control", function () {
       },
       body: {
         workflowId: "bridge-workflow",
-        input: {
+        selection: {
           items: [{ id: parent.id }],
         },
       },

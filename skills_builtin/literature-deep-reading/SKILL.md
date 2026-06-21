@@ -201,6 +201,8 @@ Stage 10 完成后，继续阅读：
 
 Stage 20 payload 必须满足最低内容标准：四张导读卡必须完整且按上述标题出现；`section_notes` 至少覆盖一个关键正文 section，每条 note 必须让读者知道为什么读这一节、容易误读什么、带着什么问题读，以及本节引用主要承担什么作用。agent 自己补充的 `concepts` 必须写 `definition`，不要只写术语名。`reference_digest_notes` 必须说明参考文献在当前论文中的作用和为什么值得打开。
 
+如果论文在 `References` / `Bibliography` 后还有 `A. ...`、`B. ...`、补充实验、模型超参、更多结果等正文性章节，必须在 `section_roles` 中把这些章节标为 `appendix`；真正的参考文献章节标为 `bibliography`。不要依赖脚本通过标题机械猜测附录边界。
+
 `citation_reference_roles[].role` 是 agent 的自然语言语义标签，不是 renderer-owned category。推荐使用这些简短 role 词以提高一致性：`background`、`baseline`、`contrast`、`component`、`dataset`、`tooling`、`historical`、`uncategorized`。这些词参考 `literature-analysis` 的 renderer categories；也可以使用更具体的非空自定义 role，但不要提交单独的 `category` 字段。
 
 然后手写：
@@ -261,6 +263,18 @@ runtime/payloads/reading-enrichment.json
           "role": "background"
         }
       ]
+    }
+  ],
+  "section_roles": [
+    {
+      "section_anchor": "sec-references",
+      "role": "bibliography",
+      "reason": "该节只包含参考文献条目。"
+    },
+    {
+      "section_anchor": "sec-a-additional-results",
+      "role": "appendix",
+      "reason": "该节位于 References 之后，但内容是补充实验而不是参考文献。"
     }
   ],
   "concepts": [

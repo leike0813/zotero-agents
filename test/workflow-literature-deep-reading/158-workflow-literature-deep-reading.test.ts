@@ -140,7 +140,10 @@ describe("workflow: literature-deep-reading", function () {
       "fast",
       "high_quality",
     ]);
-    assert.equal(workflow.manifest.validateSelection?.select?.policy, "literature-source");
+    assert.equal(
+      workflow.manifest.validateSelection?.select?.policy,
+      "literature-source",
+    );
     assert.isFunction(workflow.hooks.buildRequest);
     assert.isFunction(workflow.hooks.applyResult);
   });
@@ -381,7 +384,9 @@ describe("workflow: literature-deep-reading", function () {
     assert.equal(manifest.images[0].bundle_path, "images/001-figure one.png");
     assert.equal(manifest.images[0].bytes, 6);
     assert.deepEqual(
-      manifest.images.map((entry: { bundle_path?: string }) => entry.bundle_path),
+      manifest.images.map(
+        (entry: { bundle_path?: string }) => entry.bundle_path,
+      ),
       [
         "images/001-figure one.png",
         "images/002-figure two.png",
@@ -585,7 +590,9 @@ describe("workflow: literature-deep-reading", function () {
     const bundle = new ZipBundleReader(
       requests[0].steps[0].input?.source_bundle_path || "",
     );
-    const alignment = JSON.parse(await bundle.readText("translator/alignment.json"));
+    const alignment = JSON.parse(
+      await bundle.readText("translator/alignment.json"),
+    );
     assert.equal(alignment.target_language, "zh-CN");
     const manifest = JSON.parse(await bundle.readText("source-manifest.json"));
     assert.equal(manifest.translator_alignment.status, "available");
@@ -748,6 +755,77 @@ describe("workflow: literature-deep-reading", function () {
     assert.equal(await countAttachmentsByPath(parent, expectedHtmlPath), 1);
   });
 
+  it("attaches valid HTML when output status is failed-like diagnostic", async function () {
+    const workflow = await getWorkflow();
+    const tempDir = await mkTempDir("zs-deep-reading-diagnostic");
+    const sourcePath = joinPath(tempDir, "paper.md");
+    await writeUtf8(sourcePath, "# Source Paper\n");
+    const parent = await createParent("Attach Diagnostic Deep Reading Paper");
+    await handlers.attachment.createFromPath({
+      parent,
+      path: sourcePath,
+      title: "paper.md",
+      mimeType: "text/markdown",
+    });
+    const html = "<!doctype html><html><body>Diagnostic result</body></html>";
+
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      request: {
+        targetParentID: parent.id,
+        sourceAttachmentPaths: [sourcePath],
+      },
+      bundleReader: {
+        async readText(entryPath: string) {
+          if (entryPath === "literature-deep-reading.result.json") {
+            return JSON.stringify({
+              kind: "literature_deep_reading_error",
+              status: "failed",
+              html_path: "result/deep-reading.html",
+              warnings: ["html generated despite final diagnostic"],
+              error: {
+                message: "renderer reported partial completion",
+              },
+            });
+          }
+          if (entryPath === "result/deep-reading.html") {
+            return html;
+          }
+          if (entryPath === "result/deep-reading-manifest.json") {
+            return JSON.stringify({ final_html_available: true });
+          }
+          throw new Error(`missing bundle entry: ${entryPath}`);
+        },
+      } as any,
+      runtime: { hostApi: createWorkflowHostApi() },
+    })) as {
+      ok?: boolean;
+      htmlPath?: string;
+      warnings?: string[];
+      skill_diagnostics?: {
+        kind?: string;
+        status?: string;
+        error?: { message?: string };
+      };
+    };
+
+    assert.isTrue(applied.ok);
+    assert.equal(await readUtf8(applied.htmlPath || ""), html);
+    assert.deepEqual(applied.warnings, [
+      "html generated despite final diagnostic",
+    ]);
+    assert.equal(
+      applied.skill_diagnostics?.kind,
+      "literature_deep_reading_error",
+    );
+    assert.equal(applied.skill_diagnostics?.status, "failed");
+    assert.equal(
+      applied.skill_diagnostics?.error?.message,
+      "renderer reported partial completion",
+    );
+  });
+
   it("does not create duplicate linked HTML attachment for the same target path", async function () {
     const workflow = await getWorkflow();
     const tempDir = await mkTempDir("zs-deep-reading-dedupe");
@@ -812,5 +890,7 @@ function compareNormalizedPath(a: string, b: string) {
 }
 
 function normalizePathForCompare(value: string) {
-  return String(value || "").replace(/[\\/]+/g, "/").toLowerCase();
+  return String(value || "")
+    .replace(/[\\/]+/g, "/")
+    .toLowerCase();
 }

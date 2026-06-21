@@ -245,6 +245,7 @@ export async function runWorkflowPreparationSeam(
     workflow: LoadedWorkflow;
     messageFormatter: WorkflowMessageFormatter;
     executionOptionsOverride?: WorkflowExecutionOptions;
+    ignoreSavedWorkflowSettings?: boolean;
     selectedItemsOverride?: Zotero.Item[];
     suppressUiFeedback?: boolean;
   },
@@ -330,6 +331,7 @@ export async function runWorkflowPreparationSeam(
       preview = resolved.resolveWorkflowExecutionOptionsPreview({
         workflow: args.workflow,
         executionOptionsOverride: args.executionOptionsOverride,
+        ignoreSavedSettings: args.ignoreSavedWorkflowSettings,
       });
     } catch (previewError) {
       resolved.appendRuntimeLog({
@@ -497,6 +499,7 @@ export async function runWorkflowPreparationSeam(
     executionContext = await resolved.resolveWorkflowExecutionContext({
       workflow: args.workflow,
       executionOptionsOverride: args.executionOptionsOverride,
+      ignoreSavedSettings: args.ignoreSavedWorkflowSettings,
     });
   } catch (error) {
     const reason = normalizeErrorMessage(error, args.messageFormatter);

@@ -62,7 +62,13 @@ export type WorkflowTaskRecord = {
   submitStartedAt?: string;
   submitTimeoutAt?: string;
   submitError?: string;
-  applyState?: "idle" | "pending" | "running" | "succeeded" | "failed" | "skipped";
+  applyState?:
+    | "idle"
+    | "pending"
+    | "running"
+    | "succeeded"
+    | "failed"
+    | "skipped";
   applyError?: string;
   applyNextRetryAt?: string;
   resultJsonPath?: string;
@@ -75,9 +81,35 @@ export type WorkflowTaskRecord = {
 
 type TaskListener = (tasks: WorkflowTaskRecord[]) => void;
 
+export type WorkflowTaskChangeEvent = {
+  taskId?: string;
+  requestId?: string;
+  backendId?: string;
+  state?: JobState;
+  reason: "record-updated" | "records-removed" | "records-reset";
+};
+
+type TaskChangeListener = (event: WorkflowTaskChangeEvent) => void;
+
+export type WorkflowTaskListOptions = {
+  activeOnly?: boolean;
+  backendId?: string;
+  requestId?: string;
+  limit?: number;
+};
+
 const taskRecords = new Map<string, WorkflowTaskRecord>();
+const activeTaskRecordIds = new Set<string>();
 const listeners = new Set<TaskListener>();
+const changeListeners = new Set<TaskChangeListener>();
 let hydratedFromStore = false;
+
+const workflowTaskReadDiagnostics = {
+  summaryQueryCount: 0,
+  fullTaskRecordScanCount: 0,
+  activeIndexScanCount: 0,
+  taskRecordCandidateReadCount: 0,
+};
 
 const PREVIOUS_SESSION_INTERRUPTED_ERROR =
   "Task was left active by a previous Zotero plugin session and is no longer running in this session.";
@@ -251,11 +283,14 @@ export function buildWorkflowTaskRecordFromJob(
   const backendId = normalizeMetaString(job.meta, "backendId");
   const backendType = normalizeMetaString(job.meta, "backendType");
   const backendBaseUrl = normalizeMetaString(job.meta, "backendBaseUrl");
-  const skillRunnerLifecycleState = resolveSkillRunnerLifecycleStateFromJob(job);
+  const skillRunnerLifecycleState =
+    resolveSkillRunnerLifecycleStateFromJob(job);
   const skillRunnerReady =
     isSkillRunnerRequestReady(job) || hasProviderResultRequestId(job);
   const skillRunnerBackendInteractive = !!requestId && skillRunnerReady;
-  const skillRunnerTerminal = isTerminal(skillRunnerLifecycleState || job.state);
+  const skillRunnerTerminal = isTerminal(
+    skillRunnerLifecycleState || job.state,
+  );
   const skillRunnerWaiting = isWaiting(skillRunnerLifecycleState || job.state);
   const skillRunnerSubmitPhase =
     normalizeMetaString(job.meta, "skillRunnerSubmitPhase") ||
@@ -290,7 +325,9 @@ export function buildWorkflowTaskRecordFromJob(
     requestAssigned: !!requestId,
     backendInteractive: skillRunnerBackendInteractive,
     canOpenStream:
-      skillRunnerBackendInteractive && !skillRunnerTerminal && !skillRunnerWaiting,
+      skillRunnerBackendInteractive &&
+      !skillRunnerTerminal &&
+      !skillRunnerWaiting,
     canCancelBackendRun: skillRunnerBackendInteractive && !skillRunnerTerminal,
     canReply: skillRunnerBackendInteractive && skillRunnerWaiting,
     canArchiveLocalRun: true,
@@ -307,9 +344,15 @@ export function buildWorkflowTaskRecordFromJob(
   };
 }
 
-function emitTasksChanged() {
+function emitTasksChanged(event: WorkflowTaskChangeEvent) {
+  for (const listener of Array.from(changeListeners)) {
+    listener({ ...event });
+  }
+  if (listeners.size === 0) {
+    return;
+  }
   const snapshot = listWorkflowTasks();
-  for (const listener of listeners) {
+  for (const listener of Array.from(listeners)) {
     listener(snapshot);
   }
 }
@@ -443,6 +486,30 @@ function persistTaskRecordsToStore() {
   // remain process-local here; backend-specific stores own persistence.
 }
 
+function syncTaskRecordActiveIndex(id: string, record?: WorkflowTaskRecord) {
+  if (record && isActive(record.state)) {
+    activeTaskRecordIds.add(id);
+  } else {
+    activeTaskRecordIds.delete(id);
+  }
+}
+
+function setTaskRecord(id: string, record: WorkflowTaskRecord) {
+  taskRecords.set(id, record);
+  syncTaskRecordActiveIndex(id, record);
+}
+
+function deleteTaskRecord(id: string) {
+  const removed = taskRecords.delete(id);
+  activeTaskRecordIds.delete(id);
+  return removed;
+}
+
+function clearTaskRecords() {
+  taskRecords.clear();
+  activeTaskRecordIds.clear();
+}
+
 function isFinishedState(state: JobState) {
   return isTerminal(state);
 }
@@ -475,20 +542,25 @@ function mergeSkillRunnerProjection(
         runId: existing.runId,
         jobId: existing.jobId,
       });
+      if (records === taskRecords) {
+        syncTaskRecordActiveIndex(id, records.get(id));
+      }
       return;
     }
   }
   records.set(projection.id, projection);
+  if (records === taskRecords) {
+    syncTaskRecordActiveIndex(projection.id, projection);
+  }
 }
 
 export function recordWorkflowTaskUpdate(job: JobRecord) {
-  ensureHydratedFromStore();
   const record = buildWorkflowTaskRecordFromJob(job);
   if (
     String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE &&
     !isSkillRunnerJobReadyForTaskProjection(job)
   ) {
-    const removedTask = taskRecords.delete(record.id);
+    const removedTask = deleteTaskRecord(record.id);
     const removedRun = deleteSkillRunnerRunRecord(
       buildSkillRunnerRunKey({
         backendId: record.backendId,
@@ -500,11 +572,17 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
     );
     if (removedTask || removedRun) {
       persistTaskRecordsToStore();
-      emitTasksChanged();
+      emitTasksChanged({
+        taskId: record.id,
+        requestId: record.requestId,
+        backendId: record.backendId,
+        state: record.state,
+        reason: "records-removed",
+      });
     }
     return;
   }
-  taskRecords.set(record.id, record);
+  setTaskRecord(record.id, record);
   if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
     upsertSkillRunnerRunFromTask(record, {
       fetchType: resolveSkillRunnerFetchTypeFromJob(job),
@@ -516,11 +594,19 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
     });
   }
   persistTaskRecordsToStore();
-  emitTasksChanged();
+  emitTasksChanged({
+    taskId: record.id,
+    requestId: record.requestId,
+    backendId: record.backendId,
+    state: record.state,
+    reason: "record-updated",
+  });
 }
 
 export function listWorkflowTasks() {
   ensureHydratedFromStore();
+  workflowTaskReadDiagnostics.fullTaskRecordScanCount += 1;
+  workflowTaskReadDiagnostics.taskRecordCandidateReadCount += taskRecords.size;
   const merged = new Map(taskRecords);
   for (const projection of listSkillRunnerRunProjections()) {
     mergeSkillRunnerProjection(merged, projection);
@@ -534,6 +620,74 @@ export function listActiveWorkflowTasks() {
   return listWorkflowTasks().filter((entry) => isActive(entry.state));
 }
 
+function normalizeTaskListLimit(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  const normalized = Math.floor(value);
+  return normalized > 0 ? normalized : 0;
+}
+
+function filterWorkflowTaskByScope(
+  entry: WorkflowTaskRecord,
+  options: WorkflowTaskListOptions,
+) {
+  if (options.activeOnly && !isActive(entry.state)) {
+    return false;
+  }
+  const backendId = String(options.backendId || "").trim();
+  if (backendId && String(entry.backendId || "").trim() !== backendId) {
+    return false;
+  }
+  const requestId = String(options.requestId || "").trim();
+  if (requestId && String(entry.requestId || "").trim() !== requestId) {
+    return false;
+  }
+  return true;
+}
+
+export function listWorkflowTaskSummaries(
+  options: WorkflowTaskListOptions = {},
+) {
+  workflowTaskReadDiagnostics.summaryQueryCount += 1;
+  const merged = new Map<string, WorkflowTaskRecord>();
+  const candidates = options.activeOnly
+    ? Array.from(activeTaskRecordIds.values())
+        .map((id) => taskRecords.get(id))
+        .filter((entry): entry is WorkflowTaskRecord => !!entry)
+    : Array.from(taskRecords.values());
+  if (options.activeOnly) {
+    workflowTaskReadDiagnostics.activeIndexScanCount += 1;
+  } else {
+    workflowTaskReadDiagnostics.fullTaskRecordScanCount += 1;
+  }
+  workflowTaskReadDiagnostics.taskRecordCandidateReadCount += candidates.length;
+  for (const record of candidates) {
+    if (filterWorkflowTaskByScope(record, options)) {
+      merged.set(record.id, record);
+    }
+  }
+  for (const projection of listSkillRunnerRunProjections({
+    activeOnly: options.activeOnly,
+    backendId: options.backendId,
+    requestId: options.requestId,
+    limit: options.limit,
+  })) {
+    mergeSkillRunnerProjection(merged, projection);
+  }
+  const limit = normalizeTaskListLimit(options.limit);
+  const rows = Array.from(merged.values())
+    .map((entry) => ({ ...entry }))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return limit ? rows.slice(0, limit) : rows;
+}
+
+export function listActiveWorkflowTaskSummaries(
+  options: Omit<WorkflowTaskListOptions, "activeOnly"> = {},
+) {
+  return listWorkflowTaskSummaries({ ...options, activeOnly: true });
+}
+
 export function clearFinishedWorkflowTasks() {
   ensureHydratedFromStore();
   let removed = false;
@@ -541,7 +695,7 @@ export function clearFinishedWorkflowTasks() {
     if (!isFinishedState(record.state)) {
       continue;
     }
-    taskRecords.delete(id);
+    deleteTaskRecord(id);
     if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
       deleteSkillRunnerRunRecord(
         buildSkillRunnerRunKey({
@@ -550,15 +704,14 @@ export function clearFinishedWorkflowTasks() {
           runId: record.runId,
           jobId: record.jobId,
           localRunId: record.localRunId,
-        }) ||
-          buildSkillRunnerLocalRunKey(record.localRunId || record.id),
+        }) || buildSkillRunnerLocalRunKey(record.localRunId || record.id),
       );
     }
     removed = true;
   }
   if (removed) {
     persistTaskRecordsToStore();
-    emitTasksChanged();
+    emitTasksChanged({ reason: "records-removed" });
   }
 }
 
@@ -585,12 +738,15 @@ export function removeWorkflowTasksByBackendAndRequestIds(args: {
     if (!requestId || !requestIdSet.has(requestId)) {
       continue;
     }
-    taskRecords.delete(id);
+    deleteTaskRecord(id);
     removed += 1;
   }
   if (removed > 0) {
     persistTaskRecordsToStore();
-    emitTasksChanged();
+    emitTasksChanged({
+      backendId,
+      reason: "records-removed",
+    });
   }
   return removed;
 }
@@ -650,7 +806,7 @@ export function updateWorkflowTaskStateByRequest(args: {
     ) {
       continue;
     }
-    taskRecords.set(id, {
+    setTaskRecord(id, {
       ...record,
       state: nextState,
       mainStatus: nextState,
@@ -662,7 +818,12 @@ export function updateWorkflowTaskStateByRequest(args: {
   }
   if (updated > 0) {
     persistTaskRecordsToStore();
-    emitTasksChanged();
+    emitTasksChanged({
+      requestId,
+      backendId: backendId || undefined,
+      state: nextState,
+      reason: "record-updated",
+    });
   }
   return updated;
 }
@@ -709,7 +870,7 @@ export function reconcileWorkflowTaskProjectionsOnStartup() {
       preservedTaskIds.push(id);
       continue;
     }
-    taskRecords.set(id, {
+    setTaskRecord(id, {
       ...record,
       state: "failed",
       error: record.error || PREVIOUS_SESSION_INTERRUPTED_ERROR,
@@ -735,7 +896,7 @@ export function reconcileWorkflowTaskProjectionsOnStartup() {
   }
   if (failedTaskIds.length > 0) {
     persistTaskRecordsToStore();
-    emitTasksChanged();
+    emitTasksChanged({ reason: "record-updated" });
   }
   return {
     failedCount: failedTaskIds.length,
@@ -752,10 +913,30 @@ export function subscribeWorkflowTasks(listener: TaskListener) {
   };
 }
 
+export function subscribeWorkflowTaskChanges(listener: TaskChangeListener) {
+  changeListeners.add(listener);
+  return () => {
+    changeListeners.delete(listener);
+  };
+}
+
 export function resetWorkflowTasks() {
   ensureHydratedFromStore();
-  taskRecords.clear();
+  clearTaskRecords();
   listeners.clear();
+  changeListeners.clear();
   hydratedFromStore = false;
+  resetWorkflowTaskReadDiagnosticsForTests();
   resetSkillRunnerRunStoreForTests();
+}
+
+export function getWorkflowTaskReadDiagnosticsForTests() {
+  return { ...workflowTaskReadDiagnostics };
+}
+
+export function resetWorkflowTaskReadDiagnosticsForTests() {
+  workflowTaskReadDiagnostics.summaryQueryCount = 0;
+  workflowTaskReadDiagnostics.fullTaskRecordScanCount = 0;
+  workflowTaskReadDiagnostics.activeIndexScanCount = 0;
+  workflowTaskReadDiagnostics.taskRecordCandidateReadCount = 0;
 }

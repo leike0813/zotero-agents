@@ -182,6 +182,24 @@ export function normalizeManifestProvider(manifest: WorkflowManifest) {
   return manifest;
 }
 
+export function normalizeManifestInputTriggerDefaults(
+  manifest: WorkflowManifest,
+) {
+  if (
+    manifest.inputs?.unit === "workflow" &&
+    manifest.trigger?.requiresSelection === undefined
+  ) {
+    manifest.trigger = {
+      ...(manifest.trigger || {}),
+      requiresSelection: false,
+    };
+  }
+  if (manifest.trigger?.requiresSelection === false && !manifest.inputs) {
+    manifest.inputs = { unit: "workflow" };
+  }
+  return manifest;
+}
+
 export function resolveBuildStrategy(manifest: WorkflowManifest) {
   if (manifest.hooks.buildRequest) {
     return "hook" as const;
@@ -243,7 +261,9 @@ export function parseWorkflowManifestFromText(args: {
     };
   }
   return {
-    manifest: normalizeManifestProvider(parsed),
+    manifest: normalizeManifestInputTriggerDefaults(
+      normalizeManifestProvider(parsed),
+    ),
     diagnostic: null,
   };
 }

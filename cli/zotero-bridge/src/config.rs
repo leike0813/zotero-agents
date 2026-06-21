@@ -140,7 +140,7 @@ fn well_known_profile_path() -> Option<PathBuf> {
         })?;
         return Some(
             PathBuf::from(root)
-                .join("Zotero-Skills")
+                .join("zotero-agents")
                 .join("bridge-profile.json"),
         );
     }
@@ -150,7 +150,7 @@ fn well_known_profile_path() -> Option<PathBuf> {
             PathBuf::from(home)
                 .join("Library")
                 .join("Application Support")
-                .join("Zotero-Skills")
+                .join("zotero-agents")
                 .join("bridge-profile.json"),
         );
     }
@@ -159,7 +159,7 @@ fn well_known_profile_path() -> Option<PathBuf> {
         .or_else(|| {
             env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("share"))
         })?;
-    Some(root.join("Zotero-Skills").join("bridge-profile.json"))
+    Some(root.join("zotero-agents").join("bridge-profile.json"))
 }
 
 fn load_profile(path: Option<&Path>) -> Result<Option<Profile>, CliError> {

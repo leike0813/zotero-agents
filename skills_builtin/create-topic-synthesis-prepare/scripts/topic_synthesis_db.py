@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 from datetime import datetime, timezone
@@ -1046,7 +1047,13 @@ def bridge_executable(run_root: Path) -> Path:
     for candidate in candidates:
         if candidate.exists():
             return candidate.resolve()
-    raise ValueError(f"Host Bridge CLI not found under {bridge_dir}")
+    path_bridge = shutil.which("zotero-bridge")
+    if path_bridge:
+        return Path(path_bridge).resolve()
+    raise ValueError(
+        "Host Bridge CLI not found. Checked ZOTERO_BRIDGE_BIN, "
+        f"workspace shim under {bridge_dir}, and PATH entry zotero-bridge."
+    )
 
 
 def run_bridge_json(run_root: Path, subcommand: list[str], payload: dict, input_name: str) -> dict:

@@ -119,6 +119,27 @@
         "additionalProperties": false
       }
     },
+    "section_roles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "section_anchor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": ["main", "bibliography", "appendix"]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": ["section_anchor", "role"],
+        "additionalProperties": false
+      }
+    },
     "concepts": {
       "type": "array",
       "items": {

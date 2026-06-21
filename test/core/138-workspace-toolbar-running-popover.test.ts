@@ -58,7 +58,7 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(workspace, "syncWorkspaceSidebarEntry");
     assert.include(workspace, "workspace:attention");
     assert.include(workspace, "countDashboardHumanAttentionTasks");
-    assert.include(workspace, "subscribeWorkflowTasks");
+    assert.include(workspace, "subscribeWorkflowTaskChanges");
     assert.include(workspace, "subscribeAcpSkillRunSnapshots");
     assert.include(workspaceApp, "workspace:attention");
     assert.include(workspaceApp, "updateWorkspaceSidebarAttention");

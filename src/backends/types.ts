@@ -1,3 +1,5 @@
+import type { BackendType } from "../config/defaults";
+
 export type BackendManagementAuth = {
   kind?: "none" | "basic";
   username?: string;
@@ -7,7 +9,7 @@ export type BackendManagementAuth = {
 export type BackendInstance = {
   id: string;
   displayName?: string;
-  type: string;
+  type: BackendType;
   baseUrl: string;
   enabled?: boolean;
   command?: string;

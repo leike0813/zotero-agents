@@ -82,12 +82,13 @@ type ContinuationOutcome =
     }
   | {
       status: "failed" | "canceled";
-      result: Extract<ProviderExecutionResult, { status: "failed" | "canceled" }>;
+      result: Extract<
+        ProviderExecutionResult,
+        { status: "failed" | "canceled" }
+      >;
     };
 
-type ContinuationUiFocusPolicy =
-  | "none"
-  | "focus-started-step";
+type ContinuationUiFocusPolicy = "none" | "focus-started-step";
 
 type ContinuationSequenceStepFocusHandler = (args: {
   job: JobRecord;
@@ -134,15 +135,17 @@ async function resolveWorkflow(workflowId: string) {
     return null;
   }
   let workflow =
-    getLoadedWorkflowEntries().find((entry) => entry.manifest.id === normalized) ||
-    null;
+    getLoadedWorkflowEntries().find(
+      (entry) => entry.manifest.id === normalized,
+    ) || null;
   if (workflow) {
     return workflow;
   }
   await rescanWorkflowRegistry();
   workflow =
-    getLoadedWorkflowEntries().find((entry) => entry.manifest.id === normalized) ||
-    null;
+    getLoadedWorkflowEntries().find(
+      (entry) => entry.manifest.id === normalized,
+    ) || null;
   return workflow;
 }
 
@@ -150,7 +153,10 @@ function resolveFetchType(args: {
   record: SkillRunnerRunRecord;
   request?: unknown;
 }) {
-  if (args.record.fetchType === "result" || args.record.fetchType === "bundle") {
+  if (
+    args.record.fetchType === "result" ||
+    args.record.fetchType === "bundle"
+  ) {
     return args.record.fetchType;
   }
   if (isRecord(args.request) && args.request.fetch_type === "result") {
@@ -172,7 +178,7 @@ function resolvePollOptions(request: unknown) {
 function backendFromRecord(record: SkillRunnerRunRecord): BackendInstance {
   return {
     id: record.backendId,
-    type: record.backendType || DEFAULT_BACKEND_TYPE,
+    type: DEFAULT_BACKEND_TYPE,
     baseUrl: record.backendBaseUrl || "",
   };
 }
@@ -223,7 +229,9 @@ async function createBundleReaderForRunResult(args: {
   requestId: string;
 }) {
   let bundlePath = "";
-  let bundleReader: BundleReader = createUnavailableBundleReader(args.requestId);
+  let bundleReader: BundleReader = createUnavailableBundleReader(
+    args.requestId,
+  );
   if (args.result.bundleBytes?.length) {
     bundlePath = buildTempBundlePath(args.requestId);
     await writeBytes(bundlePath, args.result.bundleBytes);
@@ -358,7 +366,6 @@ async function applySingleTerminalSuccess(args: {
       resultJson: runResult.resultJson,
       resultJsonPath: runResult.resultJsonPath,
       workspaceDir: runResult.workspaceDir,
-      bundleDir: runResult.bundleDir,
       updatedAt: nowIso(),
       eventPayload: {
         source: args.source,
@@ -439,9 +446,9 @@ function buildContinuationStepJob(args: {
       providerId: args.record.providerId || "skillrunner",
       taskName,
       inputUnitLabel: taskName,
-      targetParentID: resolveTargetParentIDFromRequest(
-        args.sequenceState.request,
-      ),
+      targetParentID:
+        resolveTargetParentIDFromRequest(args.sequenceState.request) ??
+        undefined,
       skillId: normalizeString(args.event.sequenceStepSkillId) || undefined,
       sequenceStepId: stepId,
       sequenceStepIndex,
@@ -692,7 +699,6 @@ async function applySequenceTerminalStep(args: {
     resultJson: args.result.resultJson,
     resultJsonPath: args.result.resultJsonPath,
     workspaceDir: args.result.workspaceDir,
-    bundleDir: args.result.bundleDir,
     updatedAt: nowIso(),
     eventPayload: {
       source: args.source,
@@ -708,7 +714,9 @@ async function applySequenceTerminalStep(args: {
     sequenceState: stateAfterSucceeded,
     stepIndex,
   });
-  const applySequenceStepResult: ApplySequenceStepResult = async (stepApply) => {
+  const applySequenceStepResult: ApplySequenceStepResult = async (
+    stepApply,
+  ) => {
     const applyWorkflow = await resolveWorkflow(stepApply.applyWorkflowId);
     if (!applyWorkflow) {
       throw new Error(
@@ -753,7 +761,8 @@ async function applySequenceTerminalStep(args: {
     applySequenceStepResult,
   });
   const latestState =
-    getSequenceRunState(args.sequenceState.sequenceRunId) || stateAfterSucceeded;
+    getSequenceRunState(args.sequenceState.sequenceRunId) ||
+    stateAfterSucceeded;
   const isFinal = step.id === latestState.request.final_step_id;
   const shortCircuited = matchesShortCircuitRule({ step, output });
   if (isFinal || shortCircuited) {
@@ -875,7 +884,10 @@ function markSequenceTerminalFailure(args: {
   });
 }
 
-const foregroundContinuationInFlight = new Map<string, Promise<ContinuationOutcome>>();
+const foregroundContinuationInFlight = new Map<
+  string,
+  Promise<ContinuationOutcome>
+>();
 
 function resolveForegroundContinuationKey(args: {
   backendId?: string;
@@ -904,9 +916,12 @@ async function continueSkillRunnerForegroundRunNow(args: {
   }
   const backend = args.backend || backendFromRecord(record);
   if (!normalizeString(backend.baseUrl)) {
-    throw new Error(`SkillRunner backend baseUrl is unavailable: ${backend.id}`);
+    throw new Error(
+      `SkillRunner backend baseUrl is unavailable: ${backend.id}`,
+    );
   }
-  const source = normalizeString(args.source) || "skillRunnerForegroundContinuation";
+  const source =
+    normalizeString(args.source) || "skillRunnerForegroundContinuation";
   const request = record.requestPayload;
   const fetchType = resolveFetchType({ record, request });
   const client = new SkillRunnerClient({

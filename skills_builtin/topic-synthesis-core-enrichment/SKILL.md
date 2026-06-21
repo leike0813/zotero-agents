@@ -1,6 +1,6 @@
 ---
 name: topic-synthesis-core-enrichment
-description: 基于 prepare 阶段的分析上下文编写 topic 级核心综合和知识图谱补全；需要可通过 `zotero-bridge` 访问 Zotero 文库。
+description: Draft the topic-level core synthesis and knowledge graph completion based on the analysis context from the prepare phase. Use this skill after create/update-topic-synthesis-prepare. DO NOT invoke this skill directly.
 ---
 
 <!-- 本文件由 skills_src/topic-synthesis 生成，请勿手工修改。 -->
@@ -9,7 +9,7 @@ description: 基于 prepare 阶段的分析上下文编写 topic 级核心综合
 
 ## 范围
 
-基于 prepare 阶段的分析上下文编写 topic 级核心综合和知识图谱补全；需要可通过 `zotero-bridge` 访问 Zotero 文库。
+Draft the topic-level core synthesis and knowledge graph completion based on the analysis context from the prepare phase. Use this skill after create/update-topic-synthesis-prepare. DO NOT invoke this skill directly.
 
 本包由 `skills_src/topic-synthesis/` 生成。执行时以包内 `SKILL.md`、
 `scripts/` 和 `assets/schemas/` 作为当前技能的执行合同。

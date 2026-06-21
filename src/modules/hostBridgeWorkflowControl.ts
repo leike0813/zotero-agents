@@ -1,9 +1,7 @@
-import {
-  getLoadedWorkflowSourceById,
-} from "./workflowRuntime";
+import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 import {
-  listActiveWorkflowTasks,
+  listActiveWorkflowTaskSummaries,
   listWorkflowTasks,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
@@ -22,6 +20,7 @@ import { runWorkflowDuplicateGuardSeam } from "./workflowExecution/duplicateGuar
 import { runWorkflowExecutionSeam } from "./workflowExecution/runSeam";
 import { runWorkflowApplySeam } from "./workflowExecution/applySeam";
 import { createLocalizedMessageFormatter } from "./workflowExecution/messageFormatter";
+import { buildWorkflowSettingsUiDescriptor } from "./workflowSettings";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import type { LoadedWorkflow } from "../workflows/types";
 import { localizeWorkflowLabel } from "../workflows/localization";
@@ -51,7 +50,7 @@ export type HostBridgeWorkflowSummary = {
   parameters: string[];
 };
 
-export type HostBridgeWorkflowInput =
+export type HostBridgeWorkflowSelection =
   | {
       kind: "items";
       items: HostBridgeWorkflowItemRef[];
@@ -60,27 +59,37 @@ export type HostBridgeWorkflowInput =
       kind: "none";
     };
 
+export type HostBridgeWorkflowInput = HostBridgeWorkflowSelection;
+
 export type HostBridgeWorkflowItemRef = {
   key?: string;
   id?: number;
   libraryId?: number;
 };
 
+export type HostBridgeProviderProfileInput = {
+  schema?: unknown;
+  backendId?: unknown;
+  providerOptions?: unknown;
+};
+
 export type HostBridgeWorkflowSubmitRequest = {
   workflowId?: unknown;
+  selection?: unknown;
+  workflowOptions?: unknown;
+  providerProfile?: unknown;
   input?: unknown;
-  executionOptions?: unknown;
-  presentation?: unknown;
 };
 
 export type HostBridgeWorkflowSubmitPlan = {
   workflowId: string;
-  input: HostBridgeWorkflowInput;
-  executionOptions: Record<string, unknown>;
-  presentation: {
-    notify: false;
-    openWorkspace: false;
+  selection: HostBridgeWorkflowSelection;
+  workflowOptions: Record<string, unknown>;
+  providerProfile: {
+    backendId?: string;
+    providerOptions: Record<string, unknown>;
   };
+  executionOptions: WorkflowExecutionOptions;
 };
 
 export type HostBridgeWorkflowSubmitResult = {
@@ -91,6 +100,35 @@ export type HostBridgeWorkflowSubmitResult = {
   totalJobs: number;
   tasks: HostBridgeWorkflowTaskDto[];
   permission: HostBridgePermissionDecision;
+};
+
+export type HostBridgeWorkflowDescribeRequest = {
+  workflowId?: unknown;
+  workflowOptions?: unknown;
+  providerProfile?: unknown;
+};
+
+export type HostBridgeWorkflowDescribeResult = {
+  workflowId: string;
+  workflowLabel: string;
+  providerId: string;
+  selection: {
+    acceptsNoSelection: boolean;
+    inputUnit?: string;
+    selectionValidation?: HostBridgeWorkflowSummary["selectionValidation"];
+  };
+  workflowOptions: {
+    schema: unknown[];
+    normalized: Record<string, unknown>;
+  };
+  providerProfile: {
+    requiresBackendProfile: boolean;
+    profiles: Array<{ id: string; label: string }>;
+    selectedBackendId: string;
+    providerOptionsSchema: unknown[];
+    normalizedProviderOptions: Record<string, unknown>;
+  };
+  blockedReason?: string;
 };
 
 export type HostBridgeTaskFilters = {
@@ -184,6 +222,7 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
     supported: true,
     endpoints: [
       "GET /bridge/v1/workflows",
+      "POST /bridge/v1/workflows/describe",
       "POST /bridge/v1/workflows/submit",
       "GET /bridge/v1/workflows/runs/{runId}",
       "GET /bridge/v1/tasks",
@@ -254,47 +293,284 @@ function parseItemRef(raw: unknown): HostBridgeWorkflowItemRef | null {
   };
 }
 
+function codedWorkflowValidationError(code: string, message: string) {
+  const error = new Error(message);
+  (error as { code?: string }).code = code;
+  return error;
+}
+
+function isUnsafeProviderProfileKey(key: string) {
+  const normalized = key.toLowerCase().replace(/[_-]/g, "");
+  return (
+    normalized.includes("token") ||
+    normalized.includes("secret") ||
+    normalized.includes("password") ||
+    normalized.includes("auth") ||
+    normalized.includes("baseurl") ||
+    normalized.includes("path") ||
+    normalized === "url" ||
+    normalized === "endpoint" ||
+    normalized === "autoapproveacppermissions"
+  );
+}
+
+function isLocalOrBackendAddress(value: string) {
+  const trimmed = value.trim();
+  return (
+    /^https?:\/\//i.test(trimmed) ||
+    /^file:\/\//i.test(trimmed) ||
+    /^[A-Za-z]:[\\/]/.test(trimmed) ||
+    /^[/\\]/.test(trimmed) ||
+    /^~[/\\]/.test(trimmed)
+  );
+}
+
+function rejectUnsafeProviderProfileValue(value: unknown, path: string) {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) =>
+      rejectUnsafeProviderProfileValue(entry, `${path}[${index}]`),
+    );
+    return;
+  }
+  if (isObject(value)) {
+    for (const [key, entry] of Object.entries(value)) {
+      if (isUnsafeProviderProfileKey(key)) {
+        throw codedWorkflowValidationError(
+          "invalid_workflow_submit_request",
+          `providerProfile must not contain sensitive or environment-bound field: ${path}.${key}`,
+        );
+      }
+      rejectUnsafeProviderProfileValue(entry, `${path}.${key}`);
+    }
+    return;
+  }
+  if (typeof value === "string" && isLocalOrBackendAddress(value)) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      `providerProfile must not contain backend URLs or local paths: ${path}`,
+    );
+  }
+}
+
+function parseWorkflowOptions(raw: unknown) {
+  if (typeof raw === "undefined" || raw === null) {
+    return {};
+  }
+  if (!isObject(raw)) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "workflowOptions must be a JSON object",
+    );
+  }
+  return { ...raw };
+}
+
+function parseProviderProfile(raw: unknown) {
+  if (typeof raw === "undefined" || raw === null) {
+    return {
+      providerOptions: {},
+    };
+  }
+  if (!isObject(raw)) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "providerProfile must be a JSON object",
+    );
+  }
+  const allowed = new Set(["schema", "backendId", "providerOptions"]);
+  const forbidden = Object.keys(raw).filter((key) => !allowed.has(key));
+  if (forbidden.length > 0) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      `providerProfile contains unsupported fields: ${forbidden.join(", ")}`,
+    );
+  }
+  const schema = normalizeString(raw.schema);
+  if (schema && schema !== "zotero-bridge.provider-profile.v1") {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "providerProfile.schema must be zotero-bridge.provider-profile.v1",
+    );
+  }
+  const providerOptionsRaw = raw.providerOptions;
+  if (
+    typeof providerOptionsRaw !== "undefined" &&
+    providerOptionsRaw !== null &&
+    !isObject(providerOptionsRaw)
+  ) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "providerProfile.providerOptions must be a JSON object",
+    );
+  }
+  if (isObject(providerOptionsRaw)) {
+    rejectUnsafeProviderProfileValue(
+      providerOptionsRaw,
+      "providerProfile.providerOptions",
+    );
+  }
+  const backendId = normalizeString(raw.backendId);
+  return {
+    ...(backendId ? { backendId } : {}),
+    providerOptions: isObject(providerOptionsRaw)
+      ? { ...providerOptionsRaw }
+      : {},
+  };
+}
+
+function parseWorkflowSelection(raw: unknown): HostBridgeWorkflowSelection {
+  if (!isObject(raw)) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "selection is required",
+    );
+  }
+  if (normalizeString(raw.kind) === "none") {
+    return { kind: "none" };
+  }
+  if (normalizeString(raw.kind) && normalizeString(raw.kind) !== "items") {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "selection.kind must be items or none",
+    );
+  }
+  if (!Array.isArray(raw.items)) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "selection.items must contain explicit Zotero item refs",
+    );
+  }
+  const items = raw.items
+    .map(parseItemRef)
+    .filter((entry): entry is HostBridgeWorkflowItemRef => !!entry);
+  if (items.length !== raw.items.length || items.length === 0) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "selection.items must contain explicit Zotero item refs",
+    );
+  }
+  return {
+    kind: "items",
+    items,
+  };
+}
+
+function buildWorkflowExecutionOptions(args: {
+  workflowOptions: Record<string, unknown>;
+  providerProfile: HostBridgeWorkflowSubmitPlan["providerProfile"];
+}): WorkflowExecutionOptions {
+  return {
+    ...(args.providerProfile.backendId
+      ? { backendId: args.providerProfile.backendId }
+      : {}),
+    workflowParams: { ...args.workflowOptions },
+    providerOptions: { ...args.providerProfile.providerOptions },
+  };
+}
+
+function parseHostBridgeWorkflowRequestBase(
+  payload: HostBridgeWorkflowSubmitRequest | HostBridgeWorkflowDescribeRequest,
+  errorCode: string,
+) {
+  const workflowId = normalizeString(payload?.workflowId);
+  if (!workflowId) {
+    throw codedWorkflowValidationError(errorCode, "workflowId is required");
+  }
+  let workflowOptions: Record<string, unknown>;
+  let providerProfile: ReturnType<typeof parseProviderProfile>;
+  try {
+    workflowOptions = parseWorkflowOptions(payload.workflowOptions);
+    providerProfile = parseProviderProfile(payload.providerProfile);
+  } catch (error) {
+    if (error && typeof error === "object") {
+      (error as { code?: string }).code = errorCode;
+    }
+    throw error;
+  }
+  return {
+    workflowId,
+    workflowOptions,
+    providerProfile,
+    executionOptions: buildWorkflowExecutionOptions({
+      workflowOptions,
+      providerProfile,
+    }),
+  };
+}
+
 export function parseHostBridgeWorkflowSubmitRequest(
   payload: HostBridgeWorkflowSubmitRequest,
 ): HostBridgeWorkflowSubmitPlan {
-  const workflowId = normalizeString(payload?.workflowId);
-  if (!workflowId) {
-    throw new Error("workflowId is required");
+  if (typeof payload?.input !== "undefined") {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "workflow submit uses selection, workflowOptions, and providerProfile; input is not supported",
+    );
   }
-
-  if (!isObject(payload?.input)) {
-    throw new Error("explicit workflow input is required");
-  }
-
-  const inputRaw = payload.input;
-  let input: HostBridgeWorkflowInput;
-  if (normalizeString(inputRaw.kind) === "none") {
-    input = { kind: "none" };
-  } else if (Array.isArray(inputRaw.items)) {
-    const items = inputRaw.items
-      .map(parseItemRef)
-      .filter((entry): entry is HostBridgeWorkflowItemRef => !!entry);
-    if (items.length !== inputRaw.items.length || items.length === 0) {
-      throw new Error("input.items must contain explicit Zotero item refs");
-    }
-    input = {
-      kind: "items",
-      items,
-    };
-  } else {
-    throw new Error("input must contain non-empty items or kind=none");
-  }
-
+  const base = parseHostBridgeWorkflowRequestBase(
+    payload,
+    "invalid_workflow_submit_request",
+  );
+  const selection = parseWorkflowSelection(payload.selection);
   return {
-    workflowId,
-    input,
-    executionOptions: isObject(payload.executionOptions)
-      ? { ...payload.executionOptions }
-      : {},
-    presentation: {
-      notify: false,
-      openWorkspace: false,
+    ...base,
+    selection,
+  };
+}
+
+function workflowSelectionValidationSummary(workflow: LoadedWorkflow) {
+  const validateSelection = workflow.manifest.validateSelection;
+  return validateSelection
+    ? {
+        policy: validateSelection.select?.policy,
+        excludes: (validateSelection.exclude || []).map((entry) => entry.kind),
+        derives: validateSelection.derive || [],
+      }
+    : undefined;
+}
+
+export async function describeHostBridgeWorkflow(
+  payload: HostBridgeWorkflowDescribeRequest,
+): Promise<HostBridgeWorkflowDescribeResult> {
+  const base = parseHostBridgeWorkflowRequestBase(
+    payload,
+    "invalid_workflow_describe_request",
+  );
+  const workflow = getWorkflowById(base.workflowId);
+  if (!workflow) {
+    const error = new Error("workflow not found");
+    (error as { code?: string }).code = "workflow_not_found";
+    throw error;
+  }
+  const descriptor = await buildWorkflowSettingsUiDescriptor({
+    workflow,
+    draft: base.executionOptions,
+    autoSelectFallbackProfile: false,
+    ignoreSavedSettings: true,
+  });
+  return {
+    workflowId: workflow.manifest.id,
+    workflowLabel: localizeWorkflowLabel(workflow),
+    providerId: descriptor.providerId,
+    selection: {
+      acceptsNoSelection: canWorkflowRunWithoutSelection(workflow.manifest),
+      inputUnit: workflow.manifest.inputs?.unit,
+      selectionValidation: workflowSelectionValidationSummary(workflow),
     },
+    workflowOptions: {
+      schema: descriptor.workflowSchemaEntries,
+      normalized: descriptor.workflowParams,
+    },
+    providerProfile: {
+      requiresBackendProfile: descriptor.requiresBackendProfile,
+      profiles: descriptor.profiles,
+      selectedBackendId: descriptor.selectedProfile,
+      providerOptionsSchema: descriptor.providerSchemaEntries,
+      normalizedProviderOptions: descriptor.providerOptions,
+    },
+    ...(descriptor.blockedReason
+      ? { blockedReason: descriptor.blockedReason }
+      : {}),
   };
 }
 
@@ -339,15 +615,15 @@ function resolveZoteroItemRef(ref: HostBridgeWorkflowItemRef) {
 }
 
 function resolveSelectedItemsForPlan(plan: HostBridgeWorkflowSubmitPlan) {
-  if (plan.input.kind === "none") {
+  if (plan.selection.kind === "none") {
     return [];
   }
-  return plan.input.items.map(resolveZoteroItemRef);
+  return plan.selection.items.map(resolveZoteroItemRef);
 }
 
-export function prepareHostBridgeWorkflowSubmit(
+export async function prepareHostBridgeWorkflowSubmit(
   payload: HostBridgeWorkflowSubmitRequest,
-) {
+): Promise<{ plan: HostBridgeWorkflowSubmitPlan; workflow: LoadedWorkflow }> {
   const plan = parseHostBridgeWorkflowSubmitRequest(payload);
   const workflow = getWorkflowById(plan.workflowId);
   if (!workflow) {
@@ -356,24 +632,49 @@ export function prepareHostBridgeWorkflowSubmit(
     throw error;
   }
   if (
-    plan.input.kind === "none" &&
+    plan.selection.kind === "none" &&
     !canWorkflowRunWithoutSelection(workflow.manifest)
   ) {
-    throw new Error("input.kind=none is only valid for no-selection workflows");
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "selection.kind=none is only valid for no-selection workflows",
+    );
+  }
+  const descriptor = await buildWorkflowSettingsUiDescriptor({
+    workflow,
+    draft: plan.executionOptions,
+    resolveDynamicOptions: false,
+    ignoreSavedSettings: true,
+  });
+  const explicitBackendId = normalizeString(plan.providerProfile.backendId);
+  if (explicitBackendId && descriptor.selectedProfile !== explicitBackendId) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "providerProfile.backendId is not compatible with this workflow",
+    );
+  }
+  if (
+    descriptor.requiresBackendProfile &&
+    !explicitBackendId
+  ) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_submit_request",
+      "providerProfile.backendId is required for this workflow",
+    );
   }
   return { plan, workflow };
 }
 
-function describeWorkflowInput(input: HostBridgeWorkflowInput) {
-  if (input.kind === "none") {
+function describeWorkflowSelection(selection: HostBridgeWorkflowSelection) {
+  if (selection.kind === "none") {
     return "Input: no Zotero selection.";
   }
-  const count = input.items.length;
+  const count = selection.items.length;
   return `Input: ${count} explicit Zotero item${count === 1 ? "" : "s"}.`;
 }
 
 function describeWorkflowExecutionOptions(
-  executionOptions: Record<string, unknown>,
+  executionOptions: WorkflowExecutionOptions,
 ) {
   const keys = Object.keys(executionOptions);
   if (!keys.length) {
@@ -391,7 +692,7 @@ function buildWorkflowApprovalRequest(
   const workflowLabel = localizeWorkflowLabel(workflow);
   const detailLines = [
     `Workflow: ${workflowLabel}`,
-    describeWorkflowInput(plan.input),
+    describeWorkflowSelection(plan.selection),
     describeWorkflowExecutionOptions(plan.executionOptions),
     "Source: zotero-bridge CLI.",
     "This may start a workflow backend task and apply workflow results back to Zotero after it completes.",
@@ -409,7 +710,9 @@ export async function submitHostBridgeWorkflow(args: {
   scope?: HostBridgePermissionScope | null;
   timeoutMs?: number;
 }): Promise<HostBridgeWorkflowSubmitResult> {
-  const { plan, workflow } = prepareHostBridgeWorkflowSubmit(args.payload);
+  const { plan, workflow } = await prepareHostBridgeWorkflowSubmit(
+    args.payload,
+  );
   const approvalRequest = buildWorkflowApprovalRequest(workflow, plan);
   const permission = await requestHostBridgePermission({
     ...approvalRequest,
@@ -426,6 +729,7 @@ export async function submitHostBridgeWorkflow(args: {
     messageFormatter,
     executionOptionsOverride:
       plan.executionOptions as unknown as WorkflowExecutionOptions,
+    ignoreSavedWorkflowSettings: true,
     selectedItemsOverride: selectedItems,
     suppressUiFeedback: true,
   });
@@ -555,7 +859,10 @@ function sanitizeExternalTaskError(value: unknown) {
   }
   return error
     .replace(/[A-Za-z]:[\\/][^\r\n.;,)]*/g, "[redacted-path]")
-    .replace(/\/(?:Users|home|var|tmp|private|Volumes)\/[^\r\n.;,)]*/g, "[redacted-path]");
+    .replace(
+      /\/(?:Users|home|var|tmp|private|Volumes)\/[^\r\n.;,)]*/g,
+      "[redacted-path]",
+    );
 }
 
 function matchesFilters(
@@ -589,7 +896,10 @@ export function listHostBridgeTasks(
   const byId = new Map<string, HostBridgeWorkflowTaskDto>();
   const activeOnly = filters.activeOnly || filters.includeHistory === false;
   const workflowTasks = activeOnly
-    ? listActiveWorkflowTasks()
+    ? listActiveWorkflowTaskSummaries({
+        backendId: filters.backendId,
+        requestId: filters.requestId,
+      })
     : listWorkflowTasks();
   for (const task of workflowTasks) {
     const dto = taskToDto(task, "active");

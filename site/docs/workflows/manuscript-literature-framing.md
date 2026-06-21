@@ -64,6 +64,10 @@
 | `citation-map.json` | JSON | 引用映射关系 |
 | `intent-brief.json` | JSON | 论文定位摘要 |
 
+:::tip 产物获取
+生成的 LaTeX 草稿等产物可在 **Dashboard 的产物区**找到。你可以直接将产物放入你的 LaTeX 文稿，或导出后进一步加工。
+:::
+
 ## 参数
 
 | 参数 | 类型 | 说明 | 默认值 |
@@ -86,6 +90,17 @@
 - **后端**：ACP 后端
 - **Zotero 库**：需要库内有相关文献条目
 
+:::tip 推荐工作流程
+要获得最佳效果，建议在运行此 workflow 前完成以下准备：
+1. 收集并入库足够的相关文献
+2. 对所有文献执行 [文献分析](literature-analysis)
+3. 在 Synthesis Workbench 中执行 Advance Matching 并处理审批项
+4. 创建几个相关的 [Topic 综合](topic-synthesis)
+
+这些步骤越完善，生成的 Literature Review 质量越高。
+:::
+
 ## 相关工作流
 
+- [文献分析](literature-analysis) — 为文献建立结构化知识基础
 - [Topic 综合创建](topic-synthesis) — 先创建主题综合，再基于分析结果撰写论文

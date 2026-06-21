@@ -11,6 +11,7 @@ import {
   getRuntimeLogPersistenceStateForTests,
   getRuntimeLogRetentionConfig,
   listRuntimeLogs,
+  resetRuntimeLogHydrationForTests,
   resetRuntimeLogAllowedLevels,
   setRuntimeLogDiagnosticMode,
   setRuntimeLogAllowedLevels,
@@ -61,13 +62,19 @@ describe("runtime log manager", function () {
     assert.match(entry!.id, /^log-\d+$/);
     assert.equal(entry!.level, "error");
     assert.equal(entry!.scope, "provider");
-    assert.equal(entry!.details && (entry!.details as any).authorization, "<redacted>");
+    assert.equal(
+      entry!.details && (entry!.details as any).authorization,
+      "<redacted>",
+    );
     assert.equal(entry!.details && (entry!.details as any).token, "<redacted>");
     assert.equal(
       entry!.details && (entry!.details as any).nested?.access_token,
       "<redacted>",
     );
-    assert.equal(entry!.details && (entry!.details as any).nested?.visible, "ok");
+    assert.equal(
+      entry!.details && (entry!.details as any).nested?.visible,
+      "ok",
+    );
     assert.equal(entry!.error?.message, "boom");
   });
 
@@ -109,8 +116,9 @@ describe("runtime log manager", function () {
   it("enforces diagnostic mode dual budget with byte-limit eviction", function () {
     this.timeout(15000);
     setRuntimeLogDiagnosticMode(true);
-    const oversizedDetails = Array.from({ length: 90 }, (_, index) =>
-      `detail-${index}-${"x".repeat(4000)}`,
+    const oversizedDetails = Array.from(
+      { length: 90 },
+      (_, index) => `detail-${index}-${"x".repeat(4000)}`,
     );
     for (let i = 0; i < 80; i++) {
       appendRuntimeLog({
@@ -207,6 +215,47 @@ describe("runtime log manager", function () {
     assert.equal(parsedCleared.entries?.length || 0, 0);
   });
 
+  it("hydrates legacy prefs payload into runtime log storage", async function () {
+    resetRuntimeLogHydrationForTests();
+    const state = getRuntimeLogPersistenceStateForTests();
+    const prefKey = `${config.prefsPrefix}.runtimeLogsJson`;
+    Zotero.Prefs.set(
+      prefKey,
+      JSON.stringify({
+        entries: [
+          {
+            id: "log-legacy-1",
+            ts: new Date().toISOString(),
+            level: "info",
+            scope: "system",
+            schemaVersion: 1,
+            diagnosticMode: false,
+            stage: "legacy-pref-stage",
+            message: "legacy pref message",
+          },
+        ],
+      }),
+      true,
+    );
+    if (fs.existsSync(state.path)) {
+      fs.unlinkSync(state.path);
+    }
+    assert.isFalse(fs.existsSync(state.path));
+    assert.include(
+      String(Zotero.Prefs.get(prefKey, true) || ""),
+      "legacy-pref-stage",
+    );
+
+    const entries = listRuntimeLogs();
+    assert.lengthOf(entries, 1);
+    assert.equal(entries[0].stage, "legacy-pref-stage");
+    await flushRuntimeLogsPersistence();
+
+    assert.equal(String(Zotero.Prefs.get(prefKey, true) || ""), "");
+    const persisted = readPersistedRuntimeLogDocument();
+    assert.equal(persisted.entries?.[0]?.stage, "legacy-pref-stage");
+  });
+
   it("coalesces append persistence until an explicit durability boundary flushes", async function () {
     const baseline = getRuntimeLogPersistenceStateForTests().flushCount;
 
@@ -290,7 +339,8 @@ describe("runtime log manager", function () {
     });
     const persistedAfterBundle = readPersistedRuntimeLogDocument();
     assert.equal(
-      persistedAfterBundle.entries?.[persistedAfterBundle.entries.length - 1]?.stage,
+      persistedAfterBundle.entries?.[persistedAfterBundle.entries.length - 1]
+        ?.stage,
       "bundle-stage",
     );
   });
@@ -345,7 +395,10 @@ describe("runtime log manager", function () {
     assert.equal(bundle.schemaVersion, "runtime-diagnostic-bundle/v1");
     assert.equal(bundle.meta.diagnosticMode, true);
     assert.equal(bundle.entries.length, 1);
-    assert.equal((bundle.entries[0].details as any).authorization, "<redacted>");
+    assert.equal(
+      (bundle.entries[0].details as any).authorization,
+      "<redacted>",
+    );
     assert.isTrue(Array.isArray(bundle.timeline));
     assert.isAtLeast(bundle.incidents.length, 1);
     const issue = buildRuntimeIssueSummary({
@@ -359,7 +412,9 @@ describe("runtime log manager", function () {
 
   it("drops expired logs older than retention window", function () {
     const retentionMs = getRuntimeLogRetentionConfig().retentionMs;
-    const expiredTs = new Date(Date.now() - retentionMs - 24 * 60 * 60 * 1000).toISOString();
+    const expiredTs = new Date(
+      Date.now() - retentionMs - 24 * 60 * 60 * 1000,
+    ).toISOString();
     appendRuntimeLog({
       ts: expiredTs,
       level: "info",

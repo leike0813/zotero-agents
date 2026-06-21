@@ -1,7 +1,7 @@
 {
   "id": "topic-synthesis-core-enrichment",
   "name": "🧠 主题综合核心分析与知识图谱补全",
-  "description": "基于 prepare 阶段的分析上下文编写 topic 级核心综合和知识图谱补全；需要可通过 `zotero-bridge` 访问 Zotero 文库。",
+  "description": "Draft the topic-level core synthesis and knowledge graph completion based on the analysis context from the prepare phase. Use this skill after create/update-topic-synthesis-prepare. DO NOT invoke this skill directly.",
   "version": "0.1.0",
   "execution_modes": ["interactive"],
   "max_attempt": 12,

@@ -1,7 +1,4 @@
-import {
-  validateCreatePayload,
-  validateMultipartHasField,
-} from "./contracts";
+import { validateCreatePayload, validateMultipartHasField } from "./contracts";
 import { joinPath } from "../../src/utils/path";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 
@@ -93,7 +90,8 @@ export async function startMockSkillRunnerServer(args: {
 }) {
   const httpMod = await dynamicImport("http");
   const fsMod = await dynamicImport("fs/promises");
-  const createServer = httpMod.createServer as typeof import("http").createServer;
+  const createServer =
+    httpMod.createServer as typeof import("http").createServer;
   const jobs = new Map<string, MockJob>();
   const traffic: TrafficRecord[] = [];
   let nextId = 1;
@@ -406,9 +404,8 @@ export async function startMockSkillRunnerServer(args: {
           const parameter = isObject(createPayload.parameter)
             ? createPayload.parameter
             : {};
-          const tagNoteLanguage = String(
-            parameter.tag_note_language || "zh-CN",
-          ).trim() || "zh-CN";
+          const tagNoteLanguage =
+            String(parameter.tag_note_language || "zh-CN").trim() || "zh-CN";
           const inputTags = normalizeStringArray(inlineInput.input_tags);
           const removeTags = inputTags.includes("topic:legacy")
             ? ["topic:legacy"]
@@ -440,6 +437,55 @@ export async function startMockSkillRunnerServer(args: {
                   ],
                   warnings: ["mock-tag-regulator"],
                   error: null,
+                },
+                artifacts: [],
+                validation_warnings: [],
+                error: null,
+              },
+            }),
+          );
+          return;
+        }
+        if (skillId === "tag-bootstrapper") {
+          const inlineInput = isObject(createPayload.input)
+            ? createPayload.input
+            : {};
+          const existing = Array.isArray(inlineInput.existing_tags)
+            ? inlineInput.existing_tags
+            : [];
+          res.statusCode = 200;
+          res.setHeader("content-type", "application/json");
+          res.end(
+            JSON.stringify({
+              request_id: requestId,
+              result: {
+                status: "success",
+                data: {
+                  add_tags: [
+                    {
+                      tag: "field:CS/AI",
+                      facet: "field",
+                      note: "Artificial intelligence",
+                    },
+                    {
+                      tag: "method:survey",
+                      facet: "method",
+                      note: "Survey study",
+                    },
+                  ].filter(
+                    (candidate) =>
+                      !existing.some(
+                        (entry) =>
+                          isObject(entry) &&
+                          String(entry.tag || "").toLowerCase() ===
+                            candidate.tag.toLowerCase(),
+                      ),
+                  ),
+                  warnings: ["mock-tag-bootstrapper"],
+                  error: null,
+                  provenance: {
+                    generated_at: "2026-01-01T00:00:00Z",
+                  },
                 },
                 artifacts: [],
                 validation_warnings: [],

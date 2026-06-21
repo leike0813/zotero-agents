@@ -4,7 +4,14 @@
 
 从 PDF 或 Markdown 附件生成文献摘要、参考文献列表和引文分析报告。
 
+**Literature Analysis 是 Agentic 文献管理的核心** — 所有入库文献都应该运行一次此 workflow。它会为每篇文献建立结构化的知识基础，后续的引文图谱、Topic 综合等高阶功能都依赖此 workflow 的产出。
+
 该 workflow 调用 Skill-Runner 后端的 `literature-analysis` skill，对学术文献进行结构化分析。
+
+:::tip 最佳实践
+- **先提取 Markdown**：在执行文献分析前，建议先用 [MinerU](mineru) 将 PDF 转为 Markdown。Markdown 原文能显著提升 AI 对论文结构的理解质量。
+- **先初始化标签词表**：建议在首次执行文献分析前，先运行 [Tag Bootstrapper](tag-bootstrapper) 初始化一个受控标签词表。这样分析流程中的自动标签规范化才能发挥最大效果。
+:::
 
 ## 适用场景
 
@@ -60,6 +67,10 @@
 - 内容：HTML 渲染的文献摘要，包含研究背景、方法、结果和结论
 - 更新策略：每次执行会更新同名 note（若已存在则覆盖）
 
+:::info 关于笔记内容
+笔记中显示的内容是从后台数据**渲染**出来的，直接在 Zotero 中修改笔记内容**不会**改变后台的真实数据。如需编辑分析结果，请使用[导出笔记](export-import-notes)功能导出、修改后再重新导入。
+:::
+
 ### 2. 参考文献笔记（References Note）
 
 - 类型：`data-zs-note-kind="references"`
@@ -77,8 +88,10 @@
 | 参数 | 类型 | 说明 | 默认值 |
 |------|------|------|--------|
 | `language` | string | 输出语言 | `zh-CN` |
+| `auto_tag_regulator` | boolean | 是否在文献分析后自动级联执行[标签规范化](tag-regulator)。**建议开启** | `true` |
+| `auto_tag_infer_tag` | boolean | 级联标签规范化时，是否让 AI 推断新标签（仅当 `auto_tag_regulator` 开启时可见） | `true` |
 
-可选值：`zh-CN`、`en-US`、`ja-JP`、`ko-KR`、`de-DE`、`fr-FR`、`es-ES`、`ru-RU`，也支持自定义输入。
+`language` 可选值：`zh-CN`、`en-US`、`ja-JP`、`ko-KR`、`de-DE`、`fr-FR`、`es-ES`、`ru-RU`，也支持自定义输入。
 
 ## 依赖
 
@@ -88,5 +101,8 @@
 
 ## 相关工作流
 
+- [Tag Bootstrapper](tag-bootstrapper) — 在首次分析前初始化受控标签词表
+- [MinerU](mineru) — 先将 PDF 转为 Markdown 以获得最佳分析质量
 - [交互式文献解读](literature-explainer) — 与 AI 对话深入理解文献
-- [导出/导入笔记](export-import-notes) — 导出或导入上述三类笔记
+- [导出/导入笔记](export-import-notes) — 导出分析产物进行编辑，或在 Zotero 实例间迁移
+- [标签规范化](tag-regulator) — 单独执行标签规范化（文献分析可自动级联）

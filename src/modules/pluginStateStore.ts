@@ -71,6 +71,19 @@ export type PluginTaskRowEntry = {
   payload: string;
 };
 
+export type PluginTaskRowListOptions = {
+  backendId?: string;
+  requestId?: string;
+  states?: string[];
+  excludeStates?: string[];
+  limit?: number;
+};
+
+export type PluginTaskRowStateCount = {
+  state: string;
+  count: number;
+};
+
 export type PluginRunStoreKind = "acp" | "skillrunner";
 
 export type PluginRunStoreEntry = {
@@ -80,6 +93,14 @@ export type PluginRunStoreEntry = {
   state: string;
   updatedAt: string;
   payload: string;
+};
+
+export type PluginRunStoreListOptions = {
+  backendId?: string;
+  requestId?: string;
+  states?: string[];
+  excludeStates?: string[];
+  limit?: number;
 };
 
 export type PluginRunEventStoreEntry = {
@@ -632,11 +653,23 @@ function buildMemoryAdapter(): SqlAdapter {
       if (normalizedSql.startsWith("delete from plugin_task_rows")) {
         const domain = normalizeString(params.domain);
         const scope = normalizeString(params.scope);
+        const taskId = normalizeString(params.task_id);
+        const requestId = normalizeString(params.request_id);
+        const backendId = normalizeString(params.backend_id);
         for (const [key, row] of memoryTables.rows.entries()) {
           if (domain && row.domain !== domain) {
             continue;
           }
           if (scope && row.scope !== scope) {
+            continue;
+          }
+          if (taskId && row.task_id !== taskId) {
+            continue;
+          }
+          if (requestId && row.request_id !== requestId) {
+            continue;
+          }
+          if (backendId && row.backend_id !== backendId) {
             continue;
           }
           memoryTables.rows.delete(key);
@@ -667,6 +700,22 @@ function buildMemoryAdapter(): SqlAdapter {
         const runKey = normalizeString(params.run_key);
         const requestId = normalizeString(params.request_id);
         const backendId = normalizeString(params.backend_id);
+        const stateSet = new Set(
+          Object.entries(params)
+            .filter(([key]) => /^state_\d+$/.test(key))
+            .map(([, value]) => normalizeString(value))
+            .filter(Boolean),
+        );
+        const excludedStateSet = new Set(
+          Object.entries(params)
+            .filter(([key]) => /^exclude_state_\d+$/.test(key))
+            .map(([, value]) => normalizeString(value))
+            .filter(Boolean),
+        );
+        const limit =
+          typeof params.limit === "number" && Number.isFinite(params.limit)
+            ? Math.max(0, Math.floor(params.limit))
+            : 0;
         const rows = Array.from(runTables.runs.values()).filter((row) => {
           if (runKey && row.run_key !== runKey) {
             return false;
@@ -677,9 +726,18 @@ function buildMemoryAdapter(): SqlAdapter {
           if (backendId && row.backend_id !== backendId) {
             return false;
           }
+          if (stateSet.size > 0 && !stateSet.has(row.state)) {
+            return false;
+          }
+          if (excludedStateSet.has(row.state)) {
+            return false;
+          }
           return true;
         });
-        return byUpdatedDesc(rows).map((row) => ({ ...row }));
+        const sorted = byUpdatedDesc(rows);
+        return (limit ? sorted.slice(0, limit) : sorted).map((row) => ({
+          ...row,
+        }));
       }
       if (normalizedSql.includes("from plugin_task_requests")) {
         const domain = normalizeString(params.domain);
@@ -713,9 +771,58 @@ function buildMemoryAdapter(): SqlAdapter {
         );
         return byUpdatedDesc(rows).map((row) => ({ ...row }));
       }
+      if (
+        normalizedSql.startsWith("select state, count(*) as value") &&
+        normalizedSql.includes("from plugin_task_rows")
+      ) {
+        const domain = normalizeString(params.domain);
+        const scope = normalizeString(params.scope);
+        const requestId = normalizeString(params.request_id);
+        const backendId = normalizeString(params.backend_id);
+        const counts = new Map<string, number>();
+        for (const row of memoryTables.rows.values()) {
+          if (domain && row.domain !== domain) {
+            continue;
+          }
+          if (scope && row.scope !== scope) {
+            continue;
+          }
+          if (requestId && row.request_id !== requestId) {
+            continue;
+          }
+          if (backendId && row.backend_id !== backendId) {
+            continue;
+          }
+          const state = normalizeString(row.state);
+          counts.set(state, (counts.get(state) || 0) + 1);
+        }
+        return Array.from(counts.entries())
+          .map(([state, value]) => ({ state, value }))
+          .sort((left, right) =>
+            String(left.state || "").localeCompare(String(right.state || "")),
+          );
+      }
       if (normalizedSql.includes("from plugin_task_rows")) {
         const domain = normalizeString(params.domain);
         const scope = normalizeString(params.scope);
+        const requestId = normalizeString(params.request_id);
+        const backendId = normalizeString(params.backend_id);
+        const stateSet = new Set(
+          Object.entries(params)
+            .filter(([key]) => /^state_\d+$/.test(key))
+            .map(([, value]) => normalizeString(value))
+            .filter(Boolean),
+        );
+        const excludedStateSet = new Set(
+          Object.entries(params)
+            .filter(([key]) => /^exclude_state_\d+$/.test(key))
+            .map(([, value]) => normalizeString(value))
+            .filter(Boolean),
+        );
+        const limit =
+          typeof params.limit === "number" && Number.isFinite(params.limit)
+            ? Math.max(0, Math.floor(params.limit))
+            : 0;
         const rows = Array.from(memoryTables.rows.values()).filter((row) => {
           if (domain && row.domain !== domain) {
             return false;
@@ -723,9 +830,24 @@ function buildMemoryAdapter(): SqlAdapter {
           if (scope && row.scope !== scope) {
             return false;
           }
+          if (requestId && row.request_id !== requestId) {
+            return false;
+          }
+          if (backendId && row.backend_id !== backendId) {
+            return false;
+          }
+          if (stateSet.size > 0 && !stateSet.has(row.state)) {
+            return false;
+          }
+          if (excludedStateSet.has(row.state)) {
+            return false;
+          }
           return true;
         });
-        return byUpdatedDesc(rows).map((row) => ({ ...row }));
+        const sorted = byUpdatedDesc(rows);
+        return (limit ? sorted.slice(0, limit) : sorted).map((row) => ({
+          ...row,
+        }));
       }
       if (normalizedSql.includes("from plugin_meta")) {
         const key = normalizeString(params.meta_key);
@@ -1387,14 +1509,65 @@ function normalizeRunEventStoreEntry(row: Record<string, unknown>) {
 }
 
 export function listPluginRunStoreEntries(kind: PluginRunStoreKind) {
+  return listPluginRunStoreEntriesFiltered(kind);
+}
+
+export function listPluginRunStoreEntriesFiltered(
+  kind: PluginRunStoreKind,
+  options: PluginRunStoreListOptions = {},
+) {
+  const backendId = normalizeString(options.backendId);
+  const requestId = normalizeString(options.requestId);
+  const states = normalizeTaskRowStates(options.states);
+  const excludeStates = normalizeTaskRowStates(options.excludeStates);
+  const limit = normalizeTaskRowLimit(options.limit);
+  const where: string[] = [];
+  const params: SqlParams = {};
+  if (backendId) {
+    where.push("backend_id=@backend_id");
+    params.backend_id = backendId;
+  }
+  if (requestId) {
+    where.push("request_id=@request_id");
+    params.request_id = requestId;
+  }
+  states.forEach((state, index) => {
+    const key = `state_${index}`;
+    params[key] = state;
+  });
+  excludeStates.forEach((state, index) => {
+    const key = `exclude_state_${index}`;
+    params[key] = state;
+  });
+  if (states.length > 0) {
+    where.push(
+      `state IN (${states.map((_, index) => `@state_${index}`).join(", ")})`,
+    );
+  }
+  if (excludeStates.length > 0) {
+    where.push(
+      `state NOT IN (${excludeStates
+        .map((_, index) => `@exclude_state_${index}`)
+        .join(", ")})`,
+    );
+  }
+  if (limit) {
+    params.limit = limit;
+  }
   const db = getAdapter();
   const tables = runStoreTables(kind);
-  const rows = db.all(`
+  const rows = db.all(
+    `
     SELECT run_key, request_id, backend_id, state, updated_at, payload_json
     FROM ${tables.runs}
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY updated_at DESC
-  `);
-  return rows.map(normalizeRunStoreEntry);
+    ${limit ? "LIMIT @limit" : ""}
+  `,
+    params,
+  );
+  const entries = rows.map(normalizeRunStoreEntry);
+  return limit ? entries.slice(0, limit) : entries;
 }
 
 export function getPluginRunStoreEntry(
@@ -1878,19 +2051,82 @@ export function listPluginTaskRowEntries(
   domainRaw: string,
   scopeRaw: PluginTaskScope,
 ) {
+  return listPluginTaskRowEntriesFiltered(domainRaw, scopeRaw);
+}
+
+function normalizeTaskRowStates(values: string[] | undefined) {
+  return Array.from(
+    new Set(
+      (values || []).map((value) => normalizeString(value)).filter(Boolean),
+    ),
+  );
+}
+
+function normalizeTaskRowLimit(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  const normalized = Math.floor(value);
+  return normalized > 0 ? normalized : 0;
+}
+
+export function listPluginTaskRowEntriesFiltered(
+  domainRaw: string,
+  scopeRaw: PluginTaskScope,
+  options: PluginTaskRowListOptions = {},
+) {
   const domain = normalizeString(domainRaw);
   const scope = normalizeString(scopeRaw);
+  const backendId = normalizeString(options.backendId);
+  const requestId = normalizeString(options.requestId);
+  const states = normalizeTaskRowStates(options.states);
+  const excludeStates = normalizeTaskRowStates(options.excludeStates);
+  const limit = normalizeTaskRowLimit(options.limit);
+  const where = ["domain=@domain", "scope=@scope"];
+  const params: SqlParams = { domain, scope };
+  if (backendId) {
+    where.push("backend_id=@backend_id");
+    params.backend_id = backendId;
+  }
+  if (requestId) {
+    where.push("request_id=@request_id");
+    params.request_id = requestId;
+  }
+  states.forEach((state, index) => {
+    const key = `state_${index}`;
+    params[key] = state;
+  });
+  excludeStates.forEach((state, index) => {
+    const key = `exclude_state_${index}`;
+    params[key] = state;
+  });
+  if (states.length > 0) {
+    where.push(
+      `state IN (${states.map((_, index) => `@state_${index}`).join(", ")})`,
+    );
+  }
+  if (excludeStates.length > 0) {
+    where.push(
+      `state NOT IN (${excludeStates
+        .map((_, index) => `@exclude_state_${index}`)
+        .join(", ")})`,
+    );
+  }
+  if (limit) {
+    params.limit = limit;
+  }
   const db = getAdapter();
   const rows = db.all(
     `
       SELECT task_id, request_id, backend_id, state, updated_at, payload_json
       FROM plugin_task_rows
-      WHERE domain=@domain AND scope=@scope
+      WHERE ${where.join(" AND ")}
       ORDER BY updated_at DESC
+      ${limit ? "LIMIT @limit" : ""}
     `,
-    { domain, scope },
+    params,
   );
-  return rows.map((row) => ({
+  const entries = rows.map((row) => ({
     taskId: normalizeString(row.task_id),
     requestId: normalizeString(row.request_id),
     backendId: normalizeString(row.backend_id),
@@ -1898,6 +2134,48 @@ export function listPluginTaskRowEntries(
     updatedAt: normalizeString(row.updated_at),
     payload: ensureJsonPayload(normalizeString(row.payload_json)),
   }));
+  return limit ? entries.slice(0, limit) : entries;
+}
+
+export function countPluginTaskRowStates(
+  domainRaw: string,
+  scopeRaw: PluginTaskScope,
+  options: Pick<PluginTaskRowListOptions, "backendId" | "requestId"> = {},
+): PluginTaskRowStateCount[] {
+  const domain = normalizeString(domainRaw);
+  const scope = normalizeString(scopeRaw);
+  const backendId = normalizeString(options.backendId);
+  const requestId = normalizeString(options.requestId);
+  if (!domain || !scope) {
+    return [];
+  }
+  const where = ["domain=@domain", "scope=@scope"];
+  const params: SqlParams = { domain, scope };
+  if (backendId) {
+    where.push("backend_id=@backend_id");
+    params.backend_id = backendId;
+  }
+  if (requestId) {
+    where.push("request_id=@request_id");
+    params.request_id = requestId;
+  }
+  const db = getAdapter();
+  const rows = db.all(
+    `
+      SELECT state, COUNT(*) AS value
+      FROM plugin_task_rows
+      WHERE ${where.join(" AND ")}
+      GROUP BY state
+    `,
+    params,
+  );
+  return rows
+    .map((row) => ({
+      state: normalizeString(row.state),
+      count: Math.max(0, Math.floor(Number(row.value) || 0)),
+    }))
+    .filter((row) => row.state && row.count > 0)
+    .sort((left, right) => left.state.localeCompare(right.state));
 }
 
 export function upsertPluginTaskRowEntry(

@@ -950,6 +950,14 @@ function synthesisCitationGraphHtml(envelope, assets) {
   ].join("\n");
 }
 function renderCitationGraph() {
+  if (!data.citation_graph?.available) {
+    if (graphSection) {
+      graphSection.hidden = true;
+      graphSection.innerHTML = "";
+    }
+    return;
+  }
+  if (graphSection) graphSection.hidden = false;
   const envelope = data.citation_graph?.synthesis_export_envelope;
   const assets = window.__ZoteroSkillsDeepReadingCitationGraphAssets || {};
   if (viewerEnvironment.forceGraphFallback) {
@@ -1127,6 +1135,7 @@ function initScrollTracking() {
 function init() {
   body.classList.add("js-ready");
   applyViewerEnvironment();
+  setViewerWarningVisible(viewerEnvironment.constrained);
   document.querySelector("[data-paper-title]").textContent =
     data.paper?.title || "Literature Deep Reading";
   document.querySelector("[data-paper-meta]").textContent =

@@ -51,12 +51,13 @@ Workflow 可以通过三种后端类型执行：
 
 | Workflow | 用途 | 输入 | 后端 | 文档 |
 |---------|------|------|------|------|
-| **文献分析** | 从 PDF/MD 生成摘要、参考文献、引文分析 | 附件 | Skill-Runner | [详情](literature-analysis) |
-| **交互式文献解读** | 与 AI 多轮对话深入理解文献 | 附件 | Skill-Runner | [详情](literature-explainer) |
+| **文献分析** ⭐ | 从 PDF/MD 生成摘要、参考文献、引文分析。可级联标签规范化 | 附件 | Skill-Runner | [详情](literature-analysis) |
+| **交互式文献解读** | 与 AI 多轮对话深入理解文献，答案经验证门禁防幻觉 | 附件 | Skill-Runner | [详情](literature-explainer) |
 | **深度阅读** | 生成结构化精读 HTML 视图，支持翻译 | 附件 | ACP | [详情](literature-deep-reading) |
-| **文献搜索与入库** | 搜索学术文献并直接入库到 Zotero | workflow | ACP | [详情](literature-search-ingest) |
+| **文献搜索与入库** | 让 Agent 搜索学术文献并直接入库到 Zotero | workflow | ACP | [详情](literature-search-ingest) |
+| **标签词表初始化** | 与 AI 交互创建研究领域的受控标签词表 | workflow | Skill-Runner | [详情](tag-bootstrapper) |
 | **标签规范化** | 基于受控词表规范化标签，推断新标签 | 父条目 | Skill-Runner | [详情](tag-regulator) |
-| **导出/导入笔记** | 导出或导入分析笔记（摘要/参考文献/引文） | 父条目 | 无需后端 | [详情](export-import-notes) |
+| **导出/导入笔记** | 导出或导入分析笔记，支持编辑后重新导入 | 父条目 | 无需后端 | [详情](export-import-notes) |
 
 ### 🛠️ 实用工具
 

@@ -87,9 +87,6 @@ function parseProviderResult(
       status,
       requestId,
       fetchType,
-      bundleBytes:
-        raw.bundleBytes instanceof Uint8Array ? raw.bundleBytes : undefined,
-      bundleDir: normalizeString(raw.bundleDir) || undefined,
       resultJson: raw.resultJson,
       resultJsonPath: normalizeString(raw.resultJsonPath) || undefined,
       workspaceDir: normalizeString(raw.workspaceDir) || undefined,
@@ -147,8 +144,6 @@ function cloneProviderResult(result: ProviderExecutionResult) {
       status: "succeeded",
       requestId: result.requestId,
       fetchType: result.fetchType,
-      bundleBytes: result.bundleBytes,
-      bundleDir: result.bundleDir,
       resultJson: result.resultJson,
       resultJsonPath: result.resultJsonPath,
       workspaceDir: result.workspaceDir,

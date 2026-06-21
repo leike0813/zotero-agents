@@ -48,7 +48,7 @@ import {
   disconnectAcpSkillRun,
   endAcpSkillRunSession,
   interruptAcpSkillRunCurrentTurn,
-  listAcpSkillRuns,
+  listAcpSkillRunSummaries,
   replyAcpSkillRun,
   resolveAcpSkillRunPermissionRequest,
   selectAcpSkillRun,
@@ -68,7 +68,10 @@ import {
   countWaitingSkillRunnerTasks,
 } from "./skillRunnerSidebarModel";
 import { appendRuntimeLog } from "./runtimeLogManager";
-import { listActiveWorkflowTasks, subscribeWorkflowTasks } from "./taskRuntime";
+import {
+  listActiveWorkflowTaskSummaries,
+  subscribeWorkflowTaskChanges,
+} from "./taskRuntime";
 import { countDashboardHumanAttentionTasks } from "./dashboardActiveTasks";
 import { normalizeStatus } from "./skillRunnerProviderStateMachine";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
@@ -277,20 +280,22 @@ function setButtonSelected(
 
 function countWaitingTasks() {
   return countDashboardHumanAttentionTasks({
-    activeTasks: listActiveWorkflowTasks(),
-    acpSkillRuns: listAcpSkillRuns(),
+    activeTasks: listActiveWorkflowTaskSummaries(),
+    acpSkillRuns: listAcpSkillRunSummaries({ activeOnly: true }),
   });
 }
 
 function maybeShowAcpSkillWaitingToasts(host: AssistantWorkspaceHostRuntime) {
-  const waitingRuns = listAcpSkillRuns().filter((run) => {
-    const normalized = normalizeStatus(run.status, "running");
-    return (
-      normalized === "waiting_user" ||
-      normalized === "waiting_auth" ||
-      !!run.pendingPermission
-    );
-  });
+  const waitingRuns = listAcpSkillRunSummaries({ activeOnly: true }).filter(
+    (run) => {
+      const normalized = normalizeStatus(run.status, "running");
+      return (
+        normalized === "waiting_user" ||
+        normalized === "waiting_auth" ||
+        !!run.pendingPermission
+      );
+    },
+  );
   const nextKeys = new Set<string>();
   for (const run of waitingRuns) {
     const normalized = normalizeStatus(run.status, "running");
@@ -628,7 +633,10 @@ function postActiveShellInit(host: AssistantWorkspaceHostRuntime) {
   if (!target) {
     return;
   }
-  postShellInit(target === "reader" ? host.reader : host.library, host.activeTab);
+  postShellInit(
+    target === "reader" ? host.reader : host.library,
+    host.activeTab,
+  );
 }
 
 function postAllSnapshots(host: AssistantWorkspaceHostRuntime) {
@@ -1334,7 +1342,7 @@ export function installAssistantWorkspaceSidebarShell(
     schedulePostSnapshot(host);
     updateAssistantAttentionIndicator(host);
   });
-  host.removeTaskSubscription = subscribeWorkflowTasks(() => {
+  host.removeTaskSubscription = subscribeWorkflowTaskChanges(() => {
     updateAssistantAttentionIndicator(host);
   });
   updateAssistantAttentionIndicator(host);

@@ -1159,6 +1159,7 @@ describe("Synthesis tab UI model", function () {
     assert.equal(snapshot.tags.importDraft, '{"entries":[]}');
     assert.lengthOf(snapshot.tags.importPreview?.conflicts || [], 1);
     assert.include(snapshot.hostCommands, "previewTagVocabularyImport");
+    assert.include(snapshot.hostCommands, "runTagBootstrapper");
     assert.include(snapshot.hostCommands, "applyTagVocabularyImport");
     assert.include(snapshot.hostCommands, "updateStagedTagSuggestion");
     assert.include(snapshot.hostCommands, "updateTagVocabularyEntry");
@@ -1172,6 +1173,11 @@ describe("Synthesis tab UI model", function () {
       payload: { command: "validateTagVocabulary" },
     });
     assert.equal(command.hostCommand?.command, "validateTagVocabulary");
+    const bootstrapCommand = applySynthesisUiAction(selectedState, {
+      action: "hostCommand",
+      payload: { command: "runTagBootstrapper" },
+    });
+    assert.equal(bootstrapCommand.hostCommand?.command, "runTagBootstrapper");
     assert.equal(
       getSynthesisUiOperationKey("promoteStagedTagSuggestions", {
         tags: ["topic:candidate"],
@@ -1210,6 +1216,7 @@ describe("Synthesis tab UI model", function () {
       invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
     );
 
+    assert.include(previewImportBranch, 'command === "runTagBootstrapper"');
     assert.include(
       previewImportBranch,
       'command === "previewTagVocabularyImport"',
@@ -1242,6 +1249,15 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "renderTagsSummaryBar");
     assert.include(app, "renderTagsSummaryBar(snapshot, view)");
     assert.include(app, "renderVocabularySubview");
+    assert.include(app, "renderTagBootstrapperEmptyState");
+    assert.include(
+      extractFunctionBlock(app, "renderVocabularySubview"),
+      "snapshot.tags.rows.length\n        ? renderEmptyState",
+    );
+    assert.include(
+      extractFunctionBlock(app, "renderVocabularySubview"),
+      ": renderTagBootstrapperEmptyState()",
+    );
     assert.include(app, "renderStagedInboxSubview");
     assert.include(app, "renderTagBulkActionBar");
     assert.include(app, "renderTagPillList");
@@ -1250,6 +1266,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, 'document.querySelector(".tags-view-switch")');
     assert.include(app, "currentVocabularyDraft");
     assert.include(app, "applyVocabularyDraft");
+    assert.include(
+      extractFunctionBlock(app, "renderTagBootstrapperEmptyState"),
+      'command: "runTagBootstrapper"',
+    );
     assert.include(app, 'command: "updateTagVocabularyEntry"');
     assert.include(app, 'command: "deleteTagVocabularyEntry"');
     assert.include(

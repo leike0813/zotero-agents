@@ -39,6 +39,100 @@
     return "";
   }
 
+  function resolveSkillSecondaryLabel() {
+    const sources = Array.prototype.slice.call(arguments);
+    for (const source of sources) {
+      if (!source || typeof source !== "object") continue;
+      const skillName = safeText(source.skillName || source.skill_name);
+      if (skillName) return skillName;
+    }
+    for (const source of sources) {
+      if (!source || typeof source !== "object") continue;
+      const skillId = safeText(source.skillId || source.skill_id);
+      if (skillId) return skillId;
+    }
+    for (const source of sources) {
+      if (!source || typeof source !== "object") continue;
+      const requestId = safeText(
+        source.requestId || source.request_id || source.id,
+      );
+      if (requestId) return requestId;
+    }
+    return "";
+  }
+
+  function workflowSecondaryLabel() {
+    const sources = Array.prototype.slice.call(arguments);
+    for (const source of sources) {
+      if (!source || typeof source !== "object") continue;
+      const workflowLabel = safeText(
+        source.workflowLabel || source.workflow_label,
+      );
+      if (workflowLabel) return workflowLabel;
+    }
+    for (const source of sources) {
+      if (!source || typeof source !== "object") continue;
+      const workflowId = safeText(source.workflowId || source.workflow_id);
+      if (workflowId) return workflowId;
+    }
+    return "";
+  }
+
+  function sequenceStepIndex(source) {
+    const data = source && typeof source === "object" ? source : {};
+    const nested =
+      data.sequence && typeof data.sequence === "object" ? data.sequence : null;
+    const candidates = [
+      data.sequenceStepIndex,
+      data.sequence_step_index,
+      data.stepIndex,
+      data.step_index,
+      nested && nested.stepIndex,
+      nested && nested.step_index,
+    ];
+    for (const candidate of candidates) {
+      if (
+        candidate === null ||
+        typeof candidate === "undefined" ||
+        candidate === ""
+      ) {
+        continue;
+      }
+      const value = Number(candidate);
+      if (Number.isFinite(value) && value >= 0) return value;
+    }
+    return null;
+  }
+
+  function isSequenceTask(source) {
+    const data = source && typeof source === "object" ? source : {};
+    if (safeText(data.role) === "sequence_step") return true;
+    if (safeText(data.sequenceStepId || data.sequence_step_id)) return true;
+    if (sequenceStepIndex(data) !== null) return true;
+    return Boolean(data.sequence && typeof data.sequence === "object");
+  }
+
+  function sequenceStepEmoji(index) {
+    const icons = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"];
+    if (typeof index !== "number" || !Number.isFinite(index) || index < 0) {
+      return "";
+    }
+    return icons[index] || "#" + String(index + 1);
+  }
+
+  function buildSkillRunSecondaryLabel() {
+    const sources = Array.prototype.slice.call(arguments);
+    const sequenceSource = sources.find(function (source) {
+      return isSequenceTask(source);
+    });
+    const skill = resolveSkillSecondaryLabel.apply(null, sources);
+    if (!sequenceSource) return skill;
+    const workflow = workflowSecondaryLabel.apply(null, sources);
+    const prefix = sequenceStepEmoji(sequenceStepIndex(sequenceSource));
+    const body = workflow ? [skill, workflow].filter(Boolean).join("/") : skill;
+    return [prefix, body].filter(Boolean).join(" ");
+  }
+
   function normalizeKind(kind) {
     return PANEL_KINDS.indexOf(kind) >= 0 ? kind : "acp-chat";
   }
@@ -1423,6 +1517,7 @@
     const applyLabel = applyStateLabel(source || task, applyState, task);
     const statusFields = taskStatusFields(task, source || task);
     return Object.assign({}, task, statusFields, {
+      workflowLabel: buildSkillRunSecondaryLabel(task, source),
       attention: needsAttention ? "warning" : "",
       attentionLabel: needsAttention
         ? labelFrom({}, "interaction.needsUserInteraction", "Needs user interaction")
@@ -1991,7 +2086,7 @@
       const requestId = safeText(entry && entry.requestId);
       const title = safeText(entry && (entry.taskName || entry.workflowLabel || entry.skillId)) || "Run";
       const backendLabel = safeText(entry && (entry.backendLabel || entry.backendId)) || "Backend";
-      const workflowLabel = safeText(entry && entry.skillId) || backendLabel;
+      const workflowLabel = buildSkillRunSecondaryLabel(entry) || backendLabel;
       const statusText = safeText(entry && entry.status) || "unknown";
       const entryStatus = normalizeStatusToken(statusText);
       const entryConversationState = normalizeStatusToken(
@@ -2313,7 +2408,7 @@
         title:
           safeText(run && (run.taskName || run.workflowLabel || run.skillId)) ||
           "ACP Skill Run",
-        subtitle: resolveSkillDisplayName(run),
+        subtitle: buildSkillRunSecondaryLabel(run),
         status,
         statusLabel: status,
         backendId: safeText(run && run.backendId),
@@ -2540,7 +2635,7 @@
       backendInteractive && (status === "running" || status === "prompting");
     const skillRunnerWaiting =
       backendInteractive && (status === "waiting-user" || status === "waiting-auth");
-    const skillRunnerSkillName = resolveSkillDisplayName(
+    const skillRunnerSecondaryLabel = buildSkillRunSecondaryLabel(
       selectedTask,
       session,
       envelope,
@@ -2562,7 +2657,7 @@
       context: {
         id: safeText(session.requestId || session.id),
         title: safeText(session.title || envelope.title) || "SkillRunner Workspace",
-        subtitle: skillRunnerSkillName || safeText(session.requestId),
+        subtitle: skillRunnerSecondaryLabel || safeText(session.requestId),
         status,
         statusLabel: status,
         backendId: safeText(session.backendId),

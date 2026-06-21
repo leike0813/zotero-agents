@@ -104,3 +104,40 @@ The Assistant Sidebar entry SHALL be the persistent UI surface for backend tasks
 - **THEN** those side-pane buttons SHALL NOT host the active task popover
 - **AND** they SHALL NOT draw task attention badges.
 
+### Requirement: SkillRunner run secondary labels SHALL be consistent
+
+SkillRunner selected-run banners and run drawer task cards SHALL use the same secondary label rule.
+
+#### Scenario: Single SkillRunner workflow shows current skill
+- **WHEN** a single SkillRunner workflow run has `skillName`
+- **THEN** the banner subtitle SHALL show `skillName`
+- **AND** the task-card secondary line SHALL show the same value
+- **AND** workflow label SHALL NOT replace the skill label for single runs
+
+#### Scenario: SkillRunner sequence step shows step skill and workflow
+- **WHEN** a SkillRunner sequence step has step index `0`, `skillName`, and `workflowLabel`
+- **THEN** the banner subtitle SHALL show `1️⃣ <skillName>/<workflowLabel>`
+- **AND** the task-card secondary line SHALL show the same value
+
+### Requirement: Sidebar task attention uses lightweight scoped summaries
+
+Sidebar task attention refreshes SHALL use lightweight scoped task summaries for
+default badges and waiting-task toasts, including the Assistant Sidebar entry and
+SkillRunner sidebar task attention surfaces.
+
+#### Scenario: Sidebar badge refresh with many retained runs
+- **GIVEN** many terminal SkillRunner runs are retained
+- **WHEN** the Assistant Sidebar attention badge refreshes
+- **THEN** the badge count SHALL be derived from active lightweight summaries
+- **AND** full SkillRunner run payloads SHALL NOT be read.
+
+### Requirement: Sidebar selected-run details read only selected scope
+
+The sidebar SHALL read full run detail only for the selected request or active
+run detail scope.
+
+#### Scenario: Selected SkillRunner run opens
+- **WHEN** the user opens a SkillRunner run in the sidebar
+- **THEN** full run detail MAY be read for that selected request
+- **AND** unrelated retained runs SHALL NOT be read as full payloads.
+

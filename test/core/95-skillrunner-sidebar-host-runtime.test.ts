@@ -81,7 +81,7 @@ describe("skillrunner sidebar host runtime", function () {
     const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
     assert.include(ts, "subscribeAcpFrontendSnapshots");
     assert.include(ts, "subscribeAcpSkillRunSnapshots");
-    assert.include(ts, "subscribeWorkflowTasks");
+    assert.include(ts, "subscribeWorkflowTaskChanges");
     assert.include(ts, "maybeShowAcpSkillWaitingToasts");
     assert.include(ts, "showWorkflowToast");
     assert.include(ts, "updateAssistantAttentionIndicator");
@@ -184,7 +184,10 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(workspaceHost, "task-dashboard-run-completed-tasks-title");
     assert.include(sidebarModel, "activeTasks:");
     assert.include(sidebarModel, "finishedTasks:");
-    assert.include(sidebarModel, "const allTasks = [...group.activeTasks, ...group.finishedTasks]");
+    assert.include(
+      sidebarModel,
+      "const allTasks = [...group.activeTasks, ...group.finishedTasks]",
+    );
     assert.include(sidebarModel, "const runningTasks = allTasks");
     assert.include(sidebarModel, "const completedTasks = allTasks.filter");
     assert.include(runDialog, "task-dashboard-run-selection-tasks-title");

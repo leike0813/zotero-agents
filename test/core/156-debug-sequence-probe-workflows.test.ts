@@ -285,8 +285,47 @@ describe("debug sequence probe workflows", function () {
     });
     assert.deepEqual(request.poll, {
       interval_ms: undefined,
-      timeout_ms: 120000,
     });
+  });
+
+  it("compiles Host Bridge connectivity probe through the sequence path", async function () {
+    setDebugModeOverrideForTests(true);
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = workflowById(
+      loaded.workflows,
+      "debug-host-bridge-connectivity-sequence-probe",
+    );
+
+    assert.equal(workflow.manifest.debug_only, true);
+    assert.deepEqual(workflow.manifest.execution?.zoteroHostAccess, {
+      required: true,
+    });
+
+    const request = compileDeclarativeRequest({
+      kind: "skillrunner.sequence.v1",
+      selectionContext: {},
+      manifest: workflow.manifest,
+    }) as any;
+
+    assert.deepInclude(request, {
+      kind: "skillrunner.sequence.v1",
+      final_step_id: "probe",
+    });
+    assert.deepEqual(request.parameter, {
+      probeDepth: "capability",
+      expectedConnectionMode: "auto",
+    });
+    assert.deepEqual(request.steps, [
+      {
+        id: "probe",
+        skill_id: "debug-host-bridge-connectivity-probe",
+        mode: "auto",
+        fetch_type: "result",
+        workspace: "new",
+      },
+    ]);
   });
 
   it("keeps Host Bridge connectivity probe output schema free of nullable fields", async function () {

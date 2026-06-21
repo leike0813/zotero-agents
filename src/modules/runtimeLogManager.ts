@@ -26,7 +26,10 @@ export type RuntimeLogScope =
   | "hook"
   | "system";
 
-export function createDefaultLogViewerLevelFilter(): Record<RuntimeLogLevel, boolean> {
+export function createDefaultLogViewerLevelFilter(): Record<
+  RuntimeLogLevel,
+  boolean
+> {
   return {
     debug: true,
     info: true,
@@ -41,8 +44,8 @@ export function filterLogsByLevels(
 ) {
   const active = new Set(
     (["debug", "info", "warn", "error"] as RuntimeLogLevel[]).filter(
-      (level) => levelFilter[level]
-    )
+      (level) => levelFilter[level],
+    ),
   );
   return entries.filter((entry) => active.has(entry.level));
 }
@@ -247,8 +250,13 @@ const MAX_DEPTH = 6;
 const MAX_ARRAY_ITEMS = 100;
 const MAX_OBJECT_KEYS = 200;
 const REDACTED = "<redacted>";
-const DEFAULT_ALLOWED_LEVELS = new Set<RuntimeLogLevel>(["info", "warn", "error"]);
-const SENSITIVE_KEY = /(authorization|token|secret|password|api[-_]?key|cookie|bearer)/i;
+const DEFAULT_ALLOWED_LEVELS = new Set<RuntimeLogLevel>([
+  "info",
+  "warn",
+  "error",
+]);
+const SENSITIVE_KEY =
+  /(authorization|token|secret|password|api[-_]?key|cookie|bearer)/i;
 const PERSIST_DEBOUNCE_MS = 25;
 
 let sequence = 0;
@@ -277,9 +285,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function cloneEntry(entry: RuntimeLogEntry): RuntimeLogEntry {
   return {
     ...entry,
-    details: typeof entry.details === "undefined"
-      ? undefined
-      : JSON.parse(JSON.stringify(entry.details)),
+    details:
+      typeof entry.details === "undefined"
+        ? undefined
+        : JSON.parse(JSON.stringify(entry.details)),
     error: entry.error ? { ...entry.error } : undefined,
     transport: entry.transport ? { ...entry.transport } : undefined,
   };
@@ -367,15 +376,24 @@ function sanitizeValue(
 }
 
 function normalizeLevel(input: unknown): RuntimeLogLevel {
-  const value = String(input || "").trim().toLowerCase();
-  if (value === "debug" || value === "info" || value === "warn" || value === "error") {
+  const value = String(input || "")
+    .trim()
+    .toLowerCase();
+  if (
+    value === "debug" ||
+    value === "info" ||
+    value === "warn" ||
+    value === "error"
+  ) {
     return value;
   }
   return "info";
 }
 
 function normalizeScope(input: unknown): RuntimeLogScope {
-  const value = String(input || "").trim().toLowerCase();
+  const value = String(input || "")
+    .trim()
+    .toLowerCase();
   if (
     value === "workflow-trigger" ||
     value === "job" ||
@@ -454,7 +472,9 @@ function normalizeAttempt(input: unknown) {
   return Math.floor(parsed);
 }
 
-function normalizeErrorCategory(input: unknown): RuntimeLogErrorCategory | undefined {
+function normalizeErrorCategory(
+  input: unknown,
+): RuntimeLogErrorCategory | undefined {
   const value = normalizeId(input);
   if (
     value === "network" ||
@@ -470,7 +490,9 @@ function normalizeErrorCategory(input: unknown): RuntimeLogErrorCategory | undef
   return undefined;
 }
 
-function normalizeTransport(input: unknown): RuntimeLogTransportSummary | undefined {
+function normalizeTransport(
+  input: unknown,
+): RuntimeLogTransportSummary | undefined {
   if (!isRecord(input)) {
     return undefined;
   }
@@ -540,7 +562,10 @@ function resolveActiveRetentionBudget() {
   };
 }
 
-function removeEntryAt(index: number, reason: keyof RuntimeLogDropReasonCounter) {
+function removeEntryAt(
+  index: number,
+  reason: keyof RuntimeLogDropReasonCounter,
+) {
   const [removed] = entries.splice(index, 1);
   if (!removed) {
     return;
@@ -681,11 +706,12 @@ function writeRuntimeLogFileAsync(content: string) {
   if (writeRuntimeLogFileSync(content)) {
     return;
   }
-  void writeRuntimeTextFile(getRuntimePersistencePaths().runtimeLogPath, content).catch(
-    () => {
-      filePersistenceFailureCount += 1;
-    },
-  );
+  void writeRuntimeTextFile(
+    getRuntimePersistencePaths().runtimeLogPath,
+    content,
+  ).catch(() => {
+    filePersistenceFailureCount += 1;
+  });
 }
 
 function clearPersistTimer() {
@@ -782,13 +808,15 @@ function hydrateRuntimeLogsIfNeeded() {
       ? parsed
       : Array.isArray(parsed?.entries)
         ? parsed.entries
-      : [];
+        : [];
     entries.length = 0;
     entryByteSizes.clear();
     estimatedBytes = 0;
     droppedEntries = Math.max(
       0,
-      Math.floor(Number(Array.isArray(parsed) ? 0 : parsed?.droppedEntries || 0) || 0),
+      Math.floor(
+        Number(Array.isArray(parsed) ? 0 : parsed?.droppedEntries || 0) || 0,
+      ),
     );
     droppedByReason = {
       entry_limit: Math.max(
@@ -797,7 +825,8 @@ function hydrateRuntimeLogsIfNeeded() {
           Number(
             Array.isArray(parsed)
               ? 0
-              : (parsed?.droppedByReason as Record<string, unknown> | undefined)?.entry_limit || 0,
+              : (parsed?.droppedByReason as Record<string, unknown> | undefined)
+                  ?.entry_limit || 0,
           ) || 0,
         ),
       ),
@@ -807,7 +836,8 @@ function hydrateRuntimeLogsIfNeeded() {
           Number(
             Array.isArray(parsed)
               ? 0
-              : (parsed?.droppedByReason as Record<string, unknown> | undefined)?.byte_budget || 0,
+              : (parsed?.droppedByReason as Record<string, unknown> | undefined)
+                  ?.byte_budget || 0,
           ) || 0,
         ),
       ),
@@ -817,7 +847,8 @@ function hydrateRuntimeLogsIfNeeded() {
           Number(
             Array.isArray(parsed)
               ? 0
-              : (parsed?.droppedByReason as Record<string, unknown> | undefined)?.expired || 0,
+              : (parsed?.droppedByReason as Record<string, unknown> | undefined)
+                  ?.expired || 0,
           ) || 0,
         ),
       ),
@@ -953,14 +984,18 @@ export function listRuntimeLogs(filters: RuntimeLogListFilters = {}) {
   hydrateRuntimeLogsIfNeeded();
   const levels = Array.isArray(filters.levels) ? new Set(filters.levels) : null;
   const scopes = Array.isArray(filters.scopes) ? new Set(filters.scopes) : null;
-  const backendIds = Array.isArray(filters.backendId) 
-    ? new Set(filters.backendId.map(id => normalizeId(id))) 
-    : filters.backendId ? new Set([normalizeId(filters.backendId)]) : null;
+  const backendIds = Array.isArray(filters.backendId)
+    ? new Set(filters.backendId.map((id) => normalizeId(id)))
+    : filters.backendId
+      ? new Set([normalizeId(filters.backendId)])
+      : null;
   const backendType = normalizeId(filters.backendType);
   const providerId = normalizeId(filters.providerId);
   const workflowIds = Array.isArray(filters.workflowId)
-    ? new Set(filters.workflowId.map(id => normalizeId(id)))
-    : filters.workflowId ? new Set([normalizeId(filters.workflowId)]) : null;
+    ? new Set(filters.workflowId.map((id) => normalizeId(id)))
+    : filters.workflowId
+      ? new Set([normalizeId(filters.workflowId)])
+      : null;
   const runId = normalizeId(filters.runId);
   const requestId = normalizeId(filters.requestId);
   const jobId = normalizeId(filters.jobId);
@@ -1093,6 +1128,21 @@ export function getRuntimeLogPersistenceStateForTests() {
   };
 }
 
+export function resetRuntimeLogHydrationForTests() {
+  clearPersistTimer();
+  hydrated = false;
+  entries.length = 0;
+  entryByteSizes.clear();
+  estimatedBytes = 0;
+  droppedEntries = 0;
+  droppedByReason = {
+    entry_limit: 0,
+    byte_budget: 0,
+    expired: 0,
+  };
+  persistenceDirty = false;
+}
+
 export function subscribeRuntimeLogs(listener: RuntimeLogListener) {
   hydrateRuntimeLogsIfNeeded();
   listeners.add(listener);
@@ -1101,7 +1151,9 @@ export function subscribeRuntimeLogs(listener: RuntimeLogListener) {
   };
 }
 
-export function formatRuntimeLogsAsPrettyJson(entriesToFormat: RuntimeLogEntry[]) {
+export function formatRuntimeLogsAsPrettyJson(
+  entriesToFormat: RuntimeLogEntry[],
+) {
   return JSON.stringify(entriesToFormat, null, 2);
 }
 
@@ -1156,8 +1208,13 @@ function resolveRuntimePlatform() {
   );
 }
 
-function normalizeTextPreview(input: string, limit = DIAGNOSTIC_TEXT_PREVIEW_LIMIT) {
-  const normalized = String(input || "").replace(/\s+/g, " ").trim();
+function normalizeTextPreview(
+  input: string,
+  limit = DIAGNOSTIC_TEXT_PREVIEW_LIMIT,
+) {
+  const normalized = String(input || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!normalized) {
     return "";
   }
@@ -1198,7 +1255,9 @@ function summarizeLargePayload(value: unknown) {
   };
 }
 
-function toDiagnosticExportEntry(entry: RuntimeLogEntry): Record<string, unknown> {
+function toDiagnosticExportEntry(
+  entry: RuntimeLogEntry,
+): Record<string, unknown> {
   const copied = cloneEntry(entry) as Record<string, unknown>;
   const textDigests: Record<string, unknown> = {};
   if (entry.message) {
@@ -1224,8 +1283,12 @@ function toDiagnosticExportEntry(entry: RuntimeLogEntry): Record<string, unknown
   return copied;
 }
 
-function isTerminalStage(stage: string): RuntimeDiagnosticIncident["terminalStatus"] | undefined {
-  const normalized = String(stage || "").trim().toLowerCase();
+function isTerminalStage(
+  stage: string,
+): RuntimeDiagnosticIncident["terminalStatus"] | undefined {
+  const normalized = String(stage || "")
+    .trim()
+    .toLowerCase();
   if (!normalized) {
     return undefined;
   }
@@ -1259,7 +1322,9 @@ function resolveIncidentChainId(entry: {
   return `workflow:${entry.workflowId || "unknown"}`;
 }
 
-function buildIncidentsFromTimeline(timeline: RuntimeDiagnosticTimelineEvent[]) {
+function buildIncidentsFromTimeline(
+  timeline: RuntimeDiagnosticTimelineEvent[],
+) {
   const map = new Map<string, RuntimeDiagnosticIncident>();
   for (const event of timeline) {
     const chainId = resolveIncidentChainId(event);
@@ -1274,10 +1339,7 @@ function buildIncidentsFromTimeline(timeline: RuntimeDiagnosticTimelineEvent[]) 
       eventCount: 0,
     };
     existing.eventCount += 1;
-    if (
-      event.level === "error" &&
-      !existing.firstError
-    ) {
+    if (event.level === "error" && !existing.firstError) {
       existing.firstError = {
         ts: event.ts,
         stage: event.stage,
@@ -1301,37 +1363,41 @@ function buildIncidentsFromTimeline(timeline: RuntimeDiagnosticTimelineEvent[]) 
   return Array.from(map.values());
 }
 
-export function buildRuntimeDiagnosticBundle(args: {
-  filters?: RuntimeLogListFilters;
-} = {}): RuntimeDiagnosticBundleV1 {
+export function buildRuntimeDiagnosticBundle(
+  args: {
+    filters?: RuntimeLogListFilters;
+  } = {},
+): RuntimeDiagnosticBundleV1 {
   flushRuntimeLogsPersistenceNow();
   const filters = args.filters || {};
   const timelineEntries = listRuntimeLogs({
     ...filters,
     order: "asc",
   });
-  const timeline: RuntimeDiagnosticTimelineEvent[] = timelineEntries.map((entry) => ({
-    id: entry.id,
-    ts: entry.ts,
-    level: entry.level,
-    scope: entry.scope,
-    stage: entry.stage,
-    message: entry.message,
-    workflowId: entry.workflowId,
-    backendId: entry.backendId,
-    backendType: entry.backendType,
-    providerId: entry.providerId,
-    runId: entry.runId,
-    jobId: entry.jobId,
-    requestId: entry.requestId,
-    interactionId: entry.interactionId,
-    component: entry.component,
-    operation: entry.operation,
-    phase: entry.phase,
-    attempt: entry.attempt,
-    transport: entry.transport ? { ...entry.transport } : undefined,
-    category: entry.error?.category,
-  }));
+  const timeline: RuntimeDiagnosticTimelineEvent[] = timelineEntries.map(
+    (entry) => ({
+      id: entry.id,
+      ts: entry.ts,
+      level: entry.level,
+      scope: entry.scope,
+      stage: entry.stage,
+      message: entry.message,
+      workflowId: entry.workflowId,
+      backendId: entry.backendId,
+      backendType: entry.backendType,
+      providerId: entry.providerId,
+      runId: entry.runId,
+      jobId: entry.jobId,
+      requestId: entry.requestId,
+      interactionId: entry.interactionId,
+      component: entry.component,
+      operation: entry.operation,
+      phase: entry.phase,
+      attempt: entry.attempt,
+      transport: entry.transport ? { ...entry.transport } : undefined,
+      category: entry.error?.category,
+    }),
+  );
   const incidents = buildIncidentsFromTimeline(timeline);
   const budget = resolveActiveRetentionBudget();
   return {
@@ -1368,16 +1434,22 @@ export function buildRuntimeDiagnosticBundle(args: {
   };
 }
 
-export function buildRuntimeIssueSummary(args: {
-  filters?: RuntimeLogListFilters;
-  topErrorLimit?: number;
-} = {}) {
+export function buildRuntimeIssueSummary(
+  args: {
+    filters?: RuntimeLogListFilters;
+    topErrorLimit?: number;
+  } = {},
+) {
   const bundle = buildRuntimeDiagnosticBundle({
     filters: args.filters,
   });
-  const topErrorLimit = Math.max(1, Math.floor(Number(args.topErrorLimit || 8)));
+  const topErrorLimit = Math.max(
+    1,
+    Math.floor(Number(args.topErrorLimit || 8)),
+  );
   const errorTimeline = bundle.timeline.filter(
-    (entry) => entry.level === "error" || entry.stage.toLowerCase().includes("fail"),
+    (entry) =>
+      entry.level === "error" || entry.stage.toLowerCase().includes("fail"),
   );
   const topErrors = errorTimeline.slice(0, topErrorLimit);
   const lines = [

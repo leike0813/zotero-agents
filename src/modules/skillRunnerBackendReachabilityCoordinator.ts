@@ -23,6 +23,7 @@ import {
   shouldProbeSkillRunnerBackendNow,
   syncSkillRunnerBackendHealthForConfiguredBackends,
 } from "./skillRunnerBackendHealthRegistry";
+import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 
 const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 
@@ -254,6 +255,16 @@ export function startSkillRunnerBackendReachabilityCoordinator() {
   scheduleSkillRunnerBackendReachabilityProbe({
     source: "startup",
     delayMs: 0,
+  });
+  registerBackgroundRefreshTimer({
+    owner: "skillrunner-backend-reachability",
+    activationCondition: "reachability coordinator started",
+    scopeKey: "configured SkillRunner backend health state",
+    allowedDataSources: ["backend registry", "backend health registry"],
+    maxReadShape: "configured backend probe metadata only",
+    requiresForegroundSurface: false,
+    minimumIntervalMs: SKILLRUNNER_BACKEND_PROBE_TICK_MS,
+    intervalMs: SKILLRUNNER_BACKEND_PROBE_TICK_MS,
   });
   coordinatorTimer = setInterval(() => {
     void runProbeSweep("periodic").catch((error) => {

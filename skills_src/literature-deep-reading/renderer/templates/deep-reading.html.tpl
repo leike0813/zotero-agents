@@ -78,7 +78,7 @@
             {{STATIC_APPENDIX_TRANSLATION}}
           </article>
         </section>
-        <section class="citation-graph-section" data-citation-graph>
+        <section class="citation-graph-section" data-citation-graph {{CITATION_GRAPH_SECTION_ATTRS}}>
           {{STATIC_CITATION_GRAPH}}
         </section>
         <section class="extensions" data-extensions>

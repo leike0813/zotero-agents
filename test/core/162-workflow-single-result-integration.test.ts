@@ -47,6 +47,7 @@ const SEQUENCE_RESULT_WORKFLOW_ID = "debug-apply-sequence-result";
 const SEQUENCE_BUNDLE_WORKFLOW_ID = "debug-apply-sequence-bundle";
 const INTERACTIVE_CHOICE_WORKFLOW_ID = "debug-interactive-choice-probe";
 const INTERACTIVE_THEN_RESULT_WORKFLOW_ID = "debug-interactive-then-result";
+const SEQUENCE_FILE_HANDOFF_WORKFLOW_ID = "debug-sequence-file-handoff-probe";
 const SKILLRUNNER_BACKEND: BackendInstance = {
   id: "integration-skillrunner",
   type: "skillrunner",
@@ -296,6 +297,17 @@ function makeInteractiveChoiceResult(overrides: Record<string, unknown> = {}) {
     ok: true,
     accepted_any_reply: true,
     message: "accepted debug choice",
+    ...overrides,
+  };
+}
+
+function makeDebugSequenceProbeResult(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: "debug_sequence_probe_result",
+    probe_id: "file-handoff",
+    status: "ok",
+    checks: [],
+    diagnostics: [],
     ...overrides,
   };
 }
@@ -733,6 +745,95 @@ describe("workflow single-result behavior integration", function () {
     ]);
   });
 
+  it("runs the SkillRunner sequence file handoff workflow with workspace binding", async function () {
+    const remoteWorkspace =
+      "/home/joshua/Workspace/Code/Python/Skill-Runner/data/workspaces/integration-file-handoff";
+    const remoteArtifact =
+      `${remoteWorkspace}/runtime/sequence-file-handoff-artifact.json`;
+    const run = await runDebugApplyWorkflow({
+      provider: "skillrunner",
+      workflowId: SEQUENCE_FILE_HANDOFF_WORKFLOW_ID,
+      requestKind: "skillrunner.sequence.v1",
+      scenario: async ({ request, requestKind, onProgress }) => {
+        assert.equal(requestKind, "skillrunner.job.v1");
+        const skillId = normalizeString(request.skill_id);
+        if (skillId === "debug-sequence-probe-emit") {
+          const requestId = "sr-file-handoff-emit";
+          onProgress?.({ type: "request-created", requestId });
+          onProgress?.({ type: "request-ready", requestId });
+          return {
+            status: "succeeded",
+            requestId,
+            fetchType: "result",
+            resultJson: makeDebugSequenceProbeResult({
+              public_marker: "file-handoff-public",
+              secret_marker: "file-handoff-secret",
+              sentinel_path: "runtime/sequence-file-handoff-artifact.json",
+              artifact_path: remoteArtifact,
+            }),
+            workspaceDir: remoteWorkspace,
+            responseJson: {
+              workspaceDir: remoteWorkspace,
+            },
+          };
+        }
+        assert.equal(skillId, "debug-sequence-probe-check");
+        const requestId = "sr-file-handoff-check";
+        onProgress?.({ type: "request-created", requestId });
+        onProgress?.({ type: "request-ready", requestId });
+        return {
+          status: "succeeded",
+          requestId,
+          fetchType: "result",
+          resultJson: makeDebugSequenceProbeResult({
+            checks: [
+              {
+                name: "artifact_file_readable",
+                expected: "readable",
+                actual: "readable",
+                passed: true,
+              },
+            ],
+          }),
+          responseJson: {},
+        };
+      },
+    });
+
+    assert.equal(run.request.kind, "skillrunner.sequence.v1");
+    assert.lengthOf(run.providerCalls, 2);
+    const checkRequest = run.providerCalls[1].request;
+    assert.equal(
+      (checkRequest.input as Record<string, unknown>).artifact_file,
+      "inputs/artifact_file/sequence-file-handoff-artifact.json",
+    );
+    assert.notProperty(checkRequest, "upload_files");
+    assert.deepEqual((checkRequest.runtime_options as any).workspace, {
+      mode: "reuse",
+      request_id: "sr-file-handoff-emit",
+      file_bindings: [
+        {
+          input_key: "artifact_file",
+          source_request_id: "sr-file-handoff-emit",
+          source_path: "runtime/sequence-file-handoff-artifact.json",
+          target_path: "inputs/artifact_file/sequence-file-handoff-artifact.json",
+        },
+      ],
+    });
+    assert.isOk(findRequestReadyUpdate(run, "sr-file-handoff-emit"));
+    assert.isOk(findRequestReadyUpdate(run, "sr-file-handoff-check"));
+    assert.equal(run.applySummary.succeeded, 1);
+    assert.equal(run.applySummary.failed, 0);
+    assert.lengthOf(run.assistantCalls, 0);
+    const stored = getSkillRunnerRunRecordByRequest({
+      backendId: SKILLRUNNER_BACKEND.id,
+      requestId: "sr-file-handoff-check",
+    });
+    assert.equal(stored?.status, "succeeded");
+    assert.equal(stored?.apply.state, "skipped");
+    assert.isTrue(run.applySummary.jobOutcomes[0]?.succeeded);
+  });
+
   it("runs the SkillRunner sequence-bundle happy path with foreground step bundle apply", async function () {
     const run = await runDebugApplyWorkflow({
       provider: "skillrunner",
@@ -749,6 +850,7 @@ describe("workflow single-result behavior integration", function () {
           requestId,
           provider: "skillrunner",
           fetchType: "bundle",
+          manifestBundle: stepId === "bundle_two",
         });
       },
     });
@@ -777,6 +879,13 @@ describe("workflow single-result behavior integration", function () {
       "bundle_one debug bundle artifact",
       "bundle_two debug bundle artifact",
     ]);
+    assert.deepInclude(
+      run.applySummary.jobOutcomes[0]?.structuredApplyResult as Record<
+        string,
+        unknown
+      >,
+      { skipped_final_apply: true },
+    );
   });
 
   it("detaches the SkillRunner interactive choice workflow at waiting_user without applying", async function () {

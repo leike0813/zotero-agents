@@ -26,7 +26,9 @@ async function getLiteratureTranslatorWorkflow() {
     workflow,
     `workflow literature-translator not found; loaded=${loaded.workflows
       .map((entry) => entry.manifest.id)
-      .join(",")} warnings=${JSON.stringify(loaded.warnings)} errors=${JSON.stringify(loaded.errors)}`,
+      .join(
+        ",",
+      )} warnings=${JSON.stringify(loaded.warnings)} errors=${JSON.stringify(loaded.errors)}`,
   );
   return workflow!;
 }
@@ -84,13 +86,12 @@ describe("workflow: literature-translator", function () {
   this.timeout(30000);
 
   it("normalizes translator output paths before host file access", async function () {
-    const { __translatorArtifactsTestOnly } = (await import(
-      "../../workflows_builtin/literature-workbench-package/lib/translatorArtifacts.mjs"
-    )) as {
-      __translatorArtifactsTestOnly: {
-        normalizeHostFilePath(value: string): string;
+    const { __translatorArtifactsTestOnly } =
+      (await import("../../workflows_builtin/literature-workbench-package/lib/translatorArtifacts.mjs")) as {
+        __translatorArtifactsTestOnly: {
+          normalizeHostFilePath(value: string): string;
+        };
       };
-    };
 
     assert.equal(
       __translatorArtifactsTestOnly.normalizeHostFilePath(
@@ -117,7 +118,10 @@ describe("workflow: literature-translator", function () {
       "text/plain",
       "application/pdf",
     ]);
-    assert.equal(workflow.manifest.validateSelection?.select?.policy, "literature-source");
+    assert.equal(
+      workflow.manifest.validateSelection?.select?.policy,
+      "literature-source",
+    );
     assert.isFunction(workflow.hooks.buildRequest);
     assert.isFunction(workflow.hooks.applyResult);
   });
@@ -313,9 +317,180 @@ describe("workflow: literature-translator", function () {
     assert.isTrue(await existsPath(targetPath));
     assert.isTrue(await existsPath(targetAlignmentPath));
     assert.equal(await readUtf8(targetPath), "# Traduction\n");
-    assert.include(await readUtf8(targetAlignmentPath), '"target_language":"fr-FR"');
+    assert.include(
+      await readUtf8(targetAlignmentPath),
+      '"target_language":"fr-FR"',
+    );
     assert.equal(await countAttachmentsByPath(parent, targetPath), 1);
     assert.equal(await countAttachmentsByPath(parent, targetAlignmentPath), 0);
+  });
+
+  it("materializes translated artifacts when status is a diagnostic non-success value", async function () {
+    const workflow = await getLiteratureTranslatorWorkflow();
+    const sourceDir = await mkTempDir(
+      "zotero-skills-translator-diagnostic-source",
+    );
+    const outputDir = await mkTempDir(
+      "zotero-skills-translator-diagnostic-output",
+    );
+    const parent = await createParent("Translator Diagnostic Apply Parent");
+    const source = await createAttachment({
+      parent,
+      dirPath: sourceDir,
+      name: "paper.pdf",
+      mimeType: "application/pdf",
+    });
+    const outputPath = joinPath(outputDir, "output_ja-JP.md");
+    const alignmentPath = joinPath(outputDir, "alignment.json");
+    await writeUtf8(outputPath, "# 翻訳\n");
+    await writeUtf8(
+      alignmentPath,
+      JSON.stringify({
+        format: "v1",
+        target_language: "ja-JP",
+        blocks: [],
+      }),
+    );
+
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: {
+        readText: async () => "",
+      },
+      request: {
+        kind: "skillrunner.sequence.v1",
+        sourceAttachmentPaths: [source.filePath],
+        steps: [
+          {
+            id: "translate",
+            parameter: {
+              target_language: "ja-JP",
+            },
+          },
+        ],
+      },
+      runResult: {
+        resultJson: {
+          status: "failed",
+          reason: "quality gate reported caveats",
+          output_path: outputPath,
+          alignment_path: alignmentPath,
+          warnings: ["translation needs review"],
+          error: {
+            message: "agent marked output partial",
+          },
+          provenance: {
+            source_path: source.filePath,
+            source_language: "en-US",
+            target_language: "ja-JP",
+          },
+        },
+      },
+    })) as {
+      ok?: boolean;
+      warnings?: string[];
+      skill_diagnostics?: {
+        status?: string;
+        reason?: string;
+        error?: { message?: string };
+      };
+    };
+
+    assert.isTrue(applied.ok);
+    assert.deepEqual(applied.warnings, ["translation needs review"]);
+    assert.equal(applied.skill_diagnostics?.status, "failed");
+    assert.equal(
+      applied.skill_diagnostics?.reason,
+      "quality gate reported caveats",
+    );
+    assert.equal(
+      applied.skill_diagnostics?.error?.message,
+      "agent marked output partial",
+    );
+    assert.equal(
+      await readUtf8(joinPath(sourceDir, "paper_ja-JP.md")),
+      "# 翻訳\n",
+    );
+  });
+
+  it("includes skill diagnostics when non-success translator output cannot be materialized", async function () {
+    const workflow = await getLiteratureTranslatorWorkflow();
+    const sourceDir = await mkTempDir(
+      "zotero-skills-translator-missing-source",
+    );
+    const parent = await createParent("Translator Missing Diagnostic Parent");
+    const source = await createAttachment({
+      parent,
+      dirPath: sourceDir,
+      name: "paper.pdf",
+      mimeType: "application/pdf",
+    });
+    const resultJson = {
+      status: "failed",
+      reason: "artifact upload incomplete",
+      output_path: "D:/remote/run/output_fr-FR.md",
+      alignment_path: "D:/remote/run/alignment.json",
+      warnings: ["missing remote artifact"],
+      error: {
+        code: "missing_artifact",
+        message: "output markdown was not uploaded",
+      },
+      provenance: {
+        source_path: source.filePath,
+        source_language: "en-US",
+        target_language: "fr-FR",
+      },
+    };
+    const bundleReader = {
+      async readText(entryPath: string) {
+        if (entryPath === "result/result.json") {
+          return JSON.stringify(resultJson);
+        }
+        throw new Error(`missing bundle entry: ${entryPath}`);
+      },
+    };
+    const runResult = {
+      status: "succeeded",
+      requestId: "translator-missing-diagnostic-test",
+      fetchType: "bundle",
+      resultJson,
+    };
+    const resultContext = await createWorkflowResultContext({
+      runResult,
+      bundleReader,
+      manifest: workflow.manifest,
+    });
+
+    let thrown: unknown = null;
+    try {
+      await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader,
+        resultContext,
+        request: {
+          kind: "skillrunner.sequence.v1",
+          sourceAttachmentPaths: [source.filePath],
+          steps: [
+            {
+              id: "translate",
+              parameter: {
+                target_language: "fr-FR",
+              },
+            },
+          ],
+        },
+        runResult,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.isOk(thrown, "expected missing artifacts to fail apply");
+    assert.include(String(thrown), "skill diagnostics");
+    assert.include(String(thrown), "artifact upload incomplete");
+    assert.include(String(thrown), "output markdown was not uploaded");
   });
 
   it("materializes translated artifacts from a remote bundle when result paths are not local", async function () {
@@ -389,11 +564,16 @@ describe("workflow: literature-translator", function () {
     const targetPath = joinPath(sourceDir, "paper_fr-FR.md");
     const targetAlignmentPath = joinPath(sourceDir, "paper_fr-FR.json");
     assert.equal(await readUtf8(targetPath), "# Traduction depuis bundle\n");
-    assert.include(await readUtf8(targetAlignmentPath), '"target_language":"fr-FR"');
+    assert.include(
+      await readUtf8(targetAlignmentPath),
+      '"target_language":"fr-FR"',
+    );
     assert.equal(await countAttachmentsByPath(parent, targetPath), 1);
   });
 });
 
 function normalizePathForCompare(value: string) {
-  return String(value || "").replace(/[\\/]+/g, "/").toLowerCase();
+  return String(value || "")
+    .replace(/[\\/]+/g, "/")
+    .toLowerCase();
 }

@@ -1,7 +1,16 @@
 import {
+  BACKEND_TYPES,
   DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE,
+  type BackendType,
 } from "../config/defaults";
 import type { LoadedWorkflow } from "../workflows/types";
+
+function normalizeBackendType(value: unknown): BackendType | null {
+  const normalized = String(value || "").trim();
+  return BACKEND_TYPES.includes(normalized as BackendType)
+    ? (normalized as BackendType)
+    : null;
+}
 
 export function resolveWorkflowRequestKind(
   workflow: LoadedWorkflow,
@@ -11,7 +20,10 @@ export function resolveWorkflowRequestKind(
   if (declared) {
     return declared;
   }
-  const fallback = DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[backendType];
+  const normalizedBackendType = normalizeBackendType(backendType);
+  const fallback = normalizedBackendType
+    ? DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[normalizedBackendType]
+    : undefined;
   if (fallback) {
     return fallback;
   }

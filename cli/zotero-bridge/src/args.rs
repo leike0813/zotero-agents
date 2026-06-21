@@ -517,9 +517,15 @@ pub enum WorkflowCommand {
 
     #[command(
         about = "Submit a workflow with explicit JSON input",
-        long_about = "Call POST /bridge/v1/workflows/submit. Requires --workflow and --input. The input file must contain explicit input such as {\"items\":[{\"key\":\"ABCD1234\",\"libraryId\":1}]} or {\"kind\":\"none\"}. Workflow submit requires Zotero-side approval."
+        long_about = "Call POST /bridge/v1/workflows/submit. Requires --workflow and either --items or --none. Use --workflow-options for workflow parameters and --provider-profile for backend/provider runtime options. Workflow submit requires Zotero-side approval."
     )]
     Submit(WorkflowSubmitArgs),
+
+    #[command(
+        about = "Describe workflow selection, option, and provider profile requirements",
+        long_about = "Call POST /bridge/v1/workflows/describe. This read-only command returns selection requirements, workflow option schema, compatible backend profiles, provider option schema, and normalized draft values."
+    )]
+    Describe(WorkflowDescribeArgs),
 
     #[command(
         about = "Read one workflow run status",
@@ -536,9 +542,52 @@ pub struct WorkflowSubmitArgs {
     #[arg(
         long,
         value_name = "JSON_OR_FILE",
-        help = "Workflow input JSON, file path, @file, or '-' for stdin"
+        conflicts_with = "none",
+        required_unless_present = "none",
+        help = "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
     )]
-    pub input: String,
+    pub items: Option<String>,
+
+    #[arg(
+        long,
+        conflicts_with = "items",
+        help = "Submit a no-selection workflow"
+    )]
+    pub none: bool,
+
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "Workflow options JSON object, file path, @file, or '-' for stdin"
+    )]
+    pub workflow_options: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "Provider profile JSON object with backendId and providerOptions"
+    )]
+    pub provider_profile: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowDescribeArgs {
+    #[arg(long, help = "Workflow id to describe")]
+    pub workflow: String,
+
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "Draft workflow options JSON object, file path, @file, or '-' for stdin"
+    )]
+    pub workflow_options: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "Draft provider profile JSON object with backendId and providerOptions"
+    )]
+    pub provider_profile: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -699,7 +748,7 @@ pub struct FileDownloadArgs {
 mod tests {
     use clap::{CommandFactory, Parser};
 
-    use super::{Cli, Command, LiteratureCommand, TopicsCommand};
+    use super::{Cli, Command, LiteratureCommand, TopicsCommand, WorkflowCommand};
 
     #[test]
     fn top_level_help_exposes_agent_discovery_cues() {
@@ -851,5 +900,121 @@ mod tests {
             },
             _ => panic!("expected topics command"),
         }
+    }
+
+    #[test]
+    fn parses_workflow_describe_with_profile_inputs() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "describe",
+            "--workflow",
+            "literature-analysis",
+            "--workflow-options",
+            "{\"language\":\"zh-CN\"}",
+            "--provider-profile",
+            "{\"backendId\":\"acp-opencode\"}",
+        ]);
+
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Describe(input) => {
+                    assert_eq!(input.workflow, "literature-analysis");
+                    assert_eq!(
+                        input.workflow_options.as_deref(),
+                        Some("{\"language\":\"zh-CN\"}")
+                    );
+                    assert_eq!(
+                        input.provider_profile.as_deref(),
+                        Some("{\"backendId\":\"acp-opencode\"}")
+                    );
+                }
+                _ => panic!("expected workflow describe"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn parses_workflow_submit_with_items() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "submit",
+            "--workflow",
+            "literature-analysis",
+            "--items",
+            "[{\"key\":\"ABC\",\"libraryId\":1}]",
+        ]);
+
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Submit(input) => {
+                    assert_eq!(input.workflow, "literature-analysis");
+                    assert_eq!(
+                        input.items.as_deref(),
+                        Some("[{\"key\":\"ABC\",\"libraryId\":1}]")
+                    );
+                    assert!(!input.none);
+                }
+                _ => panic!("expected workflow submit"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn parses_workflow_submit_with_none() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "submit",
+            "--workflow",
+            "global-workflow",
+            "--none",
+        ]);
+
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Submit(input) => {
+                    assert_eq!(input.workflow, "global-workflow");
+                    assert!(input.none);
+                    assert!(input.items.is_none());
+                }
+                _ => panic!("expected workflow submit"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn rejects_workflow_submit_items_and_none_together() {
+        let result = Cli::try_parse_from([
+            "zotero-bridge",
+            "workflow",
+            "submit",
+            "--workflow",
+            "global-workflow",
+            "--items",
+            "[]",
+            "--none",
+        ]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_legacy_workflow_submit_input_flag() {
+        let result = Cli::try_parse_from([
+            "zotero-bridge",
+            "workflow",
+            "submit",
+            "--workflow",
+            "global-workflow",
+            "--input",
+            "{}",
+        ]);
+
+        assert!(result.is_err());
     }
 }

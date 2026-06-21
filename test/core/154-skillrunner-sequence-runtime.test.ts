@@ -28,7 +28,10 @@ import {
   resetAcpSkillRunsForTests,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
-import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import {
+  listPluginRunStoreEntries,
+  resetPluginStateStoreForTests,
+} from "../../src/modules/pluginStateStore";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
 import {
   getSkillRunnerRunRecordByRequest,
@@ -1573,6 +1576,75 @@ describe("skillrunner.sequence.v1 runtime", function () {
       getSequenceRunState("workflow-run-recovered-short-circuit")?.status,
       "completed",
     );
+  });
+
+  it("does not persist sequence step bundle bytes in run state", function () {
+    const request = {
+      kind: "skillrunner.sequence.v1" as const,
+      steps: [
+        {
+          id: "deep_reading",
+          skill_id: "literature-deep-reading",
+          mode: "auto" as const,
+          workspace: "new" as const,
+          fetch_type: "bundle" as const,
+        },
+      ],
+      final_step_id: "deep_reading",
+    };
+    const backend = {
+      id: "skillrunner-backend",
+      type: "skillrunner" as const,
+      baseUrl: "http://127.0.0.1:8030",
+      auth: { kind: "none" as const },
+    };
+
+    initializeSequenceRunState({
+      request,
+      backend,
+      providerOptions: {},
+      workflowId: "literature-deep-reading",
+      workflowRunId: "workflow-run-large-bundle",
+      jobId: "job-large-bundle",
+    });
+    recordSequenceStepSucceeded({
+      sequenceRunId: "workflow-run-large-bundle",
+      stepIndex: 0,
+      requestId: "bundle-request",
+      output: { html_path: "result/deep-reading.html" },
+      result: {
+        status: "succeeded",
+        requestId: "bundle-request",
+        fetchType: "bundle",
+        bundleBytes: new Uint8Array([1, 2, 3, 4, 5]),
+        bundleDir: "C:/tmp/extracted-bundle",
+        resultJson: { html_path: "result/deep-reading.html" },
+        resultJsonPath: "result/literature-deep-reading.1/result.json",
+        workspaceDir: "/remote/workspace",
+        resultArtifactBasePath: "result/literature-deep-reading.1",
+        responseJson: { request_id: "bundle-request", status: "succeeded" },
+      },
+    });
+
+    const state = getSequenceRunState("workflow-run-large-bundle");
+    const persistedResult = state?.steps[0]?.result as
+      | Record<string, unknown>
+      | undefined;
+    assert.equal(persistedResult?.status, "succeeded");
+    assert.equal(persistedResult?.fetchType, "bundle");
+    assert.notProperty(persistedResult || {}, "bundleBytes");
+    assert.notProperty(persistedResult || {}, "bundleDir");
+    assert.deepEqual(persistedResult?.resultJson, {
+      html_path: "result/deep-reading.html",
+    });
+
+    const entry = listPluginRunStoreEntries("skillrunner").find(
+      (candidate) =>
+        candidate.runKey === "sequence:workflow-run-large-bundle",
+    );
+    assert.isOk(entry);
+    assert.notInclude(entry!.payload, "bundleBytes");
+    assert.notInclude(entry!.payload, "bundleDir");
   });
 
   it("parks sequence state when a middle step is deferred", async function () {

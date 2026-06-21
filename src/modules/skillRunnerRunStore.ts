@@ -3,14 +3,22 @@ import { DEFAULT_BACKEND_TYPE } from "../config/defaults";
 import {
   appendPluginRunEventStoreEntry,
   clearPluginRunStore,
+  clearPluginTaskRowEntries,
+  countPluginTaskRowStates,
   deletePluginRunStoreEntry,
+  deletePluginTaskRowEntry,
+  deletePluginTaskRowEntriesByBackend,
   getPluginRunStoreEntry,
   getPluginRunStoreEntryByRequest,
   listPluginRunEventStoreEntries,
   listPluginRunStoreEntries,
+  listPluginRunStoreEntriesFiltered,
+  listPluginTaskRowEntriesFiltered,
+  PLUGIN_TASK_DOMAIN_SKILLRUNNER,
   upsertPluginRunStoreEntry,
+  upsertPluginTaskRowEntry,
 } from "./pluginStateStore";
-import { isTerminal } from "./skillRunnerProviderStateMachine";
+import { isActive, isTerminal } from "./skillRunnerProviderStateMachine";
 import type { WorkflowTaskRecord } from "./taskRuntime";
 
 export type SkillRunnerRunApplyState =
@@ -22,6 +30,8 @@ export type SkillRunnerRunApplyState =
   | "skipped";
 
 const SKILLRUNNER_RUN_SCHEMA_VERSION = "2.0.0";
+const SKILLRUNNER_PROJECTION_ACTIVE_SCOPE = "active";
+const SKILLRUNNER_PROJECTION_HISTORY_SCOPE = "history";
 
 export type SkillRunnerRunLifecycleState = JobState;
 export type SkillRunnerLocalRunLifecycleState =
@@ -75,7 +85,6 @@ export type SkillRunnerRunRecord = {
     resultJson?: unknown;
     resultJsonPath?: string;
     workspaceDir?: string;
-    bundleDir?: string;
   };
   sequence?: {
     sequenceRunId?: string;
@@ -89,6 +98,37 @@ export type SkillRunnerRunRecord = {
   archivedAt?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type SkillRunnerRunProjectionListOptions = {
+  activeOnly?: boolean;
+  backendId?: string;
+  requestId?: string;
+  limit?: number;
+};
+
+export type SkillRunnerRunRecordListOptions = {
+  backendId?: string;
+  requestId?: string;
+  limit?: number;
+};
+
+export type SkillRunnerRunStoreReadDiagnostics = {
+  fullPayloadReadCount: number;
+  fullPayloadQueryCount: number;
+  lightweightProjectionReadCount: number;
+  lightweightProjectionQueryCount: number;
+  lightweightProjectionScopedReadCount: number;
+  lightweightProjectionScopedQueryCount: number;
+  lightweightProjectionUnscopedReadCount: number;
+  lightweightProjectionUnscopedQueryCount: number;
+  lightweightProjectionSummaryQueryCount: number;
+  lightweightProjectionSummaryReadCount: number;
+};
+
+export type SkillRunnerRunProjectionStateCount = {
+  state: JobState;
+  count: number;
 };
 
 export type SkillRunnerRunEventType =
@@ -122,9 +162,40 @@ export type SkillRunnerRunEventRecord = {
 
 let eventCounter = 0;
 const listeners = new Set<() => void>();
+const projectionBackfillScopes = new Set<string>();
+const readDiagnostics: SkillRunnerRunStoreReadDiagnostics = {
+  fullPayloadReadCount: 0,
+  fullPayloadQueryCount: 0,
+  lightweightProjectionReadCount: 0,
+  lightweightProjectionQueryCount: 0,
+  lightweightProjectionScopedReadCount: 0,
+  lightweightProjectionScopedQueryCount: 0,
+  lightweightProjectionUnscopedReadCount: 0,
+  lightweightProjectionUnscopedQueryCount: 0,
+  lightweightProjectionSummaryQueryCount: 0,
+  lightweightProjectionSummaryReadCount: 0,
+};
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizeLimit(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  const normalized = Math.floor(value);
+  return normalized > 0 ? normalized : 0;
+}
+
+function isUnscopedHistoryProjectionRead(
+  options: SkillRunnerRunProjectionListOptions,
+) {
+  return (
+    options.activeOnly !== true &&
+    !normalizeString(options.backendId) &&
+    !normalizeString(options.requestId)
+  );
 }
 
 function emitSkillRunnerRunStoreChanged() {
@@ -143,6 +214,23 @@ export function subscribeSkillRunnerRunStore(listener: () => void) {
   return () => {
     listeners.delete(listener);
   };
+}
+
+export function getSkillRunnerRunStoreReadDiagnosticsForTests() {
+  return { ...readDiagnostics };
+}
+
+export function resetSkillRunnerRunStoreReadDiagnosticsForTests() {
+  readDiagnostics.fullPayloadReadCount = 0;
+  readDiagnostics.fullPayloadQueryCount = 0;
+  readDiagnostics.lightweightProjectionReadCount = 0;
+  readDiagnostics.lightweightProjectionQueryCount = 0;
+  readDiagnostics.lightweightProjectionScopedReadCount = 0;
+  readDiagnostics.lightweightProjectionScopedQueryCount = 0;
+  readDiagnostics.lightweightProjectionUnscopedReadCount = 0;
+  readDiagnostics.lightweightProjectionUnscopedQueryCount = 0;
+  readDiagnostics.lightweightProjectionSummaryQueryCount = 0;
+  readDiagnostics.lightweightProjectionSummaryReadCount = 0;
 }
 
 function nowIso() {
@@ -192,7 +280,9 @@ function parseRecord(payload: string): SkillRunnerRunRecord | null {
     if (!isObject(parsed)) {
       return null;
     }
-    if (normalizeString(parsed.schemaVersion) !== SKILLRUNNER_RUN_SCHEMA_VERSION) {
+    if (
+      normalizeString(parsed.schemaVersion) !== SKILLRUNNER_RUN_SCHEMA_VERSION
+    ) {
       return null;
     }
     const runKey = normalizeString(parsed.runKey);
@@ -246,7 +336,10 @@ function shouldAcceptStateTransition(
   if (!previous) {
     return true;
   }
-  if (isTerminalRunLifecycleState(previous.status) && !isTerminalRunLifecycleState(next)) {
+  if (
+    isTerminalRunLifecycleState(previous.status) &&
+    !isTerminalRunLifecycleState(next)
+  ) {
     return false;
   }
   return true;
@@ -323,6 +416,153 @@ function isProjectableRunRecord(
   );
 }
 
+function buildProjectionFromRecord(
+  record: SkillRunnerRunRecord,
+): WorkflowTaskRecord {
+  return {
+    ...record.taskProjection,
+    localRunId: record.localRunId || record.taskProjection.localRunId,
+    requestId: normalizeString(record.requestId) || undefined,
+    skillName: record.skillName || record.taskProjection.skillName,
+    skillLabel: record.skillLabel || record.taskProjection.skillLabel,
+    skillId: record.skillId || record.taskProjection.skillId,
+    state: taskStateFromRunLifecycleState(record.status),
+    mainStatus: taskStateFromRunLifecycleState(record.status),
+    backendStatus: record.backendStatus,
+    skillRunnerLifecycleState: record.status,
+    ...buildProjectionCapabilities({
+      requestId: record.requestId,
+      status: record.status,
+    }),
+    submitPhase: record.submitPhase,
+    submitStartedAt: record.submitStartedAt,
+    submitTimeoutAt: record.submitTimeoutAt,
+    submitError: record.submitError,
+    applyState: record.apply.state,
+    applyError: record.apply.error,
+    applyNextRetryAt: record.apply.nextRetryAt,
+    resultJsonPath: record.result?.resultJsonPath,
+    workspaceDir: record.result?.workspaceDir,
+    role: record.role,
+    error: record.error,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function parseProjectionPayload(payload: string): WorkflowTaskRecord | null {
+  try {
+    const parsed = JSON.parse(payload || "{}");
+    if (!isObject(parsed)) {
+      return null;
+    }
+    const id = normalizeString(parsed.id);
+    const runId = normalizeString(parsed.runId);
+    const jobId = normalizeString(parsed.jobId);
+    const workflowId = normalizeString(parsed.workflowId);
+    const workflowLabel = normalizeString(parsed.workflowLabel);
+    const taskName = normalizeString(parsed.taskName);
+    const state = normalizeString(parsed.state) as JobState;
+    const createdAt = normalizeString(parsed.createdAt);
+    const updatedAt = normalizeString(parsed.updatedAt);
+    if (
+      !id ||
+      !runId ||
+      !jobId ||
+      !workflowId ||
+      !workflowLabel ||
+      !taskName ||
+      !state ||
+      !createdAt ||
+      !updatedAt
+    ) {
+      return null;
+    }
+    return parsed as WorkflowTaskRecord;
+  } catch {
+    return null;
+  }
+}
+
+function deleteSkillRunnerProjectionRows(runKey: string) {
+  if (!runKey) {
+    return;
+  }
+  deletePluginTaskRowEntry(
+    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    runKey,
+    SKILLRUNNER_PROJECTION_ACTIVE_SCOPE,
+  );
+  deletePluginTaskRowEntry(
+    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    runKey,
+    SKILLRUNNER_PROJECTION_HISTORY_SCOPE,
+  );
+}
+
+function upsertSkillRunnerProjectionRows(record: SkillRunnerRunRecord) {
+  if (!isProjectableRunRecord(record) || normalizeString(record.archivedAt)) {
+    deleteSkillRunnerProjectionRows(record.runKey);
+    return;
+  }
+  const projection = buildProjectionFromRecord(record);
+  const row = {
+    taskId: record.runKey,
+    requestId: normalizeString(record.requestId),
+    backendId: normalizeString(record.backendId),
+    state: projection.state,
+    updatedAt: projection.updatedAt,
+    payload: JSON.stringify(projection),
+  };
+  upsertPluginTaskRowEntry(
+    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    SKILLRUNNER_PROJECTION_HISTORY_SCOPE,
+    row,
+  );
+  if (isActive(projection.state)) {
+    upsertPluginTaskRowEntry(
+      PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+      SKILLRUNNER_PROJECTION_ACTIVE_SCOPE,
+      row,
+    );
+    return;
+  }
+  deletePluginTaskRowEntry(
+    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    record.runKey,
+    SKILLRUNNER_PROJECTION_ACTIVE_SCOPE,
+  );
+}
+
+function buildProjectionBackfillScopeKey(
+  scope: string,
+  options: SkillRunnerRunProjectionListOptions,
+) {
+  const backendId = normalizeString(options.backendId);
+  const requestId = normalizeString(options.requestId);
+  if (!backendId && !requestId) {
+    return "";
+  }
+  return [scope, backendId || "*", requestId || "*"].join(":");
+}
+
+function backfillProjectionRowsForScopedRead(
+  scope: string,
+  options: SkillRunnerRunProjectionListOptions,
+) {
+  const backfillKey = buildProjectionBackfillScopeKey(scope, options);
+  if (!backfillKey || projectionBackfillScopes.has(backfillKey)) {
+    return;
+  }
+  projectionBackfillScopes.add(backfillKey);
+  const records = listSkillRunnerRunRecords({
+    backendId: options.backendId,
+    requestId: options.requestId,
+  });
+  for (const record of records) {
+    upsertSkillRunnerProjectionRows(record);
+  }
+}
+
 function findProjectableRunByRequest(args: {
   backendId?: string;
   requestId: string;
@@ -333,7 +573,10 @@ function findProjectableRunByRequest(args: {
   }
   const backendId = normalizeString(args.backendId);
   return (
-    listSkillRunnerRunRecords().find(
+    listSkillRunnerRunRecords({
+      backendId: backendId || undefined,
+      requestId,
+    }).find(
       (record) =>
         isProjectableRunRecord(record) &&
         normalizeString(record.requestId) === requestId &&
@@ -344,6 +587,10 @@ function findProjectableRunByRequest(args: {
 
 export function getSkillRunnerRunRecord(runKeyRaw: string) {
   const entry = getPluginRunStoreEntry("skillrunner", runKeyRaw);
+  if (entry) {
+    readDiagnostics.fullPayloadReadCount += 1;
+    readDiagnostics.fullPayloadQueryCount += 1;
+  }
   return entry ? parseRecord(entry.payload) : null;
 }
 
@@ -369,6 +616,10 @@ export function getSkillRunnerRunRecordByRequest(args: {
     backendId: args.backendId,
     requestId: args.requestId,
   });
+  if (entry) {
+    readDiagnostics.fullPayloadReadCount += 1;
+    readDiagnostics.fullPayloadQueryCount += 1;
+  }
   const matched = entry ? parseRecord(entry.payload) : null;
   if (isProjectableRunRecord(matched)) {
     return matched;
@@ -376,8 +627,21 @@ export function getSkillRunnerRunRecordByRequest(args: {
   return null;
 }
 
-export function listSkillRunnerRunRecords() {
-  return listPluginRunStoreEntries("skillrunner")
+export function listSkillRunnerRunRecords(
+  options: SkillRunnerRunRecordListOptions = {},
+) {
+  const limit = normalizeLimit(options.limit);
+  const entries =
+    options.backendId || options.requestId || limit
+      ? listPluginRunStoreEntriesFiltered("skillrunner", {
+          backendId: options.backendId,
+          requestId: options.requestId,
+          limit: limit || undefined,
+        })
+      : listPluginRunStoreEntries("skillrunner");
+  readDiagnostics.fullPayloadQueryCount += 1;
+  readDiagnostics.fullPayloadReadCount += entries.length;
+  return entries
     .map((entry) => parseRecord(entry.payload))
     .filter((entry): entry is SkillRunnerRunRecord => !!entry);
 }
@@ -455,6 +719,7 @@ export function upsertSkillRunnerRunRecord(
     },
   };
   upsertPluginRunStoreEntry("skillrunner", recordToEntry(next));
+  upsertSkillRunnerProjectionRows(next);
   if (event) {
     appendSkillRunnerRunEvent({
       runKey: next.runKey,
@@ -489,7 +754,8 @@ export function upsertSkillRunnerRunFromTask(
     return null;
   }
   const requestId = normalizeString(task.requestId);
-  const localRunId = normalizeString(task.localRunId) || normalizeString(task.id);
+  const localRunId =
+    normalizeString(task.localRunId) || normalizeString(task.id);
   const runKey = buildSkillRunnerRunKey({
     backendId: task.backendId,
     requestId,
@@ -519,11 +785,14 @@ export function upsertSkillRunnerRunFromTask(
     }
   }
   const nextStatusRaw = normalizeString(
-    task.skillRunnerLifecycleState || task.state || previous?.status || "running",
+    task.skillRunnerLifecycleState ||
+      task.state ||
+      previous?.status ||
+      "running",
   );
-  const status = (nextStatusRaw === "request_ready"
-    ? "running"
-    : nextStatusRaw) as SkillRunnerLocalRunLifecycleState;
+  const status = (
+    nextStatusRaw === "request_ready" ? "running" : nextStatusRaw
+  ) as SkillRunnerLocalRunLifecycleState;
   const backendStatus =
     task.backendStatus ||
     previous?.backendStatus ||
@@ -566,8 +835,7 @@ export function upsertSkillRunnerRunFromTask(
       normalizeString(task.submitStartedAt) || previous?.submitStartedAt,
     submitTimeoutAt:
       normalizeString(task.submitTimeoutAt) || previous?.submitTimeoutAt,
-    submitError:
-      normalizeString(task.submitError) || previous?.submitError,
+    submitError: normalizeString(task.submitError) || previous?.submitError,
     executionMode: args.executionMode || previous?.executionMode,
     fetchType: args.fetchType || previous?.fetchType,
     apply: {
@@ -639,13 +907,11 @@ export function updateSkillRunnerRunStateByRequest(args: {
   }
   const nextError = normalizeString(args.error) || undefined;
   const nextStateRaw = normalizeString(args.state);
-  const nextState = (nextStateRaw === "request_ready"
-    ? "running"
-    : nextStateRaw) as JobState;
+  const nextState = (
+    nextStateRaw === "request_ready" ? "running" : nextStateRaw
+  ) as JobState;
   const nextSubmitPhase =
-    nextStateRaw === "request_ready"
-      ? "request_ready"
-      : existing.submitPhase;
+    nextStateRaw === "request_ready" ? "request_ready" : existing.submitPhase;
   const nextBackendStatus =
     args.backendStatus ||
     (nextStateRaw === "request_ready"
@@ -756,7 +1022,6 @@ export function updateSkillRunnerRunResult(args: {
   resultJson?: unknown;
   resultJsonPath?: string;
   workspaceDir?: string;
-  bundleDir?: string;
   updatedAt?: string;
   eventPayload?: unknown;
 }) {
@@ -769,17 +1034,14 @@ export function updateSkillRunnerRunResult(args: {
   }
   const updatedAt = normalizeString(args.updatedAt) || nowIso();
   const result = {
-    ...(existing.result || {}),
     resultJson:
       typeof args.resultJson === "undefined"
         ? existing.result?.resultJson
         : args.resultJson,
     resultJsonPath:
-      normalizeString(args.resultJsonPath) ||
-      existing.result?.resultJsonPath,
+      normalizeString(args.resultJsonPath) || existing.result?.resultJsonPath,
     workspaceDir:
       normalizeString(args.workspaceDir) || existing.result?.workspaceDir,
-    bundleDir: normalizeString(args.bundleDir) || existing.result?.bundleDir,
   };
   return upsertSkillRunnerRunRecord(
     {
@@ -800,47 +1062,78 @@ export function updateSkillRunnerRunResult(args: {
   );
 }
 
-export function listSkillRunnerRunProjections() {
-  return listSkillRunnerRunRecords()
-    .filter(
-      (record) =>
-        !normalizeString(record.archivedAt) &&
-        record.projectable !== false &&
-        record.role !== "sequence_root",
-    )
-    .map((record) => ({
-      ...record.taskProjection,
-      localRunId: record.localRunId || record.taskProjection.localRunId,
-      requestId: normalizeString(record.requestId) || undefined,
-      skillName: record.skillName || record.taskProjection.skillName,
-      skillLabel: record.skillLabel || record.taskProjection.skillLabel,
-      skillId: record.skillId || record.taskProjection.skillId,
-      state: taskStateFromRunLifecycleState(record.status),
-      mainStatus: taskStateFromRunLifecycleState(record.status),
-      backendStatus: record.backendStatus,
-      skillRunnerLifecycleState: record.status,
-      ...buildProjectionCapabilities({
-        requestId: record.requestId,
-        status: record.status,
-      }),
-      submitPhase: record.submitPhase,
-      submitStartedAt: record.submitStartedAt,
-      submitTimeoutAt: record.submitTimeoutAt,
-      submitError: record.submitError,
-      applyState: record.apply.state,
-      applyError: record.apply.error,
-      applyNextRetryAt: record.apply.nextRetryAt,
-      resultJsonPath: record.result?.resultJsonPath,
-      workspaceDir: record.result?.workspaceDir,
-      role: record.role,
-      error: record.error,
-      updatedAt: record.updatedAt,
-    }));
+export function listSkillRunnerRunProjectionSummaries(
+  options: SkillRunnerRunProjectionListOptions = {},
+) {
+  const scope = options.activeOnly
+    ? SKILLRUNNER_PROJECTION_ACTIVE_SCOPE
+    : SKILLRUNNER_PROJECTION_HISTORY_SCOPE;
+  let entries = listPluginTaskRowEntriesFiltered(
+    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    scope,
+    {
+      backendId: options.backendId,
+      requestId: options.requestId,
+      limit: normalizeLimit(options.limit) || undefined,
+    },
+  );
+  if (entries.length === 0) {
+    backfillProjectionRowsForScopedRead(scope, options);
+    entries = listPluginTaskRowEntriesFiltered(
+      PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+      scope,
+      {
+        backendId: options.backendId,
+        requestId: options.requestId,
+        limit: normalizeLimit(options.limit) || undefined,
+      },
+    );
+  }
+  readDiagnostics.lightweightProjectionQueryCount += 1;
+  readDiagnostics.lightweightProjectionReadCount += entries.length;
+  if (isUnscopedHistoryProjectionRead(options)) {
+    readDiagnostics.lightweightProjectionUnscopedQueryCount += 1;
+    readDiagnostics.lightweightProjectionUnscopedReadCount += entries.length;
+  } else {
+    readDiagnostics.lightweightProjectionScopedQueryCount += 1;
+    readDiagnostics.lightweightProjectionScopedReadCount += entries.length;
+  }
+  return entries
+    .map((entry) => parseProjectionPayload(entry.payload))
+    .filter((entry): entry is WorkflowTaskRecord => !!entry);
+}
+
+export function listSkillRunnerRunProjections(
+  options: SkillRunnerRunProjectionListOptions = {},
+) {
+  return listSkillRunnerRunProjectionSummaries(options);
+}
+
+export function countSkillRunnerRunProjectionStates(
+  options: SkillRunnerRunProjectionListOptions = {},
+): SkillRunnerRunProjectionStateCount[] {
+  const scope = options.activeOnly
+    ? SKILLRUNNER_PROJECTION_ACTIVE_SCOPE
+    : SKILLRUNNER_PROJECTION_HISTORY_SCOPE;
+  const rows = countPluginTaskRowStates(PLUGIN_TASK_DOMAIN_SKILLRUNNER, scope, {
+    backendId: options.backendId,
+    requestId: options.requestId,
+  });
+  readDiagnostics.lightweightProjectionSummaryQueryCount += 1;
+  readDiagnostics.lightweightProjectionSummaryReadCount += rows.reduce(
+    (sum, row) => sum + row.count,
+    0,
+  );
+  return rows.map((row) => ({
+    state: row.state as JobState,
+    count: row.count,
+  }));
 }
 
 export function deleteSkillRunnerRunRecord(runKey: string) {
   const removed = deletePluginRunStoreEntry("skillrunner", runKey);
   if (removed) {
+    deleteSkillRunnerProjectionRows(runKey);
     emitSkillRunnerRunStoreChanged();
   }
   return removed;
@@ -913,13 +1206,17 @@ export function deleteSkillRunnerRunRecordsByBackend(backendIdRaw: string) {
     return 0;
   }
   let removed = 0;
-  for (const record of listSkillRunnerRunRecords()) {
+  for (const record of listSkillRunnerRunRecords({ backendId })) {
     if (normalizeString(record.backendId) !== backendId) {
       continue;
     }
     removed += deletePluginRunStoreEntry("skillrunner", record.runKey) ? 1 : 0;
   }
   if (removed > 0) {
+    deletePluginTaskRowEntriesByBackend(
+      PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+      backendId,
+    );
     emitSkillRunnerRunStoreChanged();
   }
   return removed;
@@ -927,6 +1224,16 @@ export function deleteSkillRunnerRunRecordsByBackend(backendIdRaw: string) {
 
 export function resetSkillRunnerRunStoreForTests() {
   clearPluginRunStore("skillrunner");
+  clearPluginTaskRowEntries(
+    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    SKILLRUNNER_PROJECTION_ACTIVE_SCOPE,
+  );
+  clearPluginTaskRowEntries(
+    PLUGIN_TASK_DOMAIN_SKILLRUNNER,
+    SKILLRUNNER_PROJECTION_HISTORY_SCOPE,
+  );
   eventCounter = 0;
+  projectionBackfillScopes.clear();
+  resetSkillRunnerRunStoreReadDiagnosticsForTests();
   emitSkillRunnerRunStoreChanged();
 }

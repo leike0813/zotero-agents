@@ -5,6 +5,7 @@
   const state = {
     activeTab: "acp-chat",
     initializedFrames: new Set(),
+    loadedFrames: new Set(),
     latestChildPayloads: new Map(),
     actionSeq: 0,
     actionTrace: [],
@@ -16,6 +17,18 @@
 
   function frameForTab(tab) {
     return $("assistant-frame-" + tab);
+  }
+
+  function loadingOverlay() {
+    return $("assistant-workspace-loading");
+  }
+
+  function updateLoadingState() {
+    const overlay = loadingOverlay();
+    if (!overlay) return;
+    const isLoading = !state.loadedFrames.has(state.activeTab);
+    overlay.classList.toggle("hidden", !isLoading);
+    overlay.setAttribute("aria-hidden", isLoading ? "false" : "true");
   }
 
   function bridgeKeyForTab(tab) {
@@ -244,6 +257,7 @@
     if (nextTab === "skillrunner") {
       installChildBridge("skillrunner");
     }
+    updateLoadingState();
   }
 
   function initializeFrame(tab) {
@@ -257,6 +271,22 @@
     }
     state.initializedFrames.add(tab);
     sendChildAction(tab, "ready", {});
+  }
+
+  function handleFrameLoad(tab) {
+    state.loadedFrames.add(tab);
+    initializeFrame(tab);
+    updateLoadingState();
+  }
+
+  function attachFrameLoadListeners() {
+    tabs.forEach(function (tab) {
+      const frame = frameForTab(tab);
+      if (!frame) return;
+      frame.addEventListener("load", function () {
+        handleFrameLoad(tab);
+      });
+    });
   }
 
   window.addEventListener("message", function (event) {
@@ -313,15 +343,9 @@
   document.addEventListener("DOMContentLoaded", function () {
     tabs.forEach(function (tab) {
       const button = $("assistant-tab-" + tab);
-      const frame = frameForTab(tab);
       if (button) {
         button.addEventListener("click", function () {
           setActiveTab(tab);
-        });
-      }
-      if (frame) {
-        frame.addEventListener("load", function () {
-          initializeFrame(tab);
         });
       }
     });
@@ -331,6 +355,9 @@
       });
     });
     setActiveTab("acp-chat", { notify: false, fallback: "acp-chat" });
+    updateLoadingState();
     void postToHost("assistant-workspace:action", { action: "ready" });
   });
+
+  attachFrameLoadListeners();
 })();

@@ -196,6 +196,8 @@ fn bridge_error_from_value(status: u16, json: Value) -> CliError {
         }
         "invalid_capability_input"
         | "invalid_workflow_input"
+        | "invalid_workflow_submit_request"
+        | "invalid_workflow_describe_request"
         | "invalid_file_id"
         | "bad_request" => crate::error::ErrorCategory::Validation,
         _ => crate::error::ErrorCategory::Protocol,

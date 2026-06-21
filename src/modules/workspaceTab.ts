@@ -17,15 +17,19 @@ import {
   toggleAssistantWorkspaceSidebar,
 } from "./assistantWorkspaceSidebar";
 import {
-  listAcpSkillRuns,
+  listAcpSkillRunSummaries,
   subscribeAcpSkillRunSnapshots,
 } from "./acpSkillRunStore";
 import { countDashboardHumanAttentionTasks } from "./dashboardActiveTasks";
-import { listActiveWorkflowTasks, subscribeWorkflowTasks } from "./taskRuntime";
+import {
+  listActiveWorkflowTaskSummaries,
+  subscribeWorkflowTaskChanges,
+} from "./taskRuntime";
 import {
   installWorkspaceToolbarTaskPopover,
   uninstallWorkspaceToolbarTaskPopover,
 } from "./workspaceToolbarTaskPopover";
+import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 
 type WorkspaceView = "dashboard" | "synthesis";
 type WorkspaceShellLabels = {
@@ -136,10 +140,7 @@ function buildWorkspaceShellLabels(): WorkspaceShellLabels {
       "workspace-shell-theme-dark",
       "Dark",
     ),
-    refresh: localizeWorkspaceShellLabel(
-      "workspace-shell-refresh",
-      "Refresh",
-    ),
+    refresh: localizeWorkspaceShellLabel("workspace-shell-refresh", "Refresh"),
     toggleSidebar: localizeWorkspaceShellLabel(
       "workspace-shell-toggle-sidebar",
       "Toggle sidebar",
@@ -440,8 +441,8 @@ function clearBridge(runtime: WorkspaceRuntime) {
 
 function countWorkspaceHumanAttentionTasks() {
   return countDashboardHumanAttentionTasks({
-    activeTasks: listActiveWorkflowTasks(),
-    acpSkillRuns: listAcpSkillRuns(),
+    activeTasks: listActiveWorkflowTaskSummaries(),
+    acpSkillRuns: listAcpSkillRunSummaries({ activeOnly: true }),
   });
 }
 
@@ -616,6 +617,16 @@ function scheduleWorkspaceHandshake(runtime: WorkspaceRuntime) {
     });
   };
   run();
+  registerBackgroundRefreshTimer({
+    owner: "workspace-tab-handshake",
+    activationCondition: "workspace tab frame is mounting",
+    scopeKey: "current workspace frame",
+    allowedDataSources: ["workspace frame handshake"],
+    maxReadShape: "frame handshake signal only",
+    requiresForegroundSurface: true,
+    minimumIntervalMs: WORKSPACE_HANDSHAKE_INTERVAL_MS,
+    intervalMs: WORKSPACE_HANDSHAKE_INTERVAL_MS,
+  });
   runtime.handshakeTimer = setInterval(run, WORKSPACE_HANDSHAKE_INTERVAL_MS);
 }
 
@@ -876,7 +887,7 @@ export async function openZoteroSkillsWorkspaceTab(
   runtime.removeAcpSkillRunSubscription = subscribeAcpSkillRunSnapshots(() => {
     syncWorkspaceSidebarEntry(runtime);
   });
-  runtime.removeTaskSubscription = subscribeWorkflowTasks(() => {
+  runtime.removeTaskSubscription = subscribeWorkflowTaskChanges(() => {
     syncWorkspaceSidebarEntry(runtime);
   });
   workspaceTab = runtime;

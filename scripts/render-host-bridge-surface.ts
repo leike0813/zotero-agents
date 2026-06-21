@@ -222,6 +222,15 @@ function resolverGuidance() {
   ].join("\n");
 }
 
+function workflowGuidance() {
+  return [
+    "- Use `workflow describe --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.",
+    "- `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use legacy `--input`.",
+    "- Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.",
+    "- Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.",
+  ].join("\n");
+}
+
 function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
   return [
     "This section is generated from the Host Bridge capability registry and Rust CLI mappings. Edit the registry or CLI source, then run `npm run render:host-bridge-surface`.",
@@ -237,6 +246,10 @@ function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
     "#### Resolver payloads",
     "",
     resolverGuidance(),
+    "",
+    "#### Workflow payloads",
+    "",
+    workflowGuidance(),
     "",
     "#### Debug capabilities",
     "",
@@ -278,6 +291,10 @@ function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
     "### Resolver payloads",
     "",
     resolverGuidance(),
+    "",
+    "### Workflow payloads",
+    "",
+    workflowGuidance(),
   ].join("\n");
 }
 
@@ -308,6 +325,10 @@ function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
     "### Resolver payloads",
     "",
     resolverGuidance(),
+    "",
+    "### Workflow payloads",
+    "",
+    workflowGuidance(),
     "",
     "### Raw-only and debug capabilities",
     "",

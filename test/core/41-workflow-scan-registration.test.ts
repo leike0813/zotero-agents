@@ -168,6 +168,7 @@ describe("workflow scan + registry integration", function () {
     assert.equal(localizeWorkflowLabel(workflow!, "zh-CN"), "📊 文献分析");
     const expectedCoreWorkflows = new Map([
       ["literature-analysis", "📊"],
+      ["tag-bootstrapper", "🌱"],
       ["tag-regulator", "🏷️"],
       ["literature-explainer", "💬"],
       ["literature-deep-reading", "📖"],

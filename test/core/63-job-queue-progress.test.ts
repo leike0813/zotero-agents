@@ -79,6 +79,91 @@ describe("job queue progress", function () {
     assert.equal(updates[2].requestId, "req-progress-job-1");
   });
 
+  it("preserves typed core metadata through enqueue, progress, and deferred result", async function () {
+    const updates: Array<{
+      state: string;
+      backendType?: string;
+      providerId?: string;
+      requestKind?: string;
+      requestId?: string;
+      sequenceStepIndex?: number;
+      extensionValue?: unknown;
+    }> = [];
+    const queue = new JobQueueManager({
+      concurrency: 1,
+      executeJob: async (_job, runtime) => {
+        runtime.reportProgress({
+          type: "request-created",
+          requestId: "req-core-meta-1",
+        });
+        return {
+          status: "deferred",
+          requestId: "req-core-meta-1",
+          fetchType: "bundle",
+          backendStatus: "waiting_user",
+        };
+      },
+      onJobProgress: (job, event) => {
+        const requestId = String(event.requestId || "").trim();
+        if (requestId) {
+          job.meta.requestId = requestId;
+        }
+      },
+      onJobUpdated: (job) => {
+        updates.push({
+          state: job.state,
+          backendType: String(job.meta.backendType || "").trim() || undefined,
+          providerId: String(job.meta.providerId || "").trim() || undefined,
+          requestKind: String(job.meta.requestKind || "").trim() || undefined,
+          requestId: String(job.meta.requestId || "").trim() || undefined,
+          sequenceStepIndex:
+            typeof job.meta.sequenceStepIndex === "number"
+              ? job.meta.sequenceStepIndex
+              : undefined,
+          extensionValue: job.meta.customWorkflowMeta,
+        });
+      },
+    });
+
+    const jobId = queue.enqueue({
+      workflowId: "test-workflow",
+      request: { ok: true },
+      meta: {
+        runId: " run-core ",
+        workflowRunId: "workflow-run-1",
+        providerId: "skillrunner",
+        backendId: "backend-skillrunner",
+        backendType: "skillrunner",
+        backendBaseUrl: "http://127.0.0.1:8030",
+        requestKind: "skillrunner.job.v1",
+        sequenceStepId: "step-a",
+        sequenceStepIndex: 2.8,
+        customWorkflowMeta: {
+          preserved: true,
+        },
+      },
+    });
+    await queue.waitForIdle();
+
+    const job = queue.getJob(jobId);
+    assert.isOk(job);
+    assert.equal(job!.state, "waiting_user");
+    assert.equal(job!.meta.runId, "run-core");
+    assert.equal(job!.meta.requestId, "req-core-meta-1");
+    assert.equal(job!.meta.sequenceStepIndex, 2);
+    assert.deepEqual(job!.meta.customWorkflowMeta, {
+      preserved: true,
+    });
+    assert.deepInclude(updates[updates.length - 1], {
+      state: "waiting_user",
+      backendType: "skillrunner",
+      providerId: "skillrunner",
+      requestKind: "skillrunner.job.v1",
+      requestId: "req-core-meta-1",
+      sequenceStepIndex: 2,
+    });
+  });
+
   it("maps deferred provider result to waiting_user state and releases queue idle", async function () {
     const updates: string[] = [];
     const queue = new JobQueueManager({
@@ -234,8 +319,7 @@ describe("job queue progress", function () {
     assert.isTrue(
       listRuntimeLogs().some(
         (entry) =>
-          entry.stage === "dispatch-failed" &&
-          entry.requestId === undefined,
+          entry.stage === "dispatch-failed" && entry.requestId === undefined,
       ),
     );
   });

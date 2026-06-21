@@ -1,5 +1,8 @@
 import { appendRuntimeLog } from "../runtimeLogManager";
-import { listActiveWorkflowTasks, type WorkflowTaskRecord } from "../taskRuntime";
+import {
+  listActiveWorkflowTaskSummaries,
+  type WorkflowTaskRecord,
+} from "../taskRuntime";
 import { localizeWorkflowText } from "./messageFormatter";
 import {
   resolveInputUnitIdentityFromRequest,
@@ -19,7 +22,7 @@ type DuplicateGuardDeps = {
 };
 
 const defaultDuplicateGuardDeps: DuplicateGuardDeps = {
-  listActiveWorkflowTasks,
+  listActiveWorkflowTasks: listActiveWorkflowTaskSummaries,
   appendRuntimeLog,
   confirmDuplicateSubmission: ({
     win,

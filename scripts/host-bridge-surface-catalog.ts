@@ -249,6 +249,7 @@ function endpointMappings(): HostBridgeCliMapping[] {
     ["status", "GET /bridge/v1/health"],
     ["manifest", "GET /bridge/v1/manifest"],
     ["workflow list", "GET /bridge/v1/workflows"],
+    ["workflow describe", "POST /bridge/v1/workflows/describe"],
     ["workflow submit", "POST /bridge/v1/workflows/submit"],
     ["workflow run", "GET /bridge/v1/workflows/runs/{runId}"],
     ["task list", "GET /bridge/v1/tasks"],

@@ -5,9 +5,7 @@ import {
   normalizeStagedEntryWithBindings,
   normalizeStagedPublishState,
 } from "../../lib/bindings.mjs";
-import {
-  publishRemoteVocabulary as publishRemoteVocabularyCore,
-} from "../../lib/remote.mjs";
+import { publishRemoteVocabulary as publishRemoteVocabularyCore } from "../../lib/remote.mjs";
 import {
   appendWorkflowRuntimeLog,
   decodeRuntimeBase64Utf8,
@@ -21,6 +19,10 @@ import {
   showWorkflowToast,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
+import {
+  appendSkillDiagnosticsToResult,
+  collectSkillOutputDiagnostics,
+} from "../../lib/resultOutput.mjs";
 import {
   loadLocalCommittedState as loadLocalCommittedStateCore,
   loadRemoteCommittedState as loadRemoteCommittedStateCore,
@@ -163,7 +165,8 @@ function normalizeSuggestTagEntries(value) {
       tag,
       note: asString(entry.note),
       parentCount:
-        Number.isFinite(Number(entry.parentCount)) && Number(entry.parentCount) > 0
+        Number.isFinite(Number(entry.parentCount)) &&
+        Number(entry.parentCount) > 0
           ? Math.trunc(Number(entry.parentCount))
           : 0,
     });
@@ -327,7 +330,9 @@ function buildCommittedPayload(entries) {
   const normalized = normalizePersistedEntries(entries);
   const issues = collectValidationIssuesFallback(normalized);
   if (issues.length > 0) {
-    throw new Error(asString(issues[0]?.message || "tag vocabulary validation failed"));
+    throw new Error(
+      asString(issues[0]?.message || "tag vocabulary validation failed"),
+    );
   }
   return {
     version: 1,
@@ -376,7 +381,9 @@ function persistLocalCommittedEntries(entries) {
   const normalized = normalizePersistedEntries(entries);
   const issues = collectValidationIssuesFallback(normalized);
   if (issues.length > 0) {
-    throw new Error(asString(issues[0]?.message || "tag vocabulary validation failed"));
+    throw new Error(
+      asString(issues[0]?.message || "tag vocabulary validation failed"),
+    );
   }
   return persistLocalCommittedEntriesCore(normalized);
 }
@@ -385,7 +392,9 @@ function persistRemoteCommittedEntries(entries) {
   const normalized = normalizePersistedEntries(entries);
   const issues = collectValidationIssuesFallback(normalized);
   if (issues.length > 0) {
-    throw new Error(asString(issues[0]?.message || "tag vocabulary validation failed"));
+    throw new Error(
+      asString(issues[0]?.message || "tag vocabulary validation failed"),
+    );
   }
   return persistRemoteCommittedEntriesCore(normalized);
 }
@@ -413,7 +422,9 @@ function fallbackPersistEntries(entries) {
   const normalized = normalizePersistedEntries(entries);
   const issues = collectValidationIssuesFallback(normalized);
   if (issues.length > 0) {
-    throw new Error(asString(issues[0]?.message || "tag vocabulary validation failed"));
+    throw new Error(
+      asString(issues[0]?.message || "tag vocabulary validation failed"),
+    );
   }
   return persistEntriesCore(normalized, {
     workflowId: TAG_MANAGER_WORKFLOW_ID,
@@ -422,7 +433,8 @@ function fallbackPersistEntries(entries) {
 
 function tagEntryFromSynthesis(entry) {
   const tag = asString(entry?.tag);
-  const facet = asString(entry?.facet).toLowerCase() || getTagPrefix(tag) || "topic";
+  const facet =
+    asString(entry?.facet).toLowerCase() || getTagPrefix(tag) || "topic";
   return {
     tag,
     facet,
@@ -434,12 +446,14 @@ function tagEntryFromSynthesis(entry) {
 
 function stagedEntryFromSynthesis(entry) {
   const tag = asString(entry?.tag);
-  const facet = asString(entry?.facet).toLowerCase() || getTagPrefix(tag) || "topic";
+  const facet =
+    asString(entry?.facet).toLowerCase() || getTagPrefix(tag) || "topic";
   return normalizeStagedEntryWithBindings(
     {
       tag,
       facet,
-      source: asString(entry?.source || SUGGEST_TAGS_SOURCE) || SUGGEST_TAGS_SOURCE,
+      source:
+        asString(entry?.source || SUGGEST_TAGS_SOURCE) || SUGGEST_TAGS_SOURCE,
       note: asString(entry?.note),
       deprecated: false,
       sourceFlow: asString(entry?.source_flow) || STAGED_SOURCE_FLOW,
@@ -554,20 +568,25 @@ function normalizePersistedStagedEntries(entries) {
       });
       const tag = asString(normalized.tag);
       const facet =
-        asString(normalized.facet).toLowerCase() || getTagPrefix(tag) || "topic";
-      const createdAt = toIsoTimestamp(normalized.createdAt) || nowIsoTimestamp();
+        asString(normalized.facet).toLowerCase() ||
+        getTagPrefix(tag) ||
+        "topic";
+      const createdAt =
+        toIsoTimestamp(normalized.createdAt) || nowIsoTimestamp();
       const updatedAt = toIsoTimestamp(normalized.updatedAt) || createdAt;
       return {
         tag,
         facet,
         source:
-          asString(normalized.source || SUGGEST_TAGS_SOURCE) || SUGGEST_TAGS_SOURCE,
+          asString(normalized.source || SUGGEST_TAGS_SOURCE) ||
+          SUGGEST_TAGS_SOURCE,
         note: asString(normalized.note),
         deprecated: Boolean(normalized.deprecated),
         createdAt,
         updatedAt,
         sourceFlow:
-          asString(normalized.sourceFlow || STAGED_SOURCE_FLOW) || STAGED_SOURCE_FLOW,
+          asString(normalized.sourceFlow || STAGED_SOURCE_FLOW) ||
+          STAGED_SOURCE_FLOW,
         parentBindings: Array.isArray(normalized.parentBindings)
           ? [...normalized.parentBindings]
           : [],
@@ -750,7 +769,9 @@ async function fetchJsonOrThrow(url, options) {
   const response = await resolveRuntimeFetch()(url, options);
   if (!response || response.ok !== true) {
     const status = Number(response?.status || 0);
-    throw new Error(`HTTP ${status || "request-failed"} while requesting ${url}`);
+    throw new Error(
+      `HTTP ${status || "request-failed"} while requesting ${url}`,
+    );
   }
   try {
     return await response.json();
@@ -786,7 +807,9 @@ async function fetchPublishBaseline(config) {
 }
 
 function buildPublishedVocabularyPayload(args) {
-  const remotePayload = normalizeRemoteVocabularyPayload(args?.remotePayload || {});
+  const remotePayload = normalizeRemoteVocabularyPayload(
+    args?.remotePayload || {},
+  );
   const localTags = sanitizeRemoteTags(args?.localTags);
   const tagFacetSet = new Set(localTags.map((entry) => asString(entry.facet)));
   const facets = [];
@@ -856,7 +879,8 @@ async function publishRemoteVocabulary(args) {
 }
 
 async function commitControlledEntries(args) {
-  const syncConfig = args?.config || resolveGitHubSyncConfig(TAG_MANAGER_WORKFLOW_ID);
+  const syncConfig =
+    args?.config || resolveGitHubSyncConfig(TAG_MANAGER_WORKFLOW_ID);
   const mode = args?.mode || resolveTagVocabularyMode(syncConfig);
   const nextEntries = normalizePersistedEntries(args?.entries);
   if (mode !== "subscription") {
@@ -883,7 +907,8 @@ async function commitControlledEntries(args) {
 function resolveTagVocabularyBridge() {
   return {
     loadPersistedState: loadSynthesisControlledState,
-    persistEntries: async (entries) => commitSynthesisControlledEntries({ entries }),
+    persistEntries: async (entries) =>
+      commitSynthesisControlledEntries({ entries }),
     collectValidationIssues: collectValidationIssuesFallback,
     loadPersistedStagedState: loadSynthesisStagedState,
     persistStagedEntries: persistSynthesisStagedEntries,
@@ -906,7 +931,8 @@ function appendTagRegulatorRuntimeLog(args) {
       component: "tag-regulator-apply-result",
       operation: "suggest-live-reconcile",
       stage: "suggest-live-reconcile",
-      message: "tag-regulator suggest tags reconciled against current local state",
+      message:
+        "tag-regulator suggest tags reconciled against current local state",
       details: {
         parentItemID: Number(args?.parentItemID || 0) || undefined,
         parentItemKey: asString(args?.parentItemKey),
@@ -930,9 +956,11 @@ function appendTagRegulatorSuggestLog(args) {
     scope: "hook",
     workflowId: "tag-regulator",
     component: "tag-regulator-suggest-intake",
-    operation: String(args?.stage || "suggest-intake").trim() || "suggest-intake",
+    operation:
+      String(args?.stage || "suggest-intake").trim() || "suggest-intake",
     stage: String(args?.stage || "suggest-intake").trim() || "suggest-intake",
-    message: String(args?.message || "").trim() || "tag-regulator suggest intake",
+    message:
+      String(args?.message || "").trim() || "tag-regulator suggest intake",
     details: args?.details || {},
     error: args?.error,
   });
@@ -975,7 +1003,9 @@ function addUniqueStrings(target, values) {
   if (!Array.isArray(target) || !Array.isArray(values)) {
     return;
   }
-  const seen = new Set(target.map((entry) => asString(entry).toLowerCase()).filter(Boolean));
+  const seen = new Set(
+    target.map((entry) => asString(entry).toLowerCase()).filter(Boolean),
+  );
   for (const entry of values) {
     const text = asString(entry);
     const lowered = text.toLowerCase();
@@ -1049,7 +1079,9 @@ function ensureSuggestDialogState(state) {
 
 function buildSuggestTagLookup(suggestTagEntries) {
   const map = new Map();
-  for (const entry of Array.isArray(suggestTagEntries) ? suggestTagEntries : []) {
+  for (const entry of Array.isArray(suggestTagEntries)
+    ? suggestTagEntries
+    : []) {
     const tag = asString(entry?.tag);
     if (!tag) {
       continue;
@@ -1094,7 +1126,10 @@ async function loadStagedVocabularySnapshot(tagVocabularyBridge) {
   };
 }
 
-function buildStagedEntryFromSuggestTag(suggestEntry, parentBindingsInput = []) {
+function buildStagedEntryFromSuggestTag(
+  suggestEntry,
+  parentBindingsInput = [],
+) {
   const parentBindings = normalizeParentBindings(parentBindingsInput);
   const tag = asString(suggestEntry?.tag);
   if (!tag) {
@@ -1127,14 +1162,22 @@ async function appendTagsToCurrentParentItem(parentItem, tags) {
   if (!parentItem) {
     return [];
   }
-  const mutation = await applyTagMutations(parentItem, [], normalizeAdvisoryStringArray(tags));
+  const mutation = await applyTagMutations(
+    parentItem,
+    [],
+    normalizeAdvisoryStringArray(tags),
+  );
   return mutation.added;
 }
 
 async function appendTagToBoundParentItem(parentItemId, tag) {
   const numericParentId = Number(parentItemId);
   const normalizedTag = asString(tag);
-  if (!Number.isFinite(numericParentId) || numericParentId <= 0 || !normalizedTag) {
+  if (
+    !Number.isFinite(numericParentId) ||
+    numericParentId <= 0 ||
+    !normalizedTag
+  ) {
     return false;
   }
   const item = requireHostItems().get(Math.trunc(numericParentId));
@@ -1144,7 +1187,8 @@ async function appendTagToBoundParentItem(parentItemId, tag) {
   const tags = Array.isArray(item.getTags?.()) ? item.getTags() : [];
   if (
     tags.some(
-      (entry) => asString(entry?.tag).toLowerCase() === normalizedTag.toLowerCase(),
+      (entry) =>
+        asString(entry?.tag).toLowerCase() === normalizedTag.toLowerCase(),
     )
   ) {
     return false;
@@ -1157,7 +1201,9 @@ async function appendTagToBoundParentItem(parentItemId, tag) {
 async function appendTagsToBoundParents(bindingsByTag) {
   const applied = [];
   for (const [tag, parentBindings] of bindingsByTag.entries()) {
-    for (const parentItemId of Array.isArray(parentBindings) ? parentBindings : []) {
+    for (const parentItemId of Array.isArray(parentBindings)
+      ? parentBindings
+      : []) {
       await appendTagToBoundParentItem(parentItemId, tag);
     }
     applied.push(tag);
@@ -1165,8 +1211,15 @@ async function appendTagsToBoundParents(bindingsByTag) {
   return applied;
 }
 
-function buildBindingsMapForSelectedTags(stagedEntries, selectedTags, currentParentItemId) {
-  const bindingsByLower = collectParentBindingsByTag(stagedEntries, selectedTags);
+function buildBindingsMapForSelectedTags(
+  stagedEntries,
+  selectedTags,
+  currentParentItemId,
+) {
+  const bindingsByLower = collectParentBindingsByTag(
+    stagedEntries,
+    selectedTags,
+  );
   const map = new Map();
   for (const tag of normalizeAdvisoryStringArray(selectedTags)) {
     const lowered = tag.toLowerCase();
@@ -1197,13 +1250,16 @@ async function intakeSuggestTagsToStaged(args) {
     return summary;
   }
 
-  const controlledSnapshot = await loadControlledVocabularySnapshot(tagVocabularyBridge);
+  const controlledSnapshot =
+    await loadControlledVocabularySnapshot(tagVocabularyBridge);
   const controlledLower = controlledSnapshot.lowerSet;
 
-  const stagedSnapshot = await loadStagedVocabularySnapshot(tagVocabularyBridge);
+  const stagedSnapshot =
+    await loadStagedVocabularySnapshot(tagVocabularyBridge);
   let nextStaged = [...stagedSnapshot.entries];
   const currentParentItemId =
-    typeof args?.parentItem?.id === "number" && Number.isFinite(args.parentItem.id)
+    typeof args?.parentItem?.id === "number" &&
+    Number.isFinite(args.parentItem.id)
       ? args.parentItem.id
       : 0;
 
@@ -1270,15 +1326,18 @@ function applyJoinTagAction(state, tag) {
   if (!lowered) {
     return;
   }
-  const entry = (Array.isArray(state.suggestTagEntries) ? state.suggestTagEntries : []).find(
-    (item) => asString(item?.tag).toLowerCase() === lowered,
-  );
+  const entry = (
+    Array.isArray(state.suggestTagEntries) ? state.suggestTagEntries : []
+  ).find((item) => asString(item?.tag).toLowerCase() === lowered);
   if (!entry) {
     return;
   }
   addUniqueStrings(state.addedDirect, [entry.tag]);
   delete state.rowErrors[lowered];
-  state.suggestTagEntries = removeSuggestEntriesByTags(state.suggestTagEntries, [entry.tag]);
+  state.suggestTagEntries = removeSuggestEntriesByTags(
+    state.suggestTagEntries,
+    [entry.tag],
+  );
 }
 
 function applyRejectTagAction(state, tag) {
@@ -1290,15 +1349,18 @@ function applyRejectTagAction(state, tag) {
   const lowered = text.toLowerCase();
   addUniqueStrings(state.rejected, [text]);
   delete state.rowErrors[lowered];
-  state.suggestTagEntries = removeSuggestEntriesByTags(state.suggestTagEntries, [text]);
+  state.suggestTagEntries = removeSuggestEntriesByTags(
+    state.suggestTagEntries,
+    [text],
+  );
 }
 
 function applyJoinAllAction(state) {
   ensureSuggestDialogState(state);
   addUniqueStrings(
     state.addedDirect,
-    (Array.isArray(state.suggestTagEntries) ? state.suggestTagEntries : []).map((entry) =>
-      asString(entry?.tag),
+    (Array.isArray(state.suggestTagEntries) ? state.suggestTagEntries : []).map(
+      (entry) => asString(entry?.tag),
     ),
   );
   state.suggestTagEntries = [];
@@ -1310,9 +1372,9 @@ function applyJoinAllAction(state) {
 
 function applyStageAllAction(state) {
   ensureSuggestDialogState(state);
-  const remaining = (Array.isArray(state.suggestTagEntries) ? state.suggestTagEntries : []).map(
-    (entry) => asString(entry?.tag),
-  );
+  const remaining = (
+    Array.isArray(state.suggestTagEntries) ? state.suggestTagEntries : []
+  ).map((entry) => asString(entry?.tag));
   if (remaining.length === 0) {
     return {
       closeable: true,
@@ -1327,9 +1389,9 @@ function applyStageAllAction(state) {
 
 function applyRejectAllAction(state) {
   ensureSuggestDialogState(state);
-  const remaining = (Array.isArray(state.suggestTagEntries) ? state.suggestTagEntries : []).map(
-    (entry) => asString(entry?.tag),
-  );
+  const remaining = (
+    Array.isArray(state.suggestTagEntries) ? state.suggestTagEntries : []
+  ).map((entry) => asString(entry?.tag));
   addUniqueStrings(state.rejected, remaining);
   state.suggestTagEntries = [];
   state.rowErrors = {};
@@ -1608,7 +1670,9 @@ async function openSuggestTagsDialog(args) {
     Number.isFinite(parsedAutoCloseAfterMs) && parsedAutoCloseAfterMs > 0
       ? parsedAutoCloseAfterMs
       : SUGGEST_DIALOG_TIMEOUT_SECONDS * 1000;
-  const autoCloseActionId = asString(args?.autoClose?.actionId || closeActionId);
+  const autoCloseActionId = asString(
+    args?.autoClose?.actionId || closeActionId,
+  );
   const openResult = await bridge.open({
     rendererId: SUGGEST_TAGS_RENDERER_ID,
     title: String(args.title || "Suggest Tags Intake"),
@@ -1636,7 +1700,9 @@ async function openSuggestTagsDialog(args) {
   }
 
   const response = isObject(openResult) ? openResult : {};
-  const resultState = isObject(response.result) ? response.result : initialState;
+  const resultState = isObject(response.result)
+    ? response.result
+    : initialState;
   ensureSuggestDialogState(resultState);
   return {
     opened: true,
@@ -1707,7 +1773,8 @@ async function intakeSuggestTagsToVocabulary(args) {
     return summary;
   }
 
-  const controlledSnapshot = await loadControlledVocabularySnapshot(tagVocabularyBridge);
+  const controlledSnapshot =
+    await loadControlledVocabularySnapshot(tagVocabularyBridge);
   const existing = controlledSnapshot.entries;
   const existingLower = controlledSnapshot.lowerSet;
   const nextEntries = [...existing];
@@ -1736,10 +1803,12 @@ async function intakeSuggestTagsToVocabulary(args) {
 
   if (summary.added.length > 0) {
     const currentParentItemId =
-      typeof args?.parentItem?.id === "number" && Number.isFinite(args.parentItem.id)
+      typeof args?.parentItem?.id === "number" &&
+      Number.isFinite(args.parentItem.id)
         ? args.parentItem.id
         : 0;
-    const stagedSnapshot = await loadStagedVocabularySnapshot(tagVocabularyBridge);
+    const stagedSnapshot =
+      await loadStagedVocabularySnapshot(tagVocabularyBridge);
     const bindingsByTag = buildBindingsMapForSelectedTags(
       stagedSnapshot.entries,
       summary.added,
@@ -1754,9 +1823,10 @@ async function intakeSuggestTagsToVocabulary(args) {
           tag_count: summary.added.length,
         },
       });
-      const persistedState = typeof tagVocabularyBridge.loadPersistedState === "function"
-        ? await tagVocabularyBridge.loadPersistedState()
-        : { mode: "synthesis" };
+      const persistedState =
+        typeof tagVocabularyBridge.loadPersistedState === "function"
+          ? await tagVocabularyBridge.loadPersistedState()
+          : { mode: "synthesis" };
       const mode = asString(persistedState?.mode) || "synthesis";
       if (
         mode === "subscription" &&
@@ -1771,7 +1841,8 @@ async function intakeSuggestTagsToVocabulary(args) {
               entries: nextEntries,
             })
           : {
-              entries: (await tagVocabularyBridge.persistEntries(nextEntries)).entries,
+              entries: (await tagVocabularyBridge.persistEntries(nextEntries))
+                .entries,
               mode,
             };
       if (typeof tagVocabularyBridge.removeStagedEntriesByTags === "function") {
@@ -1798,13 +1869,18 @@ async function intakeSuggestTagsToVocabulary(args) {
       }
     } catch (error) {
       const reason = `publish failed: ${asString(error?.message || error)}`;
-      let fallbackStaged = (await loadStagedVocabularySnapshot(tagVocabularyBridge)).entries;
+      let fallbackStaged = (
+        await loadStagedVocabularySnapshot(tagVocabularyBridge)
+      ).entries;
       for (const tag of summary.added) {
         const lowered = tag.toLowerCase();
         const suggestEntry = suggestTagEntries.find(
           (entry) => asString(entry?.tag).toLowerCase() === lowered,
         );
-        const built = buildStagedEntryFromSuggestTag(suggestEntry, bindingsByTag.get(tag) || []);
+        const built = buildStagedEntryFromSuggestTag(
+          suggestEntry,
+          bindingsByTag.get(tag) || [],
+        );
         if (built.ok && built.entry) {
           fallbackStaged = mergeParentBindingsIntoStagedEntries({
             entries: fallbackStaged,
@@ -1872,7 +1948,8 @@ async function reconcileSuggestTagsAgainstCurrentState(args) {
     };
   }
   const tagVocabularyBridge = resolveTagVocabularyBridge();
-  const controlledSnapshot = await loadControlledVocabularySnapshot(tagVocabularyBridge);
+  const controlledSnapshot =
+    await loadControlledVocabularySnapshot(tagVocabularyBridge);
   const nowControlled = [];
   const unresolvedSuggest = [];
 
@@ -1956,10 +2033,12 @@ async function mergeCurrentParentIntoStagedSuggestEntries(args) {
     ? args.suggestTagEntries
     : [];
   const currentParentItemId =
-    typeof args?.parentItem?.id === "number" && Number.isFinite(args.parentItem.id)
+    typeof args?.parentItem?.id === "number" &&
+    Number.isFinite(args.parentItem.id)
       ? Math.trunc(args.parentItem.id)
       : 0;
-  const stagedSnapshot = await loadStagedVocabularySnapshot(tagVocabularyBridge);
+  const stagedSnapshot =
+    await loadStagedVocabularySnapshot(tagVocabularyBridge);
   const mergedEntries = normalizePersistedStagedEntries(stagedSnapshot.entries);
   const indexByTag = new Map();
   for (let i = 0; i < mergedEntries.length; i++) {
@@ -1977,13 +2056,17 @@ async function mergeCurrentParentIntoStagedSuggestEntries(args) {
     }
     const lowered = tag.toLowerCase();
     const stagedIndex = indexByTag.get(lowered);
-    const currentParentBindings = currentParentItemId > 0 ? [currentParentItemId] : [];
+    const currentParentBindings =
+      currentParentItemId > 0 ? [currentParentItemId] : [];
     let parentBindings = currentParentBindings;
 
     if (typeof stagedIndex === "number") {
-      const existing = normalizeStagedEntryWithBindings(mergedEntries[stagedIndex], {
-        defaultSourceFlow: STAGED_SOURCE_FLOW,
-      });
+      const existing = normalizeStagedEntryWithBindings(
+        mergedEntries[stagedIndex],
+        {
+          defaultSourceFlow: STAGED_SOURCE_FLOW,
+        },
+      );
       parentBindings = normalizeParentBindings([
         ...existing.parentBindings,
         ...currentParentBindings,
@@ -2014,7 +2097,8 @@ async function mergeCurrentParentIntoStagedSuggestEntries(args) {
       await tagVocabularyBridge.persistStagedEntries(mergedEntries);
       appendTagRegulatorSuggestLog({
         stage: "suggest-parent-bindings-merged-on-result",
-        message: "tag-regulator merged current parent into existing staged suggest bindings",
+        message:
+          "tag-regulator merged current parent into existing staged suggest bindings",
         details: {
           parent_item_id: currentParentItemId || undefined,
           tag_count: changedCount,
@@ -2024,7 +2108,8 @@ async function mergeCurrentParentIntoStagedSuggestEntries(args) {
       appendTagRegulatorSuggestLog({
         stage: "suggest-parent-bindings-merge-failed",
         level: "warn",
-        message: "tag-regulator failed to persist merged staged suggest bindings",
+        message:
+          "tag-regulator failed to persist merged staged suggest bindings",
         details: {
           parent_item_id: currentParentItemId || undefined,
           tag_count: changedCount,
@@ -2141,10 +2226,16 @@ async function collectSuggestTagsIntake(args) {
 
   if (dialog.actionId === "join-all" && state.suggestTagEntries.length > 0) {
     applyJoinAllAction(state);
-  } else if (dialog.actionId === "stage-all" && state.suggestTagEntries.length > 0) {
+  } else if (
+    dialog.actionId === "stage-all" &&
+    state.suggestTagEntries.length > 0
+  ) {
     state.closePolicyApplied = true;
     applyStageAllAction(state);
-  } else if (dialog.actionId === "reject-all" && state.suggestTagEntries.length > 0) {
+  } else if (
+    dialog.actionId === "reject-all" &&
+    state.suggestTagEntries.length > 0
+  ) {
     applyRejectAllAction(state);
   }
 
@@ -2200,10 +2291,16 @@ function resolveTagRegulatorOutput(args) {
   const runResult = args?.runResult;
   const candidates = [
     args?.resultContext?.resultJson?.data?.data,
+    args?.resultContext?.resultJson?.result?.data?.data,
     args?.resultContext?.resultJson?.data,
+    args?.resultContext?.resultJson?.result?.data,
+    args?.resultContext?.resultJson?.result,
     args?.resultContext?.resultJson,
     runResult?.resultJson?.data?.data,
+    runResult?.resultJson?.result?.data?.data,
     runResult?.resultJson?.data,
+    runResult?.resultJson?.result?.data,
+    runResult?.resultJson?.result,
     runResult?.resultJson,
   ];
   for (const candidate of candidates) {
@@ -2312,21 +2409,28 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
     async () => resolveTagRegulatorOutput({ resultContext, runResult }),
   );
   if (!output) {
-    return {
-      applied: false,
-      skipped: true,
-      reason: "tag-regulator output malformed: missing result payload",
-      removed: [],
-      added: [],
-      suggest_tags: [],
-      warnings: [],
-    };
+    return appendSkillDiagnosticsToResult(
+      {
+        applied: false,
+        skipped: true,
+        reason: "tag-regulator output malformed: missing result payload",
+        removed: [],
+        added: [],
+        suggest_tags: [],
+      },
+      collectSkillOutputDiagnostics(
+        resultContext?.resultJson || runResult?.resultJson,
+      ),
+    );
   }
 
+  const skillOutputDiagnostics = collectSkillOutputDiagnostics(
+    resultContext?.resultJson || runResult?.resultJson || output,
+  );
   const warnings = await measureWorkflowTestSpan(
     "executeApplyResult:tagRegulator:normalizeWarnings",
     {},
-    async () => normalizeAdvisoryStringArray(output.warnings),
+    async () => skillOutputDiagnostics.warnings,
   );
   const suggestTags = await measureWorkflowTestSpan(
     "executeApplyResult:tagRegulator:normalizeSuggestTags",
@@ -2334,30 +2438,20 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
     async () => normalizeSuggestTagEntries(output.suggest_tags),
   );
   if (!suggestTags.ok) {
-    return {
-      applied: false,
-      skipped: true,
-      reason: `tag-regulator output malformed: suggest_tags ${suggestTags.reason}`,
-      removed: [],
-      added: [],
-      suggest_tags: [],
-      warnings,
-    };
+    return appendSkillDiagnosticsToResult(
+      {
+        applied: false,
+        skipped: true,
+        reason: `tag-regulator output malformed: suggest_tags ${suggestTags.reason}`,
+        removed: [],
+        added: [],
+        suggest_tags: [],
+        warnings,
+      },
+      skillOutputDiagnostics,
+    );
   }
   const suggestTagEntries = suggestTags.entries;
-
-  if (typeof output.error !== "undefined" && output.error !== null) {
-    return {
-      applied: false,
-      skipped: true,
-      reason: `skill error: ${asString(output.error?.message || output.error || "unknown error")}`,
-      removed: [],
-      added: [],
-      suggest_tags: suggestTagEntries,
-      warnings,
-      error: output.error,
-    };
-  }
 
   const removeTags = await measureWorkflowTestSpan(
     "executeApplyResult:tagRegulator:normalizeRemoveTags",
@@ -2365,15 +2459,18 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
     async () => normalizeUniqueStringArray(output.remove_tags),
   );
   if (!removeTags.ok) {
-    return {
-      applied: false,
-      skipped: true,
-      reason: `tag-regulator output malformed: remove_tags ${removeTags.reason}`,
-      removed: [],
-      added: [],
-      suggest_tags: suggestTagEntries,
-      warnings,
-    };
+    return appendSkillDiagnosticsToResult(
+      {
+        applied: false,
+        skipped: true,
+        reason: `tag-regulator output malformed: remove_tags ${removeTags.reason}`,
+        removed: [],
+        added: [],
+        suggest_tags: suggestTagEntries,
+        warnings,
+      },
+      skillOutputDiagnostics,
+    );
   }
 
   const addTags = await measureWorkflowTestSpan(
@@ -2382,15 +2479,18 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
     async () => normalizeUniqueStringArray(output.add_tags),
   );
   if (!addTags.ok) {
-    return {
-      applied: false,
-      skipped: true,
-      reason: `tag-regulator output malformed: add_tags ${addTags.reason}`,
-      removed: [],
-      added: [],
-      suggest_tags: suggestTagEntries,
-      warnings,
-    };
+    return appendSkillDiagnosticsToResult(
+      {
+        applied: false,
+        skipped: true,
+        reason: `tag-regulator output malformed: add_tags ${addTags.reason}`,
+        removed: [],
+        added: [],
+        suggest_tags: suggestTagEntries,
+        warnings,
+      },
+      skillOutputDiagnostics,
+    );
   }
 
   const reconciledSuggest = await measureWorkflowTestSpan(
@@ -2441,12 +2541,7 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
       removeCount: removeTags.values.length,
       addCount: effectiveAddTags.length,
     },
-    () =>
-      applyTagMutations(
-        parentItem,
-        removeTags.values,
-        effectiveAddTags,
-      ),
+    () => applyTagMutations(parentItem, removeTags.values, effectiveAddTags),
   );
 
   const suggestIntake = await measureWorkflowTestSpan(
@@ -2473,22 +2568,25 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
       : [],
   );
 
-  return {
-    applied:
-      mutation.changed ||
-      (Array.isArray(suggestIntake.appliedToCurrentParent) &&
-        suggestIntake.appliedToCurrentParent.length > 0),
-    skipped: false,
-    removed: mutation.removed,
-    added: finalAdded,
-    suggest_tags: stripSuggestDialogMetadata(remainingSuggest),
-    reclassified_add_tags: reclassifiedAddTags,
-    reclassified_staged: reclassifiedStaged,
-    suggest_intake: suggestIntake,
-    warnings,
-    before_tags: mutation.current,
-    after_tags: finalAfterTags,
-  };
+  return appendSkillDiagnosticsToResult(
+    {
+      applied:
+        mutation.changed ||
+        (Array.isArray(suggestIntake.appliedToCurrentParent) &&
+          suggestIntake.appliedToCurrentParent.length > 0),
+      skipped: false,
+      removed: mutation.removed,
+      added: finalAdded,
+      suggest_tags: stripSuggestDialogMetadata(remainingSuggest),
+      reclassified_add_tags: reclassifiedAddTags,
+      reclassified_staged: reclassifiedStaged,
+      suggest_intake: suggestIntake,
+      warnings,
+      before_tags: mutation.current,
+      after_tags: finalAfterTags,
+    },
+    skillOutputDiagnostics,
+  );
 }
 
 export async function applyResult(args) {

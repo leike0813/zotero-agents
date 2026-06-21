@@ -2182,7 +2182,7 @@ function buildFrontendSnapshot(): AcpFrontendSnapshot {
   activeSnapshot.mcpServer = getZoteroMcpServerStatus();
   activeSnapshot.mcpHealth = getZoteroMcpHealthSnapshot();
   const chatSessions = listAcpChatSessions(activeBackendId);
-  const knownBackends =
+  const knownBackends: BackendInstance[] =
     cachedAcpBackends.length > 0
       ? cachedAcpBackends
       : activeSlot.snapshot.backend

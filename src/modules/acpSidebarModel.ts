@@ -247,7 +247,7 @@ export function buildAcpSidebarViewSnapshot(args: {
       ),
       subtitle: localize(
         "task-dashboard-acp-subtitle" as any,
-        "Persistent ACP chat for your Zotero workspace.",
+        "Chat with your Zotero library.",
       ),
       backend: localize("task-dashboard-acp-backend" as any, "Backend"),
       conversation: localize(

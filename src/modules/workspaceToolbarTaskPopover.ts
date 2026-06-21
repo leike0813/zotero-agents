@@ -1,4 +1,5 @@
 import { getStringOrFallback } from "../utils/locale";
+import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 
 type ToolbarTaskRow = {
   id?: string;
@@ -248,6 +249,7 @@ async function listVisibleRows(runtime: PopoverRuntime) {
   const result = await Promise.resolve(
     addon.hooks.onPrefsEvent("listDashboardActiveTasksForPopover", {
       window: runtime.win,
+      limit: MAX_VISIBLE_TASKS,
     }),
   );
   if (!Array.isArray(result)) {
@@ -559,6 +561,19 @@ function openPopover(runtime: PopoverRuntime) {
     }
   });
   if (!runtime.refreshTimer) {
+    registerBackgroundRefreshTimer({
+      owner: "workspace-toolbar-task-popover-refresh",
+      activationCondition: "task popover is open",
+      scopeKey: "visible popover rows",
+      allowedDataSources: [
+        "workflow active summaries",
+        "acp skill run summaries",
+      ],
+      maxReadShape: "active summaries limited to visible popover row count",
+      requiresForegroundSurface: true,
+      minimumIntervalMs: 2000,
+      intervalMs: 2000,
+    });
     runtime.refreshTimer = setInterval(() => refreshIfOpen(runtime), 2000);
   }
 }

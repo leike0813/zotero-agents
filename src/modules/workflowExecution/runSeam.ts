@@ -1,7 +1,4 @@
-import {
-  JobQueueManager,
-  type JobRecord,
-} from "../../jobQueue/manager";
+import { JobQueueManager, type JobRecord } from "../../jobQueue/manager";
 import { executeWithProvider } from "../../providers/registry";
 import {
   ACP_SKILL_RUN_REQUEST_KIND,
@@ -384,10 +381,9 @@ export function runWorkflowExecutionSeam(
             });
           }
         }
-        const skillrunnerMode =
-          requestForMode
-            ? resolveSkillRunnerExecutionModeFromRequest(requestForMode, "auto")
-            : "auto";
+        const skillrunnerMode = requestForMode
+          ? resolveSkillRunnerExecutionModeFromRequest(requestForMode, "auto")
+          : "auto";
         const isAcpSkillRun =
           executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
           executionContext.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND;
@@ -399,19 +395,33 @@ export function runWorkflowExecutionSeam(
             backendType: "acp",
             backendLabel:
               String(
-                (executionContext.backend as { label?: unknown; name?: unknown; displayName?: unknown }).label ||
+                (
+                  executionContext.backend as {
+                    label?: unknown;
+                    name?: unknown;
+                    displayName?: unknown;
+                  }
+                ).label ||
                   (executionContext.backend as { name?: unknown }).name ||
-                  (executionContext.backend as { displayName?: unknown }).displayName ||
+                  (executionContext.backend as { displayName?: unknown })
+                    .displayName ||
                   "",
               ).trim() || undefined,
             workflowId: args.prepared.workflow.manifest.id,
             workflowLabel: localizeWorkflowLabel(args.prepared.workflow),
             jobId: job.id,
             runId: String(job.meta.runId || "").trim() || undefined,
+            sequenceStepId:
+              String(event.sequenceStepId || "").trim() || undefined,
+            sequenceStepIndex: normalizeSequenceStepIndex(
+              event.sequenceStepIndex,
+            ),
             taskName: resolveTaskNameFromRequest(requestForMode, requestIndex),
             skillId:
               requestForMode && typeof requestForMode === "object"
-                ? String((requestForMode as { skill_id?: unknown }).skill_id || "").trim() || undefined
+                ? String(
+                    (requestForMode as { skill_id?: unknown }).skill_id || "",
+                  ).trim() || undefined
                 : undefined,
             requestPayload: requestForMode,
           });
@@ -458,7 +468,7 @@ export function runWorkflowExecutionSeam(
         taskName,
         inputUnitIdentity,
         inputUnitLabel,
-        targetParentID: resolveTargetParentIDFromRequest(request),
+        targetParentID: resolveTargetParentIDFromRequest(request) ?? undefined,
         providerId: args.prepared.executionContext.providerId,
         requestKind: args.prepared.executionContext.requestKind,
         backendId: args.prepared.executionContext.backend.id,

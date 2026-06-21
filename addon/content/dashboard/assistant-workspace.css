@@ -137,8 +137,38 @@ button {
   background: var(--assistant-surface);
 }
 
+.assistant-workspace-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  background: var(--assistant-surface);
+}
+
+.assistant-workspace-loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(19, 111, 143, 0.18);
+  border-top-color: var(--assistant-accent);
+  border-radius: 50%;
+  animation: assistant-workspace-spin 0.85s linear infinite;
+}
+
+@keyframes assistant-workspace-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 740px) {
   .assistant-workspace-tabs {
     overflow-x: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-workspace-loading-spinner {
+    animation: none;
   }
 }

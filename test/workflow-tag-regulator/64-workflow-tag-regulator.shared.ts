@@ -269,8 +269,12 @@ function clonePersistedTagEntry(entry: PersistedTagEntry): PersistedTagEntry {
 function normalizePersistedTagEntry(entry: Partial<PersistedTagEntry>) {
   const tag = String(entry.tag || "").trim();
   const facet =
-    String(entry.facet || "").trim().toLowerCase() ||
-    String(tag.split(":")[0] || "topic").trim().toLowerCase();
+    String(entry.facet || "")
+      .trim()
+      .toLowerCase() ||
+    String(tag.split(":")[0] || "topic")
+      .trim()
+      .toLowerCase();
   return {
     tag,
     facet,
@@ -311,9 +315,8 @@ function installSynthesisTagVocabularyHostApiGlobals() {
           };
         },
         async saveTagVocabulary(args: { entries?: PersistedTagEntry[] }) {
-          synthesisVocabularyEntries = (Array.isArray(args?.entries)
-            ? args.entries
-            : []
+          synthesisVocabularyEntries = (
+            Array.isArray(args?.entries) ? args.entries : []
           )
             .map(normalizePersistedTagEntry)
             .filter((entry) => entry.tag);
@@ -345,13 +348,18 @@ function installSynthesisTagVocabularyHostApiGlobals() {
             : []) {
             const normalized = normalizePersistedTagEntry({
               ...incoming,
-              source: String((incoming as any).source_flow || incoming.source || "tag-regulator-suggest"),
+              source: String(
+                (incoming as any).source_flow ||
+                  incoming.source ||
+                  "tag-regulator-suggest",
+              ),
               parentBindings: Array.isArray((incoming as any).parent_bindings)
                 ? (incoming as any).parent_bindings
                 : incoming.parentBindings,
             });
             const existingIndex = synthesisStagedEntries.findIndex(
-              (entry) => entry.tag.toLowerCase() === normalized.tag.toLowerCase(),
+              (entry) =>
+                entry.tag.toLowerCase() === normalized.tag.toLowerCase(),
             );
             if (existingIndex >= 0) {
               const existing = synthesisStagedEntries[existingIndex];
@@ -376,7 +384,11 @@ function installSynthesisTagVocabularyHostApiGlobals() {
         async discardStagedTagSuggestions(args?: { tags?: string[] }) {
           const tags = new Set(
             (Array.isArray(args?.tags) ? args!.tags : [])
-              .map((tag) => String(tag || "").trim().toLowerCase())
+              .map((tag) =>
+                String(tag || "")
+                  .trim()
+                  .toLowerCase(),
+              )
               .filter(Boolean),
           );
           synthesisStagedEntries = synthesisStagedEntries.filter(
@@ -961,7 +973,10 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
         (entry) => entry.key === "digest_markdown",
       );
       assert.isOk(digestUpload, "digest markdown upload should be present");
-      assert.equal(await readUtf8(String(digestUpload?.path || "")), digestMarkdown);
+      assert.equal(
+        await readUtf8(String(digestUpload?.path || "")),
+        digestMarkdown,
+      );
     },
   );
 
@@ -1762,7 +1777,9 @@ function registerTagRegulatorApplyIntakeSegment(
         saved: false,
         actionId: "stage-all",
         result: {
-          suggestTagEntries: [{ tag: "topic:stage-upsert", note: "stage note" }],
+          suggestTagEntries: [
+            { tag: "topic:stage-upsert", note: "stage note" },
+          ],
           rowErrors: {},
           addedDirect: [],
           staged: [],
@@ -1891,7 +1908,9 @@ function registerTagRegulatorApplyIntakeSegment(
         assert.deepEqual(loadStagedTagVocabularyState().entries, []);
         assert.deepEqual(listTags(parent), ["topic:join-fail"]);
         assert.isFalse(
-          toasts.some((entry) => /publish failed/i.test(String(entry.text || ""))),
+          toasts.some((entry) =>
+            /publish failed/i.test(String(entry.text || "")),
+          ),
         );
         assert.isFalse(
           logs.some(
@@ -2304,7 +2323,7 @@ function registerTagRegulatorApplyIntakeSegment(
   );
 
   itNodeOnly(
-    "skips mutation when skill output has non-null error",
+    "applies valid mutation when skill output has non-null error diagnostic",
     async function () {
       const parent = await handlers.item.create({
         itemType: "journalArticle",
@@ -2343,13 +2362,27 @@ function registerTagRegulatorApplyIntakeSegment(
       })) as {
         applied: boolean;
         skipped: boolean;
-        reason?: string;
+        removed?: string[];
+        added?: string[];
+        warnings?: string[];
+        skill_diagnostics?: {
+          status?: string;
+          error?: { message?: string };
+        };
       };
 
-      assert.isFalse(applied.applied);
-      assert.isTrue(applied.skipped);
-      assert.match(String(applied.reason || ""), /skill error/i);
-      assert.deepEqual(listTags(parent), before);
+      assert.isTrue(applied.applied);
+      assert.isFalse(applied.skipped);
+      assert.deepEqual(applied.removed, ["topic:legacy"]);
+      assert.deepEqual(applied.added, ["topic:tunnel"]);
+      assert.deepEqual(applied.warnings, ["backend failed"]);
+      assert.equal(applied.skill_diagnostics?.status, "failed");
+      assert.equal(
+        applied.skill_diagnostics?.error?.message,
+        "missing valid_tags",
+      );
+      assert.notDeepEqual(listTags(parent), before);
+      assert.deepEqual(listTags(parent), ["topic:tunnel"]);
     },
   );
 
@@ -2378,8 +2411,10 @@ function registerTagRegulatorApplyIntakeSegment(
                 remove_tags: ["topic:legacy"],
                 add_tags: "topic:tunnel",
                 suggest_tags: [],
-                warnings: [],
-                error: null,
+                warnings: ["malformed mutation payload"],
+                error: {
+                  message: "agent emitted add_tags as a string",
+                },
               },
               artifacts: [],
               validation_warnings: [],
@@ -2391,11 +2426,18 @@ function registerTagRegulatorApplyIntakeSegment(
         applied: boolean;
         skipped: boolean;
         reason?: string;
+        warnings?: string[];
+        skill_diagnostics?: { error?: { message?: string } };
       };
 
       assert.isFalse(applied.applied);
       assert.isTrue(applied.skipped);
       assert.match(String(applied.reason || ""), /malformed/i);
+      assert.deepEqual(applied.warnings, ["malformed mutation payload"]);
+      assert.equal(
+        applied.skill_diagnostics?.error?.message,
+        "agent emitted add_tags as a string",
+      );
       assert.deepEqual(listTags(parent), before);
     },
   );

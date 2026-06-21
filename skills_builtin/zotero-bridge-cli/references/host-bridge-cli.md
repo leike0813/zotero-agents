@@ -4,13 +4,16 @@ This reference is generated from the Host Bridge surface catalog. Edit the Host
 Bridge capability registry or Rust CLI source, then run
 `npm run render:host-bridge-surface`.
 
-The published bundle includes `assets/profile.template.json`. Copy it to the Host
-Bridge well-known profile location or set `ZOTERO_BRIDGE_PROFILE` to its path.
-Override the template at runtime with `ZOTERO_BRIDGE_ENDPOINT`,
-`ZOTERO_BRIDGE_TOKEN`, `ZOTERO_BRIDGE_SCOPE`, and
-`ZOTERO_BRIDGE_CONNECTION_MODE=local|remote`. `ZOTERO_BRIDGE_SCOPE` may contain
-`{"kind":"skillrunner-run","frontendScopeId":"..."}` so Host Bridge write
-approvals return to the SkillRunner panel.
+The published bundle includes `install.ps1`, `install.sh`, and
+`assets/profile.template.json`. Use `.\install.ps1 --yes --json` on Windows or
+`./install.sh --yes --json` on POSIX to install or upgrade without a Node
+dependency. The installer auto-detects the platform and does not accept a
+platform override. Copy the template to the Host Bridge well-known profile
+location or set `ZOTERO_BRIDGE_PROFILE` to its path. Override the template at
+runtime with `ZOTERO_BRIDGE_ENDPOINT`, `ZOTERO_BRIDGE_TOKEN`,
+`ZOTERO_BRIDGE_SCOPE`, and `ZOTERO_BRIDGE_CONNECTION_MODE=local|remote`.
+`ZOTERO_BRIDGE_SCOPE` may contain `{"kind":"skillrunner-run","frontendScopeId":"..."}`
+so Host Bridge write approvals return to the SkillRunner panel.
 
 ## Resolver Payloads
 
@@ -88,6 +91,7 @@ zotero-bridge file --help
 | `paper-artifacts resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
 | `insights attention-queue` | `insights.get_attention_queue` | capability | - |
 | `literature ingest` | `mutation.execute` | capability | - |
+| `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
 | `workflow run` | `GET /bridge/v1/workflows/runs/{runId}` | endpoint | - |
 | `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
@@ -109,6 +113,13 @@ zotero-bridge file --help
 - `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.
 - Examples: `zotero-bridge resolvers resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge resolvers resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
 - Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
+
+### Workflow payloads
+
+- Use `workflow describe --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.
+- `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use legacy `--input`.
+- Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.
+- Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.
 
 ### Raw-only and debug capabilities
 

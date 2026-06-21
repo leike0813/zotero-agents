@@ -104,6 +104,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-action-merge-non-conflicting": "Merge Non-conflicting",
   "synthesis-action-use-imported": "Use Imported",
   "synthesis-action-refresh-stale-graph": "Refresh stale graph",
+  "synthesis-action-bootstrap-tags": "Bootstrap tags",
   "synthesis-export-topic-html-dialog-title": "Export topic details HTML",
   "synthesis-export-topic-html-file-type": "HTML",
   "synthesis-standalone-digest-unavailable":
@@ -350,7 +351,8 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-tags-empty-filtered-message":
     "Adjust the search, facet, or status filters to show more tags.",
   "synthesis-tags-empty": "No tag vocabulary indexed yet",
-  "synthesis-tags-empty-message": "Import tags to make them available here.",
+  "synthesis-tags-empty-message":
+    "Bootstrap or import tags to make them available here.",
   "synthesis-tags-staged-empty-filtered":
     "No staged tags match the current filters",
   "synthesis-tags-staged-empty-filtered-message":
@@ -744,6 +746,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-enum-review-tab-topic-graph": "Topic Graph",
   "synthesis-enum-sync-status-blocked-conflict": "Blocked by conflict",
   "synthesis-operation-manualRecomputeLayout": "Rebuilding graph layout",
+  "synthesis-operation-runTagBootstrapper": "Bootstrapping tags",
   "synthesis-operation-validateTagVocabulary": "Validating tags",
   "synthesis-operation-previewTagVocabularyImport": "Previewing tag import",
   "synthesis-operation-applyTagVocabularyImport": "Applying tag import",

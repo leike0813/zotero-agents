@@ -1,5 +1,9 @@
 import type { BackendInstance } from "../backends/types";
-import { ACP_BACKEND_TYPE, PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
+import {
+  BACKEND_TYPES,
+  PASS_THROUGH_BACKEND_TYPE,
+  type BackendType,
+} from "../config/defaults";
 import type { TaskDashboardHistoryRecord } from "./taskDashboardHistory";
 import type { WorkflowTaskRecord } from "./taskRuntime";
 
@@ -28,6 +32,13 @@ function normalizeBackendKey(record: {
   return { id, type, baseUrl };
 }
 
+function normalizeBackendType(value: unknown): BackendType | null {
+  const normalized = String(value || "").trim();
+  return BACKEND_TYPES.includes(normalized as BackendType)
+    ? (normalized as BackendType)
+    : null;
+}
+
 function appendSyntheticBackend(
   map: Map<string, BackendInstance>,
   record: {
@@ -37,16 +48,18 @@ function appendSyntheticBackend(
   },
 ) {
   const normalized = normalizeBackendKey(record);
+  const type = normalizeBackendType(normalized.type);
   if (
     !normalized.id ||
-    normalized.type === PASS_THROUGH_BACKEND_TYPE ||
+    !type ||
+    type === PASS_THROUGH_BACKEND_TYPE ||
     map.has(normalized.id)
   ) {
     return;
   }
   map.set(normalized.id, {
     id: normalized.id,
-    type: normalized.type || "unknown",
+    type,
     baseUrl: normalized.baseUrl || "unknown://backend",
     auth: { kind: "none" },
   });

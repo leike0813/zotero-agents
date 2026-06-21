@@ -415,19 +415,37 @@ describe("host bridge cli packaging and install", function () {
         platform: () => "win32",
         localAppDataDir: () => "C:\\Users\\A\\AppData\\Local",
       }).targetPath,
-      "Zotero-Skills",
+      "zotero-agents",
     );
-    assert.include(
+    assert.strictEqual(
       resolveHostBridgeCliInstallTarget({
         platform: () => "darwin",
         homeDir: () => "/Users/a",
+        pathEnv: () => "/opt/homebrew/bin:/usr/bin",
       }).targetPath,
-      "Library",
+      "/opt/homebrew/bin/zotero-bridge",
+    );
+    assert.strictEqual(
+      resolveHostBridgeCliInstallTarget({
+        platform: () => "darwin",
+        homeDir: () => "/Users/a",
+        pathEnv: () => "/usr/bin",
+      }).targetPath,
+      "/Users/a/bin/zotero-bridge",
     );
     assert.strictEqual(
       resolveHostBridgeCliInstallTarget({
         platform: () => "linux",
         homeDir: () => "/home/a",
+        pathEnv: () => "/home/a/bin:/usr/bin",
+      }).targetPath,
+      "/home/a/bin/zotero-bridge",
+    );
+    assert.strictEqual(
+      resolveHostBridgeCliInstallTarget({
+        platform: () => "linux",
+        homeDir: () => "/home/a",
+        pathEnv: () => "/usr/bin",
       }).targetPath,
       "/home/a/.local/bin/zotero-bridge",
     );
@@ -454,7 +472,7 @@ describe("host bridge cli packaging and install", function () {
 
     assert.isTrue(result.ok);
     assert.deepEqual(writes.map((entry) => entry.target), [
-      "C:\\Users\\A\\AppData\\Local\\Zotero-Skills\\bin\\zotero-bridge",
+      "C:\\Users\\A\\AppData\\Local\\zotero-agents\\bin\\zotero-bridge",
     ]);
     assert.include(writes[0]?.content || "", "zotero-bridge.exe");
     assert.include(writes[0]?.content || "", "#!/usr/bin/env sh");
@@ -701,7 +719,7 @@ describe("host bridge cli packaging and install", function () {
       assert.isAtLeast(calls.length, 1);
       assert.match(calls[0].command, /powershell|pwsh/i);
       assert.include(calls[0].args.join(" "), "SetEnvironmentVariable");
-      assert.include(calls[0].args.join(" "), "Zotero-Skills");
+      assert.include(calls[0].args.join(" "), "zotero-agents");
     } finally {
       if (previousInternal) {
         runtime.Zotero.Utilities = runtime.Zotero.Utilities || {};
@@ -766,6 +784,10 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     assert.include(publishScript, "assets/profile.template.json");
+    assert.include(publishScript, "install.ps1");
+    assert.include(publishScript, "install.sh");
+    assert.include(publishScript, "installer");
+    assert.include(publishScript, "zotero-agents");
     assert.include(publishScript, "ZOTERO_BRIDGE_CONNECTION_MODE");
     assert.include(publishScript, "profileTemplate");
     const profileTemplate = JSON.parse(
@@ -776,6 +798,34 @@ describe("host bridge cli packaging and install", function () {
     );
     assert.strictEqual(profileTemplate.connectionMode, "local");
     assert.strictEqual(profileTemplate.auth.tokenEnv, "ZOTERO_BRIDGE_TOKEN");
+  });
+
+  it("documents agent-friendly bundle installers without platform override", async function () {
+    const installPs1 = await fs.readFile("install.ps1", "utf8");
+    const installSh = await fs.readFile("install.sh", "utf8");
+    const wrapperSkill = await fs.readFile(
+      "skills_builtin/zotero-bridge-cli/SKILL.md",
+      "utf8",
+    );
+    const wrapperReference = await fs.readFile(
+      "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+      "utf8",
+    );
+    const docs = await fs.readFile("doc/host-bridge-cli.md", "utf8");
+
+    for (const source of [installPs1, installSh]) {
+      assert.include(source, "zotero-agents");
+      assert.include(source, "ZOTERO_BRIDGE_INSTALL_DIR");
+      assert.include(source, "ZOTERO_BRIDGE_TOKEN");
+      assert.include(source, "Platform override is not supported");
+    }
+    for (const source of [wrapperSkill, wrapperReference, docs]) {
+      assert.include(source, "install.ps1");
+      assert.include(source, "install.sh");
+      assert.include(source, "--yes --json");
+    }
+    assert.include(docs, "zotero-agents");
+    assert.notInclude(wrapperReference, "--platform");
   });
 
   it("packages a target-triple release binary into the requested platform directory", async function () {

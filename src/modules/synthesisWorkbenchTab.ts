@@ -47,6 +47,7 @@ import {
   type SynthesisUiTab,
   type SynthesisWorkbenchSurfaceName,
 } from "./synthesis/uiModel";
+import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -620,6 +621,14 @@ function findUpdateTopicSynthesisWorkflow() {
   );
 }
 
+function findTagBootstrapperWorkflow() {
+  return (
+    getLoadedWorkflowEntries().find(
+      (entry) => entry.manifest.id === "tag-bootstrapper",
+    ) || null
+  );
+}
+
 async function runCreateTopicSynthesisFromWorkbench(args: {
   hostWindow?: _ZoteroTypes.MainWindow;
 }) {
@@ -686,6 +695,30 @@ async function runUpdateTopicSynthesisFromWorkbench(args: {
         topicId: args.topicId,
       },
     },
+  });
+}
+
+async function runTagBootstrapperFromWorkbench(args: {
+  hostWindow?: _ZoteroTypes.MainWindow;
+}) {
+  const hostWindow = resolveWorkflowHostWindow(args.hostWindow);
+  if (!hostWindow) {
+    throw new Error(
+      "Cannot bootstrap tags: Zotero main window is unavailable.",
+    );
+  }
+  const workflow = findTagBootstrapperWorkflow();
+  if (!workflow) {
+    alertWindow(
+      hostWindow,
+      "Cannot bootstrap tags: tag-bootstrapper workflow is not loaded. Rescan builtin workflows and try again.",
+    );
+    return;
+  }
+  await executeWorkflowFromCurrentSelection({
+    win: hostWindow,
+    workflow,
+    requireSettingsGate: true,
   });
 }
 
@@ -757,6 +790,16 @@ function ensureCommandProgressPolling(runtime: SynthesisWorkbenchRuntime) {
   if (runtime.commandProgressTimer) {
     return;
   }
+  registerBackgroundRefreshTimer({
+    owner: "synthesis-command-progress",
+    activationCondition: "synthesis command is in flight",
+    scopeKey: "in-flight synthesis commands",
+    allowedDataSources: ["synthesis command progress"],
+    maxReadShape: "current command progress snapshot only",
+    requiresForegroundSurface: true,
+    minimumIntervalMs: SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS,
+    intervalMs: SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS,
+  });
   runtime.commandProgressTimer = globalThis.setInterval(() => {
     if (!runtime.inFlightCommands.size) {
       clearCommandProgressPolling(runtime);
@@ -1965,6 +2008,14 @@ function handleAction(
     );
     return;
   }
+  if (result.hostCommand?.command === "runTagBootstrapper") {
+    runWorkbenchCommandOnce(runtime, "runTagBootstrapper", {}, () =>
+      runTagBootstrapperFromWorkbench({
+        hostWindow: runtime.window,
+      }),
+    );
+    return;
+  }
   if (result.hostCommand?.command === "submitTopicSynthesisUpdate") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const topicId = String(commandArgs.topicId || "").trim();
@@ -2948,6 +2999,7 @@ function surfacesInvalidatedByCommand(
   }
   if (
     command === "rebuildTagVocabularyIndex" ||
+    command === "runTagBootstrapper" ||
     command === "previewTagVocabularyImport" ||
     command === "applyTagVocabularyImport" ||
     command === "updateStagedTagSuggestion" ||
@@ -3126,6 +3178,16 @@ function scheduleWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
     });
   };
   run();
+  registerBackgroundRefreshTimer({
+    owner: "synthesis-workbench-handshake",
+    activationCondition: "synthesis workbench frame is mounting",
+    scopeKey: "current synthesis workbench frame",
+    allowedDataSources: ["synthesis workbench frame handshake"],
+    maxReadShape: "frame handshake signal only",
+    requiresForegroundSurface: true,
+    minimumIntervalMs: SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS,
+    intervalMs: SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS,
+  });
   runtime.handshakeTimer = setInterval(
     run,
     SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS,

@@ -1,11 +1,16 @@
 import {
   ACP_BACKEND_TYPE,
+  BACKEND_TYPES,
+  GENERIC_HTTP_BACKEND_TYPE,
+  PASS_THROUGH_BACKEND_TYPE,
 } from "../config/defaults";
 import { getPref, setPref } from "../utils/prefs";
 import type { LoadedWorkflow } from "../workflows/types";
 import {
-  normalizeBackendDisplayName,
-} from "./identity";
+  parseSettingsRecord,
+  serializeSettingsRecord,
+} from "../modules/workflowSettingsDomain";
+import { normalizeBackendDisplayName } from "./identity";
 import type { BackendInstance, LoadedBackends } from "./types";
 import { markAcpBackendConnectionState } from "../modules/acpBackendProbe";
 import { listBuiltinAcpBackends } from "../modules/acpBackendPresets";
@@ -27,8 +32,108 @@ const TASK_DASHBOARD_HISTORY_PREF_KEY = "taskDashboardHistoryJson";
 const BACKENDS_SCHEMA_VERSION = 2;
 const LEGACY_REMOVED_BACKEND_IDS = new Set(["skillrunner-local"]);
 
+type BackendsRegistryCacheEntry = {
+  rawText: string;
+  loaded: LoadedBackends;
+};
+
+const backendRegistryReadDiagnostics = {
+  prefReadCount: 0,
+  parseCount: 0,
+  normalizeCount: 0,
+  cacheHitCount: 0,
+  cacheMissCount: 0,
+  builtinRewriteCount: 0,
+};
+
+let backendRegistryCache: BackendsRegistryCacheEntry | null = null;
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function cloneBackendInstance(backend: BackendInstance): BackendInstance {
+  return {
+    ...backend,
+    args: backend.args ? [...backend.args] : undefined,
+    env: backend.env ? { ...backend.env } : undefined,
+    auth: backend.auth ? { ...backend.auth } : undefined,
+    defaults: backend.defaults
+      ? {
+          ...backend.defaults,
+          headers: backend.defaults.headers
+            ? { ...backend.defaults.headers }
+            : undefined,
+        }
+      : undefined,
+    management_auth: backend.management_auth
+      ? { ...backend.management_auth }
+      : undefined,
+    acp: backend.acp
+      ? {
+          ...backend.acp,
+          skillRoots: backend.acp.skillRoots
+            ? [...backend.acp.skillRoots]
+            : undefined,
+          connectionTest: backend.acp.connectionTest
+            ? { ...backend.acp.connectionTest }
+            : undefined,
+          runtimeOptionsCache: backend.acp.runtimeOptionsCache
+            ? {
+                ...backend.acp.runtimeOptionsCache,
+                modes: backend.acp.runtimeOptionsCache.modes?.map((entry) => ({
+                  ...entry,
+                })),
+                rawModels: backend.acp.runtimeOptionsCache.rawModels?.map(
+                  (entry) => ({
+                    ...entry,
+                  }),
+                ),
+                displayModels:
+                  backend.acp.runtimeOptionsCache.displayModels?.map(
+                    (entry) => ({ ...entry }),
+                  ),
+                reasoningEfforts:
+                  backend.acp.runtimeOptionsCache.reasoningEfforts?.map(
+                    (entry) => ({ ...entry }),
+                  ),
+              }
+            : undefined,
+        }
+      : undefined,
+  };
+}
+
+function cloneLoadedBackends(loaded: LoadedBackends): LoadedBackends {
+  return {
+    ...loaded,
+    backends: loaded.backends.map((entry) => cloneBackendInstance(entry)),
+    warnings: [...loaded.warnings],
+    errors: [...loaded.errors],
+    invalidBackends: { ...loaded.invalidBackends },
+  };
+}
+
+function cacheLoadedBackends(rawText: string, loaded: LoadedBackends) {
+  backendRegistryCache = {
+    rawText,
+    loaded: cloneLoadedBackends(loaded),
+  };
+  return cloneLoadedBackends(loaded);
+}
+
+export function getBackendsRegistryReadDiagnosticsForTests() {
+  return { ...backendRegistryReadDiagnostics };
+}
+
+export function resetBackendsRegistryReadDiagnosticsForTests() {
+  backendRegistryReadDiagnostics.prefReadCount = 0;
+  backendRegistryReadDiagnostics.parseCount = 0;
+  backendRegistryReadDiagnostics.normalizeCount = 0;
+  backendRegistryReadDiagnostics.cacheHitCount = 0;
+  backendRegistryReadDiagnostics.cacheMissCount = 0;
+  backendRegistryReadDiagnostics.builtinRewriteCount = 0;
+  backendRegistryCache = null;
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -39,13 +144,18 @@ function isAcpBackendType(value: unknown) {
   return String(value || "").trim() === ACP_BACKEND_TYPE;
 }
 
+function normalizeBackendType(value: unknown): BackendInstance["type"] | null {
+  const normalized = String(value || "").trim();
+  return (BACKEND_TYPES as readonly string[]).includes(normalized)
+    ? (normalized as BackendInstance["type"])
+    : null;
+}
+
 function normalizeStringArray(value: unknown) {
   if (!Array.isArray(value)) {
     return [] as string[];
   }
-  return value
-    .map((entry) => String(entry || "").trim())
-    .filter(Boolean);
+  return value.map((entry) => String(entry || "").trim()).filter(Boolean);
 }
 
 function normalizeStringMap(value: unknown) {
@@ -167,13 +277,14 @@ function applyBackendIdMappingToWorkflowSettings(args: {
   if (!isObject(parsed)) {
     return false;
   }
+  const record = parseSettingsRecord(parsed);
+  if (Object.keys(record).length === 0) {
+    return false;
+  }
   let changed = false;
-  const next = { ...(parsed as Record<string, unknown>) };
-  for (const [workflowId, value] of Object.entries(next)) {
-    if (!isObject(value)) {
-      continue;
-    }
-    const options = { ...(value as Record<string, unknown>) };
+  const next = { ...record };
+  for (const [workflowId, value] of Object.entries(record)) {
+    const options = { ...value };
     const backendId = String(options.backendId || "").trim();
     if (!backendId) {
       continue;
@@ -194,11 +305,15 @@ function applyBackendIdMappingToWorkflowSettings(args: {
   if (!changed) {
     return false;
   }
-  setPref(WORKFLOW_SETTINGS_PREF_KEY, JSON.stringify(next));
+  setPref(WORKFLOW_SETTINGS_PREF_KEY, serializeSettingsRecord(next));
   return true;
 }
 
-function rewriteHistoryRecordIdPrefix(recordId: string, from: string, to: string) {
+function rewriteHistoryRecordIdPrefix(
+  recordId: string,
+  from: string,
+  to: string,
+) {
   if (!recordId || !from || !to) {
     return recordId;
   }
@@ -308,16 +423,22 @@ function normalizeBackendEntry(
   }
   const id = idRaw.trim();
   const displayName = normalizeBackendDisplayName(rawEntry.displayName, id);
-  const type = typeRaw.trim();
+  const type = normalizeBackendType(typeRaw);
+  if (!type) {
+    return {
+      error: `entry[${index}] (${id}) type must be one of ${BACKEND_TYPES.join(", ")}`,
+    };
+  }
   const enabled = rawEntry.enabled !== false;
   const isAcp = isAcpBackendType(type);
+  const isPassThrough = type === PASS_THROUGH_BACKEND_TYPE;
   const baseUrl = isAcp
     ? isNonEmptyString(baseUrlRaw)
       ? baseUrlRaw.trim()
       : `local://${id}`
     : String(baseUrlRaw || "").trim();
 
-  if (!isAcp) {
+  if (!isAcp && !isPassThrough) {
     if (!isNonEmptyString(baseUrlRaw)) {
       return { error: `entry[${index}] (${id}) missing non-empty baseUrl` };
     }
@@ -331,7 +452,9 @@ function normalizeBackendEntry(
     } catch {
       return { error: `entry[${index}] (${id}) baseUrl is not a valid URL` };
     }
-  } else if (!isNonEmptyString(rawEntry.command)) {
+  } else if (isPassThrough && !isNonEmptyString(baseUrlRaw)) {
+    return { error: `entry[${index}] (${id}) missing non-empty baseUrl` };
+  } else if (isAcp && !isNonEmptyString(rawEntry.command)) {
     return { error: `entry[${index}] (${id}) missing non-empty command` };
   }
 
@@ -369,8 +492,7 @@ function normalizeBackendEntry(
     }
   }
 
-  const managementAuthRaw =
-    rawEntry.management_auth ?? rawEntry.managementAuth;
+  const managementAuthRaw = rawEntry.management_auth ?? rawEntry.managementAuth;
   let managementAuth: BackendInstance["management_auth"] | undefined;
   if (typeof managementAuthRaw !== "undefined") {
     if (!isObject(managementAuthRaw)) {
@@ -471,9 +593,11 @@ function normalizeBackendEntry(
             connectionTestRaw.status === "untested"
               ? connectionTestRaw.status
               : "untested",
-          testedAt: String(connectionTestRaw.testedAt || "").trim() || undefined,
+          testedAt:
+            String(connectionTestRaw.testedAt || "").trim() || undefined,
           configFingerprint:
-            String(connectionTestRaw.configFingerprint || "").trim() || undefined,
+            String(connectionTestRaw.configFingerprint || "").trim() ||
+            undefined,
           error: String(connectionTestRaw.error || "").trim() || undefined,
         } satisfies NonNullable<
           NonNullable<BackendInstance["acp"]>["connectionTest"]
@@ -481,17 +605,29 @@ function normalizeBackendEntry(
       : undefined;
     const runtimeOptionsCache = isObject(runtimeOptionsCacheRaw)
       ? {
-          refreshedAt: String(runtimeOptionsCacheRaw.refreshedAt || "").trim() || undefined,
+          refreshedAt:
+            String(runtimeOptionsCacheRaw.refreshedAt || "").trim() ||
+            undefined,
           modes: normalizeAcpOptionArray(runtimeOptionsCacheRaw.modes),
-          currentModeId: String(runtimeOptionsCacheRaw.currentModeId || "").trim(),
+          currentModeId: String(
+            runtimeOptionsCacheRaw.currentModeId || "",
+          ).trim(),
           rawModels: normalizeAcpOptionArray(runtimeOptionsCacheRaw.rawModels),
-          currentRawModelId: String(runtimeOptionsCacheRaw.currentRawModelId || "").trim(),
-          displayModels: normalizeAcpOptionArray(runtimeOptionsCacheRaw.displayModels),
-          currentDisplayModelId:
-            String(runtimeOptionsCacheRaw.currentDisplayModelId || "").trim(),
-          reasoningEfforts: normalizeAcpOptionArray(runtimeOptionsCacheRaw.reasoningEfforts),
-          currentReasoningEffortId:
-            String(runtimeOptionsCacheRaw.currentReasoningEffortId || "").trim(),
+          currentRawModelId: String(
+            runtimeOptionsCacheRaw.currentRawModelId || "",
+          ).trim(),
+          displayModels: normalizeAcpOptionArray(
+            runtimeOptionsCacheRaw.displayModels,
+          ),
+          currentDisplayModelId: String(
+            runtimeOptionsCacheRaw.currentDisplayModelId || "",
+          ).trim(),
+          reasoningEfforts: normalizeAcpOptionArray(
+            runtimeOptionsCacheRaw.reasoningEfforts,
+          ),
+          currentReasoningEffortId: String(
+            runtimeOptionsCacheRaw.currentReasoningEffortId || "",
+          ).trim(),
         }
       : undefined;
     acp = {
@@ -557,35 +693,43 @@ export async function loadBackendsRegistry(): Promise<LoadedBackends> {
   const invalidBackends: Record<string, string> = {};
 
   const rawText = ensureBackendsPrefsDocument();
+  backendRegistryReadDiagnostics.prefReadCount += 1;
+  if (backendRegistryCache?.rawText === rawText) {
+    backendRegistryReadDiagnostics.cacheHitCount += 1;
+    return cloneLoadedBackends(backendRegistryCache.loaded);
+  }
+  backendRegistryReadDiagnostics.cacheMissCount += 1;
 
   let parsed: unknown;
   try {
+    backendRegistryReadDiagnostics.parseCount += 1;
     parsed = JSON.parse(rawText);
   } catch (error) {
     const fatalError = `Invalid backends JSON in prefs (${String(error)})`;
-    return {
+    return cacheLoadedBackends(rawText, {
       sourcePath,
       backends: [],
       warnings,
       errors,
       invalidBackends,
       fatalError,
-    };
+    });
   }
 
   let normalized: BackendsDocShape;
   try {
+    backendRegistryReadDiagnostics.normalizeCount += 1;
     normalized = normalizeBackendsDocument(parsed);
   } catch (error) {
     const fatalError = `Invalid backends config structure in prefs (${String(error)})`;
-    return {
+    return cacheLoadedBackends(rawText, {
       sourcePath,
       backends: [],
       warnings,
       errors,
       invalidBackends,
       fatalError,
-    };
+    });
   }
 
   const validBackends: BackendInstance[] = [];
@@ -623,12 +767,15 @@ export async function loadBackendsRegistry(): Promise<LoadedBackends> {
     return false;
   });
   const builtinMerge = upsertBuiltinBackends(finalBackends);
-  const shouldPersistBuiltinRewrite = builtinMerge.changed && errors.length === 0;
+  const shouldPersistBuiltinRewrite =
+    builtinMerge.changed && errors.length === 0;
+  let cacheRawText = rawText;
   if (removedLegacyIds.size > 0 || shouldPersistBuiltinRewrite) {
-    setPref(
-      BACKENDS_CONFIG_PREF_KEY,
-      JSON.stringify(createBackendsPrefsDocument(builtinMerge.backends)),
+    cacheRawText = JSON.stringify(
+      createBackendsPrefsDocument(builtinMerge.backends),
     );
+    setPref(BACKENDS_CONFIG_PREF_KEY, cacheRawText);
+    backendRegistryReadDiagnostics.builtinRewriteCount += 1;
   }
   if (removedLegacyIds.size > 0) {
     syncBackendReferences({
@@ -640,13 +787,13 @@ export async function loadBackendsRegistry(): Promise<LoadedBackends> {
     );
   }
 
-  return {
+  return cacheLoadedBackends(cacheRawText, {
     sourcePath,
     backends: builtinMerge.backends,
     warnings,
     errors,
     invalidBackends,
-  };
+  });
 }
 
 export async function listBackendInstances() {
@@ -671,6 +818,12 @@ function resolveCompatibleBackendTypesForWorkflow(workflow: LoadedWorkflow) {
   }
   if (providerType === "skillrunner") {
     return ["skillrunner", ACP_BACKEND_TYPE];
+  }
+  if (providerType === GENERIC_HTTP_BACKEND_TYPE) {
+    return [GENERIC_HTTP_BACKEND_TYPE];
+  }
+  if (providerType === PASS_THROUGH_BACKEND_TYPE) {
+    return [PASS_THROUGH_BACKEND_TYPE];
   }
   return [providerType];
 }
@@ -706,7 +859,8 @@ export async function listBackendsForWorkflow(workflow: LoadedWorkflow) {
   if (loaded.fatalError) {
     throw new Error(loaded.fatalError);
   }
-  const compatibleBackendTypes = resolveCompatibleBackendTypesForWorkflow(workflow);
+  const compatibleBackendTypes =
+    resolveCompatibleBackendTypesForWorkflow(workflow);
   if (compatibleBackendTypes.length === 0) {
     return [];
   }
@@ -730,7 +884,8 @@ export async function resolveBackendForWorkflow(
   }
 
   const byId = new Map(loaded.backends.map((backend) => [backend.id, backend]));
-  const compatibleBackendTypes = resolveCompatibleBackendTypesForWorkflow(workflow);
+  const compatibleBackendTypes =
+    resolveCompatibleBackendTypesForWorkflow(workflow);
   if (compatibleBackendTypes.length === 0) {
     throw new Error(
       `Workflow ${workflow.manifest.id} does not declare provider`,

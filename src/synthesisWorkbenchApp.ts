@@ -11598,6 +11598,17 @@ function renderTagsTable(args: {
   return wrap;
 }
 
+function renderTagBootstrapperEmptyState() {
+  return renderEmptyState({
+    title: t("synthesis-tags-empty"),
+    message: t("synthesis-tags-empty-message"),
+    action: makeButton(t("synthesis-action-bootstrap-tags"), "hostCommand", {
+      command: "runTagBootstrapper",
+    }),
+    tone: "info",
+  });
+}
+
 function expandedRowKey(kind: string, tag: unknown) {
   return `${kind}:${textValue(tag)}`;
 }
@@ -12019,15 +12030,13 @@ function renderVocabularySubview(snapshot: Snapshot) {
         }
         return details;
       },
-      emptyState: renderEmptyState({
-        title: snapshot.tags.rows.length
-          ? t("synthesis-tags-empty-filtered")
-          : t("synthesis-tags-empty"),
-        message: snapshot.tags.rows.length
-          ? t("synthesis-tags-empty-filtered-message")
-          : t("synthesis-tags-empty-message"),
-        tone: snapshot.tags.rows.length ? "default" : "info",
-      }),
+      emptyState: snapshot.tags.rows.length
+        ? renderEmptyState({
+            title: t("synthesis-tags-empty-filtered"),
+            message: t("synthesis-tags-empty-filtered-message"),
+            tone: "default",
+          })
+        : renderTagBootstrapperEmptyState(),
     }),
   );
   const tagImportPanel = renderTagImportPanel(snapshot);

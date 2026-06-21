@@ -609,6 +609,11 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       });
       break;
     case "listDashboardActiveTasksForPopover": {
+      const limitRaw =
+        typeof data.limit === "number" && Number.isFinite(data.limit)
+          ? Math.floor(data.limit)
+          : 12;
+      const limit = Math.max(1, Math.min(50, limitRaw));
       const [activeTasks, acpSkillRuns, filter, displayName] =
         await Promise.all([
           import("./modules/taskRuntime"),
@@ -626,9 +631,13 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       );
       return filter
         .projectDashboardActiveTasks({
-          activeTasks: activeTasks.listActiveWorkflowTasks(),
-          acpSkillRuns: acpSkillRuns.listAcpSkillRuns(),
+          activeTasks: activeTasks.listActiveWorkflowTaskSummaries({ limit }),
+          acpSkillRuns: acpSkillRuns.listAcpSkillRunSummaries({
+            activeOnly: true,
+            limit,
+          }),
         })
+        .slice(0, limit)
         .map((entry) => {
           const backendId = String(entry.backendId || "").trim();
           const backendMeta = backendId

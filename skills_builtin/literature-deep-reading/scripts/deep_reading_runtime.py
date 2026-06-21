@@ -43,7 +43,7 @@ HTML_IMAGE_RE = re.compile(r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGN
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 REFERENCES_HEADING_RE = re.compile(r"\b(references|bibliography)\b|参考文献", re.IGNORECASE)
 APPENDIX_HEADING_RE = re.compile(r"\b(appendix|appendices|supplementary\s+material|supplemental\s+material|supplementary\s+information)\b|附录", re.IGNORECASE)
-APPENDIX_LETTER_HEADING_RE = re.compile(r"^(?:appendix\s+)?[A-Z](?:\.\d+(?:\.\d+)*)?(?:\s+|\.?\s*$)", re.IGNORECASE)
+APPENDIX_LETTER_HEADING_RE = re.compile(r"^(?:appendix\s+)?[A-Z](?:\.\d+)*(?:\.?\s+|\.?$)", re.IGNORECASE)
 REFERENCE_ENTRY_RE = re.compile(r"^\s*(?:\[(\d{1,4})\]|(\d{1,4})[\.)])\s+(.+?)\s*$")
 DISPLAY_MATH_RE = re.compile(r"\$\$\s*([\s\S]*?)\s*\$\$")
 INLINE_MATH_RE = re.compile(r"(?<!\$)\$([^$\n]+?)\$(?!\$)")
@@ -60,6 +60,7 @@ READING_ENRICHMENT_FIELDS = {
     "preface_warnings",
     "preface_questions",
     "section_notes",
+    "section_roles",
     "concepts",
     "reference_digest_notes",
     "summary_fallback_enabled",
@@ -93,6 +94,7 @@ READING_ENRICHMENT_REQUIRED_FIELDS = {
     "summary_fallback_enabled",
     "extensions",
 }
+SECTION_ROLE_VALUES = {"main", "bibliography", "appendix"}
 TRANSLATION_BATCH_MAX_WORDS = 1600
 TRANSLATION_BATCH_MAX_CHARS = 6000
 TRANSLATION_BATCH_MAX_BLOCKS = 20
@@ -717,7 +719,13 @@ def bridge_executable(run_root: Path) -> Path:
     for candidate in candidates:
         if candidate.exists():
             return candidate.resolve()
-    raise FileNotFoundError(f"Host Bridge CLI not found under {bridge_dir}")
+    path_bridge = shutil.which("zotero-bridge")
+    if path_bridge:
+        return Path(path_bridge).resolve()
+    raise FileNotFoundError(
+        "Host Bridge CLI not found. Checked ZOTERO_BRIDGE_BIN, "
+        f"workspace shim under {bridge_dir}, and PATH entry zotero-bridge."
+    )
 
 
 def run_bridge_json(run_root: Path, subcommand: list[str], payload: dict[str, Any], input_name: str) -> dict[str, Any]:
@@ -3516,6 +3524,67 @@ def available_section_anchors() -> set[str]:
     return {clean_text(section.get("anchor")) for section in as_list(structure.get("sections")) if isinstance(section, dict) and clean_text(section.get("anchor"))}
 
 
+def normalize_section_role(entry: Any) -> dict[str, str] | None:
+    if not isinstance(entry, dict):
+        return None
+    anchor = clean_text(entry.get("section_anchor"))
+    role = clean_text(entry.get("role")).lower()
+    if not anchor or role not in SECTION_ROLE_VALUES:
+        return None
+    return {
+        "section_anchor": anchor,
+        "role": role,
+        "reason": clean_text(entry.get("reason")),
+    }
+
+
+def section_role_overrides(payload_or_view: dict[str, Any] | None = None) -> dict[str, str]:
+    source = payload_or_view if isinstance(payload_or_view, dict) else read_view("section-roles-view.json", {})
+    raw_items = source.get("section_roles") if "section_roles" in source else source.get("items")
+    result: dict[str, str] = {}
+    for item in as_list(raw_items):
+        normalized = normalize_section_role(item)
+        if normalized:
+            result[normalized["section_anchor"]] = normalized["role"]
+    return result
+
+
+def build_section_roles_view(payload: dict[str, Any]) -> dict[str, Any]:
+    items = [item for item in (normalize_section_role(entry) for entry in as_list(payload.get("section_roles"))) if item]
+    return {
+        "schema_version": "literature-deep-reading.section-roles-view.v0",
+        "source": "agent_enrichment",
+        "items": items,
+        "section_roles": items,
+        "override_count": len(items),
+    }
+
+
+def apply_section_roles_to_sections(sections: list[dict[str, Any]], overrides: dict[str, str]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        anchor = clean_text(section.get("anchor"))
+        role = overrides.get(anchor)
+        result.append({**section, **({"role": role} if role else {})})
+    return result
+
+
+def apply_section_roles_to_blocks(blocks: list[dict[str, Any]], overrides: dict[str, str]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        anchor = clean_text(block.get("section_anchor"))
+        role = overrides.get(anchor)
+        if not role:
+            result.append(block)
+            continue
+        result.append({**block, "role": role, "translate": role != "bibliography"})
+    return result
+
+
 def normalize_question(entry: Any) -> dict[str, str]:
     source = entry if isinstance(entry, dict) else {}
     return {
@@ -3563,7 +3632,7 @@ def validate_reading_enrichment_payload(payload: Any) -> list[str]:
     anchors = available_section_anchors()
     reference_ids = reference_ids_from_views()
 
-    for field in ["preface_cards", "preface_questions", "section_notes", "concepts", "reference_digest_notes", "summary_fallback_sections", "extensions"]:
+    for field in ["preface_cards", "preface_questions", "section_notes", "section_roles", "concepts", "reference_digest_notes", "summary_fallback_sections", "extensions"]:
         if field in payload and not isinstance(payload.get(field), list):
             errors.append(f"{field} must be an array")
 
@@ -3630,6 +3699,22 @@ def validate_reading_enrichment_payload(payload: Any) -> list[str]:
             if not clean_text(role.get("role")):
                 errors.append(f"section_notes[{index}].citation_reference_roles[{role_index}] requires role")
 
+    for index, entry in enumerate(as_list(payload.get("section_roles")), start=1):
+        if not isinstance(entry, dict):
+            errors.append(f"section_roles[{index}] must be an object")
+            continue
+        row_unknown = sorted(set(entry) - {"section_anchor", "role", "reason"})
+        if row_unknown:
+            errors.append(f"section_roles[{index}] has unknown fields: " + ", ".join(row_unknown))
+        anchor = clean_text(entry.get("section_anchor"))
+        role = clean_text(entry.get("role")).lower()
+        if not anchor:
+            errors.append(f"section_roles[{index}] requires section_anchor")
+        elif anchor not in anchors:
+            errors.append(f"section_roles[{index}] references unknown section_anchor: {anchor}")
+        if role not in SECTION_ROLE_VALUES:
+            errors.append(f"section_roles[{index}].role must be one of: " + ", ".join(sorted(SECTION_ROLE_VALUES)))
+
     for index, concept in enumerate(as_list(payload.get("concepts")), start=1):
         if not isinstance(concept, dict):
             errors.append(f"concepts[{index}] must be an object")
@@ -3678,6 +3763,7 @@ def normalized_reading_enrichment(payload: dict[str, Any]) -> dict[str, Any]:
         "preface_warnings": [clean_text(item) for item in as_list(payload.get("preface_warnings")) if clean_text(item)],
         "preface_questions": [normalize_question(item) for item in as_list(payload.get("preface_questions"))],
         "section_notes": as_list(payload.get("section_notes")),
+        "section_roles": [item for item in (normalize_section_role(entry) for entry in as_list(payload.get("section_roles"))) if item],
         "concepts": as_list(payload.get("concepts")),
         "reference_digest_notes": as_list(payload.get("reference_digest_notes")),
         "summary_fallback_enabled": bool(payload.get("summary_fallback_enabled")),
@@ -4223,7 +4309,11 @@ def build_references_view(payload: dict[str, Any]) -> dict[str, Any]:
     }
     digest_by_id = digest_items_by_reference_id()
     digest_by_paper = digest_items_by_paper_ref()
-    seed_raw_items = as_list(seed.get("raw_items")) or as_list(seed.get("references"))
+    role_overrides = section_role_overrides(payload)
+    raw_markdown, role_raw_items = markdown_reference_items_from_blocks(
+        apply_section_roles_to_blocks(reading_blocks(), role_overrides)
+    )
+    seed_raw_items = role_raw_items if role_overrides else role_raw_items or as_list(seed.get("raw_items")) or as_list(seed.get("references"))
     raw_items = [raw_reference_view_item(entry, index) for index, entry in enumerate(seed_raw_items, start=1)]
     item_items = [
         item_reference_view_item(reference, notes, digest_by_id, digest_by_paper)
@@ -4246,7 +4336,7 @@ def build_references_view(payload: dict[str, Any]) -> dict[str, Any]:
         "raw_view": {
             "source": seed.get("source") or "none",
             "reference_count": len(raw_items),
-            "raw_markdown": clean_text(seed.get("raw_markdown")),
+            "raw_markdown": raw_markdown if role_overrides else raw_markdown or clean_text(seed.get("raw_markdown")),
             "items": raw_items,
         },
         "items": compat_items,
@@ -4432,9 +4522,10 @@ def block_translation_source(block: dict[str, Any]) -> str:
     return clean_text(block.get("source_markdown"))
 
 
-def translatable_blocks_for_batches() -> list[dict[str, Any]]:
+def translatable_blocks_for_batches(section_roles: dict[str, str] | None = None) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    for block in reading_blocks():
+    blocks = apply_section_roles_to_blocks(reading_blocks(), section_roles or section_role_overrides())
+    for block in blocks:
         if not bool(block.get("translate")):
             continue
         role = clean_text(block.get("role")) or "main"
@@ -4655,9 +4746,9 @@ def empty_translation_batches_view(source: str = "translator_alignment") -> dict
     return view
 
 
-def prepare_translation_batches(concepts_view: dict[str, Any], insights_view: dict[str, Any]) -> dict[str, Any]:
+def prepare_translation_batches(concepts_view: dict[str, Any], insights_view: dict[str, Any], section_roles: dict[str, str] | None = None) -> dict[str, Any]:
     target_language = target_language_from_db()
-    blocks = translatable_blocks_for_batches()
+    blocks = translatable_blocks_for_batches(section_roles)
     if TRANSLATION_BATCHES_DIR.exists():
         shutil.rmtree(TRANSLATION_BATCHES_DIR)
     TRANSLATION_BATCHES_DIR.mkdir(parents=True, exist_ok=True)
@@ -4752,6 +4843,8 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
         raise ValueError("; ".join(errors))
     payload = normalized_reading_enrichment(payload_raw)
     diagnostics: list[dict[str, Any]] = []
+    section_roles = build_section_roles_view(payload)
+    effective_section_roles = section_role_overrides(section_roles)
     concept_overlay = build_concept_overlay_view(payload, diagnostics)
     preface = build_preface_view(payload, concept_overlay)
     section_insights = build_section_insights_view(payload, concept_overlay)
@@ -4766,13 +4859,14 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
         write_json(VIEWS_DIR / "translation-view.json", translator_translation)
         translation_batches = empty_translation_batches_view(clean_text(translator_translation.get("source")) or "translator_alignment")
     else:
-        translation_batches = prepare_translation_batches(concept_overlay, section_insights)
+        translation_batches = prepare_translation_batches(concept_overlay, section_insights, effective_section_roles)
     diagnostics_view = {
         "schema_version": "literature-deep-reading.diagnostics-enrichment.v0",
         "diagnostics": diagnostics,
     }
     view_map = {
         "preface-view": preface,
+        "section-roles-view": section_roles,
         "section-insights-view": section_insights,
         "concept-overlay-view": concept_overlay,
         "references-view": references,
@@ -4803,6 +4897,7 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
         "views": {
             "preface": normalize_posix(VIEWS_DIR / "preface-view.json"),
             "section_insights": normalize_posix(VIEWS_DIR / "section-insights-view.json"),
+            "section_roles": normalize_posix(VIEWS_DIR / "section-roles-view.json"),
             "concept_overlay": normalize_posix(VIEWS_DIR / "concept-overlay-view.json"),
             "references": normalize_posix(VIEWS_DIR / "references-view.json"),
             "summary": normalize_posix(VIEWS_DIR / "summary-view.json"),
@@ -5913,7 +6008,7 @@ def inferred_navigation_level(title: str, markdown_level: int) -> int:
     return max(base_level, depth)
 
 
-def build_navigation(source_structure: dict[str, Any], labels: dict[str, str]) -> list[dict[str, Any]]:
+def build_navigation(source_structure: dict[str, Any], labels: dict[str, str], citation_graph_available: bool = True) -> list[dict[str, Any]]:
     navigation = [{"anchor": "preface", "title": labels.get("preface", "Reading Guide"), "level": 0, "kind": "preface"}]
     appendix_sections: list[dict[str, Any]] = []
     for section in as_list(source_structure.get("sections")):
@@ -5953,12 +6048,9 @@ def build_navigation(source_structure: dict[str, Any], labels: dict[str, str]) -
                 "kind": "appendix_section",
             }
         )
-    navigation.extend(
-        [
-            {"anchor": "citation-graph", "title": labels.get("citation_graph", "Citation Graph"), "level": 0, "kind": "citation_graph"},
-            {"anchor": "extensions", "title": labels.get("extensions", "Extensions"), "level": 0, "kind": "extensions"},
-        ]
-    )
+    if citation_graph_available:
+        navigation.append({"anchor": "citation-graph", "title": labels.get("citation_graph", "Citation Graph"), "level": 0, "kind": "citation_graph"})
+    navigation.append({"anchor": "extensions", "title": labels.get("extensions", "Extensions"), "level": 0, "kind": "extensions"})
     return navigation
 
 
@@ -6015,17 +6107,20 @@ def build_final_sections_view(final_review: dict[str, Any], diagnostics: list[di
     if as_list(citation_snapshot.get("nodes")) and not layout_nodes:
         diagnostics.append({"severity": "warning", "code": "citation_graph_layout_missing"})
     citation_graph_model = build_citation_graph_model(citation_snapshot, citation_layout)
+    citation_graph_available = bool(as_list(citation_graph_model.get("nodes")))
     paper = paper_metadata()
-    citation_graph_envelope = build_synthesis_export_envelope(citation_graph_model, paper)
-    blocks = reading_blocks()
+    citation_graph_envelope = build_synthesis_export_envelope(citation_graph_model, paper) if citation_graph_available else {}
+    role_overrides = section_role_overrides()
+    blocks = apply_section_roles_to_blocks(reading_blocks(), role_overrides)
+    sections = apply_section_roles_to_sections(as_list(source_structure.get("sections")), role_overrides)
     labels = deep_reading_labels(paper.get("target_language"))
     sections_view = {
         "schema_version": "literature-deep-reading.seamless-scroll.v0",
         "paper": paper,
         "labels": labels,
-        "navigation": build_navigation(source_structure, labels),
+        "navigation": build_navigation({**source_structure, "sections": sections}, labels, citation_graph_available),
         "preface": read_view("preface-view.json", {}),
-        "sections": as_list(source_structure.get("sections")),
+        "sections": sections,
         "reading_blocks": build_render_reading_blocks(blocks, translation, "main"),
         "appendix_reading_blocks": build_render_reading_blocks(blocks, translation, "appendix"),
         "translation_available": translation_available,
@@ -6037,6 +6132,7 @@ def build_final_sections_view(final_review: dict[str, Any], diagnostics: list[di
         "concepts": read_view("concept-overlay-view.json", {}),
         "citation_graph": {
             "anchor": "citation-graph",
+            "available": citation_graph_available,
             "snapshot": citation_snapshot,
             "layout": citation_layout,
             "model": citation_graph_model,
@@ -6305,12 +6401,14 @@ def static_graph_is_current_node(node: dict[str, Any], model: dict[str, Any]) ->
 def static_citation_graph_html(sections_view: dict[str, Any]) -> str:
     labels = labels_from_sections(sections_view)
     graph = sections_view.get("citation_graph") if isinstance(sections_view.get("citation_graph"), dict) else {}
+    if not graph.get("available"):
+        return ""
     model = graph.get("model") if isinstance(graph.get("model"), dict) else {}
     nodes = [node for node in as_list(model.get("nodes")) if isinstance(node, dict) and isinstance(node.get("x"), (int, float)) and isinstance(node.get("y"), (int, float))]
     node_ids = {clean_text(node.get("id")) for node in nodes}
     edges = [edge for edge in as_list(model.get("edges")) if isinstance(edge, dict) and clean_text(edge.get("source")) in node_ids and clean_text(edge.get("target")) in node_ids]
     if not nodes:
-        return f'<h1 id="citation-graph">{html.escape(labels.get("citation_graph", "Citation Graph"))}</h1><p class="static-viewer-note">{html.escape(labels.get("graph_no_layout", "No graph layout coordinates are available."))}</p>'
+        return ""
     width, height = 900, 520
     xs = [float(node.get("x")) for node in nodes]
     ys = [float(node.get("y")) for node in nodes]
@@ -6384,6 +6482,7 @@ def build_static_shell_fragments(sections_view: dict[str, Any]) -> dict[str, str
         "STATIC_APPENDIX_COMPARE": static_reading_region(appendix_blocks, "compare", images),
         "STATIC_APPENDIX_TRANSLATION": static_reading_region(appendix_blocks, "translation", images),
         "STATIC_CITATION_GRAPH": static_citation_graph_html(sections_view),
+        "CITATION_GRAPH_SECTION_ATTRS": "" if (sections_view.get("citation_graph") or {}).get("available") else "hidden",
         "STATIC_EXTENSIONS": static_extensions_html(sections_view),
         "STATIC_READING_AID": static_reading_aid_html(sections_view),
     }

@@ -30,6 +30,7 @@ import {
 import { resolveManagedLocalRuntimeToastText } from "../utils/localizationGovernance";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
+import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -145,7 +146,8 @@ type EnsureManagedLocalRuntimeOptions = {
 
 let autoStartEnabledInSession = false;
 type ManagedLocalRuntimeStateChangeListener = () => void;
-const managedLocalRuntimeStateChangeListeners = new Set<ManagedLocalRuntimeStateChangeListener>();
+const managedLocalRuntimeStateChangeListeners =
+  new Set<ManagedLocalRuntimeStateChangeListener>();
 let pendingAutoEnsureTickTimer: ReturnType<typeof setTimeout> | undefined;
 let suppressAutoEnsureTriggerForTests = false;
 let actionProgressState: LocalRuntimeActionProgress | null = null;
@@ -226,7 +228,10 @@ function setActionProgress(progress: {
   label: string;
 }) {
   const total = Math.max(1, Math.floor(progress.total || 1));
-  const current = Math.max(0, Math.min(total, Math.floor(progress.current || 0)));
+  const current = Math.max(
+    0,
+    Math.min(total, Math.floor(progress.current || 0)),
+  );
   actionProgressState = {
     action: progress.action,
     current,
@@ -302,13 +307,15 @@ function emitLocalRuntimeToast(kind: LocalRuntimeToastKind) {
 export function setLocalRuntimeToastEmitterForTests(
   emitter?: (payload: LocalRuntimeToastPayload) => void,
 ) {
-  localRuntimeToastEmitter = emitter || ((payload) => {
-    showWorkflowToast({
-      text: payload.text,
-      type: payload.type as any,
-      semantic: "runtime",
+  localRuntimeToastEmitter =
+    emitter ||
+    ((payload) => {
+      showWorkflowToast({
+        text: payload.text,
+        type: payload.type as any,
+        semantic: "runtime",
+      });
     });
-  });
 }
 
 export function resetLocalRuntimeToastStateForTests() {
@@ -322,8 +329,11 @@ export function setManagedLocalRuntimePostUpTaskReconcileRunnerForTests(
   localRuntimePostUpTaskReconcileRunner = runner || (async () => undefined);
 }
 
-function triggerManagedLocalRuntimePostUpTaskReconcile(state: ManagedLocalRuntimeState) {
-  const backendId = normalizeString(state.managedBackendId) || MANAGED_PROFILE_ID;
+function triggerManagedLocalRuntimePostUpTaskReconcile(
+  state: ManagedLocalRuntimeState,
+) {
+  const backendId =
+    normalizeString(state.managedBackendId) || MANAGED_PROFILE_ID;
   const baseUrl = resolveManagedBaseUrl(state);
   void localRuntimePostUpTaskReconcileRunner({
     backendId,
@@ -333,8 +343,11 @@ function triggerManagedLocalRuntimePostUpTaskReconcile(state: ManagedLocalRuntim
   });
 }
 
-function triggerSilentManagedModelCacheRefresh(state: ManagedLocalRuntimeState) {
-  const backendId = normalizeString(state.managedBackendId) || MANAGED_PROFILE_ID;
+function triggerSilentManagedModelCacheRefresh(
+  state: ManagedLocalRuntimeState,
+) {
+  const backendId =
+    normalizeString(state.managedBackendId) || MANAGED_PROFILE_ID;
   void (async () => {
     try {
       const loaded = await loadBackendsRegistry();
@@ -373,7 +386,9 @@ function triggerSilentManagedModelCacheRefresh(state: ManagedLocalRuntimeState) 
           : "refresh-managed-model-cache-silent-failed",
         message: refreshed.ok
           ? "managed backend model cache refreshed silently"
-          : String(refreshed.error || "managed backend model cache refresh failed"),
+          : String(
+              refreshed.error || "managed backend model cache refresh failed",
+            ),
         details: refreshed as Record<string, unknown>,
       });
     } catch (error) {
@@ -554,7 +569,8 @@ function resolveDefaultInstallRoot() {
     if (localAppData) {
       return joinPath(localAppData, "SkillRunner", "releases");
     }
-    const home = readProcessEnv("USERPROFILE") || readDirectoryServicePath("Home");
+    const home =
+      readProcessEnv("USERPROFILE") || readDirectoryServicePath("Home");
     if (home) {
       return joinPath(home, "AppData", "Local", "SkillRunner", "releases");
     }
@@ -576,9 +592,11 @@ function resolveManagedLocalRootFromInstallRoot(installRoot: string) {
 }
 
 function buildManagedInstallLayoutDetails(args?: { installRoot?: string }) {
-  const installRoot = normalizeString(args?.installRoot) || resolveDefaultInstallRoot();
+  const installRoot =
+    normalizeString(args?.installRoot) || resolveDefaultInstallRoot();
   const localRoot = resolveManagedLocalRootFromInstallRoot(installRoot);
-  const releasesPath = normalizeString(installRoot) || joinPath(localRoot, "releases");
+  const releasesPath =
+    normalizeString(installRoot) || joinPath(localRoot, "releases");
   const dataPath = joinPath(localRoot, "data");
   const agentHomePath = joinPath(localRoot, "agent-cache", "agent-home");
   const npmCachePath = joinPath(localRoot, "agent-cache", "npm");
@@ -725,7 +743,9 @@ type RuntimeEndpoint = {
   portFallbackSpan: number;
 };
 
-function resolveRuntimeEndpoint(state: ManagedLocalRuntimeState | undefined): RuntimeEndpoint {
+function resolveRuntimeEndpoint(
+  state: ManagedLocalRuntimeState | undefined,
+): RuntimeEndpoint {
   const normalizedState = state || {};
   const parsedFromRuntimeUrl = parseEndpointFromUrl(normalizedState.runtimeUrl);
   const parsedFromBaseUrl = parseEndpointFromUrl(normalizedState.baseUrl);
@@ -740,12 +760,12 @@ function resolveRuntimeEndpoint(state: ManagedLocalRuntimeState | undefined): Ru
       parsedFromBaseUrl?.port ||
       DEFAULT_MANAGED_LOCAL_PORT,
   );
-  const requestedPort = normalizePort(
-    normalizedState.requestedPort,
-    port,
+  const requestedPort = normalizePort(normalizedState.requestedPort, port);
+  const portFallbackSpan = normalizePortFallbackSpan(
+    normalizedState.portFallbackSpan,
   );
-  const portFallbackSpan = normalizePortFallbackSpan(normalizedState.portFallbackSpan);
-  const url = normalizeUrl(normalizedState.runtimeUrl) || `${buildBaseUrl(host, port)}/`;
+  const url =
+    normalizeUrl(normalizedState.runtimeUrl) || `${buildBaseUrl(host, port)}/`;
   return {
     host,
     port,
@@ -756,7 +776,10 @@ function resolveRuntimeEndpoint(state: ManagedLocalRuntimeState | undefined): Ru
 }
 
 function normalizePortFallbackSpan(value: unknown) {
-  return normalizeNonNegativeInteger(value, DEFAULT_MANAGED_LOCAL_PORT_FALLBACK_SPAN);
+  return normalizeNonNegativeInteger(
+    value,
+    DEFAULT_MANAGED_LOCAL_PORT_FALLBACK_SPAN,
+  );
 }
 
 function normalizeHeartbeatIntervalSeconds(value: unknown) {
@@ -764,7 +787,9 @@ function normalizeHeartbeatIntervalSeconds(value: unknown) {
 }
 
 function resolveHeartbeatIntervalMs(lease: LeaseState | undefined) {
-  return normalizeHeartbeatIntervalSeconds(lease?.heartbeatIntervalSeconds) * 1000;
+  return (
+    normalizeHeartbeatIntervalSeconds(lease?.heartbeatIntervalSeconds) * 1000
+  );
 }
 
 function normalizeRuntimeState(value: unknown): RuntimeState {
@@ -804,7 +829,9 @@ export function isLocalRuntimeAutoStartPaused() {
 }
 
 async function sleepMs(ms: number) {
-  await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.floor(ms))));
+  await new Promise((resolve) =>
+    setTimeout(resolve, Math.max(0, Math.floor(ms))),
+  );
 }
 
 async function readTextFile(filePath: string) {
@@ -960,9 +987,7 @@ function getWindowsShellCommandCandidates(command: string) {
   }
   const lower = normalizedCommand.toLowerCase();
   const systemRoot =
-    readProcessEnv("SystemRoot") ||
-    readProcessEnv("WINDIR") ||
-    "C:\\Windows";
+    readProcessEnv("SystemRoot") || readProcessEnv("WINDIR") || "C:\\Windows";
   const comspec = normalizeWindowsPathCandidate(
     readProcessEnv("ComSpec") || readProcessEnv("COMSPEC"),
   );
@@ -1017,7 +1042,8 @@ async function runSubprocessCommand(args: {
         stderr: "",
       };
     } catch (error) {
-      const message = getDeleteErrorMessage(error) || "subprocess invocation failed";
+      const message =
+        getDeleteErrorMessage(error) || "subprocess invocation failed";
       lastError = message;
       const canRetryWithNextCandidate =
         i < candidates.length - 1 && isExecutableNotFoundMessage(message);
@@ -1085,7 +1111,12 @@ async function removePathRecursiveWithWindowsShellFallback(args: {
     }
     const cmdResult = await runSubprocessCommand({
       command: "cmd.exe",
-      argv: ["/d", "/s", "/c", `if exist "${target.path}" rd /s /q "${target.path}"`],
+      argv: [
+        "/d",
+        "/s",
+        "/c",
+        `if exist "${target.path}" rd /s /q "${target.path}"`,
+      ],
     });
     if (cmdResult.ok && !(await pathExists(args.normalizedPath))) {
       return;
@@ -1095,13 +1126,16 @@ async function removePathRecursiveWithWindowsShellFallback(args: {
     }
   }
   const error = new Error(
-    normalizeString(lastError) || "windows shell fallback failed to delete path",
+    normalizeString(lastError) ||
+      "windows shell fallback failed to delete path",
   ) as RemovePathRecursiveError;
   error.deleteDiagnostics = args.diagnostics;
   throw error;
 }
 
-async function removePathRecursive(pathValue: string): Promise<RemovePathRecursiveDiagnostics> {
+async function removePathRecursive(
+  pathValue: string,
+): Promise<RemovePathRecursiveDiagnostics> {
   const normalized = normalizeString(pathValue);
   const diagnostics: RemovePathRecursiveDiagnostics = {
     retries: 0,
@@ -1170,7 +1204,8 @@ async function removePathRecursive(pathValue: string): Promise<RemovePathRecursi
       });
       return diagnostics;
     } catch (error) {
-      diagnostics.lastErrorCode = getDeleteErrorCode(error) || "SHELL_DELETE_FAILED";
+      diagnostics.lastErrorCode =
+        getDeleteErrorCode(error) || "SHELL_DELETE_FAILED";
       diagnostics.lastErrorMessage =
         getDeleteErrorMessage(error) || diagnostics.lastErrorMessage;
       const wrapped = new Error(
@@ -1230,7 +1265,8 @@ function formatManagedDeleteFailureMessage(args: {
     );
   }
   const isNpmTarget =
-    args.targetId === "npm-cache" || /agent-cache[\\/]+npm/i.test(args.targetPath);
+    args.targetId === "npm-cache" ||
+    /agent-cache[\\/]+npm/i.test(args.targetPath);
   if (isNpmTarget) {
     parts.push(
       "hint=possible Windows long-path or file-lock issue under npm cache",
@@ -1281,7 +1317,9 @@ async function readBootstrapReport(args: {
     if (explicitReportFilePath) {
       return explicitReportFilePath;
     }
-    const dataDirFromEnv = normalizeString(readProcessEnv("SKILL_RUNNER_DATA_DIR"));
+    const dataDirFromEnv = normalizeString(
+      readProcessEnv("SKILL_RUNNER_DATA_DIR"),
+    );
     if (isAbsoluteFsPath(dataDirFromEnv)) {
       return joinPath(dataDirFromEnv, "agent_bootstrap_report.json");
     }
@@ -1445,7 +1483,10 @@ function normalizeState(raw: unknown): ManagedLocalRuntimeState {
     ctlPath: normalizeString(raw.ctlPath) || undefined,
     baseUrl: normalizeString(raw.baseUrl) || undefined,
     runtimeHost: normalizeString(raw.runtimeHost) || undefined,
-    runtimePort: normalizePort(raw.runtimePort, -1) > 0 ? normalizePort(raw.runtimePort, -1) : undefined,
+    runtimePort:
+      normalizePort(raw.runtimePort, -1) > 0
+        ? normalizePort(raw.runtimePort, -1)
+        : undefined,
     runtimeUrl: normalizeUrl(raw.runtimeUrl) || undefined,
     requestedPort:
       normalizePort(raw.requestedPort, -1) > 0
@@ -1510,7 +1551,8 @@ function getConfiguredVersionTag() {
 }
 
 function setConfiguredVersionTag(versionTag: string) {
-  const normalized = normalizeString(versionTag) || DEFAULT_LOCAL_RUNTIME_VERSION;
+  const normalized =
+    normalizeString(versionTag) || DEFAULT_LOCAL_RUNTIME_VERSION;
   setPref(VERSION_PREF_KEY, normalized);
 }
 
@@ -1576,25 +1618,23 @@ export function setSkillRunnerCtlBridgeFactoryForTests(
 }
 
 export function setSkillRunnerReleaseInstallerForTests(
-  installer?: (
-    args: {
-      version: string;
-      installRoot: string;
-      repo: string;
-      onProgress?: (progress: {
-        stage: "download-checksum-complete" | "extract-complete";
-        details?: Record<string, unknown>;
-      }) => void;
-      runCommand: (args: {
-        command: string;
-        args: string[];
-        cwd?: string;
-        timeoutMs?: number;
-      }) => Promise<SkillRunnerCtlCommandResult>;
-      keepTempOnSuccess?: boolean;
-      keepTempOnFailure?: boolean;
-    },
-  ) => Promise<ReleaseInstallResult>,
+  installer?: (args: {
+    version: string;
+    installRoot: string;
+    repo: string;
+    onProgress?: (progress: {
+      stage: "download-checksum-complete" | "extract-complete";
+      details?: Record<string, unknown>;
+    }) => void;
+    runCommand: (args: {
+      command: string;
+      args: string[];
+      cwd?: string;
+      timeoutMs?: number;
+    }) => Promise<SkillRunnerCtlCommandResult>;
+    keepTempOnSuccess?: boolean;
+    keepTempOnFailure?: boolean;
+  }) => Promise<ReleaseInstallResult>,
 ) {
   releaseInstaller = installer || installSkillRunnerRelease;
 }
@@ -1656,14 +1696,17 @@ function buildLocalBridgeArgs(args: {
   });
   return {
     installDir,
-    localRoot: localRootResolution.ok ? localRootResolution.localRoot : undefined,
+    localRoot: localRootResolution.ok
+      ? localRootResolution.localRoot
+      : undefined,
     host: normalizeString(args.host) || undefined,
     port:
       typeof args.port === "number" && Number.isFinite(args.port)
         ? Math.floor(args.port)
         : undefined,
     portFallbackSpan:
-      typeof args.portFallbackSpan === "number" && Number.isFinite(args.portFallbackSpan)
+      typeof args.portFallbackSpan === "number" &&
+      Number.isFinite(args.portFallbackSpan)
         ? Math.floor(args.portFallbackSpan)
         : undefined,
     waitSeconds:
@@ -1673,7 +1716,9 @@ function buildLocalBridgeArgs(args: {
   };
 }
 
-function resolveEffectiveInstallDir(state: ManagedLocalRuntimeState | undefined) {
+function resolveEffectiveInstallDir(
+  state: ManagedLocalRuntimeState | undefined,
+) {
   const target = state || {};
   const configuredInstallDir = normalizeString(target.installDir);
   if (configuredInstallDir) {
@@ -1710,7 +1755,9 @@ async function runLocalBridgeStatus(args: {
     };
   }
   const bridgeCandidate = args.bridge as unknown as {
-    statusLocalRuntime?: (bridgeArgs: SkillRunnerLocalRuntimeBridgeArgs) => Promise<SkillRunnerCtlCommandResult>;
+    statusLocalRuntime?: (
+      bridgeArgs: SkillRunnerLocalRuntimeBridgeArgs,
+    ) => Promise<SkillRunnerCtlCommandResult>;
     runCtlCommand?: (ctlArgs: {
       ctlPath: string;
       command: "status";
@@ -1768,7 +1815,9 @@ async function runLocalBridgePreflight(args: {
     };
   }
   const bridgeCandidate = args.bridge as unknown as {
-    preflightLocalRuntime?: (bridgeArgs: SkillRunnerLocalRuntimeBridgeArgs) => Promise<SkillRunnerCtlCommandResult>;
+    preflightLocalRuntime?: (
+      bridgeArgs: SkillRunnerLocalRuntimeBridgeArgs,
+    ) => Promise<SkillRunnerCtlCommandResult>;
     runCtlCommand?: (ctlArgs: {
       ctlPath: string;
       command: "preflight";
@@ -1830,7 +1879,9 @@ async function runLocalBridgeUp(args: {
     };
   }
   const bridgeCandidate = args.bridge as unknown as {
-    upLocalRuntime?: (bridgeArgs: SkillRunnerLocalRuntimeBridgeArgs) => Promise<SkillRunnerCtlCommandResult>;
+    upLocalRuntime?: (
+      bridgeArgs: SkillRunnerLocalRuntimeBridgeArgs,
+    ) => Promise<SkillRunnerCtlCommandResult>;
     runCtlCommand?: (ctlArgs: {
       ctlPath: string;
       command: "up";
@@ -1888,7 +1939,9 @@ async function runLocalBridgeDown(args: {
     };
   }
   const bridgeCandidate = args.bridge as unknown as {
-    downLocalRuntime?: (bridgeArgs: SkillRunnerLocalRuntimeBridgeArgs) => Promise<SkillRunnerCtlCommandResult>;
+    downLocalRuntime?: (
+      bridgeArgs: SkillRunnerLocalRuntimeBridgeArgs,
+    ) => Promise<SkillRunnerCtlCommandResult>;
     runCtlCommand?: (ctlArgs: {
       ctlPath: string;
       command: "down";
@@ -1938,7 +1991,9 @@ async function runLocalBridgeDoctor(args: {
     };
   }
   const bridgeCandidate = args.bridge as unknown as {
-    doctorLocalRuntime?: (bridgeArgs: SkillRunnerLocalRuntimeBridgeArgs) => Promise<SkillRunnerCtlCommandResult>;
+    doctorLocalRuntime?: (
+      bridgeArgs: SkillRunnerLocalRuntimeBridgeArgs,
+    ) => Promise<SkillRunnerCtlCommandResult>;
     runCtlCommand?: (ctlArgs: {
       ctlPath: string;
       command: "doctor";
@@ -2021,7 +2076,9 @@ type RuntimeDetailsFromCtl = {
   triedPorts?: number[];
 };
 
-function normalizeRuntimeDetailsFromCtl(details: unknown): RuntimeDetailsFromCtl | null {
+function normalizeRuntimeDetailsFromCtl(
+  details: unknown,
+): RuntimeDetailsFromCtl | null {
   if (!isObjectRecord(details)) {
     return null;
   }
@@ -2035,7 +2092,10 @@ function normalizeRuntimeDetailsFromCtl(details: unknown): RuntimeDetailsFromCtl
   const url = normalizeUrl(details.url);
   const parsedPort = normalizePort(details.port, -1);
   const parsedRequestedPort = normalizePort(rawRequestedPort, -1);
-  const parsedFallbackSpan = normalizeNonNegativeInteger(rawPortFallbackSpan, -1);
+  const parsedFallbackSpan = normalizeNonNegativeInteger(
+    rawPortFallbackSpan,
+    -1,
+  );
   const normalized: RuntimeDetailsFromCtl = {};
   if (host) {
     normalized.host = host;
@@ -2082,7 +2142,8 @@ function applyRuntimeEndpointFromDetails(
       ? parsed.portFallbackSpan
       : state.portFallbackSpan,
   );
-  const nextUrl = normalizeUrl(parsed.url) || `${buildBaseUrl(nextHost, nextPort)}/`;
+  const nextUrl =
+    normalizeUrl(parsed.url) || `${buildBaseUrl(nextHost, nextPort)}/`;
   const nextState = writeManagedLocalRuntimeState({
     ...state,
     baseUrl: buildBaseUrl(nextHost, nextPort),
@@ -2105,7 +2166,10 @@ function resolveManagedBaseUrl(state: ManagedLocalRuntimeState) {
   return buildBaseUrl(endpoint.host, endpoint.port);
 }
 
-async function postLease(path: string, body?: Record<string, unknown>): Promise<LeaseHttpResult> {
+async function postLease(
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<LeaseHttpResult> {
   const state = readManagedLocalRuntimeState();
   const baseUrl = resolveManagedBaseUrl(state);
   const fetchImpl = getGlobalFetch();
@@ -2168,7 +2232,10 @@ let runtimeActionInFlight = "";
 let backgroundInFlightAction = "";
 
 function getEffectiveInFlightAction() {
-  return normalizeString(runtimeActionInFlight) || normalizeString(backgroundInFlightAction);
+  return (
+    normalizeString(runtimeActionInFlight) ||
+    normalizeString(backgroundInFlightAction)
+  );
 }
 
 function setBackgroundInFlightAction(action: string) {
@@ -2209,7 +2276,9 @@ function clearStatusReconcileTimer() {
   }
 }
 
-function makeActionConflictResult(action: string): SkillRunnerLocalRuntimeActionResult {
+function makeActionConflictResult(
+  action: string,
+): SkillRunnerLocalRuntimeActionResult {
   const inFlightAction = getEffectiveInFlightAction() || "unknown";
   return {
     ok: false,
@@ -2522,6 +2591,16 @@ function ensureHeartbeatLoop(intervalSeconds?: number) {
   }
   clearHeartbeatTimer();
   heartbeatIntervalMs = nextIntervalMs;
+  registerBackgroundRefreshTimer({
+    owner: "managed-local-runtime-heartbeat",
+    activationCondition: "managed local runtime lease acquired",
+    scopeKey: "managed local runtime lease",
+    allowedDataSources: ["local runtime lease state"],
+    maxReadShape: "lease heartbeat response only",
+    requiresForegroundSurface: false,
+    minimumIntervalMs: nextIntervalMs,
+    intervalMs: nextIntervalMs,
+  });
   heartbeatTimer = setInterval(() => {
     void heartbeatLease();
   }, heartbeatIntervalMs);
@@ -2619,8 +2698,19 @@ function ensureStatusReconcileLoop() {
   const state = readManagedLocalRuntimeState();
   const intervalMs = Math.max(
     1000,
-    resolveHeartbeatIntervalMs(state.lease) || DEFAULT_HEARTBEAT_INTERVAL_SECONDS * 1000,
+    resolveHeartbeatIntervalMs(state.lease) ||
+      DEFAULT_HEARTBEAT_INTERVAL_SECONDS * 1000,
   );
+  registerBackgroundRefreshTimer({
+    owner: "managed-local-runtime-status-reconcile",
+    activationCondition: "managed local runtime heartbeat failed",
+    scopeKey: "managed local runtime status",
+    allowedDataSources: ["local runtime status endpoint"],
+    maxReadShape: "runtime status probe only",
+    requiresForegroundSurface: false,
+    minimumIntervalMs: intervalMs,
+    intervalMs,
+  });
   statusReconcileTimer = setInterval(() => {
     void runStatusReconcileTick();
   }, intervalMs);
@@ -2685,19 +2775,22 @@ async function createManagedProfileOnDeploy(
       conflict: false,
     };
   }
-  const existing = loaded.backends.find((entry) => entry.id === MANAGED_PROFILE_ID);
+  const existing = loaded.backends.find(
+    (entry) => entry.id === MANAGED_PROFILE_ID,
+  );
   const managedMarker = normalizeString(state.managedBackendId);
   if (existing && managedMarker !== MANAGED_PROFILE_ID) {
     return {
       ok: false,
-      message:
-        `backend profile '${MANAGED_PROFILE_ID}' already exists and is not managed by local runtime bootstrap`,
+      message: `backend profile '${MANAGED_PROFILE_ID}' already exists and is not managed by local runtime bootstrap`,
       conflict: true,
     };
   }
   const mergedBackends = existing
     ? loaded.backends.map((entry) =>
-        entry.id === MANAGED_PROFILE_ID ? buildManagedSkillRunnerBackend(baseUrl) : entry,
+        entry.id === MANAGED_PROFILE_ID
+          ? buildManagedSkillRunnerBackend(baseUrl)
+          : entry,
       )
     : [...loaded.backends, buildManagedSkillRunnerBackend(baseUrl)];
   setPref(
@@ -2720,7 +2813,9 @@ async function syncManagedProfileIfExists(baseUrl: string) {
       conflict: false,
     };
   }
-  const existing = loaded.backends.find((entry) => entry.id === MANAGED_PROFILE_ID);
+  const existing = loaded.backends.find(
+    (entry) => entry.id === MANAGED_PROFILE_ID,
+  );
   if (!existing) {
     return {
       ok: false,
@@ -2729,7 +2824,9 @@ async function syncManagedProfileIfExists(baseUrl: string) {
     };
   }
   const mergedBackends = loaded.backends.map((entry) =>
-    entry.id === MANAGED_PROFILE_ID ? buildManagedSkillRunnerBackend(baseUrl) : entry,
+    entry.id === MANAGED_PROFILE_ID
+      ? buildManagedSkillRunnerBackend(baseUrl)
+      : entry,
   );
   setPref(
     BACKENDS_CONFIG_PREF_KEY,
@@ -2750,14 +2847,18 @@ async function removeManagedProfileIfPresent() {
       message: loaded.fatalError,
     };
   }
-  const existing = loaded.backends.find((entry) => entry.id === MANAGED_PROFILE_ID);
+  const existing = loaded.backends.find(
+    (entry) => entry.id === MANAGED_PROFILE_ID,
+  );
   if (!existing) {
     return {
       ok: true,
       message: "",
     };
   }
-  const nextBackends = loaded.backends.filter((entry) => entry.id !== MANAGED_PROFILE_ID);
+  const nextBackends = loaded.backends.filter(
+    (entry) => entry.id !== MANAGED_PROFILE_ID,
+  );
   setPref(
     BACKENDS_CONFIG_PREF_KEY,
     JSON.stringify(createBackendsPrefsDocument(nextBackends)),
@@ -2817,11 +2918,15 @@ async function pollStatusUntilRunning(args: {
   intervalMs?: number;
 }) {
   const attempts =
-    typeof args.attempts === "number" && Number.isFinite(args.attempts) && args.attempts > 0
+    typeof args.attempts === "number" &&
+    Number.isFinite(args.attempts) &&
+    args.attempts > 0
       ? Math.floor(args.attempts)
       : RUNTIME_STATUS_POLL_ATTEMPTS;
   const intervalMs =
-    typeof args.intervalMs === "number" && Number.isFinite(args.intervalMs) && args.intervalMs > 0
+    typeof args.intervalMs === "number" &&
+    Number.isFinite(args.intervalMs) &&
+    args.intervalMs > 0
       ? Math.floor(args.intervalMs)
       : RUNTIME_STATUS_POLL_INTERVAL_MS;
   let lastStatus: SkillRunnerCtlCommandResult | undefined;
@@ -2835,7 +2940,9 @@ async function pollStatusUntilRunning(args: {
     });
     lastStatus = status;
     statusTrail.push(
-      normalizeString(status.details?.status || status.message || `exit-${status.exitCode}`),
+      normalizeString(
+        status.details?.status || status.message || `exit-${status.exitCode}`,
+      ),
     );
     if (status.ok && isStatusRunning(status)) {
       return {
@@ -2881,7 +2988,10 @@ async function runManagedRuntimeAutoEnsureTick(): Promise<AutoEnsureTickResult> 
   autoEnsureRunning = true;
   try {
     const state = readManagedLocalRuntimeState();
-    if (!normalizeString(state.managedBackendId) || !resolveEffectiveInstallDir(state)) {
+    if (
+      !normalizeString(state.managedBackendId) ||
+      !resolveEffectiveInstallDir(state)
+    ) {
       return {
         ok: true,
         stage: "auto-ensure-skip-not-configured",
@@ -2981,7 +3091,8 @@ export async function planLocalRuntimeOneclick(args?: {
       return {
         ok: true,
         stage: "oneclick-plan-deploy",
-        message: "one-click plan selects deploy because runtime info is missing",
+        message:
+          "one-click plan selects deploy because runtime info is missing",
         details: {
           plannedAction: "deploy",
           reason: "no-runtime-info",
@@ -3048,6 +3159,16 @@ export function startManagedLocalRuntimeAutoEnsureLoop() {
   if (autoEnsureTimer) {
     return;
   }
+  registerBackgroundRefreshTimer({
+    owner: "managed-local-runtime-auto-ensure",
+    activationCondition: "managed local runtime auto ensure enabled",
+    scopeKey: "managed local runtime profile",
+    allowedDataSources: ["local runtime state", "backend registry"],
+    maxReadShape: "managed runtime state and configured local profile only",
+    requiresForegroundSurface: false,
+    minimumIntervalMs: AUTO_ENSURE_INTERVAL_MS,
+    intervalMs: AUTO_ENSURE_INTERVAL_MS,
+  });
   autoEnsureTimer = setInterval(() => {
     void runManagedRuntimeAutoEnsureTick();
   }, AUTO_ENSURE_INTERVAL_MS);
@@ -3083,132 +3204,135 @@ export async function deployAndConfigureLocalSkillRunner(args?: {
     const stateBeforeOneClick = readManagedLocalRuntimeState();
     try {
       if (!forceDeploy && hasRuntimeInfo(stateBeforeOneClick)) {
-      const endpoint = resolveRuntimeEndpoint(stateBeforeOneClick);
-      const preflight = await runLocalBridgePreflight({
-        bridge,
-        state: stateBeforeOneClick,
-        host: endpoint.host,
-        port: endpoint.requestedPort,
-        portFallbackSpan: endpoint.portFallbackSpan,
-      });
-      if (preflight.ok) {
-        setAutoStartEnabledInSession(true);
-        const upResult = await runLocalBridgeUp({
+        const endpoint = resolveRuntimeEndpoint(stateBeforeOneClick);
+        const preflight = await runLocalBridgePreflight({
           bridge,
           state: stateBeforeOneClick,
           host: endpoint.host,
           port: endpoint.requestedPort,
           portFallbackSpan: endpoint.portFallbackSpan,
         });
-        if (!upResult.ok) {
-          return resultFromCtl("oneclick-up", upResult);
-        }
-        let nextState = applyRuntimeEndpointFromDetails(
-          readManagedLocalRuntimeState(),
-          upResult.details,
-        );
-        const endpointAfterUp = resolveRuntimeEndpoint(nextState);
-        const statusPoll = await pollStatusUntilRunning({
-          bridge,
-          state: nextState,
-          host: endpointAfterUp.host,
-          port: endpointAfterUp.port,
-        });
-        if (!statusPoll.ok) {
+        if (preflight.ok) {
+          setAutoStartEnabledInSession(true);
+          const upResult = await runLocalBridgeUp({
+            bridge,
+            state: stateBeforeOneClick,
+            host: endpoint.host,
+            port: endpoint.requestedPort,
+            portFallbackSpan: endpoint.portFallbackSpan,
+          });
+          if (!upResult.ok) {
+            return resultFromCtl("oneclick-up", upResult);
+          }
+          let nextState = applyRuntimeEndpointFromDetails(
+            readManagedLocalRuntimeState(),
+            upResult.details,
+          );
+          const endpointAfterUp = resolveRuntimeEndpoint(nextState);
+          const statusPoll = await pollStatusUntilRunning({
+            bridge,
+            state: nextState,
+            host: endpointAfterUp.host,
+            port: endpointAfterUp.port,
+          });
+          if (!statusPoll.ok) {
+            nextState = applyRuntimeStatePatch({
+              state: nextState,
+              runtimeState: "degraded",
+              runtimeFailureCount: (nextState.runtimeFailureCount || 0) + 1,
+              runtimeError: normalizeString(
+                statusPoll.status?.details?.status ||
+                  statusPoll.status?.message ||
+                  "runtime not running after up",
+              ),
+            });
+            return {
+              ok: false,
+              stage: "oneclick-status",
+              message: `runtime status is not running: ${normalizeString(
+                statusPoll.status?.details?.status ||
+                  statusPoll.status?.message ||
+                  "unknown",
+              )}`,
+              details: {
+                statusTrail: statusPoll.trail,
+                statusAttempts: statusPoll.attempts,
+                preflight: preflight.details,
+              },
+            };
+          }
           nextState = applyRuntimeStatePatch({
             state: nextState,
-            runtimeState: "degraded",
-            runtimeFailureCount: (nextState.runtimeFailureCount || 0) + 1,
-            runtimeError: normalizeString(
-              statusPoll.status?.details?.status ||
-                statusPoll.status?.message ||
-                "runtime not running after up",
-            ),
+            runtimeState: "running",
+            runtimeFailureCount: 0,
+            runtimeError: "",
           });
+          const profileSyncResult = await syncManagedProfileIfExists(
+            resolveManagedBaseUrl(nextState),
+          );
+          if (!profileSyncResult.ok) {
+            return {
+              ok: false,
+              stage: "oneclick-configure-profile",
+              message: profileSyncResult.message,
+              conflict: profileSyncResult.conflict,
+            };
+          }
+          const leaseAcquire = await tryAcquireLeaseOnRunning();
+          nextState = leaseAcquire.state;
+          if (!leaseAcquire.ok) {
+            return {
+              ok: false,
+              stage: "oneclick-lease",
+              message:
+                normalizeString(leaseAcquire.reason) || "lease acquire failed",
+              details: {
+                preflight: preflight.details,
+              },
+            };
+          }
+          const finalEndpoint = resolveRuntimeEndpoint(nextState);
+          triggerSilentManagedModelCacheRefresh(nextState);
+          triggerManagedLocalRuntimePostUpTaskReconcile(nextState);
+          emitLocalRuntimeToast("runtime-up");
           return {
-            ok: false,
-            stage: "oneclick-status",
-            message: `runtime status is not running: ${normalizeString(
-              statusPoll.status?.details?.status ||
-                statusPoll.status?.message ||
-                "unknown",
-            )}`,
+            ok: true,
+            stage: "oneclick-start-complete",
+            message: "one-click start succeeded with existing runtime info",
             details: {
-              statusTrail: statusPoll.trail,
-              statusAttempts: statusPoll.attempts,
+              runtimeState: nextState.runtimeState,
+              leaseState: resolveLeaseViewState(nextState.lease),
+              baseUrl: resolveManagedBaseUrl(nextState),
+              actualHost: finalEndpoint.host,
+              actualPort: finalEndpoint.port,
+              actualUrl: finalEndpoint.url,
               preflight: preflight.details,
             },
           };
         }
-        nextState = applyRuntimeStatePatch({
-          state: nextState,
-          runtimeState: "running",
-          runtimeFailureCount: 0,
-          runtimeError: "",
+        setAutoStartEnabledInSession(false);
+        if (forceStart) {
+          return {
+            ok: false,
+            stage: "oneclick-preflight",
+            message:
+              normalizeString(preflight.message) ||
+              "one-click preflight failed",
+            details: {
+              preflight: preflight.details,
+            },
+          };
+        }
+        appendLocalRuntimeLog({
+          level: "warn",
+          operation: "oneclick-preflight",
+          stage: "oneclick-preflight-failed-fallback-deploy",
+          message: "one-click preflight failed, fallback to deploy",
+          details: {
+            message: preflight.message,
+            details: preflight.details,
+          },
         });
-        const profileSyncResult = await syncManagedProfileIfExists(
-          resolveManagedBaseUrl(nextState),
-        );
-        if (!profileSyncResult.ok) {
-          return {
-            ok: false,
-            stage: "oneclick-configure-profile",
-            message: profileSyncResult.message,
-            conflict: profileSyncResult.conflict,
-          };
-        }
-        const leaseAcquire = await tryAcquireLeaseOnRunning();
-        nextState = leaseAcquire.state;
-        if (!leaseAcquire.ok) {
-          return {
-            ok: false,
-            stage: "oneclick-lease",
-            message: normalizeString(leaseAcquire.reason) || "lease acquire failed",
-            details: {
-              preflight: preflight.details,
-            },
-          };
-        }
-        const finalEndpoint = resolveRuntimeEndpoint(nextState);
-        triggerSilentManagedModelCacheRefresh(nextState);
-        triggerManagedLocalRuntimePostUpTaskReconcile(nextState);
-        emitLocalRuntimeToast("runtime-up");
-        return {
-          ok: true,
-          stage: "oneclick-start-complete",
-          message: "one-click start succeeded with existing runtime info",
-          details: {
-            runtimeState: nextState.runtimeState,
-            leaseState: resolveLeaseViewState(nextState.lease),
-            baseUrl: resolveManagedBaseUrl(nextState),
-            actualHost: finalEndpoint.host,
-            actualPort: finalEndpoint.port,
-            actualUrl: finalEndpoint.url,
-            preflight: preflight.details,
-          },
-        };
-      }
-      setAutoStartEnabledInSession(false);
-      if (forceStart) {
-        return {
-          ok: false,
-          stage: "oneclick-preflight",
-          message: normalizeString(preflight.message) || "one-click preflight failed",
-          details: {
-            preflight: preflight.details,
-          },
-        };
-      }
-      appendLocalRuntimeLog({
-        level: "warn",
-        operation: "oneclick-preflight",
-        stage: "oneclick-preflight-failed-fallback-deploy",
-        message: "one-click preflight failed, fallback to deploy",
-        details: {
-          message: preflight.message,
-          details: preflight.details,
-        },
-      });
       } else {
         if (forceStart) {
           return {
@@ -3227,107 +3351,107 @@ export async function deployAndConfigureLocalSkillRunner(args?: {
         label: resolveDeployProgressLabel("deploy-release-assets-probe"),
       });
       const releaseProbe = await probeReleaseAssets(version);
-  appendLocalRuntimeLog({
-    level:
-      !releaseProbe.checked || releaseProbe.ok ? "info" : "warn",
-    operation: "deploy-release-assets-probe",
-    stage: "deploy-release-assets-probe",
-    message:
-      !releaseProbe.checked
-        ? "release asset probe skipped"
-        : releaseProbe.ok
-          ? "release asset probe passed"
-          : "release asset probe failed",
-    details: {
-      version,
-      checked: releaseProbe.checked,
-      results: releaseProbe.results,
-    },
-  });
-  if (releaseProbe.checked && !releaseProbe.ok) {
-    return {
-      ok: false,
-      stage: "deploy-release-assets",
-      message: "release assets are not reachable from GitHub",
-      details: {
-        version,
-        results: releaseProbe.results,
-      },
-    };
-  }
+      appendLocalRuntimeLog({
+        level: !releaseProbe.checked || releaseProbe.ok ? "info" : "warn",
+        operation: "deploy-release-assets-probe",
+        stage: "deploy-release-assets-probe",
+        message: !releaseProbe.checked
+          ? "release asset probe skipped"
+          : releaseProbe.ok
+            ? "release asset probe passed"
+            : "release asset probe failed",
+        details: {
+          version,
+          checked: releaseProbe.checked,
+          results: releaseProbe.results,
+        },
+      });
+      if (releaseProbe.checked && !releaseProbe.ok) {
+        return {
+          ok: false,
+          stage: "deploy-release-assets",
+          message: "release assets are not reachable from GitHub",
+          details: {
+            version,
+            results: releaseProbe.results,
+          },
+        };
+      }
       const install = await releaseInstaller({
-      version,
-      installRoot,
-      repo: DEFAULT_SKILL_RUNNER_RELEASE_REPO,
-      onProgress: (progress) => {
-        if (progress.stage === "download-checksum-complete") {
-          setActionProgress({
-            action: "deploy",
-            current: 2,
-            total: 5,
-            stage: "deploy-release-download-checksum",
-            label: resolveDeployProgressLabel("deploy-release-download-checksum"),
-          });
-          return;
-        }
-        if (progress.stage === "extract-complete") {
-          setActionProgress({
-            action: "deploy",
-            current: 3,
-            total: 5,
-            stage: "deploy-release-extract",
-            label: resolveDeployProgressLabel("deploy-release-extract"),
-          });
-        }
-      },
-      runCommand: (commandArgs) => bridge.runSystemCommand(commandArgs),
-      keepTempOnSuccess: false,
-      keepTempOnFailure: true,
-    });
-    appendLocalRuntimeLog({
-      level: install.ok ? "info" : "warn",
-      operation: "deploy-release-install",
-      stage: "deploy-release-install",
-      message: install.ok
-        ? "plugin-native release install succeeded"
-        : "plugin-native release install failed",
-      details: {
         version,
         installRoot,
         repo: DEFAULT_SKILL_RUNNER_RELEASE_REPO,
-        installStage: install.stage,
-        installMessage: install.message,
-        installDir: install.installDir,
-        tempDir: install.tempDir,
-        artifactFile: install.artifactFile,
-        checksumFile: install.checksumFile,
-        artifactBytes: install.artifactBytes,
-        expectedSha256: install.expectedSha256,
-        actualSha256: install.actualSha256,
-        extractCommand: install.extractCommand,
-        installDetails: install.details,
-      },
-    });
-    if (!install.ok) {
-      return {
-        ok: false,
-        stage: install.stage,
-        message: install.message,
-        details: install.details,
-      };
-    }
-    const normalizedInstallDir = normalizeString(install.installDir);
-    if (!normalizedInstallDir) {
-      return {
-        ok: false,
+        onProgress: (progress) => {
+          if (progress.stage === "download-checksum-complete") {
+            setActionProgress({
+              action: "deploy",
+              current: 2,
+              total: 5,
+              stage: "deploy-release-download-checksum",
+              label: resolveDeployProgressLabel(
+                "deploy-release-download-checksum",
+              ),
+            });
+            return;
+          }
+          if (progress.stage === "extract-complete") {
+            setActionProgress({
+              action: "deploy",
+              current: 3,
+              total: 5,
+              stage: "deploy-release-extract",
+              label: resolveDeployProgressLabel("deploy-release-extract"),
+            });
+          }
+        },
+        runCommand: (commandArgs) => bridge.runSystemCommand(commandArgs),
+        keepTempOnSuccess: false,
+        keepTempOnFailure: true,
+      });
+      appendLocalRuntimeLog({
+        level: install.ok ? "info" : "warn",
+        operation: "deploy-release-install",
         stage: "deploy-release-install",
-        message: "release installer returned empty installDir",
-        details: install.details,
-      };
-    }
-    const ctlPath =
-      bridge.resolveCtlPathFromInstallDir(normalizedInstallDir) ||
-      normalizeString("");
+        message: install.ok
+          ? "plugin-native release install succeeded"
+          : "plugin-native release install failed",
+        details: {
+          version,
+          installRoot,
+          repo: DEFAULT_SKILL_RUNNER_RELEASE_REPO,
+          installStage: install.stage,
+          installMessage: install.message,
+          installDir: install.installDir,
+          tempDir: install.tempDir,
+          artifactFile: install.artifactFile,
+          checksumFile: install.checksumFile,
+          artifactBytes: install.artifactBytes,
+          expectedSha256: install.expectedSha256,
+          actualSha256: install.actualSha256,
+          extractCommand: install.extractCommand,
+          installDetails: install.details,
+        },
+      });
+      if (!install.ok) {
+        return {
+          ok: false,
+          stage: install.stage,
+          message: install.message,
+          details: install.details,
+        };
+      }
+      const normalizedInstallDir = normalizeString(install.installDir);
+      if (!normalizedInstallDir) {
+        return {
+          ok: false,
+          stage: "deploy-release-install",
+          message: "release installer returned empty installDir",
+          details: install.details,
+        };
+      }
+      const ctlPath =
+        bridge.resolveCtlPathFromInstallDir(normalizedInstallDir) ||
+        normalizeString("");
       setActionProgress({
         action: "deploy",
         current: 4,
@@ -3335,205 +3459,277 @@ export async function deployAndConfigureLocalSkillRunner(args?: {
         stage: "deploy-bootstrap",
         label: resolveDeployProgressLabel("deploy-bootstrap"),
       });
-    const ctlBootstrap =
-      typeof (bridge as { bootstrapLocalRuntime?: unknown }).bootstrapLocalRuntime ===
-      "function"
-        ? await (
-            bridge as {
-              bootstrapLocalRuntime: (args: {
-                installDir: string;
-              }) => Promise<SkillRunnerCtlCommandResult>;
-            }
-          ).bootstrapLocalRuntime({
-            installDir: normalizedInstallDir,
-          })
-        : typeof (bridge as { runDirectAgentBootstrap?: unknown }).runDirectAgentBootstrap ===
-          "function"
-        ? await (
-            bridge as {
-              runDirectAgentBootstrap: (args: {
-                installDir: string;
-              }) => Promise<SkillRunnerCtlCommandResult>;
-            }
-          ).runDirectAgentBootstrap({
-            installDir: normalizedInstallDir,
-          })
-        : await bridge.runCtlCommand({
-            ctlPath,
-            command: "bootstrap",
-          });
-    if (!ctlBootstrap.ok) {
-      const stateBeforeFail = readManagedLocalRuntimeState();
-      const endpoint = resolveRuntimeEndpoint(stateBeforeFail);
-      writeManagedLocalRuntimeState({
-        ...stateBeforeFail,
+      const ctlBootstrap =
+        typeof (bridge as { bootstrapLocalRuntime?: unknown })
+          .bootstrapLocalRuntime === "function"
+          ? await (
+              bridge as {
+                bootstrapLocalRuntime: (args: {
+                  installDir: string;
+                }) => Promise<SkillRunnerCtlCommandResult>;
+              }
+            ).bootstrapLocalRuntime({
+              installDir: normalizedInstallDir,
+            })
+          : typeof (bridge as { runDirectAgentBootstrap?: unknown })
+                .runDirectAgentBootstrap === "function"
+            ? await (
+                bridge as {
+                  runDirectAgentBootstrap: (args: {
+                    installDir: string;
+                  }) => Promise<SkillRunnerCtlCommandResult>;
+                }
+              ).runDirectAgentBootstrap({
+                installDir: normalizedInstallDir,
+              })
+            : await bridge.runCtlCommand({
+                ctlPath,
+                command: "bootstrap",
+              });
+      if (!ctlBootstrap.ok) {
+        const stateBeforeFail = readManagedLocalRuntimeState();
+        const endpoint = resolveRuntimeEndpoint(stateBeforeFail);
+        writeManagedLocalRuntimeState({
+          ...stateBeforeFail,
+          versionTag: version,
+          installDir: normalizedInstallDir,
+          ctlPath,
+          baseUrl: buildBaseUrl(endpoint.host, endpoint.port),
+          runtimeHost: endpoint.host,
+          runtimePort: endpoint.port,
+          runtimeUrl: endpoint.url,
+          requestedPort: endpoint.requestedPort,
+          portFallbackSpan: endpoint.portFallbackSpan,
+          runtimeState: "unknown",
+          lastDeployError:
+            normalizeString(ctlBootstrap.message) || "bootstrap failed",
+        });
+        return resultFromCtl("deploy-ctl-bootstrap", ctlBootstrap);
+      }
+      const bootstrapReport = await readBootstrapReport({
+        installDir: normalizedInstallDir,
+        reportFilePath:
+          normalizeString(ctlBootstrap.details?.bootstrap_report_file) ||
+          undefined,
+      });
+      if (!bootstrapReport.ok) {
+        appendLocalRuntimeLog({
+          level: "warn",
+          operation: "deploy-bootstrap-report",
+          stage: "deploy-bootstrap-report",
+          message: "bootstrap report validation failed",
+          details: {
+            ...bootstrapReport.details,
+            reason: bootstrapReport.message,
+          },
+        });
+        return {
+          ok: false,
+          stage: bootstrapReport.stage,
+          message: bootstrapReport.message,
+          details: bootstrapReport.details,
+        };
+      }
+      appendLocalRuntimeLog({
+        level:
+          bootstrapReport.summary.bootstrapOutcome === "partial_failure"
+            ? "warn"
+            : "info",
+        operation: "deploy-bootstrap-report",
+        stage: "deploy-bootstrap-report",
+        message:
+          bootstrapReport.summary.bootstrapOutcome === "partial_failure"
+            ? "bootstrap report loaded with partial failure"
+            : "bootstrap report loaded",
+        details: bootstrapReport.summary,
+      });
+      const bootstrapWarning = normalizeString(
+        bootstrapReport.summary.bootstrapWarning,
+      );
+      if (bootstrapWarning) {
+        appendLocalRuntimeLog({
+          level: "warn",
+          operation: "deploy-bootstrap-report",
+          stage: "deploy-bootstrap-report-warning",
+          message: bootstrapWarning,
+          details: bootstrapReport.summary,
+        });
+      }
+
+      const previousState = readManagedLocalRuntimeState();
+      const previousEndpoint = resolveRuntimeEndpoint(previousState);
+      const stagedState = writeManagedLocalRuntimeState({
+        ...previousState,
         versionTag: version,
         installDir: normalizedInstallDir,
         ctlPath,
-        baseUrl: buildBaseUrl(endpoint.host, endpoint.port),
-        runtimeHost: endpoint.host,
-        runtimePort: endpoint.port,
-        runtimeUrl: endpoint.url,
-        requestedPort: endpoint.requestedPort,
-        portFallbackSpan: endpoint.portFallbackSpan,
-        runtimeState: "unknown",
-        lastDeployError: normalizeString(ctlBootstrap.message) || "bootstrap failed",
-      });
-      return resultFromCtl("deploy-ctl-bootstrap", ctlBootstrap);
-    }
-    const bootstrapReport = await readBootstrapReport({
-      installDir: normalizedInstallDir,
-      reportFilePath: normalizeString(
-        ctlBootstrap.details?.bootstrap_report_file,
-      ) || undefined,
-    });
-    if (!bootstrapReport.ok) {
-      appendLocalRuntimeLog({
-        level: "warn",
-        operation: "deploy-bootstrap-report",
-        stage: "deploy-bootstrap-report",
-        message: "bootstrap report validation failed",
-        details: {
-          ...bootstrapReport.details,
-          reason: bootstrapReport.message,
+        baseUrl: buildBaseUrl(previousEndpoint.host, previousEndpoint.port),
+        runtimeHost: previousEndpoint.host,
+        runtimePort: previousEndpoint.port,
+        runtimeUrl: previousEndpoint.url,
+        requestedPort: previousEndpoint.requestedPort,
+        portFallbackSpan: previousEndpoint.portFallbackSpan,
+        portFallbackUsed: false,
+        triedPorts: [],
+        runtimeState: "stopped",
+        runtimeFailureCount: 0,
+        deployedAt: nowIso(),
+        lastDeployError: undefined,
+        lease: {
+          acquired: false,
+          stoppedByConflict: false,
+          leaseId: undefined,
+          heartbeatIntervalSeconds: DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+          lastError: undefined,
         },
       });
-      return {
-        ok: false,
-        stage: bootstrapReport.stage,
-        message: bootstrapReport.message,
-        details: bootstrapReport.details,
-      };
-    }
-    appendLocalRuntimeLog({
-      level:
-        bootstrapReport.summary.bootstrapOutcome === "partial_failure"
-          ? "warn"
-          : "info",
-      operation: "deploy-bootstrap-report",
-      stage: "deploy-bootstrap-report",
-      message:
-        bootstrapReport.summary.bootstrapOutcome === "partial_failure"
-          ? "bootstrap report loaded with partial failure"
-          : "bootstrap report loaded",
-      details: bootstrapReport.summary,
-    });
-    const bootstrapWarning = normalizeString(
-      bootstrapReport.summary.bootstrapWarning,
-    );
-    if (bootstrapWarning) {
-      appendLocalRuntimeLog({
-        level: "warn",
-        operation: "deploy-bootstrap-report",
-        stage: "deploy-bootstrap-report-warning",
-        message: bootstrapWarning,
-        details: bootstrapReport.summary,
-      });
-    }
 
-    const previousState = readManagedLocalRuntimeState();
-    const previousEndpoint = resolveRuntimeEndpoint(previousState);
-    const stagedState = writeManagedLocalRuntimeState({
-      ...previousState,
-      versionTag: version,
-      installDir: normalizedInstallDir,
-      ctlPath,
-      baseUrl: buildBaseUrl(previousEndpoint.host, previousEndpoint.port),
-      runtimeHost: previousEndpoint.host,
-      runtimePort: previousEndpoint.port,
-      runtimeUrl: previousEndpoint.url,
-      requestedPort: previousEndpoint.requestedPort,
-      portFallbackSpan: previousEndpoint.portFallbackSpan,
-      portFallbackUsed: false,
-      triedPorts: [],
-      runtimeState: "stopped",
-      runtimeFailureCount: 0,
-      deployedAt: nowIso(),
-      lastDeployError: undefined,
-      lease: {
-        acquired: false,
-        stoppedByConflict: false,
-        leaseId: undefined,
-        heartbeatIntervalSeconds: DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
-        lastError: undefined,
-      },
-    });
-
-    const finalBaseUrl = resolveManagedBaseUrl(stagedState);
-    const profileEnsureState: ManagedLocalRuntimeState = {
-      ...stagedState,
-      managedBackendId: MANAGED_PROFILE_ID,
-    };
-    const profileResult = await createManagedProfileOnDeploy(profileEnsureState, finalBaseUrl);
-    if (!profileResult.ok) {
-      writeManagedLocalRuntimeState({
+      const finalBaseUrl = resolveManagedBaseUrl(stagedState);
+      const profileEnsureState: ManagedLocalRuntimeState = {
         ...stagedState,
-        lastDeployError: profileResult.message,
-      });
-      return {
-        ok: false,
-        stage: "deploy-configure-profile",
-        message: profileResult.message,
-        conflict: profileResult.conflict,
+        managedBackendId: MANAGED_PROFILE_ID,
       };
-    }
-    const nextState = writeManagedLocalRuntimeState({
-      ...stagedState,
-      managedBackendId: MANAGED_PROFILE_ID,
-    });
-    const postDeployEndpoint = resolveRuntimeEndpoint(nextState);
-    const postDeployPreflight = await runLocalBridgePreflight({
-      bridge,
-      state: nextState,
-      host: postDeployEndpoint.host,
-      port: postDeployEndpoint.requestedPort,
-      portFallbackSpan: postDeployEndpoint.portFallbackSpan,
-    });
-    if (!postDeployPreflight.ok) {
-      setAutoStartEnabledInSession(false);
-      const failedMessage =
-        normalizeString(postDeployPreflight.message) ||
-        "post-deploy preflight failed";
-      const failedState = writeManagedLocalRuntimeState({
-        ...nextState,
-        lastDeployError: failedMessage,
+      const profileResult = await createManagedProfileOnDeploy(
+        profileEnsureState,
+        finalBaseUrl,
+      );
+      if (!profileResult.ok) {
+        writeManagedLocalRuntimeState({
+          ...stagedState,
+          lastDeployError: profileResult.message,
+        });
+        return {
+          ok: false,
+          stage: "deploy-configure-profile",
+          message: profileResult.message,
+          conflict: profileResult.conflict,
+        };
+      }
+      const nextState = writeManagedLocalRuntimeState({
+        ...stagedState,
+        managedBackendId: MANAGED_PROFILE_ID,
       });
+      const postDeployEndpoint = resolveRuntimeEndpoint(nextState);
+      const postDeployPreflight = await runLocalBridgePreflight({
+        bridge,
+        state: nextState,
+        host: postDeployEndpoint.host,
+        port: postDeployEndpoint.requestedPort,
+        portFallbackSpan: postDeployEndpoint.portFallbackSpan,
+      });
+      if (!postDeployPreflight.ok) {
+        setAutoStartEnabledInSession(false);
+        const failedMessage =
+          normalizeString(postDeployPreflight.message) ||
+          "post-deploy preflight failed";
+        const failedState = writeManagedLocalRuntimeState({
+          ...nextState,
+          lastDeployError: failedMessage,
+        });
+        appendLocalRuntimeLog({
+          level: "warn",
+          operation: "deploy-post-preflight",
+          stage: "deploy-post-preflight-failed",
+          message: "post-deploy preflight failed",
+          details: {
+            version,
+            installDir: normalizedInstallDir,
+            message: failedMessage,
+            details: postDeployPreflight.details,
+          },
+        });
+        return {
+          ok: false,
+          stage: "post-deploy-preflight",
+          message: failedMessage,
+          details: {
+            version,
+            backendId: MANAGED_PROFILE_ID,
+            baseUrl: finalBaseUrl,
+            runtimeState: failedState.runtimeState,
+            leaseState: resolveLeaseViewState(failedState.lease),
+            actualHost: postDeployEndpoint.host,
+            actualPort: postDeployEndpoint.port,
+            actualUrl: postDeployEndpoint.url,
+            requestedPort:
+              failedState.requestedPort || postDeployEndpoint.requestedPort,
+            portFallbackSpan:
+              failedState.portFallbackSpan ??
+              postDeployEndpoint.portFallbackSpan,
+            portFallbackUsed: failedState.portFallbackUsed === true,
+            triedPorts: failedState.triedPorts || [],
+            warnings: bootstrapWarning ? [bootstrapWarning] : [],
+            postDeployPreflight: postDeployPreflight.details,
+            postDeployPreflightMessage: failedMessage,
+            autoEnsureTriggered: false,
+            downloadProof: isObjectRecord(install.details)
+              ? install.details.downloadProof
+              : undefined,
+            checksumProof: isObjectRecord(install.details)
+              ? install.details.checksumProof
+              : undefined,
+            extractProof: isObjectRecord(install.details)
+              ? install.details.extractProof
+              : undefined,
+            tempDir: install.tempDir,
+            ...bootstrapReport.summary,
+          },
+        };
+      }
+      setActionProgress({
+        action: "deploy",
+        current: 5,
+        total: 5,
+        stage: "deploy-post-bootstrap",
+        label: resolveDeployProgressLabel("deploy-post-bootstrap"),
+      });
+      const postPreflightState = applyRuntimeEndpointFromDetails(
+        nextState,
+        postDeployPreflight.details,
+      );
+      const finalBaseUrlAfterPreflight =
+        resolveManagedBaseUrl(postPreflightState);
+      setAutoStartEnabledInSession(true);
+      const autoEnsureTriggered = triggerManagedRuntimeAutoEnsureTickAsync();
+
       appendLocalRuntimeLog({
-        level: "warn",
-        operation: "deploy-post-preflight",
-        stage: "deploy-post-preflight-failed",
-        message: "post-deploy preflight failed",
+        level: "info",
+        operation: "deploy-configure",
+        stage: "local-runtime-deploy-succeeded",
+        message: "skillrunner local runtime deployed and configured",
         details: {
           version,
-          installDir: normalizedInstallDir,
-          message: failedMessage,
-          details: postDeployPreflight.details,
+          managedBackendId: postPreflightState.managedBackendId,
+          baseUrl: finalBaseUrlAfterPreflight,
+          postDeployPreflight: postDeployPreflight.details,
         },
       });
+      const finalEndpoint = resolveRuntimeEndpoint(postPreflightState);
       return {
-        ok: false,
-        stage: "post-deploy-preflight",
-        message: failedMessage,
+        ok: true,
+        stage: "deploy-complete",
+        message: bootstrapWarning
+          ? `SkillRunner local runtime deployed and configured with bootstrap warning: ${bootstrapWarning}`
+          : "SkillRunner local runtime deployed and configured.",
         details: {
           version,
           backendId: MANAGED_PROFILE_ID,
-          baseUrl: finalBaseUrl,
-          runtimeState: failedState.runtimeState,
-          leaseState: resolveLeaseViewState(failedState.lease),
-          actualHost: postDeployEndpoint.host,
-          actualPort: postDeployEndpoint.port,
-          actualUrl: postDeployEndpoint.url,
+          baseUrl: finalBaseUrlAfterPreflight,
+          runtimeState: postPreflightState.runtimeState,
+          leaseState: resolveLeaseViewState(postPreflightState.lease),
+          actualHost: finalEndpoint.host,
+          actualPort: finalEndpoint.port,
+          actualUrl: finalEndpoint.url,
           requestedPort:
-            failedState.requestedPort || postDeployEndpoint.requestedPort,
+            postPreflightState.requestedPort || finalEndpoint.requestedPort,
           portFallbackSpan:
-            failedState.portFallbackSpan ??
-            postDeployEndpoint.portFallbackSpan,
-          portFallbackUsed: failedState.portFallbackUsed === true,
-          triedPorts: failedState.triedPorts || [],
+            postPreflightState.portFallbackSpan ??
+            finalEndpoint.portFallbackSpan,
+          portFallbackUsed: postPreflightState.portFallbackUsed === true,
+          triedPorts: postPreflightState.triedPorts || [],
           warnings: bootstrapWarning ? [bootstrapWarning] : [],
           postDeployPreflight: postDeployPreflight.details,
-          postDeployPreflightMessage: failedMessage,
-          autoEnsureTriggered: false,
+          autoEnsureTriggered,
           downloadProof: isObjectRecord(install.details)
             ? install.details.downloadProof
             : undefined,
@@ -3544,76 +3740,9 @@ export async function deployAndConfigureLocalSkillRunner(args?: {
             ? install.details.extractProof
             : undefined,
           tempDir: install.tempDir,
-        ...bootstrapReport.summary,
-      },
-    };
-  }
-      setActionProgress({
-        action: "deploy",
-        current: 5,
-        total: 5,
-        stage: "deploy-post-bootstrap",
-        label: resolveDeployProgressLabel("deploy-post-bootstrap"),
-      });
-    const postPreflightState = applyRuntimeEndpointFromDetails(
-      nextState,
-      postDeployPreflight.details,
-    );
-    const finalBaseUrlAfterPreflight = resolveManagedBaseUrl(postPreflightState);
-    setAutoStartEnabledInSession(true);
-    const autoEnsureTriggered = triggerManagedRuntimeAutoEnsureTickAsync();
-
-    appendLocalRuntimeLog({
-      level: "info",
-      operation: "deploy-configure",
-      stage: "local-runtime-deploy-succeeded",
-      message: "skillrunner local runtime deployed and configured",
-      details: {
-        version,
-        managedBackendId: postPreflightState.managedBackendId,
-        baseUrl: finalBaseUrlAfterPreflight,
-        postDeployPreflight: postDeployPreflight.details,
-      },
-    });
-    const finalEndpoint = resolveRuntimeEndpoint(postPreflightState);
-    return {
-      ok: true,
-      stage: "deploy-complete",
-      message: bootstrapWarning
-        ? `SkillRunner local runtime deployed and configured with bootstrap warning: ${bootstrapWarning}`
-        : "SkillRunner local runtime deployed and configured.",
-      details: {
-        version,
-        backendId: MANAGED_PROFILE_ID,
-        baseUrl: finalBaseUrlAfterPreflight,
-        runtimeState: postPreflightState.runtimeState,
-        leaseState: resolveLeaseViewState(postPreflightState.lease),
-        actualHost: finalEndpoint.host,
-        actualPort: finalEndpoint.port,
-        actualUrl: finalEndpoint.url,
-        requestedPort:
-          postPreflightState.requestedPort || finalEndpoint.requestedPort,
-        portFallbackSpan:
-          postPreflightState.portFallbackSpan ??
-          finalEndpoint.portFallbackSpan,
-        portFallbackUsed: postPreflightState.portFallbackUsed === true,
-        triedPorts: postPreflightState.triedPorts || [],
-        warnings: bootstrapWarning ? [bootstrapWarning] : [],
-        postDeployPreflight: postDeployPreflight.details,
-        autoEnsureTriggered,
-        downloadProof: isObjectRecord(install.details)
-          ? install.details.downloadProof
-          : undefined,
-        checksumProof: isObjectRecord(install.details)
-          ? install.details.checksumProof
-          : undefined,
-        extractProof: isObjectRecord(install.details)
-          ? install.details.extractProof
-          : undefined,
-        tempDir: install.tempDir,
-        ...bootstrapReport.summary,
-      },
-    };
+          ...bootstrapReport.summary,
+        },
+      };
     } finally {
       clearActionProgress();
     }
@@ -3635,7 +3764,8 @@ export function buildManualDeployCommands(args?: {
   portFallbackSpan?: number;
 }) {
   const version = normalizeString(args?.version) || getConfiguredVersionTag();
-  const installRoot = normalizeString(args?.installRoot) || resolveDefaultInstallRoot();
+  const installRoot =
+    normalizeString(args?.installRoot) || resolveDefaultInstallRoot();
   const host = normalizeString(args?.host) || DEFAULT_MANAGED_LOCAL_HOST;
   const port =
     typeof args?.port === "number" && Number.isFinite(args.port)
@@ -3655,7 +3785,11 @@ export function buildManualDeployCommands(args?: {
   const uvVenvDir = joinPath(agentCacheDir, "uv_venv");
   const bootstrapReportFile = joinPath(dataDir, "agent_bootstrap_report.json");
   if (detectWindows()) {
-    const uninstall = joinPath(releaseDir, "scripts", "skill-runner-uninstall.ps1");
+    const uninstall = joinPath(
+      releaseDir,
+      "scripts",
+      "skill-runner-uninstall.ps1",
+    );
     const artifactPath = joinPath("$tempDir", artifactName);
     const checksumPath = joinPath("$tempDir", checksumName);
     return [
@@ -3697,7 +3831,11 @@ export function buildManualDeployCommands(args?: {
       `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ${quoteShellArg(uninstall)} -Json`,
     ].join("\n");
   }
-  const uninstall = joinPath(releaseDir, "scripts", "skill-runner-uninstall.sh");
+  const uninstall = joinPath(
+    releaseDir,
+    "scripts",
+    "skill-runner-uninstall.sh",
+  );
   const artifactPath = joinPath("${TMP_DIR}", artifactName);
   const checksumPath = joinPath("${TMP_DIR}", checksumName);
   return [
@@ -3719,7 +3857,7 @@ export function buildManualDeployCommands(args?: {
     `export SKILL_RUNNER_AGENT_CACHE_DIR=${quoteShellArg(agentCacheDir)}`,
     `export SKILL_RUNNER_AGENT_HOME=${quoteShellArg(agentHomeDir)}`,
     `export SKILL_RUNNER_NPM_PREFIX=${quoteShellArg(npmPrefixDir)}`,
-    "export NPM_CONFIG_PREFIX=\"$SKILL_RUNNER_NPM_PREFIX\"",
+    'export NPM_CONFIG_PREFIX="$SKILL_RUNNER_NPM_PREFIX"',
     `export UV_CACHE_DIR=${quoteShellArg(uvCacheDir)}`,
     `export UV_PROJECT_ENVIRONMENT=${quoteShellArg(uvVenvDir)}`,
     `export SKILL_RUNNER_LOCAL_PORT_FALLBACK_SPAN=${quoteShellArg(String(portFallbackSpan))}`,
@@ -3771,7 +3909,8 @@ export function getManagedLocalRuntimeStateSnapshot(): SkillRunnerLocalRuntimeAc
       runtimePort: state.runtimePort || 0,
       runtimeUrl: state.runtimeUrl || "",
       requestedPort: state.requestedPort || 0,
-      portFallbackSpan: state.portFallbackSpan ?? DEFAULT_MANAGED_LOCAL_PORT_FALLBACK_SPAN,
+      portFallbackSpan:
+        state.portFallbackSpan ?? DEFAULT_MANAGED_LOCAL_PORT_FALLBACK_SPAN,
       portFallbackUsed: state.portFallbackUsed === true,
       triedPorts: state.triedPorts || [],
       managedBackendId: normalizeString(state.managedBackendId) || "",
@@ -3925,7 +4064,8 @@ function resolveManagedLocalRoot(args?: { state?: ManagedLocalRuntimeState }) {
   ) {
     return {
       ok: false as const,
-      reason: "managed installDir does not belong to expected releases/<version> layout",
+      reason:
+        "managed installDir does not belong to expected releases/<version> layout",
       details: {
         installDir,
         releasesDir,
@@ -4154,14 +4294,12 @@ async function deleteManagedLocalRuntimePaths(args: {
           ? (error as { message?: unknown }).message
           : error,
       );
-      const diagnostics = (
-        error &&
-        typeof error === "object" &&
-        "deleteDiagnostics" in (error as Record<string, unknown>)
-          ? (error as { deleteDiagnostics?: RemovePathRecursiveDiagnostics })
-              .deleteDiagnostics
-          : undefined
-      ) || {
+      const diagnostics = (error &&
+      typeof error === "object" &&
+      "deleteDiagnostics" in (error as Record<string, unknown>)
+        ? (error as { deleteDiagnostics?: RemovePathRecursiveDiagnostics })
+            .deleteDiagnostics
+        : undefined) || {
         retries: 0,
         longPathFallbackAttempted: false,
         lastErrorCode: getDeleteErrorCode(error),
@@ -4211,7 +4349,10 @@ export async function getLocalRuntimeStatus(): Promise<SkillRunnerLocalRuntimeAc
     port: endpoint.port,
   });
   if (result.ok) {
-    applyRuntimeEndpointFromDetails(readManagedLocalRuntimeState(), result.details);
+    applyRuntimeEndpointFromDetails(
+      readManagedLocalRuntimeState(),
+      result.details,
+    );
   }
   return resultFromCtl("status", result);
 }
@@ -4244,7 +4385,9 @@ export async function stopLocalRuntime(): Promise<SkillRunnerLocalRuntimeActionR
       host: endpoint.host,
       port: endpoint.port,
     });
-    const statusValue = normalizeString(statusResult.details?.status).toLowerCase();
+    const statusValue = normalizeString(
+      statusResult.details?.status,
+    ).toLowerCase();
     if (statusResult.ok && statusValue === "stopped") {
       clearHeartbeatTimer();
       clearStatusReconcileTimer();
@@ -4283,12 +4426,16 @@ export async function stopLocalRuntime(): Promise<SkillRunnerLocalRuntimeActionR
     applyRuntimeStatePatch({
       state: readManagedLocalRuntimeState(),
       runtimeState: "degraded",
-      runtimeError: normalizeString(statusResult.message) || "status probe failed after down",
+      runtimeError:
+        normalizeString(statusResult.message) ||
+        "status probe failed after down",
     });
     return {
       ok: false,
       stage: "stop-status",
-      message: normalizeString(statusResult.message) || "status probe failed after down",
+      message:
+        normalizeString(statusResult.message) ||
+        "status probe failed after down",
       details: {
         down: downResult.details,
         status: statusResult.details,
@@ -4321,7 +4468,9 @@ export async function uninstallLocalRuntime(args?: {
           version,
           clearData,
           clearAgentHome,
-          managedBackendId: normalizeString(stateBeforeUninstall.managedBackendId),
+          managedBackendId: normalizeString(
+            stateBeforeUninstall.managedBackendId,
+          ),
           installDir,
         },
       });
@@ -4397,7 +4546,8 @@ export async function uninstallLocalRuntime(args?: {
         invoked: false,
         ok: true,
         exitCode: 0,
-        message: "installDir unavailable; skip down and continue uninstall cleanup",
+        message:
+          "installDir unavailable; skip down and continue uninstall cleanup",
         command: "",
         args: [],
         details: {},
@@ -4426,7 +4576,9 @@ export async function uninstallLocalRuntime(args?: {
             level: "warn",
             operation: "uninstall-down",
             stage: "uninstall-down-failed",
-            message: normalizeString(downResult.message) || "managed local runtime stop failed",
+            message:
+              normalizeString(downResult.message) ||
+              "managed local runtime stop failed",
             details: {
               localRoot,
               down_result: downResultDetails,
@@ -4435,7 +4587,9 @@ export async function uninstallLocalRuntime(args?: {
           return {
             ok: false,
             stage: "uninstall-down",
-            message: normalizeString(downResult.message) || "managed local runtime stop failed",
+            message:
+              normalizeString(downResult.message) ||
+              "managed local runtime stop failed",
             details: {
               localRoot,
               down_result: downResultDetails,
@@ -4545,7 +4699,9 @@ export async function uninstallLocalRuntime(args?: {
         return {
           ok: false,
           stage: "uninstall-configure-profile",
-          message: removeProfileResult.message || "failed to remove managed profile after uninstall",
+          message:
+            removeProfileResult.message ||
+            "failed to remove managed profile after uninstall",
           details: {
             localRoot,
             clearData,
@@ -4660,7 +4816,10 @@ export async function ensureManagedLocalRuntimeForBackend(
   return withRuntimeControlLock(async () => {
     const normalizedBackendId = normalizeString(backendId);
     let state = readManagedLocalRuntimeState();
-    if (!normalizedBackendId || state.managedBackendId !== normalizedBackendId) {
+    if (
+      !normalizedBackendId ||
+      state.managedBackendId !== normalizedBackendId
+    ) {
       return {
         ok: true,
         stage: "ensure-skipped",
@@ -4696,7 +4855,9 @@ export async function ensureManagedLocalRuntimeForBackend(
     let didRunUp = false;
     let preflightResult: SkillRunnerCtlCommandResult | undefined;
     if (!statusRunning) {
-      const backgroundAction = normalizeString(options?.backgroundInFlightAction);
+      const backgroundAction = normalizeString(
+        options?.backgroundInFlightAction,
+      );
       if (backgroundAction) {
         setBackgroundInFlightAction(backgroundAction);
       }
@@ -4722,12 +4883,15 @@ export async function ensureManagedLocalRuntimeForBackend(
             state,
             runtimeState: "degraded",
             runtimeFailureCount: nextFailureCount,
-            runtimeError: normalizeString(preflightResult.message) || "preflight failed",
+            runtimeError:
+              normalizeString(preflightResult.message) || "preflight failed",
           });
           return {
             ok: false,
             stage: "ensure-preflight",
-            message: normalizeString(preflightResult.message) || "managed local runtime preflight failed",
+            message:
+              normalizeString(preflightResult.message) ||
+              "managed local runtime preflight failed",
             details: {
               runtimeState: state.runtimeState,
               runtimeFailureCount: state.runtimeFailureCount || 0,
@@ -4757,7 +4921,8 @@ export async function ensureManagedLocalRuntimeForBackend(
           return {
             ok: false,
             stage: "ensure-up",
-            message: normalizeString(up.message) || "managed local runtime up failed",
+            message:
+              normalizeString(up.message) || "managed local runtime up failed",
             details: {
               runtimeState: state.runtimeState,
               runtimeFailureCount: state.runtimeFailureCount || 0,
@@ -4774,7 +4939,10 @@ export async function ensureManagedLocalRuntimeForBackend(
           port: endpoint.port,
         });
         if (statusPoll.status) {
-          state = applyRuntimeEndpointFromDetails(state, statusPoll.status.details);
+          state = applyRuntimeEndpointFromDetails(
+            state,
+            statusPoll.status.details,
+          );
           endpoint = resolveRuntimeEndpoint(state);
         }
         if (!statusPoll.ok) {
@@ -4837,7 +5005,8 @@ export async function ensureManagedLocalRuntimeForBackend(
         state,
         runtimeState: "degraded",
         runtimeFailureCount: state.runtimeFailureCount || 0,
-        runtimeError: normalizeString(leaseAcquire.reason) || "lease acquire failed",
+        runtimeError:
+          normalizeString(leaseAcquire.reason) || "lease acquire failed",
       });
       return {
         ok: false,
@@ -4875,7 +5044,8 @@ export async function ensureManagedLocalRuntimeForBackend(
         actualPort: finalEndpoint.port,
         actualUrl: finalEndpoint.url,
         requestedPort: state.requestedPort || finalEndpoint.requestedPort,
-        portFallbackSpan: state.portFallbackSpan ?? finalEndpoint.portFallbackSpan,
+        portFallbackSpan:
+          state.portFallbackSpan ?? finalEndpoint.portFallbackSpan,
         portFallbackUsed: state.portFallbackUsed === true,
         triedPorts: state.triedPorts || [],
         runtimeState: state.runtimeState,
@@ -4917,7 +5087,9 @@ export async function releaseManagedLocalRuntimeLeaseOnShutdown() {
     lastHeartbeatAt: nowIso(),
     lastError: response.ok
       ? undefined
-      : normalizeString(response.body?.detail) || response.error || "lease release failed",
+      : normalizeString(response.body?.detail) ||
+        response.error ||
+        "lease release failed",
   };
   writeManagedLocalRuntimeState(state);
 }

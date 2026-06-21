@@ -29,7 +29,10 @@ export function validateCreatePayload(payload: unknown) {
     const sourcePath = String(input?.source_path || "").trim();
     if (!sourcePath) {
       errors.push("input.source_path is required for literature-analysis");
-    } else if (isAbsolutePath(sourcePath) || sourcePath.startsWith("uploads/")) {
+    } else if (
+      isAbsolutePath(sourcePath) ||
+      sourcePath.startsWith("uploads/")
+    ) {
       errors.push(
         "input.source_path must be uploads-root relative path without uploads/ prefix",
       );
@@ -45,6 +48,19 @@ export function validateCreatePayload(payload: unknown) {
       );
     }
   }
+  if (body.skill_id === "tag-bootstrapper") {
+    if (!input) {
+      errors.push("input must be an object for tag-bootstrapper");
+    } else if (!Array.isArray(input.existing_tags)) {
+      errors.push("input.existing_tags must be an array for tag-bootstrapper");
+    } else if (
+      typeof input.protocol !== "object" ||
+      input.protocol === null ||
+      Array.isArray(input.protocol)
+    ) {
+      errors.push("input.protocol must be an object for tag-bootstrapper");
+    }
+  }
   return {
     ok: errors.length === 0,
     errors,
@@ -52,7 +68,9 @@ export function validateCreatePayload(payload: unknown) {
 }
 
 function isAbsolutePath(value: string) {
-  const text = String(value || "").trim().replace(/\\/g, "/");
+  const text = String(value || "")
+    .trim()
+    .replace(/\\/g, "/");
   return /^[A-Za-z]:\//.test(text) || text.startsWith("/");
 }
 

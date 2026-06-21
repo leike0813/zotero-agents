@@ -1,6 +1,10 @@
 import { normalizeBackendDisplayName } from "../../backends/identity";
 import type { BackendInstance, LoadedBackends } from "../../backends/types";
-import { ACP_BACKEND_TYPE } from "../../config/defaults";
+import {
+  ACP_BACKEND_TYPE,
+  BACKEND_TYPES,
+  type BackendType,
+} from "../../config/defaults";
 import { listBuiltinAcpBackends } from "../acpBackendPresets";
 import { getPref } from "../../utils/prefs";
 
@@ -30,6 +34,13 @@ function stringMap(value: unknown) {
   );
 }
 
+function normalizeBackendType(value: unknown): BackendType | null {
+  const normalized = cleanString(value);
+  return BACKEND_TYPES.includes(normalized as BackendType)
+    ? (normalized as BackendType)
+    : null;
+}
+
 function normalizeBackendEntry(
   entry: unknown,
   index: number,
@@ -38,9 +49,14 @@ function normalizeBackendEntry(
     return { error: `entry[${index}] must be an object` };
   }
   const id = cleanString(entry.id);
-  const type = cleanString(entry.type);
+  const typeRaw = cleanString(entry.type);
+  const type = normalizeBackendType(typeRaw);
   if (!id) return { error: `entry[${index}] missing id` };
-  if (!type) return { error: `entry[${index}] (${id}) missing type` };
+  if (!type) {
+    return {
+      error: `entry[${index}] (${id}) type must be one of ${BACKEND_TYPES.join(", ")}`,
+    };
+  }
   if (LEGACY_REMOVED_BACKEND_IDS.has(id)) {
     return { error: `entry[${index}] (${id}) is a removed legacy backend` };
   }

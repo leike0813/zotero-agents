@@ -1028,6 +1028,7 @@ export type SynthesisUiHostCommandName =
   | "runMissingArtifactWorkflow"
   | "openPreferences"
   | "manualRecomputeLayout"
+  | "runTagBootstrapper"
   | "validateTagVocabulary"
   | "importTagVocabulary"
   | "previewTagVocabularyImport"
@@ -1124,6 +1125,7 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "runMissingArtifactWorkflow",
   "openPreferences",
   "manualRecomputeLayout",
+  "runTagBootstrapper",
   "validateTagVocabulary",
   "importTagVocabulary",
   "previewTagVocabularyImport",
@@ -1185,6 +1187,7 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   runMissingArtifactWorkflow: "Run workflow",
   openPreferences: "Open preferences",
   manualRecomputeLayout: "Rebuild graph layout",
+  runTagBootstrapper: "Bootstrap tags",
   validateTagVocabulary: "Validate tags",
   importTagVocabulary: "Import tags",
   previewTagVocabularyImport: "Preview tag import",

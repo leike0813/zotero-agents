@@ -1,5 +1,6 @@
 import type { BackendInstance } from "../backends/types";
 import { resolveBackendDisplayName } from "../backends/displayName";
+import { DEFAULT_BACKEND_TYPE } from "../config/defaults";
 import type { JobRecord, JobState } from "../jobQueue/manager";
 import { SkillRunnerClient } from "../providers/skillrunner/client";
 import { resolveSkillRunnerBackendCommunicationFailedToastText } from "../utils/localizationGovernance";
@@ -11,7 +12,7 @@ import {
   updateTaskDashboardHistoryStateByRequest,
 } from "./taskDashboardHistory";
 import {
-  listActiveWorkflowTasks,
+  listActiveWorkflowTaskSummaries,
   recordWorkflowTaskUpdate,
   removeWorkflowTasksByBackendAndRequestIds,
   updateWorkflowTaskStateByRequest,
@@ -21,9 +22,7 @@ import {
   getLoadedWorkflowEntries,
   rescanWorkflowRegistry,
 } from "./workflowRuntime";
-import {
-  getSequenceRunStateByStepRequest,
-} from "./workflowExecution/sequenceStateStore";
+import { getSequenceRunStateByStepRequest } from "./workflowExecution/sequenceStateStore";
 import {
   isTerminal,
   isWaiting,
@@ -236,16 +235,17 @@ async function resolveDoubleConfirmedTerminalRunState(args: {
 function collectRequestIdsForBackend(backendId: string) {
   const normalizedBackendId = normalizeString(backendId);
   const requestIds = new Set<string>();
-  for (const row of listActiveWorkflowTasks()) {
-    if (normalizeString(row.backendId) !== normalizedBackendId) {
-      continue;
-    }
+  for (const row of listActiveWorkflowTaskSummaries({
+    backendId: normalizedBackendId,
+  })) {
     const requestId = normalizeString(row.requestId);
     if (requestId) {
       requestIds.add(requestId);
     }
   }
-  for (const row of listTaskDashboardHistory({ backendId: normalizedBackendId })) {
+  for (const row of listTaskDashboardHistory({
+    backendId: normalizedBackendId,
+  })) {
     const requestId = normalizeString(row.requestId);
     if (requestId) {
       requestIds.add(requestId);
@@ -297,15 +297,17 @@ async function resolveWorkflow(workflowId: string) {
     return null;
   }
   let workflow =
-    getLoadedWorkflowEntries().find((entry) => entry.manifest.id === normalized) ||
-    null;
+    getLoadedWorkflowEntries().find(
+      (entry) => entry.manifest.id === normalized,
+    ) || null;
   if (workflow) {
     return workflow;
   }
   await rescanWorkflowRegistry();
   workflow =
-    getLoadedWorkflowEntries().find((entry) => entry.manifest.id === normalized) ||
-    null;
+    getLoadedWorkflowEntries().find(
+      (entry) => entry.manifest.id === normalized,
+    ) || null;
   return workflow;
 }
 
@@ -630,7 +632,9 @@ export class SkillRunnerTaskReconciler {
   private buildMissingContextCandidates(args?: { backendId?: string }) {
     const targetBackendId = normalizeString(args?.backendId);
     const existingKeys = new Set(
-      listSkillRunnerRunRecords()
+      listSkillRunnerRunRecords({
+        backendId: targetBackendId || undefined,
+      })
         .map((record) => {
           const backendId = normalizeString(record.backendId);
           const requestId = normalizeString(record.requestId);
@@ -639,7 +643,9 @@ export class SkillRunnerTaskReconciler {
         .filter(Boolean),
     );
     const candidates = new Map<string, MissingContextCandidate>();
-    for (const row of listActiveWorkflowTasks()) {
+    for (const row of listActiveWorkflowTaskSummaries({
+      backendId: targetBackendId || undefined,
+    })) {
       if (normalizeString(row.backendType) !== "skillrunner") {
         continue;
       }
@@ -696,7 +702,10 @@ export class SkillRunnerTaskReconciler {
       return { action: "skip", reason: `terminal-${status}` };
     }
     if (status === "succeeded") {
-      if (record.apply.state === "succeeded" || record.apply.state === "skipped") {
+      if (
+        record.apply.state === "succeeded" ||
+        record.apply.state === "skipped"
+      ) {
         return { action: "skip", reason: `apply-${record.apply.state}` };
       }
       if (record.apply.state === "running" || record.apply.state === "failed") {
@@ -709,7 +718,10 @@ export class SkillRunnerTaskReconciler {
     if (!normalizeString(record.backendBaseUrl)) {
       return { action: "fail", reason: "missing-backend-base-url" };
     }
-    if (!normalizeString(record.workflowId) || !(await resolveWorkflow(record.workflowId))) {
+    if (
+      !normalizeString(record.workflowId) ||
+      !(await resolveWorkflow(record.workflowId))
+    ) {
       return { action: "fail", reason: "missing-workflow" };
     }
     if (
@@ -809,7 +821,7 @@ export class SkillRunnerTaskReconciler {
       await continueSkillRunnerForegroundRun({
         backend: {
           id: args.record.backendId,
-          type: args.record.backendType,
+          type: DEFAULT_BACKEND_TYPE,
           baseUrl: args.record.backendBaseUrl || "",
           auth: { kind: "none" },
         },
@@ -865,7 +877,9 @@ export class SkillRunnerTaskReconciler {
     let handedOff = 0;
     let waiting = 0;
     let failed = 0;
-    for (const record of listSkillRunnerRunRecords()) {
+    for (const record of listSkillRunnerRunRecords({
+      backendId: targetBackendId || undefined,
+    })) {
       if (
         typeof args.generation === "number" &&
         !this.isGenerationActive(args.generation)
@@ -1132,7 +1146,7 @@ export function purgeSkillRunnerBackendReconcileState(backendIdRaw: string) {
     };
   }
   const requestIdSet = new Set<string>();
-  for (const row of listActiveWorkflowTasks()) {
+  for (const row of listActiveWorkflowTaskSummaries({ backendId })) {
     if (normalizeString(row.backendId) !== backendId) {
       continue;
     }
@@ -1147,7 +1161,7 @@ export function purgeSkillRunnerBackendReconcileState(backendIdRaw: string) {
       requestIdSet.add(requestId);
     }
   }
-  for (const record of listSkillRunnerRunRecords()) {
+  for (const record of listSkillRunnerRunRecords({ backendId })) {
     if (normalizeString(record.backendId) !== backendId) {
       continue;
     }

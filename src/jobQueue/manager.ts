@@ -23,11 +23,63 @@ export type JobState =
   | "failed"
   | "canceled";
 
+export type JobRecordMeta = {
+  runId?: string;
+  workflowRunId?: string;
+  localRunId?: string;
+  workflowLabel?: string;
+  taskName?: string;
+  inputUnitIdentity?: string;
+  inputUnitLabel?: string;
+  skillName?: string;
+  skillLabel?: string;
+  skillId?: string;
+  sequenceStepId?: string;
+  sequenceStepIndex?: number;
+  sequenceJobId?: string;
+  sequenceStepSkillId?: string;
+  engine?: string;
+  providerId?: string;
+  requestKind?: string;
+  requestId?: string;
+  backendId?: string;
+  backendType?: string;
+  backendBaseUrl?: string;
+  targetParentID?: number;
+  skillRunnerLifecycleState?:
+    | "pre_request_id"
+    | "request_creating"
+    | "uploading"
+    | JobState;
+  skillRunnerRequestReady?: boolean;
+  skillRunnerSubmitPhase?: string;
+  skillRunnerSubmitStartedAt?: string;
+  skillRunnerSubmitTimeoutAt?: string;
+  skillRunnerSubmitError?: string;
+  skillRunnerTerminalRunError?: boolean;
+  [key: string]: unknown;
+};
+
+const JOB_META_LIFECYCLE_STATES = new Set<
+  NonNullable<JobRecordMeta["skillRunnerLifecycleState"]>
+>([
+  "pre_request_id",
+  "request_creating",
+  "uploading",
+  "queued",
+  "running",
+  "waiting_user",
+  "waiting_auth",
+  "succeeded",
+  "failed",
+  "canceled",
+]);
+
 export type JobRecord = {
   id: string;
   workflowId: string;
   request: unknown;
-  meta: Record<string, unknown>;
+  meta: JobRecordMeta;
   state: JobState;
   error?: string;
   result?: unknown;
@@ -51,6 +103,109 @@ type QueueConfig = {
   onJobUpdated?: (job: JobRecord) => void;
   onJobProgress?: (job: JobRecord, event: JobProgressEvent) => void;
 };
+
+const JOB_META_STRING_FIELDS = [
+  "runId",
+  "workflowRunId",
+  "localRunId",
+  "workflowLabel",
+  "taskName",
+  "inputUnitIdentity",
+  "inputUnitLabel",
+  "skillName",
+  "skillLabel",
+  "skillId",
+  "sequenceStepId",
+  "sequenceJobId",
+  "sequenceStepSkillId",
+  "engine",
+  "providerId",
+  "requestKind",
+  "requestId",
+  "backendId",
+  "backendType",
+  "backendBaseUrl",
+  "skillRunnerSubmitPhase",
+  "skillRunnerSubmitStartedAt",
+  "skillRunnerSubmitTimeoutAt",
+  "skillRunnerSubmitError",
+] as const;
+
+const JOB_META_INTEGER_FIELDS = [
+  "sequenceStepIndex",
+  "targetParentID",
+] as const;
+
+const JOB_META_BOOLEAN_FIELDS = [
+  "skillRunnerRequestReady",
+  "skillRunnerTerminalRunError",
+] as const;
+
+function normalizeJobMetaBoolean(value: unknown) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return undefined;
+}
+
+export function normalizeJobRecordMeta(meta: JobRecordMeta | undefined) {
+  const normalized: JobRecordMeta = { ...(meta || {}) };
+  for (const key of JOB_META_STRING_FIELDS) {
+    const value = normalized[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) {
+        normalized[key] = trimmed;
+      } else {
+        delete normalized[key];
+      }
+    }
+  }
+  const lifecycleState = normalized.skillRunnerLifecycleState;
+  if (typeof lifecycleState === "string") {
+    const trimmed = lifecycleState.trim();
+    if (
+      JOB_META_LIFECYCLE_STATES.has(
+        trimmed as NonNullable<JobRecordMeta["skillRunnerLifecycleState"]>,
+      )
+    ) {
+      normalized.skillRunnerLifecycleState = trimmed as NonNullable<
+        JobRecordMeta["skillRunnerLifecycleState"]
+      >;
+    } else {
+      delete normalized.skillRunnerLifecycleState;
+    }
+  } else if (typeof lifecycleState !== "undefined") {
+    delete normalized.skillRunnerLifecycleState;
+  }
+  for (const key of JOB_META_INTEGER_FIELDS) {
+    const value = normalized[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      normalized[key] = Math.floor(value);
+    } else if (typeof value !== "undefined") {
+      delete normalized[key];
+    }
+  }
+  for (const key of JOB_META_BOOLEAN_FIELDS) {
+    const value = normalizeJobMetaBoolean(normalized[key]);
+    if (typeof value === "boolean") {
+      normalized[key] = value;
+    } else if (typeof normalized[key] !== "undefined") {
+      delete normalized[key];
+    }
+  }
+  return normalized;
+}
 
 function getExecutionResultRecord(
   result: unknown,
@@ -106,7 +261,7 @@ export class JobQueueManager {
   enqueue(args: {
     workflowId: string;
     request: unknown;
-    meta?: Record<string, unknown>;
+    meta?: JobRecordMeta;
   }) {
     const now = new Date().toISOString();
     const id = `job-${this.nextId++}`;
@@ -114,7 +269,7 @@ export class JobQueueManager {
       id,
       workflowId: args.workflowId,
       request: args.request,
-      meta: args.meta || {},
+      meta: normalizeJobRecordMeta(args.meta),
       state: "queued",
       createdAt: now,
       updatedAt: now,
