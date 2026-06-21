@@ -184,7 +184,7 @@ export type WorkflowRequestSpec = {
   kind: string;
   create?: {
     skill_id?: string;
-    mode?: "auto" | "interactive";
+    mode: "auto" | "interactive";
     skill_source?: "local-package" | "installed";
   };
   input?: {
@@ -204,7 +204,7 @@ export type WorkflowRequestSpec = {
     steps?: Array<{
       id?: string;
       skill_id?: string;
-      mode?: "auto" | "interactive";
+      mode: "auto" | "interactive";
       input?: Record<string, unknown>;
       parameter?: Record<string, unknown>;
       fetch_type?: "bundle" | "result";
@@ -223,6 +223,16 @@ export type WorkflowRequestSpec = {
           value?: unknown;
         }>;
       };
+      include_if?:
+        | {
+            kind: "parameter";
+            parameter: string;
+            equals: string | number | boolean | null;
+          }
+        | {
+            kind: "runtime";
+            condition: string;
+          };
       short_circuit?: {
         when?: {
           path?: string;

@@ -1329,6 +1329,56 @@
     return JSON.parse(JSON.stringify(raw));
   }
 
+  function coerceBoolean(value, fallback) {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (!normalized) {
+        return fallback === true;
+      }
+      return ["1", "true", "yes", "on"].indexOf(normalized) >= 0;
+    }
+    return fallback === true;
+  }
+
+  function isProviderConditionalWorkflowFieldVisible(entry, values) {
+    const condition = entry && entry.visibleIfProviderOption;
+    const key = String((condition && condition.key) || "").trim();
+    if (!key) {
+      return true;
+    }
+    const providerValues =
+      values && typeof values === "object" && !Array.isArray(values)
+        ? values
+        : {};
+    return (
+      coerceBoolean(providerValues[key], false) ===
+      (condition.equals === true)
+    );
+  }
+
+  function applyWorkflowSettingsConditionalVisibility(root, values) {
+    const container = root || document;
+    const nodes = container.querySelectorAll
+      ? container.querySelectorAll(
+          "[data-workflow-settings-visible-provider-key]",
+        )
+      : [];
+    Array.prototype.forEach.call(nodes, function (node) {
+      const key = String(
+        node.getAttribute("data-workflow-settings-visible-provider-key") || "",
+      ).trim();
+      const expected =
+        node.getAttribute("data-workflow-settings-visible-provider-equals") ===
+        "true";
+      const visible = coerceBoolean(values && values[key], false) === expected;
+      node.style.display = visible ? "" : "none";
+      node.setAttribute("aria-hidden", visible ? "false" : "true");
+    });
+  }
+
   function isPositiveIntegerField(entry) {
     if (!entry || typeof entry !== "object") {
       return false;
@@ -1345,6 +1395,16 @@
     return key.includes("timeout");
   }
 
+  function isNonNegativeIntegerField(entry) {
+    if (!entry || typeof entry !== "object") {
+      return false;
+    }
+    const key = String(entry.key || "")
+      .trim()
+      .toLowerCase();
+    return key === "interactive_reply_timeout_sec";
+  }
+
   function validateNumberFieldValue(args) {
     const raw = String(args.rawValue == null ? "" : args.rawValue).trim();
     if (!raw) {
@@ -1357,7 +1417,17 @@
         message: labelText(args.labels, "workflowSettingsNumberInvalid"),
       };
     }
-    if (isPositiveIntegerField(args.entry)) {
+    if (isNonNegativeIntegerField(args.entry)) {
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        return {
+          ok: false,
+          message: labelText(
+            args.labels,
+            "workflowSettingsPositiveIntegerRequired",
+          ),
+        };
+      }
+    } else if (isPositiveIntegerField(args.entry)) {
       if (!Number.isInteger(parsed) || parsed <= 0) {
         return {
           ok: false,
@@ -1377,6 +1447,23 @@
     }
 
     const row = el("div", "workflow-settings-field");
+    row.setAttribute("data-workflow-settings-field-key", args.entry.key);
+    if (args.entry.visibleIfProviderOption) {
+      row.setAttribute(
+        "data-workflow-settings-visible-provider-key",
+        String(args.entry.visibleIfProviderOption.key || ""),
+      );
+      row.setAttribute(
+        "data-workflow-settings-visible-provider-equals",
+        args.entry.visibleIfProviderOption.equals === true ? "true" : "false",
+      );
+      if (
+        !isProviderConditionalWorkflowFieldVisible(args.entry, args.values)
+      ) {
+        row.style.display = "none";
+        row.setAttribute("aria-hidden", "true");
+      }
+    }
     const label = el(
       "label",
       isWarningProviderOptionKey(args.entry.key)
@@ -1615,6 +1702,9 @@
           labels: args.labels,
         }),
       );
+    });
+    card.addEventListener("change", function () {
+      applyWorkflowSettingsConditionalVisibility(card, args.values);
     });
     return card;
   }

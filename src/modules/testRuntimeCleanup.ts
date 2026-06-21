@@ -20,6 +20,7 @@ import {
 import { resetWorkflowTasks } from "./taskRuntime";
 import { resetSkillRunnerSessionSyncForTests } from "./skillRunnerSessionSyncManager";
 import { resetSkillRunnerRunDialogForTests } from "./skillRunnerRunDialog";
+import { resetSkillRunnerAutoReplyObserverForTests } from "./skillRunnerAutoReplyObserver";
 import { resetTaskManagerDialogRuntimeForTests } from "./taskManagerDialog";
 
 type CleanupDeps = {
@@ -37,6 +38,7 @@ type CleanupDeps = {
   resetSkillRunnerSessionSyncForTests: () => void | Promise<void>;
   resetSkillRunnerTaskReconcilerForTests: () => void | Promise<void>;
   resetSkillRunnerRunDialogForTests: () => void | Promise<void>;
+  resetSkillRunnerAutoReplyObserverForTests: () => void;
   resetTaskManagerDialogRuntimeForTests: () => void | Promise<void>;
 };
 
@@ -55,6 +57,7 @@ const defaultCleanupDeps: CleanupDeps = {
   resetSkillRunnerSessionSyncForTests,
   resetSkillRunnerTaskReconcilerForTests,
   resetSkillRunnerRunDialogForTests,
+  resetSkillRunnerAutoReplyObserverForTests,
   resetTaskManagerDialogRuntimeForTests,
 };
 
@@ -73,6 +76,7 @@ export function setBackgroundRuntimeCleanupDepsForTests(
 
 export async function cleanupBackgroundRuntimeForZoteroTests() {
   await Promise.resolve(cleanupDeps.resetSkillRunnerRunDialogForTests());
+  cleanupDeps.resetSkillRunnerAutoReplyObserverForTests();
   await Promise.resolve(cleanupDeps.resetTaskManagerDialogRuntimeForTests());
   await Promise.resolve(cleanupDeps.resetSkillRunnerTaskReconcilerForTests());
   await Promise.resolve(cleanupDeps.resetSkillRunnerSessionSyncForTests());

@@ -476,6 +476,32 @@ describe("workflow debug probe", function () {
     ]) {
       assert.isTrue(workflowIds.has(workflowId), `${workflowId} should load`);
     }
+
+    const bundleThenResult = loaded.workflows.find(
+      (entry) => entry.manifest.id === "debug-apply-bundle-then-result",
+    )!.manifest;
+    assert.deepEqual(
+      bundleThenResult.request.sequence?.steps?.map((step) => step.id),
+      ["bundle", "result"],
+    );
+    assert.deepEqual(bundleThenResult.request.sequence?.steps?.[1].include_if, {
+      kind: "parameter",
+      parameter: "run_result_step",
+      equals: true,
+    });
+
+    const resultThenBundle = loaded.workflows.find(
+      (entry) => entry.manifest.id === "debug-apply-result-then-bundle",
+    )!.manifest;
+    assert.deepEqual(
+      resultThenBundle.request.sequence?.steps?.map((step) => step.id),
+      ["result", "bundle"],
+    );
+    assert.deepEqual(resultThenBundle.request.sequence?.steps?.[0].include_if, {
+      kind: "parameter",
+      parameter: "skip_result_step",
+      equals: false,
+    });
   });
 
   it("debug interactive choice probe builds an interactive SkillRunner request", async function () {

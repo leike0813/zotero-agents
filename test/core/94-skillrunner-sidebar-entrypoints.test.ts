@@ -30,10 +30,7 @@ describe("skillrunner sidebar entrypoints", function () {
     assert.include(workflowMenu, 'onPrefsEvent("openSkillRunnerSidebar"');
     assert.include(hooks, "openAssistantWorkspaceSidebar");
     assert.include(hooks, 'case "openSkillRunnerSidebar":');
-    assert.include(
-      hooks,
-      'tab: requestId || backend ? "skillrunner" : undefined',
-    );
+    assert.include(hooks, 'tab: "skillrunner"');
     assert.include(hooks, 'case "openAcpSidebar":');
     assert.include(hooks, 'tab: "acp-chat"');
     assert.include(hooks, 'case "openAcpSkillRunnerSidebar":');
@@ -92,7 +89,7 @@ describe("skillrunner sidebar entrypoints", function () {
     );
     assert.include(hooks, 'case "toggleSkillRunnerSidebar":');
     assert.include(hooks, "toggleAssistantWorkspaceSidebar({");
-    assert.notInclude(
+    assert.include(
       hooks,
       'case "toggleSkillRunnerSidebar":\n      await toggleAssistantWorkspaceSidebar({\n        window: data.window,\n        tab: "skillrunner",',
     );

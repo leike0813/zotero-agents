@@ -2,6 +2,7 @@ import { assert } from "chai";
 import { SkillRunnerClient } from "../../src/providers/skillrunner/client";
 import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
 import { createZipFromNamedFiles } from "../../src/providers/skillrunner/zipTransport";
+import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/modules/skillRunnerInteractiveAutoReply";
 import { fixturePath } from "./workflow-test-utils";
 
 function createJsonResponse(payload: unknown, status = 200): Response {
@@ -49,6 +50,10 @@ function readZipGeneralPurposeFlagFromMultipart(bytes: Uint8Array) {
 }
 
 describe("transport: upload fallback without FormData", function () {
+  afterEach(function () {
+    setSkillRunnerInteractiveAutoReplyEnabledForTests();
+  });
+
   it("aborts a hanging create request after the SkillRunner request timeout", async function () {
     let abortObserved = false;
     let createCalls = 0;
@@ -610,7 +615,7 @@ describe("transport: upload fallback without FormData", function () {
     }
   });
 
-  it("omits no_cache for interactive execution and keeps interactive options", async function () {
+  it("omits no_cache and auto reply for interactive execution when auto reply is disabled", async function () {
     let capturedCreateBody: unknown;
     const client = new SkillRunnerClient({
       baseUrl: "http://127.0.0.1:8030",
@@ -664,6 +669,77 @@ describe("transport: upload fallback without FormData", function () {
         engine: "gemini",
         no_cache: true,
         interactive_auto_reply: true,
+        interactive_reply_timeout_sec: 30,
+        hard_timeout_seconds: 900,
+      },
+    );
+
+    assert.deepEqual(
+      (capturedCreateBody as { runtime_options?: unknown })?.runtime_options,
+      {
+        execution_mode: "interactive",
+        hard_timeout_seconds: 900,
+      },
+      `capturedCreateBody=${JSON.stringify(capturedCreateBody)}`,
+    );
+  });
+
+  it("keeps interactive auto reply when the feature switch is enabled", async function () {
+    setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
+    let capturedCreateBody: unknown;
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/v1/jobs")) {
+          capturedCreateBody = JSON.parse(String(init?.body || "{}"));
+          return createJsonResponse({ request_id: "req-merge-options-enabled" });
+        }
+        if (url.endsWith("/v1/jobs/req-merge-options-enabled/upload")) {
+          return createJsonResponse({ ok: true });
+        }
+        if (url.endsWith("/v1/jobs/req-merge-options-enabled")) {
+          return createJsonResponse({
+            request_id: "req-merge-options-enabled",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-merge-options-enabled/result")) {
+          return createJsonResponse({
+            request_id: "req-merge-options-enabled",
+            result: {
+              status: "success",
+              data: {},
+            },
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    await client.executeSkillRunnerJob(
+      {
+        kind: "skillrunner.job.v1",
+        skill_id: "tag-regulator",
+        skill_source: "installed",
+        input: {
+          source_path: "inputs/source_path/example.md",
+        },
+        upload_files: [
+          {
+            key: "source_path",
+            path: fixturePath("literature-analysis", "example.md"),
+          },
+        ],
+        runtime_options: {
+          execution_mode: "interactive",
+        },
+        fetch_type: "result",
+      },
+      {
+        engine: "gemini",
+        no_cache: true,
+        interactive_auto_reply: true,
+        interactive_reply_timeout_sec: 0,
         hard_timeout_seconds: 900,
       },
     );
@@ -673,6 +749,7 @@ describe("transport: upload fallback without FormData", function () {
       {
         execution_mode: "interactive",
         interactive_auto_reply: true,
+        interactive_reply_timeout_sec: 0,
         hard_timeout_seconds: 900,
       },
       `capturedCreateBody=${JSON.stringify(capturedCreateBody)}`,
@@ -733,6 +810,7 @@ describe("transport: upload fallback without FormData", function () {
         engine: "gemini",
         no_cache: true,
         interactive_auto_reply: true,
+        interactive_reply_timeout_sec: 30,
         hard_timeout_seconds: "1200",
       },
     );

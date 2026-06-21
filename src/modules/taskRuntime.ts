@@ -514,8 +514,12 @@ function isFinishedState(state: JobState) {
   return isTerminal(state);
 }
 
+function isSkillRunnerWorkflowTaskRecord(record: WorkflowTaskRecord) {
+  return String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE;
+}
+
 function skillRunnerRequestProjectionKey(record: WorkflowTaskRecord) {
-  if (String(record.backendType || "").trim() !== DEFAULT_BACKEND_TYPE) {
+  if (!isSkillRunnerWorkflowTaskRecord(record)) {
     return "";
   }
   const requestId = String(record.requestId || "").trim();
@@ -523,6 +527,84 @@ function skillRunnerRequestProjectionKey(record: WorkflowTaskRecord) {
     return "";
   }
   return `${String(record.backendId || "").trim()}:${requestId}`;
+}
+
+function getSkillRunnerLocalIdentityValues(record: WorkflowTaskRecord) {
+  return new Set(
+    [record.localRunId, record.id, record.runId, record.jobId]
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean),
+  );
+}
+
+function hasSharedSkillRunnerLocalIdentity(
+  a: WorkflowTaskRecord,
+  b: WorkflowTaskRecord,
+) {
+  if (
+    !isSkillRunnerWorkflowTaskRecord(a) ||
+    !isSkillRunnerWorkflowTaskRecord(b)
+  ) {
+    return false;
+  }
+  const aBackendId = String(a.backendId || "").trim();
+  const bBackendId = String(b.backendId || "").trim();
+  if (aBackendId && bBackendId && aBackendId !== bBackendId) {
+    return false;
+  }
+  const aValues = getSkillRunnerLocalIdentityValues(a);
+  if (aValues.size === 0) {
+    return false;
+  }
+  for (const value of getSkillRunnerLocalIdentityValues(b)) {
+    if (aValues.has(value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function deleteRecordFromMap(
+  records: Map<string, WorkflowTaskRecord>,
+  id: string,
+) {
+  if (records === taskRecords) {
+    return deleteTaskRecord(id);
+  }
+  return records.delete(id);
+}
+
+function pruneStaleSkillRunnerLocalRows(
+  records: Map<string, WorkflowTaskRecord>,
+  canonical: WorkflowTaskRecord,
+  keepId?: string,
+) {
+  if (
+    !isSkillRunnerWorkflowTaskRecord(canonical) ||
+    !String(canonical.requestId || "").trim()
+  ) {
+    return 0;
+  }
+  let removed = 0;
+  for (const [id, existing] of Array.from(records.entries())) {
+    if (id === keepId || id === canonical.id) {
+      continue;
+    }
+    if (!isSkillRunnerWorkflowTaskRecord(existing)) {
+      continue;
+    }
+    const existingRequestId = String(existing.requestId || "").trim();
+    if (existingRequestId === String(canonical.requestId || "").trim()) {
+      continue;
+    }
+    if (!hasSharedSkillRunnerLocalIdentity(existing, canonical)) {
+      continue;
+    }
+    if (deleteRecordFromMap(records, id)) {
+      removed += 1;
+    }
+  }
+  return removed;
 }
 
 function mergeSkillRunnerProjection(
@@ -545,6 +627,27 @@ function mergeSkillRunnerProjection(
       if (records === taskRecords) {
         syncTaskRecordActiveIndex(id, records.get(id));
       }
+      pruneStaleSkillRunnerLocalRows(records, projection, id);
+      return;
+    }
+    for (const [id, existing] of records.entries()) {
+      if (
+        String(existing.requestId || "").trim() ||
+        !hasSharedSkillRunnerLocalIdentity(existing, projection)
+      ) {
+        continue;
+      }
+      records.set(id, {
+        ...existing,
+        ...projection,
+        id: existing.id,
+        runId: existing.runId,
+        jobId: existing.jobId,
+      });
+      if (records === taskRecords) {
+        syncTaskRecordActiveIndex(id, records.get(id));
+      }
+      pruneStaleSkillRunnerLocalRows(records, projection, id);
       return;
     }
   }
@@ -552,6 +655,7 @@ function mergeSkillRunnerProjection(
   if (records === taskRecords) {
     syncTaskRecordActiveIndex(projection.id, projection);
   }
+  pruneStaleSkillRunnerLocalRows(records, projection, projection.id);
 }
 
 export function recordWorkflowTaskUpdate(job: JobRecord) {
@@ -582,9 +686,18 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
     }
     return;
   }
+  if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
+    pruneStaleSkillRunnerLocalRows(taskRecords, record, record.id);
+  }
   setTaskRecord(record.id, record);
   if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
     upsertSkillRunnerRunFromTask(record, {
+      requestPayload: job.request,
+      providerOptions: isObjectRecord(job.meta.providerOptions)
+        ? { ...job.meta.providerOptions }
+        : undefined,
+      executionMode:
+        normalizeMetaString(job.meta, "executionMode") || undefined,
       fetchType: resolveSkillRunnerFetchTypeFromJob(job),
       eventType: "backend.snapshot",
       eventPayload: {
@@ -790,6 +903,7 @@ export function updateWorkflowTaskStateByRequest(args: {
     });
     if (storedRun) {
       mergeSkillRunnerProjection(taskRecords, storedRun.taskProjection);
+      pruneStaleSkillRunnerLocalRows(taskRecords, storedRun.taskProjection);
       updated += 1;
     }
   }

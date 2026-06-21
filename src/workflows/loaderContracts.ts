@@ -121,10 +121,9 @@ function describeManifestValidationErrors(
 }
 
 function validateSequenceManifestSemantics(manifest: WorkflowManifest) {
-  if (String(manifest.request?.kind || "").trim() !== "skillrunner.sequence.v1") {
-    return "";
-  }
-  if (manifest.hooks.buildRequest) {
+  if (
+    String(manifest.request?.kind || "").trim() !== "skillrunner.sequence.v1"
+  ) {
     return "";
   }
   const steps = manifest.request?.sequence?.steps || [];
@@ -132,7 +131,7 @@ function validateSequenceManifestSemantics(manifest: WorkflowManifest) {
     return "/request/sequence/steps must be non-empty";
   }
   const finalStepId = String(manifest.result?.final_step_id || "").trim();
-  if (!finalStepId) {
+  if (!manifest.hooks.buildRequest && !finalStepId) {
     return "/result/final_step_id is required for skillrunner.sequence.v1";
   }
   const seen = new Set<string>();
@@ -147,7 +146,7 @@ function validateSequenceManifestSemantics(manifest: WorkflowManifest) {
     }
     seen.add(id);
   }
-  if (!seen.has(finalStepId)) {
+  if (finalStepId && !seen.has(finalStepId)) {
     return "/result/final_step_id must match a declared sequence step";
   }
   for (let index = 0; index < steps.length; index++) {

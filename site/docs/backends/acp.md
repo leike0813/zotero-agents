@@ -2,7 +2,7 @@
 
 ## 什么是 ACP？
 
-ACP（Agent Client Protocol）是一种用于与 Agent 后端通信的协议。Zotero Skills 通过 ACP 协议与本地运行的 Agent 进程通信，实现对话和技能执行。
+ACP（Agent Client Protocol）是一种用于与 Agent 后端通信的协议。Zotero Agents 通过 ACP 协议与本地运行的 Agent 进程通信，实现对话和技能执行。
 
 ACP 后端是一个**本地子进程**——您在配置中指定一个命令，插件会自动启动并管理该进程。
 

@@ -106,50 +106,23 @@
     },
     {
       "if": {
-        "allOf": [
-          {
+        "properties": {
+          "request": {
+            "type": "object",
             "properties": {
-              "request": {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "const": "skillrunner.sequence.v1"
-                  }
-                },
-                "required": ["kind"]
+              "kind": {
+                "const": "skillrunner.sequence.v1"
               }
             },
-            "required": ["request"]
-          },
-          {
-            "not": {
-              "properties": {
-                "hooks": {
-                  "type": "object",
-                  "properties": {
-                    "buildRequest": {}
-                  },
-                  "required": ["buildRequest"]
-                }
-              },
-              "required": ["hooks"]
-            }
+            "required": ["kind"]
           }
-        ]
+        },
+        "required": ["request"]
       },
       "then": {
         "properties": {
           "provider": {
             "enum": ["acp", "skillrunner"]
-          },
-          "result": {
-            "type": "object",
-            "properties": {
-              "final_step_id": {
-                "$ref": "#/$defs/nonEmptyString"
-              }
-            },
-            "required": ["final_step_id"]
           },
           "request": {
             "type": "object",
@@ -161,7 +134,7 @@
             "required": ["sequence"]
           }
         },
-        "required": ["provider", "result"]
+        "required": ["provider"]
       }
     }
   ],
@@ -714,9 +687,58 @@
         },
         "short_circuit": {
           "$ref": "#/$defs/requestSequenceShortCircuitSpec"
+        },
+        "include_if": {
+          "$ref": "#/$defs/requestSequenceStepIncludeIfSpec"
         }
       },
       "additionalProperties": false
+    },
+    "requestSequenceStepIncludeIfSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "parameter", "equals"],
+          "properties": {
+            "kind": {
+              "const": "parameter"
+            },
+            "parameter": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "equals": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "condition"],
+          "properties": {
+            "kind": {
+              "const": "runtime"
+            },
+            "condition": {
+              "$ref": "#/$defs/nonEmptyString"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "requestSequenceShortCircuitSpec": {
       "type": "object",

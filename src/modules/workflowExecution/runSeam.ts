@@ -37,6 +37,7 @@ import {
   mapSkillRunnerSequenceStepProgressState,
   mapSkillRunnerSubmitPhase,
 } from "../skillRunnerProgressMapping";
+import { maybeObserveSkillRunnerAutoReplyRun } from "../skillRunnerAutoReplyObserver";
 
 type RunSeamDeps = {
   createQueue: (
@@ -180,6 +181,25 @@ function requestSkillRunnerSubmitFocus(args: {
   void args.resolved.focusSkillRunnerWorkspace(focusPayload);
 }
 
+function maybeObserveSkillRunnerAutoReplyJob(args: {
+  backend: PreparedWorkflowExecution["executionContext"]["backend"];
+  job: JobRecord;
+  source: string;
+}) {
+  const requestId = normalizeText(
+    args.job.meta.requestId ||
+      (args.job.result as { requestId?: unknown } | undefined)?.requestId,
+  );
+  if (!requestId || normalizeText(args.job.state) !== "waiting_user") {
+    return;
+  }
+  maybeObserveSkillRunnerAutoReplyRun({
+    backend: args.backend,
+    requestId,
+    source: args.source,
+  });
+}
+
 export function runWorkflowExecutionSeam(
   args: {
     prepared: PreparedWorkflowExecution;
@@ -312,6 +332,11 @@ export function runWorkflowExecutionSeam(
           }
           resolved.recordWorkflowTaskUpdate(stepJob);
           resolved.recordTaskDashboardHistoryFromJob(stepJob);
+          maybeObserveSkillRunnerAutoReplyJob({
+            backend: executionContext.backend,
+            job: stepJob,
+            source: "workflowExecution.runSeam.sequence-waiting",
+          });
           if (event.type === "sequence-step-started") {
             requestSkillRunnerSubmitFocus({
               resolved,
@@ -447,6 +472,16 @@ export function runWorkflowExecutionSeam(
       }
       resolved.recordWorkflowTaskUpdate(job);
       resolved.recordTaskDashboardHistoryFromJob(job);
+      if (
+        executionContext.requestKind === "skillrunner.job.v1" &&
+        backendType === "skillrunner"
+      ) {
+        maybeObserveSkillRunnerAutoReplyJob({
+          backend: executionContext.backend,
+          job,
+          source: "workflowExecution.runSeam.job-waiting",
+        });
+      }
     },
   });
 
@@ -470,6 +505,7 @@ export function runWorkflowExecutionSeam(
         inputUnitLabel,
         targetParentID: resolveTargetParentIDFromRequest(request) ?? undefined,
         providerId: args.prepared.executionContext.providerId,
+        providerOptions: args.prepared.executionContext.providerOptions,
         requestKind: args.prepared.executionContext.requestKind,
         backendId: args.prepared.executionContext.backend.id,
         backendType: args.prepared.executionContext.backend.type,

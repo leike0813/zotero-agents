@@ -363,6 +363,40 @@
     );
   }
 
+  function buildSkillRunnerAutoReplyIndicator(source, labelSource) {
+    const data = source && typeof source === "object" ? source : {};
+    if (data.autoReplyEnabled !== true) {
+      return null;
+    }
+    const labels = labelSource || data;
+    const active = data.autoReplyObserverActive === true;
+    const showTimer = data.autoReplyObserverShowTimer === true;
+    const remaining = Number(data.autoReplyObserverRemainingSeconds);
+    let value = active
+      ? labelFrom(labels, "status.autoReplyActive", "Active")
+      : labelFrom(labels, "status.autoReplyInactive", "Inactive");
+    if (active && showTimer && Number.isFinite(remaining)) {
+      value = String(Math.max(0, Math.ceil(remaining))) + "s";
+    }
+    return indicator(
+      "skillrunner-auto-reply",
+      labelFrom(labels, "fields.autoReply", "Auto reply"),
+      value,
+      active ? "success" : "muted",
+      active
+        ? labelFrom(
+            labels,
+            "indicatorTitles.skillRunnerAutoReplyActive",
+            "Auto reply observer is active.",
+          )
+        : labelFrom(
+            labels,
+            "indicatorTitles.skillRunnerAutoReplyInactive",
+            "Auto reply is enabled; observer is inactive.",
+          ),
+    );
+  }
+
   function conversationHelper() {
     return window.AssistantConversationView &&
       typeof window.AssistantConversationView === "object"
@@ -2196,7 +2230,9 @@
         },
         {
           id: "completed",
-          title: "Completed",
+          title:
+            safeText(panel.labels && panel.labels.completedTasksTitle) ||
+            "Completed Tasks",
           collapsed: true,
           groups: Object.keys(groupsBySection.completed).map(function (key) {
             return groupsBySection.completed[key];
@@ -2519,6 +2555,7 @@
         contexts: runContexts,
         sections: acpSkillRunDrawerSections(),
         selectedTaskKey: safeText(run && run.requestId),
+        notice: safeText(panel.drawer && panel.drawer.notice),
         details: buildAcpSkillDetails(run, panel.logs, panel),
       },
       actions: {
@@ -2651,6 +2688,10 @@
       envelope,
       status,
     );
+    const autoReplyIndicator = buildSkillRunnerAutoReplyIndicator(
+      Object.assign({}, session, selectedTask || {}),
+      envelope,
+    );
     return normalizeAssistantPanelSnapshot({
       kind: "skillrunner",
       labels: envelope.labels && typeof envelope.labels === "object" ? envelope.labels : {},
@@ -2668,7 +2709,7 @@
           metadataItem(labelFrom(envelope, "fields.model", "Model"), session.model, "model"),
           metadataItem(labelFrom(envelope, "fields.updated", "Updated"), session.updatedAt, "updatedAt"),
         ]),
-        indicators: [controlIndicator].filter(Boolean),
+        indicators: [controlIndicator, autoReplyIndicator].filter(Boolean),
         actions: [
           contextAction(
             "cancel-run",

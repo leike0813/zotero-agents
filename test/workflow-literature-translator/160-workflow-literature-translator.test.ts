@@ -104,7 +104,8 @@ describe("workflow: literature-translator", function () {
   it("loads literature-translator workflow manifest", async function () {
     const workflow = await getLiteratureTranslatorWorkflow();
     assert.equal(workflow.manifest.provider, "skillrunner");
-    assert.equal(workflow.manifest.request?.kind, "skillrunner.sequence.v1");
+    assert.equal(workflow.manifest.request?.kind, "skillrunner.job.v1");
+    assert.equal((workflow.manifest.request as any)?.create?.mode, "auto");
     assert.equal(workflow.manifest.result?.fetch?.type, "bundle");
     assert.equal(workflow.manifest.parameters?.mode?.default, "fast");
     assert.deepEqual(workflow.manifest.parameters?.mode?.enum, [
@@ -126,7 +127,7 @@ describe("workflow: literature-translator", function () {
     assert.isFunction(workflow.hooks.applyResult);
   });
 
-  it("uses literature source selection policy and builds a one-step sequence request", async function () {
+  it("uses literature source selection policy and builds a single job request", async function () {
     const workflow = await getLiteratureTranslatorWorkflow();
     const tempDir = await mkTempDir("zotero-skills-translator-source");
     const parent = await createParent("Translator Source Parent");
@@ -156,28 +157,25 @@ describe("workflow: literature-translator", function () {
       },
     })) as Array<{
       kind: string;
+      skill_id?: string;
+      fetch_type?: string;
       sourceAttachmentPaths?: string[];
       targetParentID?: number;
-      steps?: Array<{
-        skill_id?: string;
-        fetch_type?: string;
-        input?: { source_path?: string };
-        parameter?: { target_language?: string; mode?: string };
-      }>;
-      final_step_id?: string;
+      input?: { source_path?: string };
+      parameter?: { target_language?: string; mode?: string };
+      runtime_options?: { execution_mode?: string };
     }>;
 
     assert.lengthOf(requests, 1);
-    assert.equal(requests[0].kind, "skillrunner.sequence.v1");
+    assert.equal(requests[0].kind, "skillrunner.job.v1");
+    assert.equal(requests[0].skill_id, "literature-translator");
+    assert.equal(requests[0].runtime_options?.execution_mode, "auto");
+    assert.equal(requests[0].fetch_type, "bundle");
     assert.equal(requests[0].targetParentID, parent.id);
     assert.deepEqual(requests[0].sourceAttachmentPaths, [markdown.filePath]);
-    assert.equal(requests[0].final_step_id, "translate");
-    assert.lengthOf(requests[0].steps || [], 1);
-    assert.equal(requests[0].steps?.[0].skill_id, "literature-translator");
-    assert.equal(requests[0].steps?.[0].fetch_type, "bundle");
-    assert.equal(requests[0].steps?.[0].input?.source_path, markdown.filePath);
-    assert.equal(requests[0].steps?.[0].parameter?.target_language, "fr-FR");
-    assert.equal(requests[0].steps?.[0].parameter?.mode, "high_quality");
+    assert.equal(requests[0].input?.source_path, markdown.filePath);
+    assert.equal(requests[0].parameter?.target_language, "fr-FR");
+    assert.equal(requests[0].parameter?.mode, "high_quality");
   });
 
   it("filters selected inputs when translated markdown target already exists", async function () {

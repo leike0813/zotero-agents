@@ -13,7 +13,7 @@ Works with any WebDAV-compliant server (Nextcloud, ownCloud, Synology, etc.). No
 
 ## Configuration
 
-Zotero → Settings → Zotero Skills → WebDAV Sync
+Zotero → Settings → Zotero Agents → WebDAV Sync
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|

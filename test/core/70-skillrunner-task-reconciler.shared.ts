@@ -39,6 +39,11 @@ import {
 import { resetSkillRunnerSessionSyncForTests } from "../../src/modules/skillRunnerSessionSyncManager";
 import { resetSkillRunnerForegroundContinuationForTests } from "../../src/modules/skillRunnerForegroundContinuation";
 import {
+  getSkillRunnerAutoReplyObserverRuntimeForTests,
+  resetSkillRunnerAutoReplyObserverForTests,
+} from "../../src/modules/skillRunnerAutoReplyObserver";
+import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/modules/skillRunnerInteractiveAutoReply";
+import {
   initializeSequenceRunState,
   recordSequenceStepRequestCreated,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
@@ -133,6 +138,8 @@ function persistRun(args: {
   sequenceRunId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
+  providerOptions?: Record<string, unknown>;
+  executionMode?: string;
 }) {
   const job = makeJob({
     id: `job-${args.requestId}`,
@@ -149,7 +156,8 @@ function persistRun(args: {
     role: args.role || "single",
     requestPayload:
       args.includeRequestPayload === false ? undefined : job.request,
-    providerOptions: {},
+    providerOptions: args.providerOptions || {},
+    executionMode: args.executionMode,
     fetchType: "result",
     apply: {
       state: args.applyState || "idle",
@@ -224,6 +232,8 @@ function setupSkillRunnerTaskReconcilerSuite() {
     clearRuntimeLogs();
     resetSkillRunnerBackendHealthRegistryForTests();
     resetSkillRunnerForegroundContinuationForTests();
+    resetSkillRunnerAutoReplyObserverForTests();
+    setSkillRunnerInteractiveAutoReplyEnabledForTests();
     await resetSkillRunnerSessionSyncForTests();
     setSkillRunnerBackendReconcileFailureToastEmitterForTests();
     setSkillRunnerTaskLifecycleToastEmitterForTests();
@@ -241,6 +251,8 @@ function setupSkillRunnerTaskReconcilerSuite() {
     clearRuntimeLogs();
     resetSkillRunnerBackendHealthRegistryForTests();
     resetSkillRunnerForegroundContinuationForTests();
+    resetSkillRunnerAutoReplyObserverForTests();
+    setSkillRunnerInteractiveAutoReplyEnabledForTests();
     await resetSkillRunnerSessionSyncForTests();
     setSkillRunnerBackendReconcileFailureToastEmitterForTests();
     setSkillRunnerTaskLifecycleToastEmitterForTests();
@@ -486,6 +498,34 @@ export function registerSkillRunnerTaskReconcilerForegroundHandoffTests() {
       await reconciler.drain();
 
       assert.equal(counts["/v1/jobs/req-backend-healthy"], 1);
+    });
+
+    it("starts auto-reply observer when recovery restores an enabled waiting run", async function () {
+      setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
+      installFetchRouter({
+        "/v1/jobs/req-auto-reply-waiting": {
+          request_id: "req-auto-reply-waiting",
+          status: "waiting_user",
+        },
+      });
+      persistRun({
+        requestId: "req-auto-reply-waiting",
+        state: "running",
+        executionMode: "interactive",
+        providerOptions: {
+          interactive_auto_reply: true,
+        },
+      });
+
+      await reconcileSkillRunnerMissingContextOnce({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        source: "startup",
+      });
+
+      assert.equal(
+        getSkillRunnerAutoReplyObserverRuntimeForTests().inFlightCount,
+        1,
+      );
     });
 
     it("dedupes backend-healthy sweeps while a sweep is still in flight", async function () {

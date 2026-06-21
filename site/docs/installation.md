@@ -7,9 +7,9 @@
 
 ## 安装插件
 
-### 从 GitHub Release 安装（推荐）
+### 从 GitHub/Gitee Release 安装（推荐）
 
-1. 访问 [Releases 页面](https://github.com/leike0813/Zotero-Skills/releases)
+1. 访问 [GitHub Releases](https://github.com/leike0813/zotero-agents/releases) 或 [Gitee Releases 镜像](https://gitee.com/leike0813/zotero-agents/releases)
 2. 下载最新的 `.xpi` 文件
 3. 在 Zotero 中，打开 **工具 → 附加组件**
 4. 点击齿轮图标，选择 **从文件安装附加组件...**
@@ -18,8 +18,8 @@
 ### 从源码构建
 
 ```bash
-git clone https://github.com/leike0813/Zotero-Skills.git
-cd Zotero-Skills
+git clone https://github.com/leike0813/zotero-agents.git
+cd zotero-agents
 npm install
 npm run build
 ```
@@ -42,6 +42,6 @@ npm run build
 安装完成后：
 
 1. 重启 Zotero
-2. 您应该能在 Zotero 工具栏中看到新的 **Zotero Skills** 区域
+2. 您应该能在 Zotero 工具栏中看到新的 **Zotero Agents** 区域
 3. 打开 **工具 → [后端管理器](backends/backend-manager)** 来配置后端连接
 4. 在对话框中切换 Tab 查看可用的 provider 类型（ACP / SkillRunner / Generic HTTP）

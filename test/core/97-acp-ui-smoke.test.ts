@@ -710,6 +710,93 @@ describe("acp ui smoke", function () {
     });
   });
 
+  it("projects SkillRunner auto reply observer state into the banner", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const labels = {
+      fields: { control: "交互", autoReply: "自动回复" },
+      status: {
+        controlInput: "需输入",
+        autoReplyActive: "已启动",
+        autoReplyInactive: "未启动",
+      },
+      indicatorTitles: {
+        skillRunnerAutoReplyActive: "自动回复观察器已启动。",
+        skillRunnerAutoReplyInactive: "自动回复已启用；观察器未启动。",
+      },
+    };
+    const makePanel = (task: any) =>
+      model.projectSkillRunnerPanelSnapshot({
+        labels,
+        session: {
+          requestId: "skillrunner-request-auto-reply",
+          title: "Selected auto reply task",
+          status: "waiting_user",
+          ...task,
+        },
+        workspace: {
+          selectedTaskKey:
+            "local-skillrunner-backend:skillrunner-request-auto-reply",
+          groups: [
+            {
+              backendId: "local-skillrunner-backend",
+              backendDisplayName: "Local SkillRunner",
+              activeTasks: [
+                {
+                  key: "local-skillrunner-backend:skillrunner-request-auto-reply",
+                  requestId: "skillrunner-request-auto-reply",
+                  title: "Selected auto reply task",
+                  status: "waiting_user",
+                  backendInteractive: true,
+                  canReply: true,
+                  ...task,
+                },
+              ],
+              finishedTasks: [],
+            },
+          ],
+        },
+      });
+
+    const inactive = makePanel({
+      autoReplyEnabled: true,
+      autoReplyObserverActive: false,
+    });
+    assert.deepInclude(inactive.context.indicators[1], {
+      id: "skillrunner-auto-reply",
+      label: "自动回复",
+      value: "未启动",
+      tone: "muted",
+    });
+
+    const countdown = makePanel({
+      autoReplyEnabled: true,
+      autoReplyObserverActive: true,
+      autoReplyObserverShowTimer: true,
+      autoReplyObserverRemainingSeconds: 8,
+    });
+    assert.deepInclude(countdown.context.indicators[1], {
+      id: "skillrunner-auto-reply",
+      value: "8s",
+      tone: "success",
+    });
+
+    const recovery = makePanel({
+      autoReplyEnabled: true,
+      autoReplyObserverActive: true,
+      autoReplyObserverShowTimer: false,
+    });
+    assert.deepInclude(recovery.context.indicators[1], {
+      id: "skillrunner-auto-reply",
+      value: "已启动",
+      tone: "success",
+    });
+
+    const normalInteractive = makePanel({
+      autoReplyEnabled: false,
+    });
+    assert.isUndefined(normalInteractive.context.indicators[1]);
+  });
+
   it("keeps apply state in SkillRunner drawer tasks without using it as the banner indicator", async function () {
     const model = await loadAssistantPanelModelForSmoke();
     const labels = {
@@ -1065,6 +1152,9 @@ describe("acp ui smoke", function () {
     );
     const assistantSidebar = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const acpSkillRunStoreTs = await readProjectFile(
+      "src/modules/acpSkillRunStore.ts",
     );
     const acpChatHtml = await readProjectFile(
       "addon/content/dashboard/acp-chat.html",
@@ -1955,6 +2045,11 @@ describe("acp ui smoke", function () {
     assert.include(
       acpSkillRunJs,
       "const panelSnapshot = projectAssistantPanelSnapshot(snapshot || {})",
+    );
+    assert.include(acpSkillRunStoreTs, "completedTasksTitle");
+    assert.include(
+      assistantPanelModelJs,
+      "panel.labels && panel.labels.completedTasksTitle",
     );
     assert.include(
       acpSkillRunJs,

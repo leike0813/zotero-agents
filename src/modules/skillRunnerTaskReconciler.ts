@@ -52,6 +52,7 @@ import {
   type SkillRunnerRunRecord,
 } from "./skillRunnerRunStore";
 import { continueSkillRunnerForegroundRun } from "./skillRunnerForegroundContinuation";
+import { maybeObserveSkillRunnerAutoReplyRun } from "./skillRunnerAutoReplyObserver";
 
 type MissingContextCandidate = {
   backendId: string;
@@ -931,6 +932,17 @@ export class SkillRunnerTaskReconciler {
           details: {
             status: record.status,
           },
+        });
+        maybeObserveSkillRunnerAutoReplyRun({
+          backend: {
+            id: record.backendId,
+            type: DEFAULT_BACKEND_TYPE,
+            baseUrl: record.backendBaseUrl || "",
+            auth: { kind: "none" },
+          },
+          requestId: record.requestId || "",
+          record,
+          source: `recovery-waiting:${args.source}`,
         });
         continue;
       }

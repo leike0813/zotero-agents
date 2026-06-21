@@ -81,6 +81,88 @@
     return toText(section).trim() + "." + toText(key).trim();
   }
 
+  function coerceBoolean(value, fallback) {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (!normalized) {
+        return fallback === true;
+      }
+      return ["1", "true", "yes", "on"].indexOf(normalized) >= 0;
+    }
+    return fallback === true;
+  }
+
+  function isProviderConditionalFieldVisible(entry, draft) {
+    const condition = entry && entry.visibleIfProviderOption;
+    const key = toText(condition && condition.key).trim();
+    if (!key) {
+      return true;
+    }
+    const providerOptions =
+      draft && draft.providerOptions && typeof draft.providerOptions === "object"
+        ? draft.providerOptions
+        : {};
+    return (
+      coerceBoolean(providerOptions[key], false) ===
+      (condition.equals === true)
+    );
+  }
+
+  function applyConditionalFieldVisibility(root) {
+    const container = root || document;
+    const nodes = container.querySelectorAll
+      ? container.querySelectorAll(
+          "[data-workflow-settings-visible-provider-key]",
+        )
+      : [];
+    Array.prototype.forEach.call(nodes, function (node) {
+      const key = toText(
+        node.getAttribute("data-workflow-settings-visible-provider-key"),
+      ).trim();
+      const expected =
+        node.getAttribute("data-workflow-settings-visible-provider-equals") ===
+        "true";
+      const visible =
+        coerceBoolean(state.draft.providerOptions[key], false) === expected;
+      node.style.display = visible ? "" : "none";
+      node.setAttribute("aria-hidden", visible ? "false" : "true");
+    });
+    requestDialogContentResize();
+  }
+
+  function getDraftSectionValues(section) {
+    const key = toText(section).trim();
+    if (key === "workflowParams") {
+      return state.draft.workflowParams;
+    }
+    if (key === "providerOptions") {
+      return state.draft.providerOptions;
+    }
+    if (key === "runOptions") {
+      return state.draft.runOptions;
+    }
+    return {};
+  }
+
+  function setDraftFieldValue(args, value) {
+    args.values[args.entry.key] = value;
+    const sectionValues = getDraftSectionValues(args.section);
+    if (sectionValues && typeof sectionValues === "object") {
+      sectionValues[args.entry.key] = value;
+    }
+  }
+
+  function deleteDraftFieldValue(args) {
+    delete args.values[args.entry.key];
+    const sectionValues = getDraftSectionValues(args.section);
+    if (sectionValues && typeof sectionValues === "object") {
+      delete sectionValues[args.entry.key];
+    }
+  }
+
   function isWarningProviderOptionKey(key) {
     return key === "autoApproveAcpPermissions";
   }
@@ -95,6 +177,13 @@
           type: toText(entry && entry.type),
           allowCustom: entry && entry.allowCustom === true,
           disabled: entry && entry.disabled === true,
+          visibleIfProviderOption:
+            entry && entry.visibleIfProviderOption
+              ? {
+                  key: toText(entry.visibleIfProviderOption.key),
+                  equals: entry.visibleIfProviderOption.equals === true,
+                }
+              : null,
           enumValues: Array.isArray(entry && entry.enumValues)
             ? entry.enumValues
             : [],
@@ -205,6 +294,13 @@
     return key.includes("timeout");
   }
 
+  function isNonNegativeIntegerField(entry) {
+    const key = toText(entry && entry.key)
+      .trim()
+      .toLowerCase();
+    return key === "interactive_reply_timeout_sec";
+  }
+
   function validateNumberFieldValue(args) {
     const raw = toText(args.rawValue).trim();
     if (!raw) {
@@ -217,7 +313,14 @@
         message: args.labels.workflowSettingsNumberInvalid,
       };
     }
-    if (isPositiveIntegerField(args.entry)) {
+    if (isNonNegativeIntegerField(args.entry)) {
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        return {
+          ok: false,
+          message: args.labels.workflowSettingsPositiveIntegerRequired,
+        };
+      }
+    } else if (isPositiveIntegerField(args.entry)) {
       if (!Number.isInteger(parsed) || parsed <= 0) {
         return {
           ok: false,
@@ -242,6 +345,7 @@
         typeof meta.changedSection === "string" ? meta.changedSection : "",
       changedKey: typeof meta.changedKey === "string" ? meta.changedKey : "",
     });
+    applyConditionalFieldVisibility(document);
   }
 
   function registerFieldCollector(collector) {
@@ -285,6 +389,22 @@
   function createField(args) {
     const wrap = document.createElement("div");
     wrap.className = "field-row";
+    wrap.setAttribute("data-workflow-settings-field-section", args.section);
+    wrap.setAttribute("data-workflow-settings-field-key", args.entry.key);
+    if (args.entry.visibleIfProviderOption) {
+      wrap.setAttribute(
+        "data-workflow-settings-visible-provider-key",
+        toText(args.entry.visibleIfProviderOption.key),
+      );
+      wrap.setAttribute(
+        "data-workflow-settings-visible-provider-equals",
+        args.entry.visibleIfProviderOption.equals === true ? "true" : "false",
+      );
+      if (!isProviderConditionalFieldVisible(args.entry, state.draft)) {
+        wrap.style.display = "none";
+        wrap.setAttribute("aria-hidden", "true");
+      }
+    }
     const label = document.createElement("div");
     label.className = "field-label";
     if (isWarningProviderOptionKey(args.entry.key)) {
@@ -310,7 +430,7 @@
       checkbox.checked = currentValue === true;
       checkbox.disabled = args.entry.disabled === true;
       checkbox.addEventListener("change", function () {
-        args.values[args.entry.key] = checkbox.checked;
+        setDraftFieldValue(args, checkbox.checked);
         args.onChange({
           changedSection: args.section,
           changedKey: args.entry.key,
@@ -318,7 +438,7 @@
       });
       checkbox.className = "field-checkbox-control";
       registerFieldCollector(function () {
-        args.values[args.entry.key] = checkbox.checked;
+        setDraftFieldValue(args, checkbox.checked);
         return true;
       });
       controlWrap.appendChild(checkbox);
@@ -354,7 +474,7 @@
         selectedValue,
         function (newValue) {
           selectedValue = toText(newValue);
-          args.values[args.entry.key] = selectedValue;
+          setDraftFieldValue(args, selectedValue);
           args.onChange({
             changedSection: args.section,
             changedKey: args.entry.key,
@@ -369,7 +489,7 @@
         markCustomSelectDisabled(customSelect.element);
       }
       registerFieldCollector(function () {
-        args.values[args.entry.key] = selectedValue;
+        setDraftFieldValue(args, selectedValue);
         return true;
       });
       controlWrap.appendChild(customSelect.element);
@@ -386,7 +506,7 @@
         currentText,
         function (newValue) {
           control.value = toText(newValue);
-          args.values[args.entry.key] = control.value;
+          setDraftFieldValue(args, control.value);
           args.onChange({
             changedSection: args.section,
             changedKey: args.entry.key,
@@ -474,10 +594,10 @@
             args.values,
             args.entry.key,
           );
-          delete args.values[args.entry.key];
+          deleteDraftFieldValue(args);
         } else {
           changed = args.values[args.entry.key] !== validation.value;
-          args.values[args.entry.key] = validation.value;
+          setDraftFieldValue(args, validation.value);
         }
       } else {
         setFieldError("");
@@ -487,10 +607,10 @@
             args.values,
             args.entry.key,
           );
-          delete args.values[args.entry.key];
+          deleteDraftFieldValue(args);
         } else {
           changed = args.values[args.entry.key] !== nextValue;
-          args.values[args.entry.key] = nextValue;
+          setDraftFieldValue(args, nextValue);
         }
       }
       if (emitChange && (changed || rawValue !== lastCommittedRaw)) {
@@ -506,7 +626,7 @@
       if (args.entry.type === "number") {
         setFieldError("");
       }
-      args.values[args.entry.key] = control.value;
+      setDraftFieldValue(args, control.value);
     });
     control.addEventListener("change", function () {
       commitControlValue(true);
@@ -546,6 +666,9 @@
           labels: args.labels,
         }),
       );
+    });
+    card.addEventListener("change", function () {
+      applyConditionalFieldVisibility(card);
     });
     return card;
   }

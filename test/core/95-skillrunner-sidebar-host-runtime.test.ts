@@ -44,18 +44,29 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(ts, "createSkillRunnerHostActionHandler");
   });
 
-  it("pre-arms SkillRunner task focus before activating the sidebar host", async function () {
+  it("focuses SkillRunner only after activating the sidebar host", async function () {
     const ts = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
     );
-    const preArmIndex = ts.indexOf(
-      'host.activeTab === "skillrunner" &&\n    (args?.taskKey || args?.taskId || args?.localRunId || args?.requestId)',
+    const openStart = ts.indexOf(
+      "export async function openAssistantWorkspaceSidebar",
     );
-    const activateIndex = ts.indexOf(
+    const openEnd = ts.indexOf(
+      "export function closeAssistantWorkspaceSidebar",
+      openStart,
+    );
+    const openBody = ts.slice(openStart, openEnd);
+    const activateIndex = openBody.indexOf(
       "const activated = await activateTarget(host, target);",
     );
-    assert.isAtLeast(preArmIndex, 0);
-    assert.isAbove(activateIndex, preArmIndex);
+    const preActivateBody = openBody.slice(0, activateIndex);
+    const postActivateFocusIndex = openBody.indexOf(
+      "await focusSkillRunnerWorkspace({",
+      activateIndex,
+    );
+    assert.isAtLeast(activateIndex, 0);
+    assert.notInclude(preActivateBody, "await focusSkillRunnerWorkspace({");
+    assert.isAbove(postActivateFocusIndex, activateIndex);
   });
 
   it("syncs the active Assistant shell tab before reactivating an open sidebar", async function () {
@@ -192,8 +203,123 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(sidebarModel, "const completedTasks = allTasks.filter");
     assert.include(runDialog, "task-dashboard-run-selection-tasks-title");
     assert.include(runDialog, "task-dashboard-run-tasks-toggle");
+    assert.include(runDialog, "RUN_WORKSPACE_PANEL_HISTORY_LIMIT");
+    assert.include(runDialog, "RunWorkspaceReadProfile");
+    assert.include(runDialog, '"sidebar-active"');
+    assert.notInclude(runDialog, '"sidebar-completed-window"');
+    assert.include(runDialog, "listSkillRunnerPanelRows");
+    assert.include(runDialog, "listSkillRunnerRunProjections");
+    assert.include(runDialog, "mergeSkillRunnerPanelRows");
+    assert.include(runDialog, "requestKey || localRunKey || taskKey");
+    assert.include(runDialog, "requestedSelection");
+    assert.include(runDialog, "requestIndex");
+    assert.include(runDialog, "localTaskIndex");
+    assert.include(runDialog, "resolveRunWorkspaceSelectionKey");
+    assert.notInclude(runDialog, "includeCompletedHistory");
+    assert.notInclude(runDialog, "preserveSidebarCompletedWindow");
+    assert.notInclude(runDialog, "preserveSidebarSelectedTask");
+    assert.notInclude(runDialog, "index.set(taskKey, indexedTask)");
+    assert.notInclude(runDialog, "index.set(requestKey, indexedTask)");
+    assert.notInclude(runDialog, "index.set(localRunKey, indexedTask)");
+    assert.include(workspaceHost, "detachSkillRunnerSidebarHost");
+    assert.include(
+      workspaceHost,
+      'if (host.activeTab !== "skillrunner" || !host.activeTarget)',
+    );
+    assert.notInclude(workspaceHost, "isForegroundVisible");
     assert.include(en, "task-dashboard-run-backend = Backend");
     assert.include(zh, "task-dashboard-run-backend = 后端");
+  });
+
+  it("keeps SkillRunner sidebar foreground actions on the fast presentation path", async function () {
+    const workspaceHost = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const runDialog = await readProjectFile(
+      "src/modules/skillRunnerRunDialog.ts",
+    );
+
+    const hostActionStart = workspaceHost.indexOf(
+      "function createSkillRunnerHostActionHandler",
+    );
+    const hostActionEnd = workspaceHost.indexOf(
+      'if (action === "open-backend-manager")',
+      hostActionStart,
+    );
+    const hostActionBody = workspaceHost.slice(hostActionStart, hostActionEnd);
+    assert.include(hostActionBody, "refreshSkillRunnerWorkspacePresentation()");
+    assert.notInclude(
+      hostActionBody,
+      "requestSkillRunnerSidebarCompletedWindow()",
+    );
+    assert.notInclude(hostActionBody, "focusSkillRunnerWorkspace()");
+
+    const selectActionStart = runDialog.indexOf(
+      'if (action === "select-task")',
+    );
+    const selectActionEnd = runDialog.indexOf(
+      'if (action === "archive-run")',
+      selectActionStart,
+    );
+    const selectActionBody = runDialog.slice(
+      selectActionStart,
+      selectActionEnd,
+    );
+    assert.include(
+      selectActionBody,
+      "runWorkspaceState.taskIndex.has(requestedTaskKey)",
+    );
+    assert.include(
+      selectActionBody,
+      "await selectWorkspaceTask(requestedTaskKey)",
+    );
+    assert.include(selectActionBody, '"sidebar-active"');
+
+    const selectFunctionStart = runDialog.indexOf(
+      "async function selectWorkspaceTask",
+    );
+    const selectFunctionEnd = runDialog.indexOf(
+      "async function refreshWorkspaceSnapshot",
+      selectFunctionStart,
+    );
+    const selectFunctionBody = runDialog.slice(
+      selectFunctionStart,
+      selectFunctionEnd,
+    );
+    assert.include(selectFunctionBody, 'pushSnapshot("snapshot")');
+    assert.include(selectFunctionBody, "startRunWorkspaceObserverInBackground");
+    assert.notInclude(selectFunctionBody, "await startRunObserver");
+    assert.notInclude(
+      selectFunctionBody,
+      "await enforceRunDialogStreamPoolForBackend",
+    );
+
+    const observerGateStart = runDialog.indexOf(
+      "function canTaskOpenForegroundStream",
+    );
+    const observerGateEnd = runDialog.indexOf(
+      "function warnSkillRunnerWorkspaceAsyncFailure",
+      observerGateStart,
+    );
+    const observerGateBody = runDialog.slice(
+      observerGateStart,
+      observerGateEnd,
+    );
+    assert.include(observerGateBody, "isFinishedRunWorkspaceTask(task)");
+
+    const modelStart = runDialog.indexOf(
+      "async function buildRunWorkspaceModel",
+    );
+    const modelEnd = runDialog.indexOf("type RunWorkspaceModel", modelStart);
+    const modelBody = runDialog.slice(modelStart, modelEnd);
+    assert.notInclude(modelBody, '"sidebar-completed-window"');
+    assert.include(modelBody, 'if (args.profile === "dialog-full")');
+    assert.include(modelBody, "scanPluginSkillRegistry()");
+    assert.include(modelBody, "listSkillRunnerPanelRows");
+    assert.include(modelBody, "historyTruncated = panelRows.truncated");
+    assert.include(runDialog, '"sidebar-active"');
+    assert.notInclude(runDialog, "preserveSidebarCompletedWindow(rawModel)");
+    assert.notInclude(runDialog, "preserveSidebarSelectedTask");
   });
 
   it("keeps pane containers and toolbar affordances owned by the unified workspace host", async function () {

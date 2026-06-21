@@ -9,6 +9,7 @@ import {
 import {
   shutdownSkillRunnerRunDialogRuntime,
 } from "./skillRunnerRunDialog";
+import { shutdownSkillRunnerAutoReplyObserver } from "./skillRunnerAutoReplyObserver";
 import {
   releaseManagedLocalRuntimeLeaseOnShutdown,
   stopManagedLocalRuntimeAutoEnsureLoop,
@@ -38,6 +39,9 @@ async function runShutdownStep(
 export async function shutdownSkillRunnerAsyncLifecycle() {
   await runShutdownStep("run-dialog-drain", async () => {
     await shutdownSkillRunnerRunDialogRuntime();
+  });
+  await runShutdownStep("auto-reply-observer-stop", () => {
+    shutdownSkillRunnerAutoReplyObserver();
   });
   await runShutdownStep("task-reconciler-stop", () => {
     stopSkillRunnerTaskReconciler();

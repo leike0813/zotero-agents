@@ -24,7 +24,7 @@ Protocol version: `host-bridge.v1`. All endpoints except `GET /bridge/v1/health`
 
 ## Configuration
 
-Zotero → Settings → Zotero Skills → Host Bridge
+Zotero → Settings → Zotero Agents → Host Bridge
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
@@ -153,9 +153,9 @@ Well-known profile locations:
 
 | OS | Path |
 |----|------|
-| Windows | `%LOCALAPPDATA%\Zotero-Skills\bridge-profile.json` |
-| macOS | `~/Library/Application Support/Zotero-Skills/bridge-profile.json` |
-| Linux | `${XDG_DATA_HOME:-~/.local/share}/Zotero-Skills/bridge-profile.json` |
+| Windows | `%LOCALAPPDATA%\zotero-agents\bridge-profile.json` |
+| macOS | `~/Library/Application Support/zotero-agents/bridge-profile.json` |
+| Linux | `${XDG_DATA_HOME:-~/.local/share}/zotero-agents/bridge-profile.json` |
 
 ```json
 {

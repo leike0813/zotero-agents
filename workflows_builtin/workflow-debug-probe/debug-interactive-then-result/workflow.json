@@ -11,7 +11,25 @@
     "unit": "workflow"
   },
   "request": {
-    "kind": "skillrunner.sequence.v1"
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "interactive",
+          "skill_id": "debug-interactive-choice-probe",
+          "mode": "interactive",
+          "workspace": "new",
+          "fetch_type": "result"
+        },
+        {
+          "id": "result",
+          "skill_id": "debug-apply-result-probe",
+          "mode": "auto",
+          "workspace": "reuse-workflow",
+          "fetch_type": "result"
+        }
+      ]
+    }
   },
   "execution": {
     "feedback": {

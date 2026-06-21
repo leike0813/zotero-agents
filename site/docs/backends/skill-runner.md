@@ -2,7 +2,7 @@
 
 ## 什么是 Skill-Runner？
 
-Skill-Runner 是一个独立的 Agent 技能执行服务。Zotero Skills 通过 HTTP API 与 Skill-Runner 通信，提交技能请求并获取结果。它本身是一个可以独立部署的 Docker 镜像或本地服务，支持多种 AI Agent CLI 作为后端引擎。
+Skill-Runner 是一个独立的 Agent 技能执行服务。Zotero Agents 通过 HTTP API 与 Skill-Runner 通信，提交技能请求并获取结果。它本身是一个可以独立部署的 Docker 镜像或本地服务，支持多种 AI Agent CLI 作为后端引擎。
 
 ## 部署模式
 
@@ -12,7 +12,7 @@ Zotero 插件提供一键部署/启动/停止功能，自动管理 Skill-Runner 
 
 **部署步骤：**
 
-1. 打开 **Zotero → 设置 → Zotero Skills**
+1. 打开 **Zotero → 设置 → Zotero Agents**
 2. 找到 **SkillRunner Local Backend** 区域
 3. 点击 **一键部署**（如果尚未安装）
    - 插件自动从 GitHub Release 下载最新版本

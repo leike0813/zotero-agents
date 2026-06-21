@@ -2,6 +2,7 @@ import type { BackendInstance } from "../backends/types";
 import { DEFAULT_BACKEND_TYPE } from "../config/defaults";
 import type { JobRecord, JobState } from "../jobQueue/manager";
 import { SkillRunnerClient } from "../providers/skillrunner/client";
+import { maybeObserveSkillRunnerAutoReplyRun } from "./skillRunnerAutoReplyObserver";
 import { executeWithProvider as executeWithProviderFromRegistry } from "../providers/registry";
 import type {
   ProviderExecutionResult,
@@ -972,6 +973,19 @@ async function continueSkillRunnerForegroundRunNow(args: {
           record,
           sequenceState,
           result,
+        });
+      }
+      if (result.backendStatus === "waiting_user") {
+        const latestRecord =
+          getSkillRunnerRunRecordByRequest({
+            backendId: backend.id,
+            requestId,
+          }) || record;
+        maybeObserveSkillRunnerAutoReplyRun({
+          backend,
+          requestId,
+          record: latestRecord,
+          source: `${source}:waiting`,
         });
       }
       return { status: "waiting", result };

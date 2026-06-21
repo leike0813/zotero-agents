@@ -17,6 +17,7 @@ import {
 import { listRuntimeLogs } from "./runtimeLogManager";
 import { buildAssistantPanelLabels } from "./assistantPanelLabels";
 import {
+  listActiveWorkflowTaskSummaries,
   listWorkflowTasks,
   removeWorkflowTasksByBackendAndRequestIds,
   updateWorkflowTaskStateByRequest,
@@ -334,6 +335,10 @@ export type AcpSkillRunPanelSnapshot = {
     failed: number;
     recent: number;
   };
+  drawer?: {
+    notice?: string;
+    truncated?: boolean;
+  };
   runs: AcpSkillRunSummary[];
   selectedRun?: AcpSkillRunRecord;
   selectedRuntimeOptions?: AcpSkillRunRuntimeOptionsSnapshot;
@@ -348,6 +353,11 @@ export type AcpSkillRunPanelSnapshot = {
   }>;
   labels?: {
     assistantPanel: ReturnType<typeof buildAssistantPanelLabels>;
+    title?: string;
+    completedTasksTitle?: string;
+    panelRendererUnavailable?: string;
+    panelRendererFailed?: string;
+    transcriptRendererUnavailable?: string;
   };
 };
 
@@ -402,6 +412,7 @@ let selectedRequestId = "";
 let recoveryHandler: AcpSkillRunRecoveryHandler | null = null;
 let changedEmitTimer: ReturnType<typeof setTimeout> | null = null;
 const activeRunRequestIds = new Set<string>();
+const ACP_SKILL_RUN_PANEL_RUN_LIMIT = 100;
 const acpSkillRunSummaryDiagnostics = {
   summaryQueryCount: 0,
   fullRunRecordScanCount: 0,
@@ -3468,9 +3479,10 @@ export function getAcpSkillRunRecord(requestIdRaw: string) {
 
 function findTaskForRun(run: AcpSkillRunRecord) {
   const requestId = normalizeString(run.requestId);
-  return listWorkflowTasks().find((task) => {
-    return requestId && normalizeString(task.requestId) === requestId;
-  });
+  if (!requestId) {
+    return undefined;
+  }
+  return listActiveWorkflowTaskSummaries({ requestId })[0];
 }
 
 function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
@@ -3518,12 +3530,33 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
 export function buildAcpSkillRunPanelSnapshot(args?: {
   selectedRequestId?: string;
 }): AcpSkillRunPanelSnapshot {
-  const runs = listAcpSkillRuns().filter(
-    (run) => !run.removedAt && !run.archivedAt,
-  );
+  const listedRuns = listAcpSkillRunSummaries({
+    limit: ACP_SKILL_RUN_PANEL_RUN_LIMIT + 1,
+  });
+  const truncated = listedRuns.length > ACP_SKILL_RUN_PANEL_RUN_LIMIT;
+  let runs = listedRuns.slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT);
   const requested =
     normalizeString(args?.selectedRequestId) || selectedRequestId;
-  const selected = runs.find((run) => run.requestId === requested) || runs[0];
+  const requestedRecord = requested ? getAcpSkillRunRecord(requested) : null;
+  const selected =
+    (requestedRecord &&
+    !requestedRecord.removedAt &&
+    !requestedRecord.archivedAt
+      ? requestedRecord
+      : null) ||
+    (runs[0] ? getAcpSkillRunRecord(runs[0].requestId) : null) ||
+    undefined;
+  if (
+    requestedRecord &&
+    !requestedRecord.removedAt &&
+    !requestedRecord.archivedAt &&
+    !runs.some((run) => run.requestId === requestedRecord.requestId)
+  ) {
+    runs = [
+      summarizeAcpSkillRun(requestedRecord),
+      ...runs.filter((run) => run.requestId !== requestedRecord.requestId),
+    ].slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT);
+  }
   selectedRequestId = selected?.requestId || "";
   const selectedTask = selected ? findTaskForRun(selected) : undefined;
   const logs = selected
@@ -3545,6 +3578,10 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
     title: getStringOrFallback(
       "task-dashboard-home-acp-skill-runs-title" as any,
       "ACP Skill Runs",
+    ),
+    completedTasksTitle: getStringOrFallback(
+      "task-dashboard-run-completed-tasks-title" as any,
+      "Completed Tasks",
     ),
     panelRendererUnavailable: getStringOrFallback(
       "task-dashboard-acp-skill-run-panel-renderer-unavailable" as any,
@@ -3577,7 +3614,16 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
       failed: runs.filter((run) => run.status === "failed").length,
       recent: runs.slice(0, 20).length,
     },
-    runs: runs.map(summarizeAcpSkillRun),
+    drawer: {
+      notice: truncated
+        ? getStringOrFallback(
+            "task-dashboard-panel-history-truncated" as any,
+            "Showing recent runs only. View older records in Dashboard.",
+          )
+        : undefined,
+      truncated: truncated || undefined,
+    },
+    runs,
     selectedRun: selected,
     selectedRuntimeOptions: selected
       ? runtimeOptionsForRun(selected)

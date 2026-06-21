@@ -34,7 +34,62 @@
     ]
   },
   "request": {
-    "kind": "skillrunner.sequence.v1"
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "translate",
+          "skill_id": "literature-translator",
+          "mode": "auto",
+          "workspace": "new",
+          "fetch_type": "bundle",
+          "apply_result": {
+            "workflow_id": "literature-translator",
+            "on_failure": "continue"
+          },
+          "include_if": {
+            "kind": "runtime",
+            "condition": "translator_alignment_missing"
+          }
+        },
+        {
+          "id": "deep_reading",
+          "skill_id": "literature-deep-reading",
+          "mode": "auto",
+          "workspace": "reuse-workflow",
+          "fetch_type": "bundle",
+          "apply_result": {
+            "workflow_id": "literature-deep-reading",
+            "on_failure": "continue"
+          },
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "value",
+                "step": "translate",
+                "source": "alignment_path",
+                "target": "/input/translator_alignment_path",
+                "required": false
+              },
+              {
+                "kind": "value",
+                "step": "translate",
+                "source": "output_path",
+                "target": "/input/translator_output_path",
+                "required": false
+              },
+              {
+                "kind": "value",
+                "step": "translate",
+                "source": "status",
+                "target": "/input/translator_status",
+                "required": false
+              }
+            ]
+          }
+        }
+      ]
+    }
   },
   "parameters": {
     "target_language": {

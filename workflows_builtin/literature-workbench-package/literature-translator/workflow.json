@@ -30,7 +30,10 @@
     ]
   },
   "request": {
-    "kind": "skillrunner.sequence.v1"
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "mode": "auto"
+    }
   },
   "parameters": {
     "target_language": {

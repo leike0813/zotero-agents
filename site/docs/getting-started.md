@@ -44,4 +44,4 @@
 - **探索预置技能**：在面板中浏览可用的技能
 - **创建自定义工作流**：将技能组合成自动化的流水线
 - **监控性能**：使用运行日志和面板中的检查工具
-- **加入社区**：在 [GitHub 仓库](https://github.com/leike0813/Zotero-Skills) 中报告问题或建议功能
+- **加入社区**：在 [GitHub 仓库](https://github.com/leike0813/zotero-agents) 或 [Gitee 镜像](https://gitee.com/leike0813/zotero-agents) 中报告问题或建议功能

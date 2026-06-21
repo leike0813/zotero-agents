@@ -18,7 +18,37 @@
     }
   },
   "request": {
-    "kind": "skillrunner.sequence.v1"
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "result",
+          "skill_id": "debug-apply-result-probe",
+          "mode": "auto",
+          "workspace": "new",
+          "fetch_type": "result",
+          "apply_result": {
+            "workflow_id": "debug-apply-result-then-bundle",
+            "on_failure": "fail_sequence"
+          },
+          "include_if": {
+            "kind": "parameter",
+            "parameter": "skip_result_step",
+            "equals": false
+          }
+        },
+        {
+          "id": "bundle",
+          "skill_id": "debug-apply-bundle-probe",
+          "mode": "auto",
+          "fetch_type": "bundle",
+          "apply_result": {
+            "workflow_id": "debug-apply-result-then-bundle",
+            "on_failure": "fail_sequence"
+          }
+        }
+      ]
+    }
   },
   "execution": {
     "feedback": {

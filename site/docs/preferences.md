@@ -1,6 +1,6 @@
 # 偏好设置
 
-Zotero Skills 的设置位于 **Zotero → 设置 → Zotero Skills**（Windows/Linux）或 **Zotero → 偏好设置 → Zotero Skills**（macOS）。
+Zotero Agents 的设置位于 **Zotero → 设置 → Zotero Agents**（Windows/Linux）或 **Zotero → 偏好设置 → Zotero Agents**（macOS）。
 
 ## Workflow 设置
 
@@ -104,7 +104,7 @@ Synthesis Workbench 的跨设备同步方案，替代已弃用的 Git Sync。详
 ## 设置管理路径
 
 ```
-Zotero → 设置 → Zotero Skills
+Zotero → 设置 → Zotero Agents
 ├── Workflow 设置
 │   ├── Workflow 目录
 │   ├── Skill 目录

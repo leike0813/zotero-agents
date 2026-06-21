@@ -30,6 +30,7 @@ import {
   resolveSkillRunnerModelNameForProvider,
   splitSkillRunnerModelSpec,
 } from "./modelCatalog";
+import { isSkillRunnerInteractiveAutoReplyEnabled } from "../../modules/skillRunnerInteractiveAutoReply";
 import { SkillRunnerClient } from "./client";
 import { ensureManagedLocalRuntimeForBackend } from "../../modules/skillRunnerLocalRuntimeManager";
 
@@ -80,6 +81,18 @@ function normalizePositiveInteger(value: unknown) {
   }
   const parsed = Number(text);
   if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+    return undefined;
+  }
+  return parsed;
+}
+
+function normalizeNonNegativeInteger(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return undefined;
+  }
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
     return undefined;
   }
   return parsed;
@@ -158,9 +171,15 @@ export class SkillRunnerProvider implements Provider {
           "Interactive mode only. Automatically continue after waiting timeout.",
         default: false,
       },
+      interactive_reply_timeout_sec: {
+        type: "number" as const,
+        title: "Auto Reply Timeout (sec)",
+        description:
+          "Interactive auto reply timeout in seconds. Empty means backend default.",
+      },
       hard_timeout_seconds: {
         type: "number" as const,
-        title: "Job Timeout",
+        title: "Job Timeout (sec)",
         description:
           "Optional positive integer timeout in seconds. Empty means backend default.",
       },
@@ -247,6 +266,7 @@ export class SkillRunnerProvider implements Provider {
     const rawEffort = source.effort;
     const rawNoCache = source.no_cache;
     const rawInteractiveAutoReply = source.interactive_auto_reply;
+    const rawInteractiveReplyTimeout = source.interactive_reply_timeout_sec;
     const rawHardTimeoutSeconds = source.hard_timeout_seconds;
     const normalizedEngine =
       typeof rawEngine === "string" && rawEngine.trim()
@@ -338,9 +358,15 @@ export class SkillRunnerProvider implements Provider {
     });
 
     const normalizedNoCache = normalizeNoCache(rawNoCache);
-    const normalizedInteractiveAutoReply = normalizeBooleanOption(
-      rawInteractiveAutoReply,
-    );
+    const normalizedInteractiveAutoReply =
+      isSkillRunnerInteractiveAutoReplyEnabled()
+        ? normalizeBooleanOption(rawInteractiveAutoReply)
+        : undefined;
+    const normalizedInteractiveReplyTimeout =
+      isSkillRunnerInteractiveAutoReplyEnabled() &&
+      normalizedInteractiveAutoReply === true
+        ? normalizeNonNegativeInteger(rawInteractiveReplyTimeout)
+        : undefined;
     const normalizedHardTimeout = normalizePositiveInteger(
       rawHardTimeoutSeconds,
     );
@@ -351,7 +377,12 @@ export class SkillRunnerProvider implements Provider {
         model: normalizedModel,
         effort: normalizedEffort,
         no_cache: normalizedNoCache,
-        interactive_auto_reply: normalizedInteractiveAutoReply,
+        ...(typeof normalizedInteractiveAutoReply === "boolean"
+          ? { interactive_auto_reply: normalizedInteractiveAutoReply }
+          : {}),
+        ...(typeof normalizedInteractiveReplyTimeout === "number"
+          ? { interactive_reply_timeout_sec: normalizedInteractiveReplyTimeout }
+          : {}),
         ...(typeof normalizedHardTimeout === "number"
           ? { hard_timeout_seconds: normalizedHardTimeout }
           : {}),
@@ -364,7 +395,12 @@ export class SkillRunnerProvider implements Provider {
         model: normalizedModel,
         effort: normalizedEffort,
         no_cache: normalizedNoCache,
-        interactive_auto_reply: normalizedInteractiveAutoReply,
+        ...(typeof normalizedInteractiveAutoReply === "boolean"
+          ? { interactive_auto_reply: normalizedInteractiveAutoReply }
+          : {}),
+        ...(typeof normalizedInteractiveReplyTimeout === "number"
+          ? { interactive_reply_timeout_sec: normalizedInteractiveReplyTimeout }
+          : {}),
         ...(typeof normalizedHardTimeout === "number"
           ? { hard_timeout_seconds: normalizedHardTimeout }
           : {}),
@@ -376,7 +412,12 @@ export class SkillRunnerProvider implements Provider {
       model: normalizedModel,
       effort: normalizedEffort,
       no_cache: normalizedNoCache,
-      interactive_auto_reply: normalizedInteractiveAutoReply,
+      ...(typeof normalizedInteractiveAutoReply === "boolean"
+        ? { interactive_auto_reply: normalizedInteractiveAutoReply }
+        : {}),
+      ...(typeof normalizedInteractiveReplyTimeout === "number"
+        ? { interactive_reply_timeout_sec: normalizedInteractiveReplyTimeout }
+        : {}),
       ...(typeof normalizedHardTimeout === "number"
         ? { hard_timeout_seconds: normalizedHardTimeout }
         : {}),

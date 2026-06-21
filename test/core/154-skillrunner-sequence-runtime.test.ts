@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import fs from "node:fs/promises";
+import path from "node:path";
 import type { JobRecord } from "../../src/jobQueue/manager";
 import { parseWorkflowManifestFromText } from "../../src/workflows/loaderContracts";
 import { compileDeclarativeRequest } from "../../src/workflows/declarativeRequestCompiler";
@@ -448,6 +449,174 @@ describe("skillrunner.sequence.v1 runtime", function () {
     });
     assert.equal(accepted.diagnostic, null);
     assert.equal(accepted.manifest?.request?.kind, "skillrunner.sequence.v1");
+  });
+
+  it("validates buildRequest-driven sequence candidate steps when declared", function () {
+    const accepted = parseWorkflowManifestFromText({
+      raw: JSON.stringify(
+        sequenceManifest({
+          request: {
+            kind: "skillrunner.sequence.v1",
+            sequence: {
+              steps: [
+                {
+                  id: "prepare",
+                  skill_id: "prepare-skill",
+                  mode: "auto",
+                  include_if: {
+                    kind: "parameter",
+                    parameter: "run_prepare",
+                    equals: true,
+                  },
+                },
+                {
+                  id: "finalize",
+                  skill_id: "finalize-skill",
+                  mode: "auto",
+                  include_if: {
+                    kind: "runtime",
+                    condition: "prepare_output_available",
+                  },
+                  handoff: {
+                    bindings: [
+                      {
+                        kind: "value",
+                        step: "prepare",
+                        source: "result_path",
+                        target: "/input/result_path",
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          result: {
+            final_step_id: "finalize",
+          },
+          hooks: {
+            buildRequest: "hooks/buildRequest.js",
+            applyResult: "hooks/applyResult.js",
+          },
+        }),
+      ),
+      manifestPath: "workflow.json",
+    });
+    assert.equal(accepted.diagnostic, null);
+    assert.equal(
+      accepted.manifest?.request?.sequence?.steps?.[0].include_if?.kind,
+      "parameter",
+    );
+    assert.equal(
+      accepted.manifest?.request?.sequence?.steps?.[1].include_if?.kind,
+      "runtime",
+    );
+
+    const invalidFinal = parseWorkflowManifestFromText({
+      raw: JSON.stringify(
+        sequenceManifest({
+          result: {
+            final_step_id: "missing",
+          },
+          hooks: {
+            buildRequest: "hooks/buildRequest.js",
+            applyResult: "hooks/applyResult.js",
+          },
+        }),
+      ),
+      manifestPath: "workflow.json",
+    });
+    assert.equal(invalidFinal.manifest, null);
+    assert.include(
+      invalidFinal.diagnostic?.reason || "",
+      "final_step_id must match",
+    );
+
+    const invalidHandoff = parseWorkflowManifestFromText({
+      raw: JSON.stringify(
+        sequenceManifest({
+          request: {
+            kind: "skillrunner.sequence.v1",
+            sequence: {
+              steps: [
+                { id: "prepare", skill_id: "prepare-skill", mode: "auto" },
+                {
+                  id: "finalize",
+                  skill_id: "finalize-skill",
+                  mode: "auto",
+                  handoff: {
+                    bindings: [
+                      {
+                        kind: "value",
+                        step: "missing",
+                        target: "/input/value",
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          hooks: {
+            buildRequest: "hooks/buildRequest.js",
+            applyResult: "hooks/applyResult.js",
+          },
+        }),
+      ),
+      manifestPath: "workflow.json",
+    });
+    assert.equal(invalidHandoff.manifest, null);
+    assert.include(invalidHandoff.diagnostic?.reason || "", "handoff");
+  });
+
+  it("declares candidate steps for dynamic literature sequence workflows", async function () {
+    const literatureAnalysis = JSON.parse(
+      await fs.readFile(
+        path.join(
+          process.cwd(),
+          "workflows_builtin",
+          "literature-workbench-package",
+          "literature-analysis",
+          "workflow.json",
+        ),
+        "utf8",
+      ),
+    );
+    const deepReading = JSON.parse(
+      await fs.readFile(
+        path.join(
+          process.cwd(),
+          "workflows_builtin",
+          "literature-workbench-package",
+          "literature-deep-reading",
+          "workflow.json",
+        ),
+        "utf8",
+      ),
+    );
+
+    assert.deepEqual(
+      literatureAnalysis.request.sequence.steps.map(
+        (step: { id: string }) => step.id,
+      ),
+      ["digest", "tag-regulator"],
+    );
+    assert.deepEqual(
+      literatureAnalysis.request.sequence.steps[1].include_if,
+      {
+        kind: "parameter",
+        parameter: "auto_tag_regulator",
+        equals: true,
+      },
+    );
+    assert.deepEqual(
+      deepReading.request.sequence.steps.map((step: { id: string }) => step.id),
+      ["translate", "deep_reading"],
+    );
+    assert.deepEqual(deepReading.request.sequence.steps[0].include_if, {
+      kind: "runtime",
+      condition: "translator_alignment_missing",
+    });
   });
 
   it("applies explicit value bindings to downstream input and parameter", async function () {

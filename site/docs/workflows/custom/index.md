@@ -1,6 +1,6 @@
 # 自定义 Workflow 架构总览
 
-Zotero Skills 的 workflow 系统采用**插拔式架构**——每个 workflow 是一个独立的自包含目录，只需一个 `workflow.json` 清单文件和对应的 Hook 脚本，插件的 Workflow Manager 会自动发现并加载它。
+Zotero Agents 的 workflow 系统采用**插拔式架构**——每个 workflow 是一个独立的自包含目录，只需一个 `workflow.json` 清单文件和对应的 Hook 脚本，插件的 Workflow Manager 会自动发现并加载它。
 
 ## 目录结构
 

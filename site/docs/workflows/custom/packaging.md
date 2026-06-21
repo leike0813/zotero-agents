@@ -88,7 +88,7 @@ export function processResult({ parent, bundleReader, runtime }) {
 
 将 workflow 目录放到 Zotero 偏好设置中配置的 **Workflow Directory** 下。Workflow Manager 会自动扫描该目录（包括子目录），发现所有 `workflow.json`。
 
-配置位置：Zotero → 设置 → Zotero Skills → Workflow Directory。
+配置位置：Zotero → 设置 → Zotero Agents → Workflow Directory。
 
 ### 目录扫描规则
 
@@ -110,7 +110,7 @@ export function processResult({ parent, bundleReader, runtime }) {
 将 workflow 部署到用户目录后：
 
 1. **重新打开 Dashboard**，在 Home 页的 workflow 列表中应出现新 workflow
-2. 选中匹配的条目后右键 → Zotero Skills，应出现新 workflow
+2. 选中匹配的条目后右键 → Zotero Agents，应出现新 workflow
 3. 运行 workflow 前检查设置对话框中的参数是否正确
 
 ## 下一步

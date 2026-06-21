@@ -3,10 +3,10 @@ import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
 
 const orgName = "leike0813";
-const repoName = "Zotero-Skills";
+const repoName = "zotero-agents";
 
 const config: Config = {
-  title: "Zotero Skills",
+  title: "Zotero Agents",
   tagline: "一个用于执行 Agent 技能的 Zotero 插件",
   favicon: "img/favicon.ico",
 
@@ -54,9 +54,9 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: "Zotero Skills",
+      title: "Zotero Agents",
       logo: {
-        alt: "Zotero Skills",
+        alt: "Zotero Agents",
         src: "img/logo.svg",
       },
       items: [
@@ -102,7 +102,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Zotero Skills. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Zotero Agents. Built with Docusaurus.`,
     },
     prism: {
       theme: prismThemes.github,

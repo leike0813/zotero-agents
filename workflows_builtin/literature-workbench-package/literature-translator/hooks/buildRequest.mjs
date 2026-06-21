@@ -63,26 +63,19 @@ function buildRequestImpl({ selectionContext, executionOptions, runtime }) {
   const parentItem = resolveParentItemFromSelection(selectionContext, runtime);
   const params = resolveWorkflowParams(executionOptions);
   return {
-    kind: "skillrunner.sequence.v1",
+    kind: "skillrunner.job.v1",
+    skill_id: "literature-translator",
+    mode: "auto",
     sourceAttachmentPaths: [sourcePath],
     targetParentID: parentItem.id,
-    steps: [
-      {
-        id: "translate",
-        skill_id: "literature-translator",
-        mode: "auto",
-        workspace: "new",
-        fetch_type: "bundle",
-        input: {
-          source_path: sourcePath,
-        },
-        parameter: {
-          target_language: params.targetLanguage,
-          mode: params.mode,
-        },
-      },
-    ],
-    final_step_id: "translate",
+    input: {
+      source_path: sourcePath,
+    },
+    parameter: {
+      target_language: params.targetLanguage,
+      mode: params.mode,
+    },
+    fetch_type: "bundle",
     poll: {
       interval_ms: 2000,
       timeout_ms: 1200000,

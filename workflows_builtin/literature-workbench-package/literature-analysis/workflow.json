@@ -10,7 +10,12 @@
   "inputs": {
     "unit": "attachment",
     "accepts": {
-      "mime": ["text/markdown", "text/x-markdown", "text/plain", "application/pdf"]
+      "mime": [
+        "text/markdown",
+        "text/x-markdown",
+        "text/plain",
+        "application/pdf"
+      ]
     },
     "per_parent": {
       "min": 1,
@@ -29,7 +34,49 @@
     ]
   },
   "request": {
-    "kind": "skillrunner.sequence.v1"
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "digest",
+          "skill_id": "literature-analysis",
+          "mode": "auto",
+          "workspace": "new",
+          "fetch_type": "bundle",
+          "apply_result": {
+            "workflow_id": "literature-analysis",
+            "on_failure": "continue"
+          }
+        },
+        {
+          "id": "tag-regulator",
+          "skill_id": "tag-regulator",
+          "mode": "auto",
+          "workspace": "reuse-workflow",
+          "fetch_type": "result",
+          "apply_result": {
+            "workflow_id": "tag-regulator",
+            "on_failure": "continue"
+          },
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "file",
+                "step": "digest",
+                "source": "digest_path",
+                "target": "/input/digest_markdown",
+                "required": true
+              }
+            ]
+          },
+          "include_if": {
+            "kind": "parameter",
+            "parameter": "auto_tag_regulator",
+            "equals": true
+          }
+        }
+      ]
+    }
   },
   "parameters": {
     "language": {
@@ -71,7 +118,11 @@
     "fetch": { "type": "bundle" },
     "expects": {
       "result_json": "result/result.json",
-      "artifacts": ["artifacts/digest.md", "artifacts/references.json", "artifacts/citation_analysis.json"]
+      "artifacts": [
+        "artifacts/digest.md",
+        "artifacts/references.json",
+        "artifacts/citation_analysis.json"
+      ]
     }
   },
   "hooks": {

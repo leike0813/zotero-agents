@@ -2,11 +2,11 @@
 
 ## 概述
 
-Dashboard 是 Zotero Skills 的中央监控和控制面板。您可以在这里查看任务状态、管理工作流、浏览历史记录和检查运行日志。
+Dashboard 是 Zotero Agents 的中央监控和控制面板。您可以在这里查看任务状态、管理工作流、浏览历史记录和检查运行日志。
 
 ## 打开方式
 
-- **工具栏按钮**：点击 Zotero 工具栏中的 Zotero Skills 图标
+- **工具栏按钮**：点击 Zotero 工具栏中的 Zotero Agents 图标
 - **菜单**：**工具 → 打开 Dashboard**
 - **Zotero Tab**：通过菜单打开，显示为独立的 Zotero 标签页
 
@@ -95,7 +95,7 @@ Dashboard 提供内建的日志查看器：
 
 ## 工具栏按钮
 
-Zotero 工具栏中的 Zotero Skills 图标按钮支持：
+Zotero 工具栏中的 Zotero Agents 图标按钮支持：
 
 - 左键点击：打开/切换 Dashboard
 - 显示运行中的任务数量

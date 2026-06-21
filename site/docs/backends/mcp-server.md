@@ -8,7 +8,7 @@ MCP Server shares the underlying Host Bridge capability registry but follows the
 
 ## Configuration
 
-Zotero → Settings → Zotero Skills → Host Bridge → **Enable MCP Server**
+Zotero → Settings → Zotero Agents → Host Bridge → **Enable MCP Server**
 
 A single checkbox toggles the server on/off. Enabled by default.
 

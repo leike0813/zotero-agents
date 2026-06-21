@@ -59,6 +59,7 @@ export function buildAssistantPanelLabels() {
       connection: l("assistant-panel-field-connection", "Connection"),
       hostBridge: l("assistant-panel-field-host-bridge", "Host Bridge"),
       mcp: l("assistant-panel-field-mcp", "MCP"),
+      autoReply: l("assistant-panel-field-auto-reply", "Auto reply"),
       mode: l("assistant-panel-field-mode", "Mode"),
       model: l("assistant-panel-field-model", "Model"),
       reasoning: l("assistant-panel-field-reasoning", "Reasoning"),
@@ -383,6 +384,14 @@ export function buildAssistantPanelLabels() {
         "Retry scheduled",
       ),
       applySkipped: l("assistant-panel-status-apply-skipped", "Skipped"),
+      autoReplyActive: l(
+        "assistant-panel-status-auto-reply-active",
+        "Active",
+      ),
+      autoReplyInactive: l(
+        "assistant-panel-status-auto-reply-inactive",
+        "Inactive",
+      ),
     },
     indicatorTitles: {
       acpConnectionActive: l(
@@ -428,6 +437,14 @@ export function buildAssistantPanelLabels() {
       zoteroMcpPending: l(
         "assistant-panel-indicator-zotero-mcp-pending",
         "Zotero MCP status pending.",
+      ),
+      skillRunnerAutoReplyActive: l(
+        "assistant-panel-indicator-skillrunner-auto-reply-active",
+        "Auto reply observer is active.",
+      ),
+      skillRunnerAutoReplyInactive: l(
+        "assistant-panel-indicator-skillrunner-auto-reply-inactive",
+        "Auto reply is enabled; observer is inactive.",
       ),
     },
   };

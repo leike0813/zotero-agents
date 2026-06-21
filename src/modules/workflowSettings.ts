@@ -56,6 +56,7 @@ import {
   workflowAllowsWriteApprovalBypass,
   type WorkflowRunOptions,
 } from "../workflows/zoteroHostAccessOptions";
+import { isSkillRunnerInteractiveAutoReplyEnabled } from "./skillRunnerInteractiveAutoReply";
 
 const WORKFLOW_SETTINGS_PREF_KEY = "workflowSettingsJson";
 
@@ -78,6 +79,10 @@ type WorkflowSettingsSchemaEntry = {
   allowCustom?: boolean;
   defaultValue?: unknown;
   disabled?: boolean;
+  visibleIfProviderOption?: {
+    key: string;
+    equals: boolean;
+  };
   diagnostics?: Array<{
     code: string;
     message: string;
@@ -349,11 +354,17 @@ function resolveLoadedWorkflowById(workflowId: string): LoadedWorkflow | null {
   );
 }
 
-function resolveSkillRunnerMode(
+type SkillRunnerModeCapability = {
+  applies: boolean;
+  hasAuto: boolean;
+  hasInteractive: boolean;
+};
+
+function resolveSkillRunnerModeCapability(
   workflow: LoadedWorkflow | null | undefined,
-): "auto" | "interactive" | "" {
+): SkillRunnerModeCapability {
   if (!workflow) {
-    return "";
+    return { applies: false, hasAuto: false, hasInteractive: false };
   }
   const providerId = String(workflow.manifest.provider || "").trim();
   const requestKind = String(workflow.manifest.request?.kind || "").trim();
@@ -362,10 +373,13 @@ function resolveSkillRunnerMode(
     requestKind !== "skillrunner.job.v1" &&
     requestKind !== SKILLRUNNER_SEQUENCE_REQUEST_KIND
   ) {
-    return "";
+    return { applies: false, hasAuto: false, hasInteractive: false };
   }
   if (requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
     const steps = workflow.manifest.request?.sequence?.steps || [];
+    if (!Array.isArray(steps) || steps.length === 0) {
+      return { applies: true, hasAuto: false, hasInteractive: false };
+    }
     const modes = Array.from(
       new Set(
         steps
@@ -377,18 +391,22 @@ function resolveSkillRunnerMode(
           .filter((mode) => mode === "auto" || mode === "interactive"),
       ),
     );
-    return modes.length === 1 ? (modes[0] as "auto" | "interactive") : "";
+    return {
+      applies: true,
+      hasAuto: modes.includes("auto"),
+      hasInteractive: modes.includes("interactive"),
+    };
   }
   const mode = String(workflow.manifest.request?.create?.mode || "")
     .trim()
     .toLowerCase();
   if (mode === "interactive") {
-    return "interactive";
+    return { applies: true, hasAuto: false, hasInteractive: true };
   }
   if (mode === "auto") {
-    return "auto";
+    return { applies: true, hasAuto: true, hasInteractive: false };
   }
-  return "";
+  return { applies: true, hasAuto: true, hasInteractive: true };
 }
 
 function toBooleanLike(value: unknown) {
@@ -422,28 +440,55 @@ function toPositiveInteger(value: unknown) {
   return parsed;
 }
 
+function toNonNegativeInteger(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return undefined;
+  }
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
+    return undefined;
+  }
+  return parsed;
+}
+
 function constrainSkillRunnerProviderOptionsByMode(args: {
   workflow: LoadedWorkflow | null | undefined;
   options: Record<string, unknown>;
 }) {
-  const mode = resolveSkillRunnerMode(args.workflow);
-  if (!mode) {
+  const modeCapability = resolveSkillRunnerModeCapability(args.workflow);
+  if (!modeCapability.applies) {
     return { ...args.options };
   }
   const next: Record<string, unknown> = { ...args.options };
   const normalizedNoCache = toBooleanLike(next.no_cache);
-  if (mode === "interactive") {
-    delete next.no_cache;
-  } else if (typeof normalizedNoCache === "boolean") {
+  if (modeCapability.hasAuto && typeof normalizedNoCache === "boolean") {
     next.no_cache = normalizedNoCache;
   } else {
     delete next.no_cache;
   }
   const normalizedAutoReply = toBooleanLike(next.interactive_auto_reply);
-  if (mode === "interactive" && typeof normalizedAutoReply === "boolean") {
+  if (
+    isSkillRunnerInteractiveAutoReplyEnabled() &&
+    modeCapability.hasInteractive &&
+    typeof normalizedAutoReply === "boolean"
+  ) {
     next.interactive_auto_reply = normalizedAutoReply;
   } else {
     delete next.interactive_auto_reply;
+  }
+  const normalizedInteractiveReplyTimeout = toNonNegativeInteger(
+    next.interactive_reply_timeout_sec,
+  );
+  if (
+    isSkillRunnerInteractiveAutoReplyEnabled() &&
+    modeCapability.hasInteractive &&
+    next.interactive_auto_reply === true &&
+    typeof normalizedInteractiveReplyTimeout === "number"
+  ) {
+    next.interactive_reply_timeout_sec = normalizedInteractiveReplyTimeout;
+  } else {
+    delete next.interactive_reply_timeout_sec;
   }
   const normalizedHardTimeout = toPositiveInteger(next.hard_timeout_seconds);
   if (typeof normalizedHardTimeout === "number") {
@@ -475,8 +520,8 @@ function normalizeProviderOptionsForUi(args: {
         args.backend?.acp?.runtimeOptionsCache?.currentDisplayModelId,
     });
   }
-  const mode = resolveSkillRunnerMode(args.workflow);
-  if (!mode) {
+  const modeCapability = resolveSkillRunnerModeCapability(args.workflow);
+  if (!modeCapability.applies) {
     return next;
   }
   const engine = String(next.engine || "").trim();
@@ -718,6 +763,13 @@ function toProviderSchemaEntries(args: {
         (key === "effort" || key === "acpReasoningEffort") &&
         entry.type === "string" &&
         resolvedEnumValues.length <= 1,
+      visibleIfProviderOption:
+        key === "interactive_reply_timeout_sec"
+          ? {
+              key: "interactive_auto_reply",
+              equals: true,
+            }
+          : undefined,
     };
   });
   const filteredEntries = baseEntries.filter((entry) => {
@@ -732,15 +784,26 @@ function toProviderSchemaEntries(args: {
     }
     return true;
   });
-  const mode = resolveSkillRunnerMode(args.workflow);
-  if (providerId !== "skillrunner" || !mode) {
+  const modeCapability = resolveSkillRunnerModeCapability(args.workflow);
+  if (providerId !== "skillrunner" || !modeCapability.applies) {
     return filteredEntries;
   }
-  if (mode === "interactive") {
-    return filteredEntries.filter((entry) => entry.key !== "no_cache");
-  }
   return filteredEntries.filter(
-    (entry) => entry.key !== "interactive_auto_reply",
+    (entry) => {
+      if (entry.key === "no_cache") {
+        return modeCapability.hasAuto;
+      }
+      if (
+        entry.key === "interactive_auto_reply" ||
+        entry.key === "interactive_reply_timeout_sec"
+      ) {
+        return (
+          modeCapability.hasInteractive &&
+          isSkillRunnerInteractiveAutoReplyEnabled()
+        );
+      }
+      return true;
+    },
   );
 }
 

@@ -673,7 +673,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           : undefined;
         await openAssistantWorkspaceSidebar({
           window: data.window,
-          tab: requestId || backend ? "skillrunner" : undefined,
+          tab: "skillrunner",
           backend,
           requestId: requestId || undefined,
         });
@@ -698,6 +698,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
     case "toggleSkillRunnerSidebar":
       await toggleAssistantWorkspaceSidebar({
         window: data.window,
+        tab: "skillrunner",
       });
       break;
     case "openLogViewer":

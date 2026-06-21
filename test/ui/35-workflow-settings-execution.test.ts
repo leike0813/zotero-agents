@@ -30,6 +30,7 @@ import {
   writeUtf8,
 } from "./workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
+import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/modules/skillRunnerInteractiveAutoReply";
 
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 const itZoteroFullOrNode =
@@ -84,6 +85,7 @@ describe("workflow settings execution", function () {
   });
 
   afterEach(function () {
+    setSkillRunnerInteractiveAutoReplyEnabledForTests();
     clearSkillRunnerModelCache();
     clearWorkflowSettings("literature-analysis");
     clearWorkflowSettings("literature-explainer");
@@ -262,12 +264,14 @@ describe("workflow settings execution", function () {
   itNodeOnly(
     "enforces interactive-mode runtime options for interactive workflows",
     async function () {
+      setSkillRunnerInteractiveAutoReplyEnabledForTests(false);
       updateWorkflowSettings("literature-explainer", {
         backendId: "skillrunner-alt",
         providerOptions: {
           engine: "gemini",
           no_cache: true,
           interactive_auto_reply: true,
+          interactive_reply_timeout_sec: 30,
           hard_timeout_seconds: 900,
         },
       });
@@ -282,8 +286,115 @@ describe("workflow settings execution", function () {
         workflow: workflow!,
       });
       assert.isUndefined(context.providerOptions.no_cache);
-      assert.equal(context.providerOptions.interactive_auto_reply, true);
+      assert.isUndefined(context.providerOptions.interactive_auto_reply);
+      assert.isUndefined(context.providerOptions.interactive_reply_timeout_sec);
       assert.equal(context.providerOptions.hard_timeout_seconds, 900);
+    },
+  );
+
+  itNodeOnly(
+    "keeps interactive auto reply only when the feature switch is enabled",
+    async function () {
+      setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
+      updateWorkflowSettings("literature-explainer", {
+        backendId: "skillrunner-alt",
+        providerOptions: {
+          engine: "gemini",
+          interactive_auto_reply: true,
+          interactive_reply_timeout_sec: 0,
+        },
+      });
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-explainer",
+      );
+      assert.isOk(workflow);
+
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.providerOptions.interactive_auto_reply, true);
+      assert.equal(context.providerOptions.interactive_reply_timeout_sec, 0);
+    },
+  );
+
+  itNodeOnly(
+    "shows auto reply timeout only when interactive auto reply is checked",
+    async function () {
+      setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-explainer",
+      );
+      assert.isOk(workflow);
+
+      const withoutAutoReply = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        draft: {
+          providerOptions: {
+            engine: "gemini",
+            interactive_auto_reply: false,
+          },
+        },
+      });
+      const timeoutWithoutAutoReply =
+        withoutAutoReply.providerSchemaEntries.find(
+          (entry) => entry.key === "interactive_reply_timeout_sec",
+        );
+      assert.isOk(timeoutWithoutAutoReply);
+      assert.deepEqual(timeoutWithoutAutoReply?.visibleIfProviderOption, {
+        key: "interactive_auto_reply",
+        equals: true,
+      });
+
+      const withAutoReply = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        draft: {
+          providerOptions: {
+            engine: "gemini",
+            interactive_auto_reply: true,
+          },
+        },
+      });
+      const keys = withAutoReply.providerSchemaEntries.map(
+        (entry) => entry.key,
+      );
+      assert.include(keys, "interactive_auto_reply");
+      assert.include(keys, "interactive_reply_timeout_sec");
+      const jobTimeout = withAutoReply.providerSchemaEntries.find(
+        (entry) => entry.key === "hard_timeout_seconds",
+      );
+      assert.include(jobTimeout?.title || "", "(sec)");
+    },
+  );
+
+  itNodeOnly(
+    "shows auto and interactive options for mixed-mode sequence workflows",
+    async function () {
+      setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "debug-interactive-then-result",
+      );
+      assert.isOk(workflow);
+
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: [
+          {
+            id: "skillrunner-local",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8030",
+            auth: { kind: "none" },
+          },
+        ],
+        autoSelectFallbackProfile: true,
+      });
+      const keys = descriptor.providerSchemaEntries.map((entry) => entry.key);
+      assert.include(keys, "interactive_auto_reply");
+      assert.include(keys, "interactive_reply_timeout_sec");
+      assert.include(keys, "no_cache");
     },
   );
 
@@ -296,6 +407,7 @@ describe("workflow settings execution", function () {
           engine: "gemini",
           no_cache: true,
           interactive_auto_reply: true,
+          interactive_reply_timeout_sec: 30,
           hard_timeout_seconds: 1200,
         },
       });
@@ -311,6 +423,7 @@ describe("workflow settings execution", function () {
       });
       assert.equal(context.providerOptions.no_cache, true);
       assert.isUndefined(context.providerOptions.interactive_auto_reply);
+      assert.isUndefined(context.providerOptions.interactive_reply_timeout_sec);
       assert.equal(context.providerOptions.hard_timeout_seconds, 1200);
     },
   );

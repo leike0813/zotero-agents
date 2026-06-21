@@ -70,6 +70,10 @@ type WorkflowSettingsDialogSnapshot = {
       allowCustom?: boolean;
       defaultValue?: unknown;
       disabled?: boolean;
+      visibleIfProviderOption?: {
+        key: string;
+        equals: boolean;
+      };
     }>;
     providerSchemaEntries: Array<{
       key: string;
@@ -85,6 +89,10 @@ type WorkflowSettingsDialogSnapshot = {
       allowCustom?: boolean;
       defaultValue?: unknown;
       disabled?: boolean;
+      visibleIfProviderOption?: {
+        key: string;
+        equals: boolean;
+      };
     }>;
     runSchemaEntries: Array<{
       key: string;

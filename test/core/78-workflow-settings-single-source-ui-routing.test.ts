@@ -100,11 +100,13 @@ describe("workflow settings single-source routing", function () {
       "src/providers/skillrunner/provider.ts",
     );
     assert.include(providerTs, "interactive_auto_reply");
+    assert.include(providerTs, "interactive_reply_timeout_sec");
     assert.include(providerTs, "hard_timeout_seconds");
     const clientTs = await readProjectFile(
       "src/providers/skillrunner/client.ts",
     );
     assert.include(clientTs, 'executionMode === "interactive"');
+    assert.include(clientTs, "runtimeOptions.interactive_reply_timeout_sec");
     assert.include(clientTs, "runtimeOptions.hard_timeout_seconds");
   });
 

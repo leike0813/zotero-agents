@@ -9,6 +9,7 @@ import {
   resetBackendsRegistryReadDiagnosticsForTests,
 } from "../../src/backends/registry";
 import {
+  buildAcpSkillRunPanelSnapshot,
   getAcpSkillRunSummaryDiagnosticsForTests,
   listAcpSkillRunSummaries,
   resetAcpSkillRunSummaryDiagnosticsForTests,
@@ -31,6 +32,7 @@ import {
   resetWorkflowTaskReadDiagnosticsForTests,
   resetWorkflowTasks,
   subscribeWorkflowTaskChanges,
+  updateWorkflowTaskStateByRequest,
 } from "../../src/modules/taskRuntime";
 import {
   listTaskDashboardHistory,
@@ -371,6 +373,114 @@ describe("background refresh governance", function () {
     assert.equal(acpDiagnostics.fullRunRecordScanCount, 0);
     assert.equal(acpDiagnostics.activeIndexScanCount, 1);
     assert.equal(acpDiagnostics.runCandidateReadCount, 1);
+  });
+
+  it("migrates SkillRunner pre-request rows to request canonical rows and clears terminal active state", function () {
+    const preRequestJob: JobRecord = {
+      ...makeSkillRunnerJob(200, "skillrunner-a"),
+      id: "skillrunner-pre-request-job",
+      meta: {
+        ...makeSkillRunnerJob(200, "skillrunner-a").meta,
+        localRunId: "skillrunner-local-run-200",
+        requestId: "",
+        skillRunnerLifecycleState: "request_creating",
+      },
+      result: {},
+      state: "running",
+      updatedAt: "2026-06-18T05:00:00.000Z",
+    };
+    const readyJob: JobRecord = {
+      ...preRequestJob,
+      id: "skillrunner-request-ready-job",
+      meta: {
+        ...preRequestJob.meta,
+        requestId: "skillrunner-request-ready-200",
+        skillRunnerRequestReady: true,
+        skillRunnerLifecycleState: "running",
+      },
+      result: {
+        requestId: "skillrunner-request-ready-200",
+      },
+      updatedAt: "2026-06-18T05:00:01.000Z",
+    };
+
+    recordWorkflowTaskUpdate(preRequestJob);
+    assert.lengthOf(
+      listActiveWorkflowTaskSummaries({ backendId: "skillrunner-a" }),
+      1,
+    );
+
+    recordWorkflowTaskUpdate(readyJob);
+    const activeReadyRows = listActiveWorkflowTaskSummaries({
+      backendId: "skillrunner-a",
+    });
+    assert.lengthOf(activeReadyRows, 1);
+    assert.equal(
+      activeReadyRows[0]?.requestId,
+      "skillrunner-request-ready-200",
+    );
+
+    updateWorkflowTaskStateByRequest({
+      backendId: "skillrunner-a",
+      backendType: "skillrunner",
+      requestId: "skillrunner-request-ready-200",
+      state: "succeeded",
+      updatedAt: "2026-06-18T05:00:02.000Z",
+    });
+
+    const activeAfterTerminal = listActiveWorkflowTaskSummaries({
+      backendId: "skillrunner-a",
+    });
+    assert.lengthOf(activeAfterTerminal, 0);
+  });
+
+  it("bounds ACP Skills panel summaries while preserving selected run details", function () {
+    for (let index = 0; index < 120; index += 1) {
+      const createdAt = `2026-06-18T${String(4 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00.000Z`;
+      upsertAcpSkillRun({
+        requestId: `acp-panel-${index}`,
+        backendId: "acp-backend",
+        backendType: "acp",
+        status: "succeeded",
+        workflowId: "literature-workbench",
+        workflowLabel: "Literature Workbench",
+        taskName: `completed ACP run ${index}`,
+        createdAt,
+        updatedAt: createdAt,
+        event: {
+          stage: "complete",
+          level: "info",
+          message: `ACP panel event ${index}`,
+          ts: createdAt,
+        },
+      });
+    }
+
+    resetWorkflowTaskReadDiagnosticsForTests();
+    resetAcpSkillRunSummaryDiagnosticsForTests();
+
+    const snapshot = buildAcpSkillRunPanelSnapshot({
+      selectedRequestId: "acp-panel-0",
+    });
+    const selectedSummary = snapshot.runs.find(
+      (run) => run.requestId === "acp-panel-0",
+    );
+
+    assert.isAtMost(snapshot.runs.length, 100);
+    assert.isTrue(snapshot.drawer?.truncated);
+    assert.include(snapshot.drawer?.notice || "", "Dashboard");
+    assert.equal(snapshot.selectedRun?.requestId, "acp-panel-0");
+    assert.isAbove(snapshot.selectedRun?.events.length || 0, 0);
+    assert.isOk(selectedSummary);
+    assert.notProperty(selectedSummary as Record<string, unknown>, "events");
+    assert.notProperty(
+      selectedSummary as Record<string, unknown>,
+      "transcriptItems",
+    );
+    assert.equal(
+      getWorkflowTaskReadDiagnosticsForTests().fullTaskRecordScanCount,
+      0,
+    );
   });
 
   it("gates unchanged dashboard home periodic ticks before metadata counts or model builds", async function () {

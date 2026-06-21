@@ -1,23 +1,22 @@
 <!-- hero banner -->
 <p align="center">
-  <img src="assets/poster.png" alt="Zotero Skills – Turn your library into an AI-powered research hub" width="800" />
+  <img src="assets/poster.png" alt="Zotero Agents – Turn your library into an AI-powered research hub" width="800" />
 </p>
 
 <p align="center">
-  <img src="addon/content/icons/icon_full.png" alt="Zotero Skills" width="96" />
+  <img src="addon/content/icons/icon_full.png" alt="Zotero Agents" width="96" />
 </p>
 
-<h1 align="center">Zotero Skills</h1>
-<h4 align="center" style="color: #888;">迈向 Zotero Agents</h4>
+<h1 align="center">Zotero Agents</h1>
 
 <p align="center">
   <strong>你的 Zotero 文献库，现在由 AI Agent 驱动。</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/leike0813/Zotero-Skills/releases"><img src="https://img.shields.io/badge/version-v0.5.0--alpha-orange?style=flat-square" alt="v0.5.0-alpha" /></a>
+  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0--alpha-orange?style=flat-square" alt="v0.5.0-alpha" /></a>
   <img src="https://img.shields.io/badge/Zotero-7-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7" />
-  <a href="https://github.com/leike0813/Zotero-Skills/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/Zotero-Skills?style=flat-square" alt="AGPL-3.0" /></a>
+  <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
 
@@ -25,8 +24,15 @@
   <a href="README-zhCN.md">简体中文</a> ·
   <a href="README-frFR.md">Français</a> ·
   <a href="README-jaJP.md">日本語</a> ·
-  <a href="https://leike0813.github.io/Zotero-Skills/">📖 Documentation</a>
+  <a href="https://leike0813.github.io/zotero-agents/">📖 在线文档站</a>
 </p>
+
+<p align="center">
+  <strong>GitHub 仓库</strong>: <a href="https://github.com/leike0813/zotero-agents">leike0813/zotero-agents</a> &nbsp;|&nbsp; 
+  <strong>Gitee 镜像</strong>: <a href="https://gitee.com/leike0813/zotero-agents">leike0813/zotero-agents</a>
+</p>
+
+> 💡 **项目更名提示**：自 v0.5.0-alpha 起，本插件正式由 **Zotero Skills** 更名为 **Zotero Agents**（旧名 Zotero Skills 仅作为代码内部标识保留，以确保向后兼容和平滑升级）。
 
 ---
 
@@ -34,7 +40,7 @@
 
 想做文献综述，但光是**梳理主题和线索**就耗费了数周？
 
-> **Zotero Skills 让 AI Agent 直接在你的 Zotero 文献库中工作** — 自动提取、解读、关联文献，把零散的论文变成可探索的知识网络。
+> **Zotero Agents 让 AI Agent 直接在你的 Zotero 文献库中工作** — 自动提取、解读、关联文献，把零散的论文变成可探索的知识网络。
 
 ---
 
@@ -48,7 +54,7 @@
 | 💬 想与 AI 围绕文献对话         | → [AI 交互面板](#ai-交互面板)                                  |
 | 🔌 对外集成，让 Agent 读你的库  | → [Host Bridge 与 MCP](#host-bridge--mcp-server)               |
 | 🛠 开发者，想扩展或贡献         | → [架构概览](#架构概览) · [开发者文档](#开发者文档)              |
-| 📚 需要完整使用手册             | → [用户文档站](https://leike0813.github.io/Zotero-Skills/)     |
+| 📚 需要完整使用手册             | → [用户文档站](https://leike0813.github.io/zotero-agents/)     |
 
 ---
 
@@ -222,7 +228,7 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS 
 - 🌍 **多语言**：workflow 内置 i18n 支持，UI 文本随 Zotero 语言自动切换
 - ✅ **声明式输入验证**：`validateSelection` — 无需写 JS 即可约束输入条件
 
-> 完整的自定义 Workflow 开发指南见[用户文档站](https://leike0813.github.io/Zotero-Skills/workflows/custom/)。
+> 完整的自定义 Workflow 开发指南见[用户文档站](https://leike0813.github.io/zotero-agents/workflows/custom/)。
 
 ---
 
@@ -253,7 +259,7 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS 
 | **Gemini CLI** | 简单任务 | 免费版可用 | ⭐ 一般 |
 | **Claude Code** | 指令执行质量高，但效率较低 | 付费 | 按需选 |
 
-> 各引擎的详细部署指南见[用户文档站](https://leike0813.github.io/Zotero-Skills/backends/skill-runner#引擎系统)。
+> 各引擎的详细部署指南见[用户文档站](https://leike0813.github.io/zotero-agents/backends/skill-runner#引擎系统)。
 
 ---
 
@@ -261,23 +267,23 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS 
 
 ### 1️⃣ 安装插件
 
-从 [Releases](https://github.com/leike0813/Zotero-Skills/releases) 下载 `.xpi` 文件 →  Zotero `工具` → `附加组件` → ⚙️ → `从文件安装附加组件…` → 重启 Zotero。
+从 [Releases](https://github.com/leike0813/zotero-agents/releases) 下载 `.xpi` 文件 →  Zotero `工具` → `附加组件` → ⚙️ → `从文件安装附加组件…` → 重启 Zotero。
 
 ### 2️⃣ 配置 AI 后端
 
 **方案 A — 一键部署 Skill-Runner（最简单）**
 
-`编辑` → `首选项` → `Zotero Skills` → `SkillRunner Local Runtime` → 点击 **Deploy**，等待部署完成。
+`编辑` → `首选项` → `Zotero Agents` → `SkillRunner Local Runtime` → 点击 **Deploy**，等待部署完成。
 
 **方案 B — 直连 ACP Agent**
 
-`编辑` → `首选项` → `Zotero Skills` → `后端管理器` → 在 ACP Tab 中从预置（Codex / OpenCode 等）添加一个后端。
+`编辑` → `首选项` → `Zotero Agents` → `后端管理器` → 在 ACP Tab 中从预置（Codex / OpenCode 等）添加一个后端。
 
 ### 3️⃣ 右键运行
 
-在 Zotero 文献列表中**右键一篇论文**，选择 `Zotero Skills` → `文献分析`。几分钟后，你会在笔记面板中看到 AI 生成的摘要、参考文献清单和引文分析。
+在 Zotero 文献列表中**右键一篇论文**，选择 `Zotero Agents` → `文献分析`。几分钟后，你会在笔记面板中看到 AI 生成的摘要、参考文献清单和引文分析。
 
-> 详细的配置和使用说明见 [用户文档站](https://leike0813.github.io/Zotero-Skills/)。
+> 详细的配置和使用说明见 [在线文档站](https://leike0813.github.io/zotero-agents/)。
 
 ---
 
@@ -461,13 +467,13 @@ Tag Bootstrapper 初始化词表 → 选中一批论文 → 标签规范化 → 
 
 </details>
 
-更多架构细节见[用户文档站：自定义 Workflow](https://leike0813.github.io/Zotero-Skills/workflows/custom/)。
+更多架构细节见[用户文档站：自定义 Workflow](https://leike0813.github.io/zotero-agents/workflows/custom/)。
 
 ---
 
 ## 过渡版本说明
 
-> **v0.5.0-alpha 是迈向"Zotero Agents"的重要里程碑。** 相比 v0.4.0（纯 Skill-Runner 前端），v0.5.0 完成了向通用 Agent 执行框架的全面转型 — 新增 ACP 后端支持、文献综合工作台、引文图谱、概念知识库、Host Bridge、MCP Server 等核心能力，已可在日常研究中稳定使用。
+> **v0.5.0-alpha 是更名为"Zotero Agents"后的首个重要里程碑。** 相比 v0.4.0（纯 Skill-Runner 前端），v0.5.0 完成了向通用 Agent 执行框架的全面转型 — 新增 ACP 后端支持、文献综合工作台、引文图谱、概念知识库、Host Bridge、MCP Server 等核心能力，已可在日常研究中稳定使用。
 
 ### ⚠️ 已知限制
 
@@ -484,7 +490,7 @@ Tag Bootstrapper 初始化词表 → 选中一批论文 → 标签规范化 → 
 - 优化 Synthesis 重计算的 UI 响应性
 - 持续打磨稳定性和性能
 
-> 如遇到问题请在 [Issues](https://github.com/leike0813/Zotero-Skills/issues) 反馈。
+> 如遇到问题请在 [Issues](https://github.com/leike0813/zotero-agents/issues) 反馈。
 
 ---
 
@@ -520,7 +526,7 @@ npm run build        # 生产构建
 
 ## 用户文档
 
-完整的使用手册见在线文档站：[https://leike0813.github.io/Zotero-Skills/](https://leike0813.github.io/Zotero-Skills/)
+完整的使用手册见在线文档站：[https://leike0813.github.io/zotero-agents/](https://leike0813.github.io/zotero-agents/)
 
 涵盖：安装、后端配置、Backend Manager、Workflow 调用、Dashboard、侧边栏（ACP Chat / ACP Skills / SkillRunner）、Synthesis Workbench、WebDAV 同步、偏好设置、自定义 Workflow 开发等全部功能。
 

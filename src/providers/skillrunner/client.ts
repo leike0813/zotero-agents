@@ -11,6 +11,7 @@ import {
   type SkillRunnerConnectionLane,
 } from "../../modules/skillRunnerConnectionGovernor";
 import { markSkillRunnerBackendHealthSuccess } from "../../modules/skillRunnerBackendHealthRegistry";
+import { isSkillRunnerInteractiveAutoReplyEnabled } from "../../modules/skillRunnerInteractiveAutoReply";
 import { buildSkillRunnerSkillPackageBundle } from "./skillPackageBundler";
 import { SkillRunnerHttpError } from "./errors";
 import {
@@ -97,6 +98,18 @@ function toPositiveIntegerOption(value: unknown) {
   }
   const parsed = Number(text);
   if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+    return undefined;
+  }
+  return parsed;
+}
+
+function toNonNegativeIntegerOption(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return undefined;
+  }
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
     return undefined;
   }
   return parsed;
@@ -1132,13 +1145,31 @@ export class SkillRunnerClient {
     ) {
       runtimeOptions.no_cache = true;
     }
-    if (executionMode === "interactive") {
+    if (
+      isSkillRunnerInteractiveAutoReplyEnabled() &&
+      executionMode === "interactive"
+    ) {
       const interactiveAutoReply = toBooleanOption(
         providerOptions.interactive_auto_reply,
       );
-      if (typeof interactiveAutoReply === "boolean") {
-        runtimeOptions.interactive_auto_reply = interactiveAutoReply;
+      if (interactiveAutoReply === true) {
+        runtimeOptions.interactive_auto_reply = true;
+        const interactiveReplyTimeout = toNonNegativeIntegerOption(
+          providerOptions.interactive_reply_timeout_sec,
+        );
+        if (typeof interactiveReplyTimeout === "number") {
+          runtimeOptions.interactive_reply_timeout_sec =
+            interactiveReplyTimeout;
+        } else {
+          delete runtimeOptions.interactive_reply_timeout_sec;
+        }
+      } else {
+        delete runtimeOptions.interactive_auto_reply;
+        delete runtimeOptions.interactive_reply_timeout_sec;
       }
+    } else {
+      delete runtimeOptions.interactive_auto_reply;
+      delete runtimeOptions.interactive_reply_timeout_sec;
     }
     const hardTimeoutSeconds = toPositiveIntegerOption(
       providerOptions.hard_timeout_seconds,
