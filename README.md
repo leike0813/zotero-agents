@@ -9,7 +9,7 @@ This branch is generated from the Zotero-Skills repository and contains only:
 - manifest.json with source commit, platform list, sizes, and checksums
 
 Source commit: 04e5af297811925ac534233a55cf508dbaa77de1
-Published at: 2026-06-21T12:20:07.484Z
+Published at: 2026-06-21T12:49:48.797Z
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin
