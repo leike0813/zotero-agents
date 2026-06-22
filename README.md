@@ -8,8 +8,8 @@ This branch is generated from the Zotero-Skills repository and contains only:
 - install.ps1 and install.sh for installing or upgrading the current-platform CLI
 - manifest.json with source commit, platform list, sizes, and checksums
 
-Source commit: 04e5af297811925ac534233a55cf508dbaa77de1
-Published at: 2026-06-21T12:49:48.797Z
+Source commit: 1f0552609bf662f95ffb1d98fab08f8bef5c3394
+Published at: 2026-06-22T03:41:41.000Z
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin

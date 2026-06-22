@@ -76,7 +76,7 @@ This section is generated from the Host Bridge surface catalog.
 
 ### Command families
 
-- Prefer semantic CLI command families: item (attachments, get, notes, search); note (get, payload, payloads); topics (find-by-paper-ref, get-context, get-report, get-review-input, list); schemas (get); concepts (query); citation-graph (get-layout, get-metrics, get-slice, overview, query-cluster, rank-external-references, rank-library-papers, refresh-metrics); library-index (get); resolvers (resolve); reference-index (get); paper-artifacts (export-filtered, manifest, read, resolve-topic-digest); insights (attention-queue); literature (ingest); workflow (describe, list, run, submit); task (list); file (download).
+- Prefer semantic CLI command families: item (attachments, get, notes, search); note (get, payload, payloads); topics (find-by-paper-ref, get-context, get-report, get-review-input, list); schemas (get); concepts (query); citation-graph (get-layout, get-metrics, get-slice, overview, query-cluster, rank-external-references, rank-library-papers, refresh-metrics); library-index (get); resolvers (resolve); reference-index (get); paper-artifacts (export-filtered, manifest, read, resolve-topic-digest); insights (attention-queue); literature (ingest); workflow (agent-run, describe, list, run, submit); task (list); file (download).
 - Current graph/insight commands: citation-graph get-layout, citation-graph get-metrics, citation-graph get-slice, citation-graph overview, citation-graph query-cluster, citation-graph rank-external-references, citation-graph rank-library-papers, citation-graph refresh-metrics, insights attention-queue.
 - Use raw `call <capability>` only for raw-only capabilities or explicit diagnostics.
 - MCP is not the default fallback; MCP tools mirror Host Bridge capability names when explicitly used.
@@ -104,6 +104,8 @@ This section is generated from the Host Bridge surface catalog.
 - `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use legacy `--input`.
 - Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.
 - Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.
+- Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
+- `workflow agent-run` is read-only: it does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task.
 <!-- host-bridge-surface:wrapper-skill:end -->
 
 ## Remote Export Bundles
