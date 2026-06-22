@@ -37,6 +37,7 @@ export type HostBridgeErrorCode =
   | "file_unavailable"
   | "invalid_capability_input"
   | "invalid_file_id"
+  | "invalid_workflow_agent_run_request"
   | "invalid_workflow_describe_request"
   | "invalid_workflow_input"
   | "invalid_workflow_submit_request"

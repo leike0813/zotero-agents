@@ -14,12 +14,14 @@ import {
 import type { SynthesisMcpService } from "./synthesis/mcpService";
 import {
   describeHostBridgeWorkflow,
+  buildHostBridgeWorkflowAgentRun,
   getHostBridgeWorkflowControlManifest,
   getHostBridgeWorkflowRunStatus,
   listHostBridgeTasks,
   listHostBridgeWorkflows,
   submitHostBridgeWorkflow,
   type HostBridgeTaskFilters,
+  type HostBridgeWorkflowAgentRunRequest,
   type HostBridgeWorkflowDescribeRequest,
   type HostBridgeWorkflowSubmitRequest,
 } from "./hostBridgeWorkflowControl";
@@ -597,6 +599,7 @@ function workflowValidationErrorCode(
 ): HostBridgeErrorCode {
   const code = (error as { code?: string })?.code;
   return code === "invalid_workflow_describe_request" ||
+    code === "invalid_workflow_agent_run_request" ||
     code === "invalid_workflow_submit_request"
     ? code
     : fallback;
@@ -1352,6 +1355,59 @@ async function submitWorkflow(request: HttpRequest) {
   }
 }
 
+async function agentRunWorkflow(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow agent-run endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: HostBridgeWorkflowAgentRunRequest;
+  try {
+    payload = parseJsonBody(request.body) as HostBridgeWorkflowAgentRunRequest;
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_workflow_agent_run_request",
+        "Workflow agent-run request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_workflow_agent_run_request",
+    );
+  }
+  try {
+    const result = await buildHostBridgeWorkflowAgentRun({ payload });
+    return response(200, "OK", hostBridgeOk(result));
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "workflow_not_found") {
+      return response(
+        404,
+        "Not Found",
+        hostBridgeError(
+          "workflow_not_found",
+          "Workflow not found",
+          "workflow",
+          { workflowId: String(payload?.workflowId || "").trim() },
+        ),
+        "workflow_not_found",
+      );
+    }
+    const validationCode = workflowValidationErrorCode(
+      error,
+      "invalid_workflow_agent_run_request",
+    );
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(validationCode, errorMessage(error), "validation"),
+      validationCode,
+    );
+  }
+}
+
 async function getWorkflowRun(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Workflow run endpoint only supports GET", "GET");
@@ -1541,6 +1597,10 @@ async function handleHttpRequest(request: HttpRequest) {
 
   if (request.path === "/bridge/v1/workflows/submit") {
     return submitWorkflow(request);
+  }
+
+  if (request.path === "/bridge/v1/workflows/agent-run") {
+    return agentRunWorkflow(request);
   }
 
   if (request.path.startsWith("/bridge/v1/workflows/runs/")) {

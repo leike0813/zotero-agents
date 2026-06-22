@@ -103,6 +103,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `paper-artifacts resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
 | `insights attention-queue` | `insights.get_attention_queue` | capability | - |
 | `literature ingest` | `mutation.execute` | capability | - |
+| `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
 | `workflow run` | `GET /bridge/v1/workflows/runs/{runId}` | endpoint | - |
@@ -130,6 +131,8 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 - `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use legacy `--input`.
 - Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.
 - Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.
+- Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
+- `workflow agent-run` is read-only: it does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task.
 
 #### Debug capabilities
 
@@ -432,6 +435,7 @@ zotero-bridge literature ingest --input <JSON_OR_FILE>
 zotero-bridge workflow list
 zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
 zotero-bridge workflow submit --workflow <id> (--items <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
+zotero-bridge workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) [--output-dir <DIR>]
 zotero-bridge workflow run <runId>
 zotero-bridge task list [--workflow <id>] [--backend <id>] [--backend-type <type>] [--request <id>] [--run <runId>] [--state <state>] [--active-only]
 zotero-bridge file download <fileId> --output <path> [--force]
@@ -699,6 +703,7 @@ Host Bridge 根据 capability 或 operation metadata 决定是否需要审批，
 - `mutation.preview`
 - `diagnostic.get_status`
 - `workflow list`
+- `workflow agent-run`
 - `workflow run`
 - `task list`
 - `file download`
@@ -768,19 +773,48 @@ capabilities、workflow control、file download 和 CLI metadata。
 ```json
 {
   "workflowId": "workflow-id",
-  "input": {
+  "selection": {
+    "kind": "items",
     "items": [
       {
         "key": "ABCD1234",
         "libraryId": 1
       }
     ]
+  },
+  "workflowOptions": {},
+  "providerProfile": {}
+}
+```
+
+Host Bridge 要求显式 selection。缺少 selection、空 items、无效 item ref 或
+不允许 no-selection 的 workflow 使用 `kind=none` 都会失败。
+
+### `POST /bridge/v1/workflows/agent-run`
+
+需要鉴权，不需要 Zotero UI 审批。请求体：
+
+```json
+{
+  "workflowId": "workflow-id",
+  "selection": {
+    "kind": "items",
+    "items": [
+      {
+        "id": 123
+      }
+    ]
+  },
+  "delivery": {
+    "mode": "bundle"
   }
 }
 ```
 
-Host Bridge 要求显式 input。缺少 input、空 items、无效 item ref 或
-不允许 no-selection 的 workflow 使用 `kind=none` 都会失败。
+Host Bridge 只打包 workflow 定义、相关 skill 包、selection context 与文件、
+output validator/finalizer 资料和执行说明，并返回可下载的 zip 文件句柄。
+该 endpoint 不接受 `workflowOptions`、`providerProfile`、`agentEngine` 或旧
+`input` 字段，不启动 backend task，也不写回 Zotero。
 
 ### `GET /bridge/v1/workflows/runs/{runId}`
 
@@ -1113,7 +1147,9 @@ Authorization: Bearer <token>
     "supported": true,
     "endpoints": [
       "GET /bridge/v1/workflows",
+      "POST /bridge/v1/workflows/describe",
       "POST /bridge/v1/workflows/submit",
+      "POST /bridge/v1/workflows/agent-run",
       "GET /bridge/v1/workflows/runs/{runId}",
       "GET /bridge/v1/tasks"
     ],
@@ -1785,13 +1821,14 @@ GET <endpoint>/workflows
 
 实现必须避免返回 workflow hook 路径、插件内部路径或源码路径。
 
-### 12.16 `workflow describe` and `workflow submit`
+### 12.16 `workflow describe`, `workflow submit`, and `workflow agent-run`
 
 调用格式：
 
 ```text
 zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
 zotero-bridge workflow submit --workflow <id> (--items <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
+zotero-bridge workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) [--output-dir <DIR>]
 ```
 
 HTTP 映射：
@@ -1820,6 +1857,21 @@ Content-Type: application/json
   "workflowOptions": {},
   "providerProfile": {}
 }
+
+POST <endpoint>/workflows/agent-run
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "workflowId": "<id>",
+  "selection": {
+    "kind": "items",
+    "items": []
+  },
+  "delivery": {
+    "mode": "bundle"
+  }
+}
 ```
 
 `workflow describe` 是只读预览接口，返回 selection 要求、workflow option
@@ -1828,6 +1880,10 @@ schema、可用 backend profiles、provider option schema 和规范化 draft。
 CLI submit 只发送 `workflowId`、`selection`、`workflowOptions` 和
 `providerProfile`。当前 CLI 没有暴露 `runOptions` 或 `presentation` 参数，也
 不会读取 Zotero UI 中保存的 workflow settings。
+
+CLI agent-run 只发送 `workflowId`、`selection` 和 `delivery`。它返回 handoff
+bundle 的下载句柄；传入 `--output-dir` 时，CLI 会把 zip 下载到该目录并在
+stdout JSON 中加入 `download.outputPath`。
 
 `--items` 必须是 item ref 数组，每个 ref 必须且只能包含 `id` 或 `key`；
 `libraryId` 只用于 `key` 查找：

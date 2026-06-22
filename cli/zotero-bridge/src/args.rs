@@ -528,6 +528,12 @@ pub enum WorkflowCommand {
     Describe(WorkflowDescribeArgs),
 
     #[command(
+        about = "Prepare a self-owned agent workflow handoff bundle",
+        long_about = "Call POST /bridge/v1/workflows/agent-run. This read-only command returns a downloadable workflow context bundle for the calling agent. Requires --workflow and either --items or --none. It does not accept workflow options or provider profiles and does not start a backend task."
+    )]
+    AgentRun(WorkflowAgentRunArgs),
+
+    #[command(
         about = "Read one workflow run status",
         long_about = "Call GET /bridge/v1/workflows/runs/{runId}. This read-only command returns current and recent task state for a workflow run."
     )]
@@ -588,6 +594,35 @@ pub struct WorkflowDescribeArgs {
         help = "Draft provider profile JSON object with backendId and providerOptions"
     )]
     pub provider_profile: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowAgentRunArgs {
+    #[arg(long, help = "Workflow id to prepare for self-owned agent execution")]
+    pub workflow: String,
+
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        conflicts_with = "none",
+        required_unless_present = "none",
+        help = "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
+    )]
+    pub items: Option<String>,
+
+    #[arg(
+        long,
+        conflicts_with = "items",
+        help = "Prepare a no-selection workflow"
+    )]
+    pub none: bool,
+
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Download the handoff zip into this directory"
+    )]
+    pub output_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -746,6 +781,8 @@ pub struct FileDownloadArgs {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use clap::{CommandFactory, Parser};
 
     use super::{Cli, Command, LiteratureCommand, TopicsCommand, WorkflowCommand};
@@ -985,6 +1022,85 @@ mod tests {
             },
             _ => panic!("expected workflow command"),
         }
+    }
+
+    #[test]
+    fn parses_workflow_agent_run_with_output_dir() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "agent-run",
+            "--workflow",
+            "literature-analysis",
+            "--items",
+            "[{\"key\":\"ABC\",\"libraryId\":1}]",
+            "--output-dir",
+            "handoff",
+        ]);
+
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::AgentRun(input) => {
+                    assert_eq!(input.workflow, "literature-analysis");
+                    assert_eq!(
+                        input.items.as_deref(),
+                        Some("[{\"key\":\"ABC\",\"libraryId\":1}]")
+                    );
+                    assert_eq!(
+                        input.output_dir.as_deref(),
+                        Some(PathBuf::from("handoff").as_path())
+                    );
+                }
+                _ => panic!("expected workflow agent-run"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn rejects_workflow_agent_run_items_and_none_together() {
+        let result = Cli::try_parse_from([
+            "zotero-bridge",
+            "workflow",
+            "agent-run",
+            "--workflow",
+            "global-workflow",
+            "--items",
+            "[]",
+            "--none",
+        ]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_workflow_agent_run_provider_profile_flag() {
+        let result = Cli::try_parse_from([
+            "zotero-bridge",
+            "workflow",
+            "agent-run",
+            "--workflow",
+            "global-workflow",
+            "--none",
+            "--provider-profile",
+            "{}",
+        ]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn workflow_help_lists_agent_run_without_platform_or_provider_flags() {
+        let mut command = Cli::command();
+        let workflow_help = command
+            .find_subcommand_mut("workflow")
+            .unwrap()
+            .render_help()
+            .to_string();
+
+        assert!(workflow_help.contains("agent-run"));
+        assert!(!workflow_help.contains("--platform"));
+        assert!(!workflow_help.contains("--provider-profile"));
     }
 
     #[test]

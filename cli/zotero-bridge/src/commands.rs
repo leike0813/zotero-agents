@@ -16,8 +16,8 @@ use crate::{
         LiteratureIngestArgs, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
         PaperArtifactsArgs, PaperArtifactsCommand, ReferenceIndexArgs, ReferenceIndexCommand,
         ResolversArgs, ResolversCommand, SchemasArgs, SchemasCommand, TaskArgs, TaskCommand,
-        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowArgs, WorkflowCommand,
-        WorkflowDescribeArgs, WorkflowRunArgs, WorkflowSubmitArgs,
+        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowAgentRunArgs, WorkflowArgs,
+        WorkflowCommand, WorkflowDescribeArgs, WorkflowRunArgs, WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
@@ -147,6 +147,7 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
         WorkflowCommand::Submit(args) => {
             client::post(config, "/workflows/submit", workflow_submit_input(args)?)
         }
+        WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
         WorkflowCommand::Run(args) => client::get(config, &workflow_run_path(args)?),
     }
 }
@@ -450,14 +451,18 @@ fn workflow_describe_input(args: WorkflowDescribeArgs) -> Result<Value, CliError
     }))
 }
 
-fn workflow_selection(args: &WorkflowSubmitArgs) -> Result<Value, CliError> {
-    if args.none {
+fn workflow_selection_from(
+    items_input: Option<&str>,
+    none: bool,
+    command: &str,
+) -> Result<Value, CliError> {
+    if none {
         return Ok(json!({ "kind": "none" }));
     }
-    let Some(items_input) = args.items.as_deref() else {
+    let Some(items_input) = items_input else {
         return Err(CliError::validation(
             "missing_workflow_selection",
-            "Workflow submit requires --items or --none",
+            format!("Workflow {command} requires --items or --none"),
         ));
     };
     let items = read_json_arg(Some(items_input))?;
@@ -473,6 +478,10 @@ fn workflow_selection(args: &WorkflowSubmitArgs) -> Result<Value, CliError> {
     }))
 }
 
+fn workflow_selection(args: &WorkflowSubmitArgs) -> Result<Value, CliError> {
+    workflow_selection_from(args.items.as_deref(), args.none, "submit")
+}
+
 fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
     let workflow = workflow_id_arg(&args.workflow, "submit")?;
     Ok(json!({
@@ -481,6 +490,55 @@ fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
         "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
         "providerProfile": provider_profile_arg(args.provider_profile.as_deref())?
     }))
+}
+
+fn workflow_agent_run_input(args: &WorkflowAgentRunArgs) -> Result<Value, CliError> {
+    let workflow = workflow_id_arg(&args.workflow, "agent-run")?;
+    Ok(json!({
+        "workflowId": workflow,
+        "selection": workflow_selection_from(args.items.as_deref(), args.none, "agent-run")?,
+        "delivery": {
+            "mode": "bundle"
+        }
+    }))
+}
+
+fn workflow_agent_run(
+    config: &BridgeConfig,
+    args: WorkflowAgentRunArgs,
+) -> Result<Value, CliError> {
+    let output_dir = args.output_dir.clone();
+    let result = client::post(
+        config,
+        "/workflows/agent-run",
+        workflow_agent_run_input(&args)?,
+    )?;
+    let Some(output_dir) = output_dir else {
+        return Ok(result);
+    };
+    let file_id = result
+        .pointer("/bundle/file/fileId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            CliError::protocol(
+                "missing_agent_run_bundle_file",
+                "Workflow agent-run response did not include a downloadable bundle file",
+            )
+        })?;
+    let display_name = result
+        .pointer("/bundle/file/displayName")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("workflow-agent-run.zip");
+    let output = available_output_path(&output_dir.join(display_name));
+    let response = client::download(config, &format!("/files/{file_id}"))?;
+    write_download_output(&output, &response.bytes, false)?;
+    Ok(merge_agent_run_download_payload(
+        result,
+        &output,
+        response.bytes.len(),
+        response.content_type,
+    ))
 }
 
 fn workflow_run_path(args: WorkflowRunArgs) -> Result<String, CliError> {
@@ -514,6 +572,49 @@ fn task_list_path(args: TaskListArgs) -> String {
         .collect::<Vec<_>>()
         .join("&");
     format!("/tasks?{query}")
+}
+
+fn available_output_path(preferred: &Path) -> PathBuf {
+    if !preferred.exists() {
+        return preferred.to_path_buf();
+    }
+    let parent = preferred.parent().unwrap_or_else(|| Path::new(""));
+    let stem = preferred
+        .file_stem()
+        .and_then(|entry| entry.to_str())
+        .unwrap_or("workflow-agent-run");
+    let extension = preferred
+        .extension()
+        .and_then(|entry| entry.to_str())
+        .map(|entry| format!(".{entry}"))
+        .unwrap_or_default();
+    for index in 1..1000 {
+        let candidate = parent.join(format!("{stem}-{index}{extension}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    parent.join(format!("{stem}-{}{}", std::process::id(), extension))
+}
+
+fn merge_agent_run_download_payload(
+    mut result: Value,
+    output: &Path,
+    bytes_written: usize,
+    content_type: String,
+) -> Value {
+    if let Value::Object(ref mut map) = result {
+        map.insert(
+            "download".to_string(),
+            json!({
+                "outputPath": output.display().to_string(),
+                "outputName": output_name(output),
+                "bytesWritten": bytes_written,
+                "contentType": content_type
+            }),
+        );
+    }
+    result
 }
 
 fn file_download(config: &BridgeConfig, args: FileDownloadArgs) -> Result<Value, CliError> {
@@ -1209,6 +1310,76 @@ mod tests {
                 "providerProfile": {}
             })
         );
+    }
+
+    #[test]
+    fn maps_workflow_agent_run_to_bridge_input() {
+        let input = workflow_agent_run_input(&WorkflowAgentRunArgs {
+            workflow: "topic-synthesis".to_string(),
+            items: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
+            none: false,
+            output_dir: None,
+        })
+        .unwrap();
+        assert_eq!(
+            input,
+            json!({
+                "workflowId": "topic-synthesis",
+                "selection": {
+                    "kind": "items",
+                    "items": [
+                        {
+                            "key": "ABC",
+                            "libraryId": 1
+                        }
+                    ]
+                },
+                "delivery": {
+                    "mode": "bundle"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_agent_run_none_selection() {
+        let input = workflow_agent_run_input(&WorkflowAgentRunArgs {
+            workflow: "global-workflow".to_string(),
+            items: None,
+            none: true,
+            output_dir: None,
+        })
+        .unwrap();
+        assert_eq!(
+            input,
+            json!({
+                "workflowId": "global-workflow",
+                "selection": {
+                    "kind": "none"
+                },
+                "delivery": {
+                    "mode": "bundle"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_agent_run_items_from_file() {
+        let path = std::env::temp_dir().join(format!(
+            "zotero-bridge-agent-run-items-{}.json",
+            std::process::id()
+        ));
+        fs::write(&path, "[{\"id\":123}]").unwrap();
+        let input = workflow_agent_run_input(&WorkflowAgentRunArgs {
+            workflow: "topic-synthesis".to_string(),
+            items: Some(format!("@{}", path.display())),
+            none: false,
+            output_dir: None,
+        })
+        .unwrap();
+        assert_eq!(input.pointer("/selection/items/0/id"), Some(&json!(123)));
+        let _ = fs::remove_file(path);
     }
 
     #[test]

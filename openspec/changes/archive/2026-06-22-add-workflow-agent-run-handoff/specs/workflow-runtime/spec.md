@@ -1,9 +1,4 @@
-# workflow-runtime Specification
-
-## Purpose
-Defines the workflow execution runtime behavior for sequence workflows, step handoff, and dynamic step resolution.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Hook-driven sequence workflows SHALL support declared candidate steps
 
@@ -33,15 +28,3 @@ Hook-driven sequence workflows SHALL be able to declare candidate steps in
   bindings as agent-readable context
 - **AND** Host Bridge SHALL NOT evaluate `include_if` or decide the executable
   sequence for the agent.
-
-### Requirement: Declared hook-driven sequence candidates SHALL be semantically checked
-
-The workflow loader SHALL validate declared candidate sequence steps for
-hook-driven sequence workflows when the manifest provides them.
-
-#### Scenario: Candidate step references are valid
-
-- **WHEN** a hook-driven sequence workflow declares candidate steps
-- **THEN** step ids SHALL be unique
-- **AND** any declared final step id SHALL match a candidate step
-- **AND** handoff source step references SHALL match candidate steps.

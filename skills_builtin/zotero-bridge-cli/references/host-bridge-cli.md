@@ -91,6 +91,7 @@ zotero-bridge file --help
 | `paper-artifacts resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
 | `insights attention-queue` | `insights.get_attention_queue` | capability | - |
 | `literature ingest` | `mutation.execute` | capability | - |
+| `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
 | `workflow run` | `GET /bridge/v1/workflows/runs/{runId}` | endpoint | - |
@@ -120,6 +121,8 @@ zotero-bridge file --help
 - `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use legacy `--input`.
 - Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.
 - Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.
+- Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
+- `workflow agent-run` is read-only: it does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task.
 
 ### Raw-only and debug capabilities
 

@@ -228,6 +228,8 @@ function workflowGuidance() {
     "- `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use legacy `--input`.",
     "- Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.",
     "- Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.",
+    "- Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.",
+    "- `workflow agent-run` is read-only: it does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task.",
   ].join("\n");
 }
 

@@ -195,6 +195,7 @@ fn bridge_error_from_value(status: u16, json: Value) -> CliError {
             crate::error::ErrorCategory::Download
         }
         "invalid_capability_input"
+        | "invalid_workflow_agent_run_request"
         | "invalid_workflow_input"
         | "invalid_workflow_submit_request"
         | "invalid_workflow_describe_request"
