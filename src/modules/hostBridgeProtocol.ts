@@ -108,6 +108,14 @@ export type HostBridgeStatusSnapshot = {
   lastError: string;
   requestCount: number;
   updatedAt: string;
+  routes?: {
+    hostBridge: string;
+    mcp?: string;
+  };
+  mcp?: {
+    enabled: boolean;
+    endpoint: string;
+  };
 };
 
 export type HostBridgeHealth = {
@@ -116,6 +124,14 @@ export type HostBridgeHealth = {
   bindMode: HostBridgeBindMode;
   lanEnabled: boolean;
   authRequired: true;
+  routes?: {
+    hostBridge: string;
+    mcp?: string;
+  };
+  mcp?: {
+    enabled: boolean;
+    endpoint: string;
+  };
 };
 
 export type HostBridgeApprovalRequirement = "none" | "zotero-ui-required";
@@ -190,6 +206,14 @@ export type HostBridgeManifest = {
     supportsRemoteClients?: boolean;
     arbitraryPathAllowed?: boolean;
     approvalRequired?: boolean;
+  };
+  routes?: {
+    hostBridge: string;
+    mcp?: string;
+  };
+  mcp?: {
+    enabled: boolean;
+    endpoint: string;
   };
   cli: {
     supported: true;

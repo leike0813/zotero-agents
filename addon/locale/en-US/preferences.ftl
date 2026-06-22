@@ -73,6 +73,7 @@ pref-host-bridge-copy-remote-profile =
     .label = Copy Remote CLI Profile
 pref-host-bridge-install-cli =
     .label = Install CLI
+pref-host-bridge-operation-notice = Operation notice:
 pref-host-bridge-status-idle = Host Bridge has not been started.
 pref-host-bridge-endpoint-empty = Endpoint is not available yet.
 pref-host-bridge-security-title = Security actions

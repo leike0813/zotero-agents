@@ -120,6 +120,7 @@ stages:
       - "`combine` 默认 `union`，用于扩大召回；需要收窄到同时满足多个 selector 类型时，显式使用 `combine: intersection`。"
       - "用 `resolver_reasoning` 说明为什么这个 resolver 能覆盖 topic 边界。"
       - "提交后由 runtime 写 resolver result、metrics、artifact manifests 和 workset。"
+      - "远程 SkillRunner profile 下，filtered artifact export 可能返回 `delivery.mode=\"bridge-download\"`；如果 submit 报 remote export delivery required，读取 `runtime/payloads/paper-artifacts-export-delivery.json`，执行其中的 `delivery.downloadCommand`，按 `delivery.unpackHint` 解包到 run workspace，再重新运行 gate/submit。"
     host_read_commands:
       - command: '<zotero-bridge> library-index get --input ''{"cursor":0,"limit":200}'''
         purpose: "读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。"
@@ -133,6 +134,7 @@ stages:
     quality_checks:
       - "resolver 要服务 topic 边界，而不是最大化召回所有相邻文献。"
       - "不要写 runtime 会生成的 resolver result、citation metrics 或 artifact manifest。"
+      - "不要手写或猜测下载包内的 paper artifact manifest；只使用 Host Bridge 返回的 `delivery.downloadCommand` 和 `unpackHint`。"
     common_pitfalls:
       - "不要把 paper title 列表伪造成 resolver output。"
       - "不要在 resolver stage 做 paper triage。"

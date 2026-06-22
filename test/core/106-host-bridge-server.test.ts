@@ -22,6 +22,10 @@ import {
 } from "../../src/modules/hostBridgeSkillRunnerEnv";
 import { detectHostBridgeAdvertisedHostForBackend } from "../../src/modules/hostBridgeAdvertisedHostDetection";
 import { HOST_BRIDGE_PROTOCOL_VERSION } from "../../src/modules/hostBridgeProtocol";
+import {
+  ensureZoteroMcpServer,
+  resetZoteroMcpServerForTests,
+} from "../../src/modules/zoteroMcpServer";
 import { getPref, setPref } from "../../src/utils/prefs";
 
 function parseRawHttpResponse(raw: string) {
@@ -83,6 +87,7 @@ function readTemporaryWellKnownProfile(root: string) {
 describe("host bridge server phase 1", function () {
   afterEach(function () {
     resetHostBridgeServerForTests();
+    resetZoteroMcpServerForTests();
     setPref("hostBridgeLanEnabled", false);
     setPref("hostBridgePinPortEnabled", false);
     setPref("hostBridgePinnedPort", 26570);
@@ -116,6 +121,35 @@ describe("host bridge server phase 1", function () {
     });
     assert.notInclude(parsed.body, token);
     assert.notInclude(parsed.body, "localPath");
+  });
+
+  it("serves MCP JSON-RPC on the unified Host Access listener", async function () {
+    setPref("hostBridgeToken", "shared-host-access-token");
+    const token = configureHostBridgeServerForTests({
+      token: "shared-host-access-token",
+      endpoint: "http://127.0.0.1:26570/bridge/v1",
+    });
+
+    const parsed = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/mcp",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "tools",
+          method: "tools/list",
+          params: {},
+        }),
+      }),
+    );
+
+    assert.strictEqual(parsed.status, 200);
+    assert.isArray(parsed.json.result.tools);
+    assert.include(getHostBridgeServerStatus().mcp?.endpoint || "", "/mcp");
   });
 
   it("requires bearer auth for manifest", async function () {
@@ -302,6 +336,22 @@ describe("host bridge server phase 1", function () {
     assert.deepEqual(listened, [27654]);
   });
 
+  it("uses the Host Access port for the MCP descriptor", async function () {
+    setPref("mcpServer.enabled", true);
+    setPref("hostBridgePinPortEnabled", true);
+    setPref("hostBridgePinnedPort", 27657);
+    hostBridgeServerInternalsForTests.setServerSocketFactory(() => ({
+      asyncListen: () => undefined,
+      close: () => undefined,
+    }));
+
+    const bridge = await restartHostBridgeServer();
+    const descriptor = await ensureZoteroMcpServer();
+
+    assert.strictEqual(bridge.port, 27657);
+    assert.strictEqual(descriptor.url, "http://127.0.0.1:27657/mcp");
+  });
+
   it("forces a fixed port for LAN mode and exposes remote endpoint hints", async function () {
     const listened: Array<{ port: number; bindMode: string }> = [];
     setPref("hostBridgeLanEnabled", true);
@@ -331,6 +381,8 @@ describe("host bridge server phase 1", function () {
     );
     assert.isFalse(status.remoteEndpointUsesPlaceholder);
     assert.deepEqual(listened, [{ port: 27655, bindMode: "lan" }]);
+    const descriptor = await ensureZoteroMcpServer();
+    assert.strictEqual(descriptor.url, "http://192.0.2.25:27655/mcp");
 
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
@@ -349,6 +401,10 @@ describe("host bridge server phase 1", function () {
     assert.strictEqual(
       manifest.json.result.endpoint.remoteUrl,
       "http://192.0.2.25:27655/bridge/v1",
+    );
+    assert.strictEqual(
+      manifest.json.result.mcp.endpoint,
+      "http://192.0.2.25:27655/mcp",
     );
   });
 

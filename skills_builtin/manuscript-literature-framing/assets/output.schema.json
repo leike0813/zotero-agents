@@ -9,47 +9,24 @@
       "type": "object",
       "required": [
         "kind",
-        "status",
         "title",
         "language",
-        "assets",
-        "topic_ids",
-        "diagnostics_summary"
+        "artifact_manifest_path"
       ],
       "properties": {
         "kind": { "const": "writing.manuscript_literature_framing" },
-        "status": { "const": "completed" },
         "title": { "type": "string", "minLength": 1 },
         "language": { "type": "string", "minLength": 1 },
-        "assets": {
-          "type": "object",
-          "required": [
-            "introduction_tex",
-            "related_work_tex",
-            "intent_brief",
-            "evidence_inventory",
-            "framing_analysis",
-            "writing_plan",
-            "citation_map",
-            "diagnostics"
-          ],
-          "properties": {
-            "introduction_tex": { "type": "string", "minLength": 1 },
-            "related_work_tex": { "type": "string", "minLength": 1 },
-            "intent_brief": { "type": "string", "minLength": 1 },
-            "evidence_inventory": { "type": "string", "minLength": 1 },
-            "framing_analysis": { "type": "string", "minLength": 1 },
-            "writing_plan": { "type": "string", "minLength": 1 },
-            "citation_map": { "type": "string", "minLength": 1 },
-            "diagnostics": { "type": "string", "minLength": 1 }
-          },
-          "additionalProperties": true
-        },
         "topic_ids": {
           "type": "array",
           "items": { "type": "string" }
         },
-        "diagnostics_summary": { "type": "object" }
+        "artifact_manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact-manifest",
+          "x-role": "artifact-manifest"
+        }
       }
     },
     {

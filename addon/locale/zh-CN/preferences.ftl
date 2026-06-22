@@ -73,6 +73,7 @@ pref-host-bridge-copy-remote-profile =
     .label = 复制远程 CLI Profile
 pref-host-bridge-install-cli =
     .label = 安装 CLI
+pref-host-bridge-operation-notice = 操作提示：
 pref-host-bridge-status-idle = Host Bridge 尚未启动。
 pref-host-bridge-endpoint-empty = Endpoint 尚不可用。
 pref-host-bridge-security-title = 安全操作

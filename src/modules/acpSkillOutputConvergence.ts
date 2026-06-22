@@ -116,6 +116,8 @@ export async function convergeAcpSkillTurnOutput(args: {
   executionMode?: string;
   runnerJson: Record<string, unknown>;
   primarySkillDir: string;
+  workspaceDir?: string;
+  readArtifactText?: (path: string) => Promise<string> | string;
 }): Promise<AcpSkillOutputConvergenceResult> {
   const executionMode = normalizeExecutionMode(args.executionMode, args.runnerJson);
   const extracted = extractAcpSkillTurnJsonCandidate(args.assistantText);
@@ -171,6 +173,8 @@ export async function convergeAcpSkillTurnOutput(args: {
     payload: finalPayload,
     runnerJson: args.runnerJson,
     primarySkillDir: args.primarySkillDir,
+    workspaceDir: args.workspaceDir,
+    readArtifactText: args.readArtifactText,
   });
   if (!validation.ok || !isRecord(validation.resultJson)) {
     return {

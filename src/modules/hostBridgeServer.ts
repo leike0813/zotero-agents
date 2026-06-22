@@ -278,6 +278,28 @@ function buildLocalClientEndpoint(bindMode: HostBridgeBindMode, port: number) {
   return buildLocalProfileEndpoint(bindMode, port);
 }
 
+function hostAccessRoutes(bindMode = state.bindMode, port = state.port) {
+  const hostBridge = buildLocalClientEndpoint(bindMode, port) || state.endpoint;
+  const mcpBridgeEndpoint =
+    bindMode === "lan"
+      ? buildRemoteEndpoint(port) || hostBridge
+      : hostBridge;
+  const mcp = String(mcpBridgeEndpoint || "").replace(
+    /\/bridge\/v1\/?$/,
+    "/mcp",
+  );
+  return {
+    routes: {
+      hostBridge,
+      mcp,
+    },
+    mcp: {
+      enabled: getPref("mcpServer.enabled") !== false,
+      endpoint: mcp,
+    },
+  };
+}
+
 function getComponents() {
   return (
     (globalThis as any).Components ||
@@ -1060,6 +1082,10 @@ function isBridgePath(path: string) {
   return path === "/bridge/v1" || path.startsWith("/bridge/v1/");
 }
 
+function isMcpPath(path: string) {
+  return path === "/mcp" || path === "/mcp/";
+}
+
 function response(
   status: number,
   reason: string,
@@ -1084,6 +1110,7 @@ function health(): HostBridgeHealth {
     bindMode: state.bindMode,
     lanEnabled: state.lanEnabled,
     authRequired: true,
+    ...hostAccessRoutes(),
   };
 }
 
@@ -1109,6 +1136,7 @@ function manifest(): HostBridgeManifest {
     fileDownloads: {
       ...getHostBridgeFileDownloadManifest(),
     },
+    ...hostAccessRoutes(),
     cli: {
       supported: true,
       schema: "zotero-bridge.cli.v1",
@@ -1569,6 +1597,13 @@ async function handleHttpRequest(request: HttpRequest) {
     );
   }
 
+  if (isMcpPath(request.path)) {
+    const { handleZoteroMcpHostAccessRequest } = await import(
+      "./zoteroMcpServer"
+    );
+    return handleZoteroMcpHostAccessRequest(request);
+  }
+
   if (!isBridgePath(request.path)) {
     return response(
       404,
@@ -1965,6 +2000,7 @@ export function getHostBridgeServerStatus(): HostBridgeStatusSnapshot {
   const remoteEndpoint = buildRemoteEndpoint(state.port || getPinnedPort());
   const localEndpoint =
     buildLocalClientEndpoint(state.bindMode, state.port) || state.endpoint;
+  const accessRoutes = hostAccessRoutes(state.bindMode, state.port);
   return {
     status: state.status,
     protocol: HOST_BRIDGE_PROTOCOL_VERSION,
@@ -1999,6 +2035,7 @@ export function getHostBridgeServerStatus(): HostBridgeStatusSnapshot {
     lastError: state.lastError,
     requestCount: state.requestCount,
     updatedAt: state.updatedAt,
+    ...accessRoutes,
   };
 }
 

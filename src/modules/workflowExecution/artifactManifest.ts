@@ -18,14 +18,30 @@ function cleanString(value: unknown) {
   return String(value || "").trim();
 }
 
-function isWorkspaceRelativePath(value: string) {
+function isAbsolutePath(value: string) {
   const normalized = cleanString(value).replace(/\\/g, "/");
-  return (
-    Boolean(normalized) &&
-    !/^[A-Za-z]:\//.test(normalized) &&
-    !normalized.startsWith("/") &&
-    !normalized.split("/").some((segment) => segment === "..")
-  );
+  return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/");
+}
+
+function isAllowedArtifactPath(
+  value: string,
+  options?: { allowAbsolutePaths?: boolean },
+) {
+  const normalized = cleanString(value).replace(/\\/g, "/");
+  if (
+    !normalized ||
+    normalized.split("/").some((segment) => segment === "..") ||
+    /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(normalized)
+  ) {
+    return false;
+  }
+  if (isAbsolutePath(normalized)) {
+    return options?.allowAbsolutePaths === true;
+  }
+  if (/^[A-Za-z]:($|[^/])/.test(normalized)) {
+    return false;
+  }
+  return true;
 }
 
 function collectFromSchemaNode(
@@ -37,14 +53,18 @@ function collectFromSchemaNode(
   }
   const properties = isRecord(schema.properties) ? schema.properties : {};
   for (const [name, property] of Object.entries(properties)) {
-    if (!isRecord(property) || property["x-type"] !== "artifact") {
+    if (!isRecord(property)) {
+      continue;
+    }
+    const xType = cleanString(property["x-type"]);
+    if (xType !== "artifact" && xType !== "artifact-manifest") {
       continue;
     }
     const role = cleanString(property["x-role"]);
     fields.set(name, {
       name,
       role,
-      isManifest: role === "artifact-manifest",
+      isManifest: xType === "artifact-manifest",
     });
   }
   for (const branch of [
@@ -68,6 +88,7 @@ export function collectOutputArtifactFields(
 
 export function validateFlatArtifactManifest(
   value: unknown,
+  options?: { allowAbsolutePaths?: boolean },
 ): { ok: true; paths: string[] } | { ok: false; diagnostics: ArtifactManifestDiagnostic[] } {
   if (!isRecord(value)) {
     return {
@@ -83,10 +104,15 @@ export function validateFlatArtifactManifest(
   const diagnostics: ArtifactManifestDiagnostic[] = [];
   const paths: string[] = [];
   for (const [key, pathValue] of Object.entries(value)) {
-    if (typeof pathValue !== "string" || !isWorkspaceRelativePath(pathValue)) {
+    if (
+      typeof pathValue !== "string" ||
+      !isAllowedArtifactPath(pathValue, options)
+    ) {
       diagnostics.push({
         code: "artifact_manifest_invalid_path",
-        message: `Artifact manifest entry ${key} must be a workspace-relative path string.`,
+        message: options?.allowAbsolutePaths
+          ? `Artifact manifest entry ${key} must be a safe path string.`
+          : `Artifact manifest entry ${key} must be a workspace-relative path string.`,
         path: key,
       });
       continue;
@@ -100,6 +126,7 @@ export async function collectOutputBundleArtifactPaths(args: {
   output: unknown;
   outputSchema: unknown;
   readArtifactText: (path: string) => Promise<string> | string;
+  allowAbsolutePaths?: boolean;
 }) {
   if (!isRecord(args.output)) {
     return {
@@ -120,10 +147,14 @@ export async function collectOutputBundleArtifactPaths(args: {
     if (!pathValue) {
       continue;
     }
-    if (!isWorkspaceRelativePath(pathValue)) {
+    if (!isAllowedArtifactPath(pathValue, {
+      allowAbsolutePaths: args.allowAbsolutePaths,
+    })) {
       diagnostics.push({
         code: "artifact_path_invalid",
-        message: `${field.name} must be a workspace-relative path string.`,
+        message: args.allowAbsolutePaths
+          ? `${field.name} must be a safe path string.`
+          : `${field.name} must be a workspace-relative path string.`,
         path: field.name,
       });
       continue;
@@ -143,9 +174,16 @@ export async function collectOutputBundleArtifactPaths(args: {
       });
       continue;
     }
-    const validation = validateFlatArtifactManifest(manifest);
+    const validation = validateFlatArtifactManifest(manifest, {
+      allowAbsolutePaths: args.allowAbsolutePaths,
+    });
     if (!validation.ok) {
-      diagnostics.push(...validation.diagnostics);
+      diagnostics.push(
+        ...validation.diagnostics.map((entry) => ({
+          ...entry,
+          path: [field.name, entry.path].filter(Boolean).join("."),
+        })),
+      );
       continue;
     }
     for (const entryPath of validation.paths) {

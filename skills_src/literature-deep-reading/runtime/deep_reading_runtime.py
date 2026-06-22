@@ -106,6 +106,10 @@ PREFACE_SLOT_DEFINITIONS = [
 ]
 
 
+class RemoteBridgeDownloadRequired(RuntimeError):
+    pass
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -1686,6 +1690,19 @@ def artifact_bundle_destination(entry: dict[str, Any]) -> str:
     return ""
 
 
+def resolve_run_artifact_path(run_root: Path, raw_path: str) -> Path:
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        candidate = run_root / candidate
+    resolved = candidate.resolve()
+    root = run_root.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"artifact path is outside run root: {raw_path}") from exc
+    return resolved
+
+
 def export_manifest_path(run_root: Path, export_data: dict[str, Any]) -> Path | None:
     raw_path = first_text(
         export_data.get("manifestPath"),
@@ -1695,10 +1712,7 @@ def export_manifest_path(run_root: Path, export_data: dict[str, Any]) -> Path | 
     )
     if not raw_path:
         return None
-    candidate = Path(raw_path)
-    if not candidate.is_absolute():
-        candidate = run_root / candidate
-    return candidate
+    return resolve_run_artifact_path(run_root, raw_path)
 
 
 def load_export_manifest(run_root: Path, export_data: dict[str, Any]) -> dict[str, Any]:
@@ -1727,6 +1741,63 @@ def export_manifest_artifacts(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 normalized["paper_ref"] = paper_ref
             artifacts.append(normalized)
     return artifacts
+
+
+def remote_export_delivery_message(run_root: Path, delivery_name: str, artifact_data: dict[str, Any]) -> str:
+    delivery_path = run_root / PAYLOADS_DIR / delivery_name
+    delivery = artifact_data.get("delivery") if isinstance(artifact_data.get("delivery"), dict) else {}
+    download_command = clean_text(delivery.get("downloadCommand"))
+    unpack_hint = clean_text(delivery.get("unpackHint"))
+    manifest_file = first_text(
+        artifact_data.get("manifest_file"),
+        artifact_data.get("manifestFile"),
+        artifact_data.get("manifest_path"),
+        artifact_data.get("manifestPath"),
+        delivery.get("manifest_file"),
+        delivery.get("manifestFile"),
+    )
+    instructions = [
+        "paper-artifacts export-filtered returned a remote bridge-download bundle",
+        f"delivery details were written to {normalize_posix(delivery_path)}",
+    ]
+    if download_command:
+        instructions.append(f"run delivery.downloadCommand: {download_command}")
+    if unpack_hint:
+        instructions.append(f"then run delivery.unpackHint: {unpack_hint}")
+    if manifest_file:
+        instructions.append(f"manifest_file inside the unpacked bundle: {manifest_file}")
+    instructions.append("after downloading and unpacking into the run workspace, rerun the same runtime command")
+    return "; ".join(instructions)
+
+
+def cached_remote_export_data(run_root: Path, delivery_name: str) -> dict[str, Any] | None:
+    delivery_path = run_root / PAYLOADS_DIR / delivery_name
+    cached = read_json(delivery_path, {})
+    if not isinstance(cached, dict) or not isinstance(cached.get("export_data"), dict):
+        return None
+    export_data = cached["export_data"]
+    manifest_file = export_manifest_path(run_root, export_data)
+    if manifest_file and manifest_file.exists():
+        return export_data
+    raise RemoteBridgeDownloadRequired(remote_export_delivery_message(run_root, delivery_name, export_data))
+
+
+def export_filtered_paper_artifacts(run_root: Path, payload: dict[str, Any], input_name: str, delivery_name: str) -> dict[str, Any]:
+    cached = cached_remote_export_data(run_root, delivery_name)
+    if cached is not None:
+        return cached
+    export_output = run_bridge_json(
+        run_root,
+        ["paper-artifacts", "export-filtered"],
+        payload,
+        input_name,
+    )
+    export_data = unwrap_bridge_data(export_output)
+    delivery = export_data.get("delivery") if isinstance(export_data.get("delivery"), dict) else {}
+    if clean_text(delivery.get("mode")) == "bridge-download":
+        write_json(run_root / PAYLOADS_DIR / delivery_name, {"delivery": delivery, "export_data": export_data})
+        raise RemoteBridgeDownloadRequired(remote_export_delivery_message(run_root, delivery_name, export_data))
+    return export_data
 
 
 def copy_exported_target_artifacts(run_root: Path, target_paper_ref: str, export_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1759,9 +1830,7 @@ def copy_exported_target_artifacts(run_root: Path, target_paper_ref: str, export
                 }
             )
             continue
-        source_path = Path(content_file)
-        if not source_path.is_absolute():
-            source_path = run_root / content_file
+        source_path = resolve_run_artifact_path(run_root, content_file)
         destination_path = SOURCE_DIR / destination
         if not source_path.exists() or source_path.stat().st_size <= 0:
             exported.append(
@@ -2011,15 +2080,16 @@ def run_host_preflight(run_root: Path, diagnostics: list[dict[str, Any]]) -> dic
             "bootstrap-paper-artifacts-manifest-input.json",
         )
         result["paper_artifacts_manifest"] = unwrap_bridge_data(manifest_output)
-        export_output = run_bridge_json(
+        export_data = export_filtered_paper_artifacts(
             run_root,
-            ["paper-artifacts", "export-filtered"],
             {"run_root": str(run_root), "paper_refs": [target["paper_ref"]], "artifact_types": ["digest", "references", "citation_analysis"]},
             "bootstrap-paper-artifacts-export-input.json",
+            "bootstrap-paper-artifacts-export-delivery.json",
         )
-        export_data = unwrap_bridge_data(export_output)
         result["paper_artifacts_export"] = export_data
         result["exported_target_artifacts"] = copy_exported_target_artifacts(run_root, target["paper_ref"], export_data)
+    except RemoteBridgeDownloadRequired:
+        raise
     except Exception as exc:  # noqa: BLE001
         diagnostic = {"severity": "warning", "code": "host_preflight_artifact_export_failed", "message": str(exc)}
         preflight_diagnostics.append(diagnostic)
@@ -3049,12 +3119,10 @@ def normalize_exported_digest_items(run_root: Path, bindings: list[dict[str, Any
         content_file = first_text(artifact.get("content_file"), artifact.get("contentFile"), artifact.get("path"), artifact.get("payload_path"))
         candidate: Path | None = None
         if content_file:
-            candidate = Path(content_file)
-            if not candidate.is_absolute():
-                candidate = run_root / content_file
+            candidate = resolve_run_artifact_path(run_root, content_file)
         elif target_dir:
             safe_ref = re.sub(r"[^A-Za-z0-9_.-]+", "_", paper_ref)
-            candidate = run_root / target_dir / safe_ref / "digest.md"
+            candidate = resolve_run_artifact_path(run_root, str(Path(target_dir) / safe_ref / "digest.md"))
         markdown = ""
         status = "missing"
         bytes_value = 0
@@ -3118,13 +3186,12 @@ def collect_reference_digests(context: dict[str, Any], run_root: Path, bindings:
             {"paper_refs": paper_refs, "artifact_types": ["digest"]},
             "paper-artifacts-manifest-input.json",
         )
-        export_output = run_bridge_json(
+        export_data = export_filtered_paper_artifacts(
             run_root,
-            ["paper-artifacts", "export-filtered"],
             {"run_root": str(run_root), "paper_refs": paper_refs, "artifact_types": ["digest"]},
             "paper-artifacts-export-input.json",
+            "reference-digests-paper-artifacts-export-delivery.json",
         )
-        export_data = unwrap_bridge_data(export_output)
         items = normalize_exported_digest_items(run_root, selected, export_data, diagnostics)
         return {
             "schema_version": "literature-deep-reading.reference-digests-view.v0",
@@ -3134,6 +3201,8 @@ def collect_reference_digests(context: dict[str, Any], run_root: Path, bindings:
             "items": items,
             "diagnostics": [],
         }
+    except RemoteBridgeDownloadRequired:
+        raise
     except Exception as exc:  # noqa: BLE001
         diagnostics.append({"severity": "warning", "code": "reference_digest_collection_failed", "message": str(exc)})
         return {

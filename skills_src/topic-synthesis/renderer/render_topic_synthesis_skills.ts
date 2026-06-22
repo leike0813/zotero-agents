@@ -119,6 +119,7 @@ function skillQualityGoals(skill: SkillContract): string {
       "topic intent 必须把 seed 转成稳定 topic identity：标题、别名、定义、纳入/排除范围都要能指导 resolver。",
       "duplicate check 只基于 Host topic list 中现有 topic 的 title、description、aliases 和 id，不能把宽泛相关主题误判为同一主题。",
       "resolver proposal 要可复现、边界清楚；runtime 负责执行 `resolvers resolve`、citation metrics 和 filtered artifact export，LLM 不手写 resolver result。",
+      "远程 SkillRunner profile 下 filtered artifact export 可能返回 bridge-download；按 runtime 写出的 `runtime/payloads/paper-artifacts-export-delivery.json` 执行 downloadCommand/unpackHint 后再继续。",
       "paper triage 必须保持 paper-local，为每篇 resolved paper 给出 relevance、quality、core_digest 和 caveats，不提前写跨文献综合。",
     ],
     "update-topic-synthesis-prepare": [
@@ -158,6 +159,7 @@ function llmRuntimeBoundary(skill: SkillContract): {
       runtime: [
         "初始化 SQLite 和 stage state。",
         "执行 resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。",
+        "远程 Host Bridge export 返回 bridge-download 时，写出 `runtime/payloads/paper-artifacts-export-delivery.json` 并要求 agent 执行 downloadCommand/unpackHint。",
         "校验 create topic context、resolver proposal 和 paper triage payload。",
         "生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff。",
       ],
@@ -172,6 +174,7 @@ function llmRuntimeBoundary(skill: SkillContract): {
         "初始化或校验 SQLite 和 stage state。",
         "执行 update preflight：get-context digest/audit、baseline resolver resolve 和 audit report 生成。",
         "校验 resolver proposal 只新增内容，并执行 updated resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。",
+        "远程 Host Bridge export 返回 bridge-download 时，写出 `runtime/payloads/paper-artifacts-export-delivery.json` 并要求 agent 执行 downloadCommand/unpackHint。",
         "校验 paper triage payload，合并已保存 triage 和新增 triage。",
         "生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff。",
       ],
@@ -210,14 +213,12 @@ function llmRuntimeBoundary(skill: SkillContract): {
 function renderStageSequence(stage: StageContract): string[] {
   const lines = ["本 stage 精确执行序列：", ""];
   lines.push(
-    '1. 在 ACP run workspace 中运行 gate：`python scripts/gate.py --db "runtime/topic-synthesis.sqlite"`。',
+    "1. 在运行器提供的 run workspace 中启动 gate；不要 `cd` 到 skill package，不要自行拼接 `runtime/topic-synthesis.sqlite`。",
   );
   lines.push(`2. 确认 gate JSON 的 \`stage\` 是 \`${stage.id}\`。`);
   if (stage.kind === "command") {
     lines.push("3. 确认 `needs_payload` 是 `false`。");
-    lines.push(
-      '4. 复制并执行 gate JSON 的 `command` 字段；等价模板是 `python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action run`。',
-    );
+    lines.push("4. 复制并执行 gate JSON 的 `command` 字段。");
     lines.push("5. command 成功后，立刻重新运行 gate，读取下一条指令。");
     return lines;
   }
@@ -229,9 +230,7 @@ function renderStageSequence(stage: StageContract): string[] {
   lines.push(
     `6. 手写且只手写 \`${stage.payload_path || "<payload_path>"}\`；不要写 runtime-owned 文件。`,
   );
-  lines.push(
-    '7. 复制并执行 gate JSON 的 `submit_command`；等价模板是 `python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --payload "<payload_path>"`。',
-  );
+  lines.push("7. 复制并执行 gate JSON 的 `submit_command`。");
   lines.push("8. submit 成功后，立刻重新运行 gate，读取下一条指令。");
   return lines;
 }
@@ -627,8 +626,18 @@ function handoffOutputSchema(skill: SkillContract): Record<string, unknown> {
           kind: { const: "topic_synthesis_handoff" },
           handoff: { const: skill.handoff },
           operation: operationSchemaForSkill(skill),
-          db_path: { const: "runtime/topic-synthesis.sqlite" },
-          handoff_manifest_path: { type: "string", minLength: 1 },
+          db_path: {
+            type: "string",
+            minLength: 1,
+            "x-type": "artifact",
+            "x-role": "runtime-state-db",
+          },
+          handoff_manifest_path: {
+            type: "string",
+            minLength: 1,
+            "x-type": "artifact-manifest",
+            "x-role": "artifact-manifest",
+          },
           next_skill_id: skill.next_skill_id
             ? { const: skill.next_skill_id }
             : { type: "string" },
@@ -690,7 +699,7 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
           artifact_manifest_path: {
             type: "string",
             minLength: 1,
-            "x-type": "artifact",
+            "x-type": "artifact-manifest",
             "x-role": "artifact-manifest",
           },
         },
@@ -730,7 +739,7 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
           artifact_manifest_path: {
             type: "string",
             minLength: 1,
-            "x-type": "artifact",
+            "x-type": "artifact-manifest",
             "x-role": "artifact-manifest",
           },
         },

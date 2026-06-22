@@ -23,8 +23,18 @@
     "language": {
       "type": "string",
       "title": "Language",
-      "description": "Output language, such as auto, zh-CN, or en-US.",
-      "default": "auto"
+      "enum": [
+        "zh-CN",
+        "en-US",
+        "ja-JP",
+        "ko-KR",
+        "de-DE",
+        "fr-FR",
+        "es-ES",
+        "ru-RU"
+      ],
+      "allowCustom": true,
+      "default": "zh-CN"
     }
   },
   "request": {

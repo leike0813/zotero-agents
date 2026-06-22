@@ -332,6 +332,80 @@ async function readRuntimeView(runRoot: string, fileName: string) {
   );
 }
 
+async function writeRemotePaperArtifactsManifest(
+  runRoot: string,
+  manifestPath: string,
+  paperRefs: string[],
+  artifactTypes: string[],
+) {
+  const papers = [];
+  for (const paperRef of paperRefs) {
+    const safe = paperRef.replace(/[^A-Za-z0-9_.-]+/g, "_");
+    const artifactDir = path.join(
+      runRoot,
+      "runtime",
+      "payloads",
+      "remote-artifacts",
+      safe,
+    );
+    await fs.mkdir(artifactDir, { recursive: true });
+    const artifacts = [];
+    for (const type of artifactTypes) {
+      if (type === "digest") {
+        const contentFile = `runtime/payloads/remote-artifacts/${safe}/digest.md`;
+        await fs.writeFile(
+          path.join(runRoot, contentFile),
+          `# Remote digest for ${paperRef}\n`,
+          "utf8",
+        );
+        artifacts.push({
+          artifact_type: "digest",
+          payload_type: "digest-markdown",
+          content_file: contentFile,
+          status: "available",
+        });
+      } else if (type === "references") {
+        const contentFile = `runtime/payloads/remote-artifacts/${safe}/references.json`;
+        await fs.writeFile(
+          path.join(runRoot, contentFile),
+          JSON.stringify({
+            references: [{ id: "ref-remote", title: "Remote Reference" }],
+          }),
+          "utf8",
+        );
+        artifacts.push({
+          artifact_type: "references",
+          payload_type: "references-json",
+          content_file: contentFile,
+          status: "available",
+        });
+      } else if (type === "citation_analysis") {
+        const contentFile = `runtime/payloads/remote-artifacts/${safe}/citation-analysis.md`;
+        await fs.writeFile(
+          path.join(runRoot, contentFile),
+          `# Remote citation analysis for ${paperRef}\n`,
+          "utf8",
+        );
+        artifacts.push({
+          artifact_type: "citation_analysis",
+          payload_type: "citation-analysis-markdown",
+          content_file: contentFile,
+          status: "available",
+        });
+      }
+    }
+    papers.push({ paper_ref: paperRef, artifacts, diagnostics: [] });
+  }
+  await fs.mkdir(path.dirname(path.join(runRoot, manifestPath)), {
+    recursive: true,
+  });
+  await fs.writeFile(
+    path.join(runRoot, manifestPath),
+    JSON.stringify({ papers }, null, 2),
+    "utf8",
+  );
+}
+
 function sampleTranslatorAlignment() {
   return {
     format: "v1",
@@ -669,6 +743,7 @@ async function installFakeBridge(
   options?: {
     layoutStatus?: string;
     exportTargetArtifacts?: boolean;
+    remoteExportFiltered?: "bootstrap" | "referenceDigests";
     topicCandidates?: Array<Record<string, unknown>>;
   },
 ) {
@@ -694,6 +769,7 @@ function reply(result) {
   console.log(JSON.stringify({ ok: true, data: { result } }));
 }
 const exportTargetArtifacts = ${JSON.stringify(options?.exportTargetArtifacts !== false)};
+const remoteExportFiltered = ${JSON.stringify(options?.remoteExportFiltered || "")};
 const topicCandidates = ${JSON.stringify(
       options?.topicCandidates || [
         {
@@ -816,12 +892,30 @@ if (command === "reference-index get") {
 } else if (command === "paper-artifacts export-filtered") {
   const targetDir = "runtime/payloads/artifacts";
   const manifestFile = "runtime/payloads/paper-artifacts-manifest.json";
+  const types = input.artifact_types || ["digest"];
+  const exportPhase = types.includes("references") || types.includes("citation_analysis") || types.includes("citation-analysis") ? "bootstrap" : "referenceDigests";
+  if (remoteExportFiltered === exportPhase) {
+    const remoteManifestFile = exportPhase === "bootstrap"
+      ? "runtime/payloads/remote-bootstrap-paper-artifacts-manifest.json"
+      : "runtime/payloads/remote-reference-digests-paper-artifacts-manifest.json";
+    reply({
+      exported: 0,
+      manifest_file: remoteManifestFile,
+      delivery: {
+        mode: "bridge-download",
+        downloadCommand: "zotero-bridge file download file-remote-artifacts --output paper-artifacts.zip",
+        unpackHint: "unzip paper-artifacts.zip -d .",
+        manifest_file: remoteManifestFile
+      },
+      diagnostics: []
+    });
+    return;
+  }
   const papers = [];
   for (const paperRef of input.paper_refs) {
     const safe = paperRef.replace(/[^A-Za-z0-9_.-]+/g, "_");
     const dir = path.resolve(process.cwd(), targetDir, safe);
     fs.mkdirSync(dir, { recursive: true });
-    const types = input.artifact_types || ["digest"];
     const artifacts = [];
     for (const type of types) {
       if (type === "digest") {
@@ -1490,6 +1584,85 @@ describe("Literature deep reading bootstrap skill", function () {
         (item: Record<string, unknown>) =>
           typeof item.raw_markdown === "string",
       ),
+    );
+  });
+
+  it("stops bootstrap on remote paper artifact export until the bridge bundle is unpacked", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-bootstrap-remote-export-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+    await installFakeBridge(runRoot, { remoteExportFiltered: "bootstrap" });
+
+    const blocked = runRuntimeAllowFailure(
+      ["bootstrap", "--input", "runtime/input.json"],
+      runRoot,
+    );
+    assert.equal(blocked.exitCode, 1);
+    assert.equal(blocked.output.status, "failed");
+    assert.include(
+      blocked.output.error.message,
+      "remote bridge-download bundle",
+    );
+    assert.include(
+      blocked.output.error.message,
+      "bootstrap-paper-artifacts-export-delivery.json",
+    );
+    const delivery = JSON.parse(
+      await fs.readFile(
+        path.join(
+          runRoot,
+          "runtime",
+          "payloads",
+          "bootstrap-paper-artifacts-export-delivery.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.equal(delivery.delivery.mode, "bridge-download");
+    assert.include(delivery.delivery.downloadCommand, "zotero-bridge file download");
+
+    await writeRemotePaperArtifactsManifest(
+      runRoot,
+      "runtime/payloads/remote-bootstrap-paper-artifacts-manifest.json",
+      ["1:EIMSDEU3"],
+      ["digest", "references", "citation_analysis"],
+    );
+    const bootstrap = runRuntime(
+      ["bootstrap", "--input", "runtime/input.json"],
+      runRoot,
+    );
+    assert.equal(bootstrap.kind, "literature_deep_reading_bootstrap");
+    const preflight = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "host-preflight-view.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(preflight.exported_target_artifacts.length, 3);
+    assert.isTrue(
+      preflight.exported_target_artifacts.every(
+        (item: Record<string, unknown>) => item.status === "available",
+      ),
+    );
+    const calls = (
+      await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.equal(
+      calls.filter(
+        (entry) => entry.command === "paper-artifacts export-filtered",
+      ).length,
+      1,
     );
   });
 
@@ -2513,6 +2686,92 @@ describe("Literature deep reading bootstrap skill", function () {
         (item: Record<string, unknown>) =>
           item.label === "DETR" && item.status === "resolved_by_host",
       ),
+    );
+  });
+
+  it("stops context collection on remote reference digest export until the bridge bundle is unpacked", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "deep-reading-context-remote-export-"),
+    );
+    const bundlePath = await makeSourceBundle(tempRoot);
+    const runRoot = path.join(tempRoot, "run");
+    await fs.mkdir(path.join(runRoot, "runtime"), { recursive: true });
+    await fs.writeFile(
+      path.join(runRoot, "runtime", "input.json"),
+      JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
+      "utf8",
+    );
+    await installFakeBridge(runRoot, {
+      remoteExportFiltered: "referenceDigests",
+    });
+    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    await writeContextRequest(runRoot);
+
+    const blocked = runRuntimeAllowFailure(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+    assert.equal(blocked.exitCode, 1);
+    assert.equal(blocked.output.status, "failed");
+    assert.include(
+      blocked.output.error.message,
+      "remote bridge-download bundle",
+    );
+    assert.include(
+      blocked.output.error.message,
+      "reference-digests-paper-artifacts-export-delivery.json",
+    );
+    const delivery = JSON.parse(
+      await fs.readFile(
+        path.join(
+          runRoot,
+          "runtime",
+          "payloads",
+          "reference-digests-paper-artifacts-export-delivery.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.equal(delivery.delivery.mode, "bridge-download");
+
+    await writeRemotePaperArtifactsManifest(
+      runRoot,
+      "runtime/payloads/remote-reference-digests-paper-artifacts-manifest.json",
+      ["1:A", "1:B", "1:EIMSDEU3"],
+      ["digest"],
+    );
+    const result = runRuntime(
+      [
+        "submit-context-request",
+        "--payload",
+        "runtime/payloads/context-request.json",
+      ],
+      runRoot,
+    );
+    assert.equal(result.kind, "literature_deep_reading_context_ready");
+    const digests = JSON.parse(
+      await fs.readFile(
+        path.join(runRoot, "runtime", "views", "reference-digests-view.json"),
+        "utf8",
+      ),
+    );
+    assert.isAtLeast(digests.items.length, 3);
+    assert.equal(digests.source, "host_paper_artifacts");
+    const calls = (
+      await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
+    )
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.equal(
+      calls.filter(
+        (entry) => entry.command === "paper-artifacts export-filtered",
+      ).length,
+      2,
     );
   });
 

@@ -42,6 +42,7 @@ import {
 } from "./hostBridgeCliInjection";
 import {
   createAcpSkillRunnerWorkspace,
+  registerAcpWorkflowWorkspaceForReuse,
   writeAcpSkillRunnerInputManifest,
   type AcpSkillRunnerWorkspace,
 } from "./acpSkillRunnerWorkspace";
@@ -92,6 +93,10 @@ import {
   setAcpSkillRunRuntimeOptions,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
+import {
+  requestAcpSkillRunForeground,
+  type AcpSkillRunForegroundDeps,
+} from "./acpSkillRunForeground";
 import { resolveAcpRawModelIdForSelection } from "./acpModelOptionFolding";
 import {
   listWorkflowTasks,
@@ -147,6 +152,7 @@ export type AcpSkillRunnerDependencies = {
     requestId: string;
     autoApproveWrites?: boolean;
   }) => Promise<HostBridgeCliRunInjection>;
+  acpSkillRunForeground?: Partial<AcpSkillRunForegroundDeps>;
   maxRepairRounds?: number;
   sharedSkillCatalogRootDir?: string;
 };
@@ -1152,6 +1158,43 @@ async function applyRecoveredAcpSkillResult(args: {
   }
 }
 
+function requestRecoveredSequenceStepForeground(args: {
+  event: ProviderProgressEvent;
+  record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>;
+  sequenceState: NonNullable<ReturnType<typeof getSequenceRunStateByStepRequest>>;
+  backend: BackendInstance;
+  dependencies?: AcpSkillRunnerDependencies;
+}) {
+  if (args.event.type !== "request-created") {
+    return;
+  }
+  const requestId = normalizeString(args.event.requestId);
+  if (!requestId) {
+    return;
+  }
+  const event = args.event as Record<string, unknown>;
+  const request = isJsonObject(event.sequenceStepRequest)
+    ? event.sequenceStepRequest
+    : undefined;
+  requestAcpSkillRunForeground({
+    requestId,
+    backend: args.backend,
+    request,
+    workflowId: args.sequenceState.workflowId,
+    workflowLabel: args.sequenceState.workflowLabel,
+    jobId: args.sequenceState.jobId,
+    runId: args.sequenceState.workflowRunId || args.record.runId,
+    sequenceStepId: normalizeString(event.sequenceStepId) || undefined,
+    sequenceStepIndex: event.sequenceStepIndex,
+    taskName: normalizeString(event.sequenceStepTaskName) || undefined,
+    skillId:
+      normalizeString(event.sequenceStepSkillId) ||
+      (request ? normalizeString(request.skill_id) : "") ||
+      undefined,
+    deps: args.dependencies?.acpSkillRunForeground,
+  });
+}
+
 async function continueRecoveredSequenceStep(args: {
   record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>;
   resultJson: Record<string, unknown>;
@@ -1237,6 +1280,7 @@ async function continueRecoveredSequenceStep(args: {
       resultJsonPath: args.record.resultJsonPath,
     },
   };
+  const recoveredWorkspaceDir = normalizeString(args.record.workspaceDir);
   recordSequenceStepSucceeded({
     sequenceRunId: sequenceState.sequenceRunId,
     stepIndex,
@@ -1244,6 +1288,17 @@ async function continueRecoveredSequenceStep(args: {
     output: args.resultJson,
     result: recoveredResult,
   });
+  try {
+    await registerAcpWorkflowWorkspaceForReuse({
+      workflowRunId: sequenceState.workflowRunId,
+      workspaceDir: recoveredWorkspaceDir,
+    });
+  } catch (error) {
+    const message = errorMessage(error);
+    throw new Error(
+      `ACP recovered workflow workspace is unavailable for sequence continuation: workflow_run_id=${sequenceState.workflowRunId}; requestId=${args.record.requestId}; reason=${message}`,
+    );
+  }
   const backend = await resolveBackendForRecoveredRun(args.record.backendId);
   try {
     const continuationResult = await continueSkillRunnerSequence({
@@ -1258,6 +1313,17 @@ async function continueRecoveredSequenceStep(args: {
           ...input,
           dependencies: args.dependencies,
         }),
+      onProgress: (event) => {
+        requestRecoveredSequenceStepForeground({
+          event,
+          record: args.record,
+          sequenceState:
+            getSequenceRunStateByStepRequest(args.record.requestId) ||
+            sequenceState,
+          backend,
+          dependencies: args.dependencies,
+        });
+      },
       applySequenceStepResult: async (stepApply) => {
         const applyWorkflow = await resolveWorkflowById(
           stepApply.applyWorkflowId,
@@ -1979,6 +2045,7 @@ export async function recoverAcpSkillRunConversation(args: {
               payload,
               runnerJson: runnerJsonForConvergence as Record<string, unknown>,
               primarySkillDir,
+              workspaceDir: normalizeString(latest.workspaceDir),
             }),
         });
         if (fallback.warnings.length > 0) {
@@ -2022,6 +2089,7 @@ export async function recoverAcpSkillRunConversation(args: {
           executionMode,
           runnerJson: runnerJsonForConvergence,
           primarySkillDir,
+          workspaceDir: normalizeString(latest.workspaceDir),
         });
       }
       if (convergence.kind === "pending") {
@@ -3318,6 +3386,7 @@ export async function executeAcpSkillRunnerJob(args: {
             payload,
             runnerJson: materialization.runnerJson,
             primarySkillDir: materialization.primarySkillDir,
+            workspaceDir: workspace.workspaceDir,
           }),
       });
       if (fallback.warnings.length > 0) {
@@ -3459,6 +3528,7 @@ export async function executeAcpSkillRunnerJob(args: {
             executionMode,
             runnerJson: materialization.runnerJson,
             primarySkillDir: materialization.primarySkillDir,
+            workspaceDir: workspace.workspaceDir,
           });
         }
         if (detachedConvergence.kind === "pending") {
@@ -3725,6 +3795,7 @@ export async function executeAcpSkillRunnerJob(args: {
         executionMode,
         runnerJson: materialization.runnerJson,
         primarySkillDir: materialization.primarySkillDir,
+        workspaceDir: workspace.workspaceDir,
       });
       if (convergence.kind === "final") {
         await writeAcpSkillRunnerResultEnvelope({

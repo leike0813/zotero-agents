@@ -566,7 +566,31 @@ describe("workflow product storage", function () {
     const baseResultContext = {
       resultJson: {
         kind: "writing.manuscript_literature_framing",
-        assets: {},
+        title: "Detector Adaptation",
+        language: "en-US",
+        topic_ids: ["object-detection"],
+        artifact_manifest_path:
+          "result/manuscript-literature-framing-artifacts.json",
+      },
+      async readArtifactText(args: { rawPath?: string }) {
+        assert.equal(
+          args.rawPath,
+          "result/manuscript-literature-framing-artifacts.json",
+        );
+        return {
+          text: JSON.stringify({
+            introduction_tex: "D:/run/result/introduction.tex",
+            related_work_tex: "D:/run/result/related-work.tex",
+            intent_brief: "D:/run/result/intent-brief.json",
+            evidence_inventory: "D:/run/result/evidence-inventory.json",
+            framing_analysis: "D:/run/result/framing-analysis.json",
+            writing_plan: "D:/run/result/writing-plan.json",
+            citation_map: "D:/run/result/citation-map.json",
+            diagnostics: "D:/run/result/diagnostics.json",
+          }),
+          entryPath: "result/manuscript-literature-framing-artifacts.json",
+          candidates: ["result/manuscript-literature-framing-artifacts.json"],
+        };
       },
     };
 
@@ -579,7 +603,6 @@ describe("workflow product storage", function () {
       resultContext: {
         resultJson: {
           kind: "writing.manuscript_literature_framing_canceled",
-          assets: {},
         },
       },
       runResult: { status: "succeeded" },
@@ -598,6 +621,10 @@ describe("workflow product storage", function () {
     assert.equal(succeeded.product?.productId, "product-manuscript");
     assert.lengthOf(calls, 1);
     assert.equal(calls[0].productKey, "manuscript-literature-framing");
+    assert.equal(calls[0].metadata.language, "en-US");
+    assert.deepEqual(calls[0].metadata.topic_ids, ["object-detection"]);
+    assert.notProperty(calls[0].metadata, "diagnostics_summary");
+    assert.equal(calls[0].assets[0].rawPath, "D:/run/result/introduction.tex");
   });
 
   it("preserves text preview kinds while exposing precise code languages", async function () {

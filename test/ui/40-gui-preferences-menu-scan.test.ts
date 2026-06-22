@@ -489,6 +489,34 @@ function createPrefsWindow(args?: {
   if (hostBridgeShowEndpointButton) {
     hostBridgeShowEndpointButton.id = `zotero-prefpane-${config.addonRef}-host-bridge-show-endpoint`;
   }
+  const hostBridgeRotateMasterTokenButton = args?.includeHostAccessControls
+    ? document.createXULElement("button")
+    : null;
+  if (hostBridgeRotateMasterTokenButton) {
+    hostBridgeRotateMasterTokenButton.id = `zotero-prefpane-${config.addonRef}-host-bridge-rotate-master-token`;
+  }
+  const hostBridgeInstallCliButton = args?.includeHostAccessControls
+    ? document.createXULElement("button")
+    : null;
+  if (hostBridgeInstallCliButton) {
+    hostBridgeInstallCliButton.id = `zotero-prefpane-${config.addonRef}-host-bridge-install-cli`;
+  }
+  const hostBridgeOperationNotice = args?.includeHostAccessControls
+    ? document.createXULElement("div")
+    : null;
+  if (hostBridgeOperationNotice) {
+    hostBridgeOperationNotice.id = `zotero-prefpane-${config.addonRef}-host-bridge-operation-notice`;
+    hostBridgeOperationNotice.setAttribute(
+      "class",
+      "zs-host-access-operation-notice",
+    );
+  }
+  const hostBridgeOperationNoticeText = args?.includeHostAccessControls
+    ? document.createXULElement("span")
+    : null;
+  if (hostBridgeOperationNoticeText) {
+    hostBridgeOperationNoticeText.id = `zotero-prefpane-${config.addonRef}-host-bridge-operation-notice-text`;
+  }
   const hostBridgeSecurityToggle = args?.includeHostAccessControls
     ? document.createXULElement("button")
     : null;
@@ -703,6 +731,10 @@ function createPrefsWindow(args?: {
     hostBridgeEndpointText,
     hostBridgeStatusText,
     hostBridgeShowEndpointButton,
+    hostBridgeRotateMasterTokenButton,
+    hostBridgeInstallCliButton,
+    hostBridgeOperationNotice,
+    hostBridgeOperationNoticeText,
     hostBridgeSecurityToggle,
     hostBridgeSecurityPanel,
     runtimeDataRoot,
@@ -1096,9 +1128,25 @@ describe("gui: preference scripts", function () {
             enabled: true,
             server: {
               status: "running",
-              endpoint: "http://127.0.0.1:26455/mcp",
+              endpoint: "http://192.168.1.10:26570/mcp",
               tokenMasked: "abc...def",
             },
+          },
+        };
+      }
+      if (type === "showHostBridgeEndpoint") {
+        return {
+          ok: true,
+          message: "Host Bridge endpoint is available.",
+          details: {
+            status: "running",
+            bindMode: "lan",
+            lanEnabled: true,
+            pinPortEnabled: true,
+            pinnedPort: 26570,
+            portMode: "pinned",
+            endpoint: "http://127.0.0.1:26570/bridge/v1",
+            remoteEndpoint: "http://192.168.1.10:26570/bridge/v1",
           },
         };
       }
@@ -1127,7 +1175,7 @@ describe("gui: preference scripts", function () {
     assert.notInclude(prefs.mcpServerStatusText?.textContent || "", "abc...def");
     assert.include(
       prefs.mcpServerStatusText?.textContent || "",
-      "http://127.0.0.1:26455/mcp",
+      "http://192.168.1.10:26570/mcp",
     );
     assert.isTrue(prefs.hostBridgeLanCheckbox?.checked);
     assert.isTrue(prefs.hostBridgePinPortCheckbox?.checked);
@@ -1147,6 +1195,20 @@ describe("gui: preference scripts", function () {
     assert.equal(
       prefs.hostBridgeSecurityToggle?.getAttribute("aria-expanded"),
       "true",
+    );
+    prefs.hostBridgeShowEndpointButton?.dispatch("command");
+    await flushTasks();
+    assert.isTrue(
+      prefs.hostBridgeOperationNotice?.classList.contains("is-visible") ||
+        false,
+    );
+    assert.include(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      "Host Bridge endpoint is available.",
+    );
+    assert.notInclude(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "Host Bridge endpoint is available.",
     );
   });
 
@@ -1184,6 +1246,111 @@ describe("gui: preference scripts", function () {
     assert.include(
       prefs.mcpServerStatusText?.textContent || "",
       "stateMcpServer failed",
+    );
+  });
+
+  it("renders Host Bridge operations in a separate notice area", async function () {
+    const prefs = createPrefsWindow({ includeHostAccessControls: true });
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateHostBridge") {
+        return {
+          ok: true,
+          details: {
+            status: "running",
+            bindMode: "loopback",
+            portMode: "random",
+            port: 26571,
+            endpoint: "http://127.0.0.1:26571/bridge/v1",
+          },
+        };
+      }
+      if (type === "stateMcpServer") {
+        return {
+          ok: true,
+          details: {
+            enabled: true,
+            server: {
+              status: "running",
+              endpoint: "http://127.0.0.1:26571/mcp",
+            },
+          },
+        };
+      }
+      if (type === "installHostBridgeCli") {
+        return {
+          ok: false,
+          message:
+            "Failed to install zotero-bridge CLI binary at C:\\Users\\me\\secret\\zotero-bridge.exe with Bearer abc.def",
+          details: {},
+        };
+      }
+      if (type === "rotateHostBridgeMasterToken") {
+        return {
+          ok: true,
+          message: "Host Bridge master token rotated.",
+          details: {
+            server: {
+              status: "running",
+              bindMode: "loopback",
+              portMode: "random",
+              port: 26571,
+              endpoint: "http://127.0.0.1:26571/bridge/v1",
+            },
+          },
+        };
+      }
+      return { ok: true, details: {} };
+    };
+
+    await registerPrefsScripts(prefs.window);
+    await flushTasks();
+
+    prefs.hostBridgeInstallCliButton?.dispatch("command");
+    await flushTasks();
+    assert.isTrue(
+      prefs.hostBridgeOperationNotice?.classList.contains("is-visible") ||
+        false,
+    );
+    assert.isTrue(
+      prefs.hostBridgeOperationNotice?.classList.contains("is-error") || false,
+    );
+    assert.include(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      "Failed to install zotero-bridge CLI binary",
+    );
+    assert.notInclude(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      "C:\\Users\\me",
+    );
+    assert.notInclude(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      "abc.def",
+    );
+    assert.notInclude(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "Failed to install",
+    );
+
+    prefs.hostBridgeRotateMasterTokenButton?.dispatch("command");
+    await flushTasks();
+    assert.isFalse(
+      prefs.hostBridgeOperationNotice?.classList.contains("is-error") || false,
+    );
+    assert.include(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      "Host Bridge master token rotated.",
+    );
+    assert.notInclude(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "master token rotated",
     );
   });
 
@@ -1818,6 +1985,8 @@ describe("gui: preference scripts", function () {
     assert.include(xhtml, "runtime-data-progressmeter");
     assert.include(xhtml, "host-bridge-led");
     assert.include(xhtml, "mcp-server-led");
+    assert.include(xhtml, "host-bridge-operation-notice");
+    assert.include(xhtml, "host-bridge-operation-notice-text");
     assert.include(xhtml, "host-bridge-security-toggle");
     assert.include(xhtml, "host-bridge-security-panel");
     assert.include(xhtml, "host-bridge-disable-write-approval");
@@ -1837,6 +2006,7 @@ describe("gui: preference scripts", function () {
     assert.include(enLocale, "pref-host-bridge-disable-write-approval");
     assert.include(enLocale, "pref-host-bridge-disable-write-approval-confirm");
     assert.include(enLocale, "pref-host-bridge-security-show");
+    assert.include(enLocale, "pref-host-bridge-operation-notice");
     assert.include(enLocale, "pref-host-access-status-running");
     assert.include(enLocale, "pref-skill-dir");
     assert.include(enLocale, "RESET SYNTHESIS DATABASE");
@@ -1852,6 +2022,7 @@ describe("gui: preference scripts", function () {
     assert.include(zhLocale, "pref-host-bridge-disable-write-approval");
     assert.include(zhLocale, "pref-host-bridge-disable-write-approval-confirm");
     assert.include(zhLocale, "pref-host-bridge-security-show");
+    assert.include(zhLocale, "pref-host-bridge-operation-notice");
     assert.include(zhLocale, "pref-host-access-status-running");
     assert.include(zhLocale, "pref-skill-dir");
     assert.include(zhLocale, "RESET SYNTHESIS DATABASE");

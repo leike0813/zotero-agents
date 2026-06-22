@@ -147,6 +147,12 @@ function bindPrefEvents() {
   const hostBridgeInstallCliButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-install-cli`,
   ) as XUL.Button | null;
+  const hostBridgeOperationNotice = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-operation-notice`,
+  ) as HTMLElement | null;
+  const hostBridgeOperationNoticeText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-operation-notice-text`,
+  ) as HTMLElement | null;
   const hostBridgeSecurityToggle = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-security-toggle`,
   ) as XUL.Button | null;
@@ -945,6 +951,37 @@ function bindPrefEvents() {
 
   const statusPair = (labelKey: string, labelFallback: string, value: string) =>
     value ? `${getPrefText(labelKey, labelFallback)}=${value}` : "";
+
+  const sanitizeHostAccessNoticeText = (text: string) =>
+    String(text || "")
+      .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer <redacted>")
+      .replace(/\b(token|masterToken|authorization)\s*[:=]\s*\S+/gi, "$1=<redacted>")
+      .replace(/[A-Za-z]:\\[^\s)]+/g, "<path>")
+      .replace(/(?:^|\s)\/(?:Users|home|var|tmp|private|mnt)\/[^\s)]+/g, " <path>")
+      .trim();
+
+  const renderHostBridgeOperationNotice = (response: unknown) => {
+    if (!hostBridgeOperationNotice || !hostBridgeOperationNoticeText) {
+      return;
+    }
+    const result = (response || {}) as {
+      ok?: unknown;
+      message?: unknown;
+    };
+    const message = sanitizeHostAccessNoticeText(String(result.message || ""));
+    if (!message) {
+      hostBridgeOperationNotice.classList.remove("is-visible", "is-error");
+      hostBridgeOperationNoticeText.textContent = "";
+      return;
+    }
+    hostBridgeOperationNotice.classList.add("is-visible");
+    if (result.ok === false) {
+      hostBridgeOperationNotice.classList.add("is-error");
+    } else {
+      hostBridgeOperationNotice.classList.remove("is-error");
+    }
+    hostBridgeOperationNoticeText.textContent = message;
+  };
 
   const updateHostBridgeSecurityPanel = () => {
     if (hostBridgeSecurityPanel) {
@@ -1773,8 +1810,6 @@ function bindPrefEvents() {
 
   const formatHostBridgeStatus = (response: unknown) => {
     const result = (response || {}) as {
-      ok?: unknown;
-      message?: unknown;
       details?: Record<string, unknown>;
     };
     const details = (result.details || {}) as Record<string, unknown>;
@@ -1788,46 +1823,9 @@ function bindPrefEvents() {
     );
     const endpoint = String(server.endpoint || "").trim();
     const error = String(
-      server.lastError || result.message || server.lastRecoveryReason || "",
+      server.lastError || server.lastRecoveryReason || "",
     ).trim();
-    const message = String(result.message || "").trim();
-    const runtimeDetails = (details.runtime || {}) as Record<string, unknown>;
-    const runtimeText =
-      result.ok === false
-        ? [
-            String(runtimeDetails.rootURI || "").trim()
-              ? `rootURI=${String(runtimeDetails.rootURI).trim()}`
-              : "",
-            String(runtimeDetails.resourceURI || "").trim()
-              ? `resourceURI=${String(runtimeDetails.resourceURI).trim()}`
-              : "",
-            String(runtimeDetails.rootPath || "").trim()
-              ? `rootPath=${String(runtimeDetails.rootPath).trim()}`
-              : "",
-          ]
-            .filter(Boolean)
-            .join(" | ")
-        : "";
-    const detailsText =
-      result.ok === false
-        ? [
-            Array.isArray(details.checkedPaths) &&
-            details.checkedPaths.length > 0
-              ? `checkedPaths=${details.checkedPaths.join(" | ")}`
-              : "",
-            Array.isArray(details.checkedUris) && details.checkedUris.length > 0
-              ? `checkedUris=${details.checkedUris.join(" | ")}`
-              : "",
-            runtimeText ? `runtime=${runtimeText}` : "",
-          ]
-            .filter(Boolean)
-            .join(" · ")
-        : "";
-    const prefix =
-      result.ok === false
-        ? getString("pref-skillrunner-local-status-failed-prefix" as any)
-        : getString("pref-skillrunner-local-status-ok-prefix" as any);
-    const stateText = [
+    return [
       statusPair(
         "pref-host-access-status-label",
         "Status",
@@ -1853,13 +1851,6 @@ function bindPrefEvents() {
     ]
       .filter(Boolean)
       .join(" · ");
-    const diagnosticText = [stateText, detailsText].filter(Boolean).join(" · ");
-    if (message) {
-      return `${prefix} ${message}${
-        diagnosticText ? ` (${diagnosticText})` : ""
-      }`;
-    }
-    return stateText;
   };
 
   const hostBridgePrefSnapshot = (status: string) => ({
@@ -1931,6 +1922,11 @@ function bindPrefEvents() {
     }
   };
 
+  const renderHostBridgeOperationResult = (response: unknown) => {
+    renderHostBridgeState(response);
+    renderHostBridgeOperationNotice(response);
+  };
+
   const renderMcpServerState = (response: unknown) => {
     const result = (response || {}) as {
       details?: Record<string, unknown>;
@@ -2000,7 +1996,10 @@ function bindPrefEvents() {
       const response = {
         ok: false,
         message: String(error),
-        details: hostBridgePrefSnapshot("error"),
+        details: {
+          ...hostBridgePrefSnapshot("error"),
+          lastError: String(error),
+        },
       };
       renderHostBridgeState(response);
       return response;
@@ -2484,7 +2483,8 @@ function bindPrefEvents() {
           hostBridgePinPortCheckbox.checked = true;
           hostBridgePinPortCheckbox.disabled = true;
         }
-        renderHostBridgeState(response);
+        renderHostBridgeOperationResult(response);
+        void refreshMcpServerState();
       })();
     });
   }
@@ -2498,6 +2498,7 @@ function bindPrefEvents() {
           enabled: mcpServerEnabledCheckbox.checked === true,
         });
         renderMcpServerState(response);
+        renderHostBridgeOperationNotice(response);
       })();
     });
   }
@@ -2532,7 +2533,8 @@ function bindPrefEvents() {
         enabled: hostBridgePinPortCheckbox.checked === true,
         port,
       });
-      renderHostBridgeState(response);
+      renderHostBridgeOperationResult(response);
+      void refreshMcpServerState();
     })();
   };
 
@@ -2576,7 +2578,8 @@ function bindPrefEvents() {
             host: hostBridgeAdvertisedHostInput.value,
           },
         );
-        renderHostBridgeState(response);
+        renderHostBridgeOperationResult(response);
+        void refreshMcpServerState();
       })();
     });
   }
@@ -2590,7 +2593,7 @@ function bindPrefEvents() {
             window: addon.data.prefs?.window,
           },
         );
-        renderHostBridgeState(response);
+        renderHostBridgeOperationResult(response);
       })();
     });
   }
@@ -2604,7 +2607,7 @@ function bindPrefEvents() {
             window: addon.data.prefs?.window,
           },
         );
-        renderHostBridgeState(response);
+        renderHostBridgeOperationResult(response);
       })();
     });
   }
@@ -2618,7 +2621,7 @@ function bindPrefEvents() {
             window: addon.data.prefs?.window,
           },
         );
-        renderHostBridgeState(response);
+        renderHostBridgeOperationResult(response);
       })();
     });
   }
@@ -2632,7 +2635,7 @@ function bindPrefEvents() {
     if (clipboardText) {
       copyTextToClipboard(clipboardText);
     }
-    renderHostBridgeState(response);
+    renderHostBridgeOperationResult(response);
   };
 
   if (hostBridgeCopyMasterTokenButton) {
@@ -2672,7 +2675,8 @@ function bindPrefEvents() {
             window: addon.data.prefs?.window,
           },
         );
-        renderHostBridgeState(response);
+        renderHostBridgeOperationNotice(response);
+        void refreshHostBridgeState();
       })();
     });
   }

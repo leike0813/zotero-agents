@@ -31,7 +31,7 @@
         "artifact_manifest_path": {
           "type": "string",
           "minLength": 1,
-          "x-type": "artifact",
+          "x-type": "artifact-manifest",
           "x-role": "artifact-manifest"
         }
       }
@@ -71,7 +71,7 @@
         "artifact_manifest_path": {
           "type": "string",
           "minLength": 1,
-          "x-type": "artifact",
+          "x-type": "artifact-manifest",
           "x-role": "artifact-manifest"
         }
       }

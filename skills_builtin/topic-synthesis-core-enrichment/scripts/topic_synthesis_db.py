@@ -314,6 +314,54 @@ def resolve_run_path(run_root: Path, relative_or_absolute: str | Path) -> Path:
     return resolved
 
 
+def portable_path(path: Path) -> str:
+    return str(path.resolve()).replace("\\", "/")
+
+
+def absolute_run_path(run_root: Path, relative_or_absolute: str | Path) -> str:
+    return portable_path(resolve_run_path(run_root, relative_or_absolute))
+
+
+def require_run_file(run_root: Path, relative_or_absolute: str | Path, label: str) -> str:
+    resolved = resolve_run_path(run_root, relative_or_absolute)
+    if not resolved.exists() or not resolved.is_file():
+        raise ValueError(f"{label} is missing or is not a file: {portable_path(resolved)}")
+    return portable_path(resolved)
+
+
+def require_run_directory(run_root: Path, relative_or_absolute: str | Path, label: str) -> str:
+    resolved = resolve_run_path(run_root, relative_or_absolute)
+    if not resolved.exists() or not resolved.is_dir():
+        raise ValueError(f"{label} is missing or is not a directory: {portable_path(resolved)}")
+    return portable_path(resolved)
+
+
+def runtime_read_path(run_root: Path, value: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized or normalized.startswith("<"):
+        return normalized
+    if normalized.endswith("/"):
+        return require_run_directory(run_root, normalized, "required runtime read")
+    return require_run_file(run_root, normalized, "required runtime read")
+
+
+def normalize_paper_artifact_manifest_paths(run_root: Path, manifest: dict) -> dict:
+    for paper in as_list(manifest.get("papers")):
+        if not isinstance(paper, dict):
+            continue
+        for artifact in as_list(paper.get("artifacts")):
+            if not isinstance(artifact, dict):
+                continue
+            content_file = clean_text(artifact.get("content_file"))
+            if content_file:
+                artifact["content_file"] = require_run_file(
+                    run_root,
+                    content_file,
+                    "paper artifact content_file",
+                )
+    return manifest
+
+
 def connect(db_path: str | Path) -> sqlite3.Connection:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -528,7 +576,7 @@ def current_stage(conn: sqlite3.Connection, skill_id: str) -> dict[str, Any] | N
 
 
 def script_command(skill_root: Path, db_path: str, action: str) -> str:
-    return f'python "{skill_root / "scripts" / "gate.py"}" --db "{db_path}" --action {action}'
+    return f'python "{portable_path(skill_root / "scripts" / "gate.py")}" --db "{db_path}" --action {action}'
 
 
 def instruction_for_stage(
@@ -537,6 +585,8 @@ def instruction_for_stage(
     skill_id = infer_skill_id(skill_root)
     contract = SKILL_STAGE_CONTRACT[skill_id]
     conn = connect(db_path)
+    run_root = run_root_from_db_path(db_path)
+    db_absolute = absolute_run_path(run_root, DB_RELATIVE_PATH)
     operation = get_meta(conn, "operation", contract["operation"])
     if stage is None:
         output = completed_output(skill_root=skill_root, db_path=db_path)
@@ -561,16 +611,21 @@ def instruction_for_stage(
         "stage_kind": stage["kind"],
         "needs_payload": stage["kind"] == "payload",
         "task": stage["task"],
-        "db_path": db_path,
-        "command": script_command(skill_root, db_path, "run"),
+        "db_path": db_absolute,
+        "command": script_command(skill_root, db_absolute, "run"),
     }
     if stage["kind"] == "payload":
-        result["required_reads"] = stage.get("required_reads", [])
-        result["payload_schema"] = "assets/schemas/" + stage["schema"]
-        result["payload_path"] = stage["payload_path"]
+        result["required_reads"] = [
+            runtime_read_path(run_root, value)
+            for value in stage.get("required_reads", [])
+        ]
+        result["payload_schema"] = portable_path(
+            skill_root / "assets" / "schemas" / stage["schema"]
+        )
+        result["payload_path"] = absolute_run_path(run_root, stage["payload_path"])
         result["submit_command"] = (
-            script_command(skill_root, db_path, "submit")
-            + f' --payload "{stage["payload_path"]}"'
+            script_command(skill_root, db_absolute, "submit")
+            + f' --payload "{result["payload_path"]}"'
         )
         if stage["id"] == "stage_30_prepare_analysis_context":
             result["triage_required_refs"] = get_meta(conn, "triage_required_refs", [])
@@ -1511,14 +1566,7 @@ def collect_resolver_cascade(
         result={"paper_refs": refs},
     )
 
-    artifacts_output = run_bridge_json(
-        run_root,
-        ["paper-artifacts", "export-filtered"],
-        {"run_root": str(run_root), "paper_refs": refs},
-        "paper-artifacts-export-input-1.json",
-    )
-    artifact_data = unwrap_bridge_data(artifacts_output)
-    manifest = extract_artifact_manifest(run_root, artifact_data)
+    manifest = export_filtered_paper_artifacts_manifest(run_root, refs)
     write_json(
         run_root / "runtime/payloads/paper-artifacts-manifest-batch-1.json",
         manifest,
@@ -1548,24 +1596,97 @@ def collect_resolver_cascade(
     }
 
 
+def export_filtered_paper_artifacts_manifest(run_root: Path, refs: list[str]) -> dict:
+    cached_manifest = cached_remote_artifact_manifest(run_root)
+    if cached_manifest is not None:
+        return cached_manifest
+    artifacts_output = run_bridge_json(
+        run_root,
+        ["paper-artifacts", "export-filtered"],
+        {"run_root": str(run_root), "paper_refs": refs},
+        "paper-artifacts-export-input-1.json",
+    )
+    artifact_data = unwrap_bridge_data(artifacts_output)
+    return extract_artifact_manifest(run_root, artifact_data)
+
+
+def cached_remote_artifact_manifest(run_root: Path) -> dict | None:
+    delivery_path = run_root / "runtime/payloads/paper-artifacts-export-delivery.json"
+    if not delivery_path.exists():
+        return None
+    cached = read_json(delivery_path)
+    if not isinstance(cached, dict):
+        return None
+    export_data = cached.get("export_data") if isinstance(cached.get("export_data"), dict) else cached
+    manifest_file = artifact_manifest_file_from_export(export_data)
+    if not manifest_file:
+        return None
+    manifest_path = resolve_run_path(run_root, manifest_file)
+    if manifest_path.exists():
+        loaded = read_json(manifest_path)
+        if isinstance(loaded, dict):
+            return normalize_paper_artifact_manifest_paths(run_root, loaded)
+    raise ValueError(remote_artifact_delivery_message(run_root, export_data))
+
+
+def artifact_manifest_file_from_export(artifact_data: dict) -> str:
+    delivery = artifact_data.get("delivery") if isinstance(artifact_data.get("delivery"), dict) else {}
+    return clean_text(
+        artifact_data.get("manifest_file")
+        or artifact_data.get("manifestFile")
+        or artifact_data.get("manifest_path")
+        or artifact_data.get("manifestPath")
+        or delivery.get("manifest_file")
+        or delivery.get("manifestFile")
+    )
+
+
+def remote_artifact_delivery_message(run_root: Path, artifact_data: dict) -> str:
+    delivery = artifact_data.get("delivery")
+    delivery = delivery if isinstance(delivery, dict) else {}
+    delivery_path = run_root / "runtime/payloads/paper-artifacts-export-delivery.json"
+    download_command = clean_text(delivery.get("downloadCommand"))
+    unpack_hint = clean_text(delivery.get("unpackHint"))
+    manifest_file = artifact_manifest_file_from_export(artifact_data)
+    instructions = [
+        "artifact export returned a remote bridge-download bundle",
+        f"delivery details were written to {delivery_path.as_posix()}",
+    ]
+    if download_command:
+        instructions.append(f"run delivery.downloadCommand: {download_command}")
+    if unpack_hint:
+        instructions.append(f"then run delivery.unpackHint: {unpack_hint}")
+    if manifest_file:
+        instructions.append(f"manifest_file inside the unpacked bundle: {manifest_file}")
+    instructions.append(
+        "after downloading and unpacking into the run workspace, rerun the gate submit command for the current stage"
+    )
+    return "; ".join(instructions)
+
+
 def extract_artifact_manifest(run_root: Path, artifact_data: dict) -> dict:
+    delivery = artifact_data.get("delivery")
+    if isinstance(delivery, dict) and clean_text(delivery.get("mode")) == "bridge-download":
+        delivery_path = run_root / "runtime/payloads/paper-artifacts-export-delivery.json"
+        write_json(delivery_path, {"delivery": delivery, "export_data": artifact_data})
+        raise ValueError(remote_artifact_delivery_message(run_root, artifact_data))
     for key in ("manifest", "artifact_manifest", "result"):
         value = artifact_data.get(key)
         if isinstance(value, dict) and isinstance(value.get("papers"), list):
-            return value
+            return normalize_paper_artifact_manifest_paths(run_root, value)
     if isinstance(artifact_data.get("papers"), list):
-        return artifact_data
+        return normalize_paper_artifact_manifest_paths(run_root, artifact_data)
     for key in ("manifest_path", "manifestPath", "path"):
         value = artifact_data.get(key)
         if isinstance(value, str) and value.strip():
             loaded = read_json(resolve_run_path(run_root, value.strip()))
             if isinstance(loaded, dict):
-                return loaded
+                return normalize_paper_artifact_manifest_paths(run_root, loaded)
     default_path = run_root / "runtime/payloads/paper-artifacts-manifest.json"
     if default_path.exists():
         loaded = read_json(default_path)
         if isinstance(loaded, dict):
-            return loaded
+            return normalize_paper_artifact_manifest_paths(run_root, loaded)
     raise ValueError("artifact export did not return or write a manifest")
 
 
@@ -2304,21 +2425,20 @@ def write_handoff(
     next_skill_id: str,
     artifact_keys: list[str],
 ) -> dict:
-    artifacts: dict[str, dict] = {}
+    manifest: dict[str, str] = {
+        "db_path": require_run_file(run_root, DB_RELATIVE_PATH, "handoff db_path"),
+    }
     for key in artifact_keys:
         entry = artifact_entry(conn, key)
         if entry:
-            artifacts[key] = entry
+            manifest[key] = require_run_file(
+                run_root,
+                entry["path"],
+                f"handoff artifact {key}",
+            )
     manifest_path = f"runtime/handoff/{handoff.replace('_', '-')}.json"
-    manifest = {
-        "schema_id": "synthesis.skill_handoff",
-        "schema_version": "1.0.0",
-        "handoff": handoff,
-        "stage": stage_id,
-        "db_path": "runtime/topic-synthesis.sqlite",
-        "artifacts": artifacts,
-    }
     write_json(run_root / manifest_path, manifest)
+    manifest_absolute = require_run_file(run_root, manifest_path, "handoff manifest")
     conn.execute(
         """
         insert into handoff_registry (handoff_key, manifest_path, stage_id, skill_id)
@@ -2328,7 +2448,7 @@ def write_handoff(
           stage_id = excluded.stage_id,
           skill_id = excluded.skill_id
         """,
-        (handoff, manifest_path, stage_id, skill_id),
+        (handoff, manifest_absolute, stage_id, skill_id),
     )
     conn.commit()
     return {
@@ -2336,8 +2456,8 @@ def write_handoff(
         "kind": "topic_synthesis_handoff",
         "handoff": handoff,
         "operation": get_meta(conn, "operation", "create"),
-        "db_path": "runtime/topic-synthesis.sqlite",
-        "handoff_manifest_path": manifest_path,
+        "db_path": require_run_file(run_root, DB_RELATIVE_PATH, "handoff db_path"),
+        "handoff_manifest_path": manifest_absolute,
         "next_skill_id": next_skill_id,
     }
 
@@ -2359,12 +2479,13 @@ def completed_output(*, skill_root: Path, db_path: str) -> dict:
         (contract["handoff"],),
     ).fetchone()
     if row is not None:
+        run_root = run_root_from_db_path(db_path)
         return {
             "__SKILL_DONE__": True,
             "kind": "topic_synthesis_handoff",
             "handoff": contract["handoff"],
             "operation": get_meta(conn, "operation", contract["operation"]),
-            "db_path": "runtime/topic-synthesis.sqlite",
+            "db_path": require_run_file(run_root, DB_RELATIVE_PATH, "handoff db_path"),
             "handoff_manifest_path": str(row["manifest_path"]),
             "next_skill_id": contract["next_skill_id"],
         }
@@ -2392,7 +2513,7 @@ def run_current_command_stage(
             input_resolved = resolve_run_path(run_root, input_path)
             if input_resolved.exists():
                 set_meta(conn, "input", read_json(input_resolved))
-        set_meta(conn, "run_root", str(run_root))
+        set_meta(conn, "run_root", portable_path(run_root))
         set_meta(conn, "operation", contract["operation"])
         if skill_id == "update-topic-synthesis-prepare":
             result = run_update_preflight(
@@ -2402,7 +2523,7 @@ def run_current_command_stage(
                 input_path=input_path,
             )
         else:
-            result = {"run_root": str(run_root), "operation": contract["operation"]}
+            result = {"run_root": portable_path(run_root), "operation": contract["operation"]}
     elif stage["id"] == "stage_00_runtime_state_check":
         required = (
             "runtime/handoff/prepare-analysis-context.json"
@@ -3572,22 +3693,35 @@ def materialize_final_output(
     resolver = artifact_entry(conn, "resolver_manifest")
     artifact_manifest_path = "result/topic-synthesis-artifacts.json"
     artifact_manifest = {
-        "resolver_manifest": resolver["path"] if resolver else "runtime/payloads/resolver.json",
-        "topic_analysis": "result/topic-analysis.json",
-        "final_output_candidate": "result/final-output.candidate.json",
+        "resolver_manifest": require_run_file(
+            run_root,
+            resolver["path"] if resolver else "runtime/payloads/resolver.json",
+            "resolver manifest",
+        ),
+        "topic_analysis": require_run_file(run_root, "result/topic-analysis.json", "topic analysis manifest"),
+        "final_output_candidate": absolute_run_path(run_root, "result/final-output.candidate.json"),
     }
     for section_key, entry in sections.items():
         if isinstance(entry, dict) and entry.get("path"):
-            artifact_manifest[f"{section_key}_section"] = entry["path"]
+            artifact_manifest[f"{section_key}_section"] = require_run_file(
+                run_root,
+                entry["path"],
+                f"{section_key} section",
+            )
     for sidecar_key, entry in sidecars.items():
         if isinstance(entry, dict) and entry.get("path"):
-            artifact_manifest[f"{sidecar_key}_sidecar"] = entry["path"]
+            artifact_manifest[f"{sidecar_key}_sidecar"] = require_run_file(
+                run_root,
+                entry["path"],
+                f"{sidecar_key} sidecar",
+            )
+    artifact_manifest_absolute = absolute_run_path(run_root, artifact_manifest_path)
     final = {
         "kind": "topic_synthesis",
         "operation": operation,
         "language": get_meta(conn, "language", "zh-CN"),
         "topic_definition": topic,
-        "artifact_manifest_path": artifact_manifest_path,
+        "artifact_manifest_path": artifact_manifest_absolute,
     }
     if operation == "update_full":
         final["base_hashes"] = get_meta(conn, "base_hashes", {})

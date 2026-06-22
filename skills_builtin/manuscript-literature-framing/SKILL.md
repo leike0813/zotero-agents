@@ -26,6 +26,7 @@ description: Draft a LaTeX literature review section. Use this skill when user w
 - 唯一运行态真源是 `runtime/manuscript-literature-framing.json`。
 - 所有状态写入必须通过 `scripts/stage_runtime.py` 完成。
 - 每次 stage action 后必须重新运行 `scripts/gate_runtime.py`。
+- 不要 `cd` 到 skill package；从 run workspace 调用 gate，并以 gate 返回的绝对路径和绝对 `command_example` 为准。
 - 只能执行 gate 返回的 `next_action` 与 `command_example`。
 - 只读运行态视图会写入 `runtime/views/`，用于恢复执行和审阅；不要把这些 Markdown 视图当作真源直接编辑。
 - 最终正文由 LLM 基于已确认的 intent、evidence、analysis 与 writing plan 撰写；脚本只负责接收、校验、落盘和生成 run workspace 根目录下的 `manuscript-literature-framing.result.json` 业务结果文件。
@@ -36,8 +37,7 @@ description: Draft a LaTeX literature review section. Use this skill when user w
 正式入口：
 
 ```powershell
-python scripts/gate_runtime.py --state "runtime/manuscript-literature-framing.json"
-python scripts/stage_runtime.py --state "runtime/manuscript-literature-framing.json" --action <ACTION> --payload-file "runtime/payloads/<payload>.json"
+python "<skill_package>/scripts/gate_runtime.py" --state "<run_workspace>/runtime/manuscript-literature-framing.json"
 ```
 
 ## LLM / script responsibilities
@@ -58,7 +58,7 @@ Scripts 只负责机械任务：
 - 把 LLM 产出的状态写入 JSON SSOT。
 - 生成只读 runtime views。
 - 把 LLM 撰写的 final draft 写入 `result/introduction.tex` 与 `result/related-work.tex`。
-- 生成 `manuscript-literature-framing.result.json` 和审计资产；`result/result.json` 由 ACP runner 生成。
+- 生成 `result/manuscript-literature-framing-artifacts.json`、`manuscript-literature-framing.result.json` 和审计资产；manifest 与业务结果中的跨任务文件路径必须是绝对路径；`result/result.json` 由 ACP runner 生成。
 
 不要让脚本承担分类、gap 判断、贡献对齐、段落设计或最终正文撰写；这些都是 LLM 在理解证据后的核心工作。
 
@@ -193,6 +193,7 @@ LLM 必须：
 - `result/writing-plan.json`
 - `result/citation-map.json`
 - `result/diagnostics.json`
+- `result/manuscript-literature-framing-artifacts.json`
 - `manuscript-literature-framing.result.json`
 
 Introduction 与 Related Work 必须遵循 confirmed writing plan；若 LLM 在最终撰写时因连贯性或证据约束需要调整结构，必须在 diagnostics 中说明。
@@ -220,6 +221,7 @@ Final assistant output 必须且只能是合法 JSON object，不得追加解释
 - 其余业务字段逐项来自 `manuscript-literature-framing.result.json`。
 - 不得把 `"__SKILL_DONE__"` 写回 `manuscript-literature-framing.result.json`。
 - 不得手写或修改 `result/result.json`；该文件由 ACP runner 在 final output 校验通过后生成。
+- completed final output 只暴露真正重要的业务字段和 `artifact_manifest_path`；多文件产物路径只放在 `result/manuscript-literature-framing-artifacts.json` 中。
 
 Completed final branch 使用：
 
@@ -227,24 +229,10 @@ Completed final branch 使用：
 {
   "__SKILL_DONE__": true,
   "kind": "writing.manuscript_literature_framing",
-  "status": "completed",
   "title": "Paper title",
   "language": "en-US",
-  "assets": {
-    "introduction_tex": "result/introduction.tex",
-    "related_work_tex": "result/related-work.tex",
-    "intent_brief": "result/intent-brief.json",
-    "evidence_inventory": "result/evidence-inventory.json",
-    "framing_analysis": "result/framing-analysis.json",
-    "writing_plan": "result/writing-plan.json",
-    "citation_map": "result/citation-map.json",
-    "diagnostics": "result/diagnostics.json"
-  },
   "topic_ids": ["topic-id"],
-  "diagnostics_summary": {
-    "missing_citekeys": 0,
-    "warnings": []
-  }
+  "artifact_manifest_path": "C:/run-workspace/result/manuscript-literature-framing-artifacts.json"
 }
 ```
 

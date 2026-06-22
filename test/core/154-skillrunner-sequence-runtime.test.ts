@@ -19,6 +19,8 @@ import {
 } from "../../src/modules/workflowExecution/sequenceStateStore";
 import {
   createAcpSkillRunnerWorkspace,
+  registerAcpWorkflowWorkspaceForReuse,
+  resetAcpWorkflowWorkspaceRegistryForTests,
   writeAcpSkillRunnerInputManifest,
 } from "../../src/modules/acpSkillRunnerWorkspace";
 import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
@@ -2424,6 +2426,61 @@ describe("skillrunner.sequence.v1 runtime", function () {
     } catch (error) {
       assert.include(String(error), "reuse target not found");
     }
+  });
+
+  it("restores ACP workflow workspace reuse from existing runner namespaces", async function () {
+    const root = await mkTempDir("zotero-skills-sequence-workspace-restore");
+    const first = await createAcpSkillRunnerWorkspace({
+      backendId: "acp-backend",
+      skillId: "prepare-skill",
+      rootDir: root,
+      workflowWorkspace: {
+        mode: "new",
+        workflowRunId: "workflow-run-restore",
+      },
+    });
+    await fs.mkdir(path.join(first.workspaceDir, "result", "core-skill.2"), {
+      recursive: true,
+    });
+    await fs.mkdir(path.join(first.workspaceDir, ".audit", "prepare-skill.1"), {
+      recursive: true,
+    });
+
+    resetAcpWorkflowWorkspaceRegistryForTests();
+    await registerAcpWorkflowWorkspaceForReuse({
+      workflowRunId: "workflow-run-restore",
+      workspaceDir: first.workspaceDir,
+    });
+
+    const nextCore = await createAcpSkillRunnerWorkspace({
+      backendId: "acp-backend",
+      skillId: "core-skill",
+      rootDir: root,
+      workflowWorkspace: {
+        mode: "reuse",
+        workflowRunId: "workflow-run-restore",
+      },
+    });
+    const nextPrepare = await createAcpSkillRunnerWorkspace({
+      backendId: "acp-backend",
+      skillId: "prepare-skill",
+      rootDir: root,
+      workflowWorkspace: {
+        mode: "reuse",
+        workflowRunId: "workflow-run-restore",
+      },
+    });
+
+    assert.equal(nextCore.workspaceDir, first.workspaceDir);
+    assert.equal(nextPrepare.workspaceDir, first.workspaceDir);
+    assert.match(
+      nextCore.resultJsonPath.replace(/\\/g, "/"),
+      /\/result\/core-skill\.3\/result\.json$/,
+    );
+    assert.match(
+      nextPrepare.inputManifestPath.replace(/\\/g, "/"),
+      /\/\.audit\/prepare-skill\.2\/input_manifest\.json$/,
+    );
   });
 
   it("compiles SkillRunner sequence steps with request_id reuse and step identity", async function () {

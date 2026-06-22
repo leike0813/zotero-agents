@@ -4,7 +4,11 @@ import {
   isHostBridgeAuthorizationValid,
   redactHostBridgeToken,
 } from "./hostBridgeAuth";
-import { getHostBridgeServerStatus } from "./hostBridgeServer";
+import {
+  ensureHostBridgeServer,
+  getHostBridgeServerStatus,
+} from "./hostBridgeServer";
+import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
 import {
   appendRuntimeLog,
   listRuntimeLogs,
@@ -739,6 +743,7 @@ export function getZoteroMcpHealthSnapshot(): AcpMcpHealthSnapshot {
 }
 
 export function getZoteroMcpServerStatus(): ZoteroMcpServerStatusSnapshot {
+  syncMcpRouteStateFromHostBridge();
   return {
     status: state.status,
     host: state.host,
@@ -1111,6 +1116,9 @@ function isOriginAllowed(request: HttpRequest) {
   }
   try {
     const parsed = new URL(origin);
+    if (getHostBridgeServerStatus().lanEnabled === true) {
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    }
     return (
       (parsed.protocol === "http:" || parsed.protocol === "https:") &&
       ["127.0.0.1", "localhost", "[::1]", "::1"].includes(parsed.hostname)
@@ -2018,6 +2026,24 @@ async function handleHttpRequest(
   request: HttpRequest,
   requestId = createMcpRequestId(),
 ): Promise<string> {
+  if (!isZoteroMcpServerEnabled()) {
+    const responseBody = {
+      error: "zotero_mcp_disabled",
+      message: "Zotero MCP server is disabled by preference",
+    };
+    recordMcpRequest({
+      request,
+      status: 503,
+      authorized: false,
+      responseBody,
+      error: "zotero_mcp_disabled",
+    });
+    return buildHttpResponse({
+      status: 503,
+      reason: "Service Unavailable",
+      body: responseBody,
+    });
+  }
   const authorized = await isAuthorized(request);
   updateState({
     requestCount: state.requestCount + 1,
@@ -2505,6 +2531,7 @@ function listen(serverSocket: any) {
 }
 
 function buildDescriptor(): ZoteroMcpServerDescriptor {
+  syncMcpRouteStateFromHostBridge();
   const token = getHostBridgeToken();
   if (state.token !== token) {
     updateState({ token });
@@ -2523,65 +2550,115 @@ function buildDescriptor(): ZoteroMcpServerDescriptor {
   };
 }
 
-async function startServer(preferredPort?: number) {
+function syncMcpRouteStateFromHostBridge() {
+  if (!isZoteroMcpServerEnabled()) {
+    if (state.status !== "stopped") {
+      updateState({
+        status: "stopped",
+        endpoint: "",
+        port: 0,
+        lastError: "Zotero MCP server is disabled by preference",
+      });
+    }
+    return;
+  }
+  if (state.status !== "running") {
+    return;
+  }
+  const server = getHostBridgeServerStatus();
+  if (server.status !== "running") {
+    updateState({
+      status: server.status === "error" ? "error" : "stopped",
+      lastError: server.lastError || server.lastRecoveryReason,
+    });
+    return;
+  }
+  const endpoint = mcpEndpointFromHostBridge(server);
+  const facts = endpointFacts(endpoint);
+  updateState({
+    status: "running",
+    host: facts.host,
+    port: facts.port,
+    endpoint,
+    token: getHostBridgeToken(),
+    lastError: "",
+  });
+}
+
+function mcpEndpointFromHostBridge(server: HostBridgeStatusSnapshot) {
+  const bridgeEndpoint =
+    server.lanEnabled === true
+      ? server.remoteEndpoint || server.endpoint
+      : server.endpoint;
+  return String(bridgeEndpoint || "").replace(/\/bridge\/v1\/?$/, "/mcp");
+}
+
+function endpointFacts(endpoint: string) {
+  try {
+    const parsed = new URL(endpoint);
+    return {
+      host: parsed.hostname,
+      port: Number(parsed.port || 80),
+    };
+  } catch {
+    return {
+      host: HOST,
+      port: 0,
+    };
+  }
+}
+
+async function startServer(_preferredPort?: number) {
   updateState({
     status: "starting",
     lastError: "",
   });
   emit({
     kind: "zotero_mcp_starting",
-    message: "Starting embedded Zotero MCP server",
+    message: "Starting embedded Zotero MCP route",
   });
 
-  let lastError: unknown;
   const previousEndpoint = state.endpoint;
-  const startPort =
-    Number.isFinite(Number(preferredPort)) && Number(preferredPort) > 0
-      ? Number(preferredPort)
-      : pickStartPort();
-  for (let offset = 0; offset < PORT_SPAN; offset += 1) {
-    const port = PORT_MIN + ((startPort - PORT_MIN + offset) % PORT_SPAN);
-    try {
-      const serverSocket = createServerSocket(port);
-      const token = getHostBridgeToken();
-      const endpoint = `http://${HOST}:${port}/mcp`;
-      updateState({
-        status: "running",
-        port,
-        endpoint,
-        token,
-        serverSocket,
-        lastError: "",
-      });
-      if (previousEndpoint && previousEndpoint !== endpoint) {
-        descriptorStale = true;
-      }
-      listen(serverSocket);
-      emit({
-        kind: "zotero_mcp_started",
-        message: "Embedded Zotero MCP server started",
-        detail: endpoint,
-      });
-      return buildDescriptor();
-    } catch (error) {
-      lastError = error;
+  try {
+    const server = await ensureHostBridgeServer();
+    const endpoint = mcpEndpointFromHostBridge(server);
+    const facts = endpointFacts(endpoint);
+    const token = getHostBridgeToken();
+    updateState({
+      status: "running",
+      host: facts.host,
+      port: facts.port,
+      endpoint,
+      token,
+      serverSocket: null,
+      lastError: "",
+    });
+    if (previousEndpoint && previousEndpoint !== endpoint) {
+      descriptorStale = true;
     }
+    emit({
+      kind: "zotero_mcp_started",
+      message: "Embedded Zotero MCP route started",
+      detail: endpoint,
+    });
+    return buildDescriptor();
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : String(error || "Failed to start Zotero MCP route");
+    updateState({
+      status: "error",
+      lastError: message,
+    });
+    emit({
+      kind: "zotero_mcp_unavailable",
+      level: "warn",
+      message: "Embedded Zotero MCP route is unavailable",
+      detail: message,
+    });
+    throw new Error(message);
   }
-  const message =
-    lastError instanceof Error
-      ? lastError.message
-      : String(lastError || "Failed to start Zotero MCP server");
-  updateState({
-    status: "error",
-    lastError: message,
-  });
-  emit({
-    kind: "zotero_mcp_unavailable",
-    level: "warn",
-    message: "Embedded Zotero MCP server is unavailable",
-    detail: message,
-  });
-  throw new Error(message);
 }
 
 export async function ensureZoteroMcpServer(
@@ -2633,11 +2710,6 @@ export async function ensureZoteroMcpServer(
 
 export async function shutdownZoteroMcpServer() {
   intentionalShutdown = true;
-  try {
-    state.serverSocket?.close?.();
-  } catch {
-    // Best effort shutdown.
-  }
   const listeners = state.listeners;
   state = createEmptyState("stopped");
   state.listeners = listeners;
@@ -2649,6 +2721,13 @@ export async function shutdownZoteroMcpServer() {
   descriptorInjected = false;
   descriptorInjectedAt = "";
   intentionalShutdown = false;
+}
+
+export async function handleZoteroMcpHostAccessRequest(request: HttpRequest) {
+  if (isZoteroMcpServerEnabled() && state.status !== "running") {
+    await ensureZoteroMcpServer();
+  }
+  return handleHttpRequest(request);
 }
 
 export function resetZoteroMcpServerForTests() {

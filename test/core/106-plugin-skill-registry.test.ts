@@ -14,6 +14,10 @@ import {
   collectRuntimeFiles,
   copyRuntimeDirectory,
 } from "../../src/modules/runtimePersistence";
+import {
+  compileSkillJsonSchema,
+  validateSkillSchemaAnnotations,
+} from "../../src/modules/acpSkillSchemaAssets";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { clearPref, setPref } from "../../src/utils/prefs";
 
@@ -609,6 +613,27 @@ describe("plugin skill registry", function () {
           entry.category === "skill_runner_json_invalid" &&
           entry.reason?.includes("meta_schema"),
       ),
+    );
+  });
+
+  it("accepts artifact-manifest as an output schema x-type", function () {
+    const schema = {
+      type: "object",
+      properties: {
+        artifact_manifest_path: {
+          type: "string",
+          "x-type": "artifact-manifest",
+          "x-role": "artifact-manifest",
+        },
+      },
+    };
+
+    assert.deepEqual(
+      [
+        ...compileSkillJsonSchema({ schema, schemaKey: "output" }),
+        ...validateSkillSchemaAnnotations({ schema, schemaKey: "output" }),
+      ],
+      [],
     );
   });
 

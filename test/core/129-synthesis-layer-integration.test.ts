@@ -3809,7 +3809,14 @@ function v2TopicBundle(overrides: Record<string, unknown> = {}) {
 function v2SectionContext(
   sections: Record<string, unknown>,
   extraFiles: Record<string, unknown> = {},
+  options: { absoluteRoot?: string } = {},
 ) {
+  const absoluteRoot = String(options.absoluteRoot || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  const artifactPath = (relativePath: string) =>
+    absoluteRoot ? `${absoluteRoot}/${relativePath}` : relativePath;
   const sectionEntries = Object.fromEntries(
     Object.keys(sections).map((section) => [
       section,
@@ -3853,18 +3860,18 @@ function v2SectionContext(
     },
     sections: sectionEntries,
   };
-  const files = new Map<string, string>([
+  const fileEntries: Array<readonly [string, string]> = [
     ["result/topic-analysis.json", JSON.stringify(manifest)],
     [
       "result/topic-synthesis-artifacts.json",
       JSON.stringify({
-        resolver_manifest: "runtime/payloads/resolver.json",
-        topic_analysis: "result/topic-analysis.json",
-        final_output_candidate: "result/final-output.candidate.json",
+        resolver_manifest: artifactPath("runtime/payloads/resolver.json"),
+        topic_analysis: artifactPath("result/topic-analysis.json"),
+        final_output_candidate: artifactPath("result/final-output.candidate.json"),
         ...Object.fromEntries(
           Object.keys(sections).map((section) => [
             `${section}_section`,
-            `result/sections/${section.replace(/_/g, "-")}.json`,
+            artifactPath(`result/sections/${section.replace(/_/g, "-")}.json`),
           ]),
         ),
       }),
@@ -3934,7 +3941,14 @@ function v2SectionContext(
           typeof value === "string" ? value : JSON.stringify(value),
         ] as const,
     ),
-  ]);
+  ];
+  const files = new Map<string, string>();
+  for (const [filePath, value] of fileEntries) {
+    files.set(filePath, value);
+    if (absoluteRoot && !/^[A-Za-z]:\//.test(filePath.replace(/\\/g, "/"))) {
+      files.set(`${absoluteRoot}/${filePath.replace(/\\/g, "/")}`, value);
+    }
+  }
   return {
     bundleReader: {
       readText(pathValue: string) {
@@ -4358,6 +4372,86 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       detail.artifact_provenance.sidecars.topic_interest_metadata.schema_id,
       "topic_interest_metadata.v1",
     );
+  });
+
+  it("applies split final candidates using ACP absolute artifact manifest paths", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-16T00:00:00.000Z",
+      registryInputs: [
+        registryInput({
+          itemKey: "DETR",
+          digest: "# Digest DETR",
+          references: null,
+          citation: null,
+        }),
+      ],
+    });
+    const absoluteRoot = "D:/Workspace/Artifact/Zotero-Skills/run/acp-skill-test";
+
+    const result = await service.applyTopicSynthesisResult(
+      v2TopicBundle({
+        artifact_metadata: {
+          runtime: "split-skill",
+          topic_id: "object-detection",
+        },
+        resolver_manifest_path: "",
+        analysis_manifest_path: "",
+        artifact_manifest_path: `${absoluteRoot}/result/topic-synthesis-artifacts.json`,
+      }),
+      v2SectionContext(
+        v2SectionsWithEvidence(hashMarkdown("# Digest DETR")),
+        {},
+        { absoluteRoot },
+      ),
+    );
+    const detail = await service.readTopicDetail({
+      topicId: "object-detection",
+    });
+
+    assert.equal(result.status, "persisted");
+    assert.equal(
+      detail.artifact_provenance.manifest_schema_id,
+      "synthesis.topic_analysis_manifest",
+    );
+    assert.isAtLeast(Number(detail.artifact_provenance.section_count), 10);
+  });
+
+  it("reports invalid artifact manifest paths instead of hiding them as missing resolver manifests", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-16T00:00:00.000Z",
+      registryInputs: [],
+    });
+
+    try {
+      await service.applyTopicSynthesisResult(
+        v2TopicBundle({
+          artifact_metadata: {
+            runtime: "split-skill",
+            topic_id: "object-detection",
+          },
+          resolver_manifest_path: "",
+          analysis_manifest_path: "",
+          artifact_manifest_path: "result/topic-synthesis-artifacts.json",
+        }),
+        v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR")), {
+          "result/topic-synthesis-artifacts.json": {
+            resolver_manifest: "../runtime/payloads/resolver.json",
+            topic_analysis: "result/topic-analysis.json",
+          },
+        }),
+      );
+      assert.fail("expected invalid artifact manifest path to be rejected");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      assert.include(message, "artifact_manifest_path contains invalid artifact path");
+      assert.notInclude(message, "requires resolver_manifest_path");
+    }
   });
 
   it("rejects incomplete split manifests with actionable diagnostics", async function () {

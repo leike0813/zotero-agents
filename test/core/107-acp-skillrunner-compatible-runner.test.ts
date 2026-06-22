@@ -27,6 +27,7 @@ import {
   replyAcpSkillRun,
   resolveAcpSkillRunPermissionRequest,
   resetAcpSkillRunsForTests,
+  selectAcpSkillRun,
   setAcpSkillRunMode,
   setAcpSkillRunModel,
   setAcpSkillRunRecoveryHandlerForTests,
@@ -73,7 +74,10 @@ import {
 } from "../../src/modules/acpSkillOutputValidator";
 import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
 import { resolveAcpSkillResultFileFallback } from "../../src/modules/acpSkillResultFileFallback";
-import { createAcpSkillRunnerWorkspace } from "../../src/modules/acpSkillRunnerWorkspace";
+import {
+  createAcpSkillRunnerWorkspace,
+  resetAcpWorkflowWorkspaceRegistryForTests,
+} from "../../src/modules/acpSkillRunnerWorkspace";
 import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
 import { RequestError } from "../../src/modules/acpProtocol";
@@ -2049,6 +2053,76 @@ describe("ACP SkillRunner-compatible runner", function () {
         formatPortablePathForTest(valid.schemaPath || ""),
         "/assets/output.schema.json",
       );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("validates ACP artifact-manifest output files as flat manifests", async function () {
+    const root = await mkTempRoot();
+    try {
+      const { skillDir } = await createSkill(root);
+      const runnerJson = JSON.parse(
+        await fs.readFile(path.join(skillDir, "assets", "runner.json"), "utf8"),
+      );
+      await fs.writeFile(
+        path.join(skillDir, "assets", "output.schema.json"),
+        JSON.stringify({
+          type: "object",
+          required: ["ok", "artifact_manifest_path"],
+          additionalProperties: false,
+          properties: {
+            ok: { const: true },
+            artifact_manifest_path: {
+              type: "string",
+              "x-type": "artifact-manifest",
+              "x-role": "artifact-manifest",
+            },
+          },
+        }),
+        "utf8",
+      );
+
+      const manifestPath = path.join(
+        root,
+        "workspace",
+        "result",
+        "artifacts.json",
+      );
+      const nested = await validateAcpSkillFinalPayload({
+        payload: {
+          ok: true,
+          artifact_manifest_path: manifestPath,
+        },
+        runnerJson,
+        primarySkillDir: skillDir,
+        readArtifactText: async () =>
+          JSON.stringify({
+            artifacts: {
+              digest: { path: path.join(root, "workspace", "result", "d.md") },
+            },
+          }),
+      });
+      const flat = await validateAcpSkillFinalPayload({
+        payload: {
+          ok: true,
+          artifact_manifest_path: manifestPath,
+        },
+        runnerJson,
+        primarySkillDir: skillDir,
+        readArtifactText: async () =>
+          JSON.stringify({
+            digest: path.join(root, "workspace", "result", "d.md"),
+            notes: "result/notes.md",
+          }),
+      });
+
+      assert.isFalse(nested.ok);
+      assert.include(
+        nested.errors.join("\n"),
+        "artifact_manifest_path.artifacts",
+      );
+      assert.isTrue(flat.ok, flat.errors.join("; "));
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -4811,6 +4885,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           fetch_type: "result",
         },
       });
+      resetAcpWorkflowWorkspaceRegistryForTests();
 
       await recoverAcpSkillRunConversation({
         requestId: workspace.requestId,
@@ -4910,6 +4985,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       { ok: true, step: "core" },
       { ok: true, step: "finalize" },
     ];
+    const foregroundSelectedRequestIds: string[] = [];
+    const foregroundOpenedRequestIds: string[] = [];
     try {
       await rescanWorkflowRegistry({
         workflowsDir: recoveryWorkflow.workflowsDir,
@@ -4991,6 +5068,18 @@ describe("ACP SkillRunner-compatible runner", function () {
             createFinalOutputAdapter(adapterOutputs.shift() || { ok: true }),
           dependencyProbe: async () => ({ ok: true }),
           sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+          acpSkillRunForeground: {
+            selectAcpSkillRun: (requestId) => {
+              foregroundSelectedRequestIds.push(requestId);
+              selectAcpSkillRun(requestId);
+            },
+            openAssistantWorkspaceSidebar: async (input) => {
+              foregroundOpenedRequestIds.push(
+                String(input?.requestId || "").trim(),
+              );
+              return true;
+            },
+          },
         },
       });
       await replyAcpSkillRun({
@@ -5007,6 +5096,20 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
       assert.equal(coreRun?.status, "succeeded");
       assert.equal(finalizeRun?.status, "succeeded");
+      assert.equal(coreRun?.workspaceDir, workspace.workspaceDir);
+      assert.equal(finalizeRun?.workspaceDir, workspace.workspaceDir);
+      assert.deepEqual(foregroundSelectedRequestIds, [
+        coreRun?.requestId,
+        finalizeRun?.requestId,
+      ]);
+      assert.deepEqual(foregroundOpenedRequestIds, [
+        coreRun?.requestId,
+        finalizeRun?.requestId,
+      ]);
+      assert.equal(
+        buildAcpSkillRunPanelSnapshot({}).selectedRun?.requestId,
+        finalizeRun?.requestId,
+      );
       assert.equal(finalizeRun?.applyResultState, "succeeded");
       assert.equal(coreRun?.workflowId, recoveryWorkflow.workflowId);
       assert.equal(finalizeRun?.workflowId, recoveryWorkflow.workflowId);

@@ -243,6 +243,10 @@ function runGateFromOtherCwd(skillId: string, extraArgs: string[] = []) {
   return JSON.parse(output) as Record<string, unknown>;
 }
 
+function normalizePathForAssert(value: unknown) {
+  return String(value || "").replace(/\\/g, "/");
+}
+
 function runGateRawFromOtherCwd(skillId: string) {
   const scriptPath = path.resolve(
     "skills_builtin",
@@ -509,7 +513,8 @@ describe("Topic synthesis suite renderer", function () {
             operation: "create",
             language: "zh-CN",
             topic_definition: { id: "detr", title: "DETR" },
-            artifact_manifest_path: "result/topic-synthesis-artifacts.json",
+            artifact_manifest_path:
+              "D:/workspace/result/topic-synthesis-artifacts.json",
           }),
           `${skillId} output schema must reject ACP control fields`,
         );
@@ -524,9 +529,9 @@ describe("Topic synthesis suite renderer", function () {
             kind: "topic_synthesis_handoff",
             handoff: "prepare_analysis_context",
             operation: "create",
-            db_path: "runtime/topic-synthesis.sqlite",
+            db_path: "D:/workspace/runtime/topic-synthesis.sqlite",
             handoff_manifest_path:
-              "runtime/handoff/prepare-analysis-context.json",
+              "D:/workspace/runtime/handoff/prepare-analysis-context.json",
             next_skill_id: "topic-synthesis-core-enrichment",
           }),
           `${skillId} output schema must reject ACP control fields`,
@@ -698,6 +703,22 @@ describe("Topic synthesis suite renderer", function () {
     assert.notInclude(finalizeSkill, "未抓取");
   });
 
+  it("documents remote paper artifact export downloads in prepare skills", async function () {
+    for (const skillId of [
+      "create-topic-synthesis-prepare",
+      "update-topic-synthesis-prepare",
+    ]) {
+      const skillText = await fs.readFile(
+        path.join("skills_builtin", skillId, "SKILL.md"),
+        "utf8",
+      );
+      assert.include(skillText, "bridge-download");
+      assert.include(skillText, "downloadCommand");
+      assert.include(skillText, "unpackHint");
+      assert.include(skillText, "paper-artifacts-export-delivery.json");
+    }
+  });
+
   it("renders generated SKILL.md prose in Chinese", async function () {
     const forbiddenEnglishFragments = [
       "Required Runtime Inputs",
@@ -741,9 +762,9 @@ describe("Topic synthesis suite renderer", function () {
       assert.include(skillText, "质量检查");
       assert.include(skillText, "常见错误");
       assert.include(skillText, "Payload JSON 示例");
-      assert.include(skillText, "--action run");
-      assert.include(skillText, "--action submit --payload");
-      assert.include(
+      assert.include(skillText, "复制并执行 gate JSON 的 `command` 字段");
+      assert.include(skillText, "复制并执行 gate JSON 的 `submit_command`");
+      assert.notInclude(
         skillText,
         'python scripts/gate.py --db "runtime/topic-synthesis.sqlite"',
       );
@@ -1033,7 +1054,12 @@ describe("Topic synthesis suite renderer", function () {
     for (const skillId of generatedSkillIds) {
       const instruction = runGateFromOtherCwd(skillId);
       assert.equal(instruction.skill_id, skillId);
-      assert.equal(instruction.db_path, "runtime/topic-synthesis.sqlite");
+      const dbPath = normalizePathForAssert(instruction.db_path);
+      assert.match(dbPath, /\/runtime\/topic-synthesis\.sqlite$/);
+      assert.isTrue(
+        path.isAbsolute(String(instruction.db_path || "")),
+        "gate instruction db_path should be absolute",
+      );
       assert.isString(instruction.stage);
       assert.isString(instruction.task);
       assert.property(instruction, "needs_payload");

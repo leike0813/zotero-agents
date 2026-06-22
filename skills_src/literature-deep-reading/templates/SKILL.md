@@ -75,8 +75,10 @@ runtime 必须负责：
 
 - 默认 packet-first：每阶段只读当前 packet 和其中列出的 batch 文件；`trace_paths` 仅在需要核对证据、修复 payload 或解释 diagnostics 时读取。
 - Host Bridge diagnostics 是降级信号，不是自动终止信号。Host context 缺失时，根据已有原文和可用 artifacts 继续完成当前阶段，并在 payload 语义上避免声称不可用证据已经存在。
+- 远程 SkillRunner profile 下，Host Bridge 的 `paper-artifacts export-filtered` 可能返回 `delivery.mode="bridge-download"` 而不是直接写本地 artifact 文件。runtime 会 fail closed 并写出 `runtime/payloads/*paper-artifacts-export-delivery.json`；遇到该错误时，读取这个 delivery JSON，执行其中的 `delivery.downloadCommand`，再执行 `delivery.unpackHint`，确认下载包已解包到当前 run workspace 后，重跑同一个 runtime command。
 - 恢复运行时先执行 `status`，再读取当前阶段 packet。packet 缺失时，不要跳过阶段；运行对应 `validate-*` 定位缺失项，并回到当前或上一阶段 submit/validate 修复。
 - 每次只写当前阶段 agent-authored payload。runtime-owned views、packets、SQLite、translation batches、最终 HTML 和 result JSON 都由 runtime 生成。
+- 不要手写、猜测或替换 Host Bridge 下载包内的 paper artifact manifest 路径；只使用 runtime 写出的 delivery JSON、其中的 `downloadCommand` 和 `unpackHint`。
 
 ## Runtime model
 

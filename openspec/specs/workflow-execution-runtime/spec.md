@@ -55,6 +55,17 @@ is not the final step.
 - **AND** Host SHALL launch the next sequence step with normal handoff mapping
 - **AND** workflow apply SHALL NOT run for the recovered intermediate step.
 
+#### Scenario: Middle step recovers after plugin restart
+
+- **GIVEN** a non-final ACP sequence step is recovered after local plugin state
+  was lost
+- **AND** the original ACP workflow workspace still exists
+- **WHEN** its recovered output validates as final
+- **THEN** Host SHALL restore the workflow workspace reuse mapping
+- **AND** Host SHALL launch downstream sequence steps in the original workspace
+- **AND** downstream ACP step start events SHALL preserve normal ACP Skills
+  foreground selection behavior.
+
 #### Scenario: Final step recovers
 
 - **GIVEN** the recovered ACP sequence step is the declared final step

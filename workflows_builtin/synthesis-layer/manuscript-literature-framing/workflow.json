@@ -63,14 +63,7 @@
     "expects": {
       "result_json": "result/result.json",
       "artifacts": [
-        "result/introduction.tex",
-        "result/related-work.tex",
-        "result/intent-brief.json",
-        "result/evidence-inventory.json",
-        "result/framing-analysis.json",
-        "result/writing-plan.json",
-        "result/citation-map.json",
-        "result/diagnostics.json"
+        "result/manuscript-literature-framing-artifacts.json"
       ]
     }
   },

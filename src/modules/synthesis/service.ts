@@ -5591,14 +5591,21 @@ async function readRunWorkspaceJson(
   return JSON.parse(await readRunWorkspaceText(context, fieldName, rawPath));
 }
 
-function isWorkspaceRelativeArtifactPath(value: string) {
+function isAllowedArtifactManifestPath(value: string) {
   const normalized = cleanString(value).replace(/\\/g, "/");
-  return (
-    Boolean(normalized) &&
-    !/^[A-Za-z]:\//.test(normalized) &&
-    !normalized.startsWith("/") &&
-    !normalized.split("/").some((segment) => segment === "..")
-  );
+  if (!normalized || normalized.split("/").some((segment) => segment === "..")) {
+    return false;
+  }
+  if (/^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/")) {
+    return true;
+  }
+  if (/^[A-Za-z]:($|[^/])/.test(normalized)) {
+    return false;
+  }
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(normalized)) {
+    return false;
+  }
+  return true;
 }
 
 async function readFlatArtifactManifest(args: {
@@ -5619,7 +5626,7 @@ async function readFlatArtifactManifest(args: {
   }
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(manifest)) {
-    if (typeof value !== "string" || !isWorkspaceRelativeArtifactPath(value)) {
+    if (typeof value !== "string" || !isAllowedArtifactManifestPath(value)) {
       throw new Error(
         `artifact_manifest_path contains invalid artifact path for ${key}`,
       );
@@ -6075,13 +6082,20 @@ async function loadResolverManifest(args: {
     };
   }
   if (!resolverManifestPath) {
-    resolverManifestPath = await resolveBundleArtifactPath({
-      bundle: args.bundle,
-      context: args.context,
-      fieldName: "resolver_manifest_path",
-      legacyPath: "",
-      manifestKeys: ["resolver_manifest", "resolver"],
-    }).catch(() => "");
+    try {
+      resolverManifestPath = await resolveBundleArtifactPath({
+        bundle: args.bundle,
+        context: args.context,
+        fieldName: "resolver_manifest_path",
+        legacyPath: "",
+        manifestKeys: ["resolver_manifest", "resolver"],
+      });
+    } catch (error) {
+      if (cleanString(args.bundle.artifact_manifest_path)) {
+        throw error;
+      }
+      resolverManifestPath = "";
+    }
   }
   if (resolverManifestPath) {
     const manifest = await readRunWorkspaceJson(
@@ -19810,7 +19824,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       artifact_manifest_path: {
         type: "string",
         minLength: 1,
-        "x-type": "artifact",
+        "x-type": "artifact-manifest",
         "x-role": "artifact-manifest",
       },
     };

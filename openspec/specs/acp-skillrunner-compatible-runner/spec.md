@@ -573,6 +573,25 @@ as detached recoverable runs, not as active prompt turns.
   final apply, and sequence continuation SHALL follow the existing recovered
   continuation behavior.
 
+#### Scenario: Explicit connect resumes reusable workflow workspace
+
+- **GIVEN** a detached recoverable ACP Skills run is a non-final sequence step
+- **AND** the original workflow workspace still exists
+- **WHEN** explicit connect produces final recovered output
+- **THEN** downstream ACP sequence steps SHALL reuse the original workflow
+  workspace
+- **AND** runner-owned result and audit paths SHALL use fresh namespaces.
+
+#### Scenario: Explicit connect foregrounds downstream ACP sequence steps
+
+- **GIVEN** a detached recoverable ACP Skills run is a non-final sequence step
+- **AND** explicit connect produces final recovered output
+- **WHEN** Host launches downstream ACP sequence steps
+- **THEN** each started downstream ACP step SHALL become the selected ACP Skills
+  run
+- **AND** interactive downstream ACP steps SHALL request the ACP Skills panel as
+  the foreground surface.
+
 #### Scenario: Pending interaction waits after connect
 
 - **GIVEN** a detached recoverable ACP Skills run has a pending user interaction
@@ -645,3 +664,22 @@ Bundle-producing SkillRunner-compatible outputs SHALL identify a flat artifact m
 
 - **WHEN** the manifest path is missing, unreadable, non-object, nested, contains arrays, contains empty values, or contains unsafe paths
 - **THEN** bundle assembly SHALL fail with a deterministic diagnostic naming the invalid manifest entry.
+
+### Requirement: Output Artifact Manifest Identity Uses X-Type
+
+Bundle-producing SkillRunner-compatible outputs SHALL identify artifact manifest
+fields with `x-type: "artifact-manifest"`.
+
+#### Scenario: Artifact manifest x-type is discovered from output schema
+
+- **GIVEN** a successful result validates against an output schema
+- **AND** a top-level string field is annotated with `x-type: "artifact-manifest"`
+- **THEN** the plugin SHALL treat that field value as an artifact manifest path
+- **AND** it SHALL NOT require `x-role` to equal any specific value.
+
+#### Scenario: Artifact role string does not define manifest identity
+
+- **GIVEN** a top-level string field is annotated with `x-type: "artifact"`
+- **AND** `x-role` is `artifact-manifest`
+- **THEN** the plugin SHALL treat the field as a single artifact path
+- **AND** it SHALL NOT expand the field value as an artifact manifest.

@@ -351,6 +351,7 @@ export type FluentMessageId =
   | 'pref-host-bridge-help'
   | 'pref-host-bridge-install-cli'
   | 'pref-host-bridge-lan-enabled'
+  | 'pref-host-bridge-operation-notice'
   | 'pref-host-bridge-pin-port-enabled'
   | 'pref-host-bridge-rotate-master-token'
   | 'pref-host-bridge-rotate-token'

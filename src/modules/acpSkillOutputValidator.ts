@@ -1,11 +1,48 @@
 import Ajv from "ajv";
+import { joinPath, normalizeNativeLocalPath } from "../utils/path";
 import {
   loadResolvedAcpSkillJson,
   resolveAcpSkillSchemaAsset,
 } from "./acpSkillSchemaAssets";
+import { readRuntimeTextFile } from "./runtimePersistence";
+import { collectOutputBundleArtifactPaths } from "./workflowExecution/artifactManifest";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizeSlashes(value: string) {
+  return normalizeString(value).replace(/\\/g, "/");
+}
+
+function isAbsolutePath(value: string) {
+  const normalized = normalizeSlashes(value);
+  return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/");
+}
+
+function normalizeRelativeArtifactPath(value: string) {
+  return normalizeSlashes(value)
+    .replace(/^\.\/+/, "")
+    .split("/")
+    .filter((segment) => segment && segment !== ".")
+    .join("/");
+}
+
+async function readWorkspaceArtifactText(args: {
+  workspaceDir?: string;
+  rawPath: string;
+}) {
+  const rawPath = normalizeString(args.rawPath);
+  if (isAbsolutePath(rawPath)) {
+    return readRuntimeTextFile(normalizeNativeLocalPath(rawPath));
+  }
+  const workspaceDir = normalizeString(args.workspaceDir);
+  if (!workspaceDir) {
+    throw new Error(`workspaceDir is required to read ${rawPath}`);
+  }
+  return readRuntimeTextFile(
+    joinPath(workspaceDir, normalizeRelativeArtifactPath(rawPath)),
+  );
 }
 
 export type AcpSkillOutputValidationResult = {
@@ -19,6 +56,8 @@ export async function validateAcpSkillFinalPayload(args: {
   payload: unknown;
   runnerJson: Record<string, unknown>;
   primarySkillDir: string;
+  workspaceDir?: string;
+  readArtifactText?: (path: string) => Promise<string> | string;
 }): Promise<AcpSkillOutputValidationResult> {
   const resultJson = args.payload;
   if (!resultJson || typeof resultJson !== "object" || Array.isArray(resultJson)) {
@@ -68,6 +107,33 @@ export async function validateAcpSkillFinalPayload(args: {
   const ajv = new Ajv({ allErrors: true, strict: false, logger: false });
   const validate = ajv.compile(schema as Parameters<typeof ajv.compile>[0]);
   if (validate(resultJson)) {
+    const artifactValidation = await collectOutputBundleArtifactPaths({
+      output: resultJson,
+      outputSchema: schema,
+      allowAbsolutePaths: true,
+      readArtifactText:
+        args.readArtifactText ||
+        ((path) =>
+          readWorkspaceArtifactText({
+            workspaceDir: args.workspaceDir,
+            rawPath: path,
+          })),
+    });
+    if (!artifactValidation.ok) {
+      return {
+        ok: false,
+        resultJson,
+        schemaPath,
+        errors: artifactValidation.diagnostics.map((entry) =>
+          [
+            entry.path ? `${entry.path}:` : "",
+            entry.message || entry.code,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        ),
+      };
+    }
     return {
       ok: true,
       resultJson,

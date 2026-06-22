@@ -17,8 +17,18 @@
         "kind": { "const": "topic_synthesis_handoff" },
         "handoff": { "const": "prepare_analysis_context" },
         "operation": { "const": "create" },
-        "db_path": { "const": "runtime/topic-synthesis.sqlite" },
-        "handoff_manifest_path": { "type": "string", "minLength": 1 },
+        "db_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact",
+          "x-role": "runtime-state-db"
+        },
+        "handoff_manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact-manifest",
+          "x-role": "artifact-manifest"
+        },
         "next_skill_id": { "const": "topic-synthesis-core-enrichment" }
       }
     },

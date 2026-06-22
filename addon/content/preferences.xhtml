@@ -27,6 +27,14 @@
     .zs-host-access-status-label { font-weight: 600; color: #334155; }
     .zs-host-access-settings { display: flex; flex-direction: column; gap: 8px;
     padding-top: 4px; }
+    .zs-host-access-operation-notice { display: none; border: 1px solid
+    rgba(59, 130, 246, 0.35); border-radius: 6px; padding: 8px; background:
+    rgba(239, 246, 255, 0.75); color: #1e3a8a; font-size: 12px; }
+    .zs-host-access-operation-notice.is-visible { display: block; }
+    .zs-host-access-operation-notice.is-error { border-color: rgba(185, 28, 28,
+    0.45); background: rgba(254, 242, 242, 0.85); color: #7f1d1d; }
+    .zs-host-access-operation-notice-title { font-weight: 700; margin-right:
+    6px; }
     .zs-host-access-security-panel { display: none; }
     .zs-host-access-security-panel.is-visible { display: flex; }
     .zs-runtime-issues-grid { display: grid; grid-template-columns:
@@ -253,6 +261,18 @@
           data-l10n-id="pref-host-bridge-install-cli"
         ></button>
       </hbox>
+      <html:div
+        id="zotero-prefpane-__addonRef__-host-bridge-operation-notice"
+        class="zs-host-access-operation-notice"
+      >
+        <html:span
+          class="zs-host-access-operation-notice-title"
+          data-l10n-id="pref-host-bridge-operation-notice"
+        ></html:span>
+        <html:span
+          id="zotero-prefpane-__addonRef__-host-bridge-operation-notice-text"
+        ></html:span>
+      </html:div>
       <vbox class="zs-pref-danger-zone">
         <html:strong
           class="zs-pref-danger-title"

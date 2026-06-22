@@ -40,6 +40,14 @@ async function exists(filePath: string): Promise<boolean> {
   }
 }
 
+function portablePath(filePath: string) {
+  return path.resolve(filePath).replace(/\\/g, "/");
+}
+
+function absRunPath(runRoot: string, relativePath: string) {
+  return portablePath(path.join(runRoot, relativePath));
+}
+
 async function readBridgeCalls(runRoot: string): Promise<any[]> {
   const callsPath = path.join(runRoot, "runtime", "bridge-calls.jsonl");
   if (!(await exists(callsPath))) {
@@ -49,6 +57,100 @@ async function readBridgeCalls(runRoot: string): Promise<any[]> {
     .split(/\r?\n/)
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+}
+
+async function writeDownloadedPaperArtifactManifest(
+  runRoot: string,
+  paperRefs: string[],
+) {
+  const artifactDir = path.join(runRoot, "runtime", "payloads", "artifacts");
+  await fs.mkdir(artifactDir, { recursive: true });
+  const papers = [];
+  for (const paperRef of paperRefs) {
+    const safe = paperRef.replace(/[^A-Za-z0-9._-]/g, "_");
+    const digest = path.join(
+      "runtime",
+      "payloads",
+      "artifacts",
+      `${safe}-digest.md`,
+    );
+    const references = path.join(
+      "runtime",
+      "payloads",
+      "artifacts",
+      `${safe}-references.json`,
+    );
+    const citation = path.join(
+      "runtime",
+      "payloads",
+      "artifacts",
+      `${safe}-citation-analysis.json`,
+    );
+    await fs.writeFile(
+      path.join(runRoot, digest),
+      `# Downloaded Digest\n\n${paperRef} digest.\n`,
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(runRoot, references),
+      JSON.stringify(
+        {
+          references: [
+            {
+              id: `ref-${safe}`,
+              year: 2024,
+              authors: ["Downloaded Author"],
+              title: `Downloaded reference for ${paperRef}`,
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(runRoot, citation),
+      JSON.stringify(
+        {
+          report_md: `Downloaded citation analysis for ${paperRef}.`,
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    papers.push({
+      paper_ref: paperRef,
+      artifacts: [
+        {
+          artifact_type: "digest",
+          payload_type: "digest-markdown",
+          content_file: digest,
+          status: "available",
+        },
+        {
+          artifact_type: "references",
+          payload_type: "references-json",
+          content_file: references,
+          status: "available",
+        },
+        {
+          artifact_type: "citation_analysis",
+          payload_type: "citation-analysis-json",
+          content_file: citation,
+          status: "available",
+        },
+      ],
+    });
+  }
+  await writeJson(
+    path.join(runRoot, "runtime", "payloads", "paper-artifacts-manifest.json"),
+    {
+      exported_by: "paper_artifacts.export_filtered.downloaded",
+      papers,
+    },
+  );
 }
 
 async function readGuidanceExample(
@@ -72,10 +174,19 @@ async function readGuidanceExample(
 
 function assertStage30HardRules(gateInstruction: any) {
   assert.equal(gateInstruction.stage, "stage_30_prepare_analysis_context");
-  assert.includeMembers(gateInstruction.required_reads, [
-    "runtime/payloads/paper-artifacts-manifest-batch-1.json",
-    "runtime/payloads/artifacts/",
-  ]);
+  const requiredReads = gateInstruction.required_reads.map((entry: string) =>
+    entry.replace(/\\/g, "/"),
+  );
+  assert.isTrue(
+    requiredReads.some((entry: string) =>
+      entry.endsWith("/runtime/payloads/paper-artifacts-manifest-batch-1.json"),
+    ),
+  );
+  assert.isTrue(
+    requiredReads.some((entry: string) =>
+      entry.endsWith("/runtime/payloads/artifacts"),
+    ),
+  );
   assert.notInclude(
     gateInstruction.required_reads,
     "runtime/views/filtered-paper-artifacts/",
@@ -150,6 +261,36 @@ async function assertRichPrepareContexts(runRoot: string) {
   ]);
 }
 
+async function assertFlatHandoffManifest(
+  runRoot: string,
+  relativePath: string,
+  expectedKeys: string[],
+) {
+  const manifest = await readJson<Record<string, unknown>>(
+    path.join(runRoot, relativePath),
+  );
+  for (const removedKey of [
+    "schema_id",
+    "schema_version",
+    "handoff",
+    "stage",
+    "artifacts",
+  ]) {
+    assert.notProperty(manifest, removedKey);
+  }
+  assert.containsAllKeys(manifest, expectedKeys);
+  for (const [key, value] of Object.entries(manifest)) {
+    assert.isString(value, `${relativePath}.${key} should be a path string`);
+    const artifactPath = value as string;
+    assert.isTrue(path.isAbsolute(artifactPath), `${key} should be absolute`);
+    assert.isTrue(
+      portablePath(artifactPath).startsWith(portablePath(runRoot) + "/"),
+      `${artifactPath} should stay under the run root`,
+    );
+    await fs.access(artifactPath);
+  }
+}
+
 function pythonArgs(scriptPath: string, args: string[]) {
   const arProject = path.join(os.homedir(), ".ar");
   const arPyproject = path.join(arProject, "pyproject.toml");
@@ -204,6 +345,39 @@ function runGateStatus(
     env: { ...process.env, ...env },
     stdio: "pipe",
   }).status;
+}
+
+function runGateProcess(
+  skillRoot: string,
+  runRoot: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+) {
+  const scriptPath = path.join(skillRoot, "scripts", "gate.py");
+  const command = pythonArgs(scriptPath, args);
+  return spawnSync(command.command, command.args, {
+    cwd: runRoot,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+    stdio: "pipe",
+  });
+}
+
+function runGateInCwd(
+  skillRoot: string,
+  cwd: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+) {
+  const scriptPath = path.join(skillRoot, "scripts", "gate.py");
+  const command = pythonArgs(scriptPath, args);
+  const output = execFileSync(command.command, command.args, {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+    stdio: "pipe",
+  });
+  return JSON.parse(output);
 }
 
 async function createFakeBridge(runRoot: string) {
@@ -306,6 +480,24 @@ if (command === "topics get-context") {
     synthesis_role_hints: ["core", "external-heavy"]
   })) } } }));
 } else if (command === "paper-artifacts export-filtered") {
+  if (process.env.ZS_FAKE_BRIDGE_REMOTE_EXPORT === "1") {
+    console.log(JSON.stringify({
+      ok: true,
+      data: {
+        approval: "none",
+        capability: "paper_artifacts.export_filtered",
+        data: {
+          delivery: {
+            mode: "bridge-download",
+            downloadCommand: "zotero-bridge file download file-123 --output paper-artifacts.zip",
+            unpackHint: "tar -xf paper-artifacts.zip -C .",
+            manifest_file: "runtime/payloads/paper-artifacts-manifest.json"
+          }
+        }
+      }
+    }));
+    process.exit(0);
+  }
   const refs = input.paper_refs || [];
   const viewRoot = path.join(input.run_root, "runtime", "payloads", "artifacts");
   fs.mkdirSync(viewRoot, { recursive: true });
@@ -584,6 +776,35 @@ describe("topic synthesis split skill runtime", function () {
     assert.equal(preflightOutput.result.status, "ready");
     assert.equal(preflightOutput.result.topic_id, "detr-topic");
     assert.notProperty(preflightOutput.result, "canceled_output");
+  });
+
+  it("locks the run root from an absolute db path even when cwd is the skill package", async function () {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "topic-synthesis-absolute-db-"),
+    );
+    const runRoot = path.join(tempRoot, "workspace");
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+    const env = { PYTHONUTF8: "1" };
+
+    const gate0 = runGateInCwd(
+      packages.prepare,
+      packages.prepare,
+      ["--db", dbPath],
+      env,
+    );
+    assert.equal(
+      gate0.db_path,
+      absRunPath(runRoot, "runtime/topic-synthesis.sqlite"),
+    );
+
+    const run0 = runGateInCwd(
+      packages.prepare,
+      packages.prepare,
+      ["--db", dbPath, "--action", "run"],
+      env,
+    );
+    assert.equal(run0.result.run_root, absRunPath(runRoot, "."));
+    await fs.access(path.join(runRoot, "runtime", "topic-synthesis.sqlite"));
   });
 
   it("reads the update topic id from the ACP input manifest when runtime input is absent", async function () {
@@ -1376,9 +1597,12 @@ describe("topic synthesis split skill runtime", function () {
       finalizeGate60.stage,
       "stage_60_coverage_and_collection_suggestions",
     );
-    assert.include(
-      finalizeGate60.required_reads,
-      "runtime/views/external-literature-context.md",
+    assert.isTrue(
+      finalizeGate60.required_reads
+        .map((entry: string) => entry.replace(/\\/g, "/"))
+        .some((entry: string) =>
+          entry.endsWith("/runtime/views/external-literature-context.md"),
+        ),
     );
     await writeJson(
       path.join(
@@ -1536,6 +1760,34 @@ describe("topic synthesis split skill runtime", function () {
       await fs.access(path.join(runRoot, filePath));
     }
 
+    await assertFlatHandoffManifest(
+      runRoot,
+      "runtime/handoff/prepare-analysis-context.json",
+      [
+        "db_path",
+        "resolver_manifest",
+        "paper_artifacts_manifest_batch_1",
+        "cross_paper_context",
+        "external_literature_context",
+        "cross_paper_context_manifest",
+        "source_paper_evidence_index",
+      ],
+    );
+    await assertFlatHandoffManifest(
+      runRoot,
+      "runtime/handoff/core-enrichment.json",
+      [
+        "db_path",
+        "stage_40_core_synthesis_payload",
+        "stage_50_kg_enrichment_payload",
+        "concept_cards_proposal",
+        "topic_graph_relation_proposals",
+        "prospective_topic_relation_proposals",
+        "topic_interest_metadata",
+        "finalize_context_manifest",
+      ],
+    );
+
     for (const removedRuntimeArtifact of [
       "runtime/artifact-registry.json",
       "runtime/gate-transcript",
@@ -1560,16 +1812,27 @@ describe("topic synthesis split skill runtime", function () {
     assert.equal(finalCandidate.kind, "topic_synthesis");
     assert.equal(
       finalCandidate.artifact_manifest_path,
-      "result/topic-synthesis-artifacts.json",
+      absRunPath(runRoot, "result/topic-synthesis-artifacts.json"),
     );
     const artifactManifest = await readJson<Record<string, string>>(
       path.join(runRoot, "result/topic-synthesis-artifacts.json"),
     );
-    assert.equal(artifactManifest.topic_analysis, "result/topic-analysis.json");
+    assert.equal(
+      artifactManifest.topic_analysis,
+      absRunPath(runRoot, "result/topic-analysis.json"),
+    );
     assert.equal(
       artifactManifest.final_output_candidate,
-      "result/final-output.candidate.json",
+      absRunPath(runRoot, "result/final-output.candidate.json"),
     );
+    for (const artifactPath of Object.values(artifactManifest)) {
+      assert.isTrue(path.isAbsolute(artifactPath));
+      assert.isTrue(
+        portablePath(artifactPath).startsWith(portablePath(runRoot) + "/"),
+        `${artifactPath} should stay under the run root`,
+      );
+      await fs.access(artifactPath);
+    }
     const finalSchema = await readJson(
       path.join(packages.finalize, "assets/output.schema.json"),
     );
@@ -1747,6 +2010,138 @@ describe("topic synthesis split skill runtime", function () {
       artifactValidation.ok
         ? ""
         : artifactValidation.errors.slice(0, 8).join("; "),
+    );
+  });
+
+  it("surfaces remote artifact export download instructions at stage 20", async function () {
+    const runRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-topic-remote-export-"),
+    );
+    const bridgeBin = await createFakeBridge(runRoot);
+    const env = {
+      ZOTERO_BRIDGE_BIN: bridgeBin,
+      ZS_FAKE_BRIDGE_REMOTE_EXPORT: "1",
+    };
+    const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+
+    runGate(packages.prepare, runRoot, ["--db", dbPath], env);
+    runGate(
+      packages.prepare,
+      runRoot,
+      ["--db", dbPath, "--action", "run"],
+      env,
+    );
+    await writeJson(
+      path.join(runRoot, "runtime/payloads/create-topic-context.json"),
+      {
+        topic_title: "Object Detection",
+        definition:
+          "Object detection identifies and localizes object instances in images.",
+        aliases: ["Detection"],
+        scope_include: ["DETR"],
+        scope_exclude: ["segmentation"],
+        duplicate_status: "none",
+        duplicate_candidate_ids: [],
+        duplicate_reason: "No existing topic in fixture.",
+      },
+    );
+    runGate(
+      packages.prepare,
+      runRoot,
+      [
+        "--db",
+        dbPath,
+        "--action",
+        "submit",
+        "--payload",
+        "runtime/payloads/create-topic-context.json",
+      ],
+      env,
+    );
+    await writeJson(
+      path.join(runRoot, "runtime/payloads/resolver-and-workset.json"),
+      {
+        resolver: { paper_refs: ["1:DETR"], combine: "union" },
+        resolver_reasoning: "Fixture resolver.",
+        operation_intent: "create",
+      },
+    );
+
+    const result = runGateProcess(
+      packages.prepare,
+      runRoot,
+      [
+        "--db",
+        dbPath,
+        "--action",
+        "submit",
+        "--payload",
+        "runtime/payloads/resolver-and-workset.json",
+      ],
+      env,
+    );
+    const combinedOutput = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.status, 2);
+    assert.include(combinedOutput, "bridge-download");
+    assert.include(combinedOutput, "downloadCommand");
+    assert.include(combinedOutput, "unpackHint");
+    assert.include(combinedOutput, "paper-artifacts-export-delivery.json");
+    const delivery = await readJson<any>(
+      path.join(
+        runRoot,
+        "runtime/payloads/paper-artifacts-export-delivery.json",
+      ),
+    );
+    assert.equal(delivery.delivery.mode, "bridge-download");
+    assert.include(
+      delivery.delivery.downloadCommand,
+      "zotero-bridge file download",
+    );
+    assert.property(delivery, "export_data");
+
+    await writeDownloadedPaperArtifactManifest(runRoot, ["1:DETR"]);
+    const recovered = runGate(
+      packages.prepare,
+      runRoot,
+      [
+        "--db",
+        dbPath,
+        "--action",
+        "submit",
+        "--payload",
+        "runtime/payloads/resolver-and-workset.json",
+      ],
+      env,
+    );
+    assert.equal(recovered.stage, "stage_20_resolver_and_workset");
+    assert.equal(
+      runGate(packages.prepare, runRoot, ["--db", dbPath], env).stage,
+      "stage_30_prepare_analysis_context",
+    );
+    const recoveredManifest = await readJson<Record<string, any>>(
+      path.join(
+        runRoot,
+        "runtime/payloads/paper-artifacts-manifest-batch-1.json",
+      ),
+    );
+    assert.equal(recoveredManifest.papers?.[0]?.paper_ref, "1:DETR");
+    const recoveredArtifacts = recoveredManifest.papers?.[0]?.artifacts || [];
+    assert.lengthOf(recoveredArtifacts, 3);
+    for (const artifact of recoveredArtifacts) {
+      assert.isTrue(path.isAbsolute(artifact.content_file));
+      assert.isTrue(
+        portablePath(artifact.content_file).startsWith(
+          portablePath(runRoot) + "/",
+        ),
+      );
+      await fs.access(artifact.content_file);
+    }
+    const calls = await readBridgeCalls(runRoot);
+    assert.equal(
+      calls.filter(
+        (entry) => entry.command === "paper-artifacts export-filtered",
+      ).length,
+      1,
     );
   });
 });

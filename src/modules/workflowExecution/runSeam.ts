@@ -10,7 +10,8 @@ import { recordWorkflowTaskUpdate } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
 import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
 import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
-import { selectAcpSkillRun, upsertAcpSkillRun } from "../acpSkillRunStore";
+import { selectAcpSkillRun } from "../acpSkillRunStore";
+import { requestAcpSkillRunForeground } from "../acpSkillRunForeground";
 import type { PreparedWorkflowExecution, WorkflowRunState } from "./contracts";
 import {
   resolveInputUnitIdentityFromRequest,
@@ -340,32 +341,13 @@ export function runWorkflowExecutionSeam(
             });
           }
         }
-        const skillrunnerMode = requestForMode
-          ? resolveSkillRunnerExecutionModeFromRequest(requestForMode, "auto")
-          : "auto";
         const isAcpSkillRun =
           executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
           executionContext.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND;
         if (isAcpSkillRun && backendType === "acp" && requestId) {
-          upsertAcpSkillRun({
+          requestAcpSkillRunForeground({
             requestId,
-            status: "running",
-            backendId: executionContext.backend.id,
-            backendType: "acp",
-            backendLabel:
-              String(
-                (
-                  executionContext.backend as {
-                    label?: unknown;
-                    name?: unknown;
-                    displayName?: unknown;
-                  }
-                ).label ||
-                  (executionContext.backend as { name?: unknown }).name ||
-                  (executionContext.backend as { displayName?: unknown })
-                    .displayName ||
-                  "",
-              ).trim() || undefined,
+            backend: executionContext.backend,
             workflowId: args.prepared.workflow.manifest.id,
             workflowLabel: localizeWorkflowLabel(args.prepared.workflow),
             jobId: job.id,
@@ -382,16 +364,13 @@ export function runWorkflowExecutionSeam(
                     (requestForMode as { skill_id?: unknown }).skill_id || "",
                   ).trim() || undefined
                 : undefined,
-            requestPayload: requestForMode,
+            request: requestForMode,
+            deps: {
+              selectAcpSkillRun: resolved.selectAcpSkillRun,
+              openAssistantWorkspaceSidebar:
+                resolved.openAssistantWorkspaceSidebar,
+            },
           });
-          resolved.selectAcpSkillRun(requestId);
-          if (skillrunnerMode === "interactive") {
-            void resolved.openAssistantWorkspaceSidebar({
-              tab: "acp-skills",
-              backend: executionContext.backend,
-              requestId,
-            });
-          }
         }
       }
     },

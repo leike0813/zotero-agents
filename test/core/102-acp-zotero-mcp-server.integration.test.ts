@@ -4,6 +4,7 @@ import {
   getZoteroMcpServerStatus,
   shutdownZoteroMcpServer,
 } from "../../src/modules/zoteroMcpServer";
+import { shutdownHostBridgeServer } from "../../src/modules/hostBridgeServer";
 import { ZOTERO_MCP_TOOL_GET_CURRENT_VIEW } from "../../src/modules/zoteroMcpProtocol";
 
 function isRealZoteroRuntime() {
@@ -290,6 +291,7 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
 
   afterEach(async function () {
     await shutdownZoteroMcpServer();
+    await shutdownHostBridgeServer();
   });
 
   it("serves Streamable HTTP JSON-RPC over the real Zotero localhost socket", async function () {

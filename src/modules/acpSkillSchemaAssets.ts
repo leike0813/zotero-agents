@@ -506,9 +506,10 @@ export function validateSkillSchemaAnnotations(args: {
     if (
       typeof xType !== "undefined" &&
       xType !== "artifact" &&
+      xType !== "artifact-manifest" &&
       xType !== "file"
     ) {
-      errors.push(`${path}/x-type must be artifact or file`);
+      errors.push(`${path}/x-type must be artifact, artifact-manifest, or file`);
     }
     for (const [key, child] of Object.entries(value)) {
       if (isRecord(child) || Array.isArray(child)) {

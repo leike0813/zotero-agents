@@ -1,0 +1,150 @@
+invariants:
+  - id: INV-SR-RUNKEY-LOCAL-SSOT
+    domain: skillrunner-run-lifecycle
+    type: identity
+    current_value:
+      local_identity: runKey
+      backend_correlation: requestId
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.identity.localIdentity
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.identity.backendCorrelation
+    doc_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/design.md
+    spec_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/workflow-execution-seams/spec.md
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/provider-adapter/spec.md
+    must: runKey MUST be allocated before backend request creation and remain stable for the whole run.
+
+  - id: INV-SR-REQUESTID-ATTACH-NO-REKEY
+    domain: skillrunner-run-lifecycle
+    type: identity
+    current_value:
+      request_id_behavior: attach_to_existing_runKey
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.identity.requestIdBehavior
+    doc_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/design.md
+    spec_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/provider-adapter/spec.md
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/task-runtime-ui/spec.md
+    must: requestId MUST attach to an existing runKey and MUST NOT create a replacement task row.
+
+  - id: INV-SR-RUN-PERSISTED-MINIMAL
+    domain: skillrunner-run-lifecycle
+    type: data-model
+    current_value:
+      persisted_model: lifecycle_recovery_execution_facts_only
+      derived_fields:
+        - backendBaseUrl
+        - backendType
+        - providerId
+        - workflowLabel
+        - skillName
+        - sequenceStepIndex
+        - sequenceFinalStepId
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.model.persistedModel
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.model.derivedFields
+    doc_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/design.md
+    spec_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/workflow-execution-seams/spec.md
+    must: SkillRunnerRunRecord MUST NOT persist fields that can be resolved from backend, workflow, skill, or sequence SSOT unless they are execution facts needed for recovery.
+
+  - id: INV-SR-SEQUENCE-STEP-FIRST-CLASS-RUN
+    domain: skillrunner-sequence
+    type: architecture
+    current_value:
+      sequence_step_lifecycle: skillrunner_run
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.sequence.sequenceStepLifecycle
+    doc_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/design.md
+    spec_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/workflow-execution-seams/spec.md
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/provider-adapter/spec.md
+    must: SkillRunner sequence steps MUST use the same lifecycle path as single SkillRunner jobs.
+
+  - id: INV-SR-OBSERVER-FAILURE-NONTERMINAL
+    domain: skillrunner-state-machine
+    type: terminal-ownership
+    current_value:
+      request_id_observer_failure: recoverable
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.terminalOwnership.requestIdObserverFailure
+    doc_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/design.md
+    spec_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/provider-adapter/spec.md
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/task-runtime-ui/spec.md
+    must: Local observer failures after requestId exists MUST NOT mark a run, step, sequence, or UI row terminal.
+
+  - id: INV-SR-BACKEND-TERMINAL-OWNER
+    domain: skillrunner-state-machine
+    type: terminal-ownership
+    current_value:
+      terminal_source: backend_or_apply_policy
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.terminalOwnership.terminalSource
+    doc_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/design.md
+    spec_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/provider-adapter/spec.md
+    must: SkillRunner terminal failed/canceled MUST come from backend terminal state, terminal client error, or declared apply policy.
+
+  - id: INV-SR-UI-PROJECTION-DERIVED
+    domain: skillrunner-ui
+    type: projection
+    current_value:
+      ui_source: run_store_projection
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.projection.uiSource
+    doc_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/design.md
+    spec_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/task-runtime-ui/spec.md
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/task-dashboard-skillrunner-observe/spec.md
+    must: Task list and dashboard rows MUST derive SkillRunner state from run store projections and MUST NOT own lifecycle truth.
+
+  - id: INV-SR-UI-SKILL-NAME-CASCADED
+    domain: skillrunner-ui
+    type: projection
+    current_value:
+      skill_display_source: skill_registry_by_skillId
+      excluded:
+        - skillLabel
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.projection.skillDisplaySource
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.projection.excludedDisplayFields
+    doc_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/design.md
+    spec_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/task-runtime-ui/spec.md
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/task-dashboard-skillrunner-observe/spec.md
+    must: SkillRunner UI MUST read skillName from projection derived by skillId; skillLabel is not part of the SkillRunner lifecycle model.
+
+  - id: INV-SR-BACKEND-CONFIG-CASCADE
+    domain: skillrunner-recovery
+    type: cascade
+    current_value:
+      backend_config_source: backend_registry_by_backendId
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.projection.backendConfigSource
+    doc_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/design.md
+    spec_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/task-runtime-ui/spec.md
+    must: Recovery and UI actions MUST resolve backend connection data from backendId at use time; stale backendBaseUrl snapshots MUST NOT be lifecycle truth.
+
+  - id: INV-SR-RECOVERY-RUN-STORE-SSOT
+    domain: skillrunner-recovery
+    type: recovery
+    current_value:
+      recovery_scan_source: skillrunner_run_store
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.runLifecycle.recovery.scanSource
+    doc_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/design.md
+    spec_refs:
+      - openspec/changes/unify-skillrunner-run-lifecycle/specs/task-dashboard-skillrunner-observe/spec.md
+    must: Recovery MUST scan local SkillRunner run records as SSOT and MUST NOT use backend-wide scan as lifecycle fallback.

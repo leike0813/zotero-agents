@@ -30,14 +30,7 @@ describe("Manuscript Literature Framing workflow contract", function () {
     assert.equal(workflow.provider, "skillrunner");
     assert.equal(workflow.result?.fetch?.type, "bundle");
     assert.deepEqual(workflow.result?.expects?.artifacts, [
-      "result/introduction.tex",
-      "result/related-work.tex",
-      "result/intent-brief.json",
-      "result/evidence-inventory.json",
-      "result/framing-analysis.json",
-      "result/writing-plan.json",
-      "result/citation-map.json",
-      "result/diagnostics.json",
+      "result/manuscript-literature-framing-artifacts.json",
     ]);
     assert.notProperty(workflow.execution || {}, "supportedBackends");
     assert.isTrue(workflow.execution?.zoteroHostAccess?.required);
@@ -165,6 +158,7 @@ describe("Manuscript Literature Framing workflow contract", function () {
       assert.include(text, "\\cite{zotero_citekey}");
       assert.include(text, "% TODO citation: paper_ref");
       assert.include(text, "writing.manuscript_literature_framing");
+      assert.include(text, "artifact_manifest_path");
     }
     assert.notInclude(prompt, "MCP");
     assert.notInclude(skill, "MCP");
@@ -194,28 +188,37 @@ describe("Manuscript Literature Framing workflow contract", function () {
         "utf8",
       ),
     );
+    const outputSchema = JSON.parse(
+      await fs.readFile(
+        "skills_builtin/manuscript-literature-framing/assets/output.schema.json",
+        "utf8",
+      ),
+    );
     const primarySkillDir = "skills_builtin/manuscript-literature-framing";
+    const completedSchema = outputSchema.oneOf[0];
+    assert.include(completedSchema.required, "artifact_manifest_path");
+    assert.notInclude(completedSchema.required, "assets");
+    assert.notInclude(completedSchema.required, "status");
+    assert.equal(
+      completedSchema.properties.artifact_manifest_path["x-type"],
+      "artifact-manifest",
+    );
     const completed = await validateAcpSkillFinalPayload({
       runnerJson: runner,
       primarySkillDir,
+      readArtifactText: async () =>
+        JSON.stringify({
+          introduction: "D:/run/result/introduction.tex",
+          related_work: "D:/run/result/related-work.tex",
+        }),
       payload: {
         __SKILL_DONE__: true,
         kind: "writing.manuscript_literature_framing",
-        status: "completed",
         title: "Efficient Detector Adaptation in Degraded Visual Scenes",
         language: "en-US",
-        assets: {
-          introduction_tex: "result/introduction.tex",
-          related_work_tex: "result/related-work.tex",
-          intent_brief: "result/intent-brief.json",
-          evidence_inventory: "result/evidence-inventory.json",
-          framing_analysis: "result/framing-analysis.json",
-          writing_plan: "result/writing-plan.json",
-          citation_map: "result/citation-map.json",
-          diagnostics: "result/diagnostics.json",
-        },
         topic_ids: ["object-detection"],
-        diagnostics_summary: { missing_citekeys: 0, warnings: [] },
+        artifact_manifest_path:
+          "D:/run/result/manuscript-literature-framing-artifacts.json",
       },
     });
     assert.deepEqual(completed.errors, []);
@@ -267,5 +270,10 @@ describe("Manuscript Literature Framing workflow contract", function () {
     assert.include(stage, "confirm_writing_plan");
     assert.include(gate, "persist_final_draft");
     assert.include(stage, "persist_final_draft");
+    assert.include(gate, "Path(__file__).resolve().with_name");
+    assert.include(gate, "required_writes");
+    assert.include(stage, "ARTIFACT_MANIFEST_FILENAME");
+    assert.include(stage, "require_existing_file");
+    assert.notInclude(stage, '"assets": assets');
   });
 });

@@ -19,6 +19,11 @@ describe("bundle artifact manifest contract", function () {
           },
           artifact_manifest_path: {
             type: "string",
+            "x-type": "artifact-manifest",
+            "x-role": "artifact-manifest",
+          },
+          legacy_named_artifact_path: {
+            type: "string",
             "x-type": "artifact",
             "x-role": "artifact-manifest",
           },
@@ -27,7 +32,7 @@ describe("bundle artifact manifest contract", function () {
     ],
   };
 
-  it("collects top-level artifact and artifact-manifest schema roles", function () {
+  it("collects top-level artifact and artifact-manifest schema x-types", function () {
     assert.deepEqual(collectOutputArtifactFields(outputSchema), [
       {
         name: "artifact_manifest_path",
@@ -39,6 +44,11 @@ describe("bundle artifact manifest contract", function () {
         role: "deep-reading-html",
         isManifest: false,
       },
+      {
+        name: "legacy_named_artifact_path",
+        role: "artifact-manifest",
+        isManifest: false,
+      },
     ]);
   });
 
@@ -47,6 +57,7 @@ describe("bundle artifact manifest contract", function () {
       output: {
         html_path: "result/deep-reading.html",
         artifact_manifest_path: "result/deep-reading-artifacts.json",
+        legacy_named_artifact_path: "result/not-a-manifest.txt",
       },
       outputSchema,
       readArtifactText: async (path) => {
@@ -64,6 +75,7 @@ describe("bundle artifact manifest contract", function () {
         "result/deep-reading-artifacts.json",
         "result/deep-reading-manifest.json",
         "result/deep-reading.html",
+        "result/not-a-manifest.txt",
         "result/sections/diagnostics.json",
       ],
       diagnostics: [],
@@ -86,5 +98,20 @@ describe("bundle artifact manifest contract", function () {
         ["nested", "absolute", "escaping", "empty"],
       );
     }
+  });
+
+  it("accepts absolute manifest paths only when the caller opts in", function () {
+    const strict = validateFlatArtifactManifest({
+      absolute: "C:/workspace/result/file.json",
+    });
+    const local = validateFlatArtifactManifest(
+      {
+        absolute: "C:/workspace/result/file.json",
+      },
+      { allowAbsolutePaths: true },
+    );
+
+    assert.isFalse(strict.ok);
+    assert.isTrue(local.ok);
   });
 });
