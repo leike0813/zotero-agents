@@ -1,6 +1,6 @@
 # Zotero Host Bridge CLI Bundle
 
-This branch is generated from the Zotero-Skills repository and contains only:
+This branch is generated from the zotero-agents repository and contains only:
 
 - prebuilt zotero-bridge CLI binaries under bin/
 - the zotero-bridge-cli wrapper skill under skills/zotero-bridge-cli/
@@ -8,8 +8,8 @@ This branch is generated from the Zotero-Skills repository and contains only:
 - install.ps1 and install.sh for installing or upgrading the current-platform CLI
 - manifest.json with source commit, platform list, sizes, and checksums
 
-Source commit: 1f0552609bf662f95ffb1d98fab08f8bef5c3394
-Published at: 2026-06-22T03:41:41.000Z
+Source commit: 2598528e063108b2eb729f8305dc645081c68721
+Published at: 2026-06-22T07:47:54.336Z
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin
