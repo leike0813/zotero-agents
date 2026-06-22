@@ -5,7 +5,7 @@ description: Debug-only interactive probe that asks one multiple-choice question
 
 # Debug Interactive Choice Probe
 
-This skill is only for Zotero Skills debug workflows. Do not write Zotero
+This skill is only for Zotero Agents debug workflows. Do not write Zotero
 items, notes, preferences, or external files.
 
 Run only in interactive mode.

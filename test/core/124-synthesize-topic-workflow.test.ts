@@ -149,6 +149,23 @@ describe("Synthesize topic workflow contract", function () {
       )?.fetch_type,
       "bundle",
     );
+    for (const workflow of [createWorkflow, updateWorkflow]) {
+      for (const stepId of ["core", "finalize"]) {
+        assert.deepEqual(
+          workflow.request?.sequence?.steps?.find(
+            (step: any) => step.id === stepId,
+          )?.handoff,
+          {
+            bindings: [
+              {
+                kind: "value",
+                target: "/input/handoff",
+              },
+            ],
+          },
+        );
+      }
+    }
     assert.equal(createWorkflow.inputs?.unit, "workflow");
     assert.equal(updateWorkflow.inputs?.unit, "workflow");
     assert.equal(

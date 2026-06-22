@@ -1,10 +1,10 @@
 {
-  "name": "zotero-skills",
+  "name": "zotero-agents",
   "type": "module",
   "version": "0.4.0",
-  "description": "A Zotero plugin for execute agent skills using Skill-Runner backend",
+  "description": "A Zotero plugin for running agent workflows from Zotero",
   "config": {
-    "addonName": "Zotero Skills",
+    "addonName": "Zotero Agents",
     "addonID": "zotero-skills@leike0813@gmail.com",
     "addonRef": "zotero-skills",
     "addonInstance": "ZoteroSkills",
@@ -12,13 +12,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/leike0813/Zotero-Skills.git"
+    "url": "git+https://github.com/leike0813/zotero-agents.git"
   },
   "author": "Joshua Reed",
   "bugs": {
-    "url": "https://github.com/leike0813/Zotero-Skills/issues"
+    "url": "https://github.com/leike0813/zotero-agents/issues"
   },
-  "homepage": "https://github.com/leike0813/Zotero-Skills#readme",
+  "homepage": "https://github.com/leike0813/zotero-agents#readme",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "tsx scripts/run-zotero-start-with-mock.ts start:raw",

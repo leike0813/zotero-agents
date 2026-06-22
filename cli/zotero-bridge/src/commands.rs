@@ -531,14 +531,10 @@ fn workflow_agent_run(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("workflow-agent-run.zip");
     let output = available_output_path(&output_dir.join(display_name));
-    let response = client::download(config, &format!("/files/{file_id}"))?;
+    let response = client::download(config, &format!("/files/{file_id}"))
+        .map_err(|error| download_error_with_output_name(error, &output))?;
     write_download_output(&output, &response.bytes, false)?;
-    Ok(merge_agent_run_download_payload(
-        result,
-        &output,
-        response.bytes.len(),
-        response.content_type,
-    ))
+    Ok(merge_agent_run_download_payload(result, &output, &response))
 }
 
 fn workflow_run_path(args: WorkflowRunArgs) -> Result<String, CliError> {
@@ -600,8 +596,7 @@ fn available_output_path(preferred: &Path) -> PathBuf {
 fn merge_agent_run_download_payload(
     mut result: Value,
     output: &Path,
-    bytes_written: usize,
-    content_type: String,
+    response: &client::DownloadResponse,
 ) -> Value {
     if let Value::Object(ref mut map) = result {
         map.insert(
@@ -609,8 +604,14 @@ fn merge_agent_run_download_payload(
             json!({
                 "outputPath": output.display().to_string(),
                 "outputName": output_name(output),
-                "bytesWritten": bytes_written,
-                "contentType": content_type
+                "verified": response.verified,
+                "bytesExpected": response.bytes_expected,
+                "bytesWritten": response.bytes.len(),
+                "sha256Expected": response.sha256_expected,
+                "sha256Actual": response.sha256_actual,
+                "attempts": response.attempts,
+                "retried": response.retried,
+                "contentType": response.content_type
             }),
         );
     }
@@ -628,14 +629,11 @@ fn file_download(config: &BridgeConfig, args: FileDownloadArgs) -> Result<Value,
         )
         .with_details(output_error_details(&output)));
     }
-    let response = client::download(config, &format!("/files/{file_id}"))?;
+    let response = client::download(config, &format!("/files/{file_id}"))
+        .map_err(|error| download_error_with_output_name(error, &output))?;
     write_download_output(&output, &response.bytes, args.force)?;
     Ok(download_success_payload(
-        file_id,
-        &output,
-        response.bytes.len(),
-        response.content_type,
-        args.force,
+        file_id, &output, &response, args.force,
     ))
 }
 
@@ -651,19 +649,37 @@ fn output_error_details(output: &Path) -> Value {
     json!({ "outputName": output_name(output) })
 }
 
+fn download_error_with_output_name(mut error: CliError, output: &Path) -> CliError {
+    if error.code != "download_retry_exhausted" {
+        return error;
+    }
+    let mut details = match error.details.take() {
+        Some(Value::Object(map)) => map,
+        _ => Map::new(),
+    };
+    details.insert("outputName".to_string(), json!(output_name(output)));
+    error.details = Some(Value::Object(details));
+    error
+}
+
 fn download_success_payload(
     file_id: String,
     output: &Path,
-    bytes_written: usize,
-    content_type: String,
+    response: &client::DownloadResponse,
     overwritten: bool,
 ) -> Value {
     json!({
         "command": "file.download",
         "fileId": file_id,
         "outputName": output_name(output),
-        "bytesWritten": bytes_written,
-        "contentType": content_type,
+        "verified": response.verified,
+        "bytesExpected": response.bytes_expected,
+        "bytesWritten": response.bytes.len(),
+        "sha256Expected": response.sha256_expected,
+        "sha256Actual": response.sha256_actual,
+        "attempts": response.attempts,
+        "retried": response.retried,
+        "contentType": response.content_type,
         "overwritten": overwritten
     })
 }
@@ -1453,15 +1469,53 @@ mod tests {
     #[test]
     fn builds_download_success_payload_without_absolute_output_path() {
         let output = PathBuf::from("C:\\Users\\A\\Downloads\\paper.txt");
-        let payload = download_success_payload(
-            "file-abc".to_string(),
-            &output,
-            42,
-            "text/plain".to_string(),
-            false,
-        );
+        let response = client::DownloadResponse {
+            bytes: vec![0; 42],
+            content_type: "text/plain".to_string(),
+            verified: true,
+            bytes_expected: Some(42),
+            sha256_expected: Some(
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_string(),
+            ),
+            sha256_actual:
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_string(),
+            attempts: 2,
+            retried: true,
+        };
+        let payload = download_success_payload("file-abc".to_string(), &output, &response, false);
         assert_eq!(payload["outputName"], "paper.txt");
+        assert_eq!(payload["verified"], true);
+        assert_eq!(payload["bytesExpected"], 42);
+        assert_eq!(payload["bytesWritten"], 42);
+        assert_eq!(payload["attempts"], 2);
+        assert_eq!(payload["retried"], true);
         assert!(payload.get("output").is_none());
         assert!(!payload.to_string().contains("C:\\\\Users"));
+    }
+
+    #[test]
+    fn annotates_retry_exhausted_download_error_with_output_name_only() {
+        let output = PathBuf::from("C:\\Users\\A\\Downloads\\bundle.zip");
+        let error = CliError::new(
+            "download_retry_exhausted",
+            crate::error::ErrorCategory::Download,
+            "retry exhausted",
+        )
+        .with_details(json!({
+            "attempts": 2,
+            "bytesExpected": 10,
+            "bytesReceived": 5
+        }));
+        let error = download_error_with_output_name(error, &output);
+        let details = error.details.unwrap();
+
+        assert_eq!(details["outputName"], "bundle.zip");
+        assert_eq!(details["attempts"], 2);
+        assert_eq!(details["bytesExpected"], 10);
+        assert_eq!(details["bytesReceived"], 5);
+        assert!(details.get("outputPath").is_none());
+        assert!(!details.to_string().contains("C:\\\\Users"));
     }
 }

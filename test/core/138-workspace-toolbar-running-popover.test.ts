@@ -155,6 +155,7 @@ describe("workspace toolbar running tasks popover", function () {
       "workspace-shell-theme-system",
       "workspace-shell-theme-light",
       "workspace-shell-theme-dark",
+      "workspace-shell-docs",
       "workspace-shell-refresh",
       "workspace-shell-toggle-sidebar",
     ];
@@ -166,6 +167,10 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(workspaceApp, "updateWorkspaceLocalizedText");
     assert.include(workspaceApp, "data-workspace-label");
     assert.include(workspaceApp, "data-workspace-icon-label");
+    assert.include(workspaceApp, "renderDocsButton");
+    assert.include(workspaceApp, "zs-icon-description");
+    assert.include(workspace, "getDocsUrl");
+    assert.include(workspace, 'action === "open-docs"');
     for (const key of keys) {
       assert.include(workspace, key);
       assert.include(en, `${key} =`);

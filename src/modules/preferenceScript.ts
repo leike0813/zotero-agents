@@ -6,6 +6,7 @@ import {
   getEffectiveWorkflowDir,
 } from "./workflowRuntime";
 import { getString, getStringOrFallback } from "../utils/locale";
+import { getDocsUrl } from "../utils/docsUrl";
 import { isDebugModeEnabled } from "./debugMode";
 import { subscribeManagedLocalRuntimeStateChange } from "./skillRunnerLocalRuntimeManager";
 import { runtimeFileExists } from "../utils/runtimeCompatibility";
@@ -107,6 +108,12 @@ function bindPrefEvents() {
   const mcpServerStatusText = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-mcp-server-status`,
   ) as HTMLElement | null;
+  const hostBridgeLed = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-led`,
+  ) as HTMLElement | null;
+  const mcpServerLed = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-mcp-server-led`,
+  ) as HTMLElement | null;
   const hostBridgePinPortCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-pin-port-enabled`,
   ) as HTMLInputElement | null;
@@ -140,6 +147,12 @@ function bindPrefEvents() {
   const hostBridgeInstallCliButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-install-cli`,
   ) as XUL.Button | null;
+  const hostBridgeSecurityToggle = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-security-toggle`,
+  ) as XUL.Button | null;
+  const hostBridgeSecurityPanel = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-security-panel`,
+  ) as HTMLElement | null;
   const runtimeDataRoot = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-runtime-data-root`,
   ) as HTMLElement | null;
@@ -182,6 +195,9 @@ function bindPrefEvents() {
   const synthesisDbResetStatus = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-synthesis-db-reset-status`,
   ) as HTMLElement | null;
+  const openDocsButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-open-docs`,
+  ) as XUL.Button | null;
 
   const localRuntimeDeployButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-skillrunner-local-deploy`,
@@ -298,6 +314,7 @@ function bindPrefEvents() {
   let lastRuntimeDataRoot = "";
   let runtimeDataIssuesExpanded = false;
   let lastRuntimeDataSnapshot: any = null;
+  let hostBridgeSecurityExpanded = false;
 
   const clearChildren = (
     element: {
@@ -818,6 +835,138 @@ function bindPrefEvents() {
       return;
     }
     localRuntimeStatusText.textContent = text;
+  };
+
+  const setDynamicStatusText = (element: HTMLElement | null, text: string) => {
+    if (!element) {
+      return;
+    }
+    element.removeAttribute("data-l10n-id");
+    element.removeAttribute("data-l10n-args");
+    element.textContent = text;
+  };
+
+  const getPrefText = (key: string, fallback: string) =>
+    getStringOrFallback(key as any, fallback);
+
+  const setLocalizedElementText = (
+    element: HTMLElement | null,
+    key: string,
+    fallback: string,
+  ) => {
+    setDynamicStatusText(element, getPrefText(key, fallback));
+  };
+
+  const statusTextKey = (status: unknown) => {
+    const normalized = String(status || "")
+      .trim()
+      .toLowerCase();
+    if (normalized === "running") {
+      return "pref-host-access-status-running";
+    }
+    if (
+      normalized === "loading" ||
+      normalized === "starting" ||
+      normalized === "reconciling" ||
+      normalized === "reconciling_after_heartbeat_fail"
+    ) {
+      return "pref-host-access-status-loading";
+    }
+    if (normalized === "error" || normalized === "failed") {
+      return "pref-host-access-status-error";
+    }
+    if (normalized === "disabled") {
+      return "pref-host-access-status-disabled";
+    }
+    if (normalized === "stopped") {
+      return "pref-host-access-status-stopped";
+    }
+    return "pref-host-access-status-idle";
+  };
+
+  const statusTextFallback = (status: unknown) => {
+    const normalized = String(status || "")
+      .trim()
+      .toLowerCase();
+    if (normalized === "running") {
+      return "Running";
+    }
+    if (
+      normalized === "loading" ||
+      normalized === "starting" ||
+      normalized === "reconciling" ||
+      normalized === "reconciling_after_heartbeat_fail"
+    ) {
+      return "Loading";
+    }
+    if (normalized === "error" || normalized === "failed") {
+      return "Error";
+    }
+    if (normalized === "disabled") {
+      return "Disabled";
+    }
+    if (normalized === "stopped") {
+      return "Stopped";
+    }
+    return "Idle";
+  };
+
+  const localizedStatusText = (status: unknown) =>
+    getPrefText(statusTextKey(status), statusTextFallback(status));
+
+  const ledClassForStatus = (status: unknown) => {
+    const normalized = String(status || "")
+      .trim()
+      .toLowerCase();
+    if (normalized === "running") {
+      return "is-green";
+    }
+    if (
+      normalized === "loading" ||
+      normalized === "starting" ||
+      normalized === "reconciling" ||
+      normalized === "reconciling_after_heartbeat_fail"
+    ) {
+      return "is-orange";
+    }
+    if (normalized === "error" || normalized === "failed") {
+      return "is-red";
+    }
+    return "is-gray";
+  };
+
+  const setServiceLed = (element: HTMLElement | null, status: unknown) => {
+    if (!element) {
+      return;
+    }
+    element.className = `zs-runtime-led ${ledClassForStatus(status)}`;
+    element.setAttribute("title", localizedStatusText(status));
+  };
+
+  const statusPair = (labelKey: string, labelFallback: string, value: string) =>
+    value ? `${getPrefText(labelKey, labelFallback)}=${value}` : "";
+
+  const updateHostBridgeSecurityPanel = () => {
+    if (hostBridgeSecurityPanel) {
+      if (hostBridgeSecurityExpanded) {
+        hostBridgeSecurityPanel.classList.add("is-visible");
+      } else {
+        hostBridgeSecurityPanel.classList.remove("is-visible");
+      }
+    }
+    if (hostBridgeSecurityToggle) {
+      hostBridgeSecurityToggle.setAttribute(
+        "aria-expanded",
+        hostBridgeSecurityExpanded ? "true" : "false",
+      );
+      setLocalizedElementText(
+        hostBridgeSecurityToggle as unknown as HTMLElement,
+        hostBridgeSecurityExpanded
+          ? "pref-host-bridge-security-hide"
+          : "pref-host-bridge-security-show",
+        hostBridgeSecurityExpanded ? "Hide security actions" : "Show security actions",
+      );
+    }
   };
 
   const setProgressVisible = (visible: boolean) => {
@@ -1633,11 +1782,14 @@ function bindPrefEvents() {
     const status = String(server.status || "idle").trim() || "idle";
     const bindMode = String(server.bindMode || "loopback").trim() || "loopback";
     const portMode = String(server.portMode || "").trim();
+    const port = Number(server.port || server.pinnedPort);
     const pinnedPort = Number(
       server.pinnedPort || getPref("hostBridgePinnedPort"),
     );
-    const recoveryReason = String(server.lastRecoveryReason || "").trim();
-    const tokenMasked = String(server.tokenMasked || "").trim();
+    const endpoint = String(server.endpoint || "").trim();
+    const error = String(
+      server.lastError || result.message || server.lastRecoveryReason || "",
+    ).trim();
     const message = String(result.message || "").trim();
     const runtimeDetails = (details.runtime || {}) as Record<string, unknown>;
     const runtimeText =
@@ -1675,20 +1827,50 @@ function bindPrefEvents() {
       result.ok === false
         ? getString("pref-skillrunner-local-status-failed-prefix" as any)
         : getString("pref-skillrunner-local-status-ok-prefix" as any);
-    if (message) {
-      return `${prefix} ${message}${detailsText ? ` (${detailsText})` : ""}`;
-    }
-    return [
-      `status=${status}`,
-      `bind=${bindMode}`,
-      portMode ? `portMode=${portMode}` : "",
-      Number.isInteger(pinnedPort) ? `pinnedPort=${pinnedPort}` : "",
-      recoveryReason ? `recovery=${recoveryReason}` : "",
-      tokenMasked ? `token=${tokenMasked}` : "",
+    const stateText = [
+      statusPair(
+        "pref-host-access-status-label",
+        "Status",
+        localizedStatusText(status),
+      ),
+      statusPair("pref-host-access-bind-label", "Bind", bindMode),
+      statusPair(
+        "pref-host-access-port-label",
+        "Port",
+        [
+          portMode,
+          Number.isInteger(port)
+            ? String(port)
+            : Number.isInteger(pinnedPort)
+              ? String(pinnedPort)
+              : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      ),
+      statusPair("pref-host-access-endpoint-label", "Endpoint", endpoint),
+      statusPair("pref-host-access-error-label", "Error", error),
     ]
       .filter(Boolean)
       .join(" · ");
+    const diagnosticText = [stateText, detailsText].filter(Boolean).join(" · ");
+    if (message) {
+      return `${prefix} ${message}${
+        diagnosticText ? ` (${diagnosticText})` : ""
+      }`;
+    }
+    return stateText;
   };
+
+  const hostBridgePrefSnapshot = (status: string) => ({
+    status,
+    bindMode: getPref("hostBridgeLanEnabled") === true ? "lan" : "loopback",
+    lanEnabled: getPref("hostBridgeLanEnabled") === true,
+    pinPortEnabled:
+      getPref("hostBridgeLanEnabled") === true ||
+      getPref("hostBridgePinPortEnabled") === true,
+    pinnedPort: Number(getPref("hostBridgePinnedPort") || 26570),
+  });
 
   const renderHostBridgeState = (response: unknown) => {
     const result = (response || {}) as {
@@ -1698,6 +1880,8 @@ function bindPrefEvents() {
     const server = (details.server || details || {}) as Record<string, unknown>;
     const endpoint = String(server.endpoint || "").trim();
     const remoteEndpoint = String(server.remoteEndpoint || "").trim();
+    const status = String(server.status || "idle").trim() || "idle";
+    setServiceLed(hostBridgeLed, status);
     const hasServerSnapshot =
       Boolean(details.server) ||
       Object.prototype.hasOwnProperty.call(server, "status") ||
@@ -1711,7 +1895,10 @@ function bindPrefEvents() {
         .join(" · ");
     }
     if (hostBridgeStatusText) {
-      hostBridgeStatusText.textContent = formatHostBridgeStatus(response);
+      setDynamicStatusText(
+        hostBridgeStatusText,
+        formatHostBridgeStatus(response),
+      );
     }
     if (hasServerSnapshot && hostBridgeLanCheckbox) {
       hostBridgeLanCheckbox.checked =
@@ -1751,25 +1938,44 @@ function bindPrefEvents() {
     const details = (result.details || {}) as Record<string, unknown>;
     const server = (details.server || {}) as Record<string, unknown>;
     const enabled =
-      details.enabled === true || getPref("mcpServer.enabled") !== false;
+      Object.prototype.hasOwnProperty.call(details, "enabled")
+        ? details.enabled === true
+        : getPref("mcpServer.enabled") !== false;
     if (mcpServerEnabledCheckbox) {
       mcpServerEnabledCheckbox.checked = enabled;
     }
     if (mcpServerStatusText) {
       const endpoint = String(server.endpoint || "").trim();
-      const status = String(server.status || "unknown").trim();
-      const tokenMasked = String(server.tokenMasked || "").trim();
+      const status =
+        enabled === true
+          ? String(server.status || "idle").trim() || "idle"
+          : "disabled";
       const error = String(server.lastError || "").trim();
-      mcpServerStatusText.textContent = [
-        enabled ? "enabled" : "disabled",
-        `status=${status}`,
-        endpoint ? `endpoint=${endpoint}` : "",
-        tokenMasked ? `token=${tokenMasked}` : "",
-        error ? `error=${error}` : "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
+      setServiceLed(mcpServerLed, status);
+      setDynamicStatusText(
+        mcpServerStatusText,
+        [
+          statusPair(
+            "pref-host-access-enabled-label",
+            "Enabled",
+            enabled
+              ? getPrefText("pref-host-access-enabled-yes", "Enabled")
+              : getPrefText("pref-host-access-enabled-no", "Disabled"),
+          ),
+          statusPair(
+            "pref-host-access-status-label",
+            "Status",
+            localizedStatusText(status),
+          ),
+          statusPair("pref-host-access-endpoint-label", "Endpoint", endpoint),
+          statusPair("pref-host-access-error-label", "Error", error),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      );
+      return;
     }
+    setServiceLed(mcpServerLed, enabled ? server.status : "disabled");
   };
 
   const copyTextToClipboard = (text: string) => {
@@ -1794,7 +2000,7 @@ function bindPrefEvents() {
       const response = {
         ok: false,
         message: String(error),
-        details: {},
+        details: hostBridgePrefSnapshot("error"),
       };
       renderHostBridgeState(response);
       return response;
@@ -1814,6 +2020,10 @@ function bindPrefEvents() {
         message: String(error),
         details: {
           enabled: getPref("mcpServer.enabled") !== false,
+          server: {
+            status: "error",
+            lastError: String(error),
+          },
         },
       };
       renderMcpServerState(response);
@@ -2048,6 +2258,23 @@ function bindPrefEvents() {
       });
     });
   }
+
+  if (openDocsButton) {
+    openDocsButton.addEventListener("command", () => {
+      const zotero =
+        (globalThis as any).Zotero ||
+        (addon.data.prefs?.window as any)?.Zotero;
+      zotero?.launchURL?.(getDocsUrl());
+    });
+  }
+
+  if (hostBridgeSecurityToggle) {
+    hostBridgeSecurityToggle.addEventListener("command", () => {
+      hostBridgeSecurityExpanded = !hostBridgeSecurityExpanded;
+      updateHostBridgeSecurityPanel();
+    });
+  }
+  updateHostBridgeSecurityPanel();
 
   const renderWebDavSyncPrefsStatus = (status: any, fallbackMessage = "") => {
     if (!status || typeof status !== "object") {
@@ -2458,10 +2685,23 @@ function bindPrefEvents() {
     hostBridgePinnedPortInput ||
     hostBridgeAdvertisedHostInput
   ) {
+    renderHostBridgeState({
+      ok: true,
+      details: hostBridgePrefSnapshot("loading"),
+    });
     void refreshHostBridgeState();
   }
 
   if (mcpServerEnabledCheckbox || mcpServerStatusText) {
+    renderMcpServerState({
+      ok: true,
+      details: {
+        enabled: getPref("mcpServer.enabled") !== false,
+        server: {
+          status: "loading",
+        },
+      },
+    });
     void refreshMcpServerState();
   }
 

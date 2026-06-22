@@ -78,7 +78,7 @@ export function resolveDirectRuntimeRoot(env: NodeJS.ProcessEnv = process.env) {
     env.TEMP ||
     env.TMP ||
     tmpdir();
-  return resolve(base, "Zotero-Skills-Direct-Runtime");
+  return resolve(base, "Zotero-Agents-Direct-Runtime");
 }
 
 export function buildZoteroLaunchEnv(env: NodeJS.ProcessEnv = process.env) {

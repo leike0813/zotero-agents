@@ -2569,7 +2569,7 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-bootstrap.json"),
         "final_html_available": False,
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics],
-        "error": None,
+        "error": {},
     }
     write_json(RESULT_PATH, result)
     return result
@@ -4912,7 +4912,7 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-enrichment.json"),
         "final_html_available": False,
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics],
-        "error": None,
+        "error": {},
     }
     write_json(RESULT_PATH, result)
     return result
@@ -5459,7 +5459,7 @@ def submit_block_translations(payload_path: Path) -> dict[str, Any]:
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-translation.json"),
         "final_html_available": False,
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics],
-        "error": None,
+        "error": {},
     }
     write_json(RESULT_PATH, result)
     return result
@@ -6643,7 +6643,7 @@ def submit_final_review(payload_path: Path) -> dict[str, Any]:
         "html_path": normalize_posix(FINAL_HTML_PATH),
         "artifact_manifest_path": normalize_posix(FINAL_ARTIFACT_MANIFEST_PATH),
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics_view["diagnostics"]],
-        "error": None,
+        "error": {},
     }
     write_json(RESULT_PATH, result)
     return result
@@ -6886,7 +6886,7 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-host-context.json"),
         "final_html_available": False,
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics],
-        "error": None,
+        "error": {},
     }
     write_json(RESULT_PATH, result)
     return result

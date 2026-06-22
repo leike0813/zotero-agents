@@ -7,8 +7,10 @@ import fsSync from "fs";
 import os from "os";
 import path from "path";
 import {
+  compileSkillJsonSchema,
   validateAcpSkillRunRequestAgainstSchemas,
   validateRunnerManifestShape,
+  validateSkillSchemaAnnotations,
 } from "../../src/modules/acpSkillSchemaAssets";
 import { renderTopicSynthesisSkills } from "../../skills_src/topic-synthesis/renderer/render_topic_synthesis_skills";
 
@@ -163,6 +165,29 @@ function assertStage40ExampleCoversGateFields(example: any) {
     reviewOutline.writing_strategies.map((row: any) => row.id),
     reviewOutline.recommended_strategy_id,
   );
+}
+
+function collectStringTitlePaths(value: unknown, pathParts: string[] = []) {
+  const paths: string[] = [];
+  if (!value || typeof value !== "object") {
+    return paths;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      paths.push(
+        ...collectStringTitlePaths(item, [...pathParts, String(index)]),
+      );
+    });
+    return paths;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = [...pathParts, key];
+    if (key === "title" && typeof child === "string") {
+      paths.push(childPath.join("."));
+    }
+    paths.push(...collectStringTitlePaths(child, childPath));
+  }
+  return paths;
 }
 
 async function collectFileMap(root: string): Promise<Record<string, string>> {
@@ -401,6 +426,32 @@ describe("Topic synthesis suite renderer", function () {
     }
   });
 
+  it("renders package-local schemas that satisfy Skill Runner meta-schemas", async function () {
+    for (const skillId of generatedSkillIds) {
+      for (const schemaKey of ["input", "parameter", "output"] as const) {
+        const schema = JSON.parse(
+          await fs.readFile(
+            path.join(
+              "skills_builtin",
+              skillId,
+              "assets",
+              `${schemaKey}.schema.json`,
+            ),
+            "utf8",
+          ),
+        ) as Record<string, unknown>;
+        assert.deepEqual(
+          [
+            ...compileSkillJsonSchema({ schema, schemaKey }),
+            ...validateSkillSchemaAnnotations({ schema, schemaKey }),
+          ],
+          [],
+          `${skillId} ${schemaKey} schema must satisfy Skill Runner meta-schema`,
+        );
+      }
+    }
+  });
+
   it("keeps generated packages local to their own stage schemas", async function () {
     for (const skillId of generatedSkillIds) {
       const schemaDir = path.join(
@@ -488,6 +539,29 @@ describe("Topic synthesis suite renderer", function () {
             message: "Topic synthesis was canceled.",
           }),
           `${skillId} output schema must accept business canceled results`,
+        );
+      }
+    }
+  });
+
+  it("keeps package-local output schemas free of schema title annotations", async function () {
+    for (const skillId of generatedSkillIds) {
+      const schema = JSON.parse(
+        await fs.readFile(
+          path.join("skills_builtin", skillId, "assets", "output.schema.json"),
+          "utf8",
+        ),
+      ) as Record<string, any>;
+      assert.deepEqual(
+        collectStringTitlePaths(schema),
+        [],
+        `${skillId} output schema should not spend output-token context on schema title annotations`,
+      );
+      if (skillId === "topic-synthesis-finalize") {
+        assert.property(
+          schema.oneOf?.[0]?.properties?.topic_definition?.properties,
+          "title",
+          "business topic title field must remain part of the final output contract",
         );
       }
     }

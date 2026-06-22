@@ -22,6 +22,7 @@ type WorkspaceShellLabels = {
   themeSystem: string;
   themeLight: string;
   themeDark: string;
+  docs: string;
   refresh: string;
   toggleSidebar: string;
   openSidebar: string;
@@ -43,7 +44,7 @@ type WorkspaceSnapshot = {
 };
 
 const DEFAULT_WORKSPACE_LABELS: WorkspaceShellLabels = {
-  tabTitle: "Zotero Skills",
+  tabTitle: "Zotero Agents",
   brandSubtitle: "Dashboard and Synthesis workspace",
   viewsAriaLabel: "Workspace views",
   dashboard: "Dashboard",
@@ -52,6 +53,7 @@ const DEFAULT_WORKSPACE_LABELS: WorkspaceShellLabels = {
   themeSystem: "System",
   themeLight: "Light",
   themeDark: "Dark",
+  docs: "Docs",
   refresh: "Refresh",
   toggleSidebar: "Toggle sidebar",
   openSidebar: "Open sidebar",
@@ -201,6 +203,22 @@ function renderThemeSwitch() {
   return group;
 }
 
+function renderDocsButton() {
+  const label = workspaceLabel("docs");
+  const node = button(label, "open-docs", {}, "docs-link-button");
+  node.setAttribute("aria-label", label);
+  node.setAttribute("title", label);
+  node.dataset.workspaceIconLabel = "docs";
+  node.textContent = "";
+  const icon = el("span", "zs-icon zs-icon-description docs-link-icon");
+  icon.setAttribute("aria-hidden", "true");
+  const text = el("span", "docs-link-label", label);
+  text.dataset.workspaceLabel = "docs";
+  node.appendChild(icon);
+  node.appendChild(text);
+  return node;
+}
+
 function updateThemeSwitchState() {
   const group = document.querySelector<HTMLElement>(".theme-switch");
   if (!group) {
@@ -283,7 +301,7 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   state.theme = getThemeChoice();
   const header = el("header", "workspace-header");
   const brand = el("div", "brand");
-  brand.appendChild(el("strong", "", "Zotero Skills"));
+  brand.appendChild(el("strong", "", "Zotero Agents"));
   const subtitle = el("span", "muted", workspaceLabel("brandSubtitle"));
   subtitle.dataset.workspaceLabel = "brandSubtitle";
   brand.appendChild(subtitle);
@@ -321,6 +339,7 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   header.appendChild(segmented);
 
   const toolbar = el("div", "toolbar");
+  toolbar.appendChild(renderDocsButton());
   toolbar.appendChild(renderThemeSwitch());
   toolbar.appendChild(
     iconButton(

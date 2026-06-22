@@ -1,9 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "更新主题综合准备 Result",
+  "type": "object",
   "oneOf": [
     {
-      "title": "Topic synthesis handoff",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -24,7 +23,6 @@
       }
     },
     {
-      "title": "Canceled topic synthesis",
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "status", "reason", "message"],

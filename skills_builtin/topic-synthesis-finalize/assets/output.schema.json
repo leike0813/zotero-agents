@@ -1,6 +1,5 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "主题综合收尾 Result",
   "type": "object",
   "additionalProperties": true,
   "not": {
@@ -8,7 +7,6 @@
   },
   "oneOf": [
     {
-      "title": "Completed create topic synthesis",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -39,7 +37,6 @@
       }
     },
     {
-      "title": "Full update topic synthesis",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -80,7 +77,6 @@
       }
     },
     {
-      "title": "Canceled topic synthesis",
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "status", "reason", "message"],

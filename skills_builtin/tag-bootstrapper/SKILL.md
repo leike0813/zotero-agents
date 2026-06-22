@@ -1,13 +1,13 @@
 ---
 name: tag-bootstrapper
-description: Interactive TagVocab bootstrap skill. Use when a Zotero Skills workflow needs to ask the user about research domains, tag facets, vocabulary granularity, and missing controlled-vocabulary entries, then produce initial or incremental TagVocab additions as add_tags objects with tag notes.
+description: Interactive TagVocab bootstrap skill. Use when a Zotero Agents workflow needs to ask the user about research domains, tag facets, vocabulary granularity, and missing controlled-vocabulary entries, then produce initial or incremental TagVocab additions as add_tags objects with tag notes.
 ---
 
 # Tag Bootstrapper
 
 ## Purpose
 
-Build an initial controlled tag vocabulary, or expand an existing one, through an interactive conversation with the user. The output is not a tagging decision for one paper. It is a governed vocabulary proposal that the host workflow may write into the formal Zotero Skills TagVocab store.
+Build an initial controlled tag vocabulary, or expand an existing one, through an interactive conversation with the user. The output is not a tagging decision for one paper. It is a governed vocabulary proposal that the host workflow may write into the formal Zotero Agents TagVocab store.
 
 This skill must:
 
@@ -151,7 +151,7 @@ Required shape:
     }
   ],
   "warnings": [],
-  "error": null,
+  "error": {},
   "provenance": {
     "generated_at": "YYYY-MM-DDTHH:MM:SSZ",
     "input_hash": "",
@@ -169,7 +169,7 @@ Failure shape keeps the same top-level keys:
   "add_tags": [],
   "warnings": [],
   "error": {
-    "type": "invalid_input",
+    "code": "invalid_input",
     "message": "protocol.facets is required"
   },
   "provenance": {
@@ -182,7 +182,7 @@ Failure shape keeps the same top-level keys:
 
 When Host Bridge library index context was attempted, include optional audit data under `provenance.library_index`, for example `{"used": true, "pages_read": 2, "total_papers": 318}` or `{"used": false, "reason": "cli_unavailable"}`. Do not put tokens, endpoint URLs, local paths, or raw command output in provenance.
 
-If the user chooses not to add tags, return `add_tags: []`, `error: null`, and a warning such as `No additions requested by user`.
+If the user chooses not to add tags, return `add_tags: []`, `error: {}`, and a warning such as `No additions requested by user`.
 
 ## Deterministic Scripts
 
@@ -242,7 +242,7 @@ Before stdout, verify:
 - no tag duplicates an existing tag case-insensitively;
 - no tag duplicates another result tag case-insensitively;
 - `warnings` is an array of strings;
-- `error` is `null` for success or an object with `type` and `message`;
+- `error` is `{}` for success or an object with `code` and `message`;
 - `provenance.generated_at` is UTC ISO-8601 ending in `Z`;
 - audit fields do not replace `add_tags`, `warnings`, `error`, or `provenance`;
 - stdout contains only the JSON object.

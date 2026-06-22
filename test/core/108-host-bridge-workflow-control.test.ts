@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -342,6 +343,7 @@ describe("host bridge workflow control", function () {
   });
 
   it("prepares a workflow agent-run handoff bundle without approval or backend submit", async function () {
+    this.timeout(5000);
     const entry = workflow("bridge-workflow");
     delete (entry.manifest as { inputs?: unknown }).inputs;
     (entry.manifest as any).request = {
@@ -373,10 +375,14 @@ describe("host bridge workflow control", function () {
     configureHostBridgeGlobalApprovalHandlerForTests(() => {
       throw new Error("workflow agent-run must not request approval");
     });
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge Agent Run Parent");
+    await parent.saveTx();
     const attachmentPath = path.join(workflowRoot, "paper.txt");
     fs.writeFileSync(attachmentPath, "paper body");
     const attachment = await Zotero.Attachments.linkFromFile({
       file: Zotero.File.pathToFile(attachmentPath),
+      parentItemID: parent.id,
     });
 
     const parsed = await bridgeRequest({
@@ -395,15 +401,34 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.json.status, "ok");
     assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
     assert.strictEqual(parsed.json.result.bundle.mode, "bridge-download");
+    assert.strictEqual(parsed.json.result.applyStatus.allowed, true);
     assert.match(parsed.json.result.bundle.file.fileId, /^file-/);
+    assert.isAbove(parsed.json.result.bundle.file.size, 0);
+    assert.match(
+      parsed.json.result.bundle.file.sha256,
+      /^sha256:[a-f0-9]{64}$/,
+    );
     assert.notInclude(parsed.body, attachmentPath);
     const download = await resolveHostBridgeFileDownload(
       parsed.json.result.bundle.file.fileId,
     );
+    assert.strictEqual(
+      parsed.json.result.bundle.file.size,
+      download.bytes.byteLength,
+    );
+    assert.strictEqual(
+      parsed.json.result.bundle.file.sha256,
+      `sha256:${crypto
+        .createHash("sha256")
+        .update(download.bytes)
+        .digest("hex")}`,
+    );
     const reader = new ZipBundleReader(download.localPath);
     const workflowJson = JSON.parse(await reader.readText("workflow/workflow.json"));
     const contextJson = await reader.readText("selection/context.json");
+    const protocolText = await reader.readText("workflow-protocol.md");
     const selectedFile = await reader.readText("selection/files/001-paper.txt");
+    const extractedDir = await reader.getExtractedDir();
     assert.strictEqual(workflowJson.id, "bridge-workflow");
     assert.deepEqual(
       workflowJson.request.sequence.steps.map(
@@ -412,7 +437,14 @@ describe("host bridge workflow control", function () {
       ["literature-digest", "tag-regulator"],
     );
     assert.include(contextJson, "selection/files/001-paper.txt");
+    assert.include(contextJson, '"applyStatus"');
     assert.notInclude(contextJson, attachmentPath);
+    assert.include(protocolText, "Reading workflow/workflow.json");
+    assert.include(protocolText, "Input compatibility and apply readiness");
+    assert.include(protocolText, "Sequence workflows");
+    assert.isFalse(
+      fs.existsSync(path.join(extractedDir, "workflow", "package", "workflow.json")),
+    );
     assert.strictEqual(selectedFile, "paper body");
   });
 
@@ -457,8 +489,45 @@ describe("host bridge workflow control", function () {
     );
   });
 
-  it("rejects no-selection workflow agent-run for workflows that require selection", async function () {
-    installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+  it("rejects workflow agent-run when selection does not satisfy inputs unit", async function () {
+    const entry = workflow("bridge-workflow");
+    entry.manifest.inputs = {
+      unit: "attachment",
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge Agent Run Parent Without Attachment");
+    await parent.saveTx();
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: {
+          items: [{ id: parent.id }],
+        },
+      },
+    });
+
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.status, "error");
+    assert.strictEqual(
+      parsed.json.error.code,
+      "invalid_workflow_agent_run_request",
+    );
+  });
+
+  it("allows workflow-unit agent-run without applying workflow trigger policy", async function () {
+    const entry = workflow("bridge-workflow");
+    entry.manifest.inputs = {
+      unit: "workflow",
+    };
+    installWorkflowRegistryForTests([entry]);
     const token = configureHostBridgeServerForTests({
       token: "workflow-token",
     });
@@ -475,11 +544,64 @@ describe("host bridge workflow control", function () {
       },
     });
 
-    assert.strictEqual(parsed.status, 400);
-    assert.strictEqual(parsed.json.status, "error");
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.status, "ok");
+    assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
+    assert.strictEqual(parsed.json.result.bundle.mode, "bridge-download");
+  });
+
+  it("allows workflow agent-run when inputs match but validateSelection disables apply", async function () {
+    const entry = workflow("bridge-workflow");
+    entry.manifest.inputs = {
+      unit: "attachment",
+      accepts: {
+        mime: ["text/plain"],
+      },
+    };
+    entry.manifest.validateSelection = {
+      require: {
+        counts: {
+          notes: {
+            min: 1,
+          },
+        },
+      },
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+    const attachmentPath = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "zotero-agent-run-input-")),
+      "paper.md",
+    );
+    fs.writeFileSync(attachmentPath, "paper body");
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge Agent Run Validate Selection Parent");
+    await parent.saveTx();
+    const attachment = await Zotero.Attachments.linkFromFile({
+      file: Zotero.File.pathToFile(attachmentPath),
+      parentItemID: parent.id,
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: {
+          items: [{ id: attachment.id }],
+        },
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.status, "ok");
+    assert.strictEqual(parsed.json.result.applyStatus.allowed, false);
     assert.strictEqual(
-      parsed.json.error.code,
-      "invalid_workflow_agent_run_request",
+      parsed.json.result.applyStatus.reasonCode,
+      "selection-count-notes",
     );
   });
 

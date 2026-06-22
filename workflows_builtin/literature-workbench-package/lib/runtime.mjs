@@ -206,13 +206,13 @@ export function resolveAddonConfig(runtime) {
   const hostApi = resolveHostApi(runtime);
   if (!hostApi) {
     return {
-      addonName: "Zotero Skills",
+      addonName: "Zotero Agents",
       addonRef: "",
       prefsPrefix: "extensions.zotero.zotero-skills",
     };
   }
   return hostApi.addon?.getConfig?.() || {
-    addonName: "Zotero Skills",
+    addonName: "Zotero Agents",
     addonRef: "",
     prefsPrefix: "extensions.zotero.zotero-skills",
   };

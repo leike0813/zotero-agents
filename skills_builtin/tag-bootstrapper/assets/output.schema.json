@@ -31,7 +31,8 @@
       "items": { "type": "string" }
     },
     "error": {
-      "type": ["object", "null"]
+      "type": "object",
+      "additionalProperties": true
     },
     "provenance": {
       "type": "object",

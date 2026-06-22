@@ -8,7 +8,10 @@ import {
   runtimeRelativePath,
   writeRuntimeBytes,
 } from "./runtimePersistence";
-import { registerHostBridgeExportFile } from "./hostBridgeFileRegistry";
+import {
+  registerHostBridgeExportFile,
+  sha256Bytes,
+} from "./hostBridgeFileRegistry";
 import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
 import { createStoreZipBytes, type StoreZipEntry } from "./zipStore";
 import { localizeWorkflowLabel } from "../workflows/localization";
@@ -20,6 +23,7 @@ export type HostBridgeWorkflowAgentRunBundle = {
     displayName: string;
     contentType: string;
     size?: number;
+    sha256?: string;
     expiresAt: string;
   };
   downloadCommand: string;
@@ -31,9 +35,11 @@ export type HostBridgeWorkflowAgentRunResult = {
   workflowLabel: string;
   generatedAt: string;
   instruction: string;
+  applyStatus: HostBridgeWorkflowAgentRunApplyStatus;
   bundle: HostBridgeWorkflowAgentRunBundle;
   contents: {
     workflow: string;
+    workflowResources: string;
     selectionContext: string;
     protocolGuide: string;
     instructions: string;
@@ -41,6 +47,17 @@ export type HostBridgeWorkflowAgentRunResult = {
     selectedFiles: string[];
   };
   notes: string[];
+};
+
+export type HostBridgeWorkflowAgentRunApplyStatus = {
+  allowed: boolean;
+  reasonCode?: string;
+  stats: {
+    totalUnits: number;
+    validUnits: number;
+    skippedUnits: number;
+  };
+  message: string;
 };
 
 type SelectedFile = {
@@ -85,6 +102,10 @@ function isUnsafePackageEntry(relativePath: string) {
     normalized.includes("/.git/") ||
     normalized.includes("/__pycache__/")
   );
+}
+
+function isWorkflowManifestEntry(relativePath: string) {
+  return relativePath.replace(/\\/g, "/").toLowerCase() === "workflow.json";
 }
 
 function collectWorkflowSkillIds(manifest: WorkflowManifest) {
@@ -163,6 +184,7 @@ async function addDirectoryEntries(args: {
   entries: StoreZipEntry[];
   rootDir: string;
   bundlePrefix: string;
+  skipWorkflowManifest?: boolean;
 }) {
   if (!(await runtimePathExists(args.rootDir))) {
     return;
@@ -175,6 +197,9 @@ async function addDirectoryEntries(args: {
     if (isUnsafePackageEntry(relativePath)) {
       continue;
     }
+    if (args.skipWorkflowManifest && isWorkflowManifestEntry(relativePath)) {
+      continue;
+    }
     args.entries.push({
       name: `${args.bundlePrefix}/${relativePath}`,
       bytes: await readRuntimeBytes(filePath),
@@ -182,21 +207,65 @@ async function addDirectoryEntries(args: {
   }
 }
 
-function buildProtocolGuide(manifest: WorkflowManifest, skillIds: string[]) {
+function buildProtocolGuide(args: {
+  manifest: WorkflowManifest;
+  skillIds: string[];
+  applyStatus: HostBridgeWorkflowAgentRunApplyStatus;
+}) {
+  const manifest = args.manifest;
+  const skillIds = args.skillIds;
   const lines = [
     "# Workflow Protocol",
     "",
-    "This bundle is a self-owned workflow handoff. The host exported context only; it did not submit backend tasks or apply results to Zotero.",
+    "This bundle is a self-owned workflow handoff. The host exported context only; it did not submit backend tasks, choose a provider/backend, run workflow hooks, or apply results to Zotero.",
     "",
-    "Use `workflow/workflow.json` as the workflow definition. Use packages under `skills/` as the executable skill instructions and schemas.",
+    "## Bundle layout",
     "",
-    "Read `selection/context.json` for the selected Zotero items. Files referenced by that context are copied under `selection/files/`.",
+    "- `workflow/workflow.json`: canonical workflow definition. This is the only workflow manifest in the bundle.",
+    "- `workflow/resources/`: non-manifest files copied from the workflow package, when present.",
+    "- `skills/<skill-id>/`: referenced skill packages. Treat each package's instructions, schemas, and assets as the executable protocol for that skill.",
+    "- `selection/context.json`: requested selection, sanitized Zotero selection context, and host-side apply advisory.",
+    "- `selection/files/`: files referenced by the selection context, copied into the bundle.",
+    "- `INSTRUCTIONS.md`: short run instruction for the current handoff.",
     "",
-    "If the workflow is a sequence workflow, treat `request.sequence.steps` as candidate steps. Do not assume `include_if` has been evaluated by the host.",
+    "## Reading workflow/workflow.json",
     "",
-    "If the workflow contains hooks, inspect the exported workflow package files as workflow-owned guidance. The host did not run `buildRequest` for this handoff.",
+    "- `id`, `label`, `version`, and `provider` identify the workflow. In self-owned mode, `provider` is descriptive only; the host does not select or invoke that provider.",
+    "- `parameters` declares workflow option names, defaults, enum values, and schemas. Decide parameter values yourself from user intent and skill instructions.",
+    "- `inputs` declares the legal input unit. The host only used this field to decide whether a bundle may be emitted.",
+    "- `validateSelection` declares host-owned execution/apply readiness rules. A violation does not prevent self-owned execution, but it disables host-side apply.",
+    "- `request` describes the workflow request protocol. For `request.create`, run the referenced skill as the primary step. For `request.sequence.steps`, interpret the steps as candidate ordered work units.",
+    "- `result` describes expected outputs or finalization semantics when declared.",
+    "- `hooks` names workflow-owned code paths used by the Zotero host. The host did not run `buildRequest` for this handoff; inspect exported workflow resources only as guidance.",
     "",
-    "Place your final outputs under an `output/` directory in your own run workspace unless a skill package gives stricter instructions.",
+    "## Input compatibility and apply readiness",
+    "",
+    "- Input compatibility is based only on `inputs`. Because this bundle exists, the requested input matched the workflow's declared input unit.",
+    "- Apply readiness is based on `validateSelection` and is advisory for this self-owned run.",
+    `- Host-side apply allowed: ${args.applyStatus.allowed ? "yes" : "no"}.`,
+    args.applyStatus.reasonCode
+      ? `- Apply readiness reason: ${args.applyStatus.reasonCode}.`
+      : "- Apply readiness reason: none.",
+    `- Apply readiness message: ${args.applyStatus.message}`,
+    "- Do not attempt host-side apply when apply readiness is `no`. Produce outputs in your own workspace instead.",
+    "",
+    "## Sequence workflows",
+    "",
+    "- Treat `request.sequence.steps` as an ordered protocol. Each step may reference a skill package and may consume prior step outputs.",
+    "- Interpret `include_if` conditions yourself from the workflow definition, selection context, parameter choices, and skill instructions. The host did not evaluate these branches.",
+    "- When a step declares handoff or output conventions, preserve those files and values for subsequent steps.",
+    "- If a step is not applicable, record why it was skipped in your own run notes.",
+    "",
+    "## Skill packages",
+    "",
+    "- Read the relevant package under `skills/<skill-id>/` before executing that step.",
+    "- Use skill input/output schemas as the contract for files and JSON payloads you create.",
+    "- If a referenced skill package is missing, use the workflow definition and available package resources to infer the expected contract, and record the gap.",
+    "",
+    "## Output handling",
+    "",
+    "- Place final outputs under an `output/` directory in your own run workspace unless a skill package gives stricter instructions.",
+    "- This handoff does not cause Zotero to import or apply outputs automatically.",
     "",
     "Referenced skill ids:",
     ...skillIds.map((id) => `- ${id}`),
@@ -214,6 +283,7 @@ function buildInstructions(workflow: LoadedWorkflow, skillIds: string[]) {
   return [
     `You are running workflow "${label}" (${workflow.manifest.id}) in self-owned mode.`,
     "Open `workflow/workflow.json`, then read the relevant packages under `skills/`.",
+    "Read `workflow-protocol.md` before interpreting workflow fields or sequence steps.",
     "Use `selection/context.json` and files under `selection/files/` as your input context.",
     "Decide workflow parameters and sequence branches yourself from the workflow and skill instructions.",
     "Do not assume Zotero has submitted or will apply this run; write your outputs in your own workspace unless explicitly instructed otherwise.",
@@ -227,6 +297,7 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
   workflow: LoadedWorkflow;
   selection: unknown;
   selectionContext: unknown;
+  applyStatus: HostBridgeWorkflowAgentRunApplyStatus;
 }): Promise<HostBridgeWorkflowAgentRunResult> {
   const workflow = args.workflow;
   const generatedAt = new Date().toISOString();
@@ -240,7 +311,11 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
     selectedFileBySourcePath,
   );
   const instruction = buildInstructions(workflow, skillIds);
-  const protocolGuide = buildProtocolGuide(workflow.manifest, skillIds);
+  const protocolGuide = buildProtocolGuide({
+    manifest: workflow.manifest,
+    skillIds,
+    applyStatus: args.applyStatus,
+  });
   const entries: StoreZipEntry[] = [
     {
       name: "workflow/workflow.json",
@@ -252,6 +327,7 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
         {
           selection: args.selection,
           context: sanitizedSelectionContext,
+          applyStatus: args.applyStatus,
         },
         null,
         2,
@@ -270,7 +346,8 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
   await addDirectoryEntries({
     entries,
     rootDir: workflow.rootDir,
-    bundlePrefix: "workflow/package",
+    bundlePrefix: "workflow/resources",
+    skipWorkflowManifest: true,
   });
 
   const registry = await scanPluginSkillRegistry();
@@ -302,6 +379,7 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
   }
 
   const zipBytes = createStoreZipBytes(entries);
+  const zipSha256 = await sha256Bytes(zipBytes);
   const bundleName = `${safeSegment(workflow.manifest.id, "workflow")}-agent-run.zip`;
   const bundlePath = joinPath(
     getRuntimePersistencePaths().tmpDir,
@@ -313,6 +391,8 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
     localPath: bundlePath,
     displayName: bundleName,
     contentType: "application/zip",
+    size: zipBytes.byteLength,
+    ...(zipSha256 ? { sha256: zipSha256 } : {}),
     owner: {
       workflowId: workflow.manifest.id,
     },
@@ -323,6 +403,7 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
     workflowLabel: localizeWorkflowLabel(workflow),
     generatedAt,
     instruction,
+    applyStatus: args.applyStatus,
     bundle: {
       mode: "bridge-download",
       file: {
@@ -332,6 +413,7 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
         ...(typeof descriptor.size === "number"
           ? { size: descriptor.size }
           : {}),
+        ...(descriptor.sha256 ? { sha256: descriptor.sha256 } : {}),
         expiresAt: descriptor.expiresAt,
       },
       downloadCommand: `zotero-bridge file download ${descriptor.fileId} --output ${bundleName}`,
@@ -339,6 +421,7 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
     },
     contents: {
       workflow: "workflow/workflow.json",
+      workflowResources: "workflow/resources/",
       selectionContext: "selection/context.json",
       protocolGuide: "workflow-protocol.md",
       instructions: "INSTRUCTIONS.md",

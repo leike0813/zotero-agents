@@ -62,7 +62,7 @@ Get the token from Preferences → Host Bridge → **Copy Master Token**.
 
 - Transport: Streamable HTTP (`POST /mcp`)
 - Version: `2025-06-18`
-- Server identity: `zotero-skills` / `"Zotero Skills Context Broker"` v0.4.0
+- Server identity: `zotero-skills` / `"Zotero Agents Context Broker"` v0.4.0
 - `GET /mcp` → 405 (only POST accepted)
 - Requests without `id` → treated as notifications (no response)
 - `id: null` → explicitly invalid

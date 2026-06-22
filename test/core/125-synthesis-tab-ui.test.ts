@@ -3239,9 +3239,11 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "selectedElement: null");
     assert.include(source, "collectSelectedNodeCitations");
     assert.include(source, "renderSelectedNodeCitations");
+    assert.include(source, 'wrap.classList.add("has-citation-list")');
+    assert.include(source, 't("synthesis-graph-citations-title")');
     assert.include(
       source,
-      "if (!state.standaloneGraphOnly) {\n        wrap.appendChild(renderSelectedNodeCitations",
+      "if (!state.standaloneGraphOnly) {\n        wrap.classList.add(\"has-citation-list\");\n        wrap.appendChild(renderSelectedNodeCitations",
     );
     assert.include(source, "graph-selection-drawer");
     assert.include(source, "graph.selection");
@@ -3300,7 +3302,9 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(css, "writing-mode: vertical-rl;");
     assert.include(css, ".graph-selection-drawer");
     assert.include(css, ".graph-selection-content");
+    assert.include(css, ".selected-detail.has-citation-list");
     assert.include(css, ".graph-citation-list");
+    assert.notInclude(css, "max-height: min(420px, 48vh);");
     assert.include(css, ".graph-citation-card");
     assert.include(css, "width: 42px;");
     assert.include(css, "left: 12px;");

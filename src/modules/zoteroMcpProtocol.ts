@@ -3399,7 +3399,7 @@ export async function handleZoteroMcpJsonRpc(
           },
           serverInfo: {
             name: "zotero-skills",
-            title: "Zotero Skills Context Broker",
+            title: "Zotero Agents Context Broker",
             version: "0.4.0",
           },
         },

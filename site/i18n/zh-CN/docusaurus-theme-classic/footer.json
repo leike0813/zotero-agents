@@ -21,14 +21,14 @@
   },
   "link.item.label.GitHub": {
     "message": "GitHub",
-    "description": "The label of footer link with label=GitHub linking to https://github.com/leike0813/Zotero-Skills"
+    "description": "The label of footer link with label=GitHub linking to https://github.com/leike0813/zotero-agents"
   },
   "link.item.label.Issues": {
     "message": "Issues",
-    "description": "The label of footer link with label=Issues linking to https://github.com/leike0813/Zotero-Skills/issues"
+    "description": "The label of footer link with label=Issues linking to https://github.com/leike0813/zotero-agents/issues"
   },
   "copyright": {
-    "message": "Copyright © 2026 Zotero Skills. Built with Docusaurus.",
+    "message": "Copyright © 2026 Zotero Agents. Built with Docusaurus.",
     "description": "The footer copyright"
   }
 }

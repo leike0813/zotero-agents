@@ -170,6 +170,44 @@ async function readBytes(path: string) {
   return readRuntimeBytes(path);
 }
 
+export async function sha256Bytes(bytes: Uint8Array) {
+  const runtime = globalThis as {
+    crypto?: {
+      subtle?: {
+        digest?: (algorithm: string, data: Uint8Array) => Promise<ArrayBuffer>;
+      };
+    };
+    process?: unknown;
+  };
+  if (typeof runtime.crypto?.subtle?.digest === "function") {
+    const digest = await runtime.crypto.subtle.digest("SHA-256", bytes);
+    return `sha256:${Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("")}`;
+  }
+  const components = (globalThis as any).Components;
+  const classes = components?.classes || (globalThis as any).Cc;
+  const interfaces = components?.interfaces || (globalThis as any).Ci;
+  const hashFactory = classes?.["@mozilla.org/security/hash;1"];
+  const nsICryptoHash = interfaces?.nsICryptoHash;
+  if (hashFactory && nsICryptoHash) {
+    const hash = hashFactory.createInstance(nsICryptoHash);
+    hash.init(nsICryptoHash.SHA256);
+    hash.update(Array.from(bytes), bytes.length);
+    const digest = String(hash.finish(false));
+    return `sha256:${Array.from(digest)
+      .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
+      .join("")}`;
+  }
+  if (runtime.process) {
+    const crypto = await dynamicImport("crypto");
+    const hash = crypto.createHash("sha256");
+    hash.update(bytes);
+    return `sha256:${hash.digest("hex")}`;
+  }
+  return undefined;
+}
+
 async function statSize(path: string) {
   const runtime = globalThis as unknown as {
     IOUtils?: { stat?: (path: string) => Promise<{ size?: number }> };
@@ -218,6 +256,14 @@ export async function registerHostBridgeFileHandle(
     typeof args.size === "number" && Number.isFinite(args.size)
       ? Math.max(0, Math.floor(args.size))
       : await statSize(localPath);
+  let sha256 = args.sha256 ? String(args.sha256) : undefined;
+  if (!sha256) {
+    try {
+      sha256 = await sha256Bytes(await readBytes(localPath));
+    } catch {
+      sha256 = undefined;
+    }
+  }
   const handle: HostBridgeFileHandle = {
     fileId: createFileId(),
     sourceKind: args.sourceKind,
@@ -226,7 +272,7 @@ export async function registerHostBridgeFileHandle(
     ),
     contentType: inferContentType(args.contentType),
     ...(typeof size === "number" ? { size } : {}),
-    ...(args.sha256 ? { sha256: String(args.sha256) } : {}),
+    ...(sha256 ? { sha256 } : {}),
     createdAt,
     expiresAt: new Date(Date.now() + ttlMs).toISOString(),
     ...(args.owner ? { owner: { ...args.owner } } : {}),
@@ -309,12 +355,40 @@ export async function resolveHostBridgeFileDownload(
   }
   try {
     const bytes = await readBytes(handle.localPath);
+    if (typeof handle.size === "number" && handle.size !== bytes.byteLength) {
+      throw new HostBridgeFileRegistryError(
+        "file_unavailable",
+        "Registered file size no longer matches the file bytes",
+        {
+          fileId,
+          bytesExpected: handle.size,
+          bytesActual: bytes.byteLength,
+        },
+      );
+    }
+    if (handle.sha256) {
+      const actual = await sha256Bytes(bytes);
+      if (actual && actual !== handle.sha256) {
+        throw new HostBridgeFileRegistryError(
+          "file_unavailable",
+          "Registered file checksum no longer matches the file bytes",
+          {
+            fileId,
+            sha256Expected: handle.sha256,
+            sha256Actual: actual,
+          },
+        );
+      }
+    }
     return {
       descriptor: descriptorFromHandle(handle),
       localPath: handle.localPath,
       bytes,
     };
   } catch (error) {
+    if (error instanceof HostBridgeFileRegistryError) {
+      throw error;
+    }
     throw new HostBridgeFileRegistryError(
       "file_unavailable",
       "Registered file is no longer available",

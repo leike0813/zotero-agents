@@ -42,7 +42,7 @@ describe("run-zotero-direct runtime root safety", function () {
 
     assert.equal(
       runtimeRoot,
-      path.resolve("C:\\Users\\leike\\AppData\\Local", "Zotero-Skills-Direct-Runtime"),
+      path.resolve("C:\\Users\\leike\\AppData\\Local", "Zotero-Agents-Direct-Runtime"),
     );
     assert.equal(launchEnv.ZOTERO_SKILLS_RUNTIME_ROOT, runtimeRoot);
     assert.notInclude(

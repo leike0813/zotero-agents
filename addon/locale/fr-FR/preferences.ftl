@@ -220,5 +220,6 @@ pref-synthesis-db-reset-prompt-message = Type RESET SYNTHESIS DATABASE to confir
 pref-section-about = À propos
 pref-about-author = Auteur: Ghost in the bucket (leike0813@gmail.com)
 pref-about-github-label = GitHub:
+pref-about-docs = Documentation
 pref-about-welcome = Bienvenue pour soumettre des issues et des pull requests.
 pref-help = { $name } Build { $version } { $time }

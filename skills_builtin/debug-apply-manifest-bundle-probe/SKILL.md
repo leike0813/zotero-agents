@@ -5,7 +5,7 @@ description: Debug-only apply contract probe that emits an artifact manifest for
 
 # Debug Apply Manifest Bundle Probe
 
-This skill is only for Zotero Skills debug workflows.
+This skill is only for Zotero Agents debug workflows.
 Use the current working directory as the run workspace.
 
 Read `parameter.workflow_id`, `parameter.step_id`, and `parameter.run_key`.

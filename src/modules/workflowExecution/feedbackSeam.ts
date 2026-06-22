@@ -173,7 +173,7 @@ export function showWorkflowToast(
   if (!ProgressWindow) {
     return undefined;
   }
-  const addonName = resolveAddonName("Zotero Skills");
+  const addonName = resolveAddonName("Zotero Agents");
   const iconURI = resolveWorkflowToastIconURI();
   const sticky = options.sticky === true;
   const closeTime = sticky ? 0 : WORKFLOW_TOAST_CLOSE_DELAY_MS;

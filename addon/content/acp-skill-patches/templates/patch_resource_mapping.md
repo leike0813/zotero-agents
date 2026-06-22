@@ -1,4 +1,4 @@
-## Zotero Skills ACP Thin Proxy Resource Mapping
+## Zotero Agents ACP Thin Proxy Resource Mapping
 
 - Run workspace: {workspace_dir}
 - Shared catalog skill root: {catalog_skill_root}

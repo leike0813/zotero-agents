@@ -21,7 +21,7 @@ import { joinPath } from "../../utils/path";
 
 export const SYNTHESIS_SCHEMA_VERSION = "1.0.0";
 export const SYNTHESIS_SHARD_MARKER = "ZOTERO_SKILLS_SYNTHESIS_SHARD";
-export const SYNTHESIS_ANCHOR_TITLE = "Zotero-Skills Synthesis Layer Anchor";
+export const SYNTHESIS_ANCHOR_TITLE = "Zotero Agents Synthesis Layer Anchor";
 
 export type CanonicalEnvelope<T = unknown> = {
   schema_id: string;
@@ -594,7 +594,7 @@ export function renderNoteShardHtml(args: {
   envelope: NoteShardEnvelope;
 }) {
   return [
-    "<h2>Zotero-Skills Synthesis Mirror</h2>",
+    "<h2>Zotero Agents Synthesis Mirror</h2>",
     `<p>Library: ${escapeHtml(args.libraryId)}</p>`,
     `<p>Kind: ${escapeHtml(args.kind)}</p>`,
     `<p>Asset: ${escapeHtml(args.assetId)}</p>`,
@@ -602,7 +602,7 @@ export function renderNoteShardHtml(args: {
     `<p>Content: ${escapeHtml(args.contentType)}</p>`,
     `<p>Shard: ${String(args.seq).padStart(3, "0")}/${String(args.total).padStart(3, "0")}</p>`,
     `<p>Updated: ${escapeHtml(args.updatedAt)}</p>`,
-    "<p>This note is managed by Zotero-Skills. Do not edit manually.</p>",
+    "<p>This note is managed by Zotero Agents. Do not edit manually.</p>",
     `<!-- ${SYNTHESIS_SHARD_MARKER}`,
     canonicalizeJson(args.envelope),
     "-->",

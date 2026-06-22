@@ -469,7 +469,7 @@ export function createSynthesisGitCommandAdapter(args: {
       "user.email",
       "zotero-skills@example.invalid",
     ]);
-    await run(worktreePath, ["config", "user.name", "Zotero Skills"]);
+    await run(worktreePath, ["config", "user.name", "Zotero Agents"]);
     await run(worktreePath, ["remote", "remove", "origin"], true);
     await run(worktreePath, ["remote", "add", "origin", config.remoteUrl]);
   }

@@ -230,6 +230,7 @@ function workflowGuidance() {
     "- Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.",
     "- Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.",
     "- `workflow agent-run` is read-only: it does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task.",
+    "- `workflow agent-run` gates bundle creation only on `inputs`; `validateSelection` is returned as `applyStatus` advisory and may disable future host-side apply without blocking self-owned execution.",
   ].join("\n");
 }
 

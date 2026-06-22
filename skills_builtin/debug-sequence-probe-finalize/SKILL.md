@@ -5,7 +5,7 @@ description: Debug-only ACP sequence probe step that summarizes previous probe c
 
 # Debug Sequence Probe Finalize
 
-This skill is only for Zotero Skills debug workflows. Do not write Zotero items,
+This skill is only for Zotero Agents debug workflows. Do not write Zotero items,
 notes, preferences, or external files. Use the current working directory as the
 ACP run workspace.
 

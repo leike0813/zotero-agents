@@ -5,6 +5,11 @@ import fsSync from "fs";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
+import {
+  compileSkillJsonSchema,
+  type AcpSkillSchemaKey,
+  validateSkillSchemaAnnotations,
+} from "../../src/modules/acpSkillSchemaAssets";
 import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { renderLiteratureDeepReadingSkill } from "../../skills_src/literature-deep-reading/renderer/render_literature_deep_reading_skill";
 
@@ -13,6 +18,29 @@ const skillRoot = path.join("skills_builtin", "literature-deep-reading");
 
 async function assertFileExists(filePath: string) {
   await fs.access(filePath);
+}
+
+function collectStringTitlePaths(value: unknown, pathParts: string[] = []) {
+  const paths: string[] = [];
+  if (!value || typeof value !== "object") {
+    return paths;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      paths.push(
+        ...collectStringTitlePaths(item, [...pathParts, String(index)]),
+      );
+    });
+    return paths;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = [...pathParts, key];
+    if (key === "title" && typeof child === "string") {
+      paths.push(childPath.join("."));
+    }
+    paths.push(...collectStringTitlePaths(child, childPath));
+  }
+  return paths;
 }
 
 async function collectFileMap(root: string): Promise<Record<string, string>> {
@@ -1073,11 +1101,74 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
       "utf8",
     );
+    for (const root of [suiteRoot, skillRoot]) {
+      const citationGraphApp = await fs.readFile(
+        path.join(
+          root,
+          "renderer",
+          "templates",
+          "citation-graph-synthesis-app.js",
+        ),
+        "utf8",
+      );
+      const citationGraphCss = await fs.readFile(
+        path.join(
+          root,
+          "renderer",
+          "templates",
+          "citation-graph-synthesis.css",
+        ),
+        "utf8",
+      );
+      assert.include(citationGraphApp, "has-citation-list");
+      assert.include(citationGraphApp, "synthesis-graph-citations-title");
+      assert.include(citationGraphCss, ".selected-detail.has-citation-list");
+      assert.notInclude(citationGraphCss, "max-height: min(420px, 48vh);");
+    }
     assert.notInclude(deepReadingCss, ".topic-timeline {");
     assert.include(timelineCss, ".topic-timeline {");
     assert.include(timelineCss, ".timeline-hover-popover");
     assert.include(deepReadingCss, ".preface-topic-timeline .timeline-scroll");
     assert.include(deepReadingCss, "height: 82px;");
+  });
+
+  it("keeps output schemas free of schema title annotations", async function () {
+    for (const schemaPath of [
+      path.join(suiteRoot, "assets", "output.schema.json"),
+      path.join(skillRoot, "assets", "output.schema.json"),
+    ]) {
+      const schema = JSON.parse(await fs.readFile(schemaPath, "utf8"));
+      assert.deepEqual(
+        collectStringTitlePaths(schema),
+        [],
+        `${schemaPath} should not spend output-token context on schema title annotations`,
+      );
+    }
+  });
+
+  it("keeps source and generated schemas compatible with Skill Runner meta-schemas", async function () {
+    for (const root of [suiteRoot, skillRoot]) {
+      for (const schemaKey of [
+        "input",
+        "parameter",
+        "output",
+      ] satisfies AcpSkillSchemaKey[]) {
+        const schema = JSON.parse(
+          await fs.readFile(
+            path.join(root, "assets", `${schemaKey}.schema.json`),
+            "utf8",
+          ),
+        ) as Record<string, unknown>;
+        assert.deepEqual(
+          [
+            ...compileSkillJsonSchema({ schema, schemaKey }),
+            ...validateSkillSchemaAnnotations({ schema, schemaKey }),
+          ],
+          [],
+          `${root} ${schemaKey} schema must satisfy Skill Runner meta-schema`,
+        );
+      }
+    }
   });
 
   it("keeps skill and runner instructions packet-first and gate-driven", async function () {

@@ -1162,7 +1162,7 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
             addon: {
               getConfig() {
                 return {
-                  addonName: "Zotero Skills",
+                  addonName: "Zotero Agents",
                   addonRef: "zotero-skills",
                   prefsPrefix,
                 };

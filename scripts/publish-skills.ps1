@@ -38,7 +38,7 @@ function Need-Command {
 Need-Command 'git'
 
 $DevRoot = git rev-parse --show-toplevel
-if (-not $DevRoot) { Log-Error "Run this script from inside the Zotero-Skills git repo." }
+if (-not $DevRoot) { Log-Error "Run this script from inside the zotero-agents git repo." }
 $DevRoot = Resolve-Path $DevRoot
 
 Log-Info "DEV_ROOT = $DevRoot"

@@ -42,6 +42,7 @@ class FakeXULElement {
   public placeholder = "";
   public textContent = "";
   public checked = false;
+  public disabled = false;
   public parentNode: FakeXULElement | null = null;
   public children: FakeXULElement[] = [];
   public classList = {
@@ -379,6 +380,7 @@ function createPrefsWindow(args?: {
   confirmResults?: boolean[];
   promptResults?: Array<string | null>;
   includeRuntimeDataControls?: boolean;
+  includeHostAccessControls?: boolean;
 }) {
   const document = new FakeDocument();
   const confirmResults = Array.isArray(args?.confirmResults)
@@ -411,6 +413,99 @@ function createPrefsWindow(args?: {
   const hostBridgeDisableWriteApprovalCheckbox =
     document.createXULElement("input");
   hostBridgeDisableWriteApprovalCheckbox.id = `zotero-prefpane-${config.addonRef}-host-bridge-disable-write-approval`;
+  const hostBridgeLanCheckbox = args?.includeHostAccessControls
+    ? document.createXULElement("input")
+    : null;
+  if (hostBridgeLanCheckbox) {
+    hostBridgeLanCheckbox.id = `zotero-prefpane-${config.addonRef}-host-bridge-lan-enabled`;
+  }
+  const mcpServerEnabledCheckbox = args?.includeHostAccessControls
+    ? document.createXULElement("input")
+    : null;
+  if (mcpServerEnabledCheckbox) {
+    mcpServerEnabledCheckbox.id = `zotero-prefpane-${config.addonRef}-mcp-server-enabled`;
+  }
+  const mcpServerStatusText = args?.includeHostAccessControls
+    ? document.createXULElement("description")
+    : null;
+  if (mcpServerStatusText) {
+    mcpServerStatusText.id = `zotero-prefpane-${config.addonRef}-mcp-server-status`;
+    mcpServerStatusText.setAttribute(
+      "data-l10n-id",
+      "pref-mcp-server-status-idle",
+    );
+  }
+  const hostBridgeLed = args?.includeHostAccessControls
+    ? document.createXULElement("span")
+    : null;
+  if (hostBridgeLed) {
+    hostBridgeLed.id = `zotero-prefpane-${config.addonRef}-host-bridge-led`;
+    hostBridgeLed.setAttribute("class", "zs-runtime-led is-gray");
+  }
+  const mcpServerLed = args?.includeHostAccessControls
+    ? document.createXULElement("span")
+    : null;
+  if (mcpServerLed) {
+    mcpServerLed.id = `zotero-prefpane-${config.addonRef}-mcp-server-led`;
+    mcpServerLed.setAttribute("class", "zs-runtime-led is-gray");
+  }
+  const hostBridgePinPortCheckbox = args?.includeHostAccessControls
+    ? document.createXULElement("input")
+    : null;
+  if (hostBridgePinPortCheckbox) {
+    hostBridgePinPortCheckbox.id = `zotero-prefpane-${config.addonRef}-host-bridge-pin-port-enabled`;
+  }
+  const hostBridgePinnedPortInput = args?.includeHostAccessControls
+    ? document.createXULElement("input")
+    : null;
+  if (hostBridgePinnedPortInput) {
+    hostBridgePinnedPortInput.id = `zotero-prefpane-${config.addonRef}-host-bridge-pinned-port`;
+  }
+  const hostBridgeAdvertisedHostInput = args?.includeHostAccessControls
+    ? document.createXULElement("input")
+    : null;
+  if (hostBridgeAdvertisedHostInput) {
+    hostBridgeAdvertisedHostInput.id = `zotero-prefpane-${config.addonRef}-host-bridge-advertised-host`;
+  }
+  const hostBridgeEndpointText = args?.includeHostAccessControls
+    ? document.createXULElement("description")
+    : null;
+  if (hostBridgeEndpointText) {
+    hostBridgeEndpointText.id = `zotero-prefpane-${config.addonRef}-host-bridge-endpoint`;
+  }
+  const hostBridgeStatusText = args?.includeHostAccessControls
+    ? document.createXULElement("description")
+    : null;
+  if (hostBridgeStatusText) {
+    hostBridgeStatusText.id = `zotero-prefpane-${config.addonRef}-host-bridge-status`;
+    hostBridgeStatusText.setAttribute(
+      "data-l10n-id",
+      "pref-host-bridge-status-idle",
+    );
+  }
+  const hostBridgeShowEndpointButton = args?.includeHostAccessControls
+    ? document.createXULElement("button")
+    : null;
+  if (hostBridgeShowEndpointButton) {
+    hostBridgeShowEndpointButton.id = `zotero-prefpane-${config.addonRef}-host-bridge-show-endpoint`;
+  }
+  const hostBridgeSecurityToggle = args?.includeHostAccessControls
+    ? document.createXULElement("button")
+    : null;
+  if (hostBridgeSecurityToggle) {
+    hostBridgeSecurityToggle.id = `zotero-prefpane-${config.addonRef}-host-bridge-security-toggle`;
+    hostBridgeSecurityToggle.setAttribute("aria-expanded", "false");
+  }
+  const hostBridgeSecurityPanel = args?.includeHostAccessControls
+    ? document.createXULElement("vbox")
+    : null;
+  if (hostBridgeSecurityPanel) {
+    hostBridgeSecurityPanel.id = `zotero-prefpane-${config.addonRef}-host-bridge-security-panel`;
+    hostBridgeSecurityPanel.setAttribute(
+      "class",
+      "zs-host-access-security-panel",
+    );
+  }
   const runtimeDataRoot = args?.includeRuntimeDataControls
     ? document.createXULElement("div")
     : null;
@@ -597,6 +692,19 @@ function createPrefsWindow(args?: {
     workflowOpenLogsButton,
     backendManageButton,
     hostBridgeDisableWriteApprovalCheckbox,
+    hostBridgeLanCheckbox,
+    mcpServerEnabledCheckbox,
+    mcpServerStatusText,
+    hostBridgeLed,
+    mcpServerLed,
+    hostBridgePinPortCheckbox,
+    hostBridgePinnedPortInput,
+    hostBridgeAdvertisedHostInput,
+    hostBridgeEndpointText,
+    hostBridgeStatusText,
+    hostBridgeShowEndpointButton,
+    hostBridgeSecurityToggle,
+    hostBridgeSecurityPanel,
     runtimeDataRoot,
     runtimeDataSummary,
     runtimeDataCategories,
@@ -948,6 +1056,177 @@ describe("gui: preference scripts", function () {
 
     assert.lengthOf(accepted.confirmMessages, 1);
     assert.isFalse(getPref("hostBridgeDisableWriteApproval") === true);
+  });
+
+  it("renders Host Bridge and MCP preference status from runtime snapshots", async function () {
+    setPref("hostBridgeLanEnabled", true);
+    setPref("hostBridgePinPortEnabled", true);
+    setPref("hostBridgePinnedPort", 26570);
+    setPref("mcpServer.enabled", true);
+    const prefs = createPrefsWindow({ includeHostAccessControls: true });
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateHostBridge") {
+        return {
+          ok: true,
+          details: {
+            status: "running",
+            bindMode: "lan",
+            lanEnabled: true,
+            pinPortEnabled: true,
+            pinnedPort: 26570,
+            portMode: "pinned",
+            endpoint: "http://127.0.0.1:26570/bridge/v1",
+            remoteEndpoint: "http://192.168.1.10:26570/bridge/v1",
+            tokenMasked: "abc...def",
+          },
+        };
+      }
+      if (type === "stateMcpServer") {
+        return {
+          ok: true,
+          details: {
+            enabled: true,
+            server: {
+              status: "running",
+              endpoint: "http://127.0.0.1:26455/mcp",
+              tokenMasked: "abc...def",
+            },
+          },
+        };
+      }
+      return { ok: true, details: {} };
+    };
+
+    await registerPrefsScripts(prefs.window);
+    await flushTasks();
+
+    assert.match(prefs.hostBridgeLed?.className || "", /is-green/);
+    assert.include(prefs.hostBridgeStatusText?.textContent || "", "Status=Running");
+    assert.include(prefs.hostBridgeStatusText?.textContent || "", "Bind=lan");
+    assert.include(prefs.hostBridgeStatusText?.textContent || "", "Port=pinned 26570");
+    assert.isNull(prefs.hostBridgeStatusText?.getAttribute("data-l10n-id"));
+    assert.notInclude(prefs.hostBridgeStatusText?.textContent || "", "token");
+    assert.notInclude(prefs.hostBridgeStatusText?.textContent || "", "abc...def");
+    assert.include(
+      prefs.hostBridgeEndpointText?.textContent || "",
+      "http://127.0.0.1:26570/bridge/v1",
+    );
+    assert.match(prefs.mcpServerLed?.className || "", /is-green/);
+    assert.include(prefs.mcpServerStatusText?.textContent || "", "Enabled=Enabled");
+    assert.include(prefs.mcpServerStatusText?.textContent || "", "Status=Running");
+    assert.isNull(prefs.mcpServerStatusText?.getAttribute("data-l10n-id"));
+    assert.notInclude(prefs.mcpServerStatusText?.textContent || "", "token");
+    assert.notInclude(prefs.mcpServerStatusText?.textContent || "", "abc...def");
+    assert.include(
+      prefs.mcpServerStatusText?.textContent || "",
+      "http://127.0.0.1:26455/mcp",
+    );
+    assert.isTrue(prefs.hostBridgeLanCheckbox?.checked);
+    assert.isTrue(prefs.hostBridgePinPortCheckbox?.checked);
+    assert.isTrue(prefs.hostBridgePinPortCheckbox?.disabled);
+    assert.isTrue(prefs.mcpServerEnabledCheckbox?.checked);
+    assert.isFalse(
+      prefs.hostBridgeSecurityPanel?.classList.contains("is-visible") || false,
+    );
+    assert.equal(
+      prefs.hostBridgeSecurityToggle?.getAttribute("aria-expanded"),
+      "false",
+    );
+    prefs.hostBridgeSecurityToggle?.dispatch("command");
+    assert.isTrue(
+      prefs.hostBridgeSecurityPanel?.classList.contains("is-visible") || false,
+    );
+    assert.equal(
+      prefs.hostBridgeSecurityToggle?.getAttribute("aria-expanded"),
+      "true",
+    );
+  });
+
+  it("renders Host Bridge and MCP preference status failures as errors", async function () {
+    setPref("hostBridgeLanEnabled", true);
+    setPref("mcpServer.enabled", true);
+    const prefs = createPrefsWindow({ includeHostAccessControls: true });
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateHostBridge" || type === "stateMcpServer") {
+        throw new Error(`${type} failed`);
+      }
+      return { ok: true, details: {} };
+    };
+
+    await registerPrefsScripts(prefs.window);
+    await flushTasks();
+
+    assert.match(prefs.hostBridgeLed?.className || "", /is-red/);
+    assert.include(prefs.hostBridgeStatusText?.textContent || "", "Status=Error");
+    assert.include(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "stateHostBridge failed",
+    );
+    assert.match(prefs.mcpServerLed?.className || "", /is-red/);
+    assert.include(prefs.mcpServerStatusText?.textContent || "", "Enabled=Enabled");
+    assert.include(prefs.mcpServerStatusText?.textContent || "", "Status=Error");
+    assert.include(
+      prefs.mcpServerStatusText?.textContent || "",
+      "stateMcpServer failed",
+    );
+  });
+
+  it("renders disabled MCP preference status without exposing tokens", async function () {
+    setPref("mcpServer.enabled", false);
+    const prefs = createPrefsWindow({ includeHostAccessControls: true });
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateHostBridge") {
+        return { ok: true, details: { status: "idle" } };
+      }
+      if (type === "stateMcpServer") {
+        return {
+          ok: true,
+          details: {
+            enabled: false,
+            server: {
+              status: "running",
+              endpoint: "http://127.0.0.1:26455/mcp",
+              tokenMasked: "abc...def",
+            },
+          },
+        };
+      }
+      return { ok: true, details: {} };
+    };
+
+    await registerPrefsScripts(prefs.window);
+    await flushTasks();
+
+    assert.match(prefs.mcpServerLed?.className || "", /is-gray/);
+    assert.include(prefs.mcpServerStatusText?.textContent || "", "Enabled=Disabled");
+    assert.include(prefs.mcpServerStatusText?.textContent || "", "Status=Disabled");
+    assert.notInclude(prefs.mcpServerStatusText?.textContent || "", "token");
+    assert.notInclude(prefs.mcpServerStatusText?.textContent || "", "abc...def");
+    assert.isFalse(prefs.mcpServerEnabledCheckbox?.checked);
   });
 
   it("renders persistence governance data and dispatches issue cleanup", async function () {
@@ -1537,6 +1816,10 @@ describe("gui: preference scripts", function () {
     assert.include(xhtml, "runtime-data-state-db-info");
     assert.include(xhtml, "runtime-data-progress-row");
     assert.include(xhtml, "runtime-data-progressmeter");
+    assert.include(xhtml, "host-bridge-led");
+    assert.include(xhtml, "mcp-server-led");
+    assert.include(xhtml, "host-bridge-security-toggle");
+    assert.include(xhtml, "host-bridge-security-panel");
     assert.include(xhtml, "host-bridge-disable-write-approval");
     assert.include(xhtml, "zs-host-bridge-write-approval-danger");
     assert.include(xhtml, "skill-dir");
@@ -1553,6 +1836,8 @@ describe("gui: preference scripts", function () {
     assert.include(enLocale, "pref-synthesis-db-reset-confirm-message");
     assert.include(enLocale, "pref-host-bridge-disable-write-approval");
     assert.include(enLocale, "pref-host-bridge-disable-write-approval-confirm");
+    assert.include(enLocale, "pref-host-bridge-security-show");
+    assert.include(enLocale, "pref-host-access-status-running");
     assert.include(enLocale, "pref-skill-dir");
     assert.include(enLocale, "RESET SYNTHESIS DATABASE");
     assert.include(zhLocale, "pref-runtime-data-show-issues");
@@ -1566,6 +1851,8 @@ describe("gui: preference scripts", function () {
     assert.include(zhLocale, "pref-synthesis-db-reset-confirm-message");
     assert.include(zhLocale, "pref-host-bridge-disable-write-approval");
     assert.include(zhLocale, "pref-host-bridge-disable-write-approval-confirm");
+    assert.include(zhLocale, "pref-host-bridge-security-show");
+    assert.include(zhLocale, "pref-host-access-status-running");
     assert.include(zhLocale, "pref-skill-dir");
     assert.include(zhLocale, "RESET SYNTHESIS DATABASE");
   });

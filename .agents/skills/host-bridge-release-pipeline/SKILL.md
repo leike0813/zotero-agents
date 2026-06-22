@@ -1,6 +1,6 @@
 ---
 name: host-bridge-release-pipeline
-description: Execute the Zotero-Skills project Host Bridge release steps after Host Bridge CLI, wrapper skill, broker capability, profile, or documentation changes. Use when Codex needs the exact commands for rendering Host Bridge surfaces, rebuilding local prebuilt CLI bundles, publishing the host-bridge/zotero-bridge-cli-bundle branch, and pushing it to the remote.
+description: Execute the zotero-agents project Host Bridge release steps after Host Bridge CLI, wrapper skill, broker capability, profile, or documentation changes. Use when Codex needs the exact commands for rendering Host Bridge surfaces, rebuilding local prebuilt CLI bundles, publishing the host-bridge/zotero-bridge-cli-bundle branch, and pushing it to the remote.
 ---
 
 # Host Bridge Release Pipeline

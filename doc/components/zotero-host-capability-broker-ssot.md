@@ -1,6 +1,6 @@
 # Zotero Host Capability Broker SSOT
 
-This document is the human-facing SSOT for how Zotero host capabilities are exposed inside Zotero Skills. It defines the relationship between legacy `handlers`, workflow `hostApi`, and future Zotero MCP tools.
+This document is the human-facing SSOT for how Zotero host capabilities are exposed inside Zotero Agents. It defines the relationship between legacy `handlers`, workflow `hostApi`, and future Zotero MCP tools.
 
 ## Core Model
 
@@ -73,7 +73,7 @@ This boundary exists because real agent transcripts showed successful Zotero MCP
 
 ## MCP Concurrency And Queue Policy
 
-MCP clients may issue concurrent Streamable HTTP requests, but Zotero Skills v1 does not claim that Zotero host APIs are reentrant. All `tools/call` requests enter a single FIFO worker before touching Zotero host APIs. `initialize`, `tools/list`, and JSON-RPC notifications bypass this queue.
+MCP clients may issue concurrent Streamable HTTP requests, but Zotero Agents v1 does not claim that Zotero host APIs are reentrant. All `tools/call` requests enter a single FIFO worker before touching Zotero host APIs. `initialize`, `tools/list`, and JSON-RPC notifications bypass this queue.
 
 The default v1 queue policy is:
 

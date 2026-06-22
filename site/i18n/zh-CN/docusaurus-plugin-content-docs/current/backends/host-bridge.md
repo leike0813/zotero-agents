@@ -24,7 +24,7 @@ Host Bridge 的协议版本为 `host-bridge.v1`。全部端点（`GET /bridge/v1
 
 ## 配置
 
-Zotero → 设置 → Zotero Skills → Host Bridge
+Zotero → 设置 → Zotero Agents → Host Bridge
 
 | 设置项 | 类型 | 默认值 | 说明 |
 |-------|------|--------|------|
@@ -153,9 +153,9 @@ Well-known profile 位置：
 
 | 系统 | 路径 |
 |------|------|
-| Windows | `%LOCALAPPDATA%\Zotero-Skills\bridge-profile.json` |
-| macOS | `~/Library/Application Support/Zotero-Skills/bridge-profile.json` |
-| Linux | `${XDG_DATA_HOME:-~/.local/share}/Zotero-Skills/bridge-profile.json` |
+| Windows | `%LOCALAPPDATA%\zotero-agents\bridge-profile.json` |
+| macOS | `~/Library/Application Support/zotero-agents/bridge-profile.json` |
+| Linux | `${XDG_DATA_HOME:-~/.local/share}/zotero-agents/bridge-profile.json` |
 
 ```json
 {

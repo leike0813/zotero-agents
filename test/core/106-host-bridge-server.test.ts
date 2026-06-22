@@ -1,5 +1,7 @@
 import { assert } from "chai";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   configureHostBridgeServerForTests,
   getHostBridgeServerStatus,
@@ -53,6 +55,28 @@ function rawHttpRequestBytes(args: {
   ].join("\r\n");
   return new Uint8Array(
     Buffer.concat([Buffer.from(head, "latin1"), Buffer.from(bodyBytes)]),
+  );
+}
+
+function withTemporaryLocalAppData<T>(run: (root: string) => Promise<T>) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-host-bridge-profile-"));
+  const previousLocalAppData = process.env.LOCALAPPDATA;
+  process.env.LOCALAPPDATA = root;
+  return run(root).finally(() => {
+    if (typeof previousLocalAppData === "string") {
+      process.env.LOCALAPPDATA = previousLocalAppData;
+    } else {
+      delete process.env.LOCALAPPDATA;
+    }
+  });
+}
+
+function readTemporaryWellKnownProfile(root: string) {
+  return JSON.parse(
+    fs.readFileSync(
+      path.join(root, "zotero-agents", "bridge-profile.json"),
+      "utf8",
+    ),
   );
 }
 
@@ -838,6 +862,81 @@ describe("host bridge server phase 1", function () {
     );
     assert.strictEqual(getHostBridgeServerStatus().status, "stopped");
     assert.strictEqual(listenCount, 2);
+  });
+
+  it("keeps LAN fixed-port profile after supervisor socket recovery", async function () {
+    this.timeout(5000);
+    await withTemporaryLocalAppData(async (profileRoot) => {
+      let listener: { onStopListening?: () => void } | null = null;
+      const listened: Array<{ port: number; bindMode: string }> = [];
+      setPref("hostBridgeLanEnabled", true);
+      setPref("hostBridgePinPortEnabled", false);
+      setPref("hostBridgePinnedPort", 27655);
+      hostBridgeServerInternalsForTests.setServerSocketFactory(
+        (port, bindMode) => ({
+          asyncListen: (nextListener: { onStopListening?: () => void }) => {
+            listener = nextListener;
+            listened.push({ port, bindMode });
+          },
+          close: () => undefined,
+        }),
+      );
+
+      startHostBridgeSupervisor();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.deepEqual(listened, [{ port: 27655, bindMode: "lan" }]);
+
+      listener?.onStopListening?.();
+      await new Promise((resolve) =>
+        setTimeout(
+          resolve,
+          hostBridgeServerInternalsForTests.constants.RECOVERY_DELAY_MS + 20,
+        ),
+      );
+
+      const status = getHostBridgeServerStatus();
+      assert.strictEqual(status.status, "running");
+      assert.strictEqual(status.bindMode, "lan");
+      assert.isTrue(status.lanEnabled);
+      assert.strictEqual(status.portMode, "pinned");
+      assert.strictEqual(status.port, 27655);
+      assert.deepEqual(listened, [
+        { port: 27655, bindMode: "lan" },
+        { port: 27655, bindMode: "lan" },
+      ]);
+      assert.strictEqual(status.restartCount, 1);
+
+      const profile = readTemporaryWellKnownProfile(profileRoot);
+      assert.strictEqual(
+        profile.endpoint,
+        "http://127.0.0.1:27655/bridge/v1",
+      );
+    });
+  });
+
+  it("does not publish a well-known profile before the socket is listening", async function () {
+    await withTemporaryLocalAppData(async (profileRoot) => {
+      setPref("hostBridgeLanEnabled", true);
+      setPref("hostBridgePinPortEnabled", true);
+      setPref("hostBridgePinnedPort", 27656);
+      hostBridgeServerInternalsForTests.setServerSocketFactory(() => ({
+        asyncListen: () => {
+          throw new Error("listen failed");
+        },
+        close: () => undefined,
+      }));
+
+      const status = await restartHostBridgeServer();
+
+      assert.strictEqual(status.status, "error");
+      assert.strictEqual(status.bindMode, "lan");
+      assert.strictEqual(status.portMode, "pinned");
+      assert.isFalse(
+        fs.existsSync(
+          path.join(profileRoot, "zotero-agents", "bridge-profile.json"),
+        ),
+      );
+    });
   });
 
   it("declares Host Bridge prefs and settings controls", function () {

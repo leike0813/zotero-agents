@@ -1,4 +1,5 @@
 import { config } from "../../package.json";
+import { getDocsUrl } from "../utils/docsUrl";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import { getStringOrFallback } from "../utils/locale";
 import {
@@ -42,6 +43,7 @@ type WorkspaceShellLabels = {
   themeSystem: string;
   themeLight: string;
   themeDark: string;
+  docs: string;
   refresh: string;
   toggleSidebar: string;
   openSidebar: string;
@@ -106,7 +108,7 @@ function buildWorkspaceShellLabels(): WorkspaceShellLabels {
   return {
     tabTitle: localizeWorkspaceShellLabel(
       "workspace-shell-tab-title",
-      "Zotero Skills",
+      "Zotero Agents",
     ),
     brandSubtitle: localizeWorkspaceShellLabel(
       "workspace-shell-brand-subtitle",
@@ -140,6 +142,7 @@ function buildWorkspaceShellLabels(): WorkspaceShellLabels {
       "workspace-shell-theme-dark",
       "Dark",
     ),
+    docs: localizeWorkspaceShellLabel("workspace-shell-docs", "Docs"),
     refresh: localizeWorkspaceShellLabel("workspace-shell-refresh", "Refresh"),
     toggleSidebar: localizeWorkspaceShellLabel(
       "workspace-shell-toggle-sidebar",
@@ -729,6 +732,11 @@ async function handleAction(
     await mountSynthesisRuntimeIfReady(runtime);
     return;
   }
+  if (action === "open-docs") {
+    const zotero = (globalThis as any).Zotero || (runtime.window as any).Zotero;
+    zotero?.launchURL?.(getDocsUrl());
+    return;
+  }
   if (action === "open-sidebar") {
     await openAssistantWorkspaceSidebar({
       window: runtime.window,
@@ -812,7 +820,7 @@ export async function openZoteroSkillsWorkspaceTab(
   const tabs = resolveZoteroTabs(hostWindow);
   if (!hostWindow || !tabs?.add || !tabs.select) {
     throw new Error(
-      "Cannot open Zotero Skills Workspace: Zotero_Tabs is unavailable.",
+      "Cannot open Zotero Agents Workspace: Zotero_Tabs is unavailable.",
     );
   }
   const Zotero_Tabs = tabs as ZoteroTabs & {
@@ -849,7 +857,7 @@ export async function openZoteroSkillsWorkspaceTab(
     type: "zotero-skills-workspace",
     title: localizeWorkspaceShellLabel(
       "workspace-shell-tab-title",
-      "Zotero Skills",
+      "Zotero Agents",
     ),
     data: {
       kind: "zotero-skills-workspace",
@@ -868,7 +876,7 @@ export async function openZoteroSkillsWorkspaceTab(
   const container = result?.container;
   if (!container) {
     throw new Error(
-      "Cannot open Zotero Skills Workspace: tab container is missing.",
+      "Cannot open Zotero Agents Workspace: tab container is missing.",
     );
   }
   const frame = createWorkspaceBrowser(hostWindow.document);

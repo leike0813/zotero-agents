@@ -6,7 +6,7 @@
 
 在偏好设置中启用调试模式，可以解锁额外的调试工具和信息显示：
 
-Zotero → 设置 → Zotero Skills → 启用调试模式
+Zotero → 设置 → Zotero Agents → 启用调试模式
 
 调试模式开启后：
 

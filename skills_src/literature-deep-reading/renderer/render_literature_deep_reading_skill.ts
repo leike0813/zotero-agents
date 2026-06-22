@@ -2,6 +2,12 @@ import fs from "fs/promises";
 import path from "path";
 import { execSync } from "child_process";
 import { fileURLToPath } from "url";
+import {
+  compileSkillJsonSchema,
+  type AcpSkillSchemaKey,
+  validateRunnerManifestShape,
+  validateSkillSchemaAnnotations,
+} from "../../../src/modules/acpSkillSchemaAssets";
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const SUITE_ROOT = path.resolve(path.dirname(THIS_FILE), "..");
@@ -14,9 +20,53 @@ async function readText(...parts: string[]) {
   return fs.readFile(path.join(...parts), "utf8");
 }
 
+async function readJson(...parts: string[]) {
+  return JSON.parse(await readText(...parts)) as Record<string, unknown>;
+}
+
 async function writeText(filePath: string, content: string) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, content, "utf8");
+}
+
+function assertNoRenderContractErrors(label: string, errors: string[]): void {
+  if (errors.length > 0) {
+    throw new Error(
+      `${label} violates Skill Runner render precondition:\n${errors.join("\n")}`,
+    );
+  }
+}
+
+function validateSchemaAssetBeforeRender(
+  schemaKey: AcpSkillSchemaKey,
+  schema: Record<string, unknown>,
+): void {
+  assertNoRenderContractErrors(`${SKILL_ID} ${schemaKey} schema`, [
+    ...compileSkillJsonSchema({ schema, schemaKey }),
+    ...validateSkillSchemaAnnotations({ schema, schemaKey }),
+  ]);
+}
+
+async function validateSourceAssetsBeforeRender() {
+  const runner = await readJson(SUITE_ROOT, "assets", "runner.json");
+  assertNoRenderContractErrors(
+    `${SKILL_ID} runner manifest`,
+    validateRunnerManifestShape({
+      runnerJson: runner,
+      skillDirName: SKILL_ID,
+      skillFrontmatterName: SKILL_ID,
+    }),
+  );
+  for (const schemaKey of [
+    "input",
+    "parameter",
+    "output",
+  ] satisfies AcpSkillSchemaKey[]) {
+    validateSchemaAssetBeforeRender(
+      schemaKey,
+      await readJson(SUITE_ROOT, "assets", `${schemaKey}.schema.json`),
+    );
+  }
 }
 
 async function copyTextFile(sourcePath: string, targetPath: string) {
@@ -87,6 +137,7 @@ async function renderRendererTemplates(targetRoot: string) {
 export async function renderLiteratureDeepReadingSkill(options?: {
   outRoot?: string;
 }) {
+  await validateSourceAssetsBeforeRender();
   execSync("npx tsx scripts/build-literature-deep-reading-graph-renderer.ts", {
     cwd: REPO_ROOT,
     env: { ...process.env, LDR_GRAPH_BUILD_QUIET: "1" },

@@ -14447,6 +14447,7 @@ function renderSelectedDetail(snapshot: Snapshot) {
         );
       }
       if (!state.standaloneGraphOnly) {
+        wrap.classList.add("has-citation-list");
         wrap.appendChild(renderSelectedNodeCitations(snapshot, node));
       }
     }
@@ -14517,7 +14518,7 @@ function graphCitationKindLabel(node: GraphNode | undefined) {
 function renderSelectedNodeCitations(snapshot: Snapshot, node: GraphNode) {
   const section = el("section", "graph-citation-section");
   const header = el("div", "graph-citation-header");
-  header.appendChild(el("h3", "", "Citations"));
+  header.appendChild(el("h3", "", t("synthesis-graph-citations-title")));
   const citations = collectSelectedNodeCitations(snapshot, node.id);
   header.appendChild(el("span", "badge", `${citations.length} outgoing`));
   section.appendChild(header);

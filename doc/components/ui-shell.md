@@ -16,7 +16,7 @@
 
 ## 右键菜单行为
 
-- 根菜单固定为 `Zotero-Skills`（带图标）
+- 根菜单固定为 `Zotero Agents`（带图标）
 - 每个 workflow 对应一个触发项
 - 在 `popupshowing` 时动态判定可执行性：
   - 解析 workflow execution context

@@ -8,7 +8,7 @@ MCP Server 与 Host Bridge 共享底层能力注册表，但遵循 MCP 协议规
 
 ## 配置
 
-Zotero → 设置 → Zotero Skills → Host Bridge → **启用 MCP Server**
+Zotero → 设置 → Zotero Agents → Host Bridge → **启用 MCP Server**
 
 单个复选框控制启停。默认开启。
 
@@ -62,7 +62,7 @@ Token 在偏好设置 → Host Bridge → **复制 Master Token** 获取。
 
 - 传输：Streamable HTTP（`POST /mcp`）
 - 版本：`2025-06-18`
-- 服务标识：`zotero-skills` / `"Zotero Skills Context Broker"` v0.4.0
+- 服务标识：`zotero-skills` / `"Zotero Agents Context Broker"` v0.4.0
 - `GET /mcp` → 405（仅接受 POST）
 - 无 `id` 的请求视为通知（无响应）
 - `id: null` → 显式无效

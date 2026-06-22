@@ -236,11 +236,11 @@ describe("dashboard toolbar button", function () {
 
     assert.include(
       en,
-      "task-dashboard-toolbar-open = Open Zotero Skills Workspace",
+      "task-dashboard-toolbar-open = Open Zotero Agents Workspace",
     );
     assert.include(
       zh,
-      "task-dashboard-toolbar-open = 打开 Zotero Skills 工作区",
+      "task-dashboard-toolbar-open = 打开 Zotero Agents 工作区",
     );
   });
 

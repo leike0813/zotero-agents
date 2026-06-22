@@ -5,7 +5,7 @@ description: Debug-only ACP sequence probe step that validates handoff and works
 
 # Debug Sequence Probe Check
 
-This skill is only for Zotero Skills debug workflows. Do not write Zotero items,
+This skill is only for Zotero Agents debug workflows. Do not write Zotero items,
 notes, preferences, or external files. Use the current working directory as the
 ACP run workspace.
 

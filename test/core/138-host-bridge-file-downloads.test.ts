@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
@@ -61,6 +62,23 @@ async function writeTempFile(name: string, content: string) {
   return { root, filePath };
 }
 
+async function writeTempBytes(name: string, content: Uint8Array) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-bridge-file-"));
+  const filePath = path.join(root, name);
+  await fs.writeFile(filePath, content);
+  return { root, filePath };
+}
+
+function binaryStringToBytes(text: string) {
+  return Uint8Array.from(
+    Array.from(text).map((char) => char.charCodeAt(0) & 0xff),
+  );
+}
+
+function sha256(bytes: Uint8Array) {
+  return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
+}
+
 describe("host bridge file downloads", function () {
   afterEach(async function () {
     resetHostBridgeServerForTests();
@@ -96,6 +114,10 @@ describe("host bridge file downloads", function () {
 
       assert.strictEqual(parsed.status, 200);
       assert.include(parsed.head, "Content-Type: text/plain");
+      assert.include(parsed.head, "Content-Length: 23");
+      assert.include(parsed.head, `X-Zotero-Bridge-Sha256: ${descriptor.sha256}`);
+      assert.strictEqual(descriptor.size, 23);
+      assert.match(descriptor.sha256 || "", /^sha256:[a-f0-9]{64}$/);
       assert.include(
         parsed.head,
         'Content-Disposition: attachment; filename="paper.txt"',
@@ -110,6 +132,40 @@ describe("host bridge file downloads", function () {
       });
       assert.strictEqual(artifact.sourceKind, "workflow-artifact");
       assert.strictEqual(artifact.owner?.workflowId, "workflow-1");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("serves binary file bytes with stable length and sha256 metadata", async function () {
+    const token = configureHostBridgeServerForTests({ token: "file-token" });
+    const bytes = new Uint8Array(0x9005);
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = index % 251;
+    }
+    bytes[3] = 0x00;
+    bytes[4] = 0x80;
+    bytes[5] = 0xff;
+    const { root, filePath } = await writeTempBytes("bundle.zip", bytes);
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+        displayName: "bundle.zip",
+        contentType: "application/zip",
+      });
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "GET",
+        path: `/bridge/v1/files/${descriptor.fileId}`,
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      assert.include(parsed.head, `Content-Length: ${bytes.byteLength}`);
+      assert.strictEqual(descriptor.size, bytes.byteLength);
+      assert.strictEqual(descriptor.sha256, sha256(bytes));
+      assert.include(parsed.head, `X-Zotero-Bridge-Sha256: ${sha256(bytes)}`);
+      assert.deepEqual(binaryStringToBytes(parsed.body), bytes);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

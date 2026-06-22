@@ -293,7 +293,7 @@ describe("pass-through provider", function () {
     runtime.addon.data = runtime.addon.data || {};
     runtime.addon.data.config = runtime.addon.data.config || {};
     if (!runtime.addon.data.config.addonName) {
-      runtime.addon.data.config.addonName = "Zotero Skills";
+      runtime.addon.data.config.addonName = "Zotero Agents";
     }
     runtime.addon.data.ztoolkit = runtime.addon.data.ztoolkit || {};
     const originalProgressWindow = runtime.addon.data.ztoolkit.ProgressWindow;

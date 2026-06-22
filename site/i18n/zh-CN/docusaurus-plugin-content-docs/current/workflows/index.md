@@ -2,7 +2,7 @@
 
 ## 什么是 Workflow？
 
-Workflow（工作流）是 Zotero Skills 的核心功能，它允许您将多个技能步骤组合成自动化的处理流水线。一个 Workflow 定义了一个完整的任务：从接收输入、处理数据、到输出结果。
+Workflow（工作流）是 Zotero Agents 的核心功能，它允许您将多个技能步骤组合成自动化的处理流水线。一个 Workflow 定义了一个完整的任务：从接收输入、处理数据、到输出结果。
 
 ## Workflow 的结构
 

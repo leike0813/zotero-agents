@@ -3997,8 +3997,16 @@ th {
   gap: 12px;
 }
 
+.selected-detail.has-citation-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
 .graph-citation-section {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  flex: 1 1 auto;
   min-height: 0;
   gap: 8px;
 }
@@ -4016,7 +4024,7 @@ th {
 
 .graph-citation-list {
   display: grid;
-  max-height: min(420px, 48vh);
+  min-height: 0;
   gap: 8px;
   overflow: auto;
   padding-right: 2px;

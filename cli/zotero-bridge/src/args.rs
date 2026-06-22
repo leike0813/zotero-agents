@@ -6,8 +6,8 @@ use clap::{Args, Parser, Subcommand};
 #[command(
     name = "zotero-bridge",
     version,
-    about = "Agent-first CLI for Zotero Skills Host Bridge",
-    long_about = "Call the Zotero Skills Host Bridge over local HTTP JSON.\n\nOutput contract: stdout contains exactly one final JSON object. Use --help on subcommands for input fields and examples."
+    about = "Agent-first CLI for Zotero Agents Host Bridge",
+    long_about = "Call the Zotero Agents Host Bridge over local HTTP JSON.\n\nOutput contract: stdout contains exactly one final JSON object. Use --help on subcommands for input fields and examples."
 )]
 pub struct Cli {
     #[arg(
@@ -25,7 +25,7 @@ pub struct Cli {
         env = "ZOTERO_BRIDGE_PROFILE",
         value_name = "PATH",
         help = "Path to a Host Bridge profile JSON file",
-        long_help = "Path to a Host Bridge profile JSON file. If omitted, the CLI tries the Zotero Skills well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions."
+        long_help = "Path to a Host Bridge profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions."
     )]
     pub profile: Option<PathBuf>,
 
@@ -43,7 +43,7 @@ pub enum Command {
 
     #[command(
         about = "Read authenticated Host Bridge manifest",
-        long_about = "Call GET /bridge/v1/manifest. Requires ZOTERO_BRIDGE_TOKEN, a profile token/tokenEnv, or the Zotero Skills well-known profile. The response lists bridge protocol metadata and capability names."
+        long_about = "Call GET /bridge/v1/manifest. Requires ZOTERO_BRIDGE_TOKEN, a profile token/tokenEnv, or the Zotero Agents well-known profile. The response lists bridge protocol metadata and capability names."
     )]
     Manifest,
 

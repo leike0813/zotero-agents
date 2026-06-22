@@ -5,7 +5,7 @@ description: Debug-only Host Bridge connectivity probe for validating CLI inject
 
 # Debug Host Bridge Connectivity Probe
 
-This skill is only for Zotero Skills debug workflows. Do not write Zotero
+This skill is only for Zotero Agents debug workflows. Do not write Zotero
 items, notes, preferences, or external files. Use the current working directory
 as the run workspace.
 

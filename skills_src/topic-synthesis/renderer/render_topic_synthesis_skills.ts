@@ -3,6 +3,12 @@ import path from "path";
 import { format as formatWithPrettier } from "prettier";
 import { fileURLToPath } from "url";
 import { parse as parseYaml } from "yaml";
+import {
+  compileSkillJsonSchema,
+  type AcpSkillSchemaKey,
+  validateRunnerManifestShape,
+  validateSkillSchemaAnnotations,
+} from "../../../src/modules/acpSkillSchemaAssets";
 
 type StageContract = {
   id: string;
@@ -285,7 +291,7 @@ function renderOutputContractBody(skill: SkillContract): string {
       "",
       "- 返回对象必须符合 `assets/output.schema.json`。",
       "- 正常 handoff 输出的 handoff manifest path 用来标识本 skill 的持久化输出。",
-      "- canceled 输出必须包含 `status: \"canceled\"`、稳定 `reason` 和用户可读 `message`；workflow sequence 会把该 step output 作为最终结果并停止后续 steps。",
+      '- canceled 输出必须包含 `status: "canceled"`、稳定 `reason` 和用户可读 `message`；workflow sequence 会把该 step output 作为最终结果并停止后续 steps。',
       "- 大段正文和业务状态以 SQLite 与 runtime 文件为真源。",
     ].join("\n");
   }
@@ -604,10 +610,9 @@ function parameterSchemaForSkill(
 function handoffOutputSchema(skill: SkillContract): Record<string, unknown> {
   return {
     $schema: "http://json-schema.org/draft-07/schema#",
-    title: `${skill.title} Result`,
+    type: "object",
     oneOf: [
       {
-        title: "Topic synthesis handoff",
         type: "object",
         additionalProperties: false,
         required: [
@@ -636,7 +641,6 @@ function handoffOutputSchema(skill: SkillContract): Record<string, unknown> {
 
 function canceledOutputSchema(): Record<string, unknown> {
   return {
-    title: "Canceled topic synthesis",
     type: "object",
     additionalProperties: false,
     required: ["kind", "status", "reason", "message"],
@@ -655,7 +659,6 @@ function canceledOutputSchema(): Record<string, unknown> {
 function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
   return {
     $schema: "http://json-schema.org/draft-07/schema#",
-    title: `${skill.title} Result`,
     type: "object",
     additionalProperties: true,
     not: {
@@ -663,7 +666,6 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
     },
     oneOf: [
       {
-        title: "Completed create topic synthesis",
         type: "object",
         additionalProperties: false,
         required: [
@@ -694,7 +696,6 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
         },
       },
       {
-        title: "Full update topic synthesis",
         type: "object",
         additionalProperties: false,
         required: [
@@ -745,10 +746,59 @@ function outputSchemaForSkill(skill: SkillContract): Record<string, unknown> {
     : finalOutputSchema(skill);
 }
 
+function assertNoRenderContractErrors(label: string, errors: string[]): void {
+  if (errors.length > 0) {
+    throw new Error(
+      `${label} violates Skill Runner render precondition:\n${errors.join("\n")}`,
+    );
+  }
+}
+
+function validateSchemaAssetBeforeRender(
+  skillId: string,
+  schemaKey: AcpSkillSchemaKey,
+  schema: Record<string, unknown>,
+): void {
+  assertNoRenderContractErrors(`${skillId} ${schemaKey} schema`, [
+    ...compileSkillJsonSchema({ schema, schemaKey }),
+    ...validateSkillSchemaAnnotations({ schema, schemaKey }),
+  ]);
+}
+
+function validateSkillPackageBeforeRender(args: {
+  skill: SkillContract;
+  runner: Record<string, unknown>;
+  schemas: Record<AcpSkillSchemaKey, Record<string, unknown>>;
+}): void {
+  assertNoRenderContractErrors(
+    `${args.skill.id} runner manifest`,
+    validateRunnerManifestShape({
+      runnerJson: args.runner,
+      skillDirName: args.skill.id,
+      skillFrontmatterName: args.skill.id,
+    }),
+  );
+  for (const schemaKey of Object.keys(args.schemas) as AcpSkillSchemaKey[]) {
+    validateSchemaAssetBeforeRender(
+      args.skill.id,
+      schemaKey,
+      args.schemas[schemaKey],
+    );
+  }
+}
+
 async function renderSkillPackage(
   skill: SkillContract,
   outRoot: string,
 ): Promise<void> {
+  const schemas: Record<AcpSkillSchemaKey, Record<string, unknown>> = {
+    input: inputSchemaForSkill(skill),
+    parameter: parameterSchemaForSkill(skill),
+    output: outputSchemaForSkill(skill),
+  };
+  const runner = runnerJson(skill);
+  validateSkillPackageBeforeRender({ skill, runner, schemas });
+
   const targetRoot = path.join(outRoot, skill.id);
   await fs.rm(targetRoot, { recursive: true, force: true });
   await fs.mkdir(path.join(targetRoot, "scripts"), { recursive: true });
@@ -784,15 +834,15 @@ async function renderSkillPackage(
 
   await writeJson(
     path.join(targetRoot, "assets", "output.schema.json"),
-    outputSchemaForSkill(skill),
+    schemas.output,
   );
   await writeJson(
     path.join(targetRoot, "assets", "input.schema.json"),
-    inputSchemaForSkill(skill),
+    schemas.input,
   );
   await writeJson(
     path.join(targetRoot, "assets", "parameter.schema.json"),
-    parameterSchemaForSkill(skill),
+    schemas.parameter,
   );
   await fs.copyFile(
     path.join(SUITE_ROOT, "contracts", "handoff.schema.json"),
@@ -804,10 +854,7 @@ async function renderSkillPackage(
       path.join(targetRoot, "assets", "schemas", schemaName),
     );
   }
-  await writeJson(
-    path.join(targetRoot, "assets", "runner.json"),
-    runnerJson(skill),
-  );
+  await writeJson(path.join(targetRoot, "assets", "runner.json"), runner);
 }
 
 export async function renderTopicSynthesisSkills(

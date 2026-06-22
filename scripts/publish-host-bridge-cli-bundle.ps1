@@ -101,7 +101,7 @@ Need-Command 'node'
 
 $DevRoot = git rev-parse --show-toplevel
 if (-not $DevRoot) {
-    Log-Error "Run this script from inside the Zotero-Skills git repo."
+    Log-Error "Run this script from inside the zotero-agents git repo."
 }
 $DevRoot = (Resolve-Path -LiteralPath $DevRoot).Path
 
@@ -269,7 +269,7 @@ try {
     $manifest = [ordered]@{
         schema          = 'zotero-bridge-cli-bundle.v1'
         source          = [ordered]@{
-            repository = 'Zotero-Skills'
+            repository = 'zotero-agents'
             commit     = $sourceCommit
             dirty      = [bool]$porcelain
         }
@@ -317,7 +317,7 @@ try {
     @"
 # Zotero Host Bridge CLI Bundle
 
-This branch is generated from the Zotero-Skills repository and contains only:
+This branch is generated from the zotero-agents repository and contains only:
 
 - prebuilt zotero-bridge CLI binaries under bin/
 - the zotero-bridge-cli wrapper skill under skills/zotero-bridge-cli/

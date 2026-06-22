@@ -133,6 +133,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 - Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.
 - Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
 - `workflow agent-run` is read-only: it does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task.
+- `workflow agent-run` gates bundle creation only on `inputs`; `validateSelection` is returned as `applyStatus` advisory and may disable future host-side apply without blocking self-owned execution.
 
 #### Debug capabilities
 
@@ -197,7 +198,7 @@ Profile：
 
 - 命令行参数：`--profile`
 - 环境变量：`ZOTERO_BRIDGE_PROFILE`
-- Zotero Skills well-known profile
+- Zotero Agents well-known profile
 
 Token：
 
@@ -815,6 +816,46 @@ Host Bridge 只打包 workflow 定义、相关 skill 包、selection context 与
 output validator/finalizer 资料和执行说明，并返回可下载的 zip 文件句柄。
 该 endpoint 不接受 `workflowOptions`、`providerProfile`、`agentEngine` 或旧
 `input` 字段，不启动 backend task，也不写回 Zotero。
+
+发包 gate 只读取 workflow manifest 的 `inputs` 字段。`validateSelection`
+不会阻止 self-owned agent 执行；其结果会作为 `applyStatus` 返回，并写入
+bundle 的 `selection/context.json`，用于提示未来 host-side apply 是否允许。
+
+响应结果包含：
+
+```json
+{
+  "workflowId": "workflow-id",
+  "applyStatus": {
+    "allowed": false,
+    "reasonCode": "selection-count-notes",
+    "stats": {
+      "totalUnits": 1,
+      "validUnits": 0,
+      "skippedUnits": 1
+    },
+    "message": "Self-owned execution is allowed, but host-side apply is disabled for this selection."
+  },
+  "bundle": {
+    "mode": "bridge-download",
+    "file": {
+      "fileId": "file-...",
+      "displayName": "workflow-id-agent-run.zip"
+    }
+  },
+  "contents": {
+    "workflow": "workflow/workflow.json",
+    "workflowResources": "workflow/resources/",
+    "selectionContext": "selection/context.json",
+    "protocolGuide": "workflow-protocol.md",
+    "instructions": "INSTRUCTIONS.md"
+  }
+}
+```
+
+bundle 中 `workflow/workflow.json` 是唯一 canonical workflow manifest。
+workflow 包内其它资源复制到 `workflow/resources/`；不会再额外复制
+`workflow/package/workflow.json`。
 
 ### `GET /bridge/v1/workflows/runs/{runId}`
 
@@ -1885,6 +1926,10 @@ CLI agent-run 只发送 `workflowId`、`selection` 和 `delivery`。它返回 ha
 bundle 的下载句柄；传入 `--output-dir` 时，CLI 会把 zip 下载到该目录并在
 stdout JSON 中加入 `download.outputPath`。
 
+agent-run 发包只要求 selection 满足 manifest `inputs`。`validateSelection`
+结果只体现在 `applyStatus`；当 `applyStatus.allowed=false` 时，agent 可以继续
+self-owned 执行，但不得假定可以写回 Zotero。
+
 `--items` 必须是 item ref 数组，每个 ref 必须且只能包含 `id` 或 `key`；
 `libraryId` 只用于 `key` 查找：
 
@@ -1897,7 +1942,8 @@ stdout JSON 中加入 `download.outputPath`。
 ]
 ```
 
-`--none` 只允许 no-selection workflow：
+`workflow submit --none` 只允许 no-selection workflow。`workflow agent-run --none`
+只在 workflow 的 `inputs.unit` 为 `workflow` 时可发包：
 
 ```json
 {

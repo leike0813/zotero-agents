@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="addon/content/icons/icon_full.png" alt="Zotero Skills" width="128" />
+  <img src="addon/content/icons/icon_full.png" alt="Zotero Agents" width="128" />
 </p>
 
-<h1 align="center">Zotero Skills</h1>
+<h1 align="center">Zotero Agents</h1>
 
 <p align="center">
   <strong>Un moteur de workflows modulaire pour Zotero 7 — transformez votre bibliothèque en centre de recherche IA.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/leike0813/Zotero-Skills/releases"><img src="https://img.shields.io/github/v/release/leike0813/Zotero-Skills?style=flat-square&color=blue" alt="Release" /></a>
-  <a href="https://github.com/leike0813/Zotero-Skills/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/Zotero-Skills?style=flat-square" alt="License" /></a>
+  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/github/v/release/leike0813/zotero-agents?style=flat-square&color=blue" alt="Release" /></a>
+  <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="License" /></a>
   <a href="https://www.zotero.org/"><img src="https://img.shields.io/badge/Zotero-7-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7" /></a>
 </p>
 
@@ -23,9 +23,9 @@
 
 ---
 
-## ✨ Qu'est-ce que Zotero Skills ?
+## ✨ Qu'est-ce que Zotero Agents ?
 
-Zotero Skills est un **plugin-cadre** (framework) pour Zotero 7, offrant un moteur d'exécution universel pour les workflows IA et d'automatisation :
+Zotero Agents est un **plugin-cadre** (framework) pour Zotero 7, offrant un moteur d'exécution universel pour les workflows IA et d'automatisation :
 
 - 📦 **Workflows modulaires** — La logique métier réside dans des packages de workflows externes, pas dans le cœur du plugin.
 - 🔌 **Support multi-backends** — Routez les tâches vers [Skill-Runner](https://github.com/leike0813/Skill-Runner), des APIs HTTP génériques ou une logique locale pass-through.
@@ -45,7 +45,7 @@ Zotero Skills est un **plugin-cadre** (framework) pour Zotero 7, offrant un mote
 | **Éditeur de notes**         | Rendu basé sur un hôte pour l'édition de données structurées (ex. notes de références)                    |
 | **Visualiseur de journaux**  | Journaux filtrables avec export NDJSON pour le diagnostic                                                 |
 
-## ✨ Pourquoi Zotero Skills ?
+## ✨ Pourquoi Zotero Agents ?
 
 ### Utilisez vos abonnements et Coding Plans, pas la facturation au token
 
@@ -142,7 +142,7 @@ Workflows de gestion de vocabulaire contrôlé :
 
 ### Étapes d'installation
 
-1. Téléchargez le dernier fichier `.xpi` depuis la page [Releases](https://github.com/leike0813/Zotero-Skills/releases).
+1. Téléchargez le dernier fichier `.xpi` depuis la page [Releases](https://github.com/leike0813/zotero-agents/releases).
 2. Dans Zotero → `Outils` → `Extensions` → ⚙️ → `Installer un module depuis un fichier…`
 3. Sélectionnez le fichier `.xpi` téléchargé et redémarrez Zotero.
 
@@ -152,7 +152,7 @@ Workflows de gestion de vocabulaire contrôlé :
 
 **Déploiement local en un clic** (Recommandé pour les tests rapides)
 
-1. Ouvrez `Édition` → `Préférences` → `Zotero Skills` → `SkillRunner Local Runtime`
+1. Ouvrez `Édition` → `Préférences` → `Zotero Agents` → `SkillRunner Local Runtime`
 2. Cliquez sur **Deploy** et attendez la fin du déploiement
 3. Le backend sera automatiquement configuré
 
@@ -170,7 +170,7 @@ docker compose up -d --build
 
 #### 2. Configurer un backend
 
-_Si vous n'utilisez pas le déploiement en un clic_ : `Édition` → `Préférences` → `Zotero Skills` → `Backend Manager`, ajoutez votre point d'accès Skill-Runner.
+_Si vous n'utilisez pas le déploiement en un clic_ : `Édition` → `Préférences` → `Zotero Agents` → `Backend Manager`, ajoutez votre point d'accès Skill-Runner.
 
 #### 3. Placer les workflows
 
@@ -178,7 +178,7 @@ Copiez les dossiers de workflows dans le répertoire configuré dans les préfé
 
 #### 4. Utiliser
 
-Clic droit sur les éléments sélectionnés → `Zotero-Skills` → Choisissez un workflow.
+Clic droit sur les éléments sélectionnés → `Zotero Agents` → Choisissez un workflow.
 
 ## 🏗️ Aperçu de l'architecture
 

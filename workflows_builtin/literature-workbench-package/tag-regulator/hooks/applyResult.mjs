@@ -853,7 +853,7 @@ async function putPublishedVocabulary(args) {
       "Content-Type": "application/json",
     }),
     body: JSON.stringify({
-      message: `Update ${config.filePath} via Zotero Skills Tag Regulator`,
+      message: `Update ${config.filePath} via Zotero Agents Tag Regulator`,
       content: encodeBase64Utf8(JSON.stringify(payload, null, 2)),
       sha,
     }),

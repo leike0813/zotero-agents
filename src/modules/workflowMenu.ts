@@ -310,7 +310,7 @@ export function ensureWorkflowMenuForWindow(win: _ZoteroTypes.MainWindow) {
   menu.id = ROOT_MENU_ID;
   menu.setAttribute(
     "label",
-    getMenuLabel("menu-workflows-root", "Zotero-Skills"),
+    getMenuLabel("menu-workflows-root", "Zotero Agents"),
   );
   menu.setAttribute("class", "menu-iconic");
   menu.setAttribute("image", MENU_ICON_URI);

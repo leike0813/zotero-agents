@@ -2,7 +2,6 @@
   "type": "object",
   "oneOf": [
     {
-      "title": "Finalized literature deep reading",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -41,11 +40,13 @@
           "type": "array",
           "items": { "type": "string" }
         },
-        "error": { "type": ["object", "null"] }
+        "error": {
+          "type": "object",
+          "additionalProperties": true
+        }
       }
     },
     {
-      "title": "Literature deep reading error",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -70,7 +71,10 @@
           "type": "array",
           "items": { "type": "string" }
         },
-        "error": { "type": ["object", "null"] }
+        "error": {
+          "type": "object",
+          "additionalProperties": true
+        }
       }
     }
   ]

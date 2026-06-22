@@ -115,7 +115,7 @@ describe("Synthesis WebDAV sync", function () {
     const saved = saveWebDavSyncPrefs({
       enabled: true,
       baseUrl: "https://dav.example.test/root",
-      remotePath: "zotero-skills/synthesis",
+      remotePath: "zotero-agents",
       username: "alice",
       autoSyncEnabled: false,
       autoRetryEnabled: false,
@@ -124,7 +124,7 @@ describe("Synthesis WebDAV sync", function () {
     assert.deepInclude(getWebDavSyncPrefsStatus(), {
       enabled: true,
       base_url: "https://dav.example.test/root",
-      remote_path: "zotero-skills/synthesis",
+      remote_path: "zotero-agents",
       username: "alice",
       auto_sync_enabled: false,
       auto_retry_enabled: false,
@@ -148,7 +148,7 @@ describe("Synthesis WebDAV sync", function () {
     saveWebDavSyncPrefs({
       enabled: true,
       baseUrl: "https://dav.example.test/root",
-      remotePath: "zotero-skills/synthesis",
+      remotePath: "zotero-agents",
       username: "alice",
     });
 
@@ -175,7 +175,7 @@ describe("Synthesis WebDAV sync", function () {
     saveWebDavSyncPrefs({
       enabled: true,
       baseUrl: "https://dav.example.test/root",
-      remotePath: "zotero-skills/synthesis",
+      remotePath: "zotero-agents",
     });
     const service = createSynthesisService({
       root,
@@ -198,7 +198,7 @@ describe("Synthesis WebDAV sync", function () {
     saveWebDavSyncPrefs({
       enabled: true,
       baseUrl: "https://dav.example.test/root",
-      remotePath: "zotero-skills/synthesis",
+      remotePath: "zotero-agents",
     });
     const service = createSynthesisService({
       root,
@@ -245,7 +245,7 @@ describe("Synthesis WebDAV sync", function () {
     saveWebDavSyncPrefs({
       enabled: true,
       baseUrl: "https://dav.example.test/root",
-      remotePath: "zotero-skills/synthesis",
+      remotePath: "zotero-agents",
     });
     const stateRoot = path.join(root, "runtime", "synthesis", "webdav-sync");
     await fs.mkdir(stateRoot, { recursive: true });
@@ -259,7 +259,7 @@ describe("Synthesis WebDAV sync", function () {
         adapter_configured: true,
         config_status: "configured",
         base_url: "https://dav.example.test/root",
-        remote_path: "zotero-skills/synthesis",
+        remote_path: "zotero-agents",
         diagnostics: [],
         allowed_actions: ["pauseWebDavSync"],
         updated_at: "2026-06-16T00:00:00.000Z",
@@ -288,7 +288,7 @@ describe("Synthesis WebDAV sync", function () {
     saveWebDavSyncPrefs({
       enabled: true,
       baseUrl: "https://dav.example.test/root",
-      remotePath: "zotero-skills/synthesis",
+      remotePath: "zotero-agents",
     });
     await createSynthesisService({
       root: sourceRoot,
@@ -318,7 +318,7 @@ describe("Synthesis WebDAV sync", function () {
     saveWebDavSyncPrefs({
       enabled: true,
       baseUrl: "https://dav.example.test/root",
-      remotePath: "zotero-skills/synthesis",
+      remotePath: "zotero-agents",
     });
     await createSynthesisService({
       root,
@@ -328,7 +328,7 @@ describe("Synthesis WebDAV sync", function () {
     seedConcept(root, "Local changed concept");
     client.mutateBeforeHeadPut = () => {
       client.files.set(
-        "https://dav.example.test/root/zotero-skills/synthesis/HEAD.json",
+        "https://dav.example.test/root/zotero-agents/HEAD.json",
         JSON.stringify({
           schema_id: "synthesis.webdav_sync_head",
           schema_version: "1.0.0",

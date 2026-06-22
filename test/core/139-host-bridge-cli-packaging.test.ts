@@ -801,8 +801,14 @@ describe("host bridge cli packaging and install", function () {
   });
 
   it("documents agent-friendly bundle installers without platform override", async function () {
-    const installPs1 = await fs.readFile("install.ps1", "utf8");
-    const installSh = await fs.readFile("install.sh", "utf8");
+    const installPs1 = await fs.readFile(
+      "cli/zotero-bridge/scripts/install.ps1",
+      "utf8",
+    );
+    const installSh = await fs.readFile(
+      "cli/zotero-bridge/scripts/install.sh",
+      "utf8",
+    );
     const wrapperSkill = await fs.readFile(
       "skills_builtin/zotero-bridge-cli/SKILL.md",
       "utf8",

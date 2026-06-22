@@ -49,14 +49,30 @@
           "id": "core",
           "skill_id": "topic-synthesis-core-enrichment",
           "mode": "auto",
-          "workspace": "reuse-workflow"
+          "workspace": "reuse-workflow",
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "value",
+                "target": "/input/handoff"
+              }
+            ]
+          }
         },
         {
           "id": "finalize",
           "skill_id": "topic-synthesis-finalize",
           "mode": "auto",
           "workspace": "reuse-workflow",
-          "fetch_type": "bundle"
+          "fetch_type": "bundle",
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "value",
+                "target": "/input/handoff"
+              }
+            ]
+          }
         }
       ]
     }

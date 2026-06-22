@@ -5655,7 +5655,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       "utf8",
     );
     const resourceIndex = proxySkillMd.indexOf(
-      "## Zotero Skills ACP Thin Proxy Resource Mapping",
+      "## Zotero Agents ACP Thin Proxy Resource Mapping",
     );
     const originalBodyIndex = proxySkillMd.indexOf("# Demo Skill");
     const runtimeIndex = proxySkillMd.indexOf("Runtime Enforcement");

@@ -124,7 +124,7 @@ async function main() {
 
   const baseUrl = process.argv[2] || "http://192.168.13.111:8030";
   const outputDir = expandHome(
-    process.argv[3] || "~/Workspace/Code/Zotero-Skills/e2e_downloads",
+    process.argv[3] || "~/Workspace/Code/zotero-agents/e2e_downloads",
   );
   await fs.mkdir(outputDir, { recursive: true });
 

@@ -197,6 +197,24 @@ button:disabled:hover {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.docs-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  white-space: nowrap;
+}
+
+.docs-link-icon {
+  --zs-icon-size: 17px;
+}
+
+.docs-link-label {
+  font-size: 12px;
 }
 
 .theme-switch {
@@ -327,6 +345,10 @@ button:disabled:hover {
   .segmented,
   .toolbar {
     justify-self: stretch;
+  }
+
+  .toolbar {
+    justify-content: flex-start;
   }
 }
 

@@ -134,7 +134,7 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
 字段：
 - `id`（必需）：包标识符
 - `version`（必需）：版本号
-- `workflows`（必需）：子 workflow ID 数组
+- `workflows`（必需）：包内 workflow manifest 相对路径数组，例如 `literature-analysis/workflow.json`
 
 ### workflow.json（Workflow 声明）
 

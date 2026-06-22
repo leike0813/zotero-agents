@@ -3,13 +3,13 @@ import Link from "@docusaurus/Link";
 
 const L10N: Record<string, { title: string; tagline: string; enterDocs: string; installGuide: string }> = {
   "zh-CN": {
-    title: "Zotero Skills",
+    title: "Zotero Agents",
     tagline: "一个用于执行 Agent 技能的 Zotero 插件",
     enterDocs: "进入文档",
     installGuide: "安装指南",
   },
   en: {
-    title: "Zotero Skills",
+    title: "Zotero Agents",
     tagline: "An Agent-powered skill execution plugin for Zotero",
     enterDocs: "Documentation",
     installGuide: "Installation",

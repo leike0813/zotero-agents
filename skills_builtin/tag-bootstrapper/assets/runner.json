@@ -1,7 +1,7 @@
 {
   "id": "tag-bootstrapper",
   "name": "🌱 Tag Bootstrapper",
-  "description": "Interactively generate initial or incremental controlled vocabulary additions for Zotero Skills tags.",
+  "description": "Interactively generate initial or incremental controlled vocabulary additions for Zotero Agents tags.",
   "version": "1.0.0",
   "execution_modes": ["interactive"],
   "entrypoint": {

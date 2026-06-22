@@ -21,7 +21,12 @@ import {
   localizeWorkflowLabel,
 } from "../../../src/workflows/localization";
 import { clearPackageHookBundleCacheForTests } from "../../../src/workflows/packageHookBundler";
-import { fixturePath, joinPath, mkTempDir, writeUtf8 } from "../../core/workflow-test-utils";
+import {
+  fixturePath,
+  joinPath,
+  mkTempDir,
+  writeUtf8,
+} from "../../core/workflow-test-utils";
 
 async function makeWorkflow(
   rootDir: string,
@@ -29,9 +34,10 @@ async function makeWorkflow(
   manifest: Record<string, unknown>,
   hooks: Record<string, string>,
 ) {
-  const normalizedManifest = JSON.parse(
-    JSON.stringify(manifest),
-  ) as Record<string, unknown> & {
+  const normalizedManifest = JSON.parse(JSON.stringify(manifest)) as Record<
+    string,
+    unknown
+  > & {
     request?: { kind?: unknown };
     provider?: unknown;
     execution?: Record<string, unknown>;
@@ -64,9 +70,14 @@ async function makeWorkflow(
     requestKind === "skillrunner.sequence.v1";
   if (isSkillRunnerWorkflow && !skipSkillRunnerRequestModeAutoFill) {
     if (requestKind === "skillrunner.job.v1") {
-      const request = (normalizedManifest.request || {}) as Record<string, unknown>;
+      const request = (normalizedManifest.request || {}) as Record<
+        string,
+        unknown
+      >;
       const create =
-        request.create && typeof request.create === "object" && !Array.isArray(request.create)
+        request.create &&
+        typeof request.create === "object" &&
+        !Array.isArray(request.create)
           ? { ...(request.create as Record<string, unknown>) }
           : {};
       create.skill_id = String(create.skill_id || "").trim() || id;
@@ -76,9 +87,14 @@ async function makeWorkflow(
         create,
       };
     } else if (requestKind === "skillrunner.sequence.v1") {
-      const request = (normalizedManifest.request || {}) as Record<string, unknown>;
+      const request = (normalizedManifest.request || {}) as Record<
+        string,
+        unknown
+      >;
       const sequence =
-        request.sequence && typeof request.sequence === "object" && !Array.isArray(request.sequence)
+        request.sequence &&
+        typeof request.sequence === "object" &&
+        !Array.isArray(request.sequence)
           ? { ...(request.sequence as Record<string, unknown>) }
           : null;
       const steps = Array.isArray(sequence?.steps)
@@ -132,7 +148,9 @@ async function withSimulatedZoteroRuntime<T>(
     getImportESModuleCalls: () => number;
   }) => Promise<T>,
   options?: {
-    importESModule?: (spec: string) => Promise<Record<string, unknown>> | Record<string, unknown>;
+    importESModule?: (
+      spec: string,
+    ) => Promise<Record<string, unknown>> | Record<string, unknown>;
   },
 ) {
   const runtime = globalThis as Record<string, unknown>;
@@ -173,8 +191,7 @@ async function withSimulatedZoteroRuntime<T>(
       const entry = await stat(targetPath);
       return { type: entry.isDirectory() ? "directory" : "file" };
     },
-    makeDirectory: (dirPath: string) =>
-      mkdir(dirPath, { recursive: true }),
+    makeDirectory: (dirPath: string) => mkdir(dirPath, { recursive: true }),
     remove: (targetPath: string) =>
       rm(targetPath, { force: true, recursive: true }),
   });
@@ -221,7 +238,9 @@ async function withSimulatedZoteroRuntime<T>(
               throw new Error("setSubstitution expects nsIURI-like object");
             }
             const spec =
-              typeof baseURI === "object" && baseURI && "spec" in (baseURI as Record<string, unknown>)
+              typeof baseURI === "object" &&
+              baseURI &&
+              "spec" in (baseURI as Record<string, unknown>)
                 ? String((baseURI as { spec?: unknown }).spec || "")
                 : String(baseURI || "");
             resourceSubstitutions.set(root, spec);
@@ -333,10 +352,7 @@ describe("workflow loader validation", function () {
       packageManifest: {
         id: "bundle-alpha",
         version: "1.0.0",
-        workflows: [
-          "workflow-a/workflow.json",
-          "workflow-b/workflow.json",
-        ],
+        workflows: ["workflow-a/workflow.json", "workflow-b/workflow.json"],
       },
       files: {
         "shared/helper.mjs":
@@ -378,11 +394,18 @@ describe("workflow loader validation", function () {
       ["workflow-a", "workflow-b"],
       `warnings=${JSON.stringify(loaded.warnings)} errors=${JSON.stringify(loaded.errors)}`,
     );
-    const workflowA = loaded.workflows.find((entry) => entry.manifest.id === "workflow-a");
-    const workflowB = loaded.workflows.find((entry) => entry.manifest.id === "workflow-b");
+    const workflowA = loaded.workflows.find(
+      (entry) => entry.manifest.id === "workflow-a",
+    );
+    const workflowB = loaded.workflows.find(
+      (entry) => entry.manifest.id === "workflow-b",
+    );
     assert.equal(workflowA?.packageId, "bundle-alpha");
     assert.equal(workflowB?.packageId, "bundle-alpha");
-    assert.include(String(workflowA?.rootDir || ""), joinPath("bundle-alpha", "workflow-a"));
+    assert.include(
+      String(workflowA?.rootDir || ""),
+      joinPath("bundle-alpha", "workflow-a"),
+    );
     assert.include(
       String(workflowA?.packageRootDir || ""),
       joinPath(tmpRoot, "bundle-alpha"),
@@ -397,6 +420,67 @@ describe("workflow loader validation", function () {
       ok: true,
       label: "a-shared",
     });
+  });
+
+  it("keeps valid package workflows loaded when a debug-only workflow in the same package is invalid", async function () {
+    const tmpRoot = await mkTempDir("zotero-skills-wf");
+    setDebugModeOverrideForTests(false);
+    await makeWorkflowPackage({
+      rootDir: tmpRoot,
+      packageDir: "bundle-debug-mixed",
+      packageManifest: {
+        id: "bundle-debug-mixed",
+        version: "1.0.0",
+        workflows: [
+          "normal-workflow/workflow.json",
+          "debug-broken-workflow/workflow.json",
+        ],
+      },
+      files: {
+        "normal-workflow/workflow.json": JSON.stringify(
+          {
+            id: "normal-workflow",
+            label: "Normal Workflow",
+            provider: "pass-through",
+            hooks: {
+              applyResult: "hooks/applyResult.mjs",
+            },
+          },
+          null,
+          2,
+        ),
+        "normal-workflow/hooks/applyResult.mjs":
+          "export async function applyResult(){ return { ok: true }; }",
+        "debug-broken-workflow/workflow.json": JSON.stringify(
+          {
+            id: "debug-broken-workflow",
+            label: "Debug Broken Workflow",
+            provider: "pass-through",
+            debug_only: true,
+            hooks: {
+              applyResult: "hooks/missingApplyResult.mjs",
+            },
+          },
+          null,
+          2,
+        ),
+      },
+    });
+
+    const loaded = await loadWorkflowManifests(tmpRoot);
+    assert.sameMembers(
+      loaded.workflows.map((entry) => entry.manifest.id),
+      ["normal-workflow"],
+      `warnings=${JSON.stringify(loaded.warnings)} errors=${JSON.stringify(loaded.errors)}`,
+    );
+    assert.isTrue(
+      (loaded.diagnostics || []).some(
+        (entry) =>
+          entry.category === "hook_missing_error" &&
+          entry.workflowId === "debug-broken-workflow",
+      ),
+      `diagnostics=${JSON.stringify(loaded.diagnostics || [])}`,
+    );
   });
 
   it("loads workflow-package hooks through the Zotero runtime module path without using legacy text fallback", async function () {
@@ -455,8 +539,7 @@ describe("workflow loader validation", function () {
       assert.equal(workflow.hookExecutionMode, "precompiled-host-hook");
       assert.equal(counters.getImportESModuleCalls(), 0);
       assert.isAtLeast(counters.getLoadSubScriptCalls(), 1);
-      const stages = listRuntimeLogs()
-        .map((entry) => entry.stage);
+      const stages = listRuntimeLogs().map((entry) => entry.stage);
       assert.include(stages, "workflow-package-precompile-start");
       assert.include(stages, "workflow-package-precompile-succeeded");
     });
@@ -591,7 +674,10 @@ describe("workflow loader validation", function () {
         ok: true,
         label: "a-user-runtime",
       });
-      assert.equal(loaded.workflows[0].hookExecutionMode, "precompiled-host-hook");
+      assert.equal(
+        loaded.workflows[0].hookExecutionMode,
+        "precompiled-host-hook",
+      );
       assert.equal(counters.getImportESModuleCalls(), 0);
       assert.isAtLeast(counters.getLoadSubScriptCalls(), 1);
     });
@@ -911,7 +997,9 @@ describe("workflow loader validation", function () {
         }) =>
           entry.category === "hook_export_error" &&
           entry.workflowId === "normalize-settings-export-missing" &&
-          String(entry.reason || "").includes("normalizeSettings export missing"),
+          String(entry.reason || "").includes(
+            "normalizeSettings export missing",
+          ),
       },
     ];
 
@@ -935,7 +1023,9 @@ describe("workflow loader validation", function () {
       const loaded = await loadWorkflowManifests(tmpRoot);
       assert.lengthOf(loaded.workflows, 0, entry.id);
       assert.isTrue(
-        loaded.warnings.some((warning) => warning.includes(entry.warningIncludes)),
+        loaded.warnings.some((warning) =>
+          warning.includes(entry.warningIncludes),
+        ),
         `${entry.id}: warnings=${JSON.stringify(loaded.warnings)}`,
       );
       assert.isTrue(
@@ -1001,7 +1091,7 @@ describe("workflow loader validation", function () {
     );
     assert.include(
       String(diagnostic?.reason || ""),
-      "missing required property \"applyResult\"",
+      'missing required property "applyResult"',
       `diagnostics=${JSON.stringify(loaded.diagnostics || [])}`,
     );
   });
@@ -1043,7 +1133,10 @@ describe("workflow loader validation", function () {
           hooks: { applyResult: "hooks/applyResult.js" },
         },
         expectValid: false,
-        expectedReasonIncludes: ["/parameters/language/allowCustom", "must be boolean"],
+        expectedReasonIncludes: [
+          "/parameters/language/allowCustom",
+          "must be boolean",
+        ],
       },
     ];
 
@@ -1070,7 +1163,10 @@ describe("workflow loader validation", function () {
           candidate.category === "manifest_validation_error" &&
           candidate.entry === entry.id,
       );
-      assert.isOk(diagnostic, `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`);
+      assert.isOk(
+        diagnostic,
+        `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`,
+      );
       for (const expected of entry.expectedReasonIncludes || []) {
         assert.include(String(diagnostic?.reason || ""), expected, entry.id);
       }
@@ -1160,7 +1256,10 @@ describe("workflow loader validation", function () {
 
     const loaded = await loadWorkflowManifests(tmpRoot);
     assert.lengthOf(loaded.workflows, 1, JSON.stringify(loaded.diagnostics));
-    assert.equal(localizeWorkflowLabel(loaded.workflows[0], "zh-CN"), "Workflow A");
+    assert.equal(
+      localizeWorkflowLabel(loaded.workflows[0], "zh-CN"),
+      "Workflow A",
+    );
     assert.isAtLeast(
       (loaded.diagnostics || []).filter(
         (entry) => entry.category === "manifest_validation_error",
@@ -1206,7 +1305,10 @@ describe("workflow loader validation", function () {
           hooks: { applyResult: "hooks/applyResult.js" },
         },
         expectValid: false,
-        expectedReasonIncludes: ["/i18n/messages/zh-CN/label", "must be string"],
+        expectedReasonIncludes: [
+          "/i18n/messages/zh-CN/label",
+          "must be string",
+        ],
       },
     ];
 
@@ -1231,7 +1333,10 @@ describe("workflow loader validation", function () {
           candidate.category === "manifest_validation_error" &&
           candidate.entry === entry.id,
       );
-      assert.isOk(diagnostic, `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`);
+      assert.isOk(
+        diagnostic,
+        `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`,
+      );
       for (const expected of entry.expectedReasonIncludes || []) {
         assert.include(String(diagnostic?.reason || ""), expected, entry.id);
       }
@@ -1294,7 +1399,10 @@ describe("workflow loader validation", function () {
       if (entry.expectValid) {
         assert.lengthOf(loaded.workflows, 1, entry.id);
         assert.isTrue(isCoreWorkflow(loaded.workflows[0]));
-        assert.equal(localizeWorkflowLabel(loaded.workflows[0]), "📊 Display Valid");
+        assert.equal(
+          localizeWorkflowLabel(loaded.workflows[0]),
+          "📊 Display Valid",
+        );
         continue;
       }
       assert.lengthOf(loaded.workflows, 0, entry.id);
@@ -1303,7 +1411,10 @@ describe("workflow loader validation", function () {
           candidate.category === "manifest_validation_error" &&
           candidate.entry === entry.id,
       );
-      assert.isOk(diagnostic, `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`);
+      assert.isOk(
+        diagnostic,
+        `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`,
+      );
       for (const expected of entry.expectedReasonIncludes || []) {
         assert.include(String(diagnostic?.reason || ""), expected, entry.id);
       }
@@ -1333,7 +1444,10 @@ describe("workflow loader validation", function () {
           hooks: { applyResult: "hooks/applyResult.js" },
         },
         expectValid: false,
-        expectedReasonIncludes: ["/execution/feedback/showNotifications", "must be boolean"],
+        expectedReasonIncludes: [
+          "/execution/feedback/showNotifications",
+          "must be boolean",
+        ],
       },
     ];
 
@@ -1354,7 +1468,10 @@ describe("workflow loader validation", function () {
           candidate.category === "manifest_validation_error" &&
           candidate.entry === entry.id,
       );
-      assert.isOk(diagnostic, `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`);
+      assert.isOk(
+        diagnostic,
+        `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`,
+      );
       for (const expected of entry.expectedReasonIncludes || []) {
         assert.include(String(diagnostic?.reason || ""), expected, entry.id);
       }
@@ -1373,8 +1490,13 @@ describe("workflow loader validation", function () {
           hooks: { applyResult: "hooks/applyResult.js" },
         },
         expectValid: true,
-        verifyLoaded: (loaded: Awaited<ReturnType<typeof loadWorkflowManifests>>) => {
-          assert.strictEqual(loaded.workflows[0].manifest.trigger?.requiresSelection, false);
+        verifyLoaded: (
+          loaded: Awaited<ReturnType<typeof loadWorkflowManifests>>,
+        ) => {
+          assert.strictEqual(
+            loaded.workflows[0].manifest.trigger?.requiresSelection,
+            false,
+          );
         },
       },
       {
@@ -1387,7 +1509,10 @@ describe("workflow loader validation", function () {
           hooks: { applyResult: "hooks/applyResult.js" },
         },
         expectValid: false,
-        expectedReasonIncludes: ["/trigger/requiresSelection", "must be boolean"],
+        expectedReasonIncludes: [
+          "/trigger/requiresSelection",
+          "must be boolean",
+        ],
       },
     ];
 
@@ -1409,7 +1534,10 @@ describe("workflow loader validation", function () {
           candidate.category === "manifest_validation_error" &&
           candidate.entry === entry.id,
       );
-      assert.isOk(diagnostic, `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`);
+      assert.isOk(
+        diagnostic,
+        `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`,
+      );
       for (const expected of entry.expectedReasonIncludes || []) {
         assert.include(String(diagnostic?.reason || ""), expected, entry.id);
       }
@@ -1481,8 +1609,13 @@ describe("workflow loader validation", function () {
           hooks: { applyResult: "hooks/applyResult.js" },
         },
         expectValid: true,
-        verifyLoaded: (loaded: Awaited<ReturnType<typeof loadWorkflowManifests>>) => {
-          assert.equal(loaded.workflows[0].manifest.request?.create?.mode, "interactive");
+        verifyLoaded: (
+          loaded: Awaited<ReturnType<typeof loadWorkflowManifests>>,
+        ) => {
+          assert.equal(
+            loaded.workflows[0].manifest.request?.create?.mode,
+            "interactive",
+          );
         },
       },
       {
@@ -1561,11 +1694,18 @@ describe("workflow loader validation", function () {
           candidate.category === "manifest_validation_error" &&
           candidate.entry === entry.id,
       );
-      assert.isOk(diagnostic, `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`);
+      assert.isOk(
+        diagnostic,
+        `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`,
+      );
       for (const expected of entry.expectedReasonIncludes || []) {
         assert.include(String(diagnostic?.reason || ""), expected, entry.id);
       }
-      assert.match(String(diagnostic?.reason || ""), entry.expectedReasonPattern!, entry.id);
+      assert.match(
+        String(diagnostic?.reason || ""),
+        entry.expectedReasonPattern!,
+        entry.id,
+      );
     }
   });
 
@@ -1678,15 +1818,10 @@ describe("workflow loader validation", function () {
     ];
 
     for (const entry of cases) {
-      await makeWorkflow(
-        tmpRoot,
-        entry.id,
-        entry.manifest,
-        {
-          "applyResult.js":
-            "export async function applyResult(){ return { ok: true }; }",
-        },
-      );
+      await makeWorkflow(tmpRoot, entry.id, entry.manifest, {
+        "applyResult.js":
+          "export async function applyResult(){ return { ok: true }; }",
+      });
     }
 
     const loaded = await loadWorkflowManifests(tmpRoot);
@@ -1695,7 +1830,8 @@ describe("workflow loader validation", function () {
     for (const entry of cases) {
       const diagnostic = (loaded.diagnostics || []).find(
         (item) =>
-          item.category === "manifest_validation_error" && item.entry === entry.id,
+          item.category === "manifest_validation_error" &&
+          item.entry === entry.id,
       );
       assert.isOk(
         diagnostic,

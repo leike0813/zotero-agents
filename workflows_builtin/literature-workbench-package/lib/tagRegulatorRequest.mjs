@@ -159,10 +159,10 @@ function renderYamlTagList(tags) {
 async function resolveTempDirectoryPath(runtime) {
   const tempPath = requireHostApi(runtime).file?.getTempDirectoryPath?.();
   if (typeof tempPath === "string" && tempPath.trim()) {
-    return joinPath(tempPath, "zotero-skills", "tag-regulator");
+    return joinPath(tempPath, "zotero-agents", "tag-regulator");
   }
   const os = await dynamicImport("os");
-  return joinPath(os.tmpdir(), "zotero-skills", "tag-regulator");
+  return joinPath(os.tmpdir(), "zotero-agents", "tag-regulator");
 }
 
 export async function materializeValidTagsYaml(tags, parentId, runtime) {

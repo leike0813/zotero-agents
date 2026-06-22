@@ -94,6 +94,15 @@ type HostBridgeServerState = {
   updatedAt: string;
 };
 
+type HostBridgeStartConfig = {
+  lanEnabled: boolean;
+  pinPortEnabled: boolean;
+  pinnedPort: number;
+  bindMode: HostBridgeBindMode;
+  host: string;
+  initialPortMode: HostBridgePortMode;
+};
+
 type HttpRequest = {
   method: string;
   path: string;
@@ -115,7 +124,8 @@ type HttpResponseArgs = {
 type RawHttpResponse =
   | string
   | {
-      text: string;
+      headers: string;
+      body: Uint8Array;
       binary: true;
     };
 
@@ -176,7 +186,7 @@ function createEmptyState(
   status: HostBridgeServiceStatus,
 ): HostBridgeServerState {
   const lanEnabled = getLanEnabled();
-  const pinPortEnabled = getPinPortEnabled();
+  const pinPortEnabled = getEffectivePinPortEnabled(lanEnabled);
   const pinnedPort = getPinnedPort();
   const bindMode = bindModeFromLanEnabled(lanEnabled);
   return {
@@ -199,6 +209,24 @@ function createEmptyState(
     lastError: "",
     requestCount: 0,
     updatedAt: nowIso(),
+  };
+}
+
+function resolveHostBridgeStartConfig(): HostBridgeStartConfig {
+  const lanEnabled = getLanEnabled();
+  if (lanEnabled && !getPinPortEnabled()) {
+    setPref("hostBridgePinPortEnabled", true);
+  }
+  const pinPortEnabled = getEffectivePinPortEnabled(lanEnabled);
+  const pinnedPort = getPinnedPort();
+  const bindMode = bindModeFromLanEnabled(lanEnabled);
+  return {
+    lanEnabled,
+    pinPortEnabled,
+    pinnedPort,
+    bindMode,
+    host: hostFromBindMode(bindMode),
+    initialPortMode: pinPortEnabled ? "pinned" : "random",
   };
 }
 
@@ -899,7 +927,8 @@ function buildCapabilityApprovalPrompt(
 
 function writeOutputStream(outputStream: any, response: RawHttpResponse) {
   if (typeof response !== "string") {
-    outputStream.write(response.text, response.text.length);
+    outputStream.write(response.headers, response.headers.length);
+    writeBinaryOutputStream(outputStream, response.body);
     outputStream.close?.();
     return;
   }
@@ -918,6 +947,29 @@ function writeOutputStream(outputStream: any, response: RawHttpResponse) {
   }
   outputStream.write(response, response.length);
   outputStream.close?.();
+}
+
+function writeBinaryOutputStream(outputStream: any, bytes: Uint8Array) {
+  const components = getComponents();
+  const classes = components?.classes || (globalThis as any).Cc;
+  const interfaces = components?.interfaces || (globalThis as any).Ci;
+  const binaryFactory = classes?.["@mozilla.org/binaryoutputstream;1"];
+  const nsIBinaryOutputStream = interfaces?.nsIBinaryOutputStream;
+  const chunkSize = 0x8000;
+  if (binaryFactory && nsIBinaryOutputStream) {
+    const binary = binaryFactory.createInstance(nsIBinaryOutputStream);
+    binary.setOutputStream(outputStream);
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      const chunk = bytes.slice(offset, offset + chunkSize);
+      binary.writeByteArray(Array.from(chunk), chunk.length);
+    }
+    return;
+  }
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.slice(offset, offset + chunkSize);
+    const text = bytesToBinaryString(chunk);
+    outputStream.write(text, text.length);
+  }
 }
 
 function buildHttpResponse(args: HttpResponseArgs) {
@@ -985,18 +1037,21 @@ function buildFileHttpResponse(args: {
   filename: string;
   contentType: string;
   bytes: Uint8Array;
+  sha256?: string;
 }) {
-  const bodyText = bytesToBinaryString(args.bytes);
+  const headers = [
+    "HTTP/1.1 200 OK",
+    `Content-Type: ${args.contentType || "application/octet-stream"}`,
+    `Content-Length: ${args.bytes.byteLength}`,
+    ...(args.sha256 ? [`X-Zotero-Bridge-Sha256: ${args.sha256}`] : []),
+    `Content-Disposition: ${contentDispositionHeader(args.filename)}`,
+    "Connection: close",
+    "",
+    "",
+  ].join("\r\n");
   return {
-    text: [
-      "HTTP/1.1 200 OK",
-      `Content-Type: ${args.contentType || "application/octet-stream"}`,
-      `Content-Length: ${args.bytes.byteLength}`,
-      `Content-Disposition: ${contentDispositionHeader(args.filename)}`,
-      "Connection: close",
-      "",
-      bodyText,
-    ].join("\r\n"),
+    headers,
+    body: args.bytes,
     binary: true as const,
   };
 }
@@ -1475,6 +1530,7 @@ async function downloadFile(request: HttpRequest): Promise<RawHttpResponse> {
       filename: download.descriptor.displayName,
       contentType: download.descriptor.contentType,
       bytes: download.bytes,
+      sha256: download.descriptor.sha256,
     });
   } catch (error) {
     if (error instanceof HostBridgeFileRegistryError) {
@@ -1657,61 +1713,81 @@ function listen(serverSocket: any) {
   serverSocket.asyncListen(listener);
 }
 
-async function startServer() {
-  const lanEnabled = getLanEnabled();
-  if (lanEnabled && !getPinPortEnabled()) {
-    setPref("hostBridgePinPortEnabled", true);
+async function publishWellKnownProfileAfterListen(args: {
+  config: HostBridgeStartConfig;
+  port: number;
+  portMode: HostBridgePortMode;
+  token: string;
+}) {
+  if (
+    args.config.lanEnabled &&
+    (args.portMode !== "pinned" || args.port !== args.config.pinnedPort)
+  ) {
+    throw new Error(
+      "Refusing to publish Host Bridge LAN profile for a non-pinned endpoint",
+    );
   }
-  const pinPortEnabled = getEffectivePinPortEnabled(lanEnabled);
-  const pinnedPort = getPinnedPort();
-  const bindMode = bindModeFromLanEnabled(lanEnabled);
-  const host = hostFromBindMode(bindMode);
+  const result = await writeHostBridgeWellKnownProfile({
+    endpoint: buildLocalProfileEndpoint(args.config.bindMode, args.port),
+    token: args.token,
+    updatedAt: state.updatedAt,
+  });
+  if (!result.ok) {
+    updateState({
+      lastError: `Host Bridge well-known profile was not written: ${result.reason}`,
+    });
+  }
+}
+
+async function startServer() {
+  const config = resolveHostBridgeStartConfig();
   updateState({
     status: "starting",
-    host,
-    bindMode,
-    lanEnabled,
-    pinPortEnabled,
-    pinnedPort,
-    portMode: pinPortEnabled ? "pinned" : "random",
+    host: config.host,
+    bindMode: config.bindMode,
+    lanEnabled: config.lanEnabled,
+    pinPortEnabled: config.pinPortEnabled,
+    pinnedPort: config.pinnedPort,
+    portMode: config.initialPortMode,
     lastError: "",
   });
 
   let lastError: unknown;
-  let portMode: HostBridgePortMode = pinPortEnabled ? "pinned" : "random";
+  let portMode: HostBridgePortMode = config.initialPortMode;
   let recoveryReason = state.lastRecoveryReason;
   const tryBind = async (port: number, mode: HostBridgePortMode) => {
-    const serverSocket = createConfiguredServerSocket(port, bindMode);
+    const serverSocket = createConfiguredServerSocket(port, config.bindMode);
     const token = getHostBridgeToken();
+    listen(serverSocket);
     updateState({
       status: "running",
-      host,
+      host: config.host,
       port,
-      endpoint: buildEndpoint(host, port),
+      endpoint: buildEndpoint(config.host, port),
       token,
       serverSocket,
-      bindMode,
-      lanEnabled,
-      pinPortEnabled: getEffectivePinPortEnabled(lanEnabled),
-      pinnedPort: getPinnedPort(),
+      bindMode: config.bindMode,
+      lanEnabled: config.lanEnabled,
+      pinPortEnabled: config.pinPortEnabled,
+      pinnedPort: config.pinnedPort,
       portMode: mode,
       lastRecoveryReason: recoveryReason,
       lastError: "",
     });
-    await writeHostBridgeWellKnownProfile({
-      endpoint: buildLocalProfileEndpoint(bindMode, port),
+    await publishWellKnownProfileAfterListen({
+      config,
+      port,
+      portMode: mode,
       token,
-      updatedAt: state.updatedAt,
     });
-    listen(serverSocket);
     return getHostBridgeServerStatus();
   };
 
-  if (pinPortEnabled) {
+  if (config.pinPortEnabled) {
     try {
-      return await tryBind(pinnedPort, "pinned");
+      return await tryBind(config.pinnedPort, "pinned");
     } catch (error) {
-      if (lanEnabled) {
+      if (config.lanEnabled) {
         const message =
           error instanceof Error
             ? error.message
@@ -2012,7 +2088,9 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     const raw = await handleHttpRequest(
       parseHttpRequestBytes(args.rawRequestBytes),
     );
-    return typeof raw === "string" ? raw : raw.text;
+    return typeof raw === "string"
+      ? raw
+      : `${raw.headers}${bytesToBinaryString(raw.body)}`;
   }
   const parsedPath = parseTestPath(args.path || "/");
   const body = args.body || "";
@@ -2026,5 +2104,7 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     parseError: parsedPath.parseError,
   };
   const raw = await handleHttpRequest(request);
-  return typeof raw === "string" ? raw : raw.text;
+  return typeof raw === "string"
+    ? raw
+    : `${raw.headers}${bytesToBinaryString(raw.body)}`;
 }

@@ -490,7 +490,7 @@ export function resolveToolkitMember<T>(member: string) {
   return value as T;
 }
 
-export function resolveAddonName(fallback = "Zotero Skills") {
+export function resolveAddonName(fallback = "Zotero Agents") {
   const name = String(resolveRuntimeAddon()?.data?.config?.addonName || "").trim();
   return name || fallback;
 }
