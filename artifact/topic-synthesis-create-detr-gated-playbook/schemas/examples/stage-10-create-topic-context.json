@@ -5,7 +5,6 @@
     "DETR-family detectors"
   ],
   "definition": "以 DETR 为起点的 query-based、set-prediction 目标检测方法族，重点关注端到端检测、训练收敛、query/anchor 设计、多尺度特征和实时化变体。",
-  "diagnostics": [],
   "duplicate_candidate_ids": [],
   "duplicate_reason": "Host Bridge list-topics 返回空 topic 列表；本次 create run 未发现已有 DETR topic。",
   "duplicate_status": "none",

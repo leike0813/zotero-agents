@@ -1,5 +1,8 @@
 import { assert } from "chai";
-import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
+import {
+  listNotePayloadBlocks,
+  renderPayloadBlock,
+} from "../../src/modules/notePayloadCodec";
 import {
   buildReferenceSidecarIndexRow,
   buildSynthesisLayerDbPath,
@@ -13,19 +16,28 @@ function note(args: {
   payloadFormat?: "json" | "text";
   visible?: string;
 }) {
+  const html = [
+    `<div><h1>${args.visible || args.key}</h1>`,
+    renderPayloadBlock({
+      payloadType: args.payloadType,
+      payload: args.payload,
+      payloadFormat: args.payloadFormat,
+    }),
+    "</div>",
+  ].join("\n");
   return {
     key: args.key,
     title: args.key,
     updatedAt: "2026-05-10T12:00:00.000Z",
-    html: [
-      `<div><h1>${args.visible || args.key}</h1>`,
-      renderPayloadBlock({
-        payloadType: args.payloadType,
-        payload: args.payload,
-        payloadFormat: args.payloadFormat,
-      }),
-      "</div>",
-    ].join("\n"),
+    html,
+    payloadBlocks: listNotePayloadBlocks(html).map((block) => ({
+      ...block,
+      source: "embedded-image-attachment" as const,
+      sourceStorage: "embedded-image-attachment-v2" as const,
+      payloadStorageVersion: 2,
+      anchorStatus: "present" as const,
+      attachmentKey: `${args.key}-ATTACHMENT`,
+    })),
   };
 }
 
@@ -102,18 +114,18 @@ describe("Synthesis Reference Sidecar Index", function () {
     assert.equal(first.artifacts.digest.hash, second.artifacts.digest.hash);
   });
 
-  it("treats legacy visible Digest notes as available digest artifacts", function () {
+  it("treats current digest payload notes as available digest artifacts", function () {
     const input = {
       libraryId: 1,
       itemKey: "ABCD1234",
       title: "Paper",
       notes: [
-        {
+        note({
           key: "DLEGACY",
-          title: "Digest",
-          updatedAt: "2026-05-10T12:00:00.000Z",
-          html: "<h1>Digest</h1><p>Visible digest body</p>",
-        },
+          payloadType: "digest-markdown",
+          payload: "# Digest\n\nVisible digest body",
+          payloadFormat: "text",
+        }),
       ],
     };
 
@@ -178,7 +190,7 @@ describe("Synthesis Reference Sidecar Index", function () {
   it("plans a dedicated local SQLite database path", function () {
     assert.match(
       buildSynthesisLayerDbPath("C:/runtime").replace(/\\/g, "/"),
-      /C:\/runtime\/state\/zotero-agents\.db$/,
+      /C:\/runtime\/state\/synthesis\.db$/,
     );
   });
 });

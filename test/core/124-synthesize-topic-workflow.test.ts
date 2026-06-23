@@ -421,20 +421,27 @@ describe("Synthesize topic workflow contract", function () {
     assert.notInclude(files, "synthesis-layer/synthesize-topic/workflow.json");
   });
 
-  it("registers a builtin create-topic-synthesis skill with an output schema", async function () {
+  it("registers split topic synthesis skills with output schemas", async function () {
     const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
-    const entry = registry.entriesById["create-topic-synthesis"];
+    const expected = [
+      "create-topic-synthesis-prepare",
+      "update-topic-synthesis-prepare",
+      "topic-synthesis-core-enrichment",
+      "topic-synthesis-finalize",
+    ];
 
-    assert.isOk(entry);
-    assert.equal(entry.sourceKind, "builtin");
-
-    const validation = await validateAcpSkillFinalPayload({
-      payload: validSkillOutputBundle(),
-      runnerJson: JSON.parse(await fs.readFile(entry.runnerJsonPath, "utf8")),
-      primarySkillDir: path.dirname(path.dirname(entry.runnerJsonPath)),
-    });
-
-    assert.isTrue(validation.ok, validation.errors.join("; "));
+    for (const skillId of expected) {
+      const entry = registry.entriesById[skillId];
+      assert.isOk(entry, `${skillId} should be registered`);
+      assert.equal(entry.sourceKind, "builtin");
+      const runnerJson = JSON.parse(
+        await fs.readFile(entry.runnerJsonPath, "utf8"),
+      );
+      assert.equal(runnerJson.id, skillId);
+      assert.equal(runnerJson.schemas.output, "assets/output.schema.json");
+    }
+    assert.notProperty(registry.entriesById, "create-topic-synthesis");
+    assert.notProperty(registry.entriesById, "update-topic-synthesis");
   });
 
   it("accepts canceled create-topic-synthesis prepare output without requiring a markdown artifact", async function () {
@@ -457,13 +464,20 @@ describe("Synthesize topic workflow contract", function () {
 
   it("validates ACP skill output without relying on global console", async function () {
     const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
-    const entry = registry.entriesById["create-topic-synthesis"];
+    const entry = registry.entriesById["topic-synthesis-finalize"];
     const originalConsole = (globalThis as { console?: Console }).console;
 
     try {
       delete (globalThis as { console?: Console }).console;
       const validation = await validateAcpSkillFinalPayload({
-        payload: validSkillOutputBundle(),
+        payload: {
+          kind: "topic_synthesis_canceled",
+          status: "canceled",
+          reason: "user_cancelled_duplicate_topic",
+          message: "User canceled after duplicate topic confirmation.",
+          duplicate_topic_id: "detr-detection-transformer",
+          topic_seed: "DETR",
+        },
         runnerJson: JSON.parse(await fs.readFile(entry.runnerJsonPath, "utf8")),
         primarySkillDir: path.dirname(path.dirname(entry.runnerJsonPath)),
       });
@@ -474,58 +488,51 @@ describe("Synthesize topic workflow contract", function () {
     }
   });
 
-  it("ships and documents the create topic synthesis section-manifest contract", async function () {
-    const skillText = await fs.readFile(
-      "skills_builtin/create-topic-synthesis/SKILL.md",
+  it("documents the split topic synthesis section contract through current stage skills", async function () {
+    const prepareText = await fs.readFile(
+      "skills_builtin/create-topic-synthesis-prepare/SKILL.md",
       "utf8",
     );
-    const resolverSchema = JSON.parse(
+    const coreText = await fs.readFile(
+      "skills_builtin/topic-synthesis-core-enrichment/SKILL.md",
+      "utf8",
+    );
+    const finalizeText = await fs.readFile(
+      "skills_builtin/topic-synthesis-finalize/SKILL.md",
+      "utf8",
+    );
+    const coreSchema = JSON.parse(
       await fs.readFile(
-        "skills_builtin/create-topic-synthesis/assets/schemas/topic_analysis_manifest.schema.json",
+        "skills_builtin/topic-synthesis-core-enrichment/assets/schemas/stage-40-core-synthesis.schema.json",
+        "utf8",
+      ),
+    );
+    const summarySchema = JSON.parse(
+      await fs.readFile(
+        "skills_builtin/topic-synthesis-finalize/assets/schemas/stage-70-summary.schema.json",
         "utf8",
       ),
     );
 
-    assert.include(skillText, "zotero-bridge topics list");
-    assert.include(skillText, "title/description/aliases");
-    assert.include(skillText, "ACP interactive confirmation");
-    assert.include(skillText, "artifact_manifest_path");
-    assert.include(skillText, "result/topic-analysis.json");
-    assert.include(skillText, "resolver cascade");
-    assert.include(skillText, "查询 citation graph metrics");
-    assert.include(skillText, "导出 filtered paper artifacts");
-    assert.notInclude(skillText, "persist_citation_graph_metrics");
-    assert.notInclude(skillText, "persist_filtered_artifact_manifest");
-    assert.include(skillText, "export_cross_paper_context");
-    assert.include(skillText, "cross-paper-context.md");
-    assert.include(skillText, "external-literature-context.md");
-    assert.include(skillText, "result/sections/*.json");
-    assert.include(skillText, "statistics");
-    assert.include(skillText, "synthesis_report");
-    assert.include(skillText, "研究路线分析");
-    assert.include(skillText, "历史沿革分析");
-    assert.include(skillText, "coverage_verdict");
-    assert.include(skillText, "digest-markdown");
-    assert.include(skillText, "references-json");
-    assert.include(skillText, "citation-analysis-json");
-    assert.include(skillText, "resolver_cascade");
-    assert.include(skillText, "不能替代 digest evidence");
-    assert.include(skillText, "bounded");
-    assert.notInclude(skillText, "synthesis.validate_resolver");
-    assert.notInclude(skillText, "synthesis.query_citation_graph");
-    assert.include(
-      skillText,
-      "zotero-bridge paper-artifacts export-filtered",
-    );
-    assert.notInclude(skillText, "synthesis.export_paper_artifact_bundle");
-    assert.notInclude(skillText, "synthesis.read_paper_artifacts");
-    assert.notInclude(skillText, "`markdown` must contain");
-    assert.include(resolverSchema.required, "sections");
-    assert.include(resolverSchema.required, "language");
+    assert.include(prepareText, "topics list");
+    assert.include(prepareText, "resolvers resolve");
+    assert.include(prepareText, "paper-artifacts export-filtered");
+    assert.include(prepareText, "topic_synthesis_canceled");
+    assert.include(coreText, "source_paper_refs");
+    assert.include(coreText, "improvement dimensions");
+    assert.include(coreText, "future directions");
+    assert.include(coreText, "sidecars");
+    assert.include(finalizeText, "coverage verdict");
+    assert.include(finalizeText, "artifact manifest path");
+    assert.notInclude(prepareText, "synthesis.read_paper_artifacts");
+    assert.notInclude(coreText, "synthesis.query_citation_graph");
+    assert.include(coreSchema.required, "improvement_dimension_summary");
+    assert.include(coreSchema.required, "future_directions");
+    assert.include(summarySchema.required, "summary_brief");
 
     const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
     const manifest = await buildAcpSkillResourceManifest(
-      registry.entriesById["create-topic-synthesis"],
+      registry.entriesById["topic-synthesis-finalize"],
     );
     assert.include(
       manifest.files.map((file) => file.relativePath),
@@ -535,67 +542,73 @@ describe("Synthesize topic workflow contract", function () {
 
   it("documents semantic duplicate detection before create-mode synthesis", async function () {
     const skillText = await fs.readFile(
-      "skills_builtin/create-topic-synthesis/SKILL.md",
+      "skills_builtin/create-topic-synthesis-prepare/SKILL.md",
       "utf8",
     );
     const runner = JSON.parse(
       await fs.readFile(
-        "skills_builtin/create-topic-synthesis/assets/runner.json",
+        "skills_builtin/create-topic-synthesis-prepare/assets/runner.json",
         "utf8",
       ),
     );
 
-    assert.match(
-      skillText,
-      /topicSeed[\s\S]+zotero-bridge topics list/,
-    );
-    assert.match(skillText, /title\/description\/aliases/);
-    assert.match(skillText, /疑似重复[\s\S]+topic_synthesis_canceled/);
+    assert.match(skillText, /topic seed[\s\S]+topics list/i);
+    assert.include(skillText, "title、description、aliases");
+    assert.match(skillText, /duplicate check[\s\S]+topic_synthesis_canceled/);
     assert.notInclude(skillText, "可建议改用 update-topic-synthesis");
     assert.match(skillText, /取消[\s\S]+topic_synthesis_canceled/);
-    assert.match(skillText, /不得内嵌 `markdown`/);
-    assert.match(skillText, /zotero-bridge resolvers resolve/);
+    assert.include(runner.entrypoint.prompts.common, "assets/output.schema.json");
+    assert.include(skillText, "resolvers resolve");
+    assert.include(skillText, "Host Bridge");
     assert.include(runner.entrypoint.prompts.common, "SKILL.md");
-    assert.include(runner.entrypoint.prompts.common, "next_action");
-    assert.include(runner.entrypoint.prompts.common, "instruction_refs");
-    assert.include(runner.entrypoint.prompts.common, "schema_refs");
-    assert.include(runner.entrypoint.prompts.common, "scripts/gate_runtime.py");
+    assert.include(runner.entrypoint.prompts.common, "scripts/gate.py");
     assert.notInclude(
       runner.entrypoint.prompts.common,
       "topic-synthesis-runtime",
     );
   });
 
-  it("ships package-local runtime resources for create and update topic synthesis skills", async function () {
-    const requiredRelativePaths = [
-      "scripts/gate_runtime.py",
-      "scripts/stage_runtime.py",
-      "scripts/runtime_db.py",
-      "references/step_05_paper_triage.md",
-      "references/step_06_cross_paper_map.md",
-      "references/step_07_taxonomy_timeline.md",
-      "references/step_08_core_synthesis.md",
-      "references/step_09_kg_enrichment.md",
-      "references/step_10_summary_coverage.md",
-      "references/step_11_render_validate.md",
-      "references/topic_synthesis_content_contract.md",
-      "references/section_examples.md",
-      "assets/schemas/topic_context_payload.schema.json",
-      "assets/schemas/resolver_proposal.schema.json",
-      "assets/schemas/resolver_manifest.schema.json",
-      "assets/schemas/core_analytical_sections.schema.json",
-      "assets/schemas/kg_enrichment.schema.json",
-      "assets/schemas/topic_analysis_manifest.schema.json",
-      "assets/schemas/topic_section_patch_manifest.schema.json",
-      "assets/schemas/topic_synthesis_artifact.schema.json",
-    ];
+  it("ships package-local runtime resources for split topic synthesis skills", async function () {
+    const requiredBySkill: Record<string, string[]> = {
+      "skills_builtin/create-topic-synthesis-prepare": [
+        "scripts/gate.py",
+        "scripts/topic_synthesis_db.py",
+        "assets/schemas/stage-10-create-topic-context.schema.json",
+        "assets/schemas/stage-20-resolver-and-workset.schema.json",
+        "assets/schemas/stage-30-prepare-analysis-context.schema.json",
+        "assets/schemas/handoff.schema.json",
+      ],
+      "skills_builtin/update-topic-synthesis-prepare": [
+        "scripts/gate.py",
+        "scripts/topic_synthesis_db.py",
+        "assets/schemas/stage-10-update-topic-context.schema.json",
+        "assets/schemas/stage-30-prepare-analysis-context.schema.json",
+        "assets/schemas/handoff.schema.json",
+      ],
+      "skills_builtin/topic-synthesis-core-enrichment": [
+        "scripts/gate.py",
+        "scripts/topic_synthesis_db.py",
+        "assets/schemas/stage-40-core-synthesis.schema.json",
+        "assets/schemas/stage-50-kg-enrichment.schema.json",
+        "assets/schemas/handoff.schema.json",
+      ],
+      "skills_builtin/topic-synthesis-finalize": [
+        "scripts/gate.py",
+        "scripts/topic_synthesis_db.py",
+        "assets/schemas/stage-60-coverage-and-collection-suggestions.schema.json",
+        "assets/schemas/stage-70-summary.schema.json",
+        "assets/schemas/handoff.schema.json",
+      ],
+    };
     const skillRoots = [
-      "skills_builtin/create-topic-synthesis",
-      "skills_builtin/update-topic-synthesis",
+      "skills_builtin/create-topic-synthesis-prepare",
+      "skills_builtin/update-topic-synthesis-prepare",
+      "skills_builtin/topic-synthesis-core-enrichment",
+      "skills_builtin/topic-synthesis-finalize",
     ];
 
     for (const skillRoot of skillRoots) {
-      for (const relativePath of requiredRelativePaths) {
+      for (const relativePath of requiredBySkill[skillRoot]) {
         await fs.readFile(path.join(skillRoot, relativePath), "utf8");
       }
       const skillText = await fs.readFile(
@@ -614,73 +627,45 @@ describe("Synthesize topic workflow contract", function () {
   });
 
   it("documents minimum executable SKILL instructions, host dependency, script calls, and optional references", async function () {
-    const createSkill = await fs.readFile(
-      "skills_builtin/create-topic-synthesis/SKILL.md",
+    const createPrepare = await fs.readFile(
+      "skills_builtin/create-topic-synthesis-prepare/SKILL.md",
       "utf8",
     );
-    const updateSkill = await fs.readFile(
-      "skills_builtin/update-topic-synthesis/SKILL.md",
+    const updatePrepare = await fs.readFile(
+      "skills_builtin/update-topic-synthesis-prepare/SKILL.md",
+      "utf8",
+    );
+    const coreSkill = await fs.readFile(
+      "skills_builtin/topic-synthesis-core-enrichment/SKILL.md",
+      "utf8",
+    );
+    const finalizeSkill = await fs.readFile(
+      "skills_builtin/topic-synthesis-finalize/SKILL.md",
       "utf8",
     );
 
-    for (const skillText of [createSkill, updateSkill]) {
+    for (const skillText of [
+      createPrepare,
+      updatePrepare,
+      coreSkill,
+      finalizeSkill,
+    ]) {
       assert.include(skillText, "## 产品目标与质量标准");
-      assert.include(skillText, "## 核心执行指令");
-      assert.include(skillText, "## 输入输出硬契约");
-      assert.include(skillText, "## 运行时硬合同");
-      assert.include(skillText, "## 状态机与 Gate 纪律");
-      assert.include(skillText, "## 最小执行主路径");
-      assert.include(skillText, "禁止");
+      assert.include(skillText, "## 执行合同");
+      assert.include(skillText, "scripts/gate.py");
+      assert.include(skillText, "scripts/topic_synthesis_db.py");
       assert.include(skillText, "信息密集型 topic 知识窗口");
       assert.include(skillText, "Introduction");
       assert.include(skillText, "Related Work");
       assert.include(skillText, "不是字段填空");
-      assert.include(skillText, "支持综述写作");
-      assert.include(skillText, "研究路线分析");
-      assert.include(skillText, "历史递进逻辑");
-      assert.include(skillText, "synthesis-level finding");
-      assert.include(skillText, "库内覆盖不足");
-      assert.include(skillText, "外部文献用于背景、覆盖判断和入库建议");
       assert.include(skillText, "topic_synthesis_canceled");
-      assert.include(skillText, "zotero-bridge topics");
-      assert.include(skillText, "scripts/gate_runtime.py");
-      assert.include(skillText, "scripts/stage_runtime.py");
-      assert.include(
-        skillText,
-        'python scripts/gate_runtime.py --db "runtime/topic-synthesis.sqlite"',
-      );
-      assert.include(
-        skillText,
-        'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --action cancel',
-      );
+      assert.include(skillText, "zotero-bridge");
       assert.include(skillText, "SQLite");
       assert.include(skillText, "runtime/topic-synthesis.sqlite");
-      assert.include(skillText, "prompt memory");
-      assert.include(skillText, "stage_0_runtime_setup");
-      assert.include(skillText, "stage_12_completed");
-      assert.include(skillText, "artifact_registry");
-      assert.include(skillText, "只执行 gate 返回的 `next_action`");
-      assert.include(skillText, "resolver cascade");
+      assert.include(skillText, "gate 返回");
       assert.notInclude(skillText, "persist_citation_graph_metrics");
       assert.notInclude(skillText, "persist_filtered_artifact_manifest");
-      assert.include(skillText, "resolver_cascade");
-      assert.include(skillText, "Topic Synthesis 内容合同");
-      assert.include(skillText, "synthesis_report");
-      assert.include(skillText, "语义目标");
-      assert.include(skillText, "避免 agent 手工维护跨步骤 evidence map");
-      assert.include(skillText, "候选 id 空间");
-      assert.include(skillText, "source_paper_refs");
-      assert.include(skillText, "result/sections/*.json");
-      assert.include(skillText, "按需读取附录");
       assert.notInclude(skillText, "references/runtime_contract.md");
-      assert.include(skillText, "references/step_05_paper_triage.md");
-      assert.include(skillText, "sidecars");
-      assert.include(skillText, "concept-cards-proposal");
-      assert.include(skillText, "topic-graph-relation-proposals");
-      assert.include(
-        skillText,
-        "references/topic_synthesis_content_contract.md",
-      );
       assert.notInclude(skillText, "后台自动化纪律");
       assert.notInclude(skillText, "不得向用户提问");
       assert.notInclude(skillText, "host preflight 注入");
@@ -688,70 +673,47 @@ describe("Synthesize topic workflow contract", function () {
       assert.notMatch(skillText, /详见\s+references?[\s\S]{0,20}后再执行/);
     }
 
-    assert.include(createSkill, "topicSeed");
-    assert.include(createSkill, "zotero-bridge topics list");
-    assert.include(createSkill, "zotero-bridge resolvers resolve");
-    assert.include(createSkill, "zotero-bridge library-index get");
-    assert.include(
-      createSkill,
-      "zotero-bridge citation-graph get-metrics",
-    );
-    assert.include(createSkill, "这些读取只作为上下文，不写入");
-    assert.include(createSkill, "has_more");
-    assert.include(createSkill, "顶层 `tags[]`");
-    assert.include(createSkill, "duplicate check");
-    assert.include(createSkill, "不要用全文相似度臆断重复");
-    assert.notInclude(createSkill, "update_full");
-    assert.notInclude(createSkill, "update_patch");
-    assert.include(
-      createSkill,
-      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --operation create --language "zh-CN" --action validate_final_artifacts',
-    );
+    assert.include(createPrepare, "topic seed");
+    assert.include(createPrepare, "topics list");
+    assert.include(createPrepare, "resolvers resolve");
+    assert.include(createPrepare, "library-index get");
+    assert.include(createPrepare, "citation-graph get-metrics");
+    assert.include(createPrepare, "duplicate check");
+    assert.notInclude(createPrepare, "update_full");
+    assert.notInclude(createPrepare, "update_patch");
 
-    assert.include(updateSkill, "topicId");
-    assert.include(updateSkill, "updateScope");
-    assert.include(updateSkill, "updateMode");
-    assert.include(updateSkill, "updateReason");
-    assert.include(updateSkill, "zotero-bridge topics get-context");
-    assert.include(updateSkill, "zotero-bridge resolvers resolve");
-    assert.include(updateSkill, "recommended_update");
-    assert.include(updateSkill, "Patch 模式不得静默改变 paper set");
-    assert.notInclude(updateSkill, "topics list --input '{}'");
-    assert.notInclude(updateSkill, "duplicate check。写");
-    assert.include(
-      updateSkill,
-      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --operation update_full --language "zh-CN" --action validate_final_artifacts',
-    );
-    assert.include(
-      updateSkill,
-      'python scripts/stage_runtime.py --db "runtime/topic-synthesis.sqlite" --operation update_patch --language "zh-CN" --action validate_final_artifacts',
-    );
+    assert.include(updatePrepare, "update topic synthesis workflow");
+    assert.include(updatePrepare, "topics get-context");
+    assert.include(updatePrepare, "update-audit-report.json");
+    assert.notInclude(updatePrepare, "topics list --input '{}'");
+
+    assert.include(coreSkill, "source_paper_refs");
+    assert.include(coreSkill, "topic_matching_terms");
+    assert.include(finalizeSkill, "coverage verdict");
+    assert.include(finalizeSkill, "artifact manifest path");
   });
 
   it("documents update topic synthesis context, mode selection, and section patch rules", async function () {
     const skillText = await fs.readFile(
-      "skills_builtin/update-topic-synthesis/SKILL.md",
+      "skills_builtin/update-topic-synthesis-prepare/SKILL.md",
       "utf8",
     );
     const runner = JSON.parse(
       await fs.readFile(
-        "skills_builtin/update-topic-synthesis/assets/runner.json",
+        "skills_builtin/update-topic-synthesis-prepare/assets/runner.json",
         "utf8",
       ),
     );
 
-    assert.include(skillText, "zotero-bridge topics get-context");
-    assert.include(skillText, "recommended_update");
+    assert.include(skillText, "topics get-context");
+    assert.include(skillText, "update-audit-report.json");
     assert.include(skillText, "update_full");
-    assert.include(skillText, "update_patch");
-    assert.include(skillText, "section_patch");
-    assert.include(skillText, "read_section_hashes");
-    assert.include(skillText, "result/topic-analysis.patch.json");
-    assert.match(skillText, /不得内嵌 `markdown`/);
+    assert.include(skillText, "update_decision");
+    assert.include(skillText, "resolver proposal");
+    assert.include(skillText, "prepare-analysis-context.json");
+    assert.include(runner.entrypoint.prompts.common, "assets/output.schema.json");
     assert.include(runner.entrypoint.prompts.common, "SKILL.md");
-    assert.include(runner.entrypoint.prompts.common, "next_action");
-    assert.include(runner.entrypoint.prompts.common, "instruction_refs");
-    assert.include(runner.entrypoint.prompts.common, "scripts/gate_runtime.py");
+    assert.include(runner.entrypoint.prompts.common, "scripts/gate.py");
     assert.notInclude(
       runner.entrypoint.prompts.common,
       "topic-synthesis-runtime",
@@ -760,10 +722,17 @@ describe("Synthesize topic workflow contract", function () {
 
   it("rejects ACP skill output that embeds markdown in final JSON", async function () {
     const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
-    const entry = registry.entriesById["create-topic-synthesis"];
+    const entry = registry.entriesById["topic-synthesis-finalize"];
     const validation = await validateAcpSkillFinalPayload({
       payload: {
-        ...validSkillOutputBundle(),
+        kind: "topic_synthesis",
+        operation: "create",
+        language: "zh-CN",
+        topic_definition: {
+          id: "object-detection",
+          title: "Object Detection",
+        },
+        artifact_manifest_path: "result/topic-synthesis-artifacts.json",
         markdown: "# Should not be embedded",
       },
       runnerJson: JSON.parse(await fs.readFile(entry.runnerJsonPath, "utf8")),
@@ -776,10 +745,17 @@ describe("Synthesize topic workflow contract", function () {
 
   it("rejects new create skill output that includes base_hashes", async function () {
     const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
-    const entry = registry.entriesById["create-topic-synthesis"];
+    const entry = registry.entriesById["topic-synthesis-finalize"];
     const validation = await validateAcpSkillFinalPayload({
       payload: {
-        ...validSkillOutputBundle(),
+        kind: "topic_synthesis",
+        operation: "create",
+        language: "zh-CN",
+        topic_definition: {
+          id: "object-detection",
+          title: "Object Detection",
+        },
+        artifact_manifest_path: "result/topic-synthesis-artifacts.json",
         base_hashes: {
           manifest: "sha256:legacy-manifest",
         },
@@ -953,7 +929,7 @@ function v2PatchBundle(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Synthesize topic workflow v2 structured contract", function () {
-  it("declares separate create and update topic synthesis skills", async function () {
+  it("declares separate create and update topic synthesis workflows backed by split skills", async function () {
     const loaded = await loadWorkflowManifests("workflows_builtin", {
       workflowSourceKind: "builtin",
     });
@@ -962,8 +938,16 @@ describe("Synthesize topic workflow v2 structured contract", function () {
 
     assert.include(workflowIds, "create-topic-synthesis");
     assert.include(workflowIds, "update-topic-synthesis");
-    assert.property(registry.entriesById, "create-topic-synthesis");
-    assert.property(registry.entriesById, "update-topic-synthesis");
+    assert.notProperty(registry.entriesById, "create-topic-synthesis");
+    assert.notProperty(registry.entriesById, "update-topic-synthesis");
+    for (const skillId of [
+      "create-topic-synthesis-prepare",
+      "update-topic-synthesis-prepare",
+      "topic-synthesis-core-enrichment",
+      "topic-synthesis-finalize",
+    ]) {
+      assert.property(registry.entriesById, skillId);
+    }
     assert.notProperty(registry.entriesById, "synthesize-topic");
     assert.isFalse(
       registry.diagnostics.some((entry) => entry.level === "error"),
@@ -1219,69 +1203,55 @@ describe("Synthesize topic workflow v2 structured contract", function () {
   });
 
   it("documents and packages required KG enrichment sidecars", async function () {
-    const createSkill = await fs.readFile(
-      "skills_builtin/create-topic-synthesis/SKILL.md",
+    const coreSkill = await fs.readFile(
+      "skills_builtin/topic-synthesis-core-enrichment/SKILL.md",
       "utf8",
     );
-    const updateSkill = await fs.readFile(
-      "skills_builtin/update-topic-synthesis/SKILL.md",
+    const finalizeSkill = await fs.readFile(
+      "skills_builtin/topic-synthesis-finalize/SKILL.md",
       "utf8",
     );
-    const createRuntime = await fs.readFile(
-      "skills_builtin/create-topic-synthesis/scripts/stage_runtime.py",
+    const coreRuntime = await fs.readFile(
+      "skills_builtin/topic-synthesis-core-enrichment/scripts/topic_synthesis_db.py",
       "utf8",
     );
-    const createSchema = JSON.parse(
+    const finalizeOutputSchema = JSON.parse(
       await fs.readFile(
-        "skills_builtin/create-topic-synthesis/assets/output.schema.json",
+        "skills_builtin/topic-synthesis-finalize/assets/output.schema.json",
         "utf8",
       ),
     );
-    const createKgSchema = JSON.parse(
+    const coreKgSchema = JSON.parse(
       await fs.readFile(
-        "skills_builtin/create-topic-synthesis/assets/schemas/kg_enrichment.schema.json",
-        "utf8",
-      ),
-    );
-    const updateKgSchema = JSON.parse(
-      await fs.readFile(
-        "skills_builtin/update-topic-synthesis/assets/schemas/kg_enrichment.schema.json",
+        "skills_builtin/topic-synthesis-core-enrichment/assets/schemas/stage-50-kg-enrichment.schema.json",
         "utf8",
       ),
     );
 
-    assert.include(createSkill, "persist_kg_enrichment");
-    assert.include(createSkill, "result/sidecars/concept-cards-proposal.json");
+    assert.include(coreSkill, "topic_matching_terms");
+    assert.include(coreSkill, "sidecars");
+    assert.include(coreSkill, "concept");
     assert.include(
-      createSkill,
-      "result/sidecars/topic-graph-relation-proposals.json",
+      JSON.stringify(coreKgSchema),
+      "prospective_topic_relation_proposals",
     );
-    assert.include(createSkill, "topic_matching_terms");
-    assert.include(createSkill, "result/sidecars/topic-interest-metadata.json");
-    assert.include(updateSkill, "topic_matching_terms");
-    assert.include(updateSkill, "result/sidecars/topic-interest-metadata.json");
-    assert.notInclude(createSkill, "stage_5_6_topic_graph_relation_proposals");
-    assert.notInclude(createSkill, "stage_5_5_concept_cards");
-    assert.include(createSkill, "sidecars");
-    assert.include(updateSkill, "broader_topic_candidate");
-    assert.include(updateSkill, "concept_details");
-    assert.include(createRuntime, "topic_graph_relation_proposals_path");
-    assert.include(createRuntime, "topic_interest_metadata_path");
-    assert.include(createRuntime, "concept_cards_proposal_path");
-    assert.include(createRuntime, "persist_kg_enrichment");
+    assert.include(JSON.stringify(coreKgSchema), "topic_matching_terms");
+    assert.include(coreRuntime, "topic_graph_relation_proposals");
+    assert.include(coreRuntime, "topic_interest_metadata");
+    assert.include(coreRuntime, "concept_cards_proposal");
+    assert.include(finalizeSkill, "runtime/views/finalize-context.manifest.json");
+    assert.include(finalizeSkill, "sidecars");
     assert.notInclude(
-      JSON.stringify(createSchema),
+      JSON.stringify(finalizeOutputSchema),
       "topic_graph_relation_proposals_path",
     );
     assert.notInclude(
-      JSON.stringify(createSchema),
+      JSON.stringify(finalizeOutputSchema),
       "topic_interest_metadata_path",
     );
     assert.notInclude(
-      JSON.stringify(createSchema),
+      JSON.stringify(finalizeOutputSchema),
       "concept_cards_proposal_path",
     );
-    assert.include(JSON.stringify(createKgSchema), "topic_matching_terms");
-    assert.include(JSON.stringify(updateKgSchema), "topic_matching_terms");
   });
 });

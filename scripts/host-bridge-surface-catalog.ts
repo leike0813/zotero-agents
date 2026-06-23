@@ -135,14 +135,20 @@ function parseCapabilities(source: string) {
   }> = [];
 
   for (const match of source.matchAll(
-    /\bcapability\(\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`][\s\S]*?\{\s*type:\s*["`]([^"`]+)["`]\s*,\s*required:\s*(true|false)\s*\}/g,
+    /\bcapability\(\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`]\s*,([\s\S]*?)\n\s{2}\),/g,
   )) {
+    const input = match[4].match(
+      /\{\s*type:\s*["`]([^"`]+)["`]\s*,\s*required:\s*(true|false)/,
+    );
+    if (!input) {
+      continue;
+    }
     entries.push({
       name: match[1],
       category: match[2],
       summary: normalizeSummary(match[3]),
-      inputType: match[4],
-      inputRequired: match[5] === "true",
+      inputType: input[1],
+      inputRequired: input[2] === "true",
     });
   }
 
@@ -196,7 +202,9 @@ function parseDomainMappings(source: string): HostBridgeCliMapping[] {
       });
     }
   }
-  return mappings.sort((left, right) => left.command.localeCompare(right.command));
+  return mappings.sort((left, right) =>
+    left.command.localeCompare(right.command),
+  );
 }
 
 function parseDebugMappings(source: string): HostBridgeCliMapping[] {
@@ -223,7 +231,9 @@ function parseDebugMappings(source: string): HostBridgeCliMapping[] {
     });
   }
 
-  return mappings.sort((left, right) => left.command.localeCompare(right.command));
+  return mappings.sort((left, right) =>
+    left.command.localeCompare(right.command),
+  );
 }
 
 function coreCliMappings(): HostBridgeCliMapping[] {
@@ -305,7 +315,9 @@ export function buildHostBridgeSurfaceCatalog(
   };
 }
 
-export function validateHostBridgeSurfaceCatalog(catalog: HostBridgeSurfaceCatalog) {
+export function validateHostBridgeSurfaceCatalog(
+  catalog: HostBridgeSurfaceCatalog,
+) {
   const errors: string[] = [];
   const capabilities = new Set(catalog.capabilities.map((entry) => entry.name));
 

@@ -28,6 +28,7 @@ import {
 } from "./workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
 import { getPref, setPref } from "../../src/utils/prefs";
+import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 
 type Listener = (event: Record<string, unknown>) => void;
 
@@ -812,8 +813,10 @@ describe("gui: preference scripts", function () {
   let prevAddon: unknown;
   let prevWorkflowDirPref: unknown;
   let prevSkillDirPref: unknown;
+  let restorePrefs: (() => void) | undefined;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     const runtime = globalThis as { addon?: unknown };
     prevAddon = runtime.addon;
     prevWorkflowDirPref = Zotero.Prefs.get(workflowDirPrefKey, true);
@@ -849,6 +852,8 @@ describe("gui: preference scripts", function () {
     setDebugModeOverrideForTests();
     setPref("hostBridgeDisableWriteApproval", false);
     resetManagedLocalRuntimeStateChangeListenersForTests();
+    restorePrefs?.();
+    restorePrefs = undefined;
   });
 
   it("binds preference inputs and dispatches workflow scan/settings/log-viewer/backend manager commands", async function () {
@@ -2780,8 +2785,10 @@ describe("gui: workflow runtime scan", function () {
   const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
   let prevAddon: unknown;
   let prevWorkflowDirPref: unknown;
+  let restorePrefs: (() => void) | undefined;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     const runtime = globalThis as { addon?: unknown };
     prevAddon = runtime.addon;
     runtime.addon = {
@@ -2801,6 +2808,8 @@ describe("gui: workflow runtime scan", function () {
     }
     const runtime = globalThis as { addon?: unknown };
     runtime.addon = prevAddon;
+    restorePrefs?.();
+    restorePrefs = undefined;
   });
 
   it("rescans workflow registry and exposes loaded entries", async function () {
@@ -2867,7 +2876,7 @@ describe("gui: workflow runtime scan", function () {
           /[\\/]workflows_builtin$/.test(effectiveDir),
           `effectiveDir=${effectiveDir}`,
         );
-        assert.equal(Zotero.Prefs.get(workflowDirPrefKey, true), "");
+        assert.isUndefined(Zotero.Prefs.get(workflowDirPrefKey, true));
       } finally {
         if (processEnv) {
           if (typeof previousOverride === "undefined") {
@@ -2883,8 +2892,10 @@ describe("gui: workflow runtime scan", function () {
 
 describe("gui: workflow context menu", function () {
   let prevAddon: unknown;
+  let restorePrefs: (() => void) | undefined;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     const runtime = globalThis as { addon?: unknown };
     prevAddon = runtime.addon;
     runtime.addon = {
@@ -2909,6 +2920,8 @@ describe("gui: workflow context menu", function () {
   afterEach(function () {
     const runtime = globalThis as { addon?: unknown };
     runtime.addon = prevAddon;
+    restorePrefs?.();
+    restorePrefs = undefined;
   });
 
   it("adds workflows root menu and shows empty state when registry is empty", async function () {
@@ -3100,6 +3113,71 @@ describe("gui: workflow context menu", function () {
     assert.isOk(workflowItem);
     assert.equal(workflowItem.getAttribute("label"), "Pass Through GUI");
     assert.equal(workflowItem.getAttribute("disabled"), null);
+  });
+
+  it("keeps workflow menu item enabled when persisted default backend is incompatible", async function () {
+    setPref(
+      "backendsConfigJson",
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "skillrunner-menu-compatible",
+            displayName: "SkillRunner Menu Compatible",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8030",
+            auth: { kind: "none" },
+          },
+          {
+            id: "generic-menu-incompatible",
+            displayName: "Generic Menu Incompatible",
+            type: "generic-http",
+            baseUrl: "http://127.0.0.1:8031",
+            auth: { kind: "none" },
+          },
+        ],
+      }),
+    );
+    setPref(
+      "workflowSettingsJson",
+      JSON.stringify({
+        schemaVersion: 1,
+        workflows: {
+          "workflow-menu-backend-fallback": {
+            backendId: "generic-menu-incompatible",
+          },
+        },
+      }),
+    );
+
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Backend Menu Fallback Parent" },
+    });
+    const workflow = makeLoadedWorkflow(
+      "workflow-menu-backend-fallback",
+      "Backend Menu Fallback",
+    );
+    workflow.manifest.inputs = { unit: "workflow" };
+    setWorkflowState([workflow]);
+    const win = createMainWindow([parent]);
+    ensureWorkflowMenuForWindow(win);
+    const popup = win.document.getElementById(
+      `${config.addonRef}-workflows-popup`,
+    ) as FakeXULElement;
+
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeSkillRunnerSidebarItem: false,
+      includeTaskManagerItem: false,
+      includeSynthesisWorkbenchItem: false,
+    });
+
+    const workflowItem = popup.children.find((entry) =>
+      (entry.getAttribute("label") || "").startsWith("Backend Menu Fallback"),
+    );
+    assert.isOk(workflowItem);
+    assert.equal(workflowItem!.getAttribute("label"), "Backend Menu Fallback");
+    assert.equal(workflowItem!.getAttribute("disabled"), null);
   });
 
   it("hides debug-only workflows when debug mode is disabled and shows them when enabled", async function () {

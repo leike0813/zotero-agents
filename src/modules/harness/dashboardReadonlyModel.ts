@@ -25,6 +25,7 @@ import {
 import { isWorkflowVisible } from "../workflowVisibility";
 import { buildWorkflowSettingsUiDescriptor } from "../workflowSettings";
 import { loadBackendsRegistryReadonly } from "./backendsReadonly";
+import { projectSkillRunnerReadonlyRuns } from "./skillRunnerReadonlyProjection";
 
 export type DashboardReadonlyState = {
   selectedTabKey: string;
@@ -714,9 +715,19 @@ export async function createDashboardReadonlyModel(
   }
 
   function allRows() {
-    return store
+    const genericRows = store
       .listTaskRows({ limit: 300 })
+      .filter((row) => row.domain !== DEFAULT_BACKEND_TYPE)
       .map((row) => normalizeDashboardRow(row, backendById));
+    const skillRunnerRows = projectSkillRunnerReadonlyRuns({
+      runRows: store.listSkillRunnerRunRows({ limit: 300 }),
+      sequenceRows: store.listSkillRunnerSequenceStateRows({ limit: 300 }),
+      backendById,
+      workflows,
+    });
+    return [...genericRows, ...skillRunnerRows].sort((left, right) =>
+      cleanString(right.updatedAt).localeCompare(cleanString(left.updatedAt)),
+    );
   }
 
   function productsView() {
@@ -891,7 +902,9 @@ export async function createDashboardReadonlyModel(
       },
       runningRows,
       homeWorkflows,
-      backendLoadError: store.tableExists("plugin_task_rows")
+      backendLoadError:
+        store.tableExists("plugin_task_rows") ||
+        store.tableExists("plugin_skillrunner_runs")
         ? cleanString(backendResult.fatalError)
         : "Readonly harness could not find Dashboard task tables in the plugin DB.",
     };

@@ -1,15 +1,6 @@
 {
-  "diagnostics": [
-    {
-      "code": "bounded_playbook_workset",
-      "message": "为构建可维护的全仿真 playbook，paper triage 与 cross-paper context 限定为 5 篇代表论文。",
-      "resolver_total": 22,
-      "selected_count": 5
-    }
-  ],
   "operation_intent": "create",
   "resolver": {
-    "mode": "explicit",
     "paper_refs": [
       "1:EIMSDEU3",
       "1:5HBHAWIV",

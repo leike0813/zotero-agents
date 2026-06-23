@@ -616,6 +616,7 @@ describe("transport: upload fallback without FormData", function () {
   });
 
   it("omits no_cache and auto reply for interactive execution when auto reply is disabled", async function () {
+    setSkillRunnerInteractiveAutoReplyEnabledForTests(false);
     let capturedCreateBody: unknown;
     const client = new SkillRunnerClient({
       baseUrl: "http://127.0.0.1:8030",

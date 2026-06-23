@@ -11,9 +11,7 @@
   ],
   "coverage_reason": "全仿真样例只选择 5 篇代表论文，足以覆盖 DETR 原点、收敛改进、训练策略、3D 扩展和近期实时化，但不能代表完整 DETR-family 文献图谱。",
   "coverage_verdict": "partial",
-  "diagnostics": [],
   "external_context_summary": "split runtime 未抓取外部网络文献；external-literature-context.md 仅记录本 run 没有 external fetch。",
-  "reliability_summary": "所有 5 篇均来自真实 Host Bridge resolver 返回集合，并通过 runtime resolver cascade、citation metrics 和 filtered artifact export 进入同一 SQLite workset；结论可靠性适合作为 schema/playbook 基准，不适合作为最终学术综述。",
   "suggested_collection_directions": [
     {
       "direction": "补齐训练/收敛变体",

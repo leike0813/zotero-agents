@@ -54,8 +54,12 @@ describe("workflow settings single-source routing", function () {
     assert.include(ts, "toRunOptionsFormValues");
     assert.include(ts, "normalizeWorkflowRunOptions(raw.runOptions)");
     assert.include(ts, "showAcpRuntimeCacheRefreshToast");
+    assert.include(ts, "showSkillRunnerModelCacheRefreshToast");
     assert.include(ts, "showWorkflowToast");
     assert.include(ts, 'if (action === "refresh-acp-runtime-cache")');
+    assert.include(ts, 'if (action === "refresh-skillrunner-model-cache")');
+    assert.include(ts, "refreshSkillRunnerModelCacheForBackend");
+    assert.include(ts, "canRefreshSkillRunnerModelCache");
     assert.include(ts, "changedSection");
     assert.include(ts, "changedKey");
     assert.include(ts, "Object.prototype.hasOwnProperty.call");
@@ -69,7 +73,8 @@ describe("workflow settings single-source routing", function () {
     assert.include(ts, 'key: "workflow-options"');
     assert.include(ts, 'if (action === "workflow-settings-draft")');
     assert.include(ts, "workflowSettingsSaveStateById");
-    assert.include(ts, 'reason === "periodic" || reason === "task-update"');
+    assert.include(ts, "const shouldSkipRefresh = (reason: RefreshReason)");
+    assert.include(ts, 'reason !== "periodic" && reason !== "task-update"');
     assert.include(ts, "const changedSection = normalizeDraftChangedSection(");
     assert.include(ts, "payload.changedSection");
     assert.include(ts, "const changedKey = normalizeDraftChangedKey(");
@@ -123,6 +128,16 @@ describe("workflow settings single-source routing", function () {
     );
     assert.include(en, "workflow-settings-refresh-acp-runtime-cache-running");
     assert.include(zh, "workflow-settings-refresh-acp-runtime-cache-running");
+    assert.include(en, "workflow-settings-refresh-skillrunner-model-cache");
+    assert.include(zh, "workflow-settings-refresh-skillrunner-model-cache");
+    assert.include(
+      en,
+      "workflow-settings-refresh-skillrunner-model-cache-running",
+    );
+    assert.include(
+      zh,
+      "workflow-settings-refresh-skillrunner-model-cache-running",
+    );
   });
 
   it("keeps submit dialog updates metadata-aware for structural refresh gating", async function () {
@@ -151,10 +166,16 @@ describe("workflow settings single-source routing", function () {
     assert.include(js, "changedSection:");
     assert.include(js, "changedKey:");
     assert.include(js, "refreshingAcpRuntimeCache");
+    assert.include(js, "refreshingSkillRunnerModelCache");
+    assert.include(js, "appendRefreshActionButton");
+    assert.include(js, "buildExecutionOptionsPayload");
     assert.include(js, 'refreshBtn.setAttribute("aria-busy", "true")');
     assert.include(js, "refreshBtn.disabled = true");
     assert.include(js, "refreshAcpRuntimeCacheRunning");
+    assert.include(js, "refreshSkillRunnerModelCacheRunning");
+    assert.include(js, 'action: "refresh-skillrunner-model-cache"');
     assert.include(js, "state.refreshingAcpRuntimeCache = false");
+    assert.include(js, "state.refreshingSkillRunnerModelCache = false");
   });
 
   it("marks ACP permission auto-approval option with warning label styling", async function () {

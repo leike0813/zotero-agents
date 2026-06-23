@@ -5,7 +5,7 @@ pref("skillRunnerModelCacheJson", "");
 pref("skillRunnerDeferredTasksJson", "");
 pref("skillRunnerRequestLedgerJson", "");
 pref("skillRunnerSkillDisplayRegistryJson", "");
-pref("skillRunnerLocalRuntimeVersion", "v0.7.0");
+pref("skillRunnerLocalRuntimeVersion", "v0.7.2");
 pref("skillRunnerLocalRuntimeStateJson", "");
 pref("tagVocabularyStagedJson", "");
 pref("collectSkillRunFeedbackEnabled", false);

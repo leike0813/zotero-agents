@@ -4,6 +4,7 @@ import {
   getHostBridgeCapability,
   listHostBridgeCapabilities,
   type HostBridgeCapabilityDefinition,
+  type ZoteroHostCapabilityBrokerApis,
 } from "./hostBridgeCapabilityRegistry";
 import type {
   SynthesisMcpService,
@@ -71,7 +72,8 @@ export const ZOTERO_MCP_TOOL_TOPICS_LIST = "topics.list";
 export const ZOTERO_MCP_TOOL_TOPICS_FIND_BY_PAPER_REF =
   "topics.find_by_paper_ref";
 export const ZOTERO_MCP_TOOL_TOPICS_GET_CONTEXT = "topics.get_context";
-export const ZOTERO_MCP_TOOL_TOPICS_GET_REVIEW_INPUT = "topics.get_review_input";
+export const ZOTERO_MCP_TOOL_TOPICS_GET_REVIEW_INPUT =
+  "topics.get_review_input";
 export const ZOTERO_MCP_TOOL_SCHEMAS_GET = "schemas.get";
 export const ZOTERO_MCP_TOOL_CONCEPTS_QUERY = "concepts.query";
 export const ZOTERO_MCP_TOOL_CITATION_GRAPH_QUERY_CLUSTER =
@@ -159,6 +161,7 @@ export type ZoteroMcpToolPermissionRequest = {
 export type ZoteroMcpHandlerOptions = {
   resolveHostContext?: () => AcpHostContext;
   resolveHostApi?: () => WorkflowHostApi;
+  resolveHostBridgeApis?: () => ZoteroHostCapabilityBrokerApis;
   resolveSynthesisService?: () => SynthesisMcpService;
   resolveMcpStatus?: () => Record<string, unknown>;
   resolveHostBridgeStatus?: () => HostBridgeStatusSnapshot;
@@ -318,6 +321,56 @@ const MCP_LIBRARY_LIST_LIMIT_MAX = 50;
 
 function resolveHostApi(options: ZoteroMcpHandlerOptions) {
   return options.resolveHostApi?.() || createWorkflowHostApi();
+}
+
+function resolveHostBridgeApis(
+  options: ZoteroMcpHandlerOptions,
+  hostApi: WorkflowHostApi,
+): ZoteroHostCapabilityBrokerApis {
+  if (options.resolveHostBridgeApis) {
+    return options.resolveHostBridgeApis();
+  }
+  const contextApi = (hostApi as { context?: Record<string, unknown> }).context;
+  const libraryApi = (hostApi as { library?: Record<string, unknown> }).library;
+  const mutationsApi = (hostApi as { mutations?: Record<string, unknown> })
+    .mutations;
+  return {
+    context: {
+      getCurrentView: () => {
+        if (options.resolveHostContext) {
+          const hostContext = options.resolveHostContext();
+          const getSelectedItems = contextApi?.getSelectedItems;
+          const selectedItems =
+            typeof getSelectedItems === "function" ? getSelectedItems() : [];
+          return {
+            ...hostContext,
+            selectedItems,
+          };
+        }
+        const getCurrentView = contextApi?.getCurrentView;
+        if (typeof getCurrentView === "function") {
+          return getCurrentView();
+        }
+        const hostContext = options.resolveHostContext?.() || {
+          target: "library",
+          selectionEmpty: true,
+        };
+        const getSelectedItems = contextApi?.getSelectedItems;
+        const selectedItems =
+          typeof getSelectedItems === "function" ? getSelectedItems() : [];
+        return {
+          ...hostContext,
+          selectedItems,
+        };
+      },
+      getSelectedItems: () => {
+        const getSelectedItems = contextApi?.getSelectedItems;
+        return typeof getSelectedItems === "function" ? getSelectedItems() : [];
+      },
+    },
+    library: libraryApi || {},
+    mutations: mutationsApi || {},
+  } as unknown as ZoteroHostCapabilityBrokerApis;
 }
 
 function summarizeCurrentView(context: AcpHostContext) {
@@ -2743,7 +2796,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_LAYOUT,
     title: "Get Synthesis citation graph layout",
     description:
-      "Read persisted citation graph layout coordinates for an explicit full graph or bounded subgraph query. This tool never rebuilds the graph or recomputes layout; use scope:\"full\" for full graph layout.",
+      'Read persisted citation graph layout coordinates for an explicit full graph or bounded subgraph query. This tool never rebuilds the graph or recomputes layout; use scope:"full" for full graph layout.',
     method: "getCitationGraphLayout",
     properties: {
       scope: { type: "string", enum: ["full"] },
@@ -3216,11 +3269,29 @@ function summarizeHostBridgeCapabilityResult(
   }
   const payload = isPlainObject(data) ? data : {};
   const parts = [`${capabilityName} Host Bridge capability result.`];
+  if (capabilityName === "context.get_current_view" && isPlainObject(data)) {
+    parts.push(summarizeCurrentView(data as unknown as AcpHostContext));
+    if (Array.isArray(payload.selectedItems)) {
+      parts.push(`selectedItems=${payload.selectedItems.length}`);
+    }
+  }
+  if (capabilityName === "context.get_selected_items" && Array.isArray(data)) {
+    parts.push(`selectedItems=${data.length}`);
+    data.slice(0, 5).forEach((item) => {
+      if (isPlainObject(item)) {
+        parts.push(formatItemLine(item as Partial<ZoteroHostItemSummaryDto>));
+      }
+    });
+    parts.push("next=library.get_item_detail");
+  }
   for (const key of [
     "status",
     "state",
     "summary",
     "message",
+    "operation",
+    "nextCursor",
+    "next_cursor",
     "total",
     "returned",
     "hasMore",
@@ -3235,12 +3306,121 @@ function summarizeHostBridgeCapabilityResult(
   }
   if (Array.isArray(payload.items)) {
     parts.push(`items=${payload.items.length}`);
+    payload.items.slice(0, 5).forEach((item) => {
+      if (isPlainObject(item)) {
+        parts.push(formatItemLine(item as Partial<ZoteroHostItemSummaryDto>));
+      }
+    });
+    if (capabilityName === "library.list_items") {
+      parts.push("next=library.get_item_detail");
+    }
+  }
+  if (capabilityName === "library.get_item_detail" && isPlainObject(data)) {
+    parts.push(formatItemLine(data as Partial<ZoteroHostItemSummaryDto>));
+    const fields = isPlainObject(payload.fields) ? payload.fields : {};
+    for (const key of ["DOI", "url", "abstractNote"]) {
+      if (fields[key] !== undefined) {
+        parts.push(`${key}=${compactText(fields[key], 240)}`);
+      }
+    }
+    parts.push("next=library.get_item_notes");
+    parts.push("next=library.get_item_attachments");
+  }
+  if (capabilityName === "library.get_item_notes" && Array.isArray(data)) {
+    parts.push(`notes=${data.length}`);
+    data.slice(0, 5).forEach((note) => {
+      if (isPlainObject(note)) {
+        parts.push(formatNoteLine(note as Partial<ZoteroHostNoteDto>));
+      }
+    });
+    parts.push("next=library.get_note_detail");
+  }
+  if (Array.isArray(payload.notes)) {
+    parts.push(`notes=${payload.notes.length}`);
+    payload.notes.slice(0, 5).forEach((note) => {
+      if (isPlainObject(note)) {
+        parts.push(formatNoteLine(note as Partial<ZoteroHostNoteDto>));
+      }
+    });
+    parts.push("next=library.get_note_detail");
+  }
+  if (capabilityName === "library.get_note_detail" && isPlainObject(data)) {
+    parts.push(formatNoteLine(data as Partial<ZoteroHostNoteDto>));
+    if (payload.offset !== undefined && payload.nextOffset !== undefined) {
+      parts.push(`range=${payload.offset}-${payload.nextOffset}`);
+    }
+    if (payload.nextOffset !== undefined) {
+      parts.push(`nextOffset=${compactText(payload.nextOffset)}`);
+    }
+    if (payload.totalChars !== undefined) {
+      parts.push(`totalChars=${compactText(payload.totalChars)}`);
+    }
+    if (payload.hasMore !== undefined) {
+      parts.push(`hasMore=${Boolean(payload.hasMore)}`);
+    }
+  }
+  if (capabilityName === "library.list_note_payloads" && Array.isArray(data)) {
+    parts.push(`payloads=${data.length}`);
+    data.slice(0, 5).forEach((entry) => {
+      if (isPlainObject(entry)) {
+        parts.push(formatPayloadLine(entry as ZoteroHostNotePayloadSummaryDto));
+      }
+    });
+    parts.push("next=library.get_note_payload");
+  }
+  if (Array.isArray(payload.payloads)) {
+    parts.push(`payloads=${payload.payloads.length}`);
+    payload.payloads.slice(0, 5).forEach((entry) => {
+      if (isPlainObject(entry)) {
+        parts.push(formatPayloadLine(entry as ZoteroHostNotePayloadSummaryDto));
+      }
+    });
+    parts.push("next=library.get_note_payload");
+  }
+  if (capabilityName === "library.get_note_payload" && isPlainObject(data)) {
+    parts.push(formatPayloadLine(data as ZoteroHostNotePayloadSummaryDto));
+    if (payload.nextOffset !== undefined) {
+      parts.push(`nextOffset=${compactText(payload.nextOffset)}`);
+    }
+    if (payload.totalChars !== undefined) {
+      parts.push(`totalChars=${compactText(payload.totalChars)}`);
+    }
+    if (payload.hasMore !== undefined) {
+      parts.push(`hasMore=${Boolean(payload.hasMore)}`);
+    }
+  }
+  if (
+    Array.isArray(data) &&
+    capabilityName === "library.get_item_attachments"
+  ) {
+    parts.push(`attachments=${data.length}`);
+    data.slice(0, 5).forEach((attachment) => {
+      if (isPlainObject(attachment)) {
+        parts.push(formatAttachmentLine(attachment as ZoteroHostAttachmentDto));
+      }
+    });
   }
   if (Array.isArray(payload.rows)) {
     parts.push(`rows=${payload.rows.length}`);
   }
   if (Array.isArray(payload.tasks)) {
     parts.push(`tasks=${payload.tasks.length}`);
+  }
+  if (isPlainObject(payload.result)) {
+    if (payload.result.summary) {
+      parts.push(`result.summary=${compactText(payload.result.summary)}`);
+    }
+    if (Array.isArray(payload.result.items)) {
+      parts.push(`result.items=${payload.result.items.length}`);
+    }
+    if (isPlainObject(payload.result.ingest)) {
+      parts.push(`ingest.status=${compactText(payload.result.ingest.status)}`);
+      parts.push(
+        `ingest.attachmentStatus=${compactText(
+          payload.result.ingest.attachmentStatus,
+        )}`,
+      );
+    }
   }
   return parts.join(" ");
 }
@@ -3259,14 +3439,17 @@ async function requestCapabilityApprovalForMcp(args: {
   const previewCapability = getHostBridgeCapability("mutation.preview");
   const preview =
     args.capability.name === "mutation.execute" && previewCapability
-        ? ((await previewCapability.handler(args.input, {
-            getStatus:
-              args.context.options.resolveHostBridgeStatus ||
-              (() =>
-                (args.context.options.resolveMcpStatus?.() ||
-                  {}) as HostBridgeStatusSnapshot),
-            connectionMode: "local",
-          })) as ZoteroHostMutationPreviewResponse)
+      ? ((await previewCapability.handler(args.input, {
+          getStatus:
+            args.context.options.resolveHostBridgeStatus ||
+            (() =>
+              (args.context.options.resolveMcpStatus?.() ||
+                {}) as HostBridgeStatusSnapshot),
+          connectionMode: "local",
+          resolveHostBridgeApis: () =>
+            resolveHostBridgeApis(args.context.options, args.context.hostApi),
+          resolveSynthesisService: args.context.options.resolveSynthesisService,
+        })) as ZoteroHostMutationPreviewResponse)
       : ({
           ok: true,
           operation: args.capability.name,
@@ -3274,8 +3457,16 @@ async function requestCapabilityApprovalForMcp(args: {
           targetRefs: [],
         } as unknown as ZoteroHostMutationPreviewResponse);
   if (preview && preview.ok === false) {
+    const previewError = preview as {
+      summary?: unknown;
+      error?: { message?: unknown };
+    };
     throw new ZoteroMcpToolInputError(
-      preview.summary || "Host Bridge mutation preview failed",
+      String(
+        previewError.summary ||
+          previewError.error?.message ||
+          "Host Bridge mutation preview failed",
+      ),
       preview,
     );
   }
@@ -3336,6 +3527,8 @@ async function callHostBridgeCapabilityAsMcpTool(
         (context.options.resolveMcpStatus?.() ||
           {}) as HostBridgeStatusSnapshot),
     connectionMode: "local",
+    resolveHostBridgeApis: () =>
+      resolveHostBridgeApis(context.options, context.hostApi),
     resolveSynthesisService: context.options.resolveSynthesisService,
   });
   return buildToolResult({

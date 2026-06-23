@@ -888,6 +888,7 @@ export async function resolveBackendForWorkflow(
   workflow: LoadedWorkflow,
   options?: {
     preferredBackendId?: string;
+    strictPreferredBackendId?: boolean;
   },
 ) {
   const loaded = await loadBackendsRegistry();
@@ -916,10 +917,14 @@ export async function resolveBackendForWorkflow(
   }
 
   const preferredBackendId = String(options?.preferredBackendId || "").trim();
+  const strictPreferredBackendId = options?.strictPreferredBackendId !== false;
   if (preferredBackendId) {
     const preferredMatched = byId.get(preferredBackendId);
     if (preferredMatched) {
       if (!compatibleBackendTypes.includes(preferredMatched.type)) {
+        if (!strictPreferredBackendId) {
+          return backendsByType[0];
+        }
         throw new Error(
           `Unknown or incompatible backendId "${preferredBackendId}" for workflow ${workflow.manifest.id} (compatible types=${compatibleBackendTypes.join(",")})`,
         );
@@ -928,9 +933,15 @@ export async function resolveBackendForWorkflow(
     }
     const preferredInvalidReason = loaded.invalidBackends[preferredBackendId];
     if (preferredInvalidReason) {
+      if (!strictPreferredBackendId) {
+        return backendsByType[0];
+      }
       throw new Error(
         `Backend "${preferredBackendId}" is invalid for workflow ${workflow.manifest.id}: ${preferredInvalidReason}`,
       );
+    }
+    if (!strictPreferredBackendId) {
+      return backendsByType[0];
     }
     throw new Error(
       `Unknown or incompatible backendId "${preferredBackendId}" for workflow ${workflow.manifest.id} (compatible types=${compatibleBackendTypes.join(",")})`,

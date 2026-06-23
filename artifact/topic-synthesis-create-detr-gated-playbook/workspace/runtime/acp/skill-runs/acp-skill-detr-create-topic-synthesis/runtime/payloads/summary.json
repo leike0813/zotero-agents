@@ -1,5 +1,4 @@
 {
-  "diagnostics": [],
   "key_takeaways": [
     "DETR 的主题边界应限定为 query-based end-to-end object detection，避免混入泛 Transformer 或 DINOv3 表征文献。",
     "收敛效率和 query/anchor 设计是 DETR-family 最核心的改进轴。",

@@ -161,10 +161,11 @@ function resolveSourceAttachmentPathsFromSelection(selectionContext: SelectionLi
   return Array.from(new Set(paths));
 }
 
-function resolveTaskNameFromSelection(args: {
+export function resolveTaskNameFromSelection(args: {
   selectionContext: SelectionLike;
   targetParentID: number | null;
   sourceAttachmentPaths: string[];
+  workflowLabel?: string;
 }) {
   if (args.sourceAttachmentPaths.length > 0) {
     return getBaseName(args.sourceAttachmentPaths[0]);
@@ -183,7 +184,10 @@ function resolveTaskNameFromSelection(args: {
   if (args.targetParentID) {
     return `item-${args.targetParentID}`;
   }
-  return "task";
+  if (args.workflowLabel) {
+    return `Workflow: ${args.workflowLabel}`;
+  }
+  return "Task";
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
@@ -277,6 +281,7 @@ function withNormalizedSkillRunnerRuntimeOptions(args: {
 function enrichRequestWithSelectionMeta(
   request: unknown,
   selectionContext: SelectionLike,
+  workflowLabel?: string,
 ) {
   if (!request || typeof request !== "object" || Array.isArray(request)) {
     throw new Error("buildRequest must return an object request payload");
@@ -308,6 +313,7 @@ function enrichRequestWithSelectionMeta(
           ? normalized.targetParentID
           : targetParentID,
       sourceAttachmentPaths,
+      workflowLabel,
     });
   }
   return normalized;
@@ -950,6 +956,7 @@ export async function executeBuildRequests(args: {
                 }),
             }),
             selectionContext,
+            args.workflow.manifest.label,
           );
           const finalBuiltRequest = withNormalizedSkillRunnerRuntimeOptions({
             workflow: args.workflow,
@@ -985,6 +992,7 @@ export async function executeBuildRequests(args: {
             executionOptions: args.executionOptions,
           }),
           selectionContext,
+          args.workflow.manifest.label,
         );
         const finalCompiledRequest = withNormalizedSkillRunnerRuntimeOptions({
           workflow: args.workflow,

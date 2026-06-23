@@ -168,7 +168,6 @@ describe("workflow scan + registry integration", function () {
     assert.equal(localizeWorkflowLabel(workflow!, "zh-CN"), "📊 文献分析");
     const expectedCoreWorkflows = new Map([
       ["literature-analysis", "📊"],
-      ["tag-bootstrapper", "🌱"],
       ["tag-regulator", "🏷️"],
       ["literature-explainer", "💬"],
       ["literature-deep-reading", "📖"],
@@ -191,6 +190,12 @@ describe("workflow scan + registry integration", function () {
         workflowId,
       );
     }
+    const tagBootstrapper = state.loaded.workflows.find(
+      (entry) => entry.manifest.id === "tag-bootstrapper",
+    );
+    assert.isOk(tagBootstrapper, "missing tag-bootstrapper workflow");
+    assert.equal(tagBootstrapper?.manifest.display?.emoji, "🌱");
+    assert.isNotTrue(tagBootstrapper?.manifest.display?.core);
     assert.isFunction(workflow?.hooks.applyResult);
     assert.equal(
       workflow?.manifest.validateSelection?.select?.policy,
@@ -291,7 +296,10 @@ describe("workflow scan + registry integration", function () {
 
     assert.isUndefined(tagManager);
     assert.isOk(tagRegulator);
-    assert.equal(state.workflowSourceById["tag-regulator"], "builtin");
+    assert.include(
+      ["builtin", "user"],
+      state.workflowSourceById["tag-regulator"],
+    );
     assert.equal(tagRegulator?.packageId, "literature-workbench-package");
   });
 

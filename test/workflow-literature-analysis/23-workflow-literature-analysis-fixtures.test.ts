@@ -1,8 +1,8 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
 import { createHookHelpers } from "../../src/workflows/helpers";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
-import { executeBuildRequests } from "../../src/workflows/runtime";
 import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import {
@@ -18,10 +18,17 @@ type FilteredSelection = {
 type BuiltRequest = {
   kind: string;
   targetParentID: number;
-  skill_id?: string;
-  parameter?: { language?: string };
-  input?: { source_path?: string };
-  upload_files?: Array<{ key: string; path: string }>;
+  sourceAttachmentPaths?: string[];
+  steps?: Array<{
+    id?: string;
+    skill_id?: string;
+    input?: { source_path?: string };
+    parameter?: { language?: string };
+    fetch_type?: string;
+    workspace?: string;
+    apply_result?: { workflow_id?: string; on_failure?: string };
+  }>;
+  final_step_id?: string;
 };
 
 type WorkflowParameterSpec = {
@@ -109,6 +116,51 @@ describeFixtureMatrixSuite("workflow: literature-analysis fixture matrix", funct
     helpers: createHookHelpers(Zotero),
   };
 
+  function createFixtureRequestRuntime() {
+    const baseHostApi = createWorkflowHostApi();
+    return {
+      ...hookRuntime,
+      hostApi: {
+        ...baseHostApi,
+        synthesis: {
+          ...(baseHostApi as any).synthesis,
+          async exportTagVocabularyForRegulator() {
+            return {
+              entries: [
+                {
+                  tag: "topic:fixture",
+                  facet: "topic",
+                  deprecated: false,
+                },
+              ],
+            };
+          },
+        },
+      },
+      helpers: {
+        ...hookRuntime.helpers,
+        resolveItemRef(ref: number | string) {
+          const id = Number(ref);
+          return {
+            id,
+            key: `fixture-parent-${id}`,
+            itemType: "journalArticle",
+            libraryID: 1,
+            getField(field: string) {
+              return field === "title" ? `Fixture Parent ${id}` : "";
+            },
+            getCreators() {
+              return [];
+            },
+            getTags() {
+              return [];
+            },
+          };
+        },
+      },
+    };
+  }
+
   before(async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const found = loaded.workflows.find(
@@ -142,11 +194,36 @@ describeFixtureMatrixSuite("workflow: literature-analysis fixture matrix", funct
     });
 
     it(`keeps request generation stable for ${fixtureCase.name}`, async function () {
-      const requests = (await executeBuildRequests({
+      const validation = await evaluateWorkflowSelection({
         workflow,
         selectionContext: fixtureCase.context,
         runtime: hookRuntime,
-      })) as BuiltRequest[];
+        mode: "execute",
+      });
+      const expectedPathSet = new Set(fixtureCase.expectedFilteredPaths);
+      const requestSelectionContexts = validation.scopedSelectionContexts.filter(
+        (selectionContext) => {
+          const firstPath = String(
+            (selectionContext as FilteredSelection).items?.attachments?.[0]
+              ?.filePath || "",
+          );
+          return expectedPathSet.has(firstPath);
+        },
+      );
+      const requests = (await Promise.all(
+        requestSelectionContexts.map((selectionContext) =>
+          workflow.hooks.buildRequest!({
+            selectionContext,
+            manifest: workflow.manifest,
+            executionOptions: {
+              workflowParams: {
+                auto_tag_regulator: false,
+              },
+            },
+            runtime: createFixtureRequestRuntime() as never,
+          }),
+        ),
+      )) as BuiltRequest[];
       assert.lengthOf(requests, fixtureCase.expectedRequests.length);
 
       for (let i = 0; i < requests.length; i++) {
@@ -154,14 +231,20 @@ describeFixtureMatrixSuite("workflow: literature-analysis fixture matrix", funct
         const expected = fixtureCase.expectedRequests[i];
         const languageDefault = (workflow.manifest.parameters?.language as WorkflowParameterSpec)
           ?.default;
+        const digestStep = request.steps?.find((step) => step.id === "digest");
 
-        assert.equal(request.kind, "skillrunner.job.v1");
+        assert.equal(request.kind, "skillrunner.sequence.v1");
         assert.equal(request.targetParentID, expected.targetParentID);
-        assert.equal(request.skill_id, "literature-analysis");
-        assert.equal(request.parameter?.language, languageDefault);
-        assert.equal(request.upload_files?.[0].key, "source_path");
-        assert.equal(request.upload_files?.[0].path, expected.uploadPath);
-        assert.match(String(request.input?.source_path || ""), /^inputs\/source_path\//);
+        assert.deepEqual(request.sourceAttachmentPaths, [expected.uploadPath]);
+        assert.equal(request.final_step_id, "digest");
+        assert.isOk(digestStep, "digest sequence step should exist");
+        assert.equal(digestStep?.skill_id, "literature-analysis");
+        assert.equal(digestStep?.workspace, "new");
+        assert.equal(digestStep?.fetch_type, "bundle");
+        assert.equal(digestStep?.apply_result?.workflow_id, "literature-analysis");
+        assert.equal(digestStep?.apply_result?.on_failure, "continue");
+        assert.equal(digestStep?.input?.source_path, expected.uploadPath);
+        assert.equal(digestStep?.parameter?.language, languageDefault);
       }
     });
   }

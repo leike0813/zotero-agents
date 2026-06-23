@@ -4740,19 +4740,19 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     ]);
     assert.deepEqual(
       hints.map((hint) => hint.literatureItemId),
-      ["lit:candidate"],
+      ["1:DETR", "lit:candidate"],
     );
     assert.deepEqual(
       acceptedHints.map((hint) => hint.literatureItemId),
-      ["1:DETR"],
+      ["1:DETR", "lit:candidate"],
     );
     assert.equal(state.freshness, "fresh");
     assert.equal(state.known_dependency_status, "fresh");
     assert.equal(state.discovery_status, "candidates");
-    assert.equal(state.candidate_count, 1);
+    assert.equal(state.candidate_count, 2);
     assert.equal(snapshotRow?.freshness, "fresh");
     assert.equal(snapshotRow?.discovery_status, "candidates");
-    assert.equal(snapshotRow?.candidate_count, 1);
+    assert.equal(snapshotRow?.candidate_count, 2);
     assert.deepInclude(snapshotRow?.updateIntent || {}, {
       topicId: "object-detection",
       updateMode: "update_patch",
@@ -4763,7 +4763,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(topicContext.freshness?.discovery_status, "candidates");
     assert.deepEqual(
       (topicContext.discovery_hints || []).map((hint) => hint.literatureItemId),
-      ["lit:candidate"],
+      ["1:DETR", "lit:candidate"],
     );
 
     repository.upsertLiteratureMatchingMetadata({
@@ -4785,14 +4785,14 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(refreshedState.freshness, "fresh");
     assert.equal(refreshedState.known_dependency_status, "fresh");
     assert.equal(refreshedState.discovery_status, "candidates");
-    assert.equal(refreshedState.candidate_count, 1);
+    assert.equal(refreshedState.candidate_count, 2);
     assert.deepEqual(
       refreshedHints.map((hint) => hint.literatureItemId),
-      ["lit:candidate"],
+      ["1:DETR", "lit:candidate"],
     );
     assert.deepEqual(
       refreshedAcceptedHints.map((hint) => hint.literatureItemId),
-      ["1:DETR"],
+      ["1:DETR", "lit:candidate"],
     );
 
     repository.upsertTopicGraphNode({
@@ -4833,13 +4833,13 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       (cascadedContext.discovery_hints || []).map(
         (hint) => hint.literatureItemId,
       ),
-      ["lit:candidate", "lit:child-new"],
+      ["1:DETR", "lit:candidate", "lit:child-new"],
     );
     const cascadedSnapshot = await service.getSynthesisSnapshot();
     const cascadedSnapshotRow = cascadedSnapshot.artifacts.rows.find(
       (row) => row.id === "object-detection",
     );
-    assert.equal(cascadedSnapshotRow?.candidate_count, 2);
+    assert.equal(cascadedSnapshotRow?.candidate_count, 3);
     assert.deepEqual(
       repository
         .listTopicDiscoveryHints({

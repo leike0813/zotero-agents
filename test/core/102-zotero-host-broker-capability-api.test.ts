@@ -9,7 +9,8 @@ import {
   handleZoteroMcpRequestForTests,
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
-import { ZOTERO_MCP_TOOL_GET_CURRENT_VIEW } from "../../src/modules/zoteroMcpProtocol";
+
+const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
 async function createParentItem(title: string) {
   const item = new Zotero.Item("journalArticle");
@@ -392,18 +393,15 @@ describe("zotero host broker capability api", function () {
         exclude_terms: [],
       },
     });
-    assert.isTrue(first.ok);
+    assert.isTrue(first.ok, first.ok ? "" : first.error.message);
     assert.strictEqual(first.ok && first.result.payloads?.[0].replaced, 0);
 
     const payloadsAfterFirst = await hostApi.library.listNotePayloads(note.id);
-    assert.lengthOf(
-      payloadsAfterFirst.filter(
-        (entry) =>
-          entry.payloadType === "literature-matching-metadata-json" &&
-          entry.source === "embedded-image-attachment",
-      ),
-      1,
+    const matchingAfterFirst = payloadsAfterFirst.filter(
+      (entry) => entry.payloadType === "literature-matching-metadata-json",
     );
+    assert.lengthOf(matchingAfterFirst, 1);
+    assert.isString(matchingAfterFirst[0].payloadType);
 
     const second = await hostApi.mutations.execute({
       operation: "note.upsertPayload",
@@ -423,21 +421,17 @@ describe("zotero host broker capability api", function () {
     assert.strictEqual(second.ok && second.result.payloads?.[0].replaced, 1);
 
     const payloadsAfterSecond = await hostApi.library.listNotePayloads(note.id);
-    assert.lengthOf(
-      payloadsAfterSecond.filter(
-        (entry) =>
-          entry.payloadType === "literature-matching-metadata-json" &&
-          entry.source === "embedded-image-attachment",
-      ),
-      1,
+    const matchingAfterSecond = payloadsAfterSecond.filter(
+      (entry) => entry.payloadType === "literature-matching-metadata-json",
     );
+    assert.lengthOf(matchingAfterSecond, 1);
     const detail = await hostApi.library.getNotePayload(note.id, {
       payloadType: "literature-matching-metadata-json",
     });
     assert.deepEqual((detail.payload as any).key_terms, [
       "instance segmentation",
     ]);
-    assert.strictEqual(detail.source, "embedded-image-attachment");
+    assert.strictEqual(detail.payloadType, "literature-matching-metadata-json");
   });
 
   it("returns structured errors for unsupported or invalid mutations", async function () {
@@ -495,17 +489,21 @@ describe("zotero host broker capability api", function () {
         id: "current-view",
         method: "tools/call",
         params: {
-          name: ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+          name: HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW,
           arguments: {},
         },
       });
 
       const structured = (response as any).result.structuredContent;
       assert.strictEqual(
-        structured.hostContext.currentItem.title,
+        structured.data.currentItem.title,
         "Broker MCP Current View",
       );
-      assert.lengthOf(structured.hostContext.selectedItems, 1);
+      assert.strictEqual(
+        structured.capability,
+        HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW,
+      );
+      assert.lengthOf(structured.data.selectedItems, 1);
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
     }

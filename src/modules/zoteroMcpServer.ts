@@ -17,7 +17,6 @@ import {
 import { getPref, setPref } from "../utils/prefs";
 import {
   handleZoteroMcpJsonRpc,
-  ZOTERO_MCP_TOOL_GET_MCP_STATUS,
   ZOTERO_MCP_TOOL_LIBRARY_INDEX_GET,
   ZOTERO_MCP_TOOL_PAPER_ARTIFACTS_EXPORT_FILTERED,
   ZOTERO_MCP_TOOL_RESOLVERS_RESOLVE,
@@ -27,6 +26,8 @@ import {
   type ZoteroMcpToolPermissionDecision,
   type ZoteroMcpToolPermissionRequest,
 } from "./zoteroMcpProtocol";
+
+const ZOTERO_MCP_STATUS_TOOL_NAME = "diagnostic.get_status";
 
 export type ZoteroMcpServerStatus =
   | "idle"
@@ -1576,7 +1577,7 @@ function payloadContainsQueuedToolCall(payload: unknown): boolean {
     const toolName = String(
       params?.name || params?.toolName || params?.tool || "",
     ).trim();
-    return toolName !== ZOTERO_MCP_TOOL_GET_MCP_STATUS;
+    return toolName !== ZOTERO_MCP_STATUS_TOOL_NAME;
   });
 }
 

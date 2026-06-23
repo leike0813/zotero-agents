@@ -74,7 +74,7 @@ describe("workflow: tag-bootstrapper", function () {
     );
   });
 
-  it("loads builtin workflow as a no-selection core workflow", async function () {
+  it("loads builtin workflow as a no-selection auxiliary workflow", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(
       (entry) => entry.manifest.id === "tag-bootstrapper",
@@ -89,8 +89,10 @@ describe("workflow: tag-bootstrapper", function () {
         )} warnings=${JSON.stringify(loaded.warnings)} errors=${JSON.stringify(loaded.errors)}`,
     );
     assert.equal(workflow?.manifest.trigger?.requiresSelection, false);
-    assert.isTrue(workflow?.manifest.display?.core);
+    assert.equal(workflow?.manifest.inputs?.unit, "workflow");
+    assert.equal(workflow?.manifest.display?.core, false);
     assert.isTrue(workflow?.manifest.execution?.zoteroHostAccess?.required);
+    assert.equal(workflow?.manifest.request?.kind, "skillrunner.job.v1");
     assert.equal(
       workflow?.manifest.request?.create?.skill_id,
       "tag-bootstrapper",

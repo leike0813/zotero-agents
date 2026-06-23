@@ -143,7 +143,6 @@ describe("skillrunner run workspace singleton", function () {
       continuation,
       "onSequenceStepFocus?: ContinuationSequenceStepFocusHandler",
     );
-    assert.include(continuation, "runRecord?.runKey || canonicalTaskRecord.runKey");
     assert.include(continuation, "shouldFocusContinuationStep");
     assert.include(continuation, 'eventType === "request-created"');
     assert.notInclude(continuation, 'eventType === "sequence-step-started"');

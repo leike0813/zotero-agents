@@ -3,11 +3,7 @@ import { getString } from "../utils/locale";
 import { buildSelectionContext } from "./selectionContext";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
-import { resolveProvider } from "../providers/registry";
-import {
-  buildWorkflowSettingsUiDescriptor,
-  resolveWorkflowExecutionContext,
-} from "./workflowSettings";
+import { resolveWorkflowExecutionOptionsPreview } from "./workflowSettings";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
 import { shouldShowWorkflowNotifications } from "./workflowExecution/feedbackPolicy";
@@ -235,28 +231,16 @@ export async function rebuildWorkflowActionPopup(
       );
     } else if (shouldPreflightWorkflowInputs) {
       try {
-        const executionContext = await resolveWorkflowExecutionContext({
+        const executionOptionsPreview = resolveWorkflowExecutionOptionsPreview({
           workflow,
         });
-        resolveProvider({
-          requestKind: executionContext.requestKind,
-          backend: executionContext.backend,
-        });
-        const descriptor = await buildWorkflowSettingsUiDescriptor({
-          workflow,
-          candidateBackends: [executionContext.backend],
-          resolveDynamicOptions: false,
-        });
-        if (descriptor.blockedReason) {
-          throw new Error(descriptor.blockedReason);
-        }
         const selectionValidation = await evaluateWorkflowSelection({
           workflow,
           selectionContext,
           mode: "menu",
           executionOptions: {
-            workflowParams: executionContext.workflowParams,
-            providerOptions: executionContext.providerOptions,
+            workflowParams: executionOptionsPreview.workflowParams,
+            providerOptions: executionOptionsPreview.providerOptions,
           },
         });
         if (selectionValidation.state === "disabled") {

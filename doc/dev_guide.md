@@ -115,6 +115,9 @@ Provider runtime options：
 
 - 由 provider 自身声明 schema
 - workflow settings 可配置 persisted/run-once 两套参数
+- persisted `backendId` 只是提交窗口和执行上下文解析的默认偏好；若该 backend
+  已不存在或与 workflow provider 不兼容，UI 应回退到其它兼容 backend，而不是把
+  workflow 菜单项禁用。
 - skillrunner 支持 `engine/provider_id/model/effort/no_cache/interactive_auto_reply/hard_timeout_seconds`（model 随 engine/provider 动态刷新）
 
 SkillRunner skill source：
@@ -141,6 +144,10 @@ SkillRunner skill source：
 4. JobQueue 执行 provider
 5. 对 foreground-owned provider 结果调用 `applyResult`；SkillRunner 正常单体与 sequence 路径在前台 poll/fetch/apply，reconciler 只处理 recovery-owned settlement
 6. 汇总 succeeded/failed/skipped/pending 消息
+
+菜单可调用性只负责 selection/input 层面的轻量预检。backend 是否存在、默认
+backend 是否仍可用、以及所选 backend 的连接状态，只能在提交窗口或最终执行所选
+profile 时反馈，不能作为菜单门禁。
 
 ## 8. Dashboard 与日志窗口
 

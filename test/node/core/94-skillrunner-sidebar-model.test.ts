@@ -92,7 +92,7 @@ describe("skillrunner sidebar model", function () {
     );
   });
 
-  it("builds running/completed drawer sections and hides invalid or terminal runs outside succeeded", function () {
+  it("builds running/completed drawer sections and keeps terminal run rows", function () {
     const sections = buildSkillRunnerSidebarSections({
       groups: [
         {
@@ -241,8 +241,11 @@ describe("skillrunner sidebar model", function () {
     assert.lengthOf(sections[0].groups[0].finishedTasks, 0);
     assert.lengthOf(sections[1].groups, 1);
     assert.lengthOf(sections[1].groups[0].activeTasks, 0);
-    assert.lengthOf(sections[1].groups[0].finishedTasks, 1);
-    assert.equal(sections[1].groups[0].finishedTasks[0].requestId, "req-3");
+    assert.lengthOf(sections[1].groups[0].finishedTasks, 3);
+    assert.sameMembers(
+      sections[1].groups[0].finishedTasks.map((task) => task.requestId),
+      ["req-3", "req-4", "req-5"],
+    );
   });
 
   it("keeps pre-ready selectable tasks visible without a backend request id", function () {

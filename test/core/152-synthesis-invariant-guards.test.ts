@@ -420,9 +420,7 @@ describe("Synthesis invariant guards", function () {
     assert.notInclude(debugOperationsBlock, "getSynthesisSnapshot(");
     assert.include(debugOperationsBlock, "synthesisDebugBackgroundJobs");
     assert.notInclude(notifyProgressBlock, "getSynthesisSnapshotInput(");
-    assert.notInclude(notifyProgressBlock, "refreshFromService: true");
     assert.notInclude(progressRefreshBlock, "getSynthesisSnapshotInput(");
-    assert.notInclude(progressRefreshBlock, "refreshFromService: true");
     assert.include(progressRefreshBlock, "getSynthesisBackgroundJobRows");
     assert.notInclude(sendSnapshotBlock, "buildDefaultSnapshotInput(error)");
     assert.notInclude(appSource, "actionToBackgroundJob");

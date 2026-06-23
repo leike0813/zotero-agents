@@ -31,6 +31,7 @@ import {
 } from "./workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
 import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/modules/skillRunnerInteractiveAutoReply";
+import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 const itZoteroFullOrNode =
@@ -45,8 +46,10 @@ describe("workflow settings execution", function () {
   const workflowSettingsPrefKey = `${config.prefsPrefix}.workflowSettingsJson`;
   let prevBackendsConfigPref: unknown;
   let prevWorkflowSettingsPref: unknown;
+  let restorePrefs: (() => void) | undefined;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     prevBackendsConfigPref = Zotero.Prefs.get(backendsConfigPrefKey, true);
     prevWorkflowSettingsPref = Zotero.Prefs.get(workflowSettingsPrefKey, true);
 
@@ -101,6 +104,8 @@ describe("workflow settings execution", function () {
     } else {
       Zotero.Prefs.set(workflowSettingsPrefKey, prevWorkflowSettingsPref, true);
     }
+    restorePrefs?.();
+    restorePrefs = undefined;
   });
 
   it("applies persisted workflow params/provider options/profile to request build", async function () {
@@ -1299,6 +1304,38 @@ describe("workflow settings execution", function () {
       assert.isFalse(
         descriptor.profiles.some((entry) => entry.id === "generic-http-local"),
       );
+    },
+  );
+
+  itNodeOnly(
+    "falls back from incompatible persisted backendId but keeps explicit override strict",
+    async function () {
+      updateWorkflowSettings("literature-analysis", {
+        backendId: "generic-http-local",
+      });
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-analysis",
+      );
+      assert.isOk(workflow);
+
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.backend.id, "skillrunner-primary");
+
+      try {
+        await resolveWorkflowExecutionContext({
+          workflow: workflow!,
+          executionOptionsOverride: {
+            backendId: "generic-http-local",
+          },
+        });
+        assert.fail("expected explicit incompatible backend override to fail");
+      } catch (error) {
+        assert.match(String(error), /Unknown or incompatible backendId/);
+      }
     },
   );
 

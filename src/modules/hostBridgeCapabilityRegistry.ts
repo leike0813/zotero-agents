@@ -38,8 +38,13 @@ import type {
 export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
+  resolveHostBridgeApis?: () => ZoteroHostCapabilityBrokerApis;
   resolveSynthesisService?: () => SynthesisMcpService;
 };
+
+export type ZoteroHostCapabilityBrokerApis = ReturnType<
+  typeof createZoteroHostCapabilityBrokerApis
+>;
 
 export type HostBridgeCapabilityHandler = (
   input: unknown,
@@ -71,6 +76,15 @@ function itemRefFromInput(input: unknown): ZoteroHostItemRefInput {
     return object.ref as ZoteroHostItemRefInput;
   }
   return input as ZoteroHostItemRefInput;
+}
+
+function libraryListArgsFromInput(input: unknown): ZoteroHostLibraryListArgs {
+  const args = { ...asObject(input) } as ZoteroHostLibraryListArgs;
+  const limit = Number(args.limit);
+  if (Number.isFinite(limit) && limit > 50) {
+    args.limit = 50;
+  }
+  return args;
 }
 
 function normalizeJsonSafeValue(value: unknown): unknown {
@@ -114,11 +128,19 @@ async function toBridgeAttachmentDescriptor(
   };
 }
 
-async function toBridgeAttachmentDescriptors(input: unknown) {
-  const attachments =
-    await createZoteroHostCapabilityBrokerApis().library.getItemAttachments(
-      itemRefFromInput(input),
-    );
+function resolveHostBridgeApis(context: HostBridgeCapabilityContext) {
+  return (
+    context.resolveHostBridgeApis?.() || createZoteroHostCapabilityBrokerApis()
+  );
+}
+
+async function toBridgeAttachmentDescriptorsWithContext(
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const attachments = await resolveHostBridgeApis(
+    context,
+  ).library.getItemAttachments(itemRefFromInput(input));
   return Promise.all(attachments.map(toBridgeAttachmentDescriptor));
 }
 
@@ -612,22 +634,33 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "context",
     "Return the active Zotero target, library id, selection state, and current item metadata.",
     { type: "none", required: false },
-    () => createZoteroHostCapabilityBrokerApis().context.getCurrentView(),
+    (_input, context) =>
+      resolveHostBridgeApis(context).context.getCurrentView(),
   ),
   capability(
     "context.get_selected_items",
     "context",
     "Return JSON-safe summaries for the currently selected Zotero items.",
     { type: "none", required: false },
-    () => createZoteroHostCapabilityBrokerApis().context.getSelectedItems(),
+    (_input, context) =>
+      resolveHostBridgeApis(context).context.getSelectedItems(),
   ),
   capability(
     "library.search_items",
     "library",
     "Search regular Zotero library items by bounded text query.",
-    { type: "object", required: true },
-    (input) =>
-      createZoteroHostCapabilityBrokerApis().library.searchItems(
+    {
+      type: "object",
+      required: true,
+      properties: {
+        query: { type: "string", minLength: 1, maxLength: 500 },
+        limit: { type: ["number", "string"], minimum: 1 },
+        libraryId: { type: ["number", "string"] },
+      },
+      requiredProperties: ["query"],
+    },
+    (input, context) =>
+      resolveHostBridgeApis(context).library.searchItems(
         asObject(input) as {
           query: string;
           limit?: number | string;
@@ -639,10 +672,25 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "library.list_items",
     "library",
     "List compact parent Zotero library item summaries with bounded pagination and filters.",
-    { type: "object", required: false },
-    (input) =>
-      createZoteroHostCapabilityBrokerApis().library.listItems(
-        asObject(input) as ZoteroHostLibraryListArgs,
+    {
+      type: "object",
+      required: false,
+      properties: {
+        libraryId: { type: ["number", "string"] },
+        collection: {},
+        collectionId: { type: ["number", "string"] },
+        collectionKey: { type: "string" },
+        collectionLibraryId: { type: ["number", "string"] },
+        tag: { type: "string" },
+        itemType: { type: "string" },
+        query: { type: "string" },
+        limit: { type: ["number", "string"], minimum: 1 },
+        cursor: { type: ["number", "string"] },
+      },
+    },
+    (input, context) =>
+      resolveHostBridgeApis(context).library.listItems(
+        libraryListArgsFromInput(input),
       ),
   ),
   capability(
@@ -650,8 +698,8 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "library",
     "Return detailed JSON-safe metadata for one Zotero item.",
     { type: "item-ref", required: true },
-    (input) =>
-      createZoteroHostCapabilityBrokerApis().library.getItemDetail(
+    (input, context) =>
+      resolveHostBridgeApis(context).library.getItemDetail(
         itemRefFromInput(input),
       ),
   ),
@@ -660,8 +708,8 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "library",
     "Return bounded child note summaries for one Zotero item.",
     { type: "object", required: true },
-    (input) =>
-      createZoteroHostCapabilityBrokerApis().library.getItemNotes(
+    (input, context) =>
+      resolveHostBridgeApis(context).library.getItemNotes(
         itemRefFromInput(input),
         asObject(input),
       ),
@@ -671,8 +719,8 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "library",
     "Read one Zotero note body in bounded chunks.",
     { type: "object", required: true },
-    (input) =>
-      createZoteroHostCapabilityBrokerApis().library.getNoteDetail(
+    (input, context) =>
+      resolveHostBridgeApis(context).library.getNoteDetail(
         itemRefFromInput(input),
         asObject(input) as ZoteroHostNoteDetailArgs,
       ),
@@ -682,8 +730,8 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "library",
     "List workflow note payloads from embedded attachments and legacy payload blocks.",
     { type: "item-ref", required: true },
-    (input) =>
-      createZoteroHostCapabilityBrokerApis().library.listNotePayloads(
+    (input, context) =>
+      resolveHostBridgeApis(context).library.listNotePayloads(
         itemRefFromInput(input),
       ),
   ),
@@ -692,8 +740,8 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "library",
     "Decode one workflow payload from one Zotero note.",
     { type: "object", required: true },
-    (input) =>
-      createZoteroHostCapabilityBrokerApis().library.getNotePayload(
+    (input, context) =>
+      resolveHostBridgeApis(context).library.getNotePayload(
         itemRefFromInput(input),
         asObject(input) as ZoteroHostNotePayloadDetailArgs,
       ),
@@ -703,15 +751,16 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "library",
     "Return child attachment metadata with broker-issued download handles when available.",
     { type: "item-ref", required: true },
-    (input) => toBridgeAttachmentDescriptors(input),
+    (input, context) =>
+      toBridgeAttachmentDescriptorsWithContext(input, context),
   ),
   capability(
     "mutation.preview",
     "mutation",
     "Preview a supported Zotero mutation without executing it.",
     { type: "mutation-preview", required: true },
-    (input) =>
-      createZoteroHostCapabilityBrokerApis().mutations.preview(
+    (input, context) =>
+      resolveHostBridgeApis(context).mutations.preview(
         asObject(input) as ZoteroHostMutationRequest,
       ),
   ),
@@ -720,8 +769,8 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "mutation",
     "Execute a supported Zotero mutation after Zotero-side approval.",
     { type: "mutation-preview", required: true },
-    (input) =>
-      createZoteroHostCapabilityBrokerApis().mutations.execute(
+    (input, context) =>
+      resolveHostBridgeApis(context).mutations.execute(
         asObject(input) as ZoteroHostMutationRequest,
       ),
   ),

@@ -56,8 +56,8 @@ describe("UI render stability contract", function () {
 
     assert.include(synthesis, "dataset.synthesisScrollKey");
     assert.include(synthesis, "dataset.synthesisControlKey");
-    assert.include(synthesis, "dataset.synthesisDetailsKey");
     assert.include(synthesis, "details[data-synthesis-details-key][open]");
+    assert.include(synthesis, 'getAttribute("data-synthesis-details-key")');
     assert.include(workspace, 'root.querySelector(".workspace-panel")');
     assert.include(workspace, "updateWorkspaceVisibility");
     assert.include(workspace, 'if (root.querySelector(".workspace-panel"))');

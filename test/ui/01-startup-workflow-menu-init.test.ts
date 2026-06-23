@@ -228,9 +228,14 @@ describe("startup workflow scan + menu init", function () {
     await ensureWorkflowRegistryAndMenu(win);
 
     const state = getWorkflowRegistryState();
-    const expectedDir = joinPath(dataDir, "zotero-skills", "workflows");
+    const expectedDir = joinPath(
+      dataDir,
+      "zotero-agents",
+      "data",
+      "workflows",
+    );
     assert.equal(state.workflowsDir, expectedDir);
-    assert.equal(Zotero.Prefs.get(workflowDirPrefKey, true), expectedDir);
+    assert.isUndefined(Zotero.Prefs.get(workflowDirPrefKey, true));
     assert.lengthOf(state.loaded.workflows, 0);
     assert.isAtLeast(state.loaded.errors.length, 1);
 

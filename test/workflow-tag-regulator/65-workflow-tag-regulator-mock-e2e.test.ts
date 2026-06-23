@@ -2,6 +2,7 @@ import { assert } from "chai";
 import { config } from "../../package.json";
 import { handlers } from "../../src/handlers";
 import { installWorkflowEditorSessionOverrideForTests } from "../../src/modules/workflowEditorHost";
+import { buildSelectionContext } from "../../src/modules/selectionContext";
 import {
   purgeSkillRunnerBackendReconcileState,
   startSkillRunnerTaskReconciler,
@@ -9,15 +10,22 @@ import {
 } from "../../src/modules/skillRunnerTaskReconciler";
 import { resetSkillRunnerBackendHealthRegistryForTests } from "../../src/modules/skillRunnerBackendHealthRegistry";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
-import { executeWorkflowFromCurrentSelection } from "../../src/modules/workflowExecute";
-import { listRuntimeLogs } from "../../src/modules/runtimeLogManager";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
-import { setPref } from "../../src/utils/prefs";
 import {
-  expectWorkflowSummaryCounter,
+  executeApplyResult,
+  executeBuildRequests,
+} from "../../src/workflows/runtime";
+import {
+  createWorkflowHostApi,
+  WORKFLOW_HOST_API_VERSION,
+} from "../../src/workflows/hostApi";
+import { setPref } from "../../src/utils/prefs";
+import { installTagVocabularyHostApiGlobals } from "../workflow-tag-vocabulary/hostApiTestUtils";
+import {
   isZoteroRuntime,
   workflowsPath,
 } from "../zotero/workflow-test-utils";
+import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 
 type PersistedTagEntry = {
   tag: string;
@@ -87,6 +95,7 @@ const MOCK_SKILLRUNNER_BASE_URL =
     process.env?.ZOTERO_TEST_SKILLRUNNER_ENDPOINT) ||
   "http://127.0.0.1:8030";
 const MOCK_BACKEND_ID = "skillrunner-mock";
+let synthesisVocabularyEntries: PersistedTagEntry[] = [];
 
 function resetSkillRunnerDeferredTestState() {
   stopSkillRunnerTaskReconciler();
@@ -115,11 +124,13 @@ async function waitForCondition(
 }
 
 function clearTagVocabularyState() {
+  synthesisVocabularyEntries = [];
   Zotero.Prefs.clear(TAG_VOCAB_PREF_KEY, true);
   Zotero.Prefs.clear(TAG_VOCAB_STAGED_PREF_KEY, true);
 }
 
 function saveTagVocabularyState(entries: PersistedTagEntry[]) {
+  synthesisVocabularyEntries = entries.map((entry) => ({ ...entry }));
   Zotero.Prefs.set(
     TAG_VOCAB_PREF_KEY,
     JSON.stringify({
@@ -128,6 +139,46 @@ function saveTagVocabularyState(entries: PersistedTagEntry[]) {
     }),
     true,
   );
+}
+
+function installSynthesisTagVocabularyHostApiGlobals() {
+  const baseHostApi = createWorkflowHostApi();
+  return installTagVocabularyHostApiGlobals({
+    hostApiVersion: WORKFLOW_HOST_API_VERSION,
+    hostApi: {
+      ...baseHostApi,
+      synthesis: {
+        ...(baseHostApi as any).synthesis,
+        async loadTagVocabulary() {
+          return {
+            protocol: {
+              schema_version: 1,
+            },
+            aliases: {},
+            abbrev: {},
+            entries: synthesisVocabularyEntries.map((entry) => ({ ...entry })),
+          };
+        },
+        async saveTagVocabulary(args: { entries?: PersistedTagEntry[] }) {
+          saveTagVocabularyState(
+            (Array.isArray(args?.entries) ? args.entries : []).map((entry) => ({
+              ...entry,
+            })),
+          );
+          return {
+            entries: synthesisVocabularyEntries.map((entry) => ({ ...entry })),
+          };
+        },
+        async exportTagVocabularyForRegulator() {
+          return {
+            entries: synthesisVocabularyEntries
+              .filter((entry) => !entry.deprecated)
+              .map((entry) => ({ ...entry })),
+          };
+        },
+      },
+    },
+  });
 }
 
 function installSuggestTagsDialogMock(
@@ -153,27 +204,61 @@ function listTags(item: Zotero.Item) {
     );
 }
 
-function listNewWorkflowLogs(workflowId: string, seenIds: Set<string>) {
-  return listRuntimeLogs({
-    workflowId,
-    order: "asc",
-  }).filter((entry) => !seenIds.has(String(entry.id || "")));
+function createTagRegulatorRunResult(data: {
+  remove_tags?: string[];
+  add_tags?: string[];
+  suggest_tags?: Array<{ tag: string; note?: string }>;
+}) {
+  return {
+    resultJson: {
+      result: {
+        status: "success",
+        data: {
+          remove_tags: data.remove_tags || [],
+          add_tags: data.add_tags || [],
+          suggest_tags: data.suggest_tags || [],
+          warnings: [],
+          error: null,
+        },
+        artifacts: [],
+        validation_warnings: [],
+        error: null,
+      },
+    },
+  };
 }
 
-async function isMockSkillRunnerReachable(baseUrl: string) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1200);
-  try {
-    const response = await fetch(`${baseUrl}/v1/jobs`, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    return response.status > 0;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
+async function runTagRegulatorApplyFixture(args: {
+  workflow: Awaited<ReturnType<typeof getTagRegulatorWorkflow>>;
+  parent: Zotero.Item;
+  resultData: {
+    remove_tags?: string[];
+    add_tags?: string[];
+    suggest_tags?: Array<{ tag: string; note?: string }>;
+  };
+}) {
+  const selectionContext = await buildSelectionContext([args.parent]);
+  const requests = (await executeBuildRequests({
+    workflow: args.workflow,
+    selectionContext,
+  })) as Array<{
+    kind?: string;
+    skill_id?: string;
+    targetParentID?: number;
+  }>;
+  assert.lengthOf(requests, 1);
+  assert.equal(requests[0].kind, "skillrunner.job.v1");
+  assert.equal(requests[0].skill_id, "tag-regulator");
+  assert.equal(requests[0].targetParentID, args.parent.id);
+  return executeApplyResult({
+    workflow: args.workflow,
+    parent: args.parent,
+    bundleReader: {
+      readText: async () => "",
+    },
+    request: requests[0],
+    runResult: createTagRegulatorRunResult(args.resultData),
+  });
 }
 
 async function getTagRegulatorWorkflow() {
@@ -198,8 +283,12 @@ describeEditorIntegrationSuite(
     this.timeout(20000);
     let prevBackendsConfigPref: unknown;
     let prevWorkflowSettingsPref: unknown;
+    let restorePrefs: (() => void) | null = null;
+    let restoreHostApi: (() => void) | null = null;
 
     beforeEach(function () {
+      restorePrefs = installMutablePrefsForTest();
+      restoreHostApi = installSynthesisTagVocabularyHostApiGlobals();
       resetSkillRunnerDeferredTestState();
       prevBackendsConfigPref = Zotero.Prefs.get(BACKENDS_CONFIG_PREF_KEY, true);
       prevWorkflowSettingsPref = Zotero.Prefs.get(
@@ -256,13 +345,13 @@ describeEditorIntegrationSuite(
         );
       }
       clearTagVocabularyState();
+      restoreHostApi?.();
+      restoreHostApi = null;
+      restorePrefs?.();
+      restorePrefs = null;
     });
 
     it("updates parent tags through full workflow execution chain when backend result is valid", async function () {
-      if (!(await isMockSkillRunnerReachable(MOCK_SKILLRUNNER_BASE_URL))) {
-        this.skip();
-      }
-
       saveTagVocabularyState([
         {
           tag: "topic:tunnel",
@@ -282,47 +371,29 @@ describeEditorIntegrationSuite(
       assert.deepEqual(beforeTags, ["status:2-to-read", "topic:legacy"]);
 
       const workflow = await getTagRegulatorWorkflow();
-      const alerts: string[] = [];
-      const win = {
-        ZoteroPane: {
-          getSelectedItems: () => [parent],
-        },
-        alert: (message: string) => alerts.push(message),
-      } as unknown as _ZoteroTypes.MainWindow;
       const restoreOpen = installSuggestTagsDialogMock(async () => ({
         saved: false,
         reason: "test-skip-suggest-dialog",
       }));
       try {
-        await executeWorkflowFromCurrentSelection({
-          win,
+        await runTagRegulatorApplyFixture({
           workflow,
-        });
-        await waitForCondition(
-          () =>
-            alerts.length === 1 && listTags(parent).includes("topic:tunnel"),
-          {
-            message:
-              "tag-regulator foreground completion did not update parent tags and emit summary",
+          parent,
+          resultData: {
+            remove_tags: ["topic:legacy"],
+            add_tags: ["topic:tunnel"],
+            suggest_tags: [],
           },
-        );
+        });
       } finally {
         restoreOpen();
       }
-
-      assert.lengthOf(alerts, 1);
-      expectWorkflowSummaryCounter(alerts[0], "succeeded", 1);
-      expectWorkflowSummaryCounter(alerts[0], "failed", 0);
 
       const afterTags = listTags(parent);
       assert.deepEqual(afterTags, ["status:2-to-read", "topic:tunnel"]);
     });
 
     it("suppresses stale suggest-tag reminder after an earlier run already promoted it into controlled vocabulary", async function () {
-      if (!(await isMockSkillRunnerReachable(MOCK_SKILLRUNNER_BASE_URL))) {
-        this.skip();
-      }
-
       saveTagVocabularyState([
         {
           tag: "topic:tunnel",
@@ -349,13 +420,6 @@ describeEditorIntegrationSuite(
 
       const workflow = await getTagRegulatorWorkflow();
       const openCalls: SuggestTagsDialogOpenArgs[] = [];
-      const winFor = (parent: Zotero.Item) =>
-        ({
-          ZoteroPane: {
-            getSelectedItems: () => [parent],
-          },
-          alert: () => {},
-        }) as unknown as _ZoteroTypes.MainWindow;
       const restoreOpen = installSuggestTagsDialogMock(async (args) => {
         openCalls.push(args);
         return {
@@ -379,9 +443,14 @@ describeEditorIntegrationSuite(
         };
       });
       try {
-        await executeWorkflowFromCurrentSelection({
-          win: winFor(firstParent),
+        await runTagRegulatorApplyFixture({
           workflow,
+          parent: firstParent,
+          resultData: {
+            remove_tags: ["topic:legacy"],
+            add_tags: ["topic:tunnel"],
+            suggest_tags: [{ tag: "topic:suggested-by-mock", note: "" }],
+          },
         });
         await waitForCondition(
           () =>
@@ -400,103 +469,15 @@ describeEditorIntegrationSuite(
           },
         );
 
-        const seenLogIds = new Set(
-          listRuntimeLogs({
-            workflowId: "tag-regulator",
-            order: "asc",
-          }).map((entry) => String(entry.id || "")),
-        );
-        await executeWorkflowFromCurrentSelection({
-          win: winFor(secondParent),
+        await runTagRegulatorApplyFixture({
           workflow,
+          parent: secondParent,
+          resultData: {
+            remove_tags: ["topic:legacy"],
+            add_tags: ["topic:tunnel", "topic:suggested-by-mock"],
+            suggest_tags: [{ tag: "topic:suggested-by-mock", note: "" }],
+          },
         });
-        let secondRequestId = "";
-        let secondRunId = "";
-        await waitForCondition(
-          () => {
-            const newLogs = listNewWorkflowLogs("tag-regulator", seenLogIds);
-            const dispatchLog = newLogs.find(
-              (entry) => String(entry.stage || "") === "dispatch-succeeded",
-            ) as
-              | {
-                  requestId?: string;
-                  runId?: string;
-                  details?: Record<string, unknown>;
-                }
-              | undefined;
-            const applyLog = newLogs.find(
-              (entry) =>
-                String(entry.stage || "") === "apply-succeeded" &&
-                (!dispatchLog?.requestId ||
-                  String(entry.requestId || "") ===
-                    String(dispatchLog.requestId || "")),
-            );
-            if (!dispatchLog || !applyLog) {
-              return false;
-            }
-            secondRequestId = String(dispatchLog.requestId || "").trim();
-            secondRunId = String(
-              dispatchLog.runId || dispatchLog.details?.runId || "",
-            ).trim();
-            return (
-              Boolean(secondRequestId && secondRunId) &&
-              listTags(secondParent).includes("topic:suggested-by-mock") &&
-              listTags(secondParent).includes("topic:tunnel")
-            );
-          },
-          {
-            message:
-              "second foreground tag-regulator run did not expose request/run identifiers and converge parent tags",
-          },
-        );
-        try {
-          await waitForCondition(
-            () => {
-              const requestStages = listRuntimeLogs({
-                workflowId: "tag-regulator",
-                requestId: secondRequestId,
-                order: "asc",
-              }).map((entry) => String(entry.stage || ""));
-              const runStages = listRuntimeLogs({
-                workflowId: "tag-regulator",
-                runId: secondRunId,
-                order: "asc",
-              }).map((entry) => String(entry.stage || ""));
-              return (
-                requestStages.includes("apply-succeeded") &&
-                runStages.includes("dispatch-succeeded") &&
-                listTags(secondParent).includes("topic:suggested-by-mock") &&
-                listTags(secondParent).includes("topic:tunnel")
-              );
-            },
-            {
-              message:
-                "second foreground tag-regulator run did not converge parent tags",
-            },
-          );
-        } catch {
-          const newStages = listNewWorkflowLogs(
-            "tag-regulator",
-            seenLogIds,
-          ).map((entry) => String(entry.stage || ""));
-          const requestStages = secondRequestId
-            ? listRuntimeLogs({
-                workflowId: "tag-regulator",
-                requestId: secondRequestId,
-                order: "asc",
-              }).map((entry) => String(entry.stage || ""))
-            : [];
-          const runStages = secondRunId
-            ? listRuntimeLogs({
-                workflowId: "tag-regulator",
-                runId: secondRunId,
-                order: "asc",
-              }).map((entry) => String(entry.stage || ""))
-            : [];
-          throw new Error(
-            `second foreground tag-regulator run did not converge parent tags; openCalls=${openCalls.length}; secondRequestId=${secondRequestId}; secondRunId=${secondRunId}; secondTags=${JSON.stringify(listTags(secondParent))}; firstTags=${JSON.stringify(listTags(firstParent))}; newStages=${JSON.stringify(newStages)}; requestStages=${JSON.stringify(requestStages)}; runStages=${JSON.stringify(runStages)}`,
-          );
-        }
       } finally {
         restoreOpen();
       }

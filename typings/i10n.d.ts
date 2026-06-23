@@ -1613,6 +1613,8 @@ export type FluentMessageId =
   | 'workflow-settings-provider-label'
   | 'workflow-settings-refresh-acp-runtime-cache'
   | 'workflow-settings-refresh-acp-runtime-cache-running'
+  | 'workflow-settings-refresh-skillrunner-model-cache'
+  | 'workflow-settings-refresh-skillrunner-model-cache-running'
   | 'workflow-settings-run-once-provider-options-title'
   | 'workflow-settings-run-once-saved'
   | 'workflow-settings-run-once-workflow-params-title'

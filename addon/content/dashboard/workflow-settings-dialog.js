@@ -9,6 +9,7 @@
     },
     fieldCollectors: [],
     refreshingAcpRuntimeCache: false,
+    refreshingSkillRunnerModelCache: false,
   };
 
   function sendAction(action, payload) {
@@ -51,6 +52,15 @@
     if (contentHeight > 0) {
       sendAction("resize-to-content", { contentHeight });
     }
+  }
+
+  function buildExecutionOptionsPayload() {
+    return {
+      backendId: toText(state.draft.backendId || "").trim(),
+      workflowParams: cloneRecord(state.draft.workflowParams),
+      providerOptions: cloneRecord(state.draft.providerOptions),
+      runOptions: cloneRecord(state.draft.runOptions),
+    };
   }
 
   function requestDialogContentResize() {
@@ -102,12 +112,13 @@
       return true;
     }
     const providerOptions =
-      draft && draft.providerOptions && typeof draft.providerOptions === "object"
+      draft &&
+      draft.providerOptions &&
+      typeof draft.providerOptions === "object"
         ? draft.providerOptions
         : {};
     return (
-      coerceBoolean(providerOptions[key], false) ===
-      (condition.equals === true)
+      coerceBoolean(providerOptions[key], false) === (condition.equals === true)
     );
   }
 
@@ -161,6 +172,37 @@
     if (sectionValues && typeof sectionValues === "object") {
       delete sectionValues[args.entry.key];
     }
+  }
+
+  function appendRefreshActionButton(actions, options) {
+    if (!actions || !options || options.visible !== true) {
+      return;
+    }
+    const refreshBtn = document.createElement("button");
+    const stateKey = toText(options.stateKey);
+    const isRefreshing = state[stateKey] === true;
+    refreshBtn.type = "button";
+    refreshBtn.className = "settings-btn";
+    refreshBtn.classList.toggle("is-busy", isRefreshing);
+    refreshBtn.disabled = isRefreshing;
+    refreshBtn.setAttribute("aria-busy", isRefreshing ? "true" : "false");
+    refreshBtn.textContent = isRefreshing
+      ? options.runningText || options.text
+      : options.text;
+    refreshBtn.addEventListener("click", function () {
+      if (!flushDraftFromControls()) {
+        return;
+      }
+      state[stateKey] = true;
+      refreshBtn.disabled = true;
+      refreshBtn.classList.add("is-busy");
+      refreshBtn.setAttribute("aria-busy", "true");
+      refreshBtn.textContent = options.runningText || options.text;
+      sendAction(options.action, {
+        executionOptions: buildExecutionOptionsPayload(),
+      });
+    });
+    actions.appendChild(refreshBtn);
   }
 
   function isWarningProviderOptionKey(key) {
@@ -829,44 +871,24 @@
 
     const actions = document.createElement("div");
     actions.className = "settings-actions";
-    if (form.canRefreshAcpRuntimeCache === true) {
-      const refreshBtn = document.createElement("button");
-      const isRefreshingAcpRuntimeCache =
-        state.refreshingAcpRuntimeCache === true;
-      refreshBtn.type = "button";
-      refreshBtn.className = "settings-btn";
-      refreshBtn.classList.toggle("is-busy", isRefreshingAcpRuntimeCache);
-      refreshBtn.disabled = isRefreshingAcpRuntimeCache;
-      refreshBtn.setAttribute(
-        "aria-busy",
-        isRefreshingAcpRuntimeCache ? "true" : "false",
-      );
-      refreshBtn.textContent = isRefreshingAcpRuntimeCache
-        ? snapshot.labels.refreshAcpRuntimeCacheRunning ||
-          snapshot.labels.refreshAcpRuntimeCache
-        : snapshot.labels.refreshAcpRuntimeCache;
-      refreshBtn.addEventListener("click", function () {
-        if (!flushDraftFromControls()) {
-          return;
-        }
-        state.refreshingAcpRuntimeCache = true;
-        refreshBtn.disabled = true;
-        refreshBtn.classList.add("is-busy");
-        refreshBtn.setAttribute("aria-busy", "true");
-        refreshBtn.textContent =
-          snapshot.labels.refreshAcpRuntimeCacheRunning ||
-          snapshot.labels.refreshAcpRuntimeCache;
-        sendAction("refresh-acp-runtime-cache", {
-          executionOptions: {
-            backendId: toText(state.draft.backendId || "").trim(),
-            workflowParams: cloneRecord(state.draft.workflowParams),
-            providerOptions: cloneRecord(state.draft.providerOptions),
-            runOptions: cloneRecord(state.draft.runOptions),
-          },
-        });
-      });
-      actions.appendChild(refreshBtn);
-    }
+    appendRefreshActionButton(actions, {
+      visible: form.canRefreshAcpRuntimeCache === true,
+      stateKey: "refreshingAcpRuntimeCache",
+      action: "refresh-acp-runtime-cache",
+      text: snapshot.labels.refreshAcpRuntimeCache,
+      runningText:
+        snapshot.labels.refreshAcpRuntimeCacheRunning ||
+        snapshot.labels.refreshAcpRuntimeCache,
+    });
+    appendRefreshActionButton(actions, {
+      visible: form.canRefreshSkillRunnerModelCache === true,
+      stateKey: "refreshingSkillRunnerModelCache",
+      action: "refresh-skillrunner-model-cache",
+      text: snapshot.labels.refreshSkillRunnerModelCache,
+      runningText:
+        snapshot.labels.refreshSkillRunnerModelCacheRunning ||
+        snapshot.labels.refreshSkillRunnerModelCache,
+    });
     const cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
     cancelBtn.className = "settings-btn";
@@ -912,6 +934,7 @@
     }
     const nextSnapshot = data.payload || null;
     state.refreshingAcpRuntimeCache = false;
+    state.refreshingSkillRunnerModelCache = false;
     const resetDraft = shouldResetDraftForSnapshot(nextSnapshot);
     state.snapshot = nextSnapshot;
     const form =

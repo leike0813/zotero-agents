@@ -15,6 +15,15 @@ export type PluginStateReadonlyRow = Record<string, unknown> & {
   payload: Record<string, any>;
 };
 
+export type PluginRunStoreReadonlyRow = Record<string, unknown> & {
+  runKey: string;
+  requestId: string;
+  backendId: string;
+  state: string;
+  updatedAt: string;
+  payload: Record<string, any>;
+};
+
 export type PluginStateReadonlyStore = {
   db: ReadonlySqliteDatabase;
   tableExists(table: string): boolean;
@@ -31,6 +40,15 @@ export type PluginStateReadonlyStore = {
     domain?: string;
     limit?: number;
   }): PluginStateReadonlyRow[];
+  listSkillRunnerRunRows(args?: {
+    backendId?: string;
+    requestId?: string;
+    limit?: number;
+  }): PluginRunStoreReadonlyRow[];
+  listSkillRunnerSequenceStateRows(args?: {
+    backendId?: string;
+    limit?: number;
+  }): PluginRunStoreReadonlyRow[];
   diagnostics(): Record<string, unknown>;
   close(): void;
 };
@@ -64,6 +82,30 @@ function safeRows(
 
 function rowPayload(row: Record<string, unknown>) {
   return parseHarnessJsonObject(row.payload_json);
+}
+
+function normalizeRunStoreRow(row: Record<string, unknown>) {
+  const payload = rowPayload(row);
+  return {
+    ...payload,
+    ...row,
+    runKey: cleanHarnessString(row.run_key) || cleanHarnessString(payload.runKey),
+    requestId:
+      cleanHarnessString(row.request_id) ||
+      cleanHarnessString(payload.requestId),
+    backendId:
+      cleanHarnessString(row.backend_id) ||
+      cleanHarnessString(payload.backendId),
+    state:
+      cleanHarnessString(row.state) ||
+      cleanHarnessString(payload.state) ||
+      cleanHarnessString(payload.status),
+    updatedAt:
+      cleanHarnessString(row.updated_at) ||
+      cleanHarnessString(payload.updatedAt) ||
+      cleanHarnessString(payload.updated_at),
+    payload,
+  } satisfies PluginRunStoreReadonlyRow;
 }
 
 function normalizeTaskRow(row: Record<string, unknown>) {
@@ -196,6 +238,32 @@ function whereClauses(args: { domain?: string; scope?: string }) {
   };
 }
 
+function runStoreWhereClauses(args: { backendId?: string; requestId?: string }) {
+  const clauses: string[] = [];
+  const params: Record<string, string | number | null> = {};
+  const backendId = cleanHarnessString(args.backendId);
+  const requestId = cleanHarnessString(args.requestId);
+  if (backendId) {
+    clauses.push("backend_id = @backend_id");
+    params.backend_id = backendId;
+  }
+  if (requestId) {
+    clauses.push("request_id = @request_id");
+    params.request_id = requestId;
+  }
+  return {
+    where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "",
+    params,
+  };
+}
+
+function tableRowCount(db: ReadonlySqliteDatabase, table: string) {
+  if (!tableExists(db, table)) {
+    return 0;
+  }
+  return Number(safeRows(db, `SELECT COUNT(*) AS count FROM ${table}`)[0]?.count || 0);
+}
+
 function limitValue(value: unknown, fallback: number) {
   const limit = Math.floor(Number(value));
   return Number.isFinite(limit) && limit > 0 ? Math.min(limit, 500) : fallback;
@@ -255,12 +323,53 @@ export async function createPluginStateReadonlyStore(
         { ...params, limit: limitValue(args.limit, 300) },
       ).map(normalizeContextRow);
     },
+    listSkillRunnerRunRows(args = {}) {
+      if (!tableExists(db, "plugin_skillrunner_runs")) return [];
+      const { where, params } = runStoreWhereClauses(args);
+      return safeRows(
+        db,
+        `
+          SELECT run_key, request_id, backend_id, state, updated_at, payload_json
+          FROM plugin_skillrunner_runs
+          ${where}
+          ORDER BY COALESCE(updated_at, '') DESC
+          LIMIT @limit
+        `,
+        { ...params, limit: limitValue(args.limit, 300) },
+      )
+        .map(normalizeRunStoreRow)
+        .filter((row) => cleanHarnessString(row.payload.schemaVersion) === "3.0.0");
+    },
+    listSkillRunnerSequenceStateRows(args = {}) {
+      if (!tableExists(db, "plugin_skillrunner_runs")) return [];
+      const { where, params } = runStoreWhereClauses(args);
+      return safeRows(
+        db,
+        `
+          SELECT run_key, request_id, backend_id, state, updated_at, payload_json
+          FROM plugin_skillrunner_runs
+          ${where}
+          ORDER BY COALESCE(updated_at, '') DESC
+          LIMIT @limit
+        `,
+        { ...params, limit: limitValue(args.limit, 300) },
+      )
+        .map(normalizeRunStoreRow)
+        .filter(
+          (row) =>
+            cleanHarnessString(row.payload.schema) ===
+              "workflow.sequence.state.v2" ||
+            cleanHarnessString(row.runKey).startsWith("sequence:"),
+        );
+    },
     diagnostics() {
       const tables = [
         "plugin_meta",
         "plugin_task_requests",
         "plugin_task_contexts",
         "plugin_task_rows",
+        "plugin_skillrunner_runs",
+        "plugin_skillrunner_run_events",
       ];
       const domains = tableExists(db, "plugin_task_rows")
         ? safeRows(
@@ -278,6 +387,9 @@ export async function createPluginStateReadonlyStore(
         lockingMode: db.get("PRAGMA locking_mode"),
         tables: Object.fromEntries(
           tables.map((table) => [table, tableExists(db, table)]),
+        ),
+        rowCounts: Object.fromEntries(
+          tables.map((table) => [table, tableRowCount(db, table)]),
         ),
         rowScopes: domains,
       };

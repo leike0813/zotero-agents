@@ -106,7 +106,9 @@ Protection mechanism:
 
 ### `pluginStateReadonly.ts`
 
-Queries the plugin's own SQLite tables (`plugin_task_rows`, `plugin_task_requests`, `plugin_task_contexts`) and normalizes raw rows into structured objects.
+Queries the plugin's own SQLite tables and normalizes raw rows into structured objects.
+Generic ACP/task surfaces still read `plugin_task_rows`, `plugin_task_requests`, and `plugin_task_contexts`.
+SkillRunner lifecycle surfaces read `plugin_skillrunner_runs` as the local run-store SSOT; legacy SkillRunner rows in `plugin_task_rows` are not used to reconstruct lifecycle state.
 
 ```typescript
 // Exports
@@ -116,6 +118,8 @@ export type PluginStateReadonlyStore = {
   listTaskRows(args?: { domain?: string; scope?: string; limit?: number }): PluginStateReadonlyRow[];
   listRequestRows(args?: { domain?: string; limit?: number }): PluginStateReadonlyRow[];
   listContextRows(args?: { domain?: string; limit?: number }): PluginStateReadonlyRow[];
+  listSkillRunnerRunRows(args?: { backendId?: string; requestId?: string; limit?: number }): PluginRunStoreReadonlyRow[];
+  listSkillRunnerSequenceStateRows(args?: { backendId?: string; limit?: number }): PluginRunStoreReadonlyRow[];
   diagnostics(): Record<string, unknown>;
   close(): void;
 };
@@ -235,9 +239,9 @@ export async function createAssistantReadonlyModel(dbPath: string): Promise<...>
 Returns snapshots scoped to three views:
 - **acpChat** — ACP conversation history and metadata.
 - **acpSkills** — ACP skill run records.
-- **skillrunner** — SkillRunner task records.
+- **skillrunner** — SkillRunner v3 run-store projections.
 
-All operations are read-only; no backend interaction is attempted.
+All operations are read-only; no backend interaction is attempted. SkillRunner projections use `runKey` as the row identity, attach `requestId` only as backend correlation, and derive display fields from readonly backend registry, workflow manifests, SkillRunner skill display prefs, and stored sequence state. The readonly harness does not persist or synthesize SkillRunner `skillLabel`.
 
 ## Injection and Mocking Strategy
 

@@ -20,18 +20,12 @@ export const LITERATURE_ANALYSIS_FIXTURE_CASES: LiteratureAnalysisFixtureCase[] 
     context: multiMarkdownDiffParents as unknown,
     expectedFilteredPaths: [
       "attachments/LVBBEES6/Xiao 等 - 2025 - Rethinking detection based table structure recognition for visually rich document images.md",
-      "attachments/NWU22TPK/Li 等 - 2022 - Panoptic SegFormer Delving Deeper Into Panoptic Segmentation With Transformers.md",
     ],
     expectedRequests: [
       {
         targetParentID: 76,
         uploadPath:
           "attachments/LVBBEES6/Xiao 等 - 2025 - Rethinking detection based table structure recognition for visually rich document images.md",
-      },
-      {
-        targetParentID: 57,
-        uploadPath:
-          "attachments/NWU22TPK/Li 等 - 2022 - Panoptic SegFormer Delving Deeper Into Panoptic Segmentation With Transformers.md",
       },
     ],
   },

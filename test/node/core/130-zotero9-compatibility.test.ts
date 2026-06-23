@@ -138,6 +138,16 @@ function installZotero9SandboxFileRuntime(tempRoot: string) {
     io: {
       newFileURI: (filePath: unknown) => ({ spec: String(filePath) }),
     },
+    storage: {
+      openDatabase: () => ({
+        createStatement: () => ({
+          bindByName: () => undefined,
+          executeStep: () => false,
+          finalize: () => undefined,
+        }),
+        executeSimpleSQL: () => undefined,
+      }),
+    },
     scriptloader: {
       loadSubScript: (scriptPath: string, scope: Record<string, unknown>) => {
         const scriptText = require("fs").readFileSync(scriptPath, "utf8");
@@ -273,7 +283,13 @@ describe("Zotero 9 compatibility baseline", function () {
       assert.equal(latest?.ok, false);
       assert.equal(
         latest?.targetRoot,
-        path.join(tempRoot, "zotero-data", "zotero-skills", "workflows_builtin"),
+        path.join(
+          tempRoot,
+          "zotero-data",
+          "zotero-agents",
+          "data",
+          "workflows_builtin",
+        ),
       );
       assert.isAtLeast(latest?.diagnostics?.failures.length || 0, 2);
       assert.include(JSON.stringify(latest), "rootURI-fetch");
@@ -315,8 +331,18 @@ describe("Zotero 9 compatibility baseline", function () {
       path.join(process.cwd(), ".tmp-zotero9-registry-"),
     );
     const dataDir = path.join(tempRoot, "zotero-data");
-    const builtinDir = path.join(dataDir, "zotero-skills", "workflows_builtin");
-    const userDir = path.join(dataDir, "zotero-skills", "workflows");
+    const builtinDir = path.join(
+      dataDir,
+      "zotero-agents",
+      "data",
+      "workflows_builtin",
+    );
+    const userDir = path.join(
+      dataDir,
+      "zotero-agents",
+      "data",
+      "workflows",
+    );
     await createMinimalWorkflowPackage(builtinDir);
     await fs.mkdir(userDir, { recursive: true });
     const previousDataDirectory = (Zotero as unknown as {

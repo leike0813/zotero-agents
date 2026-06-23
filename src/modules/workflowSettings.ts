@@ -1036,12 +1036,16 @@ export async function resolveWorkflowExecutionContext(args: {
     ? {}
     : getWorkflowSettings(args.workflow.manifest.id);
   const merged = mergeExecutionOptions(saved, args.executionOptionsOverride);
+  const hasExplicitBackendOverride = Boolean(
+    String(args.executionOptionsOverride?.backendId || "").trim(),
+  );
 
   const backend =
     manifestProvider.requiresBackendProfile === false
       ? buildLocalBackendForProvider(manifestProvider.id)
       : await resolveBackendForWorkflow(args.workflow, {
           preferredBackendId: merged.backendId,
+          strictPreferredBackendId: hasExplicitBackendOverride,
         });
   const requestKind = resolveEffectiveRequestKindForBackend({
     workflow: args.workflow,

@@ -4470,7 +4470,7 @@ describe("Literature deep reading bootstrap skill", function () {
       runRoot,
     );
     assert.equal(result.status, "context_ready");
-    assert.include(result.warnings, "host_bridge_unavailable");
+    assert.include(result.warnings, "topic_context_failed");
 
     const diagnostics = JSON.parse(
       await fs.readFile(
@@ -4481,7 +4481,8 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.isTrue(
       diagnostics.diagnostics.some(
         (entry: Record<string, unknown>) =>
-          entry.code === "host_bridge_unavailable",
+          entry.code === "topic_context_failed" ||
+          entry.category === "host_bridge",
       ),
     );
     await writeReadingEnrichment(runRoot);

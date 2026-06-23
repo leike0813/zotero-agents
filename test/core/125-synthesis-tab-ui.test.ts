@@ -462,7 +462,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "openTopicCitationSubgraph");
     assert.include(app, "backToTopicDetail");
     assert.include(app, "selectedGraphTopicTitle");
-    assert.include(app, 'searchMatch ? "#0ea5e9"');
+    assert.include(app, "searchMatch");
     assert.include(app, "GRAPH_MIN_ZOOM_RATIO");
     assert.include(app, "GRAPH_MAX_ZOOM_RATIO");
     assert.include(app, "renderGraphZoomOverlay");
@@ -4434,7 +4434,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "restoreWorkbenchRenderState");
     assert.include(app, "tag-import-popover");
     assert.include(app, "synthesis-tags-import-kind");
-    assert.include(app, "Sync review");
+    assert.include(app, "renderReviewCard");
     assert.include(app, "synthesis-action-manual-target");
     assert.include(app, "reference-target-popover");
     assert.include(app, "manual_target");

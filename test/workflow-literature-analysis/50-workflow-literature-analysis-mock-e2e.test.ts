@@ -1,8 +1,6 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
-import { JobQueueManager } from "../../src/jobQueue/manager";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
-import { SkillRunnerProvider } from "../../src/providers/skillrunner/provider";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
   executeApplyResult,
@@ -11,8 +9,6 @@ import {
 import singleMarkdownFixture from "../fixtures/selection-context/selection-context-single-markdown.json";
 import {
   fixturePath,
-  joinPath,
-  mkTempDir,
   workflowsPath,
 } from "./workflow-test-utils";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
@@ -24,11 +20,6 @@ const dynamicImport: DynamicImport = new Function(
   "return import(specifier)",
 ) as DynamicImport;
 
-const MOCK_SKILLRUNNER_BASE_URL =
-  (typeof process !== "undefined" &&
-    process.env?.ZOTERO_TEST_SKILLRUNNER_ENDPOINT) ||
-  "http://127.0.0.1:8030";
-
 function formatError(error: unknown) {
   if (error instanceof Error) {
     return error.stack || `${error.name}: ${error.message}`;
@@ -37,22 +28,6 @@ function formatError(error: unknown) {
     return JSON.stringify(error);
   } catch {
     return String(error);
-  }
-}
-
-async function isMockSkillRunnerReachable(baseUrl: string) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1200);
-  try {
-    const response = await fetch(`${baseUrl}/v1/jobs`, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    return response.status > 0;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -80,27 +55,12 @@ function basename(targetPath: string) {
   return parts.length > 0 ? parts[parts.length - 1] : targetPath;
 }
 
-async function writeBytes(filePath: string, bytes: Uint8Array) {
-  const runtime = globalThis as {
-    IOUtils?: { write: (targetPath: string, data: Uint8Array) => Promise<number | void> };
-  };
-  if (typeof runtime.IOUtils?.write === "function") {
-    await runtime.IOUtils.write(filePath, bytes);
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.writeFile(filePath, Buffer.from(bytes));
-}
-
 const describeLiteratureDigestE2ESuite = isFullTestMode() ? describe : describe.skip;
 
 describeLiteratureDigestE2ESuite("integration: literature-analysis with mock skill-runner", function () {
   this.timeout(30000);
 
-  it("rebuilds single-markdown selection and finishes full run with notes written", async function () {
-    if (!(await isMockSkillRunnerReachable(MOCK_SKILLRUNNER_BASE_URL))) {
-      this.skip();
-    }
+  it("rebuilds single-markdown sequence request and applies fixture bundle with notes written", async function () {
     try {
       const fixture = singleMarkdownFixture as SingleMarkdownFixture;
       const source = fixture.items.attachments[0];
@@ -133,65 +93,46 @@ describeLiteratureDigestE2ESuite("integration: literature-analysis with mock ski
       const requests = (await executeBuildRequests({
         workflow: workflow!,
         selectionContext,
+        executionOptions: {
+          workflowParams: {
+            auto_tag_regulator: false,
+          },
+        },
       })) as Array<{
         kind: string;
         targetParentID: number;
-        skill_id?: string;
-        parameter?: { language?: string };
-        input?: { source_path?: string };
-        upload_files?: Array<{ key: string; path: string }>;
         sourceAttachmentPaths?: string[];
+        steps?: Array<{
+          id?: string;
+          skill_id?: string;
+          input?: { source_path?: string };
+          parameter?: { language?: string };
+          fetch_type?: string;
+          workspace?: string;
+          apply_result?: { workflow_id?: string; on_failure?: string };
+        }>;
+        final_step_id?: string;
       }>;
       assert.lengthOf(requests, 1);
-      assert.equal(requests[0].kind, "skillrunner.job.v1");
+      assert.equal(requests[0].kind, "skillrunner.sequence.v1");
       assert.equal(requests[0].targetParentID, parent.id);
-      assert.equal(requests[0].skill_id, "literature-analysis");
-      assert.equal(requests[0].parameter?.language, "zh-CN");
-      assert.equal(requests[0].upload_files?.[0].key, "source_path");
-      assert.equal(requests[0].upload_files?.[0].path, attachmentAbsPath);
-      assert.match(String(requests[0].input?.source_path || ""), /^inputs\/source_path\//);
-
-      const provider = new SkillRunnerProvider({
-        baseUrl: MOCK_SKILLRUNNER_BASE_URL,
-      });
-      const queue = new JobQueueManager({
-        concurrency: 1,
-        executeJob: (job) =>
-          provider.execute({
-            requestKind: workflow!.manifest.request!.kind,
-            request: job.request,
-          }),
-      });
-      const jobId = queue.enqueue({
-        workflowId: workflow!.manifest.id,
-        request: requests[0],
-        meta: { fixture: "selection-context-single-markdown.json" },
-      });
-      await queue.waitForIdle();
-      const finishedJob = queue.getJob(jobId) as {
-        state: string;
-        result?: {
-          status?: string;
-          bundleBytes?: Uint8Array;
-          requestId?: string;
-        };
-      } | null;
-      assert.isOk(finishedJob);
-      assert.equal(finishedJob?.state, "succeeded");
-      assert.equal(finishedJob?.result?.status, "succeeded");
-      assert.isAbove(finishedJob?.result?.bundleBytes?.length || 0, 0);
-
-      const downloadDir = await mkTempDir("zotero-skills-e2e-download");
-      const bundlePath = joinPath(
-        downloadDir,
-        `${finishedJob?.result?.requestId || "mock"}-run_bundle.zip`,
+      assert.deepEqual(requests[0].sourceAttachmentPaths, [attachmentAbsPath]);
+      assert.equal(requests[0].final_step_id, "digest");
+      const digestStep = requests[0].steps?.find(
+        (step) => step.id === "digest",
       );
-      await writeBytes(
-        bundlePath,
-        finishedJob!.result!.bundleBytes as Uint8Array,
-      );
+      assert.isOk(digestStep, "digest sequence step should exist");
+      assert.equal(digestStep?.skill_id, "literature-analysis");
+      assert.equal(digestStep?.workspace, "new");
+      assert.equal(digestStep?.fetch_type, "bundle");
+      assert.equal(digestStep?.apply_result?.workflow_id, "literature-analysis");
+      assert.equal(digestStep?.apply_result?.on_failure, "continue");
+      assert.equal(digestStep?.input?.source_path, attachmentAbsPath);
+      assert.equal(digestStep?.parameter?.language, "zh-CN");
 
-      const bundleReader = new ZipBundleReader(bundlePath);
+      const bundleReader = new ZipBundleReader(
+        fixturePath("literature-analysis", "run_bundle.zip"),
+      );
       const applyResult = (await executeApplyResult({
         workflow: workflow!,
         parent,

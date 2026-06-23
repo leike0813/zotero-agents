@@ -63,6 +63,23 @@ async function createPluginStateFixture() {
       payload_json TEXT NOT NULL,
       PRIMARY KEY (domain, scope, task_id)
     );
+    CREATE TABLE plugin_skillrunner_runs (
+      run_key TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL DEFAULT '',
+      backend_id TEXT NOT NULL DEFAULT '',
+      state TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL
+    );
+    CREATE TABLE plugin_skillrunner_run_events (
+      event_id TEXT PRIMARY KEY,
+      run_key TEXT NOT NULL DEFAULT '',
+      request_id TEXT NOT NULL DEFAULT '',
+      backend_id TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL
+    );
     INSERT INTO plugin_task_requests VALUES (
       'acp',
       'frontend',
@@ -136,37 +153,151 @@ async function createPluginStateFixture() {
         },
       })}'
     );
-    INSERT INTO plugin_task_rows VALUES (
-      'skillrunner',
-      'active',
-      'local:sr-task-1',
+    INSERT INTO plugin_skillrunner_runs VALUES (
+      'local:sr-workflow-run:sr-job-1',
       'sr-req-1',
       'skillrunner-backend',
       'waiting_auth',
-      '2026-01-01T00:03:00.000Z',
+      '2026-01-01T00:06:00.000Z',
       '${sqlJson({
-        taskId: "sr-task-1",
-        runKey: "local:sr-task-1",
+        schemaVersion: "3.0.0",
+        runKey: "local:sr-workflow-run:sr-job-1",
         requestId: "sr-req-1",
+        backendId: "skillrunner-backend",
+        workflowId: "wf-sr",
+        workflowRunId: "sr-workflow-run",
+        jobId: "sr-job-1",
         taskName: "Auth Run",
-        workflowLabel: "SkillRunner Workflow",
-        skillName: "Auth Skill",
-        skillLabel: "Auth Skill Label",
         skillId: "skill.auth",
         status: "waiting_auth",
+        submitPhase: "request_ready",
+        executionMode: "interactive",
+        requestPayload: {
+          pendingAuth: {
+            phase: "challenge_active",
+            auth_session_id: "auth-1",
+            provider_id: "provider-1",
+            available_methods: ["api_key"],
+            input_kind: "api_key",
+          },
+        },
         apply: {
           state: "running",
           attempt: 1,
           maxAttempt: 3,
           updatedAt: "2026-01-01T00:03:30.000Z",
         },
-        pendingAuth: {
-          phase: "challenge_active",
-          auth_session_id: "auth-1",
-          provider_id: "provider-1",
-          available_methods: ["api_key"],
-          input_kind: "api_key",
-        },
+        createdAt: "2026-01-01T00:03:00.000Z",
+        updatedAt: "2026-01-01T00:06:00.000Z",
+      })}'
+    );
+    INSERT INTO plugin_skillrunner_runs VALUES (
+      'local:sr-workflow-run:sr-job-pre',
+      '',
+      'skillrunner-backend',
+      'queued',
+      '2026-01-01T00:05:00.000Z',
+      '${sqlJson({
+        schemaVersion: "3.0.0",
+        runKey: "local:sr-workflow-run:sr-job-pre",
+        backendId: "skillrunner-backend",
+        workflowId: "wf-sr",
+        workflowRunId: "sr-workflow-run",
+        jobId: "sr-job-pre",
+        taskName: "Pre Request Run",
+        skillId: "skill.pre",
+        status: "queued",
+        submitPhase: "pre_request",
+        executionMode: "auto",
+        apply: { state: "idle", attempt: 0 },
+        createdAt: "2026-01-01T00:05:00.000Z",
+        updatedAt: "2026-01-01T00:05:00.000Z",
+      })}'
+    );
+    INSERT INTO plugin_skillrunner_runs VALUES (
+      'sequence:sr-seq-run',
+      '',
+      'skillrunner-backend',
+      'running_step',
+      '2026-01-01T00:04:00.000Z',
+      '${sqlJson({
+        schema: "workflow.sequence.state.v2",
+        sequenceState: {
+          schemaVersion: "2.0.0",
+          sequenceRunId: "sr-seq-run",
+          workflowId: "wf-sr",
+          workflowRunId: "sr-seq-run",
+          jobId: "seq-job",
+          backendId: "skillrunner-backend",
+          backendType: "skillrunner",
+          request: {},
+          currentStepIndex: 0,
+          finalStepId: "step-2",
+          status: "running_step",
+          steps: [
+            {
+              stepId: "step-1",
+              skillId: "skill.seq",
+              skillName: "Sequence Skill",
+              index: 0,
+              requestId: "sr-req-seq",
+              updatedAt: "2026-01-01T00:04:00.000Z"
+            }
+          ],
+          createdAt: "2026-01-01T00:04:00.000Z",
+          updatedAt: "2026-01-01T00:04:00.000Z"
+        }
+      })}'
+    );
+    INSERT INTO plugin_skillrunner_runs VALUES (
+      'local:sr-seq-run:seq-job:step-1',
+      'sr-req-seq',
+      'skillrunner-backend',
+      'running',
+      '2026-01-01T00:04:30.000Z',
+      '${sqlJson({
+        schemaVersion: "3.0.0",
+        runKey: "local:sr-seq-run:seq-job:step-1",
+        requestId: "sr-req-seq",
+        backendId: "skillrunner-backend",
+        workflowId: "wf-sr",
+        workflowRunId: "sr-seq-run",
+        jobId: "seq-job:step-1",
+        taskName: "Sequence Run / step-1",
+        skillId: "skill.seq",
+        sequenceRunId: "sr-seq-run",
+        sequenceJobId: "seq-job",
+        sequenceStepId: "step-1",
+        status: "running",
+        submitPhase: "request_ready",
+        executionMode: "auto",
+        apply: { state: "idle", attempt: 0 },
+        createdAt: "2026-01-01T00:04:30.000Z",
+        updatedAt: "2026-01-01T00:04:30.000Z",
+      })}'
+    );
+    INSERT INTO plugin_skillrunner_runs VALUES (
+      'local:sr-workflow-run:sr-job-done',
+      'sr-req-done',
+      'skillrunner-backend',
+      'succeeded',
+      '2026-01-01T00:03:30.000Z',
+      '${sqlJson({
+        schemaVersion: "3.0.0",
+        runKey: "local:sr-workflow-run:sr-job-done",
+        requestId: "sr-req-done",
+        backendId: "skillrunner-backend",
+        workflowId: "wf-sr",
+        workflowRunId: "sr-workflow-run",
+        jobId: "sr-job-done",
+        taskName: "Finished Run",
+        skillId: "skill.done",
+        status: "succeeded",
+        submitPhase: "request_ready",
+        executionMode: "auto",
+        apply: { state: "succeeded", attempt: 1 },
+        createdAt: "2026-01-01T00:03:30.000Z",
+        updatedAt: "2026-01-01T00:03:30.000Z",
       })}'
     );
     INSERT INTO plugin_task_rows VALUES (
@@ -358,6 +489,17 @@ describe("UI readonly harness", function () {
 
   it("builds aligned readonly Dashboard and Assistant snapshots from plugin state DB", async function () {
     const fixture = await createPluginStateFixture();
+    const originalPrefs = (globalThis as any).Zotero?.Prefs;
+    const values = parseZoteroPrefs(`
+      user_pref("extensions.zotero.zotero-skills.backendsConfigJson", "{\\"backends\\":[{\\"id\\":\\"skillrunner-backend\\",\\"type\\":\\"skillrunner\\",\\"displayName\\":\\"SkillRunner Backend\\",\\"baseUrl\\":\\"http://127.0.0.1:4317\\"},{\\"id\\":\\"acp-backend\\",\\"type\\":\\"acp\\",\\"displayName\\":\\"ACP Backend\\"}]}");
+      user_pref("extensions.zotero.zotero-skills.skillRunnerSkillDisplayRegistryJson", "{\\"skill.auth\\":{\\"skillId\\":\\"skill.auth\\",\\"skillName\\":\\"Auth Skill\\"},\\"skill.pre\\":{\\"skillId\\":\\"skill.pre\\",\\"skillName\\":\\"Pre Skill\\"},\\"skill.done\\":{\\"skillId\\":\\"skill.done\\",\\"skillName\\":\\"Done Skill\\"}}");
+    `);
+    installReadonlyZoteroPrefs({
+      values,
+      get(key: string) {
+        return values[key];
+      },
+    });
     const dashboard = await createDashboardReadonlyModel(fixture.dbPath);
     const assistant = await createAssistantReadonlyModel(fixture.dbPath);
     try {
@@ -386,8 +528,34 @@ describe("UI readonly harness", function () {
       const skillrunnerDashboardRow = (dashboardHome.runningRows as any[]).find(
         (row) => row.backendType === "skillrunner",
       );
-      assert.equal(skillrunnerDashboardRow.runKey, "local:sr-task-1");
-      assert.equal(skillrunnerDashboardRow.canOpen, true);
+      assert.equal(
+        skillrunnerDashboardRow.runKey,
+        "local:sr-workflow-run:sr-job-1",
+      );
+      assert.equal(skillrunnerDashboardRow.canOpen, false);
+      assert.equal(skillrunnerDashboardRow.backendInteractive, true);
+      assert.equal("skillLabel" in skillrunnerDashboardRow, false);
+      const preRequestDashboardRow = (dashboardHome.runningRows as any[]).find(
+        (row) => row.runKey === "local:sr-workflow-run:sr-job-pre",
+      );
+      assert.equal(preRequestDashboardRow.requestId, undefined);
+      assert.equal(preRequestDashboardRow.submitPhase, "pre_request");
+      assert.equal(preRequestDashboardRow.skillName, "Pre Skill");
+      assert.equal(
+        (dashboardHome.runningRows as any[]).some(
+          (row) => row.runKey === "sequence:sr-seq-run",
+        ),
+        false,
+      );
+      const backendView = await dashboard.handleAction("select-tab", {
+        tabKey: "backend:skillrunner-backend",
+      });
+      const terminalDashboardRow = (backendView.backendView as any).rows.find(
+        (row: any) => row.runKey === "local:sr-workflow-run:sr-job-done",
+      );
+      assert.equal(terminalDashboardRow.backendInteractive, true);
+      assert.equal(terminalDashboardRow.canOpenStream, false);
+      assert.equal(terminalDashboardRow.canCancelBackendRun, false);
 
       const snapshots = assistant.snapshot();
       assert.ok((snapshots.acpChat as any).activeSnapshot);
@@ -409,32 +577,37 @@ describe("UI readonly harness", function () {
       );
       assert.equal((snapshots.skillrunner as any).session.applyState, "running");
       assert.equal((snapshots.skillrunner as any).session.applyAttempt, 1);
+      assert.equal(
+        (snapshots.skillrunner as any).session.runKey,
+        "local:sr-workflow-run:sr-job-1",
+      );
+      assert.equal("skillLabel" in (snapshots.skillrunner as any).session, false);
       assert.ok(Array.isArray((snapshots.skillrunner as any).drawer.sections));
+      const activeTasks = (snapshots.skillrunner as any).drawer.sections[0]
+        .groups[0].activeTasks;
+      assert.equal(activeTasks[0].skillName, "Auth Skill");
       assert.equal(
-        (snapshots.skillrunner as any).drawer.sections[0].groups[0]
-          .activeTasks[0].skillName,
-        "Auth Skill",
+        activeTasks[0].key,
+        "local:sr-workflow-run:sr-job-1",
       );
-      assert.equal(
-        (snapshots.skillrunner as any).drawer.sections[0].groups[0]
-          .activeTasks[0].key,
-        "local:sr-task-1",
+      assert.equal(activeTasks[0].applyState, "running");
+      assert.equal(activeTasks[0].skillId, "skill.auth");
+      assert.equal("skillLabel" in activeTasks[0], false);
+      const preRequestTask = activeTasks.find(
+        (task: any) => task.key === "local:sr-workflow-run:sr-job-pre",
       );
-      assert.equal(
-        (snapshots.skillrunner as any).drawer.sections[0].groups[0]
-          .activeTasks[0].applyState,
-        "running",
+      assert.equal(preRequestTask.selectable, true);
+      assert.equal(preRequestTask.requestId, undefined);
+      const sequenceTask = activeTasks.find(
+        (task: any) => task.key === "local:sr-seq-run:seq-job:step-1",
       );
-      assert.equal(
-        (snapshots.skillrunner as any).drawer.sections[0].groups[0]
-          .activeTasks[0].skillId,
-        "skill.auth",
-      );
+      assert.equal(sequenceTask.skillName, "Sequence Skill");
       const after = (await stat(fixture.dbPath)).mtimeMs;
       assert.equal(after, before);
     } finally {
       dashboard.close();
       assistant.close();
+      (globalThis as any).Zotero.Prefs = originalPrefs;
       await rm(fixture.dir, { recursive: true, force: true });
     }
   });

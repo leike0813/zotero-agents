@@ -21,9 +21,25 @@
       "label": "denoising training"
     }
   ],
-  "diagnostics": [],
+  "existing_topic_relation_proposals": [
+    {
+      "target_topic_id": "deformable-detr",
+      "target_topic_title": "Deformable DETR",
+      "relation_type": "related_topic_candidate",
+      "confidence": 0.8,
+      "rationale": "Deformable DETR is a representative DETR-family variant focused on sparse multi-scale attention.",
+      "source_paper_refs": [
+        "1:5HBHAWIV"
+      ]
+    }
+  ],
+  "prospective_topic_relation_proposals": [
+    {
+      "target_topic_seed": "3D object detection transformers",
+      "relation_type": "related_topic_candidate"
+    }
+  ],
   "topic_matching_terms": {
-    "diagnostics": [],
     "exclude_terms": [
       "DINOv3 feature encoder",
       "generic ViT classification"
@@ -44,31 +60,5 @@
     "must_have_terms": [
       "DETR"
     ]
-  },
-  "topic_relation_candidates": [
-    {
-      "evidence": [
-        "1:5HBHAWIV"
-      ],
-      "relation": "has_variant",
-      "source": "DETR",
-      "target": "Deformable DETR"
-    },
-    {
-      "evidence": [
-        "1:HPLZ65Z2"
-      ],
-      "relation": "has_variant",
-      "source": "DETR",
-      "target": "DINO"
-    },
-    {
-      "evidence": [
-        "1:3JUY9GBQ"
-      ],
-      "relation": "extends_to",
-      "source": "DETR",
-      "target": "3D object detection"
-    }
-  ]
+  }
 }

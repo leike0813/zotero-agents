@@ -8,7 +8,7 @@ const repoName = "zotero-agents";
 const config: Config = {
   title: "Zotero Agents",
   tagline: "一个用于执行 Agent 技能的 Zotero 插件",
-  favicon: "img/favicon.ico",
+  favicon: "img/favicon.png",
 
   url: `https://${orgName}.github.io`,
   baseUrl: `/${repoName}/`,
@@ -57,7 +57,7 @@ const config: Config = {
       title: "Zotero Agents",
       logo: {
         alt: "Zotero Agents",
-        src: "img/logo.svg",
+        src: "img/icon_full.png",
       },
       items: [
         {

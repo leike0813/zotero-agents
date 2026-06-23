@@ -32,6 +32,7 @@ import {
   workflowsPath,
 } from "../zotero/workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
+import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 import {
   flushSaveTxLoadProbeReport,
   isTagRegulatorSaveTxLoadProbeEnabled,
@@ -695,8 +696,10 @@ async function runSuggestTagsEmptyScenario(args?: { titleSuffix?: string }) {
 
 function setupTagRegulatorWorkflowSuite() {
   let restoreHostApi: (() => void) | null = null;
+  let restorePrefs: (() => void) | null = null;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     clearTagVocabularyState();
     resetRuntimeBridgeOverrideForTests();
     restoreHostApi = installSynthesisTagVocabularyHostApiGlobals();
@@ -707,6 +710,8 @@ function setupTagRegulatorWorkflowSuite() {
     restoreHostApi = null;
     resetRuntimeBridgeOverrideForTests();
     clearTagVocabularyState();
+    restorePrefs?.();
+    restorePrefs = null;
   });
   return { itNodeOnly, itZoteroFullOrNode };
 }

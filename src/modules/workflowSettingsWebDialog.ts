@@ -6,11 +6,12 @@ import type { LoadedWorkflow } from "../workflows/types";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import { buildWorkflowSettingsUiDescriptor } from "./workflowSettings";
 import type { BackendInstance } from "../backends/types";
-import { ACP_BACKEND_TYPE } from "../config/defaults";
+import { ACP_BACKEND_TYPE, DEFAULT_BACKEND_TYPE } from "../config/defaults";
 import { loadBackendsRegistry } from "../backends/registry";
 import { persistBackendsConfig } from "./backendManager";
 import { probeAcpBackendRuntimeOptions } from "./acpBackendProbe";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
+import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
 import {
   AUTO_APPROVE_ZOTERO_WRITES_PARAM,
   normalizeWorkflowRunOptions,
@@ -44,6 +45,8 @@ type WorkflowSettingsDialogSnapshot = {
     workflowSettingsPositiveIntegerRequired: string;
     refreshAcpRuntimeCache: string;
     refreshAcpRuntimeCacheRunning: string;
+    refreshSkillRunnerModelCache: string;
+    refreshSkillRunnerModelCacheRunning: string;
   };
   workflow: {
     id: string;
@@ -114,6 +117,7 @@ type WorkflowSettingsDialogSnapshot = {
     runOptions: Record<string, unknown>;
     hasConfigurableSettings: boolean;
     canRefreshAcpRuntimeCache?: boolean;
+    canRefreshSkillRunnerModelCache?: boolean;
   };
   persistChecked: boolean;
 };
@@ -314,6 +318,40 @@ function showAcpRuntimeCacheRefreshToast(args: {
   });
 }
 
+function showSkillRunnerModelCacheRefreshToast(args: {
+  ok: boolean;
+  refreshedAt?: string;
+  error?: unknown;
+}) {
+  if (args.ok) {
+    showWorkflowToast({
+      text: localize(
+        "backend-manager-refresh-model-cache-success",
+        "Model cache refreshed. updatedAt={refreshedAt}",
+        {
+          args: {
+            refreshedAt: String(args.refreshedAt || ""),
+          },
+        },
+      ),
+      type: "success",
+    });
+    return;
+  }
+  showWorkflowToast({
+    text: localize(
+      "backend-manager-refresh-model-cache-failed",
+      "Failed to refresh model cache: {error}",
+      {
+        args: {
+          error: resolveErrorText(args.error, "unknown error"),
+        },
+      },
+    ),
+    type: "error",
+  });
+}
+
 export async function openWorkflowSettingsWebDialog(args: {
   workflow: LoadedWorkflow;
   ownerWindow?: _ZoteroTypes.MainWindow;
@@ -482,6 +520,14 @@ export async function openWorkflowSettingsWebDialog(args: {
           "workflow-settings-refresh-acp-runtime-cache-running",
           "Refreshing ACP Config Cache...",
         ),
+        refreshSkillRunnerModelCache: localize(
+          "workflow-settings-refresh-skillrunner-model-cache",
+          "Refresh Model Cache",
+        ),
+        refreshSkillRunnerModelCacheRunning: localize(
+          "workflow-settings-refresh-skillrunner-model-cache-running",
+          "Refreshing Model Cache...",
+        ),
       },
       workflow: {
         id: descriptor.workflowId,
@@ -503,6 +549,8 @@ export async function openWorkflowSettingsWebDialog(args: {
         hasConfigurableSettings: descriptor.hasConfigurableSettings,
         canRefreshAcpRuntimeCache:
           resolveSelectedBackendForSnapshot()?.type === ACP_BACKEND_TYPE,
+        canRefreshSkillRunnerModelCache:
+          resolveSelectedBackendForSnapshot()?.type === DEFAULT_BACKEND_TYPE,
       },
       persistChecked,
     };
@@ -587,9 +635,7 @@ export async function openWorkflowSettingsWebDialog(args: {
         return;
       }
       if (action === "resize-to-content") {
-        resizeWorkflowSettingsDialogToContent(
-          envelope.payload?.contentHeight,
-        );
+        resizeWorkflowSettingsDialogToContent(envelope.payload?.contentHeight);
         return;
       }
       if (action === "refresh-acp-runtime-cache") {
@@ -627,6 +673,45 @@ export async function openWorkflowSettingsWebDialog(args: {
         } catch (error) {
           pushSnapshot("workflow-settings-dialog:snapshot");
           showAcpRuntimeCacheRefreshToast({
+            ok: false,
+            error,
+          });
+        }
+        return;
+      }
+      if (action === "refresh-skillrunner-model-cache") {
+        try {
+          const selectedBackendId = String(
+            draft.backendId || descriptor.selectedProfile || "",
+          ).trim();
+          const loaded = await loadBackendsRegistry();
+          const backend = loaded.backends.find(
+            (entry) => String(entry.id || "").trim() === selectedBackendId,
+          );
+          if (!backend) {
+            throw new Error(
+              `Skill Runner backend not found: ${selectedBackendId}`,
+            );
+          }
+          if (String(backend.type || "").trim() !== DEFAULT_BACKEND_TYPE) {
+            throw new Error(
+              `Selected backend is not a Skill Runner backend: ${selectedBackendId}`,
+            );
+          }
+          const refreshed = await refreshSkillRunnerModelCacheForBackend({
+            backend,
+          });
+          candidateBackends = loaded.backends;
+          await refreshDescriptor();
+          pushSnapshot("workflow-settings-dialog:snapshot");
+          showSkillRunnerModelCacheRefreshToast({
+            ok: refreshed.ok,
+            refreshedAt: refreshed.refreshedAt,
+            error: refreshed.error,
+          });
+        } catch (error) {
+          pushSnapshot("workflow-settings-dialog:snapshot");
+          showSkillRunnerModelCacheRefreshToast({
             ok: false,
             error,
           });

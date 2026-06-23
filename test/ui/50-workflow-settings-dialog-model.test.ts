@@ -12,6 +12,7 @@ import {
 } from "../../src/providers/skillrunner/modelCache";
 import { config } from "../../package.json";
 import { isZoteroRuntime } from "./workflow-test-utils";
+import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 
@@ -43,8 +44,10 @@ function makeContainer(controls: FakeControl[]): HTMLElement {
 describe("workflow settings dialog model", function () {
   const cachePrefKey = `${config.prefsPrefix}.skillRunnerModelCacheJson`;
   let previousPref: unknown;
+  let restorePrefs: (() => void) | undefined;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     previousPref = Zotero.Prefs.get(cachePrefKey, true);
     clearSkillRunnerModelCache();
   });
@@ -55,6 +58,8 @@ describe("workflow settings dialog model", function () {
     } else {
       Zotero.Prefs.set(cachePrefKey, previousPref, true);
     }
+    restorePrefs?.();
+    restorePrefs = undefined;
   });
 
   itNodeOnly("builds deterministic render model without mutating initial state", function () {

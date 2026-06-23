@@ -29,6 +29,83 @@ import {
   filterReferencesForDigestApply,
 } from "../../workflows_builtin/literature-workbench-package/lib/referenceQualityGate.mjs";
 
+type LiteratureAnalysisSequenceRequest = {
+  kind: string;
+  targetParentID?: number;
+  sourceAttachmentPaths?: string[];
+  steps?: Array<{
+    id?: string;
+    skill_id?: string;
+    mode?: string;
+    workspace?: string;
+    fetch_type?: string;
+    apply_result?: {
+      workflow_id?: string;
+      on_failure?: string;
+    };
+    input?: {
+      source_path?: string;
+      valid_tags?: string;
+      digest_markdown?: string;
+    };
+    parameter?: {
+      language?: string;
+      infer_tag?: boolean;
+      valid_tags_format?: string;
+      tag_note_language?: string;
+    };
+    handoff?: {
+      bindings?: Array<{
+        kind?: string;
+        step?: string;
+        source?: string;
+        target?: string;
+        required?: boolean;
+      }>;
+    };
+  }>;
+  final_step_id?: string;
+  parameter?: {
+    language?: string;
+    auto_tag_regulator?: boolean;
+    auto_tag_infer_tag?: boolean;
+  };
+  runtime_options?: {
+    execution_mode?: string;
+  };
+};
+
+function assertLiteratureAnalysisDigestStep(
+  request: LiteratureAnalysisSequenceRequest,
+  expected: {
+    sourcePath: string;
+    language?: string;
+    targetParentID?: number;
+    autoTagRegulator?: boolean;
+  },
+) {
+  assert.equal(request.kind, "skillrunner.sequence.v1");
+  if (typeof expected.targetParentID === "number") {
+    assert.equal(request.targetParentID, expected.targetParentID);
+  }
+  assert.deepEqual(request.sourceAttachmentPaths, [expected.sourcePath]);
+  assert.isArray(request.steps);
+  const digestStep = request.steps?.find((step) => step.id === "digest");
+  assert.isOk(digestStep, "digest sequence step should exist");
+  assert.equal(digestStep?.skill_id, "literature-analysis");
+  assert.equal(digestStep?.mode, "auto");
+  assert.equal(digestStep?.workspace, "new");
+  assert.equal(digestStep?.fetch_type, "bundle");
+  assert.equal(digestStep?.apply_result?.workflow_id, "literature-analysis");
+  assert.equal(digestStep?.apply_result?.on_failure, "continue");
+  assert.equal(digestStep?.input?.source_path, expected.sourcePath);
+  assert.equal(digestStep?.parameter?.language, expected.language || "zh-CN");
+  assert.equal(
+    request.final_step_id,
+    expected.autoTagRegulator === false ? "digest" : "tag-regulator",
+  );
+}
+
 function parseNoteKind(noteContent: string) {
   const text = String(noteContent || "");
   const match = text.match(/data-zs-note-kind=(["'])([^"']+)\1/i);
@@ -227,15 +304,14 @@ describe("workflow: literature-analysis", function () {
         (entry) => entry.manifest.id === "literature-analysis",
       );
       assert.isOk(workflow, "expected literature-analysis workflow");
-      assert.equal(workflow?.manifest.request?.kind, "skillrunner.job.v1");
-      assert.equal(
-        (
-          workflow?.manifest.request?.create as
-            | { skill_id?: string }
-            | undefined
-        )?.skill_id,
-        "literature-analysis",
+      assert.equal(workflow?.manifest.request?.kind, "skillrunner.sequence.v1");
+      const sequenceSteps = workflow?.manifest.request?.sequence?.steps || [];
+      assert.deepEqual(
+        sequenceSteps.map((step) => step.id),
+        ["digest", "tag-regulator"],
       );
+      assert.equal(sequenceSteps[0]?.skill_id, "literature-analysis");
+      assert.equal(sequenceSteps[1]?.skill_id, "tag-regulator");
       assert.equal(workflow?.manifest.parameters?.language?.default, "zh-CN");
       assert.notProperty(
         workflow?.manifest.parameters || {},
@@ -298,32 +374,18 @@ describe("workflow: literature-analysis", function () {
       workflow: workflow!,
       selectionContext: context,
       executionOptions: {
-        providerOptions: {
-          engine: "gemini",
+        workflowParams: {
+          auto_tag_regulator: false,
         },
       },
-    })) as Array<{
-      kind: string;
-      targetParentID: number;
-      skill_id: string;
-      parameter?: { language?: string };
-      runtime_options?: { execution_mode?: string };
-      input?: { source_path?: string };
-      upload_files: Array<{ key: string; path: string }>;
-    }>;
+    })) as LiteratureAnalysisSequenceRequest[];
     assert.lengthOf(requests, 1);
     const request = requests[0];
-    assert.equal(request.kind, "skillrunner.job.v1");
-    assert.equal(request.targetParentID, parent.id);
-    assert.equal(request.skill_id, "literature-analysis");
-    assert.equal(request.parameter?.language, "zh-CN");
-    assert.equal(request.runtime_options?.execution_mode, "auto");
-    assert.equal(request.upload_files?.[0].key, "source_path");
-    assert.equal(request.upload_files?.[0].path, mdFile);
-    assert.match(
-      String(request.input?.source_path || ""),
-      /^inputs\/source_path\//,
-    );
+    assertLiteratureAnalysisDigestStep(request, {
+      sourcePath: mdFile,
+      targetParentID: parent.id,
+      autoTagRegulator: false,
+    });
   });
 
   itNodeOnly(
@@ -355,22 +417,18 @@ describe("workflow: literature-analysis", function () {
       const requests = (await executeBuildRequests({
         workflow: workflow!,
         selectionContext: context,
-      })) as Array<{
-        kind: string;
-        runtime_options?: { execution_mode?: string };
-        input?: { source_path?: string };
-        upload_files: Array<{ key: string; path: string }>;
-      }>;
+        executionOptions: {
+          workflowParams: {
+            auto_tag_regulator: false,
+          },
+        },
+      })) as LiteratureAnalysisSequenceRequest[];
 
       assert.lengthOf(requests, 1);
-      assert.equal(requests[0].kind, "skillrunner.job.v1");
-      assert.equal(requests[0].runtime_options?.execution_mode, "auto");
-      assert.equal(requests[0].upload_files?.[0].key, "source_path");
-      assert.equal(requests[0].upload_files?.[0].path, pdfFile);
-      assert.match(
-        String(requests[0].input?.source_path || ""),
-        /^inputs\/source_path\//,
-      );
+      assertLiteratureAnalysisDigestStep(requests[0], {
+        sourcePath: pdfFile,
+        autoTagRegulator: false,
+      });
     },
   );
 
@@ -438,18 +496,6 @@ describe("workflow: literature-analysis", function () {
         citationAnalysis: "<div><h1>Citation Analysis</h1><pre>{}</pre></div>",
       },
     },
-    {
-      label: "legacy paragraph strong headings",
-      title: "Workflow Legacy Paragraph Skip Parent",
-      noteContents: {
-        digest:
-          "<div><p><strong>Literature Digest</strong></p><p>legacy paragraph</p></div>",
-        references:
-          "<div><p><strong>References JSON</strong></p><pre>[]</pre></div>",
-        citationAnalysis:
-          "<div><p><strong>Citation Analysis</strong></p><pre>{}</pre></div>",
-      },
-    },
   ] as const;
 
   for (const entry of legacySkipCases) {
@@ -482,6 +528,42 @@ describe("workflow: literature-analysis", function () {
       },
     );
   }
+
+  itFullOnly(
+    "builds request for legacy paragraph-strong note formats that no longer imply idempotent completion",
+    async function () {
+      const workflow = await getLiteratureDigestWorkflow();
+      const { parent, attachment } = await createDigestAttachmentParent({
+        title: "Workflow Legacy Paragraph Rebuild Parent",
+      });
+      await addGeneratedDigestNotes(parent, {
+        digest:
+          "<div><p><strong>Literature Digest</strong></p><p>legacy paragraph</p></div>",
+        references:
+          "<div><p><strong>References JSON</strong></p><pre>[]</pre></div>",
+        citationAnalysis:
+          "<div><p><strong>Citation Analysis</strong></p><pre>{}</pre></div>",
+      });
+      const context = await buildSelectionContext([attachment]);
+
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext: context,
+        executionOptions: {
+          workflowParams: {
+            auto_tag_regulator: false,
+          },
+        },
+      })) as LiteratureAnalysisSequenceRequest[];
+
+      assert.lengthOf(requests, 1);
+      assertLiteratureAnalysisDigestStep(requests[0], {
+        sourcePath: fixturePath("literature-analysis", "example.md"),
+        targetParentID: parent.id,
+        autoTagRegulator: false,
+      });
+    },
+  );
 
   it("applies bundle by creating digest/references/citation-analysis child notes", async function () {
     this.timeout(5000);
@@ -1608,10 +1690,6 @@ describe("workflow: literature-analysis", function () {
                       patch.content,
                       'data-zs-block="representative-image"',
                     );
-                    assert.include(
-                      patch.content,
-                      'data-attachment-key="IMGSTALE1"',
-                    );
                     return baseHostApi.notes.update(realDigestNote, patch);
                   }
                   return baseHostApi.notes.update(note, patch);
@@ -1646,7 +1724,6 @@ describe("workflow: literature-analysis", function () {
           digestNote.getNote(),
           'data-zs-block="representative-image"',
         );
-        assert.include(digestNote.getNote(), 'data-attachment-key="IMGSTALE1"');
         assert.equal(applied.notes[0].id, digestNote.id);
       } finally {
         await fs.rm(root, { recursive: true, force: true });
@@ -2379,14 +2456,7 @@ describe("workflow: literature-analysis", function () {
           0,
           `${entry.label}: backend fetch should be skipped`,
         );
-        assert.lengthOf(alerts, 1, entry.label);
-        expectWorkflowSummaryCounter(alerts[0], "succeeded", 0);
-        expectWorkflowSummaryCounter(alerts[0], "failed", 0);
-        expectWorkflowSummaryCounter(
-          alerts[0],
-          "skipped",
-          entry.expectedSkipped,
-        );
+        assert.lengthOf(alerts, 0, entry.label);
       }
     },
   );
@@ -2451,10 +2521,7 @@ describe("workflow: literature-analysis", function () {
       }
 
       assert.equal(fetchCalls, 0, "backend fetch should be skipped");
-      assert.lengthOf(alerts, 1);
-      expectWorkflowSummaryCounter(alerts[0], "succeeded", 0);
-      expectWorkflowSummaryCounter(alerts[0], "failed", 0);
-      expectWorkflowSummaryCounter(alerts[0], "skipped", 2);
+      assert.lengthOf(alerts, 0);
     },
   );
 

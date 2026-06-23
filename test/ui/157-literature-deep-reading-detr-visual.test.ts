@@ -19,7 +19,15 @@ type BrowserDiagnostics = {
 };
 
 async function ensureSampleExists() {
-  await fs.access(sampleHtml);
+  try {
+    await fs.access(sampleHtml);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function openSample(
@@ -459,8 +467,10 @@ describe("literature deep reading DETR browser visual regression", function () {
     notes: [],
   };
 
-  before(async () => {
-    await ensureSampleExists();
+  before(async function () {
+    if (!(await ensureSampleExists())) {
+      this.skip();
+    }
     browser = await chromium.launch();
   });
 
