@@ -1,0 +1,22 @@
+{
+  "schema": "zotero-agents.content-feed.v1",
+  "feed_id": "zotero-agents-official-stable",
+  "channel": "stable",
+  "debug_content": false,
+  "revision": "1e7f08fba17e89d9ec8853394144ca511fe16dc5",
+  "updated_at": "2026-06-23T15:13:22.902Z",
+  "packages": [
+    {
+      "id": "zotero-agents-official-content",
+      "version": "0.4.0-pre.20260623231322.1e7f08fb",
+      "channel": "stable",
+      "debug_content": false,
+      "min_plugin_version": "0.4.0",
+      "artifact": {
+        "path": "packages/zotero-agents-official-content-0.4.0-pre.20260623231322.1e7f08fb.zip",
+        "sha256": "sha256:709f9948817a5fd958ddfd7944988859105fafb8076710aa5deb21f3a248ba17",
+        "size": 5322117
+      }
+    }
+  ]
+}
