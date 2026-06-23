@@ -133,7 +133,13 @@ function makeJob(args: {
 function persistRun(args: {
   requestId: string;
   state: JobState;
-  applyState?: "idle" | "pending" | "running" | "succeeded" | "failed" | "skipped";
+  applyState?:
+    | "idle"
+    | "pending"
+    | "running"
+    | "succeeded"
+    | "failed"
+    | "skipped";
   includeRequestPayload?: boolean;
   backendBaseUrl?: string;
   targetParentID?: number;
@@ -297,7 +303,10 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
     const { createTrackedReconciler } = setupSkillRunnerTaskReconcilerSuite();
 
     it("maps backend statuses to canonical job states", function () {
-      assert.equal(mapSkillRunnerBackendStatusToJobState("waiting_auth"), "waiting_auth");
+      assert.equal(
+        mapSkillRunnerBackendStatusToJobState("waiting_auth"),
+        "waiting_auth",
+      );
       assert.equal(mapSkillRunnerBackendStatusToJobState("unknown"), "running");
     });
 
@@ -367,7 +376,9 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
       assert.equal(stored?.status, "waiting_user");
       assert.isFalse(
         listRuntimeLogs().some((entry) =>
-          JSON.stringify(entry.details || {}).includes("missing-request-payload"),
+          JSON.stringify(entry.details || {}).includes(
+            "missing-request-payload",
+          ),
         ),
       );
       assert.isFalse(
@@ -798,6 +809,103 @@ export function registerSkillRunnerTaskReconcilerLedgerReconcileTests() {
       assert.isOk(
         getSkillRunnerBackendHealthState(TEST_SKILLRUNNER_BACKEND_ID),
       );
+    });
+
+    it("emits ledger reconcile failure toasts with backend display identity", async function () {
+      const toasts: Array<{
+        backendId: string;
+        displayName: string;
+        text: string;
+        dedupKey?: string;
+      }> = [];
+      setSkillRunnerBackendReconcileFailureToastEmitterForTests((payload) => {
+        toasts.push(payload);
+      });
+      persistRun({
+        requestId: "req-ledger-toast-failure",
+        state: "running",
+      });
+      installFetchRouter({
+        "/v1/jobs/req-ledger-toast-failure": () => {
+          throw new Error("network offline");
+        },
+      });
+
+      const result = await reconcileSkillRunnerBackendTaskLedgerOnce({
+        backend: {
+          id: TEST_SKILLRUNNER_BACKEND_ID,
+          displayName: "Remote Runner",
+          type: "skillrunner",
+          baseUrl: TEST_SKILLRUNNER_BASE_URL,
+          auth: { kind: "none" },
+        },
+        source: "startup",
+      });
+
+      assert.equal(result.ok, false);
+      assert.lengthOf(toasts, 1);
+      assert.equal(toasts[0].backendId, TEST_SKILLRUNNER_BACKEND_ID);
+      assert.equal(toasts[0].displayName, "Remote Runner");
+      assert.include(toasts[0].text, "Remote Runner");
+      assert.include(toasts[0].dedupKey || "", TEST_SKILLRUNNER_BACKEND_ID);
+    });
+
+    it("suppresses ledger reconcile failure toasts for the managed local backend", async function () {
+      const toasts: unknown[] = [];
+      setSkillRunnerBackendReconcileFailureToastEmitterForTests((payload) => {
+        toasts.push(payload);
+      });
+      const requestId = "req-local-ledger-toast-failure";
+      const job = makeJob({
+        id: `job-${requestId}`,
+        requestId,
+        state: "running",
+      });
+      const run = createSkillRunnerRun({
+        backendId: "local-skillrunner-backend",
+        workflowId: job.workflowId,
+        workflowRunId: `run-${requestId}`,
+        jobId: job.id,
+        taskName: "debug task",
+        skillId: "debug-apply-contract",
+        requestPayload: job.request,
+        fetchType: "result",
+        executionMode: "auto",
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+      });
+      assert.isOk(run);
+      attachSkillRunnerRequestId({
+        runKey: run!.runKey,
+        requestId,
+        backendRequestId: requestId,
+      });
+      updateSkillRunnerRunStateByRequest({
+        backendId: "local-skillrunner-backend",
+        requestId,
+        state: "running",
+        updatedAt: "2026-06-20T00:00:01.500Z",
+        eventType: "backend.snapshot",
+      });
+      installFetchRouter({
+        [`/v1/jobs/${requestId}`]: () => {
+          throw new Error("local runtime offline");
+        },
+      });
+
+      const result = await reconcileSkillRunnerBackendTaskLedgerOnce({
+        backend: {
+          id: "local-skillrunner-backend",
+          displayName: "Local Backend",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:29813",
+          auth: { kind: "none" },
+        },
+        source: "startup",
+      });
+
+      assert.equal(result.ok, false);
+      assert.lengthOf(toasts, 0);
     });
 
     it("keeps backend task ledger reconcile as one-shot terminal state repair", async function () {

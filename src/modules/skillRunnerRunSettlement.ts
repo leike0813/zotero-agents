@@ -1,9 +1,107 @@
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { stopSessionSync } from "./skillRunnerSessionSyncManager";
+import {
+  isTerminal,
+  isWaiting,
+  normalizeStatus,
+  type SkillRunnerProviderState,
+} from "./skillRunnerProviderStateMachine";
 import { updateSkillRunnerRunStateByRequest } from "./skillRunnerRunStore";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOwn(value: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function normalizeBoolean(value: unknown) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  const text = normalizeString(value).toLowerCase();
+  if (text === "true") {
+    return true;
+  }
+  if (text === "false") {
+    return false;
+  }
+  return undefined;
+}
+
+function messageFromResponse(response: Record<string, unknown>) {
+  for (const key of ["message", "reason", "error", "detail"]) {
+    const value = response[key];
+    const text = normalizeString(value);
+    if (text) {
+      return text;
+    }
+    if (isObject(value)) {
+      return JSON.stringify(value);
+    }
+  }
+  return undefined;
+}
+
+export type SkillRunnerManagementResponseSemantic = {
+  accepted?: boolean;
+  status: SkillRunnerProviderState;
+  terminalStatus?: Extract<
+    SkillRunnerProviderState,
+    "succeeded" | "failed" | "canceled"
+  >;
+  nonTerminalStatus?: Exclude<
+    SkillRunnerProviderState,
+    "succeeded" | "failed" | "canceled"
+  >;
+  message?: string;
+  hasPendingField: boolean;
+  hasPendingPayload: boolean;
+  shouldClearPending: boolean;
+};
+
+export function resolveSkillRunnerManagementResponseSemantic(args: {
+  response: unknown;
+  fallbackStatus?: SkillRunnerProviderState;
+}): SkillRunnerManagementResponseSemantic {
+  const response = isObject(args.response) ? args.response : {};
+  const status = normalizeStatus(
+    response.status,
+    args.fallbackStatus || "running",
+  );
+  const accepted = hasOwn(response, "accepted")
+    ? normalizeBoolean(response.accepted)
+    : undefined;
+  const terminal = isTerminal(status)
+    ? (status as Extract<
+        SkillRunnerProviderState,
+        "succeeded" | "failed" | "canceled"
+      >)
+    : undefined;
+  const hasPendingField = hasOwn(response, "pending");
+  const hasPendingPayload = isObject(response.pending);
+  return {
+    accepted,
+    status,
+    terminalStatus: terminal,
+    nonTerminalStatus: terminal
+      ? undefined
+      : (status as Exclude<
+          SkillRunnerProviderState,
+          "succeeded" | "failed" | "canceled"
+        >),
+    message: messageFromResponse(response),
+    hasPendingField,
+    hasPendingPayload,
+    shouldClearPending:
+      !!terminal ||
+      (!isWaiting(status) && (!hasPendingField || !hasPendingPayload)),
+  };
 }
 
 function stringifyError(error: unknown) {

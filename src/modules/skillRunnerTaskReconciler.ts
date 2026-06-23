@@ -1,10 +1,9 @@
 import type { BackendInstance } from "../backends/types";
 import { listBackendInstancesSync } from "../backends/registry";
-import { resolveBackendDisplayName } from "../backends/displayName";
 import { DEFAULT_BACKEND_TYPE } from "../config/defaults";
 import type { JobState } from "../jobQueue/manager";
 import { SkillRunnerClient } from "../providers/skillrunner/client";
-import { resolveSkillRunnerBackendCommunicationFailedToastText } from "../utils/localizationGovernance";
+import { createSkillRunnerBackendToastPayloadFromBackend } from "./skillRunnerBackendToasts";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import {
   listTaskDashboardHistory,
@@ -98,6 +97,8 @@ type BackendReconcileFailureToastPayload = {
   displayName: string;
   source: SkillRunnerBackendTaskLedgerReconcileSource;
   text: string;
+  dedupKey?: string;
+  dedupWindowMs?: number;
 };
 
 type SkillRunnerTaskLifecycleToastPayload = {
@@ -115,6 +116,8 @@ let backendReconcileFailureToastEmitter: (
     text: payload.text,
     type: "error",
     semantic: "error",
+    dedupKey: payload.dedupKey,
+    dedupWindowMs: payload.dedupWindowMs,
   });
 };
 
@@ -145,6 +148,8 @@ export function setSkillRunnerBackendReconcileFailureToastEmitterForTests(
         text: payload.text,
         type: "error",
         semantic: "error",
+        dedupKey: payload.dedupKey,
+        dedupWindowMs: payload.dedupWindowMs,
       });
     });
 }
@@ -464,13 +469,10 @@ export async function reconcileSkillRunnerBackendTaskLedgerOnce(args: {
       removedHistoryCount,
     };
   } catch (error) {
-    const displayName = resolveBackendDisplayName(
-      backendId,
-      args.backend.displayName,
-    );
-    const toastText = resolveSkillRunnerBackendCommunicationFailedToastText(
-      displayName || backendId,
-    );
+    const toastPayload = createSkillRunnerBackendToastPayloadFromBackend({
+      kind: "communication-failed",
+      backend: args.backend,
+    });
     appendRuntimeLog({
       level: "error",
       scope: "provider",
@@ -488,13 +490,15 @@ export async function reconcileSkillRunnerBackendTaskLedgerOnce(args: {
         checkedRequestIds: requestIds,
       },
     });
-    if (args.emitFailureToast !== false) {
+    if (args.emitFailureToast !== false && toastPayload) {
       try {
         backendReconcileFailureToastEmitter({
           backendId,
-          displayName: displayName || backendId,
+          displayName: toastPayload.displayName,
           source,
-          text: toastText,
+          text: toastPayload.text,
+          dedupKey: toastPayload.dedupKey,
+          dedupWindowMs: toastPayload.dedupWindowMs,
         });
       } catch {
         // keep toast reporting best-effort
@@ -729,7 +733,8 @@ export class SkillRunnerTaskReconciler {
           operation: "recovery-handoff-skipped",
           phase: args.source,
           stage: "missing-backend-config",
-          message: "skillrunner recovery handoff skipped because backend config is unavailable",
+          message:
+            "skillrunner recovery handoff skipped because backend config is unavailable",
         });
         return;
       }
@@ -832,9 +837,8 @@ export class SkillRunnerTaskReconciler {
       }
       if (decision.action === "waiting") {
         waiting += 1;
-        const observerDetached = decision.reason.startsWith(
-          "observer-detached",
-        );
+        const observerDetached =
+          decision.reason.startsWith("observer-detached");
         appendRuntimeLog({
           level: "info",
           scope: "job",

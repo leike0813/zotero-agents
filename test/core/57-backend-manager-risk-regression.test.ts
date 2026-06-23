@@ -29,6 +29,7 @@ import {
   registerSkillRunnerBackendForHealthTracking,
   resetSkillRunnerBackendHealthRegistryForTests,
 } from "../../src/modules/skillRunnerBackendHealthRegistry";
+import { createSkillRunnerBackendToastPayload } from "../../src/modules/skillRunnerBackendToasts";
 
 type FakeControl = {
   value?: string;
@@ -1091,9 +1092,13 @@ describe("backend manager risk regression", function () {
     assert.isOk(state);
     assert.isFalse(state?.reachable);
     assert.equal(state?.status, "unknown");
-    assert.isFalse(isSkillRunnerBackendAvailable("backend-skillrunner-unconfirmed"));
+    assert.isFalse(
+      isSkillRunnerBackendAvailable("backend-skillrunner-unconfirmed"),
+    );
     markSkillRunnerBackendHealthSuccess("backend-skillrunner-unconfirmed");
-    assert.isTrue(isSkillRunnerBackendAvailable("backend-skillrunner-unconfirmed"));
+    assert.isTrue(
+      isSkillRunnerBackendAvailable("backend-skillrunner-unconfirmed"),
+    );
   });
 
   it("buffers one SkillRunner health probe failure before gating a reachable backend", function () {
@@ -1108,7 +1113,9 @@ describe("backend manager risk regression", function () {
     assert.equal(firstFailure?.status, "reachable");
     assert.isTrue(firstFailure?.reachable);
     assert.equal(firstFailure?.failureStreak, 1);
-    assert.isTrue(isSkillRunnerBackendAvailable("backend-skillrunner-buffered"));
+    assert.isTrue(
+      isSkillRunnerBackendAvailable("backend-skillrunner-buffered"),
+    );
 
     const secondFailure = markSkillRunnerBackendHealthFailure({
       backendId: "backend-skillrunner-buffered",
@@ -1118,7 +1125,9 @@ describe("backend manager risk regression", function () {
     assert.equal(secondFailure?.status, "unreachable");
     assert.isFalse(secondFailure?.reachable);
     assert.equal(secondFailure?.failureStreak, 2);
-    assert.isFalse(isSkillRunnerBackendAvailable("backend-skillrunner-buffered"));
+    assert.isFalse(
+      isSkillRunnerBackendAvailable("backend-skillrunner-buffered"),
+    );
   });
 
   it("tracks SkillRunner backend health immediately when profiles are saved", function () {
@@ -1207,6 +1216,33 @@ describe("backend manager risk regression", function () {
       "backend-skillrunner-disabled",
     );
     assert.equal(state?.status, "disabled");
-    assert.isFalse(isSkillRunnerBackendAvailable("backend-skillrunner-disabled"));
+    assert.isFalse(
+      isSkillRunnerBackendAvailable("backend-skillrunner-disabled"),
+    );
+  });
+
+  it("builds auto-disable backend toasts with display names and dedup keys", function () {
+    const payload = createSkillRunnerBackendToastPayload({
+      kind: "auto-disabled",
+      backendId: "backend-skillrunner-remote",
+      displayName: "Remote Runner",
+    });
+
+    assert.isOk(payload);
+    assert.equal(payload?.displayName, "Remote Runner");
+    assert.include(payload?.text || "", "Remote Runner");
+    assert.include(payload?.dedupKey || "", "auto-disabled");
+    assert.include(payload?.dedupKey || "", "backend-skillrunner-remote");
+    assert.isAbove(payload?.dedupWindowMs || 0, 0);
+  });
+
+  it("suppresses generic backend toasts for the managed local backend", function () {
+    const payload = createSkillRunnerBackendToastPayload({
+      kind: "auto-disabled",
+      backendId: "local-skillrunner-backend",
+      displayName: "Local Backend",
+    });
+
+    assert.isNull(payload);
   });
 });

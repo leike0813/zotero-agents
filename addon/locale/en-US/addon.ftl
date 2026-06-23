@@ -508,10 +508,12 @@ backend-manager-error-timeout-invalid = Row { $row }: timeout must be a positive
 backend-display-local-skillrunner = Local Backend
 task-dashboard-backend-unavailable-tag = Unavailable
 task-dashboard-skillrunner-backend-unavailable = Unavailable
+skillrunner-backend-unavailable-toast = Backend { $backend } is temporarily unreachable. Please try again later.
 skillrunner-local-runtime-toast-up = Local backend started.
 skillrunner-local-runtime-toast-down = Local backend stopped.
 skillrunner-local-runtime-toast-abnormal-stop = Local backend stopped unexpectedly.
 skillrunner-backend-communication-failed = Failed to communicate with backend { $backend }.
+skillrunner-backend-auto-disabled-toast = Backend { $backend } was disabled after 6 hours without a successful connection. Re-enable it in Backend Manager to probe again.
 
 # Assistant panel shared UI
 assistant-panel-action-send = Send

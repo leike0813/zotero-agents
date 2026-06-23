@@ -29,6 +29,7 @@ import { appendRuntimeLog } from "./runtimeLogManager";
 import {
   cleanupTaskDashboardHistory,
   listTaskDashboardHistory,
+  updateTaskDashboardHistoryStateByRequest,
   type TaskDashboardHistoryRecord,
 } from "./taskDashboardHistory";
 import {
@@ -46,6 +47,7 @@ import { delay } from "../utils/runtimeCompatibility";
 import {
   listActiveWorkflowTaskSummaries,
   subscribeWorkflowTaskChanges,
+  updateWorkflowTaskStateByRequest,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
 import {
@@ -60,12 +62,16 @@ import {
   isSkillRunnerBackendAvailable,
   subscribeSkillRunnerBackendHealth,
 } from "./skillRunnerBackendHealthRegistry";
+import { showSkillRunnerBackendToast } from "./skillRunnerBackendToasts";
 import {
   stopSessionSync,
   subscribeSkillRunnerSessionState,
 } from "./skillRunnerSessionSyncManager";
 import { continueSkillRunnerForegroundRun } from "./skillRunnerForegroundContinuation";
-import { settleSkillRunnerRunAsFailed } from "./skillRunnerRunSettlement";
+import {
+  resolveSkillRunnerManagementResponseSemantic,
+  settleSkillRunnerRunAsFailed,
+} from "./skillRunnerRunSettlement";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import {
   type SkillRunnerSidebarContext,
@@ -1484,12 +1490,13 @@ function syncSessionStateFromRunStore(entry: RunDialogEntry) {
 function startRunDialogEntryForegroundContinuation(
   entry: RunDialogEntry,
   source: string,
+  initialStatus?: unknown,
 ) {
   stopSessionSync({
     backendId: entry.backend.id,
     requestId: entry.requestId,
   });
-  entry.session.status = "running";
+  entry.session.status = normalizeStatus(initialStatus, "running");
   entry.session.pendingOwner = undefined;
   entry.session.pendingInteraction = undefined;
   entry.session.pendingAuth = undefined;
@@ -1531,6 +1538,75 @@ function startRunDialogEntryForegroundContinuation(
     });
   trackRunDialogObserverTask(task);
   return task;
+}
+
+function clearRunDialogEntryPendingState(entry: RunDialogEntry) {
+  entry.session.pendingOwner = undefined;
+  entry.session.pendingInteraction = undefined;
+  entry.session.pendingAuth = undefined;
+}
+
+function applyManagementStatusToRunDialogEntry(args: {
+  entry: RunDialogEntry;
+  status: unknown;
+  source: string;
+  message?: string;
+}) {
+  const status = normalizeStatus(
+    args.status,
+    normalizeStatus(args.entry.session.status, "running"),
+  );
+  const updatedAt = new Date().toISOString();
+  args.entry.session.status = status;
+  args.entry.session.updatedAt = updatedAt;
+  if (!isWaiting(status)) {
+    clearRunDialogEntryPendingState(args.entry);
+  }
+  const error =
+    status === "failed" || !isTerminal(status)
+      ? String(args.message || "").trim() || undefined
+      : undefined;
+  args.entry.session.error = error;
+  updateWorkflowTaskStateByRequest({
+    backendId: args.entry.backend.id,
+    backendType: args.entry.backend.type,
+    requestId: args.entry.requestId,
+    state: status,
+    backendStatus: status,
+    error,
+    updatedAt,
+  });
+  updateTaskDashboardHistoryStateByRequest({
+    backendId: args.entry.backend.id,
+    requestId: args.entry.requestId,
+    state: status,
+    error,
+    updatedAt,
+  });
+  if (isTerminal(status)) {
+    stopSessionSync({
+      backendId: args.entry.backend.id,
+      requestId: args.entry.requestId,
+    });
+  }
+  appendRuntimeLog({
+    level: isTerminal(status) ? "info" : "debug",
+    scope: "job",
+    backendId: args.entry.backend.id,
+    backendType: args.entry.backend.type,
+    requestId: args.entry.requestId,
+    component: "skillrunner-run-dialog",
+    operation: "management-response-status",
+    phase: isTerminal(status) ? "terminal" : "reconcile",
+    stage: "management-response-status",
+    message: "skillrunner run dialog applied management response status",
+    details: {
+      source: args.source,
+      status,
+      message: args.message,
+    },
+  });
+  return status;
 }
 
 function getSkillRunnerPanelBackendId(row: {
@@ -2789,9 +2865,7 @@ async function startRunObserver(entry: RunDialogEntry) {
   };
 
   const clearPendingState = () => {
-    entry.session.pendingOwner = undefined;
-    entry.session.pendingInteraction = undefined;
-    entry.session.pendingAuth = undefined;
+    clearRunDialogEntryPendingState(entry);
   };
 
   const syncPendingState = async () => {
@@ -2811,6 +2885,26 @@ async function startRunObserver(entry: RunDialogEntry) {
       if (!isObserverActive(generation)) {
         return {
           waitingAuthExited: false,
+        };
+      }
+      const responseSemantic = resolveSkillRunnerManagementResponseSemantic({
+        response: pending,
+        fallbackStatus: normalizedStatus,
+      });
+      if (responseSemantic.status !== normalizedStatus) {
+        applyManagementStatusToRunDialogEntry({
+          entry,
+          status: responseSemantic.status,
+          source: "run-dialog-pending",
+          message: responseSemantic.message,
+        });
+      }
+      if (responseSemantic.shouldClearPending) {
+        clearPendingState();
+        return {
+          waitingAuthExited:
+            normalizedStatus === "waiting_auth" &&
+            !isWaiting(responseSemantic.status),
         };
       }
       const normalizedPending = normalizeRunDialogPendingState(pending);
@@ -3210,9 +3304,36 @@ async function handleRunDialogActionForEntry(
         alertWindow: entry.alertWindow || undefined,
         localize,
       });
-      await client.cancelRun({
+      const response = await client.cancelRun({
         requestId: entry.requestId,
       });
+      const semantic = resolveSkillRunnerManagementResponseSemantic({
+        response,
+        fallbackStatus: normalizeStatus(entry.session.status, "running"),
+      });
+      if (
+        semantic.accepted === false ||
+        semantic.status !== entry.session.status
+      ) {
+        const status = applyManagementStatusToRunDialogEntry({
+          entry,
+          status: semantic.status,
+          source: "run-dialog-cancel",
+          message: semantic.message,
+        });
+        if (
+          semantic.accepted === false &&
+          semantic.message &&
+          !isTerminal(status)
+        ) {
+          entry.alertWindow?.alert?.(semantic.message);
+        }
+        if (isTerminal(status)) {
+          await stopRunDialogEntryObserver(entry);
+          pushSnapshot("snapshot");
+          return;
+        }
+      }
     } catch (error) {
       if (
         settleRunDialogEntryAsFailed({
@@ -3263,13 +3384,15 @@ async function handleRunDialogActionForEntry(
         ? payload.submission
         : undefined;
       let submitted = false;
+      let shouldContinueAfterReply = false;
+      let continuationStatus: unknown = "running";
       try {
         const client = buildSkillRunnerManagementClient({
           backend: entry.backend,
           alertWindow: entry.alertWindow || undefined,
           localize,
         });
-        await client.submitReply({
+        const response = await client.submitReply({
           requestId: entry.requestId,
           payload: {
             mode: "auth",
@@ -3288,7 +3411,32 @@ async function handleRunDialogActionForEntry(
                 : {}),
           },
         });
-        submitted = true;
+        const semantic = resolveSkillRunnerManagementResponseSemantic({
+          response,
+          fallbackStatus: normalizeStatus(entry.session.status, "running"),
+        });
+        submitted = semantic.accepted !== false;
+        if (
+          semantic.accepted === false ||
+          semantic.shouldClearPending ||
+          semantic.status !== normalizeStatus(entry.session.status, "running")
+        ) {
+          const status = applyManagementStatusToRunDialogEntry({
+            entry,
+            status: semantic.status,
+            source: "run-dialog-auth-reply",
+            message: semantic.message,
+          });
+          shouldContinueAfterReply = !isWaiting(status) && !isTerminal(status);
+          if (shouldContinueAfterReply) {
+            continuationStatus = status;
+          }
+          if (isTerminal(status)) {
+            await stopRunDialogEntryObserver(entry);
+            pushSnapshot("snapshot");
+            return;
+          }
+        }
       } catch (error) {
         if (
           settleRunDialogEntryAsFailed({
@@ -3312,10 +3460,11 @@ async function handleRunDialogActionForEntry(
           ),
         );
       }
-      if (submitted && entry.refreshDisplay) {
+      if ((submitted || shouldContinueAfterReply) && entry.refreshDisplay) {
         void startRunDialogEntryForegroundContinuation(
           entry,
           "run-dialog-auth-reply",
+          shouldContinueAfterReply ? continuationStatus : "running",
         );
         await entry.refreshDisplay();
       } else {
@@ -3372,13 +3521,15 @@ async function handleRunDialogActionForEntry(
       return;
     }
     let submitted = false;
+    let shouldContinueAfterReply = false;
+    let continuationStatus: unknown = "running";
     try {
       const client = buildSkillRunnerManagementClient({
         backend: entry.backend,
         alertWindow: entry.alertWindow || undefined,
         localize,
       });
-      await client.submitReply({
+      const response = await client.submitReply({
         requestId: entry.requestId,
         payload: {
           mode: "interaction",
@@ -3386,11 +3537,38 @@ async function handleRunDialogActionForEntry(
           response: resolvedResponse.response,
         },
       });
-      stopSkillRunnerAutoReplyObserver({
-        backendId: entry.backend.id,
-        requestId: entry.requestId,
+      const semantic = resolveSkillRunnerManagementResponseSemantic({
+        response,
+        fallbackStatus: normalizeStatus(entry.session.status, "running"),
       });
-      submitted = true;
+      submitted = semantic.accepted !== false;
+      if (submitted || semantic.shouldClearPending) {
+        stopSkillRunnerAutoReplyObserver({
+          backendId: entry.backend.id,
+          requestId: entry.requestId,
+        });
+      }
+      if (
+        semantic.accepted === false ||
+        semantic.shouldClearPending ||
+        semantic.status !== normalizeStatus(entry.session.status, "running")
+      ) {
+        const status = applyManagementStatusToRunDialogEntry({
+          entry,
+          status: semantic.status,
+          source: "run-dialog-interaction-reply",
+          message: semantic.message,
+        });
+        shouldContinueAfterReply = !isWaiting(status) && !isTerminal(status);
+        if (shouldContinueAfterReply) {
+          continuationStatus = status;
+        }
+        if (isTerminal(status)) {
+          await stopRunDialogEntryObserver(entry);
+          pushSnapshot("snapshot");
+          return;
+        }
+      }
     } catch (error) {
       let autoReplyRaceHandled = false;
       try {
@@ -3439,10 +3617,11 @@ async function handleRunDialogActionForEntry(
         ),
       );
     }
-    if (submitted && entry.refreshDisplay) {
+    if ((submitted || shouldContinueAfterReply) && entry.refreshDisplay) {
       void startRunDialogEntryForegroundContinuation(
         entry,
         "run-dialog-interaction-reply",
+        shouldContinueAfterReply ? continuationStatus : "running",
       );
       await entry.refreshDisplay();
     } else {
@@ -3901,11 +4080,10 @@ function startRunWorkspaceObserverInBackground(args: {
     return;
   }
   if (!isSkillRunnerBackendAvailable(args.backend.id)) {
-    showWorkflowToast({
-      text: resolveBackendUnavailableMessage(
-        resolveBackendDisplayName(args.backend.id, args.backend.displayName),
-      ),
-      type: "error",
+    showSkillRunnerBackendToast({
+      kind: "unavailable",
+      backendId: args.backend.id,
+      displayName: args.backend.displayName,
     });
     void stopRunDialogEntryObserversForBackend(args.backend.id);
     return;
@@ -4322,9 +4500,7 @@ export async function focusSkillRunnerWorkspace(args?: {
   }
 }
 
-export async function openSkillRunnerRunDialog(args?: {
-  runKey?: string;
-}) {
+export async function openSkillRunnerRunDialog(args?: { runKey?: string }) {
   const runKey = String(args?.runKey || "").trim();
   const record = runKey ? getSkillRunnerRunRecord(runKey) : null;
   const backendId = String(record?.backendId || "").trim();
@@ -4337,11 +4513,9 @@ export async function openSkillRunnerRunDialog(args?: {
     : null;
   if (backendId) {
     if (!isSkillRunnerBackendAvailable(backendId)) {
-      showWorkflowToast({
-        text: resolveBackendUnavailableMessage(
-          resolveBackendDisplayName(backendId),
-        ),
-        type: "error",
+      showSkillRunnerBackendToast({
+        kind: "unavailable",
+        backendId,
       });
       return;
     }

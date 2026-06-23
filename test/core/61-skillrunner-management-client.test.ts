@@ -5,8 +5,65 @@ import {
   type SkillRunnerManagementSseFrame,
 } from "../../src/providers/skillrunner/managementClient";
 import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
+import {
+  resolveSkillRunnerManagementResponseSemantic,
+} from "../../src/modules/skillRunnerRunSettlement";
 
 describe("skillrunner management client", function () {
+  it("classifies accepted=false terminal cancel responses as terminal reconciliation", function () {
+    const semantic = resolveSkillRunnerManagementResponseSemantic({
+      response: {
+        request_id: "req-1",
+        status: "SUCCEEDED",
+        accepted: false,
+        message: "already in terminal state",
+      },
+      fallbackStatus: "running",
+    });
+
+    assert.equal(semantic.accepted, false);
+    assert.equal(semantic.status, "succeeded");
+    assert.equal(semantic.terminalStatus, "succeeded");
+    assert.isUndefined(semantic.nonTerminalStatus);
+    assert.equal(semantic.shouldClearPending, true);
+    assert.equal(semantic.message, "already in terminal state");
+  });
+
+  it("keeps accepted=false non-terminal cancel responses non-terminal", function () {
+    const semantic = resolveSkillRunnerManagementResponseSemantic({
+      response: {
+        request_id: "req-2",
+        status: "running",
+        accepted: false,
+        reason: "run is not cancelable",
+      },
+      fallbackStatus: "waiting_user",
+    });
+
+    assert.equal(semantic.accepted, false);
+    assert.equal(semantic.status, "running");
+    assert.equal(semantic.nonTerminalStatus, "running");
+    assert.isUndefined(semantic.terminalStatus);
+    assert.equal(semantic.shouldClearPending, true);
+    assert.equal(semantic.message, "run is not cancelable");
+  });
+
+  it("classifies pending=null with a non-waiting status as stale pending", function () {
+    const semantic = resolveSkillRunnerManagementResponseSemantic({
+      response: {
+        request_id: "req-3",
+        status: "queued",
+        pending: null,
+      },
+      fallbackStatus: "waiting_user",
+    });
+
+    assert.equal(semantic.status, "queued");
+    assert.equal(semantic.hasPendingField, true);
+    assert.equal(semantic.hasPendingPayload, false);
+    assert.equal(semantic.shouldClearPending, true);
+  });
+
   it("retries once with prompted basic auth on 401", async function () {
     const calls: Array<{ url: string; auth?: string | null }> = [];
     let count = 0;

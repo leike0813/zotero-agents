@@ -63,13 +63,9 @@ export type WorkflowApplySummary = {
 export type WorkflowToastPayload = {
   text: string;
   type: "default" | "success" | "error";
-  semantic?:
-    | "start"
-    | "waiting"
-    | "success"
-    | "error"
-    | "canceled"
-    | "runtime";
+  dedupKey?: string;
+  dedupWindowMs?: number;
+  semantic?: "start" | "waiting" | "success" | "error" | "canceled" | "runtime";
 };
 
 export type WorkflowPresentationArgs = {

@@ -3,12 +3,14 @@ import {
   loadBackendsRegistry,
 } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
-import { resolveBackendDisplayName } from "../backends/displayName";
 import { setPref } from "../utils/prefs";
 import { refreshWorkflowMenus } from "./workflowMenu";
 import { appendRuntimeLog } from "./runtimeLogManager";
-import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import { SkillRunnerManagementClient } from "../providers/skillrunner/managementClient";
+import {
+  isManagedLocalSkillRunnerBackendId,
+  showSkillRunnerBackendToast,
+} from "./skillRunnerBackendToasts";
 import {
   SKILLRUNNER_BACKEND_ENABLE_PROBE_DEBOUNCE_MS,
   SKILLRUNNER_BACKEND_PROBE_TICK_MS,
@@ -54,22 +56,18 @@ function isBackendEnabled(backend: BackendInstance) {
 }
 
 function showAutoDisabledToast(backend: BackendInstance) {
-  const displayName =
-    resolveBackendDisplayName(backend.id, backend.displayName) || backend.id;
-  showWorkflowToast(
-    {
-      text: `SkillRunner backend ${displayName} was disabled after 6 hours without a successful connection. Re-enable it in Backend Manager to probe again.`,
-      type: "error",
-      semantic: "runtime",
-    },
-    {
-      sticky: true,
-      bounded: true,
-    },
-  );
+  showSkillRunnerBackendToast({
+    kind: "auto-disabled",
+    backendId: backend.id,
+    displayName: backend.displayName,
+    sticky: true,
+  });
 }
 
 async function autoDisableBackend(backend: BackendInstance) {
+  if (isManagedLocalSkillRunnerBackendId(backend.id)) {
+    return;
+  }
   const loaded = await loadBackendsRegistry();
   if (loaded.fatalError) {
     return;
@@ -138,7 +136,10 @@ async function probeBackend(backend: BackendInstance, source: ProbeSource) {
   if (!shouldProbeSkillRunnerBackendNow(backendId)) {
     return;
   }
-  if (shouldAutoDisableSkillRunnerBackend(backendId)) {
+  if (
+    shouldAutoDisableSkillRunnerBackend(backendId) &&
+    !isManagedLocalSkillRunnerBackendId(backendId)
+  ) {
     await autoDisableBackend(backend);
     return;
   }

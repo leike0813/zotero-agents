@@ -789,6 +789,7 @@ describe("skillrunner run dialog bubble message model", function () {
   it("clears pending cards when status leaves waiting states", function () {
     assert.equal(shouldClearRunDialogPendingForStatus("waiting_user"), false);
     assert.equal(shouldClearRunDialogPendingForStatus("waiting_auth"), false);
+    assert.equal(shouldClearRunDialogPendingForStatus("queued"), true);
     assert.equal(shouldClearRunDialogPendingForStatus("running"), true);
     assert.equal(shouldClearRunDialogPendingForStatus("succeeded"), true);
   });

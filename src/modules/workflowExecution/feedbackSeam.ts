@@ -35,6 +35,7 @@ type ProgressWindowCtor = (new (
 
 const WORKFLOW_TOAST_CLOSE_DELAY_MS = 2000;
 const MAX_VISIBLE_WORKFLOW_TOASTS = 3;
+const DEFAULT_WORKFLOW_TOAST_DEDUP_WINDOW_MS = 5000;
 
 type WorkflowToastOptions = {
   sticky?: boolean;
@@ -43,6 +44,7 @@ type WorkflowToastOptions = {
 };
 
 const visibleWorkflowToasts: ProgressWindowInstance[] = [];
+const recentWorkflowToastDedup = new Map<string, number>();
 
 function resolveProgressWindowCtor() {
   return resolveToolkitMember<ProgressWindowCtor>("ProgressWindow");
@@ -80,13 +82,33 @@ const WORKFLOW_TOAST_EMOJI_PREFIXES = ["🚀", "⏳", "✅", "❌", "⏹️", "�
 
 export function resetWorkflowToastStateForTests() {
   visibleWorkflowToasts.splice(0, visibleWorkflowToasts.length);
+  recentWorkflowToastDedup.clear();
 }
 
 export function closeVisibleWorkflowToasts() {
   const toasts = visibleWorkflowToasts.splice(0, visibleWorkflowToasts.length);
+  recentWorkflowToastDedup.clear();
   for (const toast of toasts) {
     closeProgressWindow(toast);
   }
+}
+
+function shouldSuppressDuplicateWorkflowToast(payload: WorkflowToastPayload) {
+  const key = String(payload.dedupKey || "").trim();
+  if (!key) {
+    return false;
+  }
+  const now = Date.now();
+  const windowMs = Math.max(
+    0,
+    Number(payload.dedupWindowMs || DEFAULT_WORKFLOW_TOAST_DEDUP_WINDOW_MS),
+  );
+  const lastShownAt = recentWorkflowToastDedup.get(key) || 0;
+  if (windowMs > 0 && now - lastShownAt < windowMs) {
+    return true;
+  }
+  recentWorkflowToastDedup.set(key, now);
+  return false;
 }
 
 function resolveWorkflowToastEmoji(payload: WorkflowToastPayload) {
@@ -169,6 +191,9 @@ export function showWorkflowToast(
   payload: WorkflowToastPayload,
   options: WorkflowToastOptions = {},
 ) {
+  if (shouldSuppressDuplicateWorkflowToast(payload)) {
+    return undefined;
+  }
   const ProgressWindow = resolveProgressWindowCtor();
   if (!ProgressWindow) {
     return undefined;

@@ -1419,6 +1419,86 @@ describe("workflow execution seams", function () {
     assert.isTrue(options.every((entry) => entry?.closeTime === 0));
   });
 
+  it("deduplicates workflow toasts by key and clears dedup state on reset or close", function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const shown: string[] = [];
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      private text = "";
+
+      createLine(args: { text?: string }) {
+        this.text = String(args?.text || "");
+        return this;
+      }
+
+      show() {
+        shown.push(this.text);
+        return this;
+      }
+
+      startCloseTimer() {
+        return this;
+      }
+
+      close() {
+        return this;
+      }
+    };
+
+    try {
+      showWorkflowToast({
+        text: "first",
+        type: "default",
+        dedupKey: "backend:one",
+        dedupWindowMs: 60_000,
+      });
+      showWorkflowToast({
+        text: "duplicate",
+        type: "default",
+        dedupKey: "backend:one",
+        dedupWindowMs: 60_000,
+      });
+      showWorkflowToast({
+        text: "second backend",
+        type: "default",
+        dedupKey: "backend:two",
+        dedupWindowMs: 60_000,
+      });
+      resetWorkflowToastStateForTests();
+      showWorkflowToast({
+        text: "after reset",
+        type: "default",
+        dedupKey: "backend:one",
+        dedupWindowMs: 60_000,
+      });
+      closeVisibleWorkflowToasts();
+      showWorkflowToast({
+        text: "after close",
+        type: "default",
+        dedupKey: "backend:one",
+        dedupWindowMs: 60_000,
+      });
+    } finally {
+      resetWorkflowToastStateForTests();
+      if (createdToolkit) {
+        delete runtime.ztoolkit;
+      } else {
+        runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+      }
+    }
+
+    assert.deepEqual(shown, [
+      "first",
+      "second backend",
+      "after reset",
+      "after close",
+    ]);
+  });
+
   it("closes visible workflow toasts when the plugin window unloads", function () {
     resetWorkflowToastStateForTests();
     const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
@@ -1937,10 +2017,7 @@ describe("workflow execution seams", function () {
     assert.isUndefined(payload?.providerOptions);
     assert.equal(payload?.runtime_options?.execution_mode, "interactive");
     assert.equal(payload?.runtime_options?.interactive_auto_reply, true);
-    assert.equal(
-      payload?.runtime_options?.interactive_reply_timeout_sec,
-      30,
-    );
+    assert.equal(payload?.runtime_options?.interactive_reply_timeout_sec, 30);
   });
 
   it("does not register ACP-compatible runs for SkillRunner settlement", async function () {

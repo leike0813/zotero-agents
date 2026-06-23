@@ -6,6 +6,7 @@ import {
   PASS_THROUGH_BACKEND_TYPE,
 } from "../config/defaults";
 import { getString } from "../utils/locale";
+import { resolveSkillRunnerBackendUnavailableToastText } from "../utils/localizationGovernance";
 import { resolveBackendDisplayName } from "../backends/displayName";
 import { isWindowAlive } from "../utils/window";
 import { listRuntimeLogs } from "./runtimeLogManager";
@@ -14,6 +15,7 @@ import {
   listTaskDashboardHistory,
   summarizeTaskDashboardHistory,
   summarizeTaskDashboardHistoryScope,
+  updateTaskDashboardHistoryStateByRequest,
   type TaskDashboardHistorySummary,
   type TaskDashboardHistoryRecord,
 } from "./taskDashboardHistory";
@@ -26,6 +28,7 @@ import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import {
   listActiveWorkflowTaskSummaries,
   subscribeWorkflowTaskChanges,
+  updateWorkflowTaskStateByRequest,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
 import { filterDashboardActiveTasks } from "./dashboardActiveTasks";
@@ -40,7 +43,10 @@ import { config } from "../../package.json";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import { buildSkillRunnerManagementClient } from "./skillRunnerManagementClientFactory";
 import { isSkillRunnerRunTerminalClientError } from "../providers/skillrunner/errors";
-import { settleSkillRunnerRunAsFailed } from "./skillRunnerRunSettlement";
+import {
+  resolveSkillRunnerManagementResponseSemantic,
+  settleSkillRunnerRunAsFailed,
+} from "./skillRunnerRunSettlement";
 import { joinPath } from "../utils/path";
 import {
   buildWorkflowSettingsUiDescriptor,
@@ -65,6 +71,7 @@ import {
   isSkillRunnerBackendAvailable,
   subscribeSkillRunnerBackendHealth,
 } from "./skillRunnerBackendHealthRegistry";
+import { stopSessionSync } from "./skillRunnerSessionSyncManager";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 import {
   buildAcpSkillRunPanelSnapshot,
@@ -727,6 +734,47 @@ function compactError(error: unknown) {
   return text.length > 220 ? `${text.slice(0, 220)}...` : text;
 }
 
+function applyDashboardManagementStatus(args: {
+  backend: BackendInstance;
+  requestId: string;
+  status: unknown;
+  message?: string;
+}) {
+  const status = normalizeStatus(args.status, "running");
+  const updatedAt = new Date().toISOString();
+  const error =
+    status === "failed" || !isTerminal(status)
+      ? String(args.message || "").trim() || undefined
+      : undefined;
+  updateWorkflowTaskStateByRequest({
+    backendId: args.backend.id,
+    backendType: args.backend.type,
+    requestId: args.requestId,
+    state: status,
+    backendStatus: status,
+    error,
+    updatedAt,
+  });
+  updateTaskDashboardHistoryStateByRequest({
+    backendId: args.backend.id,
+    requestId: args.requestId,
+    state: status,
+    error,
+    updatedAt,
+  });
+  if (isTerminal(status)) {
+    stopSessionSync({
+      backendId: args.backend.id,
+      requestId: args.requestId,
+    });
+  }
+  return {
+    status,
+    error,
+    terminal: isTerminal(status),
+  };
+}
+
 function createManagementContentBrowser(doc: Document, url: string) {
   const createXul = (doc as { createXULElement?: (tag: string) => Element })
     .createXULElement;
@@ -846,21 +894,11 @@ function resolveBackendUnavailableMessageForDialog(args: {
   backendId?: string;
   backendDisplayName?: string;
 }) {
-  return localize(
-    "task-dashboard-skillrunner-backend-unavailable",
-    "Backend {backend} is temporarily unreachable. Please try again later.",
-    {
-      args: {
-        backend:
-          String(args.backendDisplayName || "").trim() ||
-          resolveBackendDisplayName(
-            String(args.backendId || "").trim(),
-            undefined,
-          ) ||
-          "-",
-      },
-    },
-  );
+  const displayName =
+    String(args.backendDisplayName || "").trim() ||
+    resolveBackendDisplayName(String(args.backendId || "").trim(), undefined) ||
+    "-";
+  return resolveSkillRunnerBackendUnavailableToastText(displayName);
 }
 
 function resolveStatusLabel(state: string) {
@@ -3524,9 +3562,33 @@ export async function openTaskManagerDialog(args?: {
           alertWindow: getRuntimeWindow() || undefined,
           localize,
         });
-        await client.cancelRun({
+        const response = await client.cancelRun({
           requestId,
         });
+        const semantic = resolveSkillRunnerManagementResponseSemantic({
+          response,
+          fallbackStatus: target
+            ? normalizeStatus(target.state, "running")
+            : "running",
+        });
+        if (
+          semantic.accepted === false ||
+          semantic.status !== normalizeStatus(target?.state, "running")
+        ) {
+          const applied = applyDashboardManagementStatus({
+            backend,
+            requestId,
+            status: semantic.status,
+            message: semantic.message,
+          });
+          if (
+            semantic.accepted === false &&
+            semantic.message &&
+            !applied.terminal
+          ) {
+            alertRuntimeWindow(semantic.message);
+          }
+        }
       } catch (error) {
         if (isSkillRunnerRunTerminalClientError(error)) {
           settleSkillRunnerRunAsFailed({

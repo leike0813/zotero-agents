@@ -2400,6 +2400,15 @@ details.assistant-panel-details-section[open] > .assistant-panel-details-section
   color: var(--zs-accent-strong);
 }
 
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-section-toggle {
+  border-bottom-color: var(--asst-line);
+  color: var(--asst-text);
+}
+
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-section.is-completed {
+  border-color: var(--asst-line);
+}
+
 @media (prefers-color-scheme: dark) {
   :root:not([data-zs-theme="light"]) .assistant-panel-permission-drawer-panel,
   :root:not([data-zs-theme="light"]) .assistant-panel-reply-input,
@@ -2461,6 +2470,15 @@ details.assistant-panel-details-section[open] > .assistant-panel-details-section
   :root:not([data-zs-theme="light"]) .assistant-code-copy-button:focus-visible {
     background: var(--asst-accent-soft);
     color: var(--zs-accent-strong);
+  }
+
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-section-toggle {
+    border-bottom-color: var(--asst-line);
+    color: var(--asst-text);
+  }
+
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-section.is-completed {
+    border-color: var(--asst-line);
   }
 }
 

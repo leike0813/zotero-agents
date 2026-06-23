@@ -2,6 +2,21 @@
   background-color: tomato;
 }
 
+:root {
+  --zs-pv-bg: #ffffff;
+  --zs-pv-text: #172033;
+  --zs-pv-title: #334155;
+  --zs-pv-separator: rgba(148, 163, 184, 0.42);
+  --zs-pv-empty-bg: #f8fafc;
+  --zs-pv-empty-text: #64748b;
+  --zs-pv-task-title: #0f172a;
+  --zs-pv-task-subtitle: #475569;
+  --zs-pv-task-backend: #64748b;
+  --zs-pv-task-hover-border: #9bbcff;
+  --zs-pv-task-hover-bg: #eef5ff;
+  --zs-pv-shadow: none;
+}
+
 .icon-css.icon-zotero-skills-workspace,
 .icon-css.icon-item-type[data-item-type="zotero-skills-workspace"],
 .tab-icon.icon-item-type[data-item-type="zotero-skills-workspace"] {
@@ -71,9 +86,9 @@
   padding: 5px 8px 10px;
   border: 0;
   border-radius: 0;
-  background: #ffffff;
-  color: #172033;
-  box-shadow: none;
+  background: var(--zs-pv-bg);
+  color: var(--zs-pv-text);
+  box-shadow: var(--zs-pv-shadow);
   transform: translateY(-3px);
   font:
     12px/1.35 system-ui,
@@ -86,7 +101,7 @@
 .zs-workspace-running-popover-title {
   margin: 0;
   padding: 0 2px;
-  color: #334155;
+  color: var(--zs-pv-title);
   font-family: Georgia, "Times New Roman", serif;
   font-size: 12px;
   font-weight: 700;
@@ -100,14 +115,14 @@
   margin: 5px 2px 6px;
   padding: 0;
   border: 0;
-  background: rgba(148, 163, 184, 0.42);
+  background: var(--zs-pv-separator);
 }
 
 .zs-workspace-running-popover-empty {
   padding: 10px 8px;
   border-radius: 6px;
-  background: #f8fafc;
-  color: #64748b;
+  background: var(--zs-pv-empty-bg);
+  color: var(--zs-pv-empty-text);
 }
 
 .zs-workspace-running-popover-list {
@@ -133,8 +148,8 @@
 
 .zs-workspace-running-popover-task:hover,
 .zs-workspace-running-popover-task:focus-visible {
-  border-color: #9bbcff;
-  background: #eef5ff;
+  border-color: var(--zs-pv-task-hover-border);
+  background: var(--zs-pv-task-hover-bg);
   outline: 2px solid transparent;
 }
 
@@ -181,59 +196,48 @@
 }
 
 .zs-workspace-running-popover-task-title {
-  color: #0f172a;
+  color: var(--zs-pv-task-title);
   font-weight: 650;
 }
 
 .zs-workspace-running-popover-task-subtitle {
-  color: #475569;
+  color: var(--zs-pv-task-subtitle);
   font-size: 9px;
 }
 
 .zs-workspace-running-popover-task-backend {
-  color: #64748b;
+  color: var(--zs-pv-task-backend);
   font-size: 9px;
 }
 
+html[data-zs-theme="dark"] {
+  --zs-pv-bg: #182235;
+  --zs-pv-text: #e5edf8;
+  --zs-pv-title: #d5deec;
+  --zs-pv-separator: rgba(148, 163, 184, 0.28);
+  --zs-pv-empty-bg: rgba(15, 23, 42, 0.5);
+  --zs-pv-empty-text: #aab7ca;
+  --zs-pv-task-title: #f8fafc;
+  --zs-pv-task-subtitle: #aab7ca;
+  --zs-pv-task-backend: #aab7ca;
+  --zs-pv-task-hover-border: rgba(147, 197, 253, 0.45);
+  --zs-pv-task-hover-bg: rgba(96, 165, 250, 0.16);
+  --zs-pv-shadow: 0 12px 30px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.22);
+}
+
 @media (prefers-color-scheme: dark) {
-  .zs-workspace-running-popover {
-    border-color: rgba(148, 163, 184, 0.28);
-    background: #182235;
-    color: #e5edf8;
-    box-shadow:
-      0 12px 30px rgba(0, 0, 0, 0.35),
-      0 2px 6px rgba(0, 0, 0, 0.22);
-  }
-
-  .zs-workspace-running-popover-title {
-    color: #d5deec;
-  }
-
-  .zs-workspace-running-popover-separator {
-    background: rgba(148, 163, 184, 0.28);
-  }
-
-  .zs-workspace-running-popover-empty {
-    background: rgba(15, 23, 42, 0.5);
-    color: #aab7ca;
-  }
-
-  .zs-workspace-running-popover-task {
-    background: transparent;
-  }
-
-  .zs-workspace-running-popover-task:hover,
-  .zs-workspace-running-popover-task:focus-visible {
-    border-color: rgba(147, 197, 253, 0.45);
-    background: rgba(96, 165, 250, 0.16);
-  }
-
-  .zs-workspace-running-popover-task-title {
-    color: #f8fafc;
-  }
-
-  .zs-workspace-running-popover-task-subtitle,
-  .zs-workspace-running-popover-task-backend {
-    color: #aab7ca;
+  :root {
+    --zs-pv-bg: #182235;
+    --zs-pv-text: #e5edf8;
+    --zs-pv-title: #d5deec;
+    --zs-pv-separator: rgba(148, 163, 184, 0.28);
+    --zs-pv-empty-bg: rgba(15, 23, 42, 0.5);
+    --zs-pv-empty-text: #aab7ca;
+    --zs-pv-task-title: #f8fafc;
+    --zs-pv-task-subtitle: #aab7ca;
+    --zs-pv-task-backend: #aab7ca;
+    --zs-pv-task-hover-border: rgba(147, 197, 253, 0.45);
+    --zs-pv-task-hover-bg: rgba(96, 165, 250, 0.16);
+    --zs-pv-shadow: 0 12px 30px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.22);
   }
 }

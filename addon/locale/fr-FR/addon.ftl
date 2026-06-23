@@ -508,10 +508,12 @@ backend-manager-error-timeout-invalid = Ligne { $row }: le délai doit être un 
 backend-display-local-skillrunner = Backend local
 task-dashboard-backend-unavailable-tag = Indisponible
 task-dashboard-skillrunner-backend-unavailable = Indisponible
+skillrunner-backend-unavailable-toast = Le backend { $backend } est temporairement injoignable. Veuillez réessayer plus tard.
 skillrunner-local-runtime-toast-up = Backend local démarré.
 skillrunner-local-runtime-toast-down = Backend local arrêté.
 skillrunner-local-runtime-toast-abnormal-stop = Backend local arrêté de manière inattendue.
 skillrunner-backend-communication-failed = Échec de la communication avec le backend { $backend }.
+skillrunner-backend-auto-disabled-toast = Le backend { $backend } a été désactivé après 6 heures sans connexion réussie. Réactivez-le dans le gestionnaire de backends pour relancer la sonde.
 
 # Assistant panel shared UI
 assistant-panel-action-send = Envoyer

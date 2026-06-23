@@ -410,6 +410,23 @@ Run dialog MUST tolerate stale cached chat core assets during rollout.
 - **AND** 重建目标 MUST 是 `events/history -> events SSE`
 - **AND** 前端 MUST NOT 直接用 jobs API 轮询去改写 `queued/running` 非终态
 
+#### Scenario: pending endpoint can clear stale interaction cards
+- **WHEN** run 处于 `waiting_user` 或 `waiting_auth`
+- **AND** `interaction/pending` 返回 HTTP 200
+- **AND** response has `pending=null`
+- **AND** response `status` is not `waiting_user` or `waiting_auth`
+- **THEN** frontend MUST clear the pending interaction/auth card
+- **AND** frontend MUST update the local run state from response `status`
+- **AND** frontend MUST NOT keep the stale pending interaction actionable
+
+#### Scenario: cancel rejection with terminal status settles local run
+- **WHEN** user cancels a SkillRunner run
+- **AND** cancel endpoint returns HTTP 200 with `accepted=false`
+- **AND** response `status` is terminal `succeeded`, `failed`, or `canceled`
+- **THEN** frontend MUST settle the local run to that terminal state
+- **AND** frontend MUST stop targeting that request with further cancel, reply, pending, chat, or event requests
+- **AND** frontend MUST NOT leave the run visible as an active cancellable task
+
 ### Requirement: request-created local failure MUST remain recoverable non-terminal state
 
 Plugin MUST distinguish backend terminal failure from plugin-side communication
@@ -1018,4 +1035,3 @@ SkillRunner lifecycle invariants MUST capture lifecycle, projection, terminal ow
 - **WHEN** the invariant checker is updated
 - **THEN** the lifecycle invariant YAML MUST become part of
   `check:ssot-invariants`.
-

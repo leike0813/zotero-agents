@@ -76,6 +76,8 @@
   --sync-terminal-ok: var(--zs-success);
   --sync-terminal-warn: var(--zs-warning);
   --sync-terminal-error: var(--zs-danger);
+  --topic-node-bg: rgba(255, 255, 255, 0.92);
+  --topic-legend-bg: rgba(255, 255, 255, 0.86);
 }
 
 :root[data-zs-theme="dark"] {
@@ -111,6 +113,8 @@
   --sync-terminal-ok: #8fd7a5;
   --sync-terminal-warn: #f0c36a;
   --sync-terminal-error: #ff9b9b;
+  --topic-node-bg: rgba(30, 41, 59, 0.92);
+  --topic-legend-bg: rgba(30, 41, 59, 0.86);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -151,6 +155,8 @@
     --sync-terminal-ok: #8fd7a5;
     --sync-terminal-warn: #f0c36a;
     --sync-terminal-error: #ff9b9b;
+    --topic-node-bg: rgba(30, 41, 59, 0.92);
+    --topic-legend-bg: rgba(30, 41, 59, 0.86);
   }
 }
 
@@ -1210,7 +1216,7 @@ button.is-busy {
   transform: translate(-50%, -50%);
   text-align: left;
   border-color: rgba(25, 103, 179, 0.26);
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--topic-node-bg);
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
   cursor: pointer;
 }
@@ -1275,7 +1281,7 @@ button.is-busy {
   padding: 6px 8px;
   border: 1px solid var(--zs-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--topic-legend-bg);
   color: var(--zs-muted);
   font-size: 11px;
   backdrop-filter: blur(8px);
