@@ -127,11 +127,15 @@ function validateSequenceManifestSemantics(manifest: WorkflowManifest) {
     return "";
   }
   const steps = manifest.request?.sequence?.steps || [];
+  const hasBuildRequest = !!String(manifest.hooks?.buildRequest || "").trim();
   if (!Array.isArray(steps) || steps.length === 0) {
+    if (hasBuildRequest) {
+      return "";
+    }
     return "/request/sequence/steps must be non-empty";
   }
   const finalStepId = String(manifest.result?.final_step_id || "").trim();
-  if (!manifest.hooks.buildRequest && !finalStepId) {
+  if (!hasBuildRequest && !finalStepId) {
     return "/result/final_step_id is required for skillrunner.sequence.v1";
   }
   const seen = new Set<string>();

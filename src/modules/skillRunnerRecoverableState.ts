@@ -1,6 +1,5 @@
 import type { JobRecord, JobState } from "../jobQueue/manager";
 import {
-  isSkillRunnerPollingTimeoutError,
   isSkillRunnerRunTerminalClientError,
   isSkillRunnerTerminalRunError,
 } from "../providers/skillrunner/errors";
@@ -76,10 +75,12 @@ export function hasRecoverableSkillRunnerRequest(
 }
 
 export function isNonRecoverableSkillRunnerFailure(error: unknown) {
+  const message =
+    error instanceof Error ? error.message : normalizeString(error);
   return (
     isSkillRunnerRunTerminalClientError(error) ||
     isSkillRunnerTerminalRunError(error) ||
-    isSkillRunnerPollingTimeoutError(error)
+    /schema validation failed/i.test(message)
   );
 }
 

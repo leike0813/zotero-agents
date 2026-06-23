@@ -26,30 +26,30 @@
 
 ## 3. Future Runtime Implementation
 
-- [ ] 3.1 Replace the current SkillRunner run persistence shape with
+- [x] 3.1 Replace the current SkillRunner run persistence shape with
       `SkillRunnerRunRecord` schema `3.0.0`.
-- [ ] 3.2 Allocate `runKey` before backend request creation for every single job
+- [x] 3.2 Allocate `runKey` before backend request creation for every single job
       and sequence step.
-- [ ] 3.3 Attach `requestId` to the existing `runKey` on `request-created`
+- [x] 3.3 Attach `requestId` to the existing `runKey` on `request-created`
       without re-keying or inserting a replacement task row.
-- [ ] 3.4 Route single SkillRunner jobs and sequence SkillRunner steps through
+- [x] 3.4 Route single SkillRunner jobs and sequence SkillRunner steps through
       the same run lifecycle seam.
-- [ ] 3.5 Remove synthetic sequence step job projection ownership.
-- [ ] 3.6 Make observer failures after `requestId` non-terminal and recoverable.
-- [ ] 3.7 Make task list, dashboard, workspace, and history surfaces consume
+- [x] 3.5 Remove synthetic sequence step job projection ownership.
+- [x] 3.6 Make observer failures after `requestId` non-terminal and recoverable.
+- [x] 3.7 Make task list, dashboard, workspace, and history surfaces consume
       SkillRunner projections only.
-- [ ] 3.8 Make recovery scan local SkillRunner run records as SSOT only.
-- [ ] 3.9 Add `SKILLRUNNER_SSOT_FACTS.runLifecycle` and wire the new invariant
+- [x] 3.8 Make recovery scan local SkillRunner run records as SSOT only.
+- [x] 3.9 Add `SKILLRUNNER_SSOT_FACTS.runLifecycle` and wire the new invariant
       YAML into `check:ssot-invariants`.
 
 ## 4. Future Verification
 
-- [ ] 4.1 Add focused tests for runKey identity stability across
+- [x] 4.1 Add focused tests for runKey identity stability across
       pre-request -> request-created -> request-ready.
-- [ ] 4.2 Add focused tests that post-request observer failures detach
+- [x] 4.2 Add focused tests that post-request observer failures detach
       observation but do not terminalize run, step, sequence, or UI row.
-- [ ] 4.3 Add focused tests that sequence steps and single jobs use the same
+- [x] 4.3 Add focused tests that sequence steps and single jobs use the same
       SkillRunner run lifecycle path.
-- [ ] 4.4 Add focused projection tests for backend/workflow/skill/sequence
+- [x] 4.4 Add focused projection tests for backend/workflow/skill/sequence
       cascade fields, including missing backend config behavior.
-- [ ] 4.5 Run runtime verification only in the implementation phase.
+- [x] 4.5 Run runtime verification only in the implementation phase.

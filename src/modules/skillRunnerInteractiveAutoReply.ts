@@ -41,6 +41,63 @@ function normalizeBoolean(value: unknown) {
   return undefined;
 }
 
+function normalizeNonNegativeInteger(value: unknown) {
+  const parsed = Number(String(value ?? "").trim());
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
+    return undefined;
+  }
+  return parsed;
+}
+
+function normalizeExecutionMode(value: unknown) {
+  return normalizeString(value).toLowerCase() === "interactive"
+    ? "interactive"
+    : "auto";
+}
+
+export function buildSkillRunnerRunRecordRequestPayload(args: {
+  request: unknown;
+  providerOptions?: unknown;
+}) {
+  if (!isRecord(args.request)) {
+    return args.request;
+  }
+  const payload: Record<string, unknown> = { ...args.request };
+  const providerOptions = isRecord(args.providerOptions)
+    ? args.providerOptions
+    : {};
+  const runtimeOptions: Record<string, unknown> = isRecord(
+    payload.runtime_options,
+  )
+    ? { ...payload.runtime_options }
+    : {};
+  const executionMode = normalizeExecutionMode(runtimeOptions.execution_mode);
+  runtimeOptions.execution_mode = executionMode;
+
+  if (
+    isSkillRunnerInteractiveAutoReplyEnabled() &&
+    executionMode === "interactive" &&
+    normalizeBoolean(providerOptions.interactive_auto_reply) === true
+  ) {
+    runtimeOptions.interactive_auto_reply = true;
+    const timeoutSeconds = normalizeNonNegativeInteger(
+      providerOptions.interactive_reply_timeout_sec,
+    );
+    if (typeof timeoutSeconds === "number") {
+      runtimeOptions.interactive_reply_timeout_sec = timeoutSeconds;
+    } else {
+      delete runtimeOptions.interactive_reply_timeout_sec;
+    }
+  } else {
+    delete runtimeOptions.interactive_auto_reply;
+    delete runtimeOptions.interactive_reply_timeout_sec;
+  }
+
+  delete payload.providerOptions;
+  payload.runtime_options = runtimeOptions;
+  return payload;
+}
+
 export function isSkillRunnerInteractiveAutoReplyRequested(value: unknown) {
   if (!isRecord(value)) {
     return false;

@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "step_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier for this step in the countdown sequence (e.g. alpha, bravo, charlie)."
+    }
+  },
+  "required": ["step_id"],
+  "additionalProperties": true
+}

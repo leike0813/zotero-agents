@@ -13,6 +13,7 @@ declare namespace _ZoteroTypes {
       "skillRunnerModelCacheJson": string;
       "skillRunnerDeferredTasksJson": string;
       "skillRunnerRequestLedgerJson": string;
+      "skillRunnerSkillDisplayRegistryJson": string;
       "skillRunnerLocalRuntimeVersion": string;
       "skillRunnerLocalRuntimeStateJson": string;
       "tagVocabularyStagedJson": string;

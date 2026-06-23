@@ -1,4 +1,5 @@
 import type { BackendInstance } from "../backends/types";
+import { listBackendInstancesSync } from "../backends/registry";
 import { DEFAULT_BACKEND_TYPE } from "../config/defaults";
 import type { JobRecord, JobState } from "../jobQueue/manager";
 import { SkillRunnerClient } from "../providers/skillrunner/client";
@@ -15,24 +16,21 @@ import type { LoadedWorkflow } from "../workflows/types";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { collectSkillRunFeedbackSidecar } from "./skillRunFeedback";
 import {
+  createSkillRunnerRun,
   getSkillRunnerRunRecordByRequest,
+  listSkillRunnerRunRecords,
+  projectSkillRunnerRun,
+  recordSkillRunnerObserverFailure,
+  recordSkillRunnerProgress,
   updateSkillRunnerRunApplyState,
   updateSkillRunnerRunResult,
-  updateSkillRunnerRunStateByRequest,
-  upsertSkillRunnerRunFromTask,
+  updateSkillRunnerRunStateByRunKey,
   type SkillRunnerRunRecord,
 } from "./skillRunnerRunStore";
+import { isNonRecoverableSkillRunnerFailure } from "./skillRunnerRecoverableState";
+import { buildSkillRunnerRunRecordRequestPayload } from "./skillRunnerInteractiveAutoReply";
 import { isWaiting } from "./skillRunnerProviderStateMachine";
-import {
-  buildWorkflowTaskRecordFromJob,
-  recordWorkflowTaskUpdate,
-  type WorkflowTaskRecord,
-  updateWorkflowTaskStateByRequest,
-} from "./taskRuntime";
-import {
-  recordTaskDashboardHistoryFromJob,
-  updateTaskDashboardHistoryStateByRequest,
-} from "./taskDashboardHistory";
+import { type WorkflowTaskRecord } from "./taskRuntime";
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 import {
   buildTempBundlePath,
@@ -67,7 +65,6 @@ import {
   getLoadedWorkflowEntries,
   rescanWorkflowRegistry,
 } from "./workflowRuntime";
-import { buildSkillRunnerSequenceStepJobRecord } from "./skillRunnerSubmissionContext";
 
 type ContinuationOutcome =
   | {
@@ -174,10 +171,16 @@ function resolvePollOptions(request: unknown) {
 }
 
 function backendFromRecord(record: SkillRunnerRunRecord): BackendInstance {
+  const backend = listBackendInstancesSync().find(
+    (entry) => normalizeString(entry.id) === normalizeString(record.backendId),
+  );
+  if (backend) {
+    return backend;
+  }
   return {
     id: record.backendId,
     type: DEFAULT_BACKEND_TYPE,
-    baseUrl: record.backendBaseUrl || "",
+    baseUrl: "",
   };
 }
 
@@ -189,7 +192,10 @@ function resolveContinuationProviderOptions(args: {
   record: SkillRunnerRunRecord;
   sequenceState: SequenceRunState;
 }) {
-  const recordOptions = cloneProviderOptions(args.record.providerOptions);
+  const requestPayload = isRecord(args.record.requestPayload)
+    ? args.record.requestPayload
+    : {};
+  const recordOptions = cloneProviderOptions(requestPayload.providerOptions);
   const stateOptions = cloneProviderOptions(args.sequenceState.providerOptions);
   if (!recordOptions && !stateOptions) {
     return undefined;
@@ -204,14 +210,8 @@ function resolveContinuationTargetParentID(args: {
   record: SkillRunnerRunRecord;
   sequenceState: SequenceRunState;
 }) {
-  const projectionTargetParentID = args.record.taskProjection.targetParentID;
-  if (
-    typeof projectionTargetParentID === "number" &&
-    Number.isFinite(projectionTargetParentID)
-  ) {
-    return Math.floor(projectionTargetParentID);
-  }
   return (
+    resolveTargetParentIDFromRequest(args.record.requestPayload) ??
     resolveTargetParentIDFromRequest(args.sequenceState.request) ?? undefined
   );
 }
@@ -221,21 +221,27 @@ function buildContinuationBaseMeta(args: {
   sequenceState: SequenceRunState;
 }) {
   const providerOptions = resolveContinuationProviderOptions(args);
-  const projection = args.record.taskProjection;
+  const requestPayload = isRecord(args.record.requestPayload)
+    ? args.record.requestPayload
+    : {};
   return {
-    providerId:
-      normalizeString(args.record.providerId) ||
-      normalizeString(projection.providerId) ||
-      "skillrunner",
+    providerId: "skillrunner",
     providerOptions,
-    engine:
-      normalizeString(providerOptions?.engine) ||
-      normalizeString(projection.engine) ||
-      undefined,
+    engine: normalizeString(providerOptions?.engine) || undefined,
     inputUnitIdentity:
-      normalizeString(projection.inputUnitIdentity) || undefined,
+      normalizeString(requestPayload.inputUnitIdentity) || undefined,
     targetParentID: resolveContinuationTargetParentID(args),
   };
+}
+
+function resolveExecutionModeFromRequest(request: unknown) {
+  const payload = isRecord(request) ? request : {};
+  const runtimeOptions = isRecord(payload.runtime_options)
+    ? payload.runtime_options
+    : {};
+  return normalizeString(runtimeOptions.execution_mode) === "interactive"
+    ? "interactive"
+    : "auto";
 }
 
 function setRequestState(args: {
@@ -245,24 +251,8 @@ function setRequestState(args: {
   source: string;
 }) {
   const updatedAt = nowIso();
-  updateWorkflowTaskStateByRequest({
-    backendId: args.record.backendId,
-    backendType: args.record.backendType || DEFAULT_BACKEND_TYPE,
-    requestId: args.record.requestId || "",
-    state: args.state,
-    error: args.error,
-    updatedAt,
-  });
-  updateTaskDashboardHistoryStateByRequest({
-    backendId: args.record.backendId,
-    requestId: args.record.requestId || "",
-    state: args.state,
-    error: args.error,
-    updatedAt,
-  });
-  updateSkillRunnerRunStateByRequest({
-    backendId: args.record.backendId,
-    requestId: args.record.requestId || "",
+  updateSkillRunnerRunStateByRunKey({
+    runKey: args.record.runKey,
     state: args.state,
     error: args.error,
     updatedAt,
@@ -306,7 +296,7 @@ function buildTerminalRunResult(args: {
     ...args.result,
     backendId: args.backend.id,
     backendType: args.backend.type,
-    runId: args.record.runId,
+    runId: args.record.workflowRunId,
     jobId: args.record.jobId,
   } as Extract<ProviderExecutionResult, { status: "succeeded" }> &
     Record<string, unknown>;
@@ -383,7 +373,7 @@ async function applySingleTerminalSuccess(args: {
     ? args.record.requestPayload
     : {};
   const targetParentID =
-    args.record.taskProjection.targetParentID ||
+    resolveTargetParentIDFromRequest(args.record.requestPayload) ||
     resolveTargetParentIDFromRequest(request);
   const parent = targetParentID || null;
   if (!parent && !canWorkflowRunWithoutSelection(workflow.manifest)) {
@@ -468,19 +458,60 @@ function buildContinuationStepJob(args: {
   backend: BackendInstance;
   event: Record<string, unknown>;
 }) {
-  return buildSkillRunnerSequenceStepJobRecord({
+  const stepId = normalizeString(args.event.sequenceStepId);
+  const stepIndex = normalizeSequenceStepIndex(args.event.sequenceStepIndex);
+  const step =
+    typeof stepIndex === "number"
+      ? args.sequenceState.request.steps[stepIndex]
+      : undefined;
+  if (!stepId || typeof stepIndex !== "number" || !step) {
+    return null;
+  }
+  const stepRequest = isRecord(args.event.sequenceStepRequest)
+    ? args.event.sequenceStepRequest
+    : {};
+  const baseMeta = buildContinuationBaseMeta(args);
+  const createdAt = nowIso();
+  return {
+    id: `${args.sequenceState.jobId}:${stepId}`,
     workflowId: args.sequenceState.workflowId,
-    workflowLabel: args.sequenceState.workflowLabel,
-    workflowRunId: args.sequenceState.workflowRunId,
-    runId: args.sequenceState.workflowRunId,
-    sequenceJobId: args.sequenceState.jobId,
-    backend: args.backend,
-    event: args.event,
-    fallbackRequest: args.sequenceState.request,
-    baseMeta: buildContinuationBaseMeta(args),
-    providerOptions: resolveContinuationProviderOptions(args),
-    createdAt: nowIso(),
-  });
+    request: stepRequest,
+    meta: {
+      ...baseMeta,
+      runId: args.sequenceState.workflowRunId,
+      workflowRunId: args.sequenceState.workflowRunId,
+      workflowLabel:
+        normalizeString(args.sequenceState.workflowLabel) ||
+        args.sequenceState.workflowId,
+      taskName:
+        normalizeString(args.event.sequenceStepTaskName) ||
+        `${args.sequenceState.workflowLabel || args.sequenceState.workflowId} / ${stepId}`,
+      skillId: normalizeString(args.event.sequenceStepSkillId) || step.skill_id,
+      skillName: normalizeString(args.event.sequenceStepSkillName) || undefined,
+      sequenceJobId: args.sequenceState.jobId,
+      sequenceStepId: stepId,
+      sequenceStepIndex: stepIndex,
+      sequenceStepSkillId:
+        normalizeString(args.event.sequenceStepSkillId) || step.skill_id,
+      sequenceStepSkillName:
+        normalizeString(args.event.sequenceStepSkillName) || undefined,
+      requestKind: "skillrunner.job.v1",
+      requestId: normalizeString(args.event.requestId) || undefined,
+      backendId: args.backend.id,
+      backendType: args.backend.type,
+      executionMode: resolveExecutionModeFromRequest(stepRequest),
+      skillRunnerRequestReady:
+        normalizeString(args.event.type) === "request-ready" ||
+        !!normalizeString(args.event.requestId),
+      skillRunnerSubmitPhase:
+        normalizeString(args.event.type) === "request-ready"
+          ? "request_ready"
+          : undefined,
+    },
+    state: "running",
+    createdAt,
+    updatedAt: createdAt,
+  } satisfies JobRecord;
 }
 
 function persistContinuationStepJob(args: {
@@ -493,41 +524,59 @@ function persistContinuationStepJob(args: {
   if (!job) {
     return null;
   }
-  const taskRecord = recordWorkflowTaskUpdate(job);
-  if (!taskRecord) {
-    return null;
-  }
-  recordTaskDashboardHistoryFromJob(job);
-  const runRecord = upsertSkillRunnerRunFromTask(taskRecord, {
-    role: "sequence_step",
-    requestPayload: job.request,
-    providerOptions: resolveContinuationProviderOptions(args),
+  const runRecord = createSkillRunnerRun({
+    backendId: args.backend.id,
+    workflowId: args.sequenceState.workflowId,
+    workflowRunId: args.sequenceState.workflowRunId,
+    jobId: job.id,
+    taskName: normalizeString(job.meta.taskName) || job.id,
+    skillId: normalizeString(job.meta.skillId) || undefined,
+    sequenceRunId: args.sequenceState.sequenceRunId,
+    sequenceJobId: args.sequenceState.jobId,
+    sequenceStepId: normalizeString(args.event.sequenceStepId) || undefined,
+    requestPayload: buildSkillRunnerRunRecordRequestPayload({
+      request: job.request,
+      providerOptions: resolveContinuationProviderOptions({
+        record: args.record,
+        sequenceState: args.sequenceState,
+      }),
+    }),
     fetchType: resolveFetchType({
       record: args.record,
       request: job.request,
     }),
-    sequence: {
-      sequenceRunId: args.sequenceState.sequenceRunId,
-      workflowRunId: args.sequenceState.workflowRunId,
-      jobId: args.sequenceState.jobId,
-      stepId: normalizeString(args.event.sequenceStepId) || undefined,
-      stepIndex: normalizeSequenceStepIndex(args.event.sequenceStepIndex),
-      finalStepId: args.sequenceState.finalStepId,
-    },
-    eventType: "backend.snapshot",
-    eventPayload: {
-      source: "skillRunnerForegroundContinuation",
-      eventType: normalizeString(args.event.type),
-    },
+    executionMode: resolveExecutionModeFromRequest(job.request),
+    updatedAt: job.updatedAt,
   });
-  const canonicalTaskRecord = runRecord?.taskProjection || taskRecord;
-  const runKey = normalizeString(
-    runRecord?.runKey || canonicalTaskRecord.runKey,
-  );
+  const nextRunRecord = runRecord
+    ? recordSkillRunnerProgress({
+        runKey: runRecord.runKey,
+        event: args.event as any,
+        updatedAt: job.updatedAt,
+      }) || runRecord
+    : null;
+  const taskRecord = nextRunRecord
+    ? projectSkillRunnerRun({ run: nextRunRecord })
+    : null;
+  const runKey = normalizeString(nextRunRecord?.runKey || taskRecord?.runKey);
   return {
     job,
-    taskRecord: canonicalTaskRecord,
-    runRecord,
+    taskRecord: taskRecord || {
+      id: job.id,
+      runId: args.sequenceState.workflowRunId,
+      jobId: job.id,
+      workflowId: args.sequenceState.workflowId,
+      workflowLabel:
+        normalizeString(args.sequenceState.workflowLabel) ||
+        args.sequenceState.workflowId,
+      taskName: normalizeString(job.meta.taskName) || job.id,
+      backendId: args.backend.id,
+      backendType: args.backend.type,
+      state: "running",
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    },
+    runRecord: nextRunRecord,
     runKey,
   };
 }
@@ -639,7 +688,7 @@ async function applySequenceRootResultIfNeeded(args: {
       ...args.result,
       backendId: args.backend.id,
       backendType: args.backend.type,
-      runId: args.sequenceState.workflowRunId || args.record.runId,
+      runId: args.sequenceState.workflowRunId || args.record.workflowRunId,
       jobId: args.sequenceState.jobId,
     } as Extract<ProviderExecutionResult, { status: "succeeded" }> &
       Record<string, unknown>;
@@ -766,7 +815,7 @@ async function applySequenceTerminalStep(args: {
         resultJson: stepApply.output,
         backendId: args.backend.id,
         backendType: args.backend.type,
-        runId: args.record.runId,
+        runId: args.record.workflowRunId,
         sequence: {
           workflow_run_id: stepApply.workflowRunId,
           final_step_id: stepApply.sequenceRequest.final_step_id,
@@ -831,7 +880,12 @@ async function applySequenceTerminalStep(args: {
     sequenceRunId: latestState.sequenceRunId,
     startIndex: stepIndex + 1,
     backend: args.backend,
-    providerOptions: latestState.providerOptions || args.record.providerOptions,
+    providerOptions:
+      latestState.providerOptions ||
+      resolveContinuationProviderOptions({
+        record: args.record,
+        sequenceState: latestState,
+      }),
     appendRuntimeLog,
     executeWithProvider: ({
       requestKind,
@@ -932,8 +986,23 @@ function resolveForegroundContinuationKey(args: {
   return `${normalizeString(args.backendId) || "__skillrunner__"}:${normalizeString(args.requestId)}`;
 }
 
+function findContinuationRunRecord(args: {
+  backendId?: string;
+  requestId: string;
+}) {
+  return (
+    getSkillRunnerRunRecordByRequest({
+      backendId: args.backendId,
+      requestId: args.requestId,
+    }) ||
+    listSkillRunnerRunRecords({ requestId: args.requestId, limit: 1 })[0] ||
+    null
+  );
+}
+
 async function continueSkillRunnerForegroundRunNow(args: {
   backend?: BackendInstance;
+  record?: SkillRunnerRunRecord;
   requestId: string;
   source?: string;
   uiFocusPolicy?: ContinuationUiFocusPolicy;
@@ -943,10 +1012,12 @@ async function continueSkillRunnerForegroundRunNow(args: {
   if (!requestId) {
     throw new Error("requestId is required");
   }
-  const record = getSkillRunnerRunRecordByRequest({
-    backendId: args.backend?.id,
-    requestId,
-  });
+  const record =
+    args.record ||
+    findContinuationRunRecord({
+      backendId: args.backend?.id,
+      requestId,
+    });
   if (!record) {
     throw new Error(`SkillRunner run record not found: ${requestId}`);
   }
@@ -979,6 +1050,41 @@ async function continueSkillRunnerForegroundRunNow(args: {
     });
   } catch (error) {
     const message = compactError(error);
+    if (!isNonRecoverableSkillRunnerFailure(error)) {
+      recordSkillRunnerObserverFailure({
+        runKey: record.runKey,
+        error,
+        source,
+      });
+      appendRuntimeLog({
+        level: "warn",
+        scope: "job",
+        workflowId: record.workflowId,
+        backendId: record.backendId,
+        backendType: DEFAULT_BACKEND_TYPE,
+        providerId: "skillrunner",
+        runId: record.workflowRunId,
+        jobId: record.jobId,
+        requestId,
+        component: "skillrunner-foreground-continuation",
+        operation: "observer-failure-detached",
+        phase: source,
+        stage: "observer-failure-detached",
+        message: "skillrunner foreground continuation detached after recoverable observer failure",
+        error,
+      });
+      return {
+        status: "waiting",
+        result: {
+          status: "deferred",
+          requestId,
+          fetchType,
+          backendStatus: "running",
+          detachReason: "observer_failure",
+          continuationOwner: "recovery",
+        },
+      };
+    }
     setRequestState({
       record,
       state: "failed",
@@ -1081,6 +1187,7 @@ async function continueSkillRunnerForegroundRunNow(args: {
 
 export async function continueSkillRunnerForegroundRun(args: {
   backend?: BackendInstance;
+  record?: SkillRunnerRunRecord;
   requestId: string;
   source?: string;
   uiFocusPolicy?: ContinuationUiFocusPolicy;

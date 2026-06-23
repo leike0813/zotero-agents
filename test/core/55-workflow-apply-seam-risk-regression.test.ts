@@ -5,8 +5,10 @@ import {
   resetWorkflowTasks,
 } from "../../src/modules/taskRuntime";
 import {
+  attachSkillRunnerRequestId,
+  createSkillRunnerRun,
   getSkillRunnerRunRecordByRequest,
-  upsertSkillRunnerRunFromTask,
+  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 
 function createMessageFormatter() {
@@ -59,36 +61,32 @@ function persistSkillRunnerRequestReadyRun(args: {
   backendId?: string;
 }) {
   const now = "2026-06-20T00:00:00.000Z";
-  upsertSkillRunnerRunFromTask(
-    {
-      id: args.jobId,
-      workflowId: "hr-02-apply-seam",
-      workflowLabel: "HR-02 Apply Seam",
-      runId: "run-hr-02",
-      jobId: args.jobId,
-      taskName: "auto.md",
-      backendId: args.backendId || "",
-      backendType: "skillrunner",
-      backendBaseUrl: "http://127.0.0.1:8030",
-      providerId: "skillrunner",
-      requestKind: "skillrunner.job.v1",
+  const run = createSkillRunnerRun({
+    backendId: args.backendId || "",
+    workflowId: "hr-02-apply-seam",
+    workflowRunId: "run-hr-02",
+    jobId: args.jobId,
+    taskName: "auto.md",
+    fetchType: "result",
+    executionMode: "auto",
+    createdAt: now,
+    updatedAt: now,
+  });
+  if (!run) {
+    return;
+  }
+  const attached =
+    attachSkillRunnerRequestId({
+      runKey: run.runKey,
       requestId: args.requestId,
-      state: "running",
-      skillRunnerLifecycleState: "running",
-      submitPhase: "request_ready",
-      createdAt: now,
       updatedAt: now,
-    } as any,
-    {
-      executionMode: "auto",
-      fetchType: "result",
-      apply: {
-        state: "idle",
-        attempt: 0,
-        maxAttempt: 5,
-      },
-    },
-  );
+    }) || run;
+  updateSkillRunnerRunStateByRunKey({
+    runKey: attached.runKey,
+    state: "request_ready",
+    backendStatus: "running",
+    updatedAt: now,
+  });
 }
 
 describe("workflow apply seam risk regression", function () {
@@ -376,7 +374,7 @@ describe("workflow apply seam risk regression", function () {
     );
   });
 
-  it("settles foreground skillrunner lifecycle before recording apply failure", async function () {
+  it("records foreground skillrunner apply failure without losing backend success", async function () {
     const runtimeStages: string[] = [];
     persistSkillRunnerRequestReadyRun({
       requestId: "req-auto-apply-failed-1",
@@ -443,12 +441,9 @@ describe("workflow apply seam risk regression", function () {
       backendId: "backend-apply-1",
       requestId: "req-auto-apply-failed-1",
     });
-    assert.equal(persisted?.status, "succeeded");
+    assert.equal(persisted?.status, "failed");
+    assert.equal(persisted?.backendStatus, "succeeded");
     assert.equal(persisted?.apply.state, "failed");
-    assert.notInclude(
-      listActiveWorkflowTasks().map((entry) => entry.requestId),
-      "req-auto-apply-failed-1",
-    );
   });
 
   it("does not skip foreground apply for ACP skillrunner-compatible auto succeeded job", async function () {

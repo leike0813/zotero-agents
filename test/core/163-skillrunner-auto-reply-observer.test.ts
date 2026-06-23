@@ -18,14 +18,19 @@ import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/mod
 import {
   resetPluginStateStoreForTests,
 } from "../../src/modules/pluginStateStore";
-import {
-  recordWorkflowTaskUpdate,
-  resetWorkflowTasks,
-} from "../../src/modules/taskRuntime";
+import { resetWorkflowTasks } from "../../src/modules/taskRuntime";
 import {
   archiveSkillRunnerRunRecordByRequest,
+  attachSkillRunnerRequestId,
+  createSkillRunnerRun,
+  getSkillRunnerRunRecordByRequest,
+  recordSkillRunnerObserverFailure,
   updateSkillRunnerRunStateByRequest,
+  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
+import {
+  buildSkillRunnerRunRecordRequestPayload,
+} from "../../src/modules/skillRunnerInteractiveAutoReply";
 import {
   resetTaskDashboardHistory,
 } from "../../src/modules/taskDashboardHistory";
@@ -78,6 +83,48 @@ function waitingJob(requestId = "sr-auto-reply"): JobRecord {
   };
 }
 
+function recordWaitingRun(requestId = "sr-auto-reply") {
+  const job = waitingJob(requestId);
+  const requestPayload = buildSkillRunnerRunRecordRequestPayload({
+    request: job.request,
+    providerOptions: job.meta.providerOptions,
+  });
+  const run = createSkillRunnerRun({
+    backendId: backend.id,
+    workflowId: job.workflowId,
+    workflowRunId: String(job.meta.runId || ""),
+    jobId: job.id,
+    taskName: String(job.meta.taskName || job.id),
+    skillId: String(job.meta.skillId || "") || undefined,
+    requestPayload,
+    fetchType: "result",
+    executionMode: "interactive",
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  });
+  if (!run) {
+    return null;
+  }
+  const attached =
+    attachSkillRunnerRequestId({
+      runKey: run.runKey,
+      requestId,
+      updatedAt: job.updatedAt,
+    }) || run;
+  updateSkillRunnerRunStateByRunKey({
+    runKey: attached.runKey,
+    state: "request_ready",
+    backendStatus: "running",
+    updatedAt: job.updatedAt,
+  });
+  return updateSkillRunnerRunStateByRunKey({
+    runKey: attached.runKey,
+    state: "waiting_user",
+    backendStatus: "waiting_user",
+    updatedAt: job.updatedAt,
+  });
+}
+
 describe("SkillRunner auto-reply observer", function () {
   beforeEach(function () {
     resetPluginStateStoreForTests();
@@ -97,7 +144,7 @@ describe("SkillRunner auto-reply observer", function () {
 
   it("does not observe waiting runs while the feature switch is disabled", function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(false);
-    recordWorkflowTaskUpdate(waitingJob());
+    recordWaitingRun();
 
     const started = maybeObserveSkillRunnerAutoReplyRun({
       backend,
@@ -112,9 +159,32 @@ describe("SkillRunner auto-reply observer", function () {
     );
   });
 
+  it("does not observe detached waiting runs", function () {
+    setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
+    const run = recordWaitingRun("sr-detached-waiting");
+    assert.isOk(run);
+    recordSkillRunnerObserverFailure({
+      runKey: run!.runKey,
+      error: new Error("network detached"),
+      source: "test",
+    });
+
+    const started = maybeObserveSkillRunnerAutoReplyRun({
+      backend,
+      requestId: "sr-detached-waiting",
+      source: "test",
+    });
+
+    assert.isFalse(started);
+    assert.equal(
+      getSkillRunnerAutoReplyObserverRuntimeForTests().inFlightCount,
+      0,
+    );
+  });
+
   it("hands a resumed auto-reply run to foreground continuation", async function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
-    recordWorkflowTaskUpdate(waitingJob());
+    recordWaitingRun();
     const handoffs: string[] = [];
     setSkillRunnerAutoReplyObserverRuntimeForTests({
       intervalMs: 1_000_000,
@@ -147,7 +217,21 @@ describe("SkillRunner auto-reply observer", function () {
 
   it("exposes active observer runtime state with a foreground countdown", function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
-    recordWorkflowTaskUpdate(waitingJob("sr-countdown"));
+    recordWaitingRun("sr-countdown");
+    const record = getSkillRunnerRunRecordByRequest({
+      backendId: backend.id,
+      requestId: "sr-countdown",
+    });
+    const requestPayload = record?.requestPayload as any;
+    assert.isUndefined(requestPayload?.providerOptions);
+    assert.equal(
+      requestPayload?.runtime_options?.interactive_auto_reply,
+      true,
+    );
+    assert.equal(
+      requestPayload?.runtime_options?.interactive_reply_timeout_sec,
+      30,
+    );
     let notifications = 0;
     const unsubscribe = subscribeSkillRunnerAutoReplyObserverState(() => {
       notifications += 1;
@@ -181,7 +265,7 @@ describe("SkillRunner auto-reply observer", function () {
 
   it("hides countdown for recovery-started observers", function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
-    recordWorkflowTaskUpdate(waitingJob("sr-recovery"));
+    recordWaitingRun("sr-recovery");
     setSkillRunnerAutoReplyObserverRuntimeForTests({
       intervalMs: 1_000_000,
       clientFactory: () => ({
@@ -206,7 +290,7 @@ describe("SkillRunner auto-reply observer", function () {
 
   it("stops observer on explicit reply success cleanup", function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
-    recordWorkflowTaskUpdate(waitingJob("sr-reply-success"));
+    recordWaitingRun("sr-reply-success");
     setSkillRunnerAutoReplyObserverRuntimeForTests({
       intervalMs: 1_000_000,
       clientFactory: () => ({
@@ -232,7 +316,7 @@ describe("SkillRunner auto-reply observer", function () {
 
   it("stops observer when local run is terminal before the next tick", async function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
-    recordWorkflowTaskUpdate(waitingJob("sr-local-terminal"));
+    recordWaitingRun("sr-local-terminal");
     let queries = 0;
     setSkillRunnerAutoReplyObserverRuntimeForTests({
       intervalMs: 1_000_000,
@@ -268,7 +352,7 @@ describe("SkillRunner auto-reply observer", function () {
 
   it("stops observer when local run is archived before the next tick", async function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
-    recordWorkflowTaskUpdate(waitingJob("sr-archived"));
+    recordWaitingRun("sr-archived");
     setSkillRunnerAutoReplyObserverRuntimeForTests({
       intervalMs: 1_000_000,
       clientFactory: () => ({
@@ -297,7 +381,7 @@ describe("SkillRunner auto-reply observer", function () {
 
   it("stops observer when backend state query fails", async function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
-    recordWorkflowTaskUpdate(waitingJob("sr-query-failed"));
+    recordWaitingRun("sr-query-failed");
     setSkillRunnerAutoReplyObserverRuntimeForTests({
       intervalMs: 1_000_000,
       clientFactory: () => ({
@@ -324,7 +408,7 @@ describe("SkillRunner auto-reply observer", function () {
 
   it("shutdown clears all observer timers", function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
-    recordWorkflowTaskUpdate(waitingJob("sr-shutdown"));
+    recordWaitingRun("sr-shutdown");
     setSkillRunnerAutoReplyObserverRuntimeForTests({
       intervalMs: 1_000_000,
       clientFactory: () => ({
@@ -347,7 +431,7 @@ describe("SkillRunner auto-reply observer", function () {
 
   it("preflights user reply and skips sending when backend already resumed", async function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
-    recordWorkflowTaskUpdate(waitingJob("sr-preflight"));
+    recordWaitingRun("sr-preflight");
     const handoffs: string[] = [];
     setSkillRunnerAutoReplyObserverRuntimeForTests({
       clientFactory: () => ({
@@ -371,7 +455,7 @@ describe("SkillRunner auto-reply observer", function () {
 
   it("keeps waiting state when late reply fails but backend is still waiting", async function () {
     setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
-    recordWorkflowTaskUpdate(waitingJob("sr-still-waiting"));
+    recordWaitingRun("sr-still-waiting");
     setSkillRunnerAutoReplyObserverRuntimeForTests({
       clientFactory: () => ({
         getRunState: async () => ({ status: "waiting_user" }),

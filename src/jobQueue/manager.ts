@@ -9,10 +9,12 @@ import {
   getSkillRunnerRequestIdFromJob,
   hasRecoverableSkillRunnerRequest,
   isNonRecoverableSkillRunnerFailure,
-  isPreReadySkillRunnerRequest,
 } from "../modules/skillRunnerRecoverableState";
 import { settleSkillRunnerRunAsFailed } from "../modules/skillRunnerRunSettlement";
-import { purgeSkillRunnerRunByRequest } from "../modules/skillRunnerTaskReconciler";
+import {
+  getSkillRunnerRunRecordByRequest,
+  recordSkillRunnerObserverFailure,
+} from "../modules/skillRunnerRunStore";
 
 export type JobState =
   | "queued"
@@ -300,7 +302,7 @@ export class JobQueueManager {
       },
     });
     this.pendingIds.push(id);
-    void this.drain();
+    void Promise.resolve().then(() => this.drain());
     return id;
   }
 
@@ -530,10 +532,6 @@ export class JobQueueManager {
           error,
           updatedAt: job.updatedAt,
         });
-        purgeSkillRunnerRunByRequest({
-          backendId: String(job.meta.backendId || "").trim(),
-          requestId,
-        });
         appendRuntimeLog({
           level: "error",
           scope: "job",
@@ -554,10 +552,22 @@ export class JobQueueManager {
         });
         return;
       }
-      if (hasRecoverableSkillRunnerRequest(job)) {
+      if (hasRecoverableSkillRunnerRequest(job) || (isSkillRunnerJob && requestId)) {
         job.state = coerceRecoverableSkillRunnerState(job.state);
         this.touch(job);
         this.emitJobUpdated(job);
+        const runRecord = getSkillRunnerRunRecordByRequest({
+          backendId: String(job.meta.backendId || "").trim(),
+          requestId,
+        });
+        if (runRecord) {
+          recordSkillRunnerObserverFailure({
+            runKey: runRecord.runKey,
+            error,
+            source: "job-queue-dispatch",
+            updatedAt: job.updatedAt,
+          });
+        }
         appendRuntimeLog({
           level: "warn",
           scope: "job",
@@ -580,16 +590,9 @@ export class JobQueueManager {
           },
         });
       } else {
-        const preReadySkillRunnerRequest = isPreReadySkillRunnerRequest(job);
         job.state = "failed";
         this.touch(job);
         this.emitJobUpdated(job);
-        if (preReadySkillRunnerRequest && requestId) {
-          purgeSkillRunnerRunByRequest({
-            backendId: String(job.meta.backendId || "").trim(),
-            requestId,
-          });
-        }
         appendRuntimeLog({
           level: "error",
           scope: "job",
@@ -603,19 +606,9 @@ export class JobQueueManager {
           component: "job-queue",
           operation: "dispatch-failed",
           phase: "terminal",
-          stage: preReadySkillRunnerRequest
-            ? "dispatch-failed-before-request-ready"
-            : "dispatch-failed",
-          message: preReadySkillRunnerRequest
-            ? "provider dispatch failed after request creation before request-ready"
-            : "provider dispatch failed",
+          stage: "dispatch-failed",
+          message: "provider dispatch failed",
           error,
-          details: preReadySkillRunnerRequest
-            ? {
-                requestReady: false,
-                recoverable: false,
-              }
-            : undefined,
         });
       }
     } finally {

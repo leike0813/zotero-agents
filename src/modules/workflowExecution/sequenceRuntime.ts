@@ -30,6 +30,7 @@ import {
   type SequenceRunState,
 } from "./sequenceStateStore";
 import { updateSkillRunnerRunApplyState } from "../skillRunnerRunStore";
+import { isNonRecoverableSkillRunnerFailure } from "../skillRunnerRecoverableState";
 
 export type ExecuteWithProvider = (args: {
   requestKind: string;
@@ -1329,6 +1330,38 @@ async function executeSequenceFromState(args: {
       });
     } catch (error) {
       const message = stringifyUnknownError(error);
+      if (progressRequestId && !isNonRecoverableSkillRunnerFailure(error)) {
+        const observerFailureResult = buildSequenceDeferredResult({
+          state: args.state,
+          step,
+          stepIndex: index,
+          requestId: progressRequestId,
+          stepResult: {
+            status: "deferred",
+            requestId: progressRequestId,
+            fetchType: "bundle",
+            backendStatus: "running",
+            detachReason: "observer_failure",
+            continuationOwner: "recovery",
+          },
+          outputsByStep,
+        });
+        recordSequenceStepWaiting({
+          sequenceRunId: args.state.sequenceRunId,
+          stepIndex: index,
+          requestId: progressRequestId,
+          result: observerFailureResult,
+        });
+        args.onProgress?.({
+          type: "sequence-step-deferred",
+          requestId: progressRequestId,
+          backendStatus: "running",
+          detachReason: "observer_failure",
+          error: message,
+          ...stepProgressContext,
+        });
+        return observerFailureResult;
+      }
       recordSequenceStepTerminal({
         sequenceRunId: args.state.sequenceRunId,
         stepIndex: index,

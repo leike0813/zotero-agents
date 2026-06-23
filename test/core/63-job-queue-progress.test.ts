@@ -324,7 +324,7 @@ describe("job queue progress", function () {
     );
   });
 
-  it("fails request-created skillrunner job when dispatch fails before request-ready", async function () {
+  it("keeps request-created skillrunner job recoverable when dispatch fails before request-ready", async function () {
     const updates: Array<{
       state: string;
       requestId?: string;
@@ -371,12 +371,12 @@ describe("job queue progress", function () {
 
     const job = queue.getJob(jobId);
     assert.isOk(job);
-    assert.equal(job!.state, "failed");
+    assert.equal(job!.state, "running");
     assert.equal(String(job!.meta.requestId || ""), "req-recoverable-1");
     assert.equal(job!.error, "backend polling temporarily failed");
     assert.deepEqual(
       updates.map((entry) => entry.state),
-      ["queued", "running", "running", "failed"],
+      ["queued", "running", "running", "running"],
     );
     assert.equal(updates[3].requestId, "req-recoverable-1");
     assert.equal(updates[3].error, "backend polling temporarily failed");
@@ -388,7 +388,7 @@ describe("job queue progress", function () {
     assert.isTrue(
       listRuntimeLogs().some(
         (entry) =>
-          entry.stage === "dispatch-failed-before-request-ready" &&
+          entry.stage === "dispatch-failed-recoverable" &&
           entry.requestId === "req-recoverable-1",
       ),
     );

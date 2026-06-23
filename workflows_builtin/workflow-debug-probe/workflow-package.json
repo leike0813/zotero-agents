@@ -17,6 +17,7 @@
     "debug-sequence-linear-probe/workflow.json",
     "debug-sequence-workspace-reuse-probe/workflow.json",
     "debug-sequence-file-handoff-probe/workflow.json",
-    "debug-sequence-context-isolation-probe/workflow.json"
+    "debug-sequence-context-isolation-probe/workflow.json",
+    "debug-sequence-countdown-probe/workflow.json"
   ]
 }

@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "handoff": {
+      "type": "object",
+      "x-input-source": "inline",
+      "description": "Output payload from the previous sequence step, present for steps bravo and charlie."
+    }
+  },
+  "additionalProperties": true
+}

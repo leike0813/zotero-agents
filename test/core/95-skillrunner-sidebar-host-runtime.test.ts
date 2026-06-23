@@ -408,11 +408,15 @@ describe("skillrunner sidebar host runtime", function () {
 
     assert.notInclude(runDialog, "scanPluginSkillRegistry");
     assert.notInclude(runDialog, "skillNameById");
-    assert.include(runSeam, "buildSkillRunnerSequenceStepJobRecord({");
-    assert.include(
+    assert.notInclude(runSeam, "buildSkillRunnerSequenceStepJobRecord");
+    assert.notInclude(
       foregroundContinuation,
-      "buildSkillRunnerSequenceStepJobRecord({",
+      "buildSkillRunnerSequenceStepJobRecord",
     );
+    assert.include(runSeam, "createSkillRunnerRun({");
+    assert.include(runSeam, "recordSkillRunnerProgress({");
+    assert.include(foregroundContinuation, "createSkillRunnerRun({");
+    assert.include(foregroundContinuation, "recordSkillRunnerProgress({");
   });
 
   it("hosts SkillRunner management UI inside the Dashboard backend tab", async function () {

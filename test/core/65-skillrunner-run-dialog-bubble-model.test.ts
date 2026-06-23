@@ -7,6 +7,7 @@ import {
   normalizeRunDialogChoiceOptions,
   resolveRunDialogInteractionResponse,
   shouldClearRunDialogPendingForStatus,
+  shouldRefreshRunDialogLocalMessages,
   shouldRefreshRunDialogStateFromChatEvent,
   type SkillRunnerConversationEntry,
   toRunDialogConversationEntry,
@@ -40,6 +41,44 @@ describe("skillrunner run dialog bubble message model", function () {
     assert.equal(entry?.displayText, "final answer");
     assert.isNull(entry?.displayFormat);
     assert.equal(entry?.ts, "2026-03-10T10:20:00Z");
+  });
+
+  it("does not refresh local notices over backend transcript entries", function () {
+    const backendMessage: SkillRunnerConversationEntry = {
+      seq: 3,
+      ts: "2026-06-23T10:00:00Z",
+      role: "assistant",
+      kind: "assistant_message",
+      text: "backend transcript",
+      displayText: "backend transcript",
+      raw: {
+        type: "message",
+      },
+    };
+
+    assert.equal(
+      shouldRefreshRunDialogLocalMessages({ messages: [backendMessage] }),
+      false,
+    );
+  });
+
+  it("refreshes local notices only while no backend transcript exists", function () {
+    const localNotice: SkillRunnerConversationEntry = {
+      seq: -5,
+      role: "system",
+      kind: "orchestration_notice",
+      text: "Task submitted locally.",
+      displayText: "Task submitted locally.",
+      raw: {
+        type: "local_submit_notice",
+      },
+    };
+
+    assert.equal(shouldRefreshRunDialogLocalMessages({ messages: [] }), true);
+    assert.equal(
+      shouldRefreshRunDialogLocalMessages({ messages: [localNotice] }),
+      true,
+    );
   });
 
   it("prefers projected display_text over raw text for assistant_final display", function () {

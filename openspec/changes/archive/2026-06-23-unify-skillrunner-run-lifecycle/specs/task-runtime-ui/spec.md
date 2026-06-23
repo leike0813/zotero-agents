@@ -68,3 +68,11 @@ The task runtime UI MUST keep active SkillRunner rows visible when observation i
   configuration repair
 - **AND** it MUST NOT recover actions from stale persisted backend connection
   fields.
+
+Invariant anchors:
+
+- `INV-SR-REQUESTID-ATTACH-NO-REKEY`
+- `INV-SR-OBSERVER-FAILURE-NONTERMINAL`
+- `INV-SR-UI-PROJECTION-DERIVED`
+- `INV-SR-UI-SKILL-NAME-CASCADED`
+- `INV-SR-BACKEND-CONFIG-CASCADE`

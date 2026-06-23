@@ -62,3 +62,11 @@ A SkillRunner step inside a sequence workflow MUST use the same provider executi
 - **WHEN** sequence orchestration observes step failure or detachment
 - **THEN** the provider adapter MUST NOT delete or replace the SkillRunner run
   projection through a synthetic step job.
+
+Invariant anchors:
+
+- `INV-SR-RUNKEY-LOCAL-SSOT`
+- `INV-SR-REQUESTID-ATTACH-NO-REKEY`
+- `INV-SR-SEQUENCE-STEP-FIRST-CLASS-RUN`
+- `INV-SR-OBSERVER-FAILURE-NONTERMINAL`
+- `INV-SR-BACKEND-TERMINAL-OWNER`

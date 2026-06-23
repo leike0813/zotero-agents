@@ -269,13 +269,19 @@ Future implementation boundaries:
 
 `doc/components/skillrunner-run-lifecycle-ssot.invariants.yaml` defines the
 new invariants for identity, persistence, terminal ownership, projection, and
-recovery. In this design-only round the YAML is not added to the checker
-whitelist because the corresponding `SKILLRUNNER_SSOT_FACTS.runLifecycle`
-runtime facts do not exist yet.
+recovery. The implementation wires those invariants to
+`SKILLRUNNER_SSOT_FACTS.runLifecycle` and includes the YAML in
+`check:ssot-invariants`.
 
-The implementation phase must:
+Invariant anchors:
 
-- Add `SKILLRUNNER_SSOT_FACTS.runLifecycle`.
-- Add this YAML file to `scripts/check-skillrunner-ssot-invariants.ts`.
-- Run `npm run check:ssot-invariants` as part of the implementation
-  verification.
+- `INV-SR-RUNKEY-LOCAL-SSOT`
+- `INV-SR-REQUESTID-ATTACH-NO-REKEY`
+- `INV-SR-RUN-PERSISTED-MINIMAL`
+- `INV-SR-SEQUENCE-STEP-FIRST-CLASS-RUN`
+- `INV-SR-OBSERVER-FAILURE-NONTERMINAL`
+- `INV-SR-BACKEND-TERMINAL-OWNER`
+- `INV-SR-UI-PROJECTION-DERIVED`
+- `INV-SR-UI-SKILL-NAME-CASCADED`
+- `INV-SR-BACKEND-CONFIG-CASCADE`
+- `INV-SR-RECOVERY-RUN-STORE-SSOT`

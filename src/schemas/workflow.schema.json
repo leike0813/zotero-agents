@@ -130,10 +130,35 @@
               "sequence": {
                 "$ref": "#/$defs/requestSequenceSpec"
               }
-            },
-            "required": ["sequence"]
+            }
           }
         },
+        "anyOf": [
+          {
+            "properties": {
+              "request": {
+                "type": "object",
+                "properties": {
+                  "sequence": {}
+                },
+                "required": ["sequence"]
+              }
+            },
+            "required": ["request"]
+          },
+          {
+            "properties": {
+              "hooks": {
+                "type": "object",
+                "properties": {
+                  "buildRequest": {}
+                },
+                "required": ["buildRequest"]
+              }
+            },
+            "required": ["hooks"]
+          }
+        ],
         "required": ["provider"]
       }
     }

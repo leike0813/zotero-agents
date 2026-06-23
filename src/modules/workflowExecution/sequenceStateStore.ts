@@ -22,7 +22,6 @@ export type SequenceStepRunState = {
   stepId: string;
   skillId: string;
   skillName?: string;
-  skillLabel?: string;
   index: number;
   requestId?: string;
   status?: "running" | ProviderExecutionResult["status"];
@@ -114,6 +113,8 @@ function parseProviderResult(
       detachReason:
         normalizeString(raw.detachReason) === "waiting"
           ? "waiting"
+          : normalizeString(raw.detachReason) === "observer_failure"
+            ? "observer_failure"
           : undefined,
       continuationOwner:
         normalizeString(raw.continuationOwner) === "foreground"
@@ -211,7 +212,6 @@ function parseStep(raw: unknown): SequenceStepRunState | null {
     stepId,
     skillId,
     skillName: normalizeString(raw.skillName) || undefined,
-    skillLabel: normalizeString(raw.skillLabel) || undefined,
     index,
     requestId: normalizeString(raw.requestId) || undefined,
     status:
@@ -312,7 +312,7 @@ function persistState(state: SequenceRunState) {
       : "acp";
   upsertPluginRunStoreEntry(storeKind, {
     runKey: sequenceRunKey(state.sequenceRunId),
-    requestId: state.rootRequestId || "",
+    requestId: "",
     backendId: state.backendId,
     state: state.status,
     updatedAt: state.updatedAt,
@@ -392,9 +392,6 @@ export function initializeSequenceRunState(args: {
       skillId: step.skill_id,
       skillName:
         normalizeString(args.skillDisplayById?.[step.skill_id]?.skillName) ||
-        undefined,
-      skillLabel:
-        normalizeString(args.skillDisplayById?.[step.skill_id]?.skillLabel) ||
         undefined,
       index,
       updatedAt: now,

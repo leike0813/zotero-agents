@@ -11,11 +11,11 @@ import {
 } from "./skillRunnerProviderStateMachine";
 import {
   buildSkillRunnerRunKey,
-  deleteSkillRunnerRunRecord,
   listSkillRunnerRunProjections,
+  projectSkillRunnerRun,
   resetSkillRunnerRunStoreForTests,
+  subscribeSkillRunnerRunStore,
   updateSkillRunnerRunStateByRequest,
-  upsertSkillRunnerRunFromTask,
 } from "./skillRunnerRunStore";
 
 export type WorkflowTaskRecord = {
@@ -47,6 +47,7 @@ export type WorkflowTaskRecord = {
   state: JobState;
   mainStatus?: JobState;
   backendStatus?: string;
+  observerState?: "attached" | "detached";
   skillRunnerLifecycleState?:
     | "pre_request_id"
     | "request_creating"
@@ -103,6 +104,7 @@ const activeTaskRecordIds = new Set<string>();
 const listeners = new Set<TaskListener>();
 const changeListeners = new Set<TaskChangeListener>();
 let hydratedFromStore = false;
+let unsubscribeSkillRunnerRunStoreTaskBridge: (() => void) | undefined;
 
 const workflowTaskReadDiagnostics = {
   summaryQueryCount: 0,
@@ -368,6 +370,15 @@ function emitTasksChanged(event: WorkflowTaskChangeEvent) {
   }
 }
 
+function ensureSkillRunnerRunStoreTaskBridge() {
+  if (unsubscribeSkillRunnerRunStoreTaskBridge) {
+    return;
+  }
+  unsubscribeSkillRunnerRunStoreTaskBridge = subscribeSkillRunnerRunStore(() => {
+    emitTasksChanged({ reason: "record-updated" });
+  });
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -445,6 +456,12 @@ function parsePersistedTaskRecord(raw: unknown): WorkflowTaskRecord | null {
     backendType: String(raw.backendType || "").trim() || undefined,
     backendBaseUrl: String(raw.backendBaseUrl || "").trim() || undefined,
     state,
+    observerState:
+      String(raw.observerState || "").trim() === "detached"
+        ? "detached"
+        : String(raw.observerState || "").trim() === "attached"
+          ? "attached"
+          : undefined,
     skillRunnerLifecycleState:
       (String(raw.skillRunnerLifecycleState || "").trim() as
         | WorkflowTaskRecord["skillRunnerLifecycleState"]
@@ -735,21 +752,23 @@ function mergeSkillRunnerProjection(
 
 export function recordWorkflowTaskUpdate(job: JobRecord) {
   const record = buildWorkflowTaskRecordFromJob(job);
-  let returnedRecord = record;
-  if (
-    String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE &&
-    !isSkillRunnerJobReadyForTaskProjection(job)
-  ) {
+  if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
     const removedTask = deleteTaskRecord(record.id);
-    const runKey = buildSkillRunnerRunKey({
+    const projection = listSkillRunnerRunProjections({
       backendId: record.backendId,
       requestId: record.requestId,
-      runId: record.runId,
-      jobId: record.jobId,
-      localRunId: record.localRunId,
+      limit: 1,
+    }).find((entry) => {
+      if (record.runKey && entry.runKey === record.runKey) {
+        return true;
+      }
+      return (
+        !!record.requestId &&
+        entry.requestId === record.requestId &&
+        entry.backendId === record.backendId
+      );
     });
-    const removedRun = runKey ? deleteSkillRunnerRunRecord(runKey) : false;
-    if (removedTask || removedRun) {
+    if (removedTask) {
       persistTaskRecordsToStore();
       emitTasksChanged({
         taskId: record.id,
@@ -759,46 +778,9 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
         reason: "records-removed",
       });
     }
-    return;
-  }
-  if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
-    pruneStaleSkillRunnerLocalRows(taskRecords, record, record.id);
+    return projection || record;
   }
   setTaskRecord(record.id, record);
-  if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
-    const runRecord = upsertSkillRunnerRunFromTask(record, {
-      requestPayload: job.request,
-      providerOptions: isObjectRecord(job.meta.providerOptions)
-        ? { ...job.meta.providerOptions }
-        : undefined,
-      executionMode:
-        normalizeMetaString(job.meta, "executionMode") || undefined,
-      fetchType: resolveSkillRunnerFetchTypeFromJob(job),
-      eventType: "backend.snapshot",
-      eventPayload: {
-        source: "taskRuntime.recordWorkflowTaskUpdate",
-        state: record.state,
-      },
-    });
-    if (runRecord?.runKey) {
-      if (
-        record.runKey &&
-        runRecord.runKey !== record.runKey &&
-        String(record.requestId || "").trim()
-      ) {
-        deleteTaskRecord(record.id);
-        mergeSkillRunnerProjection(taskRecords, {
-          ...runRecord.taskProjection,
-          runKey: runRecord.runKey,
-        });
-        returnedRecord = {
-          ...runRecord.taskProjection,
-          runKey: runRecord.runKey,
-        };
-      }
-      record.runKey = runRecord.runKey;
-    }
-  }
   persistTaskRecordsToStore();
   emitTasksChanged({
     taskId: record.id,
@@ -807,7 +789,7 @@ export function recordWorkflowTaskUpdate(job: JobRecord) {
     state: record.state,
     reason: "record-updated",
   });
-  return returnedRecord;
+  return record;
 }
 
 export function listWorkflowTasks() {
@@ -903,18 +885,6 @@ export function clearFinishedWorkflowTasks() {
       continue;
     }
     deleteTaskRecord(id);
-    if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
-      const runKey = buildSkillRunnerRunKey({
-        backendId: record.backendId,
-        requestId: record.requestId,
-        runId: record.runId,
-        jobId: record.jobId,
-        localRunId: record.localRunId,
-      });
-      if (runKey) {
-        deleteSkillRunnerRunRecord(runKey);
-      }
-    }
     removed = true;
   }
   if (removed) {
@@ -997,8 +967,9 @@ export function updateWorkflowTaskStateByRequest(args: {
       },
     });
     if (storedRun) {
-      mergeSkillRunnerProjection(taskRecords, storedRun.taskProjection);
-      pruneStaleSkillRunnerLocalRows(taskRecords, storedRun.taskProjection);
+      const projection = projectSkillRunnerRun({ run: storedRun });
+      mergeSkillRunnerProjection(taskRecords, projection);
+      pruneStaleSkillRunnerLocalRows(taskRecords, projection);
       updated += 1;
     }
   }
@@ -1075,6 +1046,11 @@ export function reconcileWorkflowTaskProjectionsOnStartup() {
     if (!isActive(record.state)) {
       continue;
     }
+    if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
+      deleteTaskRecord(id);
+      preservedTaskIds.push(id);
+      continue;
+    }
     if (!shouldFailRecoveredProjection(record)) {
       preservedTaskIds.push(id);
       continue;
@@ -1085,22 +1061,6 @@ export function reconcileWorkflowTaskProjectionsOnStartup() {
       error: record.error || PREVIOUS_SESSION_INTERRUPTED_ERROR,
       updatedAt: now,
     });
-    if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
-      upsertSkillRunnerRunFromTask(
-        {
-          ...record,
-          state: "failed",
-          error: record.error || PREVIOUS_SESSION_INTERRUPTED_ERROR,
-          updatedAt: now,
-        },
-        {
-          eventType: "backend.terminal",
-          eventPayload: {
-            source: "taskRuntime.reconcileWorkflowTaskProjectionsOnStartup",
-          },
-        },
-      );
-    }
     failedTaskIds.push(id);
   }
   if (failedTaskIds.length > 0) {
@@ -1116,6 +1076,7 @@ export function reconcileWorkflowTaskProjectionsOnStartup() {
 }
 
 export function subscribeWorkflowTasks(listener: TaskListener) {
+  ensureSkillRunnerRunStoreTaskBridge();
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
@@ -1123,6 +1084,7 @@ export function subscribeWorkflowTasks(listener: TaskListener) {
 }
 
 export function subscribeWorkflowTaskChanges(listener: TaskChangeListener) {
+  ensureSkillRunnerRunStoreTaskBridge();
   changeListeners.add(listener);
   return () => {
     changeListeners.delete(listener);
@@ -1134,6 +1096,8 @@ export function resetWorkflowTasks() {
   clearTaskRecords();
   listeners.clear();
   changeListeners.clear();
+  unsubscribeSkillRunnerRunStoreTaskBridge?.();
+  unsubscribeSkillRunnerRunStoreTaskBridge = undefined;
   hydratedFromStore = false;
   resetWorkflowTaskReadDiagnosticsForTests();
   resetSkillRunnerRunStoreForTests();

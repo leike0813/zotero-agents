@@ -101,6 +101,7 @@
     "workflow-debug-probe/debug-sequence-linear-probe/workflow.json",
     "workflow-debug-probe/debug-sequence-workspace-reuse-probe/workflow.json",
     "workflow-debug-probe/debug-sequence-context-isolation-probe/workflow.json",
+    "workflow-debug-probe/debug-sequence-countdown-probe/workflow.json",
     "workflow-debug-probe/README.md",
     "synthesis-layer/workflow-package.json",
     "synthesis-layer/locales/zh-CN.json",

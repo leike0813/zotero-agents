@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Debug Countdown Probe Result",
+  "type": "object",
+  "required": [
+    "kind",
+    "step_id",
+    "status",
+    "marker",
+    "countdown_seconds",
+    "countdown_completed",
+    "handoff_checks",
+    "checks",
+    "diagnostics"
+  ],
+  "properties": {
+    "kind": {
+      "const": "debug_countdown_probe_result"
+    },
+    "step_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": ["ok", "failed"]
+    },
+    "marker": {
+      "type": "string",
+      "description": "Unique marker for this step in the format <step_id>-<timestamp_ms>."
+    },
+    "previous_marker": {
+      "type": ["string", "null"],
+      "description": "The marker received from the previous step via handoff, or null for the first step."
+    },
+    "countdown_seconds": {
+      "type": "integer",
+      "const": 120
+    },
+    "countdown_completed": {
+      "type": "boolean",
+      "const": true
+    },
+    "handoff_checks": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Results of handoff verification checks."
+    },
+    "checks": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Summary of all checks performed in this step."
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Diagnostic information (may be empty)."
+    }
+  },
+  "additionalProperties": true
+}

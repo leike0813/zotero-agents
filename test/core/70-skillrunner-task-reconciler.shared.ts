@@ -18,8 +18,6 @@ import {
 import {
   resetWorkflowTasks,
   listWorkflowTasks,
-  recordWorkflowTaskUpdate,
-  buildWorkflowTaskRecordFromJob,
 } from "../../src/modules/taskRuntime";
 import {
   listTaskDashboardHistory,
@@ -32,9 +30,14 @@ import {
 } from "../../src/modules/runtimeLogManager";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import {
+  attachSkillRunnerRequestId,
+  createSkillRunnerRun,
   getSkillRunnerRunRecordByRequest,
+  listSkillRunnerRunRecords,
+  recordSkillRunnerObserverFailure,
+  updateSkillRunnerRunApplyState,
   updateSkillRunnerRunStateByRequest,
-  upsertSkillRunnerRunFromTask,
+  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 import { resetSkillRunnerSessionSyncForTests } from "../../src/modules/skillRunnerSessionSyncManager";
 import { resetSkillRunnerForegroundContinuationForTests } from "../../src/modules/skillRunnerForegroundContinuation";
@@ -140,6 +143,7 @@ function persistRun(args: {
   sequenceStepIndex?: number;
   providerOptions?: Record<string, unknown>;
   executionMode?: string;
+  requestPayload?: unknown;
 }) {
   const job = makeJob({
     id: `job-${args.requestId}`,
@@ -152,27 +156,44 @@ function persistRun(args: {
     sequenceStepId: args.sequenceStepId,
     sequenceStepIndex: args.sequenceStepIndex,
   });
-  upsertSkillRunnerRunFromTask(buildWorkflowTaskRecordFromJob(job), {
-    role: args.role || "single",
-    requestPayload:
-      args.includeRequestPayload === false ? undefined : job.request,
-    providerOptions: args.providerOptions || {},
-    executionMode: args.executionMode,
+  const requestPayload =
+    args.includeRequestPayload === false
+      ? undefined
+      : typeof args.requestPayload === "undefined"
+        ? job.request
+        : args.requestPayload;
+  const run = createSkillRunnerRun({
+    backendId: TEST_SKILLRUNNER_BACKEND_ID,
+    workflowId: job.workflowId,
+    workflowRunId:
+      args.sequenceRunId || String(job.meta.runId || `run-${args.requestId}`),
+    jobId: job.id,
+    taskName: String(job.meta.taskName || job.id),
+    skillId: String(job.meta.skillId || "") || undefined,
+    sequenceRunId: args.sequenceRunId,
+    sequenceJobId: args.sequenceRunId,
+    sequenceStepId: args.sequenceStepId,
+    requestPayload,
     fetchType: "result",
-    apply: {
-      state: args.applyState || "idle",
-      attempt: 0,
-      maxAttempt: 5,
-    },
-    sequence: args.sequenceRunId
-      ? {
-          sequenceRunId: args.sequenceRunId,
-          workflowRunId: args.sequenceRunId,
-          jobId: args.sequenceRunId,
-          stepId: args.sequenceStepId,
-          stepIndex: args.sequenceStepIndex,
-        }
-      : undefined,
+    executionMode:
+      args.executionMode === "interactive" ? "interactive" : "auto",
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  });
+  if (!run) {
+    return;
+  }
+  const attached =
+    attachSkillRunnerRequestId({
+      runKey: run.runKey,
+      requestId: args.requestId,
+      updatedAt: job.updatedAt,
+    }) || run;
+  updateSkillRunnerRunStateByRunKey({
+    runKey: attached.runKey,
+    state: "request_ready",
+    backendStatus: "running",
+    updatedAt: job.updatedAt,
   });
   updateSkillRunnerRunStateByRequest({
     backendId: TEST_SKILLRUNNER_BACKEND_ID,
@@ -181,6 +202,16 @@ function persistRun(args: {
     updatedAt: "2026-06-20T00:00:01.500Z",
     eventType: "backend.snapshot",
   });
+  if (args.applyState && args.applyState !== "idle") {
+    updateSkillRunnerRunApplyState({
+      backendId: TEST_SKILLRUNNER_BACKEND_ID,
+      requestId: args.requestId,
+      state: args.applyState,
+      attempt: 0,
+      maxAttempt: 5,
+      updatedAt: "2026-06-20T00:00:01.600Z",
+    });
+  }
 }
 
 function installFetchRouter(
@@ -284,6 +315,7 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
       persistRun({
         requestId: "req-waiting",
         state: "waiting_user",
+        executionMode: "interactive",
       });
 
       const reconciler = createTrackedReconciler();
@@ -345,7 +377,102 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
       );
     });
 
-    it("fails unrecoverable run records without backend polling or skipped apply", async function () {
+    it("hands off detached running observer failures once and clears detached on success", async function () {
+      const counts: Record<string, number> = {};
+      installFetchRouter(
+        {
+          "/v1/jobs/req-detached-running": {
+            request_id: "req-detached-running",
+            status: "waiting_user",
+          },
+        },
+        counts,
+      );
+      persistRun({
+        requestId: "req-detached-running",
+        state: "running",
+        includeRequestPayload: false,
+      });
+      const before = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-detached-running",
+      });
+      assert.isOk(before);
+      recordSkillRunnerObserverFailure({
+        runKey: before!.runKey,
+        error: new Error("network detached"),
+        source: "test",
+        updatedAt: "2026-06-20T00:00:02.000Z",
+      });
+
+      await reconcileSkillRunnerMissingContextOnce({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        source: "startup",
+      });
+
+      const stored = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-detached-running",
+      });
+      assert.equal(counts["/v1/jobs/req-detached-running"], 1);
+      assert.equal(stored?.status, "waiting_user");
+      assert.equal(stored?.observerState, "attached");
+    });
+
+    it("backs off detached handoff after a recoverable observer failure", async function () {
+      const counts: Record<string, number> = {};
+      installFetchRouter(
+        {
+          "/v1/jobs/req-detached-retry": () => {
+            throw new Error("poll timeout");
+          },
+        },
+        counts,
+      );
+      persistRun({
+        requestId: "req-detached-retry",
+        state: "running",
+        includeRequestPayload: false,
+      });
+      const before = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-detached-retry",
+      });
+      assert.isOk(before);
+      recordSkillRunnerObserverFailure({
+        runKey: before!.runKey,
+        error: new Error("network detached"),
+        source: "test",
+        updatedAt: "2026-06-20T00:00:02.000Z",
+      });
+
+      await reconcileSkillRunnerMissingContextOnce({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        source: "startup",
+      });
+      await reconcileSkillRunnerMissingContextOnce({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        source: "backend-healthy",
+      });
+
+      const stored = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-detached-retry",
+      });
+      assert.equal(counts["/v1/jobs/req-detached-retry"], 1);
+      assert.equal(stored?.status, "running");
+      assert.equal(stored?.observerState, "detached");
+      assert.isTrue(
+        listRuntimeLogs().some(
+          (entry) =>
+            entry.stage === "recovery-waiting-detached" &&
+            (entry.details as { reason?: string } | undefined)?.reason ===
+              "observer-detached-backoff",
+        ),
+      );
+    });
+
+    it("ignores stale persisted backend base urls during recovery", async function () {
       const counts: Record<string, number> = {};
       installFetchRouter(
         {
@@ -368,9 +495,9 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
       });
 
       const tasks = listWorkflowTasks();
-      assert.equal(counts["/v1/jobs/req-missing-backend"] || 0, 0);
-      assert.equal(tasks[0]?.state, "failed");
-      assert.include(tasks[0]?.error || "", "missing-backend-base-url");
+      assert.isAtLeast(counts["/v1/jobs/req-missing-backend"] || 0, 1);
+      assert.notEqual(tasks[0]?.state, "failed");
+      assert.notInclude(tasks[0]?.error || "", "missing-backend-base-url");
       assert.isFalse(
         listRuntimeLogs().some(
           (entry) => entry.stage === "terminal-succeeded-missing-context",
@@ -512,8 +639,16 @@ export function registerSkillRunnerTaskReconcilerForegroundHandoffTests() {
         requestId: "req-auto-reply-waiting",
         state: "running",
         executionMode: "interactive",
-        providerOptions: {
-          interactive_auto_reply: true,
+        requestPayload: {
+          ...makeJob({
+            id: "job-req-auto-reply-waiting",
+            requestId: "req-auto-reply-waiting",
+            state: "running",
+          }).request,
+          runtime_options: {
+            execution_mode: "interactive",
+            interactive_auto_reply: true,
+          },
         },
       });
 
@@ -525,6 +660,53 @@ export function registerSkillRunnerTaskReconcilerForegroundHandoffTests() {
       assert.equal(
         getSkillRunnerAutoReplyObserverRuntimeForTests().inFlightCount,
         1,
+      );
+    });
+
+    it("does not start auto-reply observer for detached waiting runs", async function () {
+      setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
+      installFetchRouter({
+        "/v1/jobs/req-detached-waiting": {
+          request_id: "req-detached-waiting",
+          status: "waiting_user",
+        },
+      });
+      persistRun({
+        requestId: "req-detached-waiting",
+        state: "waiting_user",
+        executionMode: "interactive",
+        requestPayload: {
+          ...makeJob({
+            id: "job-req-detached-waiting",
+            requestId: "req-detached-waiting",
+            state: "waiting_user",
+          }).request,
+          runtime_options: {
+            execution_mode: "interactive",
+            interactive_auto_reply: true,
+          },
+        },
+      });
+      const before = getSkillRunnerRunRecordByRequest({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        requestId: "req-detached-waiting",
+      });
+      assert.isOk(before);
+      recordSkillRunnerObserverFailure({
+        runKey: before!.runKey,
+        error: new Error("network detached"),
+        source: "test",
+        updatedAt: "2026-06-20T00:00:02.000Z",
+      });
+
+      await reconcileSkillRunnerMissingContextOnce({
+        backendId: TEST_SKILLRUNNER_BACKEND_ID,
+        source: "startup",
+      });
+
+      assert.equal(
+        getSkillRunnerAutoReplyObserverRuntimeForTests().inFlightCount,
+        0,
       );
     });
 
@@ -630,13 +812,10 @@ export function registerSkillRunnerTaskReconcilerLedgerReconcileTests() {
         },
         counts,
       );
-      recordWorkflowTaskUpdate(
-        makeJob({
-          id: "job-ledger-terminal",
-          requestId: "req-ledger-terminal",
-          state: "running",
-        }),
-      );
+      persistRun({
+        requestId: "req-ledger-terminal",
+        state: "running",
+      });
 
       const result = await reconcileSkillRunnerBackendTaskLedgerOnce({
         backend: {
@@ -733,10 +912,9 @@ export function registerSkillRunnerTaskReconcilerLedgerReconcileTests() {
         source: "startup",
       });
 
-      const stored = getSkillRunnerRunRecordByRequest({
+      const stored = listSkillRunnerRunRecords({
         backendId: TEST_SKILLRUNNER_BACKEND_ID,
-        requestId: "req-sequence-waiting",
-      });
+      }).find((record) => record.sequenceStepId === "step-one");
       assert.equal(counts["/v1/jobs/req-sequence-waiting"], 1);
       assert.equal(stored?.status, "waiting_user");
     });

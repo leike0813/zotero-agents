@@ -56,3 +56,9 @@ SkillRunner lifecycle invariants MUST capture lifecycle, projection, terminal ow
 - **WHEN** the invariant checker is updated
 - **THEN** the lifecycle invariant YAML MUST become part of
   `check:ssot-invariants`.
+
+Invariant anchors:
+
+- `INV-SR-UI-PROJECTION-DERIVED`
+- `INV-SR-UI-SKILL-NAME-CASCADED`
+- `INV-SR-RECOVERY-RUN-STORE-SSOT`

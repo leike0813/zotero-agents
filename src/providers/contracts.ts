@@ -271,7 +271,7 @@ export type ProviderExecutionDeferredResult = {
   requestId: string;
   fetchType: "bundle" | "result";
   backendStatus: "queued" | "running" | "waiting_user" | "waiting_auth";
-  detachReason?: "waiting";
+  detachReason?: "waiting" | "observer_failure";
   continuationOwner?: "foreground" | "recovery";
   bundleBytes?: undefined;
   resultJson?: undefined;

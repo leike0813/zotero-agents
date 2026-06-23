@@ -1,0 +1,75 @@
+{
+  "id": "debug-sequence-countdown-probe",
+  "label": "Debug: Sequence Countdown Probe",
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "execution": {
+    "feedback": {
+      "showNotifications": true
+    },
+    "timeout_ms": 600000
+  },
+  "result": {
+    "final_step_id": "charlie"
+  },
+  "request": {
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "alpha",
+          "skill_id": "debug-sequence-countdown-probe",
+          "mode": "auto",
+          "workspace": "new",
+          "parameter": {
+            "step_id": "alpha"
+          }
+        },
+        {
+          "id": "bravo",
+          "skill_id": "debug-sequence-countdown-probe",
+          "mode": "auto",
+          "workspace": "reuse-workflow",
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "value",
+                "target": "/input/handoff"
+              }
+            ]
+          },
+          "parameter": {
+            "step_id": "bravo"
+          }
+        },
+        {
+          "id": "charlie",
+          "skill_id": "debug-sequence-countdown-probe",
+          "mode": "auto",
+          "workspace": "reuse-workflow",
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "value",
+                "target": "/input/handoff"
+              }
+            ]
+          },
+          "parameter": {
+            "step_id": "charlie"
+          }
+        }
+      ]
+    }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applySequenceProbeResult.mjs"
+  }
+}

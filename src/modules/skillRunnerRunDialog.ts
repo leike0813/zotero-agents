@@ -3005,11 +3005,6 @@ async function startRunObserver(entry: RunDialogEntry) {
       return;
     }
     if (frame.event === "snapshot") {
-      const payload = isObject(frame.data) ? frame.data : {};
-      const cursor = Number(payload.cursor || 0);
-      if (Number.isFinite(cursor) && cursor > entry.session.lastSeq) {
-        entry.session.lastSeq = Math.floor(cursor);
-      }
       return;
     }
     if (
@@ -3663,6 +3658,15 @@ function isLocalRunDialogMessage(message: SkillRunnerConversationEntry) {
   );
 }
 
+export function shouldRefreshRunDialogLocalMessages(args: {
+  messages: SkillRunnerConversationEntry[];
+}) {
+  if (args.messages.length === 0) {
+    return true;
+  }
+  return args.messages.every(isLocalRunDialogMessage);
+}
+
 function makeLocalRunDialogMessage(args: {
   seq: number;
   ts?: string;
@@ -3753,13 +3757,10 @@ function shouldRefreshLocalRunDialogMessages(
   entry: RunDialogEntry,
   task: RunWorkspaceTaskItem,
 ) {
-  if (!task.backendInteractive) {
-    return true;
-  }
-  if (entry.session.messages.length === 0) {
-    return true;
-  }
-  return entry.session.messages.every(isLocalRunDialogMessage);
+  void task;
+  return shouldRefreshRunDialogLocalMessages({
+    messages: entry.session.messages,
+  });
 }
 
 function syncLocalRunDialogEntryFromTask(

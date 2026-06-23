@@ -1,4 +1,5 @@
 import type { BackendInstance } from "../backends/types";
+import { listBackendInstancesSync } from "../backends/registry";
 import { DEFAULT_BACKEND_TYPE } from "../config/defaults";
 import { SkillRunnerClient } from "../providers/skillrunner/client";
 import {
@@ -68,32 +69,22 @@ function parseNonNegativeTimeoutSeconds(value: unknown) {
   return parsed;
 }
 
+function asPlainObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function runtimeOptionsFromRecord(record: SkillRunnerRunRecord | null) {
+  const requestPayload = asPlainObject(record?.requestPayload);
+  const runtimeOptions = asPlainObject(requestPayload.runtime_options);
+  return runtimeOptions;
+}
+
 function resolveAutoReplyTimeoutSeconds(record: SkillRunnerRunRecord) {
-  const providerOptions =
-    record.providerOptions &&
-    typeof record.providerOptions === "object" &&
-    !Array.isArray(record.providerOptions)
-      ? (record.providerOptions as Record<string, unknown>)
-      : {};
-  const requestPayload =
-    record.requestPayload &&
-    typeof record.requestPayload === "object" &&
-    !Array.isArray(record.requestPayload)
-      ? (record.requestPayload as Record<string, unknown>)
-      : {};
-  const runtimeOptions =
-    requestPayload.runtime_options &&
-    typeof requestPayload.runtime_options === "object" &&
-    !Array.isArray(requestPayload.runtime_options)
-      ? (requestPayload.runtime_options as Record<string, unknown>)
-      : {};
-  return (
-    parseNonNegativeTimeoutSeconds(
-      providerOptions.interactive_reply_timeout_sec,
-    ) ??
-    parseNonNegativeTimeoutSeconds(
-      runtimeOptions.interactive_reply_timeout_sec,
-    )
+  const runtimeOptions = runtimeOptionsFromRecord(record);
+  return parseNonNegativeTimeoutSeconds(
+    runtimeOptions.interactive_reply_timeout_sec,
   );
 }
 
@@ -124,10 +115,16 @@ function observerKey(args: { backendId?: string; requestId: string }) {
 }
 
 function backendFromRecord(record: SkillRunnerRunRecord): BackendInstance {
+  const backend = listBackendInstancesSync().find(
+    (entry) => normalizeString(entry.id) === normalizeString(record.backendId),
+  );
+  if (backend) {
+    return backend;
+  }
   return {
     id: record.backendId,
     type: DEFAULT_BACKEND_TYPE,
-    baseUrl: record.backendBaseUrl || "",
+    baseUrl: "",
     auth: { kind: "none" },
   };
 }
@@ -146,13 +143,13 @@ function isAutoReplyObservedRecord(
     !record ||
     normalizeString(record.archivedAt) ||
     normalizeStatus(record.status, "running") !== "waiting_user" ||
+    record.observerState === "detached" ||
     isTerminal(normalizeStatus(record.status, "running"))
   ) {
     return false;
   }
   return shouldEnableSkillRunnerAutoReplyForRun({
     executionMode: record.executionMode,
-    providerOptions: record.providerOptions,
     requestPayload: record.requestPayload,
   });
 }
@@ -476,7 +473,6 @@ export function getSkillRunnerAutoReplyObserverState(args: {
   });
   const autoReplyEnabled = shouldEnableSkillRunnerAutoReplyForRun({
     executionMode: record?.executionMode,
-    providerOptions: record?.providerOptions,
     requestPayload: record?.requestPayload,
   });
   if (!autoReplyEnabled) {

@@ -64,6 +64,21 @@ const FILES: {
       "INV-WS-PENDING-EDGE-RULES",
     ],
   },
+  {
+    path: "doc/components/skillrunner-run-lifecycle-ssot.invariants.yaml",
+    requiredIds: [
+      "INV-SR-RUNKEY-LOCAL-SSOT",
+      "INV-SR-REQUESTID-ATTACH-NO-REKEY",
+      "INV-SR-RUN-PERSISTED-MINIMAL",
+      "INV-SR-SEQUENCE-STEP-FIRST-CLASS-RUN",
+      "INV-SR-OBSERVER-FAILURE-NONTERMINAL",
+      "INV-SR-BACKEND-TERMINAL-OWNER",
+      "INV-SR-UI-PROJECTION-DERIVED",
+      "INV-SR-UI-SKILL-NAME-CASCADED",
+      "INV-SR-BACKEND-CONFIG-CASCADE",
+      "INV-SR-RECOVERY-RUN-STORE-SSOT",
+    ],
+  },
 ];
 
 const FACT_ROOT: Record<string, unknown> = {

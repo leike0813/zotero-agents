@@ -686,7 +686,7 @@ export function createBackendsPrefsDocument(backends: BackendInstance[]) {
   };
 }
 
-export async function loadBackendsRegistry(): Promise<LoadedBackends> {
+export function loadBackendsRegistrySync(): LoadedBackends {
   const sourcePath = "prefs";
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -796,8 +796,20 @@ export async function loadBackendsRegistry(): Promise<LoadedBackends> {
   });
 }
 
+export async function loadBackendsRegistry(): Promise<LoadedBackends> {
+  return loadBackendsRegistrySync();
+}
+
+export function listBackendInstancesSync() {
+  const loaded = loadBackendsRegistrySync();
+  if (loaded.fatalError) {
+    throw new Error(loaded.fatalError);
+  }
+  return loaded.backends;
+}
+
 export async function listBackendInstances() {
-  const loaded = await loadBackendsRegistry();
+  const loaded = loadBackendsRegistrySync();
   if (loaded.fatalError) {
     throw new Error(loaded.fatalError);
   }

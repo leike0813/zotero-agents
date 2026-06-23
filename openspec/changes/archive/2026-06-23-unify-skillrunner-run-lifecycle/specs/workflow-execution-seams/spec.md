@@ -67,3 +67,9 @@ Workflow seams MUST avoid persisting display and registry-derived fields in the 
 - **THEN** it MUST persist sequence association ids when present
 - **AND** it MUST NOT persist `sequenceStepIndex` or `sequenceFinalStepId` as
   run lifecycle facts.
+
+Invariant anchors:
+
+- `INV-SR-RUNKEY-LOCAL-SSOT`
+- `INV-SR-RUN-PERSISTED-MINIMAL`
+- `INV-SR-SEQUENCE-STEP-FIRST-CLASS-RUN`

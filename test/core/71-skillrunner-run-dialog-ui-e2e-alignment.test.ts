@@ -260,10 +260,11 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(hostTs, 'id: "running"');
     assert.include(hostTs, "groups: runningGroups");
     assert.include(hostTs, "function shouldRefreshLocalRunDialogMessages");
-    assert.include(hostTs, "entry.session.messages.every(isLocalRunDialogMessage)");
+    assert.include(hostTs, "shouldRefreshRunDialogLocalMessages");
     assert.include(hostTs, "function maxBackendRunDialogSeq");
     assert.include(hostTs, "seq: -5");
     assert.notInclude(hostTs, "entry.session.lastSeq = entry.session.messages.reduce");
+    assert.notInclude(hostTs, "entry.session.lastSeq = Math.floor(cursor)");
     assert.include(hostTs, "subscribeSkillRunnerSessionState");
     assert.include(hostTs, "await syncPendingState()");
     assert.include(hostTs, "continueSkillRunnerForegroundRun");

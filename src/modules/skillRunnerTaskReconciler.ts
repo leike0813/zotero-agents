@@ -1,19 +1,18 @@
 import type { BackendInstance } from "../backends/types";
+import { listBackendInstancesSync } from "../backends/registry";
 import { resolveBackendDisplayName } from "../backends/displayName";
 import { DEFAULT_BACKEND_TYPE } from "../config/defaults";
-import type { JobRecord, JobState } from "../jobQueue/manager";
+import type { JobState } from "../jobQueue/manager";
 import { SkillRunnerClient } from "../providers/skillrunner/client";
 import { resolveSkillRunnerBackendCommunicationFailedToastText } from "../utils/localizationGovernance";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import {
   listTaskDashboardHistory,
-  recordTaskDashboardHistoryFromJob,
   removeTaskDashboardHistoryByBackendAndRequestIds,
   updateTaskDashboardHistoryStateByRequest,
 } from "./taskDashboardHistory";
 import {
   listActiveWorkflowTaskSummaries,
-  recordWorkflowTaskUpdate,
   removeWorkflowTasksByBackendAndRequestIds,
   updateWorkflowTaskStateByRequest,
 } from "./taskRuntime";
@@ -53,15 +52,6 @@ import {
 } from "./skillRunnerRunStore";
 import { continueSkillRunnerForegroundRun } from "./skillRunnerForegroundContinuation";
 import { maybeObserveSkillRunnerAutoReplyRun } from "./skillRunnerAutoReplyObserver";
-
-type MissingContextCandidate = {
-  backendId: string;
-  backendType: string;
-  backendBaseUrl: string;
-  requestId: string;
-  workflowLabel: string;
-  taskName: string;
-};
 
 type RecoverySweepSource =
   | "startup"
@@ -115,6 +105,8 @@ type SkillRunnerTaskLifecycleToastPayload = {
   text: string;
   type: "default" | "success" | "error";
 };
+
+const DETACHED_RECOVERY_BACKOFF_MS = 60_000;
 
 let backendReconcileFailureToastEmitter: (
   payload: BackendReconcileFailureToastPayload,
@@ -180,10 +172,6 @@ export function setSkillRunnerTaskLifecycleToastEmitterForTests(
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function nowIso() {
@@ -252,6 +240,14 @@ function collectRequestIdsForBackend(backendId: string) {
       requestIds.add(requestId);
     }
   }
+  for (const record of listSkillRunnerRunRecords({
+    backendId: normalizedBackendId,
+  })) {
+    const requestId = normalizeString(record.requestId);
+    if (requestId) {
+      requestIds.add(requestId);
+    }
+  }
   return Array.from(requestIds.values());
 }
 
@@ -312,62 +308,6 @@ async function resolveWorkflow(workflowId: string) {
   return workflow;
 }
 
-function buildJobRecordFromRunRecord(record: SkillRunnerRunRecord): JobRecord {
-  const status = normalizeStatus(record.status, "running");
-  const requestRecord = isObject(record.requestPayload)
-    ? record.requestPayload
-    : {};
-  const skillId =
-    normalizeString(record.skillId) ||
-    normalizeString((requestRecord as Record<string, unknown>).skill_id);
-  const terminal = isTerminal(status);
-  return {
-    id: record.jobId,
-    workflowId: record.workflowId,
-    request: record.requestPayload || {},
-    meta: {
-      runId: record.runId,
-      localRunId: record.localRunId,
-      workflowRunId: record.workflowRunId || record.sequence?.workflowRunId,
-      workflowLabel: record.workflowLabel,
-      taskName: record.taskName,
-      inputUnitIdentity: record.taskProjection.inputUnitIdentity,
-      inputUnitLabel: record.taskProjection.inputUnitLabel,
-      targetParentID: record.taskProjection.targetParentID,
-      providerId: record.providerId || "skillrunner",
-      backendId: record.backendId,
-      backendType: record.backendType,
-      backendBaseUrl: record.backendBaseUrl,
-      requestKind: record.requestKind || "skillrunner.job.v1",
-      requestId: record.requestId,
-      skillId: skillId || undefined,
-      skillName: skillId || undefined,
-      executionMode: record.executionMode,
-      index:
-        typeof record.sequence?.stepIndex === "number"
-          ? record.sequence.stepIndex
-          : 0,
-      sequenceStepId: record.sequence?.stepId,
-      sequenceStepIndex: record.sequence?.stepIndex,
-      sequenceJobId: record.sequence?.jobId,
-      skillRunnerRequestReady: !isWaiting(status),
-      skillRunnerLifecycleState: status,
-      skillRunnerSubmitPhase: record.submitPhase,
-      skillRunnerSubmitStartedAt: record.submitStartedAt,
-    },
-    state: status,
-    error: record.error,
-    result: {
-      requestId: record.requestId,
-      status: terminal ? status : "deferred",
-      fetchType: record.fetchType || "bundle",
-      backendStatus: terminal ? undefined : status,
-    },
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-  };
-}
-
 function recoveryContinuationSource(source: RecoverySweepSource) {
   if (source === "backend-healthy") {
     return "recovery-backend-healthy";
@@ -383,9 +323,8 @@ function recoveryContinuationSource(source: RecoverySweepSource) {
 
 function isSequenceStepRecord(record: SkillRunnerRunRecord) {
   return (
-    record.role === "sequence_step" ||
-    !!normalizeString(record.sequence?.sequenceRunId) ||
-    !!normalizeString(record.sequence?.stepId)
+    !!normalizeString(record.sequenceRunId) ||
+    !!normalizeString(record.sequenceStepId)
   );
 }
 
@@ -587,6 +526,8 @@ export class SkillRunnerTaskReconciler {
 
   private readonly backendRecoverySweepInFlightKeys = new Set<string>();
 
+  private readonly detachedRecoveryBackoffUntil = new Map<string, number>();
+
   private readonly backendWasFlagged = new Set<string>();
 
   private running = false;
@@ -630,70 +571,47 @@ export class SkillRunnerTaskReconciler {
     }
   }
 
-  private buildMissingContextCandidates(args?: { backendId?: string }) {
-    const targetBackendId = normalizeString(args?.backendId);
-    const existingKeys = new Set(
-      listSkillRunnerRunRecords({
-        backendId: targetBackendId || undefined,
-      })
-        .map((record) => {
-          const backendId = normalizeString(record.backendId);
-          const requestId = normalizeString(record.requestId);
-          return backendId && requestId ? `${backendId}:${requestId}` : "";
-        })
-        .filter(Boolean),
-    );
-    const candidates = new Map<string, MissingContextCandidate>();
-    for (const row of listActiveWorkflowTaskSummaries({
-      backendId: targetBackendId || undefined,
-    })) {
-      if (normalizeString(row.backendType) !== "skillrunner") {
-        continue;
-      }
-      if (normalizeStatus(row.state, "running") !== "running") {
-        continue;
-      }
-      const backendId = normalizeString(row.backendId);
-      if (targetBackendId && backendId !== targetBackendId) {
-        continue;
-      }
-      const requestId = normalizeString(row.requestId);
-      const backendBaseUrl = normalizeString(row.backendBaseUrl);
-      if (!backendId || !requestId || !backendBaseUrl) {
-        continue;
-      }
-      const key = `${backendId}:${requestId}`;
-      if (existingKeys.has(key)) {
-        continue;
-      }
-      candidates.set(key, {
-        backendId,
-        backendType: normalizeString(row.backendType) || "skillrunner",
-        backendBaseUrl,
-        requestId,
-        workflowLabel:
-          normalizeString(row.workflowLabel) || normalizeString(row.workflowId),
-        taskName:
-          normalizeString(row.taskName) ||
-          normalizeString(row.jobId) ||
-          requestId,
-      });
+  private resolveBackendForRun(record: SkillRunnerRunRecord) {
+    const backendId = normalizeString(record.backendId);
+    if (!backendId) {
+      return null;
     }
-    return Array.from(candidates.values());
+    return (
+      listBackendInstancesSync().find(
+        (entry) =>
+          normalizeString(entry.id) === backendId &&
+          normalizeString(entry.type) === DEFAULT_BACKEND_TYPE &&
+          !!normalizeString(entry.baseUrl),
+      ) || null
+    );
   }
 
-  private restoreProjection(record: SkillRunnerRunRecord) {
-    const job = buildJobRecordFromRunRecord(record);
-    recordWorkflowTaskUpdate(job);
-    recordTaskDashboardHistoryFromJob(job);
+  private recoveryKey(record: SkillRunnerRunRecord) {
+    return `${normalizeString(record.backendId)}:${normalizeString(
+      record.requestId,
+    )}`;
+  }
+
+  private isDetachedRecoveryBackoffActive(record: SkillRunnerRunRecord) {
+    const key = this.recoveryKey(record);
+    const until = this.detachedRecoveryBackoffUntil.get(key) || 0;
+    if (until <= Date.now()) {
+      this.detachedRecoveryBackoffUntil.delete(key);
+      return false;
+    }
+    return true;
+  }
+
+  private markDetachedRecoveryBackoff(record: SkillRunnerRunRecord) {
+    this.detachedRecoveryBackoffUntil.set(
+      this.recoveryKey(record),
+      Date.now() + DETACHED_RECOVERY_BACKOFF_MS,
+    );
   }
 
   private async resolveRecoveryDecision(
     record: SkillRunnerRunRecord,
   ): Promise<RecoveryDecision> {
-    if (record.role === "sequence_root" || record.projectable === false) {
-      return { action: "skip", reason: "non-projectable" };
-    }
     const requestId = normalizeString(record.requestId);
     if (!requestId) {
       return { action: "skip", reason: "missing-request-id" };
@@ -716,8 +634,8 @@ export class SkillRunnerTaskReconciler {
         };
       }
     }
-    if (!normalizeString(record.backendBaseUrl)) {
-      return { action: "fail", reason: "missing-backend-base-url" };
+    if (!this.resolveBackendForRun(record)) {
+      return { action: "waiting", reason: "missing-backend-config" };
     }
     if (
       !normalizeString(record.workflowId) ||
@@ -730,6 +648,15 @@ export class SkillRunnerTaskReconciler {
       !getSequenceRunStateByStepRequest(requestId)
     ) {
       return { action: "fail", reason: "missing-sequence-state" };
+    }
+    if (record.observerState === "detached") {
+      if (isWaiting(status)) {
+        return { action: "waiting", reason: "observer-detached" };
+      }
+      if (this.isDetachedRecoveryBackoffActive(record)) {
+        return { action: "waiting", reason: "observer-detached-backoff" };
+      }
+      return { action: "handoff", reason: "observer-detached" };
     }
     if (isWaiting(status)) {
       return { action: "waiting", reason: status };
@@ -744,10 +671,10 @@ export class SkillRunnerTaskReconciler {
   }) {
     settleSkillRunnerRunAsFailed({
       backendId: args.record.backendId,
-      backendType: args.record.backendType,
-      providerId: args.record.providerId || "skillrunner",
+      backendType: DEFAULT_BACKEND_TYPE,
+      providerId: "skillrunner",
       workflowId: args.record.workflowId,
-      runId: args.record.runId,
+      runId: args.record.workflowRunId,
       jobId: args.record.jobId,
       requestId: args.record.requestId || "",
       reason: `SkillRunner recovery failed: ${args.reason}`,
@@ -758,9 +685,9 @@ export class SkillRunnerTaskReconciler {
       scope: "job",
       workflowId: args.record.workflowId,
       backendId: args.record.backendId,
-      backendType: args.record.backendType,
-      providerId: args.record.providerId || "skillrunner",
-      runId: args.record.runId,
+      backendType: DEFAULT_BACKEND_TYPE,
+      providerId: "skillrunner",
+      runId: args.record.workflowRunId,
       jobId: args.record.jobId,
       requestId: args.record.requestId,
       component: "skillrunner-recovery",
@@ -776,60 +703,55 @@ export class SkillRunnerTaskReconciler {
     });
   }
 
-  private settleMissingContextCandidateAsFailed(args: {
-    candidate: MissingContextCandidate;
-    source: RecoverySweepSource;
-  }) {
-    settleSkillRunnerRunAsFailed({
-      backendId: args.candidate.backendId,
-      backendType: args.candidate.backendType,
-      providerId: "skillrunner",
-      requestId: args.candidate.requestId,
-      reason: "SkillRunner recovery failed: missing recoverable run context",
-      source: `missing-context-recovery:${args.source}`,
-    });
-    appendRuntimeLog({
-      level: "warn",
-      scope: "job",
-      backendId: args.candidate.backendId,
-      backendType: args.candidate.backendType,
-      providerId: "skillrunner",
-      requestId: args.candidate.requestId,
-      component: "skillrunner-recovery",
-      operation: "missing-context-unrecoverable",
-      phase: args.source,
-      stage: "missing-context-unrecoverable",
-      message: "active SkillRunner task has no recoverable run context",
-      details: {
-        workflowLabel: args.candidate.workflowLabel,
-        taskName: args.candidate.taskName,
-      },
-    });
-  }
-
   private async handoffRunRecord(args: {
     record: SkillRunnerRunRecord;
     source: RecoverySweepSource;
   }) {
-    const key = `${normalizeString(args.record.backendId)}:${normalizeString(
-      args.record.requestId,
-    )}`;
+    const key = this.recoveryKey(args.record);
     if (this.recoveryInFlightKeys.has(key)) {
       return;
     }
     this.recoveryInFlightKeys.add(key);
     try {
-      await continueSkillRunnerForegroundRun({
-        backend: {
-          id: args.record.backendId,
-          type: DEFAULT_BACKEND_TYPE,
-          baseUrl: args.record.backendBaseUrl || "",
-          auth: { kind: "none" },
-        },
+      const backend = this.resolveBackendForRun(args.record);
+      if (!backend) {
+        appendRuntimeLog({
+          level: "warn",
+          scope: "job",
+          workflowId: args.record.workflowId,
+          backendId: args.record.backendId,
+          backendType: DEFAULT_BACKEND_TYPE,
+          providerId: "skillrunner",
+          runId: args.record.workflowRunId,
+          jobId: args.record.jobId,
+          requestId: args.record.requestId,
+          component: "skillrunner-recovery",
+          operation: "recovery-handoff-skipped",
+          phase: args.source,
+          stage: "missing-backend-config",
+          message: "skillrunner recovery handoff skipped because backend config is unavailable",
+        });
+        return;
+      }
+      if (args.record.observerState === "detached") {
+        this.markDetachedRecoveryBackoff(args.record);
+      }
+      const outcome = await continueSkillRunnerForegroundRun({
+        backend,
+        record: args.record,
         requestId: args.record.requestId || "",
         source: recoveryContinuationSource(args.source),
         uiFocusPolicy: "none",
       });
+      if (
+        args.record.observerState === "detached" &&
+        !(
+          outcome.status === "waiting" &&
+          outcome.result.detachReason === "observer_failure"
+        )
+      ) {
+        this.detachedRecoveryBackoffUntil.delete(key);
+      }
     } finally {
       this.recoveryInFlightKeys.delete(key);
     }
@@ -893,9 +815,6 @@ export class SkillRunnerTaskReconciler {
       ) {
         continue;
       }
-      if (normalizeString(record.backendType) !== "skillrunner") {
-        continue;
-      }
       scanned += 1;
       registerSkillRunnerBackendForHealthTracking(record.backendId);
       const decision = await this.resolveRecoveryDecision(record);
@@ -911,17 +830,19 @@ export class SkillRunnerTaskReconciler {
         });
         continue;
       }
-      this.restoreProjection(record);
       if (decision.action === "waiting") {
         waiting += 1;
+        const observerDetached = decision.reason.startsWith(
+          "observer-detached",
+        );
         appendRuntimeLog({
           level: "info",
           scope: "job",
           workflowId: record.workflowId,
           backendId: record.backendId,
-          backendType: record.backendType,
-          providerId: record.providerId || "skillrunner",
-          runId: record.runId,
+          backendType: DEFAULT_BACKEND_TYPE,
+          providerId: "skillrunner",
+          runId: record.workflowRunId,
           jobId: record.jobId,
           requestId: record.requestId,
           component: "skillrunner-recovery",
@@ -931,15 +852,18 @@ export class SkillRunnerTaskReconciler {
           message: "waiting SkillRunner run restored without polling",
           details: {
             status: record.status,
+            reason: decision.reason,
           },
         });
+        if (observerDetached) {
+          continue;
+        }
+        const backend = this.resolveBackendForRun(record);
+        if (!backend) {
+          continue;
+        }
         maybeObserveSkillRunnerAutoReplyRun({
-          backend: {
-            id: record.backendId,
-            type: DEFAULT_BACKEND_TYPE,
-            baseUrl: record.backendBaseUrl || "",
-            auth: { kind: "none" },
-          },
+          backend,
           requestId: record.requestId || "",
           record,
           source: `recovery-waiting:${args.source}`,
@@ -949,15 +873,6 @@ export class SkillRunnerTaskReconciler {
       handedOff += 1;
       await this.handoffRunRecord({
         record,
-        source: args.source,
-      });
-    }
-    for (const candidate of this.buildMissingContextCandidates({
-      backendId: targetBackendId,
-    })) {
-      failed += 1;
-      this.settleMissingContextCandidateAsFailed({
-        candidate,
         source: args.source,
       });
     }
@@ -1046,6 +961,7 @@ export class SkillRunnerTaskReconciler {
     await this.drainInFlightTasks();
     this.recoveryInFlightKeys.clear();
     this.backendRecoverySweepInFlightKeys.clear();
+    this.detachedRecoveryBackoffUntil.clear();
     this.backendWasFlagged.clear();
     setSkillRunnerBackendReconcileFailureToastEmitterForTests();
     setSkillRunnerTaskLifecycleToastEmitterForTests();
@@ -1130,13 +1046,6 @@ export async function resetSkillRunnerTaskReconcilerForTests() {
 
 export function getSkillRunnerTaskReconcilerRuntimeForTests() {
   return defaultReconciler.getRuntimeSnapshotForTests();
-}
-
-export function purgeSkillRunnerRunByRequest(args: {
-  backendId?: string;
-  requestId: string;
-}) {
-  return defaultReconciler.purgeRequestContext(args);
 }
 
 export async function reconcileSkillRunnerMissingContextOnce(args?: {

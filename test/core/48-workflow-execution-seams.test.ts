@@ -21,6 +21,10 @@ import { runWorkflowPreparationSeam } from "../../src/modules/workflowExecution/
 import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
 import { runWorkflowExecutionSeam } from "../../src/modules/workflowExecution/runSeam";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
+import {
+  listSkillRunnerRunRecords,
+  projectSkillRunnerRun,
+} from "../../src/modules/skillRunnerRunStore";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
 
@@ -1780,64 +1784,53 @@ describe("workflow execution seams", function () {
       taskUpdates.map((job) => job.id),
       "job-1",
     );
-    assert.includeMembers(
+    assert.notIncludeMembers(
       taskUpdates.map((job) => job.id),
-      ["job-1:digest"],
+      ["job-1:digest", "job-1:tag"],
     );
-    const requestReadyRows = taskUpdates.filter(
-      (job) =>
-        job.state === "running" &&
-        job.meta.skillRunnerSubmitPhase === "request_ready",
-    );
+    const projectedSteps = listSkillRunnerRunRecords()
+      .filter((row) => row.sequenceJobId === "job-1")
+      .map((run) => projectSkillRunnerRun({ run }))
+      .sort((a, b) =>
+        String(a.sequenceStepId || "").localeCompare(
+          String(b.sequenceStepId || ""),
+        ),
+      );
     assert.deepEqual(
-      requestReadyRows.map((job) => ({
-        id: job.id,
-        localRunId: job.meta.localRunId,
-        requestId: job.meta.requestId,
-        requestReady: job.meta.skillRunnerRequestReady,
+      projectedSteps.map((row) => ({
+        id: row.id,
+        runKey: row.runKey,
+        requestId: row.requestId,
+        skillId: row.skillId,
+        skillName: row.skillName,
+        sequenceStepId: row.sequenceStepId,
+        state: row.state,
+        submitPhase: row.submitPhase,
       })),
       [
         {
-          id: "job-1:digest",
-          localRunId: `${runState.runId}-job-1:job-1:digest`,
-          requestId: "literature-analysis-request",
-          requestReady: true,
-        },
-        {
-          id: "job-1:tag",
-          localRunId: `${runState.runId}-job-1:job-1:tag`,
-          requestId: "tag-regulator-request",
-          requestReady: true,
-        },
-      ],
-    );
-    const terminalRows = taskUpdates.filter((job) => job.state === "succeeded");
-    assert.deepEqual(
-      terminalRows.map((job) => ({
-        id: job.id,
-        requestId: job.meta.requestId,
-        skillId: job.meta.skillId,
-        skillName: job.meta.skillName,
-        sequenceStepId: job.meta.sequenceStepId,
-      })),
-      [
-        {
-          id: "job-1:digest",
+          id: `local:${runState.runId}-job-1:job-1:digest`,
+          runKey: `local:${runState.runId}-job-1:job-1:digest`,
           requestId: "literature-analysis-request",
           skillId: "literature-analysis",
           skillName: "Literature Analysis",
           sequenceStepId: "digest",
+          state: "succeeded",
+          submitPhase: "request_ready",
         },
         {
-          id: "job-1:tag",
+          id: `local:${runState.runId}-job-1:job-1:tag`,
+          runKey: `local:${runState.runId}-job-1:job-1:tag`,
           requestId: "tag-regulator-request",
           skillId: "tag-regulator",
           skillName: "Tag Regulator",
           sequenceStepId: "tag",
+          state: "succeeded",
+          submitPhase: "request_ready",
         },
       ],
     );
-    assert.isAtLeast(historyUpdates.length, 2);
+    assert.lengthOf(historyUpdates, 0);
     const focusedSteps = focusCalls
       .map((entry) => ({
         runKey: String(entry.runKey || ""),
@@ -1866,6 +1859,87 @@ describe("workflow execution seams", function () {
           entry.selectionChanged === true,
       ),
       JSON.stringify(focusedSteps),
+    );
+  });
+
+  it("stores sequence step auto-reply runtime facts without providerOptions", async function () {
+    const runState = runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "seam-skillrunner-sequence-auto-reply",
+              label: "Seam SkillRunner Sequence Auto Reply",
+              provider: "skillrunner",
+            },
+          } as any,
+          requests: [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [
+                {
+                  id: "interactive",
+                  skill_id: "interactive-skill",
+                  mode: "interactive",
+                },
+              ],
+              final_step_id: "interactive",
+            },
+          ],
+          skippedByFilter: 0,
+          executionContext: {
+            providerId: "skillrunner",
+            requestKind: "skillrunner.sequence.v1",
+            providerOptions: {
+              interactive_auto_reply: true,
+              interactive_reply_timeout_sec: 30,
+            },
+            backend: {
+              id: "skillrunner-backend-auto-reply",
+              type: "skillrunner",
+              baseUrl: "http://127.0.0.1:8030",
+            },
+          },
+        },
+      },
+      {
+        executeWithProvider: async ({ request, onProgress }) => {
+          const skillId = String((request as any).skill_id || "");
+          onProgress?.({
+            type: "request-created",
+            requestId: `${skillId}-request`,
+          });
+          onProgress?.({
+            type: "request-ready",
+            requestId: `${skillId}-request`,
+          });
+          return {
+            status: "succeeded",
+            requestId: `${skillId}-request`,
+            fetchType: "result",
+            resultJson: { skillId },
+            responseJson: {},
+          };
+        },
+        openAssistantWorkspaceSidebar: async () => undefined,
+      } as any,
+    );
+
+    await runState.idlePromise;
+
+    const stepRun = listSkillRunnerRunRecords().find(
+      (row) =>
+        row.sequenceRunId === `${runState.runId}-job-1` &&
+        row.sequenceStepId === "interactive",
+    );
+    const payload = stepRun?.requestPayload as any;
+    assert.isOk(stepRun);
+    assert.isUndefined(payload?.providerOptions);
+    assert.equal(payload?.runtime_options?.execution_mode, "interactive");
+    assert.equal(payload?.runtime_options?.interactive_auto_reply, true);
+    assert.equal(
+      payload?.runtime_options?.interactive_reply_timeout_sec,
+      30,
     );
   });
 
@@ -2207,7 +2281,7 @@ describe("workflow execution seams", function () {
 
     assert.lengthOf(assistantCalls, 0);
     assert.lengthOf(focusCalls, 1);
-    assert.equal(focusCalls[0].runKey, "local:run-sr-auto-focus:job-1");
+    assert.match(String(focusCalls[0].runKey || ""), /^local:run-[^:]+:job-1$/);
     assert.isUndefined(focusCalls[0].taskId);
     assert.isUndefined(focusCalls[0].localRunId);
     assert.isUndefined(focusCalls[0].requestId);
@@ -2343,9 +2417,9 @@ describe("workflow execution seams", function () {
     assert.lengthOf(focusCalls, 0);
     assert.lengthOf(assistantCalls, 1);
     assert.equal(assistantCalls[0].tab, "skillrunner");
-    assert.equal(
-      assistantCalls[0].runKey,
-      "local:run-sr-interactive-focus:job-1",
+    assert.match(
+      String(assistantCalls[0].runKey || ""),
+      /^local:run-[^:]+:job-1$/,
     );
     assert.isUndefined(assistantCalls[0].taskId);
     assert.isUndefined(assistantCalls[0].localRunId);

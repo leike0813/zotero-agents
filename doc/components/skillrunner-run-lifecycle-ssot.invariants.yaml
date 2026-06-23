@@ -3,8 +3,8 @@ invariants:
     domain: skillrunner-run-lifecycle
     type: identity
     current_value:
-      local_identity: runKey
-      backend_correlation: requestId
+      localIdentity: runKey
+      backendCorrelation: requestId
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.runLifecycle.identity.localIdentity
       - SKILLRUNNER_SSOT_FACTS.runLifecycle.identity.backendCorrelation
@@ -18,8 +18,7 @@ invariants:
   - id: INV-SR-REQUESTID-ATTACH-NO-REKEY
     domain: skillrunner-run-lifecycle
     type: identity
-    current_value:
-      request_id_behavior: attach_to_existing_runKey
+    current_value: attach_to_existing_runKey
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.runLifecycle.identity.requestIdBehavior
     doc_refs:
@@ -33,8 +32,8 @@ invariants:
     domain: skillrunner-run-lifecycle
     type: data-model
     current_value:
-      persisted_model: lifecycle_recovery_execution_facts_only
-      derived_fields:
+      persistedModel: lifecycle_recovery_execution_facts_only
+      derivedFields:
         - backendBaseUrl
         - backendType
         - providerId
@@ -54,8 +53,7 @@ invariants:
   - id: INV-SR-SEQUENCE-STEP-FIRST-CLASS-RUN
     domain: skillrunner-sequence
     type: architecture
-    current_value:
-      sequence_step_lifecycle: skillrunner_run
+    current_value: skillrunner_run
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.runLifecycle.sequence.sequenceStepLifecycle
     doc_refs:
@@ -68,8 +66,7 @@ invariants:
   - id: INV-SR-OBSERVER-FAILURE-NONTERMINAL
     domain: skillrunner-state-machine
     type: terminal-ownership
-    current_value:
-      request_id_observer_failure: recoverable
+    current_value: recoverable
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.runLifecycle.terminalOwnership.requestIdObserverFailure
     doc_refs:
@@ -82,8 +79,7 @@ invariants:
   - id: INV-SR-BACKEND-TERMINAL-OWNER
     domain: skillrunner-state-machine
     type: terminal-ownership
-    current_value:
-      terminal_source: backend_or_apply_policy
+    current_value: backend_or_apply_policy
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.runLifecycle.terminalOwnership.terminalSource
     doc_refs:
@@ -95,8 +91,7 @@ invariants:
   - id: INV-SR-UI-PROJECTION-DERIVED
     domain: skillrunner-ui
     type: projection
-    current_value:
-      ui_source: run_store_projection
+    current_value: run_store_projection
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.runLifecycle.projection.uiSource
     doc_refs:
@@ -110,8 +105,8 @@ invariants:
     domain: skillrunner-ui
     type: projection
     current_value:
-      skill_display_source: skill_registry_by_skillId
-      excluded:
+      skillDisplaySource: skill_registry_by_skillId
+      excludedDisplayFields:
         - skillLabel
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.runLifecycle.projection.skillDisplaySource
@@ -126,8 +121,7 @@ invariants:
   - id: INV-SR-BACKEND-CONFIG-CASCADE
     domain: skillrunner-recovery
     type: cascade
-    current_value:
-      backend_config_source: backend_registry_by_backendId
+    current_value: backend_registry_by_backendId
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.runLifecycle.projection.backendConfigSource
     doc_refs:
@@ -139,8 +133,7 @@ invariants:
   - id: INV-SR-RECOVERY-RUN-STORE-SSOT
     domain: skillrunner-recovery
     type: recovery
-    current_value:
-      recovery_scan_source: skillrunner_run_store
+    current_value: skillrunner_run_store
     code_refs:
       - SKILLRUNNER_SSOT_FACTS.runLifecycle.recovery.scanSource
     doc_refs:

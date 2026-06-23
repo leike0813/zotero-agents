@@ -37,8 +37,10 @@ import {
 } from "../../src/modules/pluginStateStore";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
 import {
+  attachSkillRunnerRequestId,
+  createSkillRunnerRun,
   getSkillRunnerRunRecordByRequest,
-  upsertSkillRunnerRunFromTask,
+  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 import {
   buildSkillRunnerForegroundContinuationStepJobForTests,
@@ -112,10 +114,22 @@ function upsertSkillRunnerSequenceStepRunForTest(args: {
   targetParentID?: number;
   executionMode?: "auto" | "interactive" | string;
 }) {
+  const requestPayload =
+    args.request && typeof args.request === "object" && !Array.isArray(args.request)
+      ? {
+          ...(args.request as Record<string, unknown>),
+          ...(args.inputUnitIdentity
+            ? { inputUnitIdentity: args.inputUnitIdentity }
+            : {}),
+          ...(typeof args.targetParentID === "number"
+            ? { targetParentID: args.targetParentID }
+            : {}),
+        }
+      : args.request;
   const job: JobRecord = {
     id: `${args.sequenceJobId}:${args.stepId}`,
     workflowId: args.workflowId,
-    request: args.request,
+    request: requestPayload,
     meta: {
       runId: args.workflowRunId,
       localRunId: `${args.workflowRunId}:${args.sequenceJobId}:${args.stepId}`,
@@ -147,25 +161,37 @@ function upsertSkillRunnerSequenceStepRunForTest(args: {
       requestId: args.requestId,
     },
   };
-  upsertSkillRunnerRunFromTask(buildWorkflowTaskRecordFromJob(job), {
-    role: "sequence_step",
-    requestPayload: args.request,
-    providerOptions: args.providerOptions,
-    executionMode: args.executionMode,
+  const run = createSkillRunnerRun({
+    backendId: "skillrunner-backend",
+    workflowId: args.workflowId,
+    workflowRunId: args.workflowRunId,
+    jobId: job.id,
+    taskName: `Sequence Workflow / ${args.stepId}`,
+    skillId: args.skillId,
+    sequenceRunId: args.sequenceRunId,
+    sequenceJobId: args.sequenceJobId,
+    sequenceStepId: args.stepId,
+    requestPayload,
     fetchType: "result",
-    apply: {
-      state: "idle",
-      attempt: 0,
-      maxAttempt: 5,
-    },
-    sequence: {
-      sequenceRunId: args.sequenceRunId,
-      workflowRunId: args.workflowRunId,
-      jobId: args.sequenceJobId,
-      stepId: args.stepId,
-      stepIndex: args.stepIndex,
-      finalStepId: args.finalStepId,
-    },
+    executionMode:
+      args.executionMode === "interactive" ? "interactive" : "auto",
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  });
+  if (!run) {
+    return;
+  }
+  const attached =
+    attachSkillRunnerRequestId({
+      runKey: run.runKey,
+      requestId: args.requestId,
+      updatedAt: job.updatedAt,
+    }) || run;
+  updateSkillRunnerRunStateByRunKey({
+    runKey: attached.runKey,
+    state: "request_ready",
+    backendStatus: "running",
+    updatedAt: job.updatedAt,
   });
 }
 
@@ -333,10 +359,12 @@ describe("skillrunner.sequence.v1 runtime", function () {
         "prepare-skill": {
           skillId: "prepare-skill",
           skillName: "Prepare Skill",
+          skillLabel: "Prepare Skill Label",
         },
         "finalize-skill": {
           skillId: "finalize-skill",
           skillName: "Finalize Skill",
+          skillLabel: "Finalize Skill Label",
         },
       },
     });
@@ -388,6 +416,15 @@ describe("skillrunner.sequence.v1 runtime", function () {
         ?.skillName,
       "Finalize Skill",
     );
+    const storedFinalizeStep = getSequenceRunState(
+      "workflow-run-continuation-skill-display",
+    )?.steps[1] as Record<string, unknown> | undefined;
+    assert.isOk(storedFinalizeStep);
+    assert.notProperty(storedFinalizeStep!, "skillLabel");
+    const sequenceEntry = listPluginRunStoreEntries("skillrunner").find(
+      (entry) => entry.runKey === "sequence:workflow-run-continuation-skill-display",
+    );
+    assert.notInclude(sequenceEntry?.payload || "", "Skill Label");
   });
 
   it("builds foreground continuation steps with the full submission context", function () {
@@ -533,29 +570,32 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.equal(task.inputUnitIdentity, "zotero:item:42");
     assert.equal(task.skillName, "Finalize Skill");
 
-    const runRecord = upsertSkillRunnerRunFromTask(task, {
-      role: "sequence_step",
+    const createdFinalizeRun = createSkillRunnerRun({
+      backendId: backend.id,
+      workflowId: job!.workflowId,
+      workflowRunId: sequenceRunId,
+      jobId: job!.id,
+      taskName: String(job!.meta.taskName || job!.id),
+      skillId: String(job!.meta.skillId || ""),
+      sequenceRunId,
+      sequenceJobId,
+      sequenceStepId: "finalize",
       requestPayload: job!.request,
-      providerOptions: job!.meta.providerOptions as Record<string, unknown>,
-      executionMode: String(job!.meta.executionMode || ""),
       fetchType: "result",
-      sequence: {
-        sequenceRunId,
-        workflowRunId: sequenceRunId,
-        jobId: sequenceJobId,
-        stepId: "finalize",
-        stepIndex: 1,
-        finalStepId: "finalize",
-      },
+      executionMode: "auto",
+      createdAt: job!.createdAt,
+      updatedAt: job!.updatedAt,
     });
+    const runRecord = createdFinalizeRun
+      ? attachSkillRunnerRequestId({
+          runKey: createdFinalizeRun.runKey,
+          requestId: "finalize-request",
+          updatedAt: job!.updatedAt,
+        }) || createdFinalizeRun
+      : null;
 
-    assert.equal(runRecord?.providerOptions?.engine, "context-engine");
     assert.equal(runRecord?.executionMode, "auto");
-    assert.equal(runRecord?.taskProjection.engine, "context-engine");
-    assert.equal(
-      runRecord?.taskProjection.inputUnitIdentity,
-      "zotero:item:42",
-    );
+    assert.equal((runRecord?.requestPayload as any)?.targetParentID, 42);
   });
 
   afterEach(function () {
@@ -1828,6 +1868,83 @@ describe("skillrunner.sequence.v1 runtime", function () {
         "skipped",
       );
       assert.equal(getSequenceRunState(sequenceRunId)?.status, "completed");
+    } finally {
+      (globalThis as { fetch?: typeof fetch }).fetch = originalFetch;
+    }
+  });
+
+  it("keeps sequence state active when foreground continuation hits a recoverable observer failure", async function () {
+    const backend = {
+      id: "skillrunner-backend",
+      type: "skillrunner",
+      baseUrl: "http://127.0.0.1:8030",
+      auth: { kind: "none" },
+    };
+    const sequenceRunId = "workflow-run-foreground-detached";
+    const requestId = "detached-step-request";
+    initializeSequenceRunState({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "final",
+            skill_id: "final-skill",
+            mode: "auto",
+          },
+        ],
+        final_step_id: "final",
+      },
+      backend,
+      workflowId: "sequence-workflow",
+      workflowRunId: sequenceRunId,
+      jobId: "job-foreground-detached",
+    });
+    recordSequenceStepRequestCreated({
+      sequenceRunId,
+      stepIndex: 0,
+      requestId,
+    });
+    upsertSkillRunnerSequenceStepRunForTest({
+      requestId,
+      request: {
+        kind: "skillrunner.job.v1",
+        skill_id: "final-skill",
+        runtime_options: { execution_mode: "auto" },
+        fetch_type: "result",
+      },
+      workflowId: "sequence-workflow",
+      workflowRunId: sequenceRunId,
+      sequenceRunId,
+      sequenceJobId: "job-foreground-detached",
+      stepId: "final",
+      stepIndex: 0,
+      finalStepId: "final",
+      skillId: "final-skill",
+    });
+
+    const originalFetch = (globalThis as { fetch?: typeof fetch }).fetch;
+    (globalThis as { fetch?: typeof fetch }).fetch = (async () => {
+      throw new Error("network offline");
+    }) as typeof fetch;
+    try {
+      const outcome = await continueSkillRunnerForegroundRun({
+        backend,
+        requestId,
+        source: "test.sequence-observer-failure",
+      });
+
+      const stored = getSkillRunnerRunRecordByRequest({
+        backendId: "skillrunner-backend",
+        requestId,
+      });
+      const state = getSequenceRunState(sequenceRunId);
+      assert.equal(outcome.status, "waiting");
+      assert.equal(outcome.result.detachReason, "observer_failure");
+      assert.equal(stored?.status, "running");
+      assert.equal(stored?.observerState, "detached");
+      assert.equal(state?.status, "running_step");
+      assert.equal(state?.steps[0]?.status, "running");
+      assert.isUndefined(state?.steps[0]?.error);
     } finally {
       (globalThis as { fetch?: typeof fetch }).fetch = originalFetch;
     }

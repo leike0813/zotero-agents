@@ -30,8 +30,12 @@ import {
   resetTaskDashboardHistory,
 } from "../../src/modules/taskDashboardHistory";
 import {
+  attachSkillRunnerRequestId,
+  createSkillRunnerRun,
   getSkillRunnerRunRecordByRequest,
   resetSkillRunnerRunStoreForTests,
+  updateSkillRunnerRunStateByRequest,
+  updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
 import {
   getAcpSkillRunRecord,
@@ -526,12 +530,55 @@ function latestTaskError(run: IntegrationRun) {
 }
 
 function findRequestReadyUpdate(run: IntegrationRun, requestId: string) {
-  return run.taskUpdates.find(
-    (entry) =>
-      normalizeString(entry.meta?.requestId) === requestId &&
-      entry.meta?.skillRunnerRequestReady === true &&
-      entry.meta?.skillRunnerSubmitPhase === "request_ready",
+  return (
+    run.taskUpdates.find(
+      (entry) =>
+        normalizeString(entry.meta?.requestId) === requestId &&
+        entry.meta?.skillRunnerRequestReady === true &&
+        entry.meta?.skillRunnerSubmitPhase === "request_ready",
+    ) ||
+    listWorkflowTasks().find(
+      (entry) =>
+        entry.requestId === requestId && entry.submitPhase === "request_ready",
+    )
   );
+}
+
+function seedRequestReadySkillRunnerRun(requestId: string) {
+  const run = createSkillRunnerRun({
+    backendId: SKILLRUNNER_BACKEND.id,
+    workflowId: SINGLE_RESULT_WORKFLOW_ID,
+    workflowRunId: `run-${requestId}`,
+    jobId: `job-${requestId}`,
+    taskName: "debug-apply-single-result",
+    skillId: "debug-apply-contract",
+    requestPayload: {
+      kind: "skillrunner.job.v1",
+      skill_id: "debug-apply-contract",
+      fetch_type: "result",
+      poll: {
+        interval_ms: 1,
+        timeout_ms: 1,
+      },
+    },
+    fetchType: "result",
+    executionMode: "auto",
+    createdAt: "2026-06-22T00:00:00.000Z",
+    updatedAt: "2026-06-22T00:00:00.000Z",
+  });
+  assert.isOk(run);
+  attachSkillRunnerRequestId({
+    runKey: run!.runKey,
+    requestId,
+    updatedAt: "2026-06-22T00:00:01.000Z",
+  });
+  updateSkillRunnerRunStateByRunKey({
+    runKey: run!.runKey,
+    state: "request_ready" as any,
+    backendStatus: "running",
+    updatedAt: "2026-06-22T00:00:02.000Z",
+  });
+  return run!;
 }
 
 describe("workflow single-result behavior integration", function () {
@@ -560,6 +607,64 @@ describe("workflow single-result behavior integration", function () {
     setDebugModeOverrideForTests();
   });
 
+  it("keeps foreground continuation recoverable observer failures active and detached", async function () {
+    const requestId = "sr-foreground-network-detach";
+    seedRequestReadySkillRunnerRun(requestId);
+
+    await withMockedFetch(
+      async () => {
+        throw new Error("network offline");
+      },
+      async () => {
+        const outcome = await continueSkillRunnerForegroundRun({
+          backend: SKILLRUNNER_BACKEND,
+          requestId,
+          source: "test.recoverable-observer-failure",
+        });
+        assert.equal(outcome.status, "waiting");
+        assert.equal(outcome.result.detachReason, "observer_failure");
+        assert.equal(outcome.result.backendStatus, "running");
+      },
+    );
+
+    const stored = getSkillRunnerRunRecordByRequest({
+      backendId: SKILLRUNNER_BACKEND.id,
+      requestId,
+    });
+    assert.equal(stored?.status, "running");
+    assert.equal(stored?.observerState, "detached");
+    assert.include(stored?.error || "", "network offline");
+  });
+
+  it("keeps foreground continuation terminal client errors terminal", async function () {
+    const requestId = "sr-foreground-terminal-client-error";
+    seedRequestReadySkillRunnerRun(requestId);
+    let thrown: unknown;
+
+    await withMockedFetch(
+      async () => createJsonResponse({ error: "invalid request" }, 422),
+      async () => {
+        try {
+          await continueSkillRunnerForegroundRun({
+            backend: SKILLRUNNER_BACKEND,
+            requestId,
+            source: "test.terminal-client-error",
+          });
+        } catch (error) {
+          thrown = error;
+        }
+      },
+    );
+
+    const stored = getSkillRunnerRunRecordByRequest({
+      backendId: SKILLRUNNER_BACKEND.id,
+      requestId,
+    });
+    assert.isOk(thrown);
+    assert.equal(stored?.status, "failed");
+    assert.notEqual(stored?.observerState, "detached");
+  });
+
   it("runs the SkillRunner single-result happy path with task focus, request-ready projection, and apply", async function () {
     const requestId = "sr-single-result-happy";
     const run = await runDebugApplyWorkflow({
@@ -580,10 +685,6 @@ describe("workflow single-result behavior integration", function () {
     assert.equal(run.applySummary.succeeded, 1);
     assert.equal(run.applySummary.failed, 0);
     assertParentHasTag(run.request);
-    assert.isAtLeast(
-      run.taskUpdates.filter((entry) => entry.state === "queued").length,
-      1,
-    );
     assert.isOk(findRequestReadyUpdate(run, requestId));
     assert.lengthOf(run.focusCalls, 1);
     assert.equal(run.focusCalls[0].selectionChanged, true);
@@ -933,7 +1034,7 @@ describe("workflow single-result behavior integration", function () {
     );
     assert.equal(visible?.state, "waiting_user");
     assert.equal(visible?.skillRunnerLifecycleState, "waiting_user");
-    assert.equal(visible?.canReply, true);
+    assert.equal(visible?.canReply, false);
     assert.equal(visible?.submitPhase, "request_ready");
 
     const stored = getSkillRunnerRunRecordByRequest({
@@ -1195,6 +1296,7 @@ describe("workflow single-result behavior integration", function () {
       },
       expectedState: "failed",
       expectRequestReady: false,
+      expectedApplyFailed: 1,
     },
     {
       title: "fails when SkillRunner upload fails before request-ready",
@@ -1205,8 +1307,9 @@ describe("workflow single-result behavior integration", function () {
         onProgress?.({ type: "request-uploading", requestId: "sr-upload-failed" });
         throw new Error("upload failed");
       },
-      expectedState: "failed",
+      expectedState: "running",
       expectRequestReady: false,
+      expectedApplyFailed: 1,
     },
     {
       title: "fails when SkillRunner poll times out after request-ready",
@@ -1220,8 +1323,9 @@ describe("workflow single-result behavior integration", function () {
           timeoutMs: 10,
         });
       },
-      expectedState: "failed",
+      expectedState: "running",
       expectRequestReady: true,
+      expectedApplyFailed: 0,
     },
   ]) {
     it(entry.title, async function () {
@@ -1232,8 +1336,8 @@ describe("workflow single-result behavior integration", function () {
 
       assert.equal(latestTaskState(run), entry.expectedState);
       assert.equal(run.applySummary.succeeded, 0);
-      assert.equal(run.applySummary.failed, 1);
-      assert.lengthOf(run.applySummary.jobOutcomes, 1);
+      assert.equal(run.applySummary.failed, entry.expectedApplyFailed);
+      assert.lengthOf(run.applySummary.jobOutcomes, entry.expectedApplyFailed);
       assertParentDoesNotHaveTag(run.request);
       if (entry.expectRequestReady) {
         assert.isOk(findRequestReadyUpdate(run, entry.requestId));

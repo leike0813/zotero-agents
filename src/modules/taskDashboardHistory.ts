@@ -13,7 +13,6 @@ import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
 import {
   countSkillRunnerRunProjectionStates,
   listSkillRunnerRunProjections,
-  upsertSkillRunnerRunFromTask,
 } from "./skillRunnerRunStore";
 
 export type TaskDashboardHistoryRecord = WorkflowTaskRecord & {
@@ -250,16 +249,8 @@ export function recordTaskDashboardHistoryFromTaskRecord(
     if (!String(record.requestId || "").trim()) {
       return null;
     }
-    const runRecord = upsertSkillRunnerRunFromTask(record, {
-      eventType: "backend.snapshot",
-      eventPayload: {
-        source: "taskDashboardHistory.recordTaskDashboardHistoryFromTaskRecord",
-        state: record.state,
-      },
-    });
     return {
       ...record,
-      runKey: runRecord?.runKey || record.runKey,
       archivedAt: new Date().toISOString(),
     };
   }
@@ -293,16 +284,8 @@ export function upsertTaskDashboardHistoryFromTaskRecord(
     if (!String(record.requestId || "").trim()) {
       return null;
     }
-    const runRecord = upsertSkillRunnerRunFromTask(record, {
-      eventType: "backend.snapshot",
-      eventPayload: {
-        source: "taskDashboardHistory.upsertTaskDashboardHistoryFromTaskRecord",
-        state: record.state,
-      },
-    });
     return {
       ...record,
-      runKey: runRecord?.runKey || record.runKey,
       archivedAt: new Date().toISOString(),
     };
   }

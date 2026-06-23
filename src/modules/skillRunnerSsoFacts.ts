@@ -80,6 +80,41 @@ export const SKILLRUNNER_SSOT_FACTS = {
     appliesResults: false,
     missingContextOutcome: "failed",
   },
+  runLifecycle: {
+    identity: {
+      localIdentity: "runKey",
+      backendCorrelation: "requestId",
+      requestIdBehavior: "attach_to_existing_runKey",
+    },
+    model: {
+      persistedModel: "lifecycle_recovery_execution_facts_only",
+      derivedFields: [
+        "backendBaseUrl",
+        "backendType",
+        "providerId",
+        "workflowLabel",
+        "skillName",
+        "sequenceStepIndex",
+        "sequenceFinalStepId",
+      ],
+    },
+    sequence: {
+      sequenceStepLifecycle: "skillrunner_run",
+    },
+    terminalOwnership: {
+      requestIdObserverFailure: "recoverable",
+      terminalSource: "backend_or_apply_policy",
+    },
+    projection: {
+      uiSource: "run_store_projection",
+      skillDisplaySource: "skill_registry_by_skillId",
+      excludedDisplayFields: ["skillLabel"],
+      backendConfigSource: "backend_registry_by_backendId",
+    },
+    recovery: {
+      scanSource: "skillrunner_run_store",
+    },
+  },
   uiGating: {
     unavailableBackendBlocksRunDialog: true,
     unavailableBackendHiddenInHome: true,
