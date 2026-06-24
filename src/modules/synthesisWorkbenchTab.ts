@@ -1383,14 +1383,14 @@ async function readSynthesisExportAssets() {
       inlineMaterialSymbolIconUrls,
     ),
     readPackagedTextAsset("content/shared/topicTimeline.css"),
-    readPackagedTextAsset("content/dashboard/vendor/katex/katex.min.css"),
+    readPackagedTextAsset("content/shared/vendor/katex/katex.min.css"),
     readPackagedTextAsset("content/synthesis/styles.css"),
     readPackagedTextAsset(
-      "content/dashboard/vendor/markdown-it/markdown-it.min.js",
+      "content/shared/vendor/markdown-it/markdown-it.min.js",
     ),
-    readPackagedTextAsset("content/dashboard/vendor/katex/katex.min.js"),
+    readPackagedTextAsset("content/shared/vendor/katex/katex.min.js"),
     readPackagedTextAsset(
-      "content/dashboard/vendor/markdown-it-texmath/texmath.min.js",
+      "content/shared/vendor/markdown-it-texmath/texmath.min.js",
     ),
     readPackagedTextAsset("content/shared/markdown-renderer.js"),
     readPackagedTextAsset("content/synthesis/app.bundle.js"),
@@ -3153,7 +3153,7 @@ function finalizeWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
   }
   void sendSnapshot(runtime, "synthesis:init", { refreshFromService: false });
   void sendChrome(runtime, { refreshFromService: false });
-  void sendActiveSurface(runtime, { refreshFromService: false });
+  void sendActiveSurface(runtime);
 }
 
 function scheduleWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {

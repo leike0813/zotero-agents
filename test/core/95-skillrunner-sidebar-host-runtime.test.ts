@@ -44,7 +44,7 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(ts, "createSkillRunnerHostActionHandler");
   });
 
-  it("focuses SkillRunner only after activating the sidebar host", async function () {
+  it("schedules SkillRunner focus only after activating the sidebar host", async function () {
     const ts = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
     );
@@ -60,13 +60,15 @@ describe("skillrunner sidebar host runtime", function () {
       "const activated = await activateTarget(host, target);",
     );
     const preActivateBody = openBody.slice(0, activateIndex);
-    const postActivateFocusIndex = openBody.indexOf(
-      "await focusSkillRunnerWorkspace({",
+    const postActivateScheduleIndex = openBody.indexOf(
+      "scheduleSkillRunnerSidebarRefresh(host, target, {",
       activateIndex,
     );
     assert.isAtLeast(activateIndex, 0);
-    assert.notInclude(preActivateBody, "await focusSkillRunnerWorkspace({");
-    assert.isAbove(postActivateFocusIndex, activateIndex);
+    assert.notInclude(preActivateBody, "focusSkillRunnerWorkspace({");
+    assert.isAbove(postActivateScheduleIndex, activateIndex);
+    assert.notInclude(openBody, "await focusSkillRunnerWorkspace({");
+    assert.include(openBody, "runKey: args?.runKey");
   });
 
   it("syncs the active Assistant shell tab before reactivating an open sidebar", async function () {
@@ -143,14 +145,12 @@ describe("skillrunner sidebar host runtime", function () {
   });
 
   it("queues sidebar frontend rendering and keeps streaming transcript rows plain", async function () {
-    const acpChat = await readProjectFile(
-      "addon/content/dashboard/acp-chat.js",
-    );
+    const acpChat = await readProjectFile("addon/content/sidebar/acp-chat.js");
     const acpSkill = await readProjectFile(
-      "addon/content/dashboard/acp-skill-run.js",
+      "addon/content/sidebar/acp-skill-run.js",
     );
     const transcriptRenderer = await readProjectFile(
-      "addon/content/dashboard/assistant-transcript-renderer.js",
+      "addon/content/shared/assistant/assistant-transcript-renderer.js",
     );
 
     assert.include(acpChat, "function queueRender");
@@ -260,6 +260,40 @@ describe("skillrunner sidebar host runtime", function () {
     );
     assert.notInclude(hostActionBody, "focusSkillRunnerWorkspace()");
 
+    const shellActionStart = workspaceHost.indexOf(
+      "async function handleShellAction",
+    );
+    const shellActionEnd = workspaceHost.indexOf(
+      "function normalizeTab",
+      shellActionStart,
+    );
+    const shellActionBody = workspaceHost.slice(
+      shellActionStart,
+      shellActionEnd,
+    );
+    assert.include(shellActionBody, "scheduleSkillRunnerSidebarRefresh");
+    assert.notInclude(shellActionBody, "await focusSkillRunnerWorkspace");
+    assert.notInclude(shellActionBody, "await attachSkillRunnerToPane");
+
+    const toggleStart = workspaceHost.indexOf(
+      "export async function toggleAssistantWorkspaceSidebar",
+    );
+    const toggleBody = workspaceHost.slice(toggleStart);
+    assert.include(toggleBody, "scheduleSkillRunnerSidebarRefresh");
+    assert.notInclude(toggleBody, "await focusSkillRunnerWorkspace");
+    assert.notInclude(toggleBody, "await attachSkillRunnerToPane");
+
+    const attachHostStart = runDialog.indexOf(
+      "export function attachSkillRunnerSidebarHost",
+    );
+    const attachHostEnd = runDialog.indexOf(
+      "export function detachSkillRunnerSidebarHost",
+      attachHostStart,
+    );
+    const attachHostBody = runDialog.slice(attachHostStart, attachHostEnd);
+    assert.include(attachHostBody, 'pushSnapshot("init")');
+    assert.notInclude(attachHostBody, "refreshWorkspaceSnapshot({");
+
     const selectActionStart = runDialog.indexOf(
       'if (action === "select-task")',
     );
@@ -302,12 +336,16 @@ describe("skillrunner sidebar host runtime", function () {
       selectFunctionEnd,
     );
     assert.include(selectFunctionBody, 'pushSnapshot("snapshot")');
+    assert.include(selectFunctionBody, "shouldShowRunHistoryLoading");
+    assert.include(selectFunctionBody, "session.historyLoading");
     assert.include(selectFunctionBody, "startRunWorkspaceObserverInBackground");
     assert.notInclude(selectFunctionBody, "await startRunObserver");
     assert.notInclude(
       selectFunctionBody,
       "await enforceRunDialogStreamPoolForBackend",
     );
+    assert.include(runDialog, "historyLoading:");
+    assert.include(runDialog, "entry.historyHydrating === true");
 
     const observerGateStart = runDialog.indexOf(
       "function canTaskOpenForegroundStream",

@@ -33,7 +33,7 @@ async function readProjectFile(relativePath: string) {
 async function loadAssistantConversationViewForSmoke() {
   const vm = await dynamicImport<typeof import("vm")>("vm");
   const code = await readProjectFile(
-    "addon/content/dashboard/assistant-conversation-view.js",
+    "addon/content/shared/assistant/assistant-conversation-view.js",
   );
   const context = {
     window: {},
@@ -45,7 +45,7 @@ async function loadAssistantConversationViewForSmoke() {
 async function loadAssistantPanelModelForSmoke(options: any = {}) {
   const vm = await dynamicImport<typeof import("vm")>("vm");
   const code = await readProjectFile(
-    "addon/content/dashboard/assistant-panel-model.js",
+    "addon/content/shared/assistant/assistant-panel-model.js",
   );
   const context = {
     window: {
@@ -75,7 +75,7 @@ async function loadAssistantPanelModelForSmoke(options: any = {}) {
 async function loadAssistantPanelRendererForSmoke(document: any) {
   const vm = await dynamicImport<typeof import("vm")>("vm");
   const code = await readProjectFile(
-    "addon/content/dashboard/assistant-panel-renderer.js",
+    "addon/content/shared/assistant/assistant-panel-renderer.js",
   );
   const context = {
     window: {},
@@ -246,9 +246,9 @@ describe("acp ui smoke", function () {
   });
 
   it("renders ACP Chat through the managed Assistant panel runtime", async function () {
-    const html = await readProjectFile("addon/content/dashboard/acp-chat.html");
-    const js = await readProjectFile("addon/content/dashboard/acp-chat.js");
-    const css = await readProjectFile("addon/content/dashboard/acp-chat.css");
+    const html = await readProjectFile("addon/content/sidebar/acp-chat.html");
+    const js = await readProjectFile("addon/content/sidebar/acp-chat.js");
+    const css = await readProjectFile("addon/content/sidebar/acp-chat.css");
 
     assert.include(html, 'id="acp-chat-toolbar"');
     assert.include(html, 'id="acp-chat-banner"');
@@ -262,10 +262,10 @@ describe("acp ui smoke", function () {
     assert.include(html, 'id="acp-chat-interaction"');
     assert.include(html, 'id="acp-chat-reply"');
     assert.include(html, 'id="acp-chat-details"');
-    assert.include(html, "./vendor/katex/katex.min.css");
-    assert.include(html, "./vendor/katex/katex.min.js");
-    assert.include(html, "./vendor/markdown-it/markdown-it.min.js");
-    assert.include(html, "./vendor/markdown-it-texmath/texmath.min.js");
+    assert.include(html, "../shared/vendor/katex/katex.min.css");
+    assert.include(html, "../shared/vendor/katex/katex.min.js");
+    assert.include(html, "../shared/vendor/markdown-it/markdown-it.min.js");
+    assert.include(html, "../shared/vendor/markdown-it-texmath/texmath.min.js");
     assert.notInclude(html, "../shared/markdown-renderer.js");
     assert.notInclude(html, 'id="acp-status-summary"');
     assert.notInclude(html, 'id="acp-mode-select"');
@@ -399,6 +399,28 @@ describe("acp ui smoke", function () {
     assert.equal(items[3].summary, "Fallback display text");
     assert.notEqual(items[3].toolName, "Tool Call");
     assert.notInclude(items[0].text, "Tool Call:");
+  });
+
+  it("projects SkillRunner history hydration as transcript status only", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      session: {
+        id: "run-history-loading",
+        title: "History Loading",
+        status: "completed",
+        historyLoading: true,
+        messages: [],
+      },
+    });
+
+    const items = panel.conversation.items;
+    const loadingItem = items.find(
+      (item: any) => item.id === "skillrunner-history-loading",
+    );
+    assert.equal(loadingItem.kind, "status");
+    assert.equal(loadingItem.state, "loading");
+    assert.equal(panel.reply.inputEnabled, false);
+    assert.notEqual(panel.reply.action, "cancel-run");
   });
 
   it("projects SkillRunner pending permissions as shared permission interactions", async function () {
@@ -979,13 +1001,13 @@ describe("acp ui smoke", function () {
 
   it("exposes copy-friendly assistant transcript and reply history affordances", async function () {
     const transcriptRendererJs = await readProjectFile(
-      "addon/content/dashboard/assistant-transcript-renderer.js",
+      "addon/content/shared/assistant/assistant-transcript-renderer.js",
     );
     const panelRendererJs = await readProjectFile(
-      "addon/content/dashboard/assistant-panel-renderer.js",
+      "addon/content/shared/assistant/assistant-panel-renderer.js",
     );
     const sharedPanelCss = await readProjectFile(
-      "addon/content/dashboard/assistant-panel-shared.css",
+      "addon/content/shared/assistant/assistant-panel-shared.css",
     );
 
     assert.include(transcriptRendererJs, "function decorateMarkdownCodeBlocks");
@@ -1133,16 +1155,16 @@ describe("acp ui smoke", function () {
     const app = await readProjectFile("addon/content/dashboard/app.js");
     const hooks = await readProjectFile("src/hooks.ts");
     const assistantHtml = await readProjectFile(
-      "addon/content/dashboard/assistant-workspace.html",
+      "addon/content/sidebar/assistant-workspace.html",
     );
     const assistantJs = await readProjectFile(
-      "addon/content/dashboard/assistant-workspace.js",
+      "addon/content/sidebar/assistant-workspace.js",
     );
     const assistantCss = await readProjectFile(
-      "addon/content/dashboard/assistant-workspace.css",
+      "addon/content/sidebar/assistant-workspace.css",
     );
     const sharedPanelCss = await readProjectFile(
-      "addon/content/dashboard/assistant-panel-shared.css",
+      "addon/content/shared/assistant/assistant-panel-shared.css",
     );
     const sharedThemeCss = await readProjectFile(
       "addon/content/shared/theme.css",
@@ -1151,16 +1173,16 @@ describe("acp ui smoke", function () {
       "addon/content/shared/theme.js",
     );
     const assistantConversationViewJs = await readProjectFile(
-      "addon/content/dashboard/assistant-conversation-view.js",
+      "addon/content/shared/assistant/assistant-conversation-view.js",
     );
     const assistantTranscriptRendererJs = await readProjectFile(
-      "addon/content/dashboard/assistant-transcript-renderer.js",
+      "addon/content/shared/assistant/assistant-transcript-renderer.js",
     );
     const assistantPanelModelJs = await readProjectFile(
-      "addon/content/dashboard/assistant-panel-model.js",
+      "addon/content/shared/assistant/assistant-panel-model.js",
     );
     const assistantPanelRendererJs = await readProjectFile(
-      "addon/content/dashboard/assistant-panel-renderer.js",
+      "addon/content/shared/assistant/assistant-panel-renderer.js",
     );
     const assistantSidebar = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
@@ -1169,31 +1191,31 @@ describe("acp ui smoke", function () {
       "src/modules/acpSkillRunStore.ts",
     );
     const acpChatHtml = await readProjectFile(
-      "addon/content/dashboard/acp-chat.html",
+      "addon/content/sidebar/acp-chat.html",
     );
     const acpChatJs = await readProjectFile(
-      "addon/content/dashboard/acp-chat.js",
+      "addon/content/sidebar/acp-chat.js",
     );
     const acpChatCss = await readProjectFile(
-      "addon/content/dashboard/acp-chat.css",
+      "addon/content/sidebar/acp-chat.css",
     );
     const acpSkillRunHtml = await readProjectFile(
-      "addon/content/dashboard/acp-skill-run.html",
+      "addon/content/sidebar/acp-skill-run.html",
     );
     const acpSkillRunJs = await readProjectFile(
-      "addon/content/dashboard/acp-skill-run.js",
+      "addon/content/sidebar/acp-skill-run.js",
     );
     const acpSkillRunCss = await readProjectFile(
-      "addon/content/dashboard/acp-skill-run.css",
+      "addon/content/sidebar/acp-skill-run.css",
     );
     const runDialogHtml = await readProjectFile(
-      "addon/content/dashboard/run-dialog.html",
+      "addon/content/sidebar/run-dialog.html",
     );
     const runDialogJs = await readProjectFile(
-      "addon/content/dashboard/run-dialog.js",
+      "addon/content/sidebar/run-dialog.js",
     );
     const runDialogCss = await readProjectFile(
-      "addon/content/dashboard/run-dialog.css",
+      "addon/content/sidebar/run-dialog.css",
     );
     const acpSkillRunStore = await readProjectFile(
       "src/modules/acpSkillRunStore.ts",
@@ -1373,20 +1395,33 @@ describe("acp ui smoke", function () {
     assert.include(acpChatHtml, "../shared/theme.js");
     assert.include(acpChatHtml, "../shared/theme.css");
     assert.include(acpChatHtml, "../shared/icons.css?ui=20260614-icons-v1");
-    assert.include(acpChatHtml, "./assistant-panel-shared.css");
+    assert.include(
+      acpChatHtml,
+      "../shared/assistant/assistant-panel-shared.css",
+    );
     assert.include(acpChatJs, '"assistant-panel:close-drawers"');
     assert.include(acpChatJs, "function closeAllDrawers()");
     assert.include(acpSkillRunJs, '"assistant-panel:close-drawers"');
     assert.include(acpSkillRunJs, "function closeAllDrawers()");
     assert.include(runDialogJs, '"assistant-panel:close-drawers"');
     assert.include(runDialogJs, "function closeAllDrawers()");
-    assert.include(acpSkillRunHtml, "./assistant-panel-shared.css");
+    assert.include(runDialogJs, "function withOptimisticSelectedTask");
+    assert.include(runDialogJs, "function scheduleTranscriptRender");
+    assert.include(runDialogJs, "requestAnimationFrame");
+    assert.include(runDialogJs, "state.transcriptRenderToken");
+    assert.include(
+      acpSkillRunHtml,
+      "../shared/assistant/assistant-panel-shared.css",
+    );
     assert.include(acpSkillRunHtml, "../shared/theme.js");
     assert.include(acpSkillRunHtml, "../shared/theme.css");
     assert.include(acpSkillRunHtml, "../shared/icons.css?ui=20260614-icons-v1");
     assert.notInclude(acpSkillRunHtml, "../shared/markdown-renderer.js");
     assert.notInclude(acpSkillRunJs, "ZoteroSkillsMarkdownRenderer");
-    assert.include(runDialogHtml, "./assistant-panel-shared.css");
+    assert.include(
+      runDialogHtml,
+      "../shared/assistant/assistant-panel-shared.css",
+    );
     assert.include(runDialogHtml, "../shared/theme.js");
     assert.include(runDialogHtml, "../shared/theme.css");
     assert.include(runDialogHtml, "../shared/icons.css?ui=20260614-icons-v1");
@@ -1396,18 +1431,18 @@ describe("acp ui smoke", function () {
     assert.notInclude(acpSkillRunCss, "color-scheme: light;");
     assert.notInclude(runDialogCss, "color-scheme: light;");
     assert.isBelow(
-      acpChatHtml.indexOf("./assistant-panel-shared.css"),
+      acpChatHtml.indexOf("../shared/assistant/assistant-panel-shared.css"),
       acpChatHtml.indexOf("./acp-chat.css"),
       "ACP Chat should load shared foundation before page CSS",
     );
     assert.isBelow(
-      acpSkillRunHtml.indexOf("./assistant-panel-shared.css"),
+      acpSkillRunHtml.indexOf("../shared/assistant/assistant-panel-shared.css"),
       acpSkillRunHtml.indexOf("./acp-skill-run.css"),
       "ACP Skills should load shared foundation before page CSS",
     );
     assert.include(runDialogHtml, "./run-dialog.css");
     assert.isBelow(
-      runDialogHtml.indexOf("./assistant-panel-shared.css"),
+      runDialogHtml.indexOf("../shared/assistant/assistant-panel-shared.css"),
       runDialogHtml.indexOf("./run-dialog.css"),
       "SkillRunner should load shared foundation before page CSS",
     );
@@ -1535,60 +1570,107 @@ describe("acp ui smoke", function () {
     assert.notInclude(acpChatHtml, "asst-context-actions");
     assert.include(acpChatHtml, "acp-conversation-window");
     assert.include(acpChatHtml, "acp-conversation-overlay-menu");
-    assert.include(acpChatHtml, "./assistant-conversation-view.js");
-    assert.include(acpChatHtml, "./assistant-transcript-renderer.js");
-    assert.include(acpChatHtml, "./assistant-panel-model.js");
-    assert.include(acpChatHtml, "./assistant-panel-renderer.js");
+    assert.include(
+      acpChatHtml,
+      "../shared/assistant/assistant-conversation-view.js",
+    );
+    assert.include(
+      acpChatHtml,
+      "../shared/assistant/assistant-transcript-renderer.js",
+    );
+    assert.include(acpChatHtml, "../shared/assistant/assistant-panel-model.js");
+    assert.include(
+      acpChatHtml,
+      "../shared/assistant/assistant-panel-renderer.js",
+    );
     assert.isBelow(
-      acpChatHtml.indexOf("./assistant-conversation-view.js"),
-      acpChatHtml.indexOf("./assistant-transcript-renderer.js"),
+      acpChatHtml.indexOf("../shared/assistant/assistant-conversation-view.js"),
+      acpChatHtml.indexOf(
+        "../shared/assistant/assistant-transcript-renderer.js",
+      ),
       "ACP Chat should load conversation view before transcript renderer",
     );
     assert.isBelow(
-      acpChatHtml.indexOf("./assistant-transcript-renderer.js"),
-      acpChatHtml.indexOf("./assistant-panel-model.js"),
+      acpChatHtml.indexOf(
+        "../shared/assistant/assistant-transcript-renderer.js",
+      ),
+      acpChatHtml.indexOf("../shared/assistant/assistant-panel-model.js"),
       "ACP Chat should load transcript renderer before panel model",
     );
     assert.isBelow(
-      acpChatHtml.indexOf("./assistant-panel-model.js"),
-      acpChatHtml.indexOf("./assistant-panel-renderer.js"),
+      acpChatHtml.indexOf("../shared/assistant/assistant-panel-model.js"),
+      acpChatHtml.indexOf("../shared/assistant/assistant-panel-renderer.js"),
       "ACP Chat should load panel model before panel renderer",
     );
     assert.isBelow(
-      acpChatHtml.indexOf("./assistant-panel-renderer.js"),
+      acpChatHtml.indexOf("../shared/assistant/assistant-panel-renderer.js"),
       acpChatHtml.indexOf("./acp-chat.js"),
       "ACP Chat should load shared panel renderer before page JS",
     );
-    assert.include(acpSkillRunHtml, "./assistant-conversation-view.js");
-    assert.include(acpSkillRunHtml, "./assistant-transcript-renderer.js");
-    assert.include(acpSkillRunHtml, "./assistant-panel-model.js");
-    assert.include(acpSkillRunHtml, "./assistant-panel-renderer.js");
+    assert.include(
+      acpSkillRunHtml,
+      "../shared/assistant/assistant-conversation-view.js",
+    );
+    assert.include(
+      acpSkillRunHtml,
+      "../shared/assistant/assistant-transcript-renderer.js",
+    );
+    assert.include(
+      acpSkillRunHtml,
+      "../shared/assistant/assistant-panel-model.js",
+    );
+    assert.include(
+      acpSkillRunHtml,
+      "../shared/assistant/assistant-panel-renderer.js",
+    );
     assert.isBelow(
-      acpSkillRunHtml.indexOf("./assistant-conversation-view.js"),
-      acpSkillRunHtml.indexOf("./assistant-transcript-renderer.js"),
+      acpSkillRunHtml.indexOf(
+        "../shared/assistant/assistant-conversation-view.js",
+      ),
+      acpSkillRunHtml.indexOf(
+        "../shared/assistant/assistant-transcript-renderer.js",
+      ),
       "ACP Skills should load conversation view before transcript renderer",
     );
     assert.isBelow(
-      acpSkillRunHtml.indexOf("./assistant-transcript-renderer.js"),
-      acpSkillRunHtml.indexOf("./assistant-panel-model.js"),
+      acpSkillRunHtml.indexOf(
+        "../shared/assistant/assistant-transcript-renderer.js",
+      ),
+      acpSkillRunHtml.indexOf("../shared/assistant/assistant-panel-model.js"),
       "ACP Skills should load transcript renderer before panel model",
     );
     assert.isBelow(
-      acpSkillRunHtml.indexOf("./assistant-panel-model.js"),
-      acpSkillRunHtml.indexOf("./assistant-panel-renderer.js"),
+      acpSkillRunHtml.indexOf("../shared/assistant/assistant-panel-model.js"),
+      acpSkillRunHtml.indexOf(
+        "../shared/assistant/assistant-panel-renderer.js",
+      ),
       "ACP Skills should load panel model before panel renderer",
     );
     assert.isBelow(
-      acpSkillRunHtml.indexOf("./assistant-panel-renderer.js"),
+      acpSkillRunHtml.indexOf(
+        "../shared/assistant/assistant-panel-renderer.js",
+      ),
       acpSkillRunHtml.indexOf("./acp-skill-run.js"),
       "ACP Skills should load shared panel renderer before page JS",
     );
-    assert.include(runDialogHtml, "./assistant-conversation-view.js");
-    assert.include(runDialogHtml, "./assistant-transcript-renderer.js");
-    assert.include(runDialogHtml, "./assistant-panel-model.js");
-    assert.include(runDialogHtml, "./assistant-panel-renderer.js");
+    assert.include(
+      runDialogHtml,
+      "../shared/assistant/assistant-conversation-view.js",
+    );
+    assert.include(
+      runDialogHtml,
+      "../shared/assistant/assistant-transcript-renderer.js",
+    );
+    assert.include(
+      runDialogHtml,
+      "../shared/assistant/assistant-panel-model.js",
+    );
+    assert.include(
+      runDialogHtml,
+      "../shared/assistant/assistant-panel-renderer.js",
+    );
     assert.isBelow(
-      runDialogHtml.indexOf("./assistant-panel-renderer.js"),
+      runDialogHtml.indexOf("../shared/assistant/assistant-panel-renderer.js"),
       runDialogHtml.indexOf("./run-dialog.js"),
       "SkillRunner should load shared panel renderer before page JS",
     );
@@ -2465,14 +2547,16 @@ describe("acp ui smoke", function () {
     assert.include(sidebarModel, "agentWorkspaceDir");
     assert.include(sidebarModel, "conversationStorageDir");
     assert.include(sidebarModel, "sessionCwd");
+    assert.include(assistantPanelModelJs, "metadataItem(");
     assert.include(
       assistantPanelModelJs,
-      'metadataItem(labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"), snap.agentWorkspaceDir || snap.sessionCwd, "workspace")',
+      'labelFrom(snap, "fields.workspace", labels.workspace || "Workspace")',
     );
     assert.include(
       assistantPanelModelJs,
-      'detailEntry(labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"), snap.agentWorkspaceDir || snap.sessionCwd)',
+      "snap.agentWorkspaceDir || snap.sessionCwd",
     );
+    assert.include(assistantPanelModelJs, "detailEntry(");
     assert.notInclude(
       assistantPanelModelJs,
       'detailEntry(labels.sessionCwd || "Session cwd", snap.sessionCwd)',
@@ -2813,11 +2897,11 @@ describe("acp ui smoke", function () {
       app.indexOf("function resolveHighlightLanguage"),
     );
 
-    assert.include(html, "./vendor/katex/katex.min.css");
-    assert.include(html, "./vendor/markdown-it/markdown-it.min.js");
-    assert.include(html, "./vendor/markdown-it-texmath/texmath.min.js");
-    assert.include(html, "./vendor/highlight/highlight.min.js");
-    assert.include(html, "./vendor/highlight/styles/github.min.css");
+    assert.include(html, "../shared/vendor/katex/katex.min.css");
+    assert.include(html, "../shared/vendor/markdown-it/markdown-it.min.js");
+    assert.include(html, "../shared/vendor/markdown-it-texmath/texmath.min.js");
+    assert.include(html, "../shared/vendor/highlight/highlight.min.js");
+    assert.include(html, "../shared/vendor/highlight/styles/github.min.css");
 
     assert.include(app, "productsListCollapsed");
     assert.include(app, 'labelText(labels, "feedbackSelectAll")');
@@ -3765,29 +3849,33 @@ describe("acp ui smoke", function () {
 
   it("keeps managed context drawers grouped and rectangular-button styled", async function () {
     const assistantPanelModelJs = await readProjectFile(
-      "addon/content/dashboard/assistant-panel-model.js",
+      "addon/content/shared/assistant/assistant-panel-model.js",
     );
     const assistantPanelRendererJs = await readProjectFile(
-      "addon/content/dashboard/assistant-panel-renderer.js",
+      "addon/content/shared/assistant/assistant-panel-renderer.js",
     );
     const sharedPanelCss = await readProjectFile(
-      "addon/content/dashboard/assistant-panel-shared.css",
+      "addon/content/shared/assistant/assistant-panel-shared.css",
     );
     const acpChatCss = await readProjectFile(
-      "addon/content/dashboard/acp-chat.css",
+      "addon/content/sidebar/acp-chat.css",
     );
     const acpSkillRunCss = await readProjectFile(
-      "addon/content/dashboard/acp-skill-run.css",
+      "addon/content/sidebar/acp-skill-run.css",
     );
     const runDialogCss = await readProjectFile(
-      "addon/content/dashboard/run-dialog.css",
+      "addon/content/sidebar/run-dialog.css",
     );
 
     assert.include(assistantPanelModelJs, "children,");
     assert.include(assistantPanelModelJs, "itemActions:");
     assert.include(assistantPanelModelJs, '"archive-conversation"');
     assert.include(assistantPanelModelJs, '"archive-run"');
-    assert.include(assistantPanelModelJs, "active: Boolean(requestId && run");
+    assert.include(assistantPanelModelJs, "active: Boolean(");
+    assert.include(
+      assistantPanelModelJs,
+      "requestId && run && requestId === safeText(run.requestId)",
+    );
     assert.include(
       assistantPanelRendererJs,
       "function renderContextEntry(parent, entry, depth)",
@@ -3997,7 +4085,7 @@ describe("acp ui smoke", function () {
     ]);
 
     const runDialogJs = await readProjectFile(
-      "addon/content/dashboard/run-dialog.js",
+      "addon/content/sidebar/run-dialog.js",
     );
     assert.include(
       runDialogJs,

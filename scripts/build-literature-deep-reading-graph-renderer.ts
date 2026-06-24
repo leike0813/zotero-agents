@@ -116,7 +116,7 @@ async function main() {
         repoRoot,
         "addon",
         "content",
-        "dashboard",
+        "shared",
         "vendor",
         "katex",
         "katex.min.css",

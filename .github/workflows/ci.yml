@@ -65,9 +65,8 @@ jobs:
       contents: write
     env:
       CONTENT_FEED_GITHUB_REPO: leike0813/zotero-agents-workflows
-      CONTENT_FEED_GITHUB_TOKEN: ${{ secrets.CONTENT_FEED_GITHUB_TOKEN }}
-      CONTENT_FEED_GITEE_REPO: ${{ secrets.CONTENT_FEED_GITEE_REPO }}
-      CONTENT_FEED_GITEE_TOKEN: ${{ secrets.CONTENT_FEED_GITEE_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GitHub_TOKEN }}
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
@@ -79,9 +78,9 @@ jobs:
           name: content-packages
           path: artifact/content-packages
       - name: Publish GitHub release assets
-        if: env.CONTENT_FEED_GITHUB_TOKEN != ''
+        if: env.GITHUB_TOKEN != ''
         env:
-          GH_TOKEN: ${{ env.CONTENT_FEED_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ env.GITHUB_TOKEN }}
         run: |
           VERSION="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('content-package.version.json','utf8')); console.log(process.env.CONTENT_PACKAGE_VERSION || d.version)")"
           TAG="official-workflows-v${VERSION}"
@@ -90,9 +89,7 @@ jobs:
           fi
           gh release upload "${TAG}" artifact/content-packages/*/packages/*.zip artifact/content-packages/*/packages/*.zip.sha256 --repo "${CONTENT_FEED_GITHUB_REPO}" --clobber
       - name: Publish content-feed branch to GitHub content repo
-        if: env.CONTENT_FEED_GITHUB_TOKEN != ''
-        env:
-          GITHUB_TOKEN: ${{ env.CONTENT_FEED_GITHUB_TOKEN }}
+        if: env.GITHUB_TOKEN != ''
         run: |
           rm -rf content-feed-publish
           mkdir content-feed-publish
@@ -127,13 +124,12 @@ jobs:
           git -C content-feed-publish commit -m "publish content feed ${GITHUB_SHA}" || exit 0
           git -C content-feed-publish push origin content-feed
       - name: Publish content-feed branch to Gitee mirror
-        if: env.CONTENT_FEED_GITEE_REPO != '' && env.CONTENT_FEED_GITEE_TOKEN != ''
+        if: env.GITEE_TOKEN != ''
         run: |
-          CONTENT_FEED_GITEE_REPO="${CONTENT_FEED_GITEE_REPO:-leike0813/zotero-agents-workflows}"
           rm -rf content-feed-gitee
           mkdir content-feed-gitee
           git -C content-feed-gitee init
-          git -C content-feed-gitee remote add origin "https://oauth2:${CONTENT_FEED_GITEE_TOKEN}@gitee.com/${CONTENT_FEED_GITEE_REPO}.git"
+          git -C content-feed-gitee remote add origin "https://oauth2:${GITEE_TOKEN}@gitee.com/leike0813/zotero-agents-workflows.git"
           git -C content-feed-gitee fetch origin content-feed || true
           if git -C content-feed-gitee rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
             git -C content-feed-gitee checkout -B content-feed FETCH_HEAD

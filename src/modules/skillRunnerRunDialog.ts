@@ -154,6 +154,7 @@ type RunSessionState = {
   lastSeq: number;
   error?: string;
   loading: boolean;
+  historyLoading?: boolean;
 };
 
 type RunDialogSnapshot = {
@@ -217,6 +218,7 @@ type RunDialogSnapshot = {
   authLastError?: string;
   authUiHints?: Record<string, unknown>;
   loading: boolean;
+  historyLoading?: boolean;
   error?: string;
   messages: Array<{
     seq: number;
@@ -1252,7 +1254,7 @@ function resolveRunDialogPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/dashboard/run-dialog.html`;
+  return `chrome://${addonRef}/content/sidebar/run-dialog.html`;
 }
 
 function createRunDialogFrame(doc: Document, pageUrl: string) {
@@ -2276,6 +2278,8 @@ function buildRunDialogSnapshot(
     authLastError: pendingAuth?.lastError,
     authUiHints: pendingAuth?.uiHints,
     loading: entry.session.loading,
+    historyLoading:
+      entry.session.historyLoading === true || entry.historyHydrating === true,
     error: entry.session.error,
     messages: displayMessages.map((entryItem) => ({
       seq: entryItem.seq,
@@ -3826,6 +3830,7 @@ function buildRunDialogEntry(args: {
       seenMessageKeys: new Set<string>(),
       lastSeq: 0,
       loading: true,
+      historyLoading: false,
     },
   };
 }
@@ -3942,6 +3947,24 @@ function shouldRefreshLocalRunDialogMessages(
   });
 }
 
+function hasBackendRunDialogMessages(entry: RunDialogEntry) {
+  return (
+    entry.session.lastSeq > 0 ||
+    entry.session.messages.some((message) => !isLocalRunDialogMessage(message))
+  );
+}
+
+function shouldShowRunHistoryLoading(
+  entry: RunDialogEntry,
+  task: RunWorkspaceTaskItem,
+) {
+  return (
+    !!String(entry.requestId || "").trim() &&
+    isFinishedRunWorkspaceTask(task) &&
+    !hasBackendRunDialogMessages(entry)
+  );
+}
+
 function syncLocalRunDialogEntryFromTask(
   entry: RunDialogEntry,
   task: RunWorkspaceTaskItem,
@@ -4024,12 +4047,20 @@ function hydrateSelectedRunHistoryInBackground(args: {
 }) {
   const requestId = String(args.entry.requestId || "").trim();
   if (!requestId || !isFinishedRunWorkspaceTask(args.task)) {
+    args.entry.session.historyLoading = false;
     return;
   }
   if (args.entry.historyHydrating) {
     return;
   }
   args.entry.historyHydrating = true;
+  args.entry.session.historyLoading = shouldShowRunHistoryLoading(
+    args.entry,
+    args.task,
+  );
+  if (args.entry.session.historyLoading) {
+    pushSnapshotForRunDialogEntry(args.entry);
+  }
   void (async () => {
     try {
       if (!isRunDialogEntrySelected(args.entry)) {
@@ -4052,14 +4083,17 @@ function hydrateSelectedRunHistoryInBackground(args: {
         historyPayload,
       });
       args.entry.session.loading = false;
+      args.entry.session.historyLoading = false;
     } catch (error) {
       warnSkillRunnerWorkspaceAsyncFailure({
         stage: "selected-run-history-hydrate-failed",
         error,
       });
       args.entry.session.loading = false;
+      args.entry.session.historyLoading = false;
     } finally {
       args.entry.historyHydrating = false;
+      args.entry.session.historyLoading = false;
       pushSnapshotForRunDialogEntry(args.entry);
     }
   })();
@@ -4137,6 +4171,9 @@ async function selectWorkspaceTask(taskKey: string) {
     if (!canTaskStartForegroundObserver(target.item)) {
       runWorkspaceState.currentEntry.session.loading = false;
     }
+    runWorkspaceState.currentEntry.session.historyLoading =
+      runWorkspaceState.currentEntry.historyHydrating === true ||
+      shouldShowRunHistoryLoading(runWorkspaceState.currentEntry, target.item);
     markRunDialogEntryFocused(runWorkspaceState.currentEntry);
     pushSnapshot("snapshot");
     startRunWorkspaceObserverInBackground({
@@ -4163,6 +4200,9 @@ async function selectWorkspaceTask(taskKey: string) {
   if (!canTaskStartForegroundObserver(target.item)) {
     entry.session.loading = false;
   }
+  entry.session.historyLoading =
+    entry.historyHydrating === true ||
+    shouldShowRunHistoryLoading(entry, target.item);
   markRunDialogEntryFocused(entry);
   runDialogMap.set(key, entry);
   runWorkspaceState.currentEntry = entry;
@@ -4428,7 +4468,7 @@ export async function dispatchRunWorkspaceAction(
   await handleRunWorkspaceAction(envelope);
 }
 
-export async function attachSkillRunnerSidebarHost(args: {
+export function attachSkillRunnerSidebarHost(args: {
   hostWindow: Window;
   frameWindow: Window | null;
   alertWindow?: Window | null;
@@ -4452,11 +4492,7 @@ export async function attachSkillRunnerSidebarHost(args: {
     resolveSelectionContext: args.resolveSelectionContext,
     handleHostAction: args.handleHostAction,
   });
-  await refreshWorkspaceSnapshot({
-    forceInit: true,
-    selectionChanged: true,
-    profile: "sidebar-active",
-  });
+  pushSnapshot("init");
 }
 
 export function detachSkillRunnerSidebarHost(args?: {

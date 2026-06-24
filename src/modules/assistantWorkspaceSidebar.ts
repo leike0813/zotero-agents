@@ -112,9 +112,18 @@ type AssistantWorkspaceHostRuntime = {
   removeAcpSkillRunSubscription?: () => void;
   removeTaskSubscription?: () => void;
   postSnapshotTimer?: ReturnType<typeof setTimeout> | null;
+  skillRunnerRefreshTimer?: ReturnType<typeof setTimeout> | null;
+  skillRunnerRefreshGeneration: number;
+  pendingSkillRunnerRefresh?: SkillRunnerSidebarRefreshRequest;
   scopeKey: string;
   snapshotRevision: number;
   lastAcpSkillWaitingToastKeys: Set<string>;
+};
+type SkillRunnerSidebarRefreshRequest = {
+  target: AcpSidebarTarget;
+  runKey?: string;
+  selectionChanged: boolean;
+  generation: number;
 };
 type AssistantWorkspaceEnvelope = {
   type?: string;
@@ -152,7 +161,7 @@ function resolveSidebarPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/dashboard/assistant-workspace.html`;
+  return `chrome://${addonRef}/content/sidebar/assistant-workspace.html`;
 }
 
 function resolvePreferredTarget(
@@ -357,6 +366,7 @@ function closeActiveSidebarHost(host: AssistantWorkspaceHostRuntime) {
     return false;
   }
   host.drawerOpen = false;
+  clearSkillRunnerSidebarRefresh(host);
   detachSkillRunnerSidebarHost({ hostWindow: host.win });
   deactivateTarget(host, activeTarget);
   return true;
@@ -780,6 +790,96 @@ function logAssistantShellAction(args: {
   });
 }
 
+function clearSkillRunnerSidebarRefresh(host: AssistantWorkspaceHostRuntime) {
+  if (host.skillRunnerRefreshTimer) {
+    clearTimeout(host.skillRunnerRefreshTimer);
+    host.skillRunnerRefreshTimer = null;
+  }
+  host.pendingSkillRunnerRefresh = undefined;
+  host.skillRunnerRefreshGeneration += 1;
+}
+
+function isSkillRunnerSidebarRefreshCurrent(
+  host: AssistantWorkspaceHostRuntime,
+  request: SkillRunnerSidebarRefreshRequest,
+) {
+  return (
+    hosts.get(host.win) === host &&
+    host.activeTab === "skillrunner" &&
+    host.activeTarget === request.target &&
+    host.skillRunnerRefreshGeneration === request.generation
+  );
+}
+
+async function runSkillRunnerSidebarRefresh(
+  host: AssistantWorkspaceHostRuntime,
+  request: SkillRunnerSidebarRefreshRequest,
+) {
+  try {
+    if (!isSkillRunnerSidebarRefreshCurrent(host, request)) {
+      return;
+    }
+    const pane = request.target === "reader" ? host.reader : host.library;
+    attachSkillRunnerToPane(host, pane);
+    if (!isSkillRunnerSidebarRefreshCurrent(host, request)) {
+      return;
+    }
+    await focusSkillRunnerWorkspace({
+      runKey: request.runKey,
+      selectionChanged: request.selectionChanged,
+    });
+  } catch (error) {
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      component: "assistant-shell",
+      operation: "skillrunner-sidebar-refresh",
+      phase: "error",
+      stage: "background-refresh",
+      message: "SkillRunner sidebar background refresh failed.",
+      error,
+    });
+  }
+}
+
+function scheduleSkillRunnerSidebarRefresh(
+  host: AssistantWorkspaceHostRuntime,
+  target: AcpSidebarTarget,
+  args?: {
+    runKey?: string;
+    selectionChanged?: boolean;
+  },
+) {
+  if (host.activeTab !== "skillrunner" || host.activeTarget !== target) {
+    return;
+  }
+  const existing = host.pendingSkillRunnerRefresh;
+  const runKey =
+    String(args?.runKey || "").trim() ||
+    String(existing?.runKey || "").trim() ||
+    undefined;
+  host.skillRunnerRefreshGeneration += 1;
+  host.pendingSkillRunnerRefresh = {
+    target,
+    runKey,
+    selectionChanged:
+      args?.selectionChanged === true || existing?.selectionChanged === true,
+    generation: host.skillRunnerRefreshGeneration,
+  };
+  if (host.skillRunnerRefreshTimer) {
+    return;
+  }
+  host.skillRunnerRefreshTimer = setTimeout(() => {
+    host.skillRunnerRefreshTimer = null;
+    const request = host.pendingSkillRunnerRefresh;
+    host.pendingSkillRunnerRefresh = undefined;
+    if (!request) {
+      return;
+    }
+    void runSkillRunnerSidebarRefresh(host, request);
+  }, 0);
+}
+
 async function handleShellAction(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
@@ -789,8 +889,9 @@ async function handleShellAction(
   if (action === "ready") {
     const pane = target === "reader" ? host.reader : host.library;
     if (host.activeTab === "skillrunner") {
-      await attachSkillRunnerToPane(host, pane);
-      await focusSkillRunnerWorkspace({ selectionChanged: true });
+      scheduleSkillRunnerSidebarRefresh(host, target, {
+        selectionChanged: true,
+      });
     } else if (host.activeTab === "acp-skills") {
       postAcpSkillRunSnapshot(host, pane, "init");
     } else {
@@ -804,10 +905,12 @@ async function handleShellAction(
     const pane = target === "reader" ? host.reader : host.library;
     postShellInit(pane, tab);
     if (tab === "skillrunner") {
-      await attachSkillRunnerToPane(host, pane);
-      await focusSkillRunnerWorkspace({ selectionChanged: true });
+      scheduleSkillRunnerSidebarRefresh(host, target, {
+        selectionChanged: true,
+      });
       return;
     }
+    clearSkillRunnerSidebarRefresh(host);
     detachSkillRunnerSidebarHost({ hostWindow: host.win });
     if (tab === "acp-skills") {
       postAcpSkillRunSnapshot(host, pane);
@@ -1136,7 +1239,7 @@ async function handleAcpChatAction(
   }
 }
 
-async function attachSkillRunnerToPane(
+function attachSkillRunnerToPane(
   host: AssistantWorkspaceHostRuntime,
   pane: MountedSidebarPane,
 ) {
@@ -1148,7 +1251,7 @@ async function attachSkillRunnerToPane(
     return;
   }
   pane.frameWindow = frameWindow;
-  await attachSkillRunnerSidebarHost({
+  attachSkillRunnerSidebarHost({
     hostWindow: host.win,
     frameWindow,
     alertWindow: host.win,
@@ -1188,7 +1291,9 @@ function mountLibraryPane(host: AssistantWorkspaceHostRuntime) {
       installShellBridge(host, host.library, "library");
       postShellInit(host.library, host.activeTab);
       if (host.activeTab === "skillrunner") {
-        void attachSkillRunnerToPane(host, host.library);
+        scheduleSkillRunnerSidebarRefresh(host, "library", {
+          selectionChanged: true,
+        });
       } else if (host.activeTab === "acp-skills") {
         postAcpSkillRunSnapshot(host, host.library, "init");
       } else {
@@ -1251,7 +1356,9 @@ function mountReaderPane(host: AssistantWorkspaceHostRuntime) {
       installShellBridge(host, host.reader, "reader");
       postShellInit(host.reader, host.activeTab);
       if (host.activeTab === "skillrunner") {
-        void attachSkillRunnerToPane(host, host.reader);
+        scheduleSkillRunnerSidebarRefresh(host, "reader", {
+          selectionChanged: true,
+        });
       } else if (host.activeTab === "acp-skills") {
         postAcpSkillRunSnapshot(host, host.reader, "init");
       } else {
@@ -1293,6 +1400,7 @@ async function activateTarget(
     host.activeTarget &&
     host.activeTarget !== target
   ) {
+    clearSkillRunnerSidebarRefresh(host);
     detachSkillRunnerSidebarHost({ hostWindow: host.win });
   }
   if (target === "library") {
@@ -1311,7 +1419,9 @@ async function activateTarget(
     host.activeTarget = "library";
     postShellInit(host.library, host.activeTab);
     if (host.activeTab === "skillrunner") {
-      await attachSkillRunnerToPane(host, host.library);
+      scheduleSkillRunnerSidebarRefresh(host, "library", {
+        selectionChanged: true,
+      });
     } else if (host.activeTab === "acp-skills") {
       postAcpSkillRunSnapshot(host, host.library, "init");
     } else {
@@ -1331,7 +1441,9 @@ async function activateTarget(
   host.activeTarget = "reader";
   postShellInit(host.reader, host.activeTab);
   if (host.activeTab === "skillrunner") {
-    await attachSkillRunnerToPane(host, host.reader);
+    scheduleSkillRunnerSidebarRefresh(host, "reader", {
+      selectionChanged: true,
+    });
   } else if (host.activeTab === "acp-skills") {
     postAcpSkillRunSnapshot(host, host.reader, "init");
   } else {
@@ -1355,6 +1467,7 @@ export function installAssistantWorkspaceSidebarShell(
     drawerCompletedCollapsed: true,
     scopeKey: createAssistantSidebarScopeKey("assistant-sidebar-workspace"),
     snapshotRevision: 0,
+    skillRunnerRefreshGeneration: 0,
     library: { button: null, container: null, frame: null, frameWindow: null },
     reader: { button: null, container: null, frame: null, frameWindow: null },
     lastAcpSkillWaitingToastKeys: new Set<string>(),
@@ -1392,6 +1505,7 @@ export function removeAssistantWorkspaceSidebarShell(
     clearTimeout(host.postSnapshotTimer);
     host.postSnapshotTimer = null;
   }
+  clearSkillRunnerSidebarRefresh(host);
   if (host.library.frame && host.library.frameLoadHandler) {
     host.library.frame.removeEventListener(
       "load",
@@ -1426,6 +1540,7 @@ export async function openAssistantWorkspaceSidebar(args?: {
   if (args && "tab" in args && args.tab) {
     host.activeTab = normalizeTab(args.tab);
     if (host.activeTab !== "skillrunner") {
+      clearSkillRunnerSidebarRefresh(host);
       detachSkillRunnerSidebarHost({ hostWindow: host.win });
     }
     postActiveShellInit(host);
@@ -1436,7 +1551,7 @@ export async function openAssistantWorkspaceSidebar(args?: {
   const target = args?.target || resolvePreferredTarget(win);
   const activated = await activateTarget(host, target);
   if (activated && host.activeTab === "skillrunner") {
-    await focusSkillRunnerWorkspace({
+    scheduleSkillRunnerSidebarRefresh(host, target, {
       runKey: args?.runKey,
       selectionChanged: true,
     });
@@ -1491,9 +1606,11 @@ export async function toggleAssistantWorkspaceSidebar(args?: {
           host.activeTarget === "reader" ? host.reader : host.library;
         postShellInit(pane, host.activeTab);
         if (host.activeTab === "skillrunner") {
-          await attachSkillRunnerToPane(host, pane);
-          await focusSkillRunnerWorkspace({ selectionChanged: true });
+          scheduleSkillRunnerSidebarRefresh(host, host.activeTarget, {
+            selectionChanged: true,
+          });
         } else {
+          clearSkillRunnerSidebarRefresh(host);
           detachSkillRunnerSidebarHost({ hostWindow: host.win });
           if (host.activeTab === "acp-skills") {
             postAcpSkillRunSnapshot(host, pane);

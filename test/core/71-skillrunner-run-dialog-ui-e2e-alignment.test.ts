@@ -1,5 +1,9 @@
 import { assert } from "chai";
-import { getProjectRoot, joinPath, readUtf8 } from "../zotero/workflow-test-utils";
+import {
+  getProjectRoot,
+  joinPath,
+  readUtf8,
+} from "../zotero/workflow-test-utils";
 
 async function readProjectFile(relativePath: string) {
   const targetPath = joinPath(getProjectRoot(), relativePath);
@@ -8,7 +12,7 @@ async function readProjectFile(relativePath: string) {
 
 describe("skillrunner run dialog managed ui alignment", function () {
   it("uses the shared managed six-region scaffold instead of the legacy card layout", async function () {
-    const html = await readProjectFile("addon/content/dashboard/run-dialog.html");
+    const html = await readProjectFile("addon/content/sidebar/run-dialog.html");
 
     assert.include(html, 'id="skillrunner-toolbar"');
     assert.include(html, 'id="skillrunner-banner"');
@@ -21,16 +25,19 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(html, 'id="chat-panel"');
     assert.include(html, 'id="chat-mode-plain"');
     assert.include(html, 'id="chat-mode-bubble"');
-    assert.include(html, "./assistant-panel-shared.css");
-    assert.include(html, "./assistant-conversation-view.js");
-    assert.include(html, "./assistant-transcript-renderer.js");
-    assert.include(html, "./assistant-panel-model.js");
-    assert.include(html, "./assistant-panel-renderer.js");
+    assert.include(html, "../shared/assistant/assistant-panel-shared.css");
+    assert.include(html, "../shared/assistant/assistant-conversation-view.js");
+    assert.include(
+      html,
+      "../shared/assistant/assistant-transcript-renderer.js",
+    );
+    assert.include(html, "../shared/assistant/assistant-panel-model.js");
+    assert.include(html, "../shared/assistant/assistant-panel-renderer.js");
     assert.include(html, 'src="./chat_thinking_core.js?v=');
-    assert.include(html, 'vendor/markdown-it/markdown-it.min.js');
-    assert.include(html, 'vendor/katex/katex.min.css');
-    assert.include(html, 'vendor/katex/katex.min.js');
-    assert.include(html, 'vendor/markdown-it-texmath/texmath.min.js');
+    assert.include(html, "vendor/markdown-it/markdown-it.min.js");
+    assert.include(html, "vendor/katex/katex.min.css");
+    assert.include(html, "vendor/katex/katex.min.js");
+    assert.include(html, "vendor/markdown-it-texmath/texmath.min.js");
 
     assert.notInclude(html, 'id="workspace-groups"');
     assert.notInclude(html, 'id="sessions-toggle-btn"');
@@ -44,20 +51,44 @@ describe("skillrunner run dialog managed ui alignment", function () {
   });
 
   it("projects SkillRunner snapshots into AssistantPanelSnapshot and uses the shared renderer", async function () {
-    const modelJs = await readProjectFile("addon/content/dashboard/assistant-panel-model.js");
-    const rendererJs = await readProjectFile("addon/content/dashboard/assistant-panel-renderer.js");
-    const runDialogJs = await readProjectFile("addon/content/dashboard/run-dialog.js");
+    const modelJs = await readProjectFile(
+      "addon/content/shared/assistant/assistant-panel-model.js",
+    );
+    const rendererJs = await readProjectFile(
+      "addon/content/shared/assistant/assistant-panel-renderer.js",
+    );
+    const runDialogJs = await readProjectFile(
+      "addon/content/sidebar/run-dialog.js",
+    );
 
-    assert.include(modelJs, "function projectSkillRunnerPanelSnapshot(snapshot)");
-    assert.include(modelJs, "buildSkillRunnerConversationView(session)");
+    assert.include(
+      modelJs,
+      "function projectSkillRunnerPanelSnapshot(snapshot)",
+    );
+    assert.include(
+      modelJs,
+      "buildSkillRunnerConversationView(session, envelope)",
+    );
     assert.include(modelJs, "isSkillRunnerToolProcess(processType)");
-    assert.include(modelJs, "function skillRunnerToolDisplay(source, processType)");
+    assert.include(
+      modelJs,
+      "function skillRunnerToolDisplay(source, processType)",
+    );
     assert.include(modelJs, "function skillRunnerToolDetails(source)");
     assert.include(modelJs, "compactSkillRunnerToolValue(tool.details.path)");
-    assert.include(modelJs, "compactSkillRunnerToolValue(tool.details.pattern)");
-    assert.include(modelJs, 'value === "tool_call" || value === "command_execution"');
+    assert.include(
+      modelJs,
+      "compactSkillRunnerToolValue(tool.details.pattern)",
+    );
+    assert.include(
+      modelJs,
+      'value === "tool_call" || value === "command_execution"',
+    );
     assert.include(modelJs, 'kind: "tool"');
-    assert.include(modelJs, "buildSkillRunnerPendingInteraction(session, status, envelope)");
+    assert.include(modelJs, "buildSkillRunnerPendingInteraction(");
+    assert.include(modelJs, "session,");
+    assert.include(modelJs, "status,");
+    assert.include(modelJs, "envelope,");
     assert.include(modelJs, "buildSkillRunnerContexts(envelope)");
     assert.include(modelJs, "buildSkillRunnerDetails(envelope, session)");
     assert.include(modelJs, "Conversation Summary");
@@ -65,10 +96,16 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.notInclude(modelJs, 'detailSection("Raw Snapshot"');
     assert.include(modelJs, 'kind: "skillrunner"');
     assert.include(modelJs, 'layout: "skillrunner-workspace"');
-    assert.include(modelJs, 'contextTitle: labelFrom(envelope, "actions.runs", "Runs")');
+    assert.include(
+      modelJs,
+      'contextTitle: labelFrom(envelope, "actions.runs", "Runs")',
+    );
     assert.include(modelJs, "skillrunnerSections:");
     assert.include(modelJs, "decorateSkillRunnerWorkspaceSections");
-    assert.notInclude(modelJs, "function buildSkillRunnerSectionsFromWorkspace(envelope)");
+    assert.notInclude(
+      modelJs,
+      "function buildSkillRunnerSectionsFromWorkspace(envelope)",
+    );
     assert.include(modelJs, '"archive-run"');
     assert.include(modelJs, "selectedTaskKey:");
     assert.include(modelJs, 'action: "open-context-drawer"');
@@ -89,25 +126,55 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(rendererJs, "renderAssistantWorkspaceTaskDrawer");
     assert.include(rendererJs, "renderAssistantWorkspaceTaskAction");
     assert.include(rendererJs, "event.stopPropagation()");
-    assert.include(rendererJs, 'sectionId === "completed" ? " is-completed" : " is-running"');
-    assert.include(rendererJs, 'toggle.setAttribute("aria-expanded", sectionCollapsed ? "false" : "true")');
-    assert.include(rendererJs, 'emit(options, "toggle-drawer-section", { sectionId: "completed" })');
-    assert.include(rendererJs, 'emit(options, item.action || "select-task", item.payload || { taskKey })');
+    assert.include(
+      rendererJs,
+      'sectionId === "completed" ? " is-completed" : " is-running"',
+    );
+    assert.include(
+      rendererJs,
+      'toggle.setAttribute("aria-expanded", sectionCollapsed ? "false" : "true")',
+    );
+    assert.include(
+      rendererJs,
+      'emit(options, "toggle-drawer-section", { sectionId: "completed" })',
+    );
+    assert.include(
+      rendererJs,
+      'emit(options, item.action || "select-task", item.payload || { taskKey })',
+    );
     assert.include(rendererJs, 'emit(options, "close-context-drawer", {})');
     assert.include(rendererJs, 'emit(options, "auth-import-run"');
 
     assert.include(runDialogJs, "function assistantPanelModel()");
     assert.include(runDialogJs, "function assistantPanelRenderer()");
     assert.include(runDialogJs, "function assistantTranscriptRenderer()");
-    assert.include(runDialogJs, "function projectAssistantPanelSnapshot(envelope)");
+    assert.include(
+      runDialogJs,
+      "function projectAssistantPanelSnapshot(envelope)",
+    );
     assert.include(runDialogJs, "projectSkillRunnerPanelSnapshot(source)");
-    assert.include(runDialogJs, "function skillRunnerToolDisplay(source, processType)");
+    assert.include(
+      runDialogJs,
+      "function skillRunnerToolDisplay(source, processType)",
+    );
     assert.include(runDialogJs, "function skillRunnerToolDetails(source)");
-    assert.include(runDialogJs, "compactSkillRunnerToolValue(tool.details.path)");
-    assert.include(runDialogJs, "compactSkillRunnerToolValue(tool.details.pattern)");
-    assert.include(runDialogJs, "renderer.renderAssistantPanelSnapshot(panelSnapshot");
+    assert.include(
+      runDialogJs,
+      "compactSkillRunnerToolValue(tool.details.path)",
+    );
+    assert.include(
+      runDialogJs,
+      "compactSkillRunnerToolValue(tool.details.pattern)",
+    );
+    assert.include(
+      runDialogJs,
+      "renderer.renderAssistantPanelSnapshot(panelSnapshot",
+    );
     assert.include(runDialogJs, 'action === "open-backend-manager"');
-    assert.include(runDialogJs, 'action === "copy-request-id" || action === "copy-diagnostics"');
+    assert.include(
+      runDialogJs,
+      'action === "copy-request-id" || action === "copy-diagnostics"',
+    );
     assert.include(runDialogJs, "managed: true");
     assert.include(runDialogJs, "toolbar: true");
     assert.include(runDialogJs, "banner: true");
@@ -118,8 +185,10 @@ describe("skillrunner run dialog managed ui alignment", function () {
   });
 
   it("keeps SkillRunner action semantics while routing through the managed envelope", async function () {
-    const js = await readProjectFile("addon/content/dashboard/run-dialog.js");
-    const modelJs = await readProjectFile("addon/content/dashboard/assistant-panel-model.js");
+    const js = await readProjectFile("addon/content/sidebar/run-dialog.js");
+    const modelJs = await readProjectFile(
+      "addon/content/shared/assistant/assistant-panel-model.js",
+    );
 
     assert.include(js, "__zsSkillRunnerSidebarBridge");
     assert.include(js, "window.wrappedJSObject");
@@ -130,7 +199,10 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(js, 'sendAction("cancel-run"');
     assert.include(js, 'sendAction("archive-run"');
     assert.include(js, 'sendAction("select-task"');
-    assert.include(js, 'sendAction("close-drawer", {});\n      sendAction("select-task"');
+    assert.include(
+      js,
+      'sendAction("close-drawer", {});\n      sendAction("select-task"',
+    );
     assert.include(js, 'sendAction("toggle-drawer"');
     assert.include(js, 'sendAction("close-drawer"');
     assert.include(js, 'action === "open-context-drawer"');
@@ -151,16 +223,21 @@ describe("skillrunner run dialog managed ui alignment", function () {
   });
 
   it("keeps auth import file handling page-local while shared renderer owns visible controls", async function () {
-    const rendererJs = await readProjectFile("addon/content/dashboard/assistant-panel-renderer.js");
-    const js = await readProjectFile("addon/content/dashboard/run-dialog.js");
+    const rendererJs = await readProjectFile(
+      "addon/content/shared/assistant/assistant-panel-renderer.js",
+    );
+    const js = await readProjectFile("addon/content/sidebar/run-dialog.js");
 
-    assert.include(rendererJs, 'data-assistant-auth-import-file');
-    assert.include(rendererJs, 'data-assistant-auth-import-name');
+    assert.include(rendererJs, "data-assistant-auth-import-file");
+    assert.include(rendererJs, "data-assistant-auth-import-name");
     assert.include(rendererJs, "assistant-panel-auth-import");
     assert.include(rendererJs, '"Import and Continue"');
 
     assert.include(js, "function readAuthImportFiles()");
-    assert.include(js, 'querySelectorAll("input[data-assistant-auth-import-file]")');
+    assert.include(
+      js,
+      'querySelectorAll("input[data-assistant-auth-import-file]")',
+    );
     assert.include(js, "new FileReader()");
     assert.include(js, "reader.readAsDataURL(file)");
     assert.include(js, "contentBase64");
@@ -169,15 +246,22 @@ describe("skillrunner run dialog managed ui alignment", function () {
   });
 
   it("uses shared transcript rendering with SkillRunner revision metadata preserved as badges/details", async function () {
-    const transcriptRendererJs = await readProjectFile("addon/content/dashboard/assistant-transcript-renderer.js");
-    const js = await readProjectFile("addon/content/dashboard/run-dialog.js");
-    const thinkingCoreJs = await readProjectFile("addon/content/dashboard/chat_thinking_core.js");
-    const css = await readProjectFile("addon/content/dashboard/run-dialog.css");
+    const transcriptRendererJs = await readProjectFile(
+      "addon/content/shared/assistant/assistant-transcript-renderer.js",
+    );
+    const js = await readProjectFile("addon/content/sidebar/run-dialog.js");
+    const thinkingCoreJs = await readProjectFile(
+      "addon/content/sidebar/chat_thinking_core.js",
+    );
+    const css = await readProjectFile("addon/content/sidebar/run-dialog.css");
 
     assert.include(transcriptRendererJs, "data-assistant-panel-kind");
     assert.include(transcriptRendererJs, "assistant-transcript-revision-badge");
     assert.include(transcriptRendererJs, "assistant-transcript-row");
-    assert.include(js, "createCompatibleThinkingChatModel(state.chatDisplayMode)");
+    assert.include(
+      js,
+      "createCompatibleThinkingChatModel(state.chatDisplayMode)",
+    );
     assert.include(js, "buildSkillRunnerToolItem(");
     assert.include(js, "isSkillRunnerToolProcess(processType)");
     assert.include(js, 'entry.type === "revision"');
@@ -192,23 +276,40 @@ describe("skillrunner run dialog managed ui alignment", function () {
       thinkingCoreJs,
       "const displayText = safeText(event && (event.displayText || event.display_text));",
     );
-    assert.include(thinkingCoreJs, "const rawText = safeText(event && event.text);");
-    assert.include(thinkingCoreJs, "const text = displayText || rawText || summary;");
-    assert.include(thinkingCoreJs, "normalizedText: normalizeText(text || summary),");
-    assert.notInclude(thinkingCoreJs, "const text = normalizeText(event && event.text);");
+    assert.include(
+      thinkingCoreJs,
+      "const rawText = safeText(event && event.text);",
+    );
+    assert.include(
+      thinkingCoreJs,
+      "const text = displayText || rawText || summary;",
+    );
+    assert.include(
+      thinkingCoreJs,
+      "normalizedText: normalizeText(text || summary),",
+    );
+    assert.notInclude(
+      thinkingCoreJs,
+      "const text = normalizeText(event && event.text);",
+    );
     assert.notInclude(css, ".revision-badge");
     assert.notInclude(js, "function renderRevisionEntry");
     assert.notInclude(css, ".revision-bubble");
   });
 
   it("keeps conversation as the stretching content area and removes legacy button/card systems", async function () {
-    const css = await readProjectFile("addon/content/dashboard/run-dialog.css");
-    const sharedCss = await readProjectFile("addon/content/dashboard/assistant-panel-shared.css");
+    const css = await readProjectFile("addon/content/sidebar/run-dialog.css");
+    const sharedCss = await readProjectFile(
+      "addon/content/shared/assistant/assistant-panel-shared.css",
+    );
 
     assert.include(css, "--asst-context-drawer-width");
     assert.include(css, "--asst-details-drawer-width");
     assert.notInclude(css, "grid-template-rows: auto auto minmax(0, 1fr);");
-    assert.notInclude(css, "grid-template-rows: minmax(0, 1fr) auto auto auto;");
+    assert.notInclude(
+      css,
+      "grid-template-rows: minmax(0, 1fr) auto auto auto;",
+    );
     assert.notInclude(css, ".skillrunner-banner .assistant-panel-managed-view");
     assert.include(css, ".skillrunner-transcript");
     assert.notInclude(css, ".skillrunner-transcript.plain-mode");
@@ -228,7 +329,10 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(sharedCss, ".asst-panel-details-overlay .asst-drawer-panel");
     assert.include(sharedCss, ".assistant-panel-details-section-summary");
     assert.include(sharedCss, ".assistant-panel-details-section-body");
-    assert.include(sharedCss, '.assistant-panel-details-row[data-assistant-details-entry-kind="code"]');
+    assert.include(
+      sharedCss,
+      '.assistant-panel-details-row[data-assistant-details-entry-kind="code"]',
+    );
     assert.include(sharedCss, "max-height: min(42vh, 360px);");
     assert.include(sharedCss, "flex-direction: column;");
     assert.include(sharedCss, "overflow: auto;");
@@ -263,7 +367,10 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(hostTs, "shouldRefreshRunDialogLocalMessages");
     assert.include(hostTs, "function maxBackendRunDialogSeq");
     assert.include(hostTs, "seq: -5");
-    assert.notInclude(hostTs, "entry.session.lastSeq = entry.session.messages.reduce");
+    assert.notInclude(
+      hostTs,
+      "entry.session.lastSeq = entry.session.messages.reduce",
+    );
     assert.notInclude(hostTs, "entry.session.lastSeq = Math.floor(cursor)");
     assert.include(hostTs, "subscribeSkillRunnerSessionState");
     assert.include(hostTs, "await syncPendingState()");
@@ -273,6 +380,9 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.notInclude(hostTs, "ensureSkillRunnerSessionSync");
     assert.notInclude(hostTs, "restartSessionSyncAfterWaitingExit");
     assert.include(hostTs, "hasRunDialogWaitingAuthExited");
-    assert.notInclude(hostTs, "runWorkspaceState.refreshTimer = dialogWindow.setInterval");
+    assert.notInclude(
+      hostTs,
+      "runWorkspaceState.refreshTimer = dialogWindow.setInterval",
+    );
   });
 });

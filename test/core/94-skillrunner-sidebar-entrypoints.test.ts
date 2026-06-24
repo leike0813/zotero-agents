@@ -61,10 +61,10 @@ describe("skillrunner sidebar entrypoints", function () {
 
   it("keeps the current child pages behind the unified Assistant workspace", async function () {
     const html = await readProjectFile(
-      "addon/content/dashboard/assistant-workspace.html",
+      "addon/content/sidebar/assistant-workspace.html",
     );
     const js = await readProjectFile(
-      "addon/content/dashboard/assistant-workspace.js",
+      "addon/content/sidebar/assistant-workspace.js",
     );
     assert.include(html, 'src="./acp-chat.html"');
     assert.include(html, 'src="./acp-skill-run.html"');

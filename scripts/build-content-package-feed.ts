@@ -148,14 +148,6 @@ function releaseBaseUrl(version: string) {
 }
 
 function releaseMirrorBaseUrl(version: string) {
-  const override = String(
-    process.env.CONTENT_PACKAGE_RELEASE_MIRROR_BASE_URL || "",
-  )
-    .trim()
-    .replace(/\/+$/, "");
-  if (override) {
-    return override;
-  }
   return `https://gitee.com/${DEFAULT_RELEASE_REPO}/releases/download/${releaseTagForVersion(version)}`;
 }
 

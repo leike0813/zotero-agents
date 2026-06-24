@@ -281,7 +281,133 @@ verify id/update_url/name/homepage
 
 旧用户迁移检查必须在真实 Zotero profile 或隔离测试 profile 中完成，不能只依赖静态构建检查。
 
-## 9. Host Bridge CLI Bundle 发布
+## 9. 官方 Workflow 内容包订阅发布
+
+近期官方 workflow / plugin-side skill 已从“随 XPI 打包的固定资产”改为“订阅制内容包”。这会让迁移发布新增一个独立且关键的发布面：
+
+```text
+leike0813/zotero-agents-workflows
+├─ GitHub Releases: official-workflows-v{{contentVersion}}/*.zip
+└─ content-feed branch: stable/beta/dev/feed.json
+```
+
+Gitee 镜像目标：
+
+```text
+https://gitee.com/leike0813/zotero-agents-workflows
+```
+
+### 9.1 迁移影响
+
+官方内容不再作为 XPI 运行时资产安装。插件启动后会扫描：
+
+```text
+<runtimeRoot>/content/official/workflows
+<runtimeRoot>/content/official/skills
+<runtimeRoot>/content/user/workflows
+<runtimeRoot>/content/user/skills
+```
+
+如果官方内容包未安装，插件不会从 XPI 内置目录 fallback，而是显示 0 个官方 workflow，并通过右键菜单或偏好设置引导用户安装官方 Workflow 包。
+
+因此，迁移发布不能只发布插件 XPI。`zotero-agents-workflows` 内容仓、Release assets 和 `content-feed` 分支必须在迁移版本对外发布前可用。
+
+### 9.2 默认订阅地址
+
+插件默认 stable/beta/dev 订阅地址已指向新内容仓：
+
+```text
+https://raw.githubusercontent.com/leike0813/zotero-agents-workflows/content-feed/stable/feed.json
+https://gitee.com/leike0813/zotero-agents-workflows/raw/content-feed/stable/feed.json
+```
+
+beta/dev 同理。dev channel 只在 debug mode 下有效；非 debug mode 中配置 dev 会回退到 stable。
+
+### 9.3 发布契约
+
+内容包发布由 `npm run build:content-feed -- --channels stable,beta,dev` 生成，当前约定：
+
+| 项 | 当前值 |
+| --- | --- |
+| 内容仓 | `leike0813/zotero-agents-workflows` |
+| feed 分支 | `content-feed` |
+| Release tag | `official-workflows-v{{version}}` |
+| package id | `zotero-agents-official-workflows` |
+| feed schema | `zotero-agents.content-feed.v1` |
+| package schema | `zotero-agents.content-package.v1` |
+| content API | `1.0.0` |
+
+当前 `content-package.version.json` 的兼容范围为：
+
+```json
+{
+  "plugin": ">=0.4.0 <0.5.0",
+  "content_api": "^1.0.0",
+  "zotero": ">=7 <10"
+}
+```
+
+如果迁移版本号升到 `0.5.0` 或更高，必须先更新内容包兼容范围并重新发布 feed；否则插件会拒绝安装官方内容包。
+
+### 9.4 GitHub / Gitee 镜像一致性
+
+插件会同时检查 primary feed 和 mirror feed。两边 feed 如果在以下语义字段上不一致，插件会拒绝安装：
+
+- feed revision
+- package id
+- package version
+- `debug_content`
+- `content_api`
+- `requires`
+- artifact sha256
+- artifact size
+
+只有 Release asset URL 不同是允许的。
+
+发布时必须确保 GitHub 和 Gitee 的 `content-feed` 分支描述同一份内容包，且 Release asset digest 一致。Gitee 不能长期滞后，否则用户会遇到 mirror mismatch。
+
+### 9.5 迁移发布顺序调整
+
+内容订阅制后的推荐顺序：
+
+1. 创建并配置 `leike0813/zotero-agents-workflows` GitHub 仓。
+2. 创建并配置 Gitee 镜像仓 `leike0813/zotero-agents-workflows`。
+3. 配置内容发布 token，本地 `.env` 与 CI 使用同名变量：
+   - `GITHUB_TOKEN`
+   - `GITEE_TOKEN`
+   - Gitee 内容仓固定为 `leike0813/zotero-agents-workflows`，不再通过环境变量覆盖。
+4. 构建并发布 stable/beta/dev 官方内容包。
+5. 验证 GitHub / Gitee feed 可访问且语义一致。
+6. 发布新仓插件迁移版本。
+7. 发布旧仓 final release，引导旧用户升级到迁移版本。
+8. 用旧 profile 验证升级后官方 Workflow 包安装入口可见，并能成功安装内容包。
+
+### 9.6 与 Host Bridge CLI Bundle 的关系
+
+官方内容包会收集 `skills_builtin/**` 中带 `assets/runner.json` 的 plugin-side skill，因此 `skills_builtin/zotero-bridge-cli` 会进入官方内容包。
+
+但这不替代 Host Bridge CLI bundle：
+
+| 发布面 | 作用 |
+| --- | --- |
+| 官方 Workflow 内容包 | 安装到插件 runtime，供 Zotero 内部 workflow / skill registry 使用。 |
+| Host Bridge CLI bundle | 发布预编译 `zotero-bridge`、wrapper skill、安装脚本，供外部 agent / CLI 使用。 |
+
+两者需要分别发布和验证。更新官方内容包不会自动更新 `host-bridge/zotero-bridge-cli-bundle` 分支；更新 Host Bridge bundle 也不会自动更新订阅内容包。
+
+### 9.7 发布前检查
+
+- [ ] `zotero-agents-workflows` GitHub 仓存在。
+- [ ] `zotero-agents-workflows` Gitee 镜像存在。
+- [ ] `content-feed` 分支包含 `stable/feed.json`、`beta/feed.json`、`dev/feed.json`。
+- [ ] GitHub Release `official-workflows-v{{version}}` 包含各 channel zip 和 sha256 文件。
+- [ ] Gitee Release assets 可访问，或 feed mirror URL 指向实际可下载位置。
+- [ ] GitHub / Gitee feed 语义字段一致。
+- [ ] `content-package.version.json` 的 plugin 兼容范围覆盖迁移版本号。
+- [ ] 旧用户升级后，在未安装官方内容包时能看到安装入口。
+- [ ] 安装官方内容包后，Dashboard / 右键菜单能加载官方 workflow。
+
+## 10. Host Bridge CLI Bundle 发布
 
 Host Bridge CLI bundle 是独立发布分支，不应和 XPI release 视为同一个产物面。
 
@@ -334,7 +460,7 @@ git push gitee host-bridge/zotero-bridge-cli-bundle:host-bridge/zotero-bridge-cl
 - [ ] `install.ps1` / `install.sh` 中默认安装目录仍为 `zotero-agents`。
 - [ ] wrapper skill 和 `doc/host-bridge-cli.md` 已由 `npm run render:host-bridge-surface` 同步。
 
-## 10. 待决问题
+## 11. 待决问题
 
 | 问题 | 推荐默认 |
 | --- | --- |
@@ -343,10 +469,12 @@ git push gitee host-bridge/zotero-bridge-cli-bundle:host-bridge/zotero-bridge-cl
 | Gitee 是否承载 XPI release | 暂不作为自动更新源，只做代码/文档镜像。 |
 | 文档站是否双构建 | 暂不双构建，先做客户端 locale 自动跳转。 |
 | Host Bridge CLI bundle 的 Gitee 发布 | 只镜像 GitHub canonical 分支 commit，不单独重新生成。 |
+| 官方 Workflow 内容包发布仓 | 使用独立仓 `leike0813/zotero-agents-workflows`，GitHub canonical，Gitee mirror。 |
+| 迁移版本是否自动安装官方内容包 | 暂不自动安装；确保菜单和偏好设置入口清晰可用。若要首次启动提示，单独设计。 |
 | Gitee 根路径是否必须中文 HTML | 若未来有 SEO/无 JS 要求，再单独设计。 |
 | 旧仓是否归档 | final release 稳定后一段时间再归档，避免用户迁移窗口过短。 |
 
-## 11. 关键判断
+## 12. 关键判断
 
 这次迁移发布最容易出问题的不是品牌文案，而是更新链：
 
@@ -355,3 +483,11 @@ git push gitee host-bridge/zotero-bridge-cli-bundle:host-bridge/zotero-bridge-cl
 ```
 
 只要这条链路中的插件 ID 和 update URL 处理正确，旧用户可以无感迁移；如果迁移版本 XPI 仍写旧仓 update URL，用户会被困在旧仓；如果插件 ID 被改掉，Zotero 会把它视为另一个插件，旧用户偏好和安装状态都会出现断裂。
+
+订阅制内容包引入了另一条同样关键的链路：
+
+```text
+迁移版本插件 -> 默认 content feed -> 官方 Workflow 包 Release asset -> runtime content/official
+```
+
+如果这条链路在迁移发布时不可用，用户虽然能成功升级插件，但官方 workflow 会为空；如果内容包兼容范围没有覆盖迁移版本，用户会看到安装入口但无法安装官方内容。

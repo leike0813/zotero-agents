@@ -4,7 +4,13 @@
   const PANEL_KINDS = ["acp-chat", "acp-skills", "skillrunner"];
   const SESSION_PICKER_LIMIT = 8;
   const SESSION_PICKER_SHOW_MORE_VALUE = "__show_more__";
-  const TERMINAL_STATES = new Set(["succeeded", "failed", "canceled", "cancelled", "done"]);
+  const TERMINAL_STATES = new Set([
+    "succeeded",
+    "failed",
+    "canceled",
+    "cancelled",
+    "done",
+  ]);
   const BUSY_STATES = new Set([
     "running",
     "prompting",
@@ -146,13 +152,32 @@
 
   function statusTone(status) {
     const token = normalizeStatusToken(status);
-    if (["failed", "error", "errored", "disconnected", "closed"].indexOf(token) >= 0) {
+    if (
+      ["failed", "error", "errored", "disconnected", "closed"].indexOf(token) >=
+      0
+    ) {
       return "error";
     }
-    if (["waiting-user", "waiting_user", "permission-required", "auth-required"].indexOf(token) >= 0) {
+    if (
+      [
+        "waiting-user",
+        "waiting_user",
+        "permission-required",
+        "auth-required",
+      ].indexOf(token) >= 0
+    ) {
       return "warning";
     }
-    if (["succeeded", "success", "done", "completed", "connected", "active"].indexOf(token) >= 0) {
+    if (
+      [
+        "succeeded",
+        "success",
+        "done",
+        "completed",
+        "connected",
+        "active",
+      ].indexOf(token) >= 0
+    ) {
       return "success";
     }
     if (BUSY_STATES.has(token)) {
@@ -170,7 +195,9 @@
     const state = safeText(
       source.applyState ||
         source.apply_state ||
-        (source.apply && typeof source.apply === "object" ? source.apply.state : ""),
+        (source.apply && typeof source.apply === "object"
+          ? source.apply.state
+          : ""),
     )
       .toLowerCase()
       .replace(/[\s_]+/g, "-");
@@ -179,16 +206,23 @@
 
   function applyStateLabel(source, state, data) {
     const token = safeText(state || normalizeApplyState(source));
-    if (token === "pending") return labelFrom(source, "status.applyPending", "Pending apply");
-    if (token === "running") return labelFrom(source, "status.applyRunning", "Applying");
-    if (token === "succeeded") return labelFrom(source, "status.applySucceeded", "Applied");
+    if (token === "pending")
+      return labelFrom(source, "status.applyPending", "Pending apply");
+    if (token === "running")
+      return labelFrom(source, "status.applyRunning", "Applying");
+    if (token === "succeeded")
+      return labelFrom(source, "status.applySucceeded", "Applied");
     if (token === "failed") {
       const retrySource = data && typeof data === "object" ? data : source;
-      return safeText(retrySource && (retrySource.applyNextRetryAt || retrySource.apply_next_retry_at))
+      return safeText(
+        retrySource &&
+          (retrySource.applyNextRetryAt || retrySource.apply_next_retry_at),
+      )
         ? labelFrom(source, "status.applyRetryScheduled", "Retry scheduled")
         : labelFrom(source, "status.applyFailed", "Apply failed");
     }
-    if (token === "skipped") return labelFrom(source, "status.applySkipped", "Skipped");
+    if (token === "skipped")
+      return labelFrom(source, "status.applySkipped", "Skipped");
     return "";
   }
 
@@ -202,7 +236,12 @@
 
   function statusLabel(source, status) {
     const token = normalizeStatusToken(status);
-    if (token === "succeeded" || token === "success" || token === "done" || token === "completed") {
+    if (
+      token === "succeeded" ||
+      token === "success" ||
+      token === "done" ||
+      token === "completed"
+    ) {
       return labelFrom(source, "status.succeeded", "Succeeded");
     }
     if (token === "failed" || token === "error" || token === "errored") {
@@ -211,7 +250,12 @@
     if (token === "canceled" || token === "cancelled") {
       return labelFrom(source, "status.canceled", "Canceled");
     }
-    if (token === "waiting-user" || token === "waiting-auth" || token === "waiting_user" || token === "waiting_auth") {
+    if (
+      token === "waiting-user" ||
+      token === "waiting-auth" ||
+      token === "waiting_user" ||
+      token === "waiting_auth"
+    ) {
       return labelFrom(source, "status.waiting", "Waiting");
     }
     if (BUSY_STATES.has(token) || token === "queued") {
@@ -224,8 +268,12 @@
   function normalizeTaskApplyStatus(source, mainStatus) {
     const state = normalizeApplyState(source);
     if (state && state !== "idle") return state;
-    if (safeText(source && (source.applyResultState || source.apply_result_state))) {
-      return normalizeStatusToken(source.applyResultState || source.apply_result_state);
+    if (
+      safeText(source && (source.applyResultState || source.apply_result_state))
+    ) {
+      return normalizeStatusToken(
+        source.applyResultState || source.apply_result_state,
+      );
     }
     const main = normalizeStatusToken(mainStatus);
     if (main === "succeeded" || main === "completed") return "not-required";
@@ -239,16 +287,27 @@
       data.mainStatus || data.main_status || data.status || data.state,
     );
     const backendStatus = normalizeStatusToken(
-      data.backendStatus || data.backend_status || data.providerStatus || data.provider_status || data.status || data.state,
+      data.backendStatus ||
+        data.backend_status ||
+        data.providerStatus ||
+        data.provider_status ||
+        data.status ||
+        data.state,
     );
     const applyStatus = normalizeTaskApplyStatus(data, mainStatus);
-    if (backendStatus === "failed" || backendStatus === "error" || applyStatus === "failed") {
+    if (
+      backendStatus === "failed" ||
+      backendStatus === "error" ||
+      applyStatus === "failed"
+    ) {
       mainStatus = "failed";
     } else if (backendStatus === "canceled" || backendStatus === "cancelled") {
       mainStatus = "canceled";
     } else if (
       backendStatus === "succeeded" &&
-      (applyStatus === "succeeded" || applyStatus === "skipped" || applyStatus === "not-required")
+      (applyStatus === "succeeded" ||
+        applyStatus === "skipped" ||
+        applyStatus === "not-required")
     ) {
       mainStatus = "succeeded";
     }
@@ -282,13 +341,22 @@
     if (!value) return null;
     const details = [
       safeText(source && (source.applyError || source.apply_error)),
-      safeText(source && (source.applyNextRetryAt || source.apply_next_retry_at))
-        ? "next retry: " + safeText(source.applyNextRetryAt || source.apply_next_retry_at)
+      safeText(
+        source && (source.applyNextRetryAt || source.apply_next_retry_at),
+      )
+        ? "next retry: " +
+          safeText(source.applyNextRetryAt || source.apply_next_retry_at)
         : "",
-    ].filter(Boolean).join(" · ");
+    ]
+      .filter(Boolean)
+      .join(" · ");
     return indicator(
       "deferred-apply",
-      labelFrom(labelSource || source, "fields.deferredApply", "Deferred apply"),
+      labelFrom(
+        labelSource || source,
+        "fields.deferredApply",
+        "Deferred apply",
+      ),
       value,
       applyStateTone(state),
       details || value,
@@ -299,7 +367,9 @@
     const data = source && typeof source === "object" ? source : {};
     const labels = labelSource || data;
     const status = normalizeStatusToken(statusRaw || data.status || data.state);
-    const submitPhase = normalizeStatusToken(data.submitPhase || data.submit_phase);
+    const submitPhase = normalizeStatusToken(
+      data.submitPhase || data.submit_phase,
+    );
     const requestId = safeText(data.requestId || data.request_id || data.id);
     const requestAssigned =
       typeof data.requestAssigned === "boolean"
@@ -312,7 +382,8 @@
     const canReply =
       typeof data.canReply === "boolean"
         ? data.canReply
-        : backendInteractive && (status === "waiting-user" || status === "waiting-auth");
+        : backendInteractive &&
+          (status === "waiting-user" || status === "waiting-auth");
     const pendingPermission =
       data.pendingPermission && typeof data.pendingPermission === "object"
         ? data.pendingPermission
@@ -325,7 +396,9 @@
     if (pendingPermission) {
       value = labelFrom(labels, "status.controlApproval", "Approval");
       tone = "warning";
-      title = safeText(pendingPermission.summary || pendingPermission.toolTitle) || value;
+      title =
+        safeText(pendingPermission.summary || pendingPermission.toolTitle) ||
+        value;
     } else if (authPhase || status === "waiting-auth") {
       value = labelFrom(labels, "status.controlAuth", "Auth");
       tone = "warning";
@@ -354,13 +427,7 @@
       value = labelFrom(labels, "status.controlUnavailable", "Unavailable");
       tone = "muted";
     }
-    return indicator(
-      "skillrunner-control",
-      label,
-      value,
-      tone,
-      title || value,
-    );
+    return indicator("skillrunner-control", label, value, tone, title || value);
   }
 
   function buildSkillRunnerAutoReplyIndicator(source, labelSource) {
@@ -386,7 +453,8 @@
         Number.isFinite(deadlineAt) &&
         deadlineAt > startedAt
       ) {
-        const remainingRatio = (deadlineAt - Date.now()) / (deadlineAt - startedAt);
+        const remainingRatio =
+          (deadlineAt - Date.now()) / (deadlineAt - startedAt);
         progressPercent = Math.max(0, Math.min(100, remainingRatio * 100));
       }
     }
@@ -433,7 +501,11 @@
   function metadataItem(label, value, key) {
     const text = safeText(value);
     if (!text) return null;
-    return { key: key || safeText(label).toLowerCase(), label: label, value: text };
+    return {
+      key: key || safeText(label).toLowerCase(),
+      label: label,
+      value: text,
+    };
   }
 
   function compactMetadata(items) {
@@ -441,7 +513,10 @@
   }
 
   function panelLabelRoot(source) {
-    const labels = source && source.labels && typeof source.labels === "object" ? source.labels : {};
+    const labels =
+      source && source.labels && typeof source.labels === "object"
+        ? source.labels
+        : {};
     return labels.assistantPanel && typeof labels.assistantPanel === "object"
       ? labels.assistantPanel
       : labels;
@@ -478,8 +553,12 @@
   }
 
   function normalizeOption(entry, idKeys, labelKeys) {
-    const primitive = entry === null || entry === undefined ? "" : safeText(entry);
-    const source = entry && typeof entry === "object" ? entry : { id: primitive, value: primitive, label: primitive };
+    const primitive =
+      entry === null || entry === undefined ? "" : safeText(entry);
+    const source =
+      entry && typeof entry === "object"
+        ? entry
+        : { id: primitive, value: primitive, label: primitive };
     const id = idKeys
       .map(function (key) {
         return safeText(source[key]);
@@ -523,7 +602,16 @@
     return safeText(current);
   }
 
-  function contextSelector(id, label, value, options, action, disabled, payloadKey, payload) {
+  function contextSelector(
+    id,
+    label,
+    value,
+    options,
+    action,
+    disabled,
+    payloadKey,
+    payload,
+  ) {
     return {
       id,
       label,
@@ -648,7 +736,8 @@
 
   function indicatorToneFromSeverity(severity, fallback) {
     const token = safeText(severity).toLowerCase();
-    if (["ok", "ready", "active", "success", "info"].indexOf(token) >= 0) return "success";
+    if (["ok", "ready", "active", "success", "info"].indexOf(token) >= 0)
+      return "success";
     if (["warning", "warn"].indexOf(token) >= 0) return "warning";
     if (["error", "failed", "failure"].indexOf(token) >= 0) return "error";
     return fallback || "muted";
@@ -656,7 +745,10 @@
 
   function buildHostBridgeIndicator(source) {
     const snap = source && typeof source === "object" ? source : {};
-    const bridge = snap.hostBridge && typeof snap.hostBridge === "object" ? snap.hostBridge : null;
+    const bridge =
+      snap.hostBridge && typeof snap.hostBridge === "object"
+        ? snap.hostBridge
+        : null;
     if (!bridge) {
       return null;
     }
@@ -755,11 +847,19 @@
   function buildAcpMcpIndicator(source) {
     const snap = source && typeof source === "object" ? source : {};
     const label = labelFrom(snap, "fields.mcp", "MCP");
-    const health = snap.mcpHealth && typeof snap.mcpHealth === "object" ? snap.mcpHealth : null;
+    const health =
+      snap.mcpHealth && typeof snap.mcpHealth === "object"
+        ? snap.mcpHealth
+        : null;
     if (health) {
       const state = normalizeStatusToken(health.state || "");
       const severity = safeText(health.severity || "");
-      const readyStates = ["listening", "injected", "handshake-seen", "tools-seen"];
+      const readyStates = [
+        "listening",
+        "injected",
+        "handshake-seen",
+        "tools-seen",
+      ];
       const tone =
         readyStates.indexOf(state) >= 0
           ? "success"
@@ -837,9 +937,13 @@
     const source = run && typeof run === "object" ? run : {};
     const entries = []
       .concat(Array.isArray(source.events) ? source.events : [])
-      .concat(Array.isArray(source.transcriptItems) ? source.transcriptItems : []);
+      .concat(
+        Array.isArray(source.transcriptItems) ? source.transcriptItems : [],
+      );
     const found = latestDiagnosticLike(entries, function (entry) {
-      const stage = safeText(entry.stage || entry.kind || entry.label).toLowerCase();
+      const stage = safeText(
+        entry.stage || entry.kind || entry.label,
+      ).toLowerCase();
       const message = safeText(entry.message || entry.text).toLowerCase();
       return stage.indexOf("mcp") >= 0 || message.indexOf("mcp") >= 0;
     });
@@ -876,9 +980,15 @@
   }
 
   function buildSessionPickerOptions(options, activeConversationId) {
-    const allOptions = (Array.isArray(options) ? options : []).map(function (entry) {
-      return normalizeOption(entry, ["conversationId", "id", "value"], ["title", "label"]);
-    });
+    const allOptions = (Array.isArray(options) ? options : []).map(
+      function (entry) {
+        return normalizeOption(
+          entry,
+          ["conversationId", "id", "value"],
+          ["title", "label"],
+        );
+      },
+    );
     if (allOptions.length <= SESSION_PICKER_LIMIT) {
       return { options: allOptions, hasMore: false };
     }
@@ -892,7 +1002,10 @@
         return safeText(entry.conversationId || entry.value) === activeId;
       });
       if (activeEntry) {
-        visibleOptions = visibleOptions.slice(0, Math.max(0, SESSION_PICKER_LIMIT - 1));
+        visibleOptions = visibleOptions.slice(
+          0,
+          Math.max(0, SESSION_PICKER_LIMIT - 1),
+        );
         visibleOptions.push(activeEntry);
       }
     }
@@ -908,17 +1021,35 @@
   function selectorPayloadKey(id, action) {
     const normalizedId = safeText(id);
     const normalizedAction = safeText(action);
-    if (normalizedAction === "set-mode" || normalizedId === "mode") return "modeId";
-    if (normalizedAction === "set-model" || normalizedId === "model") return "modelId";
-    if (normalizedAction === "set-reasoning-effort" || normalizedId === "reasoning") return "effortId";
-    if (normalizedAction === "set-active-backend" || normalizedId === "backend") return "backendId";
-    if (normalizedAction === "set-active-conversation" || normalizedId === "conversation") {
+    if (normalizedAction === "set-mode" || normalizedId === "mode")
+      return "modeId";
+    if (normalizedAction === "set-model" || normalizedId === "model")
+      return "modelId";
+    if (
+      normalizedAction === "set-reasoning-effort" ||
+      normalizedId === "reasoning"
+    )
+      return "effortId";
+    if (normalizedAction === "set-active-backend" || normalizedId === "backend")
+      return "backendId";
+    if (
+      normalizedAction === "set-active-conversation" ||
+      normalizedId === "conversation"
+    ) {
       return "conversationId";
     }
     return "";
   }
 
-  function buildReplySelectControl(id, label, value, options, action, disabled, payload) {
+  function buildReplySelectControl(
+    id,
+    label,
+    value,
+    options,
+    action,
+    disabled,
+    payload,
+  ) {
     return contextSelector(
       id,
       label,
@@ -969,36 +1100,51 @@
       kind: "permission",
       title:
         safeText(request.source) === "zotero-mcp-write"
-          ? labelFrom(snap, "permission.zoteroWriteApproval", "Zotero write approval")
+          ? labelFrom(
+              snap,
+              "permission.zoteroWriteApproval",
+              "Zotero write approval",
+            )
           : (snap.labels && snap.labels.permission) ||
             labelFrom(snap, "permission.acpToolApproval", "ACP tool approval"),
       message:
         safeText(request.summary) ||
-        safeText(request.title || request.toolTitle || request.command || request.commandLine) ||
-        labelFrom(snap, "permission.acpBackendApproval", "ACP backend requests approval."),
+        safeText(
+          request.title ||
+            request.toolTitle ||
+            request.command ||
+            request.commandLine,
+        ) ||
+        labelFrom(
+          snap,
+          "permission.acpBackendApproval",
+          "ACP backend requests approval.",
+        ),
       detail: safeText(request.detail),
       source: safeText(request.source),
       permission: request,
-      actions: options.map(function (option) {
-        return contextAction(
-          "resolve-permission",
-          safeText(option.name || option.label || option.optionId) ||
-            labelFrom(snap, "actions.approve", "Approve"),
-          {
-            outcome: "selected",
-            optionId: safeText(option.optionId || option.id),
-          },
-          true,
-        );
-      }).concat([
-        contextAction(
-          "resolve-permission",
-          labelFrom(snap, "actions.cancel", "Cancel"),
-          { outcome: "cancelled" },
-          true,
-          "danger",
-        ),
-      ]),
+      actions: options
+        .map(function (option) {
+          return contextAction(
+            "resolve-permission",
+            safeText(option.name || option.label || option.optionId) ||
+              labelFrom(snap, "actions.approve", "Approve"),
+            {
+              outcome: "selected",
+              optionId: safeText(option.optionId || option.id),
+            },
+            true,
+          );
+        })
+        .concat([
+          contextAction(
+            "resolve-permission",
+            labelFrom(snap, "actions.cancel", "Cancel"),
+            { outcome: "cancelled" },
+            true,
+            "danger",
+          ),
+        ]),
     };
   }
 
@@ -1007,33 +1153,105 @@
     const diagnostics = Array.isArray(snap.diagnostics) ? snap.diagnostics : [];
     return [
       detailSection(labelFrom(snap, "details.session", "Session"), [
-        detailEntry(labelFrom(snap, "fields.target", labels.target || "Target"), snap.targetLabel),
-        detailEntry(labelFrom(snap, "fields.agent", labels.agent || "Agent"), snap.agentLabel || snap.agentVersion),
-        detailEntry(labelFrom(snap, "fields.session", labels.session || "Session"), snap.sessionId || snap.remoteSessionId),
-        detailEntry(labelFrom(snap, "fields.remoteSession", labels.remoteSession || "Remote session"), snap.remoteSessionId),
-        detailEntry(labelFrom(snap, "fields.remoteRestore", labels.remoteRestore || "Remote restore"), snap.remoteSessionRestoreStatus),
-        detailEntry(labelFrom(snap, "fields.stopReason", labels.stopReason || "Stop reason"), snap.lastStopReason),
+        detailEntry(
+          labelFrom(snap, "fields.target", labels.target || "Target"),
+          snap.targetLabel,
+        ),
+        detailEntry(
+          labelFrom(snap, "fields.agent", labels.agent || "Agent"),
+          snap.agentLabel || snap.agentVersion,
+        ),
+        detailEntry(
+          labelFrom(snap, "fields.session", labels.session || "Session"),
+          snap.sessionId || snap.remoteSessionId,
+        ),
+        detailEntry(
+          labelFrom(
+            snap,
+            "fields.remoteSession",
+            labels.remoteSession || "Remote session",
+          ),
+          snap.remoteSessionId,
+        ),
+        detailEntry(
+          labelFrom(
+            snap,
+            "fields.remoteRestore",
+            labels.remoteRestore || "Remote restore",
+          ),
+          snap.remoteSessionRestoreStatus,
+        ),
+        detailEntry(
+          labelFrom(
+            snap,
+            "fields.stopReason",
+            labels.stopReason || "Stop reason",
+          ),
+          snap.lastStopReason,
+        ),
       ]),
       detailSection(labelFrom(snap, "details.paths", "Paths"), [
-        detailEntry(labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"), snap.agentWorkspaceDir || snap.sessionCwd),
-        detailEntry(labelFrom(snap, "fields.hostContext", labels.hostContext || "Host Context"), snap.hostContextSummary),
+        detailEntry(
+          labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"),
+          snap.agentWorkspaceDir || snap.sessionCwd,
+        ),
+        detailEntry(
+          labelFrom(
+            snap,
+            "fields.hostContext",
+            labels.hostContext || "Host Context",
+          ),
+          snap.hostContextSummary,
+        ),
       ]),
       detailSection(
-        labelFrom(snap, "details.diagnostics", labels.diagnostics || "Diagnostics"),
-        diagnostics.slice(-12).map(function (entry) {
-          return detailEntry(
-            safeText(entry.kind || entry.level || "diagnostic"),
-            truncateText(entry.message || entry.detail || entry.error || JSON.stringify(entry), 600),
-            entry.detail ? "code" : "text",
-          );
-        }).concat([
-          detailEntry(labelFrom(snap, "fields.commandLine", labels.commandLine || "Command line"), snap.commandLine, "code"),
-          detailEntry(labelFrom(snap, "fields.stderr", labels.stderrTail || "stderr"), snap.stderrTail, "code"),
-          detailEntry(labelFrom(snap, "fields.error", labels.errorPrefix || "Error"), snap.lastError || snap.prerequisiteError),
-        ]),
+        labelFrom(
+          snap,
+          "details.diagnostics",
+          labels.diagnostics || "Diagnostics",
+        ),
+        diagnostics
+          .slice(-12)
+          .map(function (entry) {
+            return detailEntry(
+              safeText(entry.kind || entry.level || "diagnostic"),
+              truncateText(
+                entry.message ||
+                  entry.detail ||
+                  entry.error ||
+                  JSON.stringify(entry),
+                600,
+              ),
+              entry.detail ? "code" : "text",
+            );
+          })
+          .concat([
+            detailEntry(
+              labelFrom(
+                snap,
+                "fields.commandLine",
+                labels.commandLine || "Command line",
+              ),
+              snap.commandLine,
+              "code",
+            ),
+            detailEntry(
+              labelFrom(snap, "fields.stderr", labels.stderrTail || "stderr"),
+              snap.stderrTail,
+              "code",
+            ),
+            detailEntry(
+              labelFrom(snap, "fields.error", labels.errorPrefix || "Error"),
+              snap.lastError || snap.prerequisiteError,
+            ),
+          ]),
         {
           kind: "diagnostics",
-          summary: labelFrom(snap, "details.recentDiagnostics", "Recent runtime diagnostics"),
+          summary: labelFrom(
+            snap,
+            "details.recentDiagnostics",
+            "Recent runtime diagnostics",
+          ),
           collapsible: true,
           defaultCollapsed: true,
         },
@@ -1043,60 +1261,150 @@
 
   function buildAcpSkillDetails(run, logs, source) {
     if (!run) return [];
-    const revisions = Array.isArray(run.outputRevisions) ? run.outputRevisions : [];
+    const revisions = Array.isArray(run.outputRevisions)
+      ? run.outputRevisions
+      : [];
     return [
       detailSection(labelFrom(source, "details.runPaths", "Run paths"), [
-        detailEntry(labelFrom(source, "fields.workspace", "Workspace"), run.workspaceDir),
-        detailEntry(labelFrom(source, "fields.runtimeState", "Runtime state"), run.runtimeDir),
-        detailEntry(labelFrom(source, "fields.auditArtifact", "Audit artifact"), run.inputManifestPath),
-        detailEntry(labelFrom(source, "fields.resultArtifact", "Result artifact"), run.resultJsonPath),
+        detailEntry(
+          labelFrom(source, "fields.workspace", "Workspace"),
+          run.workspaceDir,
+        ),
+        detailEntry(
+          labelFrom(source, "fields.runtimeState", "Runtime state"),
+          run.runtimeDir,
+        ),
+        detailEntry(
+          labelFrom(source, "fields.auditArtifact", "Audit artifact"),
+          run.inputManifestPath,
+        ),
+        detailEntry(
+          labelFrom(source, "fields.resultArtifact", "Result artifact"),
+          run.resultJsonPath,
+        ),
       ]),
       detailSection(labelFrom(source, "details.runner", "Runner"), [
-        detailEntry(labelFrom(source, "fields.backend", "Backend"), run.backendLabel || run.backendId),
+        detailEntry(
+          labelFrom(source, "fields.backend", "Backend"),
+          run.backendLabel || run.backendId,
+        ),
         detailEntry("Agent family", run.agentFamily),
-        detailEntry("ACP " + labelFrom(source, "fields.mode", "mode"), run.acpModeId),
-        detailEntry("ACP " + labelFrom(source, "fields.model", "model"), run.acpModelId),
-        detailEntry(labelFrom(source, "fields.reasoning", "Reasoning"), run.acpReasoningEffort),
+        detailEntry(
+          "ACP " + labelFrom(source, "fields.mode", "mode"),
+          run.acpModeId,
+        ),
+        detailEntry(
+          "ACP " + labelFrom(source, "fields.model", "model"),
+          run.acpModelId,
+        ),
+        detailEntry(
+          labelFrom(source, "fields.reasoning", "Reasoning"),
+          run.acpReasoningEffort,
+        ),
         detailEntry("Raw model", run.acpRawModelId),
         detailEntry("Skill", run.skillId),
-        detailEntry("Skill roots", Array.isArray(run.skillRoots) ? run.skillRoots.join("\n") : "", "code"),
-        detailEntry(labelFrom(source, "fields.session", "Session"), run.sessionId),
-      ]),
-      detailSection(labelFrom(source, "details.validation", "Validation"), [
-        detailEntry(labelFrom(source, "fields.status", "Status"), run.validationStatus),
-        detailEntry(labelFrom(source, "fields.repairRounds", "Repair rounds"), String(run.repairRounds || 0)),
-        detailEntry(labelFrom(source, "fields.errors", "Errors"), Array.isArray(run.validationErrors) ? run.validationErrors.join("\n") : "", "code"),
-        detailEntry("Run error", run.error),
-        detailEntry(labelFrom(source, "fields.conversation", "Conversation"), run.conversationState),
-        detailEntry("Conversation error", run.conversationError),
-        detailEntry(labelFrom(source, "fields.applyResult", "Apply result"), run.applyResultState),
-        detailEntry(labelFrom(source, "fields.appliedAt", "Applied at"), run.appliedAt),
-      ]),
-      detailSection(labelFrom(source, "details.runtimeDependencies", "Runtime Dependencies"), [
-        detailEntry(labelFrom(source, "fields.status", "Status"), run.runtimeDependencyStatus),
         detailEntry(
-          labelFrom(source, "fields.runtimeDependencies", "Runtime Dependencies"),
-          Array.isArray(run.runtimeDependencies) ? run.runtimeDependencies.join("\n") : "",
+          "Skill roots",
+          Array.isArray(run.skillRoots) ? run.skillRoots.join("\n") : "",
           "code",
         ),
-        detailEntry(labelFrom(source, "fields.error", "Error"), run.runtimeDependencyError),
+        detailEntry(
+          labelFrom(source, "fields.session", "Session"),
+          run.sessionId,
+        ),
+      ]),
+      detailSection(labelFrom(source, "details.validation", "Validation"), [
+        detailEntry(
+          labelFrom(source, "fields.status", "Status"),
+          run.validationStatus,
+        ),
+        detailEntry(
+          labelFrom(source, "fields.repairRounds", "Repair rounds"),
+          String(run.repairRounds || 0),
+        ),
+        detailEntry(
+          labelFrom(source, "fields.errors", "Errors"),
+          Array.isArray(run.validationErrors)
+            ? run.validationErrors.join("\n")
+            : "",
+          "code",
+        ),
+        detailEntry("Run error", run.error),
+        detailEntry(
+          labelFrom(source, "fields.conversation", "Conversation"),
+          run.conversationState,
+        ),
+        detailEntry("Conversation error", run.conversationError),
+        detailEntry(
+          labelFrom(source, "fields.applyResult", "Apply result"),
+          run.applyResultState,
+        ),
+        detailEntry(
+          labelFrom(source, "fields.appliedAt", "Applied at"),
+          run.appliedAt,
+        ),
       ]),
       detailSection(
-        labelFrom(source, "details.outputRevisions", "Output Revisions"),
-        revisions.slice().reverse().map(function (revision) {
-          return detailEntry(
-            "round " + String(Number(revision.repairRound || 0)) + " · " + safeText(revision.status || "unknown"),
-            [
-              Array.isArray(revision.errors) && revision.errors.length > 0 ? revision.errors.join("\n") : "",
-              revision.replacementReason || "",
-              truncateText(revision.candidateText, 600),
-            ].filter(Boolean).join("\n\n"),
+        labelFrom(
+          source,
+          "details.runtimeDependencies",
+          "Runtime Dependencies",
+        ),
+        [
+          detailEntry(
+            labelFrom(source, "fields.status", "Status"),
+            run.runtimeDependencyStatus,
+          ),
+          detailEntry(
+            labelFrom(
+              source,
+              "fields.runtimeDependencies",
+              "Runtime Dependencies",
+            ),
+            Array.isArray(run.runtimeDependencies)
+              ? run.runtimeDependencies.join("\n")
+              : "",
             "code",
-          );
-        }),
+          ),
+          detailEntry(
+            labelFrom(source, "fields.error", "Error"),
+            run.runtimeDependencyError,
+          ),
+        ],
+      ),
+      detailSection(
+        labelFrom(source, "details.outputRevisions", "Output Revisions"),
+        revisions
+          .slice()
+          .reverse()
+          .map(function (revision) {
+            return detailEntry(
+              "round " +
+                String(Number(revision.repairRound || 0)) +
+                " · " +
+                safeText(revision.status || "unknown"),
+              [
+                Array.isArray(revision.errors) && revision.errors.length > 0
+                  ? revision.errors.join("\n")
+                  : "",
+                revision.replacementReason || "",
+                truncateText(revision.candidateText, 600),
+              ]
+                .filter(Boolean)
+                .join("\n\n"),
+              "code",
+            );
+          }),
         {
           kind: "revisions",
-          summary: String(revisions.length) + " " + labelFrom(source, "details.revisionCandidates", "revision candidates"),
+          summary:
+            String(revisions.length) +
+            " " +
+            labelFrom(
+              source,
+              "details.revisionCandidates",
+              "revision candidates",
+            ),
           collapsible: true,
           defaultCollapsed: true,
         },
@@ -1112,25 +1420,43 @@
         }),
         {
           kind: "logs",
-          summary: labelFrom(source, "details.recentLogs", "Recent runtime log entries"),
+          summary: labelFrom(
+            source,
+            "details.recentLogs",
+            "Recent runtime log entries",
+          ),
           collapsible: true,
           defaultCollapsed: true,
         },
       ),
-      detailSection(labelFrom(source, "details.resultJson", "Result JSON"), [
-        detailEntry("result", run.resultJson ? JSON.stringify(run.resultJson, null, 2) : "", "code"),
-      ], {
-        kind: "result",
-        summary: labelFrom(source, "details.validatedOutput", "Validated workflow output"),
-        collapsible: true,
-        defaultCollapsed: true,
-      }),
+      detailSection(
+        labelFrom(source, "details.resultJson", "Result JSON"),
+        [
+          detailEntry(
+            "result",
+            run.resultJson ? JSON.stringify(run.resultJson, null, 2) : "",
+            "code",
+          ),
+        ],
+        {
+          kind: "result",
+          summary: labelFrom(
+            source,
+            "details.validatedOutput",
+            "Validated workflow output",
+          ),
+          collapsible: true,
+          defaultCollapsed: true,
+        },
+      ),
     ].filter(Boolean);
   }
 
   function normalizeSkillRunnerMessageRole(role) {
     const value = safeText(role).toLowerCase();
-    return value === "assistant" || value === "user" || value === "system" ? value : "system";
+    return value === "assistant" || value === "user" || value === "system"
+      ? value
+      : "system";
   }
 
   function normalizeSkillRunnerMessageKind(kind) {
@@ -1146,21 +1472,30 @@
   }
 
   function skillRunnerMessageText(entry) {
-    return safeText(entry && (entry.displayText || entry.display_text || entry.text || entry.summary));
+    return safeText(
+      entry &&
+        (entry.displayText ||
+          entry.display_text ||
+          entry.text ||
+          entry.summary),
+    );
   }
 
   function skillRunnerProcessType(entry) {
     const source = entry && typeof entry === "object" ? entry : {};
-    const correlation = source.correlation && typeof source.correlation === "object"
-      ? source.correlation
-      : {};
+    const correlation =
+      source.correlation && typeof source.correlation === "object"
+        ? source.correlation
+        : {};
     return safeText(
       source.processType ||
-      source.process_type ||
-      source.processKind ||
-      correlation.process_type ||
-      correlation.classification,
-    ).trim().toLowerCase();
+        source.process_type ||
+        source.processKind ||
+        correlation.process_type ||
+        correlation.classification,
+    )
+      .trim()
+      .toLowerCase();
   }
 
   function isSkillRunnerToolProcess(processType) {
@@ -1169,14 +1504,16 @@
   }
 
   function skillRunnerToolDetails(source) {
-    const correlation = source && source.correlation && typeof source.correlation === "object"
-      ? source.correlation
-      : {};
-    const details = correlation.details && typeof correlation.details === "object"
-      ? correlation.details
-      : source && source.details && typeof source.details === "object"
-        ? source.details
+    const correlation =
+      source && source.correlation && typeof source.correlation === "object"
+        ? source.correlation
         : {};
+    const details =
+      correlation.details && typeof correlation.details === "object"
+        ? correlation.details
+        : source && source.details && typeof source.details === "object"
+          ? source.details
+          : {};
     return { correlation, details };
   }
 
@@ -1230,9 +1567,15 @@
     const tool = skillRunnerToolDetails(source);
     const processType = skillRunnerProcessType(source);
     const display = skillRunnerToolDisplay(source, processType);
-    const state = safeText(source.state || source.status || tool.correlation.state || tool.correlation.status)
-      .trim()
-      .toLowerCase() || "completed";
+    const state =
+      safeText(
+        source.state ||
+          source.status ||
+          tool.correlation.state ||
+          tool.correlation.status,
+      )
+        .trim()
+        .toLowerCase() || "completed";
     return {
       id,
       kind: "tool",
@@ -1256,17 +1599,24 @@
   }
 
   function skillRunnerMessageId(entry) {
-    const correlation = entry && entry.correlation && typeof entry.correlation === "object"
-      ? entry.correlation
-      : {};
+    const correlation =
+      entry && entry.correlation && typeof entry.correlation === "object"
+        ? entry.correlation
+        : {};
     return safeText(correlation.message_id || entry.messageId);
   }
 
-  function buildSkillRunnerConversationView(session) {
-    const messages = Array.isArray(session && session.messages) ? session.messages : [];
+  function buildSkillRunnerConversationView(session, source) {
+    const messages = Array.isArray(session && session.messages)
+      ? session.messages
+      : [];
     const revisions = new Map();
     messages.forEach(function (entry) {
-      if (normalizeSkillRunnerMessageKind(entry && entry.kind) !== "assistant_revision") return;
+      if (
+        normalizeSkillRunnerMessageKind(entry && entry.kind) !==
+        "assistant_revision"
+      )
+        return;
       const id = skillRunnerMessageId(entry);
       if (id) revisions.set(id, entry);
     });
@@ -1287,13 +1637,14 @@
         }
         const role = normalizeSkillRunnerMessageRole(entry && entry.role);
         const messageId = skillRunnerMessageId(entry);
-        const revision = messageId && revisions.has(messageId)
-          ? {
-              count: 1,
-              latestStatus: "replaced",
-              latestRepairRound: Number(entry && entry.attempt || 1),
-            }
-          : null;
+        const revision =
+          messageId && revisions.has(messageId)
+            ? {
+                count: 1,
+                latestStatus: "replaced",
+                latestRepairRound: Number((entry && entry.attempt) || 1),
+              }
+            : null;
         return {
           id,
           kind: "message",
@@ -1304,13 +1655,34 @@
         };
       })
       .filter(Boolean);
+    if (session && session.historyLoading === true) {
+      items.push({
+        id: "skillrunner-history-loading",
+        kind: "status",
+        label: labelFrom(
+          source,
+          "transcript.historyLoading",
+          "Loading conversation",
+        ),
+        text: labelFrom(
+          source,
+          "transcript.historyLoadingDetail",
+          "Loading conversation history...",
+        ),
+        state: "loading",
+      });
+    }
     return fallbackConversationView(items);
   }
 
   function normalizeSkillRunnerOptionList(raw) {
     return (Array.isArray(raw) ? raw : [])
       .map(function (option) {
-        if (typeof option === "string" || typeof option === "number" || typeof option === "boolean") {
+        if (
+          typeof option === "string" ||
+          typeof option === "number" ||
+          typeof option === "boolean"
+        ) {
           const text = safeText(option);
           return text ? { label: text, value: text } : null;
         }
@@ -1332,29 +1704,47 @@
 
   function buildSkillRunnerPendingInteraction(session, status, source) {
     const normalized = normalizeStatusToken(status);
-    const askUser = session && session.pendingAskUser && typeof session.pendingAskUser === "object"
-      ? session.pendingAskUser
-      : null;
-    const uiHints = session && session.pendingUiHints && typeof session.pendingUiHints === "object"
-      ? session.pendingUiHints
-      : askUser && askUser.ui_hints && typeof askUser.ui_hints === "object"
-        ? askUser.ui_hints
-        : {};
+    const askUser =
+      session &&
+      session.pendingAskUser &&
+      typeof session.pendingAskUser === "object"
+        ? session.pendingAskUser
+        : null;
+    const uiHints =
+      session &&
+      session.pendingUiHints &&
+      typeof session.pendingUiHints === "object"
+        ? session.pendingUiHints
+        : askUser && askUser.ui_hints && typeof askUser.ui_hints === "object"
+          ? askUser.ui_hints
+          : {};
     if (normalized === "waiting-user") {
       return {
         kind: "waiting_user",
-        title: labelFrom(source, "interaction.userInputRequired", "User input required"),
+        title: labelFrom(
+          source,
+          "interaction.userInputRequired",
+          "User input required",
+        ),
         pendingInteraction: {
-          interactionId: Number(session && session.pendingInteractionId || 0),
-          kind: safeText((askUser && askUser.kind) || session.pendingKind || "open_text"),
+          interactionId: Number((session && session.pendingInteractionId) || 0),
+          kind: safeText(
+            (askUser && askUser.kind) || session.pendingKind || "open_text",
+          ),
           uiHints: Object.assign({}, uiHints, {
             prompt:
               safeText(uiHints.prompt) ||
               safeText((askUser && askUser.prompt) || session.pendingPrompt) ||
-              labelFrom(source, "interaction.waitingReply", "The agent is waiting for your reply."),
+              labelFrom(
+                source,
+                "interaction.waitingReply",
+                "The agent is waiting for your reply.",
+              ),
             hint: safeText(uiHints.hint || (askUser && askUser.hint)),
             options: normalizeSkillRunnerOptionList(
-              askUser && Array.isArray(askUser.options) ? askUser.options : session.pendingOptions,
+              askUser && Array.isArray(askUser.options)
+                ? askUser.options
+                : session.pendingOptions,
             ),
             files: uiHints.files || session.pendingRequiredFields || [],
           }),
@@ -1362,14 +1752,20 @@
       };
     }
     if (normalized === "waiting-auth") {
-      const authAsk = session && session.authAskUser && typeof session.authAskUser === "object"
-        ? session.authAskUser
-        : null;
-      const authHints = session && session.authUiHints && typeof session.authUiHints === "object"
-        ? session.authUiHints
-        : authAsk && authAsk.ui_hints && typeof authAsk.ui_hints === "object"
-          ? authAsk.ui_hints
-          : {};
+      const authAsk =
+        session &&
+        session.authAskUser &&
+        typeof session.authAskUser === "object"
+          ? session.authAskUser
+          : null;
+      const authHints =
+        session &&
+        session.authUiHints &&
+        typeof session.authUiHints === "object"
+          ? session.authUiHints
+          : authAsk && authAsk.ui_hints && typeof authAsk.ui_hints === "object"
+            ? authAsk.ui_hints
+            : {};
       const methods = Array.isArray(session && session.authAvailableMethods)
         ? session.authAvailableMethods
         : [];
@@ -1383,7 +1779,9 @@
             authSessionId: safeText(session && session.authSessionId),
             submission: {
               kind: "auth_method",
-              responseValue: safeText(method.value || method.id || method.label),
+              responseValue: safeText(
+                method.value || method.id || method.label,
+              ),
             },
           },
           true,
@@ -1405,7 +1803,11 @@
           "Authentication required",
         ),
         message:
-          safeText((authAsk && authAsk.prompt) || authHints.prompt || session.authPrompt) ||
+          safeText(
+            (authAsk && authAsk.prompt) ||
+              authHints.prompt ||
+              session.authPrompt,
+          ) ||
           labelFrom(
             source,
             "interaction.authenticationRequiredMessage",
@@ -1414,7 +1816,8 @@
         actions: methodActions,
         auth: {
           authSessionId: safeText(session && session.authSessionId),
-          inputKind: safeText(session && session.authInputKind) || "auth_code_or_url",
+          inputKind:
+            safeText(session && session.authInputKind) || "auth_code_or_url",
           acceptsChatInput: session && session.authAcceptsChatInput === true,
           uiHints: authHints,
           importFiles: authImportFiles,
@@ -1424,14 +1827,26 @@
     if (BUSY_STATES.has(normalized)) {
       return {
         kind: "running",
-        title: labelFrom(source, "interaction.agentWorkingMessage", "Agent is working..."),
-        message: labelFrom(source, "interaction.agentWorkingMessage", "Agent is working..."),
+        title: labelFrom(
+          source,
+          "interaction.agentWorkingMessage",
+          "Agent is working...",
+        ),
+        message: labelFrom(
+          source,
+          "interaction.agentWorkingMessage",
+          "Agent is working...",
+        ),
       };
     }
     if (isTerminalStatus(normalized)) {
       return {
         kind: "completed",
-        title: labelFrom(source, "interaction.runCompletedTitle", "Run completed"),
+        title: labelFrom(
+          source,
+          "interaction.runCompletedTitle",
+          "Run completed",
+        ),
         message: normalized,
       };
     }
@@ -1439,14 +1854,20 @@
   }
 
   function buildSkillRunnerContexts(envelope) {
-    const drawer = envelope && envelope.drawer && typeof envelope.drawer === "object"
-      ? envelope.drawer
-      : null;
-    const sections = drawer && Array.isArray(drawer.sections) ? drawer.sections : [];
+    const drawer =
+      envelope && envelope.drawer && typeof envelope.drawer === "object"
+        ? envelope.drawer
+        : null;
+    const sections =
+      drawer && Array.isArray(drawer.sections) ? drawer.sections : [];
     function makeTaskEntry(task, group, sectionTitle) {
       if (!task || typeof task !== "object") return;
       return {
-        title: safeText(task.title) || safeText(task.taskName) || safeText(task.inputUnitLabel) || "Task",
+        title:
+          safeText(task.title) ||
+          safeText(task.taskName) ||
+          safeText(task.inputUnitLabel) ||
+          "Task",
         subtitle:
           safeText(task.workflowLabel || task.stateLabel || task.status) ||
           safeText(group && (group.backendDisplayName || group.title)) ||
@@ -1460,15 +1881,21 @@
     function buildGroupEntry(group, sectionTitle) {
       if (!group || typeof group !== "object") return null;
       const children = [];
-      (Array.isArray(group.activeTasks) ? group.activeTasks : []).forEach(function (task) {
-        const entry = makeTaskEntry(task, group, sectionTitle);
-        if (entry) children.push(entry);
-      });
-      (Array.isArray(group.finishedTasks) ? group.finishedTasks : []).forEach(function (task) {
-        const entry = makeTaskEntry(task, group, sectionTitle);
-        if (entry) children.push(entry);
-      });
-      const title = safeText(group.title || group.backendDisplayName || group.backendId);
+      (Array.isArray(group.activeTasks) ? group.activeTasks : []).forEach(
+        function (task) {
+          const entry = makeTaskEntry(task, group, sectionTitle);
+          if (entry) children.push(entry);
+        },
+      );
+      (Array.isArray(group.finishedTasks) ? group.finishedTasks : []).forEach(
+        function (task) {
+          const entry = makeTaskEntry(task, group, sectionTitle);
+          if (entry) children.push(entry);
+        },
+      );
+      const title = safeText(
+        group.title || group.backendDisplayName || group.backendId,
+      );
       if (!title && children.length === 0) return null;
       return {
         title: title || sectionTitle || "Tasks",
@@ -1489,10 +1916,12 @@
       if (!section || typeof section !== "object") return;
       const sectionTitle = safeText(section.title || section.id || "Tasks");
       const children = [];
-      (Array.isArray(section.groups) ? section.groups : []).forEach(function (group) {
-        const entry = buildGroupEntry(group, sectionTitle);
-        if (entry) children.push(entry);
-      });
+      (Array.isArray(section.groups) ? section.groups : []).forEach(
+        function (group) {
+          const entry = buildGroupEntry(group, sectionTitle);
+          if (entry) children.push(entry);
+        },
+      );
       appendUngroupedTasks(children, section.activeTasks, sectionTitle);
       appendUngroupedTasks(children, section.finishedTasks, sectionTitle);
       contexts.push({
@@ -1503,57 +1932,82 @@
       });
     });
     if (contexts.length > 0) return contexts;
-    const workspace = envelope && envelope.workspace && typeof envelope.workspace === "object"
-      ? envelope.workspace
-      : {};
-    (Array.isArray(workspace.groups) ? workspace.groups : []).forEach(function (group) {
-      const entry = buildGroupEntry(group, safeText(workspace.title || "Workspace"));
-      if (entry) contexts.push(entry);
-    });
+    const workspace =
+      envelope && envelope.workspace && typeof envelope.workspace === "object"
+        ? envelope.workspace
+        : {};
+    (Array.isArray(workspace.groups) ? workspace.groups : []).forEach(
+      function (group) {
+        const entry = buildGroupEntry(
+          group,
+          safeText(workspace.title || "Workspace"),
+        );
+        if (entry) contexts.push(entry);
+      },
+    );
     return contexts;
   }
 
   function appendSkillRunnerTasksFromGroups(groups, target) {
     (Array.isArray(groups) ? groups : []).forEach(function (group) {
       if (!group || typeof group !== "object") return;
-      (Array.isArray(group.activeTasks) ? group.activeTasks : []).forEach(function (task) {
-        if (task && typeof task === "object") target.push(task);
-      });
-      (Array.isArray(group.finishedTasks) ? group.finishedTasks : []).forEach(function (task) {
-        if (task && typeof task === "object") target.push(task);
-      });
+      (Array.isArray(group.activeTasks) ? group.activeTasks : []).forEach(
+        function (task) {
+          if (task && typeof task === "object") target.push(task);
+        },
+      );
+      (Array.isArray(group.finishedTasks) ? group.finishedTasks : []).forEach(
+        function (task) {
+          if (task && typeof task === "object") target.push(task);
+        },
+      );
     });
   }
 
   function findSkillRunnerPanelTask(envelope, session) {
-    const workspace = envelope && envelope.workspace && typeof envelope.workspace === "object"
-      ? envelope.workspace
-      : {};
-    const drawer = envelope && envelope.drawer && typeof envelope.drawer === "object"
-      ? envelope.drawer
-      : {};
-    const selectedTaskKey = safeText(workspace.selectedTaskKey || envelope.selectedTaskKey);
+    const workspace =
+      envelope && envelope.workspace && typeof envelope.workspace === "object"
+        ? envelope.workspace
+        : {};
+    const drawer =
+      envelope && envelope.drawer && typeof envelope.drawer === "object"
+        ? envelope.drawer
+        : {};
+    const selectedTaskKey = safeText(
+      workspace.selectedTaskKey || envelope.selectedTaskKey,
+    );
     const tasks = [];
     appendSkillRunnerTasksFromGroups(workspace.groups, tasks);
-    (Array.isArray(drawer.sections) ? drawer.sections : []).forEach(function (section) {
-      if (!section || typeof section !== "object") return;
-      appendSkillRunnerTasksFromGroups(section.groups, tasks);
-      (Array.isArray(section.activeTasks) ? section.activeTasks : []).forEach(function (task) {
-        if (task && typeof task === "object") tasks.push(task);
-      });
-      (Array.isArray(section.finishedTasks) ? section.finishedTasks : []).forEach(function (task) {
-        if (task && typeof task === "object") tasks.push(task);
-      });
-    });
+    (Array.isArray(drawer.sections) ? drawer.sections : []).forEach(
+      function (section) {
+        if (!section || typeof section !== "object") return;
+        appendSkillRunnerTasksFromGroups(section.groups, tasks);
+        (Array.isArray(section.activeTasks) ? section.activeTasks : []).forEach(
+          function (task) {
+            if (task && typeof task === "object") tasks.push(task);
+          },
+        );
+        (Array.isArray(section.finishedTasks)
+          ? section.finishedTasks
+          : []
+        ).forEach(function (task) {
+          if (task && typeof task === "object") tasks.push(task);
+        });
+      },
+    );
     if (selectedTaskKey) {
       const selected = tasks.find(function (task) {
-        return safeText(task.key || task.taskKey || task.id) === selectedTaskKey;
+        return (
+          safeText(task.key || task.taskKey || task.id) === selectedTaskKey
+        );
       });
       if (selected) return selected;
     }
-    return tasks.find(function (task) {
-      return task.active === true || task.selected === true;
-    }) || null;
+    return (
+      tasks.find(function (task) {
+        return task.active === true || task.selected === true;
+      }) || null
+    );
   }
 
   function decorateSkillRunnerWorkspaceTask(task, source) {
@@ -1561,7 +2015,8 @@
     const taskKey = safeText(task.key || task.taskKey || task.id);
     const canArchiveLocalRun = task.canArchiveLocalRun !== false;
     const terminal =
-      task.terminal === true || isTerminalStatus(task.status || task.state || task.stateLabel);
+      task.terminal === true ||
+      isTerminalStatus(task.status || task.state || task.stateLabel);
     const needsAttention = Boolean(task.attention);
     const applyState = normalizeApplyState(task);
     const applyLabel = applyStateLabel(source || task, applyState, task);
@@ -1570,7 +2025,11 @@
       workflowLabel: buildSkillRunSecondaryLabel(task, source),
       attention: needsAttention ? "warning" : "",
       attentionLabel: needsAttention
-        ? labelFrom({}, "interaction.needsUserInteraction", "Needs user interaction")
+        ? labelFrom(
+            {},
+            "interaction.needsUserInteraction",
+            "Needs user interaction",
+          )
         : "",
       applyState,
       applyStateLabel: applyLabel,
@@ -1595,16 +2054,18 @@
       if (Array.isArray(section && section.groups)) {
         next.groups = section.groups.map(function (group) {
           return Object.assign({}, group, {
-            activeTasks: (Array.isArray(group && group.activeTasks) ? group.activeTasks : []).map(
-              function (task) {
-                return decorateSkillRunnerWorkspaceTask(task, source);
-              },
-            ),
-            finishedTasks: (Array.isArray(group && group.finishedTasks) ? group.finishedTasks : []).map(
-              function (task) {
-                return decorateSkillRunnerWorkspaceTask(task, source);
-              },
-            ),
+            activeTasks: (Array.isArray(group && group.activeTasks)
+              ? group.activeTasks
+              : []
+            ).map(function (task) {
+              return decorateSkillRunnerWorkspaceTask(task, source);
+            }),
+            finishedTasks: (Array.isArray(group && group.finishedTasks)
+              ? group.finishedTasks
+              : []
+            ).map(function (task) {
+              return decorateSkillRunnerWorkspaceTask(task, source);
+            }),
           });
         });
       }
@@ -1623,41 +2084,109 @@
   }
 
   function buildSkillRunnerDetails(envelope, session) {
-    const revisions = (Array.isArray(session && session.messages) ? session.messages : []).filter(function (entry) {
-      return normalizeSkillRunnerMessageKind(entry && entry.kind) === "assistant_revision";
+    const revisions = (
+      Array.isArray(session && session.messages) ? session.messages : []
+    ).filter(function (entry) {
+      return (
+        normalizeSkillRunnerMessageKind(entry && entry.kind) ===
+        "assistant_revision"
+      );
     });
-    const latestRevision = revisions.length > 0 ? revisions[revisions.length - 1] : null;
+    const latestRevision =
+      revisions.length > 0 ? revisions[revisions.length - 1] : null;
     const applyState = normalizeApplyState(session);
     return [
       detailSection(labelFrom(envelope, "details.run", "Run"), [
         detailEntry("Title", session && session.title),
-        detailEntry(labelFrom(envelope, "fields.requestId", "Request ID"), session && session.requestId),
-        detailEntry(labelFrom(envelope, "fields.taskKey", "Task key"), envelope && envelope.workspace && envelope.workspace.selectedTaskKey),
-        detailEntry(labelFrom(envelope, "fields.status", "Status"), session && session.status),
-        detailEntry(labelFrom(envelope, "fields.terminal", "Terminal"), session && session.statusSemantics ? String(Boolean(session.statusSemantics.terminal)) : ""),
-        detailEntry(labelFrom(envelope, "fields.waiting", "Waiting"), session && session.statusSemantics ? String(Boolean(session.statusSemantics.waiting)) : ""),
-        detailEntry(labelFrom(envelope, "fields.backend", "Backend"), session && session.backendTitle),
-        detailEntry(labelFrom(envelope, "fields.engine", "Engine"), session && session.engine),
-        detailEntry(labelFrom(envelope, "fields.model", "Model"), session && session.model),
-        detailEntry(labelFrom(envelope, "fields.updated", "Updated"), session && session.updatedAt),
-        detailEntry(labelFrom(envelope, "fields.loading", "Loading"), session ? String(Boolean(session.loading)) : ""),
-        detailEntry(labelFrom(envelope, "fields.error", "Error"), session && session.error),
+        detailEntry(
+          labelFrom(envelope, "fields.requestId", "Request ID"),
+          session && session.requestId,
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.taskKey", "Task key"),
+          envelope && envelope.workspace && envelope.workspace.selectedTaskKey,
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.status", "Status"),
+          session && session.status,
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.terminal", "Terminal"),
+          session && session.statusSemantics
+            ? String(Boolean(session.statusSemantics.terminal))
+            : "",
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.waiting", "Waiting"),
+          session && session.statusSemantics
+            ? String(Boolean(session.statusSemantics.waiting))
+            : "",
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.backend", "Backend"),
+          session && session.backendTitle,
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.engine", "Engine"),
+          session && session.engine,
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.model", "Model"),
+          session && session.model,
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.updated", "Updated"),
+          session && session.updatedAt,
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.loading", "Loading"),
+          session ? String(Boolean(session.loading)) : "",
+        ),
+        detailEntry(
+          labelFrom(envelope, "fields.error", "Error"),
+          session && session.error,
+        ),
       ]),
-      detailSection(labelFrom(envelope, "fields.deferredApply", "Deferred apply"), [
-        detailEntry(labelFrom(envelope, "fields.status", "Status"), applyStateLabel(envelope, applyState, session) || applyState),
-        detailEntry(labelFrom(envelope, "fields.applyAttempt", "Attempt"), session && session.applyAttempt ? String(session.applyAttempt) : ""),
-        detailEntry(labelFrom(envelope, "fields.applyMaxAttempt", "Max attempt"), session && session.applyMaxAttempt ? String(session.applyMaxAttempt) : ""),
-        detailEntry(labelFrom(envelope, "fields.applyNextRetry", "Next retry"), session && session.applyNextRetryAt),
-        detailEntry(labelFrom(envelope, "fields.updated", "Updated"), session && session.applyUpdatedAt),
-        detailEntry(labelFrom(envelope, "fields.error", "Error"), session && session.applyError),
-      ]),
+      detailSection(
+        labelFrom(envelope, "fields.deferredApply", "Deferred apply"),
+        [
+          detailEntry(
+            labelFrom(envelope, "fields.status", "Status"),
+            applyStateLabel(envelope, applyState, session) || applyState,
+          ),
+          detailEntry(
+            labelFrom(envelope, "fields.applyAttempt", "Attempt"),
+            session && session.applyAttempt ? String(session.applyAttempt) : "",
+          ),
+          detailEntry(
+            labelFrom(envelope, "fields.applyMaxAttempt", "Max attempt"),
+            session && session.applyMaxAttempt
+              ? String(session.applyMaxAttempt)
+              : "",
+          ),
+          detailEntry(
+            labelFrom(envelope, "fields.applyNextRetry", "Next retry"),
+            session && session.applyNextRetryAt,
+          ),
+          detailEntry(
+            labelFrom(envelope, "fields.updated", "Updated"),
+            session && session.applyUpdatedAt,
+          ),
+          detailEntry(
+            labelFrom(envelope, "fields.error", "Error"),
+            session && session.applyError,
+          ),
+        ],
+      ),
       detailSection(labelFrom(envelope, "details.pending", "Pending"), [
         detailEntry("Interaction", session && session.pendingInteractionId),
         detailEntry("Kind", session && session.pendingKind),
         detailEntry("Prompt", session && session.pendingPrompt),
         detailEntry(
           "Options",
-          Array.isArray(session && session.pendingOptions) ? String(session.pendingOptions.length) : "",
+          Array.isArray(session && session.pendingOptions)
+            ? String(session.pendingOptions.length)
+            : "",
         ),
         detailEntry(
           "Required fields",
@@ -1678,48 +2207,79 @@
         detailEntry("Auth challenge", session && session.authChallengeKind),
         detailEntry("Auth error", session && session.authLastError),
       ]),
-      detailSection(labelFrom(envelope, "details.conversationSummary", "Conversation Summary"), [
-        detailEntry(
-          labelFrom(envelope, "fields.messages", "Messages"),
-          Array.isArray(session && session.messages) ? String(session.messages.length) : "",
+      detailSection(
+        labelFrom(
+          envelope,
+          "details.conversationSummary",
+          "Conversation Summary",
         ),
-        detailEntry(
-          labelFrom(envelope, "fields.latestTimestamp", "Latest timestamp"),
-          Array.isArray(session && session.messages) && session.messages.length > 0
-            ? session.messages[session.messages.length - 1].ts
-            : "",
-        ),
-        detailEntry(
-          labelFrom(envelope, "fields.latestKind", "Latest kind"),
-          Array.isArray(session && session.messages) && session.messages.length > 0
-            ? session.messages[session.messages.length - 1].kind
-            : "",
-        ),
-      ]),
-      detailSection(labelFrom(envelope, "details.revisionSummary", "Revision Summary"), [
-        detailEntry(labelFrom(envelope, "fields.count", "Count"), String(revisions.length)),
-        detailEntry(
-          labelFrom(envelope, "fields.latest", "Latest"),
-          latestRevision
-            ? truncateText(skillRunnerMessageText(latestRevision) || JSON.stringify(latestRevision), 500)
-            : "",
-          latestRevision ? "code" : "text",
-        ),
-      ], {
-        kind: "revisions",
-        summary: labelFrom(envelope, "details.compactRevision", "Compact revision metadata"),
-        collapsible: true,
-        defaultCollapsed: true,
-      }),
+        [
+          detailEntry(
+            labelFrom(envelope, "fields.messages", "Messages"),
+            Array.isArray(session && session.messages)
+              ? String(session.messages.length)
+              : "",
+          ),
+          detailEntry(
+            labelFrom(envelope, "fields.latestTimestamp", "Latest timestamp"),
+            Array.isArray(session && session.messages) &&
+              session.messages.length > 0
+              ? session.messages[session.messages.length - 1].ts
+              : "",
+          ),
+          detailEntry(
+            labelFrom(envelope, "fields.latestKind", "Latest kind"),
+            Array.isArray(session && session.messages) &&
+              session.messages.length > 0
+              ? session.messages[session.messages.length - 1].kind
+              : "",
+          ),
+        ],
+      ),
+      detailSection(
+        labelFrom(envelope, "details.revisionSummary", "Revision Summary"),
+        [
+          detailEntry(
+            labelFrom(envelope, "fields.count", "Count"),
+            String(revisions.length),
+          ),
+          detailEntry(
+            labelFrom(envelope, "fields.latest", "Latest"),
+            latestRevision
+              ? truncateText(
+                  skillRunnerMessageText(latestRevision) ||
+                    JSON.stringify(latestRevision),
+                  500,
+                )
+              : "",
+            latestRevision ? "code" : "text",
+          ),
+        ],
+        {
+          kind: "revisions",
+          summary: labelFrom(
+            envelope,
+            "details.compactRevision",
+            "Compact revision metadata",
+          ),
+          collapsible: true,
+          defaultCollapsed: true,
+        },
+      ),
     ].filter(Boolean);
   }
 
   function normalizeAssistantPanelSnapshot(input) {
     const source = input && typeof input === "object" ? input : {};
     const kind = normalizeKind(source.kind);
-    const context = source.context && typeof source.context === "object" ? source.context : {};
+    const context =
+      source.context && typeof source.context === "object"
+        ? source.context
+        : {};
     const lifecycle =
-      source.lifecycle && typeof source.lifecycle === "object" ? source.lifecycle : {};
+      source.lifecycle && typeof source.lifecycle === "object"
+        ? source.lifecycle
+        : {};
     const conversation =
       source.conversation && typeof source.conversation === "object"
         ? source.conversation
@@ -1731,11 +2291,23 @@
     const plan =
       source.plan && typeof source.plan === "object"
         ? source.plan
-        : conversation.plan || { entries: [], activeEntries: [], active: false };
-    const reply = source.reply && typeof source.reply === "object" ? source.reply : {};
-    const drawers = source.drawers && typeof source.drawers === "object" ? source.drawers : {};
-    const actions = source.actions && typeof source.actions === "object" ? source.actions : {};
-    const labels = source.labels && typeof source.labels === "object" ? source.labels : {};
+        : conversation.plan || {
+            entries: [],
+            activeEntries: [],
+            active: false,
+          };
+    const reply =
+      source.reply && typeof source.reply === "object" ? source.reply : {};
+    const drawers =
+      source.drawers && typeof source.drawers === "object"
+        ? source.drawers
+        : {};
+    const actions =
+      source.actions && typeof source.actions === "object"
+        ? source.actions
+        : {};
+    const labels =
+      source.labels && typeof source.labels === "object" ? source.labels : {};
     return {
       kind,
       labels,
@@ -1760,7 +2332,9 @@
           applyState: "",
           recoveryState: "",
           replyState: "",
-          terminal: isTerminalStatus(context.status || lifecycle.executionState),
+          terminal: isTerminalStatus(
+            context.status || lifecycle.executionState,
+          ),
         },
         lifecycle,
       ),
@@ -1780,7 +2354,10 @@
         reply,
       ),
       drawers: Object.assign({ contexts: [], details: [] }, drawers),
-      actions: Object.assign({ toolbar: [], context: [], details: [] }, actions),
+      actions: Object.assign(
+        { toolbar: [], context: [], details: [] },
+        actions,
+      ),
       raw: source.raw || null,
     };
   }
@@ -1800,29 +2377,41 @@
       status === "connecting";
     const labels = snap.labels || {};
     const activeBackendId = safeText(snap.activeBackendId || snap.backendId);
-    const activeConversationId = safeText(snap.activeConversationId || snap.conversationId);
-    const activeBackendSummary = (Array.isArray(snap.backendOptions) ? snap.backendOptions : []).find(
-      function (entry) {
-        return safeText(entry && (entry.backendId || entry.id || entry.value)) === activeBackendId;
-      },
+    const activeConversationId = safeText(
+      snap.activeConversationId || snap.conversationId,
     );
-    const adapterConnected = activeBackendSummary && activeBackendSummary.connected === true;
+    const activeBackendSummary = (
+      Array.isArray(snap.backendOptions) ? snap.backendOptions : []
+    ).find(function (entry) {
+      return (
+        safeText(entry && (entry.backendId || entry.id || entry.value)) ===
+        activeBackendId
+      );
+    });
+    const adapterConnected =
+      activeBackendSummary && activeBackendSummary.connected === true;
     const connected =
       Boolean(safeText(snap.sessionId)) ||
       adapterConnected ||
-      ["connected", "prompting", "permission-required", "auth-required"].indexOf(status) >= 0;
-    const backendOptions = (Array.isArray(snap.backendOptions) ? snap.backendOptions : []).map(
-      function (entry) {
-        const normalized = normalizeOption(entry, ["backendId", "id", "value"], [
-          "displayName",
-          "label",
-          "backendId",
-        ]);
-        normalized.label =
-          normalized.label + (entry && entry.status ? " · " + safeText(entry.status) : "");
-        return normalized;
-      },
-    );
+      [
+        "connected",
+        "prompting",
+        "permission-required",
+        "auth-required",
+      ].indexOf(status) >= 0;
+    const backendOptions = (
+      Array.isArray(snap.backendOptions) ? snap.backendOptions : []
+    ).map(function (entry) {
+      const normalized = normalizeOption(
+        entry,
+        ["backendId", "id", "value"],
+        ["displayName", "label", "backendId"],
+      );
+      normalized.label =
+        normalized.label +
+        (entry && entry.status ? " · " + safeText(entry.status) : "");
+      return normalized;
+    });
     const sessionOptions = buildSessionPickerOptions(
       Array.isArray(snap.chatSessions) ? snap.chatSessions : [],
       activeConversationId,
@@ -1840,13 +2429,22 @@
       ? snap.reasoningEffortOptions
       : [];
     const effectiveReasoningOptions =
-      reasoningOptions.length > 0 ? reasoningOptions : [{ id: "default", label: "Default" }];
-    const effectiveReasoning = snap.currentReasoningEffort || effectiveReasoningOptions[0];
+      reasoningOptions.length > 0
+        ? reasoningOptions
+        : [{ id: "default", label: "Default" }];
+    const effectiveReasoning =
+      snap.currentReasoningEffort || effectiveReasoningOptions[0];
     const runtimeControlsAvailable = connected && !isConnecting;
     const promptBusy = snap.busy === true;
     const connectionOnlyStatus =
-      ["checking-command", "spawning", "initializing", "connecting"].indexOf(status) >= 0;
-    const connectionState = connected ? "connected" : isConnecting ? "connecting" : "disconnected";
+      ["checking-command", "spawning", "initializing", "connecting"].indexOf(
+        status,
+      ) >= 0;
+    const connectionState = connected
+      ? "connected"
+      : isConnecting
+        ? "connecting"
+        : "disconnected";
     const interaction = buildAcpPermissionInteraction(
       snap,
       connectionOnlyStatus ? { kind: "hidden" } : conversation.interaction,
@@ -1857,9 +2455,12 @@
       if (id) backendLabelById[id] = safeText(entry && entry.label) || id;
     });
     function acpChatConversationTask(entry) {
-      const conversationId = safeText(entry && (entry.conversationId || entry.id));
+      const conversationId = safeText(
+        entry && (entry.conversationId || entry.id),
+      );
       const backendId = safeText(entry && entry.backendId) || activeBackendId;
-      const backendLabel = safeText(entry && (entry.backendLabel || entry.backendDisplayName)) ||
+      const backendLabel =
+        safeText(entry && (entry.backendLabel || entry.backendDisplayName)) ||
         backendLabelById[backendId] ||
         backendId ||
         "Backend";
@@ -1869,16 +2470,26 @@
         conversationId,
         action: "set-active-conversation",
         payload: { conversationId, backendId },
-        title: safeText(entry && (entry.title || entry.sessionTitle)) || "Conversation",
+        title:
+          safeText(entry && (entry.title || entry.sessionTitle)) ||
+          "Conversation",
         workflowLabel: backendLabel,
         status: statusText,
         stateLabel: statusText,
-        updatedAt: safeText(entry && (entry.updatedAt || entry.lastUpdatedAt || entry.createdAt || conversationId)),
+        updatedAt: safeText(
+          entry &&
+            (entry.updatedAt ||
+              entry.lastUpdatedAt ||
+              entry.createdAt ||
+              conversationId),
+        ),
         backendId,
         backendDisplayName: backendLabel,
         selectable: Boolean(conversationId),
         terminal: false,
-        active: Boolean(conversationId && conversationId === activeConversationId),
+        active: Boolean(
+          conversationId && conversationId === activeConversationId,
+        ),
         itemActions: conversationId
           ? [
               archiveItemAction(
@@ -1893,20 +2504,23 @@
     }
     function acpChatDrawerSections() {
       const groups = {};
-      (Array.isArray(snap.chatSessions) ? snap.chatSessions : []).forEach(function (entry) {
-        const task = acpChatConversationTask(entry);
-        const groupKey = safeText(task.backendId || task.backendDisplayName) || "default";
-        if (!groups[groupKey]) {
-          groups[groupKey] = {
-            backendId: task.backendId,
-            backendDisplayName: task.backendDisplayName,
-            disabled: false,
-            activeTasks: [],
-            finishedTasks: [],
-          };
-        }
-        groups[groupKey].activeTasks.push(task);
-      });
+      (Array.isArray(snap.chatSessions) ? snap.chatSessions : []).forEach(
+        function (entry) {
+          const task = acpChatConversationTask(entry);
+          const groupKey =
+            safeText(task.backendId || task.backendDisplayName) || "default";
+          if (!groups[groupKey]) {
+            groups[groupKey] = {
+              backendId: task.backendId,
+              backendDisplayName: task.backendDisplayName,
+              disabled: false,
+              activeTasks: [],
+              finishedTasks: [],
+            };
+          }
+          groups[groupKey].activeTasks.push(task);
+        },
+      );
       return [
         {
           id: "sessions",
@@ -1923,7 +2537,9 @@
       kind: "acp-chat",
       labels: snap.labels || {},
       context: {
-        id: safeText(snap.sessionId || snap.remoteSessionId || snap.activeConversationId),
+        id: safeText(
+          snap.sessionId || snap.remoteSessionId || snap.activeConversationId,
+        ),
         title: safeText(snap.title) || "ACP Chat",
         subtitle: safeText(snap.labels && snap.labels.subtitle),
         status,
@@ -1932,13 +2548,37 @@
         backendLabel: safeText(snap.backendLabel || snap.agentLabel),
         sessionId: safeText(snap.sessionId || snap.remoteSessionId),
         metadata: compactMetadata([
-          metadataItem(labelFrom(snap, "fields.backend", labels.backend || "Backend"), snap.backendLabel || snap.agentLabel, "backend"),
-          metadataItem(labelFrom(snap, "fields.session", labels.session || "Session"), snap.sessionTitle || snap.sessionId, "session"),
-          metadataItem(labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"), snap.agentWorkspaceDir || snap.sessionCwd, "workspace"),
-          metadataItem(labelFrom(snap, "fields.updated", labels.updated || "Updated"), snap.updatedAt, "updatedAt"),
+          metadataItem(
+            labelFrom(snap, "fields.backend", labels.backend || "Backend"),
+            snap.backendLabel || snap.agentLabel,
+            "backend",
+          ),
+          metadataItem(
+            labelFrom(snap, "fields.session", labels.session || "Session"),
+            snap.sessionTitle || snap.sessionId,
+            "session",
+          ),
+          metadataItem(
+            labelFrom(
+              snap,
+              "fields.workspace",
+              labels.workspace || "Workspace",
+            ),
+            snap.agentWorkspaceDir || snap.sessionCwd,
+            "workspace",
+          ),
+          metadataItem(
+            labelFrom(snap, "fields.updated", labels.updated || "Updated"),
+            snap.updatedAt,
+            "updatedAt",
+          ),
         ]),
         indicators: [
-          connectionIndicator(connectionState, snap.lastError || snap.prerequisiteError, snap),
+          connectionIndicator(
+            connectionState,
+            snap.lastError || snap.prerequisiteError,
+            snap,
+          ),
           buildHostBridgeIndicator(snap),
         ].filter(Boolean),
         selectors: [
@@ -1953,7 +2593,11 @@
           ),
           contextSelector(
             "conversation",
-            labelFrom(snap, "fields.conversation", labels.conversation || "Conversation"),
+            labelFrom(
+              snap,
+              "fields.conversation",
+              labels.conversation || "Conversation",
+            ),
             activeConversationId,
             sessionOptions.options,
             "set-active-conversation",
@@ -1962,12 +2606,22 @@
           ),
         ],
         actions: [
-          contextAction("new-conversation", labels.newConversation || "New", {
-            backendId: activeBackendId,
-          }, snap.busy !== true),
-          contextAction("connect", labels.connect || "Connect", {
-            backendId: activeBackendId,
-          }, !connected && !isConnecting),
+          contextAction(
+            "new-conversation",
+            labels.newConversation || "New",
+            {
+              backendId: activeBackendId,
+            },
+            snap.busy !== true,
+          ),
+          contextAction(
+            "connect",
+            labels.connect || "Connect",
+            {
+              backendId: activeBackendId,
+            },
+            !connected && !isConnecting,
+          ),
           contextAction(
             "disconnect",
             labels.disconnect || "Disconnect",
@@ -1979,7 +2633,8 @@
             labels.authenticate || "Authenticate",
             {
               backendId: activeBackendId,
-              methodId: hasAuth && authMethods[0] ? safeText(authMethods[0].id) : "",
+              methodId:
+                hasAuth && authMethods[0] ? safeText(authMethods[0].id) : "",
             },
             authRequired && hasAuth,
           ),
@@ -2000,7 +2655,11 @@
         inputEnabled: !isConnecting && snap.busy !== true,
         placeholder:
           safeText(snap.labels && snap.labels.composerPlaceholder) ||
-          labelFrom(snap, "reply.placeholderAcpChat", "Ask the active ACP backend about the current library or item..."),
+          labelFrom(
+            snap,
+            "reply.placeholderAcpChat",
+            "Ask the active ACP backend about the current library or item...",
+          ),
         submitLabel:
           snap.busy === true
             ? labelFrom(snap, "actions.cancel", labels.cancel || "Cancel")
@@ -2024,7 +2683,9 @@
             snap.currentDisplayModel || snap.currentModel,
             modelOptions,
             "set-model",
-            !runtimeControlsAvailable || promptBusy || modelOptions.length === 0,
+            !runtimeControlsAvailable ||
+              promptBusy ||
+              modelOptions.length === 0,
           ),
           buildReplySelectControl(
             "reasoning",
@@ -2032,24 +2693,47 @@
             effectiveReasoning,
             effectiveReasoningOptions,
             "set-reasoning-effort",
-            !runtimeControlsAvailable || promptBusy || reasoningOptions.length === 0,
+            !runtimeControlsAvailable ||
+              promptBusy ||
+              reasoningOptions.length === 0,
           ),
         ],
       },
       actions: {
         toolbar: [
-          { action: "open-context-drawer", label: labels.sessionManager || "Sessions" },
-          { action: "openDetails", label: labels.details || labelFrom(snap, "actions.details", "Details") },
-          { action: "open-backend-manager", label: labels.manageBackends || labelFrom(snap, "actions.manageBackends", "Manage") },
+          {
+            action: "open-context-drawer",
+            label: labels.sessionManager || "Sessions",
+          },
+          {
+            action: "openDetails",
+            label:
+              labels.details || labelFrom(snap, "actions.details", "Details"),
+          },
+          {
+            action: "open-backend-manager",
+            label:
+              labels.manageBackends ||
+              labelFrom(snap, "actions.manageBackends", "Manage"),
+          },
         ],
         context: [],
         details: [
-          { action: "copy-diagnostics", label: labels.copyDiagnostics || labelFrom(snap, "actions.copyDiagnostics", "Copy Diagnostics") },
+          {
+            action: "copy-diagnostics",
+            label:
+              labels.copyDiagnostics ||
+              labelFrom(snap, "actions.copyDiagnostics", "Copy Diagnostics"),
+          },
           {
             action: "open-workspace",
             label: labelFrom(snap, "actions.openWorkspace", "Open Workspace"),
-            payload: { workspaceDir: safeText(snap.agentWorkspaceDir || snap.sessionCwd) },
-            enabled: Boolean(safeText(snap.agentWorkspaceDir || snap.sessionCwd)),
+            payload: {
+              workspaceDir: safeText(snap.agentWorkspaceDir || snap.sessionCwd),
+            },
+            enabled: Boolean(
+              safeText(snap.agentWorkspaceDir || snap.sessionCwd),
+            ),
           },
         ],
       },
@@ -2058,7 +2742,10 @@
         contextTitle: labels.sessionManager || "Sessions",
         detailsTitle: labels.diagnostics || "Details",
         labels: assistantDrawerLabels(snap),
-        contexts: (Array.isArray(snap.chatSessions) ? snap.chatSessions : []).map(function (entry) {
+        contexts: (Array.isArray(snap.chatSessions)
+          ? snap.chatSessions
+          : []
+        ).map(function (entry) {
           return {
             title: safeText(entry.title) || "Conversation",
             action: "set-active-conversation",
@@ -2081,7 +2768,8 @@
 
   function projectAcpSkillRunPanelSnapshot(snapshot) {
     const panel = snapshot && typeof snapshot === "object" ? snapshot : {};
-    const panelLabels = panel.labels && typeof panel.labels === "object" ? panel.labels : {};
+    const panelLabels =
+      panel.labels && typeof panel.labels === "object" ? panel.labels : {};
     const run =
       panel.selectedRun && typeof panel.selectedRun === "object"
         ? panel.selectedRun
@@ -2096,16 +2784,21 @@
           )
         : fallbackConversationView(run && run.transcriptItems);
     const status = normalizeStatusToken((run && run.status) || "idle");
-    const conversationState = normalizeStatusToken((run && run.conversationState) || "unknown");
-    const recoveryState = normalizeStatusToken((run && run.conversationRecoveryState) || "unknown");
-    const connected = conversationState === "active" || recoveryState === "connected";
+    const conversationState = normalizeStatusToken(
+      (run && run.conversationState) || "unknown",
+    );
+    const recoveryState = normalizeStatusToken(
+      (run && run.conversationRecoveryState) || "unknown",
+    );
+    const connected =
+      conversationState === "active" || recoveryState === "connected";
     const detachedRecoverableRun = Boolean(
       run &&
-        safeText(run.sessionId) &&
-        conversationState === "closed" &&
-        recoveryState === "available" &&
-        run.activePrompt !== true &&
-        !isTerminalStatus(status),
+      safeText(run.sessionId) &&
+      conversationState === "closed" &&
+      recoveryState === "available" &&
+      run.activePrompt !== true &&
+      !isTerminalStatus(status),
     );
     const actionState = safeText(run && run.connectionActionState);
     const canConnect =
@@ -2118,24 +2811,34 @@
       recoveryState !== "unavailable" &&
       recoveryState !== "unsupported";
     const canDisconnect =
-      connected && actionState !== "connecting" && actionState !== "disconnecting";
+      connected &&
+      actionState !== "connecting" &&
+      actionState !== "disconnecting";
     const rawRuns = Array.isArray(panel.runs) ? panel.runs : [];
     const runContexts = rawRuns.map(function (entry) {
       const requestId = safeText(entry.requestId);
       return {
-        title: safeText(entry.taskName || entry.workflowLabel || entry.skillId) || "Run",
+        title:
+          safeText(entry.taskName || entry.workflowLabel || entry.skillId) ||
+          "Run",
         subtitle: safeText(entry.status) + " · " + requestId,
         status: safeText(entry.status),
         action: "select-run",
         payload: { requestId },
         requestId,
-        active: Boolean(requestId && run && requestId === safeText(run.requestId)),
+        active: Boolean(
+          requestId && run && requestId === safeText(run.requestId),
+        ),
       };
     });
     function acpSkillRunTask(entry) {
       const requestId = safeText(entry && entry.requestId);
-      const title = safeText(entry && (entry.taskName || entry.workflowLabel || entry.skillId)) || "Run";
-      const backendLabel = safeText(entry && (entry.backendLabel || entry.backendId)) || "Backend";
+      const title =
+        safeText(
+          entry && (entry.taskName || entry.workflowLabel || entry.skillId),
+        ) || "Run";
+      const backendLabel =
+        safeText(entry && (entry.backendLabel || entry.backendId)) || "Backend";
       const workflowLabel = buildSkillRunSecondaryLabel(entry) || backendLabel;
       const statusText = safeText(entry && entry.status) || "unknown";
       const entryStatus = normalizeStatusToken(statusText);
@@ -2147,11 +2850,11 @@
       );
       const entryDetachedRecoverable = Boolean(
         entry &&
-          safeText(entry.sessionId) &&
-          entryConversationState === "closed" &&
-          entryRecoveryState === "available" &&
-          entry.activePrompt !== true &&
-          !isTerminalStatus(entryStatus),
+        safeText(entry.sessionId) &&
+        entryConversationState === "closed" &&
+        entryRecoveryState === "available" &&
+        entry.activePrompt !== true &&
+        !isTerminalStatus(entryStatus),
       );
       const needsAttention =
         statusText === "waiting_user" ||
@@ -2187,8 +2890,14 @@
         backendStatus: safeText(entry && entry.backendStatus) || statusText,
         applyStatus: safeText(entry && entry.applyResultState),
         applyState: safeText(entry && entry.applyResultState),
-        applyStateLabel: applyStateLabel(panel, safeText(entry && entry.applyResultState), entry),
-        applyTone: applyStateTone(normalizeStatusToken(entry && entry.applyResultState)),
+        applyStateLabel: applyStateLabel(
+          panel,
+          safeText(entry && entry.applyResultState),
+          entry,
+        ),
+        applyTone: applyStateTone(
+          normalizeStatusToken(entry && entry.applyResultState),
+        ),
         ...taskStatusFields(
           Object.assign({}, entry, {
             status: statusText,
@@ -2197,17 +2906,12 @@
           }),
           panel,
         ),
-        active: Boolean(requestId && run && requestId === safeText(run.requestId)),
+        active: Boolean(
+          requestId && run && requestId === safeText(run.requestId),
+        ),
         itemActions:
           terminal && requestId
-            ? [
-                archiveItemAction(
-                  "archive-run",
-                  "归档",
-                  { requestId },
-                  true,
-                ),
-              ]
+            ? [archiveItemAction("archive-run", "归档", { requestId }, true)]
             : [],
       };
     }
@@ -2219,7 +2923,8 @@
       rawRuns.forEach(function (entry) {
         const task = acpSkillRunTask(entry);
         const sectionId = task.terminal ? "completed" : "running";
-        const groupKey = safeText(task.backendId || task.backendDisplayName) || "default";
+        const groupKey =
+          safeText(task.backendId || task.backendDisplayName) || "default";
         if (!groupsBySection[sectionId][groupKey]) {
           groupsBySection[sectionId][groupKey] = {
             backendId: task.backendId,
@@ -2262,43 +2967,65 @@
             kind: "permission",
             title:
               safeText(run.pendingPermission.source) === "zotero-mcp-write"
-                ? labelFrom(panel, "permission.zoteroWriteApproval", "Zotero write approval")
-                : labelFrom(panel, "permission.acpToolApproval", "ACP tool approval"),
+                ? labelFrom(
+                    panel,
+                    "permission.zoteroWriteApproval",
+                    "Zotero write approval",
+                  )
+                : labelFrom(
+                    panel,
+                    "permission.acpToolApproval",
+                    "ACP tool approval",
+                  ),
             message:
               safeText(run.pendingPermission.summary) ||
-              safeText(run.pendingPermission.toolTitle || run.pendingPermission.requestId) ||
-              labelFrom(panel, "permission.acpSkillApproval", "ACP skill run requests approval."),
+              safeText(
+                run.pendingPermission.toolTitle ||
+                  run.pendingPermission.requestId,
+              ) ||
+              labelFrom(
+                panel,
+                "permission.acpSkillApproval",
+                "ACP skill run requests approval.",
+              ),
             detail: safeText(run.pendingPermission.detail),
             source: safeText(run.pendingPermission.source),
             permission: run.pendingPermission,
-            actions: (Array.isArray(run.pendingPermission.options) ? run.pendingPermission.options : []).map(
-              function (option) {
+            actions: (Array.isArray(run.pendingPermission.options)
+              ? run.pendingPermission.options
+              : []
+            )
+              .map(function (option) {
                 return contextAction(
                   "resolve-permission",
                   safeText(option.name || option.label || option.optionId) ||
                     labelFrom(panel, "actions.approve", "Approve"),
                   {
                     requestId: safeText(run.requestId),
-                    permissionRequestId: safeText(run.pendingPermission.requestId),
+                    permissionRequestId: safeText(
+                      run.pendingPermission.requestId,
+                    ),
                     outcome: "selected",
                     optionId: safeText(option.optionId || option.id),
                   },
                   true,
                 );
-              },
-            ).concat([
-              contextAction(
-                "resolve-permission",
-                labelFrom(panel, "actions.cancel", "Cancel"),
-                {
-                  requestId: safeText(run.requestId),
-                  permissionRequestId: safeText(run.pendingPermission.requestId),
-                  outcome: "cancelled",
-                },
-                true,
-                "danger",
-              ),
-            ]),
+              })
+              .concat([
+                contextAction(
+                  "resolve-permission",
+                  labelFrom(panel, "actions.cancel", "Cancel"),
+                  {
+                    requestId: safeText(run.requestId),
+                    permissionRequestId: safeText(
+                      run.pendingPermission.requestId,
+                    ),
+                    outcome: "cancelled",
+                  },
+                  true,
+                  "danger",
+                ),
+              ]),
           }
         : conversation.interaction;
     const activePrompt = Boolean(run && run.activePrompt === true);
@@ -2308,28 +3035,30 @@
       ["submitted", "accepted", "sending"].indexOf(replyState) >= 0;
     const interruptedTurn = Boolean(
       run &&
-        (
-          (Array.isArray(run.events) &&
-            run.events.some(function (event) {
-              const stage = safeText(event && event.stage);
-              return stage === "interrupt-requested" || stage === "interrupt-completed";
-            })) ||
-          (Array.isArray(run.transcriptItems) &&
-            run.transcriptItems.some(function (item) {
-              const label = safeText(item && (item.label || item.stage));
-              return label === "interrupt-requested" || label === "interrupt-completed";
-            }))
-        ),
+      ((Array.isArray(run.events) &&
+        run.events.some(function (event) {
+          const stage = safeText(event && event.stage);
+          return (
+            stage === "interrupt-requested" || stage === "interrupt-completed"
+          );
+        })) ||
+        (Array.isArray(run.transcriptItems) &&
+          run.transcriptItems.some(function (item) {
+            const label = safeText(item && (item.label || item.stage));
+            return (
+              label === "interrupt-requested" || label === "interrupt-completed"
+            );
+          }))),
     );
     const connectedIdleRun = Boolean(
       run &&
-        connected &&
-        !isTerminalStatus(status) &&
-        !activePrompt &&
-        !activeContinuation &&
-        replyState === "idle" &&
-        !run.pendingPermission &&
-        interruptedTurn,
+      connected &&
+      !isTerminalStatus(status) &&
+      !activePrompt &&
+      !activeContinuation &&
+      replyState === "idle" &&
+      !run.pendingPermission &&
+      interruptedTurn,
     );
     const waitingForUser =
       status === "waiting-user" ||
@@ -2339,38 +3068,53 @@
     const busyRun = activePrompt || activeContinuation;
     const terminalRun = isTerminalStatus(status);
     const runtimeOptions =
-      panel.selectedRuntimeOptions && typeof panel.selectedRuntimeOptions === "object"
+      panel.selectedRuntimeOptions &&
+      typeof panel.selectedRuntimeOptions === "object"
         ? panel.selectedRuntimeOptions
         : {};
-    const modeOptions = Array.isArray(runtimeOptions.modeOptions) ? runtimeOptions.modeOptions : [];
+    const modeOptions = Array.isArray(runtimeOptions.modeOptions)
+      ? runtimeOptions.modeOptions
+      : [];
     const modelOptions = Array.isArray(runtimeOptions.displayModelOptions)
       ? runtimeOptions.displayModelOptions
       : Array.isArray(runtimeOptions.modelOptions)
         ? runtimeOptions.modelOptions
         : [];
-    const reasoningOptions = Array.isArray(runtimeOptions.reasoningEffortOptions)
+    const reasoningOptions = Array.isArray(
+      runtimeOptions.reasoningEffortOptions,
+    )
       ? runtimeOptions.reasoningEffortOptions
       : [];
     const currentMode =
-      (runtimeOptions.currentMode && typeof runtimeOptions.currentMode === "object"
+      (runtimeOptions.currentMode &&
+      typeof runtimeOptions.currentMode === "object"
         ? runtimeOptions.currentMode
         : null) ||
-      (run && run.acpModeId ? { id: run.acpModeId, label: run.acpModeId } : null);
+      (run && run.acpModeId
+        ? { id: run.acpModeId, label: run.acpModeId }
+        : null);
     const currentModel =
-      (runtimeOptions.currentDisplayModel && typeof runtimeOptions.currentDisplayModel === "object"
+      (runtimeOptions.currentDisplayModel &&
+      typeof runtimeOptions.currentDisplayModel === "object"
         ? runtimeOptions.currentDisplayModel
         : null) ||
       (run && (run.acpModelId || run.acpRawModelId)
-        ? { id: run.acpModelId || run.acpRawModelId, label: run.acpModelId || run.acpRawModelId }
+        ? {
+            id: run.acpModelId || run.acpRawModelId,
+            label: run.acpModelId || run.acpRawModelId,
+          }
         : null);
     const currentReasoning =
-      (runtimeOptions.currentReasoningEffort && typeof runtimeOptions.currentReasoningEffort === "object"
+      (runtimeOptions.currentReasoningEffort &&
+      typeof runtimeOptions.currentReasoningEffort === "object"
         ? runtimeOptions.currentReasoningEffort
         : null) ||
       (run && run.acpReasoningEffort
         ? { id: run.acpReasoningEffort, label: run.acpReasoningEffort }
         : null);
-    const runtimeControlsAvailable = Boolean(run && connected && safeText(run.sessionId));
+    const runtimeControlsAvailable = Boolean(
+      run && connected && safeText(run.sessionId),
+    );
     const runtimeControlPayload = { requestId: safeText(run && run.requestId) };
     if (
       run &&
@@ -2403,7 +3147,9 @@
       interaction = {
         kind: "disconnected",
         message:
-          safeText(run.conversationError || run.lastRecoveryError || run.error) ||
+          safeText(
+            run.conversationError || run.lastRecoveryError || run.error,
+          ) ||
           labelFrom(
             panel,
             "interaction.disconnectedRecoverable",
@@ -2425,8 +3171,7 @@
               run.replyError ||
               run.lastRecoveryError ||
               run.conversationError,
-          ) ||
-          status,
+          ) || status,
       };
     }
     if (
@@ -2438,12 +3183,11 @@
     ) {
       interaction = {
         kind: "notice",
-        message:
-          labelFrom(
-            panel,
-            "interaction.runCanceledContinue",
-            "Run canceled. You can send a new instruction to continue this conversation.",
-          ),
+        message: labelFrom(
+          panel,
+          "interaction.runCanceledContinue",
+          "Run canceled. You can send a new instruction to continue this conversation.",
+        ),
       };
     }
     const canReply =
@@ -2468,12 +3212,24 @@
         sessionId: safeText(run && run.sessionId),
         workspaceDir: safeText(run && run.workspaceDir),
         metadata: compactMetadata([
-          metadataItem(labelFrom(panel, "fields.backend", "Backend"), run && run.backendLabel, "backend"),
-          metadataItem(labelFrom(panel, "fields.workspace", "Workspace"), run && run.workspaceDir, "workspace"),
+          metadataItem(
+            labelFrom(panel, "fields.backend", "Backend"),
+            run && run.backendLabel,
+            "backend",
+          ),
+          metadataItem(
+            labelFrom(panel, "fields.workspace", "Workspace"),
+            run && run.workspaceDir,
+            "workspace",
+          ),
         ]),
         indicators: [
           connectionIndicator(
-            connected ? "connected" : recoveryState === "connecting" ? "connecting" : conversationState,
+            connected
+              ? "connected"
+              : recoveryState === "connecting"
+                ? "connecting"
+                : conversationState,
             run && (run.conversationError || run.error),
             panel,
           ),
@@ -2493,7 +3249,11 @@
               contextAction(
                 "disconnect-run",
                 actionState === "disconnecting"
-                  ? labelFrom(panel, "actions.disconnecting", "Disconnecting...")
+                  ? labelFrom(
+                      panel,
+                      "actions.disconnecting",
+                      "Disconnecting...",
+                    )
                   : labelFrom(panel, "actions.disconnect", "Disconnect"),
                 { requestId: safeText(run.requestId) },
                 canDisconnect,
@@ -2523,7 +3283,11 @@
       reply: {
         enabled: busyRun || canReply,
         inputEnabled: canReply && !busyRun,
-        placeholder: labelFrom(panel, "reply.placeholderAcpSkill", "Reply to this ACP skill conversation..."),
+        placeholder: labelFrom(
+          panel,
+          "reply.placeholderAcpSkill",
+          "Reply to this ACP skill conversation...",
+        ),
         submitLabel: busyRun
           ? labelFrom(panel, "actions.cancel", "Cancel")
           : labelFrom(panel, "actions.send", "Send"),
@@ -2558,7 +3322,9 @@
             currentReasoning,
             reasoningOptions,
             "set-reasoning-effort",
-            !runtimeControlsAvailable || busyRun || reasoningOptions.length === 0,
+            !runtimeControlsAvailable ||
+              busyRun ||
+              reasoningOptions.length === 0,
             runtimeControlPayload,
           ),
         ],
@@ -2576,9 +3342,22 @@
       },
       actions: {
         toolbar: [
-          { action: "open-context-drawer", label: labelFrom(panel, "actions.runs", "Runs") },
-          { action: "openDetails", label: labelFrom(panel, "actions.details", "Details") },
-          { action: "open-backend-manager", label: labelFrom(panel, "actions.manageBackends", "Manage Backends") },
+          {
+            action: "open-context-drawer",
+            label: labelFrom(panel, "actions.runs", "Runs"),
+          },
+          {
+            action: "openDetails",
+            label: labelFrom(panel, "actions.details", "Details"),
+          },
+          {
+            action: "open-backend-manager",
+            label: labelFrom(
+              panel,
+              "actions.manageBackends",
+              "Manage Backends",
+            ),
+          },
         ],
         context: [],
         details: [
@@ -2589,7 +3368,11 @@
           },
           {
             action: "copy-diagnostics",
-            label: labelFrom(panel, "actions.copyDiagnostics", "Copy Diagnostics"),
+            label: labelFrom(
+              panel,
+              "actions.copyDiagnostics",
+              "Copy Diagnostics",
+            ),
             enabled: Boolean(run),
           },
           {
@@ -2607,10 +3390,16 @@
   function projectSkillRunnerPanelSnapshot(snapshot) {
     const envelope = snapshot && typeof snapshot === "object" ? snapshot : {};
     const session =
-      envelope.session && typeof envelope.session === "object" ? envelope.session : envelope;
+      envelope.session && typeof envelope.session === "object"
+        ? envelope.session
+        : envelope;
     const status = normalizeStatusToken(session.status || "idle");
-    const conversation = buildSkillRunnerConversationView(session);
-    let interaction = buildSkillRunnerPendingInteraction(session, status, envelope);
+    const conversation = buildSkillRunnerConversationView(session, envelope);
+    let interaction = buildSkillRunnerPendingInteraction(
+      session,
+      status,
+      envelope,
+    );
     const pendingPermission =
       session.pendingPermission && typeof session.pendingPermission === "object"
         ? session.pendingPermission
@@ -2620,17 +3409,34 @@
         kind: "permission",
         title:
           safeText(pendingPermission.source) === "zotero-mcp-write"
-            ? labelFrom(envelope, "permission.zoteroWriteApproval", "Zotero write approval")
-            : labelFrom(envelope, "permission.acpToolApproval", "ACP tool approval"),
+            ? labelFrom(
+                envelope,
+                "permission.zoteroWriteApproval",
+                "Zotero write approval",
+              )
+            : labelFrom(
+                envelope,
+                "permission.acpToolApproval",
+                "ACP tool approval",
+              ),
         message:
           safeText(pendingPermission.summary) ||
-          safeText(pendingPermission.toolTitle || pendingPermission.requestId) ||
-          labelFrom(envelope, "permission.skillRunnerApproval", "SkillRunner requests approval."),
+          safeText(
+            pendingPermission.toolTitle || pendingPermission.requestId,
+          ) ||
+          labelFrom(
+            envelope,
+            "permission.skillRunnerApproval",
+            "SkillRunner requests approval.",
+          ),
         detail: safeText(pendingPermission.detail),
         source: safeText(pendingPermission.source),
         permission: pendingPermission,
-        actions: (Array.isArray(pendingPermission.options) ? pendingPermission.options : []).map(
-          function (option) {
+        actions: (Array.isArray(pendingPermission.options)
+          ? pendingPermission.options
+          : []
+        )
+          .map(function (option) {
             return contextAction(
               "resolve-permission",
               safeText(option.name || option.label || option.optionId) ||
@@ -2643,20 +3449,20 @@
               },
               true,
             );
-          },
-        ).concat([
-          contextAction(
-            "resolve-permission",
-            labelFrom(envelope, "actions.cancel", "Cancel"),
-            {
-              requestId: safeText(session.requestId || session.id),
-              permissionRequestId: safeText(pendingPermission.requestId),
-              outcome: "cancelled",
-            },
-            true,
-            "danger",
-          ),
-        ]),
+          })
+          .concat([
+            contextAction(
+              "resolve-permission",
+              labelFrom(envelope, "actions.cancel", "Cancel"),
+              {
+                requestId: safeText(session.requestId || session.id),
+                permissionRequestId: safeText(pendingPermission.requestId),
+                outcome: "cancelled",
+              },
+              true,
+              "danger",
+            ),
+          ]),
       };
     }
     const selectedTask = findSkillRunnerPanelTask(envelope, session);
@@ -2683,11 +3489,13 @@
         ? selectedTask.canReply
         : session && typeof session.canReply === "boolean"
           ? session.canReply
-          : backendInteractive && (status === "waiting-user" || status === "waiting-auth");
+          : backendInteractive &&
+            (status === "waiting-user" || status === "waiting-auth");
     const skillRunnerBusy =
       backendInteractive && (status === "running" || status === "prompting");
     const skillRunnerWaiting =
-      backendInteractive && (status === "waiting-user" || status === "waiting-auth");
+      backendInteractive &&
+      (status === "waiting-user" || status === "waiting-auth");
     const skillRunnerSecondaryLabel = buildSkillRunSecondaryLabel(
       selectedTask,
       session,
@@ -2710,20 +3518,40 @@
     );
     return normalizeAssistantPanelSnapshot({
       kind: "skillrunner",
-      labels: envelope.labels && typeof envelope.labels === "object" ? envelope.labels : {},
+      labels:
+        envelope.labels && typeof envelope.labels === "object"
+          ? envelope.labels
+          : {},
       context: {
         id: safeText(session.requestId || session.id),
-        title: safeText(session.title || envelope.title) || "SkillRunner Workspace",
+        title:
+          safeText(session.title || envelope.title) || "SkillRunner Workspace",
         subtitle: skillRunnerSecondaryLabel || safeText(session.requestId),
         status,
         statusLabel: status,
         backendId: safeText(session.backendId),
         backendLabel: safeText(session.backendTitle),
         metadata: compactMetadata([
-          metadataItem(labelFrom(envelope, "fields.backend", "Backend"), session.backendTitle, "backend"),
-          metadataItem(labelFrom(envelope, "fields.engine", "Engine"), session.engine, "engine"),
-          metadataItem(labelFrom(envelope, "fields.model", "Model"), session.model, "model"),
-          metadataItem(labelFrom(envelope, "fields.updated", "Updated"), session.updatedAt, "updatedAt"),
+          metadataItem(
+            labelFrom(envelope, "fields.backend", "Backend"),
+            session.backendTitle,
+            "backend",
+          ),
+          metadataItem(
+            labelFrom(envelope, "fields.engine", "Engine"),
+            session.engine,
+            "engine",
+          ),
+          metadataItem(
+            labelFrom(envelope, "fields.model", "Model"),
+            session.model,
+            "model",
+          ),
+          metadataItem(
+            labelFrom(envelope, "fields.updated", "Updated"),
+            session.updatedAt,
+            "updatedAt",
+          ),
         ]),
         indicators: [controlIndicator, autoReplyIndicator].filter(Boolean),
         actions: [
@@ -2747,20 +3575,34 @@
       interaction,
       reply: {
         enabled: pendingPermission ? false : canReply || skillRunnerBusy,
-        inputEnabled: pendingPermission ? false : canReply && skillRunnerWaiting,
-        placeholder: labelFrom(envelope, "reply.placeholderSkillRunner", "Reply to the pending SkillRunner interaction..."),
+        inputEnabled: pendingPermission
+          ? false
+          : canReply && skillRunnerWaiting,
+        placeholder: labelFrom(
+          envelope,
+          "reply.placeholderSkillRunner",
+          "Reply to the pending SkillRunner interaction...",
+        ),
         submitLabel: skillRunnerBusy
           ? labelFrom(envelope, "actions.cancel", "Cancel")
           : labelFrom(envelope, "actions.send", "Send"),
         action: skillRunnerBusy ? "cancel-run" : "reply-run",
         tone: skillRunnerBusy ? "danger" : "primary",
         clearOnSend: !skillRunnerBusy,
-        hint: labelFrom(envelope, "reply.shortcut", "Ctrl+Enter / Cmd+Enter to send"),
+        hint: labelFrom(
+          envelope,
+          "reply.shortcut",
+          "Ctrl+Enter / Cmd+Enter to send",
+        ),
       },
       drawers: {
         layout: "skillrunner-workspace",
         contextTitle: labelFrom(envelope, "actions.runs", "Runs"),
-        detailsTitle: labelFrom(envelope, "details.title", "SkillRunner Details"),
+        detailsTitle: labelFrom(
+          envelope,
+          "details.title",
+          "SkillRunner Details",
+        ),
         contexts: buildSkillRunnerContexts(envelope),
         skillrunnerSections: decorateSkillRunnerWorkspaceSections(
           envelope.drawer && Array.isArray(envelope.drawer.sections)
@@ -2777,9 +3619,22 @@
       },
       actions: {
         toolbar: [
-          { action: "open-context-drawer", label: labelFrom(envelope, "actions.runs", "Runs") },
-          { action: "openDetails", label: labelFrom(envelope, "actions.details", "Details") },
-          { action: "open-backend-manager", label: labelFrom(envelope, "actions.manageBackends", "Manage Backends") },
+          {
+            action: "open-context-drawer",
+            label: labelFrom(envelope, "actions.runs", "Runs"),
+          },
+          {
+            action: "openDetails",
+            label: labelFrom(envelope, "actions.details", "Details"),
+          },
+          {
+            action: "open-backend-manager",
+            label: labelFrom(
+              envelope,
+              "actions.manageBackends",
+              "Manage Backends",
+            ),
+          },
         ],
         context: [],
         details: [
@@ -2791,7 +3646,11 @@
           },
           {
             action: "copy-diagnostics",
-            label: labelFrom(envelope, "actions.copyDiagnostics", "Copy Diagnostics"),
+            label: labelFrom(
+              envelope,
+              "actions.copyDiagnostics",
+              "Copy Diagnostics",
+            ),
             payload: { requestId: safeText(session && session.requestId) },
           },
         ],

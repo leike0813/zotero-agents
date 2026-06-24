@@ -287,6 +287,14 @@ export function buildAssistantPanelLabels() {
     },
     transcript: {
       empty: l("assistant-panel-transcript-empty", "No messages yet."),
+      historyLoading: l(
+        "assistant-panel-transcript-history-loading",
+        "Loading conversation",
+      ),
+      historyLoadingDetail: l(
+        "assistant-panel-transcript-history-loading-detail",
+        "Loading conversation history...",
+      ),
       thinking: l("assistant-panel-transcript-thinking", "Thinking"),
       status: l("assistant-panel-transcript-status", "Status"),
       tool: l("assistant-panel-transcript-tool", "Tool"),
@@ -384,10 +392,7 @@ export function buildAssistantPanelLabels() {
         "Retry scheduled",
       ),
       applySkipped: l("assistant-panel-status-apply-skipped", "Skipped"),
-      autoReplyActive: l(
-        "assistant-panel-status-auto-reply-active",
-        "Active",
-      ),
+      autoReplyActive: l("assistant-panel-status-auto-reply-active", "Active"),
       autoReplyInactive: l(
         "assistant-panel-status-auto-reply-inactive",
         "Inactive",

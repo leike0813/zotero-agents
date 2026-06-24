@@ -17,12 +17,12 @@ describe("shared markdown renderer contract", function () {
       [
         "<!doctype html>",
         '<meta charset="utf-8" />',
-        script("addon/content/dashboard/vendor/markdown-it/markdown-it.min.js"),
-        script("addon/content/dashboard/vendor/katex/katex.min.js"),
+        script("addon/content/shared/vendor/markdown-it/markdown-it.min.js"),
+        script("addon/content/shared/vendor/katex/katex.min.js"),
         script(
-          "addon/content/dashboard/vendor/markdown-it-texmath/texmath.min.js",
+          "addon/content/shared/vendor/markdown-it-texmath/texmath.min.js",
         ),
-        script("addon/content/dashboard/vendor/highlight/highlight.min.js"),
+        script("addon/content/shared/vendor/highlight/highlight.min.js"),
         script("addon/content/shared/markdown-renderer.js"),
         '<div id="root"></div>',
       ].join("\n"),

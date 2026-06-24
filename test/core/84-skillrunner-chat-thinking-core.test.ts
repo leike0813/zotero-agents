@@ -11,7 +11,7 @@ type ThinkingChatModel = {
 
 async function loadThinkingChatCore() {
   const script = await readUtf8(
-    joinPath(getProjectRoot(), "addon", "content", "dashboard", "chat_thinking_core.js"),
+    joinPath(getProjectRoot(), "addon", "content", "sidebar", "chat_thinking_core.js"),
   );
   const windowObject: Record<string, unknown> = {};
   const factory = new Function("window", `${script}\nreturn window.SkillRunnerThinkingChatCore;`);

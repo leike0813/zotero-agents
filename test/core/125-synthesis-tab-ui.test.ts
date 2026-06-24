@@ -2861,6 +2861,11 @@ describe("Synthesis tab UI model", function () {
       handshakeBlock,
       'void sendSnapshot(runtime, "synthesis:snapshot");',
     );
+    assert.include(handshakeBlock, "sendActiveSurface(runtime);");
+    assert.notInclude(
+      handshakeBlock,
+      'sendActiveSurface(runtime, { refreshFromService: false })',
+    );
     assert.notInclude(handshakeBlock, "refreshFromService: true");
     assert.include(
       hooks,

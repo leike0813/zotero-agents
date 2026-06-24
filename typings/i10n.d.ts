@@ -181,6 +181,8 @@ export type FluentMessageId =
   | 'assistant-panel-transcript-empty'
   | 'assistant-panel-transcript-expand'
   | 'assistant-panel-transcript-failed'
+  | 'assistant-panel-transcript-history-loading'
+  | 'assistant-panel-transcript-history-loading-detail'
   | 'assistant-panel-transcript-latest-revision'
   | 'assistant-panel-transcript-pending'
   | 'assistant-panel-transcript-permission'

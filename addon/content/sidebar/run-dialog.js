@@ -13,6 +13,8 @@
     transcriptNodeMap: new Map(),
     transcriptOrderKey: "",
     transcriptModeKey: "",
+    transcriptRenderToken: 0,
+    pendingTranscriptSnapshot: null,
     toolActivityExpandedIds: new Set(),
   };
 
@@ -83,6 +85,16 @@
           // ignored
         }
       });
+    });
+  }
+
+  function withOptimisticSelectedTask(envelope, taskKey) {
+    const key = safeText(taskKey);
+    if (!key || !envelope || typeof envelope !== "object") return envelope;
+    return Object.assign({}, envelope, {
+      workspace: Object.assign({}, envelope.workspace || {}, {
+        selectedTaskKey: key,
+      }),
     });
   }
 
@@ -627,10 +639,15 @@
       return;
     }
     if (action === "select-task") {
+      const taskKey = safeText(data.taskKey);
       state.drawerOpen = false;
+      state.workspaceEnvelope = withOptimisticSelectedTask(
+        state.workspaceEnvelope || {},
+        taskKey,
+      );
       render(state.workspaceEnvelope || {});
       sendAction("close-drawer", {});
-      sendAction("select-task", { taskKey: safeText(data.taskKey) });
+      sendAction("select-task", { taskKey });
       return;
     }
     if (action === "cancel" || action === "cancel-run") {
@@ -749,6 +766,25 @@
     });
   }
 
+  function scheduleTranscriptRender(panelSnapshot) {
+    const token = state.transcriptRenderToken + 1;
+    state.transcriptRenderToken = token;
+    state.pendingTranscriptSnapshot = panelSnapshot || null;
+    const run = function () {
+      if (token !== state.transcriptRenderToken) return;
+      const pending = state.pendingTranscriptSnapshot;
+      state.pendingTranscriptSnapshot = null;
+      renderTranscript(pending || {});
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(function () {
+        setTimeout(run, 0);
+      });
+      return;
+    }
+    setTimeout(run, 0);
+  }
+
   function render(envelope) {
     state.workspaceEnvelope =
       envelope && typeof envelope === "object" ? envelope : {};
@@ -814,7 +850,7 @@
     document
       .getElementById("skillrunner-details")
       .classList.toggle("hidden", !state.detailsOpen);
-    renderTranscript(panelSnapshot);
+    scheduleTranscriptRender(panelSnapshot);
   }
 
   function closeAllDrawers() {

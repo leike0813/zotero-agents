@@ -295,14 +295,14 @@ async function makeSourceBundle(
   return zipPath;
 }
 
-function runRuntime(args: string[], cwd: string) {
+function runRuntime(args: string[], cwd: string, env?: NodeJS.ProcessEnv) {
   const scriptPath = path.resolve(
     "skills_builtin",
     "literature-deep-reading",
     "scripts",
     "deep_reading_runtime.py",
   );
-  return JSON.parse(pythonCommand([scriptPath, ...args], cwd));
+  return JSON.parse(pythonCommand([scriptPath, ...args], cwd, env));
 }
 
 function runRuntimeAllowFailure(args: string[], cwd: string) {
@@ -4465,7 +4465,40 @@ describe("Literature deep reading bootstrap skill", function () {
       JSON.stringify({ source_bundle_path: bundlePath }, null, 2),
       "utf8",
     );
-    runRuntime(["bootstrap", "--input", "runtime/input.json"], runRoot);
+    const noHostBridge = path.join(
+      tempRoot,
+      process.platform === "win32"
+        ? "missing-zotero-bridge.cmd"
+        : "missing-zotero-bridge",
+    );
+    await fs.writeFile(
+      noHostBridge,
+      process.platform === "win32"
+        ? [
+            "@echo off",
+            'echo {"ok":false,"error":{"code":"host_bridge_unavailable","message":"Host Bridge CLI unavailable in test"}}',
+            "exit /b 1",
+            "",
+          ].join("\r\n")
+        : [
+            "#!/usr/bin/env sh",
+            'printf \'%s\\n\' \'{"ok":false,"error":{"code":"host_bridge_unavailable","message":"Host Bridge CLI unavailable in test"}}\'',
+            "exit 1",
+            "",
+          ].join("\n"),
+      "utf8",
+    );
+    if (process.platform !== "win32") {
+      await fs.chmod(noHostBridge, 0o755);
+    }
+    const noHostEnv = {
+      ZOTERO_BRIDGE_BIN: noHostBridge,
+    };
+    runRuntime(
+      ["bootstrap", "--input", "runtime/input.json"],
+      runRoot,
+      noHostEnv,
+    );
     await writeContextRequest(runRoot);
 
     const result = runRuntime(
@@ -4475,6 +4508,7 @@ describe("Literature deep reading bootstrap skill", function () {
         "runtime/payloads/context-request.json",
       ],
       runRoot,
+      noHostEnv,
     );
     assert.equal(result.status, "context_ready");
     assert.include(result.warnings, "topic_context_failed");
