@@ -1,0 +1,55 @@
+- favicon.png: 插件小图标
+- icon_full.png: 插件大图标
+- icon_play.png: 工具栏`执行Workflow`快捷按钮
+- icon_workbench.png: 工具栏`打开Dashboard/Synthesis工作区`快捷按钮
+- icon_sidebar.png: 工具栏`打开助手侧边栏`快捷按钮
+- icon_sidebar_glow.png: 工具栏`打开助手侧边栏`快捷按钮（待回复提示状态）
+- dashboard_home.png: Dashboard首页
+- dashboard_workflow-settings.png: Dashboard——Workflow选项页面
+- dashboard_products.png: Dashboard——产物存储区
+- dashboard_logs.png: Dashboard——运行日志页面
+- dashboard_acp-backend.png: Dashboard——后端任务列表页面（ACP后端）
+- dashboard_skillrunner-backend.png: Dashboard——后端任务列表页面（SkillRunner后端）
+- dashboard_skill-feedback.png: Dashboard——产物区的Skill反馈存储区
+- preferences_workflow.png: 插件设置页面——Workflow选项
+- preferences_official-workflow-contents.png: 插件设置页面——官方Workflow包
+- preferences_host-bridge.png: 插件设置页面——Host Bridge选项
+- preferences_host-bridge——expand.png: 插件设置页面——Host Bridge选项（展开危险操作区）
+- preferences_storage-and-persistence.png: 插件设置页面——存储与持久化管理
+- preferences_WebDAV-sync.png: 插件设置页面——WebDAV同步选项
+- preferences_skillrunner-local-backend.png: 插件设置页面——本地SkillRunner后端管理
+- docs:
+  * backends:
+    - backend-manager_ACP.png: 后端管理器——ACP后端页面
+    - backend-manager_skillrunner.png: 后端管理器——SkillRunner后端页面
+    - backend-manager_generic-HTTP.png: 后端管理器——一般HTTP后端页面
+  * sidebar:
+    - acp-chat.png: ACP Chat 面板
+    - acp-skills.png: ACP Skills 面板
+    - skillrunner-tab.png: SkillRunner 面板
+  * synthesis:
+    - home.png: Synthesis 工作台首页
+    - topic-graph.png: Synthesis 工作台`主题`页面（图谱视图）
+    - concepts.png: Synthesis 工作台`概念`页面
+    - index.png: Synthesis 工作台`索引`页面
+    - index_canonical-revision.png: Synthesis 工作台`索引`页面中的`修订规范引用`功能
+    - tags.png: Synthesis 工作台`标签`页面
+    - citation-graph: Synthesis 工作台`文献图谱`页面
+    - review.png: Synthesis 工作台`审阅`页面
+  * workflows:
+    - literature-deep-reading_1.png: `文献深度阅读`最终产物-1（开篇导读部分）
+    - literature-deep-reading_2.png: `文献深度阅读`最终产物-2（双语动态阅读部分）
+    - literature-deep-reading_3.png: `文献深度阅读`最终产物-3（参考文献及库内引文摘要阅读）
+    - literature-deep-reading_4.png: `文献深度阅读`最终产物-4（当前参考文献的2跳子图）
+    - topic-synthesis_overview.png: `主题综合`产物（`概览`页面）
+    - topic-synthesis_taxonomy.png: `主题综合`产物（`分类`页面）
+    - topic-synthesis_claims.png: `主题综合`产物（`论点`页面）
+    - topic-synthesis_compare.png: `主题综合`产物（`比较`页面）
+    - topic-synthesis_future-directions.png: `主题综合`产物（`未来方向`页面）
+    - topic-synthesis_coverage.png: `主题综合`产物（`覆盖`页面）
+    - topic-synthesis_report.png: `主题综合`产物（`报告`页面）
+    - topic-synthesis_subgraph.png: `主题综合`产物（跳转查看当前主题的文献子图）
+    - literature-analysis_digest.png: `文献分析`产物——文献摘要Note
+    - literature-analysis_references.png: `文献分析`产物——引文条目Note
+    - literature-analysis_citation-analysis.png: `文献分析`产物——引文分析Note
+    - literature-explainer_note.png: `文献解释器`产物——学习笔记

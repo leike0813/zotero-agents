@@ -24,13 +24,7 @@ type DuplicateGuardDeps = {
 const defaultDuplicateGuardDeps: DuplicateGuardDeps = {
   listActiveWorkflowTasks: listActiveWorkflowTaskSummaries,
   appendRuntimeLog,
-  confirmDuplicateSubmission: ({
-    win,
-    title,
-    message,
-    yesLabel,
-    noLabel,
-  }) => {
+  confirmDuplicateSubmission: ({ win, title, message, yesLabel, noLabel }) => {
     const runtime = globalThis as {
       Zotero?: {
         Prompt?: {
@@ -92,12 +86,15 @@ function findRunningDuplicates(args: {
   );
 }
 
-export async function runWorkflowDuplicateGuardSeam(args: {
-  win: _ZoteroTypes.MainWindow;
-  workflowId: string;
-  workflowLabel: string;
-  requests: unknown[];
-}, deps: Partial<DuplicateGuardDeps> = {}): Promise<DuplicateGuardResult> {
+export async function runWorkflowDuplicateGuardSeam(
+  args: {
+    win: _ZoteroTypes.MainWindow;
+    workflowId: string;
+    workflowLabel: string;
+    requests: unknown[];
+  },
+  deps: Partial<DuplicateGuardDeps> = {},
+): Promise<DuplicateGuardResult> {
   const resolved = {
     ...defaultDuplicateGuardDeps,
     ...deps,
@@ -107,7 +104,10 @@ export async function runWorkflowDuplicateGuardSeam(args: {
   const allowedRequests: unknown[] = [];
   const skippedRecords: DuplicateSkipRecord[] = [];
 
-  const yesLabel = localizeWorkflowText("workflow-duplicate-confirm-yes", "Yes");
+  const yesLabel = localizeWorkflowText(
+    "workflow-duplicate-confirm-yes",
+    "Yes",
+  );
   const noLabel = localizeWorkflowText("workflow-duplicate-confirm-no", "No");
   const title = localizeWorkflowText(
     "workflow-duplicate-confirm-title",

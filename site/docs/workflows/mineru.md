@@ -6,11 +6,36 @@
 
 MinerU 是基于深度学习的 PDF 解析工具，能从学术论文中提取高质量的文本和图表。
 
-## 适用场景
+## 使用场景
 
 - PDF 格式的文献需要转为可编辑的 Markdown
 - 为后续 workflow（如文献分析、深度阅读）准备纯文本文档
 - 提取 PDF 中的图片和表格
+
+## 配置 MinerU 后端
+
+### 1. 注册 MinerU 账号并获取 API Token
+
+1. 访问 [mineru.net](https://mineru.net) 注册账号
+2. 登录后进入 **API → API 管理** 页面
+3. 创建或复制一个 API Token
+
+### 2. 在后端管理器中添加后端
+
+1. 打开 **工具 → [后端管理器](../backends/backend-manager)**
+2. 切换到 **Generic HTTP** Tab
+3. 点击 **添加 Generic HTTP**
+4. 填写以下字段：
+
+| 字段 | 值 |
+|------|-----|
+| 显示名称 | `MinerU Official`（或其他你喜欢的名称） |
+| Base URL | `https://mineru.net` |
+| 认证方式 | `bearer` |
+| 认证令牌 | 粘贴上一步获取的 API Token |
+| 超时时间 | `60000`（60 秒） |
+
+5. 点击右下角 **保存**
 
 ## 输入约束
 
@@ -103,7 +128,7 @@ MinerU workflow 无用户可配置参数。
 - **后端**：MinerU 服务（Generic HTTP 后端）
 - **Backend 配置**：在 Backend Manager 中配置 Generic HTTP 类型的后端
 - **认证**：需要有效的 API Token（Bearer token）
-- **MinerU 服务地址**：`https://api.mineru.cn` 或其他部署实例
+- **MinerU 服务地址**：`https://mineru.net` 或其他部署实例
 
 ## 相关工作流
 

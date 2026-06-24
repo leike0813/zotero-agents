@@ -121,8 +121,7 @@ export type ProductStorageApi = {
   ) => Promise<WorkflowProductPreview>;
 };
 
-export const WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK =
-  "skill_run_feedback";
+export const WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK = "skill_run_feedback";
 export const SKILL_RUN_FEEDBACK_ASSET_ID = "feedback";
 const STORE_SCOPE = "products";
 const DEFAULT_PREVIEW_BYTES = 256 * 1024;

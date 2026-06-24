@@ -175,7 +175,9 @@ export function getGitSyncPrefsStatus(): SynthesisGitSyncPrefsStatus {
     branch: config.branch,
     auto_sync_enabled: getSynthesisGitSyncAutoSyncEnabled(),
     auto_retry_enabled: config.autoRetryEnabled,
-    token_configured: Boolean(cleanString(getPref("synthesisGitSyncTokenEncryptedJson"))),
+    token_configured: Boolean(
+      cleanString(getPref("synthesisGitSyncTokenEncryptedJson")),
+    ),
     token_masked: tokenMasked || undefined,
     token_updated_at: tokenUpdatedAt || undefined,
     config_status: status.config_status,
@@ -209,7 +211,10 @@ export function saveGitSyncPrefs(input: SynthesisGitSyncPrefsSaveInput) {
     setPref("synthesisGitSyncAutoSyncEnabled", input.autoSyncEnabled === true);
   }
   if (input.autoRetryEnabled !== undefined) {
-    setPref("synthesisGitSyncAutoRetryEnabled", input.autoRetryEnabled !== false);
+    setPref(
+      "synthesisGitSyncAutoRetryEnabled",
+      input.autoRetryEnabled !== false,
+    );
   }
   clearConnectionTestPref();
   return {
@@ -281,10 +286,12 @@ function remoteBranchMissingInitializableDiagnostic(args: {
   });
 }
 
-export async function testGitSyncConfiguration(args: {
-  commandRunner?: SynthesisGitCommandRunner;
-  cwd?: string;
-} = {}) {
+export async function testGitSyncConfiguration(
+  args: {
+    commandRunner?: SynthesisGitCommandRunner;
+    cwd?: string;
+  } = {},
+) {
   const timestamp = nowIso();
   const config = getSynthesisGitSyncPrefsConfig();
   const status = configStatus(config);

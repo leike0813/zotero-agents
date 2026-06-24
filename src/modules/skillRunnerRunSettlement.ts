@@ -169,7 +169,8 @@ export function settleSkillRunnerRunAsFailed(args: {
     operation: "settle-run-failed",
     phase: "terminal",
     stage: "skillrunner-run-terminal-client-error",
-    message: "skillrunner request settled as failed after terminal run-level error",
+    message:
+      "skillrunner request settled as failed after terminal run-level error",
     error: args.error,
     details: {
       source: args.source,

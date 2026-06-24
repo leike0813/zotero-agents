@@ -81,7 +81,9 @@ function resolveTempRoot() {
   if (value) {
     return value;
   }
-  return readDirectoryServicePath("TmpD") || readDirectoryServicePath("ProfD") || ".";
+  return (
+    readDirectoryServicePath("TmpD") || readDirectoryServicePath("ProfD") || "."
+  );
 }
 
 function getGlobalFetch() {
@@ -141,7 +143,9 @@ async function pathExists(pathValue: string) {
 
 async function writeBytes(pathValue: string, bytes: Uint8Array) {
   const runtime = globalThis as {
-    IOUtils?: { write?: (path: string, data: Uint8Array) => Promise<number | void> };
+    IOUtils?: {
+      write?: (path: string, data: Uint8Array) => Promise<number | void>;
+    };
   };
   if (typeof runtime.IOUtils?.write === "function") {
     await runtime.IOUtils.write(pathValue, bytes);
@@ -236,7 +240,9 @@ function createFailure(args: {
     ...(args.installDir ? { installDir: args.installDir } : {}),
     ...(args.artifactFile ? { artifactFile: args.artifactFile } : {}),
     ...(args.checksumFile ? { checksumFile: args.checksumFile } : {}),
-    ...(typeof args.artifactBytes === "number" ? { artifactBytes: args.artifactBytes } : {}),
+    ...(typeof args.artifactBytes === "number"
+      ? { artifactBytes: args.artifactBytes }
+      : {}),
     ...(args.expectedSha256 ? { expectedSha256: args.expectedSha256 } : {}),
     ...(args.actualSha256 ? { actualSha256: args.actualSha256 } : {}),
     ...(args.extractCommand ? { extractCommand: args.extractCommand } : {}),
@@ -332,7 +338,9 @@ export async function installSkillRunnerRelease(
     downloadedChecksum = new Uint8Array(await checksumResponse.arrayBuffer());
     await writeBytes(checksumFile, downloadedChecksum);
 
-    expectedSha256 = parseExpectedSha256(new TextDecoder("utf-8").decode(downloadedChecksum));
+    expectedSha256 = parseExpectedSha256(
+      new TextDecoder("utf-8").decode(downloadedChecksum),
+    );
     if (!expectedSha256) {
       return createFailure({
         stage: "deploy-release-checksum",
@@ -401,15 +409,17 @@ export async function installSkillRunnerRelease(
       },
     });
 
-    const [installDirExists, ctlPathExists, serverDirExists] = await Promise.all([
-      pathExists(installDir),
-      pathExists(ctlPath),
-      pathExists(serverDir),
-    ]);
+    const [installDirExists, ctlPathExists, serverDirExists] =
+      await Promise.all([
+        pathExists(installDir),
+        pathExists(ctlPath),
+        pathExists(serverDir),
+      ]);
     if (!installDirExists || !ctlPathExists || !serverDirExists) {
       return createFailure({
         stage: "deploy-release-artifacts",
-        message: "expected extracted artifacts are missing (installDir/ctl/server)",
+        message:
+          "expected extracted artifacts are missing (installDir/ctl/server)",
         tempDir,
         installDir,
         artifactFile,
@@ -466,11 +476,12 @@ export async function installSkillRunnerRelease(
   } catch (error) {
     failure = createFailure({
       stage: "deploy-release-install",
-      message: normalizeString(
-        error && typeof error === "object" && "message" in error
-          ? (error as { message?: unknown }).message
-          : error,
-      ) || "release install failed",
+      message:
+        normalizeString(
+          error && typeof error === "object" && "message" in error
+            ? (error as { message?: unknown }).message
+            : error,
+        ) || "release install failed",
       tempDir,
       installDir,
       artifactFile,
@@ -482,7 +493,9 @@ export async function installSkillRunnerRelease(
     });
     return failure;
   } finally {
-    const shouldKeepTemp = keepTempOnSuccess ? true : !!failure && keepTempOnFailure;
+    const shouldKeepTemp = keepTempOnSuccess
+      ? true
+      : !!failure && keepTempOnFailure;
     if (!shouldKeepTemp) {
       await removePathIfExists(tempDir);
     }

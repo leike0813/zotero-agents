@@ -45,12 +45,15 @@ function rewriteResourcePrefix(args: {
     `(^|[^A-Za-z0-9_:/\\\\.-])${args.prefix}/([^\\s'")<>]+)`,
     "g",
   );
-  return args.body.replace(pattern, (full, leading: string, relative: string) => {
-    if (!relative || relative.startsWith("/")) {
-      return full;
-    }
-    return `${leading}${absoluteRoot}/${relative}`;
-  });
+  return args.body.replace(
+    pattern,
+    (full, leading: string, relative: string) => {
+      if (!relative || relative.startsWith("/")) {
+        return full;
+      }
+      return `${leading}${absoluteRoot}/${relative}`;
+    },
+  );
 }
 
 function rewriteSkillPrefixedResource(args: {
@@ -65,17 +68,21 @@ function rewriteSkillPrefixedResource(args: {
     `(^|[^A-Za-z0-9_:/\\\\.-])${skillId}/${args.prefix}/([^\\s'")<>]+)`,
     "g",
   );
-  return args.body.replace(pattern, (full, leading: string, relative: string) => {
-    if (!relative || relative.startsWith("/")) {
-      return full;
-    }
-    return `${leading}${absoluteRoot}/${relative}`;
-  });
+  return args.body.replace(
+    pattern,
+    (full, leading: string, relative: string) => {
+      if (!relative || relative.startsWith("/")) {
+        return full;
+      }
+      return `${leading}${absoluteRoot}/${relative}`;
+    },
+  );
 }
 
 function collectUnresolvedReferences(body: string) {
   const matches = new Set<string>();
-  const pattern = /(^|[^A-Za-z0-9_:/\\.-])((?:assets|scripts|references)\/[^\s'"`)<>]+)/g;
+  const pattern =
+    /(^|[^A-Za-z0-9_:/\\.-])((?:assets|scripts|references)\/[^\s'"`)<>]+)/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(body))) {
     matches.add(match[2]);

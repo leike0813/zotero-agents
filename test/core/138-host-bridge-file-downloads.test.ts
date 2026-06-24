@@ -115,7 +115,10 @@ describe("host bridge file downloads", function () {
       assert.strictEqual(parsed.status, 200);
       assert.include(parsed.head, "Content-Type: text/plain");
       assert.include(parsed.head, "Content-Length: 23");
-      assert.include(parsed.head, `X-Zotero-Bridge-Sha256: ${descriptor.sha256}`);
+      assert.include(
+        parsed.head,
+        `X-Zotero-Bridge-Sha256: ${descriptor.sha256}`,
+      );
       assert.strictEqual(descriptor.size, 23);
       assert.match(descriptor.sha256 || "", /^sha256:[a-f0-9]{64}$/);
       assert.include(
@@ -193,11 +196,13 @@ describe("host bridge file downloads", function () {
       assert.strictEqual(parsed.status, 200);
       assert.include(
         parsed.head,
-        'Content-Disposition: attachment; filename="download.pdf"; filename*=UTF-8\'\'%E4%B8%AD%E6%96%87%20%E6%96%87%E4%BB%B6.pdf',
+        "Content-Disposition: attachment; filename=\"download.pdf\"; filename*=UTF-8''%E4%B8%AD%E6%96%87%20%E6%96%87%E4%BB%B6.pdf",
       );
       assert.notInclude(parsed.head, "中文");
       assert.notInclude(parsed.head, "\u0000");
-      assert.match(parsed.head, /^[\x00-\x7f]*$/);
+      assert.isTrue(
+        parsed.head.split("").every((char) => char.charCodeAt(0) <= 0x7f),
+      );
       assert.strictEqual(parsed.body, "registered file content");
     } finally {
       await fs.rm(root, { recursive: true, force: true });

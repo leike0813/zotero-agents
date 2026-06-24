@@ -29,7 +29,8 @@ const SCRIPT_DIR = dirname(SCRIPT_PATH);
 const ROOT = resolve(SCRIPT_DIR, "..");
 loadEnv({ path: resolve(ROOT, ".env") });
 
-const SHOULD_BUILD = process.argv.includes("--build") || process.argv.includes("-b");
+const SHOULD_BUILD =
+  process.argv.includes("--build") || process.argv.includes("-b");
 const ADDON_ID = "zotero-skills@leike0813@gmail.com";
 const ADDON_SOURCE_DIR = resolve(ROOT, ".scaffold/build/addon");
 const PREFS_PREFIX = "extensions.zotero.zotero-skills";
@@ -48,7 +49,8 @@ function getZoteroBinary(): string {
 
 function getProfilePath(): string {
   const profile = getEnvVal("ZOTERO_PLUGIN_PROFILE_PATH");
-  if (!profile) throw new Error("ZOTERO_PLUGIN_PROFILE_PATH is not set in .env");
+  if (!profile)
+    throw new Error("ZOTERO_PLUGIN_PROFILE_PATH is not set in .env");
   return profile;
 }
 
@@ -153,7 +155,10 @@ function patchPrefsJs(profile: string): void {
     "extensions.zotero.firstRunGuidance": false,
     [`${PREFS_PREFIX}.runtimeRoot`]: resolveDirectRuntimeRoot(process.env),
   };
-  const prefsToRemove = ["extensions.lastAppBuildId", "extensions.lastAppVersion"];
+  const prefsToRemove = [
+    "extensions.lastAppBuildId",
+    "extensions.lastAppVersion",
+  ];
   const managedPrefKeys = new Set([
     ...Object.keys(requiredPrefs),
     ...prefsToRemove,
@@ -205,8 +210,15 @@ function sleep(ms: number) {
  */
 class RdpClient {
   private conn: net.Socket | null = null;
-  private activeRequests = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
-  private pending: Array<{ msg: Record<string, unknown>; resolve: (v: any) => void; reject: (e: Error) => void }> = [];
+  private activeRequests = new Map<
+    string,
+    { resolve: (v: any) => void; reject: (e: Error) => void }
+  >();
+  private pending: Array<{
+    msg: Record<string, unknown>;
+    resolve: (v: any) => void;
+    reject: (e: Error) => void;
+  }> = [];
 
   connect(port: number): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -239,15 +251,21 @@ class RdpClient {
       });
 
       conn.on("error", reject);
-      conn.on("close", () => { this.conn = null; });
+      conn.on("close", () => {
+        this.conn = null;
+      });
 
       // Register the greeting (from "root") as the first expected reply
       this._expectReply("root", { resolve, reject });
     });
   }
 
-  private _expectReply(actor: string, d: { resolve: (v: any) => void; reject: (e: Error) => void }) {
-    if (this.activeRequests.has(actor)) throw new Error(`Duplicate request for ${actor}`);
+  private _expectReply(
+    actor: string,
+    d: { resolve: (v: any) => void; reject: (e: Error) => void },
+  ) {
+    if (this.activeRequests.has(actor))
+      throw new Error(`Duplicate request for ${actor}`);
     this.activeRequests.set(actor, d);
   }
 
@@ -281,7 +299,10 @@ class RdpClient {
       const { msg, resolve, reject } = this.pending[0];
       const actor = msg.to as string;
       if (this.activeRequests.has(actor)) break; // actor busy, wait
-      if (!this.conn) { reject(new Error("RDP connection closed")); return; }
+      if (!this.conn) {
+        reject(new Error("RDP connection closed"));
+        return;
+      }
       this._expectReply(actor, { resolve, reject });
       this.pending.shift();
       const json = JSON.stringify(msg);
@@ -344,9 +365,11 @@ async function launchZotero(): Promise<{
   const args = [
     "--purgecaches",
     "no-remote",
-    "-profile", profile,
+    "-profile",
+    profile,
     "--jsdebugger",
-    "-start-debugger-server", String(port),
+    "-start-debugger-server",
+    String(port),
   ];
 
   if (dataDir) {
@@ -369,7 +392,9 @@ async function launchZotero(): Promise<{
   proc.stdout?.on("data", () => undefined);
   proc.stderr?.on("data", () => undefined);
 
-  console.log(`[done] Zotero started (PID ${proc.pid}), debugger on port ${port}`);
+  console.log(
+    `[done] Zotero started (PID ${proc.pid}), debugger on port ${port}`,
+  );
   return { port, proc };
 }
 
@@ -444,8 +469,7 @@ async function main() {
 }
 
 const launchedDirectly =
-  process.argv[1] &&
-  resolve(process.argv[1]) === SCRIPT_PATH;
+  process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH;
 
 if (launchedDirectly) {
   main();

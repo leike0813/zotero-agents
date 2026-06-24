@@ -66,7 +66,10 @@ export function encodeBase64Utf8(value: string) {
 
 export function decodeBase64Utf8(value: string) {
   const normalized = String(value || "").trim();
-  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) || normalized.length % 4 === 1) {
+  if (
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) ||
+    normalized.length % 4 === 1
+  ) {
     throw new Error("Invalid base64 payload value");
   }
   const buffer = getBuffer();
@@ -127,11 +130,12 @@ function decodeAsciiBytes(bytes: Uint8Array) {
 
 function readUint32BE(bytes: Uint8Array, offset: number) {
   return (
-    ((bytes[offset] || 0) << 24) |
-    ((bytes[offset + 1] || 0) << 16) |
-    ((bytes[offset + 2] || 0) << 8) |
-    (bytes[offset + 3] || 0)
-  ) >>> 0;
+    (((bytes[offset] || 0) << 24) |
+      ((bytes[offset + 1] || 0) << 16) |
+      ((bytes[offset + 2] || 0) << 8) |
+      (bytes[offset + 3] || 0)) >>>
+    0
+  );
 }
 
 function writeUint32BE(value: number) {
@@ -255,7 +259,10 @@ export function buildWorkbenchPayloadPngBytes(
     throw new Error("workbench payload base image must be a PNG");
   }
   const envelopeBytes = encodeUtf8Bytes(JSON.stringify(envelope));
-  const payloadChunk = buildPngChunk(WORKBENCH_EMBEDDED_PAYLOAD_CHUNK, envelopeBytes);
+  const payloadChunk = buildPngChunk(
+    WORKBENCH_EMBEDDED_PAYLOAD_CHUNK,
+    envelopeBytes,
+  );
   let cursor = PNG_SIGNATURE.length;
   while (cursor + 12 <= imageBytes.length) {
     const length = readUint32BE(imageBytes, cursor);
@@ -316,7 +323,11 @@ function indexOfBytes(haystack: Uint8Array, needle: Uint8Array) {
   if (!haystack.length || !needle.length || needle.length > haystack.length) {
     return -1;
   }
-  outer: for (let index = 0; index <= haystack.length - needle.length; index += 1) {
+  outer: for (
+    let index = 0;
+    index <= haystack.length - needle.length;
+    index += 1
+  ) {
     for (let inner = 0; inner < needle.length; inner += 1) {
       if (haystack[index + inner] !== needle[inner]) {
         continue outer;
@@ -335,9 +346,7 @@ export function escapeHtml(input: unknown) {
 }
 
 export function escapeAttribute(input: unknown) {
-  return escapeHtml(input)
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  return escapeHtml(input).replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
 function decodeHtmlEntities(input: unknown) {
@@ -383,7 +392,9 @@ function closeLists(state: { inUl: boolean; inOl: boolean }, blocks: string[]) {
 }
 
 export function renderMarkdownToHtml(markdown: unknown) {
-  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+  const lines = String(markdown || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
   const blocks: string[] = [];
   const state = {
     inCodeBlock: false,
@@ -399,7 +410,9 @@ export function renderMarkdownToHtml(markdown: unknown) {
         state.inCodeBlock = true;
         state.codeLines = [];
       } else {
-        blocks.push(`<pre><code>${escapeHtml(state.codeLines.join("\n"))}</code></pre>`);
+        blocks.push(
+          `<pre><code>${escapeHtml(state.codeLines.join("\n"))}</code></pre>`,
+        );
         state.inCodeBlock = false;
         state.codeLines = [];
       }
@@ -417,7 +430,9 @@ export function renderMarkdownToHtml(markdown: unknown) {
     if (headingMatch) {
       closeLists(state, blocks);
       const level = headingMatch[1].length;
-      blocks.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
+      blocks.push(
+        `<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`,
+      );
       continue;
     }
     const unorderedMatch = line.match(/^\s*[-*+]\s+(.+)$/);
@@ -445,7 +460,9 @@ export function renderMarkdownToHtml(markdown: unknown) {
   }
   closeLists(state, blocks);
   if (state.inCodeBlock && state.codeLines.length > 0) {
-    blocks.push(`<pre><code>${escapeHtml(state.codeLines.join("\n"))}</code></pre>`);
+    blocks.push(
+      `<pre><code>${escapeHtml(state.codeLines.join("\n"))}</code></pre>`,
+    );
   }
   return blocks.join("\n");
 }
@@ -520,16 +537,21 @@ function projectDecodedPayload(payloadType: string, decodedText: string) {
   };
 }
 
-export function listNotePayloadBlocks(noteHtml: unknown): ZoteroNotePayloadBlock[] {
+export function listNotePayloadBlocks(
+  noteHtml: unknown,
+): ZoteroNotePayloadBlock[] {
   const html = String(noteHtml || "");
   const noteKind = parseNoteKind(html);
   const blocks: ZoteroNotePayloadBlock[] = [];
-  const pattern = /<span\b[^>]*data-zs-payload\s*=\s*(?:"[^"]+"|'[^']+'|[^\s>]+)[^>]*>/gi;
+  const pattern =
+    /<span\b[^>]*data-zs-payload\s*=\s*(?:"[^"]+"|'[^']+'|[^\s>]+)[^>]*>/gi;
   for (const match of html.matchAll(pattern)) {
     const tag = match[0];
     const payloadType = readTagAttribute(tag, "data-zs-payload");
     const version = readTagAttribute(tag, "data-zs-version") || "1";
-    const encoding = (readTagAttribute(tag, "data-zs-encoding") || "base64").toLowerCase();
+    const encoding = (
+      readTagAttribute(tag, "data-zs-encoding") || "base64"
+    ).toLowerCase();
     const encodedValue = readTagAttribute(tag, "data-zs-value");
     const block: ZoteroNotePayloadBlock = {
       source: "html-payload-block",
@@ -573,7 +595,8 @@ export function parseEmbeddedNotePayloadBlock(
     findPngChunk(bytes, WORKBENCH_EMBEDDED_PAYLOAD_CHUNK),
   );
   const hasV1PayloadMarker =
-    indexOfBytes(bytes, encodeAsciiBytes(WORKBENCH_EMBEDDED_PAYLOAD_MARKER)) >= 0;
+    indexOfBytes(bytes, encodeAsciiBytes(WORKBENCH_EMBEDDED_PAYLOAD_MARKER)) >=
+    0;
   let envelope: any = null;
   let v2Envelope: any = null;
   let envelopeError: string | null = null;
@@ -611,7 +634,8 @@ export function parseEmbeddedNotePayloadBlock(
     sourceStorage: v2Envelope
       ? "embedded-image-attachment-v2"
       : "embedded-image-attachment-v1",
-    payloadStorageVersion: Number(envelope?.payloadStorageVersion) || (v2Envelope ? 2 : 1),
+    payloadStorageVersion:
+      Number(envelope?.payloadStorageVersion) || (v2Envelope ? 2 : 1),
     payloadHash: String(envelope?.payloadHash || "").trim() || undefined,
     anchorStatus: "not_applicable",
     payloadType: "",
@@ -636,11 +660,13 @@ export function parseEmbeddedNotePayloadBlock(
       throw new Error("workbench embedded payload type is missing");
     }
     const payload = envelope?.payload;
-    const format = String(payload?.format || "").trim() || (payloadType.endsWith("-markdown")
-      ? "markdown"
-      : payloadType.endsWith("-json")
-        ? "json"
-        : "text");
+    const format =
+      String(payload?.format || "").trim() ||
+      (payloadType.endsWith("-markdown")
+        ? "markdown"
+        : payloadType.endsWith("-json")
+          ? "json"
+          : "text");
     const decodedText =
       format === "markdown"
         ? String(payload?.content || "")
@@ -689,7 +715,11 @@ export function selectNotePayloadBlock(
 
 export function getNotePayloadDetail(
   noteHtml: unknown,
-  args: { payloadType?: string | null; offset?: unknown; maxChars?: unknown } = {},
+  args: {
+    payloadType?: string | null;
+    offset?: unknown;
+    maxChars?: unknown;
+  } = {},
 ): ZoteroNotePayloadDetail {
   const block = selectNotePayloadBlock(noteHtml, args.payloadType);
   if (!block) {
@@ -712,7 +742,10 @@ export function getNotePayloadDetail(
     MAX_PAYLOAD_CHUNK,
     Math.max(1, parsePositiveInteger(args.maxChars) || DEFAULT_PAYLOAD_CHUNK),
   );
-  const offset = Math.min(fullContent.length, parseNonNegativeInteger(args.offset));
+  const offset = Math.min(
+    fullContent.length,
+    parseNonNegativeInteger(args.offset),
+  );
   const content = fullContent.slice(offset, offset + maxChars);
   const nextOffset = Math.min(fullContent.length, offset + content.length);
   return {

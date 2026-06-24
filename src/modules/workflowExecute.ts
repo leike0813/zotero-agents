@@ -86,8 +86,10 @@ export async function executeWorkflowFromCurrentSelection(args: {
       if (String(backend.type || "").trim() !== "skillrunner") {
         return true;
       }
-      return backend.enabled !== false &&
-        isSkillRunnerBackendAvailable(String(backend.id || "").trim());
+      return (
+        backend.enabled !== false &&
+        isSkillRunnerBackendAvailable(String(backend.id || "").trim())
+      );
     });
     const configurable = await isWorkflowConfigurable({
       workflow: args.workflow,

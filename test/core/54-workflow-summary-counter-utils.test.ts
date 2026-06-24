@@ -6,7 +6,8 @@ import {
 
 describe("workflow summary counter utils", function () {
   it("matches canonical english summary labels", function () {
-    const message = "Workflow Literature Digest finished. succeeded=1, failed=0, skipped=2";
+    const message =
+      "Workflow Literature Digest finished. succeeded=1, failed=0, skipped=2";
     assert.isTrue(hasWorkflowSummaryCounter(message, "succeeded", 1));
     assert.isTrue(hasWorkflowSummaryCounter(message, "failed", 0));
     assert.isTrue(hasWorkflowSummaryCounter(message, "skipped", 2));
@@ -21,7 +22,8 @@ describe("workflow summary counter utils", function () {
   });
 
   it("throws with expected key/value and raw summary when required counter is missing", function () {
-    const message = "Workflow Literature Digest finished. succeeded=0, failed=1";
+    const message =
+      "Workflow Literature Digest finished. succeeded=0, failed=1";
     let thrown: unknown = null;
     try {
       expectWorkflowSummaryCounter(message, "succeeded", 1);

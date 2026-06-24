@@ -87,7 +87,10 @@ describe("skillrunner connection governor", function () {
 
     await new Promise((resolve) => setTimeout(resolve, 20));
     const timeoutError = await task;
-    assert.equal((timeoutError as Error).name, "SkillRunnerConnectionTimeoutError");
+    assert.equal(
+      (timeoutError as Error).name,
+      "SkillRunnerConnectionTimeoutError",
+    );
 
     release.resolve("late");
     await tick();

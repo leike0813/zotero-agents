@@ -63,7 +63,10 @@ const FORBIDDEN_TEXT = [
 ];
 
 const FORBIDDEN_REGEX: Array<[RegExp, string]> = [
-  [/\bsynthesis\.(?!cache\.|diff\b|debug\b|jobs\.|maintenance\.|operations\.|paper\.|profiler\.|queue\.|snapshot\b|topic\.|worker\.|cleanInstallReset\b)/, "public synthesis.* capability namespace"],
+  [
+    /\bsynthesis\.(?!cache\.|diff\b|debug\b|jobs\.|maintenance\.|operations\.|paper\.|profiler\.|queue\.|snapshot\b|topic\.|worker\.|cleanInstallReset\b)/,
+    "public synthesis.* capability namespace",
+  ],
   [/\bget-reference-sidecar-index\b/, "legacy reference sidecar CLI command"],
   [/\bget-library-index\b/, "legacy library index CLI command"],
   [/\bresolve-resolver\b/, "legacy resolver CLI command"],
@@ -101,10 +104,10 @@ const FORBIDDEN_RESOLVER_CONTRACT_TEXT = [
   '"mode":"tag_query"',
   '"mode": "mixed"',
   '"mode":"mixed"',
-  "mode: \"tag_query\"",
-  "mode: \"mixed\"",
+  'mode: "tag_query"',
+  'mode: "mixed"',
   '{"resolver": payload["resolver"]}',
-  "{\"resolver\": payload[\"resolver\"]}",
+  '{"resolver": payload["resolver"]}',
 ] as const;
 
 function read(path: string) {
@@ -140,7 +143,9 @@ for (const [path, section] of GENERATED_TARGETS) {
 
 for (const path of REMOVED_PATHS) {
   if (existsSync(join(ROOT, path))) {
-    fail(`${path} should not exist after Host Bridge guidance moved to the built-in wrapper skill`);
+    fail(
+      `${path} should not exist after Host Bridge guidance moved to the built-in wrapper skill`,
+    );
   }
 }
 
@@ -154,7 +159,9 @@ for (const docPath of DOCS) {
   for (const [pattern, label] of FORBIDDEN_REGEX) {
     const match = text.match(pattern);
     if (match) {
-      fail(`${docPath} contains stale Host Bridge surface text (${label}): ${match[0]}`);
+      fail(
+        `${docPath} contains stale Host Bridge surface text (${label}): ${match[0]}`,
+      );
     }
   }
 }
@@ -185,18 +192,25 @@ for (const removedTemplateId of [
   "host_bridge_cli_prompt",
 ]) {
   if (runtimePromptTemplates.includes(removedTemplateId)) {
-    fail(`acpRuntimePromptTemplates.ts still declares removed Host Bridge template id: ${removedTemplateId}`);
+    fail(
+      `acpRuntimePromptTemplates.ts still declares removed Host Bridge template id: ${removedTemplateId}`,
+    );
   }
 }
 
 for (const [sourcePath, forbidden] of [
   ["src/modules/acpSkillRunnerOrchestrator.ts", "hostBridgeCliPromptSnippet"],
   ["src/modules/acpSkillRunPromptBuilder.ts", "hostBridgeCliPromptSnippet"],
-  ["src/modules/acpSkillRunPromptBuilder.ts", "zotero-skills-zotero-host-access"],
+  [
+    "src/modules/acpSkillRunPromptBuilder.ts",
+    "zotero-skills-zotero-host-access",
+  ],
   ["src/modules/acpSessionManager.ts", "hostBridgeCliPromptSnippet"],
 ] as const) {
   if (read(sourcePath).includes(forbidden)) {
-    fail(`${sourcePath} still contains removed Host Bridge prompt injection marker: ${forbidden}`);
+    fail(
+      `${sourcePath} still contains removed Host Bridge prompt injection marker: ${forbidden}`,
+    );
   }
 }
 

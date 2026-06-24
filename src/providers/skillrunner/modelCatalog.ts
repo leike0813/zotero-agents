@@ -181,7 +181,9 @@ const MODEL_SNAPSHOTS: SkillRunnerModelsSnapshot[] = [
   {
     engine: "gemini",
     version: "0.0.0",
-    models: [{ id: "gemini-3-pro-preview", display_name: "Gemini 3 Pro Preview" }],
+    models: [
+      { id: "gemini-3-pro-preview", display_name: "Gemini 3 Pro Preview" },
+    ],
   },
   {
     engine: "gemini",
@@ -276,11 +278,7 @@ function compareSemver(a: string, b: string) {
 
 function dedupeStrings(values: string[]) {
   return Array.from(
-    new Set(
-      values
-        .map((entry) => String(entry || "").trim())
-        .filter(Boolean),
-    ),
+    new Set(values.map((entry) => String(entry || "").trim()).filter(Boolean)),
   );
 }
 
@@ -289,7 +287,10 @@ function normalizeSupportedEffort(raw: unknown) {
     ? dedupeStrings(raw.map((entry) => String(entry || "").trim()))
     : [];
   if (normalized.includes(DEFAULT_EFFORT)) {
-    return [DEFAULT_EFFORT, ...normalized.filter((entry) => entry !== DEFAULT_EFFORT)];
+    return [
+      DEFAULT_EFFORT,
+      ...normalized.filter((entry) => entry !== DEFAULT_EFFORT),
+    ];
   }
   if (normalized.length === 0) {
     return [DEFAULT_EFFORT];
@@ -431,7 +432,11 @@ function matchesModelEntry(args: {
   const entryProvider = resolveModelProviderId(args.entry);
   const entryModel = resolveModelName(args.entry);
   const entryId = String(args.entry.id || "").trim();
-  if (normalizedProvider && entryProvider && entryProvider !== normalizedProvider) {
+  if (
+    normalizedProvider &&
+    entryProvider &&
+    entryProvider !== normalizedProvider
+  ) {
     return false;
   }
   if (normalizedModel === entryId) {
@@ -440,7 +445,11 @@ function matchesModelEntry(args: {
   if (entryModel && normalizedModel === entryModel) {
     return true;
   }
-  return !!entryProvider && !!entryModel && normalizedModel === `${entryProvider}/${entryModel}`;
+  return (
+    !!entryProvider &&
+    !!entryModel &&
+    normalizedModel === `${entryProvider}/${entryModel}`
+  );
 }
 
 function findModelEntry(args: {
@@ -541,7 +550,9 @@ export function listSkillRunnerEngines(scope?: SkillRunnerModelCatalogScope) {
   return listStaticSkillRunnerEngines();
 }
 
-export function getDefaultSkillRunnerEngine(scope?: SkillRunnerModelCatalogScope) {
+export function getDefaultSkillRunnerEngine(
+  scope?: SkillRunnerModelCatalogScope,
+) {
   const engines = listSkillRunnerEngines(scope);
   if (engines.includes("gemini")) {
     return "gemini";

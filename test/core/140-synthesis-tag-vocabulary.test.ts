@@ -182,8 +182,7 @@ describe("Synthesis tag vocabulary", function () {
       ["topic:discard-me", "topic:suggested"],
     );
     assert.deepEqual(
-      staged.find((entry) => entry.tag === "topic:suggested")
-        ?.parent_bindings,
+      staged.find((entry) => entry.tag === "topic:suggested")?.parent_bindings,
       [10, 11],
     );
 

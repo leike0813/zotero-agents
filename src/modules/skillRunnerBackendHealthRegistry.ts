@@ -40,12 +40,7 @@ const listeners = new Set<SkillRunnerBackendHealthListener>();
 const states = new Map<string, SkillRunnerBackendHealthState>();
 
 export const SKILLRUNNER_BACKEND_PROBE_BACKOFF_STEPS_MS = [
-  15000,
-  30000,
-  60000,
-  120000,
-  300000,
-  600000,
+  15000, 30000, 60000, 120000, 300000, 600000,
 ] as const;
 export const SKILLRUNNER_BACKEND_PROBE_TICK_MS = 60000;
 export const SKILLRUNNER_BACKEND_ENABLE_PROBE_DEBOUNCE_MS = 1000;
@@ -205,7 +200,8 @@ export function getSkillRunnerBackendVisibilityState(
   const state = normalized ? states.get(normalized) : undefined;
   const status = state?.status || "unknown";
   const enabled = status !== "disabled";
-  const reachable = enabled && state?.reachable === true && status === "reachable";
+  const reachable =
+    enabled && state?.reachable === true && status === "reachable";
   return {
     backendId: normalized,
     enabled,
@@ -291,8 +287,7 @@ export function shouldAutoDisableSkillRunnerBackend(
     Date.parse(state.firstUnreachableAt || "") ||
     0;
   return (
-    anchor > 0 &&
-    now - anchor >= SKILLRUNNER_BACKEND_AUTO_DISABLE_AFTER_MS
+    anchor > 0 && now - anchor >= SKILLRUNNER_BACKEND_AUTO_DISABLE_AFTER_MS
   );
 }
 

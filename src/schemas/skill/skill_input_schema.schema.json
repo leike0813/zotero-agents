@@ -19,9 +19,7 @@
       }
     }
   },
-  "required": [
-    "type"
-  ],
+  "required": ["type"],
   "additionalProperties": true,
   "$defs": {
     "inputProperty": {
@@ -29,10 +27,7 @@
       "properties": {
         "x-input-source": {
           "type": "string",
-          "enum": [
-            "file",
-            "inline"
-          ]
+          "enum": ["file", "inline"]
         },
         "extensions": {
           "type": "array",

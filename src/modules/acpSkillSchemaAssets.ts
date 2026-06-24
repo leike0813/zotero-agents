@@ -111,7 +111,10 @@ export async function resolveAcpSkillSchemaAsset(args: {
   let declaredRelpath: string | undefined;
   let declaredIssue: AcpSkillAssetResolutionIssueCode | undefined;
   const schemas = args.runnerJson.schemas;
-  if (isRecord(schemas) && Object.prototype.hasOwnProperty.call(schemas, args.schemaKey)) {
+  if (
+    isRecord(schemas) &&
+    Object.prototype.hasOwnProperty.call(schemas, args.schemaKey)
+  ) {
     const raw = schemas[args.schemaKey];
     if (typeof raw === "string") {
       declaredRelpath = raw;
@@ -160,7 +163,9 @@ export async function resolveAcpSkillSchemaAsset(args: {
     ...(fallback.path ? { path: fallback.path } : {}),
     fallbackRelpath,
     usedFallback: !!fallback.path,
-    issueCode: fallback.path ? undefined : fallback.issueCode || "missing_declaration",
+    issueCode: fallback.path
+      ? undefined
+      : fallback.issueCode || "missing_declaration",
     issueSource: fallback.path ? "none" : "fallback",
   };
 }
@@ -193,7 +198,10 @@ function inputSourceForProperty(schema: unknown) {
   return schema["x-input-source"] === "inline" ? "inline" : "file";
 }
 
-function formatAjvErrors(prefix: string, errors: ErrorObject[] | null | undefined) {
+function formatAjvErrors(
+  prefix: string,
+  errors: ErrorObject[] | null | undefined,
+) {
   return (errors || []).map((entry) => {
     const path = entry.instancePath || "/";
     return `${prefix}: ${path} ${entry.message || "is invalid"}`;
@@ -235,7 +243,9 @@ function compileAndValidate(args: {
 }) {
   try {
     const ajv = new Ajv({ allErrors: true, strict: false, logger: false });
-    const validate = ajv.compile(args.schema as Parameters<typeof ajv.compile>[0]);
+    const validate = ajv.compile(
+      args.schema as Parameters<typeof ajv.compile>[0],
+    );
     if (validate(args.payload)) {
       return [] as string[];
     }
@@ -249,10 +259,7 @@ function compileAndValidate(args: {
   }
 }
 
-async function validateFileInput(args: {
-  key: string;
-  value: unknown;
-}) {
+async function validateFileInput(args: { key: string; value: unknown }) {
   const path = normalizeNativeLocalPath(normalizeString(args.value));
   if (!path) {
     return `input validation error: key '${args.key}' must be a non-empty absolute local path`;
@@ -297,7 +304,9 @@ export async function validateAcpSkillRunRequestAgainstSchemas(args: {
     try {
       const schema = await loadResolvedAcpSkillJson(inputResolution);
       if (!schema) {
-        errors.push("input validation error: input schema is not a JSON object");
+        errors.push(
+          "input validation error: input schema is not a JSON object",
+        );
       } else {
         const properties = schemaProperties(schema);
         const required = new Set(schemaRequired(schema));
@@ -308,7 +317,10 @@ export async function validateAcpSkillRunRequestAgainstSchemas(args: {
           }
         }
         for (const [key, propertySchema] of Object.entries(properties)) {
-          const hasValue = Object.prototype.hasOwnProperty.call(requestInput, key);
+          const hasValue = Object.prototype.hasOwnProperty.call(
+            requestInput,
+            key,
+          );
           const source = inputSourceForProperty(propertySchema);
           if (source === "file") {
             if (!hasValue) {
@@ -361,7 +373,9 @@ export async function validateAcpSkillRunRequestAgainstSchemas(args: {
     try {
       const schema = await loadResolvedAcpSkillJson(parameterResolution);
       if (!schema) {
-        errors.push("parameter validation error: parameter schema is not a JSON object");
+        errors.push(
+          "parameter validation error: parameter schema is not a JSON object",
+        );
       } else {
         parameterContext = {};
         const properties = schemaProperties(schema);
@@ -452,7 +466,9 @@ export function validateRunnerManifestShape(args: {
     const filename = normalizeString(entrypoint.result_json_filename);
     if (
       filename &&
-      (getBaseName(filename) !== filename || filename.includes("/") || filename.includes("\\"))
+      (getBaseName(filename) !== filename ||
+        filename.includes("/") ||
+        filename.includes("\\"))
     ) {
       errors.push("invalid_result_json_filename");
     }
@@ -509,7 +525,9 @@ export function validateSkillSchemaAnnotations(args: {
       xType !== "artifact-manifest" &&
       xType !== "file"
     ) {
-      errors.push(`${path}/x-type must be artifact, artifact-manifest, or file`);
+      errors.push(
+        `${path}/x-type must be artifact, artifact-manifest, or file`,
+      );
     }
     for (const [key, child] of Object.entries(value)) {
       if (isRecord(child) || Array.isArray(child)) {

@@ -253,7 +253,9 @@ describe("Synthesis durable sync exchange", function () {
       first.manifest.assets.map((asset) => [asset.path, asset.hash]),
       second.manifest.assets.map((asset) => [asset.path, asset.hash]),
     );
-    assert.isTrue(await runtimePathExists(path.join(exportRoot, "manifest.json")));
+    assert.isTrue(
+      await runtimePathExists(path.join(exportRoot, "manifest.json")),
+    );
     assert.isTrue(
       first.manifest.assets.every((asset) => asset.path.startsWith("bundles/")),
     );
@@ -292,7 +294,9 @@ describe("Synthesis durable sync exchange", function () {
       ),
     );
     assert.isFalse(
-      first.manifest.assets.some((asset) => asset.path.includes("synthesis.db")),
+      first.manifest.assets.some((asset) =>
+        asset.path.includes("synthesis.db"),
+      ),
     );
     assert.isFalse(
       listSynthesisDurableManifestEntities(first.manifest).some(
@@ -305,7 +309,9 @@ describe("Synthesis durable sync exchange", function () {
       ),
     );
     assert.isFalse(await runtimePathExists(path.join(exportRoot, "concepts")));
-    assert.isFalse(await runtimePathExists(path.join(exportRoot, "citation-graph")));
+    assert.isFalse(
+      await runtimePathExists(path.join(exportRoot, "citation-graph")),
+    );
   });
 
   it("hydrates durable facts and topic current assets into a clean runtime root", async function () {
@@ -332,7 +338,10 @@ describe("Synthesis durable sync exchange", function () {
     assert.equal(target.listTopicDiscoveryHints()[0]?.status, "open");
     assert.equal(target.listReviewItems()[0]?.reviewItemId, "review:alpha");
     assert.equal(target.listTagVocabularyEntries()[0]?.tag, "field:vision");
-    assert.equal(target.listRelatedItemsSyncEffects()[0]?.effectId, "effect:alpha");
+    assert.equal(
+      target.listRelatedItemsSyncEffects()[0]?.effectId,
+      "effect:alpha",
+    );
     assert.equal(
       await readRuntimeTextFile(
         path.join(
@@ -390,7 +399,9 @@ describe("Synthesis durable sync exchange", function () {
           conflict.reason === "both_changed",
       ),
     );
-    const manifest = await readJson(path.join(remoteExportRoot, "manifest.json"));
+    const manifest = await readJson(
+      path.join(remoteExportRoot, "manifest.json"),
+    );
     assert.isString(manifest.manifest_hash);
   });
 

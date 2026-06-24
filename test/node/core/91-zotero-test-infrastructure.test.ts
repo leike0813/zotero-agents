@@ -111,9 +111,7 @@ describe("zotero test infrastructure helpers", function () {
     });
 
     it("injects Mocha exit for node test targets so wrapper cleanup can run", function () {
-      assert.deepEqual(buildForwardedTestArgs("test:node:raw", []), [
-        "--exit",
-      ]);
+      assert.deepEqual(buildForwardedTestArgs("test:node:raw", []), ["--exit"]);
       assert.deepEqual(buildForwardedTestArgs("test:node:raw:core", []), [
         "--exit",
       ]);
@@ -123,10 +121,9 @@ describe("zotero test infrastructure helpers", function () {
       assert.deepEqual(buildForwardedTestArgs("test:node:raw", ["--exit"]), [
         "--exit",
       ]);
-      assert.deepEqual(
-        buildForwardedTestArgs("test:node:raw", ["--no-exit"]),
-        ["--no-exit"],
-      );
+      assert.deepEqual(buildForwardedTestArgs("test:node:raw", ["--no-exit"]), [
+        "--no-exit",
+      ]);
     });
 
     it("does not inject node-only flags for arbitrary non-zotero targets", function () {
@@ -163,7 +160,7 @@ describe("zotero test infrastructure helpers", function () {
       assert.notInclude(patched, 'console.log("suite", suite)');
       assert.notInclude(patched, 'console.log("pass", test)');
       assert.notInclude(patched, 'console.log("fail", test, error)');
-      assert.notInclude(patched, 'innerText +=');
+      assert.notInclude(patched, "innerText +=");
       assert.include(patched, "appendData");
       assert.include(
         patched,

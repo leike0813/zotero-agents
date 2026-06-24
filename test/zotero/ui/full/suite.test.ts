@@ -1,0 +1,1 @@
+import "../lite/suite.test";

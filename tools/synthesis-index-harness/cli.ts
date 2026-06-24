@@ -96,22 +96,32 @@ function assertDebugDbSafe(options: HarnessOptions) {
 
 function execFileText(command: string, args: string[]) {
   return new Promise<string>((resolve, reject) => {
-    execFile(command, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        reject(
-          new Error(
-            `${command} ${args.join(" ")} failed: ${cleanString(stderr) || error.message}`,
-          ),
-        );
-        return;
-      }
-      resolve(stdout);
-    });
+    execFile(
+      command,
+      args,
+      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(
+            new Error(
+              `${command} ${args.join(" ")} failed: ${cleanString(stderr) || error.message}`,
+            ),
+          );
+          return;
+        }
+        resolve(stdout);
+      },
+    );
   });
 }
 
 async function sqliteJson(dbPath: string, sql: string) {
-  const stdout = await execFileText("sqlite3", ["-readonly", "-json", dbPath, sql]);
+  const stdout = await execFileText("sqlite3", [
+    "-readonly",
+    "-json",
+    dbPath,
+    sql,
+  ]);
   const text = stdout.trim();
   if (!text) {
     return [] as JsonRecord[];
@@ -180,7 +190,9 @@ function identifiersFromJson(value: unknown) {
 }
 
 function yearFromDate(value: unknown) {
-  const match = cleanString(value).match(/(?:^|[^\d])((?:19|20)\d{2})(?:$|[^\d])/);
+  const match = cleanString(value).match(
+    /(?:^|[^\d])((?:19|20)\d{2})(?:$|[^\d])/,
+  );
   return match?.[1] || "";
 }
 
@@ -228,16 +240,47 @@ async function loadZoteroItems(zoteroDb: string): Promise<ZoteroItem[]> {
 }
 
 async function loadPluginRows(pluginDb: string) {
-  const [artifactSidecars, rawReferences, canonicalReferences, redirects, bindings, proposals] =
-    await Promise.all([
-      sqliteJson(pluginDb, "SELECT * FROM synt_artifact_sidecar ORDER BY source_ref, artifact_type"),
-      sqliteJson(pluginDb, "SELECT * FROM synt_raw_reference ORDER BY source_ref, reference_index"),
-      sqliteJson(pluginDb, "SELECT * FROM synt_canonical_reference ORDER BY canonical_reference_id"),
-      sqliteJson(pluginDb, "SELECT * FROM synt_canonical_reference_redirect ORDER BY from_canonical_reference_id"),
-      sqliteJson(pluginDb, "SELECT * FROM synt_reference_binding ORDER BY canonical_reference_id, item_key"),
-      sqliteJson(pluginDb, "SELECT * FROM synt_reference_match_proposal ORDER BY updated_at DESC, proposal_id"),
-    ]);
-  return { artifactSidecars, rawReferences, canonicalReferences, redirects, bindings, proposals };
+  const [
+    artifactSidecars,
+    rawReferences,
+    canonicalReferences,
+    redirects,
+    bindings,
+    proposals,
+  ] = await Promise.all([
+    sqliteJson(
+      pluginDb,
+      "SELECT * FROM synt_artifact_sidecar ORDER BY source_ref, artifact_type",
+    ),
+    sqliteJson(
+      pluginDb,
+      "SELECT * FROM synt_raw_reference ORDER BY source_ref, reference_index",
+    ),
+    sqliteJson(
+      pluginDb,
+      "SELECT * FROM synt_canonical_reference ORDER BY canonical_reference_id",
+    ),
+    sqliteJson(
+      pluginDb,
+      "SELECT * FROM synt_canonical_reference_redirect ORDER BY from_canonical_reference_id",
+    ),
+    sqliteJson(
+      pluginDb,
+      "SELECT * FROM synt_reference_binding ORDER BY canonical_reference_id, item_key",
+    ),
+    sqliteJson(
+      pluginDb,
+      "SELECT * FROM synt_reference_match_proposal ORDER BY updated_at DESC, proposal_id",
+    ),
+  ]);
+  return {
+    artifactSidecars,
+    rawReferences,
+    canonicalReferences,
+    redirects,
+    bindings,
+    proposals,
+  };
 }
 
 function effectiveCanonicalResolver(redirects: JsonRecord[]) {
@@ -258,11 +301,15 @@ function effectiveCanonicalResolver(redirects: JsonRecord[]) {
   };
 }
 
-function buildCanonicalInputs(snapshot: Omit<HarnessSnapshot, "canonicalInputs" | "summary">) {
+function buildCanonicalInputs(
+  snapshot: Omit<HarnessSnapshot, "canonicalInputs" | "summary">,
+) {
   const resolveEffective = effectiveCanonicalResolver(snapshot.redirects);
   const inboundRedirectTargets = new Set(
     snapshot.redirects
-      .map((row) => resolveEffective(cleanString(row.to_canonical_reference_id)))
+      .map((row) =>
+        resolveEffective(cleanString(row.to_canonical_reference_id)),
+      )
       .filter(Boolean),
   );
   const accepted = new Set(
@@ -292,7 +339,11 @@ function buildCanonicalInputs(snapshot: Omit<HarnessSnapshot, "canonicalInputs" 
     .map(([canonicalReferenceId, rows]) => {
       const canonical = canonicalById.get(canonicalReferenceId) || {};
       const physicalCanonicalIds = Array.from(
-        new Set(rows.map((row) => cleanString(row.canonical_reference_id)).filter(Boolean)),
+        new Set(
+          rows
+            .map((row) => cleanString(row.canonical_reference_id))
+            .filter(Boolean),
+        ),
       ).sort();
       const physicalCanonicals = physicalCanonicalIds
         .map((id) => canonicalById.get(id))
@@ -313,7 +364,9 @@ function buildCanonicalInputs(snapshot: Omit<HarnessSnapshot, "canonicalInputs" 
           title: cleanString(canonical.title),
           normalizedTitle: cleanString(canonical.normalized_title),
           year: cleanString(canonical.year),
-          authors: parseJsonArray(canonical.authors_json).map(cleanString).filter(Boolean),
+          authors: parseJsonArray(canonical.authors_json)
+            .map(cleanString)
+            .filter(Boolean),
           identifiers: identifiersFromJson(canonical.identifiers_json),
           frequency: rows.length,
         },
@@ -323,27 +376,36 @@ function buildCanonicalInputs(snapshot: Omit<HarnessSnapshot, "canonicalInputs" 
           title: cleanString(row.title),
           normalizedTitle: cleanString(row.normalized_title),
           year: cleanString(row.year),
-          authors: parseJsonArray(row.authors_json).map(cleanString).filter(Boolean),
+          authors: parseJsonArray(row.authors_json)
+            .map(cleanString)
+            .filter(Boolean),
           identifiers: identifiersFromJson(row.identifiers_json),
-          frequency: rows.filter(
-            (raw) =>
-              cleanString(raw.canonical_reference_id) ===
-              cleanString(row.canonical_reference_id),
-          ).length || 1,
+          frequency:
+            rows.filter(
+              (raw) =>
+                cleanString(raw.canonical_reference_id) ===
+                cleanString(row.canonical_reference_id),
+            ).length || 1,
         })),
         ...Array.from(rawTitleGroups.values()).map((group) => ({
           source: "raw_reference" as const,
           title: cleanString(group[0]?.parsed_title),
           normalizedTitle: cleanString(group[0]?.normalized_title),
           year: cleanString(group[0]?.year),
-          authors: parseJsonArray(group[0]?.authors_json).map(cleanString).filter(Boolean),
+          authors: parseJsonArray(group[0]?.authors_json)
+            .map(cleanString)
+            .filter(Boolean),
           identifiers: identifiersFromJson(group[0]?.identifiers_json),
-          rawReferenceIds: group.map((row) => cleanString(row.raw_reference_id)).filter(Boolean),
+          rawReferenceIds: group
+            .map((row) => cleanString(row.raw_reference_id))
+            .filter(Boolean),
           frequency: group.length,
         })),
       ].filter(Boolean);
       const preferred = titleCandidates
-        .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+        .filter((candidate): candidate is NonNullable<typeof candidate> =>
+          Boolean(candidate),
+        )
         .sort((left, right) => {
           const sourceRank = (source: string) =>
             source === "effective_canonical"
@@ -352,13 +414,16 @@ function buildCanonicalInputs(snapshot: Omit<HarnessSnapshot, "canonicalInputs" 
                 ? 2
                 : 1;
           return (
-            sourceRank(String(right.source)) - sourceRank(String(left.source)) ||
+            sourceRank(String(right.source)) -
+              sourceRank(String(left.source)) ||
             Number(right.frequency || 0) - Number(left.frequency || 0) ||
             cleanString(left.title).localeCompare(cleanString(right.title))
           );
         })[0];
       const identifiers = [
-        ...physicalCanonicals.flatMap((row) => identifiersFromJson(row.identifiers_json)),
+        ...physicalCanonicals.flatMap((row) =>
+          identifiersFromJson(row.identifiers_json),
+        ),
         ...rows.flatMap((row) => identifiersFromJson(row.identifiers_json)),
       ];
       const authors = [
@@ -371,15 +436,24 @@ function buildCanonicalInputs(snapshot: Omit<HarnessSnapshot, "canonicalInputs" 
       ];
       return {
         canonicalReferenceId,
-        title: cleanString(preferred?.title) || cleanString(rows[0]?.parsed_title),
-        normalizedTitle: cleanString(preferred?.normalizedTitle) || cleanString(rows[0]?.normalized_title),
+        title:
+          cleanString(preferred?.title) || cleanString(rows[0]?.parsed_title),
+        normalizedTitle:
+          cleanString(preferred?.normalizedTitle) ||
+          cleanString(rows[0]?.normalized_title),
         year: cleanString(preferred?.year) || cleanString(rows[0]?.year),
         authors: Array.from(new Set(authors)).sort(),
         stickyRepresentative: inboundRedirectTargets.has(canonicalReferenceId),
-        rawReferenceIds: rows.map((row) => cleanString(row.raw_reference_id)).filter(Boolean),
+        rawReferenceIds: rows
+          .map((row) => cleanString(row.raw_reference_id))
+          .filter(Boolean),
         rawHashes: rows.map((row) => cleanString(row.raw_hash)).filter(Boolean),
-        rawReferences: rows.map((row) => cleanString(row.raw_reference)).filter(Boolean),
-        sourceRefs: rows.map((row) => cleanString(row.source_ref)).filter(Boolean),
+        rawReferences: rows
+          .map((row) => cleanString(row.raw_reference))
+          .filter(Boolean),
+        sourceRefs: rows
+          .map((row) => cleanString(row.source_ref))
+          .filter(Boolean),
         identifiers,
         titleCandidates,
       } satisfies ReferenceCanonicalDedupeInput;
@@ -410,7 +484,9 @@ async function loadSnapshot(options: HarnessOptions): Promise<HarnessSnapshot> {
       zotero_item_count: zoteroItems.length,
       artifact_sidecar_count: plugin.artifactSidecars.length,
       raw_reference_count: plugin.rawReferences.length,
-      active_raw_reference_count: plugin.rawReferences.filter((row) => cleanString(row.status) === "active").length,
+      active_raw_reference_count: plugin.rawReferences.filter(
+        (row) => cleanString(row.status) === "active",
+      ).length,
       canonical_reference_count: plugin.canonicalReferences.length,
       canonical_dedupe_input_count: canonicalInputs.length,
       binding_count: plugin.bindings.length,
@@ -484,7 +560,9 @@ async function writeRun(
   result: ReferenceCanonicalDedupeClusteredResult,
 ) {
   if (!options.debugDb) {
-    throw new Error("--debug-db is required for run and serve write operations");
+    throw new Error(
+      "--debug-db is required for run and serve write operations",
+    );
   }
   assertDebugDbSafe(options);
   const debugDb = normalizeDbPath(options.debugDb);
@@ -502,10 +580,12 @@ async function writeRun(
       sqlString(path.basename(options.zoteroDb)),
       sqlString(path.basename(options.pluginDb)),
       sqlString(referenceMatcherFingerprint("clustered-v1")),
-      sqlString(JSON.stringify({
-        maxBlockSize: options.maxBlockSize,
-        maxCandidatePairs: options.maxCandidatePairs,
-      })),
+      sqlString(
+        JSON.stringify({
+          maxBlockSize: options.maxBlockSize,
+          maxCandidatePairs: options.maxCandidatePairs,
+        }),
+      ),
       sqlString(JSON.stringify(result.counters)),
       sqlString(JSON.stringify(result.diagnostics)),
     ].join(", ")});`,
@@ -582,9 +662,18 @@ async function loadRunResults(debugDb: string, runId = "") {
   }
   const where = `WHERE run_id = ${sqlString(resolvedRunId)}`;
   const [clusters, edges, actions] = await Promise.all([
-    sqliteJson(debugDb, `SELECT * FROM harness_cluster ${where} ORDER BY cluster_id`),
-    sqliteJson(debugDb, `SELECT * FROM harness_edge ${where} ORDER BY edge_type, score DESC`),
-    sqliteJson(debugDb, `SELECT * FROM harness_action ${where} ORDER BY action, edge_type, score DESC`),
+    sqliteJson(
+      debugDb,
+      `SELECT * FROM harness_cluster ${where} ORDER BY cluster_id`,
+    ),
+    sqliteJson(
+      debugDb,
+      `SELECT * FROM harness_edge ${where} ORDER BY edge_type, score DESC`,
+    ),
+    sqliteJson(
+      debugDb,
+      `SELECT * FROM harness_action ${where} ORDER BY action, edge_type, score DESC`,
+    ),
   ]);
   return { runId: resolvedRunId, clusters, edges, actions };
 }
@@ -606,7 +695,8 @@ function parseOptions(): HarnessOptions {
     debugDb,
     port: Number(argValue("--port", "8765")) || 8765,
     maxBlockSize: Number(argValue("--max-block-size", "30")) || 30,
-    maxCandidatePairs: Number(argValue("--max-candidate-pairs", "3000")) || 3000,
+    maxCandidatePairs:
+      Number(argValue("--max-candidate-pairs", "3000")) || 3000,
   };
 }
 
@@ -616,7 +706,9 @@ async function runCluster(options: HarnessOptions) {
     maxBlockSize: options.maxBlockSize,
     maxCandidatePairs: options.maxCandidatePairs,
   });
-  const persisted = options.debugDb ? await writeRun(options, snapshot, result) : null;
+  const persisted = options.debugDb
+    ? await writeRun(options, snapshot, result)
+    : null;
   return { snapshot, result, persisted };
 }
 
@@ -628,7 +720,12 @@ function jsonResponse(res: http.ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body, null, 2));
 }
 
-function textResponse(res: http.ServerResponse, status: number, body: string, type: string) {
+function textResponse(
+  res: http.ServerResponse,
+  status: number,
+  body: string,
+  type: string,
+) {
   res.writeHead(status, { "content-type": type, "cache-control": "no-store" });
   res.end(body);
 }
@@ -639,7 +736,10 @@ async function serve(options: HarnessOptions) {
   }
   assertDebugDbSafe(options);
   await ensureDebugSchema(options.debugDb);
-  const staticRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "static");
+  const staticRoot = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "static",
+  );
   const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || "/", `http://127.0.0.1:${options.port}`);
@@ -659,7 +759,10 @@ async function serve(options: HarnessOptions) {
         jsonResponse(
           res,
           200,
-          await loadRunResults(options.debugDb!, url.searchParams.get("runId") || ""),
+          await loadRunResults(
+            options.debugDb!,
+            url.searchParams.get("runId") || "",
+          ),
         );
         return;
       }
@@ -673,10 +776,14 @@ async function serve(options: HarnessOptions) {
         res,
         200,
         fs.readFileSync(filePath, "utf8"),
-        filePath.endsWith(".html") ? "text/html; charset=utf-8" : "text/plain; charset=utf-8",
+        filePath.endsWith(".html")
+          ? "text/html; charset=utf-8"
+          : "text/plain; charset=utf-8",
       );
     } catch (error) {
-      jsonResponse(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      jsonResponse(res, 500, {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   });
   server.listen(options.port, "127.0.0.1", () => {

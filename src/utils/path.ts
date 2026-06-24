@@ -14,7 +14,8 @@ export function joinPath(...segments: string[]) {
     .map((segment) => String(segment || ""))
     .filter(Boolean);
   const separator = getPathSeparator();
-  const firstNonEmpty = normalizedSegments.find((segment) => segment.length > 0) || "";
+  const firstNonEmpty =
+    normalizedSegments.find((segment) => segment.length > 0) || "";
   const isPosixAbsolute = firstNonEmpty.startsWith("/");
   const driveMatch = firstNonEmpty.match(/^([A-Za-z]:)[\\/]?/);
   const drivePrefix = driveMatch?.[1] || "";

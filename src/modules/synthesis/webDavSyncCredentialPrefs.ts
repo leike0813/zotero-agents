@@ -136,7 +136,10 @@ export async function storeSynthesisWebDavSyncCredential(
     ciphertext: bytesToBase64(new Uint8Array(ciphertext)),
     created_at: timestamp,
   };
-  setPref("synthesisWebDavSyncCredentialEncryptedJson", JSON.stringify(envelope));
+  setPref(
+    "synthesisWebDavSyncCredentialEncryptedJson",
+    JSON.stringify(envelope),
+  );
   setPref("synthesisWebDavSyncCredentialMasked", "");
   setPref("synthesisWebDavSyncCredentialUpdatedAt", timestamp);
   return { stored: true, updatedAt: timestamp };

@@ -1,4 +1,7 @@
-import { inferDomainFromFilePath, shouldSkipByZoteroRoutineAllowlist } from "./domainFilter";
+import {
+  inferDomainFromFilePath,
+  shouldSkipByZoteroRoutineAllowlist,
+} from "./domainFilter";
 import { getTestDomain } from "./testMode";
 
 const INSTALL_FLAG = "__zsZoteroRoutinePruneInstalled";

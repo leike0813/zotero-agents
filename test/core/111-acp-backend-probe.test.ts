@@ -2,9 +2,7 @@ import { assert } from "chai";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
-import {
-  probeAcpBackendRuntimeOptions,
-} from "../../src/modules/acpBackendProbe";
+import { probeAcpBackendRuntimeOptions } from "../../src/modules/acpBackendProbe";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
 
 function makeProbeAdapter(
@@ -82,9 +80,17 @@ describe("ACP backend probe", function () {
           workspaceDir: args.workspaceDir,
           runtimeDir: args.runtimeDir,
         });
-        for (const target of [args.agentWorkspaceDir, args.sessionCwd, args.workspaceDir, args.runtimeDir]) {
+        for (const target of [
+          args.agentWorkspaceDir,
+          args.sessionCwd,
+          args.workspaceDir,
+          args.runtimeDir,
+        ]) {
           const stat = await fs.stat(target);
-          assert.isTrue(stat.isDirectory(), `${target} should exist before adapter launch`);
+          assert.isTrue(
+            stat.isDirectory(),
+            `${target} should exist before adapter launch`,
+          );
         }
         return {
           initialize: async () => ({
@@ -131,7 +137,9 @@ describe("ACP backend probe", function () {
     assert.equal(seen[0]?.agentWorkspaceDir, seen[0]?.workspaceDir);
     assert.equal(result.backend.acp?.connectionTest?.status, "passed");
     assert.deepEqual(
-      result.backend.acp?.runtimeOptionsCache?.displayModels.map((entry) => entry.id),
+      result.backend.acp?.runtimeOptionsCache?.displayModels.map(
+        (entry) => entry.id,
+      ),
       ["model-1"],
     );
   });
@@ -191,17 +199,20 @@ describe("ACP backend probe", function () {
     const cache = result.backend.acp?.runtimeOptionsCache;
     assert.isTrue(result.ok);
     assert.equal(result.backend.acp?.connectionTest?.status, "passed");
-    assert.deepEqual(cache?.modes.map((entry) => entry.id), ["ask", "build"]);
+    assert.deepEqual(
+      cache?.modes.map((entry) => entry.id),
+      ["ask", "build"],
+    );
     assert.equal(cache?.currentModeId, "build");
-    assert.deepEqual(cache?.displayModels.map((entry) => entry.id), [
-      "openai/gpt-5",
-      "anthropic/claude",
-    ]);
+    assert.deepEqual(
+      cache?.displayModels.map((entry) => entry.id),
+      ["openai/gpt-5", "anthropic/claude"],
+    );
     assert.equal(cache?.currentDisplayModelId, "openai/gpt-5");
-    assert.deepEqual(cache?.reasoningEfforts.map((entry) => entry.id), [
-      "low",
-      "high",
-    ]);
+    assert.deepEqual(
+      cache?.reasoningEfforts.map((entry) => entry.id),
+      ["low", "high"],
+    );
     assert.equal(cache?.currentReasoningEffortId, "high");
   });
 

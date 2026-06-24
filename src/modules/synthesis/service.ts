@@ -5593,7 +5593,10 @@ async function readRunWorkspaceJson(
 
 function isAllowedArtifactManifestPath(value: string) {
   const normalized = cleanString(value).replace(/\\/g, "/");
-  if (!normalized || normalized.split("/").some((segment) => segment === "..")) {
+  if (
+    !normalized ||
+    normalized.split("/").some((segment) => segment === "..")
+  ) {
     return false;
   }
   if (/^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/")) {

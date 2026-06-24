@@ -81,7 +81,10 @@ async function readSelectionFixture(rootDir: string) {
   return JSON.parse(raw) as SelectionContext;
 }
 
-function normalizeAttachmentPaths(rootDir: string, selection: SelectionContext) {
+function normalizeAttachmentPaths(
+  rootDir: string,
+  selection: SelectionContext,
+) {
   const copied = JSON.parse(JSON.stringify(selection)) as SelectionContext;
   const baseDir = path.join(rootDir, "test", "fixtures", "selection-context");
   for (const attachment of copied.items?.attachments || []) {
@@ -115,7 +118,10 @@ function makeOutputPath(baseDir: string, requestId: string, index: number) {
     .replace(/[-:]/g, "")
     .replace(/\..+$/, "")
     .replace("T", "_");
-  return path.join(baseDir, `request-${requestId}-${index + 1}-${timestamp}.zip`);
+  return path.join(
+    baseDir,
+    `request-${requestId}-${index + 1}-${timestamp}.zip`,
+  );
 }
 
 async function main() {
@@ -158,7 +164,9 @@ async function main() {
 
   for (let i = 0; i < requests.length; i++) {
     let request = requests[i];
-    console.log(`\n[${i + 1}/${requests.length}] submit -> upload -> poll -> download`);
+    console.log(
+      `\n[${i + 1}/${requests.length}] submit -> upload -> poll -> download`,
+    );
     let result;
     try {
       result = await provider.execute({

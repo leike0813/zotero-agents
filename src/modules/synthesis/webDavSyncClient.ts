@@ -49,7 +49,10 @@ export function webDavRemoteUrl(args: {
   remotePath: string;
   relativePath?: string;
 }) {
-  return joinUrl(joinUrl(args.baseUrl, args.remotePath), args.relativePath || "");
+  return joinUrl(
+    joinUrl(args.baseUrl, args.remotePath),
+    args.relativePath || "",
+  );
 }
 
 function responseHeader(headers: unknown, name: string) {
@@ -83,7 +86,9 @@ export function createDefaultSynthesisWebDavHttpClient(): SynthesisWebDavHttpCli
         const credential = `${request.username || ""}:${request.credential || ""}`;
         const runtime = globalThis as {
           btoa?: (value: string) => string;
-          Buffer?: { from: (value: string) => { toString: (encoding: string) => string } };
+          Buffer?: {
+            from: (value: string) => { toString: (encoding: string) => string };
+          };
         };
         const encoded =
           typeof runtime.btoa === "function"

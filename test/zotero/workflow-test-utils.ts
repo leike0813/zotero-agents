@@ -116,7 +116,12 @@ export async function mkTempDir(prefix: string) {
   if (isZoteroRuntime()) {
     const runtime = globalThis as {
       PathUtils: { tempDir: string };
-      IOUtils: { makeDirectory: (path: string, options?: Record<string, unknown>) => Promise<void> };
+      IOUtils: {
+        makeDirectory: (
+          path: string,
+          options?: Record<string, unknown>,
+        ) => Promise<void>;
+      };
     };
     const dir = joinPath(
       runtime.PathUtils.tempDir,
@@ -135,7 +140,10 @@ export async function writeUtf8(filePath: string, content: string) {
   if (isZoteroRuntime()) {
     const runtime = globalThis as {
       IOUtils: {
-        makeDirectory: (path: string, options?: Record<string, unknown>) => Promise<void>;
+        makeDirectory: (
+          path: string,
+          options?: Record<string, unknown>,
+        ) => Promise<void>;
         writeUTF8: (path: string, data: string) => Promise<void>;
       };
     };
@@ -251,7 +259,13 @@ export async function listDirNames(dirPath: string): Promise<string[]> {
     };
     const children = await runtime.IOUtils.getChildren(dirPath);
     return children
-      .map((entry) => String(entry || "").replace(/\\/g, "/").split("/").pop() || "")
+      .map(
+        (entry) =>
+          String(entry || "")
+            .replace(/\\/g, "/")
+            .split("/")
+            .pop() || "",
+      )
       .filter(Boolean);
   }
   const fs = await dynamicImport("fs/promises");
@@ -261,9 +275,7 @@ export async function listDirNames(dirPath: string): Promise<string[]> {
 export function encodeBase64Utf8(text: string): string {
   const source = String(text || "");
   const bufferCtor =
-    typeof Buffer !== "undefined" &&
-    Buffer &&
-    typeof Buffer.from === "function"
+    typeof Buffer !== "undefined" && Buffer && typeof Buffer.from === "function"
       ? Buffer
       : null;
   if (bufferCtor) {
@@ -288,9 +300,7 @@ export function encodeBase64Utf8(text: string): string {
 export function decodeBase64Utf8(text: string): string {
   const encoded = String(text || "").trim();
   const bufferCtor =
-    typeof Buffer !== "undefined" &&
-    Buffer &&
-    typeof Buffer.from === "function"
+    typeof Buffer !== "undefined" && Buffer && typeof Buffer.from === "function"
       ? Buffer
       : null;
   if (bufferCtor) {

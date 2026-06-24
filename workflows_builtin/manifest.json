@@ -55,6 +55,7 @@
     "literature-workbench-package/literature-deep-reading/hooks/applyResult.mjs",
     "literature-workbench-package/literature-deep-reading/hooks/buildRequest.mjs",
     "literature-workbench-package/literature-deep-reading/workflow.json",
+    "literature-workbench-package/literature-deep-reading/README.md",
     "literature-workbench-package/literature-analysis/assets/zt-field.eta",
     "literature-workbench-package/literature-analysis/assets/zt-note.eta",
     "literature-workbench-package/literature-analysis/hooks/applyResult.mjs",
@@ -67,6 +68,7 @@
     "literature-workbench-package/literature-translator/README.md",
     "literature-workbench-package/literature-search-ingest/hooks/applyResult.mjs",
     "literature-workbench-package/literature-search-ingest/workflow.json",
+    "literature-workbench-package/literature-search-ingest/README.md",
     "literature-workbench-package/tag-bootstrapper/hooks/applyResult.mjs",
     "literature-workbench-package/tag-bootstrapper/hooks/buildRequest.mjs",
     "literature-workbench-package/tag-bootstrapper/workflow.json",
@@ -108,8 +110,11 @@
     "synthesis-layer/locales/fr-FR.json",
     "synthesis-layer/locales/ja-JP.json",
     "synthesis-layer/create-topic-synthesis/workflow.json",
+    "synthesis-layer/create-topic-synthesis/README.md",
     "synthesis-layer/update-topic-synthesis/workflow.json",
+    "synthesis-layer/update-topic-synthesis/README.md",
     "synthesis-layer/manuscript-literature-framing/workflow.json",
+    "synthesis-layer/manuscript-literature-framing/README.md",
     "synthesis-layer/hooks/applyTopicSynthesisResult.mjs",
     "synthesis-layer/hooks/applyManuscriptLiteratureFramingResult.mjs"
   ]

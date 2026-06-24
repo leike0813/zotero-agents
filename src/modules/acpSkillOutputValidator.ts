@@ -60,7 +60,11 @@ export async function validateAcpSkillFinalPayload(args: {
   readArtifactText?: (path: string) => Promise<string> | string;
 }): Promise<AcpSkillOutputValidationResult> {
   const resultJson = args.payload;
-  if (!resultJson || typeof resultJson !== "object" || Array.isArray(resultJson)) {
+  if (
+    !resultJson ||
+    typeof resultJson !== "object" ||
+    Array.isArray(resultJson)
+  ) {
     return {
       ok: false,
       resultJson,
@@ -125,10 +129,7 @@ export async function validateAcpSkillFinalPayload(args: {
         resultJson,
         schemaPath,
         errors: artifactValidation.diagnostics.map((entry) =>
-          [
-            entry.path ? `${entry.path}:` : "",
-            entry.message || entry.code,
-          ]
+          [entry.path ? `${entry.path}:` : "", entry.message || entry.code]
             .filter(Boolean)
             .join(" "),
         ),
@@ -160,17 +161,22 @@ export function buildAcpSkillOutputRepairPrompt(args: {
   maxRepairRounds: number;
   outputContractDetails?: string;
 }) {
-  const isInteractive = String(args.executionMode || "").trim().toLowerCase() === "interactive";
+  const isInteractive =
+    String(args.executionMode || "")
+      .trim()
+      .toLowerCase() === "interactive";
   const lines = [
     "Your previous output did not satisfy the Skill Runner output contract.",
     "",
     "Previous candidate:",
-    args.previousCandidate || "No valid JSON object was extracted from the previous assistant turn.",
+    args.previousCandidate ||
+      "No valid JSON object was extracted from the previous assistant turn.",
     "",
     "Validation errors:",
-    ...(args.errors.length > 0 ? args.errors : ["Unknown validation error"]).map(
-      (entry) => `- ${entry}`,
-    ),
+    ...(args.errors.length > 0
+      ? args.errors
+      : ["Unknown validation error"]
+    ).map((entry) => `- ${entry}`),
     "",
     isInteractive
       ? "Return exactly one JSON object matching either the pending branch (`__SKILL_DONE__ = false` with `message` and `ui_hints`) or the final branch (`__SKILL_DONE__ = true` plus the final output fields)."

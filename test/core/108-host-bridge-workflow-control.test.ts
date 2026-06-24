@@ -424,7 +424,9 @@ describe("host bridge workflow control", function () {
         .digest("hex")}`,
     );
     const reader = new ZipBundleReader(download.localPath);
-    const workflowJson = JSON.parse(await reader.readText("workflow/workflow.json"));
+    const workflowJson = JSON.parse(
+      await reader.readText("workflow/workflow.json"),
+    );
     const contextJson = await reader.readText("selection/context.json");
     const protocolText = await reader.readText("workflow-protocol.md");
     const selectedFile = await reader.readText("selection/files/001-paper.txt");
@@ -443,17 +445,16 @@ describe("host bridge workflow control", function () {
     assert.include(protocolText, "Input compatibility and apply readiness");
     assert.include(protocolText, "Sequence workflows");
     assert.isFalse(
-      fs.existsSync(path.join(extractedDir, "workflow", "package", "workflow.json")),
+      fs.existsSync(
+        path.join(extractedDir, "workflow", "package", "workflow.json"),
+      ),
     );
     assert.strictEqual(selectedFile, "paper body");
   });
 
   it("keeps workflow agent-run materialization free of workflow-id-specific branches", function () {
     const source = fs.readFileSync(
-      path.resolve(
-        process.cwd(),
-        "src/modules/hostBridgeWorkflowAgentRun.ts",
-      ),
+      path.resolve(process.cwd(), "src/modules/hostBridgeWorkflowAgentRun.ts"),
       "utf8",
     );
     assert.notInclude(source, "literature-analysis");
@@ -999,7 +1000,10 @@ describe("host bridge workflow control", function () {
     const parsed = await pendingSubmit;
 
     assert.strictEqual(parsed.status, 200);
-    assert.strictEqual(parsed.json.result.permission.channel, "skillrunner-run");
+    assert.strictEqual(
+      parsed.json.result.permission.channel,
+      "skillrunner-run",
+    );
     assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
     assert.strictEqual(globalApprovalCalls, 0);
   });

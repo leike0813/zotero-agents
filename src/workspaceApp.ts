@@ -87,7 +87,9 @@ function normalizeWorkspaceLabels(value: unknown): WorkspaceShellLabels {
   }
   const source = value as Partial<Record<WorkspaceLabelKey, unknown>>;
   const labels = { ...DEFAULT_WORKSPACE_LABELS };
-  for (const key of Object.keys(DEFAULT_WORKSPACE_LABELS) as WorkspaceLabelKey[]) {
+  for (const key of Object.keys(
+    DEFAULT_WORKSPACE_LABELS,
+  ) as WorkspaceLabelKey[]) {
     const candidate = source[key];
     if (typeof candidate === "string" && candidate.trim()) {
       labels[key] = candidate;
@@ -350,7 +352,10 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
       "zs-icon toolbar-icon refresh-icon zs-icon-refresh",
     ),
   );
-  toolbar.lastElementChild?.setAttribute("data-workspace-icon-label", "refresh");
+  toolbar.lastElementChild?.setAttribute(
+    "data-workspace-icon-label",
+    "refresh",
+  );
   toolbar.appendChild(
     iconButton(
       workspaceLabel("toggleSidebar"),

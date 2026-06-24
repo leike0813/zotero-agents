@@ -412,8 +412,8 @@
         !enabled
           ? l.disabled || "Disabled"
           : reachable
-          ? l.openManagement || "Open Management"
-          : l.unreachable || "Unreachable",
+            ? l.openManagement || "Open Management"
+            : l.unreachable || "Unreachable",
       );
       manage.disabled = !enabled || !reachable;
       manage.addEventListener("click", function () {

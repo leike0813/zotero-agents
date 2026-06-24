@@ -10,12 +10,12 @@ import {
   resolveReferenceWithPolicy,
   type ReferenceResolutionFixture,
 } from "../../src/modules/synthesis/referenceMatcher";
-import { buildReviewSeedData } from "../../.agents/skills/synthesis-reference-resolution-harness/scripts/build_review_seed";
 import {
+  buildReviewSeedData,
   emptyReviewState,
   exportReviewedGoldLabels,
   validateDecisionInput,
-} from "../../.agents/skills/synthesis-reference-resolution-harness/scripts/serve_review";
+} from "../helpers/synthesisReferenceReviewHarness";
 
 const fixtureRoot = path.resolve(
   process.cwd(),
@@ -426,8 +426,12 @@ describe("Synthesis reference resolution matcher", function () {
       },
     ]);
 
-    const redirects = result.actions.filter((action) => action.action === "redirect");
-    const reviews = result.actions.filter((action) => action.action === "review");
+    const redirects = result.actions.filter(
+      (action) => action.action === "redirect",
+    );
+    const reviews = result.actions.filter(
+      (action) => action.action === "review",
+    );
 
     assert.isTrue(
       redirects.some((action) =>
@@ -449,7 +453,9 @@ describe("Synthesis reference resolution matcher", function () {
       reviews.some((action) => action.edgeType === "contained_extension_risk"),
     );
     assert.isFalse(
-      redirects.some((action) => action.edgeType === "contained_extension_risk"),
+      redirects.some(
+        (action) => action.edgeType === "contained_extension_risk",
+      ),
     );
     assert.isAtMost(result.counters.candidate_pair_count, 2000);
   });
@@ -468,11 +474,14 @@ describe("Synthesis reference resolution matcher", function () {
         title: "Identifier Matched Work Extended",
         rawReferenceIds: ["raw:b"],
         rawHashes: ["hash:b"],
-        identifiers: [{ kind: "doi", value: "https://doi.org/10.1000/example" }],
+        identifiers: [
+          { kind: "doi", value: "https://doi.org/10.1000/example" },
+        ],
       },
       {
         canonicalReferenceId: "cref:typo-a",
-        title: "CondConv: Conditionally Parameterized Convolutions for Efficient Inference",
+        title:
+          "CondConv: Conditionally Parameterized Convolutions for Efficient Inference",
         year: "2019",
         authors: ["Brandon Yang"],
         rawReferenceIds: ["raw:c"],
@@ -480,7 +489,8 @@ describe("Synthesis reference resolution matcher", function () {
       },
       {
         canonicalReferenceId: "cref:typo-b",
-        title: "CondConv: Conditionally Parameterized Convolutions for Effcient Inference",
+        title:
+          "CondConv: Conditionally Parameterized Convolutions for Effcient Inference",
         year: "2019",
         authors: ["Brandon Yang"],
         rawReferenceIds: ["raw:d"],
@@ -497,7 +507,8 @@ describe("Synthesis reference resolution matcher", function () {
       },
       {
         canonicalReferenceId: "cref:biblio-b",
-        title: "An image is worth 16x16 words: Transformers for image recognition at scale",
+        title:
+          "An image is worth 16x16 words: Transformers for image recognition at scale",
         year: "2021",
         authors: ["Alexey Dosovitskiy"],
         rawReferenceIds: ["raw:f"],
@@ -554,7 +565,9 @@ describe("Synthesis reference resolution matcher", function () {
       ),
     );
     assert.isTrue(
-      result.edges.some((edge) => edge.edgeType === "contained_bibliographic_noise"),
+      result.edges.some(
+        (edge) => edge.edgeType === "contained_bibliographic_noise",
+      ),
     );
     assert.isTrue(
       result.edges.some((edge) => edge.edgeType === "contained_author_noise"),
@@ -563,7 +576,10 @@ describe("Synthesis reference resolution matcher", function () {
       (action) => action.edgeType === "contained_extension_risk",
     );
     assert.equal(extensionRisk?.action, "review");
-    assert.include(extensionRisk?.riskSignals || [], "semantic_title_extension");
+    assert.include(
+      extensionRisk?.riskSignals || [],
+      "semantic_title_extension",
+    );
     assert.isFalse(
       result.actions.some(
         (action) =>
@@ -655,10 +671,10 @@ describe("Synthesis reference resolution matcher", function () {
     const fasterCluster = result.clusters.find((cluster) =>
       cluster.canonicalReferenceIds.includes("cref:faster-a"),
     );
-    assert.deepEqual(
-      fasterCluster?.canonicalReferenceIds.sort(),
-      ["cref:faster-a", "cref:faster-b"],
-    );
+    assert.deepEqual(fasterCluster?.canonicalReferenceIds.sort(), [
+      "cref:faster-a",
+      "cref:faster-b",
+    ]);
 
     assert.isTrue(
       result.edges.some(
@@ -677,8 +693,14 @@ describe("Synthesis reference resolution matcher", function () {
         title:
           "Attention is all you need. In Advances in neural information processing systems, pp",
         year: "2017",
-        rawReferenceIds: Array.from({ length: 25 }, (_, index) => `raw:noisy:${index}`),
-        rawHashes: Array.from({ length: 25 }, (_, index) => `hash:noisy:${index}`),
+        rawReferenceIds: Array.from(
+          { length: 25 },
+          (_, index) => `raw:noisy:${index}`,
+        ),
+        rawHashes: Array.from(
+          { length: 25 },
+          (_, index) => `hash:noisy:${index}`,
+        ),
       },
       {
         canonicalReferenceId: "cref:clean",
@@ -716,8 +738,14 @@ describe("Synthesis reference resolution matcher", function () {
         title:
           "Masked autoencoders are scalable vision learners. In Proceedings of the IEEE conference, pp",
         year: "2023",
-        rawReferenceIds: Array.from({ length: 20 }, (_, index) => `raw:new:${index}`),
-        rawHashes: Array.from({ length: 20 }, (_, index) => `hash:new:${index}`),
+        rawReferenceIds: Array.from(
+          { length: 20 },
+          (_, index) => `raw:new:${index}`,
+        ),
+        rawHashes: Array.from(
+          { length: 20 },
+          (_, index) => `hash:new:${index}`,
+        ),
       },
     ]);
 
@@ -725,7 +753,10 @@ describe("Synthesis reference resolution matcher", function () {
       entry.canonicalReferenceIds.includes("cref:sticky"),
     );
     assert.equal(cluster?.representativeCanonicalReferenceId, "cref:sticky");
-    assert.include(cluster?.representativeRationale || [], "sticky_representative");
+    assert.include(
+      cluster?.representativeRationale || [],
+      "sticky_representative",
+    );
     assert.isFalse(
       result.actions.some((action) =>
         action.reasons.includes("representative_retarget_review"),
@@ -770,7 +801,10 @@ describe("Synthesis reference resolution matcher", function () {
     const cluster = result.clusters.find((entry) =>
       entry.canonicalReferenceIds.includes("cref:fused"),
     );
-    assert.equal(cluster?.representativeCanonicalReferenceId, "cref:hyphenated");
+    assert.equal(
+      cluster?.representativeCanonicalReferenceId,
+      "cref:hyphenated",
+    );
     assert.equal(
       result.actions.filter(
         (action) =>
@@ -801,7 +835,8 @@ describe("Synthesis reference resolution matcher", function () {
       },
       {
         canonicalReferenceId: "cref:second-sensors",
-        title: "Second: Sparsely embedded convolutional detection. Sensors 18(10), 3337",
+        title:
+          "Second: Sparsely embedded convolutional detection. Sensors 18(10), 3337",
         year: "2018",
         authors: ["Yan Yan"],
         rawReferenceIds: ["raw:second-c"],
@@ -812,7 +847,10 @@ describe("Synthesis reference resolution matcher", function () {
     const cluster = result.clusters.find((entry) =>
       entry.canonicalReferenceIds.includes("cref:second-clean"),
     );
-    assert.equal(cluster?.representativeCanonicalReferenceId, "cref:second-clean");
+    assert.equal(
+      cluster?.representativeCanonicalReferenceId,
+      "cref:second-clean",
+    );
     assert.isTrue(
       result.edges.some(
         (edge) =>
@@ -827,7 +865,8 @@ describe("Synthesis reference resolution matcher", function () {
     const result = dedupeCanonicalReferencesClustered([
       {
         canonicalReferenceId: "cref:gold-clean",
-        title: "Gold-yolo: Efficient object detector via gather-and-distribute mechanism",
+        title:
+          "Gold-yolo: Efficient object detector via gather-and-distribute mechanism",
         year: "2023",
         authors: ["Wang"],
         rawReferenceIds: ["raw:gold-a", "raw:gold-b"],
@@ -847,9 +886,14 @@ describe("Synthesis reference resolution matcher", function () {
     const cluster = result.clusters.find((entry) =>
       entry.canonicalReferenceIds.includes("cref:gold-clean"),
     );
-    assert.equal(cluster?.representativeCanonicalReferenceId, "cref:gold-clean");
+    assert.equal(
+      cluster?.representativeCanonicalReferenceId,
+      "cref:gold-clean",
+    );
     assert.isTrue(
-      result.edges.some((edge) => edge.edgeType === "contained_bibliographic_noise"),
+      result.edges.some(
+        (edge) => edge.edgeType === "contained_bibliographic_noise",
+      ),
     );
   });
 
@@ -880,9 +924,10 @@ describe("Synthesis reference resolution matcher", function () {
         (entry) =>
           typeof entry === "object" &&
           entry !== null &&
-          (entry as { code?: string }).code === "cluster_dedupe_record_excluded" &&
-          (entry as { canonical_reference_id?: string }).canonical_reference_id ===
-            "cref:bare-doi",
+          (entry as { code?: string }).code ===
+            "cluster_dedupe_record_excluded" &&
+          (entry as { canonical_reference_id?: string })
+            .canonical_reference_id === "cref:bare-doi",
       ),
     );
   });
@@ -906,7 +951,9 @@ describe("Synthesis reference resolution matcher", function () {
     ]);
 
     assert.isFalse(
-      result.edges.some((edge) => edge.edgeType === "contained_bibliographic_noise"),
+      result.edges.some(
+        (edge) => edge.edgeType === "contained_bibliographic_noise",
+      ),
     );
     assert.isTrue(
       result.edges.some((edge) => edge.edgeType === "contained_extension_risk"),
@@ -963,7 +1010,10 @@ describe("Synthesis reference resolution matcher", function () {
       { maxBlockSize: 2, maxCandidatePairs: 10 },
     );
 
-    assert.equal(result.counters.block_skipped_count, result.diagnostics.length);
+    assert.equal(
+      result.counters.block_skipped_count,
+      result.diagnostics.length,
+    );
     assert.isTrue(
       result.diagnostics.some(
         (entry) =>

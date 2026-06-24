@@ -91,15 +91,18 @@ export function extractDigestRepresentativeImageDescriptor(
   }
   const caption = stripHtml(
     block.match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i)?.[1] ||
-      source.slice(source.indexOf(imgTag) + imgTag.length).match(
-        /<\/p>\s*<p\b[^>]*>([\s\S]*?)<\/p>/i,
-      )?.[1] ||
+      source
+        .slice(source.indexOf(imgTag) + imgTag.length)
+        .match(/<\/p>\s*<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] ||
       "",
   );
   const attachmentKey =
     cleanString(readTagAttribute(imgTag, "data-attachment-key")) ||
     cleanString(
-      readTagAttribute(openingTag, "data-zs-representative_image_attachment_key"),
+      readTagAttribute(
+        openingTag,
+        "data-zs-representative_image_attachment_key",
+      ),
     );
   const alt =
     stripHtml(readTagAttribute(imgTag, "alt")) ||
@@ -116,7 +119,10 @@ export function extractDigestRepresentativeImageDescriptor(
       readTagAttribute(openingTag, "data-zs-representative_image_height"),
     ),
     compressedBytes: parsePositiveInteger(
-      readTagAttribute(openingTag, "data-zs-representative_image_compressed_bytes"),
+      readTagAttribute(
+        openingTag,
+        "data-zs-representative_image_compressed_bytes",
+      ),
     ),
     sourceKind: cleanString(
       readTagAttribute(openingTag, "data-zs-representative_image_source_kind"),
@@ -133,7 +139,9 @@ function unavailable(
 ): DigestRepresentativeImageDto {
   return {
     status: "unavailable",
-    ...(descriptor?.attachmentKey ? { attachment_key: descriptor.attachmentKey } : {}),
+    ...(descriptor?.attachmentKey
+      ? { attachment_key: descriptor.attachmentKey }
+      : {}),
     ...(descriptor?.alt ? { alt: descriptor.alt } : {}),
     ...(descriptor?.caption ? { caption: descriptor.caption } : {}),
     ...(descriptor?.sourceKind ? { source_kind: descriptor.sourceKind } : {}),
@@ -250,22 +258,40 @@ export async function resolveDigestRepresentativeImageForUi(
       diagnostics: ["digest_note_not_found"],
     };
   }
-  const descriptor = extractDigestRepresentativeImageDescriptor(readNoteHtml(note));
+  const descriptor = extractDigestRepresentativeImageDescriptor(
+    readNoteHtml(note),
+  );
   if (!descriptor) {
     return undefined;
   }
   if (!descriptor.attachmentKey) {
-    return unavailable(descriptor, "representative_image_attachment_key_missing");
+    return unavailable(
+      descriptor,
+      "representative_image_attachment_key_missing",
+    );
   }
-  const attachment = resolveItemByKey(zotero, libraryId, descriptor.attachmentKey);
+  const attachment = resolveItemByKey(
+    zotero,
+    libraryId,
+    descriptor.attachmentKey,
+  );
   if (!attachment) {
     return unavailable(descriptor, "representative_image_attachment_not_found");
   }
-  if (typeof attachment.isAttachment === "function" && !attachment.isAttachment()) {
-    return unavailable(descriptor, "representative_image_attachment_not_attachment");
+  if (
+    typeof attachment.isAttachment === "function" &&
+    !attachment.isAttachment()
+  ) {
+    return unavailable(
+      descriptor,
+      "representative_image_attachment_not_attachment",
+    );
   }
   if (parentItemId(attachment) !== itemId(note)) {
-    return unavailable(descriptor, "representative_image_attachment_parent_mismatch");
+    return unavailable(
+      descriptor,
+      "representative_image_attachment_parent_mismatch",
+    );
   }
   const mimeType = contentTypeForAttachment(attachment);
   if (!mimeType) {
@@ -273,7 +299,10 @@ export async function resolveDigestRepresentativeImageForUi(
   }
   const filePath = await readAttachmentPath(attachment);
   if (!filePath) {
-    return unavailable(descriptor, "representative_image_attachment_path_missing");
+    return unavailable(
+      descriptor,
+      "representative_image_attachment_path_missing",
+    );
   }
   try {
     const bytes = await readBytes(filePath);

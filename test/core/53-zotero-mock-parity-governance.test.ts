@@ -98,15 +98,19 @@ describe("zotero mock parity governance", function () {
       fields: { title: "Mock Parity Deleted Contract" },
     });
 
-    const maybeTrash = (Zotero.Items as unknown as {
-      trashTx?: (ids: number[]) => Promise<void>;
-    }).trashTx;
+    const maybeTrash = (
+      Zotero.Items as unknown as {
+        trashTx?: (ids: number[]) => Promise<void>;
+      }
+    ).trashTx;
     assert.isFunction(maybeTrash);
     await maybeTrash!([item.id]);
 
     const deletedItem = Zotero.Items.get(item.id);
     assert.isOk(deletedItem);
-    assert.isTrue(Boolean((deletedItem as unknown as { deleted?: boolean }).deleted));
+    assert.isTrue(
+      Boolean((deletedItem as unknown as { deleted?: boolean }).deleted),
+    );
 
     let assignmentError: unknown = null;
     try {
@@ -115,7 +119,9 @@ describe("zotero mock parity governance", function () {
       assignmentError = error;
     }
 
-    assert.isTrue(Boolean((deletedItem as unknown as { deleted?: boolean }).deleted));
+    assert.isTrue(
+      Boolean((deletedItem as unknown as { deleted?: boolean }).deleted),
+    );
     if (assignmentError) {
       assert.match(String(assignmentError), /typeerror|readonly|setter/i);
     }
@@ -142,7 +148,8 @@ describe("zotero mock parity governance", function () {
       title: "lookup-contract.pdf",
       mimeType: "application/pdf",
     });
-    const parentAttachmentIds = Zotero.Items.get(parent.id)?.getAttachments() || [];
+    const parentAttachmentIds =
+      Zotero.Items.get(parent.id)?.getAttachments() || [];
     assert.include(parentAttachmentIds, attachment.id);
 
     const byId = Zotero.Items.get(attachment.id);

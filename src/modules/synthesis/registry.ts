@@ -7,10 +7,7 @@ export type ReferenceSidecarArtifactType =
   | "references"
   | "citation_analysis";
 
-export type ReferenceSidecarArtifactStatus =
-  | "available"
-  | "missing"
-  | "error";
+export type ReferenceSidecarArtifactStatus = "available" | "missing" | "error";
 
 export type ReferenceSidecarDiagnostic = {
   code:

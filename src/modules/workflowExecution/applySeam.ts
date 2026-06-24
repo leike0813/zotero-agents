@@ -457,7 +457,9 @@ export async function runWorkflowApplySeam(
           : resultStatus === "canceled"
             ? "provider result canceled after local job success"
             : `unexpected provider result status: ${resultStatus}`;
-      failureReasons.push(`job-${i} (request_id=${result.requestId}): ${reason}`);
+      failureReasons.push(
+        `job-${i} (request_id=${result.requestId}): ${reason}`,
+      );
       jobOutcomes.push({
         index: i,
         taskLabel,

@@ -1,5 +1,8 @@
 import { getString } from "../../utils/locale";
-import { resolveAddonRef, resolveRuntimeAddon } from "../../utils/runtimeBridge";
+import {
+  resolveAddonRef,
+  resolveRuntimeAddon,
+} from "../../utils/runtimeBridge";
 import type { WorkflowMessageFormatter } from "../workflowExecuteMessage";
 
 export function localizeWorkflowText(

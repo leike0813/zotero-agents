@@ -123,7 +123,10 @@ class MockDialog {
       throw new Error("dialog data missing");
     }
     MockDialog.inFlight += 1;
-    MockDialog.maxInFlight = Math.max(MockDialog.maxInFlight, MockDialog.inFlight);
+    MockDialog.maxInFlight = Math.max(
+      MockDialog.maxInFlight,
+      MockDialog.inFlight,
+    );
     const delayMs = MockDialog.nextDelays.shift() || 0;
     const footerContainer = {
       style: {} as Record<string, string>,
@@ -526,9 +529,12 @@ describe("workflow editor host", function () {
     let actionObserved = "";
     registerWorkflowEditorRenderer("runtime-context-renderer", {
       render: ({ state, context }) => {
-        const runtimeContext = context as { schedule?: () => string } | undefined;
+        const runtimeContext = context as
+          | { schedule?: () => string }
+          | undefined;
         renderObserved = typeof runtimeContext?.schedule;
-        (state as { value?: string }).value = runtimeContext?.schedule?.() || "";
+        (state as { value?: string }).value =
+          runtimeContext?.schedule?.() || "";
       },
       serialize: ({ state }) => state,
     });
@@ -547,9 +553,12 @@ describe("workflow editor host", function () {
           label: "Run",
           noClose: true,
           onClick: ({ state, context, closeWithAction }) => {
-            const runtimeContext = context as { schedule?: () => string } | undefined;
+            const runtimeContext = context as
+              | { schedule?: () => string }
+              | undefined;
             actionObserved = typeof runtimeContext?.schedule;
-            (state as { value?: string }).value = runtimeContext?.schedule?.() || "";
+            (state as { value?: string }).value =
+              runtimeContext?.schedule?.() || "";
             closeWithAction("run");
           },
         },

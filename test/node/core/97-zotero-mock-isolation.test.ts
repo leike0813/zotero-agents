@@ -16,8 +16,14 @@ describe("zotero mock isolation", function () {
 
     assert.equal(item.id, 1);
     assert.equal(collection.id, 1);
-    assert.equal(Zotero.Items.get(item.id)?.getField("title"), "Mock Isolation Parent");
-    assert.equal(Zotero.Collections.get(collection.id)?.name, "Mock Isolation Collection");
+    assert.equal(
+      Zotero.Items.get(item.id)?.getField("title"),
+      "Mock Isolation Parent",
+    );
+    assert.equal(
+      Zotero.Collections.get(collection.id)?.name,
+      "Mock Isolation Collection",
+    );
     assert.equal(Zotero.Prefs.get("mock-isolation-key"), "present");
   });
 
@@ -25,13 +31,19 @@ describe("zotero mock isolation", function () {
     assert.isUndefined(Zotero.Items.get(1));
     assert.isUndefined(Zotero.Collections.get(1));
     assert.isUndefined(Zotero.Prefs.get("mock-isolation-key"));
-    assert.equal(Zotero.Prefs.get("extensions.zotero.zotero-skills.workflowDir"), "");
+    assert.equal(
+      Zotero.Prefs.get("extensions.zotero.zotero-skills.workflowDir"),
+      "",
+    );
 
     resetZoteroMockStateForTests();
 
     assert.isUndefined(Zotero.Items.get(1));
     assert.isUndefined(Zotero.Collections.get(1));
     assert.isUndefined(Zotero.Prefs.get("mock-isolation-key"));
-    assert.equal(Zotero.Prefs.get("extensions.zotero.zotero-skills.workflowDir"), "");
+    assert.equal(
+      Zotero.Prefs.get("extensions.zotero.zotero-skills.workflowDir"),
+      "",
+    );
   });
 });

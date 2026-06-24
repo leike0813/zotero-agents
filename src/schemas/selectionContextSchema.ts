@@ -82,7 +82,14 @@ const selectionContextSchema = {
     },
     ParentContext: {
       type: "object",
-      required: ["item", "attachments", "notes", "tags", "collections", "children"],
+      required: [
+        "item",
+        "attachments",
+        "notes",
+        "tags",
+        "collections",
+        "children",
+      ],
       properties: {
         item: { $ref: "#/$defs/ItemBase" },
         attachments: {
@@ -98,7 +105,14 @@ const selectionContextSchema = {
     },
     ChildContext: {
       type: "object",
-      required: ["item", "parent", "attachments", "notes", "tags", "collections"],
+      required: [
+        "item",
+        "parent",
+        "attachments",
+        "notes",
+        "tags",
+        "collections",
+      ],
       properties: {
         item: { $ref: "#/$defs/ItemBase" },
         parent: { anyOf: [{ $ref: "#/$defs/ItemBase" }, { type: "null" }] },

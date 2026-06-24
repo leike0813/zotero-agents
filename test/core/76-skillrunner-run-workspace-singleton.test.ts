@@ -58,7 +58,7 @@ describe("skillrunner run workspace singleton", function () {
   it("focuses SkillRunner workspace tasks by runKey only", async function () {
     const ts = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
     assert.include(ts, "runKey: args?.runKey");
-    assert.include(ts, "selectionIntentFromRunKey(runKey, \"user\")");
+    assert.include(ts, 'selectionIntentFromRunKey(runKey, "user")');
     assert.notInclude(ts, "taskRecord.runKey");
     assert.notInclude(ts, "taskId: taskId || localRunId");
     assert.notInclude(ts, "taskId: localRunId || taskId");

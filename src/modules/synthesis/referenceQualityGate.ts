@@ -1,5 +1,6 @@
 const DOI_PATTERN = /^(?:doi:\s*)?10\.\d{4,9}\/\S+$/i;
-const DOI_URL_PATTERN = /^(?:https?:\/\/)?(?:dx\.)?doi\.org\/10\.\d{4,9}\/\S+$/i;
+const DOI_URL_PATTERN =
+  /^(?:https?:\/\/)?(?:dx\.)?doi\.org\/10\.\d{4,9}\/\S+$/i;
 const URL_PATTERN = /^(?:https?:\/\/|\/\/)\S+$/i;
 const ARXIV_PATTERN = /^(?:arxiv:\s*)?\d{4}\.\d{4,5}(?:v\d+)?$/i;
 const BIBLIOGRAPHIC_MARKER_PATTERN =
@@ -22,7 +23,9 @@ export type ReferenceExtractionQuality = {
 };
 
 function cleanText(value: unknown) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function titleOf(reference: Record<string, unknown>) {
@@ -35,7 +38,9 @@ function titleOf(reference: Record<string, unknown>) {
 }
 
 function rawOf(reference: Record<string, unknown>) {
-  return cleanText(reference.raw || reference.raw_reference || reference.reference);
+  return cleanText(
+    reference.raw || reference.raw_reference || reference.reference,
+  );
 }
 
 function authorsOf(reference: Record<string, unknown>) {
@@ -66,9 +71,7 @@ function normalizedTitle(value: unknown) {
 }
 
 function titleTokens(value: unknown) {
-  return normalizedTitle(value)
-    .split(/\s+/)
-    .filter(Boolean);
+  return normalizedTitle(value).split(/\s+/).filter(Boolean);
 }
 
 function contentTokens(value: unknown) {
@@ -161,7 +164,9 @@ function hasPossibleAuthorPrefixNoise(title: string) {
 
 function hasBibliographicSuffix(title: string) {
   const text = cleanText(title);
-  return BIBLIOGRAPHIC_MARKER_PATTERN.test(text) && contentTokens(text).length >= 2;
+  return (
+    BIBLIOGRAPHIC_MARKER_PATTERN.test(text) && contentTokens(text).length >= 2
+  );
 }
 
 export function classifySynthesisReferenceQuality(

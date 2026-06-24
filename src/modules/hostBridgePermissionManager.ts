@@ -506,9 +506,9 @@ export async function requestHostBridgePermission(
             requestWithId,
             skillRunnerRequestId,
           )
-      : await (
-          globalApprovalHandlerForTests || requestGlobalPermissionWithPrompt
-        )(requestWithId);
+        : await (
+            globalApprovalHandlerForTests || requestGlobalPermissionWithPrompt
+          )(requestWithId);
   if (decision.outcome !== "approved") {
     throw new HostBridgePermissionError(decision);
   }

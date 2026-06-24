@@ -84,7 +84,10 @@
       seq: toPositiveInt(atom.event && atom.event.seq, 0),
       attempt: atom.attempt,
       processType: atom.processType,
-      itemKind: atom.atomKind === "intermediate" ? "assistant_message" : "assistant_process",
+      itemKind:
+        atom.atomKind === "intermediate"
+          ? "assistant_message"
+          : "assistant_process",
       text: atom.text || atom.summary,
       summary: atom.summary || atom.text,
       messageId: atom.messageId,
@@ -99,7 +102,9 @@
 
   function buildCanonicalAtom(event) {
     const correlation = correlationOf(event);
-    const displayText = safeText(event && (event.displayText || event.display_text));
+    const displayText = safeText(
+      event && (event.displayText || event.display_text),
+    );
     const rawText = safeText(event && event.text);
     const summary = safeText(correlation.summary);
     const text = displayText || rawText || summary;
@@ -134,21 +139,32 @@
   }
 
   function sameMessageChain(left, right) {
-    const leftId = left && typeof left === "object" ? normalizeText(left.messageId) : "";
+    const leftId =
+      left && typeof left === "object" ? normalizeText(left.messageId) : "";
     const leftReplaceId =
-      left && typeof left === "object" ? normalizeText(left.replacesMessageId) : "";
+      left && typeof left === "object"
+        ? normalizeText(left.replacesMessageId)
+        : "";
     const leftText =
-      left && typeof left === "object" ? normalizeText(left.normalizedText) : "";
-    const rightId = right && typeof right === "object" ? normalizeText(right.messageId) : "";
+      left && typeof left === "object"
+        ? normalizeText(left.normalizedText)
+        : "";
+    const rightId =
+      right && typeof right === "object" ? normalizeText(right.messageId) : "";
     const rightReplaceId =
-      right && typeof right === "object" ? normalizeText(right.replacesMessageId) : "";
+      right && typeof right === "object"
+        ? normalizeText(right.replacesMessageId)
+        : "";
     const rightText =
-      right && typeof right === "object" ? normalizeText(right.normalizedText) : "";
+      right && typeof right === "object"
+        ? normalizeText(right.normalizedText)
+        : "";
 
     if (leftId && rightId && leftId === rightId) return true;
     if (leftId && rightReplaceId && leftId === rightReplaceId) return true;
     if (leftReplaceId && rightId && leftReplaceId === rightId) return true;
-    if (leftReplaceId && rightReplaceId && leftReplaceId === rightReplaceId) return true;
+    if (leftReplaceId && rightReplaceId && leftReplaceId === rightReplaceId)
+      return true;
     return (
       !leftId &&
       !leftReplaceId &&
@@ -163,7 +179,8 @@
     const sourceEvents = [];
     const thinkingCollapseState = new Map();
     const revisionCollapseState = new Map();
-    let displayMode = normalizeText(initialDisplayMode) === "bubble" ? "bubble" : "plain";
+    let displayMode =
+      normalizeText(initialDisplayMode) === "bubble" ? "bubble" : "plain";
 
     function revisionIdFor(messageId, attempt) {
       return `revision-${attempt}-${messageId || "unknown"}`;
@@ -274,7 +291,9 @@
       }
 
       for (const atom of atoms) {
-        const revisionEvent = atom.messageId ? revisionsByMessageId.get(atom.messageId) : null;
+        const revisionEvent = atom.messageId
+          ? revisionsByMessageId.get(atom.messageId)
+          : null;
         if (revisionEvent && atom.atomKind === "final") {
           appendRevisionAtom(atom, revisionEvent);
           continue;

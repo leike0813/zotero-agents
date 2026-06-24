@@ -103,29 +103,41 @@ function applyManifestInputFilter(
   if (!copied.items) {
     copied.items = {};
   }
-  const attachments = collectAttachmentCandidates(copied).filter((attachment) => {
-    if (!allowedMimes.length) {
-      return true;
-    }
-    const mime = (attachment as { mimeType?: string; item?: { data?: { contentType?: string } } })
-      .mimeType || attachment.item?.data?.contentType || "";
-    if (mime && allowedMimes.includes(mime)) {
-      return true;
-    }
-    const filePath = String(attachment.filePath || "").toLowerCase();
-    if (
-      filePath.endsWith(".md") &&
-      (allowedMimes.includes("text/markdown") ||
-        allowedMimes.includes("text/x-markdown") ||
-        allowedMimes.includes("text/plain"))
-    ) {
-      return true;
-    }
-    if (filePath.endsWith(".pdf") && allowedMimes.includes("application/pdf")) {
-      return true;
-    }
-    return false;
-  });
+  const attachments = collectAttachmentCandidates(copied).filter(
+    (attachment) => {
+      if (!allowedMimes.length) {
+        return true;
+      }
+      const mime =
+        (
+          attachment as {
+            mimeType?: string;
+            item?: { data?: { contentType?: string } };
+          }
+        ).mimeType ||
+        attachment.item?.data?.contentType ||
+        "";
+      if (mime && allowedMimes.includes(mime)) {
+        return true;
+      }
+      const filePath = String(attachment.filePath || "").toLowerCase();
+      if (
+        filePath.endsWith(".md") &&
+        (allowedMimes.includes("text/markdown") ||
+          allowedMimes.includes("text/x-markdown") ||
+          allowedMimes.includes("text/plain"))
+      ) {
+        return true;
+      }
+      if (
+        filePath.endsWith(".pdf") &&
+        allowedMimes.includes("application/pdf")
+      ) {
+        return true;
+      }
+      return false;
+    },
+  );
 
   copied.items.attachments = attachments;
   if (!copied.summary) {
@@ -147,7 +159,10 @@ function countByParent(attachments: AttachmentLike[]) {
   return byParent;
 }
 
-function shouldCallFilterHook(selection: SelectionLike, manifest: WorkflowManifest) {
+function shouldCallFilterHook(
+  selection: SelectionLike,
+  manifest: WorkflowManifest,
+) {
   if (manifest.inputs?.unit && manifest.inputs.unit !== "attachment") {
     return false;
   }
@@ -215,7 +230,9 @@ async function main() {
     (entry) => entry.manifest.id === "literature-analysis",
   );
   if (!workflow) {
-    const loadedIds = loaded.workflows.map((entry) => entry.manifest.id).join(", ");
+    const loadedIds = loaded.workflows
+      .map((entry) => entry.manifest.id)
+      .join(", ");
     throw new Error(
       `Workflow literature-analysis not found. cwd=${process.cwd()}; workflowsDir=${workflowsDir}; loaded=[${loadedIds}]; warnings=${loaded.warnings.join(" | ")}`,
     );

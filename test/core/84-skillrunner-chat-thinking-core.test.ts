@@ -1,5 +1,9 @@
 import { assert } from "chai";
-import { getProjectRoot, joinPath, readUtf8 } from "../zotero/workflow-test-utils";
+import {
+  getProjectRoot,
+  joinPath,
+  readUtf8,
+} from "../zotero/workflow-test-utils";
 
 type ThinkingChatModel = {
   consume: (event: Record<string, unknown>) => boolean;
@@ -11,10 +15,19 @@ type ThinkingChatModel = {
 
 async function loadThinkingChatCore() {
   const script = await readUtf8(
-    joinPath(getProjectRoot(), "addon", "content", "sidebar", "chat_thinking_core.js"),
+    joinPath(
+      getProjectRoot(),
+      "addon",
+      "content",
+      "sidebar",
+      "chat_thinking_core.js",
+    ),
   );
   const windowObject: Record<string, unknown> = {};
-  const factory = new Function("window", `${script}\nreturn window.SkillRunnerThinkingChatCore;`);
+  const factory = new Function(
+    "window",
+    `${script}\nreturn window.SkillRunnerThinkingChatCore;`,
+  );
   return factory(windowObject) as {
     createThinkingChatModel: (mode?: string) => ThinkingChatModel;
   };
@@ -41,7 +54,9 @@ function event(args: {
     attempt: args.attempt ?? 1,
     correlation: {
       ...(args.messageId ? { message_id: args.messageId } : {}),
-      ...(args.messageFamilyId ? { message_family_id: args.messageFamilyId } : {}),
+      ...(args.messageFamilyId
+        ? { message_family_id: args.messageFamilyId }
+        : {}),
       ...(args.replacesMessageId
         ? { replaces_message_id: args.replacesMessageId }
         : {}),
@@ -199,7 +214,10 @@ describe("skillrunner chat thinking core", function () {
     assert.lengthOf(entries, 1);
     assert.equal(entries[0].type, "message");
     assert.equal(entries[0].atomKind, "final");
-    assert.equal((entries[0].event as Record<string, unknown>).text, "Rendered final answer");
+    assert.equal(
+      (entries[0].event as Record<string, unknown>).text,
+      "Rendered final answer",
+    );
   });
 
   it("turns superseded finals into folded revision entries and keeps only winner final visible", async function () {
@@ -241,7 +259,10 @@ describe("skillrunner chat thinking core", function () {
     assert.equal(entries[0].collapsed, true);
     assert.equal(entries[1].type, "message");
     assert.equal(entries[1].atomKind, "final");
-    assert.equal((entries[1].event as Record<string, unknown>).text, "Winning final");
+    assert.equal(
+      (entries[1].event as Record<string, unknown>).text,
+      "Winning final",
+    );
   });
 
   it("keeps separate revision entries for multiple rejected finals in one family", async function () {
@@ -325,10 +346,16 @@ describe("skillrunner chat thinking core", function () {
     let entries = model.getEntries();
     assert.equal(entries[0].type, "revision");
     assert.equal(entries[0].collapsed, true);
-    assert.equal((entries[0] as Record<string, unknown>).originalEvent["text"], "Rejected final");
+    assert.equal(
+      (entries[0] as Record<string, unknown>).originalEvent["text"],
+      "Rejected final",
+    );
     assert.equal(model.toggleRevision("revision-1-f-1"), true);
     entries = model.getEntries();
     assert.equal(entries[0].collapsed, false);
-    assert.equal((entries[0] as Record<string, unknown>).originalEvent["text"], "Rejected final");
+    assert.equal(
+      (entries[0] as Record<string, unknown>).originalEvent["text"],
+      "Rejected final",
+    );
   });
 });

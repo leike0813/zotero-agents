@@ -6,10 +6,7 @@ const UI_PATH_RE = /(^|\/)test\/ui\//;
 const WORKFLOW_PATH_RE = /(^|\/)test\/workflow-/;
 const NODE_MOCK_RUNTIME = "node-mock";
 
-const ZOTERO_LITE_ALLOWLIST: Record<
-  Exclude<TestDomain, "all">,
-  RegExp[]
-> = {
+const ZOTERO_LITE_ALLOWLIST: Record<Exclude<TestDomain, "all">, RegExp[]> = {
   core: [
     /(^|\/)test\/core\/00-startup\.test\.ts$/,
     /(^|\/)test\/core\/11-selection-context-rebuild\.test\.ts$/,
@@ -170,8 +167,7 @@ function isRealZoteroRuntime() {
     };
   };
   return (
-    !!runtime.Zotero &&
-    runtime.Zotero?.__parity?.runtime !== NODE_MOCK_RUNTIME
+    !!runtime.Zotero && runtime.Zotero?.__parity?.runtime !== NODE_MOCK_RUNTIME
   );
 }
 
@@ -218,9 +214,7 @@ export function isZoteroRoutineAllowedFile(
           ...ZOTERO_FULL_EXTRA_ALLOWLIST[testDomain],
         ]
       : ZOTERO_LITE_ALLOWLIST[testDomain];
-  return patterns.some((pattern) =>
-    pattern.test(normalized),
-  );
+  return patterns.some((pattern) => pattern.test(normalized));
 }
 
 export function isZoteroRoutineAllowedTitle(args: {

@@ -507,14 +507,7 @@ describe("Synthesis topic graph", function () {
         edge.relation,
         edge.status,
       ]),
-      [
-        [
-          "computer-vision",
-          "object-detection",
-          "broader_than",
-          "suggested",
-        ],
-      ],
+      [["computer-vision", "object-detection", "broader_than", "suggested"]],
     );
   });
 
@@ -728,7 +721,10 @@ describe("Synthesis topic graph", function () {
     const state = await service.rebuildTopicGraphIndexProjection();
     assert.isFalse(state.stale);
     const paths = buildSynthesisKnowledgeGraphPaths(root);
-    const projectionPath = path.join(paths.sidecarRoot, "topic-graph-index.json");
+    const projectionPath = path.join(
+      paths.sidecarRoot,
+      "topic-graph-index.json",
+    );
     assert.isFalse(await runtimePathExists(projectionPath));
 
     const projection = await service.readTopicGraphIndexProjection();

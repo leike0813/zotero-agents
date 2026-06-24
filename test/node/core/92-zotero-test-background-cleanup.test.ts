@@ -107,9 +107,7 @@ describe("zotero test background cleanup harness", function () {
 
     const cleanupPromise = cleanupBackgroundRuntimeForZoteroTests();
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      if (
-        calls.includes("resetSkillRunnerTaskReconcilerForTests:start")
-      ) {
+      if (calls.includes("resetSkillRunnerTaskReconcilerForTests:start")) {
         break;
       }
       await Promise.resolve();

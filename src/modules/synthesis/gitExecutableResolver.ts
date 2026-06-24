@@ -8,7 +8,12 @@ import {
 export type SynthesisGitExecutableResolution = {
   available: boolean;
   command?: string;
-  source?: "pathSearch" | "powershell" | "knownPath" | "bare" | "injectedRunner";
+  source?:
+    | "pathSearch"
+    | "powershell"
+    | "knownPath"
+    | "bare"
+    | "injectedRunner";
   checkedPaths: string[];
   message?: string;
 };
@@ -54,7 +59,9 @@ function readDirectoryServicePath(key: string) {
     return "";
   }
   try {
-    return cleanString(runtime.Services.dirsvc.get(key, runtime.Ci.nsIFile)?.path);
+    return cleanString(
+      runtime.Services.dirsvc.get(key, runtime.Ci.nsIFile)?.path,
+    );
   } catch {
     return "";
   }
@@ -71,7 +78,10 @@ function joinWindowsPath(...segments: string[]) {
   const flattened = normalizedSegments
     .flatMap((entry) => entry.split(/[\\/]+/))
     .filter(Boolean);
-  if (drivePrefix && flattened[0]?.toLowerCase() === drivePrefix.toLowerCase()) {
+  if (
+    drivePrefix &&
+    flattened[0]?.toLowerCase() === drivePrefix.toLowerCase()
+  ) {
     flattened.shift();
   }
   const joined = flattened.join("\\");
@@ -83,7 +93,8 @@ function uniqueStrings(values: string[]) {
 }
 
 function windowsKnownGitCandidates() {
-  const home = readRuntimeEnv("USERPROFILE") || readDirectoryServicePath("Home");
+  const home =
+    readRuntimeEnv("USERPROFILE") || readDirectoryServicePath("Home");
   const localAppData =
     readRuntimeEnv("LOCALAPPDATA") ||
     readRuntimeEnv("LocalAppData") ||
@@ -97,10 +108,34 @@ function windowsKnownGitCandidates() {
     joinWindowsPath(programFiles, "Git", "bin", "git.exe"),
     joinWindowsPath(programFilesX86, "Git", "cmd", "git.exe"),
     joinWindowsPath(programFilesX86, "Git", "bin", "git.exe"),
-    localAppData ? joinWindowsPath(localAppData, "Programs", "Git", "cmd", "git.exe") : "",
-    localAppData ? joinWindowsPath(localAppData, "Programs", "Git", "bin", "git.exe") : "",
-    home ? joinWindowsPath(home, "AppData", "Local", "Programs", "Git", "cmd", "git.exe") : "",
-    home ? joinWindowsPath(home, "AppData", "Local", "Programs", "Git", "bin", "git.exe") : "",
+    localAppData
+      ? joinWindowsPath(localAppData, "Programs", "Git", "cmd", "git.exe")
+      : "",
+    localAppData
+      ? joinWindowsPath(localAppData, "Programs", "Git", "bin", "git.exe")
+      : "",
+    home
+      ? joinWindowsPath(
+          home,
+          "AppData",
+          "Local",
+          "Programs",
+          "Git",
+          "cmd",
+          "git.exe",
+        )
+      : "",
+    home
+      ? joinWindowsPath(
+          home,
+          "AppData",
+          "Local",
+          "Programs",
+          "Git",
+          "bin",
+          "git.exe",
+        )
+      : "",
   ]);
 }
 
@@ -116,10 +151,12 @@ function nonWindowsKnownGitCandidates(platform: string) {
   return uniqueStrings(candidates);
 }
 
-export async function resolveSynthesisGitExecutable(args: {
-  pathSearch?: ((command: string) => Promise<unknown>) | null;
-  platform?: string;
-} = {}): Promise<SynthesisGitExecutableResolution> {
+export async function resolveSynthesisGitExecutable(
+  args: {
+    pathSearch?: ((command: string) => Promise<unknown>) | null;
+    platform?: string;
+  } = {},
+): Promise<SynthesisGitExecutableResolution> {
   const platform = cleanString(args.platform) || runtimePlatform();
   const isWindows = platform === "win32";
   const checkedPaths: string[] = [];

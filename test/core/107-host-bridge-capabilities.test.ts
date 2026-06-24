@@ -268,10 +268,7 @@ describe("host bridge capability calls", function () {
 
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.status, "ok");
-    assert.strictEqual(
-      parsed.json.result.capability,
-      "reference_index.get",
-    );
+    assert.strictEqual(parsed.json.result.capability, "reference_index.get");
     assert.strictEqual(parsed.json.result.approval, "none");
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
     assert.isArray(parsed.json.result.data.diagnostics?.recommended_commands);

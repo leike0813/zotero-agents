@@ -50,14 +50,24 @@ describe("plugin state store bootstrap", function () {
       "skillRunnerDeferredTasksJson",
       JSON.stringify([
         { id: "", requestId: "", backendId: "b1", state: "running" },
-        { id: "ctx-ok", requestId: "req-ok", backendId: "b1", state: "running" },
+        {
+          id: "ctx-ok",
+          requestId: "req-ok",
+          backendId: "b1",
+          state: "running",
+        },
       ]),
     );
     setPref(
       "taskDashboardHistoryJson",
       JSON.stringify([
         { id: "", requestId: "req-ok", backendId: "b1", state: "failed" },
-        { id: "task-ok", requestId: "req-ok", backendId: "b1", state: "failed" },
+        {
+          id: "task-ok",
+          requestId: "req-ok",
+          backendId: "b1",
+          state: "failed",
+        },
       ]),
     );
     resetPluginStateStoreForTests();
@@ -111,10 +121,7 @@ describe("plugin state store bootstrap", function () {
     });
 
     assert.deepEqual(opened, ["first", "third"]);
-    assert.equal(
-      sql.filter((entry) => entry === "BEGIN IMMEDIATE").length,
-      1,
-    );
+    assert.equal(sql.filter((entry) => entry === "BEGIN IMMEDIATE").length, 1);
   });
 
   it("retries transient busy writes in plugin task rows", function () {

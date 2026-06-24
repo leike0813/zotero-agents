@@ -13,8 +13,10 @@ type SkillRunnerHostBridgePermissionResolver = {
 type SkillRunnerHostBridgePermissionListener = () => void;
 
 const pendingByRunRequestId = new Map<string, AcpPendingPermissionRequest>();
-const resolversByPermissionRequestId =
-  new Map<string, SkillRunnerHostBridgePermissionResolver>();
+const resolversByPermissionRequestId = new Map<
+  string,
+  SkillRunnerHostBridgePermissionResolver
+>();
 const listeners = new Set<SkillRunnerHostBridgePermissionListener>();
 
 function normalizeString(value: unknown) {
@@ -75,7 +77,8 @@ export function setSkillRunnerHostBridgePermissionRequest(
     runRequestId,
     clonePermissionRequest({
       ...request,
-      requestedAt: normalizeString(request.requestedAt) || new Date().toISOString(),
+      requestedAt:
+        normalizeString(request.requestedAt) || new Date().toISOString(),
     }),
   );
   emitChanged();

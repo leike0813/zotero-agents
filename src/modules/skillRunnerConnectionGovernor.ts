@@ -526,7 +526,9 @@ export class SkillRunnerConnectionGovernor {
           active.backendId === entry.backendId &&
           active.lane === "foreground-stream",
       ).length;
-      if (activeForegroundStreams >= this.maxForegroundStreams(entry.backendId)) {
+      if (
+        activeForegroundStreams >= this.maxForegroundStreams(entry.backendId)
+      ) {
         return false;
       }
       const activeForBackend = Array.from(this.active.values()).filter(
@@ -548,7 +550,10 @@ export class SkillRunnerConnectionGovernor {
     if (
       this.isLowPriorityLane(entry.lane) &&
       activeForBackend >=
-        Math.max(0, this.maxActivePerBackend - LOW_PRIORITY_RESERVED_CONNECTIONS)
+        Math.max(
+          0,
+          this.maxActivePerBackend - LOW_PRIORITY_RESERVED_CONNECTIONS,
+        )
     ) {
       return false;
     }
@@ -601,7 +606,10 @@ export class SkillRunnerConnectionGovernor {
 
   private releaseExpiredPhysicalDebt(backendId: string) {
     const recordedAt = this.physicalDebtRecordedAtByBackend.get(backendId) || 0;
-    if (recordedAt <= 0 || Date.now() - recordedAt < PHYSICAL_DEBT_COOLDOWN_MS) {
+    if (
+      recordedAt <= 0 ||
+      Date.now() - recordedAt < PHYSICAL_DEBT_COOLDOWN_MS
+    ) {
       return;
     }
     this.physicalDebtByBackend.delete(backendId);
@@ -728,7 +736,9 @@ export class SkillRunnerConnectionGovernor {
       if (streams.length <= this.maxForegroundStreams(backendId)) {
         return;
       }
-      this.abortForegroundStreamEntry(this.pickLeastRecentlyFocusedStream(backendId));
+      this.abortForegroundStreamEntry(
+        this.pickLeastRecentlyFocusedStream(backendId),
+      );
     }
   }
 
@@ -922,7 +932,9 @@ export class SkillRunnerConnectionGovernor {
     const queuedByBackend = countByBackend(queued);
     const activeByLane = countByLane(active);
     const queuedByLane = countByLane(queued);
-    const streams = active.filter((entry) => entry.lane === "foreground-stream");
+    const streams = active.filter(
+      (entry) => entry.lane === "foreground-stream",
+    );
     const streamByBackend = countByBackend(streams);
     const timeoutEvents = this.auditEvents.filter(
       (event) => event.type === "timeout",

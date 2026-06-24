@@ -1395,9 +1395,11 @@ export async function copyRuntimeDirectory(args: {
   }
 }
 
-export async function scanRuntimePersistenceUsage(args: {
-  onProgress?: (progress: RuntimePersistenceScanProgress) => void;
-} = {}): Promise<RuntimePersistenceUsageSnapshot> {
+export async function scanRuntimePersistenceUsage(
+  args: {
+    onProgress?: (progress: RuntimePersistenceScanProgress) => void;
+  } = {},
+): Promise<RuntimePersistenceUsageSnapshot> {
   const paths = getRuntimePersistencePaths();
   const categoryDefs: Array<{
     category: RuntimePersistenceCategory;

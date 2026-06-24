@@ -21,4 +21,3 @@ export function applyMochaGrepFromEnv() {
     runtime.mocha.grep(pattern);
   }
 }
-

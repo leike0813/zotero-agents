@@ -2,7 +2,10 @@ import Ajv, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { config } from "../../package.json";
 import selectionContextSchema from "../schemas/selectionContextSchema";
-import { buildSelectionContext, type SelectionContext } from "./selectionContext";
+import {
+  buildSelectionContext,
+  type SelectionContext,
+} from "./selectionContext";
 import { getString } from "../utils/locale";
 import { getPref } from "../utils/prefs";
 import {
@@ -46,7 +49,11 @@ function getRuntimeToolkit(): RuntimeToolkit | null {
   return (resolveRuntimeToolkit() as RuntimeToolkit | undefined) || null;
 }
 
-function showProgress(text: string, type: "success" | "default", progress = 100) {
+function showProgress(
+  text: string,
+  type: "success" | "default",
+  progress = 100,
+) {
   const ProgressWindow = getRuntimeToolkit()?.ProgressWindow;
   if (!ProgressWindow) {
     showAlert(text);
@@ -156,7 +163,10 @@ async function validateSelectionContext() {
       return;
     }
     const errors = (validate.errors || [])
-      .map((error: ErrorObject) => `${error.instancePath || "/"} ${error.message || ""}`)
+      .map(
+        (error: ErrorObject) =>
+          `${error.instancePath || "/"} ${error.message || ""}`,
+      )
       .join("; ");
     showAlert(`${getString("validate-selection-failed")}: ${errors}`);
   } catch (error) {

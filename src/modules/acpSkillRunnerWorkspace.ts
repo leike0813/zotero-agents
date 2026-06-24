@@ -175,7 +175,8 @@ export async function createAcpSkillRunnerWorkspace(args: {
     .toString(36)
     .slice(2, 8)}`;
   const root =
-    normalizeString(args.rootDir) || getRuntimePersistencePaths().acpSkillRunsDir;
+    normalizeString(args.rootDir) ||
+    getRuntimePersistencePaths().acpSkillRunsDir;
   const workflowRunId = normalizeString(args.workflowWorkspace?.workflowRunId);
   if (args.workflowWorkspace?.mode === "reuse") {
     if (!workflowRunId) {

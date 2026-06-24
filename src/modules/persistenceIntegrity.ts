@@ -295,7 +295,10 @@ export async function scanPersistenceIntegrity(args?: {
         : undefined,
     });
   }
-  reportProgress("integrity:workflow-products-assets", "Workflow product assets");
+  reportProgress(
+    "integrity:workflow-products-assets",
+    "Workflow product assets",
+  );
 
   for (const asset of await collectExpiredRuntimeAssets({
     root: args?.root,

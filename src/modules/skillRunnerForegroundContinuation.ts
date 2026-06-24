@@ -212,7 +212,8 @@ function resolveContinuationTargetParentID(args: {
 }) {
   return (
     resolveTargetParentIDFromRequest(args.record.requestPayload) ??
-    resolveTargetParentIDFromRequest(args.sequenceState.request) ?? undefined
+    resolveTargetParentIDFromRequest(args.sequenceState.request) ??
+    undefined
   );
 }
 
@@ -1070,7 +1071,8 @@ async function continueSkillRunnerForegroundRunNow(args: {
         operation: "observer-failure-detached",
         phase: source,
         stage: "observer-failure-detached",
-        message: "skillrunner foreground continuation detached after recoverable observer failure",
+        message:
+          "skillrunner foreground continuation detached after recoverable observer failure",
         error,
       });
       return {

@@ -108,7 +108,6 @@ function setBackendsConfigWithManagedLocal(baseUrl = "http://127.0.0.1:29813") {
 }
 
 function setupSkillRunnerLocalRuntimeManagerSuite() {
-
   beforeEach(function () {
     prevBackendsConfigPref = Zotero.Prefs.get(backendsConfigPrefKey, true);
     prevStatePref = Zotero.Prefs.get(localRuntimeStatePrefKey, true);
@@ -130,7 +129,11 @@ function setupSkillRunnerLocalRuntimeManagerSuite() {
       true,
     );
     Zotero.Prefs.clear(localRuntimeStatePrefKey, true);
-    Zotero.Prefs.set(localRuntimeVersionPrefKey, DEFAULT_LOCAL_RUNTIME_VERSION, true);
+    Zotero.Prefs.set(
+      localRuntimeVersionPrefKey,
+      DEFAULT_LOCAL_RUNTIME_VERSION,
+      true,
+    );
     (globalThis as { fetch?: unknown }).fetch = undefined;
     (globalThis as { IOUtils?: unknown }).IOUtils = {
       exists: async () => true,
@@ -252,7 +255,8 @@ function registerSkillRunnerDeployLifecycleSegmentOne() {
               ? makeCtlResult({
                   ok: true,
                   details: {
-                    bootstrap_report_file: "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
+                    bootstrap_report_file:
+                      "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
                   },
                 })
               : makeCtlResult({ ok: true });
@@ -276,7 +280,9 @@ function registerSkillRunnerDeployLifecycleSegmentOne() {
     const state = readManagedLocalRuntimeState();
     assert.equal(state.managedBackendId, "local-skillrunner-backend");
     assert.equal(state.runtimeState, "stopped");
-    assert.isUndefined((state as { deploymentState?: unknown }).deploymentState);
+    assert.isUndefined(
+      (state as { deploymentState?: unknown }).deploymentState,
+    );
     const snapshot = getManagedLocalRuntimeStateSnapshot();
     assert.equal(snapshot.details?.autoStartPaused, false);
   });
@@ -303,7 +309,8 @@ function registerSkillRunnerDeployLifecycleSegmentOne() {
               ? makeCtlResult({
                   ok: true,
                   details: {
-                    bootstrap_report_file: "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
+                    bootstrap_report_file:
+                      "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
                   },
                 })
               : makeCtlResult({ ok: true }),
@@ -350,7 +357,6 @@ function registerSkillRunnerDeployLifecycleSegmentOne() {
 }
 
 function registerSkillRunnerOneclickSegmentOne() {
-
   it("one-click uses preflight->up->lease when runtime info exists and preflight passes", async function () {
     setBackendsConfigWithManagedLocal("http://127.0.0.1:29813");
     Zotero.Prefs.set(
@@ -411,7 +417,8 @@ function registerSkillRunnerOneclickSegmentOne() {
               })
             : JSON.stringify({ ok: true }),
       }) as Response;
-    const postUpReconcileCalls: Array<{ backendId: string; source: string }> = [];
+    const postUpReconcileCalls: Array<{ backendId: string; source: string }> =
+      [];
     const modelCacheRefreshIds: string[] = [];
     setManagedLocalRuntimePostUpTaskReconcileRunnerForTests(async (args) => {
       postUpReconcileCalls.push({
@@ -568,7 +575,8 @@ function registerSkillRunnerOneclickSegmentOne() {
               return makeCtlResult({
                 ok: true,
                 details: {
-                  bootstrap_report_file: "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
+                  bootstrap_report_file:
+                    "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
                 },
               });
             }
@@ -583,7 +591,11 @@ function registerSkillRunnerOneclickSegmentOne() {
 
     assert.isTrue(result.ok);
     assert.equal(result.stage, "deploy-complete");
-    assert.deepEqual(commandTrail.slice(0, 3), ["preflight", "bootstrap", "preflight"]);
+    assert.deepEqual(commandTrail.slice(0, 3), [
+      "preflight",
+      "bootstrap",
+      "preflight",
+    ]);
     const snapshot = getManagedLocalRuntimeStateSnapshot();
     assert.equal(snapshot.details?.autoStartPaused, false);
     assert.equal(result.details?.autoEnsureTriggered, false);
@@ -630,7 +642,8 @@ function registerSkillRunnerOneclickSegmentOne() {
               return makeCtlResult({
                 ok: true,
                 details: {
-                  bootstrap_report_file: "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
+                  bootstrap_report_file:
+                    "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
                 },
               });
             }
@@ -645,7 +658,11 @@ function registerSkillRunnerOneclickSegmentOne() {
 
     assert.isFalse(result.ok);
     assert.equal(result.stage, "post-deploy-preflight");
-    assert.deepEqual(commandTrail.slice(0, 3), ["preflight", "bootstrap", "preflight"]);
+    assert.deepEqual(commandTrail.slice(0, 3), [
+      "preflight",
+      "bootstrap",
+      "preflight",
+    ]);
     const snapshot = getManagedLocalRuntimeStateSnapshot();
     assert.equal(snapshot.details?.autoStartPaused, true);
     assert.equal(result.details?.autoEnsureTriggered, false);
@@ -707,7 +724,6 @@ function registerSkillRunnerOneclickSegmentOne() {
 }
 
 function registerSkillRunnerDeployLifecycleSegmentTwo() {
-
   it("reports deploy action progress across all 5 steps", async function () {
     const progressStages: string[] = [];
     const unsubscribe = subscribeManagedLocalRuntimeStateChange(() => {
@@ -758,7 +774,8 @@ function registerSkillRunnerDeployLifecycleSegmentTwo() {
               ? makeCtlResult({
                   ok: true,
                   details: {
-                    bootstrap_report_file: "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
+                    bootstrap_report_file:
+                      "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
                   },
                 })
               : makeCtlResult({ ok: true }),
@@ -835,7 +852,6 @@ function registerSkillRunnerDeployLifecycleSegmentTwo() {
 }
 
 function registerSkillRunnerAutoStartSegmentOne() {
-
   it("ensures runtime with preflight -> up -> status and then acquires lease", async function () {
     setBackendsConfigWithManagedLocal("http://127.0.0.1:29813");
     Zotero.Prefs.set(
@@ -1098,7 +1114,10 @@ function registerSkillRunnerAutoStartSegmentOne() {
         await sleepMsForTest(5);
         busySnapshot = getManagedLocalRuntimeStateSnapshot();
       }
-      assert.equal(busySnapshot.details?.inFlightAction, "auto-ensure-starting");
+      assert.equal(
+        busySnapshot.details?.inFlightAction,
+        "auto-ensure-starting",
+      );
     } finally {
       upDeferred.resolve();
       await ensurePromise;
@@ -1110,7 +1129,6 @@ function registerSkillRunnerAutoStartSegmentOne() {
 }
 
 function registerSkillRunnerOneclickSegmentTwo() {
-
   it("blocks runtime start when preflight fails", async function () {
     Zotero.Prefs.set(
       localRuntimeStatePrefKey,
@@ -1264,7 +1282,9 @@ function registerSkillRunnerOneclickSegmentTwo() {
       init?: unknown,
     ) => {
       fetchCalls.push(
-        JSON.parse(String((init as { body?: unknown } | undefined)?.body || "{}")),
+        JSON.parse(
+          String((init as { body?: unknown } | undefined)?.body || "{}"),
+        ),
       );
       return {
         ok: true,
@@ -1373,58 +1393,61 @@ function registerSkillRunnerOneclickSegmentTwo() {
     assert.equal(toasts[0].kind, "runtime-down");
   });
 
-  itFullOnly("uses locale-appropriate fallback text for runtime-down toast when localization is unavailable", async function () {
-    const cases = [
-      { locale: "zh-CN", expectedText: "本地后端已停止。" },
-      { locale: "en-US", expectedText: "Local backend stopped." },
-    ];
+  itFullOnly(
+    "uses locale-appropriate fallback text for runtime-down toast when localization is unavailable",
+    async function () {
+      const cases = [
+        { locale: "zh-CN", expectedText: "本地后端已停止。" },
+        { locale: "en-US", expectedText: "Local backend stopped." },
+      ];
 
-    for (const entry of cases) {
-      resetLocalRuntimeToastStateForTests();
-      Zotero.Prefs.set(
-        localRuntimeStatePrefKey,
-        JSON.stringify({
-          managedBackendId: "local-skillrunner-backend",
-          runtimeState: "running",
-          ctlPath: "C:\\SkillRunner\\scripts\\skill-runnerctl.ps1",
-        }),
-        true,
-      );
-      setSkillRunnerCtlBridgeFactoryForTests(
-        () =>
-          ({
-            resolveCtlPathFromInstallDir: () => "",
-            runCtlCommand: async (args: { command: string }) =>
-              args.command === "status"
-                ? makeCtlResult({
-                    ok: true,
-                    details: { status: "stopped" },
-                  })
-                : makeCtlResult({ ok: true }),
-          }) as any,
-      );
-      const runtime = globalThis as { addon?: unknown };
-      const previousAddon = runtime.addon;
-      const previousLocale = (Zotero as { locale?: unknown }).locale;
-      runtime.addon = undefined;
-      (Zotero as { locale?: unknown }).locale = entry.locale;
-      const toasts: Array<{ kind: string; text: string; type: string }> = [];
-      setLocalRuntimeToastEmitterForTests((payload) => {
-        toasts.push(payload);
-      });
+      for (const entry of cases) {
+        resetLocalRuntimeToastStateForTests();
+        Zotero.Prefs.set(
+          localRuntimeStatePrefKey,
+          JSON.stringify({
+            managedBackendId: "local-skillrunner-backend",
+            runtimeState: "running",
+            ctlPath: "C:\\SkillRunner\\scripts\\skill-runnerctl.ps1",
+          }),
+          true,
+        );
+        setSkillRunnerCtlBridgeFactoryForTests(
+          () =>
+            ({
+              resolveCtlPathFromInstallDir: () => "",
+              runCtlCommand: async (args: { command: string }) =>
+                args.command === "status"
+                  ? makeCtlResult({
+                      ok: true,
+                      details: { status: "stopped" },
+                    })
+                  : makeCtlResult({ ok: true }),
+            }) as any,
+        );
+        const runtime = globalThis as { addon?: unknown };
+        const previousAddon = runtime.addon;
+        const previousLocale = (Zotero as { locale?: unknown }).locale;
+        runtime.addon = undefined;
+        (Zotero as { locale?: unknown }).locale = entry.locale;
+        const toasts: Array<{ kind: string; text: string; type: string }> = [];
+        setLocalRuntimeToastEmitterForTests((payload) => {
+          toasts.push(payload);
+        });
 
-      try {
-        const result = await stopLocalRuntime();
-        assert.isTrue(result.ok, entry.locale);
-        assert.equal(toasts.length, 1, entry.locale);
-        assert.equal(toasts[0].kind, "runtime-down", entry.locale);
-        assert.equal(toasts[0].text, entry.expectedText, entry.locale);
-      } finally {
-        runtime.addon = previousAddon;
-        (Zotero as { locale?: unknown }).locale = previousLocale;
+        try {
+          const result = await stopLocalRuntime();
+          assert.isTrue(result.ok, entry.locale);
+          assert.equal(toasts.length, 1, entry.locale);
+          assert.equal(toasts[0].kind, "runtime-down", entry.locale);
+          assert.equal(toasts[0].text, entry.expectedText, entry.locale);
+        } finally {
+          runtime.addon = previousAddon;
+          (Zotero as { locale?: unknown }).locale = previousLocale;
+        }
       }
-    }
-  });
+    },
+  );
 
   it("emits abnormal-stop toast when heartbeat fails and status probe reports stopped", async function () {
     setBackendsConfigWithManagedLocal("http://127.0.0.1:29813");
@@ -1494,7 +1517,6 @@ function registerSkillRunnerOneclickSegmentTwo() {
 }
 
 function registerSkillRunnerDeployLifecycleSegmentThree() {
-
   it("uninstall runs plugin-side orchestration and clears state on full success", async function () {
     Zotero.Prefs.set(
       backendsConfigPrefKey,
@@ -1770,7 +1792,8 @@ function registerSkillRunnerDeployLifecycleSegmentThree() {
               ? makeCtlResult({
                   ok: true,
                   details: {
-                    bootstrap_report_file: "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
+                    bootstrap_report_file:
+                      "C:\\SkillRunner\\data\\agent_bootstrap_report.json",
                   },
                 })
               : makeCtlResult({ ok: true }),
@@ -1832,7 +1855,10 @@ function registerSkillRunnerDeployLifecycleSegmentThree() {
           throw new Error("permission denied");
         }
         removedPaths.push(path);
-        if (/^C:\\SkillRunner$/i.test(path) && existingPaths.has("C:\\SkillRunner\\agent-cache\\uv_cache")) {
+        if (
+          /^C:\\SkillRunner$/i.test(path) &&
+          existingPaths.has("C:\\SkillRunner\\agent-cache\\uv_cache")
+        ) {
           throw new Error("directory not empty");
         }
         for (const existingPath of Array.from(existingPaths.values())) {
@@ -1959,77 +1985,84 @@ function registerSkillRunnerDeployLifecycleSegmentThree() {
     ]);
   });
 
-  itFullOnly("uninstall reports npm delete diagnostics when retries and long-path fallback still fail", async function () {
-    Zotero.Prefs.set(
-      backendsConfigPrefKey,
-      JSON.stringify({
-        backends: [
-          {
-            id: "local-skillrunner-backend",
-            type: "skillrunner",
-            baseUrl: "http://127.0.0.1:29813",
-            auth: { kind: "none" },
-          },
-        ],
-      }),
-      true,
-    );
-    Zotero.Prefs.set(
-      localRuntimeStatePrefKey,
-      JSON.stringify({
-        managedBackendId: "local-skillrunner-backend",
-        installDir: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`,
-        ctlPath: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}\\scripts\\skill-runnerctl.ps1`,
-      }),
-      true,
-    );
-    const existingPaths = new Set([
-      "C:\\SkillRunner\\releases",
-      "C:\\SkillRunner\\agent-cache\\npm",
-      "C:\\SkillRunner\\agent-cache\\uv_cache",
-      "C:\\SkillRunner\\agent-cache\\uv_venv",
-    ]);
-    (globalThis as { IOUtils?: unknown }).IOUtils = {
-      exists: async (path: string) => existingPaths.has(path),
-      remove: async (path: string) => {
-        if (/agent-cache\\npm$/i.test(path)) {
-          const error = new Error("path too long") as Error & { code?: string };
-          error.code = "ENAMETOOLONG";
-          throw error;
-        }
-        for (const existingPath of Array.from(existingPaths.values())) {
-          if (
-            existingPath === path ||
-            existingPath.startsWith(`${path}\\`) ||
-            existingPath.startsWith(`${path}/`)
-          ) {
-            existingPaths.delete(existingPath);
+  itFullOnly(
+    "uninstall reports npm delete diagnostics when retries and long-path fallback still fail",
+    async function () {
+      Zotero.Prefs.set(
+        backendsConfigPrefKey,
+        JSON.stringify({
+          backends: [
+            {
+              id: "local-skillrunner-backend",
+              type: "skillrunner",
+              baseUrl: "http://127.0.0.1:29813",
+              auth: { kind: "none" },
+            },
+          ],
+        }),
+        true,
+      );
+      Zotero.Prefs.set(
+        localRuntimeStatePrefKey,
+        JSON.stringify({
+          managedBackendId: "local-skillrunner-backend",
+          installDir: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`,
+          ctlPath: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}\\scripts\\skill-runnerctl.ps1`,
+        }),
+        true,
+      );
+      const existingPaths = new Set([
+        "C:\\SkillRunner\\releases",
+        "C:\\SkillRunner\\agent-cache\\npm",
+        "C:\\SkillRunner\\agent-cache\\uv_cache",
+        "C:\\SkillRunner\\agent-cache\\uv_venv",
+      ]);
+      (globalThis as { IOUtils?: unknown }).IOUtils = {
+        exists: async (path: string) => existingPaths.has(path),
+        remove: async (path: string) => {
+          if (/agent-cache\\npm$/i.test(path)) {
+            const error = new Error("path too long") as Error & {
+              code?: string;
+            };
+            error.code = "ENAMETOOLONG";
+            throw error;
           }
-        }
-      },
-    };
-    setSkillRunnerCtlBridgeFactoryForTests(
-      () =>
-        ({
-          resolveCtlPathFromInstallDir: () => "",
-          runCtlCommand: async () => makeCtlResult({ ok: true }),
-        }) as any,
-    );
+          for (const existingPath of Array.from(existingPaths.values())) {
+            if (
+              existingPath === path ||
+              existingPath.startsWith(`${path}\\`) ||
+              existingPath.startsWith(`${path}/`)
+            ) {
+              existingPaths.delete(existingPath);
+            }
+          }
+        },
+      };
+      setSkillRunnerCtlBridgeFactoryForTests(
+        () =>
+          ({
+            resolveCtlPathFromInstallDir: () => "",
+            runCtlCommand: async () => makeCtlResult({ ok: true }),
+          }) as any,
+      );
 
-    const result = await uninstallLocalRuntime();
+      const result = await uninstallLocalRuntime();
 
-    assert.isFalse(result.ok);
-    assert.equal(result.stage, "uninstall-delete");
-    const failureMap = (result.details?.failed_path_errors ||
-      {}) as Record<string, string>;
-    const npmFailure = String(
-      failureMap["C:\\SkillRunner\\agent-cache\\npm"] || "",
-    );
-    assert.include(npmFailure, "retries=");
-    assert.include(npmFailure, "long_path_fallback=");
-    assert.include(npmFailure, "hint=");
-    assert.deepEqual(readManagedLocalRuntimeState(), {});
-  });
+      assert.isFalse(result.ok);
+      assert.equal(result.stage, "uninstall-delete");
+      const failureMap = (result.details?.failed_path_errors || {}) as Record<
+        string,
+        string
+      >;
+      const npmFailure = String(
+        failureMap["C:\\SkillRunner\\agent-cache\\npm"] || "",
+      );
+      assert.include(npmFailure, "retries=");
+      assert.include(npmFailure, "long_path_fallback=");
+      assert.include(npmFailure, "hint=");
+      assert.deepEqual(readManagedLocalRuntimeState(), {});
+    },
+  );
 
   it("uninstall continues cleanup when ctl path is missing", async function () {
     Zotero.Prefs.set(
@@ -2280,38 +2313,41 @@ function registerSkillRunnerDeployLifecycleSegmentThree() {
     assert.isAtLeast(logs.length, 1);
   });
 
-  itFullOnly("applies persistent log whitelist for deploy chains and excludes monitoring operations", function () {
-    assert.isTrue(
-      shouldPersistLocalRuntimeLogForTests({
-        operation: "deploy-release-install",
-        stage: "deploy-release-install",
-      }),
-    );
-    assert.isTrue(
-      shouldPersistLocalRuntimeLogForTests({
-        operation: "oneclick-preflight",
-        stage: "oneclick-preflight",
-      }),
-    );
-    assert.isTrue(
-      shouldPersistLocalRuntimeLogForTests({
-        operation: "lease-acquire",
-        stage: "local-lease-acquired",
-      }),
-    );
-    assert.isFalse(
-      shouldPersistLocalRuntimeLogForTests({
-        operation: "lease-heartbeat",
-        stage: "local-lease-heartbeat-failed",
-      }),
-    );
-    assert.isFalse(
-      shouldPersistLocalRuntimeLogForTests({
-        operation: "heartbeat-fail-reconcile",
-        stage: "heartbeat-fail-reconcile",
-      }),
-    );
-  });
+  itFullOnly(
+    "applies persistent log whitelist for deploy chains and excludes monitoring operations",
+    function () {
+      assert.isTrue(
+        shouldPersistLocalRuntimeLogForTests({
+          operation: "deploy-release-install",
+          stage: "deploy-release-install",
+        }),
+      );
+      assert.isTrue(
+        shouldPersistLocalRuntimeLogForTests({
+          operation: "oneclick-preflight",
+          stage: "oneclick-preflight",
+        }),
+      );
+      assert.isTrue(
+        shouldPersistLocalRuntimeLogForTests({
+          operation: "lease-acquire",
+          stage: "local-lease-acquired",
+        }),
+      );
+      assert.isFalse(
+        shouldPersistLocalRuntimeLogForTests({
+          operation: "lease-heartbeat",
+          stage: "local-lease-heartbeat-failed",
+        }),
+      );
+      assert.isFalse(
+        shouldPersistLocalRuntimeLogForTests({
+          operation: "heartbeat-fail-reconcile",
+          stage: "heartbeat-fail-reconcile",
+        }),
+      );
+    },
+  );
 
   it("reads bootstrap report from ctl bootstrap payload path when available", async function () {
     const readPaths: string[] = [];
@@ -2355,7 +2391,6 @@ function registerSkillRunnerDeployLifecycleSegmentThree() {
 }
 
 function registerSkillRunnerAutoStartSegmentTwo() {
-
   it("hydrates auto-start session switch from persisted autoStartPaused", async function () {
     Zotero.Prefs.set(
       localRuntimeStatePrefKey,
@@ -2462,26 +2497,31 @@ function registerSkillRunnerAutoStartSegmentTwo() {
 }
 
 function registerSkillRunnerDeployLifecycleSegmentFour() {
+  itFullOnly(
+    "builds manual deploy commands using bridge-equivalent bootstrap and up flow",
+    async function () {
+      const commandText = buildManualDeployCommands({
+        version: DEFAULT_LOCAL_RUNTIME_VERSION,
+        installRoot: "C:\\Users\\tester\\AppData\\Local\\SkillRunner\\releases",
+        host: "127.0.0.1",
+        port: 29813,
+        portFallbackSpan: 10,
+      });
+      assert.include(commandText, "agent_manager.py --ensure");
+      assert.include(commandText, "uvicorn server.main:app");
+      assert.notInclude(commandText, "skill-runnerctl");
 
-  itFullOnly("builds manual deploy commands using bridge-equivalent bootstrap and up flow", async function () {
-    const commandText = buildManualDeployCommands({
-      version: DEFAULT_LOCAL_RUNTIME_VERSION,
-      installRoot: "C:\\Users\\tester\\AppData\\Local\\SkillRunner\\releases",
-      host: "127.0.0.1",
-      port: 29813,
-      portFallbackSpan: 10,
-    });
-    assert.include(commandText, "agent_manager.py --ensure");
-    assert.include(commandText, "uvicorn server.main:app");
-    assert.notInclude(commandText, "skill-runnerctl");
-
-    const result = await getLocalRuntimeManualDeployCommands({
-      version: DEFAULT_LOCAL_RUNTIME_VERSION,
-    });
-    assert.isTrue(result.ok);
-    assert.equal(result.stage, "manual-deploy-commands");
-    assert.include(String(result.details?.commands || ""), "agent_manager.py --ensure");
-  });
+      const result = await getLocalRuntimeManualDeployCommands({
+        version: DEFAULT_LOCAL_RUNTIME_VERSION,
+      });
+      assert.isTrue(result.ok);
+      assert.equal(result.stage, "manual-deploy-commands");
+      assert.include(
+        String(result.details?.commands || ""),
+        "agent_manager.py --ensure",
+      );
+    },
+  );
 
   it("state snapshot omits deployment state", async function () {
     await setLocalRuntimeAutoPullEnabled(false);

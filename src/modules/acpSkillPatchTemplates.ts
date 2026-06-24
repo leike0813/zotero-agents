@@ -1,10 +1,7 @@
 import { config } from "../../package.json";
 import { joinPath } from "../utils/path";
 import { resolveAddonRef } from "../utils/runtimeBridge";
-import {
-  readRuntimeTextFile,
-  runtimePathExists,
-} from "./runtimePersistence";
+import { readRuntimeTextFile, runtimePathExists } from "./runtimePersistence";
 
 export type AcpSkillPatchModule =
   | "runtime_enforcement"
@@ -122,11 +119,15 @@ export async function loadAcpSkillPatchTemplate(
   template: AcpSkillPatchTemplate,
 ) {
   const content = hasNodeRuntime()
-    ? (await readTemplateFromNode(template)) || (await readTemplateFromChrome(template))
-    : (await readTemplateFromChrome(template)) || (await readTemplateFromNode(template));
+    ? (await readTemplateFromNode(template)) ||
+      (await readTemplateFromChrome(template))
+    : (await readTemplateFromChrome(template)) ||
+      (await readTemplateFromNode(template));
   const trimmed = normalizeString(content);
   if (!trimmed) {
-    throw new Error(`ACP skill patch template is missing or empty: ${template.filename}`);
+    throw new Error(
+      `ACP skill patch template is missing or empty: ${template.filename}`,
+    );
   }
   return trimmed;
 }
@@ -139,7 +140,9 @@ export function renderAcpSkillPatchTemplate(args: {
   let rendered = args.template;
   for (const key of args.requiredPlaceholders || []) {
     if (!rendered.includes(`{${key}}`)) {
-      throw new Error(`ACP skill patch template is missing placeholder: {${key}}`);
+      throw new Error(
+        `ACP skill patch template is missing placeholder: {${key}}`,
+      );
     }
   }
   for (const [key, value] of Object.entries(args.replacements)) {
@@ -147,7 +150,9 @@ export function renderAcpSkillPatchTemplate(args: {
   }
   for (const key of args.requiredPlaceholders || []) {
     if (rendered.includes(`{${key}}`)) {
-      throw new Error(`ACP skill patch template placeholder was not rendered: {${key}}`);
+      throw new Error(
+        `ACP skill patch template placeholder was not rendered: {${key}}`,
+      );
     }
   }
   return rendered.trim();

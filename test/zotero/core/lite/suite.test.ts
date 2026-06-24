@@ -1,0 +1,9 @@
+import "../../../core/00-mocha-grep-setup.test";
+import "../../../core/00-zotero-diagnostic-setup.test";
+import "../../../core/00-startup.test";
+import "../../../core/11-selection-context-rebuild.test";
+import "../../../core/42-hooks-startup-template-cleanup.test";
+import "../../../core/47-workflow-log-instrumentation.test";
+import "../../../core/52-runtime-bridge.test";
+import "../../../core/87-workflow-package-runtime-diagnostics.test";
+import "../../../core/88-workflow-runtime-scope-diagnostics.test";

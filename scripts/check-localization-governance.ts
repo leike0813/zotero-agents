@@ -344,11 +344,11 @@ function main() {
   );
   for (const file of [
     "addon/content/dashboard/app.js",
-    "addon/content/dashboard/acp-chat.js",
-    "addon/content/dashboard/acp-skill-run.js",
-    "addon/content/dashboard/run-dialog.js",
     "addon/content/dashboard/workflow-settings-dialog.js",
-    "addon/content/dashboard/assistant-transcript-renderer.js",
+    "addon/content/sidebar/acp-chat.js",
+    "addon/content/sidebar/acp-skill-run.js",
+    "addon/content/sidebar/run-dialog.js",
+    "addon/content/shared/assistant/assistant-transcript-renderer.js",
   ]) {
     errors.push(...reportDashboardUiHardcodes(file, readText(file)));
   }

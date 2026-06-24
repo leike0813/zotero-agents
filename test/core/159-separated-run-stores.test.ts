@@ -87,7 +87,8 @@ describe("separated ACP and SkillRunner run stores", function () {
     }
     const requestId = String(
       job.meta.requestId ||
-        ((job.result as { requestId?: unknown } | undefined)?.requestId || ""),
+        (job.result as { requestId?: unknown } | undefined)?.requestId ||
+        "",
     ).trim();
     const attached = requestId
       ? attachSkillRunnerRequestId({
@@ -773,7 +774,9 @@ describe("separated ACP and SkillRunner run stores", function () {
       eventType: "backend.snapshot",
     });
 
-    const task = listWorkflowTasks().find((entry) => entry.runKey === run!.runKey);
+    const task = listWorkflowTasks().find(
+      (entry) => entry.runKey === run!.runKey,
+    );
     assert.equal(task?.state, "succeeded");
     assert.equal(task?.backendInteractive, true);
     assert.equal(task?.canOpenStream, false);
@@ -1029,10 +1032,7 @@ describe("separated ACP and SkillRunner run stores", function () {
     );
     assert.sameMembers(
       rows.map((entry) => entry.runKey || ""),
-      [
-        "local:workflow-run-merge:job-a",
-        "local:workflow-run-merge:job-b",
-      ],
+      ["local:workflow-run-merge:job-a", "local:workflow-run-merge:job-b"],
     );
   });
 

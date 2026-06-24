@@ -37,10 +37,7 @@ async function cleanupObject(obj?: { eraseTx: () => Promise<unknown> }) {
   await obj.eraseTx();
 }
 
-async function expectError(
-  action: () => Promise<unknown>,
-  message?: RegExp,
-) {
+async function expectError(action: () => Promise<unknown>, message?: RegExp) {
   let error: unknown;
   try {
     await action();

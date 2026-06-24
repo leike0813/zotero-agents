@@ -201,8 +201,14 @@ describe("skillrunner ctl bridge", function () {
     const fs = await import("fs/promises");
     const os = await import("os");
     const path = await import("path");
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "zotero-skills-bridge-preflight-"));
-    const installDir = path.join(tempRoot, "releases", DEFAULT_LOCAL_RUNTIME_VERSION);
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zotero-skills-bridge-preflight-"),
+    );
+    const installDir = path.join(
+      tempRoot,
+      "releases",
+      DEFAULT_LOCAL_RUNTIME_VERSION,
+    );
     const serverDir = path.join(installDir, "server");
     const scriptsDir = path.join(installDir, "scripts");
     const dataDir = path.join(tempRoot, "data");
@@ -211,7 +217,11 @@ describe("skillrunner ctl bridge", function () {
     await fs.mkdir(scriptsDir, { recursive: true });
     await fs.mkdir(dataDir, { recursive: true });
     await fs.writeFile(path.join(serverDir, "main.py"), "# mock\n", "utf8");
-    await fs.writeFile(path.join(scriptsDir, "agent_manager.py"), "# mock\n", "utf8");
+    await fs.writeFile(
+      path.join(scriptsDir, "agent_manager.py"),
+      "# mock\n",
+      "utf8",
+    );
     await fs.writeFile(
       reportPath,
       JSON.stringify({ summary: { outcome: "ok" } }, null, 2),
@@ -219,7 +229,10 @@ describe("skillrunner ctl bridge", function () {
     );
     const runtime = globalThis as {
       Components?: {
-        classes?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
+        classes?: Record<
+          string,
+          { createInstance?: (iface: unknown) => unknown }
+        >;
         interfaces?: Record<string, unknown>;
       };
       Cc?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
@@ -338,9 +351,7 @@ describe("skillrunner ctl bridge", function () {
         };
       };
       ChromeUtils?: {
-        import?: (
-          url: string,
-        ) => {
+        import?: (url: string) => {
           Subprocess?: {
             call?: (args: {
               command: string;
@@ -526,9 +537,7 @@ describe("skillrunner ctl bridge", function () {
         };
       };
       ChromeUtils?: {
-        import?: (
-          url: string,
-        ) => {
+        import?: (url: string) => {
           Subprocess?: {
             call?: (args: {
               command: string;
@@ -595,9 +604,7 @@ describe("skillrunner ctl bridge", function () {
       assert.isTrue(result.ok);
       assert.isAtLeast(calls.length, 2);
       assert.isTrue(calls.includes("tar"));
-      assert.isTrue(
-        calls.some((entry) => /(^|[\\/])tar\.exe$/i.test(entry)),
-      );
+      assert.isTrue(calls.some((entry) => /(^|[\\/])tar\.exe$/i.test(entry)));
     } finally {
       if (zoteroRuntime) {
         zoteroRuntime.isWin = prevIsWin;
@@ -677,9 +684,7 @@ describe("skillrunner ctl bridge", function () {
       assert.isTrue(result.ok);
       assert.isAtLeast(calls.length, 2);
       assert.isTrue(calls.includes("tar"));
-      assert.isTrue(
-        calls.some((entry) => /(^|[\\/])tar\.exe$/i.test(entry)),
-      );
+      assert.isTrue(calls.some((entry) => /(^|[\\/])tar\.exe$/i.test(entry)));
     } finally {
       if (!zoteroRuntime) {
         // no-op
@@ -768,9 +773,7 @@ describe("skillrunner ctl bridge", function () {
       assert.isTrue(
         calls.some((entry) => entry.toLowerCase().includes("powershell")),
       );
-      assert.isTrue(
-        calls.some((entry) => /(^|[\\/])tar\.exe$/i.test(entry)),
-      );
+      assert.isTrue(calls.some((entry) => /(^|[\\/])tar\.exe$/i.test(entry)));
     } finally {
       if (zoteroRuntime) {
         zoteroRuntime.isWin = prevIsWin;

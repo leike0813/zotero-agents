@@ -28,7 +28,10 @@ describe("UI render stability contract", function () {
       'data.type === "synthesis:init" || data.type === "synthesis:snapshot"',
     );
     assert.isAtLeast(messageHandlerStart, 0);
-    const messageHandler = source.slice(messageHandlerStart, messageHandlerStart + 900);
+    const messageHandler = source.slice(
+      messageHandlerStart,
+      messageHandlerStart + 900,
+    );
 
     assert.include(source, "function snapshotChromeSignature");
     assert.include(source, "function snapshotContentSignature");

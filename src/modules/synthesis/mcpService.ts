@@ -17,18 +17,28 @@ export type SynthesisMcpService = {
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
   getTopicContext?: SynthesisMcpServiceMethodHandler;
-  getTopicReport?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  getTopicReport?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   getSchemas?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
-  queryConceptKb?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  queryConceptKb?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   queryCitationGraphCluster?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
-  getLibraryIndex?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
-  resolveResolver?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  getLibraryIndex?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
+  resolveResolver?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   getReferenceSidecarIndex?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
-  queryCitationGraph?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  queryCitationGraph?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   getCitationGraphSlice?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
@@ -44,19 +54,25 @@ export type SynthesisMcpService = {
   rankLibraryPapers?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
-  getAttentionQueue?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  getAttentionQueue?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   refreshCitationGraphMetricsNow?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
   getPaperArtifactManifest?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
-  readPaperArtifacts?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  readPaperArtifacts?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
   exportFilteredPaperArtifacts?: SynthesisMcpServiceMethodHandler;
   resolveTopicPaperDigest?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
-  getReviewInput?: (args: Record<string, unknown>) => unknown | Promise<unknown>;
+  getReviewInput?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
 };
 
 export type SynthesisMcpServiceMethod = keyof SynthesisMcpService;

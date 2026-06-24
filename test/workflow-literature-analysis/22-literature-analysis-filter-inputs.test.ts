@@ -13,7 +13,10 @@ async function getWorkflow() {
     (entry) => entry.manifest.id === "literature-analysis",
   );
   assert.isOk(workflow, "workflow literature-analysis not found");
-  assert.equal(workflow?.manifest.validateSelection?.select?.policy, "literature-source");
+  assert.equal(
+    workflow?.manifest.validateSelection?.select?.policy,
+    "literature-source",
+  );
   return workflow!;
 }
 
@@ -99,10 +102,7 @@ const hookRuntime = {
   helpers: createHookHelpers(Zotero),
 };
 
-async function evaluateSelection(
-  workflow: LoadedWorkflow,
-  context: unknown,
-) {
+async function evaluateSelection(workflow: LoadedWorkflow, context: unknown) {
   const result = await evaluateWorkflowSelection({
     workflow,
     selectionContext: context,
@@ -179,7 +179,10 @@ describe("literature-analysis validateSelection", function () {
     ]);
 
     assert.isOk(earliest);
-    assert.equal((earliest as { filePath?: string }).filePath, "attachments/H/a.pdf");
+    assert.equal(
+      (earliest as { filePath?: string }).filePath,
+      "attachments/H/a.pdf",
+    );
   });
 
   it("resolves parent with multiple md and pdf using earliest-pdf filename match", async function () {
@@ -229,7 +232,10 @@ describe("literature-analysis validateSelection", function () {
     const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(filtered.items.attachments[0].filePath, "attachments/A/paperA.md");
+    assert.equal(
+      filtered.items.attachments[0].filePath,
+      "attachments/A/paperA.md",
+    );
   });
 
   it("fallbacks to earliest pdf when no markdown exists", async function () {
@@ -258,7 +264,10 @@ describe("literature-analysis validateSelection", function () {
     const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(filtered.items.attachments[0].filePath, "attachments/B/paper.pdf");
+    assert.equal(
+      filtered.items.attachments[0].filePath,
+      "attachments/B/paper.pdf",
+    );
   });
 
   it("ignores selected markdown attachments when their parent is selected", async function () {
@@ -318,6 +327,9 @@ describe("literature-analysis validateSelection", function () {
     const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(filtered.items.attachments[0].filePath, "attachments/P/alpha.md");
+    assert.equal(
+      filtered.items.attachments[0].filePath,
+      "attachments/P/alpha.md",
+    );
   });
 });

@@ -2793,7 +2793,6 @@ async function startRunObserver(entry: RunDialogEntry) {
   let observerGeneration = 1;
   let stopPromise: Promise<void> | undefined;
   let refreshChain: Promise<void> = Promise.resolve();
-  let runLoopTask: Promise<void> | undefined;
   let chatStreamAbortController: AbortController | null = null;
   let chatRetryDelayMs = 800;
   let waitingAuthObserverTimer: ReturnType<typeof setInterval> | undefined;
@@ -3228,7 +3227,7 @@ async function startRunObserver(entry: RunDialogEntry) {
       }
     }
   };
-  runLoopTask = trackRunDialogObserverTask(runLoop());
+  const runLoopTask = trackRunDialogObserverTask(runLoop());
   return async () => {
     if (stopPromise) {
       return stopPromise;
@@ -4576,12 +4575,12 @@ export async function openSkillRunnerRunDialog(args?: { runKey?: string }) {
       args: { requestId },
     },
   );
-  let dialogHelper: DialogHelper | undefined;
+  const dialogHelperRef: { current?: DialogHelper } = {};
 
   const dialogData: Record<string, unknown> = {
     loadCallback: () => {
-      const doc = dialogHelper?.window?.document;
-      const dialogWindow = dialogHelper?.window;
+      const doc = dialogHelperRef.current?.window?.document;
+      const dialogWindow = dialogHelperRef.current?.window;
       if (!doc || !dialogWindow) {
         return;
       }
@@ -4656,7 +4655,7 @@ export async function openSkillRunnerRunDialog(args?: { runKey?: string }) {
     })
     .addButton(localize("task-manager-close", "Close"), "close")
     .setDialogData(dialogData);
-  dialogHelper = dialogBuilder.open(title);
+  dialogHelperRef.current = dialogBuilder.open(title);
 
   await (dialogData as { unloadLock?: { promise?: Promise<void> } }).unloadLock
     ?.promise;

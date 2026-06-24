@@ -118,7 +118,11 @@ function resolveWindowsShellShimPath(target: {
   if (target.platform !== "win32") {
     return "";
   }
-  return joinForInstallPlatform(target.platform, target.targetDir, "zotero-bridge");
+  return joinForInstallPlatform(
+    target.platform,
+    target.targetDir,
+    "zotero-bridge",
+  );
 }
 
 function resolvePlatform() {

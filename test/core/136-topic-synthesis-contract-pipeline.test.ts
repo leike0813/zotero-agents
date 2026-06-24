@@ -31,7 +31,11 @@ function readSchema(pathValue: string) {
 }
 
 function validateWithSchema(schemaPath: string, value: unknown) {
-  const ajv = new Ajv({ allErrors: true, strict: false, validateSchema: false });
+  const ajv = new Ajv({
+    allErrors: true,
+    strict: false,
+    validateSchema: false,
+  });
   const validate = ajv.compile(readSchema(schemaPath));
   const ok = validate(value);
   return {
@@ -756,7 +760,9 @@ function initializeCreateStageValidationDb(
   runRoot: string,
   sections: Record<string, unknown>,
 ) {
-  const skillRoot = path.resolve("skills_builtin/topic-synthesis-core-enrichment");
+  const skillRoot = path.resolve(
+    "skills_builtin/topic-synthesis-core-enrichment",
+  );
   const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
   fsSync.mkdirSync(path.dirname(dbPath), { recursive: true });
   void sections;
@@ -791,7 +797,9 @@ function runCreateStageAction(args: {
       args.payload,
     );
     if (!result.ok) {
-      throw new Error(`payload schema validation failed: ${result.errors.join("; ")}`);
+      throw new Error(
+        `payload schema validation failed: ${result.errors.join("; ")}`,
+      );
     }
     return {
       result: {
@@ -807,7 +815,9 @@ function runCreateStageAction(args: {
       args.payload,
     );
     if (!result.ok) {
-      throw new Error(`payload schema validation failed: ${result.errors.join("; ")}`);
+      throw new Error(
+        `payload schema validation failed: ${result.errors.join("; ")}`,
+      );
     }
     const payload = args.payload as JsonObject;
     fsSync.mkdirSync(path.join(args.runRoot, "result/sidecars"), {
@@ -827,7 +837,10 @@ function runCreateStageAction(args: {
       )}\n`,
     );
     fsSync.writeFileSync(
-      path.join(args.runRoot, "result/sidecars/topic-graph-relation-proposals.json"),
+      path.join(
+        args.runRoot,
+        "result/sidecars/topic-graph-relation-proposals.json",
+      ),
       `${JSON.stringify(
         {
           schema_id: "synthesis.topic_graph_relation_proposals",
@@ -888,7 +901,9 @@ function runCreateStageAction(args: {
       args.payload,
     );
     if (!result.ok) {
-      throw new Error(`payload schema validation failed: ${result.errors.join("; ")}`);
+      throw new Error(
+        `payload schema validation failed: ${result.errors.join("; ")}`,
+      );
     }
     fsSync.mkdirSync(path.join(args.runRoot, "result/sections"), {
       recursive: true,
@@ -950,14 +965,14 @@ function coreSectionsPayload(sections: Record<string, unknown>) {
       },
     ],
   };
-  const improvementDimensions = (sections.improvement_dimensions as JsonObject[]).map(
-    (entry) => ({
-      id: entry.id,
-      title: entry.title || entry.label,
-      analysis: entry.analysis,
-      source_paper_refs: entry.source_paper_refs,
-    }),
-  );
+  const improvementDimensions = (
+    sections.improvement_dimensions as JsonObject[]
+  ).map((entry) => ({
+    id: entry.id,
+    title: entry.title || entry.label,
+    analysis: entry.analysis,
+    source_paper_refs: entry.source_paper_refs,
+  }));
   const claims = (sections.claims as JsonObject[]).map((entry) => ({
     id: entry.id,
     text: entry.text,
@@ -1016,8 +1031,9 @@ function finalizeSummaryCoveragePayload(sections: Record<string, unknown>) {
   return {
     coverage_verdict: (sections.coverage as JsonObject).coverage_verdict,
     coverage_reason: (sections.coverage as JsonObject).coverage_reason,
-    coverage_caveats: ((sections.coverage as JsonObject)
-      .coverage_caveats as string[]).map((note) => ({
+    coverage_caveats: (
+      (sections.coverage as JsonObject).coverage_caveats as string[]
+    ).map((note) => ({
       type: "library_coverage_gap",
       note,
     })),
@@ -1061,8 +1077,10 @@ describe("Topic synthesis contract pipeline", function () {
     const sections = baseSections();
     const { dbPath } = initializeCreateStageValidationDb(runRoot, sections);
     const invalid = coreSectionsPayload(sections);
-    delete (((invalid.taxonomy as JsonObject).axes as JsonObject[])[0]
-      .nodes as JsonObject[])[0].mechanism;
+    delete (
+      ((invalid.taxonomy as JsonObject).axes as JsonObject[])[0]
+        .nodes as JsonObject[]
+    )[0].mechanism;
 
     const message = captureCreateStageActionError({
       runRoot,
@@ -1197,9 +1215,7 @@ describe("Topic synthesis contract pipeline", function () {
 
     assert.match(message, /additional properties|unknown/i);
     try {
-      await fs.access(
-        path.join(runRoot, "result/sections/coverage.json"),
-      );
+      await fs.access(path.join(runRoot, "result/sections/coverage.json"));
       assert.fail(
         "Stage 60 should not materialize coverage after failed prevalidation",
       );

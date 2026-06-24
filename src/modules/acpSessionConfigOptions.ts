@@ -167,7 +167,9 @@ export function buildAcpRuntimeOptionsStateFromConfigOptions(
     displayModels: folded.displayModelOptions,
     currentDisplayModelId: folded.currentDisplayModel?.id || "",
     reasoningEfforts:
-      reasoningEfforts.length > 0 ? reasoningEfforts : folded.reasoningEffortOptions,
+      reasoningEfforts.length > 0
+        ? reasoningEfforts
+        : folded.reasoningEffortOptions,
     currentReasoningEffortId,
   };
 }

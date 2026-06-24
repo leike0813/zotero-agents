@@ -1,4 +1,3 @@
-/* eslint-disable mocha/max-top-level-suites */
 import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
@@ -3867,7 +3866,9 @@ function v2SectionContext(
       JSON.stringify({
         resolver_manifest: artifactPath("runtime/payloads/resolver.json"),
         topic_analysis: artifactPath("result/topic-analysis.json"),
-        final_output_candidate: artifactPath("result/final-output.candidate.json"),
+        final_output_candidate: artifactPath(
+          "result/final-output.candidate.json",
+        ),
         ...Object.fromEntries(
           Object.keys(sections).map((section) => [
             `${section}_section`,
@@ -4389,7 +4390,8 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
         }),
       ],
     });
-    const absoluteRoot = "D:/Workspace/Artifact/Zotero-Skills/run/acp-skill-test";
+    const absoluteRoot =
+      "D:/Workspace/Artifact/Zotero-Skills/run/acp-skill-test";
 
     const result = await service.applyTopicSynthesisResult(
       v2TopicBundle({
@@ -4439,17 +4441,23 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
           analysis_manifest_path: "",
           artifact_manifest_path: "result/topic-synthesis-artifacts.json",
         }),
-        v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR")), {
-          "result/topic-synthesis-artifacts.json": {
-            resolver_manifest: "../runtime/payloads/resolver.json",
-            topic_analysis: "result/topic-analysis.json",
+        v2SectionContext(
+          v2SectionsWithEvidence(hashMarkdown("# Digest DETR")),
+          {
+            "result/topic-synthesis-artifacts.json": {
+              resolver_manifest: "../runtime/payloads/resolver.json",
+              topic_analysis: "result/topic-analysis.json",
+            },
           },
-        }),
+        ),
       );
       assert.fail("expected invalid artifact manifest path to be rejected");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      assert.include(message, "artifact_manifest_path contains invalid artifact path");
+      assert.include(
+        message,
+        "artifact_manifest_path contains invalid artifact path",
+      );
       assert.notInclude(message, "requires resolver_manifest_path");
     }
   });

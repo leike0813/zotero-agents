@@ -291,7 +291,10 @@ describe("workflow apply seam risk regression", function () {
     assert.equal(summary.pending, 1);
     assert.lengthOf(summary.failureReasons, 0);
     assert.equal(applyCalls, 0);
-    assert.include(runtimeStages, "provider-result-deferred-after-succeeded-job");
+    assert.include(
+      runtimeStages,
+      "provider-result-deferred-after-succeeded-job",
+    );
     assert.notInclude(runtimeStages, "apply-start");
   });
 

@@ -162,12 +162,14 @@ function resolveProjectPath(target: string) {
 }
 
 function sanitizeFileName(value: string) {
-  return value.replace(/[<>:\"/\\\\|?*]+/g, "_");
+  return value.replace(/[<>:"/\\|?*]+/g, "_");
 }
 
 function extractFileName(value: string | null) {
   if (!value) return null;
-  const normalized = value.replace(/^attachments:/, "").replace(/^storage:/, "");
+  const normalized = value
+    .replace(/^attachments:/, "")
+    .replace(/^storage:/, "");
   const parts = normalized.split(/[\\/]/).filter(Boolean);
   return parts.length > 0 ? parts[parts.length - 1] : null;
 }
@@ -196,8 +198,7 @@ function normalizeContext(context: SelectionContext): NormalizedContext {
     if (typeof base.note === "string" && base.note.length > 0) {
       return base.note;
     }
-    const fromData =
-      typeof base.data?.note === "string" ? base.data.note : "";
+    const fromData = typeof base.data?.note === "string" ? base.data.note : "";
     return fromData || base.title || "";
   };
 
@@ -229,9 +230,7 @@ function normalizeContext(context: SelectionContext): NormalizedContext {
   for (const childCtx of context.items.children) {
     pushSignature(childSignature(childCtx.item, childCtx.parent));
     for (const attachment of childCtx.attachments) {
-      pushSignature(
-        attachmentSignature(attachment.item, attachment.parent),
-      );
+      pushSignature(attachmentSignature(attachment.item, attachment.parent));
     }
     for (const note of childCtx.notes) {
       pushSignature(noteSignature(note, childCtx.item));
@@ -333,14 +332,9 @@ async function createRegularItem(base: ItemBase, parent?: Zotero.Item | null) {
   });
 }
 
-async function createNoteItem(
-  base: ItemBase,
-  parent: Zotero.Item | null,
-) {
+async function createNoteItem(base: ItemBase, parent: Zotero.Item | null) {
   const content =
-    (typeof base.data?.note === "string" && base.data.note) ||
-    base.note ||
-    "";
+    (typeof base.data?.note === "string" && base.data.note) || base.note || "";
   if (parent) {
     return handlers.parent.addNote(parent, { content });
   }
@@ -570,7 +564,8 @@ describe("selection-context rebuild", function () {
   const selectedFixtures = isFullTestMode()
     ? fixtures
     : fixtures.filter(
-        (fixture) => fixture.name === "selection-context-mix-all-top3-parents.json",
+        (fixture) =>
+          fixture.name === "selection-context-mix-all-top3-parents.json",
       );
 
   selectedFixtures.forEach((fixture) => {
@@ -593,7 +588,9 @@ describe("selection-context rebuild", function () {
       }
       const items = Array.from(created.values());
       const notes = items.filter((item) => item.itemType === "note");
-      const attachments = items.filter((item) => item.itemType === "attachment");
+      const attachments = items.filter(
+        (item) => item.itemType === "attachment",
+      );
       const others = items.filter(
         (item) => item.itemType !== "note" && item.itemType !== "attachment",
       );

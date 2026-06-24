@@ -17,7 +17,8 @@ type SynthesisWorkbenchSidecarChangeListener = (
   event: SynthesisWorkbenchSidecarChangeEvent,
 ) => void;
 
-const sidecarChangeListeners = new Set<SynthesisWorkbenchSidecarChangeListener>();
+const sidecarChangeListeners =
+  new Set<SynthesisWorkbenchSidecarChangeListener>();
 
 export function registerSynthesisWorkbenchSidecarChangeListener(
   listener: SynthesisWorkbenchSidecarChangeListener,

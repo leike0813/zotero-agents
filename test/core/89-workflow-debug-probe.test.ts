@@ -505,7 +505,9 @@ describe("workflow debug probe", function () {
   });
 
   it("debug interactive choice probe builds an interactive SkillRunner request", async function () {
-    const workflow = await getBuiltinDebugWorkflow("debug-interactive-choice-probe");
+    const workflow = await getBuiltinDebugWorkflow(
+      "debug-interactive-choice-probe",
+    );
     const requests = (await executeBuildRequests({
       workflow,
       selectionContext: {
@@ -559,9 +561,10 @@ describe("workflow debug probe", function () {
       "step_id",
       "run_key",
     ]);
-    assert.deepEqual(defaultRequests[0].steps.map((step) => step.fetch_type), [
-      "bundle",
-    ]);
+    assert.deepEqual(
+      defaultRequests[0].steps.map((step) => step.fetch_type),
+      ["bundle"],
+    );
     const defaultParent = Zotero.Items.get(defaultRequests[0].targetParentID)!;
     assert.include(
       String(defaultParent.getField("title") || ""),
@@ -608,7 +611,9 @@ describe("workflow debug probe", function () {
       executionOptions: {
         workflowParams: { skip_result_step: true },
       },
-    })) as Array<{ steps: Array<{ id: string; fetch_type: string; workspace: string }> }>;
+    })) as Array<{
+      steps: Array<{ id: string; fetch_type: string; workspace: string }>;
+    }>;
     assert.deepEqual(
       skippedRequests[0].steps.map(
         (step) => `${step.id}:${step.fetch_type}:${step.workspace}`,
@@ -616,7 +621,9 @@ describe("workflow debug probe", function () {
       ["bundle:bundle:new"],
     );
 
-    const singleBundle = await getBuiltinDebugWorkflow("debug-apply-single-bundle");
+    const singleBundle = await getBuiltinDebugWorkflow(
+      "debug-apply-single-bundle",
+    );
     const singleRequests = (await executeBuildRequests({
       workflow: singleBundle,
       selectionContext,
@@ -679,9 +686,13 @@ describe("workflow debug probe", function () {
     assert.lengthOf(mixedModeRequests, 1);
     assert.deepEqual(
       mixedModeRequests[0].steps.map(
-        (step) => `${step.id}:${step.mode}:${step.fetch_type}:${step.workspace}`,
+        (step) =>
+          `${step.id}:${step.mode}:${step.fetch_type}:${step.workspace}`,
       ),
-      ["interactive:interactive:result:new", "result:auto:result:reuse-workflow"],
+      [
+        "interactive:interactive:result:new",
+        "result:auto:result:reuse-workflow",
+      ],
     );
     assert.deepEqual(
       mixedModeRequests[0].steps.map((step) => step.skill_id),
@@ -806,7 +817,9 @@ describe("workflow debug probe", function () {
   });
 
   it("debug apply manifest-bundle hook reads artifacts listed by resultJson manifest path", async function () {
-    const workflow = await getBuiltinDebugWorkflow("debug-apply-manifest-bundle");
+    const workflow = await getBuiltinDebugWorkflow(
+      "debug-apply-manifest-bundle",
+    );
     const parent = await handlers.item.create({
       itemType: "journalArticle",
       fields: { title: "debug-apply-manifest-bundle apply-test" },
@@ -824,7 +837,8 @@ describe("workflow debug probe", function () {
     const bundleEntries: Record<string, string> = {
       "result/result.json": JSON.stringify(resultJson),
       "result/debug-apply-artifacts.json": JSON.stringify({
-        debug_apply_artifact: "result/manifest-artifacts/debug-apply-artifact.txt",
+        debug_apply_artifact:
+          "result/manifest-artifacts/debug-apply-artifact.txt",
       }),
       "result/manifest-artifacts/debug-apply-artifact.txt":
         "debug manifest bundle artifact body",

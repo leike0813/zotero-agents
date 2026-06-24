@@ -39,7 +39,11 @@ function isLeakProbeEnabled() {
     const fromProcess = String(process.env.ZOTERO_TEST_LEAK_PROBE || "")
       .trim()
       .toLowerCase();
-    if (fromProcess === "1" || fromProcess === "true" || fromProcess === "yes") {
+    if (
+      fromProcess === "1" ||
+      fromProcess === "true" ||
+      fromProcess === "yes"
+    ) {
       return true;
     }
   }

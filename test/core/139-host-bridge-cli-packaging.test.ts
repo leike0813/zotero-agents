@@ -29,10 +29,7 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     const wrapperSkill = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/SKILL.md",
-      ),
+      path.join(process.cwd(), "skills_builtin/zotero-bridge-cli/SKILL.md"),
       "utf8",
     );
     const wrapperReference = await fs.readFile(
@@ -58,7 +55,10 @@ describe("host bridge cli packaging and install", function () {
     assert.include(cliArgs, "combine");
     assert.include(cliArgs, "direct resolver fields");
     assert.include(cliArgs, "Do not pass a top-level resolver wrapper");
-    assert.include(wrapperReference, "do not wrap them in a top-level `resolver` object");
+    assert.include(
+      wrapperReference,
+      "do not wrap them in a top-level `resolver` object",
+    );
     assert.include(wrapperReference, "Legacy fields are rejected");
     assert.include(wrapperSkill, "references/host-bridge-cli.md");
     assert.notInclude(wrapperReference, 'top-level `"resolver"` field');
@@ -67,10 +67,7 @@ describe("host bridge cli packaging and install", function () {
 
   it("renders wrapper skill discovery from the current semantic CLI surface", async function () {
     const wrapperSkill = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/SKILL.md",
-      ),
+      path.join(process.cwd(), "skills_builtin/zotero-bridge-cli/SKILL.md"),
       "utf8",
     );
     const wrapperReference = await fs.readFile(
@@ -108,10 +105,7 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     const wrapperSkill = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/SKILL.md",
-      ),
+      path.join(process.cwd(), "skills_builtin/zotero-bridge-cli/SKILL.md"),
       "utf8",
     );
     const wrapperReference = await fs.readFile(
@@ -171,7 +165,10 @@ describe("host bridge cli packaging and install", function () {
     assert.include(prefs, "host-bridge-copy-remote-profile");
     assert.include(preferenceScript, "copyHostBridgeRemoteProfile");
     assert.include(preferenceScript, "copyHostBridgeMasterToken");
-    assert.include(preferenceScript, "hostBridgePinPortCheckbox.disabled = lanEnabled");
+    assert.include(
+      preferenceScript,
+      "hostBridgePinPortCheckbox.disabled = lanEnabled",
+    );
     assert.include(docs, "manual-remote");
     assert.include(docs, "master token");
   });
@@ -216,8 +213,20 @@ describe("host bridge cli packaging and install", function () {
       },
     ];
     for (const entry of cases) {
-      assert.deepEqual(resolveHostBridgeCliPlatform(entry.input), entry.expected);
+      assert.deepEqual(
+        resolveHostBridgeCliPlatform(entry.input),
+        entry.expected,
+      );
     }
+  });
+
+  it("packages extensionless POSIX zotero-bridge binaries into the XPI", async function () {
+    const configSource = await fs.readFile(
+      path.join(process.cwd(), "zotero-plugin.config.ts"),
+      "utf8",
+    );
+
+    assert.include(configSource, "addon/bin/**/zotero-bridge");
   });
 
   it("prefers ZOTERO_BRIDGE_CLI env override when available", async function () {
@@ -471,9 +480,10 @@ describe("host bridge cli packaging and install", function () {
     });
 
     assert.isTrue(result.ok);
-    assert.deepEqual(writes.map((entry) => entry.target), [
-      "C:\\Users\\A\\AppData\\Local\\zotero-agents\\bin\\zotero-bridge",
-    ]);
+    assert.deepEqual(
+      writes.map((entry) => entry.target),
+      ["C:\\Users\\A\\AppData\\Local\\zotero-agents\\bin\\zotero-bridge"],
+    );
     assert.include(writes[0]?.content || "", "zotero-bridge.exe");
     assert.include(writes[0]?.content || "", "#!/usr/bin/env sh");
     assert.strictEqual(

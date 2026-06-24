@@ -245,8 +245,14 @@ describe("Synthesis invariant guards", function () {
     assert.include(runtimeSources, "synt_cache_basis");
     assert.include(runtimeSources, "upsertOperation");
     assert.include(runtimeSources, "upsertCacheBasis");
-    assert.notInclude(runtimeSources, "CREATE TABLE IF NOT EXISTS synt_work_item");
-    assert.notInclude(runtimeSources, "CREATE TABLE IF NOT EXISTS synt_work_run");
+    assert.notInclude(
+      runtimeSources,
+      "CREATE TABLE IF NOT EXISTS synt_work_item",
+    );
+    assert.notInclude(
+      runtimeSources,
+      "CREATE TABLE IF NOT EXISTS synt_work_run",
+    );
     assert.notInclude(runtimeSources, "enqueueSynthesisWork,");
     assert.notInclude(runtimeSources, "recordSynthesisUpdateEvent,");
     assert.notInclude(runtimeSources, "runSynthesisStartupReconcile,");
@@ -390,7 +396,10 @@ describe("Synthesis invariant guards", function () {
       'cacheKey: "related-items-sync:global"',
     );
     assert.include(relatedStaleHelperBlock, 'status: "stale"');
-    assert.include(refreshBlock, "markRelatedItemsSyncCacheStaleForSidecarChange");
+    assert.include(
+      refreshBlock,
+      "markRelatedItemsSyncCacheStaleForSidecarChange",
+    );
     assert.notInclude(refreshBlock, "refreshCitationGraphCacheIncremental");
     assert.notInclude(refreshBlock, "syncRelatedItemsAfterSynthesisUpdate");
     assert.notInclude(refreshBlock, "replaceCitationGraphState(");
@@ -402,7 +411,10 @@ describe("Synthesis invariant guards", function () {
     );
     assert.notMatch(advancedMatchingBlock, /\bdedupeCanonicalReferences\s*\(/);
     assert.include(advancedMatchingBlock, "upsertReferenceMatchProposal");
-    assert.include(advancedMatchingBlock, "refreshCitationGraphCacheIncremental");
+    assert.include(
+      advancedMatchingBlock,
+      "refreshCitationGraphCacheIncremental",
+    );
     assert.notMatch(
       readRepoText("src/modules/synthesis/referenceMatcher.ts"),
       /export function dedupeCanonicalReferences\s*\(/,
@@ -474,7 +486,9 @@ describe("Synthesis invariant guards", function () {
     assert.include(matcherSource, "cluster_dedupe_pair_budget_exceeded");
     assert.isFalse(
       fs.existsSync(
-        repoPath(`src/modules/synthesis/${["literature", "Registry"].join("")}.ts`),
+        repoPath(
+          `src/modules/synthesis/${["literature", "Registry"].join("")}.ts`,
+        ),
       ),
     );
   });

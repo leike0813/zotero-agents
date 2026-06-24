@@ -15,9 +15,7 @@ import {
   stopSkillRunnerAutoReplyObserver,
 } from "../../src/modules/skillRunnerAutoReplyObserver";
 import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/modules/skillRunnerInteractiveAutoReply";
-import {
-  resetPluginStateStoreForTests,
-} from "../../src/modules/pluginStateStore";
+import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { resetWorkflowTasks } from "../../src/modules/taskRuntime";
 import {
   archiveSkillRunnerRunRecordByRequest,
@@ -28,12 +26,8 @@ import {
   updateSkillRunnerRunStateByRequest,
   updateSkillRunnerRunStateByRunKey,
 } from "../../src/modules/skillRunnerRunStore";
-import {
-  buildSkillRunnerRunRecordRequestPayload,
-} from "../../src/modules/skillRunnerInteractiveAutoReply";
-import {
-  resetTaskDashboardHistory,
-} from "../../src/modules/taskDashboardHistory";
+import { buildSkillRunnerRunRecordRequestPayload } from "../../src/modules/skillRunnerInteractiveAutoReply";
+import { resetTaskDashboardHistory } from "../../src/modules/taskDashboardHistory";
 
 const backend = {
   id: "skillrunner-local",
@@ -224,10 +218,7 @@ describe("SkillRunner auto-reply observer", function () {
     });
     const requestPayload = record?.requestPayload as any;
     assert.isUndefined(requestPayload?.providerOptions);
-    assert.equal(
-      requestPayload?.runtime_options?.interactive_auto_reply,
-      true,
-    );
+    assert.equal(requestPayload?.runtime_options?.interactive_auto_reply, true);
     assert.equal(
       requestPayload?.runtime_options?.interactive_reply_timeout_sec,
       30,

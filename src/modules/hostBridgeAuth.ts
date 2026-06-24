@@ -118,7 +118,9 @@ export function redactHostBridgeToken(token: string) {
 }
 
 function getOrCreateMasterKeyMaterial() {
-  const existing = String(getPref("hostBridgeMasterTokenKeyMaterial") || "").trim();
+  const existing = String(
+    getPref("hostBridgeMasterTokenKeyMaterial") || "",
+  ).trim();
   if (existing) {
     return existing;
   }
@@ -176,7 +178,9 @@ export function getHostBridgeToken() {
 
 export function getHostBridgeMasterTokenStatus() {
   return {
-    configured: Boolean(String(getPref("hostBridgeMasterTokenEncryptedJson") || "").trim()),
+    configured: Boolean(
+      String(getPref("hostBridgeMasterTokenEncryptedJson") || "").trim(),
+    ),
     tokenMasked: String(getPref("hostBridgeMasterTokenMasked") || "").trim(),
     updatedAt: String(getPref("hostBridgeMasterTokenUpdatedAt") || "").trim(),
   };
@@ -222,7 +226,9 @@ export async function rotateHostBridgeMasterToken() {
 }
 
 export async function readHostBridgeMasterToken(): Promise<HostBridgeMasterTokenReadResult> {
-  const raw = String(getPref("hostBridgeMasterTokenEncryptedJson") || "").trim();
+  const raw = String(
+    getPref("hostBridgeMasterTokenEncryptedJson") || "",
+  ).trim();
   if (!raw) {
     return {
       ok: false,

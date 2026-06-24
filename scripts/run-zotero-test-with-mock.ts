@@ -39,9 +39,7 @@ export function parseWrappedTestInvocation(
   env: NodeJS.ProcessEnv = process.env,
 ): WrappedTestInvocation {
   const targetScript =
-    cliArgs[0] ||
-    env.ZOTERO_TEST_TARGET_SCRIPT ||
-    DEFAULT_ZOTERO_TARGET_SCRIPT;
+    cliArgs[0] || env.ZOTERO_TEST_TARGET_SCRIPT || DEFAULT_ZOTERO_TARGET_SCRIPT;
   let modeArg = cliArgs[1];
   let domainArg = cliArgs[2];
   let targetTestArgs = cliArgs.slice(3);
@@ -78,9 +76,7 @@ export function isNodeMochaTargetScript(targetScript: string) {
 export function hasExplicitWatchFlag(args: string[]) {
   return args.some(
     (arg) =>
-      arg === "--watch" ||
-      arg === "--no-watch" ||
-      arg === "--exit-on-finish",
+      arg === "--watch" || arg === "--no-watch" || arg === "--exit-on-finish",
   );
 }
 
@@ -186,7 +182,10 @@ function waitForMockReady(mock: Child, timeoutMs = 8000) {
   });
 }
 
-function runTargetTests(invocation: WrappedTestInvocation, env: NodeJS.ProcessEnv) {
+function runTargetTests(
+  invocation: WrappedTestInvocation,
+  env: NodeJS.ProcessEnv,
+) {
   return new Promise<number>((resolve) => {
     const args = ["run", invocation.targetScript];
     const forwardedArgs = buildForwardedTestArgs(
@@ -259,15 +258,7 @@ async function main() {
   );
 
   const mock = spawnNpm(
-    [
-      "run",
-      "mock:skillrunner",
-      "--",
-      "--host",
-      MOCK_HOST,
-      "--port",
-      MOCK_PORT,
-    ],
+    ["run", "mock:skillrunner", "--", "--host", MOCK_HOST, "--port", MOCK_PORT],
     {
       stdio: ["ignore", "pipe", "pipe"],
       env: testEnv,
@@ -317,8 +308,7 @@ async function main() {
 }
 
 const shouldRunAsScript =
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (shouldRunAsScript) {
   void main();

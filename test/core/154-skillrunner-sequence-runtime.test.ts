@@ -115,7 +115,9 @@ function upsertSkillRunnerSequenceStepRunForTest(args: {
   executionMode?: "auto" | "interactive" | string;
 }) {
   const requestPayload =
-    args.request && typeof args.request === "object" && !Array.isArray(args.request)
+    args.request &&
+    typeof args.request === "object" &&
+    !Array.isArray(args.request)
       ? {
           ...(args.request as Record<string, unknown>),
           ...(args.inputUnitIdentity
@@ -422,7 +424,8 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.isOk(storedFinalizeStep);
     assert.notProperty(storedFinalizeStep!, "skillLabel");
     const sequenceEntry = listPluginRunStoreEntries("skillrunner").find(
-      (entry) => entry.runKey === "sequence:workflow-run-continuation-skill-display",
+      (entry) =>
+        entry.runKey === "sequence:workflow-run-continuation-skill-display",
     );
     assert.notInclude(sequenceEntry?.payload || "", "Skill Label");
   });
@@ -1005,14 +1008,11 @@ describe("skillrunner.sequence.v1 runtime", function () {
       ),
       ["digest", "tag-regulator"],
     );
-    assert.deepEqual(
-      literatureAnalysis.request.sequence.steps[1].include_if,
-      {
-        kind: "parameter",
-        parameter: "auto_tag_regulator",
-        equals: true,
-      },
-    );
+    assert.deepEqual(literatureAnalysis.request.sequence.steps[1].include_if, {
+      kind: "parameter",
+      parameter: "auto_tag_regulator",
+      equals: true,
+    });
     assert.deepEqual(
       deepReading.request.sequence.steps.map((step: { id: string }) => step.id),
       ["translate", "deep_reading"],
@@ -1171,13 +1171,10 @@ describe("skillrunner.sequence.v1 runtime", function () {
         operation: "create",
       },
     );
-    assert.deepEqual(
-      (launched[2].request.runtime_options as any).workspace,
-      {
-        mode: "reuse",
-        workflow_run_id: "workflow-run-1",
-      },
-    );
+    assert.deepEqual((launched[2].request.runtime_options as any).workspace, {
+      mode: "reuse",
+      workflow_run_id: "workflow-run-1",
+    });
     assert.notProperty(
       launched[2].request.runtime_options as Record<string, unknown>,
       "workflow_workspace",
@@ -1271,7 +1268,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
 
     assert.lengthOf(launched, 2);
     assert.notProperty(
-      ((launched[1].input || {}) as Record<string, unknown>),
+      (launched[1].input || {}) as Record<string, unknown>,
       "handoff",
     );
   });
@@ -1345,7 +1342,10 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.notProperty(launched[1], "upload_files");
 
     const runnerJson = JSON.parse(
-      await fs.readFile("skills_builtin/tag-regulator/assets/runner.json", "utf8"),
+      await fs.readFile(
+        "skills_builtin/tag-regulator/assets/runner.json",
+        "utf8",
+      ),
     );
     const validation = await validateAcpSkillRunRequestAgainstSchemas({
       request: launched[1] as any,
@@ -1660,7 +1660,9 @@ describe("skillrunner.sequence.v1 runtime", function () {
           jobId: `job-${backendType}-step-apply-fail`,
           appendRuntimeLog: () => {},
           executeWithProvider: async ({ request }) => {
-            const skillId = String((request as { skill_id?: unknown }).skill_id);
+            const skillId = String(
+              (request as { skill_id?: unknown }).skill_id,
+            );
             launched.push(skillId);
             return {
               status: "succeeded",
@@ -2289,8 +2291,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     });
 
     const entry = listPluginRunStoreEntries("skillrunner").find(
-      (candidate) =>
-        candidate.runKey === "sequence:workflow-run-large-bundle",
+      (candidate) => candidate.runKey === "sequence:workflow-run-large-bundle",
     );
     assert.isOk(entry);
     assert.notInclude(entry!.payload, "bundleBytes");
@@ -2526,7 +2527,10 @@ describe("skillrunner.sequence.v1 runtime", function () {
       request: { skill_id: "core-skill", marker: "third" },
     });
     assert.include(await fs.readFile(first.inputManifestPath, "utf8"), "first");
-    assert.include(await fs.readFile(second.inputManifestPath, "utf8"), "second");
+    assert.include(
+      await fs.readFile(second.inputManifestPath, "utf8"),
+      "second",
+    );
     assert.include(await fs.readFile(third.inputManifestPath, "utf8"), "third");
 
     try {

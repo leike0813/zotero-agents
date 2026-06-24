@@ -281,9 +281,7 @@ function buildLocalClientEndpoint(bindMode: HostBridgeBindMode, port: number) {
 function hostAccessRoutes(bindMode = state.bindMode, port = state.port) {
   const hostBridge = buildLocalClientEndpoint(bindMode, port) || state.endpoint;
   const mcpBridgeEndpoint =
-    bindMode === "lan"
-      ? buildRemoteEndpoint(port) || hostBridge
-      : hostBridge;
+    bindMode === "lan" ? buildRemoteEndpoint(port) || hostBridge : hostBridge;
   const mcp = String(mcpBridgeEndpoint || "").replace(
     /\/bridge\/v1\/?$/,
     "/mcp",
@@ -1022,10 +1020,13 @@ function bytesToBinaryString(bytes: Uint8Array) {
 }
 
 function headerSafeFilename(filename: string) {
-  return String(filename || "download.bin").replace(
-    /["\r\n\u0000-\u001f\u007f]/g,
-    "_",
-  );
+  return String(filename || "download.bin")
+    .split("")
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      return char === '"' || code <= 0x1f || code === 0x7f ? "_" : char;
+    })
+    .join("");
 }
 
 function asciiContentDispositionFilename(filename: string) {
@@ -1353,11 +1354,7 @@ async function describeWorkflow(request: HttpRequest) {
     return response(
       400,
       "Bad Request",
-      hostBridgeError(
-        validationCode,
-        errorMessage(error),
-        "validation",
-      ),
+      hostBridgeError(validationCode, errorMessage(error), "validation"),
       validationCode,
     );
   }
@@ -1428,11 +1425,7 @@ async function submitWorkflow(request: HttpRequest) {
     return response(
       400,
       "Bad Request",
-      hostBridgeError(
-        validationCode,
-        errorMessage(error),
-        "validation",
-      ),
+      hostBridgeError(validationCode, errorMessage(error), "validation"),
       validationCode,
     );
   }
@@ -1598,9 +1591,8 @@ async function handleHttpRequest(request: HttpRequest) {
   }
 
   if (isMcpPath(request.path)) {
-    const { handleZoteroMcpHostAccessRequest } = await import(
-      "./zoteroMcpServer"
-    );
+    const { handleZoteroMcpHostAccessRequest } =
+      await import("./zoteroMcpServer");
     return handleZoteroMcpHostAccessRequest(request);
   }
 

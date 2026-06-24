@@ -10,7 +10,10 @@ type DiagnosticsRuntime = typeof globalThis & {
   Services?: { env?: { get?: (key: string) => string } };
   PathUtils?: { tempDir?: string };
   IOUtils?: {
-    makeDirectory?: (path: string, options?: { createAncestors?: boolean }) => Promise<void>;
+    makeDirectory?: (
+      path: string,
+      options?: { createAncestors?: boolean },
+    ) => Promise<void>;
     writeUTF8?: (path: string, content: string) => Promise<void>;
   };
   process?: { cwd?: () => string; env?: Record<string, string | undefined> };
@@ -53,7 +56,10 @@ export async function ensureDiagnosticsDirectory(targetPath: string) {
   await fs.mkdir(targetPath, { recursive: true });
 }
 
-export async function writeDiagnosticsText(targetPath: string, content: string) {
+export async function writeDiagnosticsText(
+  targetPath: string,
+  content: string,
+) {
   const runtime = getRuntime();
   if (typeof runtime.IOUtils?.writeUTF8 === "function") {
     await runtime.IOUtils.writeUTF8(targetPath, content);
@@ -90,4 +96,3 @@ export function resolveDefaultTestDiagnosticsOutputPath(args: {
     `${args.prefix}-${stamp}.json`,
   );
 }
-

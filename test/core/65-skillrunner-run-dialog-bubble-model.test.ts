@@ -138,10 +138,22 @@ describe("skillrunner run dialog bubble message model", function () {
   });
 
   it("normalizes known message kind and defaults unknown to unknown", function () {
-    assert.equal(normalizeRunDialogMessageKind("assistant_process"), "assistant_process");
-    assert.equal(normalizeRunDialogMessageKind("assistant_message"), "assistant_message");
-    assert.equal(normalizeRunDialogMessageKind("assistant_final"), "assistant_final");
-    assert.equal(normalizeRunDialogMessageKind("assistant_revision"), "assistant_revision");
+    assert.equal(
+      normalizeRunDialogMessageKind("assistant_process"),
+      "assistant_process",
+    );
+    assert.equal(
+      normalizeRunDialogMessageKind("assistant_message"),
+      "assistant_message",
+    );
+    assert.equal(
+      normalizeRunDialogMessageKind("assistant_final"),
+      "assistant_final",
+    );
+    assert.equal(
+      normalizeRunDialogMessageKind("assistant_revision"),
+      "assistant_revision",
+    );
     assert.equal(normalizeRunDialogMessageKind("weird_kind"), "unknown");
   });
 
@@ -755,7 +767,10 @@ describe("skillrunner run dialog bubble message model", function () {
     });
     assert.equal(normalized.pendingAuth?.acceptsChatInput, false);
     assert.isUndefined(normalized.pendingAuth?.inputKind);
-    assert.equal(normalized.pendingAuth?.authUrl, "https://auth.example/device");
+    assert.equal(
+      normalized.pendingAuth?.authUrl,
+      "https://auth.example/device",
+    );
     assert.equal(normalized.pendingAuth?.userCode, "FGHIJ");
   });
 

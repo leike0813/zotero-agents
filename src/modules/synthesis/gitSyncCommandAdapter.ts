@@ -67,7 +67,10 @@ const GIT_SYNC_PIPE_MAX_CHARS = 1024 * 1024;
 const GIT_SYNC_PIPE_MAX_READS = 256;
 
 function normalizePathForCompare(value: unknown) {
-  return cleanString(value).replace(/\\/g, "/").replace(/\/+$/g, "").toLowerCase();
+  return cleanString(value)
+    .replace(/\\/g, "/")
+    .replace(/\/+$/g, "")
+    .toLowerCase();
 }
 
 function sentinelPath(worktreePath: string) {
@@ -295,9 +298,7 @@ function diagnosticFromError(error: unknown) {
   return typed?.gitSyncDiagnostic;
 }
 
-export function isMissingRemoteBranchResult(
-  result: SynthesisGitCommandResult,
-) {
+export function isMissingRemoteBranchResult(result: SynthesisGitCommandResult) {
   if (result.exitCode === 0) {
     return false;
   }
@@ -340,7 +341,12 @@ export function createSynthesisGitCommandAdapter(args: {
   const useInjectedRunner = typeof args.commandRunner === "function";
   let remoteBranchState: SynthesisGitRemoteBranchState = "unknown";
   let cachedGitResolution:
-    | { available: true; command: string; source?: string; checkedPaths: string[] }
+    | {
+        available: true;
+        command: string;
+        source?: string;
+        checkedPaths: string[];
+      }
     | { available: false; diagnostics: SynthesisGitSyncDiagnostic[] }
     | undefined;
   async function resolveGitCommand() {
@@ -359,17 +365,18 @@ export function createSynthesisGitCommandAdapter(args: {
     const resolution = await resolveSynthesisGitExecutable({
       pathSearch: subprocess?.pathSearch,
     });
-    cachedGitResolution = resolution.available && resolution.command
-      ? {
-          available: true,
-          command: resolution.command,
-          source: resolution.source,
-          checkedPaths: resolution.checkedPaths,
-        }
-      : {
-          available: false,
-          diagnostics: [gitResolutionDiagnostic(resolution)],
-        };
+    cachedGitResolution =
+      resolution.available && resolution.command
+        ? {
+            available: true,
+            command: resolution.command,
+            source: resolution.source,
+            checkedPaths: resolution.checkedPaths,
+          }
+        : {
+            available: false,
+            diagnostics: [gitResolutionDiagnostic(resolution)],
+          };
     return cachedGitResolution;
   }
   async function run(cwd: string, gitArgs: string[], allowFailure = false) {
@@ -418,11 +425,7 @@ export function createSynthesisGitCommandAdapter(args: {
   async function guardManagedWorktree(worktreePath: string) {
     await ensureRuntimeDirectory(worktreePath);
     const sentinel = await readSentinel(worktreePath);
-    const top = await run(
-      worktreePath,
-      ["rev-parse", "--show-toplevel"],
-      true,
-    );
+    const top = await run(worktreePath, ["rev-parse", "--show-toplevel"], true);
     if (top.exitCode === 0) {
       const repoRoot = cleanString(top.stdout).split(/\r?\n/)[0] || "";
       const repoRootNormalized = normalizePathForCompare(repoRoot);

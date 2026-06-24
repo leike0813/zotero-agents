@@ -188,7 +188,9 @@ function emitObserverStateChanged() {
   }
 }
 
-export function subscribeSkillRunnerAutoReplyObserverState(listener: () => void) {
+export function subscribeSkillRunnerAutoReplyObserverState(
+  listener: () => void,
+) {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
@@ -243,7 +245,10 @@ function stopContext(context: ObserverContext) {
   });
 }
 
-async function handoff(context: ObserverContext, status: SkillRunnerProviderState) {
+async function handoff(
+  context: ObserverContext,
+  status: SkillRunnerProviderState,
+) {
   stopContext(context);
   appendRuntimeLog({
     level: "info",
@@ -256,7 +261,8 @@ async function handoff(context: ObserverContext, status: SkillRunnerProviderStat
     operation: "auto-reply-handoff",
     phase: context.source,
     stage: "auto-reply-handoff",
-    message: "skillrunner auto-reply observer handed run to foreground continuation",
+    message:
+      "skillrunner auto-reply observer handed run to foreground continuation",
     details: { status },
   });
   const continuation = continuationForTests || continueSkillRunnerForegroundRun;
@@ -344,10 +350,12 @@ export function maybeObserveSkillRunnerAutoReplyRun(args: {
   if (observers.has(key)) {
     return true;
   }
-  const source = normalizeString(args.source) || "skillrunner-auto-reply-observer";
+  const source =
+    normalizeString(args.source) || "skillrunner-auto-reply-observer";
   const startedAt = nowIso();
   const timeoutSeconds = resolveAutoReplyTimeoutSeconds(record);
-  const showTimer = !isRecoverySource(source) && typeof timeoutSeconds === "number";
+  const showTimer =
+    !isRecoverySource(source) && typeof timeoutSeconds === "number";
   const context: ObserverContext = {
     key,
     backend,
@@ -401,7 +409,8 @@ export async function guardSkillRunnerAutoReplyBeforeUserReply(args: {
       handoffOnlyContext({
         backend: args.backend,
         requestId: args.requestId,
-        source: normalizeString(args.source) || "auto-reply-user-reply-preflight",
+        source:
+          normalizeString(args.source) || "auto-reply-user-reply-preflight",
       }),
       status,
     );
@@ -421,10 +430,7 @@ export async function reconcileSkillRunnerAutoReplyAfterReplyError(args: {
     return { action: "unhandled" as const };
   }
   const statusCode = getSkillRunnerHttpStatus(args.error);
-  if (
-    statusCode !== 409 &&
-    !isSkillRunnerRunTerminalClientError(args.error)
-  ) {
+  if (statusCode !== 409 && !isSkillRunnerRunTerminalClientError(args.error)) {
     return { action: "unhandled" as const };
   }
   const record = getRecord({

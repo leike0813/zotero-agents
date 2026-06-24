@@ -92,7 +92,8 @@ export function resolveAcpModelProviderForSelection(args: {
   if (
     selectedModel &&
     args.modelOptions.some(
-      (entry) => entry.id === selectedModel && !parseAcpProviderModelId(entry.id),
+      (entry) =>
+        entry.id === selectedModel && !parseAcpProviderModelId(entry.id),
     )
   ) {
     return ACP_UNSCOPED_MODEL_PROVIDER;
@@ -105,7 +106,8 @@ export function resolveAcpModelProviderForSelection(args: {
   if (
     currentModel &&
     args.modelOptions.some(
-      (entry) => entry.id === currentModel && !parseAcpProviderModelId(entry.id),
+      (entry) =>
+        entry.id === currentModel && !parseAcpProviderModelId(entry.id),
     )
   ) {
     return ACP_UNSCOPED_MODEL_PROVIDER;
@@ -305,7 +307,9 @@ export function parseAcpEffortFromModelText(value: string) {
   }
 
   const known = ACP_KNOWN_REASONING_EFFORT_ORDER.join("|");
-  const bracketMatch = new RegExp(`^(.*)\\(\\s*(${known})\\s*\\)$`, "i").exec(text);
+  const bracketMatch = new RegExp(`^(.*)\\(\\s*(${known})\\s*\\)$`, "i").exec(
+    text,
+  );
   if (bracketMatch && bracketMatch[1].trim()) {
     return {
       baseId: bracketMatch[1].trim(),
@@ -313,7 +317,9 @@ export function parseAcpEffortFromModelText(value: string) {
     };
   }
 
-  const dashMatch = new RegExp(`^(.*)(?:\\s+-\\s+|[-_])(${known})$`, "i").exec(text);
+  const dashMatch = new RegExp(`^(.*)(?:\\s+-\\s+|[-_])(${known})$`, "i").exec(
+    text,
+  );
   if (dashMatch && dashMatch[1].trim()) {
     return {
       baseId: dashMatch[1].trim(),
@@ -348,7 +354,9 @@ function compareEffortIds(left: string, right: string) {
   const leftIndex = ACP_KNOWN_REASONING_EFFORT_ORDER.indexOf(left);
   const rightIndex = ACP_KNOWN_REASONING_EFFORT_ORDER.indexOf(right);
   if (leftIndex >= 0 || rightIndex >= 0) {
-    return (leftIndex >= 0 ? leftIndex : 999) - (rightIndex >= 0 ? rightIndex : 999);
+    return (
+      (leftIndex >= 0 ? leftIndex : 999) - (rightIndex >= 0 ? rightIndex : 999)
+    );
   }
   return left.localeCompare(right);
 }
@@ -373,7 +381,9 @@ export function buildAcpFoldedModelGroups(modelOptions: AcpSelectableOption[]) {
   }
 
   for (const [baseId, group] of Array.from(grouped.entries())) {
-    const uniqueEfforts = new Set(group.variants.map((entry) => entry.effortId));
+    const uniqueEfforts = new Set(
+      group.variants.map((entry) => entry.effortId),
+    );
     if (uniqueEfforts.size <= 1) {
       grouped.delete(baseId);
       continue;
@@ -385,7 +395,9 @@ export function buildAcpFoldedModelGroups(modelOptions: AcpSelectableOption[]) {
   return grouped;
 }
 
-export function normalizeAcpModelOption(raw: AcpModelInfo): AcpSelectableOption {
+export function normalizeAcpModelOption(
+  raw: AcpModelInfo,
+): AcpSelectableOption {
   return {
     id: normalizeString(raw.modelId),
     label: normalizeString(raw.name || raw.modelId),
@@ -435,17 +447,17 @@ export function foldAcpModelOptions(args: {
         description: entry.raw.description,
       }))
     : [];
-  const currentDisplayModel =
-    activeGroup
-      ? displayModelOptions.find((entry) => entry.id === activeGroup.baseId) || {
-          id: activeGroup.baseId,
-          label: activeGroup.baseLabel,
-        }
-      : displayModelOptions.find((entry) => entry.id === currentRawId) ||
-        currentOption;
+  const currentDisplayModel = activeGroup
+    ? displayModelOptions.find((entry) => entry.id === activeGroup.baseId) || {
+        id: activeGroup.baseId,
+        label: activeGroup.baseLabel,
+      }
+    : displayModelOptions.find((entry) => entry.id === currentRawId) ||
+      currentOption;
   const currentReasoningEffort =
-    reasoningEffortOptions.find((entry) => entry.id === currentParsed?.effortId) ||
-    reasoningEffortOptions[0];
+    reasoningEffortOptions.find(
+      (entry) => entry.id === currentParsed?.effortId,
+    ) || reasoningEffortOptions[0];
   return {
     displayModelOptions,
     reasoningEffortOptions,
@@ -467,7 +479,9 @@ export function resolveAcpRawModelIdForSelection(args: {
   const groups = buildAcpFoldedModelGroups(args.modelOptions);
   const group = groups.get(displayId);
   if (!group) {
-    return args.modelOptions.find((entry) => entry.id === displayId)?.id || displayId;
+    return (
+      args.modelOptions.find((entry) => entry.id === displayId)?.id || displayId
+    );
   }
   const currentOption = args.modelOptions.find(
     (entry) => entry.id === normalizeString(args.currentRawModelId),

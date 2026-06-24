@@ -178,12 +178,7 @@ describe("Topic synthesis runtime contract", function () {
     const dbPath = "runtime/topic-synthesis.sqlite";
     await createFakeZoteroBridge(runRoot);
 
-    runGate(createPrepareRoot, runRoot, [
-      "--db",
-      dbPath,
-      "--action",
-      "run",
-    ]);
+    runGate(createPrepareRoot, runRoot, ["--db", dbPath, "--action", "run"]);
     await writeJson(path.join(runRoot, "runtime/payloads/topic-context.json"), {
       topic_title: "DETR-style Object Detection",
       aliases: ["query detector"],
@@ -207,7 +202,8 @@ describe("Topic synthesis runtime contract", function () {
       path.join(runRoot, "runtime/payloads/resolver-proposal.json"),
       {
         resolver: { paper_refs: ["1:DETR"], combine: "union" },
-        resolver_reasoning: "Fixture resolver selects the representative DETR paper.",
+        resolver_reasoning:
+          "Fixture resolver selects the representative DETR paper.",
         operation_intent: "create",
       },
     );
@@ -251,9 +247,9 @@ describe("Topic synthesis runtime contract", function () {
       assert.include(text, "`collection_key`");
       assert.include(text, "`paper_refs`");
       assert.include(text, "`combine`");
-      assert.notInclude(text, "mode: \"explicit\"");
-      assert.notInclude(text, "mode: \"mixed\"");
-      assert.notInclude(text, "mode: \"tag_query\"");
+      assert.notInclude(text, 'mode: "explicit"');
+      assert.notInclude(text, 'mode: "mixed"');
+      assert.notInclude(text, 'mode: "tag_query"');
     }
   });
 });

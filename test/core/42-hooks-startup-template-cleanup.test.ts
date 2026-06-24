@@ -110,9 +110,7 @@ describe("hooks startup template cleanup", function () {
     const runtime =
       getSkillRunnerBackendReachabilityCoordinatorRuntimeForTests();
     assert.isTrue(runtime.started);
-    assert.isTrue(
-      runtime.timerActive || runtime.pendingProbeTimerCount > 0,
-    );
+    assert.isTrue(runtime.timerActive || runtime.pendingProbeTimerCount > 0);
   });
 
   it("enables runtime diagnostic log mode on startup when hardcoded debug mode is on", async function () {

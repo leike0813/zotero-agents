@@ -1033,11 +1033,12 @@ function applyCurrentReasoningEffort(
   if (!effortId) {
     return;
   }
-  snapshot.currentReasoningEffort =
-    snapshot.reasoningEffortOptions.find((entry) => entry.id === effortId) || {
-      id: effortId,
-      label: toTitleCase(effortId),
-    };
+  snapshot.currentReasoningEffort = snapshot.reasoningEffortOptions.find(
+    (entry) => entry.id === effortId,
+  ) || {
+    id: effortId,
+    label: toTitleCase(effortId),
+  };
 }
 
 function applySessionConfigOptionsState(
@@ -1047,7 +1048,10 @@ function applySessionConfigOptionsState(
   const state = buildAcpRuntimeOptionsStateFromConfigOptions(
     Array.isArray(configOptions) ? configOptions : null,
   );
-  if (!hasAcpRuntimeOptionSelectors(state) && state.reasoningEfforts.length === 0) {
+  if (
+    !hasAcpRuntimeOptionSelectors(state) &&
+    state.reasoningEfforts.length === 0
+  ) {
     return {
       modeApplied: false,
       modelApplied: false,
@@ -1092,9 +1096,11 @@ function applySessionConfigOptionsState(
   }
 
   if (state.reasoningEfforts.length > 0) {
-    slot.snapshot.reasoningEffortOptions = state.reasoningEfforts.map((entry) => ({
-      ...entry,
-    }));
+    slot.snapshot.reasoningEffortOptions = state.reasoningEfforts.map(
+      (entry) => ({
+        ...entry,
+      }),
+    );
     applyCurrentReasoningEffort(
       slot.snapshot,
       state.currentReasoningEffortId ||

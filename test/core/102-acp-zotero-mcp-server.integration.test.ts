@@ -37,10 +37,7 @@ function requestJson(args: {
   });
 }
 
-function requestGet(args: {
-  url: string;
-  token: string;
-}) {
+function requestGet(args: { url: string; token: string }) {
   return rawGetRequest({
     url: args.url,
     token: args.token,
@@ -50,7 +47,12 @@ function requestGet(args: {
 
 function getComponents() {
   const runtime = globalThis as any;
-  return runtime.Components || runtime.ChromeUtils?.importESModule?.("resource://gre/modules/Services.sys.mjs")?.Components;
+  return (
+    runtime.Components ||
+    runtime.ChromeUtils?.importESModule?.(
+      "resource://gre/modules/Services.sys.mjs",
+    )?.Components
+  );
 }
 
 function createScriptableInputStream(inputStream: any) {
@@ -335,10 +337,7 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
     const initializeLog = latestRequest("initialize");
     assert.strictEqual(initializeLog.responseJsonrpc, "2.0");
     assert.strictEqual(initializeLog.responseJsonrpcId, "0");
-    assert.strictEqual(
-      initializeLog.responseProtocolVersion,
-      "2025-11-25",
-    );
+    assert.strictEqual(initializeLog.responseProtocolVersion, "2025-11-25");
     assert.isAbove(initializeLog.responseBodyLength || 0, 0);
     assert.strictEqual(initializeLog.responseError, "");
 
@@ -395,7 +394,10 @@ describe("embedded Zotero MCP server in Zotero runtime", function () {
     const toolCallLog = latestRequest("tools/call");
     assert.strictEqual(toolCallLog.responseJsonrpc, "2.0");
     assert.strictEqual(toolCallLog.responseJsonrpcId, "call");
-    assert.strictEqual(toolCallLog.jsonrpcToolName, ZOTERO_MCP_TOOL_GET_CURRENT_VIEW);
+    assert.strictEqual(
+      toolCallLog.jsonrpcToolName,
+      ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+    );
     assert.isAbove(toolCallLog.responseBodyLength || 0, 0);
 
     const status = getZoteroMcpServerStatus();

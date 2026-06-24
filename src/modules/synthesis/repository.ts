@@ -2490,7 +2490,9 @@ function copyLegacySynthesisTable(
   }
   const targetColumns = new Set(listTableColumns(db, tableName));
   const sourceColumns = listAttachedTableColumns(db, schemaName, tableName);
-  const commonColumns = sourceColumns.filter((column) => targetColumns.has(column));
+  const commonColumns = sourceColumns.filter((column) =>
+    targetColumns.has(column),
+  );
   if (commonColumns.length === 0) {
     return;
   }

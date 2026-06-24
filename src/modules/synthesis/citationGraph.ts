@@ -1094,7 +1094,11 @@ function compareCitationNodeImportance(
   };
 }
 
-function coordinateOnSpiral(index: number, radiusStep: number, angleStep: number) {
+function coordinateOnSpiral(
+  index: number,
+  radiusStep: number,
+  angleStep: number,
+) {
   if (index <= 0) {
     return { x: 0, y: 0 };
   }
@@ -1132,8 +1136,12 @@ function computeForceCitationGraphLayout(graph: CitationGraph) {
     connectedNodeIds.add(edge.source);
     connectedNodeIds.add(edge.target);
   }
-  const connectedNodes = nodes.filter((node) => connectedNodeIds.has(node.node_id));
-  const isolatedNodes = nodes.filter((node) => !connectedNodeIds.has(node.node_id));
+  const connectedNodes = nodes.filter((node) =>
+    connectedNodeIds.has(node.node_id),
+  );
+  const isolatedNodes = nodes.filter(
+    (node) => !connectedNodeIds.has(node.node_id),
+  );
   const simulationNodes = connectedNodes.map((node) => ({
     id: node.node_id,
     x: coordinateSeed(node.node_id, "force", "x"),
@@ -1330,7 +1338,9 @@ function computeComponentCitationGraphLayout(graph: CitationGraph) {
         COMPONENT_LAYOUT_PARAMS.component_gap,
       y: row * COMPONENT_LAYOUT_PARAMS.component_gap,
     };
-    const ordered = component.sort(compareCitationNodeImportance(incoming, outgoing));
+    const ordered = component.sort(
+      compareCitationNodeImportance(incoming, outgoing),
+    );
     ordered.forEach((node, index) => {
       const offset = coordinateOnSpiral(
         index,

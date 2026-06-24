@@ -54,7 +54,9 @@ function buildEndpoint(host: string, port: number) {
   return `http://${host}:${port}/bridge/v1`;
 }
 
-export function buildSkillRunnerHostBridgeScopeEnv(frontendScopeIdRaw: unknown) {
+export function buildSkillRunnerHostBridgeScopeEnv(
+  frontendScopeIdRaw: unknown,
+) {
   const frontendScopeId = normalizeString(frontendScopeIdRaw);
   if (!frontendScopeId) {
     return "";
@@ -68,13 +70,17 @@ export function buildSkillRunnerHostBridgeScopeEnv(frontendScopeIdRaw: unknown) 
 function extractBackendHost(backendUrl: unknown) {
   const raw = normalizeString(backendUrl);
   if (!raw) {
-    throw new Error("SkillRunner backend URL is required for Host Bridge env injection");
+    throw new Error(
+      "SkillRunner backend URL is required for Host Bridge env injection",
+    );
   }
   let parsed: URL;
   try {
     parsed = new URL(raw);
   } catch {
-    throw new Error("SkillRunner backend URL is invalid for Host Bridge env injection");
+    throw new Error(
+      "SkillRunner backend URL is invalid for Host Bridge env injection",
+    );
   }
   return parsed.hostname.replace(/^\[|\]$/g, "");
 }
@@ -218,7 +224,10 @@ async function buildRemoteSkillRunnerHostBridgeRuntimeEnv(args: {
       },
     };
   }
-  const endpoint = buildEndpoint(resolvedAdvertisedHost, Number(status.pinnedPort));
+  const endpoint = buildEndpoint(
+    resolvedAdvertisedHost,
+    Number(status.pinnedPort),
+  );
   if (!endpoint || !endpoint.includes("/bridge/v1")) {
     return {
       ok: false,
@@ -266,7 +275,8 @@ export async function buildSkillRunnerHostBridgeRuntimeEnv(args?: {
     return {
       ok: false,
       code: "host_bridge_token_unavailable",
-      message: "Host Bridge token is unavailable for SkillRunner env injection.",
+      message:
+        "Host Bridge token is unavailable for SkillRunner env injection.",
     };
   }
 

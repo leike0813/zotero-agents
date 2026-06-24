@@ -3,6 +3,28 @@ import pkg from "./package.json";
 import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
 
 type TestDomain = "all" | "core" | "ui" | "workflow";
+type TestMode = "lite" | "full";
+
+const ZOTERO_TEST_ENTRIES = {
+  lite: {
+    core: "test/zotero/core/lite",
+    ui: "test/zotero/ui/lite",
+    workflow: "test/zotero/workflow/lite",
+  },
+  full: {
+    core: "test/zotero/core/full",
+    ui: "test/zotero/ui/full",
+    workflow: "test/zotero/workflow/full",
+  },
+} as const;
+
+function normalizeTestMode(value: string | undefined): TestMode {
+  return String(value || "")
+    .trim()
+    .toLowerCase() === "full"
+    ? "full"
+    : "lite";
+}
 
 function normalizeTestDomain(value: string | undefined): TestDomain {
   const normalized = String(value || "")
@@ -18,21 +40,26 @@ function normalizeTestDomain(value: string | undefined): TestDomain {
   return "all";
 }
 
-function resolveTestEntries(domain: TestDomain): string | string[] {
+function resolveTestEntries(
+  domain: TestDomain,
+  mode: TestMode,
+): string | string[] {
+  const entries = ZOTERO_TEST_ENTRIES[mode];
   if (domain === "core") {
-    return ["test/core"];
+    return [entries.core];
   }
   if (domain === "ui") {
-    return ["test/ui"];
+    return [entries.ui];
   }
   if (domain === "workflow") {
-    return ["test/workflow-*"];
+    return [entries.workflow];
   }
-  return ["test/core", "test/ui", "test/workflow-*"];
+  return [entries.core, entries.ui, entries.workflow];
 }
 
+const TEST_MODE = normalizeTestMode(process.env.ZOTERO_TEST_MODE);
 const TEST_DOMAIN = normalizeTestDomain(process.env.ZOTERO_TEST_DOMAIN);
-const TEST_ENTRIES = resolveTestEntries(TEST_DOMAIN);
+const TEST_ENTRIES = resolveTestEntries(TEST_DOMAIN, TEST_MODE);
 
 export default defineConfig({
   source: ["src", "addon"],
@@ -49,7 +76,7 @@ export default defineConfig({
     "https://github.com/{{owner}}/{{repo}}/releases/download/v{{version}}/{{xpiName}}.xpi",
 
   build: {
-    assets: ["addon/**/*.*"],
+    assets: ["addon/**/*.*", "addon/bin/**/zotero-bridge"],
     define: {
       ...pkg.config,
       author: pkg.author,

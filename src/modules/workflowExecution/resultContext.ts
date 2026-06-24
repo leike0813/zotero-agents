@@ -1,8 +1,5 @@
 import { getPathSeparator, joinPath } from "../../utils/path";
-import {
-  readRuntimeTextFile,
-  runtimePathExists,
-} from "../runtimePersistence";
+import { readRuntimeTextFile, runtimePathExists } from "../runtimePersistence";
 import type { BundleReader } from "./bundleIO";
 import { canonicalizeWorkflowResultJson } from "./resultEnvelope";
 
@@ -159,8 +156,12 @@ function resolveResultArtifactBasePath(runResult: RunResultLike | undefined) {
   return (
     normalizeEntryPath(normalizeString(runResult?.resultArtifactBasePath)) ||
     parentEntryPath(normalizeString(runResult?.resultJsonPath)) ||
-    parentEntryPath(getNestedString(runResult?.responseJson, ["resultJsonPath"])) ||
-    parentEntryPath(getNestedString(runResult?.responseJson, ["result_json_path"]))
+    parentEntryPath(
+      getNestedString(runResult?.responseJson, ["resultJsonPath"]),
+    ) ||
+    parentEntryPath(
+      getNestedString(runResult?.responseJson, ["result_json_path"]),
+    )
   );
 }
 
@@ -266,7 +267,11 @@ function addNamespacedPathCandidates(args: {
 }) {
   const baseEntryPath = normalizeEntryPath(args.baseEntryPath);
   const raw = normalizeEntryPath(normalizePathText(args.rawPath));
-  if (!baseEntryPath || !raw || isAbsolutePath(normalizeLocalPathText(args.rawPath))) {
+  if (
+    !baseEntryPath ||
+    !raw ||
+    isAbsolutePath(normalizeLocalPathText(args.rawPath))
+  ) {
     return;
   }
   const relativeUnderBase = raw.startsWith("result/")
@@ -275,7 +280,9 @@ function addNamespacedPathCandidates(args: {
   if (!relativeUnderBase || relativeUnderBase === "result.json") {
     return;
   }
-  const namespacedEntry = normalizeEntryPath(`${baseEntryPath}/${relativeUnderBase}`);
+  const namespacedEntry = normalizeEntryPath(
+    `${baseEntryPath}/${relativeUnderBase}`,
+  );
   if (!namespacedEntry) {
     return;
   }
@@ -369,7 +376,10 @@ async function tryReadResultJson(args: {
           await args.bundleReader.readText(resultJsonEntryPath),
           resultJsonEntryPath,
         ),
-        source: { kind: "bundle-entry" as const, entryPath: resultJsonEntryPath },
+        source: {
+          kind: "bundle-entry" as const,
+          entryPath: resultJsonEntryPath,
+        },
       };
     } catch {
       // Fall through to manifest/default bundle result path.

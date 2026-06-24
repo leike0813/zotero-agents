@@ -6,9 +6,7 @@ import {
   webDavRemoteUrl,
   type SynthesisWebDavHttpClient,
 } from "./webDavSyncClient";
-import {
-  storeSynthesisWebDavSyncCredential,
-} from "./webDavSyncCredentialPrefs";
+import { storeSynthesisWebDavSyncCredential } from "./webDavSyncCredentialPrefs";
 
 export type SynthesisWebDavSyncConfigStatus =
   | "disabled"
@@ -92,7 +90,9 @@ function normalizeRemotePath(value: unknown) {
 function remotePathInvalid(path: string) {
   return (
     !path ||
-    path.split("/").some((segment) => !segment || segment === "." || segment === "..")
+    path
+      .split("/")
+      .some((segment) => !segment || segment === "." || segment === "..")
   );
 }
 
@@ -165,7 +165,9 @@ function readConnectionTestPref() {
   }
 }
 
-function writeConnectionTestPref(result: SynthesisWebDavSyncConnectionTestResult) {
+function writeConnectionTestPref(
+  result: SynthesisWebDavSyncConnectionTestResult,
+) {
   setPref("synthesisWebDavSyncConnectionTestJson", JSON.stringify(result));
 }
 
@@ -218,12 +220,11 @@ export function saveWebDavSyncPrefs(input: SynthesisWebDavSyncPrefsSaveInput) {
   const remotePath = normalizeRemotePath(input.remotePath);
   const candidate = {
     ...existing,
-    enabled: input.enabled === undefined ? existing.enabled : input.enabled === true,
+    enabled:
+      input.enabled === undefined ? existing.enabled : input.enabled === true,
     baseUrl: input.baseUrl === undefined ? existing.baseUrl : baseUrl,
     remotePath:
-      input.remotePath === undefined
-        ? existing.remotePath
-        : remotePath,
+      input.remotePath === undefined ? existing.remotePath : remotePath,
   };
   const status = configStatus(candidate);
   if (status.config_status === "invalid") {
@@ -246,10 +247,16 @@ export function saveWebDavSyncPrefs(input: SynthesisWebDavSyncPrefsSaveInput) {
     setPref("synthesisWebDavSyncUsername", cleanString(input.username));
   }
   if (input.autoSyncEnabled !== undefined) {
-    setPref("synthesisWebDavSyncAutoSyncEnabled", input.autoSyncEnabled === true);
+    setPref(
+      "synthesisWebDavSyncAutoSyncEnabled",
+      input.autoSyncEnabled === true,
+    );
   }
   if (input.autoRetryEnabled !== undefined) {
-    setPref("synthesisWebDavSyncAutoRetryEnabled", input.autoRetryEnabled === true);
+    setPref(
+      "synthesisWebDavSyncAutoRetryEnabled",
+      input.autoRetryEnabled === true,
+    );
   }
   clearConnectionTestPref();
   return {
@@ -271,9 +278,11 @@ export async function clearWebDavSyncCredential() {
   return { ok: true as const, result, status: getWebDavSyncPrefsStatus() };
 }
 
-export async function testWebDavSyncConfiguration(args: {
-  client?: SynthesisWebDavHttpClient;
-} = {}): Promise<SynthesisWebDavSyncConnectionTestResult> {
+export async function testWebDavSyncConfiguration(
+  args: {
+    client?: SynthesisWebDavHttpClient;
+  } = {},
+): Promise<SynthesisWebDavSyncConnectionTestResult> {
   const config = getSynthesisWebDavSyncPrefsConfig();
   const status = configStatus(config);
   const diagnostics = [...status.diagnostics];

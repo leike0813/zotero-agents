@@ -110,7 +110,7 @@ export async function recordSynthesisZoteroItemNotifications(args: {
     return { recorded: 0 };
   }
   const service = args.service || getDefaultSynthesisService();
-  let recorded = 0;
+  const recorded = 0;
   for (const id of args.ids || []) {
     const item = resolveItem(id);
     const extraRow = extraRowForId(args.extraData, id);

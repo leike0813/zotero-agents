@@ -6,7 +6,10 @@
   }
 
   function labelRoot(source) {
-    const labels = source && source.labels && typeof source.labels === "object" ? source.labels : {};
+    const labels =
+      source && source.labels && typeof source.labels === "object"
+        ? source.labels
+        : {};
     return labels.assistantPanel && typeof labels.assistantPanel === "object"
       ? labels.assistantPanel
       : labels;
@@ -23,7 +26,9 @@
   }
 
   function normalizeStatusToken(status) {
-    return safeText(status).toLowerCase().replace(/[\s-]+/g, "_");
+    return safeText(status)
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
   }
 
   function isTerminalPlanStatus(status) {
@@ -88,7 +93,10 @@
     const source = entry && typeof entry === "object" ? entry : {};
     const status = safeText(source.status) || "pending";
     return {
-      id: safeText(source.id) || safeText(source.stepId) || safeText(source.content),
+      id:
+        safeText(source.id) ||
+        safeText(source.stepId) ||
+        safeText(source.content),
       content: safeText(source.content || source.text || source.title),
       status,
       toneClass: planStatusToneClass(status),
@@ -114,7 +122,12 @@
 
   function compactAssistantToolName(tool) {
     const source = tool && typeof tool === "object" ? tool : {};
-    const candidates = [source.toolName, source.toolKind, source.title, source.name];
+    const candidates = [
+      source.toolName,
+      source.toolKind,
+      source.title,
+      source.name,
+    ];
     for (let index = 0; index < candidates.length; index += 1) {
       const value = safeText(candidates[index]);
       if (!isGenericToolText(value)) {
@@ -324,7 +337,8 @@
         pendingPermission: source.pendingPermissionRequest,
         errorText,
         running,
-        runningLabel: source.labels && (source.labels.running || source.labels.working),
+        runningLabel:
+          source.labels && (source.labels.running || source.labels.working),
         labels: source.labels,
         notice: safeText(source.lastStopReason),
       }),
@@ -341,7 +355,9 @@
     const canceled = ["canceled", "cancelled"].indexOf(status) >= 0;
     const activeContinuation =
       source.activePrompt === true ||
-      ["submitted", "accepted", "sending"].indexOf(safeText(source.replyState)) >= 0;
+      ["submitted", "accepted", "sending"].indexOf(
+        safeText(source.replyState),
+      ) >= 0;
     const errorText = failed
       ? safeText(
           source.error ||
@@ -353,13 +369,15 @@
     const disconnected =
       !activeContinuation &&
       (failed ||
-      recovery === "failed" ||
-      recovery === "unsupported" ||
-      (recovery === "unavailable" &&
-        safeText(source.conversationState) === "error"));
+        recovery === "failed" ||
+        recovery === "unsupported" ||
+        (recovery === "unavailable" &&
+          safeText(source.conversationState) === "error"));
     return {
-      items: (Array.isArray(source.transcriptItems) ? source.transcriptItems : [])
-        .map(normalizeAssistantItem),
+      items: (Array.isArray(source.transcriptItems)
+        ? source.transcriptItems
+        : []
+      ).map(normalizeAssistantItem),
       plan: normalizePlan(source.planEntries),
       interaction: resolveAssistantInteraction({
         pendingPermission: source.pendingPermission,

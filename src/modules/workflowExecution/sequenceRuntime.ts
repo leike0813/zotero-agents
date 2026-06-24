@@ -108,13 +108,11 @@ function buildSequenceStepProgressContext(args: {
     sequenceStepId: args.step.id,
     sequenceStepIndex: args.stepIndex,
     sequenceStepSkillId: args.step.skill_id,
-    sequenceStepSkillName:
-      normalizeString(stepState?.skillName) || undefined,
+    sequenceStepSkillName: normalizeString(stepState?.skillName) || undefined,
     sequenceStepRequest: args.stepRequest,
     sequenceStepTaskName:
-      normalizeString(
-        (args.stepRequest as { taskName?: unknown }).taskName,
-      ) || `${args.state.workflowLabel || args.state.workflowId} / ${args.step.id}`,
+      normalizeString((args.stepRequest as { taskName?: unknown }).taskName) ||
+      `${args.state.workflowLabel || args.state.workflowId} / ${args.step.id}`,
     workflowRunId: args.state.workflowRunId,
     sequenceJobId: args.state.jobId,
   };
@@ -637,8 +635,7 @@ function resolveStepRequestKind(backendType: string) {
 
 function resolveStepWorkspaceMode(request: SequenceStepRequest) {
   const workspace =
-    request.runtime_options &&
-    isRecord(request.runtime_options.workspace)
+    request.runtime_options && isRecord(request.runtime_options.workspace)
       ? request.runtime_options.workspace
       : null;
   return normalizeString(workspace?.mode);
@@ -1181,7 +1178,10 @@ async function executeSequenceFromState(args: {
   onProgress?: (event: ProviderProgressEvent) => void;
 }) {
   const backendType = normalizeString(args.backend.type);
-  if (backendType !== ACP_BACKEND_TYPE && backendType !== DEFAULT_BACKEND_TYPE) {
+  if (
+    backendType !== ACP_BACKEND_TYPE &&
+    backendType !== DEFAULT_BACKEND_TYPE
+  ) {
     throw new Error(
       `skillrunner.sequence.v1 is only supported on ACP or SkillRunner backends; got ${backendType || "unknown"}`,
     );
@@ -1459,7 +1459,8 @@ async function executeSequenceFromState(args: {
       applySequenceStepResult: args.applySequenceStepResult,
     });
     previousStepId = step.id;
-    workspaceRequestId = normalizeString(stepResult.requestId) || workspaceRequestId;
+    workspaceRequestId =
+      normalizeString(stepResult.requestId) || workspaceRequestId;
     args.appendRuntimeLog({
       level: "info",
       scope: "job",

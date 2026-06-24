@@ -63,7 +63,9 @@ function rawHttpRequestBytes(args: {
 }
 
 function withTemporaryLocalAppData<T>(run: (root: string) => Promise<T>) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-host-bridge-profile-"));
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "zs-host-bridge-profile-"),
+  );
   const previousLocalAppData = process.env.LOCALAPPDATA;
   process.env.LOCALAPPDATA = root;
   return run(root).finally(() => {
@@ -963,10 +965,7 @@ describe("host bridge server phase 1", function () {
       assert.strictEqual(status.restartCount, 1);
 
       const profile = readTemporaryWellKnownProfile(profileRoot);
-      assert.strictEqual(
-        profile.endpoint,
-        "http://127.0.0.1:27655/bridge/v1",
-      );
+      assert.strictEqual(profile.endpoint, "http://127.0.0.1:27655/bridge/v1");
     });
   });
 

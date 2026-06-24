@@ -55,8 +55,8 @@ function commandForSort(mapping: HostBridgeCliMapping) {
 }
 
 function sortedMappings(catalog: HostBridgeSurfaceCatalog) {
-  return [...catalog.endpointMappings, ...catalog.cliMappings].sort((left, right) =>
-    commandForSort(left).localeCompare(commandForSort(right)),
+  return [...catalog.endpointMappings, ...catalog.cliMappings].sort(
+    (left, right) => commandForSort(left).localeCompare(commandForSort(right)),
   );
 }
 
@@ -80,13 +80,12 @@ function sortedCapabilities(
     "diagnostic",
     "debug",
   ];
-  return catalog.capabilities
-    .filter(predicate)
-    .sort((left, right) => {
-      const categoryDelta =
-        categoryOrder.indexOf(left.category) - categoryOrder.indexOf(right.category);
-      return categoryDelta || left.name.localeCompare(right.name);
-    });
+  return catalog.capabilities.filter(predicate).sort((left, right) => {
+    const categoryDelta =
+      categoryOrder.indexOf(left.category) -
+      categoryOrder.indexOf(right.category);
+    return categoryDelta || left.name.localeCompare(right.name);
+  });
 }
 
 function flags(entry: HostBridgeCapabilityCatalogEntry) {
@@ -134,7 +133,10 @@ function mappingTable(mappings: HostBridgeCliMapping[]) {
       `\`${mapping.command}\``,
       `\`${mapping.target}\``,
       mapping.kind,
-      [mapping.cacheView ? "cache-view" : "", mapping.dangerous ? "dangerous" : ""]
+      [
+        mapping.cacheView ? "cache-view" : "",
+        mapping.dangerous ? "dangerous" : "",
+      ]
         .filter(Boolean)
         .join(", ") || "-",
     ]),
@@ -207,7 +209,7 @@ function topicContextGuidance() {
     "- `topics get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.",
     "- Omit `view` only when a legacy flat topic context response is required.",
     "- For large `semantic` or `full` topic contexts, pass `outputPath` or `output_path` and optional `overwrite`; stdout then contains only a compact file envelope.",
-    "- Example: `zotero-bridge topics get-context --input '{\"topicId\":\"topic-id\",\"view\":\"semantic\",\"outputPath\":\"runtime/topic-context.semantic.json\"}'`.",
+    '- Example: `zotero-bridge topics get-context --input \'{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}\'`.',
   ].join("\n");
 }
 
@@ -217,7 +219,7 @@ function resolverGuidance() {
     "- Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.",
     "- `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.",
     "- `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.",
-    "- Examples: `zotero-bridge resolvers resolve --input '{\"tag\":{\"and\":[\"object-detection\"],\"not\":[\"nlp-transformer\"]}}'`; `zotero-bridge resolvers resolve --input '{\"tag\":\"topic:vision\",\"collection_key\":[\"COLL_A\"],\"combine\":\"intersection\"}'`.",
+    '- Examples: `zotero-bridge resolvers resolve --input \'{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}\'`; `zotero-bridge resolvers resolve --input \'{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}\'`.',
     "- Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.",
   ].join("\n");
 }
@@ -317,7 +319,8 @@ function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
     "",
     mappingTable(
       sortedMappings(catalog).filter(
-        (mapping) => mapping.kind !== "capability" || !mapping.target.startsWith("debug."),
+        (mapping) =>
+          mapping.kind !== "capability" || !mapping.target.startsWith("debug."),
       ),
     ),
     "",
@@ -355,8 +358,8 @@ function renderTopicSynthesisFragment(catalog: HostBridgeSurfaceCatalog) {
     "insights",
   ];
   const topicCommands = catalog.cliMappings
-    .filter(
-      (mapping) => topicCommandGroups.includes(mapping.command.split(" ")[0] || ""),
+    .filter((mapping) =>
+      topicCommandGroups.includes(mapping.command.split(" ")[0] || ""),
     )
     .sort((left, right) => left.command.localeCompare(right.command))
     .map((mapping) => `\`${mapping.command}\``)
@@ -417,7 +420,11 @@ function main() {
   let changed = false;
   for (const target of TARGETS) {
     const current = read(target.path);
-    const next = replaceSection(current, target.section, target.render(catalog));
+    const next = replaceSection(
+      current,
+      target.section,
+      target.render(catalog),
+    );
     if (next !== current) {
       changed = true;
       if (check) {

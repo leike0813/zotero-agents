@@ -147,7 +147,10 @@ describe("runtime bridge", function () {
     const runtime = globalThis as typeof globalThis & {
       Services?: unknown;
     };
-    const previousServices = Object.getOwnPropertyDescriptor(runtime, "Services");
+    const previousServices = Object.getOwnPropertyDescriptor(
+      runtime,
+      "Services",
+    );
     try {
       Object.defineProperty(runtime, "Services", {
         configurable: true,
@@ -177,8 +180,9 @@ describe("runtime bridge", function () {
 
   it("resolves alert capability with window -> toolkit -> global fallback order", function () {
     const calls: string[] = [];
-    const previousGlobalAlert = (globalThis as { alert?: (message: string) => void })
-      .alert;
+    const previousGlobalAlert = (
+      globalThis as { alert?: (message: string) => void }
+    ).alert;
 
     try {
       installRuntimeBridgeOverrideForTests({

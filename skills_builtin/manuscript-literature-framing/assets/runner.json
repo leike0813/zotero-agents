@@ -5,6 +5,11 @@
   "version": "0.2.0",
   "execution_modes": ["interactive"],
   "max_attempt": 16,
+  "runtime": {
+    "default_options": {
+      "hard_timeout_seconds": 3600
+    }
+  },
   "schemas": {
     "parameter": "assets/parameter.schema.json",
     "output": "assets/output.schema.json"

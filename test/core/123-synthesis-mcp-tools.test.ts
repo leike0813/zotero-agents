@@ -335,18 +335,10 @@ describe("Synthesis MCP tools", function () {
     };
 
     for (const [id, name, args] of [
-      [
-        1,
-        "reference_index.get",
-        { sourceRefs: ["1:ABCD1234"] },
-      ],
+      [1, "reference_index.get", { sourceRefs: ["1:ABCD1234"] }],
       [2, "citation_graph.get_slice", { paperRef: "1:ABCD1234" }],
       [6, "citation_graph.get_layout", { scope: "full" }],
-      [
-        3,
-        "citation_graph.get_metrics",
-        { paperRefs: ["1:ABCD1234"] },
-      ],
+      [3, "citation_graph.get_metrics", { paperRefs: ["1:ABCD1234"] }],
       [4, "concepts.query", { concept_candidate_labels: ["DETR"] }],
       [
         5,
@@ -624,10 +616,7 @@ describe("Synthesis MCP tools", function () {
         manifest.schema_id,
         "synthesis.filtered_paper_artifacts_manifest",
       );
-      assert.equal(
-        manifest.exported_by,
-        "paper_artifacts.export_filtered",
-      );
+      assert.equal(manifest.exported_by, "paper_artifacts.export_filtered");
       assert.notInclude(manifestText, "decoded_text");
       assert.notInclude(manifestText, 'content":"');
       assert.notInclude(manifestText, '"markdown":');
@@ -699,18 +688,21 @@ describe("Synthesis MCP tools", function () {
         "runtime/payloads/paper-artifacts-manifest.json",
       );
       assert.equal(remoteResult.delivery.mode, "bridge-download");
-      assert.include(remoteResult.delivery.downloadCommand, "zotero-bridge file download");
+      assert.include(
+        remoteResult.delivery.downloadCommand,
+        "zotero-bridge file download",
+      );
       assert.include(remoteResult.delivery.unpackHint, "unzip ");
       const fileId = remoteResult.delivery.bundle.fileId;
       assert.isString(fileId);
       assert.notInclude(JSON.stringify(remoteResult), runRoot);
       const downloaded = await resolveHostBridgeFileDownload(fileId);
       const zipText = Buffer.from(downloaded.bytes).toString("utf8");
+      assert.include(zipText, "runtime/payloads/paper-artifacts-manifest.json");
       assert.include(
         zipText,
-        "runtime/payloads/paper-artifacts-manifest.json",
+        "runtime/payloads/artifacts/1_ABCD1234/digest.md",
       );
-      assert.include(zipText, "runtime/payloads/artifacts/1_ABCD1234/digest.md");
       assert.include(zipText, "#### Digest One");
     } finally {
       resetHostBridgeFileRegistryForTests();

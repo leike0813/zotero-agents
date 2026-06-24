@@ -227,7 +227,9 @@ describe("Synthesis performance budgets", function () {
       libraryAdapter: {
         async getRegistryInputs() {
           fullScanCalls += 1;
-          throw new Error("full registry scan must not be used by UI hot paths");
+          throw new Error(
+            "full registry scan must not be used by UI hot paths",
+          );
         },
         async getRegistryInputsPage(request = {}) {
           const limit = Math.max(0, Math.floor(Number(request.limit) || 0));
@@ -396,7 +398,10 @@ describe("Synthesis performance budgets", function () {
     });
 
     assert.equal(scans, 0);
-    assert.equal(repository.listOperations({ includeCompleted: true }).length, 0);
+    assert.equal(
+      repository.listOperations({ includeCompleted: true }).length,
+      0,
+    );
     assert.equal(repository.listCacheBasis().length, 0);
   });
 });

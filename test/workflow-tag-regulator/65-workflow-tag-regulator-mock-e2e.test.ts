@@ -21,10 +21,7 @@ import {
 } from "../../src/workflows/hostApi";
 import { setPref } from "../../src/utils/prefs";
 import { installTagVocabularyHostApiGlobals } from "../workflow-tag-vocabulary/hostApiTestUtils";
-import {
-  isZoteroRuntime,
-  workflowsPath,
-} from "../zotero/workflow-test-utils";
+import { isZoteroRuntime, workflowsPath } from "../zotero/workflow-test-utils";
 import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 
 type PersistedTagEntry = {

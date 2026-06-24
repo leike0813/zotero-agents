@@ -40,7 +40,9 @@ const PLATFORM_TARGETS = {
 
 function argValue(name) {
   const prefix = `--${name}=`;
-  return process.argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length);
+  return process.argv
+    .find((arg) => arg.startsWith(prefix))
+    ?.slice(prefix.length);
 }
 
 function runtimePlatform() {

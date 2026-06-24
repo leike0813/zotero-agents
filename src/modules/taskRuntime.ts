@@ -374,9 +374,11 @@ function ensureSkillRunnerRunStoreTaskBridge() {
   if (unsubscribeSkillRunnerRunStoreTaskBridge) {
     return;
   }
-  unsubscribeSkillRunnerRunStoreTaskBridge = subscribeSkillRunnerRunStore(() => {
-    emitTasksChanged({ reason: "record-updated" });
-  });
+  unsubscribeSkillRunnerRunStoreTaskBridge = subscribeSkillRunnerRunStore(
+    () => {
+      emitTasksChanged({ reason: "record-updated" });
+    },
+  );
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

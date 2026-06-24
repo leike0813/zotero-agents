@@ -106,9 +106,7 @@ export function serializeAcpError(error: unknown, stage?: string) {
     stack: stack || undefined,
     cause: cause === undefined ? undefined : safeJson(cause),
     code:
-      typeof code === "number" || typeof code === "string"
-        ? code
-        : undefined,
+      typeof code === "number" || typeof code === "string" ? code : undefined,
     data: data === undefined ? undefined : safeJson(data),
     raw: safeJson(error),
   };

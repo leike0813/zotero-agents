@@ -62,10 +62,10 @@ describe("workflow: literature-analysis sequence step apply", function () {
         }>;
       };
 
-      assert.deepEqual(request.steps.map((step) => step.id), [
-        "digest",
-        "tag-regulator",
-      ]);
+      assert.deepEqual(
+        request.steps.map((step) => step.id),
+        ["digest", "tag-regulator"],
+      );
       assert.deepEqual(request.steps[0].apply_result, {
         workflow_id: "literature-analysis",
         on_failure: "continue",

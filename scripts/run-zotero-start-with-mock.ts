@@ -118,7 +118,10 @@ function waitForMockReady(mock: Child, timeoutMs = 8000) {
     const onData = (chunk: Buffer) => {
       const text = chunk.toString("utf8");
       process.stdout.write(text);
-      if (text.includes("mock skillrunner started") || text.includes("baseUrl=")) {
+      if (
+        text.includes("mock skillrunner started") ||
+        text.includes("baseUrl=")
+      ) {
         if (settled) {
           return;
         }
@@ -175,9 +178,13 @@ function terminateChild(child: Child | null, detached = false) {
     }
 
     if (process.platform === "win32") {
-      const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-        stdio: "ignore",
-      });
+      const killer = spawn(
+        "taskkill",
+        ["/PID", String(child.pid), "/T", "/F"],
+        {
+          stdio: "ignore",
+        },
+      );
       let settled = false;
       const done = () => {
         if (settled) {
@@ -263,8 +270,7 @@ async function main() {
 }
 
 const launchedDirectly =
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === SCRIPT_PATH;
+  process.argv[1] && path.resolve(process.argv[1]) === SCRIPT_PATH;
 
 if (launchedDirectly) {
   void main();

@@ -12,7 +12,10 @@ async function getWorkflow() {
     (entry) => entry.manifest.id === "literature-explainer",
   );
   assert.isOk(workflow, "workflow literature-explainer not found");
-  assert.equal(workflow?.manifest.validateSelection?.select?.policy, "literature-source");
+  assert.equal(
+    workflow?.manifest.validateSelection?.select?.policy,
+    "literature-source",
+  );
   return workflow!;
 }
 
@@ -42,10 +45,7 @@ const hookRuntime = {
   helpers: createHookHelpers(Zotero),
 };
 
-async function evaluateSelection(
-  workflow: LoadedWorkflow,
-  context: unknown,
-) {
+async function evaluateSelection(workflow: LoadedWorkflow, context: unknown) {
   const result = await evaluateWorkflowSelection({
     workflow,
     selectionContext: context,
@@ -116,7 +116,10 @@ describe("literature-explainer validateSelection", function () {
     const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(filtered.items.attachments[0].filePath, "attachments/A/paper.md");
+    assert.equal(
+      filtered.items.attachments[0].filePath,
+      "attachments/A/paper.md",
+    );
   });
 
   it("picks markdown matched by earliest pdf stem when multiple markdown files exist", async function () {
@@ -163,7 +166,10 @@ describe("literature-explainer validateSelection", function () {
     const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(filtered.items.attachments[0].filePath, "attachments/B/paper.md");
+    assert.equal(
+      filtered.items.attachments[0].filePath,
+      "attachments/B/paper.md",
+    );
   });
 
   it("falls back to earliest markdown when no markdown matches earliest pdf stem", async function () {
@@ -201,7 +207,10 @@ describe("literature-explainer validateSelection", function () {
     const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(filtered.items.attachments[0].filePath, "attachments/C/aaa.md");
+    assert.equal(
+      filtered.items.attachments[0].filePath,
+      "attachments/C/aaa.md",
+    );
   });
 
   it("falls back to earliest pdf when markdown is absent", async function () {
@@ -281,6 +290,9 @@ describe("literature-explainer validateSelection", function () {
     const filtered = await evaluateSelection(workflow, context);
 
     assert.lengthOf(filtered.items.attachments, 1);
-    assert.equal(filtered.items.attachments[0].filePath, "attachments/E/paper.md");
+    assert.equal(
+      filtered.items.attachments[0].filePath,
+      "attachments/E/paper.md",
+    );
   });
 });

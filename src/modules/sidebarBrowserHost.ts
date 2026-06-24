@@ -51,8 +51,10 @@ export function createSidebarFrame(doc: Document, pageUrl: string) {
 }
 
 export function resolveSidebarFrameWindow(frame: Element | null) {
-  return (frame as Element & { contentWindow?: Window | null } | null)
-    ?.contentWindow || null;
+  return (
+    (frame as (Element & { contentWindow?: Window | null }) | null)
+      ?.contentWindow || null
+  );
 }
 
 export function createSidebarContainer(doc: Document) {
@@ -102,6 +104,6 @@ export function setSidebarContainerVisible(
   visible: boolean,
 ) {
   (
-    container as Element & { style?: CSSStyleDeclaration } | null
+    container as (Element & { style?: CSSStyleDeclaration }) | null
   )?.style?.setProperty("display", visible ? "flex" : "none");
 }

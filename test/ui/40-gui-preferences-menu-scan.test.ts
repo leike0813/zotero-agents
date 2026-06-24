@@ -858,9 +858,7 @@ function assertMenuLabel(
 const itFullOnly = isFullTestMode() ? it : it.skip;
 
 describe("gui: preference scripts", function () {
-  // eslint-disable-next-line mocha/no-setup-in-describe
   const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
-  // eslint-disable-next-line mocha/no-setup-in-describe
   const skillDirPrefKey = `${config.prefsPrefix}.skillDir`;
 
   let prevAddon: unknown;
@@ -1242,7 +1240,7 @@ describe("gui: preference scripts", function () {
       package: { id: "official-content", version: "2.0.0" },
     };
     let statusChannel = "stable";
-    let checkResult: any = {
+    const checkResult: any = {
       ok: true,
       status: { channel: "stable", installed },
       feed: { revision: "rev-1" },
@@ -3103,11 +3101,8 @@ describe("gui: preference scripts", function () {
   });
 });
 
-// eslint-disable-next-line mocha/max-top-level-suites
 describe("gui: workflow runtime scan", function () {
-  // eslint-disable-next-line mocha/no-setup-in-describe
   const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
-  // eslint-disable-next-line mocha/no-setup-in-describe
   const skillDirPrefKey = `${config.prefsPrefix}.skillDir`;
   let prevAddon: unknown;
   let prevWorkflowDirPref: unknown;
@@ -3215,7 +3210,6 @@ describe("gui: workflow runtime scan", function () {
     assert.equal(getWorkflowRegistryState().workflowsDir, root);
   });
 
-  // eslint-disable-next-line mocha/no-setup-in-describe
   itFullOnly(
     "resolves the default workflow dir without persisting it when preference is empty",
     function () {
@@ -3414,7 +3408,6 @@ describe("gui: workflow context menu", function () {
     }
   });
 
-  // eslint-disable-next-line mocha/no-setup-in-describe
   itFullOnly(
     "dispatches openDashboard from context-menu dashboard action",
     async function () {

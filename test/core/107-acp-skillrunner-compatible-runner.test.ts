@@ -1295,7 +1295,6 @@ describe("ACP SkillRunner-compatible runner", function () {
     const promptStarted = new Promise<void>((resolve) => {
       resolvePromptStarted = resolve;
     });
-    let releasePrompt: (() => void) | null = null;
     let cancelCalls = 0;
     let closeCalls = 0;
     const fakeAdapter: AcpConnectionAdapter = {

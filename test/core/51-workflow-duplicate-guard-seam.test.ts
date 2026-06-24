@@ -1,7 +1,5 @@
 import { assert } from "chai";
-import {
-  runWorkflowDuplicateGuardSeam,
-} from "../../src/modules/workflowExecution/duplicateGuardSeam";
+import { runWorkflowDuplicateGuardSeam } from "../../src/modules/workflowExecution/duplicateGuardSeam";
 import type { WorkflowTaskRecord } from "../../src/modules/taskRuntime";
 
 function makeActiveTask(args: {

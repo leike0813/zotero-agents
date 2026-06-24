@@ -1,6 +1,4 @@
-import {
-  MANAGED_LOCAL_BACKEND_ID,
-} from "../modules/skillRunnerLocalRuntimeConstants";
+import { MANAGED_LOCAL_BACKEND_ID } from "../modules/skillRunnerLocalRuntimeConstants";
 
 function normalizeToken(value: string) {
   return value

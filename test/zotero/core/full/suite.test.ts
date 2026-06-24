@@ -1,0 +1,14 @@
+import "../lite/suite.test";
+import "../../../core/10-selection-context-schema.test";
+import "../../../core/12-handlers.test";
+import "../../../core/32-job-queue-transport-integration.test";
+import "../../../core/34-generic-http-provider-e2e.test";
+import "../../../core/42-task-runtime.test";
+import "../../../core/60-task-dashboard-history.test";
+import "../../../core/62-task-dashboard-snapshot.test";
+import "../../../core/63-job-queue-progress.test";
+import "../../../core/70a-skillrunner-task-reconciler-state-restore.test";
+import "../../../core/70b-skillrunner-task-reconciler-apply-bundle-retry.test";
+import "../../../core/70c-skillrunner-task-reconciler-ledger-reconcile.test";
+import "../../../core/71-skillrunner-run-dialog-ui-e2e-alignment.test";
+import "../../../core/83-skillrunner-run-dialog-waiting-auth-observer.test";

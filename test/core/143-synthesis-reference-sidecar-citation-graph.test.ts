@@ -204,7 +204,10 @@ describe("Synthesis sidecar cache hard cut", function () {
     const rerun = await service.applyLiteratureDigestSidecar(input);
 
     assert.equal((rerun as { unchanged?: boolean }).unchanged, true);
-    assert.equal(repository.getCacheBasis("citation-graph:library")?.updatedAt, graphBasis?.updatedAt);
+    assert.equal(
+      repository.getCacheBasis("citation-graph:library")?.updatedAt,
+      graphBasis?.updatedAt,
+    );
     assert.equal(
       repository.getCacheBasis("related-items-sync:global")?.updatedAt,
       relatedBasis?.updatedAt,

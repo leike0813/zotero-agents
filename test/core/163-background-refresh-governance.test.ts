@@ -151,7 +151,8 @@ function recordSkillRunnerRunFromJob(job: JobRecord) {
   }
   const requestId = String(
     job.meta.requestId ||
-      ((job.result as { requestId?: unknown } | undefined)?.requestId || ""),
+      (job.result as { requestId?: unknown } | undefined)?.requestId ||
+      "",
   ).trim();
   const attached = requestId
     ? attachSkillRunnerRequestId({

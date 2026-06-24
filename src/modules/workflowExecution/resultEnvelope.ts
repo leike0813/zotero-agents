@@ -36,7 +36,8 @@ export function unwrapSkillRunnerResultJson(value: unknown): unknown {
     hasOwn(value, "request_id") ||
     hasOwn(value, "requestId") ||
     isSkillRunnerEnvelopeObject(nested) ||
-    (hasOwn(nested, "status") && (hasOwn(nested, "data") || hasOwn(nested, "error")))
+    (hasOwn(nested, "status") &&
+      (hasOwn(nested, "data") || hasOwn(nested, "error")))
   ) {
     return unwrapSkillRunnerEnvelopeObject(nested);
   }

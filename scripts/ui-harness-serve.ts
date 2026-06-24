@@ -723,7 +723,11 @@ async function main() {
     });
     assistantModel = await createAssistantReadonlyModel(pluginDbPath, {
       workflowsDir,
-      builtinWorkflowsDir: path.join(pluginRuntimeRoot, "data", "workflows_builtin"),
+      builtinWorkflowsDir: path.join(
+        pluginRuntimeRoot,
+        "data",
+        "workflows_builtin",
+      ),
     }).catch((error) => {
       diagnostics.push(
         `Assistant readonly model failed: ${

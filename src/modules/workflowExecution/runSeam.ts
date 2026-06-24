@@ -37,9 +37,7 @@ import {
 } from "../skillRunnerProgressMapping";
 import { maybeObserveSkillRunnerAutoReplyRun } from "../skillRunnerAutoReplyObserver";
 import { buildSkillRunnerRunRecordRequestPayload } from "../skillRunnerInteractiveAutoReply";
-import {
-  resolveSkillRunnerSkillDisplay,
-} from "../skillRunnerSubmissionContext";
+import { resolveSkillRunnerSkillDisplay } from "../skillRunnerSubmissionContext";
 import {
   buildSkillRunnerSequenceRunKey,
   buildSkillRunnerSingleRunKey,

@@ -264,7 +264,9 @@ export type SessionUpdate =
   | ({ sessionUpdate: "tool_call" } & AcpToolCall)
   | ({ sessionUpdate: "tool_call_update" } & AcpToolCall)
   | ({ sessionUpdate: "plan" } & AcpPlan)
-  | ({ sessionUpdate: "available_commands_update" } & AcpAvailableCommandsUpdate)
+  | ({
+      sessionUpdate: "available_commands_update";
+    } & AcpAvailableCommandsUpdate)
   | ({ sessionUpdate: "current_mode_update" } & AcpCurrentModeUpdate)
   | ({ sessionUpdate: "config_option_update" } & AcpConfigOptionUpdate)
   | ({ sessionUpdate: "session_info_update" } & AcpSessionInfoUpdate)
@@ -341,7 +343,9 @@ export function isJsonRpcNotification(
   );
 }
 
-export function isJsonRpcResponse(message: unknown): message is JsonRpcResponse {
+export function isJsonRpcResponse(
+  message: unknown,
+): message is JsonRpcResponse {
   return (
     !!message &&
     typeof message === "object" &&

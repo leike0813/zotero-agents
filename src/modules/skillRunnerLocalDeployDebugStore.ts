@@ -1,6 +1,10 @@
 import { isDebugModeEnabled } from "./debugMode";
 
-export type SkillRunnerLocalDeployDebugLevel = "debug" | "info" | "warn" | "error";
+export type SkillRunnerLocalDeployDebugLevel =
+  | "debug"
+  | "info"
+  | "warn"
+  | "error";
 
 export type SkillRunnerLocalDeployDebugEntry = {
   id: string;

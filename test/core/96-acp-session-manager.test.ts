@@ -1,4 +1,3 @@
-/* eslint-disable mocha/max-top-level-suites */
 import { assert } from "chai";
 import fs from "node:fs/promises";
 import { config } from "../../package.json";
@@ -242,19 +241,19 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
             ? {
                 configOptions: this.sessionConfigOptions,
               }
-          : {
-              modes: {
-                currentModeId: "plan",
-                availableModes: [
-                  { id: "plan", name: "Plan", description: "Reason first" },
-                  { id: "code", name: "Code", description: "Act directly" },
-                ],
-              },
-              models: {
-                currentModelId: this.modelState.currentModelId,
-                availableModels: this.modelState.availableModels,
-              },
-            }),
+            : {
+                modes: {
+                  currentModeId: "plan",
+                  availableModes: [
+                    { id: "plan", name: "Plan", description: "Reason first" },
+                    { id: "code", name: "Code", description: "Act directly" },
+                  ],
+                },
+                models: {
+                  currentModelId: this.modelState.currentModelId,
+                  availableModels: this.modelState.availableModels,
+                },
+              }),
     };
   }
 
@@ -873,20 +872,20 @@ describe("acp session manager", function () {
     await connectAcpConversation();
     let snapshot = getAcpConversationSnapshot();
 
-    assert.deepEqual(snapshot.modeOptions.map((entry) => entry.id), [
-      "ask",
-      "build",
-    ]);
+    assert.deepEqual(
+      snapshot.modeOptions.map((entry) => entry.id),
+      ["ask", "build"],
+    );
     assert.equal(snapshot.currentMode?.id, "ask");
-    assert.deepEqual(snapshot.displayModelOptions.map((entry) => entry.id), [
-      "openai/gpt-5",
-      "anthropic/claude",
-    ]);
+    assert.deepEqual(
+      snapshot.displayModelOptions.map((entry) => entry.id),
+      ["openai/gpt-5", "anthropic/claude"],
+    );
     assert.equal(snapshot.currentDisplayModel?.id, "openai/gpt-5");
-    assert.deepEqual(snapshot.reasoningEffortOptions.map((entry) => entry.id), [
-      "low",
-      "high",
-    ]);
+    assert.deepEqual(
+      snapshot.reasoningEffortOptions.map((entry) => entry.id),
+      ["low", "high"],
+    );
     assert.equal(snapshot.currentReasoningEffort?.id, "low");
 
     await lastAdapter?.emitSessionUpdate({

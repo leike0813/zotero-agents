@@ -2,10 +2,7 @@ import { assert } from "chai";
 import { JobQueueManager } from "../../src/jobQueue/manager";
 import { SkillRunnerProvider } from "../../src/providers/skillrunner/provider";
 import { isFullTestMode } from "./testMode";
-import {
-  fixturePath,
-  isZoteroRuntime,
-} from "./workflow-test-utils";
+import { fixturePath, isZoteroRuntime } from "./workflow-test-utils";
 
 const MOCK_SKILLRUNNER_BASE_URL =
   (typeof process !== "undefined" &&

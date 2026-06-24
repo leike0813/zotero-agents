@@ -89,7 +89,8 @@ function normalizeRunStoreRow(row: Record<string, unknown>) {
   return {
     ...payload,
     ...row,
-    runKey: cleanHarnessString(row.run_key) || cleanHarnessString(payload.runKey),
+    runKey:
+      cleanHarnessString(row.run_key) || cleanHarnessString(payload.runKey),
     requestId:
       cleanHarnessString(row.request_id) ||
       cleanHarnessString(payload.requestId),
@@ -238,7 +239,10 @@ function whereClauses(args: { domain?: string; scope?: string }) {
   };
 }
 
-function runStoreWhereClauses(args: { backendId?: string; requestId?: string }) {
+function runStoreWhereClauses(args: {
+  backendId?: string;
+  requestId?: string;
+}) {
   const clauses: string[] = [];
   const params: Record<string, string | number | null> = {};
   const backendId = cleanHarnessString(args.backendId);
@@ -261,7 +265,9 @@ function tableRowCount(db: ReadonlySqliteDatabase, table: string) {
   if (!tableExists(db, table)) {
     return 0;
   }
-  return Number(safeRows(db, `SELECT COUNT(*) AS count FROM ${table}`)[0]?.count || 0);
+  return Number(
+    safeRows(db, `SELECT COUNT(*) AS count FROM ${table}`)[0]?.count || 0,
+  );
 }
 
 function limitValue(value: unknown, fallback: number) {
@@ -338,7 +344,9 @@ export async function createPluginStateReadonlyStore(
         { ...params, limit: limitValue(args.limit, 300) },
       )
         .map(normalizeRunStoreRow)
-        .filter((row) => cleanHarnessString(row.payload.schemaVersion) === "3.0.0");
+        .filter(
+          (row) => cleanHarnessString(row.payload.schemaVersion) === "3.0.0",
+        );
     },
     listSkillRunnerSequenceStateRows(args = {}) {
       if (!tableExists(db, "plugin_skillrunner_runs")) return [];

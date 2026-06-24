@@ -137,7 +137,10 @@ describe("workflow result context", function () {
             digest_path: slashPath,
           },
           responseJson: {
-            workspaceDir: slashPath.slice(0, slashPath.lastIndexOf("/artifacts/")),
+            workspaceDir: slashPath.slice(
+              0,
+              slashPath.lastIndexOf("/artifacts/"),
+            ),
           },
         },
         bundleReader: createUnavailableBundleReader("request-slash-path"),
@@ -168,7 +171,11 @@ describe("workflow result context", function () {
         JSON.stringify({ data: { digest_path: "artifacts/digest.md" } }),
         "utf8",
       );
-      await fs.writeFile(path.join(root, "artifacts", "digest.md"), "# Digest", "utf8");
+      await fs.writeFile(
+        path.join(root, "artifacts", "digest.md"),
+        "# Digest",
+        "utf8",
+      );
       const context = await createWorkflowResultContext({
         runResult: {
           requestId: "request-2",
@@ -197,10 +204,9 @@ describe("workflow result context", function () {
   it("loads namespaced bundle resultJson and sibling artifacts", async function () {
     const root = await mkTempRoot();
     try {
-      await fs.mkdir(
-        path.join(root, "result", "literature-deep-reading.1"),
-        { recursive: true },
-      );
+      await fs.mkdir(path.join(root, "result", "literature-deep-reading.1"), {
+        recursive: true,
+      });
       await fs.writeFile(
         path.join(root, "result", "literature-deep-reading.1", "result.json"),
         JSON.stringify({ html_path: "result/deep-reading.html" }),
@@ -313,7 +319,11 @@ describe("workflow result context", function () {
         JSON.stringify({ digest_path: "artifacts/digest.md" }),
         "utf8",
       );
-      await fs.writeFile(path.join(root, "artifacts", "digest.md"), "# Local", "utf8");
+      await fs.writeFile(
+        path.join(root, "artifacts", "digest.md"),
+        "# Local",
+        "utf8",
+      );
 
       const context = await createWorkflowResultContext({
         runResult: {
@@ -323,11 +333,15 @@ describe("workflow result context", function () {
             resultJsonPath,
           },
         },
-        bundleReader: createUnavailableBundleReader("request-local-result-path"),
+        bundleReader: createUnavailableBundleReader(
+          "request-local-result-path",
+        ),
         manifest: manifest(),
       });
 
-      assert.deepEqual(context.resultJson, { digest_path: "artifacts/digest.md" });
+      assert.deepEqual(context.resultJson, {
+        digest_path: "artifacts/digest.md",
+      });
       assert.equal(context.resultJsonSource.kind, "local-path");
       const artifact = await context.readArtifactText({
         fieldName: "digest_path",

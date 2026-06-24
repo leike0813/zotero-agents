@@ -49,7 +49,9 @@ function readContextValue(request: unknown, key: string) {
 }
 
 function normalizeIdentityValue(value: string) {
-  return String(value || "").trim().replace(/\\/g, "/");
+  return String(value || "")
+    .trim()
+    .replace(/\\/g, "/");
 }
 
 function resolveParentTaskName(targetParentID: number | null) {
@@ -112,6 +114,9 @@ export function resolveInputUnitIdentityFromRequest(request: unknown) {
   return "";
 }
 
-export function resolveInputUnitLabelFromRequest(request: unknown, index: number) {
+export function resolveInputUnitLabelFromRequest(
+  request: unknown,
+  index: number,
+) {
   return resolveTaskNameFromRequest(request, index);
 }

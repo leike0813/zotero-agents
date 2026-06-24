@@ -552,7 +552,10 @@ export class JobQueueManager {
         });
         return;
       }
-      if (hasRecoverableSkillRunnerRequest(job) || (isSkillRunnerJob && requestId)) {
+      if (
+        hasRecoverableSkillRunnerRequest(job) ||
+        (isSkillRunnerJob && requestId)
+      ) {
         job.state = coerceRecoverableSkillRunnerState(job.state);
         this.touch(job);
         this.emitJobUpdated(job);

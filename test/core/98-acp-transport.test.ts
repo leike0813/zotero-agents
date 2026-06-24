@@ -46,8 +46,7 @@ describe("acp transport", function () {
   it("wraps host-global Windows commands through cmd.exe", function () {
     const plan = buildAcpLaunchPlanForTests({
       command: "npx",
-      resolvedCommand:
-        "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd",
+      resolvedCommand: "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd",
       args: ["opencode-ai@latest", "acp"],
       platform: "win32",
       comspec: "C:\\Windows\\System32\\cmd.exe",
@@ -268,14 +267,8 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(
-        callInvocations[0].command,
-        /(^|\\)(cmd\.exe)$/i,
-      );
-      assert.deepEqual(callInvocations[0].arguments.slice(0, 2), [
-        "/d",
-        "/c",
-      ]);
+      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
+      assert.deepEqual(callInvocations[0].arguments.slice(0, 2), ["/d", "/c"]);
       assert.equal(
         callInvocations[0].arguments[2] || "",
         "npx opencode-ai@latest acp",
@@ -391,11 +384,11 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(
-        callInvocations[0].command,
-        /(^|\\)(cmd\.exe)$/i,
+      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
+      assert.equal(
+        callInvocations[0].arguments[2] || "",
+        "npx opencode-ai@latest acp",
       );
-      assert.equal(callInvocations[0].arguments[2] || "", "npx opencode-ai@latest acp");
       assert.equal(
         callInvocations[0].environment?.PATH,
         "C:\\Program Files\\nodejs",
@@ -481,12 +474,15 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(
-        callInvocations[0].command,
-        /(^|\\)(cmd\.exe)$/i,
+      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
+      assert.equal(
+        callInvocations[0].arguments[2] || "",
+        "npx opencode-ai@latest acp",
       );
-      assert.equal(callInvocations[0].arguments[2] || "", "npx opencode-ai@latest acp");
-      assert.equal(callInvocations[0].environment?.PATH, "C:\\Program Files\\nodejs");
+      assert.equal(
+        callInvocations[0].environment?.PATH,
+        "C:\\Program Files\\nodejs",
+      );
       assert.notInclude(callInvocations[0].arguments[2] || "", '"""');
       assert.equal(transport.getCommandLabel(), "npx opencode-ai@latest acp");
       assert.include(transport.getCommandLine(), "npx opencode-ai@latest acp");
@@ -573,11 +569,11 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(
-        callInvocations[0].command,
-        /(^|\\)(cmd\.exe)$/i,
+      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
+      assert.equal(
+        callInvocations[0].arguments[2] || "",
+        "npx opencode-ai@latest acp",
       );
-      assert.equal(callInvocations[0].arguments[2] || "", "npx opencode-ai@latest acp");
       assert.equal(
         callInvocations[0].environment?.PATH,
         "C:\\Users\\tester\\AppData\\Roaming\\npm",
@@ -693,12 +689,15 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(
-        callInvocations[0].command,
-        /(^|\\)(cmd\.exe)$/i,
+      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
+      assert.equal(
+        callInvocations[0].arguments[2] || "",
+        "npx opencode-ai@latest acp",
       );
-      assert.equal(callInvocations[0].arguments[2] || "", "npx opencode-ai@latest acp");
-      assert.equal(callInvocations[0].environment?.PATH, "C:\\Program Files\\nodejs");
+      assert.equal(
+        callInvocations[0].environment?.PATH,
+        "C:\\Program Files\\nodejs",
+      );
       assert.include(
         callInvocations[0].arguments[2] || "",
         "opencode-ai@latest",
@@ -811,12 +810,15 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(
-        callInvocations[0].command,
-        /(^|\\)(cmd\.exe)$/i,
+      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
+      assert.equal(
+        callInvocations[0].arguments[2] || "",
+        "npx opencode-ai@latest acp",
       );
-      assert.equal(callInvocations[0].arguments[2] || "", "npx opencode-ai@latest acp");
-      assert.equal(callInvocations[0].environment?.PATH, "C:\\Program Files\\nodejs");
+      assert.equal(
+        callInvocations[0].environment?.PATH,
+        "C:\\Program Files\\nodejs",
+      );
       assert.notInclude(callInvocations[0].arguments[2] || "", '"""');
       await transport.close();
     } finally {

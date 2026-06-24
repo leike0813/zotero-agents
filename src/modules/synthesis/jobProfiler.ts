@@ -167,7 +167,9 @@ function replaceMemoryRun(
   store: MemoryProfilerStore,
   run: SynthesisJobProfileRunRow,
 ) {
-  const existingIndex = store.runs.findIndex((entry) => entry.run_id === run.run_id);
+  const existingIndex = store.runs.findIndex(
+    (entry) => entry.run_id === run.run_id,
+  );
   if (existingIndex >= 0) {
     store.runs[existingIndex] = run;
     return;
@@ -310,10 +312,9 @@ async function writeProfileDraft(root: string, draft: ProfileRunDraft) {
       `,
       draft.run,
     );
-    db.run(
-      "DELETE FROM job_profile_phase WHERE run_id = :run_id;",
-      { run_id: draft.run.run_id },
-    );
+    db.run("DELETE FROM job_profile_phase WHERE run_id = :run_id;", {
+      run_id: draft.run.run_id,
+    });
     for (const phase of draft.phases) {
       db.run(
         `

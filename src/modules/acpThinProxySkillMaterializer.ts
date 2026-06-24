@@ -84,17 +84,18 @@ async function resolveOutputSchemaPath(args: {
     schemas && typeof schemas === "object" && !Array.isArray(schemas)
       ? normalizeString((schemas as Record<string, unknown>).output)
       : "";
-  const candidates = [
-    declared,
-    "assets/output.schema.json",
-  ].filter((entry, index, array) => entry && array.indexOf(entry) === index);
+  const candidates = [declared, "assets/output.schema.json"].filter(
+    (entry, index, array) => entry && array.indexOf(entry) === index,
+  );
   for (const candidate of candidates) {
     const resolved = resolveRelativeOrAbsolutePath(args.skillRoot, candidate);
     if (resolved && (await runtimePathExists(resolved))) {
       return resolved;
     }
   }
-  return declared ? resolveRelativeOrAbsolutePath(args.skillRoot, declared) : "";
+  return declared
+    ? resolveRelativeOrAbsolutePath(args.skillRoot, declared)
+    : "";
 }
 
 function describeJsonSchemaType(schema: Record<string, unknown>) {
@@ -103,7 +104,10 @@ function describeJsonSchemaType(schema: Record<string, unknown>) {
     return type;
   }
   if (Array.isArray(type)) {
-    return type.map((entry) => normalizeString(entry)).filter(Boolean).join(" | ");
+    return type
+      .map((entry) => normalizeString(entry))
+      .filter(Boolean)
+      .join(" | ");
   }
   if (Object.prototype.hasOwnProperty.call(schema, "const")) {
     return `const ${JSON.stringify(schema.const)}`;
@@ -137,7 +141,9 @@ function buildSchemaFieldRows(schema: unknown) {
       : {};
   const required = new Set(
     Array.isArray(objectSchema.required)
-      ? objectSchema.required.map((entry) => normalizeString(entry)).filter(Boolean)
+      ? objectSchema.required
+          .map((entry) => normalizeString(entry))
+          .filter(Boolean)
       : [],
   );
   const propertyRows = Object.entries(properties)
@@ -153,7 +159,9 @@ function buildSchemaFieldRows(schema: unknown) {
     "| `__SKILL_DONE__` | boolean | yes | Set to `true` for the final branch. |",
     ...(propertyRows.length > 0
       ? propertyRows
-      : ["| `(schema)` | object | yes | Final payload must satisfy the output schema. |"]),
+      : [
+          "| `(schema)` | object | yes | Final payload must satisfy the output schema. |",
+        ]),
   ].join("\n");
 }
 
@@ -170,14 +178,18 @@ function buildExampleFromSchema(schema: unknown) {
       ? (objectSchema.properties as Record<string, unknown>)
       : {};
   const required = Array.isArray(objectSchema.required)
-    ? objectSchema.required.map((entry) => normalizeString(entry)).filter(Boolean)
+    ? objectSchema.required
+        .map((entry) => normalizeString(entry))
+        .filter(Boolean)
     : [];
   for (const name of required) {
     if (name === "__SKILL_DONE__") {
       continue;
     }
     const fieldSchema =
-      properties[name] && typeof properties[name] === "object" && !Array.isArray(properties[name])
+      properties[name] &&
+      typeof properties[name] === "object" &&
+      !Array.isArray(properties[name])
         ? (properties[name] as Record<string, unknown>)
         : {};
     if (Object.prototype.hasOwnProperty.call(fieldSchema, "const")) {
@@ -186,7 +198,10 @@ function buildExampleFromSchema(schema: unknown) {
       example[name] = fieldSchema.enum[0];
     } else if (fieldSchema.type === "boolean") {
       example[name] = true;
-    } else if (fieldSchema.type === "number" || fieldSchema.type === "integer") {
+    } else if (
+      fieldSchema.type === "number" ||
+      fieldSchema.type === "integer"
+    ) {
       example[name] = 0;
     } else if (fieldSchema.type === "array") {
       example[name] = [];
@@ -220,10 +235,7 @@ async function buildResourceMappingSection(args: {
       workspace_dir: toPortablePath(args.workspaceDir),
       catalog_skill_root: toPortablePath(args.entry.catalogSkillRoot),
     },
-    requiredPlaceholders: [
-      "workspace_dir",
-      "catalog_skill_root",
-    ],
+    requiredPlaceholders: ["workspace_dir", "catalog_skill_root"],
   });
 }
 
@@ -387,7 +399,10 @@ function shouldUseFullSnapshot(runnerJson: Record<string, unknown>) {
 
 async function readJsonFile(path: string) {
   try {
-    return JSON.parse(await readRuntimeTextFile(path)) as Record<string, unknown>;
+    return JSON.parse(await readRuntimeTextFile(path)) as Record<
+      string,
+      unknown
+    >;
   } catch {
     return {};
   }

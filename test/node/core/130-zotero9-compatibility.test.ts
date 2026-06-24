@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { readFileSync } from "fs";
 import fs from "fs/promises";
 import path from "path";
 import {
@@ -152,7 +153,7 @@ function installZotero9SandboxFileRuntime(tempRoot: string) {
       },
       scriptloader: {
         loadSubScript: (scriptPath: string, scope: Record<string, unknown>) => {
-          const scriptText = require("fs").readFileSync(scriptPath, "utf8");
+          const scriptText = readFileSync(scriptPath, "utf8");
           const runner = new Function(scriptText) as () => void;
           runner.call(scope);
         },

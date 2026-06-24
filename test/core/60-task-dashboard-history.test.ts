@@ -122,7 +122,9 @@ describe("task dashboard history", function () {
 
   it("drops expired entries older than 30 days", function () {
     const retentionMs = getTaskDashboardHistoryRetentionConfig().retentionMs;
-    const oldDate = new Date(Date.now() - retentionMs - 24 * 60 * 60 * 1000).toISOString();
+    const oldDate = new Date(
+      Date.now() - retentionMs - 24 * 60 * 60 * 1000,
+    ).toISOString();
     recordTaskDashboardHistoryFromJob(
       makeJob({
         id: "job-1",

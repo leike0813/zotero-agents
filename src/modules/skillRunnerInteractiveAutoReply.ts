@@ -3,9 +3,7 @@ export const SKILLRUNNER_INTERACTIVE_AUTO_REPLY_ENABLED = true;
 let featureOverrideForTests: boolean | undefined;
 
 export function isSkillRunnerInteractiveAutoReplyEnabled() {
-  return (
-    featureOverrideForTests ?? SKILLRUNNER_INTERACTIVE_AUTO_REPLY_ENABLED
-  );
+  return featureOverrideForTests ?? SKILLRUNNER_INTERACTIVE_AUTO_REPLY_ENABLED;
 }
 
 export function setSkillRunnerInteractiveAutoReplyEnabledForTests(
@@ -30,12 +28,7 @@ function normalizeBoolean(value: unknown) {
   if (text === "true" || text === "1" || text === "yes" || text === "on") {
     return true;
   }
-  if (
-    text === "false" ||
-    text === "0" ||
-    text === "no" ||
-    text === "off"
-  ) {
+  if (text === "false" || text === "0" || text === "no" || text === "off") {
     return false;
   }
   return undefined;
@@ -121,9 +114,11 @@ export function shouldEnableSkillRunnerAutoReplyForRun(args: {
   }
   const mode =
     normalizeString(args.executionMode).toLowerCase() ||
-    (isRecord(args.requestPayload) && isRecord(args.requestPayload.runtime_options)
-      ? normalizeString(args.requestPayload.runtime_options.execution_mode)
-          .toLowerCase()
+    (isRecord(args.requestPayload) &&
+    isRecord(args.requestPayload.runtime_options)
+      ? normalizeString(
+          args.requestPayload.runtime_options.execution_mode,
+        ).toLowerCase()
       : "");
   if (mode !== "interactive") {
     return false;

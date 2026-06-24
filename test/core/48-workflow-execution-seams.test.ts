@@ -1053,13 +1053,12 @@ describe("workflow execution seams", function () {
       } else {
         runtime.ztoolkit = previousToolkit;
       }
-      if (!runtime.addon?.data) {
-        return;
-      }
-      if (typeof previousAddonToolkit === "undefined") {
-        delete runtime.addon.data.ztoolkit;
-      } else {
-        runtime.addon.data.ztoolkit = previousAddonToolkit;
+      if (runtime.addon?.data) {
+        if (typeof previousAddonToolkit === "undefined") {
+          delete runtime.addon.data.ztoolkit;
+        } else {
+          runtime.addon.data.ztoolkit = previousAddonToolkit;
+        }
       }
     }
 

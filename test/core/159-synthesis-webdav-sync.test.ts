@@ -210,23 +210,25 @@ describe("Synthesis WebDAV sync", function () {
 
     assert.equal(state.queue_state, "idle");
     assert.isTrue(
-      Array.from(client.files.keys()).some((entry) => entry.endsWith("/HEAD.json")),
-    );
-    assert.isTrue(
       Array.from(client.files.keys()).some((entry) =>
-        entry.includes("/snapshots/") && entry.endsWith("/manifest.json"),
+        entry.endsWith("/HEAD.json"),
       ),
     );
     assert.isTrue(
-      Array.from(client.files.keys()).some((entry) =>
-        entry.includes("/snapshots/") && entry.includes("/bundles/"),
+      Array.from(client.files.keys()).some(
+        (entry) =>
+          entry.includes("/snapshots/") && entry.endsWith("/manifest.json"),
+      ),
+    );
+    assert.isTrue(
+      Array.from(client.files.keys()).some(
+        (entry) => entry.includes("/snapshots/") && entry.includes("/bundles/"),
       ),
     );
     assert.isTrue(
       client.requests.some(
         (entry) =>
-          entry.method === "MKCOL" &&
-          entry.url.includes("/snapshots/"),
+          entry.method === "MKCOL" && entry.url.includes("/snapshots/"),
       ),
     );
     const operations = createSynthesisRepository({

@@ -41,7 +41,9 @@ export type SkillRunnerSidebarTaskItem = {
   relationState?: SkillRunnerSidebarRelationState;
 };
 
-export type SkillRunnerSidebarGroup<TTask extends SkillRunnerSidebarTaskItem = SkillRunnerSidebarTaskItem> = {
+export type SkillRunnerSidebarGroup<
+  TTask extends SkillRunnerSidebarTaskItem = SkillRunnerSidebarTaskItem,
+> = {
   backendId: string;
   backendDisplayName: string;
   disabled: boolean;
@@ -53,7 +55,9 @@ export type SkillRunnerSidebarGroup<TTask extends SkillRunnerSidebarTaskItem = S
   latestUpdatedAt: string;
 };
 
-export type SkillRunnerSidebarSection<TTask extends SkillRunnerSidebarTaskItem = SkillRunnerSidebarTaskItem> = {
+export type SkillRunnerSidebarSection<
+  TTask extends SkillRunnerSidebarTaskItem = SkillRunnerSidebarTaskItem,
+> = {
   id: "running" | "completed";
   title: string;
   collapsed: boolean;
@@ -61,7 +65,9 @@ export type SkillRunnerSidebarSection<TTask extends SkillRunnerSidebarTaskItem =
 };
 
 function normalizeIdentity(value: unknown) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
 function isFinitePositiveInt(value: unknown) {
@@ -98,16 +104,13 @@ function isDeferredApplyVisibleRunning(task: SkillRunnerSidebarTaskItem) {
 
 function isVisibleSidebarRunningTask(task: SkillRunnerSidebarTaskItem) {
   return (
-    task.selectable &&
-    (!task.terminal || isDeferredApplyVisibleRunning(task))
+    task.selectable && (!task.terminal || isDeferredApplyVisibleRunning(task))
   );
 }
 
 function isVisibleSidebarCompletedTask(task: SkillRunnerSidebarTaskItem) {
   return (
-    task.selectable &&
-    task.terminal &&
-    !isDeferredApplyVisibleRunning(task)
+    task.selectable && task.terminal && !isDeferredApplyVisibleRunning(task)
   );
 }
 
@@ -149,7 +152,9 @@ export function pickSkillRunnerSidebarFocusedTaskKey<
   if (relatedParentItemIds.length === 0) {
     return currentTaskKey;
   }
-  const primaryParentItemId = isFinitePositiveInt(args.context?.primaryParentItemId)
+  const primaryParentItemId = isFinitePositiveInt(
+    args.context?.primaryParentItemId,
+  )
     ? Math.floor(args.context?.primaryParentItemId as number)
     : undefined;
 
@@ -228,11 +233,11 @@ export function buildSkillRunnerSidebarSections<
           task.key === selectedTaskKey
             ? "focused"
             : isSkillRunnerTaskRelatedToContext({
-                targetParentID: task.targetParentID,
-                context: args.context,
-              })
-            ? "related"
-            : "default",
+                  targetParentID: task.targetParentID,
+                  context: args.context,
+                })
+              ? "related"
+              : "default",
       }));
     if (runningTasks.length > 0) {
       runningGroups.push({
@@ -279,10 +284,7 @@ export function countWaitingSkillRunnerTasks<
   for (const group of groups) {
     for (const task of group.activeTasks) {
       const normalized = normalizeIdentity(task.status);
-      if (
-        normalized === "waiting_user" ||
-        normalized === "waiting_auth"
-      ) {
+      if (normalized === "waiting_user" || normalized === "waiting_auth") {
         total += 1;
       }
     }

@@ -35,7 +35,9 @@ async function isMockSkillRunnerReachable(baseUrl: string) {
   }
 }
 
-function makeLiteratureAnalysisJobRequest(overrides: Record<string, unknown> = {}) {
+function makeLiteratureAnalysisJobRequest(
+  overrides: Record<string, unknown> = {},
+) {
   return {
     kind: "skillrunner.job.v1",
     skill_id: "literature-analysis",
@@ -121,49 +123,55 @@ describe("transport: skillrunner mock", function () {
     }
   });
 
-  itFullOnly("supports result fetch step without requiring bundle download", async function () {
-    if (!(await isMockSkillRunnerReachable(MOCK_SKILLRUNNER_BASE_URL))) {
-      this.skip();
-    }
-    try {
-      const request = makeLiteratureAnalysisJobRequest({
-        fetch_type: "result",
-      });
+  itFullOnly(
+    "supports result fetch step without requiring bundle download",
+    async function () {
+      if (!(await isMockSkillRunnerReachable(MOCK_SKILLRUNNER_BASE_URL))) {
+        this.skip();
+      }
+      try {
+        const request = makeLiteratureAnalysisJobRequest({
+          fetch_type: "result",
+        });
 
-      const provider = new SkillRunnerProvider({
-        baseUrl: MOCK_SKILLRUNNER_BASE_URL,
-      });
-      const result = await provider.execute({
-        requestKind: "skillrunner.job.v1",
-        request,
-      });
+        const provider = new SkillRunnerProvider({
+          baseUrl: MOCK_SKILLRUNNER_BASE_URL,
+        });
+        const result = await provider.execute({
+          requestKind: "skillrunner.job.v1",
+          request,
+        });
 
-      assert.equal(result.status, "succeeded");
-      assert.isUndefined(result.bundleBytes);
-      const resultPayload = result.resultJson as {
-        digest_path?: string;
-        references_path?: string;
-        citation_analysis_path?: string;
-      };
-      assert.match(String(resultPayload.digest_path || ""), /digest\.md$/);
-      assert.match(
-        String(resultPayload.references_path || ""),
-        /references\.json$/,
-      );
-      assert.match(
-        String(resultPayload.citation_analysis_path || ""),
-        /citation_analysis\.json$/,
-      );
-      const response = result.responseJson as {
-        resultResponseJson?: { request_id?: string; result?: { status?: string } };
-      };
-      assert.equal(response.resultResponseJson?.request_id, result.requestId);
-      assert.equal(response.resultResponseJson?.result?.status, "success");
-    } catch (error) {
-      console.error(
-        `[transport: skillrunner mock] supports result fetch step failed\n${formatError(error)}`,
-      );
-      throw error;
-    }
-  });
+        assert.equal(result.status, "succeeded");
+        assert.isUndefined(result.bundleBytes);
+        const resultPayload = result.resultJson as {
+          digest_path?: string;
+          references_path?: string;
+          citation_analysis_path?: string;
+        };
+        assert.match(String(resultPayload.digest_path || ""), /digest\.md$/);
+        assert.match(
+          String(resultPayload.references_path || ""),
+          /references\.json$/,
+        );
+        assert.match(
+          String(resultPayload.citation_analysis_path || ""),
+          /citation_analysis\.json$/,
+        );
+        const response = result.responseJson as {
+          resultResponseJson?: {
+            request_id?: string;
+            result?: { status?: string };
+          };
+        };
+        assert.equal(response.resultResponseJson?.request_id, result.requestId);
+        assert.equal(response.resultResponseJson?.result?.status, "success");
+      } catch (error) {
+        console.error(
+          `[transport: skillrunner mock] supports result fetch step failed\n${formatError(error)}`,
+        );
+        throw error;
+      }
+    },
+  );
 });

@@ -609,7 +609,7 @@ export function assessSynthesisSyncRecovery(
   const diagnostics: SynthesisSyncDiagnostic[] = [];
   const allowedActions: SynthesisSyncAction[] = [];
   let status: SynthesisSyncStatus = "ready";
-  let requiresConfirmation = false;
+  const requiresConfirmation = false;
 
   if (input.root.state === "unbound") {
     status = "missing_root";

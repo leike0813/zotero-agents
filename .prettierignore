@@ -1,4 +1,12 @@
 .vscode
+.agents
+.claude
+.codex
+.opencode
+.qwen
+.scaffold
+.tmp_lit_bundle
+.zotero-skills-runtime
 build
 logs
 node_modules
@@ -7,21 +15,37 @@ yarn.lock
 pnpm-lock.yaml
 
 # Generated/bundled files
+addon/content/shared/vendor
 addon/locale
+skills_builtin
+skills_src
+workflows_builtin
 
 # Openspec artifacts (proposals, designs, specs, tasks)
 openspec/changes
 openspec/specs
 
 # Documentation
+AGENTS.md
 doc
+reference
+site
+README*.md
+**/*.md
 
 # Test fixtures
+test/fixtures
 test/fixtures/workflow-loader-invalid-json
 test/fixtures/selection-context/attachments
 
 # Artifacts
 artifact
+assets
+attachments
+deprecated
+mockup
+non-existing-zotero-data
+workflows
 
 # History
 .history

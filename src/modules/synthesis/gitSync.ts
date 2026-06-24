@@ -400,10 +400,7 @@ export function sanitizeGitSyncRemoteUrl(value: unknown) {
     return "";
   }
   return input
-    .replace(
-      /([a-z][a-z0-9+.-]*:\/\/)([^/@\s]+)@/gi,
-      "$1[redacted]@",
-    )
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)([^/@\s]+)@/gi, "$1[redacted]@")
     .replace(
       /([?&](?:token|password|secret|access_token)=)[^&#]+/gi,
       "$1[redacted]",
@@ -579,11 +576,7 @@ async function appendJsonLine(path: string, value: unknown) {
 function syncPaths(root: string) {
   const runtimeRoot = getRuntimePersistencePaths(root).runtimeRoot;
   const syncRoot = joinPath(runtimeRoot, "synthesis", "git-sync");
-  const worktreeRoot = joinPath(
-    runtimeRoot,
-    "synthesis",
-    "git-sync-worktree",
-  );
+  const worktreeRoot = joinPath(runtimeRoot, "synthesis", "git-sync-worktree");
   return {
     syncRoot,
     worktreeRoot,
@@ -595,7 +588,10 @@ function syncPaths(root: string) {
 }
 
 function normalizedPathForCompare(value: unknown) {
-  return cleanString(value).replace(/\\/g, "/").replace(/\/+$/g, "").toLowerCase();
+  return cleanString(value)
+    .replace(/\\/g, "/")
+    .replace(/\/+$/g, "")
+    .toLowerCase();
 }
 
 function runtimeEnvOverrideConfigured() {
@@ -603,7 +599,9 @@ function runtimeEnvOverrideConfigured() {
     process?: { env?: Record<string, string | undefined> };
     Services?: { env?: { get?: (name: string) => string } };
   };
-  const fromProcess = cleanString(runtime.process?.env?.ZOTERO_SKILLS_RUNTIME_ROOT);
+  const fromProcess = cleanString(
+    runtime.process?.env?.ZOTERO_SKILLS_RUNTIME_ROOT,
+  );
   if (fromProcess) {
     return true;
   }
@@ -633,7 +631,9 @@ async function scanPersistenceRootDiagnostics(args: {
 }) {
   const diagnostics: SynthesisGitSyncDiagnostic[] = [];
   const normalizedRoot = normalizedPathForCompare(args.persistenceRoot);
-  const expectedDbPath = getSynthesisRepositoryDatabasePath(args.persistenceRoot);
+  const expectedDbPath = getSynthesisRepositoryDatabasePath(
+    args.persistenceRoot,
+  );
   if (normalizedRoot.endsWith("/data")) {
     diagnostics.push(
       diagnostic({
@@ -687,7 +687,9 @@ function hasErrorDiagnostic(diagnostics: SynthesisGitSyncDiagnostic[]) {
   return diagnostics.some((entry) => entry.severity === "error");
 }
 
-function hasPermanentGitSyncDiagnostic(diagnostics: SynthesisGitSyncDiagnostic[]) {
+function hasPermanentGitSyncDiagnostic(
+  diagnostics: SynthesisGitSyncDiagnostic[],
+) {
   return diagnostics.some((entry) =>
     [
       "git_sync_worktree_unsafe_parent_repo",
@@ -799,7 +801,8 @@ function normalizeState(
     next_retry_at: cleanString(input?.next_retry_at) || undefined,
     last_retry_at: cleanString(input?.last_retry_at) || undefined,
     config_status: input?.config_status || fallback.config_status,
-    token_masked: cleanString(input?.token_masked || fallback.token_masked) || undefined,
+    token_masked:
+      cleanString(input?.token_masked || fallback.token_masked) || undefined,
     token_updated_at:
       cleanString(input?.token_updated_at || fallback.token_updated_at) ||
       undefined,
@@ -908,7 +911,8 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     state.branch = remote.branch || state.branch;
     state.adapter_configured = Boolean(adapter) && config.ok;
     state.config_status = configProjection.config_status;
-    state.token_masked = cleanString(configProjection.token_masked) || undefined;
+    state.token_masked =
+      cleanString(configProjection.token_masked) || undefined;
     state.token_updated_at =
       cleanString(configProjection.token_updated_at) || undefined;
     state.connection_test = configProjection.connection_test;
@@ -1164,7 +1168,9 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     const assets: SynthesisGitSyncManifestAsset[] = [];
     let totalBytes = 0;
     let manifest: SynthesisGitSyncManifest | undefined;
-    let durableManifest: Awaited<ReturnType<typeof readSynthesisDurableManifest>> | null = null;
+    let durableManifest: Awaited<
+      ReturnType<typeof readSynthesisDurableManifest>
+    > | null = null;
     const seenPaths = new Set<string>();
     let largestBundleBytes = 0;
     let largestBundlePath = "";
@@ -1592,10 +1598,15 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       now: now(),
     });
     await writeJson(
-      joinPath(syncPaths(persistenceRoot).syncRoot, "durable-conflict-report.json"),
+      joinPath(
+        syncPaths(persistenceRoot).syncRoot,
+        "durable-conflict-report.json",
+      ),
       durableReport,
     );
-    const report = await writeConflictReport(conflicts.map(conflictFromDurable));
+    const report = await writeConflictReport(
+      conflicts.map(conflictFromDurable),
+    );
     const nextReport: SynthesisGitSyncConflictReport = {
       ...report,
       diagnostics: [
@@ -1635,9 +1646,9 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     if (!(await runtimePathExists(syncPaths(persistenceRoot).lockPath))) {
       return null;
     }
-    return readJson<SynthesisGitSyncLockFile>(syncPaths(persistenceRoot).lockPath).catch(
-      () => null,
-    );
+    return readJson<SynthesisGitSyncLockFile>(
+      syncPaths(persistenceRoot).lockPath,
+    ).catch(() => null);
   }
 
   async function acquireLock(runId: string) {
@@ -1859,7 +1870,10 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           branch: remote.branch,
         });
       }
-      const candidateRoot = joinPath(syncPaths(persistenceRoot).worktreeRoot, "synthesis");
+      const candidateRoot = joinPath(
+        syncPaths(persistenceRoot).worktreeRoot,
+        "synthesis",
+      );
       await reportPhase("validate", 6);
       const validation = await validateGitSyncImportSnapshot(candidateRoot);
       if (!validation.ok) {
@@ -2152,8 +2166,13 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     return runSync();
   }
 
-  async function saveRemoteConflictCopies(report: SynthesisGitSyncConflictReport) {
-    const candidateRoot = joinPath(syncPaths(persistenceRoot).worktreeRoot, "synthesis");
+  async function saveRemoteConflictCopies(
+    report: SynthesisGitSyncConflictReport,
+  ) {
+    const candidateRoot = joinPath(
+      syncPaths(persistenceRoot).worktreeRoot,
+      "synthesis",
+    );
     const reviewRoot = joinPath(
       syncPaths(persistenceRoot).syncRoot,
       "conflict-review",
@@ -2234,7 +2253,10 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       });
     }
     if (normalizedAction === "clear_after_manual_edit") {
-      const candidateRoot = joinPath(syncPaths(persistenceRoot).worktreeRoot, "synthesis");
+      const candidateRoot = joinPath(
+        syncPaths(persistenceRoot).worktreeRoot,
+        "synthesis",
+      );
       const validation = await validateGitSyncImportSnapshot(candidateRoot);
       const preview = validation.ok
         ? await previewSynthesisDurableImport({
@@ -2262,7 +2284,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           ...current.diagnostics,
           ...validation.diagnostics,
           ...(preview?.diagnostics.map(diagnosticFromDurable) || []),
-          ...((preview?.conflicts || []).map((conflict) =>
+          ...(preview?.conflicts || []).map((conflict) =>
             diagnostic({
               code: "git_sync_conflict_still_blocked",
               severity: "warning",
@@ -2270,7 +2292,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
               assetPath: conflict.path,
               details: conflict,
             }),
-          )),
+          ),
         ],
       });
     }

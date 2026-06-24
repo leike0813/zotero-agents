@@ -31,12 +31,7 @@ export const SYNTHESIS_DURABLE_SYNC_INDEX_SCHEMA_VERSION = "1.0.0";
 const MAX_DURABLE_BUNDLE_BYTES = 4 * 1024 * 1024;
 
 export type SynthesisDurableExportProgress = {
-  phase:
-    | "repository"
-    | "topics"
-    | "bundle"
-    | "write"
-    | "manifest";
+  phase: "repository" | "topics" | "bundle" | "write" | "manifest";
   phase_label?: string;
   processed_count?: number;
   total_count?: number;
@@ -310,7 +305,8 @@ export function createSynthesisDurableEnvelope<T>(args: {
   baseHash?: string;
   updatedAt?: string;
 }): SynthesisDurableAssetEnvelope<T> {
-  const schemaVersion = args.schemaVersion || SYNTHESIS_DURABLE_ASSET_SCHEMA_VERSION;
+  const schemaVersion =
+    args.schemaVersion || SYNTHESIS_DURABLE_ASSET_SCHEMA_VERSION;
   const entityId = cleanString(args.entityId);
   const contentHash = envelopeContentHash({
     schemaId: args.schemaId,
@@ -380,7 +376,11 @@ export function createSynthesisDurableManifest(args: {
     manifest_schema_version: SYNTHESIS_DURABLE_MANIFEST_SCHEMA_VERSION,
     producer_version: args.producerVersion || "zotero-skills",
     min_reader_version: "1.0.0",
-    required_capabilities: ["durable-state.v1", "durable-bundles.v2", "git-sync.v1"],
+    required_capabilities: [
+      "durable-state.v1",
+      "durable-bundles.v2",
+      "git-sync.v1",
+    ],
     domain_versions: {
       concept: "1.0.0",
       discovery: "1.0.0",
@@ -403,7 +403,10 @@ export function createSynthesisDurableManifest(args: {
 }
 
 function isLegacyManifest(manifest: SynthesisDurableSyncManifest) {
-  return manifest.manifest_schema_version === SYNTHESIS_DURABLE_LEGACY_MANIFEST_SCHEMA_VERSION;
+  return (
+    manifest.manifest_schema_version ===
+    SYNTHESIS_DURABLE_LEGACY_MANIFEST_SCHEMA_VERSION
+  );
 }
 
 export function listSynthesisDurableManifestEntities(
@@ -431,7 +434,9 @@ export function listSynthesisDurableManifestEntities(
 }
 
 type DurableExportProgressOptions = {
-  onProgress?: (progress: SynthesisDurableExportProgress) => void | Promise<void>;
+  onProgress?: (
+    progress: SynthesisDurableExportProgress,
+  ) => void | Promise<void>;
   yieldControl?: () => Promise<void>;
 };
 
@@ -477,19 +482,54 @@ async function draftsFromRepository(
     message: "Reading durable concept facts.",
   });
   for (const row of repository.listConcepts()) {
-    add("concept", row.conceptId, "synthesis.durable.concept", row, row.updatedAt, "concept");
+    add(
+      "concept",
+      row.conceptId,
+      "synthesis.durable.concept",
+      row,
+      row.updatedAt,
+      "concept",
+    );
   }
   for (const row of repository.listConceptSenses()) {
-    add("concept_sense", row.senseId, "synthesis.durable.concept_sense", row, row.updatedAt, "sense");
+    add(
+      "concept_sense",
+      row.senseId,
+      "synthesis.durable.concept_sense",
+      row,
+      row.updatedAt,
+      "sense",
+    );
   }
   for (const row of repository.listConceptAliases()) {
-    add("concept_alias", row.aliasId, "synthesis.durable.concept_alias", row, row.updatedAt, "alias");
+    add(
+      "concept_alias",
+      row.aliasId,
+      "synthesis.durable.concept_alias",
+      row,
+      row.updatedAt,
+      "alias",
+    );
   }
   for (const row of repository.listConceptRelations()) {
-    add("concept_relation", row.relationId, "synthesis.durable.concept_relation", row, row.updatedAt, "relation");
+    add(
+      "concept_relation",
+      row.relationId,
+      "synthesis.durable.concept_relation",
+      row,
+      row.updatedAt,
+      "relation",
+    );
   }
   for (const row of repository.listConceptReviewItems()) {
-    add("concept_review_item", row.reviewId, "synthesis.durable.concept_review_item", row, row.updatedAt, "concept-review");
+    add(
+      "concept_review_item",
+      row.reviewId,
+      "synthesis.durable.concept_review_item",
+      row,
+      row.updatedAt,
+      "concept-review",
+    );
   }
   const topicLinksByTopic = new Map<string, unknown[]>();
   for (const row of repository.listTopicConceptLinks()) {
@@ -497,7 +537,10 @@ async function draftsFromRepository(
     if (!topicId) {
       continue;
     }
-    topicLinksByTopic.set(topicId, [...(topicLinksByTopic.get(topicId) || []), row]);
+    topicLinksByTopic.set(topicId, [
+      ...(topicLinksByTopic.get(topicId) || []),
+      row,
+    ]);
   }
   for (const [topicId, links] of topicLinksByTopic) {
     add(
@@ -518,13 +561,34 @@ async function draftsFromRepository(
     message: "Reading durable topic graph facts.",
   });
   for (const row of repository.listTopicGraphNodes()) {
-    add("topic_graph_node", row.topicId, "synthesis.durable.topic_graph_node", row, row.updatedAt, "topic-node");
+    add(
+      "topic_graph_node",
+      row.topicId,
+      "synthesis.durable.topic_graph_node",
+      row,
+      row.updatedAt,
+      "topic-node",
+    );
   }
   for (const row of repository.listTopicGraphEdges()) {
-    add("topic_graph_edge", row.edgeId, "synthesis.durable.topic_graph_edge", row, row.updatedAt, "topic-edge");
+    add(
+      "topic_graph_edge",
+      row.edgeId,
+      "synthesis.durable.topic_graph_edge",
+      row,
+      row.updatedAt,
+      "topic-edge",
+    );
   }
   for (const row of repository.listTopicGraphReviewItems()) {
-    add("topic_graph_review_item", row.reviewId, "synthesis.durable.topic_graph_review_item", row, row.updatedAt, "topic-review");
+    add(
+      "topic_graph_review_item",
+      row.reviewId,
+      "synthesis.durable.topic_graph_review_item",
+      row,
+      row.updatedAt,
+      "topic-review",
+    );
   }
 
   await reportDurableExportProgress(options, {
@@ -535,7 +599,14 @@ async function draftsFromRepository(
     message: "Reading durable reference facts.",
   });
   for (const row of repository.listCanonicalReferences()) {
-    add("canonical_reference", row.canonicalReferenceId, "synthesis.durable.canonical_reference", row, row.updatedAt, "canonical");
+    add(
+      "canonical_reference",
+      row.canonicalReferenceId,
+      "synthesis.durable.canonical_reference",
+      row,
+      row.updatedAt,
+      "canonical",
+    );
   }
   for (const row of repository.listCanonicalReferenceRedirects()) {
     add(
@@ -548,10 +619,24 @@ async function draftsFromRepository(
     );
   }
   for (const row of repository.listReferenceBindings()) {
-    add("reference_binding", row.bindingId, "synthesis.durable.reference_binding", row, row.updatedAt, "binding");
+    add(
+      "reference_binding",
+      row.bindingId,
+      "synthesis.durable.reference_binding",
+      row,
+      row.updatedAt,
+      "binding",
+    );
   }
   for (const row of repository.listReferenceMatchProposals()) {
-    add("reference_match_proposal", row.proposalId, "synthesis.durable.reference_match_proposal", row, row.updatedAt, "proposal");
+    add(
+      "reference_match_proposal",
+      row.proposalId,
+      "synthesis.durable.reference_match_proposal",
+      row,
+      row.updatedAt,
+      "proposal",
+    );
   }
 
   await reportDurableExportProgress(options, {
@@ -562,13 +647,34 @@ async function draftsFromRepository(
     message: "Reading durable review and discovery facts.",
   });
   for (const row of repository.listReviewItems()) {
-    add("review_item", row.reviewItemId, "synthesis.durable.review_item", row, row.updatedAt, "review");
+    add(
+      "review_item",
+      row.reviewItemId,
+      "synthesis.durable.review_item",
+      row,
+      row.updatedAt,
+      "review",
+    );
   }
   for (const row of repository.listTopicInterestMetadata()) {
-    add("topic_interest_metadata", row.topicId, "synthesis.durable.topic_interest_metadata", row, row.updatedAt, "interest");
+    add(
+      "topic_interest_metadata",
+      row.topicId,
+      "synthesis.durable.topic_interest_metadata",
+      row,
+      row.updatedAt,
+      "interest",
+    );
   }
   for (const row of repository.listTopicDiscoveryHints()) {
-    add("topic_discovery_hint", row.hintId, "synthesis.durable.topic_discovery_hint", row, row.updatedAt, "hint");
+    add(
+      "topic_discovery_hint",
+      row.hintId,
+      "synthesis.durable.topic_discovery_hint",
+      row,
+      row.updatedAt,
+      "hint",
+    );
   }
 
   await reportDurableExportProgress(options, {
@@ -591,15 +697,36 @@ async function draftsFromRepository(
   }
   const tagAliases = repository.listTagAliases();
   if (tagAliases.length) {
-    add("tag_aliases", "tag-aliases", "synthesis.durable.tag_aliases", { aliases: tagAliases }, "", "aliases");
+    add(
+      "tag_aliases",
+      "tag-aliases",
+      "synthesis.durable.tag_aliases",
+      { aliases: tagAliases },
+      "",
+      "aliases",
+    );
   }
   const tagAbbrev = repository.listTagAbbrevs();
   if (tagAbbrev.length) {
-    add("tag_abbrev", "tag-abbrev", "synthesis.durable.tag_abbrev", { abbrev: tagAbbrev }, "", "abbrev");
+    add(
+      "tag_abbrev",
+      "tag-abbrev",
+      "synthesis.durable.tag_abbrev",
+      { abbrev: tagAbbrev },
+      "",
+      "abbrev",
+    );
   }
   const tagProtocol = repository.getTagProtocol("default");
   if (tagProtocol) {
-    add("tag_protocol", "tag-protocol", "synthesis.durable.tag_protocol", tagProtocol, tagProtocol.updatedAt, "protocol");
+    add(
+      "tag_protocol",
+      "tag-protocol",
+      "synthesis.durable.tag_protocol",
+      tagProtocol,
+      tagProtocol.updatedAt,
+      "protocol",
+    );
   }
 
   await reportDurableExportProgress(options, {
@@ -641,7 +768,10 @@ async function topicAssetDrafts(
   const files = await collectRuntimeFiles(paths.topicsRoot);
   const drafts: DurableAssetDraft[] = [];
   for (const file of files) {
-    const relative = runtimeRelativePath(paths.topicsRoot, file).replace(/\\/g, "/");
+    const relative = runtimeRelativePath(paths.topicsRoot, file).replace(
+      /\\/g,
+      "/",
+    );
     if (!relative.includes("/current/")) {
       continue;
     }
@@ -767,7 +897,10 @@ function chunkPath(basePath: string, index: number) {
   if (index === 0) {
     return basePath;
   }
-  return basePath.replace(/\.json$/i, `.part-${String(index + 1).padStart(4, "0")}.json`);
+  return basePath.replace(
+    /\.json$/i,
+    `.part-${String(index + 1).padStart(4, "0")}.json`,
+  );
 }
 
 function manifestEntity(
@@ -787,7 +920,10 @@ function manifestEntity(
   };
 }
 
-function bundleFile(basePath: string, entries: SynthesisDurableAssetEnvelope[]) {
+function bundleFile(
+  basePath: string,
+  entries: SynthesisDurableAssetEnvelope[],
+) {
   const bundle = createBundle(bundleKindFor(entries[0]), entries);
   const relativePath = assertSafeSyncPath(basePath);
   const text = canonicalJsonText(bundle);
@@ -803,7 +939,9 @@ function bundleFile(basePath: string, entries: SynthesisDurableAssetEnvelope[]) 
       bytes: text.length,
       bundle_kind: bundle.bundle_kind,
       entry_count: bundle.entries.length,
-      entries: bundle.entries.map((entry) => manifestEntity(relativePath, entry)),
+      entries: bundle.entries.map((entry) =>
+        manifestEntity(relativePath, entry),
+      ),
     } satisfies SynthesisDurableManifestAsset,
   };
 }
@@ -885,7 +1023,9 @@ async function buildBundleFiles(
       },
     });
   }
-  return files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  return files.sort((left, right) =>
+    left.relativePath.localeCompare(right.relativePath),
+  );
 }
 
 export async function buildSynthesisDurableExportSnapshot(args: {
@@ -894,7 +1034,9 @@ export async function buildSynthesisDurableExportSnapshot(args: {
   allowRepositoryCreateForTests?: boolean;
   now?: () => string;
   producerVersion?: string;
-  onProgress?: (progress: SynthesisDurableExportProgress) => void | Promise<void>;
+  onProgress?: (
+    progress: SynthesisDurableExportProgress,
+  ) => void | Promise<void>;
   yieldControl?: () => Promise<void>;
 }) {
   const repository = resolveDurableRepository(args);
@@ -915,7 +1057,10 @@ export async function buildSynthesisDurableExportSnapshot(args: {
   const envelopes = drafts
     .map((draft) => assetFromDraft(draft, "", timestamp))
     .filter((asset) => {
-      const key = entityKey(asset.envelope.entity_kind, asset.envelope.entity_id);
+      const key = entityKey(
+        asset.envelope.entity_kind,
+        asset.envelope.entity_id,
+      );
       if (seen.has(key)) {
         return false;
       }
@@ -968,7 +1113,9 @@ export async function writeSynthesisDurableExportSnapshot(args: {
   repository?: SynthesisRepository;
   allowRepositoryCreateForTests?: boolean;
   now?: () => string;
-  onProgress?: (progress: SynthesisDurableExportProgress) => void | Promise<void>;
+  onProgress?: (
+    progress: SynthesisDurableExportProgress,
+  ) => void | Promise<void>;
   yieldControl?: () => Promise<void>;
 }) {
   const snapshot = await buildSynthesisDurableExportSnapshot(args);
@@ -1022,7 +1169,9 @@ function parseEnvelope(input: unknown): SynthesisDurableAssetEnvelope | null {
     return null;
   }
   const record = input as Record<string, unknown>;
-  const entityKind = cleanString(record.entity_kind) as SynthesisDurableEntityKind;
+  const entityKind = cleanString(
+    record.entity_kind,
+  ) as SynthesisDurableEntityKind;
   const entityId = cleanString(record.entity_id);
   const schemaId = cleanString(record.schema_id);
   const schemaVersion = cleanString(record.schema_version);
@@ -1078,8 +1227,10 @@ function validateManifestShape(
     });
   }
   if (
-    manifest.manifest_schema_version !== SYNTHESIS_DURABLE_MANIFEST_SCHEMA_VERSION &&
-    manifest.manifest_schema_version !== SYNTHESIS_DURABLE_LEGACY_MANIFEST_SCHEMA_VERSION
+    manifest.manifest_schema_version !==
+      SYNTHESIS_DURABLE_MANIFEST_SCHEMA_VERSION &&
+    manifest.manifest_schema_version !==
+      SYNTHESIS_DURABLE_LEGACY_MANIFEST_SCHEMA_VERSION
   ) {
     diagnostics.push({
       code: "durable_manifest_schema_unsupported",
@@ -1165,13 +1316,16 @@ async function readLegacyRemoteAssets(
       });
       continue;
     }
-    if (envelope.content_hash !== envelopeContentHash({
-      schemaId: envelope.schema_id,
-      schemaVersion: envelope.schema_version,
-      entityKind: envelope.entity_kind,
-      entityId: envelope.entity_id,
-      data: envelope.data,
-    })) {
+    if (
+      envelope.content_hash !==
+      envelopeContentHash({
+        schemaId: envelope.schema_id,
+        schemaVersion: envelope.schema_version,
+        entityKind: envelope.entity_kind,
+        entityId: envelope.entity_id,
+        data: envelope.data,
+      })
+    ) {
       diagnostics.push({
         code: "durable_asset_content_hash_mismatch",
         severity: "error",
@@ -1195,7 +1349,10 @@ async function readLegacyRemoteAssets(
   return { assets, diagnostics };
 }
 
-async function readRemoteAssets(root: string, manifest: SynthesisDurableSyncManifest) {
+async function readRemoteAssets(
+  root: string,
+  manifest: SynthesisDurableSyncManifest,
+) {
   if (isLegacyManifest(manifest)) {
     return readLegacyRemoteAssets(root, manifest);
   }
@@ -1275,7 +1432,8 @@ async function readRemoteAssets(root: string, manifest: SynthesisDurableSyncMani
       diagnostics.push({
         code: "durable_manifest_entry_index_count_mismatch",
         severity: "error",
-        message: "Durable manifest entity index count does not match bundle entry count.",
+        message:
+          "Durable manifest entity index count does not match bundle entry count.",
         path: safe.normalizedPath,
       });
       continue;
@@ -1303,7 +1461,8 @@ async function readRemoteAssets(root: string, manifest: SynthesisDurableSyncMani
         diagnostics.push({
           code: "durable_asset_missing_from_manifest_index",
           severity: "error",
-          message: "Durable bundle entry is missing from manifest entity index.",
+          message:
+            "Durable bundle entry is missing from manifest entity index.",
           path: safe.normalizedPath,
         });
         continue;
@@ -1317,13 +1476,16 @@ async function readRemoteAssets(root: string, manifest: SynthesisDurableSyncMani
         });
         continue;
       }
-      if (parsed.content_hash !== envelopeContentHash({
-        schemaId: parsed.schema_id,
-        schemaVersion: parsed.schema_version,
-        entityKind: parsed.entity_kind,
-        entityId: parsed.entity_id,
-        data: parsed.data,
-      })) {
+      if (
+        parsed.content_hash !==
+        envelopeContentHash({
+          schemaId: parsed.schema_id,
+          schemaVersion: parsed.schema_version,
+          entityKind: parsed.entity_kind,
+          entityId: parsed.entity_id,
+          data: parsed.data,
+        })
+      ) {
         diagnostics.push({
           code: "durable_asset_content_hash_mismatch",
           severity: "error",
@@ -1396,8 +1558,13 @@ export async function writeSynthesisDurableSyncIndex(args: {
     updated_at: timestamp,
     entities,
   };
-  await ensureRuntimeDirectory(buildSynthesisKnowledgeGraphPaths(args.root).syncRoot);
-  await writeRuntimeTextFile(syncIndexPath(args.root), canonicalJsonText(index));
+  await ensureRuntimeDirectory(
+    buildSynthesisKnowledgeGraphPaths(args.root).syncRoot,
+  );
+  await writeRuntimeTextFile(
+    syncIndexPath(args.root),
+    canonicalJsonText(index),
+  );
   return index;
 }
 
@@ -1464,7 +1631,10 @@ export async function previewSynthesisDurableImport(args: {
         entity_kind: asset.entity_kind,
         entity_id: asset.entity_id,
         path: asset.path,
-        reason: asset.entity_kind === "tombstone" ? "update_vs_tombstone" : "both_changed",
+        reason:
+          asset.entity_kind === "tombstone"
+            ? "update_vs_tombstone"
+            : "both_changed",
         base_hash: baseHash,
         local_hash: localHash,
         remote_hash: remoteHash,
@@ -1491,7 +1661,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function applyEnvelope(repository: SynthesisRepository, envelope: SynthesisDurableAssetEnvelope) {
+function applyEnvelope(
+  repository: SynthesisRepository,
+  envelope: SynthesisDurableAssetEnvelope,
+) {
   const data = isRecord(envelope.data) ? envelope.data : {};
   switch (envelope.entity_kind) {
     case "concept":
@@ -1596,7 +1769,10 @@ async function applyTopicCurrentAsset(
     throw new Error("topic_current_asset_path_invalid");
   }
   await writeRuntimeTextFile(
-    joinPath(buildSynthesisStoragePaths(root).synthesisRoot, safe.normalizedPath),
+    joinPath(
+      buildSynthesisStoragePaths(root).synthesisRoot,
+      safe.normalizedPath,
+    ),
     content,
   );
 }
@@ -1626,10 +1802,14 @@ export async function applySynthesisDurableImport(args: {
       },
     };
   }
-  const manifestEntities = listSynthesisDurableManifestEntities(preview.manifest);
+  const manifestEntities = listSynthesisDurableManifestEntities(
+    preview.manifest,
+  );
   repository.transaction(() => {
     for (const asset of manifestEntities) {
-      const envelope = remote.assets.get(entityKey(asset.entity_kind, asset.entity_id));
+      const envelope = remote.assets.get(
+        entityKey(asset.entity_kind, asset.entity_id),
+      );
       if (
         !envelope ||
         envelope.entity_kind === "tombstone" ||
@@ -1643,7 +1823,10 @@ export async function applySynthesisDurableImport(args: {
     for (const cache of [
       { cacheKey: "reference-sidecar:library", cacheKind: "reference-sidecar" },
       { cacheKey: "citation-graph:library", cacheKind: "citation-graph" },
-      { cacheKey: "citation-layout:workbench_overview", cacheKind: "citation-layout" },
+      {
+        cacheKey: "citation-layout:workbench_overview",
+        cacheKind: "citation-layout",
+      },
       { cacheKey: "concept-kb-index", cacheKind: "concept-kb-index" },
       { cacheKey: "tag-index", cacheKind: "tag-index" },
     ]) {
@@ -1656,7 +1839,9 @@ export async function applySynthesisDurableImport(args: {
     }
   });
   for (const asset of manifestEntities) {
-    const envelope = remote.assets.get(entityKey(asset.entity_kind, asset.entity_id));
+    const envelope = remote.assets.get(
+      entityKey(asset.entity_kind, asset.entity_id),
+    );
     if (envelope?.entity_kind === "topic_current_asset") {
       await applyTopicCurrentAsset(args.root, envelope);
     }

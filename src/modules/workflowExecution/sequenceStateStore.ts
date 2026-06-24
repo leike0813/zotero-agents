@@ -115,7 +115,7 @@ function parseProviderResult(
           ? "waiting"
           : normalizeString(raw.detachReason) === "observer_failure"
             ? "observer_failure"
-          : undefined,
+            : undefined,
       continuationOwner:
         normalizeString(raw.continuationOwner) === "foreground"
           ? "foreground"
@@ -180,7 +180,9 @@ function cloneProviderResult(result: ProviderExecutionResult) {
   } satisfies ProviderExecutionResult;
 }
 
-function parseStepApplyResult(raw: unknown): SequenceStepRunState["applyResult"] {
+function parseStepApplyResult(
+  raw: unknown,
+): SequenceStepRunState["applyResult"] {
   if (!isRecord(raw)) {
     return undefined;
   }
@@ -296,9 +298,8 @@ function sequenceRunKey(sequenceRunId: string) {
 function parseStoredSequencePayload(payload: string) {
   try {
     const raw = JSON.parse(payload || "{}");
-    const envelope = isRecord(raw) && isRecord(raw.sequenceState)
-      ? raw.sequenceState
-      : raw;
+    const envelope =
+      isRecord(raw) && isRecord(raw.sequenceState) ? raw.sequenceState : raw;
     return parseState(envelope);
   } catch {
     return null;
@@ -425,9 +426,7 @@ export function getSequenceRunStateByStepRequest(requestIdRaw: string) {
   for (const entry of listSequenceStateEntries()) {
     const state = parseStoredSequencePayload(entry.payload);
     if (
-      state?.steps.some(
-        (step) => normalizeString(step.requestId) === requestId,
-      )
+      state?.steps.some((step) => normalizeString(step.requestId) === requestId)
     ) {
       return state;
     }

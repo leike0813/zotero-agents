@@ -121,7 +121,9 @@ function sanitizeDisplayName(nameRaw: unknown) {
     .split(/[\\/]/)
     .filter(Boolean)
     .pop()
-    ?.replace(/[\u0000-\u001f]/g, "")
+    ?.split("")
+    .filter((char) => char.charCodeAt(0) > 0x1f)
+    .join("")
     .trim();
   return name || "download.bin";
 }

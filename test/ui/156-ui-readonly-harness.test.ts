@@ -241,12 +241,12 @@ async function createPluginStateFixture() {
               skillName: "Sequence Skill",
               index: 0,
               requestId: "sr-req-seq",
-              updatedAt: "2026-01-01T00:04:00.000Z"
-            }
+              updatedAt: "2026-01-01T00:04:00.000Z",
+            },
           ],
           createdAt: "2026-01-01T00:04:00.000Z",
-          updatedAt: "2026-01-01T00:04:00.000Z"
-        }
+          updatedAt: "2026-01-01T00:04:00.000Z",
+        },
       })}'
     );
     INSERT INTO plugin_skillrunner_runs VALUES (
@@ -568,28 +568,37 @@ describe("UI readonly harness", function () {
         (snapshots.acpSkills as any).selectedRun.pendingPermission.requestId,
         "skill-perm-1",
       );
-      assert.equal((snapshots.acpSkills as any).selectedRun.skillName, "Demo Skill");
-      assert.equal((snapshots.acpSkills as any).selectedRun.skillId, "skill.demo");
+      assert.equal(
+        (snapshots.acpSkills as any).selectedRun.skillName,
+        "Demo Skill",
+      );
+      assert.equal(
+        (snapshots.acpSkills as any).selectedRun.skillId,
+        "skill.demo",
+      );
       assert.ok((snapshots.acpSkills as any).selectedRuntimeOptions);
       assert.equal(
         (snapshots.skillrunner as any).session.authSessionId,
         "auth-1",
       );
-      assert.equal((snapshots.skillrunner as any).session.applyState, "running");
+      assert.equal(
+        (snapshots.skillrunner as any).session.applyState,
+        "running",
+      );
       assert.equal((snapshots.skillrunner as any).session.applyAttempt, 1);
       assert.equal(
         (snapshots.skillrunner as any).session.runKey,
         "local:sr-workflow-run:sr-job-1",
       );
-      assert.equal("skillLabel" in (snapshots.skillrunner as any).session, false);
+      assert.equal(
+        "skillLabel" in (snapshots.skillrunner as any).session,
+        false,
+      );
       assert.ok(Array.isArray((snapshots.skillrunner as any).drawer.sections));
       const activeTasks = (snapshots.skillrunner as any).drawer.sections[0]
         .groups[0].activeTasks;
       assert.equal(activeTasks[0].skillName, "Auth Skill");
-      assert.equal(
-        activeTasks[0].key,
-        "local:sr-workflow-run:sr-job-1",
-      );
+      assert.equal(activeTasks[0].key, "local:sr-workflow-run:sr-job-1");
       assert.equal(activeTasks[0].applyState, "running");
       assert.equal(activeTasks[0].skillId, "skill.auth");
       assert.equal("skillLabel" in activeTasks[0], false);
@@ -619,8 +628,14 @@ describe("UI readonly harness", function () {
     );
     assert.match(source, /skillrunner-connection-audit/);
     assert.match(source, /function renderSkillRunnerConnectionAudit/);
-    assert.match(source, /copyTextToClipboard\(JSON\.stringify\(view, null, 2\)\)/);
-    assert.doesNotMatch(source, /skillrunner-connection-audit[\s\S]{0,800}abortSkillRunnerConnections/);
+    assert.match(
+      source,
+      /copyTextToClipboard\(JSON\.stringify\(view, null, 2\)\)/,
+    );
+    assert.doesNotMatch(
+      source,
+      /skillrunner-connection-audit[\s\S]{0,800}abortSkillRunnerConnections/,
+    );
   });
 
   it("maps a minimal Zotero DB fixture to synthesis library inputs", async function () {

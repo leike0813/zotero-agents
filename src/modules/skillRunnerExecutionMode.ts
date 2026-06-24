@@ -8,7 +8,9 @@ export function normalizeSkillRunnerExecutionMode(
   value: unknown,
   fallback: SkillRunnerExecutionMode = "auto",
 ): SkillRunnerExecutionMode {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (normalized === "interactive") {
     return "interactive";
   }
@@ -36,4 +38,3 @@ export function resolveSkillRunnerExecutionModeFromRequest(
     fallback,
   );
 }
-

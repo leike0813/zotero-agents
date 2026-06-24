@@ -475,7 +475,7 @@ class ZoteroMcpToolCallQueue {
 
 let state: ServerState = createEmptyState("idle");
 let startingPromise: Promise<ZoteroMcpServerDescriptor> | null = null;
-let toolCallQueue = new ZoteroMcpToolCallQueue();
+const toolCallQueue = new ZoteroMcpToolCallQueue();
 
 function nowIso() {
   return new Date().toISOString();
@@ -1325,7 +1325,7 @@ function requestHeaderFacts(request?: HttpRequest) {
   return {
     accept: String(request.headers.accept || "").trim(),
     contentType: String(request.headers["content-type"] || "").trim(),
-    userAgentFamily: userAgent.split(/[\/\s]/)[0] || "",
+    userAgentFamily: userAgent.split(/[/\s]/)[0] || "",
     hasMcpSessionId: !!String(request.headers["mcp-session-id"] || "").trim(),
     hasMcpProtocolVersion: !!String(
       request.headers["mcp-protocol-version"] || "",

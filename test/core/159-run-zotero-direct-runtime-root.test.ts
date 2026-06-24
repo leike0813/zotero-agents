@@ -15,7 +15,8 @@ import {
 describe("run-zotero-direct runtime root safety", function () {
   it("uses the configured Zotero data dir before the generic local-app-data fallback", function () {
     const env = {
-      ZOTERO_PLUGIN_DATA_DIR: "D:\\Workspace\\Artifact\\Zotero-Skills\\Zotero_data",
+      ZOTERO_PLUGIN_DATA_DIR:
+        "D:\\Workspace\\Artifact\\Zotero-Skills\\Zotero_data",
       LOCALAPPDATA: "C:\\Users\\leike\\AppData\\Local",
     } as NodeJS.ProcessEnv;
 
@@ -42,7 +43,10 @@ describe("run-zotero-direct runtime root safety", function () {
 
     assert.equal(
       runtimeRoot,
-      path.resolve("C:\\Users\\leike\\AppData\\Local", "Zotero-Agents-Direct-Runtime"),
+      path.resolve(
+        "C:\\Users\\leike\\AppData\\Local",
+        "Zotero-Agents-Direct-Runtime",
+      ),
     );
     assert.equal(launchEnv.ZOTERO_SKILLS_RUNTIME_ROOT, runtimeRoot);
     assert.notInclude(
@@ -66,7 +70,8 @@ describe("run-zotero-direct runtime root safety", function () {
 
   it("applies the same runtime root to npm start with mock skillrunner", function () {
     const env = {
-      ZOTERO_PLUGIN_DATA_DIR: "D:\\Workspace\\Artifact\\Zotero-Skills\\Zotero_data",
+      ZOTERO_PLUGIN_DATA_DIR:
+        "D:\\Workspace\\Artifact\\Zotero-Skills\\Zotero_data",
       LOCALAPPDATA: "C:\\Users\\leike\\AppData\\Local",
     } as NodeJS.ProcessEnv;
 
@@ -94,7 +99,10 @@ describe("run-zotero-direct runtime root safety", function () {
         prefs,
         'user_pref("extensions.zotero.zotero-skills.runtimeRoot"',
       );
-      assert.include(prefs, JSON.stringify(path.resolve(dataDir, "zotero-agents")));
+      assert.include(
+        prefs,
+        JSON.stringify(path.resolve(dataDir, "zotero-agents")),
+      );
 
       patchRuntimeRootPref(profile, {
         ...env,

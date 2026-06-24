@@ -64,12 +64,17 @@ describe("Synthesis Citation Graph", function () {
       ],
     });
 
-    assert.include(graph.nodes.map((node) => node.node_id), "zotero:item:BBBB2222");
+    assert.include(
+      graph.nodes.map((node) => node.node_id),
+      "zotero:item:BBBB2222",
+    );
     assert.notInclude(
       graph.nodes.map((node) => node.node_id),
       "ref:titleyearauthor:target-paper:2020:target-author",
     );
-    const target = graph.nodes.find((node) => node.node_id === "zotero:item:BBBB2222");
+    const target = graph.nodes.find(
+      (node) => node.node_id === "zotero:item:BBBB2222",
+    );
     assert.include(
       target?.aliases || [],
       "ref:titleyearauthor:target-paper:2020:target-author",
@@ -137,9 +142,7 @@ describe("Synthesis Citation Graph", function () {
     assert.lengthOf(graph.edges, 1);
     assert.equal(graph.edges[0].mention_count, 2);
     assert.equal(graph.edges[0].primary_role, "background");
-    assert.deepEqual(graph.edges[0].aux_roles, [
-      { role: "method", count: 2 },
-    ]);
+    assert.deepEqual(graph.edges[0].aux_roles, [{ role: "method", count: 2 }]);
   });
 
   it("merges repeated external references across source papers", function () {
@@ -198,7 +201,9 @@ describe("Synthesis Citation Graph", function () {
       ],
     });
 
-    const unresolved = graph.nodes.filter((node) => node.kind === "unresolved_reference");
+    const unresolved = graph.nodes.filter(
+      (node) => node.kind === "unresolved_reference",
+    );
     assert.lengthOf(unresolved, 1);
     assert.match(unresolved[0].node_id, /^ref:raw:/);
     assert.lengthOf(graph.edges, 2);
@@ -369,7 +374,9 @@ describe("Synthesis Citation Graph", function () {
           title: "Middle Paper",
           year: "2022",
           authors: ["B"],
-          references: [{ title: "Foundation Paper", year: "2020", authors: ["A"] }],
+          references: [
+            { title: "Foundation Paper", year: "2020", authors: ["A"] },
+          ],
         },
         {
           libraryId: 1,
@@ -389,7 +396,9 @@ describe("Synthesis Citation Graph", function () {
 
     const first = computeCitationGraphMetrics(graph);
     const second = computeCitationGraphMetrics(graph);
-    const byId = new Map(first.library_node_metrics.map((entry) => [entry.node_id, entry]));
+    const byId = new Map(
+      first.library_node_metrics.map((entry) => [entry.node_id, entry]),
+    );
 
     assert.equal(first.metrics_hash, second.metrics_hash);
     assert.equal(first.graph_hash, graph.graph_hash);
@@ -401,7 +410,10 @@ describe("Synthesis Citation Graph", function () {
     assert.equal(byId.get("zotero:item:A")?.external_reference_count, 1);
     assert.equal(byId.get("zotero:item:A")?.unresolved_reference_count, 1);
     assert.equal(byId.get("zotero:item:D")?.is_isolated, true);
-    assert.include(byId.get("zotero:item:D")?.synthesis_role_hints || [], "isolated");
+    assert.include(
+      byId.get("zotero:item:D")?.synthesis_role_hints || [],
+      "isolated",
+    );
     assert.isAbove(byId.get("zotero:item:B")?.internal_pagerank || 0, 0);
     assert.isAtLeast(byId.get("zotero:item:C")?.recency_norm || 0, 1);
   });

@@ -319,10 +319,7 @@ export class AcpClientConnection {
     );
   }
 
-  async prompt(params: {
-    sessionId: string;
-    prompt: unknown;
-  }) {
+  async prompt(params: { sessionId: string; prompt: unknown }) {
     return await this.sendRequest<{ stopReason: string }>(
       ACP_AGENT_METHODS.session_prompt,
       params,
@@ -333,20 +330,14 @@ export class AcpClientConnection {
     await this.sendNotification(ACP_AGENT_METHODS.session_cancel, params);
   }
 
-  async setSessionMode(params: {
-    sessionId: string;
-    modeId: string;
-  }) {
+  async setSessionMode(params: { sessionId: string; modeId: string }) {
     return await this.sendRequest<Record<string, never>>(
       ACP_AGENT_METHODS.session_set_mode,
       params,
     );
   }
 
-  async setSessionModel(params: {
-    sessionId: string;
-    modelId: string;
-  }) {
+  async setSessionModel(params: { sessionId: string; modelId: string }) {
     return await this.sendRequest<Record<string, never>>(
       ACP_AGENT_METHODS.session_set_model,
       params,

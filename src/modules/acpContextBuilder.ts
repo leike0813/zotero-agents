@@ -1,8 +1,13 @@
 import type { AcpHostContext, AcpSidebarTarget } from "./acpTypes";
 
-function resolveItemTitle(item: {
-  getField?: (field: string) => unknown;
-} | null | undefined) {
+function resolveItemTitle(
+  item:
+    | {
+        getField?: (field: string) => unknown;
+      }
+    | null
+    | undefined,
+) {
   return String(item?.getField?.("title") || "").trim();
 }
 
@@ -19,29 +24,40 @@ function resolveLibraryId(win: _ZoteroTypes.MainWindow) {
 }
 
 function resolveSelectionParent(
-  item: {
-    id?: number;
-    key?: string;
-    parentID?: number;
-    parentItem?: unknown;
-    isAttachment?: () => boolean;
-    getField?: (field: string) => unknown;
-  } | null | undefined,
+  item:
+    | {
+        id?: number;
+        key?: string;
+        parentID?: number;
+        parentItem?: unknown;
+        isAttachment?: () => boolean;
+        getField?: (field: string) => unknown;
+      }
+    | null
+    | undefined,
 ) {
   if (!item) {
     return null;
   }
   if (item.isAttachment?.()) {
-    return item.parentItem || (item.parentID ? Zotero.Items.get(item.parentID) : null);
+    return (
+      item.parentItem ||
+      (item.parentID ? Zotero.Items.get(item.parentID) : null)
+    );
   }
   return item;
 }
 
-function buildCurrentItem(item: {
-  id?: number;
-  key?: string;
-  getField?: (field: string) => unknown;
-} | null | undefined) {
+function buildCurrentItem(
+  item:
+    | {
+        id?: number;
+        key?: string;
+        getField?: (field: string) => unknown;
+      }
+    | null
+    | undefined,
+) {
   if (!item) {
     return undefined;
   }
@@ -70,13 +86,17 @@ function buildLibraryContext(win: _ZoteroTypes.MainWindow): AcpHostContext {
 }
 
 function buildReaderContext(win: _ZoteroTypes.MainWindow): AcpHostContext {
-  const selectedTabId = String((win as any).Zotero_Tabs?.selectedID || "").trim();
+  const selectedTabId = String(
+    (win as any).Zotero_Tabs?.selectedID || "",
+  ).trim();
   const tabRecord = selectedTabId
     ? (win as any).Zotero_Tabs?._getTab?.(selectedTabId)
     : null;
   const itemId = Number(tabRecord?.tab?.data?.itemID || 0);
   const item =
-    Number.isFinite(itemId) && itemId > 0 ? Zotero.Items.get(Math.floor(itemId)) : null;
+    Number.isFinite(itemId) && itemId > 0
+      ? Zotero.Items.get(Math.floor(itemId))
+      : null;
   const primary = resolveSelectionParent(item as any);
   return {
     target: "reader",
@@ -108,7 +128,9 @@ export function buildCurrentAcpHostContext(): AcpHostContext {
       selectionEmpty: true,
     };
   }
-  const selectedTabId = String((win as any).Zotero_Tabs?.selectedID || "").trim();
+  const selectedTabId = String(
+    (win as any).Zotero_Tabs?.selectedID || "",
+  ).trim();
   const tabRecord = selectedTabId
     ? (win as any).Zotero_Tabs?._getTab?.(selectedTabId)
     : null;

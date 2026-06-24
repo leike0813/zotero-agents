@@ -5,9 +5,7 @@ import {
   type SkillRunnerManagementSseFrame,
 } from "../../src/providers/skillrunner/managementClient";
 import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
-import {
-  resolveSkillRunnerManagementResponseSemantic,
-} from "../../src/modules/skillRunnerRunSettlement";
+import { resolveSkillRunnerManagementResponseSemantic } from "../../src/modules/skillRunnerRunSettlement";
 
 describe("skillrunner management client", function () {
   it("classifies accepted=false terminal cancel responses as terminal reconciliation", function () {

@@ -338,7 +338,9 @@ function sequenceStateForRun(
   const state = run.sequenceRunId
     ? sequenceByRunId.get(run.sequenceRunId)
     : undefined;
-  const step = state?.steps.find((entry) => entry.stepId === run.sequenceStepId);
+  const step = state?.steps.find(
+    (entry) => entry.stepId === run.sequenceStepId,
+  );
   return { state, step };
 }
 

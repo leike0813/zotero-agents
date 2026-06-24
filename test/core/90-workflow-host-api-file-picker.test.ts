@@ -28,7 +28,11 @@ type RuntimeWithToolkit = typeof globalThis & {
   ChromeUtils?: {
     importESModule?: (specifier: string) => {
       FilePicker?: new () => {
-        init: (parentWindow: Window | undefined, title: string, mode: number) => void;
+        init: (
+          parentWindow: Window | undefined,
+          title: string,
+          mode: number,
+        ) => void;
         appendFilter: (title: string, filter: string) => void;
         displayDirectory?: string;
         modeOpenMultiple: number;
@@ -183,10 +187,7 @@ describeFilePickerSuite("workflow host api file pickers", function () {
           });
         }
         async open() {
-          return [
-            "D:/imports/custom-a.md",
-            "D:/imports/custom-b.md",
-          ];
+          return ["D:/imports/custom-a.md", "D:/imports/custom-b.md"];
         }
       },
     };
@@ -246,7 +247,11 @@ describeFilePickerSuite("workflow host api file pickers", function () {
             modeOpenMultiple = 3;
             returnCancel = 1;
             files = ["D:/imports/custom-a.md", "D:/imports/custom-b.md"];
-            init(parentWindow: Window | undefined, title: string, mode: number) {
+            init(
+              parentWindow: Window | undefined,
+              title: string,
+              mode: number,
+            ) {
               initCalls.push({ parentWindow, title, mode });
             }
             appendFilter(title: string, filter: string) {

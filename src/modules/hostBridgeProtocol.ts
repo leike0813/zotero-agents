@@ -74,10 +74,7 @@ export type HostBridgeServiceStatus =
 
 export type HostBridgePortMode = "random" | "pinned" | "fallback";
 
-export type HostBridgeAdvertisedHostSource =
-  | "manual"
-  | "auto"
-  | "placeholder";
+export type HostBridgeAdvertisedHostSource = "manual" | "auto" | "placeholder";
 
 export type HostBridgeStatusSnapshot = {
   status: HostBridgeServiceStatus;

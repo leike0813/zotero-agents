@@ -123,7 +123,9 @@ const LEGAL_TRANSITIONS: Record<
 };
 
 function normalizeEventKind(value: unknown): SkillRunnerStateEventKind | "" {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (normalized === "request-created") {
     return "request-created";
   }
@@ -150,8 +152,12 @@ function normalizeEventKind(value: unknown): SkillRunnerStateEventKind | "" {
   return "";
 }
 
-export function isKnownStatus(value: unknown): value is SkillRunnerProviderState {
-  const normalized = String(value || "").trim().toLowerCase();
+export function isKnownStatus(
+  value: unknown,
+): value is SkillRunnerProviderState {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   return SKILLRUNNER_PROVIDER_STATES.includes(
     normalized as SkillRunnerProviderState,
   );
@@ -161,11 +167,11 @@ export function normalizeStatus(
   value: unknown,
   fallback: SkillRunnerProviderState = "running",
 ): SkillRunnerProviderState {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (
-    SKILLRUNNER_PROVIDER_STATES.includes(
-      normalized as SkillRunnerProviderState,
-    )
+    SKILLRUNNER_PROVIDER_STATES.includes(normalized as SkillRunnerProviderState)
   ) {
     return normalized as SkillRunnerProviderState;
   }
@@ -214,7 +220,7 @@ export function validateTransition(args: {
   prev: unknown;
   next: unknown;
   requestId?: string;
-}) : SkillRunnerTransitionValidation {
+}): SkillRunnerTransitionValidation {
   const prevNormalized = normalizeStatusWithGuard({
     value: args.prev,
     fallback: "running",

@@ -89,7 +89,9 @@ export function collectOutputArtifactFields(
 export function validateFlatArtifactManifest(
   value: unknown,
   options?: { allowAbsolutePaths?: boolean },
-): { ok: true; paths: string[] } | { ok: false; diagnostics: ArtifactManifestDiagnostic[] } {
+):
+  | { ok: true; paths: string[] }
+  | { ok: false; diagnostics: ArtifactManifestDiagnostic[] } {
   if (!isRecord(value)) {
     return {
       ok: false,
@@ -147,9 +149,11 @@ export async function collectOutputBundleArtifactPaths(args: {
     if (!pathValue) {
       continue;
     }
-    if (!isAllowedArtifactPath(pathValue, {
-      allowAbsolutePaths: args.allowAbsolutePaths,
-    })) {
+    if (
+      !isAllowedArtifactPath(pathValue, {
+        allowAbsolutePaths: args.allowAbsolutePaths,
+      })
+    ) {
       diagnostics.push({
         code: "artifact_path_invalid",
         message: args.allowAbsolutePaths

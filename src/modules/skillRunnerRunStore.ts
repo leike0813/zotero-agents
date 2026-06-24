@@ -13,7 +13,11 @@ import {
   listPluginRunStoreEntriesFiltered,
   upsertPluginRunStoreEntry,
 } from "./pluginStateStore";
-import { isActive, isTerminal, isWaiting } from "./skillRunnerProviderStateMachine";
+import {
+  isActive,
+  isTerminal,
+  isWaiting,
+} from "./skillRunnerProviderStateMachine";
 import type { WorkflowTaskRecord } from "./taskRuntime";
 import {
   getSequenceRunState,
@@ -609,7 +613,10 @@ export function createSkillRunnerRun(args: SkillRunnerRunInit) {
     return null;
   }
   const existing = getSkillRunnerRunRecord(runKey);
-  const now = normalizeString(args.updatedAt) || normalizeString(args.createdAt) || nowIso();
+  const now =
+    normalizeString(args.updatedAt) ||
+    normalizeString(args.createdAt) ||
+    nowIso();
   const record: SkillRunnerRunRecord = {
     schemaVersion: SKILLRUNNER_RUN_SCHEMA_VERSION,
     runKey,
@@ -648,16 +655,26 @@ export function createSkillRunnerRun(args: SkillRunnerRunInit) {
     createdAt: existing?.createdAt || normalizeString(args.createdAt) || now,
     updatedAt: now,
   };
-  if (!record.backendId || !record.workflowId || !record.workflowRunId || !record.jobId) {
+  if (
+    !record.backendId ||
+    !record.workflowId ||
+    !record.workflowRunId ||
+    !record.jobId
+  ) {
     return null;
   }
-  return upsertSkillRunnerRunRecord(record, existing ? undefined : {
-    type: "submit.local_created",
-    payload: {
-      source: "createSkillRunnerRun",
-      submitPhase: record.submitPhase,
-    },
-  });
+  return upsertSkillRunnerRunRecord(
+    record,
+    existing
+      ? undefined
+      : {
+          type: "submit.local_created",
+          payload: {
+            source: "createSkillRunnerRun",
+            submitPhase: record.submitPhase,
+          },
+        },
+  );
 }
 
 export function attachSkillRunnerRequestId(args: {
@@ -974,8 +991,9 @@ export function listSkillRunnerRunEvents(runKey: string) {
 
 function workflowLabelForId(workflowId: string) {
   const workflow =
-    getLoadedWorkflowEntries().find((entry) => entry.manifest.id === workflowId) ||
-    null;
+    getLoadedWorkflowEntries().find(
+      (entry) => entry.manifest.id === workflowId,
+    ) || null;
   return workflow ? localizeWorkflowLabel(workflow) : workflowId;
 }
 
@@ -1245,7 +1263,8 @@ export function updateSkillRunnerRunStateByRequest(args: {
   const unchangedSnapshot =
     args.eventType === "backend.snapshot" &&
     existing.status === status &&
-    normalizeString(existing.backendStatus) === normalizeString(backendStatus) &&
+    normalizeString(existing.backendStatus) ===
+      normalizeString(backendStatus) &&
     !error;
   return upsertSkillRunnerRunRecord(
     {
@@ -1311,7 +1330,8 @@ export function updateSkillRunnerRunStateByRunKey(args: {
   const unchangedSnapshot =
     args.eventType === "backend.snapshot" &&
     existing.status === status &&
-    normalizeString(existing.backendStatus) === normalizeString(backendStatus) &&
+    normalizeString(existing.backendStatus) ===
+      normalizeString(backendStatus) &&
     !error;
   return upsertSkillRunnerRunRecord(
     {

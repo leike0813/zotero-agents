@@ -1,9 +1,6 @@
 import type { BackendInstance } from "../backends/types";
 import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
-import {
-  selectAcpSkillRun,
-  upsertAcpSkillRun,
-} from "./acpSkillRunStore";
+import { selectAcpSkillRun, upsertAcpSkillRun } from "./acpSkillRunStore";
 import { resolveSkillRunnerExecutionModeFromRequest } from "./skillRunnerExecutionMode";
 
 export type AcpSkillRunForegroundDeps = {

@@ -197,12 +197,16 @@ export function buildAcpLaunchPlanForTests(args: {
       normalizeString(args.comspec) || "cmd.exe",
       args.platform,
     );
-    const commandForShell = isPathLikeCommand(command) ? resolvedCommand : command;
+    const commandForShell = isPathLikeCommand(command)
+      ? resolvedCommand
+      : command;
     const resolvedCommandDir = dirnameWindowsPath(resolvedCommand);
     const environment =
       resolvedCommandDir && !isPathLikeCommand(command)
         ? {
-            PATH: prependPathEntry(undefined, resolvedCommandDir) || resolvedCommandDir,
+            PATH:
+              prependPathEntry(undefined, resolvedCommandDir) ||
+              resolvedCommandDir,
           }
         : undefined;
     const shellArgs = [
@@ -244,7 +248,10 @@ function resolveTextDecoderCtor() {
   return ctor;
 }
 
-function encodeUint8Chunk(value: unknown, encoder: InstanceType<ReturnType<typeof resolveTextEncoderCtor>>) {
+function encodeUint8Chunk(
+  value: unknown,
+  encoder: InstanceType<ReturnType<typeof resolveTextEncoderCtor>>,
+) {
   if (value instanceof Uint8Array) {
     return value;
   }
@@ -335,9 +342,14 @@ function createWritableStreamFromMozillaPipe(pipe: {
   } satisfies AcpWritableLike<Uint8Array>;
 }
 
-async function drainMozillaPipe(pipe: {
-  readString?: () => Promise<string>;
-} | null | undefined) {
+async function drainMozillaPipe(
+  pipe:
+    | {
+        readString?: () => Promise<string>;
+      }
+    | null
+    | undefined,
+) {
   if (!pipe || typeof pipe.readString !== "function") {
     return "";
   }
@@ -384,27 +396,23 @@ async function resolveMozillaCommand(
     return resolvedFromPathSearch;
   }
   if (detectWindowsPlatform()) {
-    const resolvedFromPowerShell = await resolveWindowsCommandFromPowerShell(
-      command,
-    );
+    const resolvedFromPowerShell =
+      await resolveWindowsCommandFromPowerShell(command);
     if (resolvedFromPowerShell.length > 0) {
       return normalizeString(resolvedFromPowerShell[0]);
     }
-    const resolvedFromUserLocalBin = await resolveWindowsCommandFromUserLocalBin(
-      command,
-    );
+    const resolvedFromUserLocalBin =
+      await resolveWindowsCommandFromUserLocalBin(command);
     if (resolvedFromUserLocalBin.length > 0) {
       return normalizeString(resolvedFromUserLocalBin[0]);
     }
-    const resolvedFromGlobalNpm = await resolveWindowsCommandFromGlobalNpmRoot(
-      command,
-    );
+    const resolvedFromGlobalNpm =
+      await resolveWindowsCommandFromGlobalNpmRoot(command);
     if (resolvedFromGlobalNpm.length > 0) {
       return normalizeString(resolvedFromGlobalNpm[0]);
     }
-    const resolvedFromNodeInstall = await resolveWindowsCommandFromNodeInstallRoot(
-      command,
-    );
+    const resolvedFromNodeInstall =
+      await resolveWindowsCommandFromNodeInstallRoot(command);
     if (resolvedFromNodeInstall.length > 0) {
       return normalizeString(resolvedFromNodeInstall[0]);
     }
@@ -478,7 +486,8 @@ async function resolveNodeCommand(commandRaw: string) {
   const pathModule = await dynamicImport("node:path");
   const fs = await dynamicImport("node:fs");
   const processModule = await dynamicImport("node:process");
-  const isWindows = String(processModule.platform || "").toLowerCase() === "win32";
+  const isWindows =
+    String(processModule.platform || "").toLowerCase() === "win32";
   const accessModes = fs.constants?.X_OK ?? 0;
   const isPathLike =
     /[\\/]/.test(command) ||
@@ -505,21 +514,20 @@ async function resolveNodeCommand(commandRaw: string) {
     .split(pathModule.delimiter)
     .map((entry: string) => String(entry || "").trim())
     .filter(Boolean);
-  const extCandidates =
-    isWindows
-      ? (() => {
-          const configured = String(processModule.env?.PATHEXT || "")
-            .split(";")
-            .map((entry: string) => String(entry || "").trim())
-            .filter(Boolean);
-          if (/\.[A-Za-z0-9]+$/.test(command)) {
-            return [""];
-          }
-          return configured.length > 0
-            ? configured
-            : [".EXE", ".CMD", ".BAT", ".COM"];
-        })()
-      : [""];
+  const extCandidates = isWindows
+    ? (() => {
+        const configured = String(processModule.env?.PATHEXT || "")
+          .split(";")
+          .map((entry: string) => String(entry || "").trim())
+          .filter(Boolean);
+        if (/\.[A-Za-z0-9]+$/.test(command)) {
+          return [""];
+        }
+        return configured.length > 0
+          ? configured
+          : [".EXE", ".CMD", ".BAT", ".COM"];
+      })()
+    : [""];
   for (const dir of entries) {
     for (const ext of extCandidates) {
       const candidate = pathModule.join(dir, `${command}${ext}`);
@@ -546,10 +554,7 @@ async function launchNodeAcpTransport(
   };
   type NodeReadable = {
     on: (event: "data", handler: (chunk: unknown) => void) => void;
-    once: (
-      event: "end" | "error",
-      handler: (arg?: unknown) => void,
-    ) => void;
+    once: (event: "end" | "error", handler: (arg?: unknown) => void) => void;
     off: (
       event: "data" | "end" | "error",
       handler: (arg?: unknown) => void,
