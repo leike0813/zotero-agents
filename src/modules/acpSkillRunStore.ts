@@ -2152,11 +2152,13 @@ function completeOpenStreamingTextItems(
   record: AcpSkillRunRecord,
   now: string,
 ) {
+  let changed = false;
   record.transcriptItems = record.transcriptItems.map((entry) => {
     if (
       (entry.kind === "message" || entry.kind === "thought") &&
       entry.state === "streaming"
     ) {
+      changed = true;
       return {
         ...entry,
         state: "complete",
@@ -2165,6 +2167,7 @@ function completeOpenStreamingTextItems(
     }
     return entry;
   });
+  return changed;
 }
 
 function appendTextChunk(args: {
@@ -2417,6 +2420,88 @@ export function recordAcpSkillRunSessionUpdate(
   setAcpSkillRunRecord(next);
   persistRun(next);
   scheduleChangedEmit();
+}
+
+export function completeAcpSkillRunTranscriptTurnBoundary(
+  runRequestIdRaw: string,
+) {
+  ensureHydrated();
+  const requestId = normalizeString(runRequestIdRaw);
+  if (!requestId) {
+    return;
+  }
+  const existing = runRecords.get(requestId);
+  if (!existing) {
+    return;
+  }
+  const now = nowIso();
+  const next: AcpSkillRunRecord = {
+    ...existing,
+    updatedAt: now,
+    transcriptItems: [...existing.transcriptItems],
+  };
+  if (!completeOpenStreamingTextItems(next, now)) {
+    return;
+  }
+  setAcpSkillRunRecord(next);
+  persistRun(next);
+  emitChanged();
+}
+
+export function appendAcpSkillRunHardTimeoutTranscriptNotice(args: {
+  requestId: string;
+  hardTimeoutSeconds: number;
+  hardTimeoutSource?: string;
+  recovered?: boolean;
+}) {
+  ensureHydrated();
+  const requestId = normalizeString(args.requestId);
+  if (!requestId) {
+    return;
+  }
+  const existing = runRecords.get(requestId);
+  if (!existing) {
+    return;
+  }
+  const now = nowIso();
+  const text = getStringOrFallback(
+    "task-dashboard-acp-hard-timeout-disconnected" as any,
+    `Local ACP connection disconnected because the Job Timeout (${args.hardTimeoutSeconds} sec) was reached. Reconnect to continue from the remote session.`,
+    {
+      args: {
+        seconds: args.hardTimeoutSeconds,
+      },
+    },
+  );
+  const last = existing.transcriptItems[existing.transcriptItems.length - 1];
+  if (
+    last?.kind === "status" &&
+    last.label === "hard-timeout-disconnect" &&
+    last.text === text
+  ) {
+    return;
+  }
+  const item: AcpSkillRunTranscriptItem = {
+    id: `acp-skill-status-${existing.transcriptItems.length + 1}`,
+    kind: "status",
+    level: "warn",
+    label: "hard-timeout-disconnect",
+    text,
+    details: {
+      hardTimeoutSeconds: args.hardTimeoutSeconds,
+      hardTimeoutSource: normalizeString(args.hardTimeoutSource) || undefined,
+      recovered: args.recovered === true,
+    },
+    createdAt: now,
+  };
+  const next: AcpSkillRunRecord = {
+    ...existing,
+    updatedAt: now,
+    transcriptItems: [...existing.transcriptItems, item].slice(-200),
+  };
+  setAcpSkillRunRecord(next);
+  persistRun(next);
+  emitChanged();
 }
 
 export function registerAcpSkillRunController(
@@ -3148,6 +3233,18 @@ export async function connectAcpSkillRun(requestIdRaw: string) {
   });
   try {
     await recoveryHandler({ requestId, reason: "connect" });
+    const recovered = getAcpSkillRunRecord(requestId);
+    if (
+      !controllers.has(requestId) &&
+      recovered?.conversationState === "closed" &&
+      recovered?.conversationRecoveryState === "available"
+    ) {
+      upsertAcpSkillRun({
+        requestId,
+        connectionActionState: "idle",
+      });
+      return;
+    }
     upsertAcpSkillRun({
       requestId,
       connectionActionState: "idle",

@@ -140,9 +140,9 @@ export class SkillRunnerProvider implements Provider {
       },
       provider_id: {
         type: "string" as const,
-        title: "Provider",
+        title: "Model Provider",
         description:
-          "Model provider for the selected engine. Provider-aware engines require an explicit provider.",
+          "Model provider for the selected engine. Model-provider-aware engines require an explicit model provider.",
         default: defaultModelProvider,
       },
       model: {
@@ -182,6 +182,8 @@ export class SkillRunnerProvider implements Provider {
         title: "Job Timeout (sec)",
         description:
           "Optional positive integer timeout in seconds. Empty means backend default.",
+        placeholder:
+          "Leave empty to use default; 20 min if skill has no default.",
       },
     };
   }

@@ -23,7 +23,23 @@ For ACP SkillRunner-compatible backends, the plugin consumes the same `skillrunn
 
 The runner resolves plugin-side skill assets, materializes them into run-local agent skill roots, injects a minimal SkillRunner-compatible run contract into the materialized `SKILL.md`, validates the runner-owned result JSON envelope recorded in `resultJsonPath`, and returns a normal `ProviderExecutionResult` for existing workflow `applyResult()` hooks. Business scripts should write package fallback files when needed; they must not hand-write the runner-owned result envelope.
 
-v1 supports auto execution only. Interactive workflow reply loops are explicitly out of scope.
+ACP-compatible runs synthesize effective runtime options from these sources,
+with later numbered sources overriding earlier numbered sources:
+
+1. `runner.json.runtime.default_options`
+2. request payload `runtime_options`
+3. submit-time provider runtime options (`providerOptions`)
+
+For `hard_timeout_seconds`, only positive integers are valid; if none of those
+sources provides a valid value, the ACP compatibility layer falls back to
+`1200` seconds. The synthesized effective options control local ACP execution
+behavior but do not mutate the original submitted request payload.
+
+`hard_timeout_seconds` is implemented as a local recoverable connection guard:
+the timer starts at the ACP prompt-ready boundary, disconnects locally on
+expiry, finalizes already-drained transcript content before appending the
+timeout status item, and leaves the remote session recoverable. It must not mark
+the run `failed` or `canceled`.
 
 ## Registry Entry
 

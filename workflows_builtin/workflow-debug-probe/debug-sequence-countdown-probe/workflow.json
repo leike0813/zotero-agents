@@ -10,6 +10,15 @@
   "inputs": {
     "unit": "workflow"
   },
+  "parameters": {
+    "countdown_seconds": {
+      "type": "number",
+      "title": "Countdown seconds",
+      "description": "Duration of the countdown timer in each step.",
+      "default": 120,
+      "min": 1
+    }
+  },
   "execution": {
     "feedback": {
       "showNotifications": true

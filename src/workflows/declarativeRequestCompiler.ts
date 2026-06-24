@@ -343,7 +343,10 @@ function resolveTaskName(args: {
   if (args.targetParentID) {
     return `item-${args.targetParentID}`;
   }
-  return "task";
+  if (args.manifest.label) {
+    return `Workflow: ${args.manifest.label}`;
+  }
+  return "Task";
 }
 
 function buildSkillRunnerJobRequest(args: {

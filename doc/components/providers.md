@@ -39,6 +39,9 @@
 - Provider 可声明可调选项 schema（如 skillrunner 的 `engine/provider_id/model/effort/no_cache/interactive_auto_reply/hard_timeout_seconds`）
 - Provider 可返回动态枚举（如 `model` 随 `engine` 变化）
 - Provider 负责对 runtime options 做 normalize
+- `providerOptions` 是提交时运行期 override。对于同名 runtime option，合法的
+  `providerOptions` 值覆盖 workflow 编译出的 request payload 中已有的
+  `runtime_options` 值。
 - SkillRunner 的 engine/model 枚举来源：
   - backend 实时拉取并按 backend 维度缓存（优先）
   - 静态内置目录（兜底）
@@ -153,6 +156,13 @@
   - `acpModelId`：ACP 模型选择
   - `acpReasoningEffort`：推理努力度
   - `autoApproveAcpPermissions`：是否自动审批 ACP 权限请求
+  - `hard_timeout_seconds`：ACP SkillRunner-compatible run 的本地硬超时断连保护；仅接受正整数，空值表示使用 runner/default 合成结果
+- ACP SkillRunner-compatible run 的 `hard_timeout_seconds` 覆盖优先级从低到高：
+  1. `runner.json.runtime.default_options.hard_timeout_seconds`
+  2. request payload `runtime_options.hard_timeout_seconds`
+  3. `providerOptions.hard_timeout_seconds`
+  若以上来源都没有合法正整数，则使用内置默认 `1200`。合成结果只用于 ACP
+  本地执行控制，不回写原始 request payload。
 
 ## Backend 兼容性
 

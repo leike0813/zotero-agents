@@ -1604,6 +1604,7 @@
       control = document.createElement("input");
       control.type = "text";
       control.value = currentValueStr;
+      control.placeholder = String(args.entry.placeholder || "");
       control.className = "workflow-settings-field-control";
       control.style.flex = "1 1 45%";
       combo.appendChild(control);
@@ -1611,6 +1612,7 @@
     } else {
       control = document.createElement("input");
       control.type = "text";
+      control.placeholder = String(args.entry.placeholder || "");
       if (args.entry.type === "number") {
         control.setAttribute(
           "inputmode",

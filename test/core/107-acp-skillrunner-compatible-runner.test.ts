@@ -48,6 +48,7 @@ import {
   type AcpSkillRunnerDependencies,
   executeAcpSkillRunnerJob,
   recoverAcpSkillRunConversation,
+  resolveAcpSkillRunEffectiveRuntimeOptions,
 } from "../../src/modules/acpSkillRunnerOrchestrator";
 import {
   applyHostBridgeCliEnvToBackend,
@@ -163,6 +164,7 @@ async function createSkill(
     declareSchemas?: boolean;
     mcpRequiredTools?: string[];
     skillId?: string;
+    runtimeDefaultOptions?: Record<string, unknown>;
   },
 ) {
   const skillId = args?.skillId || "demo-skill";
@@ -201,6 +203,9 @@ async function createSkill(
       execution_modes: args?.executionModes || ["auto"],
       runtime: {
         dependencies: args?.dependencies || [],
+        ...(args?.runtimeDefaultOptions
+          ? { default_options: args.runtimeDefaultOptions }
+          : {}),
       },
       ...(args?.mcpRequiredTools
         ? {
@@ -739,6 +744,378 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.deepEqual(setModelCalls, ["alibaba-coding-plan:qwen3.6-plus"]);
   });
 
+  it("synthesizes ACP effective runtime hard timeout like SkillRunner", function () {
+    const request = {
+      kind: ACP_SKILL_RUN_REQUEST_KIND,
+      skill_id: "demo-skill",
+      runtime_options: {},
+    };
+    const runnerJson = {
+      runtime: {
+        default_options: {
+          hard_timeout_seconds: 45,
+          unknown_key: 1,
+        },
+      },
+    };
+
+    const fromRunner = resolveAcpSkillRunEffectiveRuntimeOptions({
+      request,
+      runnerJson,
+    });
+    assert.equal(fromRunner.hardTimeoutSeconds, 45);
+    assert.equal(fromRunner.hardTimeoutSource, "runner");
+    assert.notProperty(fromRunner.runtimeOptions, "unknown_key");
+    assert.notProperty(request.runtime_options, "hard_timeout_seconds");
+
+    const fromRequest = resolveAcpSkillRunEffectiveRuntimeOptions({
+      request: {
+        ...request,
+        runtime_options: { hard_timeout_seconds: 9 },
+      },
+      runnerJson,
+    });
+    assert.equal(fromRequest.hardTimeoutSeconds, 9);
+    assert.equal(fromRequest.hardTimeoutSource, "request");
+
+    const fromProviderOption = resolveAcpSkillRunEffectiveRuntimeOptions({
+      request,
+      runnerJson,
+      providerOptions: { hard_timeout_seconds: 7 },
+    });
+    assert.equal(fromProviderOption.hardTimeoutSeconds, 7);
+    assert.equal(fromProviderOption.hardTimeoutSource, "request");
+
+    const providerOptionWinsRequest = resolveAcpSkillRunEffectiveRuntimeOptions(
+      {
+        request: {
+          ...request,
+          runtime_options: { hard_timeout_seconds: 9 },
+        },
+        runnerJson,
+        providerOptions: { hard_timeout_seconds: 7 },
+      },
+    );
+    assert.equal(providerOptionWinsRequest.hardTimeoutSeconds, 7);
+    assert.equal(providerOptionWinsRequest.hardTimeoutSource, "request");
+
+    const fallback = resolveAcpSkillRunEffectiveRuntimeOptions({
+      request: {
+        ...request,
+        runtime_options: { hard_timeout_seconds: "bad" },
+      },
+      runnerJson: {},
+    });
+    assert.equal(fallback.hardTimeoutSeconds, 1200);
+    assert.equal(fallback.hardTimeoutSource, "default");
+  });
+
+  it("disconnects auto ACP skill runs recoverably when hard timeout expires", async function () {
+    this.timeout(5000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["auto"],
+    });
+    let cancelCount = 0;
+    let closeCount = 0;
+    let releasePrompt: (() => void) | null = null;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-hard-timeout" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async () => {
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        cancelCount += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCount += 1;
+        releasePrompt?.();
+      },
+    };
+
+    try {
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "auto",
+            hard_timeout_seconds: 1,
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      const record = getAcpSkillRunRecord(result.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(result.status, "deferred");
+      assert.equal(record?.status, "running");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.notEqual(record?.status, "failed");
+      assert.notEqual(record?.status, "canceled");
+      assert.equal(cancelCount, 1);
+      assert.equal(closeCount, 1);
+      assert.include(stages, "hard-timeout-disconnect-requested");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("starts initial ACP hard timeout after session setup reaches prompt", async function () {
+    this.timeout(6000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["auto"],
+    });
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let cancelCount = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => {
+        await delay(1200);
+        return { sessionId: "session-slow-initial-setup" };
+      },
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCount += 1;
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({
+                __SKILL_DONE__: true,
+                ok: true,
+              }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        cancelCount += 1;
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+
+    try {
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "auto",
+            hard_timeout_seconds: 1,
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      const record = getAcpSkillRunRecord(result.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(promptCount, 1);
+      assert.equal(cancelCount, 0);
+      assert.equal(record?.status, "succeeded");
+      assert.notInclude(stages, "hard-timeout-disconnect-requested");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("settles received ACP transcript before hard timeout disconnect cleanup", async function () {
+    this.timeout(5000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["auto"],
+    });
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let releasePrompt: (() => void) | null = null;
+    const transcriptText = "received transcript before timeout";
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-timeout-transcript" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: transcriptText,
+            },
+          },
+        });
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        releasePrompt?.();
+      },
+    };
+
+    try {
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "auto",
+            hard_timeout_seconds: 1,
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      const record = getAcpSkillRunRecord(result.requestId);
+      const transcriptItems = record?.transcriptItems || [];
+      const messageIndex = transcriptItems.findIndex(
+        (item: any) =>
+          item.kind === "message" &&
+          item.role === "assistant" &&
+          item.text === transcriptText,
+      );
+      const message = transcriptItems[messageIndex] as any;
+      const noticeIndex = transcriptItems.findIndex(
+        (item: any) =>
+          item.kind === "status" && item.label === "hard-timeout-disconnect",
+      );
+      const notice = transcriptItems[noticeIndex] as any;
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(result.status, "deferred");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(message?.state, "complete");
+      assert.isAbove(noticeIndex, messageIndex);
+      assert.include(notice?.text || "", "Job Timeout");
+      assert.include(stages, "hard-timeout-disconnect-requested");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps workflow active task rows synchronized with terminal ACP skill runs", function () {
     recordWorkflowTaskUpdate(
       makeAcpWorkflowTaskJob({
@@ -918,6 +1295,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const promptStarted = new Promise<void>((resolve) => {
       resolvePromptStarted = resolve;
     });
+    let releasePrompt: (() => void) | null = null;
     let cancelCalls = 0;
     let closeCalls = 0;
     const fakeAdapter: AcpConnectionAdapter = {
@@ -4405,6 +4783,129 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  it("restarts hard timeout for automatic continuation after reconnect", async function () {
+    this.timeout(5000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["auto"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-reconnect-hard-timeout",
+    });
+    let releasePrompt: (() => void) | null = null;
+    let cancelCalls = 0;
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({ sessionId }),
+      prompt: async () => {
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        cancelCalls += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+        releasePrompt?.();
+      },
+    };
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "running",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        workflowId: "demo-skill",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-reconnect-hard-timeout",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: {
+          execution_modes: ["auto"],
+          schemas: { output: "assets/output.schema.json" },
+        },
+        executionMode: "auto",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        applyResultState: "pending",
+        requestPayload: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "auto",
+            hard_timeout_seconds: 1,
+          },
+        },
+      });
+      setAcpSkillRunRecoveryHandlerForTests(({ requestId, reason }) =>
+        recoverAcpSkillRunConversation({
+          requestId,
+          reason,
+          dependencies: {
+            createAdapter: async () => fakeAdapter,
+            dependencyProbe: async () => ({ ok: true }),
+          },
+        }),
+      );
+
+      await connectAcpSkillRun(workspace.requestId);
+      for (let index = 0; index < 50; index += 1) {
+        const record = getAcpSkillRunRecord(workspace.requestId);
+        const stages = (record?.events || []).map((event) => event.stage);
+        if (stages.includes("disconnect-completed")) {
+          break;
+        }
+        await delay(25);
+      }
+
+      const record = getAcpSkillRunRecord(workspace.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(cancelCalls, 1);
+      assert.equal(closeCalls, 1);
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.include(stages, "recovered-auto-continuation-started");
+      assert.include(stages, "hard-timeout-disconnect-requested");
+      assert.include(stages, "disconnect-completed");
+    } finally {
+      setAcpSkillRunRecoveryHandlerForTests(null);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("runs output repair after a recovered workflow reply returns invalid output", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
@@ -5286,6 +5787,49 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(record?.conversationRecoveryState, "available");
   });
 
+  it("does not mark connect succeeded after recovery already detached the session", async function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-connect-timeout",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-connect-timeout",
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+    });
+    setAcpSkillRunRecoveryHandlerForTests(async ({ requestId, reason }) => {
+      assert.equal(requestId, "run-connect-timeout");
+      assert.equal(reason, "connect");
+      upsertAcpSkillRun({
+        requestId,
+        activePrompt: false,
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        connectionActionState: "idle",
+        event: {
+          stage: "disconnect-completed",
+          message: "ACP skill run local connection detached.",
+          level: "info",
+          details: { recovered: true },
+        },
+      });
+    });
+
+    try {
+      await connectAcpSkillRun("run-connect-timeout");
+
+      const record = getAcpSkillRunRecord("run-connect-timeout");
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.include(stages, "disconnect-completed");
+      assert.notInclude(stages, "connect-succeeded");
+    } finally {
+      setAcpSkillRunRecoveryHandlerForTests(null);
+    }
+  });
+
   it("interrupts a recovered active prompt without detaching the session", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
@@ -5405,6 +5949,117 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.include(stages, "interrupt-completed");
       assert.notInclude(stages, "recovered-output-validation-failed");
       assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("disconnects a recovered active prompt recoverably when hard timeout expires", async function () {
+    this.timeout(5000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-recovered-hard-timeout",
+    });
+    let releasePrompt: (() => void) | null = null;
+    let cancelCalls = 0;
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({ sessionId }),
+      prompt: async () => {
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        cancelCalls += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+        releasePrompt?.();
+      },
+    };
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "waiting_user",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-hard-timeout",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: { execution_modes: ["interactive"] },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        requestPayload: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "interactive",
+            hard_timeout_seconds: 1,
+          },
+        },
+      });
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          createAdapter: async () => fakeAdapter,
+          dependencyProbe: async () => ({ ok: true }),
+        },
+      });
+
+      await replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "continue recovered prompt",
+      });
+
+      const record = getAcpSkillRunRecord(workspace.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(cancelCalls, 1);
+      assert.equal(closeCalls, 1);
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.notEqual(record?.status, "failed");
+      assert.notEqual(record?.status, "canceled");
+      assert.include(stages, "hard-timeout-disconnect-requested");
+      assert.include(stages, "disconnect-completed");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -6132,6 +6787,127 @@ describe("ACP SkillRunner-compatible runner", function () {
         .then(() => true)
         .catch(() => false),
     );
+  });
+
+  it("pauses interactive hard timeout while waiting for user reply and restarts next turn", async function () {
+    this.timeout(6000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let cancelCount = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-interactive-timeout" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCount += 1;
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text:
+                promptCount === 1
+                  ? JSON.stringify({
+                      __SKILL_DONE__: false,
+                      message: "Need user confirmation.",
+                    })
+                  : JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        cancelCount += 1;
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    let replied = false;
+    let replyError: Error | null = null;
+    const unsubscribe = subscribeAcpSkillRunSnapshots(() => {
+      const waiting = buildAcpSkillRunPanelSnapshot({}).runs.find(
+        (entry) => entry.status === "waiting_user",
+      );
+      if (!waiting || replied) {
+        return;
+      }
+      replied = true;
+      setTimeout(() => {
+        void replyAcpSkillRun({
+          requestId: waiting.requestId,
+          message: "Continue.",
+        }).catch((error) => {
+          replyError =
+            error instanceof Error ? error : new Error(String(error));
+        });
+      }, 1300);
+    });
+    try {
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "interactive",
+            hard_timeout_seconds: 1,
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      if (replyError) throw replyError;
+      assert.equal(result.status, "succeeded");
+      assert.equal(promptCount, 2);
+      assert.equal(cancelCount, 0);
+      const record = getAcpSkillRunRecord(result.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.notInclude(stages, "hard-timeout-disconnect-requested");
+    } finally {
+      unsubscribe();
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("keeps a waiting interactive ACP skill run deferred when Zotero shutdown detaches the session", async function () {

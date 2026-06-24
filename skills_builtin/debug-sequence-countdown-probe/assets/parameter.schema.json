@@ -6,6 +6,12 @@
       "type": "string",
       "minLength": 1,
       "description": "Identifier for this step in the countdown sequence (e.g. alpha, bravo, charlie)."
+    },
+    "countdown_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 120,
+      "description": "Duration of the countdown timer in seconds. Injected from the workflow-level parameter."
     }
   },
   "required": ["step_id"],

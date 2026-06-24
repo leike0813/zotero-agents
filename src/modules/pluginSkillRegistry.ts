@@ -457,7 +457,14 @@ export async function scanPluginSkillRegistry(
   options: PluginSkillRegistryScanOptions = {},
 ): Promise<PluginSkillRegistrySnapshot> {
   const roots = resolvePluginSkillRoots(options);
-  const devLocalRoot = roots.devLocalRoot || (await getDevLocalSkillDir());
+  const usesExplicitScanRoots = Boolean(
+    normalizeString(options.cwd) ||
+    normalizeString(options.builtinRoot) ||
+    normalizeString(options.userRoot),
+  );
+  const devLocalRoot =
+    roots.devLocalRoot ||
+    (usesExplicitScanRoots ? "" : await getDevLocalSkillDir());
   const diagnostics: PluginSkillRegistryDiagnostic[] = [];
   const builtin = await collectCandidates({
     root: roots.builtinRoot,

@@ -82,6 +82,7 @@ export type ProviderRuntimeOptionSchemaEntry = {
   type: ProviderRuntimeOptionType;
   title?: string;
   description?: string;
+  placeholder?: string;
   default?: unknown;
   enum?: string[];
   disabled?: boolean;

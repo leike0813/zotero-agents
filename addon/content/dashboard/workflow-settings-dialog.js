@@ -217,6 +217,7 @@
         return {
           key: toText(entry && entry.key),
           type: toText(entry && entry.type),
+          placeholder: toText(entry && entry.placeholder),
           allowCustom: entry && entry.allowCustom === true,
           disabled: entry && entry.disabled === true,
           visibleIfProviderOption:
@@ -567,6 +568,7 @@
       control = document.createElement("input");
       control.type = "text";
       control.setAttribute("data-workflow-settings-control-key", controlKey);
+      control.placeholder = toText(args.entry.placeholder);
       control.value = currentText;
       control.style.flex = "1 1 45%";
       combo.appendChild(control);
@@ -575,6 +577,7 @@
       control = document.createElement("input");
       control.type = "text";
       control.setAttribute("data-workflow-settings-control-key", controlKey);
+      control.placeholder = toText(args.entry.placeholder);
       if (args.entry.type === "number") {
         control.setAttribute(
           "inputmode",

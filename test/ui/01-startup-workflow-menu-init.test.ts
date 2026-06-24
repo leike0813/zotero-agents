@@ -148,6 +148,7 @@ describe("startup workflow scan + menu init", function () {
   let prevWorkflowDirPref: unknown;
   let prevDataDirectory: unknown;
   let prevTestWorkflowDirEnv: string | undefined;
+  let prevDevContentRootEnv: string | undefined;
   let prevDisableWorkflowDirOverride: boolean | undefined;
 
   beforeEach(function () {
@@ -167,6 +168,9 @@ describe("startup workflow scan + menu init", function () {
     prevTestWorkflowDirEnv = (
       globalThis as { process?: { env?: Record<string, string | undefined> } }
     ).process?.env?.ZOTERO_TEST_WORKFLOW_DIR;
+    prevDevContentRootEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env?.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
     prevDisableWorkflowDirOverride = (
       globalThis as {
         __zoteroSkillsDisableWorkflowDirOverride?: boolean;
@@ -198,6 +202,11 @@ describe("startup workflow scan + menu init", function () {
       } else {
         processEnv.ZOTERO_TEST_WORKFLOW_DIR = prevTestWorkflowDirEnv;
       }
+      if (typeof prevDevContentRootEnv === "undefined") {
+        delete processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+      } else {
+        processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = prevDevContentRootEnv;
+      }
     }
     (
       globalThis as {
@@ -212,6 +221,7 @@ describe("startup workflow scan + menu init", function () {
     ).process?.env;
     if (processEnv) {
       delete processEnv.ZOTERO_TEST_WORKFLOW_DIR;
+      delete processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
     }
 
     const dataDir = await mkTempDir("zotero-skills-startup-empty");

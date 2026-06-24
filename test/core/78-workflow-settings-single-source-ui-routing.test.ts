@@ -115,9 +115,35 @@ describe("workflow settings single-source routing", function () {
     assert.include(clientTs, "runtimeOptions.hard_timeout_seconds");
   });
 
+  it("exposes ACP hard timeout through shared workflow option schemas", async function () {
+    const providerTs = await readProjectFile("src/providers/acp/provider.ts");
+    assert.include(providerTs, "hard_timeout_seconds");
+    assert.include(providerTs, "Job Timeout (sec)");
+    assert.include(
+      providerTs,
+      "Leave empty to use default; 20 min if skill has no default.",
+    );
+    assert.include(providerTs, "normalizeRuntimeOptions");
+
+    const dialogJs = await readProjectFile(
+      "addon/content/dashboard/workflow-settings-dialog.js",
+    );
+    const dashboardJs = await readProjectFile("addon/content/dashboard/app.js");
+    assert.include(dialogJs, "form.runSchemaEntries");
+    assert.include(dialogJs, "state.draft.runOptions");
+    assert.include(dialogJs, "form.providerSchemaEntries");
+    assert.include(dialogJs, "state.draft.providerOptions");
+    assert.include(dialogJs, "args.entry.placeholder");
+    assert.include(dashboardJs, "descriptor.providerSchemaEntries");
+    assert.include(dashboardJs, "draft.providerOptions");
+    assert.include(dashboardJs, "args.entry.placeholder");
+  });
+
   it("uses default-settings wording in active workflow settings locales", async function () {
     const en = await readProjectFile("addon/locale/en-US/addon.ftl");
     const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
+    const fr = await readProjectFile("addon/locale/fr-FR/addon.ftl");
+    const ja = await readProjectFile("addon/locale/ja-JP/addon.ftl");
     assert.include(
       en,
       "workflow-settings-submit-persist-checkbox = Save as default settings",
@@ -128,6 +154,10 @@ describe("workflow settings single-source routing", function () {
     );
     assert.include(en, "workflow-settings-refresh-acp-runtime-cache-running");
     assert.include(zh, "workflow-settings-refresh-acp-runtime-cache-running");
+    assert.include(en, "workflow-settings-job-timeout-placeholder");
+    assert.include(zh, "workflow-settings-job-timeout-placeholder");
+    assert.include(fr, "workflow-settings-job-timeout-placeholder");
+    assert.include(ja, "workflow-settings-job-timeout-placeholder");
     assert.include(en, "workflow-settings-refresh-skillrunner-model-cache");
     assert.include(zh, "workflow-settings-refresh-skillrunner-model-cache");
     assert.include(
@@ -137,6 +167,20 @@ describe("workflow settings single-source routing", function () {
     assert.include(
       zh,
       "workflow-settings-refresh-skillrunner-model-cache-running",
+    );
+    assert.include(
+      en,
+      "workflow-settings-provider-option-skillrunner-engine-title",
+    );
+    assert.include(
+      zh,
+      "workflow-settings-provider-option-skillrunner-provider-id-title = 模型提供商",
+    );
+    assert.include(fr, "workflow-settings-provider-option-acp-model-id-title");
+    assert.include(ja, "workflow-settings-provider-option-acp-mode-id-title");
+    assert.include(
+      en,
+      "workflow-settings-run-option-auto-approve-zotero-writes-title",
     );
   });
 

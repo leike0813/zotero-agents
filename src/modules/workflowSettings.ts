@@ -57,6 +57,11 @@ import {
   type WorkflowRunOptions,
 } from "../workflows/zoteroHostAccessOptions";
 import { isSkillRunnerInteractiveAutoReplyEnabled } from "./skillRunnerInteractiveAutoReply";
+import { getStringOrFallback } from "../utils/locale";
+import {
+  localizeProviderRuntimeOptionText,
+  localizeWorkflowRunOptionText,
+} from "./workflowSettingsOptionLocalization";
 
 const WORKFLOW_SETTINGS_PREF_KEY = "workflowSettingsJson";
 
@@ -74,6 +79,7 @@ type WorkflowSettingsSchemaEntry = {
   type: "string" | "number" | "boolean";
   title?: string;
   description?: string;
+  placeholder?: string;
   enumValues?: string[];
   options?: WorkflowParameterOption[];
   allowCustom?: boolean;
@@ -698,9 +704,12 @@ function toRunSchemaEntries(
     {
       key: AUTO_APPROVE_ZOTERO_WRITES_PARAM,
       type: "boolean",
-      title: "自动批准写库",
-      description:
-        "仅对当前 workflow run 的 Zotero 写库动作生效；workflow 提交本身仍需要审批，且不会保存为默认参数。",
+      ...localizeWorkflowRunOptionText({
+        optionKey: AUTO_APPROVE_ZOTERO_WRITES_PARAM,
+        title: "Auto-approve Zotero writes",
+        description:
+          "Applies only to Zotero write actions in the current workflow run. Workflow submission still requires approval and this option is not saved as a default parameter.",
+      }),
       defaultValue: false,
     },
   ];
@@ -730,6 +739,14 @@ function toProviderSchemaEntries(args: {
   const isProviderScopedFieldVisible =
     providerId === "skillrunner" &&
     isSkillRunnerProviderScopedEngine(providerEngine, providerScope);
+  const localizedPlaceholder = (key: string, fallback?: string) =>
+    key === "hard_timeout_seconds"
+      ? getStringOrFallback(
+          "workflow-settings-job-timeout-placeholder" as any,
+          fallback ||
+            "Leave empty to use default; 20 min if skill has no default.",
+        )
+      : fallback;
   const baseEntries = Object.entries(schema).map(([key, entry]) => {
     const enumValues = entry.type === "string" ? toStringEnum(entry.enum) : [];
     const dynamicEnum =
@@ -752,11 +769,17 @@ function toProviderSchemaEntries(args: {
         : entry.type === "string" && dynamicEnum.length > 0
           ? toStringEnum(dynamicEnum)
           : enumValues;
+    const localizedText = localizeProviderRuntimeOptionText({
+      providerId,
+      optionKey: key,
+      entry,
+    });
     return {
       key,
       type: entry.type,
-      title: entry.title,
-      description: entry.description,
+      title: localizedText.title,
+      description: localizedText.description,
+      placeholder: localizedPlaceholder(key, localizedText.placeholder),
       enumValues: resolvedEnumValues,
       defaultValue: entry.default,
       disabled:
@@ -788,23 +811,21 @@ function toProviderSchemaEntries(args: {
   if (providerId !== "skillrunner" || !modeCapability.applies) {
     return filteredEntries;
   }
-  return filteredEntries.filter(
-    (entry) => {
-      if (entry.key === "no_cache") {
-        return modeCapability.hasAuto;
-      }
-      if (
-        entry.key === "interactive_auto_reply" ||
-        entry.key === "interactive_reply_timeout_sec"
-      ) {
-        return (
-          modeCapability.hasInteractive &&
-          isSkillRunnerInteractiveAutoReplyEnabled()
-        );
-      }
-      return true;
-    },
-  );
+  return filteredEntries.filter((entry) => {
+    if (entry.key === "no_cache") {
+      return modeCapability.hasAuto;
+    }
+    if (
+      entry.key === "interactive_auto_reply" ||
+      entry.key === "interactive_reply_timeout_sec"
+    ) {
+      return (
+        modeCapability.hasInteractive &&
+        isSkillRunnerInteractiveAutoReplyEnabled()
+      );
+    }
+    return true;
+  });
 }
 
 export async function buildWorkflowSettingsUiDescriptor(args: {

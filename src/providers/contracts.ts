@@ -44,6 +44,7 @@ export type SkillRunnerJobRequestV1 = ProviderExecutionRequestMeta & {
   parameter?: Record<string, unknown>;
   runtime_options?: {
     execution_mode?: "auto" | "interactive" | string;
+    hard_timeout_seconds?: unknown;
     collect_skill_run_feedback?: boolean;
     workspace?: {
       mode?: "reuse";
@@ -121,6 +122,7 @@ export type SkillRunnerSequenceRequestV1 = ProviderExecutionRequestMeta & {
   };
   runtime_options?: {
     execution_mode?: "auto" | "interactive" | string;
+    hard_timeout_seconds?: unknown;
     collect_skill_run_feedback?: boolean;
     workspace?: {
       mode?: "reuse";
@@ -208,6 +210,7 @@ export type AcpSkillRunRequestV1 = ProviderExecutionRequestMeta & {
   parameter?: Record<string, unknown>;
   runtime_options?: {
     execution_mode?: "auto" | "interactive" | string;
+    hard_timeout_seconds?: unknown;
     collect_skill_run_feedback?: boolean;
     zotero_host_access?: {
       required?: boolean;

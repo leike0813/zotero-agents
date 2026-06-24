@@ -1,6 +1,6 @@
 ---
 name: debug-sequence-countdown-probe
-description: Debug-only ACP sequence probe step that runs a 2-minute countdown script before producing a structured result with handoff verification.
+description: Debug-only ACP sequence probe step that runs a configurable countdown script before producing a structured result with handoff verification.
 ---
 
 # Debug Sequence Countdown Probe
@@ -32,15 +32,17 @@ phase and set `handoff_checks` to an empty array.
 
 ### 2. Countdown
 
-Run a 2-minute (120-second) countdown script via bash. The script must print
-one line per second in the format `Countdown: Ns remaining` where N counts down
-from 120 to 1. Example:
+Read `parameter.countdown_seconds` (default `120` if absent). Run a countdown
+script via bash that prints one line per second in the format
+`Countdown: Ns remaining` where N counts down from the configured value to 1.
+Example for 120 seconds:
 
 ```bash
 for i in $(seq 120 -1 1); do echo "Countdown: ${i}s remaining"; sleep 1; done; echo "Countdown complete!"
 ```
 
-Wait for the script to finish before proceeding.
+Replace `120` with the actual value of `parameter.countdown_seconds`. Wait for
+the script to finish before proceeding.
 
 ### 3. Produce result
 
@@ -55,7 +57,8 @@ following fields:
   identifies this step's execution.
 - `previous_marker`: the `marker` value received from `input.handoff`, or `null`
   if this is the first step.
-- `countdown_seconds`: `120`.
+- `countdown_seconds`: the value of `parameter.countdown_seconds` (or `120` if
+  not provided).
 - `countdown_completed`: `true`.
 - `handoff_checks`: array of check objects from phase 1.
 - `checks`: array summarising all checks performed in this step.

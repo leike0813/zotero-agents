@@ -81,6 +81,8 @@ import { ensureZoteroMcpServer } from "./zoteroMcpServer";
 import { listZoteroMcpTools } from "./zoteroMcpProtocol";
 import {
   appendAcpSkillRunUserReply,
+  appendAcpSkillRunHardTimeoutTranscriptNotice,
+  completeAcpSkillRunTranscriptTurnBoundary,
   getAcpSkillRunRecord,
   markAcpSkillRunApplyResult,
   projectAcpSkillRunOutputEnvelopeToTranscript,
@@ -180,6 +182,28 @@ type AcpPromptOutcome = {
   backendError?: AcpPromptBackendError;
 };
 
+const DEFAULT_ACP_SKILL_HARD_TIMEOUT_SECONDS = 1200;
+const ACP_HARD_TIMEOUT_TRANSCRIPT_DRAIN_MS = 250;
+
+const ACP_SKILL_RUNTIME_DEFAULT_OPTION_KEYS = new Set([
+  "no_cache",
+  "execution_mode",
+  "interactive_auto_reply",
+  "interactive_reply_timeout_sec",
+  "hard_timeout_seconds",
+  "workspace",
+  "env",
+  "collect_skill_run_feedback",
+]);
+
+type AcpHardTimeoutSource = "request" | "runner" | "default";
+
+export type AcpSkillRunEffectiveRuntimeOptions = {
+  runtimeOptions: Record<string, unknown>;
+  hardTimeoutSeconds: number;
+  hardTimeoutSource: AcpHardTimeoutSource;
+};
+
 type AcpPromptFailureDiagnostic = {
   stage: "acp-prompt-no-output" | "acp-prompt-stopped" | "acp-prompt-failed";
   message: string;
@@ -199,6 +223,19 @@ class AcpPromptFailureError extends Error {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function toPositiveInteger(value: unknown) {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && normalizeString(value)
+        ? Number(value)
+        : NaN;
+  if (!Number.isInteger(numberValue) || numberValue < 1) {
+    return undefined;
+  }
+  return numberValue;
 }
 
 function errorMessage(error: unknown) {
@@ -299,6 +336,65 @@ function classifyAcpPromptError(error: unknown): AcpPromptFailureDiagnostic {
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function cloneJsonRecord(value: unknown) {
+  return isJsonObject(value) ? { ...value } : {};
+}
+
+function resolveRunnerRuntimeDefaultOptions(
+  runnerJson: Record<string, unknown>,
+) {
+  const runtime = runnerJson.runtime;
+  if (!isJsonObject(runtime)) {
+    return {};
+  }
+  const defaults = cloneJsonRecord(runtime.default_options);
+  return Object.fromEntries(
+    Object.entries(defaults).filter(([key]) =>
+      ACP_SKILL_RUNTIME_DEFAULT_OPTION_KEYS.has(key.trim()),
+    ),
+  );
+}
+
+export function resolveAcpSkillRunEffectiveRuntimeOptions(args: {
+  request: AcpSkillRunRequestV1;
+  runnerJson: Record<string, unknown>;
+  providerOptions?: Record<string, unknown>;
+}): AcpSkillRunEffectiveRuntimeOptions {
+  const runnerDefaults = resolveRunnerRuntimeDefaultOptions(args.runnerJson);
+  const requestRuntimeOptions = cloneJsonRecord(args.request.runtime_options);
+  const providerTimeout = toPositiveInteger(
+    args.providerOptions?.hard_timeout_seconds,
+  );
+  const providerRuntimeOptions =
+    typeof providerTimeout === "number"
+      ? { hard_timeout_seconds: providerTimeout }
+      : {};
+  const runtimeOptions: Record<string, unknown> = {
+    ...runnerDefaults,
+    ...requestRuntimeOptions,
+    ...providerRuntimeOptions,
+  };
+  const requestTimeout = toPositiveInteger(
+    providerRuntimeOptions.hard_timeout_seconds ??
+      requestRuntimeOptions.hard_timeout_seconds,
+  );
+  const runnerTimeout = toPositiveInteger(runnerDefaults.hard_timeout_seconds);
+  const hardTimeoutSeconds =
+    requestTimeout ?? runnerTimeout ?? DEFAULT_ACP_SKILL_HARD_TIMEOUT_SECONDS;
+  const hardTimeoutSource: AcpHardTimeoutSource =
+    typeof requestTimeout === "number"
+      ? "request"
+      : typeof runnerTimeout === "number"
+        ? "runner"
+        : "default";
+  runtimeOptions.hard_timeout_seconds = hardTimeoutSeconds;
+  return {
+    runtimeOptions,
+    hardTimeoutSeconds,
+    hardTimeoutSource,
+  };
 }
 
 function cloneJsonObject(
@@ -565,6 +661,118 @@ function resolveZoteroHostAccessRequirement(args: {
     autoApproveWrites: false,
     source: "default" as const,
   };
+}
+
+function createAcpHardTimeoutMonitor(args: {
+  requestId: string;
+  seconds: number;
+  source: AcpHardTimeoutSource;
+  onTimeout: () => Promise<void>;
+}) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timeoutPromise: Promise<"timeout"> | null = null;
+  let resolveTimeout: (() => void) | null = null;
+  let triggered = false;
+
+  const clear = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    timeoutPromise = null;
+    resolveTimeout = null;
+    triggered = false;
+  };
+
+  const start = () => {
+    clear();
+    timeoutPromise = new Promise<"timeout">((resolve) => {
+      resolveTimeout = () => resolve("timeout");
+    });
+    timer = setTimeout(() => {
+      if (triggered) {
+        return;
+      }
+      triggered = true;
+      const resolve = resolveTimeout;
+      void args
+        .onTimeout()
+        .catch((error) => {
+          appendRuntimeLog({
+            level: "warn",
+            scope: "provider",
+            providerId: "acp",
+            requestId: args.requestId,
+            component: "acp-skillrunner",
+            operation: "hard-timeout-disconnect",
+            phase: "terminal",
+            stage: "hard-timeout-disconnect-failed",
+            message: errorMessage(error),
+            details: {
+              hardTimeoutSeconds: args.seconds,
+              hardTimeoutSource: args.source,
+            },
+          });
+        })
+        .finally(() => {
+          resolve?.();
+        });
+    }, args.seconds * 1000);
+  };
+
+  const race = async <T>(
+    promise: Promise<T>,
+  ): Promise<{ timedOut: false; value: T } | { timedOut: true }> => {
+    if (!timeoutPromise) {
+      return { timedOut: false, value: await promise };
+    }
+    const guarded = promise
+      .then((value) => ({ kind: "value" as const, value }))
+      .catch((error) => ({ kind: "error" as const, error }));
+    const result = await Promise.race([
+      guarded,
+      timeoutPromise.then(() => ({ kind: "timeout" as const })),
+    ]);
+    if (result.kind === "timeout") {
+      promise.catch(() => undefined);
+      return { timedOut: true };
+    }
+    if (result.kind === "error") {
+      throw result.error;
+    }
+    if (triggered) {
+      return { timedOut: true };
+    }
+    return { timedOut: false, value: result.value };
+  };
+
+  return {
+    start,
+    clear,
+    race,
+    isTriggered: () => triggered,
+  };
+}
+
+async function waitForAcpHardTimeoutTranscriptDrain(
+  promptSettled: Promise<unknown> | null,
+) {
+  if (!promptSettled) {
+    return;
+  }
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      promptSettled.catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ACP_HARD_TIMEOUT_TRANSCRIPT_DRAIN_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 async function defaultRequiredMcpPreflight(args: {
@@ -859,6 +1067,7 @@ async function runPrompt(args: {
   runtimeOptions?: FrozenAcpRuntimeOptions;
   sessionId?: string;
   prepareSession?: (sessionId: string) => Promise<void>;
+  onPromptReady?: (sessionId: string) => void | Promise<void>;
 }): Promise<{
   sessionId: string;
   stopReason: string;
@@ -929,6 +1138,7 @@ async function runPrompt(args: {
       activePrompt: true,
     });
   }
+  await args.onPromptReady?.(sessionId);
   const response = await args.adapter.prompt({
     sessionId,
     message: args.message,
@@ -1161,7 +1371,9 @@ async function applyRecoveredAcpSkillResult(args: {
 function requestRecoveredSequenceStepForeground(args: {
   event: ProviderProgressEvent;
   record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>;
-  sequenceState: NonNullable<ReturnType<typeof getSequenceRunStateByStepRequest>>;
+  sequenceState: NonNullable<
+    ReturnType<typeof getSequenceRunStateByStepRequest>
+  >;
   backend: BackendInstance;
   dependencies?: AcpSkillRunnerDependencies;
 }) {
@@ -1806,6 +2018,20 @@ export async function recoverAcpSkillRunConversation(args: {
   const backend = await resolveBackendForRecoveredRun(record.backendId);
   rememberAcpSkillRunRuntimeOptions({ requestId, backend });
   const runnerJson = record.runnerJson || {};
+  const recoveredEffectiveRuntimeOptions =
+    resolveAcpSkillRunEffectiveRuntimeOptions({
+      request:
+        recoveredRequest ||
+        ({
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id:
+            normalizeString(record.skillId) ||
+            normalizeString(record.requestedSkillId) ||
+            "recovered-acp-skill",
+        } as AcpSkillRunRequestV1),
+      runnerJson,
+      providerOptions: record.providerOptions,
+    });
   const dependencyPlan = await buildAcpRuntimeDependencyPlan({
     backend,
     runnerJson,
@@ -1846,10 +2072,14 @@ export async function recoverAcpSkillRunConversation(args: {
   let recoveredPromptActive = false;
   let recoveredInterruptionRequested = false;
   let recoveredDisconnectRequested = false;
+  let recoveredPromptTimeoutDrain: Promise<unknown> | null = null;
   let unsubscribePermission: () => void = () => undefined;
   let unsubscribeUpdate: () => void = () => undefined;
   let unsubscribeDiagnostics: () => void = () => undefined;
   let unsubscribeClose: () => void = () => undefined;
+  let recoveredHardTimeoutMonitor: ReturnType<
+    typeof createAcpHardTimeoutMonitor
+  > | null = null;
   const detach = async (
     state: "closed" | "ended" | "error" = "closed",
     error?: string,
@@ -1862,6 +2092,7 @@ export async function recoverAcpSkillRunConversation(args: {
     unsubscribeUpdate();
     unsubscribeDiagnostics();
     unsubscribeClose();
+    recoveredHardTimeoutMonitor?.clear();
     registerAcpSkillRunController(requestId, null);
     upsertAcpSkillRun({
       requestId,
@@ -1874,6 +2105,103 @@ export async function recoverAcpSkillRunConversation(args: {
     });
     await adapter.close();
   };
+  recoveredHardTimeoutMonitor = createAcpHardTimeoutMonitor({
+    requestId,
+    seconds: recoveredEffectiveRuntimeOptions.hardTimeoutSeconds,
+    source: recoveredEffectiveRuntimeOptions.hardTimeoutSource,
+    onTimeout: async () => {
+      if (cleanupDone) {
+        return;
+      }
+      recoveredDisconnectRequested = true;
+      upsertAcpSkillRun({
+        requestId,
+        event: {
+          stage: "hard-timeout-disconnect-requested",
+          message:
+            "ACP skill run hard timeout reached; disconnecting local session.",
+          level: "warn",
+          details: {
+            hardTimeoutSeconds:
+              recoveredEffectiveRuntimeOptions.hardTimeoutSeconds,
+            hardTimeoutSource:
+              recoveredEffectiveRuntimeOptions.hardTimeoutSource,
+            recovered: true,
+          },
+        },
+      });
+      appendRuntimeLog({
+        level: "warn",
+        scope: "provider",
+        backendId: backend.id,
+        backendType: backend.type,
+        providerId: "acp",
+        requestId,
+        component: "acp-skillrunner",
+        operation: "hard-timeout-disconnect",
+        phase: "terminal",
+        stage: "hard-timeout-disconnect-requested",
+        message:
+          "ACP skill run hard timeout reached; disconnecting local session.",
+        details: {
+          hardTimeoutSeconds:
+            recoveredEffectiveRuntimeOptions.hardTimeoutSeconds,
+          hardTimeoutSource: recoveredEffectiveRuntimeOptions.hardTimeoutSource,
+          recovered: true,
+        },
+      });
+      if (liveSessionId) {
+        await adapter.cancel({ sessionId: liveSessionId }).catch((error) => {
+          appendRuntimeLog({
+            level: "warn",
+            scope: "provider",
+            backendId: backend.id,
+            backendType: backend.type,
+            providerId: "acp",
+            requestId,
+            component: "acp-skillrunner",
+            operation: "hard-timeout-cancel",
+            phase: "terminal",
+            stage: "hard-timeout-cancel-failed",
+            message: errorMessage(error),
+            details: {
+              recovered: true,
+            },
+          });
+        });
+      }
+      await waitForAcpHardTimeoutTranscriptDrain(recoveredPromptTimeoutDrain);
+      completeAcpSkillRunTranscriptTurnBoundary(requestId);
+      appendAcpSkillRunHardTimeoutTranscriptNotice({
+        requestId,
+        hardTimeoutSeconds: recoveredEffectiveRuntimeOptions.hardTimeoutSeconds,
+        hardTimeoutSource: recoveredEffectiveRuntimeOptions.hardTimeoutSource,
+        recovered: true,
+      });
+      await detach("closed");
+      upsertAcpSkillRun({
+        requestId,
+        activePrompt: false,
+        replyState: "idle",
+        error: "",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        connectionActionState: "idle",
+        event: {
+          stage: "disconnect-completed",
+          message: "ACP skill run local connection detached.",
+          level: "info",
+          details: {
+            recovered: true,
+            hardTimeoutSeconds:
+              recoveredEffectiveRuntimeOptions.hardTimeoutSeconds,
+            hardTimeoutSource:
+              recoveredEffectiveRuntimeOptions.hardTimeoutSource,
+          },
+        },
+      });
+    },
+  });
   const failRecoveredAcpPrompt = async (
     diagnostic: AcpPromptFailureDiagnostic,
   ): Promise<never> => {
@@ -1905,12 +2233,53 @@ export async function recoverAcpSkillRunConversation(args: {
     recoveredInterruptionRequested = false;
     recoveredDisconnectRequested = false;
     try {
-      const result = await runPrompt({
+      let resolvePromptReady: (() => void) | null = null;
+      const promptReady = new Promise<void>((resolve) => {
+        resolvePromptReady = resolve;
+      });
+      const promptPromise = runPrompt({
         adapter,
         requestId,
         message,
         sessionId: liveSessionId,
+        onPromptReady: () => {
+          recoveredHardTimeoutMonitor?.start();
+          resolvePromptReady?.();
+        },
       });
+      const promptDrain = promptPromise.catch(() => undefined);
+      recoveredPromptTimeoutDrain = promptDrain;
+      let guarded:
+        | { timedOut: false; value: Awaited<typeof promptPromise> }
+        | { timedOut: true };
+      if (recoveredHardTimeoutMonitor) {
+        const ready = await Promise.race([
+          promptReady.then(() => ({ kind: "ready" as const })),
+          promptPromise
+            .then((value) => ({ kind: "value" as const, value }))
+            .catch((error) => ({ kind: "error" as const, error })),
+        ]);
+        if (ready.kind === "error") {
+          throw ready.error;
+        }
+        if (ready.kind === "value") {
+          guarded = { timedOut: false, value: ready.value };
+        } else {
+          guarded = await recoveredHardTimeoutMonitor.race(promptPromise);
+        }
+      } else {
+        guarded = { timedOut: false, value: await promptPromise };
+      }
+      if (guarded.timedOut) {
+        return {
+          sessionId: liveSessionId,
+          stopReason: "cancelled",
+          assistantText: currentTurnAssistantText,
+          observedAcpActivity: currentTurnObservedAcpActivity,
+          cancelRequested: true,
+        };
+      }
+      const result = guarded.value;
       liveSessionId = result.sessionId;
       return {
         ...result,
@@ -1921,6 +2290,10 @@ export async function recoverAcpSkillRunConversation(args: {
     } finally {
       captureAssistantText = false;
       recoveredPromptActive = false;
+      recoveredPromptTimeoutDrain = null;
+      if (!recoveredHardTimeoutMonitor?.isTriggered()) {
+        recoveredHardTimeoutMonitor?.clear();
+      }
     }
   };
   const convergeRecoveredReply = async (
@@ -2682,6 +3055,11 @@ export async function executeAcpSkillRunnerJob(args: {
     primarySkillDir: materialization.primarySkillDir,
     runnerJson: materialization.runnerJson,
   });
+  const effectiveRuntimeOptions = resolveAcpSkillRunEffectiveRuntimeOptions({
+    request,
+    runnerJson: materialization.runnerJson,
+    providerOptions: args.providerOptions,
+  });
   const requestValidation = await validateAcpSkillRunRequestAgainstSchemas({
     request,
     runnerJson: materialization.runnerJson,
@@ -2900,6 +3278,11 @@ export async function executeAcpSkillRunnerJob(args: {
   let unsubscribeUpdate: () => void = () => undefined;
   let unsubscribeDiagnostics: () => void = () => undefined;
   let unsubscribeClose: () => void = () => undefined;
+  let hardTimeoutMonitor: ReturnType<
+    typeof createAcpHardTimeoutMonitor
+  > | null = null;
+  let autoHardTimeoutStarted = false;
+  let activePromptTimeoutDrain: Promise<unknown> | null = null;
   const cleanupLiveSession = async (options?: {
     closeAdapter?: boolean;
     conversationState?: "ended" | "closed" | "error";
@@ -2913,6 +3296,7 @@ export async function executeAcpSkillRunnerJob(args: {
     unsubscribeUpdate();
     unsubscribeDiagnostics();
     unsubscribeClose();
+    hardTimeoutMonitor?.clear();
     if (workspaceActivityTimer) {
       clearInterval(workspaceActivityTimer);
       workspaceActivityTimer = null;
@@ -2930,6 +3314,84 @@ export async function executeAcpSkillRunnerJob(args: {
       await adapter.close();
     }
   };
+  hardTimeoutMonitor = createAcpHardTimeoutMonitor({
+    requestId: workspace.requestId,
+    seconds: effectiveRuntimeOptions.hardTimeoutSeconds,
+    source: effectiveRuntimeOptions.hardTimeoutSource,
+    onTimeout: async () => {
+      if (cleanupDone) {
+        return;
+      }
+      disconnectRequested = true;
+      if (pendingReplyRejecter) {
+        pendingReplyRejecter(
+          new Error("ACP skill run hard timeout disconnected the session."),
+        );
+        pendingReplyResolver = null;
+        pendingReplyRejecter = null;
+      }
+      const current = upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        event: {
+          stage: "hard-timeout-disconnect-requested",
+          message:
+            "ACP skill run hard timeout reached; disconnecting local session.",
+          level: "warn",
+          details: {
+            hardTimeoutSeconds: effectiveRuntimeOptions.hardTimeoutSeconds,
+            hardTimeoutSource: effectiveRuntimeOptions.hardTimeoutSource,
+          },
+        },
+      });
+      appendRuntimeLog({
+        level: "warn",
+        scope: "provider",
+        backendId: args.backend.id,
+        backendType: args.backend.type,
+        providerId: "acp",
+        requestId: workspace.requestId,
+        component: "acp-skillrunner",
+        operation: "hard-timeout-disconnect",
+        phase: "terminal",
+        stage: "hard-timeout-disconnect-requested",
+        message:
+          "ACP skill run hard timeout reached; disconnecting local session.",
+        details: {
+          hardTimeoutSeconds: effectiveRuntimeOptions.hardTimeoutSeconds,
+          hardTimeoutSource: effectiveRuntimeOptions.hardTimeoutSource,
+        },
+      });
+      const sessionId = normalizeString(current.sessionId) || liveSessionId;
+      if (sessionId) {
+        await adapter.cancel({ sessionId }).catch((error) => {
+          appendRuntimeLog({
+            level: "warn",
+            scope: "provider",
+            backendId: args.backend.id,
+            backendType: args.backend.type,
+            providerId: "acp",
+            requestId: workspace.requestId,
+            component: "acp-skillrunner",
+            operation: "hard-timeout-cancel",
+            phase: "terminal",
+            stage: "hard-timeout-cancel-failed",
+            message: errorMessage(error),
+          });
+        });
+      }
+      await waitForAcpHardTimeoutTranscriptDrain(activePromptTimeoutDrain);
+      completeAcpSkillRunTranscriptTurnBoundary(workspace.requestId);
+      appendAcpSkillRunHardTimeoutTranscriptNotice({
+        requestId: workspace.requestId,
+        hardTimeoutSeconds: effectiveRuntimeOptions.hardTimeoutSeconds,
+        hardTimeoutSource: effectiveRuntimeOptions.hardTimeoutSource,
+      });
+      await cleanupLiveSession({
+        conversationState: "closed",
+        closeAdapter: true,
+      });
+    },
+  });
   const scanWorkspaceActivity = async () => {
     if (workspaceActivityScanRunning) {
       return;
@@ -3034,13 +3496,65 @@ export async function executeAcpSkillRunnerJob(args: {
     captureAssistantText = true;
     startWorkspaceActivityHeartbeat();
     try {
-      const result = await runPrompt({
+      const timerAlreadyActive =
+        executionMode !== "interactive" && autoHardTimeoutStarted;
+      let resolvePromptReady: (() => void) | null = null;
+      const promptReady = new Promise<void>((resolve) => {
+        resolvePromptReady = resolve;
+      });
+      const promptPromise = runPrompt({
         adapter,
         requestId: workspace.requestId,
         message,
         runtimeOptions: frozenRuntimeOptions,
         sessionId: liveSessionId,
+        onPromptReady: () => {
+          if (executionMode === "interactive") {
+            hardTimeoutMonitor?.start();
+          } else if (!autoHardTimeoutStarted) {
+            hardTimeoutMonitor?.start();
+            autoHardTimeoutStarted = true;
+          }
+          resolvePromptReady?.();
+        },
       });
+      const promptDrain = promptPromise.catch(() => undefined);
+      activePromptTimeoutDrain = promptDrain;
+      let guarded:
+        | { timedOut: false; value: Awaited<typeof promptPromise> }
+        | { timedOut: true };
+      if (hardTimeoutMonitor) {
+        if (!timerAlreadyActive) {
+          const ready = await Promise.race([
+            promptReady.then(() => ({ kind: "ready" as const })),
+            promptPromise
+              .then((value) => ({ kind: "value" as const, value }))
+              .catch((error) => ({ kind: "error" as const, error })),
+          ]);
+          if (ready.kind === "error") {
+            throw ready.error;
+          }
+          if (ready.kind === "value") {
+            guarded = { timedOut: false, value: ready.value };
+          } else {
+            guarded = await hardTimeoutMonitor.race(promptPromise);
+          }
+        } else {
+          guarded = await hardTimeoutMonitor.race(promptPromise);
+        }
+      } else {
+        guarded = { timedOut: false, value: await promptPromise };
+      }
+      if (guarded.timedOut) {
+        return {
+          sessionId: liveSessionId,
+          stopReason: "cancelled",
+          assistantText: currentTurnAssistantText,
+          observedAcpActivity: currentTurnObservedAcpActivity,
+          cancelRequested: true,
+        };
+      }
+      const result = guarded.value;
       liveSessionId = result.sessionId;
       return {
         ...result,
@@ -3060,6 +3574,13 @@ export async function executeAcpSkillRunnerJob(args: {
       throw error;
     } finally {
       captureAssistantText = false;
+      activePromptTimeoutDrain = null;
+      if (
+        executionMode === "interactive" &&
+        !hardTimeoutMonitor?.isTriggered()
+      ) {
+        hardTimeoutMonitor?.clear();
+      }
       stopWorkspaceActivityHeartbeat();
     }
   };
@@ -3718,6 +4239,7 @@ export async function executeAcpSkillRunnerJob(args: {
       const promptResult = await promptExistingSession(nextPrompt);
       if (disconnectRequested) {
         keepConversationAlive = true;
+        hardTimeoutMonitor?.clear();
         const disconnectedStatus = resolveDisconnectedRunStatus();
         upsertAcpSkillRun({
           requestId: workspace.requestId,
@@ -3747,6 +4269,7 @@ export async function executeAcpSkillRunnerJob(args: {
       }
       if (interruptionRequested || promptResult.cancelRequested) {
         keepConversationAlive = true;
+        hardTimeoutMonitor?.clear();
         upsertAcpSkillRun({
           requestId: workspace.requestId,
           status: "waiting_user",
@@ -3997,6 +4520,7 @@ export async function executeAcpSkillRunnerJob(args: {
         },
       },
     });
+    hardTimeoutMonitor?.clear();
     keepConversationAlive = true;
     return {
       status: "succeeded",
@@ -4014,6 +4538,7 @@ export async function executeAcpSkillRunnerJob(args: {
         skillRoots: injectionPlan.skillRoots,
         runtimeDependencies: dependencyPlan.dependencies,
         acpRuntimeOptions: frozenRuntimeOptions,
+        effectiveRuntimeOptions: effectiveRuntimeOptions.runtimeOptions,
         sharedSkillCatalogPath: materialization.sharedSkillCatalogPath,
         runExecutionInstructionsPath,
         proxySkillCount: materialization.proxySkillCount,
@@ -4029,6 +4554,7 @@ export async function executeAcpSkillRunnerJob(args: {
     const message = errorMessage(error);
     if (disconnectRequested) {
       keepConversationAlive = true;
+      hardTimeoutMonitor?.clear();
       const disconnectedStatus = resolveDisconnectedRunStatus();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
@@ -4061,6 +4587,7 @@ export async function executeAcpSkillRunnerJob(args: {
     }
     if (interruptionRequested) {
       keepConversationAlive = true;
+      hardTimeoutMonitor?.clear();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
         status: "waiting_user",

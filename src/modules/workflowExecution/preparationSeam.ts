@@ -75,6 +75,7 @@ async function adaptRequestsForExecutionContext(args: {
       adaptSkillRunnerJobToAcpSkillRun(request as SkillRunnerJobRequestV1, {
         manifest: args.workflow.manifest,
         runOptions: args.executionContext.runOptions,
+        providerOptions: args.executionContext.providerOptions,
       }),
     );
   }
@@ -92,8 +93,7 @@ async function adaptRequestsForExecutionContext(args: {
       );
     }
     const envResult = await (
-      args.buildSkillRunnerHostBridgeEnv ||
-      buildSkillRunnerHostBridgeRuntimeEnv
+      args.buildSkillRunnerHostBridgeEnv || buildSkillRunnerHostBridgeRuntimeEnv
     )({
       backendUrl: String(args.executionContext.backend?.baseUrl || ""),
     });
@@ -114,7 +114,9 @@ async function adaptRequestsForExecutionContext(args: {
 function createSkillRunnerHostBridgeEnvError(
   envResult: Extract<SkillRunnerHostBridgeEnvResult, { ok: false }>,
 ) {
-  const error = new Error(`${envResult.code}: ${envResult.message}`) as Error & {
+  const error = new Error(
+    `${envResult.code}: ${envResult.message}`,
+  ) as Error & {
     code?: string;
     details?: Record<string, unknown>;
   };

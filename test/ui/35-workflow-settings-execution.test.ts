@@ -31,6 +31,7 @@ import {
 } from "./workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
 import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/modules/skillRunnerInteractiveAutoReply";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
@@ -88,6 +89,7 @@ describe("workflow settings execution", function () {
   });
 
   afterEach(function () {
+    setDebugModeOverrideForTests();
     setSkillRunnerInteractiveAutoReplyEnabledForTests();
     clearSkillRunnerModelCache();
     clearWorkflowSettings("literature-analysis");
@@ -377,6 +379,7 @@ describe("workflow settings execution", function () {
   itNodeOnly(
     "shows auto and interactive options for mixed-mode sequence workflows",
     async function () {
+      setDebugModeOverrideForTests(true);
       setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(

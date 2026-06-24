@@ -34,7 +34,7 @@
     },
     "countdown_seconds": {
       "type": "integer",
-      "const": 120
+      "minimum": 1
     },
     "countdown_completed": {
       "type": "boolean",

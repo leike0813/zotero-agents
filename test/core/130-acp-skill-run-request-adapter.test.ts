@@ -97,6 +97,39 @@ describe("ACP skill run request adapter", function () {
     });
   });
 
+  it("injects positive provider hard timeout into ACP runtime options", function () {
+    const adapted = adaptSkillRunnerJobToAcpSkillRun(
+      {
+        kind: "skillrunner.job.v1",
+        skill_id: "literature-analysis",
+        runtime_options: { execution_mode: "auto" },
+      },
+      {
+        providerOptions: {
+          hard_timeout_seconds: "90",
+        },
+      },
+    );
+
+    assert.deepEqual(adapted.runtime_options, {
+      execution_mode: "auto",
+      hard_timeout_seconds: 90,
+    });
+
+    const invalid = adaptSkillRunnerJobToAcpSkillRun(
+      {
+        kind: "skillrunner.job.v1",
+        skill_id: "literature-analysis",
+      },
+      {
+        providerOptions: {
+          hard_timeout_seconds: 0,
+        },
+      },
+    );
+    assert.notProperty(invalid, "runtime_options");
+  });
+
   it("preserves explicit disabled ZoteroHostAccess during ACP adaptation", function () {
     const adapted = adaptSkillRunnerJobToAcpSkillRun(
       {

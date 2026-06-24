@@ -1,7 +1,7 @@
 {
   "id": "debug-sequence-countdown-probe",
   "name": "⏱️ Debug Sequence Countdown Probe",
-  "description": "Debug-only sequence probe step that runs a 2-minute countdown and verifies handoff data from previous steps.",
+  "description": "Debug-only sequence probe step that runs a configurable countdown and verifies handoff data from previous steps.",
   "version": "0.1.0",
   "debug_only": true,
   "execution_modes": ["auto"],

@@ -407,7 +407,7 @@ describe("declarative request compiler guards", function () {
 
     assert.equal(request.kind, "generic-http.request.v1");
     assert.isUndefined(request.targetParentID);
-    assert.equal(request.taskName, "task");
+    assert.equal(request.taskName, "Workflow: Generic HTTP No Selection");
     assert.deepEqual(request.sourceAttachmentPaths, []);
     assert.deepEqual(request.request, {
       method: "POST",

@@ -42,10 +42,13 @@ export function adaptSkillRunnerJobToAcpSkillRun(
   options?: {
     manifest?: WorkflowManifest;
     runOptions?: WorkflowRunOptions;
+    providerOptions?: Record<string, unknown>;
   },
 ): AcpSkillRunRequestV1 {
   if (!request || request.kind !== "skillrunner.job.v1") {
-    throw new Error("ACP skill run adapter requires skillrunner.job.v1 request");
+    throw new Error(
+      "ACP skill run adapter requires skillrunner.job.v1 request",
+    );
   }
   const input = cloneRecord(request.input);
   const uploadFiles = Array.isArray(request.upload_files)
@@ -59,7 +62,9 @@ export function adaptSkillRunnerJobToAcpSkillRun(
       throw new Error("ACP skill run adapter requires upload_files[].key");
     }
     if (!localPath) {
-      throw new Error(`ACP skill run adapter requires upload_files[${key}].path`);
+      throw new Error(
+        `ACP skill run adapter requires upload_files[${key}].path`,
+      );
     }
     if (!isAbsoluteLocalPath(localPath)) {
       throw new Error(
@@ -91,6 +96,12 @@ export function adaptSkillRunnerJobToAcpSkillRun(
       runOptions: options.runOptions,
     });
   }
+  const hardTimeoutSeconds = toPositiveInteger(
+    options?.providerOptions?.hard_timeout_seconds,
+  );
+  if (typeof hardTimeoutSeconds === "number") {
+    runtimeOptions.hard_timeout_seconds = hardTimeoutSeconds;
+  }
 
   return {
     kind: ACP_SKILL_RUN_REQUEST_KIND,
@@ -110,4 +121,17 @@ export function adaptSkillRunnerJobToAcpSkillRun(
     ...(request.poll ? { poll: { ...request.poll } } : {}),
     ...(request.fetch_type ? { fetch_type: request.fetch_type } : {}),
   };
+}
+
+function toPositiveInteger(value: unknown) {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && normalizeString(value)
+        ? Number(value)
+        : NaN;
+  if (!Number.isInteger(numberValue) || numberValue < 1) {
+    return undefined;
+  }
+  return numberValue;
 }
