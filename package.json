@@ -33,6 +33,7 @@
     "check:localization-governance": "tsx scripts/check-localization-governance.ts",
     "check:ssot-invariants": "tsx --import ./test/setup/zotero-mock.ts scripts/check-skillrunner-ssot-invariants.ts",
     "check:host-bridge-doc-sync": "tsx scripts/check-host-bridge-doc-sync.ts",
+    "build:content-feed": "tsx scripts/build-content-package-feed.ts",
     "render:host-bridge-surface": "tsx scripts/render-host-bridge-surface.ts",
     "package:zotero-bridge-cli": "node scripts/package-zotero-bridge-cli.mjs",
     "prebuild:zotero-bridge-cli": "node scripts/build-zotero-bridge-cli.mjs",
@@ -83,6 +84,7 @@
     "graphology": "^0.26.0",
     "marked": "^16.4.2",
     "pako": "^2.1.0",
+    "semver": "^7.8.5",
     "sigma": "^3.0.3",
     "zotero-plugin-toolkit": "^5.1.0-beta.13"
   },
@@ -93,6 +95,7 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^24.10.0",
     "@types/pako": "^2.0.4",
+    "@types/semver": "^7.7.1",
     "@zotero-plugin/eslint-config": "^0.6.7",
     "chai": "^6.2.1",
     "eslint": "^9.39.2",

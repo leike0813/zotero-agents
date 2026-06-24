@@ -20,6 +20,13 @@ declare namespace _ZoteroTypes {
       "collectSkillRunFeedbackEnabled": boolean;
       "workflowDir": string;
       "skillDir": string;
+      "contentFeedChannel": string;
+      "contentStableFeedUrl": string;
+      "contentStableFeedMirrorUrl": string;
+      "contentBetaFeedUrl": string;
+      "contentBetaFeedMirrorUrl": string;
+      "contentDevFeedUrl": string;
+      "contentDevFeedMirrorUrl": string;
       "sampleOutputDir": string;
       "runtimeRoot": string;
       "hostBridgeLanEnabled": boolean;

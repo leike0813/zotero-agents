@@ -127,7 +127,8 @@ function createNoValidInputUnitsError(args: {
 }
 
 function resolveTargetParentIDFromSelection(selectionContext: SelectionLike) {
-  const attachmentParentID = selectionContext?.items?.attachments?.[0]?.parent?.id;
+  const attachmentParentID =
+    selectionContext?.items?.attachments?.[0]?.parent?.id;
   if (attachmentParentID) {
     return attachmentParentID;
   }
@@ -154,7 +155,9 @@ function resolveTargetParentIDFromSelection(selectionContext: SelectionLike) {
   return null;
 }
 
-function resolveSourceAttachmentPathsFromSelection(selectionContext: SelectionLike) {
+function resolveSourceAttachmentPathsFromSelection(
+  selectionContext: SelectionLike,
+) {
   const paths = collectAttachmentCandidates(selectionContext)
     .map((entry) => String(entry.filePath || "").trim())
     .filter(Boolean);
@@ -199,11 +202,7 @@ function normalizeStringArray(value: unknown) {
     return [] as string[];
   }
   return Array.from(
-    new Set(
-      value
-        .map((entry) => String(entry || "").trim())
-        .filter(Boolean),
-    ),
+    new Set(value.map((entry) => String(entry || "").trim()).filter(Boolean)),
   );
 }
 
@@ -212,8 +211,12 @@ function resolveWorkflowRequiredMcpTools(manifest: LoadedWorkflow["manifest"]) {
 }
 
 function normalizeSkillRunnerRequestMode(value: unknown) {
-  const normalized = String(value || "").trim().toLowerCase();
-  return normalized === "auto" || normalized === "interactive" ? normalized : "";
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return normalized === "auto" || normalized === "interactive"
+    ? normalized
+    : "";
 }
 
 function withNormalizedSkillRunnerRuntimeOptions(args: {
@@ -347,17 +350,20 @@ function createRuntimeContext(
     addon:
       typeof override?.addon !== "undefined"
         ? (override.addon ?? null)
-        : ((resolveRuntimeAddon() as unknown as typeof addon | undefined) ?? null),
+        : ((resolveRuntimeAddon() as unknown as typeof addon | undefined) ??
+          null),
     debugMode:
       typeof override?.debugMode === "boolean"
         ? override.debugMode
         : isDebugModeEnabled(),
     workflowId: String(override?.workflowId || "").trim() || undefined,
     packageId: String(override?.packageId || "").trim() || undefined,
-    workflowRootDir: String(override?.workflowRootDir || "").trim() || undefined,
+    workflowRootDir:
+      String(override?.workflowRootDir || "").trim() || undefined,
     packageRootDir: String(override?.packageRootDir || "").trim() || undefined,
     workflowSourceKind:
-      override?.workflowSourceKind === "builtin" ||
+      override?.workflowSourceKind === "official" ||
+      override?.workflowSourceKind === "dev-local" ||
       override?.workflowSourceKind === "user"
         ? override.workflowSourceKind
         : "",
@@ -495,7 +501,9 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
     hookName: args.hookName,
   });
   const capabilitySource = resolveHookCapabilitySource(args.workflow);
-  const hostApiSummary = summarizeWorkflowHostApiCapabilities(hookRuntime.hostApi);
+  const hostApiSummary = summarizeWorkflowHostApiCapabilities(
+    hookRuntime.hostApi,
+  );
   const contract =
     args.workflow.hookExecutionMode === "precompiled-host-hook"
       ? "package-host-api-facade"
@@ -536,7 +544,8 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
       operation: args.operation,
       stage: "workflow-hook-execute-succeeded",
       message: `workflow hook ${args.hookName} execution succeeded`,
-      runtimeCapabilitySummary: summarizeWorkflowRuntimeCapabilities(hookRuntime),
+      runtimeCapabilitySummary:
+        summarizeWorkflowRuntimeCapabilities(hookRuntime),
       details: {
         executionMode: args.workflow.hookExecutionMode || "node-native-module",
         contract,
@@ -568,7 +577,8 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
       operation: args.operation,
       stage: "workflow-hook-execute-failed",
       message: `workflow hook ${args.hookName} execution failed`,
-      runtimeCapabilitySummary: summarizeWorkflowRuntimeCapabilities(hookRuntime),
+      runtimeCapabilitySummary:
+        summarizeWorkflowRuntimeCapabilities(hookRuntime),
       details: {
         errorMessage: normalizedError.message,
         errorStack: normalizedError.stack,
@@ -611,7 +621,9 @@ function hasAnySelectionItems(selectionContext: SelectionLike) {
 function getSelectionItemCounts(selectionContext: SelectionLike) {
   const items = selectionContext?.items || {};
   return {
-    attachments: Array.isArray(items.attachments) ? items.attachments.length : 0,
+    attachments: Array.isArray(items.attachments)
+      ? items.attachments.length
+      : 0,
     parents: Array.isArray(items.parents) ? items.parents.length : 0,
     children: Array.isArray(items.children) ? items.children.length : 0,
     notes: Array.isArray(items.notes) ? items.notes.length : 0,

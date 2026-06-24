@@ -46,10 +46,10 @@ async function loadHarnessWorkflows(args: {
   workflowsDir?: string;
   builtinWorkflowsDir?: string;
 }) {
-  const [builtin, user] = await Promise.all([
+  const [official, user] = await Promise.all([
     cleanString(args.builtinWorkflowsDir)
       ? loadWorkflowManifests(cleanString(args.builtinWorkflowsDir), {
-          workflowSourceKind: "builtin",
+          workflowSourceKind: "official",
         })
       : Promise.resolve({ workflows: [] }),
     cleanString(args.workflowsDir)
@@ -59,7 +59,7 @@ async function loadHarnessWorkflows(args: {
       : Promise.resolve({ workflows: [] }),
   ]);
   const byId = new Map<string, LoadedWorkflow>();
-  for (const workflow of builtin.workflows as LoadedWorkflow[]) {
+  for (const workflow of official.workflows as LoadedWorkflow[]) {
     byId.set(workflow.manifest.id, workflow);
   }
   for (const workflow of user.workflows as LoadedWorkflow[]) {
@@ -536,13 +536,19 @@ function skillRunnerSession(projection?: HarnessSkillRunnerRunProjection) {
     pendingKind: cleanString(
       requestPayload.pendingKind || requestPayload.pending_kind,
     ),
-    pendingPrompt: cleanString(requestPayload.pendingPrompt || requestPayload.prompt),
-    pendingOptions: asArray(requestPayload.pendingOptions || requestPayload.options),
+    pendingPrompt: cleanString(
+      requestPayload.pendingPrompt || requestPayload.prompt,
+    ),
+    pendingOptions: asArray(
+      requestPayload.pendingOptions || requestPayload.options,
+    ),
     pendingRequiredFields: asArray(requestPayload.pendingRequiredFields).map(
       cleanString,
     ),
-    pendingUiHints: requestPayload.pendingUiHints || requestPayload.ui_hints || {},
-    pendingAskUser: requestPayload.pendingAskUser || requestPayload.ask_user || {},
+    pendingUiHints:
+      requestPayload.pendingUiHints || requestPayload.ui_hints || {},
+    pendingAskUser:
+      requestPayload.pendingAskUser || requestPayload.ask_user || {},
     authPhase: cleanString(pendingAuth.phase || requestPayload.authPhase),
     authSessionId: cleanString(
       pendingAuth.auth_session_id || requestPayload.authSessionId,
@@ -576,7 +582,9 @@ function skillRunnerSession(projection?: HarnessSkillRunnerRunProjection) {
     loading: false,
     error: projection.error || "",
     messages: asArray(
-      requestPayload.messages || requestPayload.chatEvents || requestPayload.events,
+      requestPayload.messages ||
+        requestPayload.chatEvents ||
+        requestPayload.events,
     ).map((entry, index) => ({
       seq: Number(entry.seq || index + 1),
       ts: cleanString(entry.ts || entry.createdAt),

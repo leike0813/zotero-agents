@@ -16,13 +16,13 @@ import {
   statRuntimePath,
 } from "./runtimePersistence";
 import { isDebugModeEnabled } from "./debugMode";
-import { getBuiltinSkillTargetDir } from "./builtinSkillSync";
-import { getEffectiveSkillDir } from "./workflowRuntime";
+import { getOfficialSkillDir } from "./contentPackageSubscription";
+import { getDevLocalSkillDir, getEffectiveSkillDir } from "./workflowRuntime";
 
 export const PLUGIN_SKILL_USER_ROOT = "skills";
 export const PLUGIN_SKILL_BUILTIN_ROOT = "skills_builtin";
 
-export type PluginSkillSourceKind = "user" | "builtin";
+export type PluginSkillSourceKind = "user" | "dev-local" | "official";
 
 export type PluginSkillRegistryDiagnostic = {
   level: "info" | "warning" | "error";
@@ -62,6 +62,7 @@ export type PluginSkillRegistrySnapshot = {
 
 export type PluginSkillRegistryScanOptions = {
   userRoot?: string;
+  devLocalRoot?: string;
   builtinRoot?: string;
   cwd?: string;
 };
@@ -71,14 +72,13 @@ type Candidate = {
   sourceDir: string;
 };
 
-let pluginRuntimeRootURI = "";
-
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
-export function setPluginSkillRegistryRuntimeRootURI(rootURI?: string) {
-  pluginRuntimeRootURI = normalizeString(rootURI);
+export function setPluginSkillRegistryRuntimeRootURI(_rootURI?: string) {
+  // Kept as a compatibility hook for older startup paths; official content no
+  // longer resolves from packaged addon resources.
 }
 
 function getRuntimeCwd() {
@@ -91,56 +91,12 @@ function getRuntimeCwd() {
   return ".";
 }
 
-function getZoteroDataDirectory() {
-  const runtime = globalThis as {
-    Zotero?: {
-      DataDirectory?: {
-        dir?: unknown;
-      };
-    };
-  };
-  return normalizeString(runtime.Zotero?.DataDirectory?.dir);
-}
-
-function fileUriToPath(fileUri: string) {
-  const normalized = normalizeString(fileUri);
-  if (!normalized.toLowerCase().startsWith("file://")) {
-    return "";
-  }
-  try {
-    const parsed = new URL(normalized);
-    let pathname = decodeURIComponent(parsed.pathname || "");
-    const isWindowsDriveUri = /^\/[a-zA-Z]:\//.test(pathname);
-    if (isWindowsDriveUri) {
-      pathname = pathname.slice(1);
-    }
-    if (isWindowsDriveUri) {
-      return pathname.replace(/\//g, "\\");
-    }
-    return pathname;
-  } catch {
-    return "";
-  }
-}
-
-function getPackagedAddonRoot() {
-  return fileUriToPath(pluginRuntimeRootURI).replace(/[\\/]+$/, "");
-}
-
 function getDefaultUserSkillRoot() {
   return getEffectiveSkillDir();
 }
 
-function getDefaultBuiltinSkillRoot() {
-  const dataDir = getZoteroDataDirectory();
-  if (dataDir) {
-    return getBuiltinSkillTargetDir();
-  }
-  const packagedAddonRoot = getPackagedAddonRoot();
-  if (packagedAddonRoot) {
-    return joinPath(packagedAddonRoot, PLUGIN_SKILL_BUILTIN_ROOT);
-  }
-  return joinPath(getRuntimeCwd(), PLUGIN_SKILL_BUILTIN_ROOT);
+function getDefaultOfficialSkillRoot() {
+  return getOfficialSkillDir();
 }
 
 export function resolvePluginSkillRoots(
@@ -155,8 +111,19 @@ export function resolvePluginSkillRoots(
       normalizeString(options.builtinRoot) ||
       (cwd
         ? joinPath(cwd, PLUGIN_SKILL_BUILTIN_ROOT)
-        : getDefaultBuiltinSkillRoot()),
+        : getDefaultOfficialSkillRoot()),
+    devLocalRoot: normalizeString(options.devLocalRoot),
   };
+}
+
+function sourcePriority(sourceKind: PluginSkillSourceKind) {
+  if (sourceKind === "official") {
+    return 0;
+  }
+  if (sourceKind === "dev-local") {
+    return 1;
+  }
+  return 2;
 }
 
 async function pathExists(targetPath: string) {
@@ -490,19 +457,34 @@ export async function scanPluginSkillRegistry(
   options: PluginSkillRegistryScanOptions = {},
 ): Promise<PluginSkillRegistrySnapshot> {
   const roots = resolvePluginSkillRoots(options);
+  const devLocalRoot = roots.devLocalRoot || (await getDevLocalSkillDir());
   const diagnostics: PluginSkillRegistryDiagnostic[] = [];
   const builtin = await collectCandidates({
     root: roots.builtinRoot,
-    sourceKind: "builtin",
+    sourceKind: "official",
   });
+  const devLocal = devLocalRoot
+    ? await collectCandidates({
+        root: devLocalRoot,
+        sourceKind: "dev-local",
+      })
+    : { candidates: [] as Candidate[], diagnostics: [] };
   const user = await collectCandidates({
     root: roots.userRoot,
     sourceKind: "user",
   });
-  diagnostics.push(...builtin.diagnostics, ...user.diagnostics);
+  diagnostics.push(
+    ...builtin.diagnostics,
+    ...devLocal.diagnostics,
+    ...user.diagnostics,
+  );
 
   const validEntries: PluginSkillRegistryEntry[] = [];
-  for (const candidate of [...builtin.candidates, ...user.candidates]) {
+  for (const candidate of [
+    ...builtin.candidates,
+    ...devLocal.candidates,
+    ...user.candidates,
+  ]) {
     const inspected = await inspectCandidate(candidate);
     if ("category" in inspected) {
       diagnostics.push(inspected);
@@ -520,20 +502,22 @@ export async function scanPluginSkillRegistry(
     if (idCompare !== 0) {
       return idCompare;
     }
-    return left.sourceKind.localeCompare(right.sourceKind);
+    return sourcePriority(left.sourceKind) - sourcePriority(right.sourceKind);
   })) {
     const existing = entriesById[entry.skillId];
     if (!existing) {
       entriesById[entry.skillId] = entry;
       continue;
     }
-    if (existing.sourceKind === "builtin" && entry.sourceKind === "user") {
+    if (
+      sourcePriority(entry.sourceKind) > sourcePriority(existing.sourceKind)
+    ) {
       diagnostics.push({
         level: "info",
         category: "skill_shadowed",
-        message: `user skill shadows built-in skill: ${entry.skillId}`,
+        message: `${entry.sourceKind} skill shadows ${existing.sourceKind} skill: ${entry.skillId}`,
         skillId: entry.skillId,
-        sourceKind: "builtin",
+        sourceKind: existing.sourceKind,
         path: existing.sourceDir,
       });
       entriesById[entry.skillId] = entry;

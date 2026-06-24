@@ -433,7 +433,7 @@ describe("Synthesize topic workflow contract", function () {
     for (const skillId of expected) {
       const entry = registry.entriesById[skillId];
       assert.isOk(entry, `${skillId} should be registered`);
-      assert.equal(entry.sourceKind, "builtin");
+      assert.equal(entry.sourceKind, "official");
       const runnerJson = JSON.parse(
         await fs.readFile(entry.runnerJsonPath, "utf8"),
       );
@@ -557,7 +557,10 @@ describe("Synthesize topic workflow contract", function () {
     assert.match(skillText, /duplicate check[\s\S]+topic_synthesis_canceled/);
     assert.notInclude(skillText, "可建议改用 update-topic-synthesis");
     assert.match(skillText, /取消[\s\S]+topic_synthesis_canceled/);
-    assert.include(runner.entrypoint.prompts.common, "assets/output.schema.json");
+    assert.include(
+      runner.entrypoint.prompts.common,
+      "assets/output.schema.json",
+    );
     assert.include(skillText, "resolvers resolve");
     assert.include(skillText, "Host Bridge");
     assert.include(runner.entrypoint.prompts.common, "SKILL.md");
@@ -711,7 +714,10 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(skillText, "update_decision");
     assert.include(skillText, "resolver proposal");
     assert.include(skillText, "prepare-analysis-context.json");
-    assert.include(runner.entrypoint.prompts.common, "assets/output.schema.json");
+    assert.include(
+      runner.entrypoint.prompts.common,
+      "assets/output.schema.json",
+    );
     assert.include(runner.entrypoint.prompts.common, "SKILL.md");
     assert.include(runner.entrypoint.prompts.common, "scripts/gate.py");
     assert.notInclude(
@@ -1239,7 +1245,10 @@ describe("Synthesize topic workflow v2 structured contract", function () {
     assert.include(coreRuntime, "topic_graph_relation_proposals");
     assert.include(coreRuntime, "topic_interest_metadata");
     assert.include(coreRuntime, "concept_cards_proposal");
-    assert.include(finalizeSkill, "runtime/views/finalize-context.manifest.json");
+    assert.include(
+      finalizeSkill,
+      "runtime/views/finalize-context.manifest.json",
+    );
     assert.include(finalizeSkill, "sidecars");
     assert.notInclude(
       JSON.stringify(finalizeOutputSchema),

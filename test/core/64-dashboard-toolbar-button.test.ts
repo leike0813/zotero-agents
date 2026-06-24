@@ -174,10 +174,7 @@ describe("dashboard toolbar button", function () {
     );
     const originalSkillRunnerTooltip =
       skillRunnerButton!.getAttribute("tooltiptext");
-    assert.equal(
-      skillRunnerButton!.getAttribute("data-attention"),
-      "false",
-    );
+    assert.equal(skillRunnerButton!.getAttribute("data-attention"), "false");
     assert.include(
       dashboardButton!.getAttribute("image") || "",
       "icon_workbench_32.png",
@@ -202,14 +199,8 @@ describe("dashboard toolbar button", function () {
     assert.deepEqual(calls[1].data, { window: win });
 
     updateAssistantToolbarAttention(win, 2);
-    assert.equal(
-      skillRunnerButton!.getAttribute("data-attention"),
-      "true",
-    );
-    assert.equal(
-      skillRunnerButton!.getAttribute("data-attention-count"),
-      "2",
-    );
+    assert.equal(skillRunnerButton!.getAttribute("data-attention"), "true");
+    assert.equal(skillRunnerButton!.getAttribute("data-attention-count"), "2");
     assert.include(
       skillRunnerButton!.getAttribute("image") || "",
       "icon_sidebar_glow_32.png",
@@ -220,10 +211,7 @@ describe("dashboard toolbar button", function () {
     );
 
     updateAssistantToolbarAttention(win, 0);
-    assert.equal(
-      skillRunnerButton!.getAttribute("data-attention"),
-      "false",
-    );
+    assert.equal(skillRunnerButton!.getAttribute("data-attention"), "false");
     assert.include(
       skillRunnerButton!.getAttribute("image") || "",
       "icon_sidebar_32.png",
@@ -253,7 +241,10 @@ describe("dashboard toolbar button", function () {
     );
     assert.isAtLeast(openDashboardStart, 0);
     assert.isAbove(openDashboardEnd, openDashboardStart);
-    const openDashboardBlock = hooks.slice(openDashboardStart, openDashboardEnd);
+    const openDashboardBlock = hooks.slice(
+      openDashboardStart,
+      openDashboardEnd,
+    );
 
     assert.include(openDashboardBlock, "openZoteroSkillsWorkspaceTab");
     assert.notInclude(openDashboardBlock, 'initialView: "dashboard"');
@@ -371,7 +362,7 @@ describe("dashboard toolbar button", function () {
     assert.equal(host.children[4].id, "zotero-skills-tb-skillrunner");
   });
 
-  it("rebuilds execute popup without dashboard shortcut and shows empty disabled item", async function () {
+  it("rebuilds execute popup without dashboard shortcut and shows official install action before empty item", async function () {
     (globalThis as any).addon = {
       data: {},
       hooks: {
@@ -402,11 +393,17 @@ describe("dashboard toolbar button", function () {
     popup.dispatch("popupshowing");
     await flushTasks();
 
-    assert.lengthOf(popup.children, 1);
-    assert.equal(popup.children[0].getAttribute("disabled"), "true");
+    assert.lengthOf(popup.children, 3);
+    assert.equal(popup.children[0].getAttribute("disabled"), null);
+    assert.match(
+      popup.children[0].getAttribute("label") || "",
+      /📦.*(Install Official Workflow Package|安装官方 Workflow 包)/,
+    );
+    assert.equal(popup.children[1].tagName, "menuseparator");
+    assert.equal(popup.children[2].getAttribute("disabled"), "true");
     assert.include(
       ["No workflows loaded", "未加载任何 Workflow"],
-      popup.children[0].getAttribute("label"),
+      popup.children[2].getAttribute("label"),
     );
   });
 });

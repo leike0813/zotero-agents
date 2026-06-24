@@ -16,6 +16,13 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   collectSkillRunFeedbackEnabled: boolean;
   workflowDir: string;
   skillDir: string;
+  contentFeedChannel: string;
+  contentStableFeedUrl: string;
+  contentStableFeedMirrorUrl: string;
+  contentBetaFeedUrl: string;
+  contentBetaFeedMirrorUrl: string;
+  contentDevFeedUrl: string;
+  contentDevFeedMirrorUrl: string;
   runtimeRoot: string;
   hostBridgeLanEnabled: boolean;
   hostBridgePinPortEnabled: boolean;

@@ -4,13 +4,16 @@ import { resolveRuntimeAddon } from "../utils/runtimeBridge";
 import { loadWorkflowManifests } from "../workflows/loader";
 import type { LoadedWorkflow, LoadedWorkflows } from "../workflows/types";
 import {
-  getBuiltinWorkflowTargetDir,
-  getLatestBuiltinWorkflowSyncResult,
-  type BuiltinWorkflowSyncResult,
-} from "./builtinWorkflowSync";
-import { getRuntimePersistencePaths } from "./runtimePersistence";
-
-type WorkflowSourceKind = "builtin" | "user";
+  getOfficialWorkflowDir,
+  readEffectiveContentPackageInstallState,
+  type ContentPackageInstallState,
+} from "./contentPackageSubscription";
+import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
+import {
+  getRuntimePersistencePaths,
+  statRuntimePath,
+} from "./runtimePersistence";
+type WorkflowSourceKind = "official" | "dev-local" | "user";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 const DEFAULT_SKILL_DIR_NAME = "skills";
@@ -22,16 +25,26 @@ const dynamicImport: DynamicImport = new Function(
 
 type WorkflowRuntimeState = {
   workflowsDir: string;
+  officialWorkflowsDir: string;
   builtinWorkflowsDir: string;
+  devLocalWorkflowsDir: string;
   workflowSourceById: Record<string, WorkflowSourceKind>;
   loaded: LoadedWorkflows;
+  loadedFromOfficial: LoadedWorkflows;
   loadedFromBuiltin: LoadedWorkflows;
+  loadedFromDevLocal: LoadedWorkflows;
   loadedFromUser: LoadedWorkflows;
-  latestBuiltinSync: BuiltinWorkflowSyncResult | null;
+  latestContentInstall: ContentPackageInstallState | null;
+  latestBuiltinSync: ContentPackageInstallState | null;
 };
 
 export function getDefaultWorkflowDir() {
-  return joinPath(getRuntimePersistencePaths().dataDir, "workflows");
+  return joinPath(
+    getRuntimePersistencePaths().root,
+    "content",
+    "user",
+    "workflows",
+  );
 }
 
 function readTestWorkflowDirOverride() {
@@ -77,11 +90,16 @@ function emptyLoadedWorkflows(): LoadedWorkflows {
 function emptyWorkflowRuntimeState(): WorkflowRuntimeState {
   return {
     workflowsDir: "",
+    officialWorkflowsDir: "",
     builtinWorkflowsDir: "",
+    devLocalWorkflowsDir: "",
     workflowSourceById: {},
     loaded: emptyLoadedWorkflows(),
+    loadedFromOfficial: emptyLoadedWorkflows(),
     loadedFromBuiltin: emptyLoadedWorkflows(),
+    loadedFromDevLocal: emptyLoadedWorkflows(),
     loadedFromUser: emptyLoadedWorkflows(),
+    latestContentInstall: null,
     latestBuiltinSync: null,
   };
 }
@@ -92,7 +110,11 @@ function ensureRuntimeStateShape(value: unknown): WorkflowRuntimeState {
   const state = (value || {}) as Partial<WorkflowRuntimeState>;
   return {
     workflowsDir: String(state.workflowsDir || ""),
+    officialWorkflowsDir: String(
+      state.officialWorkflowsDir || state.builtinWorkflowsDir || "",
+    ),
     builtinWorkflowsDir: String(state.builtinWorkflowsDir || ""),
+    devLocalWorkflowsDir: String(state.devLocalWorkflowsDir || ""),
     workflowSourceById: {
       ...((state.workflowSourceById || {}) as Record<
         string,
@@ -100,11 +122,26 @@ function ensureRuntimeStateShape(value: unknown): WorkflowRuntimeState {
       >),
     },
     loaded: state.loaded || emptyLoadedWorkflows(),
+    loadedFromOfficial:
+      state.loadedFromOfficial ||
+      state.loadedFromBuiltin ||
+      emptyLoadedWorkflows(),
     loadedFromBuiltin: state.loadedFromBuiltin || emptyLoadedWorkflows(),
+    loadedFromDevLocal: state.loadedFromDevLocal || emptyLoadedWorkflows(),
     loadedFromUser: state.loadedFromUser || emptyLoadedWorkflows(),
+    latestContentInstall:
+      (state.latestContentInstall as
+        | ContentPackageInstallState
+        | null
+        | undefined) ||
+      (state.latestBuiltinSync as
+        | ContentPackageInstallState
+        | null
+        | undefined) ||
+      null,
     latestBuiltinSync:
       (state.latestBuiltinSync as
-        | BuiltinWorkflowSyncResult
+        | ContentPackageInstallState
         | null
         | undefined) || null,
   };
@@ -126,7 +163,38 @@ function getState() {
 }
 
 export function getBuiltinWorkflowDir() {
-  return getBuiltinWorkflowTargetDir();
+  return getOfficialWorkflowDir();
+}
+
+export function getOfficialWorkflowContentDir() {
+  return getOfficialWorkflowDir();
+}
+
+function readEnvValue(key: string) {
+  const runtime = globalThis as {
+    process?: { env?: Record<string, string | undefined> };
+    Services?: { env?: { get?: (name: string) => string } };
+  };
+  const fromProcess = runtime.process?.env?.[key];
+  if (typeof fromProcess === "string" && fromProcess.trim()) {
+    return fromProcess.trim();
+  }
+  try {
+    const fromServices = runtime.Services?.env?.get?.(key);
+    if (typeof fromServices === "string" && fromServices.trim()) {
+      return fromServices.trim();
+    }
+  } catch {
+    // ignore env read failures
+  }
+  return "";
+}
+
+export function getDevLocalContentRoot() {
+  return (
+    readEnvValue("ZOTERO_AGENTS_CONTENT_DEV_ROOT") ||
+    joinPath(getRuntimePersistencePaths().root, "content", "dev-local")
+  );
 }
 
 function sortWorkflows(workflows: LoadedWorkflow[]) {
@@ -180,11 +248,44 @@ export function getDefaultSkillDir() {
 }
 
 export function getEffectiveSkillDir() {
+  return getEffectiveSkillDirForWorkflowDir(getEffectiveWorkflowDir());
+}
+
+export function getEffectiveSkillDirForWorkflowDir(workflowsDir: string) {
   const current = String(getPref("skillDir") || "").trim();
   if (current) {
     return current;
   }
-  return getDefaultSkillDir();
+  return getDefaultSkillDirForWorkflowDir(workflowsDir);
+}
+
+async function pathIsDirectory(targetPath: string) {
+  return !!targetPath && (await statRuntimePath(targetPath)).isDir;
+}
+
+async function resolveDevLocalContentSubdir(kind: "workflows" | "skills") {
+  const devRoot = getDevLocalContentRoot();
+  if (!(await pathIsDirectory(devRoot))) {
+    return "";
+  }
+  const candidates =
+    kind === "workflows"
+      ? [joinPath(devRoot, "workflows_builtin"), joinPath(devRoot, "workflows")]
+      : [joinPath(devRoot, "skills_builtin"), joinPath(devRoot, "skills")];
+  for (const candidate of candidates) {
+    if (await pathIsDirectory(candidate)) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
+export async function getDevLocalWorkflowDir() {
+  return resolveDevLocalContentSubdir("workflows");
+}
+
+export async function getDevLocalSkillDir() {
+  return resolveDevLocalContentSubdir("skills");
 }
 
 async function ensureDirectoryExists(targetDir: string) {
@@ -240,16 +341,22 @@ async function persistWorkflowRegistryStatus(state: WorkflowRuntimeState) {
     written_at: new Date().toISOString(),
     zotero_version: getZoteroVersion(),
     workflows_dir: state.workflowsDir,
+    official_workflows_dir: state.officialWorkflowsDir,
     builtin_workflows_dir: state.builtinWorkflowsDir,
+    dev_local_workflows_dir: state.devLocalWorkflowsDir,
     loaded_workflow_count: state.loaded.workflows.length,
+    loaded_official_workflow_count: state.loadedFromOfficial.workflows.length,
     loaded_builtin_workflow_count: state.loadedFromBuiltin.workflows.length,
+    loaded_dev_local_workflow_count: state.loadedFromDevLocal.workflows.length,
     loaded_user_workflow_count: state.loadedFromUser.workflows.length,
     workflows: summarizeLoadedWorkflows(state.loaded),
     builtin_workflows: summarizeLoadedWorkflows(state.loadedFromBuiltin),
+    dev_local_workflows: summarizeLoadedWorkflows(state.loadedFromDevLocal),
     user_workflows: summarizeLoadedWorkflows(state.loadedFromUser),
     warnings: state.loaded.warnings,
     errors: state.loaded.errors,
     diagnostics: state.loaded.diagnostics || [],
+    latest_content_install: state.latestContentInstall,
     latest_builtin_sync: state.latestBuiltinSync,
   };
   await ensureDirectoryExists(getDirectoryName(statusPath));
@@ -258,28 +365,49 @@ async function persistWorkflowRegistryStatus(state: WorkflowRuntimeState) {
 
 async function loadMergedWorkflowManifests(args: {
   workflowsDir: string;
-  builtinWorkflowsDir: string;
+  officialWorkflowsDir: string;
+  devLocalWorkflowsDir: string;
 }) {
-  const [loadedFromBuiltin, loadedFromUser] = await Promise.all([
-    loadWorkflowManifests(args.builtinWorkflowsDir, {
-      workflowSourceKind: "builtin",
-    }),
-    loadWorkflowManifests(args.workflowsDir, {
-      workflowSourceKind: "user",
-    }),
-  ]);
+  const [loadedFromOfficial, loadedFromDevLocal, loadedFromUser] =
+    await Promise.all([
+      loadWorkflowManifests(args.officialWorkflowsDir, {
+        workflowSourceKind: "official",
+      }),
+      args.devLocalWorkflowsDir
+        ? loadWorkflowManifests(args.devLocalWorkflowsDir, {
+            workflowSourceKind: "dev-local",
+          })
+        : Promise.resolve(emptyLoadedWorkflows()),
+      loadWorkflowManifests(args.workflowsDir, {
+        workflowSourceKind: "user",
+      }),
+    ]);
 
   const byWorkflowId = new Map<string, LoadedWorkflow>();
   const workflowSourceById: Record<string, WorkflowSourceKind> = {};
   const duplicateWarnings: string[] = [];
 
-  for (const entry of loadedFromBuiltin.workflows) {
+  for (const entry of loadedFromOfficial.workflows) {
     const workflowId = String(entry.manifest.id || "").trim();
     if (!workflowId) {
       continue;
     }
     byWorkflowId.set(workflowId, entry);
-    workflowSourceById[workflowId] = "builtin";
+    workflowSourceById[workflowId] = "official";
+  }
+
+  for (const entry of loadedFromDevLocal.workflows) {
+    const workflowId = String(entry.manifest.id || "").trim();
+    if (!workflowId) {
+      continue;
+    }
+    if (workflowSourceById[workflowId] === "official") {
+      duplicateWarnings.push(
+        `Workflow "${workflowId}" exists in official and dev-local directories; using dev-local workflow`,
+      );
+    }
+    byWorkflowId.set(workflowId, entry);
+    workflowSourceById[workflowId] = "dev-local";
   }
 
   for (const entry of loadedFromUser.workflows) {
@@ -287,9 +415,12 @@ async function loadMergedWorkflowManifests(args: {
     if (!workflowId) {
       continue;
     }
-    if (workflowSourceById[workflowId] === "builtin") {
+    if (
+      workflowSourceById[workflowId] === "official" ||
+      workflowSourceById[workflowId] === "dev-local"
+    ) {
       duplicateWarnings.push(
-        `Workflow "${workflowId}" exists in builtin and user directories; using user workflow`,
+        `Workflow "${workflowId}" exists in ${workflowSourceById[workflowId]} and user directories; using user workflow`,
       );
     }
     byWorkflowId.set(workflowId, entry);
@@ -301,20 +432,28 @@ async function loadMergedWorkflowManifests(args: {
     workflows,
     manifests: workflows.map((entry) => entry.manifest),
     warnings: [
-      ...loadedFromBuiltin.warnings,
+      ...loadedFromOfficial.warnings,
+      ...loadedFromDevLocal.warnings,
       ...loadedFromUser.warnings,
       ...duplicateWarnings,
     ],
-    errors: [...loadedFromBuiltin.errors, ...loadedFromUser.errors],
+    errors: [
+      ...loadedFromOfficial.errors,
+      ...loadedFromDevLocal.errors,
+      ...loadedFromUser.errors,
+    ],
     diagnostics: [
-      ...(loadedFromBuiltin.diagnostics || []),
+      ...(loadedFromOfficial.diagnostics || []),
+      ...(loadedFromDevLocal.diagnostics || []),
       ...(loadedFromUser.diagnostics || []),
     ],
   };
 
   return {
     merged,
-    loadedFromBuiltin,
+    loadedFromOfficial,
+    loadedFromBuiltin: loadedFromOfficial,
+    loadedFromDevLocal,
     loadedFromUser,
     workflowSourceById,
   };
@@ -335,10 +474,23 @@ export function getEffectiveWorkflowDir() {
 }
 
 export async function ensureDefaultWorkflowDirExistsOnStartup() {
-  const targetDir = String(getDefaultWorkflowDir() || "").trim();
-  if (!targetDir) {
+  const targetDirs = [
+    String(getDefaultWorkflowDir() || "").trim(),
+    String(
+      getDefaultSkillDirForWorkflowDir(getDefaultWorkflowDir()) || "",
+    ).trim(),
+  ].filter(Boolean);
+  if (targetDirs.length === 0) {
     return false;
   }
+  let created = false;
+  for (const targetDir of targetDirs) {
+    created = (await ensureDefaultDirectoryExists(targetDir)) || created;
+  }
+  return created;
+}
+
+async function ensureDefaultDirectoryExists(targetDir: string) {
   const runtime = globalThis as {
     IOUtils?: {
       makeDirectory?: (
@@ -383,25 +535,141 @@ export async function ensureDefaultWorkflowDirExistsOnStartup() {
   }
 }
 
+function collectSkillRunnerSkillDependencies(entry: LoadedWorkflow) {
+  const manifest = entry.manifest;
+  const request = manifest.request;
+  const kind = String(request?.kind || "").trim();
+  const skillIds = new Set<string>();
+  if (kind === "skillrunner.job.v1") {
+    const skillId = String(request?.create?.skill_id || "").trim();
+    if (skillId) {
+      skillIds.add(skillId);
+    }
+  }
+  if (kind === "skillrunner.sequence.v1") {
+    const steps = Array.isArray(request?.sequence?.steps)
+      ? request?.sequence?.steps || []
+      : [];
+    for (const step of steps) {
+      const skillId = String(step?.skill_id || "").trim();
+      if (skillId) {
+        skillIds.add(skillId);
+      }
+    }
+  }
+  return Array.from(skillIds).sort((left, right) => left.localeCompare(right));
+}
+
+function filterLoadedWorkflowsBySkillDependencies(
+  loaded: LoadedWorkflows,
+  effectiveSkillIds: Set<string>,
+) {
+  const diagnostics = [...(loaded.diagnostics || [])];
+  const workflows: LoadedWorkflow[] = [];
+  for (const entry of loaded.workflows) {
+    const missingSkillIds = collectSkillRunnerSkillDependencies(entry).filter(
+      (skillId) => !effectiveSkillIds.has(skillId),
+    );
+    if (missingSkillIds.length === 0) {
+      workflows.push(entry);
+      continue;
+    }
+    diagnostics.push({
+      level: "warning",
+      category: "skill_dependency_missing",
+      message: `Skip workflow ${entry.manifest.id}: missing or invalid skill dependency ${missingSkillIds.join(", ")}`,
+      workflowId: entry.manifest.id,
+      path: entry.manifestPath,
+      reason: missingSkillIds.join(","),
+    });
+  }
+  const sortedDiagnostics = diagnostics.sort(
+    (left, right) =>
+      [
+        left.level.localeCompare(right.level),
+        left.category.localeCompare(right.category),
+        String(left.workflowId || "").localeCompare(
+          String(right.workflowId || ""),
+        ),
+        String(left.path || "").localeCompare(String(right.path || "")),
+        left.message.localeCompare(right.message),
+      ].find((value) => value !== 0) || 0,
+  );
+  return {
+    ...loaded,
+    workflows,
+    manifests: workflows.map((entry) => entry.manifest),
+    warnings: sortedDiagnostics
+      .filter((entry) => entry.level === "warning")
+      .map((entry) => entry.message),
+    errors: sortedDiagnostics
+      .filter((entry) => entry.level === "error")
+      .map((entry) => entry.message),
+    diagnostics: sortedDiagnostics,
+  };
+}
+
 export async function rescanWorkflowRegistry(args?: { workflowsDir?: string }) {
   const workflowsDir = String(
     args?.workflowsDir || getEffectiveWorkflowDir(),
   ).trim();
-  const builtinWorkflowsDir = getBuiltinWorkflowDir();
-  const { merged, loadedFromBuiltin, loadedFromUser, workflowSourceById } =
-    await loadMergedWorkflowManifests({
-      workflowsDir,
-      builtinWorkflowsDir,
-    });
+  const officialWorkflowsDir = getOfficialWorkflowContentDir();
+  const devLocalWorkflowsDir = await getDevLocalWorkflowDir();
+  const {
+    merged,
+    loadedFromOfficial,
+    loadedFromDevLocal,
+    loadedFromUser,
+    workflowSourceById,
+  } = await loadMergedWorkflowManifests({
+    workflowsDir,
+    officialWorkflowsDir,
+    devLocalWorkflowsDir,
+  });
+  const skillRegistry = await scanPluginSkillRegistry({
+    userRoot: getEffectiveSkillDirForWorkflowDir(workflowsDir),
+  });
+  const effectiveSkillIds = new Set(
+    skillRegistry.entries.map((entry) => entry.skillId),
+  );
+  const effectiveMerged = filterLoadedWorkflowsBySkillDependencies(
+    merged,
+    effectiveSkillIds,
+  );
+  const effectiveLoadedFromOfficial = filterLoadedWorkflowsBySkillDependencies(
+    loadedFromOfficial,
+    effectiveSkillIds,
+  );
+  const effectiveLoadedFromBuiltin = effectiveLoadedFromOfficial;
+  const effectiveLoadedFromDevLocal = filterLoadedWorkflowsBySkillDependencies(
+    loadedFromDevLocal,
+    effectiveSkillIds,
+  );
+  const effectiveLoadedFromUser = filterLoadedWorkflowsBySkillDependencies(
+    loadedFromUser,
+    effectiveSkillIds,
+  );
 
   const state = getState();
+  const effectiveWorkflowSourceById: Record<string, WorkflowSourceKind> = {};
+  for (const entry of effectiveMerged.workflows) {
+    const workflowId = String(entry.manifest.id || "").trim();
+    if (workflowId && workflowSourceById[workflowId]) {
+      effectiveWorkflowSourceById[workflowId] = workflowSourceById[workflowId];
+    }
+  }
   state.workflowsDir = workflowsDir;
-  state.builtinWorkflowsDir = builtinWorkflowsDir;
-  state.loaded = merged;
-  state.loadedFromBuiltin = loadedFromBuiltin;
-  state.loadedFromUser = loadedFromUser;
-  state.workflowSourceById = workflowSourceById;
-  state.latestBuiltinSync = getLatestBuiltinWorkflowSyncResult();
+  state.officialWorkflowsDir = officialWorkflowsDir;
+  state.builtinWorkflowsDir = officialWorkflowsDir;
+  state.devLocalWorkflowsDir = devLocalWorkflowsDir;
+  state.loaded = effectiveMerged;
+  state.loadedFromOfficial = effectiveLoadedFromOfficial;
+  state.loadedFromBuiltin = effectiveLoadedFromBuiltin;
+  state.loadedFromDevLocal = effectiveLoadedFromDevLocal;
+  state.loadedFromUser = effectiveLoadedFromUser;
+  state.workflowSourceById = effectiveWorkflowSourceById;
+  state.latestContentInstall = await readEffectiveContentPackageInstallState();
+  state.latestBuiltinSync = state.latestContentInstall;
   try {
     await persistWorkflowRegistryStatus(state);
   } catch {

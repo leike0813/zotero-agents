@@ -89,8 +89,7 @@
   "execution": {
     "zoteroHostAccess": {
       "required": true
-    },
-    "timeout_ms": 1200000
+    }
   },
   "result": {
     "final_step_id": "finalize",

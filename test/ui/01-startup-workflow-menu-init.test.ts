@@ -162,10 +162,11 @@ describe("startup workflow scan + menu init", function () {
     prevWorkflowDirPref = Zotero.Prefs.get(workflowDirPrefKey, true);
     Zotero.Prefs.clear(workflowDirPrefKey, true);
 
-    prevDataDirectory = (Zotero as unknown as { DataDirectory?: unknown }).DataDirectory;
-    prevTestWorkflowDirEnv =
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })
-        .process?.env?.ZOTERO_TEST_WORKFLOW_DIR;
+    prevDataDirectory = (Zotero as unknown as { DataDirectory?: unknown })
+      .DataDirectory;
+    prevTestWorkflowDirEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env?.ZOTERO_TEST_WORKFLOW_DIR;
     prevDisableWorkflowDirOverride = (
       globalThis as {
         __zoteroSkillsDisableWorkflowDirOverride?: boolean;
@@ -188,9 +189,9 @@ describe("startup workflow scan + menu init", function () {
       | { dir?: string }
       | undefined;
 
-    const processEnv =
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })
-        .process?.env;
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
     if (processEnv) {
       if (typeof prevTestWorkflowDirEnv === "undefined") {
         delete processEnv.ZOTERO_TEST_WORKFLOW_DIR;
@@ -202,22 +203,22 @@ describe("startup workflow scan + menu init", function () {
       globalThis as {
         __zoteroSkillsDisableWorkflowDirOverride?: boolean;
       }
-    ).__zoteroSkillsDisableWorkflowDirOverride =
-      prevDisableWorkflowDirOverride;
+    ).__zoteroSkillsDisableWorkflowDirOverride = prevDisableWorkflowDirOverride;
   });
 
   it("scans default data-directory workflow path once and still initializes menu when no workflows are found", async function () {
-    const processEnv =
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })
-        .process?.env;
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
     if (processEnv) {
       delete processEnv.ZOTERO_TEST_WORKFLOW_DIR;
     }
 
     const dataDir = await mkTempDir("zotero-skills-startup-empty");
-    (Zotero as unknown as { DataDirectory?: { dir?: string } }).DataDirectory = {
-      dir: dataDir,
-    };
+    (Zotero as unknown as { DataDirectory?: { dir?: string } }).DataDirectory =
+      {
+        dir: dataDir,
+      };
     (
       globalThis as {
         __zoteroSkillsDisableWorkflowDirOverride?: boolean;
@@ -231,7 +232,8 @@ describe("startup workflow scan + menu init", function () {
     const expectedDir = joinPath(
       dataDir,
       "zotero-agents",
-      "data",
+      "content",
+      "user",
       "workflows",
     );
     assert.equal(state.workflowsDir, expectedDir);
@@ -239,7 +241,9 @@ describe("startup workflow scan + menu init", function () {
     assert.lengthOf(state.loaded.workflows, 0);
     assert.isAtLeast(state.loaded.errors.length, 1);
 
-    const menu = win.document.getElementById(`${config.addonRef}-workflows-menu`) as FakeXULElement | null;
+    const menu = win.document.getElementById(
+      `${config.addonRef}-workflows-menu`,
+    ) as FakeXULElement | null;
     const popup = win.document.getElementById(
       `${config.addonRef}-workflows-popup`,
     ) as FakeXULElement | null;
@@ -248,13 +252,10 @@ describe("startup workflow scan + menu init", function () {
 
     popup!.dispatch("popupshowing");
     await flushTasks();
-    assert.lengthOf(popup!.children, 4);
+    assert.lengthOf(popup!.children, 6);
     assertMenuLabel(
       popup!.children[0].getAttribute("label"),
-      [
-        "Open Dashboard / Synthesis Workspace",
-        "打开 Dashboard/综合工作区",
-      ],
+      ["Open Dashboard / Synthesis Workspace", "打开 Dashboard/综合工作区"],
       "workspace label",
     );
     assertMenuLabel(
@@ -264,25 +265,33 @@ describe("startup workflow scan + menu init", function () {
     );
     assert.equal(popup!.children[1].getAttribute("disabled"), null);
     assert.equal(popup!.children[2].getAttribute("label"), null);
-    assert.equal(popup!.children[3].getAttribute("disabled"), "true");
     assertMenuLabel(
       popup!.children[3].getAttribute("label"),
+      ["📦 Install Official Workflow Package", "📦 安装官方 Workflow 包"],
+      "install official package label",
+    );
+    assert.equal(popup!.children[4].getAttribute("label"), null);
+    assert.equal(popup!.children[5].getAttribute("disabled"), "true");
+    assertMenuLabel(
+      popup!.children[5].getAttribute("label"),
       ["No workflows loaded", "未加载任何 Workflow"],
       "empty label",
     );
   });
 
   it("retries menu initialization when item menu appears late", async function () {
-    const processEnv =
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })
-        .process?.env;
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
     if (processEnv) {
       processEnv.ZOTERO_TEST_WORKFLOW_DIR = workflowsPath();
     }
 
     const win = createMainWindowWithoutMenu();
     setTimeout(() => {
-      const itemMenu = (win.document as unknown as FakeDocument).createXULElement();
+      const itemMenu = (
+        win.document as unknown as FakeDocument
+      ).createXULElement();
       itemMenu.id = "zotero-itemmenu";
     }, 2);
 

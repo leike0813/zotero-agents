@@ -13,8 +13,7 @@
   "execution": {
     "feedback": {
       "showNotifications": true
-    },
-    "timeout_ms": 600000
+    }
   },
   "result": {
     "final_step_id": "charlie"

@@ -1,4 +1,7 @@
-import { buildSelectionContext, type SelectionContext } from "./selectionContext";
+import {
+  buildSelectionContext,
+  type SelectionContext,
+} from "./selectionContext";
 import { isDebugModeEnabled } from "./debugMode";
 import {
   openWorkflowEditorSession,
@@ -15,13 +18,17 @@ import {
   summarizeWorkflowHostApiCapabilities,
   WORKFLOW_HOST_API_VERSION,
 } from "../workflows/hostApi";
-import { getWorkflowRegistryState, getLoadedWorkflowSourceById } from "./workflowRuntime";
-import { getVisibleLoadedWorkflowEntries, isWorkflowDebugOnly } from "./workflowVisibility";
+import {
+  getWorkflowRegistryState,
+  getLoadedWorkflowSourceById,
+} from "./workflowRuntime";
+import {
+  getVisibleLoadedWorkflowEntries,
+  isWorkflowDebugOnly,
+} from "./workflowVisibility";
 import { resolveWorkflowExecutionContext } from "./workflowSettings";
 import { resolveProvider } from "../providers/registry";
-import {
-  summarizeWorkflowExecutionError,
-} from "../workflows/errorMeta";
+import { summarizeWorkflowExecutionError } from "../workflows/errorMeta";
 import { summarizeWorkflowRuntimeCapabilities } from "./workflowPackageDiagnostics";
 import type { LoadedWorkflow } from "../workflows/types";
 import { evaluateWorkflowSelection } from "../workflows/workflowSelectionValidation";
@@ -60,12 +67,15 @@ export type WorkflowDebugProbeResult = {
   };
   runtimeSummary: {
     builtinWorkflowsDir: string;
+    officialWorkflowsDir: string;
     workflowsDir: string;
     loadedWorkflowCount: number;
     loadedBuiltinWorkflowCount: number;
+    loadedOfficialWorkflowCount: number;
     loadedUserWorkflowCount: number;
     zoteroVersion?: string;
     latestBuiltinSync?: unknown;
+    latestContentInstall?: unknown;
   };
   workflowChecks: WorkflowDebugProbeCheck[];
 };
@@ -78,7 +88,9 @@ type WorkflowDebugProbeBridge = {
 };
 
 function compactError(error: unknown) {
-  const text = String(error || "").replace(/\s+/g, " ").trim();
+  const text = String(error || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!text) {
     return "unknown error";
   }
@@ -187,10 +199,10 @@ export async function collectWorkflowDebugProbeChecks(args: {
       .map((entry) => String(entry || "").trim())
       .filter(Boolean),
   );
-  const workflows = (args.workflows || getVisibleLoadedWorkflowEntries()).filter(
-    (entry) =>
-      !excluded.has(entry.manifest.id) &&
-      !isWorkflowDebugOnly(entry),
+  const workflows = (
+    args.workflows || getVisibleLoadedWorkflowEntries()
+  ).filter(
+    (entry) => !excluded.has(entry.manifest.id) && !isWorkflowDebugOnly(entry),
   );
   const runtimeCapabilitySummary = createRuntimeCapabilitySummary();
   const hostApiSummary = createHostApiSummary();
@@ -344,13 +356,14 @@ function buildProbeRenderer(
         `<div><strong>Debug Mode:</strong> ${result.debugMode ? "on" : "off"}</div>`,
         `<div><strong>Selection:</strong> ${result.selectionSummary.selectionType} / ids=${result.selectionSummary.selectedItemIds.join(",") || "-"}</div>`,
         `<div><strong>Workflows Root:</strong> ${result.runtimeSummary.workflowsDir || "-"}</div>`,
-        `<div><strong>Builtin Root:</strong> ${result.runtimeSummary.builtinWorkflowsDir || "-"}</div>`,
+        `<div><strong>Official Root:</strong> ${result.runtimeSummary.officialWorkflowsDir || result.runtimeSummary.builtinWorkflowsDir || "-"}</div>`,
         `<div><strong>Loaded Workflows:</strong> ${String(result.runtimeSummary.loadedWorkflowCount || 0)}</div>`,
-        `<div><strong>Loaded Builtin:</strong> ${String(result.runtimeSummary.loadedBuiltinWorkflowCount || 0)}</div>`,
+        `<div><strong>Loaded Official:</strong> ${String(result.runtimeSummary.loadedOfficialWorkflowCount || result.runtimeSummary.loadedBuiltinWorkflowCount || 0)}</div>`,
         `<div><strong>Loaded User:</strong> ${String(result.runtimeSummary.loadedUserWorkflowCount || 0)}</div>`,
         `<div><strong>Zotero Version:</strong> ${escapeHtml(result.runtimeSummary.zoteroVersion || "-")}</div>`,
+        result.runtimeSummary.latestContentInstall ||
         result.runtimeSummary.latestBuiltinSync
-          ? `<pre>${escapeHtml(JSON.stringify(result.runtimeSummary.latestBuiltinSync, null, 2))}</pre>`
+          ? `<pre>${escapeHtml(JSON.stringify(result.runtimeSummary.latestContentInstall || result.runtimeSummary.latestBuiltinSync, null, 2))}</pre>`
           : "",
       ].join("");
       root.appendChild(summary);
@@ -369,7 +382,13 @@ function buildProbeRenderer(
 
       const thead = make("thead");
       const headerRow = make("tr");
-      for (const label of ["Workflow", "Package", "Source", "Preflight", "Reason"]) {
+      for (const label of [
+        "Workflow",
+        "Package",
+        "Source",
+        "Preflight",
+        "Reason",
+      ]) {
         const th = make("th");
         th.textContent = label;
         th.style.textAlign = "left";
@@ -471,15 +490,20 @@ export async function runWorkflowDebugProbe(args: {
     },
     runtimeSummary: {
       builtinWorkflowsDir: registryState.builtinWorkflowsDir,
+      officialWorkflowsDir: registryState.officialWorkflowsDir,
       workflowsDir: registryState.workflowsDir,
       loadedWorkflowCount: registryState.loaded.workflows.length,
       loadedBuiltinWorkflowCount:
         registryState.loadedFromBuiltin.workflows.length,
+      loadedOfficialWorkflowCount:
+        registryState.loadedFromOfficial.workflows.length,
       loadedUserWorkflowCount: registryState.loadedFromUser.workflows.length,
       zoteroVersion: String(
-        (globalThis as { Zotero?: { version?: unknown } }).Zotero?.version || "",
+        (globalThis as { Zotero?: { version?: unknown } }).Zotero?.version ||
+          "",
       ),
       latestBuiltinSync: registryState.latestBuiltinSync,
+      latestContentInstall: registryState.latestContentInstall,
     },
     workflowChecks,
   };

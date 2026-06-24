@@ -11,9 +11,14 @@ import {
   ensureDefaultWorkflowDirExistsOnStartup,
   rescanWorkflowRegistry,
 } from "./modules/workflowRuntime";
-import { syncBuiltinWorkflowsOnStartup } from "./modules/builtinWorkflowSync";
-import { syncBuiltinSkillsOnStartup } from "./modules/builtinSkillSync";
 import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegistry";
+import {
+  checkContentPackageUpdate,
+  type ContentPackageCheckResult,
+  getContentPackageStatus,
+  installContentPackageFromFeed,
+  type ContentPackageInstallResult,
+} from "./modules/contentPackageSubscription";
 import { openBackendManagerDialog } from "./modules/backendManager";
 import { openTaskManagerDialog } from "./modules/taskManagerDialog";
 import {
@@ -131,6 +136,7 @@ const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
 const LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID = "skillrunner-local";
 const SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS = 1500;
+let startupOfficialWorkflowPackageUpdateCheckStarted = false;
 
 let registeredZoteroPaneStylesheet:
   | {
@@ -199,6 +205,139 @@ function registerZoteroPaneStylesheet() {
       console.warn("[zotero-pane-css] stylesheet registration failed", error);
     }
   }
+}
+
+function localizedMessage(
+  id: string,
+  fallback: string,
+  args?: Record<string, string>,
+) {
+  try {
+    const localized = String(getString(id as any, { args })).trim();
+    const fallbackKey = `${addon.data.config.addonRef}-${id}`;
+    return localized && localized !== fallbackKey ? localized : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function promptOfficialWorkflowPackageUpdateOnStartup(args: {
+  win: _ZoteroTypes.MainWindow;
+  check?: () => Promise<ContentPackageCheckResult>;
+  install?: () => Promise<ContentPackageInstallResult>;
+  onInstalled?: () => Promise<void> | void;
+}) {
+  const check = await (args.check || checkContentPackageUpdate)();
+  if (!check.ok || !check.status.installed || !check.updateAvailable) {
+    return {
+      prompted: false,
+      installed: false,
+      check,
+    };
+  }
+
+  if (!check.compatible) {
+    args.win.alert(
+      localizedMessage(
+        "content-package-startup-update-incompatible",
+        `A new official Workflow package is available, but it cannot be installed: ${String(check.incompatibility?.message || "incompatible package")}`,
+        {
+          reason: String(
+            check.incompatibility?.message || "incompatible package",
+          ),
+        },
+      ),
+    );
+    return {
+      prompted: true,
+      installed: false,
+      check,
+    };
+  }
+
+  const currentPackage = check.status.installed.package;
+  const currentVersion = String(currentPackage.version || "unknown");
+  const latestVersion = String(check.package.version || "unknown");
+  const channel = String(
+    check.feed.channel || check.status.channel || "stable",
+  );
+  const confirmed = args.win.confirm(
+    localizedMessage(
+      "content-package-startup-update-confirm",
+      [
+        "A new official Workflow package is available.",
+        "",
+        `Current: ${currentVersion}`,
+        `Latest: ${latestVersion}`,
+        `Channel: ${channel}`,
+        "",
+        "Install the update now?",
+      ].join("\n"),
+      {
+        currentVersion,
+        latestVersion,
+        channel,
+      },
+    ),
+  );
+  if (!confirmed) {
+    return {
+      prompted: true,
+      installed: false,
+      check,
+    };
+  }
+
+  const install = await (args.install || installContentPackageFromFeed)();
+  if (install.ok) {
+    if (args.onInstalled) {
+      await args.onInstalled();
+    } else {
+      await rescanWorkflowRegistry();
+      refreshWorkflowMenus();
+    }
+    return {
+      prompted: true,
+      installed: true,
+      check,
+      install,
+    };
+  }
+
+  args.win.alert(
+    localizedMessage(
+      "content-package-startup-update-failed",
+      `Official Workflow package update failed: ${String(install.message || "unknown error")}`,
+      {
+        reason: String(install.message || "unknown error"),
+      },
+    ),
+  );
+  return {
+    prompted: true,
+    installed: false,
+    check,
+    install,
+  };
+}
+
+function scheduleOfficialWorkflowPackageUpdateCheck() {
+  if (startupOfficialWorkflowPackageUpdateCheckStarted) {
+    return;
+  }
+  startupOfficialWorkflowPackageUpdateCheckStarted = true;
+  const win = Zotero.getMainWindows?.()[0] as _ZoteroTypes.MainWindow | null;
+  if (!win) {
+    return;
+  }
+  void promptOfficialWorkflowPackageUpdateOnStartup({ win }).catch((error) => {
+    if (typeof console !== "undefined") {
+      console.warn(
+        "[content-package] startup official workflow package update check failed",
+        error,
+      );
+    }
+  });
 }
 
 function unregisterZoteroPaneStylesheet() {
@@ -341,37 +480,7 @@ async function onStartup() {
   registerZoteroPaneStylesheet();
 
   const runtimeRootURI = resolveRuntimeRootURI();
-  const runtimeResourceURI =
-    typeof resourceURI === "string" && resourceURI ? resourceURI : "";
-  const runtimeRootPath =
-    typeof rootPath === "string" && rootPath ? rootPath : "";
   setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
-  try {
-    await syncBuiltinWorkflowsOnStartup({
-      rootURI: runtimeRootURI,
-      resourceURI: runtimeResourceURI,
-      devCwd: runtimeRootPath,
-    });
-  } catch (error) {
-    if (typeof console !== "undefined") {
-      console.error(
-        "[workflow-builtin-sync] failed to sync builtin workflows",
-        error,
-      );
-    }
-  }
-  try {
-    await syncBuiltinSkillsOnStartup({
-      devCwd: runtimeRootPath,
-    });
-  } catch (error) {
-    if (typeof console !== "undefined") {
-      console.error(
-        "[skill-builtin-sync] failed to sync builtin skills",
-        error,
-      );
-    }
-  }
 
   await ensureDefaultWorkflowDirExistsOnStartup();
   await rescanWorkflowRegistry();
@@ -410,6 +519,7 @@ async function onStartup() {
   // outside of the plugin (e.g. scaffold testing process)
   addon.data.initialized = true;
   prewarmSynthesisWorkbenchAfterStartup();
+  scheduleOfficialWorkflowPackageUpdateCheck();
 }
 
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
@@ -579,6 +689,18 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       const message = messageLines.join("\n");
       data.window?.alert?.(message);
       break;
+    }
+    case "stateContentPackage":
+      return getContentPackageStatus();
+    case "checkContentPackageUpdate":
+      return checkContentPackageUpdate();
+    case "installContentPackage": {
+      const result = await installContentPackageFromFeed();
+      if (result.ok) {
+        await rescanWorkflowRegistry();
+        refreshWorkflowMenus();
+      }
+      return result;
     }
     case "openBackendManager":
       await openBackendManagerDialog({

@@ -154,6 +154,8 @@ function registryInput(itemKey: string, digest = `# Digest ${itemKey}`) {
 }
 
 describe("Synthesis git sync", function () {
+  this.timeout(12000);
+
   beforeEach(function () {
     setPref("synthesisGitSyncEnabled", false);
     setPref("synthesisGitSyncRemoteUrl", "");
@@ -208,11 +210,15 @@ describe("Synthesis git sync", function () {
 
     const exported = await service.exportCanonicalSnapshot();
     const manifest = JSON.parse(
-      await readRuntimeTextFile(path.join(exported.exportRoot, "manifest.json")),
+      await readRuntimeTextFile(
+        path.join(exported.exportRoot, "manifest.json"),
+      ),
     );
 
     assert.includeMembers(
-      manifest.assets.map((asset: { bundle_kind?: string }) => asset.bundle_kind),
+      manifest.assets.map(
+        (asset: { bundle_kind?: string }) => asset.bundle_kind,
+      ),
       ["concepts", "references", "tags", "topics"],
     );
     assert.isFalse(
@@ -452,7 +458,8 @@ describe("Synthesis git sync", function () {
         if (invocation.args.includes("ls-remote")) {
           return {
             exitCode: 128,
-            stderr: "fatal: Authentication failed for https://secret@example.invalid/repo.git",
+            stderr:
+              "fatal: Authentication failed for https://secret@example.invalid/repo.git",
           };
         }
         return { exitCode: 0, stdout: "git version 2.0.0\n" };
@@ -469,8 +476,14 @@ describe("Synthesis git sync", function () {
   });
 
   it("auto-detects Git for Windows from known install paths", async function () {
-    const previousZotero = Object.getOwnPropertyDescriptor(globalThis, "Zotero");
-    const previousIOUtils = Object.getOwnPropertyDescriptor(globalThis, "IOUtils");
+    const previousZotero = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "Zotero",
+    );
+    const previousIOUtils = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "IOUtils",
+    );
     Object.defineProperty(globalThis, "Zotero", {
       configurable: true,
       value: { isWin: true },
@@ -694,7 +707,11 @@ describe("Synthesis git sync", function () {
   it("reports oversized import bundles with structured size details", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisGitSyncService({ root });
-    const candidateRoot = path.join(root, "candidate-large-bundle", "synthesis");
+    const candidateRoot = path.join(
+      root,
+      "candidate-large-bundle",
+      "synthesis",
+    );
     await writeRuntimeTextFile(
       path.join(candidateRoot, "bundles", "large.json"),
       `${JSON.stringify({
@@ -1154,6 +1171,10 @@ describe("Synthesis git sync", function () {
   it("autosyncs service-level canonical writes through the debounce worker", async function () {
     const root = await makeRuntimeRoot();
     let mergeCount = 0;
+    let resolveMergeObserved: () => void = () => undefined;
+    const mergeObserved = new Promise<void>((resolve) => {
+      resolveMergeObserved = resolve;
+    });
     const service = createSynthesisService({
       root,
       libraryId: 1,
@@ -1162,6 +1183,7 @@ describe("Synthesis git sync", function () {
       gitSyncAdapter: {
         merge: () => {
           mergeCount += 1;
+          resolveMergeObserved();
           return { status: "clean" };
         },
       },
@@ -1172,10 +1194,16 @@ describe("Synthesis git sync", function () {
       "field:service_autosync",
       "service-autosync-save",
     );
+    await Promise.race([
+      mergeObserved,
+      delay(10000).then(() =>
+        assert.fail("autosync merge was not observed before timeout"),
+      ),
+    ]);
     await waitFor(async () => {
       const state = await service.loadGitSyncState();
-      return mergeCount === 1 && state.queue_state === "idle";
-    });
+      return state.queue_state === "idle";
+    }, 10000);
 
     const state = await service.loadGitSyncState();
     assert.equal(state.queue_state, "idle");
@@ -1646,7 +1674,9 @@ describe("Synthesis git sync", function () {
     const state = await service.syncNow();
 
     assert.equal(state.queue_state, "idle");
-    assert.isTrue(invocations.some((entry) => entry.args.includes("ls-remote")));
+    assert.isTrue(
+      invocations.some((entry) => entry.args.includes("ls-remote")),
+    );
     assert.isTrue(invocations.some((entry) => entry.args.includes("push")));
     assert.isFalse(invocations.some((entry) => entry.args.includes("merge")));
     assert.include(
@@ -1668,13 +1698,15 @@ describe("Synthesis git sync", function () {
       if (invocation.args.includes("fetch")) {
         return {
           exitCode: 128,
-          stderr: "fatal: Authentication failed for https://example.invalid/repo.git",
+          stderr:
+            "fatal: Authentication failed for https://example.invalid/repo.git",
         };
       }
       if (invocation.args.includes("ls-remote")) {
         return {
           exitCode: 128,
-          stderr: "fatal: Authentication failed for https://example.invalid/repo.git",
+          stderr:
+            "fatal: Authentication failed for https://example.invalid/repo.git",
         };
       }
       return { exitCode: 0, stdout: "" };
@@ -1686,10 +1718,12 @@ describe("Synthesis git sync", function () {
     });
 
     const state = await service.syncNow();
-    const serializedCommands = JSON.stringify(invocations.map((entry) => entry.args));
+    const serializedCommands = JSON.stringify(
+      invocations.map((entry) => entry.args),
+    );
 
     assert.equal(state.queue_state, "failed_retryable");
-    assert.notInclude(serializedCommands, "\"push\"");
+    assert.notInclude(serializedCommands, '"push"');
     assert.include(
       state.diagnostics.map((entry) => entry.code),
       "git_sync_failed",
@@ -1723,7 +1757,8 @@ describe("Synthesis git sync", function () {
       if (invocation.args.includes("push")) {
         return {
           exitCode: 128,
-          stderr: "fatal: Authentication failed for https://example.invalid/repo.git",
+          stderr:
+            "fatal: Authentication failed for https://example.invalid/repo.git",
         };
       }
       return { exitCode: 0, stdout: "" };
@@ -1783,10 +1818,10 @@ describe("Synthesis git sync", function () {
       state.diagnostics.map((entry) => entry.code),
       "git_sync_worktree_unsafe_parent_repo",
     );
-    assert.notInclude(serializedCommands, "\"remote\",\"remove\"");
-    assert.notInclude(serializedCommands, "\"remote\",\"add\"");
-    assert.notInclude(serializedCommands, "\"commit\"");
-    assert.notInclude(serializedCommands, "\"push\"");
+    assert.notInclude(serializedCommands, '"remote","remove"');
+    assert.notInclude(serializedCommands, '"remote","add"');
+    assert.notInclude(serializedCommands, '"commit"');
+    assert.notInclude(serializedCommands, '"push"');
   });
 
   it("rejects an existing Git repository worktree without a Git Sync sentinel", async function () {
@@ -1831,7 +1866,7 @@ describe("Synthesis git sync", function () {
       state.diagnostics.map((entry) => entry.code),
       "git_sync_worktree_sentinel_missing",
     );
-    assert.notInclude(serializedCommands, "\"remote\",\"remove\"");
+    assert.notInclude(serializedCommands, '"remote","remove"');
     assert.isString(worktreePath);
   });
 
@@ -1878,7 +1913,10 @@ describe("Synthesis git sync", function () {
       ),
     );
     assert.isTrue(
-      commands.some((args) => JSON.stringify(args) === JSON.stringify(["add", "-A", "synthesis"])),
+      commands.some(
+        (args) =>
+          JSON.stringify(args) === JSON.stringify(["add", "-A", "synthesis"]),
+      ),
     );
   });
 

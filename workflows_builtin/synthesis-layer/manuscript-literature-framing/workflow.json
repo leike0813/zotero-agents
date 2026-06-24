@@ -55,8 +55,7 @@
   "execution": {
     "zoteroHostAccess": {
       "required": true
-    },
-    "timeout_ms": 1200000
+    }
   },
   "result": {
     "fetch": { "type": "bundle" },

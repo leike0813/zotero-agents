@@ -45,7 +45,7 @@ export type HostBridgeWorkflowSummary = {
   label: string;
   provider: string;
   version?: string;
-  sourceKind: "builtin" | "user" | "";
+  sourceKind: "official" | "dev-local" | "user" | "";
   packageId?: string;
   configurable: boolean;
   acceptsNoSelection: boolean;
@@ -447,10 +447,7 @@ function parseWorkflowSelection(
   errorCode = "invalid_workflow_submit_request",
 ): HostBridgeWorkflowSelection {
   if (!isObject(raw)) {
-    throw codedWorkflowValidationError(
-      errorCode,
-      "selection is required",
-    );
+    throw codedWorkflowValidationError(errorCode, "selection is required");
   }
   if (normalizeString(raw.kind) === "none") {
     return { kind: "none" };
@@ -729,10 +726,7 @@ export async function prepareHostBridgeWorkflowSubmit(
       "providerProfile.backendId is not compatible with this workflow",
     );
   }
-  if (
-    descriptor.requiresBackendProfile &&
-    !explicitBackendId
-  ) {
+  if (descriptor.requiresBackendProfile && !explicitBackendId) {
     throw codedWorkflowValidationError(
       "invalid_workflow_submit_request",
       "providerProfile.backendId is required for this workflow",
@@ -815,9 +809,7 @@ function attachmentParentId(entry: AgentRunAttachment) {
 }
 
 function attachmentMime(entry: AgentRunAttachment) {
-  return String(
-    entry.mimeType || entry.item?.data?.contentType || "",
-  ).trim();
+  return String(entry.mimeType || entry.item?.data?.contentType || "").trim();
 }
 
 function attachmentFilePath(entry: AgentRunAttachment) {
@@ -866,8 +858,7 @@ function collectAgentRunAttachmentCandidates(
       continue;
     }
     const entry = raw as AgentRunAttachment;
-    const id =
-      typeof entry.item?.id === "number" ? `id:${entry.item.id}` : "";
+    const id = typeof entry.item?.id === "number" ? `id:${entry.item.id}` : "";
     const key =
       id ||
       `file:${String(entry.filePath || entry.item?.data?.path || "")}|parent:${attachmentParentId(entry)}`;

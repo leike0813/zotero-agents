@@ -19,8 +19,7 @@
   "execution": {
     "feedback": {
       "showNotifications": true
-    },
-    "timeout_ms": 180000
+    }
   },
   "result": {
     "fetch": { "type": "bundle" }

@@ -163,7 +163,10 @@ function makeTerminalSuccess(args: {
   manifestBundle?: boolean;
 }): ProviderExecutionResult {
   const fetchType =
-    args.fetchType || (normalizeString(args.request.fetch_type) === "bundle" ? "bundle" : "result");
+    args.fetchType ||
+    (normalizeString(args.request.fetch_type) === "bundle"
+      ? "bundle"
+      : "result");
   const manifestBundle = fetchType === "bundle" && args.manifestBundle === true;
   const resultJson = buildResultJsonFromRequest(args.request, {
     apply_mode: fetchType,
@@ -212,7 +215,9 @@ function makeTerminalSuccess(args: {
     responseJson: {
       provider: args.provider,
       request_id: args.requestId,
-      ...(fetchType === "bundle" ? { result_json_path: "result/result.json" } : {}),
+      ...(fetchType === "bundle"
+        ? { result_json_path: "result/result.json" }
+        : {}),
     },
   };
 }
@@ -389,7 +394,12 @@ async function runDebugApplyWorkflow(args: {
       prepared: prepared.prepared,
     },
     {
-      executeWithProvider: async ({ request, requestKind, backend, onProgress }) => {
+      executeWithProvider: async ({
+        request,
+        requestKind,
+        backend,
+        onProgress,
+      }) => {
         const requestRecord = request as Record<string, unknown>;
         providerCalls.push({
           requestKind,
@@ -449,7 +459,10 @@ async function runDebugApplyWorkflow(args: {
 
 function getRequestParent(request: Record<string, unknown>) {
   const parentId = Number(request.targetParentID);
-  assert.isTrue(Number.isFinite(parentId), "request targetParentID is required");
+  assert.isTrue(
+    Number.isFinite(parentId),
+    "request targetParentID is required",
+  );
   const parent = Zotero.Items.get(parentId);
   assert.isOk(parent, `parent item ${parentId} should exist`);
   return parent!;
@@ -515,9 +528,7 @@ function assertParentHasAttachmentTitles(
 function getDebugStepId(request: Record<string, unknown>) {
   const parameter = isRecord(request.parameter) ? request.parameter : {};
   return (
-    normalizeString(parameter.step_id) ||
-    normalizeString(request.id) ||
-    "step"
+    normalizeString(parameter.step_id) || normalizeString(request.id) || "step"
   );
 }
 
@@ -583,8 +594,16 @@ function seedRequestReadySkillRunnerRun(requestId: string) {
 
 describe("workflow single-result behavior integration", function () {
   this.timeout(10000);
+  let previousContentDevRootEnv: string | undefined;
 
   beforeEach(async function () {
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    previousContentDevRootEnv = processEnv?.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+    if (processEnv) {
+      processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = process.cwd();
+    }
     clearRuntimeLogs();
     resetWorkflowTasks();
     resetTaskDashboardHistory();
@@ -597,6 +616,16 @@ describe("workflow single-result behavior integration", function () {
   });
 
   afterEach(function () {
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    if (processEnv) {
+      if (previousContentDevRootEnv === undefined) {
+        delete processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+      } else {
+        processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = previousContentDevRootEnv;
+      }
+    }
     clearRuntimeLogs();
     resetWorkflowTasks();
     resetTaskDashboardHistory();
@@ -855,8 +884,7 @@ describe("workflow single-result behavior integration", function () {
   it("runs the SkillRunner sequence file handoff workflow with workspace binding", async function () {
     const remoteWorkspace =
       "/home/joshua/Workspace/Code/Python/Skill-Runner/data/workspaces/integration-file-handoff";
-    const remoteArtifact =
-      `${remoteWorkspace}/runtime/sequence-file-handoff-artifact.json`;
+    const remoteArtifact = `${remoteWorkspace}/runtime/sequence-file-handoff-artifact.json`;
     const run = await runDebugApplyWorkflow({
       provider: "skillrunner",
       workflowId: SEQUENCE_FILE_HANDOFF_WORKFLOW_ID,
@@ -923,7 +951,8 @@ describe("workflow single-result behavior integration", function () {
           input_key: "artifact_file",
           source_request_id: "sr-file-handoff-emit",
           source_path: "runtime/sequence-file-handoff-artifact.json",
-          target_path: "inputs/artifact_file/sequence-file-handoff-artifact.json",
+          target_path:
+            "inputs/artifact_file/sequence-file-handoff-artifact.json",
         },
       ],
     });
@@ -1141,8 +1170,14 @@ describe("workflow single-result behavior integration", function () {
       scenario: async ({ request, requestKind, onProgress }) => {
         assert.equal(requestKind, "skillrunner.job.v1");
         assert.equal(getDebugStepId(request), "interactive");
-        onProgress?.({ type: "request-created", requestId: interactiveRequestId });
-        onProgress?.({ type: "request-ready", requestId: interactiveRequestId });
+        onProgress?.({
+          type: "request-created",
+          requestId: interactiveRequestId,
+        });
+        onProgress?.({
+          type: "request-ready",
+          requestId: interactiveRequestId,
+        });
         return makeWaitingUserDetach({
           requestId: interactiveRequestId,
           responseJson: makeInteractivePendingPayload({
@@ -1287,7 +1322,8 @@ describe("workflow single-result behavior integration", function () {
 
   for (const entry of [
     {
-      title: "fails when SkillRunner create request times out before request-ready",
+      title:
+        "fails when SkillRunner create request times out before request-ready",
       requestId: "",
       scenario: async () => {
         const error = new Error("SkillRunner create timed out");
@@ -1303,8 +1339,14 @@ describe("workflow single-result behavior integration", function () {
       requestId: "sr-upload-failed",
       scenario: async ({ onProgress }: Parameters<ProviderScenario>[0]) => {
         onProgress?.({ type: "request-creating" });
-        onProgress?.({ type: "request-created", requestId: "sr-upload-failed" });
-        onProgress?.({ type: "request-uploading", requestId: "sr-upload-failed" });
+        onProgress?.({
+          type: "request-created",
+          requestId: "sr-upload-failed",
+        });
+        onProgress?.({
+          type: "request-uploading",
+          requestId: "sr-upload-failed",
+        });
         throw new Error("upload failed");
       },
       expectedState: "running",
@@ -1429,7 +1471,9 @@ describe("workflow single-result behavior integration", function () {
         assert.equal(stored?.backendStatus, "succeeded");
         assert.equal(stored?.applyResultState, "failed");
       }
-      const visible = listWorkflowTasks().find((task) => task.requestId === requestId);
+      const visible = listWorkflowTasks().find(
+        (task) => task.requestId === requestId,
+      );
       assert.equal(visible?.state, "failed");
       assert.equal(visible?.backendStatus, "succeeded");
     });

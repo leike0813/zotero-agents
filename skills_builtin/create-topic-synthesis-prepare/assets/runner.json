@@ -3,8 +3,13 @@
   "name": "🧩 创建主题综合准备",
   "description": "Prepare the context for create topic synthesis workflow. Use this skill when user wants to create a new topic. DO NOT invoke unless you can access to the Zotero library through zotero-bridge CLI.",
   "version": "0.1.0",
-  "execution_modes": ["interactive"],
+  "execution_modes": ["auto"],
   "max_attempt": 12,
+  "runtime": {
+    "default_options": {
+      "hard_timeout_seconds": 3600
+    }
+  },
   "schemas": {
     "input": "assets/input.schema.json",
     "parameter": "assets/parameter.schema.json",

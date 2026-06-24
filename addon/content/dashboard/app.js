@@ -204,8 +204,7 @@
       return (bytes / 1024).toFixed(bytes >= 10 * 1024 ? 0 : 1) + " KB";
     }
     return (
-      (bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1) +
-      " MB"
+      (bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1) + " MB"
     );
   }
 
@@ -313,7 +312,9 @@
 
   function productFileTypeIconClass(asset) {
     const path = normalizeProductAssetPath(asset).toLowerCase();
-    const contentType = String((asset && asset.contentType) || "").toLowerCase();
+    const contentType = String(
+      (asset && asset.contentType) || "",
+    ).toLowerCase();
     if (/\.(csv|tsv)$/.test(path) || contentType.includes("csv")) {
       return "zs-icon-product-table";
     }
@@ -410,7 +411,10 @@
   }
 
   function splitPreviewLines(text) {
-    return String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+    return String(text || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split("\n");
   }
 
   function ensureProductMarkdownParser() {
@@ -751,11 +755,11 @@
             workflow.workflowLabel || workflow.workflowId || "-",
           ),
         );
-        if (workflow.builtin === true) {
+        if (workflow.official === true) {
           title.appendChild(
             el(
               "span",
-              "workflow-bubble-builtin-badge",
+              "workflow-bubble-official-badge",
               labelText(labels, "homeWorkflowBuiltinBadge"),
             ),
           );
@@ -1357,8 +1361,7 @@
         ? values
         : {};
     return (
-      coerceBoolean(providerValues[key], false) ===
-      (condition.equals === true)
+      coerceBoolean(providerValues[key], false) === (condition.equals === true)
     );
   }
 
@@ -1460,9 +1463,7 @@
         "data-workflow-settings-visible-provider-equals",
         args.entry.visibleIfProviderOption.equals === true ? "true" : "false",
       );
-      if (
-        !isProviderConditionalWorkflowFieldVisible(args.entry, args.values)
-      ) {
+      if (!isProviderConditionalWorkflowFieldVisible(args.entry, args.values)) {
         row.style.display = "none";
         row.setAttribute("aria-hidden", "true");
       }
@@ -1925,7 +1926,11 @@
     );
     const text = el("span", "product-tree-file-text");
     text.appendChild(
-      el("span", "product-tree-name", asset.label || node.name || asset.assetId),
+      el(
+        "span",
+        "product-tree-name",
+        asset.label || node.name || asset.assetId,
+      ),
     );
     const details = [
       normalizeProductAssetPath(asset),
@@ -2046,7 +2051,10 @@
     splitPreviewLines(source).forEach(function (line, index) {
       const row = el("div", "product-code-line");
       const number = el("span", "product-code-line-number", String(index + 1));
-      const code = el("code", "product-code-line-text hljs language-" + safeLanguage);
+      const code = el(
+        "code",
+        "product-code-line-text hljs language-" + safeLanguage,
+      );
       if (line) {
         code.innerHTML = highlightCode(line, resolvedLanguage);
       } else {
@@ -2105,7 +2113,9 @@
       raw.appendChild(
         el("summary", "", labelText(labels, "productsRawMarkdown")),
       );
-      raw.appendChild(renderProductCode(preview.text || "", "markdown", labels));
+      raw.appendChild(
+        renderProductCode(preview.text || "", "markdown", labels),
+      );
       wrap.appendChild(raw);
       return wrap;
     }
@@ -2193,7 +2203,11 @@
     } else if (section === "feedback") {
       const actions = el("div", "toolbar-actions");
       const filter = el("select", "input feedback-skill-filter");
-      const all = el("option", "", labelText(labels, "feedbackFilterAllSkills"));
+      const all = el(
+        "option",
+        "",
+        labelText(labels, "feedbackFilterAllSkills"),
+      );
       all.value = "";
       filter.appendChild(all);
       (view.feedbackSkillOptions || []).forEach(function (skillId) {
@@ -2202,7 +2216,10 @@
         filter.appendChild(option);
       });
       filter.value = view.feedbackSkillFilter || "";
-      filter.setAttribute("aria-label", labelText(labels, "feedbackFilterSkill"));
+      filter.setAttribute(
+        "aria-label",
+        labelText(labels, "feedbackFilterSkill"),
+      );
       filter.addEventListener("change", function () {
         sendAction("select-feedback-skill-filter", { skillId: filter.value });
       });
@@ -2242,7 +2259,9 @@
     main.appendChild(toolbar);
     if (section === "feedback") {
       if (feedbackProducts.length === 0) {
-        main.appendChild(el("div", "empty", labelText(labels, "feedbackEmpty")));
+        main.appendChild(
+          el("div", "empty", labelText(labels, "feedbackEmpty")),
+        );
         return;
       }
       const selectedFeedback = view.selectedFeedbackProduct;
@@ -2251,11 +2270,11 @@
           return String(product.productId || "").trim();
         })
         .filter(Boolean);
-      const selectedVisibleFeedbackCount = visibleFeedbackIds.filter(function (
-        productId,
-      ) {
-        return selectedFeedbackIds.has(productId);
-      }).length;
+      const selectedVisibleFeedbackCount = visibleFeedbackIds.filter(
+        function (productId) {
+          return selectedFeedbackIds.has(productId);
+        },
+      ).length;
       const layout = el("div", "products-layout");
       const list = el("div", "product-list");
       const listHeader = el("div", "product-list-header");
@@ -2290,7 +2309,10 @@
       list.appendChild(listHeader);
       feedbackProducts.forEach(function (product) {
         const row = el("div", "product-card feedback-product-card");
-        if (selectedFeedback && product.productId === selectedFeedback.productId) {
+        if (
+          selectedFeedback &&
+          product.productId === selectedFeedback.productId
+        ) {
           row.classList.add("active");
         }
         const checkbox = el("input", "feedback-product-checkbox");
@@ -2331,7 +2353,11 @@
       const detail = el("div", "product-detail");
       if (selectedFeedback) {
         detail.appendChild(
-          el("h3", "panel-title", selectedFeedback.title || selectedFeedback.productId),
+          el(
+            "h3",
+            "panel-title",
+            selectedFeedback.title || selectedFeedback.productId,
+          ),
         );
         const meta = el("div", "product-meta");
         meta.textContent = [
@@ -2343,7 +2369,9 @@
           .filter(Boolean)
           .join(" · ");
         detail.appendChild(meta);
-        detail.appendChild(renderProductPreview(view.selectedFeedbackPreview, labels));
+        detail.appendChild(
+          renderProductPreview(view.selectedFeedbackPreview, labels),
+        );
       }
       layout.appendChild(detail);
       main.appendChild(layout);
@@ -2392,11 +2420,7 @@
     if (state.productsListCollapsed) {
       const rail = el("div", "product-list-rail");
       rail.appendChild(
-        el(
-          "span",
-          "product-list-rail-count",
-          String(products.length),
-        ),
+        el("span", "product-list-rail-count", String(products.length)),
       );
       rail.appendChild(
         el(
@@ -2619,11 +2643,11 @@
       renderAuditBars(
         labelText(labels, "skillRunnerConnectionAuditByBackend"),
         auditCountRows(summary.activeByBackend, "backendId").concat(
-          auditCountRows(summary.queuedByBackend, "backendId").map(function (
-            row,
-          ) {
-            return { key: row.key + " queued", count: row.count };
-          }),
+          auditCountRows(summary.queuedByBackend, "backendId").map(
+            function (row) {
+              return { key: row.key + " queued", count: row.count };
+            },
+          ),
         ),
       ),
     );

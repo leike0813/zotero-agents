@@ -351,7 +351,7 @@ function resolveHostBridgeApis(
         if (typeof getCurrentView === "function") {
           return getCurrentView();
         }
-        const hostContext = options.resolveHostContext?.() || {
+        const hostContext = {
           target: "library",
           selectionEmpty: true,
         };

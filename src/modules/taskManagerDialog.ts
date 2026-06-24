@@ -209,7 +209,7 @@ type DashboardSnapshot = {
     workflowLabel: string;
     providerId: string;
     configurable: boolean;
-    builtin: boolean;
+    official: boolean;
     core: boolean;
     quickRunEnabled: boolean;
     quickRunDisabledReason?: string;
@@ -1279,8 +1279,8 @@ async function buildHomeWorkflowSummaries(args: {
         workflowLabel: localizeWorkflowLabel(workflow),
         providerId: descriptor.providerId,
         configurable: descriptor.hasConfigurableSettings,
-        builtin:
-          getLoadedWorkflowSourceById(workflow.manifest.id) === "builtin",
+        official:
+          getLoadedWorkflowSourceById(workflow.manifest.id) === "official",
         core: isCoreWorkflow(workflow),
         quickRunEnabled:
           canWorkflowRunWithoutSelection(workflow.manifest) &&
@@ -1828,7 +1828,7 @@ async function buildDashboardSnapshot(args: {
     ),
     homeWorkflowBuiltinBadge: localize(
       "task-dashboard-home-workflow-builtin",
-      "Builtin",
+      "Official",
     ),
     homeWorkflowCoreBadge: localize(
       "task-dashboard-home-workflow-core",

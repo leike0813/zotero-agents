@@ -28,7 +28,7 @@ const sidebars: SidebarsConfig = {
         "workflows/invocation",
         {
           type: "category",
-          label: "内建 Workflow",
+          label: "官方 Workflow",
           items: [
             "workflows/literature-analysis",
             "workflows/literature-explainer",

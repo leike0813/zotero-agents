@@ -5,8 +5,14 @@ import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runn
 type TestDomain = "all" | "core" | "ui" | "workflow";
 
 function normalizeTestDomain(value: string | undefined): TestDomain {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "core" || normalized === "ui" || normalized === "workflow") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (
+    normalized === "core" ||
+    normalized === "ui" ||
+    normalized === "workflow"
+  ) {
     return normalized;
   }
   return "all";
@@ -43,7 +49,7 @@ export default defineConfig({
     "https://github.com/{{owner}}/{{repo}}/releases/download/v{{version}}/{{xpiName}}.xpi",
 
   build: {
-    assets: ["addon/**/*.*", "workflows_builtin/**/*.*", "skills_builtin/**/*.*"],
+    assets: ["addon/**/*.*"],
     define: {
       ...pkg.config,
       author: pkg.author,

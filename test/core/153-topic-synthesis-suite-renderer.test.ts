@@ -22,6 +22,13 @@ const generatedSkillIds = [
   "topic-synthesis-finalize",
 ];
 
+const expectedHardTimeoutSeconds: Record<string, number> = {
+  "create-topic-synthesis-prepare": 3600,
+  "update-topic-synthesis-prepare": 3600,
+  "topic-synthesis-core-enrichment": 1800,
+  "topic-synthesis-finalize": 1800,
+};
+
 const expectedStageSchemas: Record<string, string[]> = {
   "create-topic-synthesis-prepare": [
     "stage-10-create-topic-context.schema.json",
@@ -362,8 +369,12 @@ describe("Topic synthesis suite renderer", function () {
         skillFrontmatterName: skillId,
       });
       assert.deepEqual(errors, [], `${skillId} runner.json should be valid`);
-      assert.deepEqual(runnerJson.execution_modes, ["interactive"]);
+      assert.deepEqual(runnerJson.execution_modes, ["auto"]);
       assert.equal(runnerJson.max_attempt, 12);
+      assert.equal(
+        runnerJson.runtime?.default_options?.hard_timeout_seconds,
+        expectedHardTimeoutSeconds[skillId],
+      );
       assert.deepEqual(runnerJson.schemas, {
         input: "assets/input.schema.json",
         parameter: "assets/parameter.schema.json",

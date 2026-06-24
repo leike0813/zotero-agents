@@ -26,6 +26,33 @@ npm run build
 
 构建产物位于 `.scaffold/build/` 目录。
 
+## 安装官方 Workflow 包
+
+插件安装后**不含任何业务逻辑**，所有 Workflow 均通过独立的官方 Workflow 包提供。
+
+### 方法一：菜单安装（推荐）
+
+1. 重启 Zotero 后，在任意条目上右键 → **Zotero Agents** → **📦 安装官方 Workflow 包**
+2. 插件自动从 GitHub / Gitee 下载最新的官方包
+3. 安装完成后弹出成功提示，Dashboard 中即可看到所有官方 Workflow
+
+### 方法二：偏好设置中安装
+
+1. 打开 **Zotero → 设置 → Zotero Agents**
+2. 在 **Workflow 设置** 区域点击 **安装官方 Workflow 包**
+3. 也可以在此处切换更新频道（stable / beta / dev）后检查更新
+
+### 更新机制
+
+- 插件启动时自动检测官方包是否有新版本
+- 有新版本时弹出更新确认对话框
+- 更新后自动重新加载 Workflow 列表
+
+### 官方 Workflow 包仓库
+
+- GitHub：[leike0813/zotero-agents-workflows](https://github.com/leike0813/zotero-agents-workflows)
+- Gitee 镜像：[leike0813/zotero-agents-workflows](https://gitee.com/leike0813/zotero-agents-workflows)
+
 ## 安装 Skill-Runner 后端
 
 技能由 Skill-Runner 后端执行。您可以使用：

@@ -8,10 +8,10 @@ Workflow 可以存放在两个位置：
 
 | 位置 | 类型 | 说明 |
 |------|------|------|
-| `workflows_builtin/` | 内建 | 随插件发布，不可修改 |
+| 官方 Workflow 包 | 官方 | 通过 Content Feed 独立安装。位于 `<Zotero Data>/zotero-agents/content/official/workflows/` |
 | 用户 workflow 目录 | 自定义 | 在偏好设置中配置，Workflow Manager 会自动扫描 |
 
-插件的 **Workflow Manager** 会递归扫描所有 workflow 目录，发现 `workflow.json` 文件并注册为可用 workflow。
+插件的 **Workflow Manager** 会递归扫描官方包目录和用户 workflow 目录，发现 `workflow.json` 文件并注册为可用 workflow。
 
 ## 一个最小 Workflow 示例
 

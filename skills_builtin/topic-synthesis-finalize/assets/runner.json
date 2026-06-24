@@ -3,8 +3,13 @@
   "name": "✅ 主题综合收尾",
   "description": "Assess library coverage & evidence reliability, propose collection supplementation, and generate the final summary of a topic. Use this skill after topic-synthesis-core-enrichment. DO NOT invoke this skill directly.",
   "version": "0.1.0",
-  "execution_modes": ["interactive"],
+  "execution_modes": ["auto"],
   "max_attempt": 12,
+  "runtime": {
+    "default_options": {
+      "hard_timeout_seconds": 1800
+    }
+  },
   "schemas": {
     "input": "assets/input.schema.json",
     "parameter": "assets/parameter.schema.json",

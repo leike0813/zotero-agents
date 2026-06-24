@@ -50,7 +50,29 @@ function readZipGeneralPurposeFlagFromMultipart(bytes: Uint8Array) {
 }
 
 describe("transport: upload fallback without FormData", function () {
+  let previousContentDevRootEnv: string | undefined;
+
+  beforeEach(function () {
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    previousContentDevRootEnv = processEnv?.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+    if (processEnv) {
+      processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = process.cwd();
+    }
+  });
+
   afterEach(function () {
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    if (processEnv) {
+      if (previousContentDevRootEnv === undefined) {
+        delete processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+      } else {
+        processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = previousContentDevRootEnv;
+      }
+    }
     setSkillRunnerInteractiveAutoReplyEnabledForTests();
   });
 
@@ -693,7 +715,9 @@ describe("transport: upload fallback without FormData", function () {
       fetchImpl: async (url: string, init?: RequestInit) => {
         if (url.endsWith("/v1/jobs")) {
           capturedCreateBody = JSON.parse(String(init?.body || "{}"));
-          return createJsonResponse({ request_id: "req-merge-options-enabled" });
+          return createJsonResponse({
+            request_id: "req-merge-options-enabled",
+          });
         }
         if (url.endsWith("/v1/jobs/req-merge-options-enabled/upload")) {
           return createJsonResponse({ ok: true });

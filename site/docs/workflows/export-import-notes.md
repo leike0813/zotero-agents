@@ -36,6 +36,10 @@
 
 代表图以 `zs:representative-image:v1` Markdown 注释块插入 `digest.md`，使用同目录相对路径引用。图片导出失败不会阻塞文本与 JSON 产物的导出。
 
+## 预估耗时
+
+秒级完成（纯本地文件操作，无需后端）。
+
 ## import-notes（导入笔记）
 
 ### 适用场景

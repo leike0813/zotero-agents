@@ -2,7 +2,10 @@ import { config } from "../../package.json";
 import { getString } from "../utils/locale";
 import { buildSelectionContext } from "./selectionContext";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
-import { getLoadedWorkflowSourceById } from "./workflowRuntime";
+import {
+  getLoadedWorkflowSourceById,
+  getWorkflowRegistryState,
+} from "./workflowRuntime";
 import { resolveWorkflowExecutionOptionsPreview } from "./workflowSettings";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
@@ -34,6 +37,20 @@ function getMenuLabel(id: string, fallback: string) {
   return localized === fallbackKey ? fallback : localized;
 }
 
+function getMenuLabelWithArgs(
+  id: string,
+  fallback: string,
+  args: Record<string, string>,
+) {
+  try {
+    const localized = String(getString(id as any, { args })).trim();
+    const fallbackKey = `${config.addonRef}-${id}`;
+    return localized && localized !== fallbackKey ? localized : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function getItemMenuPopup(win: _ZoteroTypes.MainWindow) {
   return win.document.getElementById("zotero-itemmenu") as XULElement | null;
 }
@@ -55,10 +72,7 @@ function appendDisabledItem(
   popup.appendChild(item);
 }
 
-function appendWorkspaceItem(
-  win: _ZoteroTypes.MainWindow,
-  popup: XULElement,
-) {
+function appendWorkspaceItem(win: _ZoteroTypes.MainWindow, popup: XULElement) {
   const item = win.document.createXULElement("menuitem");
   item.setAttribute(
     "label",
@@ -80,10 +94,7 @@ function appendAssistantSidebarItem(
   const item = win.document.createXULElement("menuitem");
   item.setAttribute(
     "label",
-    getMenuLabel(
-      "menu-workflows-open-assistant-sidebar",
-      "Open Sidebar",
-    ),
+    getMenuLabel("menu-workflows-open-assistant-sidebar", "Open Sidebar"),
   );
   item.addEventListener("command", () => {
     void addon.hooks.onPrefsEvent("openSkillRunnerSidebar", { window: win });
@@ -94,6 +105,57 @@ function appendAssistantSidebarItem(
 function appendMenuSeparator(win: _ZoteroTypes.MainWindow, popup: XULElement) {
   const separator = win.document.createXULElement("menuseparator");
   popup.appendChild(separator);
+}
+
+function shouldShowInstallOfficialPackageItem() {
+  const state = getWorkflowRegistryState();
+  return state.loadedFromOfficial.workflows.length === 0;
+}
+
+function buildInstallOfficialPackageFailureMessage(reason: string) {
+  return getMenuLabelWithArgs(
+    "menu-workflows-install-official-failed",
+    `Official workflow package install failed: ${reason}`,
+    { reason },
+  );
+}
+
+function appendInstallOfficialPackageItem(
+  win: _ZoteroTypes.MainWindow,
+  popup: XULElement,
+) {
+  const item = win.document.createXULElement("menuitem");
+  item.setAttribute(
+    "label",
+    getMenuLabel(
+      "menu-workflows-install-official-package",
+      "📦 Install Official Workflow Package",
+    ),
+  );
+  item.setAttribute("style", "font-weight: 700;");
+  item.addEventListener("command", () => {
+    item.setAttribute("disabled", "true");
+    void (async () => {
+      const result = (await addon.hooks.onPrefsEvent("installContentPackage", {
+        window: win,
+        source: "workflow-menu",
+      })) as { ok?: boolean; message?: string } | undefined;
+      if (result?.ok) {
+        alertWindow(
+          win,
+          getMenuLabel(
+            "menu-workflows-install-official-success",
+            "Official workflow package installed.",
+          ),
+        );
+        return;
+      }
+      item.removeAttribute("disabled");
+      const reason = compactError(result?.message || "unknown error");
+      alertWindow(win, buildInstallOfficialPackageFailureMessage(reason));
+    })();
+  });
+  popup.appendChild(item);
 }
 
 function compactError(error: unknown) {
@@ -199,6 +261,10 @@ export async function rebuildWorkflowActionPopup(
     appendAssistantSidebarItem(win, popup);
   }
   if (includeWorkspaceItem || includeSkillRunnerSidebarItem) {
+    appendMenuSeparator(win, popup);
+  }
+  if (shouldShowInstallOfficialPackageItem()) {
+    appendInstallOfficialPackageItem(win, popup);
     appendMenuSeparator(win, popup);
   }
   if (workflows.length === 0) {

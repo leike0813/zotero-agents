@@ -54,6 +54,21 @@ function bindPrefEvents() {
   const workflowOpenLogsButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-workflow-open-logs`,
   ) as XUL.Button | null;
+  const contentPackageStatusText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-status`,
+  ) as HTMLElement | null;
+  const contentPackageChannelSelect = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-channel`,
+  ) as (XUL.Element & { value?: string }) | null;
+  const contentPackageChannelPopup = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-channel-popup`,
+  ) as XUL.Element | null;
+  const contentPackageCheckButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-check`,
+  ) as XUL.Button | null;
+  const contentPackageInstallButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-install`,
+  ) as XUL.Button | null;
   const collectSkillRunFeedbackCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-collect-skill-run-feedback`,
   ) as HTMLInputElement | null;
@@ -420,7 +435,8 @@ function bindPrefEvents() {
   const runtimeDataCategoryLabel = (category: string, fallback = "") => {
     const id = String(category || "").trim();
     const key = runtimeDataCategoryLabelKeys[id];
-    const fallbackLabel = fallback || runtimeDataCategoryFallbackLabels[id] || id;
+    const fallbackLabel =
+      fallback || runtimeDataCategoryFallbackLabels[id] || id;
     return key ? getStringOrFallback(key, fallbackLabel) : fallbackLabel;
   };
 
@@ -441,11 +457,7 @@ function bindPrefEvents() {
     return total > 0 && current > 0 ? `${base} ${current}/${total}` : base;
   };
 
-  const setRuntimeDataProgress = (
-    visible: boolean,
-    percent = 0,
-    text = "",
-  ) => {
+  const setRuntimeDataProgress = (visible: boolean, percent = 0, text = "") => {
     if (runtimeDataProgressRow) {
       if (visible) {
         runtimeDataProgressRow.classList.add("is-visible");
@@ -630,7 +642,8 @@ function bindPrefEvents() {
         .map((entry: any) => String(entry?.path || "").trim())
         .filter(Boolean);
       const stateBytes = stateDbs.reduce(
-        (sum: number, entry: any) => sum + Math.max(0, Number(entry?.bytes) || 0),
+        (sum: number, entry: any) =>
+          sum + Math.max(0, Number(entry?.bytes) || 0),
         0,
       );
       const stateDetail = stateDbs.length
@@ -949,15 +962,24 @@ function bindPrefEvents() {
     element.setAttribute("title", localizedStatusText(status));
   };
 
-  const statusPair = (labelKey: string, labelFallback: string, value: string) =>
-    value ? `${getPrefText(labelKey, labelFallback)}=${value}` : "";
+  const statusPair = (
+    labelKey: string,
+    labelFallback: string,
+    value: string,
+  ) => (value ? `${getPrefText(labelKey, labelFallback)}=${value}` : "");
 
   const sanitizeHostAccessNoticeText = (text: string) =>
     String(text || "")
       .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer <redacted>")
-      .replace(/\b(token|masterToken|authorization)\s*[:=]\s*\S+/gi, "$1=<redacted>")
+      .replace(
+        /\b(token|masterToken|authorization)\s*[:=]\s*\S+/gi,
+        "$1=<redacted>",
+      )
       .replace(/[A-Za-z]:\\[^\s)]+/g, "<path>")
-      .replace(/(?:^|\s)\/(?:Users|home|var|tmp|private|mnt)\/[^\s)]+/g, " <path>")
+      .replace(
+        /(?:^|\s)\/(?:Users|home|var|tmp|private|mnt)\/[^\s)]+/g,
+        " <path>",
+      )
       .trim();
 
   const renderHostBridgeOperationNotice = (response: unknown) => {
@@ -1001,7 +1023,9 @@ function bindPrefEvents() {
         hostBridgeSecurityExpanded
           ? "pref-host-bridge-security-hide"
           : "pref-host-bridge-security-show",
-        hostBridgeSecurityExpanded ? "Hide security actions" : "Show security actions",
+        hostBridgeSecurityExpanded
+          ? "Hide security actions"
+          : "Show security actions",
       );
     }
   };
@@ -1751,18 +1775,43 @@ function bindPrefEvents() {
   const getWorkflowDirValueForDefault = () =>
     String(workflowDirInput?.value || "").trim() || getEffectiveWorkflowDir();
 
+  const pathPlaceholderPrefix = () =>
+    addon.data.locale?.current
+      ? getStringOrFallback(
+          "pref-path-placeholder-zotero-data-dir",
+          "<Zotero Data Directory>",
+        )
+      : "<Zotero Data Directory>";
+
+  const formatDefaultPathPlaceholder = (path: string) => {
+    const normalizedPath = String(path || "").replace(/\\/g, "/");
+    const defaultWorkflowDir = getDefaultWorkflowDir().replace(/\\/g, "/");
+    const defaultSkillDir = getDefaultSkillDirForWorkflowDir(
+      getDefaultWorkflowDir(),
+    ).replace(/\\/g, "/");
+    if (normalizedPath === defaultWorkflowDir) {
+      return `${pathPlaceholderPrefix()}/content/user/workflows`;
+    }
+    if (normalizedPath === defaultSkillDir) {
+      return `${pathPlaceholderPrefix()}/content/user/skills`;
+    }
+    return path;
+  };
+
   const refreshDirectoryPlaceholders = () => {
     const workflowDefault = getEffectiveWorkflowDir();
     if (workflowDirInput) {
-      workflowDirInput.placeholder = workflowDefault;
-      workflowDirInput.setAttribute("placeholder", workflowDefault);
+      const placeholder = formatDefaultPathPlaceholder(workflowDefault);
+      workflowDirInput.placeholder = placeholder;
+      workflowDirInput.setAttribute("placeholder", placeholder);
     }
     if (skillDirInput) {
       const skillDefault = getDefaultSkillDirForWorkflowDir(
         getWorkflowDirValueForDefault(),
       );
-      skillDirInput.placeholder = skillDefault;
-      skillDirInput.setAttribute("placeholder", skillDefault);
+      const placeholder = formatDefaultPathPlaceholder(skillDefault);
+      skillDirInput.placeholder = placeholder;
+      skillDirInput.setAttribute("placeholder", placeholder);
     }
   };
 
@@ -1933,10 +1982,9 @@ function bindPrefEvents() {
     };
     const details = (result.details || {}) as Record<string, unknown>;
     const server = (details.server || {}) as Record<string, unknown>;
-    const enabled =
-      Object.prototype.hasOwnProperty.call(details, "enabled")
-        ? details.enabled === true
-        : getPref("mcpServer.enabled") !== false;
+    const enabled = Object.prototype.hasOwnProperty.call(details, "enabled")
+      ? details.enabled === true
+      : getPref("mcpServer.enabled") !== false;
     if (mcpServerEnabledCheckbox) {
       mcpServerEnabledCheckbox.checked = enabled;
     }
@@ -2250,6 +2298,312 @@ function bindPrefEvents() {
     });
   }
 
+  const setContentPackageStatus = (text: string) => {
+    if (contentPackageStatusText) {
+      contentPackageStatusText.textContent = text;
+    }
+  };
+
+  const contentPackageString = (
+    id: string,
+    fallback: string,
+    args?: Record<string, string>,
+  ) => getStringOrFallback(id, fallback, { args });
+
+  const setContentPackageInstallEnabled = (enabled: boolean) => {
+    setButtonDisabled(contentPackageInstallButton, !enabled);
+  };
+
+  const setContentPackageInstallLabel = (action?: string) => {
+    if (!contentPackageInstallButton) {
+      return;
+    }
+    const labelByAction: Record<string, string> = {
+      install: contentPackageString(
+        "pref-content-package-install-action-install",
+        "Install",
+      ),
+      update: contentPackageString(
+        "pref-content-package-install-action-update",
+        "Update",
+      ),
+      rollback: contentPackageString(
+        "pref-content-package-install-action-rollback",
+        "Rollback",
+      ),
+      replace: contentPackageString(
+        "pref-content-package-install-action-replace",
+        "Replace",
+      ),
+    };
+    const label =
+      labelByAction[String(action || "")] ||
+      contentPackageString("pref-content-package-install", "Install / Update");
+    contentPackageInstallButton.setAttribute("label", label);
+    (contentPackageInstallButton as unknown as HTMLElement).textContent = label;
+  };
+
+  const effectiveContentAction = (result: any) =>
+    String(result?.action || (result?.updateAvailable ? "update" : "none"));
+
+  const isInstallAction = (action: string) =>
+    action === "install" ||
+    action === "update" ||
+    action === "rollback" ||
+    action === "replace";
+
+  const canInstallFromStatus = (status: any) => !status?.installed;
+
+  const canInstallFromCheckResult = (result: any) =>
+    result?.compatible === true &&
+    isInstallAction(effectiveContentAction(result));
+
+  const formatContentPackageStatus = (status: any) => {
+    const installed = status?.installed;
+    const channel = String(status?.channel || "stable");
+    if (status?.staleState) {
+      return contentPackageString(
+        "pref-content-package-status-stale",
+        "Official Workflow package files are missing. Install the package again.",
+      );
+    }
+    if (!installed) {
+      return contentPackageString(
+        "pref-content-package-status-not-installed",
+        "Official Workflow package is not installed. Channel: { $channel }.",
+        { channel },
+      );
+    }
+    const packageInfo = installed.package || {};
+    return contentPackageString(
+      "pref-content-package-status-installed",
+      "Installed: { $id } · version { $version } · revision { $revision } · channel { $channel }",
+      {
+        id: String(packageInfo.id || "official-content"),
+        version: String(packageInfo.version || "unknown"),
+        revision: String(installed.feed_revision || "unknown"),
+        channel,
+      },
+    );
+  };
+
+  const syncContentPackageChannelSelect = (status?: any) => {
+    if (!contentPackageChannelSelect) {
+      return;
+    }
+    const currentChannel = String(
+      status?.channel || getPref("contentFeedChannel") || "stable",
+    );
+    const channels = [
+      { value: "stable", label: "Stable" },
+      { value: "beta", label: "Beta" },
+      ...(debugModeEnabled ? [{ value: "dev", label: "Dev" }] : []),
+    ];
+    const popup = contentPackageChannelPopup || contentPackageChannelSelect;
+    clearChildren(popup);
+    for (const channel of channels) {
+      const option =
+        typeof doc.createXULElement === "function"
+          ? doc.createXULElement("menuitem")
+          : doc.createElement("menuitem");
+      option.setAttribute("value", channel.value);
+      option.setAttribute("label", channel.label);
+      (option as unknown as { value?: string }).value = channel.value;
+      (option as unknown as HTMLElement).textContent = channel.label;
+      if (channel.value === currentChannel) {
+        option.setAttribute("selected", "selected");
+      }
+      popup?.appendChild(option);
+    }
+    contentPackageChannelSelect.value = channels.some(
+      (channel) => channel.value === currentChannel,
+    )
+      ? currentChannel
+      : "stable";
+  };
+
+  const refreshContentPackageStatus = () => {
+    void (async () => {
+      const status = await addon.hooks.onPrefsEvent("stateContentPackage", {
+        window: addon.data.prefs?.window,
+      });
+      syncContentPackageChannelSelect(status);
+      setContentPackageStatus(formatContentPackageStatus(status));
+      setContentPackageInstallEnabled(canInstallFromStatus(status));
+      setContentPackageInstallLabel(
+        canInstallFromStatus(status) ? "install" : undefined,
+      );
+    })();
+  };
+
+  if (contentPackageChannelSelect) {
+    syncContentPackageChannelSelect();
+    const handleContentPackageChannelChange = () => {
+      const channel = String(contentPackageChannelSelect.value || "stable");
+      setPref(
+        "contentFeedChannel",
+        channel === "beta" || (channel === "dev" && debugModeEnabled)
+          ? channel
+          : "stable",
+      );
+      setContentPackageInstallLabel();
+      refreshContentPackageStatus();
+    };
+    contentPackageChannelSelect.addEventListener(
+      "command",
+      handleContentPackageChannelChange,
+    );
+    contentPackageChannelSelect.addEventListener(
+      "change",
+      handleContentPackageChannelChange,
+    );
+  }
+
+  if (contentPackageCheckButton) {
+    contentPackageCheckButton.addEventListener("command", () => {
+      void (async () => {
+        setButtonDisabled(contentPackageCheckButton, true);
+        setButtonDisabled(contentPackageInstallButton, true);
+        setContentPackageStatus(
+          contentPackageString(
+            "pref-content-package-status-checking",
+            "Checking official Workflow package feed...",
+          ),
+        );
+        try {
+          const result: any = await addon.hooks.onPrefsEvent(
+            "checkContentPackageUpdate",
+            { window: addon.data.prefs?.window },
+          );
+          if (result?.ok) {
+            const action = effectiveContentAction(result);
+            setContentPackageStatus(
+              !result.compatible
+                ? contentPackageString(
+                    "pref-content-package-status-incompatible",
+                    "Official Workflow package update is not compatible: { $reason }",
+                    {
+                      reason: String(
+                        result.incompatibility?.message ||
+                          "unknown requirement",
+                      ),
+                    },
+                  )
+                : action === "update"
+                  ? contentPackageString(
+                      "pref-content-package-status-update-available",
+                      "Update available: { $version } ({ $revision })",
+                      {
+                        version: String(result.package?.version || "unknown"),
+                        revision: String(result.feed?.revision || "unknown"),
+                      },
+                    )
+                  : action === "rollback"
+                    ? contentPackageString(
+                        "pref-content-package-status-rollback-available",
+                        "Rollback available: { $version } ({ $revision })",
+                        {
+                          version: String(result.package?.version || "unknown"),
+                          revision: String(result.feed?.revision || "unknown"),
+                        },
+                      )
+                    : action === "install"
+                      ? contentPackageString(
+                          "pref-content-package-status-install-available",
+                          "Package available: { $version } ({ $revision })",
+                          {
+                            version: String(
+                              result.package?.version || "unknown",
+                            ),
+                            revision: String(
+                              result.feed?.revision || "unknown",
+                            ),
+                          },
+                        )
+                      : action === "replace"
+                        ? contentPackageString(
+                            "pref-content-package-status-replace-available",
+                            "Package replacement available: { $version } ({ $revision })",
+                            {
+                              version: String(
+                                result.package?.version || "unknown",
+                              ),
+                              revision: String(
+                                result.feed?.revision || "unknown",
+                              ),
+                            },
+                          )
+                        : contentPackageString(
+                            "pref-content-package-status-current",
+                            "Official Workflow package is up to date.",
+                          ),
+            );
+            setContentPackageInstallEnabled(canInstallFromCheckResult(result));
+            setContentPackageInstallLabel(action);
+          } else {
+            setContentPackageStatus(
+              contentPackageString(
+                "pref-content-package-status-check-failed",
+                "Official Workflow package feed check failed: { $reason }",
+                { reason: String(result?.message || "unknown error") },
+              ),
+            );
+            setContentPackageInstallEnabled(
+              canInstallFromStatus(result?.status),
+            );
+            setContentPackageInstallLabel(
+              canInstallFromStatus(result?.status) ? "install" : undefined,
+            );
+          }
+        } finally {
+          setButtonDisabled(contentPackageCheckButton, false);
+        }
+      })();
+    });
+  }
+
+  if (contentPackageInstallButton) {
+    contentPackageInstallButton.addEventListener("command", () => {
+      void (async () => {
+        setButtonDisabled(contentPackageInstallButton, true);
+        setButtonDisabled(contentPackageCheckButton, true);
+        setContentPackageStatus(
+          contentPackageString(
+            "pref-content-package-status-installing",
+            "Installing official Workflow package...",
+          ),
+        );
+        try {
+          const result: any = await addon.hooks.onPrefsEvent(
+            "installContentPackage",
+            { window: addon.data.prefs?.window },
+          );
+          setContentPackageStatus(
+            result?.ok
+              ? formatContentPackageStatus(result.status)
+              : contentPackageString(
+                  "pref-content-package-status-install-failed",
+                  "Official Workflow package install failed: { $reason }",
+                  { reason: String(result?.message || "unknown error") },
+                ),
+          );
+          setContentPackageInstallEnabled(canInstallFromStatus(result?.status));
+        } finally {
+          setButtonDisabled(contentPackageCheckButton, false);
+        }
+      })();
+    });
+  }
+
+  if (
+    contentPackageChannelSelect ||
+    contentPackageStatusText ||
+    contentPackageCheckButton ||
+    contentPackageInstallButton
+  ) {
+    refreshContentPackageStatus();
+  }
+
   if (backendManageButton) {
     backendManageButton.addEventListener("command", () => {
       void addon.hooks.onPrefsEvent("openBackendManager", {
@@ -2261,8 +2615,7 @@ function bindPrefEvents() {
   if (openDocsButton) {
     openDocsButton.addEventListener("command", () => {
       const zotero =
-        (globalThis as any).Zotero ||
-        (addon.data.prefs?.window as any)?.Zotero;
+        (globalThis as any).Zotero || (addon.data.prefs?.window as any)?.Zotero;
       zotero?.launchURL?.(getDocsUrl());
     });
   }

@@ -1417,7 +1417,7 @@ describe("Literature deep reading bootstrap skill", function () {
     const entry = registry.entriesById["literature-deep-reading"];
 
     assert.isOk(entry);
-    assert.equal(entry.sourceKind, "builtin");
+    assert.equal(entry.sourceKind, "official");
     assert.include(
       entry.sourceDir.replace(/\\/g, "/"),
       "skills_builtin/literature-deep-reading",
@@ -1627,7 +1627,10 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
     );
     assert.equal(delivery.delivery.mode, "bridge-download");
-    assert.include(delivery.delivery.downloadCommand, "zotero-bridge file download");
+    assert.include(
+      delivery.delivery.downloadCommand,
+      "zotero-bridge file download",
+    );
 
     await writeRemotePaperArtifactsManifest(
       runRoot,

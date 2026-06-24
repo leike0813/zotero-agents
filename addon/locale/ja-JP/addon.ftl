@@ -5,6 +5,18 @@ menuitem-sample-selection = 選択コンテキストをサンプル出力
 menuitem-validate-selection = 選択コンテキストを検証
 menu-workflows-root = Zotero Agents
 menu-workflows-empty = ワークフローが読み込まれていません
+menu-workflows-install-official-package = 📦 公式 Workflow パッケージをインストール
+menu-workflows-install-official-success = 公式 Workflow パッケージをインストールしました。
+menu-workflows-install-official-failed = 公式 Workflow パッケージのインストールに失敗しました: { $reason }
+content-package-startup-update-confirm = 新しい公式 Workflow パッケージがあります。
+
+    現在のバージョン: { $currentVersion }
+    最新バージョン: { $latestVersion }
+    チャンネル: { $channel }
+
+    今すぐ更新をインストールしますか？
+content-package-startup-update-failed = 公式 Workflow パッケージの更新に失敗しました: { $reason }
+content-package-startup-update-incompatible = 新しい公式 Workflow パッケージがありますが、現在の環境にはインストールできません: { $reason }
 menu-workflows-rescan = ワークフローを再スキャン
 menu-workflows-settings = ワークフロー設定...
 menu-workflows-open-workspace = Dashboard / 総合ワークスペースを開く
@@ -62,7 +74,7 @@ task-dashboard-home-workflow-run-disabled-settings = 実行前に設定が必要
 task-dashboard-home-workflow-run-missing = ワークフローが読み込まれていません
 task-dashboard-home-workflow-run-missing-window = このワークフローを実行する Zotero ウィンドウが見つかりません。
 task-dashboard-home-workflow-settings = 設定
-task-dashboard-home-workflow-builtin = 内蔵
+task-dashboard-home-workflow-builtin = 公式
 task-dashboard-home-workflow-core = コア
 task-dashboard-home-acp-title = ACP チャット
 task-dashboard-home-acp-subtitle = Zotero ワークスペースのための永続的 ACP チャット。

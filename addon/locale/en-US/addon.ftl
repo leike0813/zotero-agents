@@ -5,6 +5,18 @@ menuitem-sample-selection = Sample Selection Context
 menuitem-validate-selection = Validate Selection Context
 menu-workflows-root = Zotero Agents
 menu-workflows-empty = No workflows loaded
+menu-workflows-install-official-package = 📦 Install Official Workflow Package
+menu-workflows-install-official-success = Official workflow package installed.
+menu-workflows-install-official-failed = Official workflow package install failed: { $reason }
+content-package-startup-update-confirm = A new official Workflow package is available.
+
+    Current: { $currentVersion }
+    Latest: { $latestVersion }
+    Channel: { $channel }
+
+    Install the update now?
+content-package-startup-update-failed = Official Workflow package update failed: { $reason }
+content-package-startup-update-incompatible = A new official Workflow package is available, but it cannot be installed: { $reason }
 menu-workflows-rescan = Rescan Workflows
 menu-workflows-settings = Workflow Settings...
 menu-workflows-open-workspace = Open Dashboard / Synthesis Workspace
@@ -62,7 +74,7 @@ task-dashboard-home-workflow-run-disabled-settings = Requires settings before ru
 task-dashboard-home-workflow-run-missing = Workflow is not loaded
 task-dashboard-home-workflow-run-missing-window = Unable to find the Zotero window for this workflow run.
 task-dashboard-home-workflow-settings = Settings
-task-dashboard-home-workflow-builtin = Builtin
+task-dashboard-home-workflow-builtin = Official
 task-dashboard-home-workflow-core = Core
 task-dashboard-home-acp-title = ACP Chat
 task-dashboard-home-acp-subtitle = Persistent ACP chat for your Zotero workspace.

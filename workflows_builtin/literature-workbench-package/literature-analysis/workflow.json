@@ -111,8 +111,7 @@
     }
   },
   "execution": {
-    "poll_interval_ms": 2000,
-    "timeout_ms": 1200000
+    "poll_interval_ms": 2000
   },
   "result": {
     "fetch": { "type": "bundle" },

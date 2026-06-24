@@ -15,9 +15,27 @@ Zotero Agents 的设置位于 **Zotero → 设置 → Zotero Agents**（Windows/
 - **路径**：自定义 Skill 包存放目录
 - **扫描**：点击按钮扫描目录加载 Skills
 
-### 内建 Workflow 目录
+### 官方 Workflow 包
 
-内建 Workflow 存放在 `<Zotero Data>/zotero-agents/data/workflows_builtin`。
+官方 Workflow 通过独立的 Content Package 发布，与插件本体解耦。
+
+| 设置项 | 类型 | 说明 |
+|-------|------|------|
+| **安装官方 Workflow 包** | button | 从 GitHub / Gitee 下载并安装最新官方包 |
+| **检查更新** | button | 检测远程是否有新版本可用 |
+| **状态** | text | 显示当前已安装的包版本和频道信息 |
+
+#### 更新频道
+
+可以选择三种更新频道：
+
+| 频道 | 说明 |
+|------|------|
+| **stable** | 稳定版（推荐） |
+| **beta** | 测试版，包含即将发布的功能 |
+| **dev** | 开发版，包含最新实验性变更 |
+
+切换频道后点击 **检查更新** 可获取对应频道的最新包。
 
 ### 运行时设置
 
@@ -108,6 +126,7 @@ Zotero → 设置 → Zotero Agents
 ├── Workflow 设置
 │   ├── Workflow 目录
 │   ├── Skill 目录
+│   ├── 官方 Workflow 包
 │   └── 运行时设置
 ├── Host Bridge
 │   ├── 服务启停

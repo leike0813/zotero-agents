@@ -37,8 +37,7 @@
     },
     "feedback": {
       "showNotifications": true
-    },
-    "timeout_ms": 120000
+    }
   },
   "result": {
     "fetch": { "type": "result" },

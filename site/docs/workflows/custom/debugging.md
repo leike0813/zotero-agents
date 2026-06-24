@@ -59,7 +59,7 @@ export function applyResult({ parent, bundleReader, runtime }) {
 
 1. 检查 `workflow.json` 是否放置在正确的目录下
 2. 确认 `workflow.json` 格式正确（JSON 语法）
-3. 检查 `id` 是否唯一，不与内建 workflow 冲突
+3. 检查 `id` 是否唯一，不与官方 workflow 冲突
 4. 确认 `applyResult` 脚本路径正确
 5. 查看插件错误日志（Zotero → 帮助 → 故障排除 → 查看日志文件）
 
@@ -105,14 +105,14 @@ hostApi.notifications.toast({
 
 这是快速的调试手段，无需查看日志即可看到执行效果。
 
-### 参考内建 Workflow
+### 参考官方 Workflow
 
-内建 workflow 是最好的学习参考：
+官方 workflow 是最好的学习参考。安装官方包后可以在 `<Zotero Data>/zotero-agents/content/official/workflows/` 目录下查看源代码：
 
-- `workflows_builtin/literature-workbench-package/literature-analysis/` — 完整的 skillrunner.job.v1 示例
-- `workflows_builtin/literature-workbench-package/export-notes/` — 简单的 pass-through 示例
-- `workflows_builtin/mineru/` — 带 buildRequest + 文件处理的示例
-- `workflows_builtin/literature-workbench-package/literature-search-ingest/` — 交互模式示例
+- `literature-workbench-package/literature-analysis/` — 完整的 skillrunner.job.v1 示例
+- `content/official/workflows/literature-workbench-package/export-notes/` — 简单的 pass-through 示例
+- `content/official/workflows/mineru/` — 带 buildRequest + 文件处理的示例
+- `content/official/workflows/literature-workbench-package/literature-search-ingest/` — 交互模式示例
 
 ## 下一步
 

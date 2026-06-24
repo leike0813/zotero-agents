@@ -26,6 +26,7 @@ import {
   emitWorkflowPackageDiagnostic,
   summarizeWorkflowRuntimeCapabilities,
 } from "../modules/workflowPackageDiagnostics";
+import { isDebugModeEnabled } from "../modules/debugMode";
 import { bundlePackageHookScript } from "./packageHookBundler";
 import {
   resolveRuntimeConsole,
@@ -38,7 +39,7 @@ import {
 } from "./hostApi";
 import type { WorkflowHookExecutionMode } from "./types";
 
-type WorkflowModuleResourceKind = "builtin" | "user";
+type WorkflowModuleResourceKind = "official" | "dev-local" | "user";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -714,7 +715,7 @@ async function collectWorkflowCandidates(args: {
   });
 }
 
-async function filterDirectoryEntriesByBuiltinManifest(
+async function filterDirectoryEntriesByOfficialManifest(
   workflowsDir: string,
   entries: string[],
   diagnostics: LoaderDiagnostic[],
@@ -751,7 +752,7 @@ async function filterDirectoryEntriesByBuiltinManifest(
       createLoaderDiagnostic({
         level: "warning",
         category: "manifest_parse_error",
-        message: `Unable to read builtin workflow manifest filter: ${builtinManifestPath} (${String(error)})`,
+        message: `Unable to read official workflow manifest filter: ${builtinManifestPath} (${String(error)})`,
         path: builtinManifestPath,
         reason: String(error),
       }),
@@ -979,7 +980,7 @@ export async function loadWorkflowManifests(
     };
   }
   entries = normalizeDirectoryEntries(entries);
-  entries = await filterDirectoryEntriesByBuiltinManifest(
+  entries = await filterDirectoryEntriesByOfficialManifest(
     workflowsDir,
     entries,
     diagnostics,
@@ -999,6 +1000,8 @@ export async function loadWorkflowManifests(
       });
       for (const candidate of candidates) {
         try {
+          const hiddenByDebugMode =
+            candidate.manifest.debug_only === true && !isDebugModeEnabled();
           if (!isNonEmptyString(candidate.manifest.provider)) {
             diagnostics.push(
               createLoaderDiagnostic({
@@ -1037,6 +1040,9 @@ export async function loadWorkflowManifests(
             isPackageWorkflow: candidate.declaredFromPackage,
             workflowSourceKind: args?.workflowSourceKind,
           });
+          if (hiddenByDebugMode) {
+            continue;
+          }
           workflowsById.set(candidate.manifest.id, {
             manifest: candidate.manifest,
             rootDir: candidate.workflowRoot,

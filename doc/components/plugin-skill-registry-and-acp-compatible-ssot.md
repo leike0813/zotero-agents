@@ -8,10 +8,10 @@ Workflows continue to emit `skillrunner.job.v1`. ACP compatibility is a provider
 
 The plugin owns a shared skill registry that can discover plugin-side skills from:
 
-- `skills_builtin/`: packaged built-in skills
+- official content root: installed subscription skills under `content/official/skills`
 - `skills/`: user skills
 
-User skills override built-in skills when the same skill id exists in both roots. SkillRunner backend-installed skills still execute by default unless a later explicit override policy requests plugin-side skill assets.
+User skills override official skills when the same skill id exists in both roots. Dev-local skills sit between official and user sources; debug mode only controls whether debug-only entries are visible. SkillRunner backend-installed skills still execute by default unless a later explicit override policy requests plugin-side skill assets.
 
 ## Registry Scope
 
@@ -30,7 +30,7 @@ v1 supports auto execution only. Interactive workflow reply loops are explicitly
 An effective plugin skill entry records:
 
 - `skillId`
-- `sourceKind`: `user` or `builtin`
+- `sourceKind`: `official`, `dev-local`, or `user`
 - `sourceDir`
 - `skillMdPath`
 - `runnerJsonPath`

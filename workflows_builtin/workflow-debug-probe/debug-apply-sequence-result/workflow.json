@@ -34,8 +34,7 @@
   "execution": {
     "feedback": {
       "showNotifications": true
-    },
-    "timeout_ms": 300000
+    }
   },
   "hooks": {
     "buildRequest": "../hooks/buildDebugApplyContractRequest.mjs",

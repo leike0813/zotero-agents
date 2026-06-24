@@ -282,7 +282,9 @@ function normalizeDashboardRow(
     updatedAt: cleanString(row.updatedAt || payload.updatedAt),
     canCancel: false,
     canOpen:
-      backendType === DEFAULT_BACKEND_TYPE ? Boolean(runKey) : Boolean(requestId),
+      backendType === DEFAULT_BACKEND_TYPE
+        ? Boolean(runKey)
+        : Boolean(requestId),
     raw: payload,
   };
 }
@@ -402,7 +404,7 @@ const DASHBOARD_LABELS = {
   homeWorkflowDocButton: "Description",
   homeWorkflowRunButton: "Run workflow",
   homeWorkflowSettingsButton: "Settings",
-  homeWorkflowBuiltinBadge: "Builtin",
+  homeWorkflowBuiltinBadge: "Official",
   homeWorkflowCoreBadge: "Core",
   homeWorkflowDocMissingReadme: "README.md was not found for this workflow.",
   homeWorkflowDocBack: "Back to Dashboard",
@@ -412,18 +414,18 @@ const DASHBOARD_LABELS = {
 };
 
 type LoadedHarnessWorkflow = LoadedWorkflow & {
-  workflowSourceKind?: "builtin" | "user";
+  workflowSourceKind?: "official" | "dev-local" | "user";
 };
 
 function mergeWorkflows(args: {
-  builtin: LoadedHarnessWorkflow[];
+  official: LoadedHarnessWorkflow[];
   user: LoadedHarnessWorkflow[];
 }) {
   const byId = new Map<string, LoadedHarnessWorkflow>();
-  for (const workflow of args.builtin) {
+  for (const workflow of args.official) {
     byId.set(workflow.manifest.id, {
       ...workflow,
-      workflowSourceKind: "builtin",
+      workflowSourceKind: "official",
     });
   }
   for (const workflow of args.user) {
@@ -445,10 +447,10 @@ async function loadHarnessWorkflows(args: {
   workflowsDir: string;
   builtinWorkflowsDir: string;
 }) {
-  const [builtin, user] = await Promise.all([
+  const [official, user] = await Promise.all([
     args.builtinWorkflowsDir
       ? loadWorkflowManifests(args.builtinWorkflowsDir, {
-          workflowSourceKind: "builtin",
+          workflowSourceKind: "official",
         })
       : Promise.resolve({ workflows: [] }),
     args.workflowsDir
@@ -459,7 +461,7 @@ async function loadHarnessWorkflows(args: {
   ]);
   return filterHarnessVisibleWorkflows(
     mergeWorkflows({
-      builtin: builtin.workflows as LoadedHarnessWorkflow[],
+      official: official.workflows as LoadedHarnessWorkflow[],
       user: user.workflows as LoadedHarnessWorkflow[],
     }),
   );
@@ -649,7 +651,7 @@ export async function createDashboardReadonlyModel(
           workflowLabel: localizeWorkflowLabel(workflow),
           providerId: descriptor.providerId,
           configurable: descriptor.hasConfigurableSettings,
-          builtin: workflow.workflowSourceKind === "builtin",
+          official: workflow.workflowSourceKind === "official",
           core: isCoreWorkflow(workflow),
           quickRunEnabled:
             canWorkflowRunWithoutSelection(workflow.manifest) &&
@@ -905,8 +907,8 @@ export async function createDashboardReadonlyModel(
       backendLoadError:
         store.tableExists("plugin_task_rows") ||
         store.tableExists("plugin_skillrunner_runs")
-        ? cleanString(backendResult.fatalError)
-        : "Readonly harness could not find Dashboard task tables in the plugin DB.",
+          ? cleanString(backendResult.fatalError)
+          : "Readonly harness could not find Dashboard task tables in the plugin DB.",
     };
     if (state.homeWorkflowDocWorkflowId && state.selectedTabKey === "home") {
       const workflow = workflows.find(

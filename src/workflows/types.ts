@@ -129,10 +129,7 @@ export type WorkflowValidateSelectionSpec = {
       }
     | {
         kind: "artifact-exists";
-        target:
-          | "deep-reading-html"
-          | "translator-markdown"
-          | "mineru-markdown";
+        target: "deep-reading-html" | "translator-markdown" | "mineru-markdown";
         parameter?: string;
       }
   >;
@@ -506,7 +503,7 @@ export type WorkflowRuntimeContext = {
   packageId?: string;
   workflowRootDir?: string;
   packageRootDir?: string;
-  workflowSourceKind?: "builtin" | "user" | "";
+  workflowSourceKind?: "official" | "dev-local" | "user" | "";
   hookName?: "buildRequest" | "applyResult" | "";
   fetch?: typeof globalThis.fetch | null;
   Buffer?: typeof globalThis.Buffer | null;
@@ -600,7 +597,7 @@ export type LoadedWorkflow = {
   packageRootDir?: string;
   manifestPath?: string;
   localization?: WorkflowLocalizationResources;
-  workflowSourceKind?: "builtin" | "user" | "";
+  workflowSourceKind?: "official" | "dev-local" | "user" | "";
   hooks: WorkflowHooksModule;
   buildStrategy: ResolvedBuildStrategy;
   hookExecutionMode?: WorkflowHookExecutionMode;
@@ -620,7 +617,8 @@ export type LoadedWorkflows = {
       | "hook_import_error"
       | "hook_export_error"
       | "scan_path_error"
-      | "scan_runtime_warning";
+      | "scan_runtime_warning"
+      | "skill_dependency_missing";
     message: string;
     entry?: string;
     workflowId?: string;

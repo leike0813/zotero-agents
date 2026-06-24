@@ -170,7 +170,16 @@ async function createSkill(
   await fs.mkdir(path.join(skillDir, "assets"), { recursive: true });
   await fs.writeFile(
     path.join(skillDir, "SKILL.md"),
-    "# Demo Skill\n\nReturn structured output.\n",
+    [
+      "---",
+      `name: ${skillId}`,
+      "---",
+      "",
+      "# Demo Skill",
+      "",
+      "Return structured output.",
+      "",
+    ].join("\n"),
     "utf8",
   );
   await fs.writeFile(
@@ -225,8 +234,12 @@ async function createSkill(
   };
 }
 
-async function createRecoveryApplyWorkflowRoot(root: string) {
+async function createRecoveryApplyWorkflowRoot(
+  root: string,
+  args?: { finalSkillId?: string },
+) {
   const workflowId = "recovered-sequence-apply-workflow";
+  const finalSkillId = args?.finalSkillId || "topic-synthesis-finalize";
   const workflowsDir = path.join(root, "workflows");
   const workflowDir = path.join(workflowsDir, workflowId);
   await fs.mkdir(path.join(workflowDir, "hooks"), { recursive: true });
@@ -243,7 +256,7 @@ async function createRecoveryApplyWorkflowRoot(root: string) {
           steps: [
             {
               id: "finalize",
-              skill_id: "topic-synthesis-finalize",
+              skill_id: finalSkillId,
               mode: "interactive",
               workspace: "reuse-workflow",
             },
@@ -1632,7 +1645,10 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.include(prompt, "- pending output requires ui_hints object");
     assert.include(prompt, "Target output contract details:");
     assert.include(prompt, "`ui_hints.options`");
-    assert.include(prompt, "Do not hand-write the runner-owned result JSON path.");
+    assert.include(
+      prompt,
+      "Do not hand-write the runner-owned result JSON path.",
+    );
     assert.include(prompt, "runtime-generated file is allowed");
     assert.include(prompt, "Do not output explanations.");
     assert.include(prompt, "Do not output Markdown fences.");
@@ -4275,7 +4291,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(recovered?.applyResultState, "succeeded");
       assert.lengthOf(promptMessages, 1);
       assert.include(promptMessages[0], "ACP Skills continuation guard");
-      assert.include(promptMessages[0], "Continue the interrupted ACP Skills workflow");
+      assert.include(
+        promptMessages[0],
+        "Continue the interrupted ACP Skills workflow",
+      );
       assert.include(stages, "recovered-auto-continuation-started");
       assert.include(stages, "recovered-output-validation-succeeded");
       assert.isFalse(
@@ -4939,7 +4958,9 @@ describe("ACP SkillRunner-compatible runner", function () {
       executionModes: ["interactive"],
       skillId: "finalize-skill",
     });
-    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root);
+    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root, {
+      finalSkillId: "finalize-skill",
+    });
     const previousWorkflowDir = process.env.ZOTERO_TEST_WORKFLOW_DIR;
     process.env.ZOTERO_TEST_WORKFLOW_DIR = recoveryWorkflow.workflowsDir;
     const backend = createBackend({ id: ACP_OPENCODE_BACKEND_ID });
@@ -5844,9 +5865,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       (item) => item.kind === "message" && item.role === "assistant",
     );
     assert.isTrue(
-      assistantMessages.some(
-        (item) => item.text.includes("- ok: true"),
-      ),
+      assistantMessages.some((item) => item.text.includes("- ok: true")),
     );
     assert.isFalse(
       assistantMessages.some((item) => item.text.includes("```json")),
@@ -6093,9 +6112,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         (item) => item.kind === "message" && item.role === "assistant",
       ) || [];
     assert.isTrue(
-      finalAssistantMessages.some(
-        (item) => item.text.includes("- ok: true"),
-      ),
+      finalAssistantMessages.some((item) => item.text.includes("- ok: true")),
     );
     assert.isFalse(
       finalAssistantMessages.some((item) => item.text.includes("```json")),
@@ -6447,22 +6464,18 @@ describe("ACP SkillRunner-compatible runner", function () {
           (item) => item.kind === "message" && item.role === "assistant",
         ) || [];
       assert.isTrue(
-        assistantMessages.some(
-          (item) =>
-            item.text.includes("- kind: live_deferred_final"),
+        assistantMessages.some((item) =>
+          item.text.includes("- kind: live_deferred_final"),
         ),
       );
       assert.isFalse(
         assistantMessages.some((item) => item.text.includes("```json")),
       );
       assert.isFalse(
-        assistantMessages.some((item) =>
-          item.text.includes("__SKILL_DONE__"),
-        ),
+        assistantMessages.some((item) => item.text.includes("__SKILL_DONE__")),
       );
       assert.equal(
-        listWorkflowTasks().find((task) => task.requestId === requestId)
-          ?.state,
+        listWorkflowTasks().find((task) => task.requestId === requestId)?.state,
         "succeeded",
       );
       const feedbackProducts = listSkillRunFeedbackProducts(
@@ -6475,7 +6488,10 @@ describe("ACP SkillRunner-compatible runner", function () {
         feedbackProducts[0].productId,
         SKILL_RUN_FEEDBACK_ASSET_ID,
       );
-      assert.include(feedbackPreview.text, "Detached continuation reached apply");
+      assert.include(
+        feedbackPreview.text,
+        "Detached continuation reached apply",
+      );
       assert.equal(promptCount, 2);
     } finally {
       if (typeof previousWorkflowDir === "string") {
@@ -6670,8 +6686,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         ["invalid", "final"],
       );
       assert.equal(
-        listWorkflowTasks().find((task) => task.requestId === requestId)
-          ?.state,
+        listWorkflowTasks().find((task) => task.requestId === requestId)?.state,
         "succeeded",
       );
       assert.equal(promptCount, 3);

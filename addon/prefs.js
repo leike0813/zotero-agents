@@ -11,6 +11,31 @@ pref("tagVocabularyStagedJson", "");
 pref("collectSkillRunFeedbackEnabled", false);
 pref("workflowDir", "");
 pref("skillDir", "");
+pref("contentFeedChannel", "stable");
+pref(
+  "contentStableFeedUrl",
+  "https://raw.githubusercontent.com/leike0813/zotero-agents-workflows/content-feed/stable/feed.json",
+);
+pref(
+  "contentStableFeedMirrorUrl",
+  "https://gitee.com/leike0813/zotero-agents-workflows/raw/content-feed/stable/feed.json",
+);
+pref(
+  "contentBetaFeedUrl",
+  "https://raw.githubusercontent.com/leike0813/zotero-agents-workflows/content-feed/beta/feed.json",
+);
+pref(
+  "contentBetaFeedMirrorUrl",
+  "https://gitee.com/leike0813/zotero-agents-workflows/raw/content-feed/beta/feed.json",
+);
+pref(
+  "contentDevFeedUrl",
+  "https://raw.githubusercontent.com/leike0813/zotero-agents-workflows/content-feed/dev/feed.json",
+);
+pref(
+  "contentDevFeedMirrorUrl",
+  "https://gitee.com/leike0813/zotero-agents-workflows/raw/content-feed/dev/feed.json",
+);
 pref("sampleOutputDir", "");
 pref("runtimeRoot", "");
 pref("hostBridgeLanEnabled", false);

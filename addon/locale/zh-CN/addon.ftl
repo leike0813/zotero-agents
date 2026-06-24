@@ -5,6 +5,18 @@ menuitem-sample-selection = 采样选区上下文
 menuitem-validate-selection = 校验选区上下文
 menu-workflows-root = Zotero Agents
 menu-workflows-empty = 未加载任何 Workflow
+menu-workflows-install-official-package = 📦 安装官方 Workflow 包
+menu-workflows-install-official-success = 官方 Workflow 包已安装。
+menu-workflows-install-official-failed = 官方 Workflow 包安装失败：{ $reason }
+content-package-startup-update-confirm = 检测到新的官方 Workflow 包。
+
+    当前版本：{ $currentVersion }
+    最新版本：{ $latestVersion }
+    订阅通道：{ $channel }
+
+    是否现在安装更新？
+content-package-startup-update-failed = 官方 Workflow 包更新失败：{ $reason }
+content-package-startup-update-incompatible = 检测到新的官方 Workflow 包，但当前环境无法安装：{ $reason }
 menu-workflows-rescan = 重新扫描 Workflow
 menu-workflows-settings = Workflow 设置...
 menu-workflows-open-workspace = 打开 Dashboard/综合工作区
@@ -62,7 +74,7 @@ task-dashboard-home-workflow-run-disabled-settings = 运行前需要配置
 task-dashboard-home-workflow-run-missing = Workflow 未加载
 task-dashboard-home-workflow-run-missing-window = 无法找到用于运行该 workflow 的 Zotero 窗口。
 task-dashboard-home-workflow-settings = 设置
-task-dashboard-home-workflow-builtin = 内建
+task-dashboard-home-workflow-builtin = 官方
 task-dashboard-home-workflow-core = 核心
 task-dashboard-home-acp-title = ACP 对话
 task-dashboard-home-acp-subtitle = 面向 Zotero 工作区的持久化 ACP 对话。

@@ -59,25 +59,25 @@ describe("dashboard home workflow doc bubbles", function () {
     assert.include(js, "if (snapshot.homeWorkflowDocView)");
   });
 
-  it("marks builtin workflows and hides marker when same-id user workflow overrides", async function () {
+  it("marks official workflows and hides marker when same-id user workflow overrides", async function () {
     const runtime = await readProjectFile("src/modules/workflowRuntime.ts");
     const dialog = await readProjectFile("src/modules/taskManagerDialog.ts");
     const app = await readProjectFile("addon/content/dashboard/app.js");
 
-    assert.include(runtime, 'workflowSourceById[workflowId] = "builtin";');
+    assert.include(runtime, 'workflowSourceById[workflowId] = "official";');
     assert.include(runtime, 'workflowSourceById[workflowId] = "user";');
     assert.include(
       runtime,
-      'Workflow "${workflowId}" exists in builtin and user directories; using user workflow',
+      'Workflow "${workflowId}" exists in ${workflowSourceById[workflowId]} and user directories; using user workflow',
     );
 
-    assert.include(dialog, "builtin:");
+    assert.include(dialog, "official:");
     assert.include(dialog, "core: isCoreWorkflow(workflow)");
     assert.include(dialog, "getLoadedWorkflowSourceById(workflow.manifest.id)");
-    assert.include(dialog, '"builtin"');
+    assert.include(dialog, '"official"');
 
-    assert.include(app, "if (workflow.builtin === true)");
-    assert.include(app, "workflow-bubble-builtin-badge");
+    assert.include(app, "if (workflow.official === true)");
+    assert.include(app, "workflow-bubble-official-badge");
     assert.include(app, "if (workflow.core === true)");
     assert.include(app, "workflow-bubble-core-badge");
   });
@@ -114,7 +114,10 @@ describe("dashboard home workflow doc bubbles", function () {
     const iconCss = await readProjectFile("addon/content/shared/icons.css");
     assert.include(css, ".workflow-bubbles-wrap {");
     assert.include(css, "display: grid;");
-    assert.include(css, "grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));");
+    assert.include(
+      css,
+      "grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));",
+    );
     assert.include(css, ".workflow-bubble {");
     assert.include(css, "display: flex;");
     assert.include(css, "flex-direction: column;");

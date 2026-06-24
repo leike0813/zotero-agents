@@ -23,19 +23,16 @@
     .zs-runtime-issues-panel.is-visible { display: block; }
     .zs-host-access-status-grid { display: grid; grid-template-columns:
     minmax(110px, auto) 10px minmax(180px, 1fr); gap: 6px 8px; align-items:
-    center; font-size: 12px; }
-    .zs-host-access-status-label { font-weight: 600; color: #334155; }
-    .zs-host-access-settings { display: flex; flex-direction: column; gap: 8px;
-    padding-top: 4px; }
-    .zs-host-access-operation-notice { display: none; border: 1px solid
-    rgba(59, 130, 246, 0.35); border-radius: 6px; padding: 8px; background:
-    rgba(239, 246, 255, 0.75); color: #1e3a8a; font-size: 12px; }
-    .zs-host-access-operation-notice.is-visible { display: block; }
-    .zs-host-access-operation-notice.is-error { border-color: rgba(185, 28, 28,
-    0.45); background: rgba(254, 242, 242, 0.85); color: #7f1d1d; }
+    center; font-size: 12px; } .zs-host-access-status-label { font-weight: 600;
+    color: #334155; } .zs-host-access-settings { display: flex; flex-direction:
+    column; gap: 8px; padding-top: 4px; } .zs-host-access-operation-notice {
+    display: none; border: 1px solid rgba(59, 130, 246, 0.35); border-radius:
+    6px; padding: 8px; background: rgba(239, 246, 255, 0.75); color: #1e3a8a;
+    font-size: 12px; } .zs-host-access-operation-notice.is-visible { display:
+    block; } .zs-host-access-operation-notice.is-error { border-color: rgba(185,
+    28, 28, 0.45); background: rgba(254, 242, 242, 0.85); color: #7f1d1d; }
     .zs-host-access-operation-notice-title { font-weight: 700; margin-right:
-    6px; }
-    .zs-host-access-security-panel { display: none; }
+    6px; } .zs-host-access-security-panel { display: none; }
     .zs-host-access-security-panel.is-visible { display: flex; }
     .zs-runtime-issues-grid { display: grid; grid-template-columns:
     minmax(140px, 1fr) minmax(180px, 2fr) auto; gap: 6px 10px; align-items:
@@ -82,6 +79,9 @@
     #7f1d1d; } .zs-pref-danger-status { color: #7f1d1d; font-size: 12px; }
     .zs-pref-danger-button { color: #991b1b; }
     .zs-host-bridge-write-approval-danger { color: #b91c1c; font-weight: 700; }
+    .zs-user-content-dir-input { flex: 1 1 360px; min-width: 320px; }
+    .zs-content-package-channel { min-width: 140px; } .zs-content-package-status
+    { font-size: 12px; color: #334155; }
   </html:style>
   <vbox class="zs-pref-root">
     <vbox class="zs-pref-card">
@@ -99,6 +99,7 @@
         <html:input
           type="text"
           id="zotero-prefpane-__addonRef__-workflow-dir"
+          class="zs-user-content-dir-input"
           preference="workflowDir"
         ></html:input>
         <button
@@ -120,6 +121,7 @@
         <html:input
           type="text"
           id="zotero-prefpane-__addonRef__-skill-dir"
+          class="zs-user-content-dir-input"
           preference="skillDir"
         ></html:input>
         <button
@@ -148,6 +150,42 @@
       <description
         data-l10n-id="pref-collect-skill-run-feedback-help"
       ></description>
+    </vbox>
+
+    <vbox class="zs-pref-card">
+      <label
+        class="zs-pref-card-title"
+        data-l10n-id="pref-section-content-package"
+      ></label>
+      <description data-l10n-id="pref-content-package-help"></description>
+      <hbox class="zs-pref-actions-row" align="center">
+        <html:label
+          for="zotero-prefpane-__addonRef__-content-package-channel"
+          data-l10n-id="pref-content-package-channel"
+        ></html:label>
+        <menulist
+          id="zotero-prefpane-__addonRef__-content-package-channel"
+          class="zs-content-package-channel"
+        >
+          <menupopup
+            id="zotero-prefpane-__addonRef__-content-package-channel-popup"
+          ></menupopup>
+        </menulist>
+      </hbox>
+      <html:div
+        id="zotero-prefpane-__addonRef__-content-package-status"
+        class="zs-content-package-status"
+      ></html:div>
+      <hbox class="zs-pref-actions-row">
+        <button
+          id="zotero-prefpane-__addonRef__-content-package-check"
+          data-l10n-id="pref-content-package-check"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-content-package-install"
+          data-l10n-id="pref-content-package-install"
+        ></button>
+      </hbox>
     </vbox>
 
     <vbox class="zs-pref-card">

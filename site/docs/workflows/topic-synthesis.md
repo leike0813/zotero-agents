@@ -83,11 +83,26 @@
 :::tip 前置准备建议
 在创建 Topic 之前，建议：
 1. 确保相关文献已全部运行过 [文献分析](literature-analysis)
-2. 在 Synthesis Workbench 的 Index 页面执行一次 **Advance Matching**（高级引用匹配去重）
-3. 在 Review 页面处理好所有审批项（记得将 pending 的决策「应用」）
+2. 确保相关文献已运行 [标签规范化](tag-regulator)
+3. 在 Synthesis Workbench 的 Index 页面执行一次 **Advance Matching**（高级引用匹配去重）
+4. 在 Review 页面处理好所有审批项（记得将 pending 的决策「应用」）
 
 准确的引文图谱关系会直接影响 Topic 综合中文献重要程度的计算质量（PageRank、frontier score 等），进而提升 Topic 导览的整体质量。
 :::
+
+## 预估耗时
+
+| 主题规模 | 预估耗时 |
+|---------|---------|
+| 小型主题（≤10 篇文献） | 8-12 分钟 |
+| 中型主题（10-30 篇） | 12-18 分钟 |
+| 大型主题（30+ 篇） | 18-25 分钟 |
+
+如果文献数量非常多，建议先用更新功能增量迭代。
+
+## 模型建议
+
+🔴 建议使用**强文本理解能力 + 长上下文**的模型。Topic Synthesis 需要综合分析大量文献摘要、引文关系、标签和概念知识，属于计算密集型任务。如果后端支持 subagent 委派能力，多步 pipeline 可以更高效地执行。
 
 ## 相关工作流
 

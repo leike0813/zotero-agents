@@ -248,6 +248,16 @@ async function withSimulatedZoteroRuntime<T>(
         };
       },
     },
+    storage: {
+      openDatabase: () => ({
+        createStatement: () => ({
+          bindByName: () => undefined,
+          executeStep: () => false,
+          finalize: () => undefined,
+        }),
+        executeSimpleSQL: () => undefined,
+      }),
+    },
     scriptloader: {
       loadSubScript: (url: string, scope?: Record<string, unknown>) => {
         loadSubScriptCalls += 1;
@@ -256,8 +266,21 @@ async function withSimulatedZoteroRuntime<T>(
       },
     },
   });
+  const previousZotero = (runtime.Zotero || {}) as Record<string, any>;
   setRuntimeGlobal("Zotero", {
+    ...previousZotero,
+    Libraries: previousZotero.Libraries || { userLibraryID: 1 },
+    Items: previousZotero.Items || {
+      get: () => null,
+      getByLibraryAndKey: () => null,
+    },
+    Prefs: previousZotero.Prefs || {
+      get: () => undefined,
+      set: () => undefined,
+      clear: () => undefined,
+    },
     File: {
+      ...(previousZotero.File || {}),
       pathToFile: (filePath: string) => filePath,
     },
   });
@@ -518,7 +541,7 @@ describe("workflow loader validation", function () {
     enableWorkflowPackageDiagnosticsForDebugMode();
     await withSimulatedZoteroRuntime(async (counters) => {
       const loaded = await loadWorkflowManifests(tmpRoot, {
-        workflowSourceKind: "builtin",
+        workflowSourceKind: "official",
       });
       assert.lengthOf(
         loaded.workflows,
@@ -596,7 +619,7 @@ describe("workflow loader validation", function () {
       });
 
       const loaded = await loadWorkflowManifests(tmpRoot, {
-        workflowSourceKind: "builtin",
+        workflowSourceKind: "official",
       });
       assert.lengthOf(
         loaded.workflows,

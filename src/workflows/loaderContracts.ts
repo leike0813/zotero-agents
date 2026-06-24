@@ -13,7 +13,8 @@ export type LoaderDiagnosticCategory =
   | "hook_import_error"
   | "hook_export_error"
   | "scan_path_error"
-  | "scan_runtime_warning";
+  | "scan_runtime_warning"
+  | "skill_dependency_missing";
 
 export type LoaderDiagnostic = {
   level: LoaderDiagnosticLevel;
@@ -61,9 +62,8 @@ const ajvLogger = {
 };
 let validateWorkflowManifestSchema: ValidateFunction<WorkflowManifest> | null =
   null;
-let validateWorkflowPackageManifestSchema:
-  | ValidateFunction<WorkflowPackageManifest>
-  | null = null;
+let validateWorkflowPackageManifestSchema: ValidateFunction<WorkflowPackageManifest> | null =
+  null;
 
 function getWorkflowManifestValidator() {
   if (!validateWorkflowManifestSchema) {
@@ -73,8 +73,9 @@ function getWorkflowManifestValidator() {
       $data: true,
       logger: ajvLogger,
     });
-    validateWorkflowManifestSchema =
-      ajv.compile<WorkflowManifest>(workflowManifestSchema);
+    validateWorkflowManifestSchema = ajv.compile<WorkflowManifest>(
+      workflowManifestSchema,
+    );
   }
   return validateWorkflowManifestSchema;
 }
@@ -112,7 +113,10 @@ function formatManifestValidationError(
 }
 
 function describeManifestValidationErrors(
-  errors: ErrorObject<string, Record<string, unknown>, unknown>[] | null | undefined,
+  errors:
+    | ErrorObject<string, Record<string, unknown>, unknown>[]
+    | null
+    | undefined,
 ) {
   if (!errors || errors.length === 0) {
     return "manifest schema mismatch";

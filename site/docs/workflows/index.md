@@ -43,9 +43,18 @@ Workflow 可以通过三种后端类型执行：
 | **ACP** | `acp.skill.run.v1` | ACP 后端的技能执行 |
 | **Generic HTTP** | `generic-http.request.v1` | HTTP API 调用 |
 
-## 内建 Workflows
+## 官方 Workflow 包
 
-插件附带了一系列内建 workflow，按功能分组：
+官方 Workflow 以**独立包**的形式发布和安装，与插件本体解耦。安装方式：
+
+- 右键菜单 → **Zotero Agents** → **📦 安装官方 Workflow 包**
+- 偏好设置中点击 **安装官方 Workflow 包**
+
+官方包支持 stable / beta / dev 三个更新频道，插件启动时自动检查更新。
+
+## 官方 Workflows
+
+插件附带了一系列官方 workflow，按功能分组：
 
 ### 📚 文献分析工具包
 

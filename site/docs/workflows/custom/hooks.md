@@ -30,7 +30,7 @@ runtime = {
 
   workflowId,       // 当前 workflow ID
   workflowRootDir,  // workflow.json 所在目录的绝对路径
-  workflowSourceKind, // "builtin" 或 "user"
+  workflowSourceKind, // "official" 或 "user"
   packageId,        // 所属 package ID（仅在工作流包中可用）
   packageRootDir,   // package 根目录的绝对路径
 

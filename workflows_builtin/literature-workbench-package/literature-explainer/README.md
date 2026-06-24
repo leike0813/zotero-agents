@@ -1,90 +1,56 @@
 # Literature Explainer
 
-## 用途
+## 这个 Workflow 做什么？
 
-交互式文献解读工具，支持用户与 AI 进行多轮对话，深入理解文献内容，并自动生成结构化的对话笔记。
+与 AI 进行**多轮对话**，深入理解一篇文献的内容。你可以提问、讨论、梳理思路，AI 的回答会经过**验证门禁**防幻觉。对话结束后自动生成结构化的学习笔记。
 
-该 workflow 以交互模式调用 Skill-Runner 后端的 `literature-explainer` skill，适合需要深入分析特定文献的场景。
+## 前置准备
 
-## 输入约束
+> **强烈建议**：在执行文献解读前，先用 [MinerU](../mineru/README.md) 将 PDF 转为 Markdown。Markdown 原文能显著提升 AI 对论文结构的理解质量。
 
-| 约束类型     | 说明                                                                |
-| ------------ | ------------------------------------------------------------------- |
-| 输入单元     | 附件 (attachment)                                                   |
-| 接受类型     | `text/markdown`, `text/x-markdown`, `text/plain`, `application/pdf` |
-| 每父条目限制 | 最多 1 个附件                                                       |
+> **建议**：如果已经对这篇文章执行过 [Literature Analysis](../literature-analysis/README.md)，AI 对话时会把已有摘要（digest）作为上下文输入，回答质量更高。
 
-### 触发方式
+## 怎么输入？
 
-- 直接选中一个 PDF 或 Markdown 附件
-- 选中父条目，插件自动展开其第一个符合条件的附件
+- **直接选中附件**：右键一个 PDF 或 Markdown 附件
+- **选中父条目**：插件自动找到第一个符合条件的附件
+- **只处理首篇**：每个父条目只处理一个附件
 
-## 运行过程
+接受的附件类型：`text/markdown`、`text/x-markdown`、`text/plain`、`application/pdf`
 
-```
-1. 构建请求
-   └── 上传源文件到 Skill-Runner
-       └── 调用 skill_id: "literature-explainer"
+## 执行方式
 
-2. Skill-Runner 处理
-   └── 启动 interactive 模式
-       └── 打开 Dashboard 聊天面板
+**交互式**。运行后 Task Dashboard 自动打开聊天面板，你可以持续与 AI 对话，直到手动结束。对话结束后触发结果处理。
 
-3. 用户交互
-   └── 在 Task Dashboard 中与 AI 对话
-       └── 可发送消息、查看回复
+## 需要多长时间？
 
-4. 结束对话
-   └── 用户手动关闭或取消
-       └── 生成对话结果
-```
+取决于你的对话轮数。文献加载和初始化约需 1-2 分钟，之后的对话实时进行。
 
-### 执行模式
+## 产出什么？
 
-- `request.create.mode`: `interactive` - 交互模式，打开聊天面板
-- `poll_interval_ms`: 2000 - 轮询间隔 2 秒
-- `timeout_ms`: 1200000 - 超时 20 分钟
+对话结束后，在父条目下创建 **1 个对话笔记**：
 
-### 交互流程
+### 对话笔记（Conversation Note）
+- 类型标记：`data-zs-note-kind="conversation"`
+- 内容：完整问答历史（HTML 格式）
+- 每次执行会创建新的对话 note（不覆盖旧的）
 
-1. workflow 启动后，Task Dashboard 自动打开
-2. 切换到对应任务的 Detail 面板
-3. 在聊天输入框中输入问题或指令
-4. AI 回复会实时显示在面板中
-5. 对话可以持续进行，直到用户选择结束
-6. 关闭面板时触发结果处理
+## 参数说明
 
-## 运行产物
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `language` | string | `zh-CN` | 对话语言，支持 zh-CN / en-US / ja-JP / ko-KR / de-DE / fr-FR / es-ES / ru-RU |
 
-执行完成后，在父条目下创建 **1 个 Zotero Note**：
+## 模型建议
 
-### Conversation Note
-
-- **类型**: `data-zs-note-kind="conversation"`
-- **内容**:
-  - 对话历史记录（HTML 格式）
-  - Payload: JSON 格式对话数据 (`conversation-json`)
-- **更新策略**: 每次执行会创建新的对话 note（而非覆盖）
-
-## 参数
-
-| 参数       | 类型   | 说明     | 默认值  |
-| ---------- | ------ | -------- | ------- |
-| `language` | string | 对话语言 | `zh-CN` |
-
-### 可选语言
-
-`zh-CN`, `en-US`, `ja-JP`, `ko-KR`, `de-DE`, `fr-FR`, `es-ES`, `ru-RU`
-
-支持自定义输入（`allowCustom: true`）
+🟡 建议使用**有网络搜索能力**的模型。Literature Explainer 内置证据验证机制——如果模型能联网验证论文中的引用和事实，验证质量会大幅提升。无法联网时验证功能会严重受限，但仍可进行基于文献内容的推理和问答。
 
 ## 依赖
 
-- **后端**: Skill-Runner 服务
-- **Backend 配置**: 在 Backend Manager 中配置 Skill-Runner 类型的后端
-- **Skill**: Skill-Runner 端需部署 `literature-explainer` skill
+- **后端**：Skill-Runner
+- **Skill**：`literature-explainer`
 
-## 相关工作流
+## 相关 Workflow
 
-- [literature-analysis](../literature-analysis/README.md): 自动生成文献摘要
-- note-level `reference-note-editor` 已归档到 `deprecated/workflows_builtin`
+- [Literature Analysis](../literature-analysis/README.md) — 自动生成文献摘要
+- [MinerU](../mineru/README.md) — 先将 PDF 转为 Markdown

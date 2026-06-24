@@ -517,14 +517,23 @@ function runnerDisplayName(skill: SkillContract): string {
   return emoji ? `${emoji} ${skill.title}` : skill.title;
 }
 
+function runnerHardTimeoutSeconds(skillId: string): number {
+  return skillId.endsWith("-prepare") ? 3600 : 1800;
+}
+
 function runnerJson(skill: SkillContract): Record<string, unknown> {
   return {
     id: skill.id,
     name: runnerDisplayName(skill),
     description: skill.description,
     version: "0.1.0",
-    execution_modes: ["interactive"],
+    execution_modes: ["auto"],
     max_attempt: 12,
+    runtime: {
+      default_options: {
+        hard_timeout_seconds: runnerHardTimeoutSeconds(skill.id),
+      },
+    },
     schemas: {
       input: "assets/input.schema.json",
       parameter: "assets/parameter.schema.json",

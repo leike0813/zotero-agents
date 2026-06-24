@@ -58,8 +58,7 @@
     "zoteroHostAccess": {
       "required": true,
       "allowWriteApprovalBypass": true
-    },
-    "timeout_ms": 1200000
+    }
   },
   "result": {
     "fetch": { "type": "result" },

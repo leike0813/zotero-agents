@@ -3,8 +3,13 @@
   "name": "🧠 主题综合核心分析与知识图谱补全",
   "description": "Draft the topic-level core synthesis and knowledge graph completion based on the analysis context from the prepare phase. Use this skill after create/update-topic-synthesis-prepare. DO NOT invoke this skill directly.",
   "version": "0.1.0",
-  "execution_modes": ["interactive"],
+  "execution_modes": ["auto"],
   "max_attempt": 12,
+  "runtime": {
+    "default_options": {
+      "hard_timeout_seconds": 1800
+    }
+  },
   "schemas": {
     "input": "assets/input.schema.json",
     "parameter": "assets/parameter.schema.json",
