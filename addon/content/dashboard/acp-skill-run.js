@@ -449,13 +449,12 @@
   }
 
   function renderMarkdown(value) {
-    const text = String(value || "");
     const parser = ensureMarkdownParser();
-    if (!parser) return escapeHtml(text).replace(/\n/g, "<br>");
+    if (!parser) return escapeHtml(value).replace(/\n/g, "<br>");
     try {
-      return parser.render(text).trimEnd();
+      return parser.render(safeText(value));
     } catch {
-      return escapeHtml(text).replace(/\n/g, "<br>");
+      return escapeHtml(value).replace(/\n/g, "<br>");
     }
   }
 
@@ -500,7 +499,7 @@
       container: transcript,
       items: Array.isArray(view.items) ? view.items : [],
       mode: state.chatDisplayMode,
-      variant: "acp-skill-run",
+      variant: "skillrunner",
       nodeMap: state.transcriptNodeMap,
       orderKey: state.transcriptOrderKey,
       modeKey: state.transcriptMode,

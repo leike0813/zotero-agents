@@ -35,6 +35,24 @@
   -moz-context-properties: unset !important;
 }
 
+.icon-css.icon-zotero-skills-markdown-reader,
+.icon-css.icon-item-type[data-item-type="zotero-skills-markdown-reader"],
+.tab-icon.icon-item-type[data-item-type="zotero-skills-markdown-reader"] {
+  display: inline-block !important;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  background-image: url("icons/icon_file_markdown_32.png") !important;
+  background-position: center !important;
+  background-repeat: no-repeat !important;
+  background-size: contain !important;
+  background-color: transparent !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+  -moz-context-properties: unset !important;
+}
+
 .zs-assistant-sidebar-button[data-zs-selected="true"],
 .zs-skillrunner-sidebar-button[data-zs-selected="true"] {
   filter: saturate(1.2);
@@ -222,7 +240,8 @@ html[data-zs-theme="dark"] {
   --zs-pv-task-backend: #aab7ca;
   --zs-pv-task-hover-border: rgba(147, 197, 253, 0.45);
   --zs-pv-task-hover-bg: rgba(96, 165, 250, 0.16);
-  --zs-pv-shadow: 0 12px 30px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.22);
+  --zs-pv-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.22);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -238,6 +257,7 @@ html[data-zs-theme="dark"] {
     --zs-pv-task-backend: #aab7ca;
     --zs-pv-task-hover-border: rgba(147, 197, 253, 0.45);
     --zs-pv-task-hover-bg: rgba(96, 165, 250, 0.16);
-    --zs-pv-shadow: 0 12px 30px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.22);
+    --zs-pv-shadow:
+      0 12px 30px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.22);
   }
 }

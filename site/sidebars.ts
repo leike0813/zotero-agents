@@ -5,7 +5,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "📖 指南",
-      items: ["intro", "installation", "getting-started"],
+      items: ["intro", "installation", "getting-started", "markdown-reader"],
     },
     {
       type: "category",

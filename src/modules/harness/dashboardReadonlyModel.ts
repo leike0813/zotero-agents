@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import type { BackendInstance } from "../../backends/types";
 import {
@@ -498,11 +499,13 @@ async function readWorkflowDoc(workflow: LoadedHarnessWorkflow) {
   const root = workflowRoot(workflow);
   const readme = root ? path.join(root, "README.md") : "";
   if (!readme) {
-    return { html: "", missingReadme: true };
+    return { html: "", markdown: "", baseFileUri: "", missingReadme: true };
   }
   const source = await readFile(readme, "utf8").catch(() => "");
   return {
     html: source ? minimalMarkdownHtml(source) : "",
+    markdown: source,
+    baseFileUri: pathToFileURL(readme).href,
     missingReadme: !source,
   };
 }
@@ -920,6 +923,8 @@ export async function createDashboardReadonlyModel(
           workflowId: workflow.manifest.id,
           workflowLabel: localizeWorkflowLabel(workflow),
           html: doc.html,
+          markdown: doc.markdown,
+          baseFileUri: doc.baseFileUri,
           missingReadme: doc.missingReadme,
         };
       }

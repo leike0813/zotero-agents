@@ -1,0 +1,1012 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Markdown</title>
+    <link rel="stylesheet" href="../dashboard/vendor/katex/katex.min.css" />
+    <link
+      rel="stylesheet"
+      href="../dashboard/vendor/highlight/styles/github.min.css"
+    />
+    <link rel="stylesheet" href="../shared/markdown-renderer.css" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        --reader-border: color-mix(in srgb, CanvasText 16%, Canvas);
+        --reader-muted: color-mix(in srgb, CanvasText 64%, Canvas);
+        --reader-soft: color-mix(in srgb, CanvasText 5%, Canvas);
+        --reader-accent: #2563eb;
+        --reader-accent-soft: color-mix(in srgb, #2563eb 12%, Canvas);
+        --reader-width: 860px;
+        --reader-font-size: 16px;
+      }
+
+      body {
+        margin: 0;
+        height: 100vh;
+        overflow: hidden;
+        background: Canvas;
+        color: CanvasText;
+      }
+
+      .reader-shell {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        height: 100vh;
+      }
+
+      .reader-toolbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--reader-border);
+        background: color-mix(in srgb, Canvas 94%, CanvasText 6%);
+      }
+
+      .reader-title {
+        min-width: 0;
+      }
+
+      .reader-title strong,
+      .reader-title span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .reader-title span {
+        color: var(--reader-muted);
+        font-size: 12px;
+      }
+
+      .reader-actions {
+        position: relative;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        justify-content: flex-end;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      button {
+        border: 0;
+        background: transparent;
+        color: CanvasText;
+        cursor: pointer;
+      }
+
+      .reader-icon-button {
+        display: inline-grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 7px;
+      }
+
+      .reader-icon-button:hover,
+      .reader-icon-button:focus-visible {
+        background: var(--reader-accent-soft);
+        outline: none;
+      }
+
+      .reader-icon-button img {
+        width: 20px;
+        height: 20px;
+        opacity: 0.78;
+      }
+
+      .reader-icon-button:hover img,
+      .reader-icon-button:focus-visible img {
+        opacity: 1;
+      }
+
+      .reader-icon-button:disabled {
+        cursor: default;
+        opacity: 0.34;
+      }
+
+      .reader-icon-button:disabled:hover {
+        background: transparent;
+      }
+
+      .reader-icon-button.is-hidden {
+        display: none;
+      }
+
+      .reader-search-group {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .reader-search-box {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .reader-toast {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 6px);
+        max-width: 260px;
+        padding: 5px 9px;
+        border-radius: 6px;
+        background: color-mix(in srgb, CanvasText 82%, Canvas);
+        color: Canvas;
+        font-size: 12px;
+        line-height: 1.4;
+        opacity: 0;
+        transform: translateY(-2px);
+        pointer-events: none;
+        transition:
+          opacity 120ms ease,
+          transform 120ms ease;
+        z-index: 10;
+      }
+
+      .reader-toast.is-visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .reader-search {
+        width: 150px;
+        min-height: 30px;
+        box-sizing: border-box;
+        border: 1px solid var(--reader-border);
+        border-radius: 5px;
+        padding: 0 30px 0 8px;
+        background: Canvas;
+        color: CanvasText;
+      }
+
+      .reader-search-clear {
+        position: absolute;
+        right: 4px;
+        display: inline-grid;
+        width: 24px;
+        height: 24px;
+        place-items: center;
+        border-radius: 5px;
+      }
+
+      .reader-search-clear:hover,
+      .reader-search-clear:focus-visible {
+        background: var(--reader-accent-soft);
+        outline: none;
+      }
+
+      .reader-search-clear img {
+        width: 17px;
+        height: 17px;
+        opacity: 0.7;
+      }
+
+      .reader-search-clear.is-hidden {
+        display: none;
+      }
+
+      .reader-main {
+        display: grid;
+        grid-template-columns: 240px minmax(0, 1fr);
+        min-height: 0;
+      }
+
+      .reader-outline {
+        min-height: 0;
+        overflow: auto;
+        padding: 18px 12px;
+        border-right: 1px solid var(--reader-border);
+        background: var(--reader-soft);
+        font-size: 13px;
+      }
+
+      .reader-outline.is-empty {
+        color: var(--reader-muted);
+      }
+
+      .reader-outline .markdown-outline {
+        gap: 2px;
+      }
+
+      .reader-outline .markdown-outline-link {
+        border-radius: 6px;
+        border-left: 2px solid transparent;
+        color: color-mix(in srgb, CanvasText 72%, Canvas);
+      }
+
+      .reader-outline .markdown-outline-link:hover,
+      .reader-outline .markdown-outline-link:focus-visible {
+        background: color-mix(in srgb, var(--reader-accent) 10%, Canvas);
+        color: CanvasText;
+      }
+
+      .reader-outline .markdown-outline-link.depth-1 {
+        margin-top: 6px;
+        padding-left: 9px;
+        border-left-color: var(--reader-accent);
+        background: color-mix(in srgb, var(--reader-accent) 7%, Canvas);
+        color: CanvasText;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .reader-outline .markdown-outline-link.depth-2 {
+        padding-left: 18px;
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+
+      .reader-outline .markdown-outline-link.depth-3 {
+        padding-left: 30px;
+        color: color-mix(in srgb, CanvasText 62%, Canvas);
+        font-size: 12px;
+      }
+
+      .reader-outline .markdown-outline-link.depth-4 {
+        padding-left: 42px;
+        color: color-mix(in srgb, CanvasText 54%, Canvas);
+        font-size: 11.5px;
+      }
+
+      .reader-scroll {
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .reader-document {
+        box-sizing: border-box;
+        width: min(var(--reader-width), 100%);
+        margin: 0 auto;
+        padding: 34px 38px 72px;
+        font-size: var(--reader-font-size);
+      }
+
+      .reader-empty,
+      .reader-error {
+        margin: 34px;
+        padding: 18px;
+        border: 1px solid var(--reader-border);
+        border-radius: 6px;
+        background: var(--reader-soft);
+      }
+
+      .reader-error {
+        color: #b91c1c;
+      }
+
+      mark[data-reader-search-hit] {
+        padding: 0 2px;
+        background: #fde68a;
+        color: #111827;
+      }
+
+      mark[data-reader-search-hit].is-active {
+        background: #f59e0b;
+        outline: 2px solid color-mix(in srgb, #f59e0b 45%, CanvasText);
+        outline-offset: 1px;
+      }
+
+      @media (max-width: 860px) {
+        .reader-main {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .reader-outline {
+          display: none;
+        }
+
+        .reader-toolbar {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .reader-actions {
+          justify-content: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="reader-shell">
+      <header class="reader-toolbar">
+        <div class="reader-title">
+          <strong id="reader-title">Markdown</strong>
+          <span id="reader-path">Initializing reader...</span>
+        </div>
+        <div class="reader-actions">
+          <div class="reader-search-group">
+            <button
+              id="reader-search-prev"
+              class="reader-icon-button"
+              type="button"
+              data-i18n-title="searchPrevious"
+              aria-label="Previous search result"
+              title="Previous search result"
+              disabled
+            >
+              <img
+                src="../icons/material-symbols/keyboard_arrow_up.svg"
+                alt=""
+              />
+            </button>
+            <button
+              id="reader-search-next"
+              class="reader-icon-button"
+              type="button"
+              data-i18n-title="searchNext"
+              aria-label="Next search result"
+              title="Next search result"
+              disabled
+            >
+              <img
+                src="../icons/material-symbols/keyboard_arrow_down.svg"
+                alt=""
+              />
+            </button>
+            <div class="reader-search-box">
+              <input
+                id="reader-search"
+                class="reader-search"
+                type="search"
+                placeholder="Search"
+              />
+              <button
+                id="reader-search-clear"
+                class="reader-search-clear is-hidden"
+                type="button"
+                data-i18n-title="clearSearch"
+                aria-label="Clear search"
+                title="Clear search"
+                disabled
+              >
+                <img src="../icons/material-symbols/close.svg" alt="" />
+              </button>
+            </div>
+          </div>
+          <button
+            id="reader-refresh"
+            class="reader-icon-button"
+            type="button"
+            data-i18n-title="refresh"
+            aria-label="Refresh"
+            title="Refresh"
+          >
+            <img src="../icons/material-symbols/refresh.svg" alt="" />
+          </button>
+          <button
+            id="reader-font-smaller"
+            class="reader-icon-button"
+            type="button"
+            data-i18n-title="fontSmaller"
+            aria-label="Decrease text size"
+            title="Decrease text size"
+          >
+            <img src="../icons/material-symbols/text_decrease.svg" alt="" />
+          </button>
+          <button
+            id="reader-font-larger"
+            class="reader-icon-button"
+            type="button"
+            data-i18n-title="fontLarger"
+            aria-label="Increase text size"
+            title="Increase text size"
+          >
+            <img src="../icons/material-symbols/text_increase.svg" alt="" />
+          </button>
+          <button
+            id="reader-width"
+            class="reader-icon-button"
+            type="button"
+            data-i18n-title="width"
+            aria-label="Toggle reading width"
+            title="Toggle reading width"
+          >
+            <img
+              id="reader-width-icon"
+              src="../icons/material-symbols/open_in_full.svg"
+              alt=""
+            />
+          </button>
+          <button
+            id="reader-top"
+            class="reader-icon-button"
+            type="button"
+            data-i18n-title="top"
+            aria-label="Back to top"
+            title="Back to top"
+          >
+            <img
+              src="../icons/material-symbols/vertical_align_top.svg"
+              alt=""
+            />
+          </button>
+          <button
+            id="reader-copy"
+            class="reader-icon-button"
+            type="button"
+            data-i18n-title="copyMarkdown"
+            aria-label="Copy Markdown"
+            title="Copy Markdown"
+          >
+            <img src="../icons/material-symbols/content_copy.svg" alt="" />
+          </button>
+          <button
+            id="reader-open-folder"
+            class="reader-icon-button"
+            type="button"
+            data-i18n-title="openFolder"
+            aria-label="Show in File Manager"
+            title="Show in File Manager"
+          >
+            <img src="../icons/material-symbols/folder_open.svg" alt="" />
+          </button>
+          <button
+            id="reader-open-system"
+            class="reader-icon-button"
+            type="button"
+            data-i18n-title="openDefault"
+            aria-label="Open with system default"
+            title="Open with system default"
+          >
+            <img src="../icons/material-symbols/open_in_new.svg" alt="" />
+          </button>
+          <button
+            id="reader-open-sidebar"
+            class="reader-icon-button is-hidden"
+            type="button"
+            data-i18n-title="openSidebar"
+            aria-label="Open Assistant Sidebar"
+            title="Open Assistant Sidebar"
+          >
+            <img src="../icons/material-symbols/right_panel_open.svg" alt="" />
+          </button>
+          <div id="reader-toast" class="reader-toast" role="status"></div>
+        </div>
+      </header>
+      <main class="reader-main">
+        <aside id="reader-outline" class="reader-outline is-empty">
+          No outline
+        </aside>
+        <section id="reader-scroll" class="reader-scroll">
+          <article id="reader-document" class="reader-document markdown-body">
+            <div class="reader-empty">Initializing reader...</div>
+          </article>
+        </section>
+      </main>
+    </div>
+    <script src="../dashboard/vendor/markdown-it/markdown-it.min.js"></script>
+    <script src="../dashboard/vendor/katex/katex.min.js"></script>
+    <script src="../dashboard/vendor/markdown-it-texmath/texmath.min.js"></script>
+    <script src="../dashboard/vendor/highlight/highlight.min.js"></script>
+    <script src="../shared/markdown-renderer.js"></script>
+    <script>
+      const BRIDGE_KEY = "__zoteroSkillsMarkdownReaderBridge";
+      const BRIDGE_INTERVAL_MS = 125;
+      const BRIDGE_MAX_ATTEMPTS = 80;
+      const DEFAULT_MESSAGES = {
+        defaultTitle: "Markdown",
+        searchPlaceholder: "Search",
+        refresh: "Refresh",
+        copyMarkdown: "Copy Markdown",
+        openFolder: "Show in File Manager",
+        copied: "Copied",
+        copyFailed: "Copy failed",
+        fontSmaller: "Decrease text size",
+        fontLarger: "Increase text size",
+        width: "Toggle reading width",
+        widthNarrow: "Use comfortable reading width",
+        widthWide: "Use wide reading width",
+        searchPrevious: "Previous search result",
+        searchNext: "Next search result",
+        clearSearch: "Clear search",
+        top: "Back to top",
+        openDefault: "Open with system default",
+        openSidebar: "Open Assistant Sidebar",
+        closeSidebar: "Close Assistant Sidebar",
+        initializing: "Initializing reader...",
+        loadingDocument: "Loading document...",
+        rendered: "Rendered",
+        noOutline: "No outline",
+        outlineTitle: "Contents",
+        readerUnavailable: "Reader unavailable",
+        loadFailed: "Failed to load Markdown.",
+        bridgeMissing: "Markdown reader bridge is unavailable.",
+        bridgeInvalid:
+          "Markdown reader bridge does not support document loading.",
+        bridgeTimeout:
+          "Markdown reader bridge is unavailable. The host will try to open a standalone fallback.",
+      };
+
+      const state = {
+        title: "Markdown",
+        filePath: "",
+        markdown: "",
+        baseFileUri: "",
+        locale: "en-US",
+        messages: { ...DEFAULT_MESSAGES },
+        fontSize: 16,
+        wide: false,
+        searchHits: [],
+        activeSearchIndex: -1,
+        rendered: false,
+      };
+      const $ = (id) => document.getElementById(id);
+      const documentEl = $("reader-document");
+      const outlineEl = $("reader-outline");
+      const scrollEl = $("reader-scroll");
+      const widthIconEl = $("reader-width-icon");
+      const toastEl = $("reader-toast");
+      const sidebarIconEl = $("reader-open-sidebar")?.querySelector("img");
+      let bridgeTimer = null;
+      let bridgeAttempts = 0;
+      let sidebarStateTimer = null;
+      let toastTimer = null;
+
+      function initialTitleFromUrl() {
+        try {
+          return new URLSearchParams(window.location.search).get("title") || "";
+        } catch {
+          return "";
+        }
+      }
+
+      function applyInitialTitleMeta() {
+        const title = initialTitleFromUrl().trim();
+        if (!title) return;
+        state.title = title;
+        $("reader-title").textContent = title;
+        document.title = title;
+      }
+
+      function readerWrappedWindow() {
+        try {
+          return window.wrappedJSObject || null;
+        } catch {
+          return null;
+        }
+      }
+
+      function resolveBridge() {
+        return (
+          window[BRIDGE_KEY] || readerWrappedWindow()?.[BRIDGE_KEY] || null
+        );
+      }
+
+      function t(key) {
+        return state.messages[key] || DEFAULT_MESSAGES[key] || key;
+      }
+
+      function mergeMessages(messages) {
+        state.messages = {
+          ...DEFAULT_MESSAGES,
+          ...(state.messages || {}),
+          ...(messages || {}),
+        };
+      }
+
+      function applyMessages() {
+        document.documentElement.lang = state.locale || "en-US";
+        $("reader-search").placeholder = t("searchPlaceholder");
+        document.querySelectorAll("[data-i18n-title]").forEach((node) => {
+          const label = t(node.getAttribute("data-i18n-title") || "");
+          node.setAttribute("aria-label", label);
+          node.setAttribute("title", label);
+        });
+        if (!state.rendered) {
+          $("reader-title").textContent = state.title || t("defaultTitle");
+          document.title = state.title || t("defaultTitle");
+        }
+        updateWidthButton();
+      }
+
+      function setButtonLabel(button, label) {
+        button.setAttribute("aria-label", label);
+        button.setAttribute("title", label);
+      }
+
+      function updateWidthButton() {
+        const button = $("reader-width");
+        const label = state.wide ? t("widthNarrow") : t("widthWide");
+        setButtonLabel(button, label);
+        button.setAttribute(
+          "data-i18n-title",
+          state.wide ? "widthNarrow" : "widthWide",
+        );
+        widthIconEl.src = state.wide
+          ? "../icons/material-symbols/close_fullscreen.svg"
+          : "../icons/material-symbols/open_in_full.svg";
+      }
+
+      function showToast(message) {
+        if (!toastEl) return;
+        toastEl.textContent = message;
+        toastEl.classList.add("is-visible");
+        if (toastTimer) {
+          clearTimeout(toastTimer);
+        }
+        toastTimer = setTimeout(() => {
+          toastEl.classList.remove("is-visible");
+          toastTimer = null;
+        }, 1600);
+      }
+
+      async function refreshSidebarButtonState() {
+        const button = $("reader-open-sidebar");
+        const bridge = resolveBridge();
+        if (!button || !bridge || typeof bridge.isSidebarOpen !== "function") {
+          button?.classList.add("is-hidden");
+          return;
+        }
+        try {
+          const isOpen = Boolean(await bridge.isSidebarOpen());
+          button.classList.remove("is-hidden");
+          button.dataset.sidebarOpen = isOpen ? "true" : "false";
+          const label = isOpen ? t("closeSidebar") : t("openSidebar");
+          setButtonLabel(button, label);
+          button.setAttribute(
+            "data-i18n-title",
+            isOpen ? "closeSidebar" : "openSidebar",
+          );
+          if (sidebarIconEl) {
+            sidebarIconEl.src = isOpen
+              ? "../icons/material-symbols/right_panel_close.svg"
+              : "../icons/material-symbols/right_panel_open.svg";
+          }
+        } catch {
+          button.classList.add("is-hidden");
+        }
+      }
+
+      function startSidebarStateSync() {
+        if (sidebarStateTimer) return;
+        void refreshSidebarButtonState();
+        sidebarStateTimer = setInterval(refreshSidebarButtonState, 1000);
+      }
+
+      function debugPostMessage(type, payload) {
+        try {
+          window.parent.postMessage({ type, payload: payload || {} }, "*");
+        } catch {
+          // Debug fallback only. The bridge pull API is the success path.
+        }
+      }
+
+      function setLoading(message) {
+        $("reader-path").textContent = message;
+        documentEl.innerHTML = "";
+        const box = document.createElement("div");
+        box.className = "reader-empty";
+        box.textContent = message;
+        documentEl.appendChild(box);
+      }
+
+      function setError(message) {
+        $("reader-path").textContent = t("readerUnavailable");
+        documentEl.innerHTML = "";
+        const box = document.createElement("div");
+        box.className = "reader-error";
+        box.textContent = message || t("loadFailed");
+        documentEl.appendChild(box);
+      }
+
+      function renderOutline() {
+        outlineEl.innerHTML = "";
+        const outline = window.ZoteroSkillsMarkdownRenderer.buildOutline(
+          documentEl,
+          {
+            title: t("outlineTitle"),
+            navClassName: "markdown-outline",
+            linkClassName: "markdown-outline-link",
+          },
+        );
+        if (!outline) {
+          outlineEl.classList.add("is-empty");
+          outlineEl.textContent = t("noOutline");
+          return;
+        }
+        outlineEl.classList.remove("is-empty");
+        outlineEl.appendChild(outline);
+      }
+
+      function renderDocument() {
+        $("reader-title").textContent = state.title || t("defaultTitle");
+        $("reader-path").textContent = state.filePath || "";
+        document.title = state.title || t("defaultTitle");
+        window.ZoteroSkillsMarkdownRenderer.renderInto(
+          documentEl,
+          state.markdown || "",
+          {
+            profile: "document",
+            baseFileUri: state.baseFileUri,
+            headingIdPrefix: "markdown-reader-heading",
+          },
+        );
+        state.rendered = true;
+        renderOutline();
+        applySearch($("reader-search").value || "");
+      }
+
+      function clearSearchMarks() {
+        documentEl
+          .querySelectorAll("mark[data-reader-search-hit]")
+          .forEach((mark) => {
+            mark.replaceWith(document.createTextNode(mark.textContent || ""));
+          });
+        documentEl.normalize();
+        state.searchHits = [];
+        state.activeSearchIndex = -1;
+        updateSearchControls();
+      }
+
+      function updateSearchControls() {
+        const hasHits = state.searchHits.length > 0;
+        const hasQuery = Boolean($("reader-search").value || "");
+        $("reader-search-prev").disabled = !hasHits;
+        $("reader-search-next").disabled = !hasHits;
+        $("reader-search-clear").disabled = !hasQuery;
+        $("reader-search-clear").classList.toggle("is-hidden", !hasQuery);
+      }
+
+      function activateSearchHit(index) {
+        if (!state.searchHits.length) {
+          updateSearchControls();
+          return;
+        }
+        const normalizedIndex =
+          ((index % state.searchHits.length) + state.searchHits.length) %
+          state.searchHits.length;
+        state.searchHits.forEach((hit) => hit.classList.remove("is-active"));
+        const active = state.searchHits[normalizedIndex];
+        active.classList.add("is-active");
+        state.activeSearchIndex = normalizedIndex;
+        active.scrollIntoView({ block: "center" });
+        updateSearchControls();
+      }
+
+      function applySearch(query) {
+        clearSearchMarks();
+        const needle = String(query || "").trim();
+        if (!needle) {
+          updateSearchControls();
+          return;
+        }
+        const pattern = new RegExp(
+          needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          "gi",
+        );
+        const walker = document.createTreeWalker(
+          documentEl,
+          NodeFilter.SHOW_TEXT,
+          {
+            acceptNode(node) {
+              return node.parentElement?.closest("script, style, code, pre")
+                ? NodeFilter.FILTER_REJECT
+                : NodeFilter.FILTER_ACCEPT;
+            },
+          },
+        );
+        const nodes = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode);
+        for (const node of nodes) {
+          const text = node.nodeValue || "";
+          if (!pattern.test(text)) {
+            pattern.lastIndex = 0;
+            continue;
+          }
+          pattern.lastIndex = 0;
+          const fragment = document.createDocumentFragment();
+          let cursor = 0;
+          let match;
+          while ((match = pattern.exec(text))) {
+            fragment.appendChild(
+              document.createTextNode(text.slice(cursor, match.index)),
+            );
+            const mark = document.createElement("mark");
+            mark.setAttribute("data-reader-search-hit", "true");
+            mark.textContent = match[0];
+            fragment.appendChild(mark);
+            cursor = match.index + match[0].length;
+          }
+          fragment.appendChild(document.createTextNode(text.slice(cursor)));
+          node.replaceWith(fragment);
+        }
+        state.searchHits = Array.from(
+          documentEl.querySelectorAll("mark[data-reader-search-hit]"),
+        );
+        activateSearchHit(0);
+      }
+
+      function copyText(value) {
+        if (navigator.clipboard?.writeText) {
+          return navigator.clipboard.writeText(value);
+        }
+        const textarea = document.createElement("textarea");
+        textarea.value = value;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        textarea.remove();
+        return Promise.resolve();
+      }
+
+      async function loadDocument(mode) {
+        const bridge = resolveBridge();
+        if (!bridge) {
+          setError(t("bridgeMissing"));
+          debugPostMessage("markdown-reader:bridge-missing");
+          return;
+        }
+        const method = mode === "refresh" ? "refresh" : "requestDocument";
+        if (typeof bridge[method] !== "function") {
+          setError(t("bridgeInvalid"));
+          debugPostMessage("markdown-reader:bridge-invalid");
+          return;
+        }
+        setLoading(t("loadingDocument"));
+        try {
+          const payload = await bridge[method]();
+          mergeMessages(payload?.messages);
+          Object.assign(state, payload || {});
+          mergeMessages(state.messages);
+          applyMessages();
+          renderDocument();
+          startSidebarStateSync();
+        } catch (error) {
+          setError(
+            error instanceof Error ? error.message : String(error || ""),
+          );
+          debugPostMessage("markdown-reader:load-error", {
+            message:
+              error instanceof Error ? error.message : String(error || ""),
+          });
+        }
+      }
+
+      function waitForBridge() {
+        const bridge = resolveBridge();
+        if (bridge && typeof bridge.requestDocument === "function") {
+          if (bridgeTimer) {
+            clearInterval(bridgeTimer);
+            bridgeTimer = null;
+          }
+          void loadDocument("request");
+          return;
+        }
+        bridgeAttempts += 1;
+        if (bridgeAttempts >= BRIDGE_MAX_ATTEMPTS) {
+          if (bridgeTimer) {
+            clearInterval(bridgeTimer);
+            bridgeTimer = null;
+          }
+          setError(t("bridgeTimeout"));
+          debugPostMessage("markdown-reader:bridge-timeout");
+        }
+      }
+
+      $("reader-refresh").addEventListener(
+        "click",
+        () => void loadDocument("refresh"),
+      );
+      $("reader-open-system").addEventListener("click", () => {
+        const bridge = resolveBridge();
+        if (bridge && typeof bridge.openSystem === "function") {
+          void bridge.openSystem().catch((error) => {
+            setError(
+              error instanceof Error ? error.message : String(error || ""),
+            );
+          });
+          return;
+        }
+        setError(t("bridgeMissing"));
+        debugPostMessage("markdown-reader:open-system");
+      });
+      $("reader-copy").addEventListener("click", () => {
+        void copyText(state.markdown || "")
+          .then(() => showToast(t("copied")))
+          .catch(() => showToast(t("copyFailed")));
+      });
+      $("reader-open-folder").addEventListener("click", () => {
+        const bridge = resolveBridge();
+        if (bridge && typeof bridge.openFolder === "function") {
+          void bridge.openFolder().catch((error) => {
+            setError(
+              error instanceof Error ? error.message : String(error || ""),
+            );
+          });
+          return;
+        }
+        setError(t("bridgeMissing"));
+        debugPostMessage("markdown-reader:open-folder");
+      });
+      $("reader-open-sidebar").addEventListener("click", () => {
+        const bridge = resolveBridge();
+        if (bridge && typeof bridge.isSidebarOpen === "function") {
+          void Promise.resolve(bridge.isSidebarOpen())
+            .then((isOpen) => {
+              const action =
+                isOpen && typeof bridge.closeSidebar === "function"
+                  ? bridge.closeSidebar()
+                  : typeof bridge.openSidebar === "function"
+                    ? bridge.openSidebar()
+                    : Promise.reject(new Error(t("bridgeInvalid")));
+              return Promise.resolve(action);
+            })
+            .then(() => refreshSidebarButtonState())
+            .catch((error) => {
+              setError(
+                error instanceof Error ? error.message : String(error || ""),
+              );
+            });
+          return;
+        }
+        setError(t("bridgeMissing"));
+      });
+      $("reader-top").addEventListener("click", () =>
+        scrollEl.scrollTo({ top: 0, behavior: "smooth" }),
+      );
+      $("reader-font-smaller").addEventListener("click", () => {
+        state.fontSize = Math.max(12, state.fontSize - 1);
+        document.documentElement.style.setProperty(
+          "--reader-font-size",
+          state.fontSize + "px",
+        );
+      });
+      $("reader-font-larger").addEventListener("click", () => {
+        state.fontSize = Math.min(24, state.fontSize + 1);
+        document.documentElement.style.setProperty(
+          "--reader-font-size",
+          state.fontSize + "px",
+        );
+      });
+      $("reader-width").addEventListener("click", () => {
+        state.wide = !state.wide;
+        document.documentElement.style.setProperty(
+          "--reader-width",
+          state.wide ? "1160px" : "860px",
+        );
+        updateWidthButton();
+      });
+      $("reader-search").addEventListener("input", (event) => {
+        applySearch(event.target.value);
+      });
+      $("reader-search").addEventListener("search", (event) => {
+        applySearch(event.target.value);
+      });
+      $("reader-search-prev").addEventListener("click", () => {
+        activateSearchHit(state.activeSearchIndex - 1);
+      });
+      $("reader-search-next").addEventListener("click", () => {
+        activateSearchHit(state.activeSearchIndex + 1);
+      });
+      $("reader-search-clear").addEventListener("click", () => {
+        $("reader-search").value = "";
+        applySearch("");
+        $("reader-search").focus();
+      });
+
+      applyInitialTitleMeta();
+      applyMessages();
+      setLoading(t("initializing"));
+      waitForBridge();
+      bridgeTimer = setInterval(waitForBridge, BRIDGE_INTERVAL_MS);
+    </script>
+  </body>
+</html>

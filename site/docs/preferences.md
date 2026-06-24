@@ -65,7 +65,9 @@ Zotero Agents 的设置位于 **Zotero → 设置 → Zotero Agents**（Windows/
 
 ## SkillRunner Local Backend
 
-本地 Skill-Runner 的运行管理区域：
+> ⚠️ 此模式仅适合完全不了解如何安装 Agent 工具、也不会使用 Docker 的用户。如果本机已有 ACP Agent 或可以使用 Docker，请优先选择 [ACP 后端](backends/acp) 或 [Docker 部署 Skill-Runner](backends/skill-runner#推荐docker-常驻部署)。
+
+本地 Skill-Runner 随插件启停，关闭 Zotero 即终止所有任务。运行管理功能：
 
 | 功能 | 说明 |
 |------|------|
@@ -118,6 +120,7 @@ Synthesis Workbench 的跨设备同步方案，替代已弃用的 Git Sync。详
 - **默认后端**：选择默认使用的后端实例
 - **自动启动本地后端**：Zotero 启动时自动启动 Skill-Runner
 - **日志级别**：设置日志记录级别
+- **启用内置 Markdown 阅读器**：勾选后双击 `.md` 附件在插件内置阅读器中打开；取消勾选后恢复系统默认打开方式（默认开启）
 
 ## 设置管理路径
 

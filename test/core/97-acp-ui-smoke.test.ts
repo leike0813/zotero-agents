@@ -266,6 +266,7 @@ describe("acp ui smoke", function () {
     assert.include(html, "./vendor/katex/katex.min.js");
     assert.include(html, "./vendor/markdown-it/markdown-it.min.js");
     assert.include(html, "./vendor/markdown-it-texmath/texmath.min.js");
+    assert.notInclude(html, "../shared/markdown-renderer.js");
     assert.notInclude(html, 'id="acp-status-summary"');
     assert.notInclude(html, 'id="acp-mode-select"');
     assert.notInclude(html, 'id="acp-model-select"');
@@ -302,6 +303,7 @@ describe("acp ui smoke", function () {
     assert.include(js, "markdownParser");
     assert.include(js, "function ensureMarkdownParser()");
     assert.include(js, "function renderMarkdown(text)");
+    assert.notInclude(js, "ZoteroSkillsMarkdownRenderer");
     assert.include(js, "html: false");
     assert.include(js, "breaks: true");
     assert.include(js, "linkify: false");
@@ -645,7 +647,8 @@ describe("acp ui smoke", function () {
           ...overrides.session,
         },
         workspace: {
-          selectedTaskKey: "local-skillrunner-backend:skillrunner-request-control",
+          selectedTaskKey:
+            "local-skillrunner-backend:skillrunner-request-control",
           groups: [
             {
               backendId: "local-skillrunner-backend",
@@ -875,7 +878,9 @@ describe("acp ui smoke", function () {
       tone: "muted",
     });
     assert.isUndefined(
-      panel.context.indicators.find((entry: any) => entry.id === "deferred-apply"),
+      panel.context.indicators.find(
+        (entry: any) => entry.id === "deferred-apply",
+      ),
     );
     assert.equal(panel.lifecycle.applyState, "failed");
     const task = panel.drawers.skillrunnerSections[0].groups[0].activeTasks[0];
@@ -886,7 +891,9 @@ describe("acp ui smoke", function () {
     assert.equal(task.backendStatus, "succeeded");
     assert.equal(task.applyStatus, "failed");
     assert.isTrue(
-      panel.drawers.details.some((section: any) => section.title === "延迟应用"),
+      panel.drawers.details.some(
+        (section: any) => section.title === "延迟应用",
+      ),
     );
   });
 
@@ -1268,7 +1275,10 @@ describe("acp ui smoke", function () {
     assert.include(assistantHtml, "assistant-workspace-tabbar");
     assert.include(assistantHtml, "../shared/theme.js");
     assert.include(assistantHtml, "../shared/theme.css");
-    assert.include(sharedThemeCss, "--zs-selection-bg: rgba(37, 99, 235, 0.26);");
+    assert.include(
+      sharedThemeCss,
+      "--zs-selection-bg: rgba(37, 99, 235, 0.26);",
+    );
     assert.include(sharedThemeCss, "--zs-selection-text: var(--zs-text);");
     assert.include(sharedThemeCss, "background: var(--zs-selection-bg);");
     assert.include(sharedThemeCss, "::-moz-selection");
@@ -1374,10 +1384,14 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunHtml, "../shared/theme.js");
     assert.include(acpSkillRunHtml, "../shared/theme.css");
     assert.include(acpSkillRunHtml, "../shared/icons.css?ui=20260614-icons-v1");
+    assert.notInclude(acpSkillRunHtml, "../shared/markdown-renderer.js");
+    assert.notInclude(acpSkillRunJs, "ZoteroSkillsMarkdownRenderer");
     assert.include(runDialogHtml, "./assistant-panel-shared.css");
     assert.include(runDialogHtml, "../shared/theme.js");
     assert.include(runDialogHtml, "../shared/theme.css");
     assert.include(runDialogHtml, "../shared/icons.css?ui=20260614-icons-v1");
+    assert.notInclude(runDialogHtml, "../shared/markdown-renderer.js");
+    assert.notInclude(runDialogJs, "ZoteroSkillsMarkdownRenderer");
     assert.notInclude(acpChatCss, "color-scheme: light;");
     assert.notInclude(acpSkillRunCss, "color-scheme: light;");
     assert.notInclude(runDialogCss, "color-scheme: light;");
@@ -1667,7 +1681,10 @@ describe("acp ui smoke", function () {
     assert.include(assistantPanelRendererJs, "renderBannerIndicators");
     assert.include(assistantPanelRendererJs, "assistant-panel-indicator");
     assert.include(assistantPanelRendererJs, "assistant-panel-indicator-extra");
-    assert.include(assistantPanelRendererJs, "assistant-panel-indicator-progress");
+    assert.include(
+      assistantPanelRendererJs,
+      "assistant-panel-indicator-progress",
+    );
     assert.include(assistantPanelRendererJs, "renderAssistantPlan");
     assert.include(
       assistantPanelRendererJs,
@@ -2036,7 +2053,8 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "const view = projectAcpSkillRunView(run)");
     assert.include(acpSkillRunJs, "assistantTranscriptRenderer()");
     assert.include(acpSkillRunJs, "renderer.renderAssistantTranscript");
-    assert.include(acpSkillRunJs, 'variant: "acp-skill-run"');
+    assert.include(acpSkillRunJs, 'variant: "skillrunner"');
+    assert.include(acpSkillRunJs, "parser.render(safeText(value))");
     assert.include(acpSkillRunJs, "function assistantPanelModel()");
     assert.include(acpSkillRunJs, "function assistantPanelRenderer()");
     assert.include(
@@ -2513,7 +2531,10 @@ describe("acp ui smoke", function () {
 
     assert.include(en, "task-dashboard-sidebar-assistant = Assistant");
     assert.include(en, "task-dashboard-home-acp-title = ACP Chat");
-    assert.include(en, "task-dashboard-acp-subtitle = Chat with your Zotero library.");
+    assert.include(
+      en,
+      "task-dashboard-acp-subtitle = Chat with your Zotero library.",
+    );
     assert.include(
       en,
       "task-dashboard-home-acp-skill-runs-title = ACP Skill Runs",
@@ -2812,18 +2833,21 @@ describe("acp ui smoke", function () {
       taskManagerDialogTs,
       'action === "toggle-all-feedback-products-selected"',
     );
-    assert.include(taskManagerDialogTs, 'action === "delete-selected-feedback"');
+    assert.include(
+      taskManagerDialogTs,
+      'action === "delete-selected-feedback"',
+    );
     assert.include(taskManagerDialogTs, 'action === "delete-all-feedback"');
     assert.include(taskManagerDialogTs, "listSkillRunFeedbackProducts(");
     assert.include(app, "buildProductAssetTree");
     assert.include(app, "renderProductTreeNode");
     assert.include(app, "productExpandedTreePathsById");
-    assert.include(app, 'html: false');
+    assert.include(app, "html: false");
     assert.include(app, "highlightCode");
     assert.include(app, "window.hljs");
     assert.include(app, "splitPreviewLines");
     assert.include(app, "product-code-line-number");
-    assert.include(app, "wrapButton.setAttribute(\"aria-pressed\"");
+    assert.include(app, 'wrapButton.setAttribute("aria-pressed"');
     assert.include(app, "copyTextToClipboard");
     assert.include(productIconMapper, "zs-icon-product-table");
     assert.include(productIconMapper, "zs-icon-product-article");
@@ -2847,7 +2871,7 @@ describe("acp ui smoke", function () {
     assert.include(css, "white-space: pre-wrap;");
     assert.include(iconsCss, ".zs-icon-product-folder");
     assert.include(iconsCss, ".zs-icon-product-code");
-    assert.include(taskManagerDialogTs, "product?.cacheDir || \"\"");
+    assert.include(taskManagerDialogTs, 'product?.cacheDir || ""');
     assert.notInclude(
       taskManagerDialogTs,
       "product?.workspaceDir || product?.cacheDir",
@@ -2867,19 +2891,16 @@ describe("acp ui smoke", function () {
     assert.include(dialog, "lastPostedDashboardSignatures");
     assert.include(dialog, "isNoisyRefreshReason(reason)");
     assert.include(dialog, "signatures.selectedSurface ===");
-    assert.include(dialog, "void enqueueRefresh(\"dashboard:snapshot\", reason)");
+    assert.include(dialog, 'void enqueueRefresh("dashboard:snapshot", reason)');
 
     assert.include(harness, "function dashboardSurfaceSignatures");
-    assert.include(
-      harness,
-      "snapshotPayload.surfaceSignatures =",
-    );
+    assert.include(harness, "snapshotPayload.surfaceSignatures =");
 
     assert.include(app, "lastChromeSignature");
     assert.include(app, "function ensureDashboardShell(app)");
     assert.include(app, "shouldSkipUnchangedSnapshotRender(nextSnapshot)");
     assert.include(app, "rememberSnapshotRenderSignature(snapshot)");
-    assert.include(app, "main.className = \"main\"");
+    assert.include(app, 'main.className = "main"');
     assert.notInclude(app, "clearNode(app);\n    if (!snapshot)");
   });
 
@@ -3320,26 +3341,30 @@ describe("acp ui smoke", function () {
       "interrupt-run-turn",
     );
 
-    const connectedIdleRunningSkillPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-connected-idle",
-        status: "running",
-        conversationState: "active",
-        conversationRecoveryState: "connected",
-        activePrompt: false,
-        replyState: "idle",
-        sessionId: "session-connected-idle",
-        transcriptItems: [
-          {
-            kind: "status",
-            label: "interrupt-completed",
-          },
-        ],
-      },
-      runs: [{ requestId: "acp-skill-connected-idle", status: "running" }],
-      logs: [],
-    });
-    assert.equal(connectedIdleRunningSkillPanel.interaction.kind, "waiting_user");
+    const connectedIdleRunningSkillPanel =
+      model.projectAcpSkillRunPanelSnapshot({
+        selectedRun: {
+          requestId: "acp-skill-connected-idle",
+          status: "running",
+          conversationState: "active",
+          conversationRecoveryState: "connected",
+          activePrompt: false,
+          replyState: "idle",
+          sessionId: "session-connected-idle",
+          transcriptItems: [
+            {
+              kind: "status",
+              label: "interrupt-completed",
+            },
+          ],
+        },
+        runs: [{ requestId: "acp-skill-connected-idle", status: "running" }],
+        logs: [],
+      });
+    assert.equal(
+      connectedIdleRunningSkillPanel.interaction.kind,
+      "waiting_user",
+    );
     assert.equal(connectedIdleRunningSkillPanel.reply.enabled, true);
     assert.equal(connectedIdleRunningSkillPanel.reply.inputEnabled, true);
     assert.equal(connectedIdleRunningSkillPanel.reply.action, "reply-run");
@@ -3358,7 +3383,10 @@ describe("acp ui smoke", function () {
       runs: [{ requestId: "acp-skill-transcript-waiting", status: "running" }],
       logs: [],
     });
-    assert.notEqual(transcriptWaitingSkillPanel.interaction.kind, "waiting_user");
+    assert.notEqual(
+      transcriptWaitingSkillPanel.interaction.kind,
+      "waiting_user",
+    );
     assert.equal(transcriptWaitingSkillPanel.reply.enabled, false);
     assert.equal(transcriptWaitingSkillPanel.reply.inputEnabled, false);
 
@@ -3542,8 +3570,7 @@ describe("acp ui smoke", function () {
     assert.equal(detachedActions["disconnect-run"].enabled, false);
     assert.equal(detachedActions["cancel-run"].enabled, true);
     assert.equal(
-      detachedSkillPanel.drawers.sections[0].groups[0].activeTasks[0]
-        .attention,
+      detachedSkillPanel.drawers.sections[0].groups[0].activeTasks[0].attention,
       "warning",
     );
     assert.equal(detachedSkillPanel.interaction.kind, "disconnected");
@@ -3822,8 +3849,14 @@ describe("acp ui smoke", function () {
       sharedPanelCss,
       ':root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task',
     );
-    assert.include(sharedPanelCss, ".assistant-workspace-drawer-task-main-status");
-    assert.include(sharedPanelCss, ".assistant-workspace-drawer-task-status-axis");
+    assert.include(
+      sharedPanelCss,
+      ".assistant-workspace-drawer-task-main-status",
+    );
+    assert.include(
+      sharedPanelCss,
+      ".assistant-workspace-drawer-task-status-axis",
+    );
     assert.include(assistantPanelRendererJs, "zs-icon-archive");
     assert.notInclude(
       sharedPanelCss,
@@ -3921,7 +3954,8 @@ describe("acp ui smoke", function () {
     const fakeDocument = createFakeDocumentForAssistantPanel();
     const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
     const hintRegion = fakeDocument.createElement("div");
-    const actions: Array<{ action: string; data: Record<string, unknown> }> = [];
+    const actions: Array<{ action: string; data: Record<string, unknown> }> =
+      [];
     const panel = model.projectSkillRunnerPanelSnapshot({
       session: {
         requestId: "req-waiting-options",
@@ -3962,7 +3996,9 @@ describe("acp ui smoke", function () {
       },
     ]);
 
-    const runDialogJs = await readProjectFile("addon/content/dashboard/run-dialog.js");
+    const runDialogJs = await readProjectFile(
+      "addon/content/dashboard/run-dialog.js",
+    );
     assert.include(
       runDialogJs,
       'if (action === "reply" || action === "reply-run")',

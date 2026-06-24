@@ -34,6 +34,10 @@ import {
   ensureDashboardToolbarButton,
   removeDashboardToolbarButton,
 } from "./modules/dashboardToolbarButton";
+import {
+  installMarkdownAttachmentOpenProbe,
+  uninstallMarkdownAttachmentOpenProbe,
+} from "./modules/markdownAttachmentOpenProbe";
 import { resolveRuntimeToolkit } from "./utils/runtimeBridge";
 import { openFolderInSystemFileManager } from "./utils/fileSystem";
 import { startSkillRunnerModelCacheAutoRefresh } from "./providers/skillrunner/modelCache";
@@ -477,6 +481,7 @@ async function onStartup() {
   installWorkflowRuntimeBridge();
   installWorkflowDebugProbeBridge();
   enableWorkflowPackageDiagnosticsForDebugMode();
+  installMarkdownAttachmentOpenProbe();
   registerZoteroPaneStylesheet();
 
   const runtimeRootURI = resolveRuntimeRootURI();
@@ -590,6 +595,7 @@ async function onShutdown(): Promise<void> {
   closeVisibleWorkflowToasts();
   unregisterToolkitSafely();
   unregisterZoteroPaneStylesheet();
+  uninstallMarkdownAttachmentOpenProbe();
   addon.data.dialog?.window?.close();
   // Remove addon object
   addon.data.alive = false;

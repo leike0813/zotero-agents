@@ -1909,6 +1909,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "graphLayoutAlgorithms");
     assert.include(source, "graphLayouts");
     assert.include(source, "content/shared/icons.css");
+    assert.include(source, "content/shared/topicTimeline.css");
+    assert.notInclude(source, "content/shared/markdown-renderer.css");
     assert.include(source, "inlineMaterialSymbolIconUrls");
     assert.include(source, "data:image/svg+xml");
     assert.include(source, "content/synthesis/app.bundle.js");
@@ -3223,7 +3225,7 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(
       workbenchTab,
-      "TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 6",
+      "TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 7",
     );
     assert.include(uiModel, "function normalizeGraphNodeMetrics");
     assert.include(uiModel, "internal_in_degree");
@@ -3243,7 +3245,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, 't("synthesis-graph-citations-title")');
     assert.include(
       source,
-      "if (!state.standaloneGraphOnly) {\n        wrap.classList.add(\"has-citation-list\");\n        wrap.appendChild(renderSelectedNodeCitations",
+      'if (!state.standaloneGraphOnly) {\n        wrap.classList.add("has-citation-list");\n        wrap.appendChild(renderSelectedNodeCitations',
     );
     assert.include(source, "graph-selection-drawer");
     assert.include(source, "graph.selection");
@@ -4780,7 +4782,11 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "listActiveActionOperations");
     assert.include(app, "state.localPendingActions.values()");
     assert.include(app, "aria-busy");
+    assert.include(app, "shouldTrackLocalPendingAction");
+    assert.include(app, 'command !== "openTopicArtifact"');
+    assert.include(app, "clearLocalPendingAction");
     assert.include(app, "renderActionStatusbar");
+    assert.include(app, "renderTopbar");
     assert.include(app, "listBackgroundJobs");
     assert.include(app, "snapshot.maintenance?.backgroundJobs?.rows");
     assert.include(app, "backgroundJobStatusbarOperation");
@@ -4795,6 +4801,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "action-statusbar-progress");
     assert.include(app, "isOperationPending");
     assert.notInclude(app, "content.appendChild(actionNotice)");
+    const chromeBlock = extractFunctionBlock(app, "renderWorkbenchChrome");
+    assert.include(chromeBlock, "renderTopbar(state.snapshot)");
+    assert.include(chromeBlock, "renderActionStatusbar(state.snapshot)");
     const statusbarBlock = extractFunctionBlock(app, "renderActionStatusbar");
     assert.include(
       statusbarBlock,

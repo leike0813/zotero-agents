@@ -72,6 +72,9 @@ function bindPrefEvents() {
   const collectSkillRunFeedbackCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-collect-skill-run-feedback`,
   ) as HTMLInputElement | null;
+  const markdownReaderEnabledCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-markdown-reader-enabled`,
+  ) as HTMLInputElement | null;
   const backendManageButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-backend-manage`,
   ) as XUL.Button | null;
@@ -2211,6 +2214,17 @@ function bindPrefEvents() {
       setPref(
         "collectSkillRunFeedbackEnabled",
         collectSkillRunFeedbackCheckbox.checked === true,
+      );
+    });
+  }
+
+  if (markdownReaderEnabledCheckbox) {
+    markdownReaderEnabledCheckbox.checked =
+      getPref("markdownReaderEnabled") !== false;
+    markdownReaderEnabledCheckbox.addEventListener("change", () => {
+      setPref(
+        "markdownReaderEnabled",
+        markdownReaderEnabledCheckbox.checked === true,
       );
     });
   }

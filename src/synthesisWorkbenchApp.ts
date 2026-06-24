@@ -40,6 +40,13 @@ declare const window: Window &
     markdownit?: (options?: Record<string, unknown>) => MarkdownItLike;
     texmath?: MarkdownItPlugin;
     katex?: unknown;
+    ZoteroSkillsMarkdownRenderer?: {
+      renderInto?: (
+        container: HTMLElement,
+        markdown: string,
+        options?: Record<string, unknown>,
+      ) => HTMLElement | null;
+    };
     __zoteroSkillsSynthesisWorkbenchBridge?: SynthesisWorkbenchBridge;
     __zoteroSkillsSynthesisTopicExport?: SynthesisTopicExportEnvelope;
     __zoteroSkillsSynthesisGraphExport?: SynthesisGraphExportEnvelope;
@@ -1032,14 +1039,16 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
           };
         }
       }
-      state.localPendingActions.set(key, {
-        key,
-        command,
-        status: "pending",
-        label: operationLabel(command),
-        started_at: new Date().toISOString(),
-      });
-      renderWorkbenchChrome();
+      if (shouldTrackLocalPendingAction(command)) {
+        state.localPendingActions.set(key, {
+          key,
+          command,
+          status: "pending",
+          label: operationLabel(command),
+          started_at: new Date().toISOString(),
+        });
+        renderWorkbenchChrome();
+      }
     }
   }
   const direct = window.__zoteroSkillsSynthesisWorkbenchBridge;
@@ -1175,6 +1184,20 @@ function operationKey(command: string, args: Record<string, unknown> = {}) {
 function operationLabel(command: string) {
   const key = `synthesis-operation-${command}` as SynthesisWorkbenchMessageKey;
   return key in SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES ? t(key) : command;
+}
+
+function shouldTrackLocalPendingAction(command: string) {
+  return command !== "openTopicArtifact";
+}
+
+function clearLocalPendingAction(
+  command: string,
+  args: Record<string, unknown> = {},
+) {
+  const key = operationKey(command, args);
+  if (key) {
+    state.localPendingActions.delete(key);
+  }
 }
 
 function snapshotInFlightKeys(snapshot = state.snapshot) {
@@ -2064,6 +2087,15 @@ function renderActionStatusbar(snapshot: Snapshot) {
   return statusbar;
 }
 
+function renderTopbar(snapshot: Snapshot) {
+  const topbar = el("div", "topbar");
+  topbar.appendChild(el("h1", "", titleForTab(snapshot.selectedTab)));
+  if (snapshot.selectedTab === "reader" && state.topicDetail) {
+    topbar.appendChild(renderTopicDetailToolbar(state.topicDetail, snapshot));
+  }
+  return topbar;
+}
+
 function renderShell(root: HTMLElement, snapshot: Snapshot) {
   clear(root);
   root.classList.toggle("sidebar-expanded", state.sidebarExpanded);
@@ -2142,12 +2174,7 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   root.appendChild(sidebar);
 
   const content = el("main", "content");
-  const topbar = el("div", "topbar");
-  topbar.appendChild(el("h1", "", titleForTab(snapshot.selectedTab)));
-  if (snapshot.selectedTab === "reader" && state.topicDetail) {
-    topbar.appendChild(renderTopicDetailToolbar(state.topicDetail, snapshot));
-  }
-  content.appendChild(topbar);
+  content.appendChild(renderTopbar(snapshot));
   const main = el("section", "main");
   main.dataset.synthesisSurface = surfaceForTab(snapshot.selectedTab);
   renderCurrentView(main, snapshot);
@@ -2290,9 +2317,20 @@ function renderWorkbenchChrome() {
   if (!root || !state.snapshot) {
     return;
   }
+  let replaced = false;
+  const existingTopbar = root.querySelector(
+    ".topbar:not(.standalone-topic-export-header)",
+  );
+  if (existingTopbar && !state.standaloneExport) {
+    existingTopbar.replaceWith(renderTopbar(state.snapshot));
+    replaced = true;
+  }
   const existingStatusbar = root.querySelector(".action-statusbar");
   if (existingStatusbar) {
     existingStatusbar.replaceWith(renderActionStatusbar(state.snapshot));
+    replaced = true;
+  }
+  if (replaced) {
     localizeWorkbenchDom(root);
     return;
   }
@@ -4241,6 +4279,18 @@ function buildReportOutline(markdownNode: HTMLElement) {
 }
 
 function renderMarkdown(markdown: string) {
+  const sharedRenderer = window.ZoteroSkillsMarkdownRenderer;
+  if (typeof sharedRenderer?.renderInto === "function") {
+    const body = el("article", "reader-body markdown-body");
+    sharedRenderer.renderInto(body, markdown, {
+      profile: "synthesis",
+      headingIdPrefix: "synthesis-markdown-heading",
+      afterRender: (root: HTMLElement) => {
+        renderMarkdownCircleShortcodes(root);
+      },
+    });
+    return applyConceptOverlay(body, state.snapshot);
+  }
   const parser = getMarkdownParser();
   if (!parser) {
     const pre = el("pre", "markdown-fallback");
@@ -15618,6 +15668,9 @@ window.addEventListener("message", (event: MessageEvent) => {
     state.artifactReader = undefined;
     state.digestModal = undefined;
     state.evidenceExplorerOpen = false;
+    clearLocalPendingAction("openTopicArtifact", {
+      topicId: state.topicDetail?.topicId || "",
+    });
     if (state.snapshot) {
       state.snapshot = {
         ...state.snapshot,

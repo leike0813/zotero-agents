@@ -14,13 +14,25 @@
 
 安装插件和官方包后，您需要配置至少一个后端连接。
 
+### 推荐：配置 ACP 后端（零配置）
+
+这是最推荐的方案——只要本机安装了任意一款支持 ACP 的 Agent 工具即可。
+
 1. 打开 **工具 → [后端管理器](backends/backend-manager)**
-2. 切换到对应的后端类型 Tab（ACP / SkillRunner / Generic HTTP）
-3. 点击 **添加** 来添加新的后端
-4. 填写必要字段：
-   - **显示名称**：一个友好的名称（例如"我的本地 Skill-Runner"）
-   - 各类型专属字段（参见具体后端类型的配置文档）
-5. 点击右下角 **保存**
+2. 切换到 **ACP** Tab
+3. 从 **Add from Preset** 下拉菜单选择你的 Agent 工具（Codex / OpenCode / Claude Code 等）
+4. 预置自动填充命令，**无需额外配置**，点击右下角 **保存**
+
+→ 详见 [ACP 后端配置](backends/acp)
+
+### 备选：Docker 部署 Skill-Runner
+
+如果需要后台持续执行或局域网共享：
+
+1. 在机器上 [Docker 部署 Skill-Runner](backends/skill-runner#推荐docker-常驻部署)
+2. 在后端管理器中切换到 **SkillRunner** Tab，添加后端实例并填写 Base URL
+
+→ 详见 [Skill-Runner 部署与配置](backends/skill-runner)
 
 > 对于 ACP 兼容后端，选择 **ACP** Tab，可使用 **Add from Preset** 下拉菜单快速选择内建预置。
 

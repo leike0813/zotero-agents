@@ -136,6 +136,8 @@ type DashboardState = {
     string,
     {
       html: string;
+      markdown: string;
+      baseFileUri: string;
       missingReadme: boolean;
     }
   >;
@@ -232,6 +234,8 @@ type DashboardSnapshot = {
     workflowId: string;
     workflowLabel: string;
     html: string;
+    markdown: string;
+    baseFileUri: string;
     missingReadme: boolean;
   };
   backendLoadError?: string;
@@ -1362,6 +1366,8 @@ async function buildHomeWorkflowDocView(args: {
       workflowId: args.workflowId,
       workflowLabel: localizeWorkflowLabel(matched),
       html: cached.html,
+      markdown: cached.markdown,
+      baseFileUri: cached.baseFileUri,
       missingReadme: cached.missingReadme,
     };
   }
@@ -1374,8 +1380,14 @@ async function buildHomeWorkflowDocView(args: {
     missingReadme = true;
   }
   const html = missingReadme ? "" : await renderMarkdownToSafeHtml(markdown);
+  const baseFileUri = missingReadme
+    ? ""
+    : (globalThis as any).Zotero?.File?.pathToFileURI?.(readmePath) ||
+      readmePath;
   const cachedEntry = {
     html,
+    markdown,
+    baseFileUri,
     missingReadme,
   };
   args.state.homeWorkflowDocCacheByWorkflowId.set(args.workflowId, cachedEntry);
@@ -1383,6 +1395,8 @@ async function buildHomeWorkflowDocView(args: {
     workflowId: args.workflowId,
     workflowLabel: localizeWorkflowLabel(matched),
     html,
+    markdown,
+    baseFileUri,
     missingReadme,
   };
 }

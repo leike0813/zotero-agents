@@ -14,6 +14,7 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   skillRunnerLocalRuntimeStateJson: string;
   tagVocabularyStagedJson: string;
   collectSkillRunFeedbackEnabled: boolean;
+  markdownReaderEnabled: boolean;
   workflowDir: string;
   skillDir: string;
   contentFeedChannel: string;

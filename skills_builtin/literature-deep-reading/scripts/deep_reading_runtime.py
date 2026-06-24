@@ -6563,9 +6563,11 @@ def render_final_html(sections_view: dict[str, Any]) -> str:
     body_class = "mode-compare static-fallback" if sections_view.get("translation_available") is not False else "mode-original translation-unavailable"
     template = read_template("deep-reading.html.tpl")
     style = read_template("deep-reading.css")
+    markdown_renderer_style = read_template("markdown-renderer.css")
     fallback_graph_style = read_template("citation-graph-standalone.css")
     topic_timeline_style = read_template("topic-timeline-shared.css")
     script = read_template("deep-reading.js")
+    markdown_renderer_script = read_template("markdown-renderer.js")
     fallback_graph_script = read_template("citation-graph-standalone.js")
     topic_timeline_script = read_template("topic-timeline-shared.js")
     graph_assets = {
@@ -6582,12 +6584,12 @@ def render_final_html(sections_view: dict[str, Any]) -> str:
         .replace("{{PAPER_META}}", target_language)
         .replace(
             "{{STYLE}}",
-            style + "\n" + topic_timeline_style + "\n" + fallback_graph_style,
+            markdown_renderer_style + "\n" + style + "\n" + topic_timeline_style + "\n" + fallback_graph_style,
         )
         .replace("{{DATA_JSON}}", safe_inline_json(sections_view))
         .replace(
             "{{SCRIPT}}",
-            graph_assets_script + "\n" + topic_timeline_script + "\n" + fallback_graph_script + "\n" + script,
+            graph_assets_script + "\n" + topic_timeline_script + "\n" + fallback_graph_script + "\n" + markdown_renderer_script + "\n" + script,
         )
     )
     for key, value in build_static_shell_fragments(sections_view).items():

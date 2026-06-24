@@ -13,8 +13,14 @@
   </head>
   <body>
     <main id="run-root" class="skillrunner-panel-shell asst-panel-shell">
-      <header id="skillrunner-toolbar" class="skillrunner-toolbar asst-shell-toolbar"></header>
-      <section id="skillrunner-banner" class="skillrunner-banner asst-banner"></section>
+      <header
+        id="skillrunner-toolbar"
+        class="skillrunner-toolbar asst-shell-toolbar"
+      ></header>
+      <section
+        id="skillrunner-banner"
+        class="skillrunner-banner asst-banner"
+      ></section>
       <section
         id="skillrunner-drawer"
         class="skillrunner-drawer asst-panel-drawer-overlay hidden"
@@ -26,13 +32,19 @@
       <section id="skillrunner-empty" class="empty-state asst-empty-state">
         No SkillRunner task selected.
       </section>
-      <section id="skillrunner-main" class="skillrunner-main asst-panel-main hidden">
+      <section
+        id="skillrunner-main"
+        class="skillrunner-main asst-panel-main hidden"
+      >
         <section
           id="skillrunner-conversation-window"
           class="skillrunner-conversation-window asst-conversation-surface"
         >
           <section id="chat-panel" class="skillrunner-transcript"></section>
-          <div class="asst-conversation-overlay-menu" aria-label="Conversation view">
+          <div
+            class="asst-conversation-overlay-menu"
+            aria-label="Conversation view"
+          >
             <button
               id="chat-mode-plain"
               class="asst-button-compact"
@@ -41,7 +53,10 @@
               aria-label="Plain transcript view"
               aria-pressed="true"
             >
-              <span class="zs-icon zs-icon-sm asst-view-mode-icon zs-icon-subject" aria-hidden="true"></span>
+              <span
+                class="zs-icon zs-icon-sm asst-view-mode-icon zs-icon-subject"
+                aria-hidden="true"
+              ></span>
               <span class="asst-view-mode-label">Plain</span>
             </button>
             <button
@@ -52,14 +67,26 @@
               aria-label="Bubble conversation view"
               aria-pressed="false"
             >
-              <span class="zs-icon zs-icon-sm asst-view-mode-icon zs-icon-forum" aria-hidden="true"></span>
+              <span
+                class="zs-icon zs-icon-sm asst-view-mode-icon zs-icon-forum"
+                aria-hidden="true"
+              ></span>
               <span class="asst-view-mode-label">Bubble</span>
             </button>
           </div>
         </section>
-        <section id="skillrunner-plan" class="skillrunner-plan asst-plan-surface hidden"></section>
-        <section id="skillrunner-hint" class="skillrunner-hint asst-hint-surface hidden"></section>
-        <section id="reply-form" class="skillrunner-reply asst-reply-surface"></section>
+        <section
+          id="skillrunner-plan"
+          class="skillrunner-plan asst-plan-surface hidden"
+        ></section>
+        <section
+          id="skillrunner-hint"
+          class="skillrunner-hint asst-hint-surface hidden"
+        ></section>
+        <section
+          id="reply-form"
+          class="skillrunner-reply asst-reply-surface"
+        ></section>
       </section>
     </main>
     <script src="./vendor/katex/katex.min.js"></script>

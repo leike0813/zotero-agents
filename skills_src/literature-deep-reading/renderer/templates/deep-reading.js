@@ -81,6 +81,12 @@ function digestHeadings(markdown) {
   return headings;
 }
 function renderMarkdown(markdown) {
+  if (window.ZoteroSkillsMarkdownRenderer?.renderToHtml) {
+    return window.ZoteroSkillsMarkdownRenderer.renderToHtml(markdown || "", {
+      profile: "standaloneDigest",
+      headingIdPrefix: "digest-heading",
+    });
+  }
   const lines = String(markdown || "").split(/\r?\n/);
   const parts = [];
   let paragraph = [];

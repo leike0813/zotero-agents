@@ -9,6 +9,7 @@ pref("skillRunnerLocalRuntimeVersion", "v0.7.2");
 pref("skillRunnerLocalRuntimeStateJson", "");
 pref("tagVocabularyStagedJson", "");
 pref("collectSkillRunFeedbackEnabled", false);
+pref("markdownReaderEnabled", true);
 pref("workflowDir", "");
 pref("skillDir", "");
 pref("contentFeedChannel", "stable");

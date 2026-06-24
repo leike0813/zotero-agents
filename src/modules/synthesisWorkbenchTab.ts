@@ -1368,11 +1368,13 @@ async function readSynthesisExportAssets() {
     themeJs,
     themeCss,
     iconsCss,
+    topicTimelineCss,
     katexCss,
     synthesisCss,
     markdownItJs,
     katexJs,
     texmathJs,
+    markdownRendererJs,
     appJs,
   ] = await Promise.all([
     readPackagedTextAsset("content/shared/theme.js"),
@@ -1380,6 +1382,7 @@ async function readSynthesisExportAssets() {
     readPackagedTextAsset("content/shared/icons.css").then(
       inlineMaterialSymbolIconUrls,
     ),
+    readPackagedTextAsset("content/shared/topicTimeline.css"),
     readPackagedTextAsset("content/dashboard/vendor/katex/katex.min.css"),
     readPackagedTextAsset("content/synthesis/styles.css"),
     readPackagedTextAsset(
@@ -1389,17 +1392,20 @@ async function readSynthesisExportAssets() {
     readPackagedTextAsset(
       "content/dashboard/vendor/markdown-it-texmath/texmath.min.js",
     ),
+    readPackagedTextAsset("content/shared/markdown-renderer.js"),
     readPackagedTextAsset("content/synthesis/app.bundle.js"),
   ]);
   return {
     themeJs,
     themeCss,
     iconsCss,
+    topicTimelineCss,
     katexCss,
     synthesisCss,
     markdownItJs,
     katexJs,
     texmathJs,
+    markdownRendererJs,
     appJs,
   };
 }
@@ -1660,7 +1666,7 @@ async function buildTopicDetailHtmlExport(
     '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
     `<title>${escapeHtmlText(title)}</title>`,
     `<script>${inlineScriptText(assets.themeJs)}</script>`,
-    `<style>${assets.themeCss}\n${assets.iconsCss}\n${assets.katexCss}\n${assets.synthesisCss}</style>`,
+    `<style>${assets.themeCss}\n${assets.iconsCss}\n${assets.topicTimelineCss}\n${assets.katexCss}\n${assets.synthesisCss}</style>`,
     "</head>",
     '<body class="synthesis-standalone-export">',
     '<div id="app" class="synthesis-root"></div>',
@@ -1668,6 +1674,7 @@ async function buildTopicDetailHtmlExport(
     `<script>${inlineScriptText(assets.markdownItJs)}</script>`,
     `<script>${inlineScriptText(assets.katexJs)}</script>`,
     `<script>${inlineScriptText(assets.texmathJs)}</script>`,
+    `<script>${inlineScriptText(assets.markdownRendererJs)}</script>`,
     `<script>${inlineScriptText(assets.appJs)}</script>`,
     "</body>",
     "</html>",
@@ -1677,7 +1684,7 @@ async function buildTopicDetailHtmlExport(
 
 const TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID =
   "synthesis.topic_detail_html_export_metadata";
-const TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 6;
+const TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 7;
 
 type TopicDetailHtmlExportMetadata = {
   schema_id?: string;

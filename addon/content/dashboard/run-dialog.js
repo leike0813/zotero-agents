@@ -539,10 +539,7 @@
     const textValue = safeText(message);
     const status = normalizedStatus();
     if (payload && payload.mode === "auth" && payload.submission) {
-      sendAction(
-        "reply-run",
-        Object.assign({ requestId }, payload),
-      );
+      sendAction("reply-run", Object.assign({ requestId }, payload));
       return;
     }
     if (status === "waiting_auth") {

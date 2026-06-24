@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0--alpha-orange?style=flat-square" alt="v0.5.0-alpha" /></a>
-  <img src="https://img.shields.io/badge/Zotero-7-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7" />
+  <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
 </p>
@@ -76,6 +76,7 @@
 - **概念知识库** — 概念/义项/别名/关系四层结构，可叠加到主题图
 - **深度阅读** — 结构化精读视图，带概念覆盖和引文上下文
 - **Host Bridge + MCP Server** — 把 Zotero 变成可编程服务
+- **内置 Markdown 阅读器** — 双击 `.md` 附件即打开内置阅读器，支持大纲导航、搜索、数学公式、代码高亮
 - **Sequence 执行** — 多 Skill 按序串联，支持中间结果传递
 - **Backend Manager 对话框** — 统一管理所有后端配置
 - **WebDAV 同步** — 轻量级 Synthesis 数据跨设备同步
@@ -92,10 +93,6 @@
 - **Cross-platform CLI** — Host Bridge CLI 新增 Linux ARM/ARM64/x86 预编译
 - **运行时数据管理** — 偏好设置中可查看存储用量、清理各类缓存数据
 - **Skill Run Feedback** — 成功运行后可自动收集 AI 反馈报告
-
-### ⚡ 弃用
-
-- **Git Sync** → 已被 **WebDAV Durable Bundle Sync** 取代
 
 </td>
 </tr>
@@ -123,6 +120,24 @@
 > **💡 关于产物笔记**：文献分析的产物（摘要、参考文献、引文分析）会以 Note 附件的形式添加到父条目。笔记中显示的内容是从后台数据**渲染**出来的，直接修改笔记内容不会改变后台数据。如需编辑，请使用「导出笔记」导出 → 修改 → 再通过「导入笔记」重新导入。
 
 <!-- 📸 TODO: 截图 — 右键菜单展开效果 -->
+
+### 内置 Markdown 阅读器
+
+插件内置了一个轻量级 Markdown 阅读器。在 Zotero 中**双击任意 `.md` 附件**即可在内置阅读器中打开，无需跳转到外部应用。
+
+| 功能 | 说明 |
+|------|------|
+| 📑 **大纲导航** | 自动解析标题层级（h1-h4），左侧边栏显示可跳转的大纲 |
+| 🔍 **搜索** | 全文关键词搜索，命中处高亮标记 |
+| 📐 **数学公式** | KaTeX 渲染 LaTeX 公式，支持行内和块级公式 |
+| 💻 **代码高亮** | highlight.js 语法高亮，支持主流编程语言 |
+| 🔤 **字号调节** | 12px-24px 可调，适合不同屏幕和阅读习惯 |
+| 📏 **宽度切换** | 支持窄栏（860px）和宽栏（1160px）两种阅读宽度 |
+| 📋 **复制** | 支持复制 Markdown 原文到剪贴板，以及复制文件路径 |
+| 📂 **系统打开** | 一键使用系统默认应用打开该文件 |
+| 🌗 **自动主题** | 自适应 Zotero 亮色/暗色主题，无需手动切换 |
+
+阅读器由 `markdown-it` 驱动渲染，配合内置的 HTML 净化确保安全渲染。可在偏好设置中关闭此功能，改回系统默认打开方式。
 
 ---
 
@@ -278,13 +293,17 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS 
 
 ### 2️⃣ 配置 AI 后端
 
-**方案 A — 一键部署 Skill-Runner（最简单）**
+> 🥇 **首选 ACP** — 只要本机有 Codex / OpenCode / Claude Code 等支持 ACP 的 Agent 工具，直接零配置使用。
 
-`编辑` → `首选项` → `Zotero Agents` → `SkillRunner Local Runtime` → 点击 **Deploy**，等待部署完成。
+**方案 A — 直连 ACP Agent（推荐）**
 
-**方案 B — 直连 ACP Agent**
+`工具` → `后端管理器` → ACP Tab → 从 **Add from Preset** 选择你的 Agent 工具 → 保存。无需填写任何参数。
 
-`编辑` → `首选项` → `Zotero Agents` → `后端管理器` → 在 ACP Tab 中从预置（Codex / OpenCode 等）添加一个后端。
+**方案 B — Docker 部署 Skill-Runner（需要后台常驻时）**
+
+在机器上 [Docker 部署 Skill-Runner](https://leike0813.github.io/zotero-agents/backends/skill-runner#推荐docker-常驻部署)，然后在后端管理器中添加 SkillRunner 实例并填写 Base URL。
+
+> 注意：一键部署本地后端仅适合完全不会安装 Agent / Docker 的用户。关闭 Zotero 即终止所有任务。
 
 ### 3️⃣ 右键运行
 
@@ -298,18 +317,21 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS 
 
 ### 系统要求
 
-- [Zotero 7](https://www.zotero.org/download/)（版本 ≥ 6.999）
-- 对于 `skillrunner` 工作流：运行中的 [Skill-Runner](https://github.com/leike0813/Skill-Runner) 实例（一键部署已包含）
-- 如需使用 ACP 后端：已安装对应的 CLI 工具（`npx` 自动安装亦可）
+- [Zotero 9](https://www.zotero.org/download/) 或 [Zotero 7](https://www.zotero.org/download/)（版本 ≥ 6.999）
+- 如果使用 ACP 后端：本机已安装对应的 Agent CLI 工具（`npx` 自动安装亦可）
+- 如果使用 Skill-Runner 后端：已部署 [Skill-Runner](https://github.com/leike0813/Skill-Runner) 实例
+
+> **关于 Zotero 版本**：本插件在 Zotero 9 上开发与测试。Zotero 8 理论上可完整支持（Zotero 8/9 的插件框架没有明显改变）；Zotero 7 理论上也能支持，但受精力所限未进行深入测试，未来的维护重点将放在 Zotero 9 上。如果在 Zotero 7 使用过程中遇到问题，请在 [Issues](https://github.com/leike0813/zotero-agents/issues) 反馈。
 
 ### 后端类型
 
-| 后端类型 | 用途 | 配置方式 |
-|---------|------|---------:|
-| **Skill-Runner** | 通用技能执行（默认），支持一键部署和 Docker 部署 | 偏好设置中 Deploy，或手动填写远程 URL |
-| **ACP** | 直连 Agent CLI（Codex、OpenCode、Claude Code、Gemini CLI、Qwen Code） | Backend Manager 中添加，支持从预置创建 |
-| **Generic HTTP** | 对接任意 HTTP API（如 MinerU PDF 解析服务） | Backend Manager 中添加 |
-| **Pass-Through** | 纯本地执行，无需外部后端 | 自动可用 |
+| 后端类型 | 推荐度 | 用途 | 配置方式 |
+|---------|--------|------|---------|
+| **ACP** | 🥇 首选 | 直连 Agent CLI（Codex、OpenCode、Claude Code、Gemini CLI、Qwen Code），零配置负担 | Backend Manager 中从预设添加 |
+| **Skill-Runner (Docker)** | 🥈 推荐 | 常驻服务，不受 Zotero 启停影响，支持局域网共享 | Docker compose up，然后在 Backend Manager 中填写 URL |
+| **Skill-Runner (一键部署)** | 🥉 应急 | 随插件启停，关闭 Zotero 即终止所有任务 | 偏好设置中一键 Deploy |
+| **Generic HTTP** | 按需 | 对接任意 HTTP API（如 MinerU PDF 解析服务） | Backend Manager 中添加 |
+| **Pass-Through** | 自动 | 纯本地执行，无需外部后端 | 自动可用 |
 
 ---
 

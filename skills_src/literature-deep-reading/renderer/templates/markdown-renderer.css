@@ -1,0 +1,128 @@
+.markdown-body {
+  overflow-wrap: anywhere;
+  line-height: 1.62;
+}
+
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  line-height: 1.25;
+  margin: 1.35em 0 0.55em;
+}
+
+.markdown-body h1 {
+  font-size: 1.72em;
+}
+
+.markdown-body h2 {
+  font-size: 1.38em;
+}
+
+.markdown-body h3 {
+  font-size: 1.16em;
+}
+
+.markdown-body p,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body blockquote,
+.markdown-body pre,
+.markdown-body table,
+.markdown-body details {
+  margin: 0.85em 0;
+}
+
+.markdown-body blockquote {
+  margin-left: 0;
+  padding-left: 1em;
+  border-left: 3px solid color-mix(in srgb, currentColor 22%, transparent);
+  color: color-mix(in srgb, currentColor 78%, transparent);
+}
+
+.markdown-body pre {
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+
+.markdown-body code {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+
+.markdown-body :not(pre) > code {
+  padding: 0.1em 0.32em;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.markdown-body table {
+  display: block;
+  width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown-outline,
+.digest-outline,
+.topic-report-outline {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+
+.markdown-outline-link,
+.digest-outline-link,
+.topic-report-outline-link {
+  display: block;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.markdown-outline-link:hover,
+.markdown-outline-link:focus-visible,
+.digest-outline-link:hover,
+.digest-outline-link:focus-visible,
+.topic-report-outline-link:hover,
+.topic-report-outline-link:focus-visible {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.markdown-outline-link.depth-3,
+.digest-outline-link.depth-3,
+.topic-report-outline-link.depth-3 {
+  padding-left: 16px;
+}
+
+.markdown-outline-link.depth-4,
+.digest-outline-link.depth-4,
+.topic-report-outline-link.depth-4 {
+  padding-left: 26px;
+}

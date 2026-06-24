@@ -132,6 +132,14 @@ async function renderRendererTemplates(targetRoot: string) {
     path.join(SUITE_ROOT, "renderer", "templates"),
     path.join(targetRoot, "renderer", "templates"),
   );
+  await copyTextFile(
+    path.join(REPO_ROOT, "addon", "content", "shared", "markdown-renderer.js"),
+    path.join(targetRoot, "renderer", "templates", "markdown-renderer.js"),
+  );
+  await copyTextFile(
+    path.join(REPO_ROOT, "addon", "content", "shared", "markdown-renderer.css"),
+    path.join(targetRoot, "renderer", "templates", "markdown-renderer.css"),
+  );
 }
 
 export async function renderLiteratureDeepReadingSkill(options?: {

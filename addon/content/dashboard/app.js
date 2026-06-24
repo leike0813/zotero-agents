@@ -942,6 +942,16 @@
       content.appendChild(
         el("div", "empty", labelText(labels, "homeWorkflowDocMissingReadme")),
       );
+    } else if (window.ZoteroSkillsMarkdownRenderer?.renderInto) {
+      window.ZoteroSkillsMarkdownRenderer.renderInto(
+        content,
+        String(view.markdown || ""),
+        {
+          profile: "document",
+          baseFileUri: String(view.baseFileUri || ""),
+          headingIdPrefix: "workflow-doc-heading",
+        },
+      );
     } else {
       content.innerHTML = String(view.html || "");
     }
@@ -2071,6 +2081,12 @@
 
   function renderProductMarkdown(text, labels) {
     const wrap = el("div", "product-preview-markdown");
+    if (window.ZoteroSkillsMarkdownRenderer?.renderInto) {
+      window.ZoteroSkillsMarkdownRenderer.renderInto(wrap, text || "", {
+        profile: "preview",
+      });
+      return wrap;
+    }
     const parser = ensureProductMarkdownParser();
     if (parser) {
       wrap.innerHTML = parser.render(text || "");
