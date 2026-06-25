@@ -186,7 +186,6 @@ Zotero `full` extra parity ring:
 - `test/core/70c-skillrunner-task-reconciler-ledger-reconcile.test.ts` (selected cases)
 - `test/core/71-skillrunner-run-dialog-ui-e2e-alignment.test.ts`
 - `test/core/83-skillrunner-run-dialog-waiting-auth-observer.test.ts`
-- `test/core/85-deferred-workflow-completion-tracker.test.ts`
 - selected extra cases or full stable-suite prefixes in:
   - `test/ui/35-workflow-settings-execution.test.ts`
   - `test/ui/40-gui-preferences-menu-scan.test.ts`

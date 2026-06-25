@@ -27,6 +27,16 @@
         "$ref": "#/$defs/non_empty_string"
       }
     },
+    "taxonomy_axis_type": {
+      "type": "string",
+      "enum": [
+        "problem_formulation",
+        "technical_mechanism",
+        "evidence_scope",
+        "research_route",
+        "application_context"
+      ]
+    },
     "source_paper_refs": {
       "type": "array",
       "minItems": 1,
@@ -100,6 +110,25 @@
         },
         "source_paper_refs": {
           "$ref": "#/$defs/source_paper_refs"
+        }
+      }
+    },
+    "taxonomy_axis": {
+      "type": "object",
+      "required": ["axis_type", "nodes"],
+      "properties": {
+        "axis_type": {
+          "$ref": "#/$defs/taxonomy_axis_type"
+        },
+        "axis_rationale": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/taxonomy_route"
+          }
         }
       }
     },
@@ -320,14 +349,21 @@
   "properties": {
     "taxonomy": {
       "type": "object",
-      "required": ["summary", "nodes"],
+      "required": ["summary", "axes"],
       "properties": {
         "summary": {
           "$ref": "#/$defs/text_summary"
         },
+        "axes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/taxonomy_axis"
+          }
+        },
         "nodes": {
           "type": "array",
-          "minItems": 1,
           "items": {
             "$ref": "#/$defs/taxonomy_route"
           }
@@ -398,34 +434,74 @@
         "summary": {
           "text": "Computer Vision 的宏观结构包括视觉表示学习、图像分类、目标检测、分割、三维视觉、视频理解和视觉语言多模态；当前库内证据主要覆盖检测与分割相关路线。"
         },
-        "nodes": [
+        "axes": [
           {
-            "id": "area:object-detection",
-            "title": "Object detection",
-            "definition": "在图像或视频中定位并分类目标，是 Computer Vision 的核心任务之一。",
-            "core_problem": "在复杂视觉场景中同时完成目标定位、类别识别和实例区分。",
-            "mechanism": "结合候选区域、密集预测或 query-based set prediction，将视觉特征映射为带类别的目标位置。",
-            "strengths": ["直接支撑场景理解、自动驾驶和机器人感知等应用。"],
-            "limitations": [
-              "当前库内 evidence 偏向 DETR-family，对传统检测器和开放词汇检测覆盖不足。"
-            ],
-            "maturity": "established subfield with active method evolution",
-            "representative_papers": ["1:DETR2020"],
-            "source_paper_refs": ["1:DETR2020"]
+            "axis_type": "research_route",
+            "axis_rationale": "按 Computer Vision 的宏观研究路线组织，避免让当前检测/分割 workset 反向收缩 topic identity。",
+            "nodes": [
+              {
+                "id": "area:object-detection",
+                "title": "Object detection",
+                "definition": "在图像或视频中定位并分类目标，是 Computer Vision 的核心任务之一。",
+                "core_problem": "在复杂视觉场景中同时完成目标定位、类别识别和实例区分。",
+                "mechanism": "结合候选区域、密集预测或 query-based set prediction，将视觉特征映射为带类别的目标位置。",
+                "strengths": ["直接支撑场景理解、自动驾驶和机器人感知等应用。"],
+                "limitations": [
+                  "当前库内 evidence 偏向 DETR-family，对传统检测器和开放词汇检测覆盖不足。"
+                ],
+                "maturity": "established subfield with active method evolution",
+                "representative_papers": ["1:DETR2020"],
+                "source_paper_refs": ["1:DETR2020"]
+              },
+              {
+                "id": "area:image-segmentation",
+                "title": "Image segmentation",
+                "definition": "对像素、区域或实例进行分组和语义标注，连接检测、场景理解和视觉基础模型。",
+                "core_problem": "在像素级或实例级边界上表达视觉对象、区域和语义结构。",
+                "mechanism": "通过 mask prediction、dense classification 或统一分割框架，把图像特征转化为语义或实例 mask。",
+                "strengths": ["能提供比检测框更细粒度的视觉理解结果。"],
+                "limitations": [
+                  "当前 workset 对分割路线只有局部 evidence，缺少完整历史和 benchmark 覆盖。"
+                ],
+                "maturity": "established task family",
+                "representative_papers": ["1:MASK2FORMER"],
+                "source_paper_refs": ["1:MASK2FORMER"]
+              }
+            ]
           },
           {
-            "id": "area:image-segmentation",
-            "title": "Image segmentation",
-            "definition": "对像素、区域或实例进行分组和语义标注，连接检测、场景理解和视觉基础模型。",
-            "core_problem": "在像素级或实例级边界上表达视觉对象、区域和语义结构。",
-            "mechanism": "通过 mask prediction、dense classification 或统一分割框架，把图像特征转化为语义或实例 mask。",
-            "strengths": ["能提供比检测框更细粒度的视觉理解结果。"],
-            "limitations": [
-              "当前 workset 对分割路线只有局部 evidence，缺少完整历史和 benchmark 覆盖。"
-            ],
-            "maturity": "established task family",
-            "representative_papers": ["1:MASK2FORMER"],
-            "source_paper_refs": ["1:MASK2FORMER"]
+            "axis_type": "technical_mechanism",
+            "axis_rationale": "按当前 evidence 中最可证据化的机制差异组织，用于解释检测和分割路线中的方法分化。",
+            "nodes": [
+              {
+                "id": "mechanism:query-based-set-prediction",
+                "title": "Query-based set prediction",
+                "definition": "用 object queries 和 bipartite matching 直接生成目标集合，减少候选框和后处理依赖。",
+                "core_problem": "把目标检测从手工 proposal/NMS 流程转成端到端集合预测问题。",
+                "mechanism": "Transformer decoder queries 与 ground-truth objects 做集合匹配，并通过全局注意力聚合图像上下文。",
+                "strengths": ["能提供清晰的端到端检测公式。"],
+                "limitations": [
+                  "训练收敛和 query matching 稳定性仍是当前 evidence 中的重要瓶颈。"
+                ],
+                "maturity": "active method family",
+                "representative_papers": ["1:DETR2020"],
+                "source_paper_refs": ["1:DETR2020"]
+              },
+              {
+                "id": "mechanism:mask-prediction",
+                "title": "Mask prediction",
+                "definition": "直接预测语义、实例或通用 mask，把视觉结构表达推进到像素或区域层级。",
+                "core_problem": "在比检测框更细粒度的层面表示对象、区域和语义边界。",
+                "mechanism": "通过 mask classification、dense prediction 或统一 mask decoding 生成结构化分割结果。",
+                "strengths": ["能连接检测、分割和更通用的视觉场景理解。"],
+                "limitations": [
+                  "当前 workset 对 mask prediction 的 evidence 覆盖不足以支撑完整分割史。"
+                ],
+                "maturity": "established task mechanism",
+                "representative_papers": ["1:MASK2FORMER"],
+                "source_paper_refs": ["1:MASK2FORMER"]
+              }
+            ]
           }
         ]
       },

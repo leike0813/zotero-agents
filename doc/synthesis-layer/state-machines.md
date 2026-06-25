@@ -23,6 +23,7 @@ Terminal operation state does not imply data readiness. A completed operation is
 | `sm.cache.projection` | Sidecar cache service | Cache projection | Stale cache is mistaken for Zotero Library truth |
 | `sm.operation.explicit` | Explicit operation service | User/debug-triggered operation | Operation becomes a hidden worker queue |
 | `sm.topic.source_check` | Topic source-check service | Source-check diagnostic | Cache refresh marks topic changed |
+| `sm.sync.git` | Git Sync service | Durable exchange run | Live SQLite or conflicting durable facts are imported unsafely |
 | `sm.import.lifecycle` | Import/export service | Import run | Bundle writes sidecar state before preview |
 
 ## `sm.reference.canonical`
@@ -292,19 +293,52 @@ Object: Import run.
 
 ```mermaid
 stateDiagram-v2
-  [*] --> previewing
-  previewing --> preview_ready: diff built
-  preview_ready --> applying: user confirms
+  [*] --> validating
+  validating --> previewing: manifest and asset hashes valid
+  validating --> failed: invalid path, hash, schema, or manifest
+  previewing --> preview_ready: dry-run diff built
+  previewing --> blocked_conflict: conflict gate blocks
+  preview_ready --> applying: user confirms or Git Sync auto-apply allowed
   preview_ready --> cancelled: user cancels
-  applying --> applied: commit succeeds
-  applying --> failed: validation or write failure
-  failed --> previewing: retry preview
+  blocked_conflict --> previewing: manual edit or resolution clears blocker
+  applying --> stale_projection: durable facts committed
+  stale_projection --> applied: rebuildable projections marked stale
+  applying --> failed: write failure
+  failed --> validating: retry preview
 ```
 
 Forbidden transitions:
 
-- `previewing -> applying` without preview result.
+- `validating -> applying` without preview result.
+- `blocked_conflict -> applying` without an explicit resolution action.
 - Importing a file bundle by making it a Workbench hot path.
+
+## `sm.sync.git`
+
+Owner: Git Sync service.
+
+Object: One Git durable-state exchange run.
+
+```mermaid
+stateDiagram-v2
+  [*] --> idle
+  idle --> syncing: queued or manual sync
+  syncing --> validating: fetch/merge completed
+  validating --> blocked_conflict: durable conflict gate blocks
+  validating --> failed_permanent: invalid manifest, path, hash, or schema
+  validating --> applying: preview clean
+  applying --> idle: import applied and projections marked stale
+  syncing --> failed_retryable: adapter or network failure
+  failed_retryable --> syncing: retry
+  blocked_conflict --> idle: user keeps local or saves remote copy
+  blocked_conflict --> syncing: user clears after manual edit
+```
+
+Forbidden transitions:
+
+- `validating -> applying` when durable preview reports conflicts.
+- `applying -> import live SQLite`.
+- `blocked_conflict -> idle` by silently choosing last-writer-wins.
 
 ## State Combination Governance
 

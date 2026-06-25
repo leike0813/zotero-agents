@@ -18,16 +18,22 @@
  */
 import { config as loadEnv } from "dotenv";
 import { existsSync, readFileSync, writeFileSync } from "fs";
-import { resolve, join } from "path";
+import { dirname, resolve, join } from "path";
 import { spawn, execSync } from "child_process";
 import * as net from "net";
+import { tmpdir } from "os";
+import { fileURLToPath } from "url";
 
-const ROOT = resolve(import.meta.dirname, "..");
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const SCRIPT_DIR = dirname(SCRIPT_PATH);
+const ROOT = resolve(SCRIPT_DIR, "..");
 loadEnv({ path: resolve(ROOT, ".env") });
 
-const SHOULD_BUILD = process.argv.includes("--build") || process.argv.includes("-b");
+const SHOULD_BUILD =
+  process.argv.includes("--build") || process.argv.includes("-b");
 const ADDON_ID = "zotero-skills@leike0813@gmail.com";
 const ADDON_SOURCE_DIR = resolve(ROOT, ".scaffold/build/addon");
+const PREFS_PREFIX = "extensions.zotero.zotero-skills";
 
 function getEnvVal(key: string): string {
   const raw = process.env[key] || "";
@@ -43,13 +49,47 @@ function getZoteroBinary(): string {
 
 function getProfilePath(): string {
   const profile = getEnvVal("ZOTERO_PLUGIN_PROFILE_PATH");
-  if (!profile) throw new Error("ZOTERO_PLUGIN_PROFILE_PATH is not set in .env");
+  if (!profile)
+    throw new Error("ZOTERO_PLUGIN_PROFILE_PATH is not set in .env");
   return profile;
 }
 
 function getDataDir(): string | undefined {
   const dir = getEnvVal("ZOTERO_PLUGIN_DATA_DIR");
   return dir || undefined;
+}
+
+export function resolveDirectRuntimeRoot(env: NodeJS.ProcessEnv = process.env) {
+  const explicit = (env.ZOTERO_SKILLS_RUNTIME_ROOT || "")
+    .replace(/^["']|["']$/g, "")
+    .trim();
+  if (explicit) {
+    return explicit;
+  }
+  const zoteroDataDir = (env.ZOTERO_PLUGIN_DATA_DIR || "")
+    .replace(/^["']|["']$/g, "")
+    .trim();
+  if (zoteroDataDir) {
+    return resolve(zoteroDataDir, "zotero-agents");
+  }
+  const base =
+    env.LOCALAPPDATA ||
+    env.LocalAppData ||
+    env.APPDATA ||
+    env.AppData ||
+    env.TEMP ||
+    env.TMP ||
+    tmpdir();
+  return resolve(base, "Zotero-Agents-Direct-Runtime");
+}
+
+export function buildZoteroLaunchEnv(env: NodeJS.ProcessEnv = process.env) {
+  return {
+    ...env,
+    ZOTERO_SKILLS_RUNTIME_ROOT: resolveDirectRuntimeRoot(env),
+    XPCOM_DEBUG_BREAK: "stack",
+    NS_TRACE_MALLOC_DISABLE_STACKS: "1",
+  };
 }
 
 function runBuild(): void {
@@ -59,6 +99,34 @@ function runBuild(): void {
     stdio: "inherit",
     env: process.env,
   });
+}
+
+function encodePrefValue(value: string | number | boolean) {
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (typeof value === "number") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+export function patchRuntimeRootPref(
+  profile: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  const prefsPath = join(profile, "prefs.js");
+  const runtimeRoot = resolveDirectRuntimeRoot(env);
+  let existing = "";
+  if (existsSync(prefsPath)) {
+    existing = readFileSync(prefsPath, "utf-8");
+  }
+  const prefKey = `${PREFS_PREFIX}.runtimeRoot`;
+  const lines = existing
+    .split("\n")
+    .filter((line) => !line.trim().startsWith(`user_pref("${prefKey}"`));
+  lines.push(`user_pref("${prefKey}", ${encodePrefValue(runtimeRoot)});`);
+  writeFileSync(prefsPath, lines.join("\n") + "\n", "utf-8");
 }
 
 function patchPrefsJs(profile: string): void {
@@ -85,8 +153,12 @@ function patchPrefsJs(profile: string): void {
     "browser.link.open_newwindow": 3,
     "extensions.zotero.firstRun.skipFirefoxProfileAccessCheck": true,
     "extensions.zotero.firstRunGuidance": false,
+    [`${PREFS_PREFIX}.runtimeRoot`]: resolveDirectRuntimeRoot(process.env),
   };
-  const prefsToRemove = ["extensions.lastAppBuildId", "extensions.lastAppVersion"];
+  const prefsToRemove = [
+    "extensions.lastAppBuildId",
+    "extensions.lastAppVersion",
+  ];
   const managedPrefKeys = new Set([
     ...Object.keys(requiredPrefs),
     ...prefsToRemove,
@@ -107,15 +179,7 @@ function patchPrefsJs(profile: string): void {
   });
 
   for (const [key, value] of Object.entries(requiredPrefs)) {
-    let strVal: string;
-    if (typeof value === "boolean") {
-      strVal = value ? "true" : "false";
-    } else if (typeof value === "number") {
-      strVal = String(value);
-    } else {
-      strVal = `"${value}"`;
-    }
-    lines.push(`user_pref("${key}", ${strVal});`);
+    lines.push(`user_pref("${key}", ${encodePrefValue(value)});`);
   }
 
   writeFileSync(prefsPath, lines.join("\n") + "\n", "utf-8");
@@ -146,8 +210,15 @@ function sleep(ms: number) {
  */
 class RdpClient {
   private conn: net.Socket | null = null;
-  private activeRequests = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
-  private pending: Array<{ msg: Record<string, unknown>; resolve: (v: any) => void; reject: (e: Error) => void }> = [];
+  private activeRequests = new Map<
+    string,
+    { resolve: (v: any) => void; reject: (e: Error) => void }
+  >();
+  private pending: Array<{
+    msg: Record<string, unknown>;
+    resolve: (v: any) => void;
+    reject: (e: Error) => void;
+  }> = [];
 
   connect(port: number): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -180,15 +251,21 @@ class RdpClient {
       });
 
       conn.on("error", reject);
-      conn.on("close", () => { this.conn = null; });
+      conn.on("close", () => {
+        this.conn = null;
+      });
 
       // Register the greeting (from "root") as the first expected reply
       this._expectReply("root", { resolve, reject });
     });
   }
 
-  private _expectReply(actor: string, d: { resolve: (v: any) => void; reject: (e: Error) => void }) {
-    if (this.activeRequests.has(actor)) throw new Error(`Duplicate request for ${actor}`);
+  private _expectReply(
+    actor: string,
+    d: { resolve: (v: any) => void; reject: (e: Error) => void },
+  ) {
+    if (this.activeRequests.has(actor))
+      throw new Error(`Duplicate request for ${actor}`);
     this.activeRequests.set(actor, d);
   }
 
@@ -222,7 +299,10 @@ class RdpClient {
       const { msg, resolve, reject } = this.pending[0];
       const actor = msg.to as string;
       if (this.activeRequests.has(actor)) break; // actor busy, wait
-      if (!this.conn) { reject(new Error("RDP connection closed")); return; }
+      if (!this.conn) {
+        reject(new Error("RDP connection closed"));
+        return;
+      }
       this._expectReply(actor, { resolve, reject });
       this.pending.shift();
       const json = JSON.stringify(msg);
@@ -285,9 +365,11 @@ async function launchZotero(): Promise<{
   const args = [
     "--purgecaches",
     "no-remote",
-    "-profile", profile,
+    "-profile",
+    profile,
     "--jsdebugger",
-    "-start-debugger-server", String(port),
+    "-start-debugger-server",
+    String(port),
   ];
 
   if (dataDir) {
@@ -300,11 +382,7 @@ async function launchZotero(): Promise<{
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
     windowsHide: true,
-    env: {
-      ...process.env,
-      XPCOM_DEBUG_BREAK: "stack",
-      NS_TRACE_MALLOC_DISABLE_STACKS: "1",
-    },
+    env: buildZoteroLaunchEnv(process.env),
   });
 
   proc.on("error", (err) => {
@@ -314,7 +392,9 @@ async function launchZotero(): Promise<{
   proc.stdout?.on("data", () => undefined);
   proc.stderr?.on("data", () => undefined);
 
-  console.log(`[done] Zotero started (PID ${proc.pid}), debugger on port ${port}`);
+  console.log(
+    `[done] Zotero started (PID ${proc.pid}), debugger on port ${port}`,
+  );
   return { port, proc };
 }
 
@@ -388,4 +468,9 @@ async function main() {
   process.exit(1);
 }
 
-main();
+const launchedDirectly =
+  process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH;
+
+if (launchedDirectly) {
+  main();
+}

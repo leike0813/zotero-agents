@@ -61,6 +61,7 @@ async function callBridgeCapability(args: {
   capability: string;
   input?: unknown;
   scope?: unknown;
+  connectionMode?: "local" | "remote";
 }) {
   const headers: Record<string, string> = {};
   if (args.token) {
@@ -68,6 +69,9 @@ async function callBridgeCapability(args: {
   }
   if (args.scope) {
     headers["x-zotero-bridge-scope"] = JSON.stringify(args.scope);
+  }
+  if (args.connectionMode) {
+    headers["x-zotero-bridge-connection-mode"] = args.connectionMode;
   }
   return parseRawHttpResponse(
     await handleHostBridgeHttpRequestForTests({
@@ -204,6 +208,29 @@ describe("host bridge capability calls", function () {
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
   });
 
+  it("passes connection mode headers into synthesis capability context", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "mode-token",
+      resolveSynthesisService: () => ({
+        getTopicContext(_args, context) {
+          return {
+            connectionMode: context?.hostBridge?.connectionMode,
+          };
+        },
+      }),
+    });
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "topics.get_context",
+      input: { topicId: "object-detection" },
+      connectionMode: "remote",
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.result.data.connectionMode, "remote");
+  });
+
   it("decodes UTF-8 byte-counted capability bodies without mojibake", async function () {
     const token = configureHostBridgeServerForTests({
       token: "utf8-call-token",
@@ -241,10 +268,7 @@ describe("host bridge capability calls", function () {
 
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.status, "ok");
-    assert.strictEqual(
-      parsed.json.result.capability,
-      "reference_index.get",
-    );
+    assert.strictEqual(parsed.json.result.capability, "reference_index.get");
     assert.strictEqual(parsed.json.result.approval, "none");
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
     assert.isArray(parsed.json.result.data.diagnostics?.recommended_commands);
@@ -337,6 +361,7 @@ describe("host bridge capability calls", function () {
       (capability: { name: string }) => capability.name,
     );
     assert.notInclude(names, "debug.status");
+    assert.notInclude(names, "debug.skillrunner.connections.snapshot");
     assert.notInclude(names, "debug.zotero.eval");
 
     const call = await callBridgeCapability({
@@ -374,6 +399,12 @@ describe("host bridge capability calls", function () {
     );
     assert.isObject(evalCapability);
     assert.strictEqual(evalCapability.approval, "zotero-ui-required");
+    const connectionAuditCapability = manifest.json.result.capabilities.find(
+      (capability: { name: string }) =>
+        capability.name === "debug.skillrunner.connections.snapshot",
+    );
+    assert.isObject(connectionAuditCapability);
+    assert.strictEqual(connectionAuditCapability.approval, "none");
 
     const status = await callBridgeCapability({
       token,
@@ -387,6 +418,19 @@ describe("host bridge capability calls", function () {
       "host_bridge.debug.status.v1",
     );
     assert.isTrue(status.json.result.data.debugMode);
+
+    const connections = await callBridgeCapability({
+      token,
+      capability: "debug.skillrunner.connections.snapshot",
+      input: {},
+    });
+    assert.strictEqual(connections.status, 200);
+    assert.strictEqual(
+      connections.json.result.data.schema,
+      "host_bridge.debug.skillrunner.connections.snapshot.v1",
+    );
+    assert.isObject(connections.json.result.data.skillRunnerConnections);
+    assert.isArray(connections.json.result.data.skillRunnerConnections.events);
 
     const snapshot = await callBridgeCapability({
       token,

@@ -36,9 +36,9 @@ export class AcpProvider implements Provider {
       },
       acpModelProvider: {
         type: "string" as const,
-        title: "ACP provider",
+        title: "ACP Model Provider",
         description:
-          "Provider segment parsed from ACP model ids that use provider/model notation.",
+          "Model provider segment parsed from ACP model ids that use provider/model notation.",
       },
       acpModelId: {
         type: "string" as const,
@@ -58,6 +58,14 @@ export class AcpProvider implements Provider {
         description:
           "Automatically approve ACP backend tool permission requests for this ACP Skill run.",
         default: false,
+      },
+      hard_timeout_seconds: {
+        type: "number" as const,
+        title: "Job Timeout (sec)",
+        description:
+          "Optional positive integer timeout in seconds. Empty means backend default.",
+        placeholder:
+          "Leave empty to use default; 20 min if skill has no default.",
       },
     };
   }
@@ -127,8 +135,18 @@ export class AcpProvider implements Provider {
       normalizedSource.autoApproveAcpPermissions === true
         ? { autoApproveAcpPermissions: true }
         : {};
+    const normalizedHardTimeout = toPositiveInteger(
+      normalizedSource.hard_timeout_seconds,
+    );
+    const hardTimeout =
+      typeof normalizedHardTimeout === "number"
+        ? { hard_timeout_seconds: normalizedHardTimeout }
+        : {};
     if (!cache) {
-      return autoApproveAcpPermissions;
+      return {
+        ...autoApproveAcpPermissions,
+        ...hardTimeout,
+      };
     }
     const modeIds = new Set((cache.modes || []).map((entry) => entry.id));
     const modelGroups = buildAcpFoldedModelGroups(cache.rawModels || []);
@@ -156,9 +174,10 @@ export class AcpProvider implements Provider {
       Array.from(modelGroups.keys())[0] ||
       "";
     const group = modelGroups.get(model);
-    const effortIds = new Set(
-      (group?.variants || []).map((entry) => entry.effortId),
-    );
+    const effortIds =
+      group && group.variants.length > 0
+        ? new Set((group.variants || []).map((entry) => entry.effortId))
+        : new Set((cache.reasoningEfforts || []).map((entry) => entry.id));
     const normalizedEffort = normalizeAcpEffortId(
       normalizedSource.acpReasoningEffort,
     );
@@ -185,6 +204,7 @@ export class AcpProvider implements Provider {
           ? { acpReasoningEffort: fallbackEffort }
           : {}),
       ...autoApproveAcpPermissions,
+      ...hardTimeout,
     };
   }
 
@@ -254,4 +274,17 @@ export class AcpProvider implements Provider {
       },
     };
   }
+}
+
+function toPositiveInteger(value: unknown) {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && String(value || "").trim()
+        ? Number(value)
+        : NaN;
+  if (!Number.isInteger(numberValue) || numberValue < 1) {
+    return undefined;
+  }
+  return numberValue;
 }

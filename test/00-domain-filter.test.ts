@@ -9,7 +9,9 @@ beforeEach(function () {
   const selectedDomain = getTestDomain();
   const currentFile = (this.currentTest && this.currentTest.file) || "";
   const currentFullTitle =
-    (this.currentTest && this.currentTest.fullTitle && this.currentTest.fullTitle()) ||
+    (this.currentTest &&
+      this.currentTest.fullTitle &&
+      this.currentTest.fullTitle()) ||
     "";
   const testDomain = inferDomainFromFilePath(currentFile);
   if (shouldSkipByDomain({ selectedDomain, testDomain })) {

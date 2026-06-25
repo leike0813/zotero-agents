@@ -1,7 +1,7 @@
 {
   "id": "create-topic-synthesis",
   "label": "Create Topic Synthesis",
-  "provider": "acp",
+  "provider": "skillrunner",
   "version": "0.2.0",
   "display": {
     "core": true,
@@ -23,8 +23,18 @@
     "language": {
       "type": "string",
       "title": "Language",
-      "description": "Output language, such as auto, zh-CN, or en-US.",
-      "default": "auto"
+      "enum": [
+        "zh-CN",
+        "en-US",
+        "ja-JP",
+        "ko-KR",
+        "de-DE",
+        "fr-FR",
+        "es-ES",
+        "ru-RU"
+      ],
+      "allowCustom": true,
+      "default": "zh-CN"
     }
   },
   "request": {
@@ -34,6 +44,7 @@
         {
           "id": "prepare",
           "skill_id": "create-topic-synthesis-prepare",
+          "mode": "auto",
           "workspace": "new",
           "short_circuit": {
             "when": {
@@ -46,27 +57,43 @@
         {
           "id": "core",
           "skill_id": "topic-synthesis-core-enrichment",
-          "workspace": "reuse-workflow"
+          "mode": "auto",
+          "workspace": "reuse-workflow",
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "value",
+                "target": "/input/handoff"
+              }
+            ]
+          }
         },
         {
           "id": "finalize",
           "skill_id": "topic-synthesis-finalize",
-          "workspace": "reuse-workflow"
+          "mode": "auto",
+          "workspace": "reuse-workflow",
+          "fetch_type": "bundle",
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "value",
+                "target": "/input/handoff"
+              }
+            ]
+          }
         }
       ]
     }
   },
   "execution": {
-    "mode": "auto",
     "zoteroHostAccess": {
       "required": true
-    },
-    "skillrunner_mode": "auto",
-    "timeout_ms": 1200000
+    }
   },
   "result": {
     "final_step_id": "finalize",
-    "fetch": { "type": "result" },
+    "fetch": { "type": "bundle" },
     "expects": {
       "result_json": "result/final-output.candidate.json"
     }

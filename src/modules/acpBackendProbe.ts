@@ -46,7 +46,10 @@ function normalizeStringMap(value: unknown) {
   }
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .map(([key, entry]) => [normalizeString(key), normalizeString(entry)] as const)
+      .map(
+        ([key, entry]) =>
+          [normalizeString(key), normalizeString(entry)] as const,
+      )
       .filter(([key, entry]) => key && entry),
   );
 }
@@ -74,13 +77,15 @@ function fnv1a32(input: string) {
 }
 
 export function computeAcpBackendConfigFingerprint(backend: BackendInstance) {
-  return `acp-${fnv1a32(stableJson({
-    command: normalizeString(backend.command),
-    args: normalizeStringArray(backend.args),
-    env: normalizeStringMap(backend.env),
-    agentFamily: normalizeString(backend.acp?.agentFamily),
-    skillRoots: normalizeStringArray(backend.acp?.skillRoots),
-  }))}`;
+  return `acp-${fnv1a32(
+    stableJson({
+      command: normalizeString(backend.command),
+      args: normalizeStringArray(backend.args),
+      env: normalizeStringMap(backend.env),
+      agentFamily: normalizeString(backend.acp?.agentFamily),
+      skillRoots: normalizeStringArray(backend.acp?.skillRoots),
+    }),
+  )}`;
 }
 
 export function isAcpBackendConnectionTestPassed(backend: BackendInstance) {
@@ -95,7 +100,9 @@ export function isAcpBackendConnectionTestPassed(backend: BackendInstance) {
   );
 }
 
-export function markAcpBackendConnectionState(backend: BackendInstance): BackendInstance {
+export function markAcpBackendConnectionState(
+  backend: BackendInstance,
+): BackendInstance {
   const test = backend.acp?.connectionTest;
   if (!test) {
     return backend;
@@ -151,10 +158,10 @@ export function buildAcpRuntimeOptionsCache(args: {
   }
   const modeState = normalizeModeOptions(args.modes);
   const rawModelOptions = Array.isArray(args.models?.availableModels)
-    ? args.models!.availableModels
-        .map(normalizeAcpModelOption)
+    ? args
+        .models!.availableModels.map(normalizeAcpModelOption)
         .filter((entry) => entry.id && entry.label)
-    : [] as AcpSelectableOption[];
+    : ([] as AcpSelectableOption[]);
   const folded = foldAcpModelOptions({
     modelOptions: rawModelOptions,
     currentModelId: normalizeString(args.models?.currentModelId),
@@ -201,8 +208,15 @@ export async function probeAcpBackendRuntimeOptions(args: {
   const timestamp = args.now?.() || new Date().toISOString();
   const fingerprint = computeAcpBackendConfigFingerprint(args.backend);
   const paths = getRuntimePersistencePaths();
-  const safeBackendId = normalizeString(args.backend.id).replace(/[^A-Za-z0-9_.-]+/g, "-");
-  const root = joinPath(paths.tmpDir, "acp-backend-probe", safeBackendId || "backend");
+  const safeBackendId = normalizeString(args.backend.id).replace(
+    /[^A-Za-z0-9_.-]+/g,
+    "-",
+  );
+  const root = joinPath(
+    paths.tmpDir,
+    "acp-backend-probe",
+    safeBackendId || "backend",
+  );
   const workspaceDir = joinPath(root, "workspace");
   const runtimeDir = joinPath(root, "runtime");
   let adapter: AcpConnectionAdapter | null = null;
@@ -244,7 +258,8 @@ export async function probeAcpBackendRuntimeOptions(args: {
       },
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error || "unknown error");
+    const message =
+      error instanceof Error ? error.message : String(error || "unknown error");
     return {
       ok: false,
       error: message,
@@ -258,7 +273,9 @@ export async function probeAcpBackendRuntimeOptions(args: {
             configFingerprint: fingerprint,
             error: message,
           },
-          runtimeOptionsCache: preserveExistingRuntimeOptionsCache(args.backend),
+          runtimeOptionsCache: preserveExistingRuntimeOptionsCache(
+            args.backend,
+          ),
         },
       },
     };

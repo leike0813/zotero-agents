@@ -1,6 +1,7 @@
 import {
   DEFAULT_BACKEND_TYPE,
   DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE,
+  SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../../config/defaults";
 import type { BackendInstance } from "../../backends/types";
 import type {
@@ -29,6 +30,7 @@ import {
   resolveSkillRunnerModelNameForProvider,
   splitSkillRunnerModelSpec,
 } from "./modelCatalog";
+import { isSkillRunnerInteractiveAutoReplyEnabled } from "../../modules/skillRunnerInteractiveAutoReply";
 import { SkillRunnerClient } from "./client";
 import { ensureManagedLocalRuntimeForBackend } from "../../modules/skillRunnerLocalRuntimeManager";
 
@@ -84,6 +86,18 @@ function normalizePositiveInteger(value: unknown) {
   return parsed;
 }
 
+function normalizeNonNegativeInteger(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return undefined;
+  }
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
+    return undefined;
+  }
+  return parsed;
+}
+
 export class SkillRunnerProvider implements Provider {
   readonly id = "skillrunner";
 
@@ -98,17 +112,24 @@ export class SkillRunnerProvider implements Provider {
   supports(args: ProviderSupportsArgs) {
     return (
       args.backend.type === DEFAULT_BACKEND_TYPE &&
-      args.requestKind === DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[DEFAULT_BACKEND_TYPE]
+      (args.requestKind ===
+        DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[DEFAULT_BACKEND_TYPE] ||
+        args.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND)
     );
   }
 
   supportsRequestKind(requestKind: string) {
-    return requestKind === DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[DEFAULT_BACKEND_TYPE];
+    return (
+      requestKind ===
+        DEFAULT_REQUEST_KIND_BY_BACKEND_TYPE[DEFAULT_BACKEND_TYPE] ||
+      requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND
+    );
   }
 
   getRuntimeOptionSchema() {
     const defaultEngine = getDefaultSkillRunnerEngine() || "gemini";
-    const defaultModelProvider = getSkillRunnerCanonicalProviderId(defaultEngine) || "";
+    const defaultModelProvider =
+      getSkillRunnerCanonicalProviderId(defaultEngine) || "";
     return {
       engine: {
         type: "string" as const,
@@ -119,9 +140,9 @@ export class SkillRunnerProvider implements Provider {
       },
       provider_id: {
         type: "string" as const,
-        title: "Provider",
+        title: "Model Provider",
         description:
-          "Model provider for the selected engine. Provider-aware engines require an explicit provider.",
+          "Model provider for the selected engine. Model-provider-aware engines require an explicit model provider.",
         default: defaultModelProvider,
       },
       model: {
@@ -150,11 +171,19 @@ export class SkillRunnerProvider implements Provider {
           "Interactive mode only. Automatically continue after waiting timeout.",
         default: false,
       },
+      interactive_reply_timeout_sec: {
+        type: "number" as const,
+        title: "Auto Reply Timeout (sec)",
+        description:
+          "Interactive auto reply timeout in seconds. Empty means backend default.",
+      },
       hard_timeout_seconds: {
         type: "number" as const,
-        title: "Job Timeout",
+        title: "Job Timeout (sec)",
         description:
           "Optional positive integer timeout in seconds. Empty means backend default.",
+        placeholder:
+          "Leave empty to use default; 20 min if skill has no default.",
       },
     };
   }
@@ -182,7 +211,9 @@ export class SkillRunnerProvider implements Provider {
         ? rawEngine.trim()
         : getDefaultSkillRunnerEngine();
     if (args.key === "provider_id") {
-      if (!isSkillRunnerProviderScopedEngine(normalizedEngine, backendContext)) {
+      if (
+        !isSkillRunnerProviderScopedEngine(normalizedEngine, backendContext)
+      ) {
         return [];
       }
       return listSkillRunnerModelProviders(normalizedEngine, backendContext);
@@ -211,7 +242,9 @@ export class SkillRunnerProvider implements Provider {
         normalizedEngine,
         backendContext,
       )
-        ? String(args.options.provider_id || args.options.model_provider || "").trim()
+        ? String(
+            args.options.provider_id || args.options.model_provider || "",
+          ).trim()
         : getSkillRunnerCanonicalProviderId(normalizedEngine);
       return listSkillRunnerModelEffortOptions({
         engine: normalizedEngine,
@@ -235,6 +268,7 @@ export class SkillRunnerProvider implements Provider {
     const rawEffort = source.effort;
     const rawNoCache = source.no_cache;
     const rawInteractiveAutoReply = source.interactive_auto_reply;
+    const rawInteractiveReplyTimeout = source.interactive_reply_timeout_sec;
     const rawHardTimeoutSeconds = source.hard_timeout_seconds;
     const normalizedEngine =
       typeof rawEngine === "string" && rawEngine.trim()
@@ -326,10 +360,18 @@ export class SkillRunnerProvider implements Provider {
     });
 
     const normalizedNoCache = normalizeNoCache(rawNoCache);
-    const normalizedInteractiveAutoReply = normalizeBooleanOption(
-      rawInteractiveAutoReply,
+    const normalizedInteractiveAutoReply =
+      isSkillRunnerInteractiveAutoReplyEnabled()
+        ? normalizeBooleanOption(rawInteractiveAutoReply)
+        : undefined;
+    const normalizedInteractiveReplyTimeout =
+      isSkillRunnerInteractiveAutoReplyEnabled() &&
+      normalizedInteractiveAutoReply === true
+        ? normalizeNonNegativeInteger(rawInteractiveReplyTimeout)
+        : undefined;
+    const normalizedHardTimeout = normalizePositiveInteger(
+      rawHardTimeoutSeconds,
     );
-    const normalizedHardTimeout = normalizePositiveInteger(rawHardTimeoutSeconds);
     if (typeof rawNoCache === "boolean") {
       return {
         engine: normalizedEngine,
@@ -337,7 +379,12 @@ export class SkillRunnerProvider implements Provider {
         model: normalizedModel,
         effort: normalizedEffort,
         no_cache: normalizedNoCache,
-        interactive_auto_reply: normalizedInteractiveAutoReply,
+        ...(typeof normalizedInteractiveAutoReply === "boolean"
+          ? { interactive_auto_reply: normalizedInteractiveAutoReply }
+          : {}),
+        ...(typeof normalizedInteractiveReplyTimeout === "number"
+          ? { interactive_reply_timeout_sec: normalizedInteractiveReplyTimeout }
+          : {}),
         ...(typeof normalizedHardTimeout === "number"
           ? { hard_timeout_seconds: normalizedHardTimeout }
           : {}),
@@ -350,7 +397,12 @@ export class SkillRunnerProvider implements Provider {
         model: normalizedModel,
         effort: normalizedEffort,
         no_cache: normalizedNoCache,
-        interactive_auto_reply: normalizedInteractiveAutoReply,
+        ...(typeof normalizedInteractiveAutoReply === "boolean"
+          ? { interactive_auto_reply: normalizedInteractiveAutoReply }
+          : {}),
+        ...(typeof normalizedInteractiveReplyTimeout === "number"
+          ? { interactive_reply_timeout_sec: normalizedInteractiveReplyTimeout }
+          : {}),
         ...(typeof normalizedHardTimeout === "number"
           ? { hard_timeout_seconds: normalizedHardTimeout }
           : {}),
@@ -362,16 +414,19 @@ export class SkillRunnerProvider implements Provider {
       model: normalizedModel,
       effort: normalizedEffort,
       no_cache: normalizedNoCache,
-      interactive_auto_reply: normalizedInteractiveAutoReply,
+      ...(typeof normalizedInteractiveAutoReply === "boolean"
+        ? { interactive_auto_reply: normalizedInteractiveAutoReply }
+        : {}),
+      ...(typeof normalizedInteractiveReplyTimeout === "number"
+        ? { interactive_reply_timeout_sec: normalizedInteractiveReplyTimeout }
+        : {}),
       ...(typeof normalizedHardTimeout === "number"
         ? { hard_timeout_seconds: normalizedHardTimeout }
         : {}),
     };
   }
 
-  private resolveBackend(args: {
-    backend?: BackendInstance;
-  }) {
+  private resolveBackend(args: { backend?: BackendInstance }) {
     if (args.backend) {
       return args.backend;
     }
@@ -408,7 +463,9 @@ export class SkillRunnerProvider implements Provider {
     const backendId = backend?.id;
     const backendType = backend?.type || "skillrunner";
     if (backend && backend.type === "skillrunner") {
-      const ensureResult = await ensureManagedLocalRuntimeForBackend(backend.id);
+      const ensureResult = await ensureManagedLocalRuntimeForBackend(
+        backend.id,
+      );
       if (!ensureResult.ok) {
         throw new Error(
           `managed local runtime ensure failed: ${ensureResult.message}`,
@@ -434,7 +491,11 @@ export class SkillRunnerProvider implements Provider {
       },
     });
     const client =
-      this.staticClient || new SkillRunnerClient({ baseUrl: backend!.baseUrl });
+      this.staticClient ||
+      new SkillRunnerClient({
+        baseUrl: backend!.baseUrl,
+        backendId,
+      });
     try {
       let result: ProviderExecutionResult;
       if (

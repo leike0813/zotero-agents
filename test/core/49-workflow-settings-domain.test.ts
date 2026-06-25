@@ -1,9 +1,13 @@
 import { assert } from "chai";
 import {
+  WORKFLOW_SETTINGS_SCHEMA_VERSION,
   buildWorkflowSettingsDialogInitialState,
+  createWorkflowSettingsDocument,
   mergeExecutionOptions,
   normalizeSavedWorkflowSettings,
   normalizeWorkflowParamsBySchema,
+  parseSettingsRecord,
+  serializeSettingsRecord,
   type WorkflowExecutionOptions,
 } from "../../src/modules/workflowSettingsDomain";
 import type { WorkflowManifest } from "../../src/workflows/types";
@@ -37,6 +41,34 @@ describe("workflow settings domain", function () {
     assert.equal(merged.workflowParams?.keep, "base");
     assert.equal(merged.providerOptions?.no_cache, true);
     assert.equal(merged.providerOptions?.model, "");
+  });
+
+  it("treats null and undefined option overrides as explicit clears", function () {
+    const base: WorkflowExecutionOptions = {
+      workflowParams: {
+        language: "zh-CN",
+        keep: "base",
+      },
+      providerOptions: {
+        hard_timeout_seconds: 5,
+        model: "gemini-2.5-flash",
+      },
+    };
+    const override: WorkflowExecutionOptions = {
+      workflowParams: {
+        language: null,
+      },
+      providerOptions: {
+        hard_timeout_seconds: null,
+        model: undefined,
+      },
+    };
+
+    const merged = mergeExecutionOptions(base, override);
+    assert.notProperty(merged.workflowParams, "language");
+    assert.equal(merged.workflowParams?.keep, "base");
+    assert.notProperty(merged.providerOptions, "hard_timeout_seconds");
+    assert.notProperty(merged.providerOptions, "model");
   });
 
   it("keeps persisted normalization workflow-agnostic in domain layer", function () {
@@ -145,6 +177,69 @@ describe("workflow settings domain", function () {
     assert.notStrictEqual(
       initial.persistedProviderOptions,
       initial.runOnceProviderOptions,
+    );
+  });
+
+  it("parses legacy unversioned settings record", function () {
+    const parsed = parseSettingsRecord({
+      "literature-analysis": {
+        backendId: " skillrunner-primary ",
+        workflowParams: {
+          language: "zh-CN",
+        },
+        providerOptions: {
+          engine: "codex",
+        },
+      },
+    });
+
+    assert.deepEqual(parsed, {
+      "literature-analysis": {
+        backendId: "skillrunner-primary",
+        workflowParams: {
+          language: "zh-CN",
+        },
+        providerOptions: {
+          engine: "codex",
+        },
+      },
+    });
+  });
+
+  it("parses and serializes versioned settings document", function () {
+    const record = {
+      "literature-analysis": {
+        backendId: "skillrunner-primary",
+        workflowParams: {
+          language: "en-US",
+        },
+        providerOptions: {
+          model: "gpt-5",
+        },
+      },
+    };
+    const document = createWorkflowSettingsDocument(record);
+    assert.equal(document.schemaVersion, WORKFLOW_SETTINGS_SCHEMA_VERSION);
+    assert.deepEqual(document.workflows, record);
+
+    const serialized = serializeSettingsRecord(record);
+    const persisted = JSON.parse(serialized) as {
+      schemaVersion?: number;
+      workflows?: unknown;
+    };
+    assert.equal(persisted.schemaVersion, WORKFLOW_SETTINGS_SCHEMA_VERSION);
+    assert.deepEqual(parseSettingsRecord(persisted), record);
+  });
+
+  it("treats malformed settings payloads as empty settings", function () {
+    assert.deepEqual(parseSettingsRecord(null), {});
+    assert.deepEqual(parseSettingsRecord([]), {});
+    assert.deepEqual(
+      parseSettingsRecord({
+        schemaVersion: 1,
+        workflows: [],
+      }),
+      {},
     );
   });
 });

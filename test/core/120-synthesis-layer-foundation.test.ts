@@ -32,6 +32,7 @@ import {
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
+import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-kg-foundation-"));
@@ -56,6 +57,18 @@ function createKgTestRegistry() {
     },
   });
   return registry;
+}
+
+function canonicalStorePayloads(root: string, kind: string) {
+  return createSynthesisRepository({ runtimeRoot: root })
+    .listCanonicalStoreRecords({ recordKinds: [kind] })
+    .map((row) => JSON.parse(row.payloadJson));
+}
+
+function canonicalStoreText(root: string, kind: string) {
+  return canonicalStorePayloads(root, kind)
+    .map((payload) => JSON.stringify(payload))
+    .join("\n");
 }
 
 describe("Synthesis Layer foundation", function () {
@@ -291,7 +304,8 @@ describe("Synthesis Layer foundation", function () {
     const root = await makeRuntimeRoot();
     const paths = await initializeSynthesisKnowledgeGraphStore(root);
 
-    assert.equal(paths.synthesisRoot, path.join(root, "synthesis"));
+    assert.equal(paths.synthesisRoot, path.join(root, "data", "synthesis"));
+    assert.isTrue(await runtimePathExists(paths.synthesisRoot));
     for (const dir of [
       paths.topicsRoot,
       paths.conceptsRoot,
@@ -299,9 +313,12 @@ describe("Synthesis Layer foundation", function () {
       paths.citationGraphRoot,
       paths.tagsRoot,
       paths.syncRoot,
-      paths.stateRoot,
+      paths.sidecarRoot,
     ]) {
-      assert.isTrue(await runtimePathExists(dir), `expected directory: ${dir}`);
+      assert.isFalse(
+        await runtimePathExists(dir),
+        `unexpected directory: ${dir}`,
+      );
     }
   });
 
@@ -385,20 +402,16 @@ describe("Synthesis Layer foundation", function () {
     assert.equal(result.transactionId, "tx-test");
     assert.isTrue(
       await runtimePathExists(
-        path.join(root, "synthesis", "tags", "vocabulary.json"),
+        path.join(paths.synthesisRoot, "tags", "vocabulary.json"),
       ),
     );
     assert.isTrue(
       await runtimePathExists(
-        path.join(root, "synthesis", "topics", "detr.json"),
+        path.join(paths.synthesisRoot, "topics", "detr.json"),
       ),
     );
 
-    const eventLines = (await readRuntimeTextFile(paths.eventsLog))
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
+    const eventLines = canonicalStorePayloads(root, "event");
     assert.lengthOf(eventLines, 1);
     assert.deepInclude(eventLines[0], {
       event: "canonical-store-changed",
@@ -410,10 +423,7 @@ describe("Synthesis Layer foundation", function () {
       "topics/detr.json",
     ]);
 
-    const receiptLines = (await readRuntimeTextFile(paths.receiptsLog))
-      .trim()
-      .split("\n")
-      .filter(Boolean);
+    const receiptLines = canonicalStorePayloads(root, "receipt");
     assert.lengthOf(receiptLines, 1);
 
     const projectionState = await readProjectionRegistryState(root);
@@ -486,9 +496,7 @@ describe("Synthesis Layer foundation", function () {
       },
     });
 
-    const diagnostics = await readRuntimeTextFile(
-      buildSynthesisKnowledgeGraphPaths(root).diagnosticsLog,
-    );
+    const diagnostics = canonicalStoreText(root, "diagnostic");
     assert.notInclude(diagnostics, "abc123");
     assert.notInclude(diagnostics, "hunter2");
     assert.notInclude(diagnostics, root);
@@ -526,8 +534,8 @@ describe("Synthesis Layer foundation", function () {
     assert.isFalse(
       await runtimePathExists(path.join(paths.tagsRoot, "CON.json")),
     );
-    assert.equal(await readRuntimeTextFile(paths.eventsLog), "");
-    assert.equal(await readRuntimeTextFile(paths.receiptsLog), "");
+    assert.lengthOf(canonicalStorePayloads(root, "event"), 0);
+    assert.lengthOf(canonicalStorePayloads(root, "receipt"), 0);
     const projectionState = await readProjectionRegistryState(root);
     assert.notProperty(projectionState.projections, "tags");
   });
@@ -561,8 +569,8 @@ describe("Synthesis Layer foundation", function () {
     }
 
     assert.isFalse(await runtimePathExists(paths.transactionsRoot));
-    assert.equal(await readRuntimeTextFile(paths.eventsLog), "");
-    assert.equal(await readRuntimeTextFile(paths.receiptsLog), "");
+    assert.lengthOf(canonicalStorePayloads(root, "event"), 0);
+    assert.lengthOf(canonicalStorePayloads(root, "receipt"), 0);
   });
 
   it("commits raw canonical envelope batches and rolls back promotion failures", async function () {
@@ -675,16 +683,13 @@ describe("Synthesis Layer foundation", function () {
     assert.isFalse(
       await runtimePathExists(path.join(paths.topicsRoot, "new.json")),
     );
-    assert.notInclude(
-      await readRuntimeTextFile(paths.diagnosticsLog),
-      "secret",
-    );
+    assert.notInclude(canonicalStoreText(root, "diagnostic"), "secret");
   });
 
   it("records projection rebuild state independent of SQLite cache files", async function () {
     const root = await makeRuntimeRoot();
     const paths = await initializeSynthesisKnowledgeGraphStore(root);
-    const sqlitePath = path.join(paths.stateRoot, "concept-kb-index.sqlite");
+    const sqlitePath = path.join(paths.sidecarRoot, "concept-kb-index.sqlite");
     await writeRuntimeTextFile(sqlitePath, "cache");
 
     await recordProjectionRebuild({
@@ -709,6 +714,35 @@ describe("Synthesis Layer foundation", function () {
       "2026-05-24T00:00:00.000Z",
     );
     assert.isFalse(await runtimePathExists(sqlitePath));
+  });
+
+  it("stores projection registry state in the persistence root for artifact data roots", async function () {
+    const persistenceRoot = path.join(await makeRuntimeRoot(), "zotero-agents");
+    const artifactRoot = path.join(persistenceRoot, "data");
+
+    await recordProjectionRebuild({
+      root: artifactRoot,
+      target: "tags",
+      schemaVersion: "1.0.0",
+      sourceManifestHash:
+        "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      diagnostics: [],
+      now: "2026-05-24T00:00:00.000Z",
+    });
+
+    const persistenceProjection = createSynthesisRepository({
+      runtimeRoot: persistenceRoot,
+    }).getCacheBasis("projection:tags");
+    const shadowProjection = createSynthesisRepository({
+      runtimeRoot: artifactRoot,
+    }).getCacheBasis("projection:tags");
+
+    assert.equal(persistenceProjection?.status, "ready");
+    assert.equal(
+      persistenceProjection?.sourceHash,
+      "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    );
+    assert.isNull(shadowProjection);
   });
 
   it("provides conservative foundation preference defaults", function () {

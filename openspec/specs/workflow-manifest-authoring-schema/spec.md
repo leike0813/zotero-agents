@@ -217,22 +217,36 @@ execute multiple skill runs as one ordered workflow.
 - **OR** it declares a `short_circuit.result` other than `step_output`
 - **THEN** the workflow manifest SHALL be rejected.
 
-### Requirement: Sequence steps declare handoff mapping
+### Requirement: Workflow manifest schema SHALL validate sequence handoff
 
-Sequence steps SHALL support a handoff mapping that selects fields from an
-upstream step output into the current step `input` or `parameter`.
+Workflow manifests SHALL accept only the typed sequence handoff binding shape.
 
-#### Scenario: Default handoff passthrough
+#### Scenario: Legacy handoff shape is rejected
 
-- **WHEN** a non-first sequence step omits `handoff`
-- **THEN** the previous step output SHALL be passed to the step as
-  `input.handoff`.
+- **WHEN** a sequence step declares legacy `handoff.input`, `handoff.parameter`, `handoff.pass_through`, `handoff.defaults`, or `handoff.from_step`
+- **THEN** the manifest SHALL fail schema validation.
 
-#### Scenario: Explicit handoff mapping
+#### Scenario: Typed handoff shape is accepted
 
-- **WHEN** a step declares `handoff.input` or `handoff.parameter`
-- **THEN** the runtime SHALL copy the referenced upstream fields into the
-  declared target fields before launching the step.
+- **WHEN** a sequence step declares `handoff.bindings[]` with `kind`, `target`, and either source or constant value semantics
+- **THEN** the manifest SHALL pass schema validation.
+
+### Requirement: Sequence steps MAY declare step apply behavior
+
+Workflow manifest schema SHALL allow `request.sequence.steps[]` entries to
+declare optional `apply_result` behavior.
+
+#### Scenario: Author declares step apply
+
+- **WHEN** a sequence step declares `apply_result.workflow_id` and
+  `apply_result.on_failure`
+- **THEN** manifest validation SHALL accept non-empty workflow ids
+- **AND** `on_failure` SHALL be limited to `continue` or `fail_sequence`.
+
+#### Scenario: Author omits step apply
+
+- **WHEN** a sequence step omits `apply_result`
+- **THEN** the step SHALL preserve existing no-intermediate-apply behavior.
 
 ### Requirement: Workflow manifests SHALL support display-only core metadata
 

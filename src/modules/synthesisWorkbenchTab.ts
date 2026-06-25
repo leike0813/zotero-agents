@@ -10,7 +10,11 @@ import { resolveAddonRef, resolveRuntimeToolkit } from "../utils/runtimeBridge";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
-import { getDefaultSynthesisService, topicPathId } from "./synthesis/service";
+import {
+  getDefaultSynthesisService,
+  invalidateDefaultSynthesisService,
+  topicPathId,
+} from "./synthesis/service";
 import {
   copyRuntimeFile,
   getRuntimePersistencePaths,
@@ -43,6 +47,7 @@ import {
   type SynthesisUiTab,
   type SynthesisWorkbenchSurfaceName,
 } from "./synthesis/uiModel";
+import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -261,7 +266,7 @@ function resolveSynthesisPageUrl() {
   if (!addonRef) {
     return "about:blank";
   }
-  return `chrome://${addonRef}/content/synthesis/index.html?ui=20260520-controls-v5`;
+  return `chrome://${addonRef}/content/synthesis/index.html?ui=20260617-taxonomy-axis-v2`;
 }
 
 function resolveWorkflowHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
@@ -410,6 +415,15 @@ function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
     },
     registry: {
       rows: [],
+    },
+    reviews: {
+      summary: {
+        openCount: 0,
+        indexCount: 0,
+        referenceMatchingCount: 0,
+        conceptCount: 0,
+        topicGraphCount: 0,
+      },
     },
     graph: {
       graph_hash: "",
@@ -607,6 +621,14 @@ function findUpdateTopicSynthesisWorkflow() {
   );
 }
 
+function findTagBootstrapperWorkflow() {
+  return (
+    getLoadedWorkflowEntries().find(
+      (entry) => entry.manifest.id === "tag-bootstrapper",
+    ) || null
+  );
+}
+
 async function runCreateTopicSynthesisFromWorkbench(args: {
   hostWindow?: _ZoteroTypes.MainWindow;
 }) {
@@ -673,6 +695,30 @@ async function runUpdateTopicSynthesisFromWorkbench(args: {
         topicId: args.topicId,
       },
     },
+  });
+}
+
+async function runTagBootstrapperFromWorkbench(args: {
+  hostWindow?: _ZoteroTypes.MainWindow;
+}) {
+  const hostWindow = resolveWorkflowHostWindow(args.hostWindow);
+  if (!hostWindow) {
+    throw new Error(
+      "Cannot bootstrap tags: Zotero main window is unavailable.",
+    );
+  }
+  const workflow = findTagBootstrapperWorkflow();
+  if (!workflow) {
+    alertWindow(
+      hostWindow,
+      "Cannot bootstrap tags: tag-bootstrapper workflow is not loaded. Rescan builtin workflows and try again.",
+    );
+    return;
+  }
+  await executeWorkflowFromCurrentSelection({
+    win: hostWindow,
+    workflow,
+    requireSettingsGate: true,
   });
 }
 
@@ -744,6 +790,16 @@ function ensureCommandProgressPolling(runtime: SynthesisWorkbenchRuntime) {
   if (runtime.commandProgressTimer) {
     return;
   }
+  registerBackgroundRefreshTimer({
+    owner: "synthesis-command-progress",
+    activationCondition: "synthesis command is in flight",
+    scopeKey: "in-flight synthesis commands",
+    allowedDataSources: ["synthesis command progress"],
+    maxReadShape: "current command progress snapshot only",
+    requiresForegroundSurface: true,
+    minimumIntervalMs: SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS,
+    intervalMs: SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS,
+  });
   runtime.commandProgressTimer = globalThis.setInterval(() => {
     if (!runtime.inFlightCommands.size) {
       clearCommandProgressPolling(runtime);
@@ -759,6 +815,34 @@ function clearCommandProgressPolling(runtime: SynthesisWorkbenchRuntime) {
   }
   globalThis.clearInterval(runtime.commandProgressTimer);
   runtime.commandProgressTimer = undefined;
+}
+
+function isGitSyncRuntimeCommand(
+  command: SynthesisUiActionOperation["command"] | undefined,
+) {
+  return (
+    command === "syncNow" ||
+    command === "syncWebDavNow" ||
+    command === "pauseGitSync" ||
+    command === "resumeGitSync" ||
+    command === "retryGitSync" ||
+    command === "resolveGitSyncConflict" ||
+    command === "pauseWebDavSync" ||
+    command === "resumeWebDavSync" ||
+    command === "retryWebDavSync" ||
+    command === "resolveWebDavSyncConflict"
+  );
+}
+
+function hasInFlightGitSyncCommand(runtime: SynthesisWorkbenchRuntime) {
+  return Array.from(runtime.inFlightCommands.values()).some((operation) =>
+    isGitSyncRuntimeCommand(operation.command),
+  );
+}
+
+function getFreshSynthesisServiceForGitSyncCommand() {
+  invalidateDefaultSynthesisService();
+  return getDefaultSynthesisService();
 }
 
 async function notifyWorkbenchCommandProgress(
@@ -778,6 +862,12 @@ async function refreshWorkbenchCommandProgress(
   }
   runtime.commandProgressSnapshotRunning = true;
   try {
+    if (hasInFlightGitSyncCommand(runtime)) {
+      await sendChrome(runtime, {
+        refreshFromService: true,
+      });
+      return;
+    }
     if (!runtime.snapshotInputLocked) {
       const base = runtime.snapshotInput || buildDefaultSnapshotInput();
       runtime.snapshotInput = {
@@ -819,7 +909,7 @@ function runWorkbenchCommandOnce(
   }
   runtime.inFlightCommands.set(operation.key, operation);
   void sendChrome(runtime, {
-    refreshFromService: false,
+    refreshFromService: isGitSyncRuntimeCommand(command),
   });
   ensureCommandProgressPolling(runtime);
   const start = () =>
@@ -882,6 +972,54 @@ function failOnDiagnostic<T>(result: T): T {
     throw new Error(String(row.message || row.code || "Action failed."));
   }
   return result;
+}
+
+function syncStateString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function firstSyncDiagnosticMessage(
+  diagnostics: unknown[],
+  fallback = "Sync failed.",
+) {
+  const row = diagnostics.find(
+    (entry) => entry && typeof entry === "object",
+  ) as Record<string, unknown> | undefined;
+  if (!row) {
+    return fallback;
+  }
+  const code = syncStateString(row.code);
+  const message = syncStateString(row.message);
+  if (code && message) {
+    return `${code}: ${message}`;
+  }
+  return message || code || fallback;
+}
+
+function failOnSyncFailureState<T>(result: T): T {
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+  const row = result as Record<string, unknown>;
+  const queueState = syncStateString(row.queue_state);
+  const lastRun =
+    row.last_run && typeof row.last_run === "object"
+      ? (row.last_run as Record<string, unknown>)
+      : {};
+  const lastRunStatus = syncStateString(lastRun.status);
+  const failed =
+    queueState === "failed_retryable" ||
+    queueState === "failed_permanent" ||
+    lastRunStatus === "failed_retryable" ||
+    lastRunStatus === "failed_permanent";
+  if (!failed) {
+    return result;
+  }
+  const diagnostics = [
+    ...(Array.isArray(row.diagnostics) ? row.diagnostics : []),
+    ...(Array.isArray(lastRun.diagnostics) ? lastRun.diagnostics : []),
+  ];
+  throw new Error(firstSyncDiagnosticMessage(diagnostics));
 }
 
 async function sendSnapshot(
@@ -1180,6 +1318,13 @@ function inlineScriptText(value: string) {
   return value.replace(/<\/script/gi, "<\\/script");
 }
 
+function cssDataUrlForSvg(value: string) {
+  return `data:image/svg+xml,${encodeURIComponent(value)
+    .replace(/'/g, "%27")
+    .replace(/\(/g, "%28")
+    .replace(/\)/g, "%29")}`;
+}
+
 async function readPackagedTextAsset(relativePath: string) {
   const read = await readPackagedBinaryAsset(relativePath);
   if (!read.ok) {
@@ -1197,38 +1342,70 @@ async function readPackagedTextAsset(relativePath: string) {
   return new Decoder("utf-8").decode(read.bytes);
 }
 
+async function inlineMaterialSymbolIconUrls(css: string) {
+  const replacements = new Map<string, string>();
+  const matches = css.matchAll(
+    /url\(["']?(\.\.\/icons\/material-symbols\/[^"')]+\.svg)["']?\)/g,
+  );
+  for (const match of matches) {
+    const rawUrl = match[1] || "";
+    if (!rawUrl || replacements.has(rawUrl)) {
+      continue;
+    }
+    const svgPath = rawUrl.replace(/^\.\.\//, "content/");
+    const svg = await readPackagedTextAsset(svgPath);
+    replacements.set(rawUrl, cssDataUrlForSvg(svg));
+  }
+  return Array.from(replacements.entries()).reduce(
+    (nextCss, [rawUrl, dataUrl]) =>
+      nextCss.replaceAll(`url("${rawUrl}")`, `url("${dataUrl}")`),
+    css,
+  );
+}
+
 async function readSynthesisExportAssets() {
   const [
     themeJs,
     themeCss,
+    iconsCss,
+    topicTimelineCss,
     katexCss,
     synthesisCss,
     markdownItJs,
     katexJs,
     texmathJs,
+    markdownRendererJs,
     appJs,
   ] = await Promise.all([
     readPackagedTextAsset("content/shared/theme.js"),
     readPackagedTextAsset("content/shared/theme.css"),
-    readPackagedTextAsset("content/dashboard/vendor/katex/katex.min.css"),
+    readPackagedTextAsset("content/shared/icons.css").then(
+      inlineMaterialSymbolIconUrls,
+    ),
+    readPackagedTextAsset("content/shared/topicTimeline.css"),
+    readPackagedTextAsset("content/shared/vendor/katex/katex.min.css"),
     readPackagedTextAsset("content/synthesis/styles.css"),
     readPackagedTextAsset(
-      "content/dashboard/vendor/markdown-it/markdown-it.min.js",
+      "content/shared/vendor/markdown-it/markdown-it.min.js",
     ),
-    readPackagedTextAsset("content/dashboard/vendor/katex/katex.min.js"),
+    readPackagedTextAsset("content/shared/vendor/katex/katex.min.js"),
     readPackagedTextAsset(
-      "content/dashboard/vendor/markdown-it-texmath/texmath.min.js",
+      "content/shared/vendor/markdown-it-texmath/texmath.min.js",
     ),
+    readPackagedTextAsset("content/shared/markdown-renderer.js"),
     readPackagedTextAsset("content/synthesis/app.bundle.js"),
   ]);
   return {
     themeJs,
     themeCss,
+    iconsCss,
+    topicTimelineCss,
     katexCss,
     synthesisCss,
     markdownItJs,
     katexJs,
     texmathJs,
+    markdownRendererJs,
     appJs,
   };
 }
@@ -1489,7 +1666,7 @@ async function buildTopicDetailHtmlExport(
     '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
     `<title>${escapeHtmlText(title)}</title>`,
     `<script>${inlineScriptText(assets.themeJs)}</script>`,
-    `<style>${assets.themeCss}\n${assets.katexCss}\n${assets.synthesisCss}</style>`,
+    `<style>${assets.themeCss}\n${assets.iconsCss}\n${assets.topicTimelineCss}\n${assets.katexCss}\n${assets.synthesisCss}</style>`,
     "</head>",
     '<body class="synthesis-standalone-export">',
     '<div id="app" class="synthesis-root"></div>',
@@ -1497,6 +1674,7 @@ async function buildTopicDetailHtmlExport(
     `<script>${inlineScriptText(assets.markdownItJs)}</script>`,
     `<script>${inlineScriptText(assets.katexJs)}</script>`,
     `<script>${inlineScriptText(assets.texmathJs)}</script>`,
+    `<script>${inlineScriptText(assets.markdownRendererJs)}</script>`,
     `<script>${inlineScriptText(assets.appJs)}</script>`,
     "</body>",
     "</html>",
@@ -1506,10 +1684,12 @@ async function buildTopicDetailHtmlExport(
 
 const TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID =
   "synthesis.topic_detail_html_export_metadata";
+const TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 7;
 
 type TopicDetailHtmlExportMetadata = {
   schema_id?: string;
   schema_version?: number;
+  renderer_version?: number;
   topic_id?: string;
   topic_signature?: string;
   html_hash?: string;
@@ -1562,6 +1742,7 @@ async function isTopicDetailHtmlExportCurrent(args: {
   const html = await readRuntimeTextFile(args.paths.currentTopicDetailHtml);
   return (
     metadata?.schema_id === TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID &&
+    metadata.renderer_version === TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION &&
     metadata.topic_id === args.topicId &&
     metadata.topic_signature === args.topicSignature &&
     metadata.html_hash === hashCanonicalJson(html)
@@ -1588,6 +1769,7 @@ async function ensureCachedTopicDetailHtmlExport(
   const metadata: TopicDetailHtmlExportMetadata = {
     schema_id: TOPIC_DETAIL_HTML_EXPORT_METADATA_SCHEMA_ID,
     schema_version: 1,
+    renderer_version: TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION,
     topic_id: topicId,
     topic_signature: topicSignature,
     html_hash: hashCanonicalJson(html),
@@ -1821,13 +2003,21 @@ function handleAction(
     return;
   }
   if (result.hostCommand?.command === "openPreferences") {
-    void addon.hooks.onPrefsEvent("openWorkflowSettings", {
+    void addon.hooks.onPrefsEvent("openPreferencesPane", {
       window: runtime.window,
     });
   }
   if (result.hostCommand?.command === "runSynthesizeTopic") {
     runWorkbenchCommandOnce(runtime, "runSynthesizeTopic", {}, () =>
       runCreateTopicSynthesisFromWorkbench({
+        hostWindow: runtime.window,
+      }),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "runTagBootstrapper") {
+    runWorkbenchCommandOnce(runtime, "runTagBootstrapper", {}, () =>
+      runTagBootstrapperFromWorkbench({
         hostWindow: runtime.window,
       }),
     );
@@ -2373,35 +2563,86 @@ function handleAction(
   }
   if (result.hostCommand?.command === "syncNow") {
     runWorkbenchCommandOnce(runtime, "syncNow", {}, () =>
-      getDefaultSynthesisService().syncNow(),
+      getFreshSynthesisServiceForGitSyncCommand()
+        .syncNow()
+        .then(failOnSyncFailureState),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "syncWebDavNow") {
+    runWorkbenchCommandOnce(
+      runtime,
+      "syncWebDavNow",
+      {},
+      () =>
+        getFreshSynthesisServiceForGitSyncCommand()
+          .syncWebDavNow()
+          .then(failOnSyncFailureState),
+      { deferStart: true },
     );
     return;
   }
   if (result.hostCommand?.command === "pauseGitSync") {
     runWorkbenchCommandOnce(runtime, "pauseGitSync", {}, () =>
-      getDefaultSynthesisService().pauseGitSync(),
+      getFreshSynthesisServiceForGitSyncCommand().pauseGitSync(),
     );
     return;
   }
   if (result.hostCommand?.command === "resumeGitSync") {
     runWorkbenchCommandOnce(runtime, "resumeGitSync", {}, () =>
-      getDefaultSynthesisService().resumeGitSync(),
+      getFreshSynthesisServiceForGitSyncCommand().resumeGitSync(),
     );
     return;
   }
   if (result.hostCommand?.command === "retryGitSync") {
     runWorkbenchCommandOnce(runtime, "retryGitSync", {}, () =>
-      getDefaultSynthesisService().retryGitSync(),
+      getFreshSynthesisServiceForGitSyncCommand()
+        .retryGitSync()
+        .then(failOnSyncFailureState),
     );
     return;
   }
   if (result.hostCommand?.command === "resolveGitSyncConflict") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
-    const action = String(commandArgs.action || "resolved").trim();
+    const action = String(commandArgs.action || "keep_local").trim();
     runWorkbenchCommandOnce(runtime, "resolveGitSyncConflict", { action }, () =>
-      getDefaultSynthesisService().resolveGitSyncConflict({
-        action: action === "skip" ? "skip" : "resolved",
+      getFreshSynthesisServiceForGitSyncCommand().resolveGitSyncConflict({
+        action: action as any,
       }),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "pauseWebDavSync") {
+    runWorkbenchCommandOnce(runtime, "pauseWebDavSync", {}, () =>
+      getFreshSynthesisServiceForGitSyncCommand().pauseWebDavSync(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "resumeWebDavSync") {
+    runWorkbenchCommandOnce(runtime, "resumeWebDavSync", {}, () =>
+      getFreshSynthesisServiceForGitSyncCommand().resumeWebDavSync(),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "retryWebDavSync") {
+    runWorkbenchCommandOnce(runtime, "retryWebDavSync", {}, () =>
+      getFreshSynthesisServiceForGitSyncCommand()
+        .retryWebDavSync()
+        .then(failOnSyncFailureState),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "resolveWebDavSyncConflict") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const action = String(commandArgs.action || "keep_local").trim();
+    runWorkbenchCommandOnce(
+      runtime,
+      "resolveWebDavSyncConflict",
+      { action },
+      () =>
+        getFreshSynthesisServiceForGitSyncCommand().resolveWebDavSyncConflict({
+          action,
+        }),
     );
     return;
   }
@@ -2765,6 +3006,7 @@ function surfacesInvalidatedByCommand(
   }
   if (
     command === "rebuildTagVocabularyIndex" ||
+    command === "runTagBootstrapper" ||
     command === "previewTagVocabularyImport" ||
     command === "applyTagVocabularyImport" ||
     command === "updateStagedTagSuggestion" ||
@@ -2911,7 +3153,7 @@ function finalizeWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
   }
   void sendSnapshot(runtime, "synthesis:init", { refreshFromService: false });
   void sendChrome(runtime, { refreshFromService: false });
-  void sendActiveSurface(runtime, { refreshFromService: false });
+  void sendActiveSurface(runtime);
 }
 
 function scheduleWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
@@ -2943,6 +3185,16 @@ function scheduleWorkbenchHandshake(runtime: SynthesisWorkbenchRuntime) {
     });
   };
   run();
+  registerBackgroundRefreshTimer({
+    owner: "synthesis-workbench-handshake",
+    activationCondition: "synthesis workbench frame is mounting",
+    scopeKey: "current synthesis workbench frame",
+    allowedDataSources: ["synthesis workbench frame handshake"],
+    maxReadShape: "frame handshake signal only",
+    requiresForegroundSurface: true,
+    minimumIntervalMs: SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS,
+    intervalMs: SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS,
+  });
   runtime.handshakeTimer = setInterval(
     run,
     SYNTHESIS_WORKBENCH_HANDSHAKE_INTERVAL_MS,

@@ -1,17 +1,18 @@
 import type { BackendInstance } from "../../backends/types";
+import { DEFAULT_BACKEND_TYPE } from "../../config/defaults";
 import type {
   ProviderExecutionResult,
   SkillRunnerSequenceRequestV1,
 } from "../../providers/contracts";
 import {
-  PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE,
-  listPluginTaskContextEntries,
-  upsertPluginTaskContextEntry,
+  listPluginRunStoreEntries,
+  upsertPluginRunStoreEntry,
 } from "../pluginStateStore";
+import type { SkillRunnerSkillDisplayById } from "../skillRunnerSubmissionContext";
 
 export type SequenceRunStateStatus =
   | "running_step"
-  | "waiting_recovery"
+  | "waiting_interaction"
   | "continuing"
   | "completed"
   | "failed"
@@ -20,16 +21,25 @@ export type SequenceRunStateStatus =
 export type SequenceStepRunState = {
   stepId: string;
   skillId: string;
+  skillName?: string;
   index: number;
   requestId?: string;
   status?: "running" | ProviderExecutionResult["status"];
+  error?: string;
   output?: unknown;
   result?: ProviderExecutionResult;
+  applyResult?: {
+    status: "succeeded" | "failed" | "skipped";
+    workflowId?: string;
+    result?: unknown;
+    error?: string;
+    updatedAt: string;
+  };
   updatedAt: string;
 };
 
 export type SequenceRunState = {
-  schemaVersion: "1.0.0";
+  schemaVersion: "2.0.0";
   sequenceRunId: string;
   workflowId: string;
   workflowLabel?: string;
@@ -80,7 +90,12 @@ function parseProviderResult(
       requestId,
       fetchType,
       resultJson: raw.resultJson,
+      resultJsonPath: normalizeString(raw.resultJsonPath) || undefined,
+      workspaceDir: normalizeString(raw.workspaceDir) || undefined,
+      resultArtifactBasePath:
+        normalizeString(raw.resultArtifactBasePath) || undefined,
       responseJson: raw.responseJson,
+      sequence: isRecord(raw.sequence) ? (raw.sequence as any) : undefined,
     };
   }
   if (status === "deferred") {
@@ -95,6 +110,18 @@ function parseProviderResult(
         backendStatus === "waiting_auth"
           ? backendStatus
           : "running",
+      detachReason:
+        normalizeString(raw.detachReason) === "waiting"
+          ? "waiting"
+          : normalizeString(raw.detachReason) === "observer_failure"
+            ? "observer_failure"
+            : undefined,
+      continuationOwner:
+        normalizeString(raw.continuationOwner) === "foreground"
+          ? "foreground"
+          : normalizeString(raw.continuationOwner) === "recovery"
+            ? "recovery"
+            : undefined,
       responseJson: raw.responseJson,
     };
   }
@@ -105,6 +132,10 @@ function parseProviderResult(
       fetchType,
       error: normalizeString(raw.error) || undefined,
       resultJson: raw.resultJson,
+      resultJsonPath: normalizeString(raw.resultJsonPath) || undefined,
+      workspaceDir: normalizeString(raw.workspaceDir) || undefined,
+      resultArtifactBasePath:
+        normalizeString(raw.resultArtifactBasePath) || undefined,
       responseJson: raw.responseJson,
     };
   }
@@ -118,7 +149,11 @@ function cloneProviderResult(result: ProviderExecutionResult) {
       requestId: result.requestId,
       fetchType: result.fetchType,
       resultJson: result.resultJson,
+      resultJsonPath: result.resultJsonPath,
+      workspaceDir: result.workspaceDir,
+      resultArtifactBasePath: result.resultArtifactBasePath,
       responseJson: result.responseJson,
+      sequence: result.sequence,
     } satisfies ProviderExecutionResult;
   }
   if (result.status === "deferred") {
@@ -127,6 +162,8 @@ function cloneProviderResult(result: ProviderExecutionResult) {
       requestId: result.requestId,
       fetchType: result.fetchType,
       backendStatus: result.backendStatus,
+      detachReason: result.detachReason,
+      continuationOwner: result.continuationOwner,
       responseJson: result.responseJson,
     } satisfies ProviderExecutionResult;
   }
@@ -136,8 +173,30 @@ function cloneProviderResult(result: ProviderExecutionResult) {
     fetchType: result.fetchType,
     error: result.error,
     resultJson: result.resultJson,
+    resultJsonPath: result.resultJsonPath,
+    workspaceDir: result.workspaceDir,
+    resultArtifactBasePath: result.resultArtifactBasePath,
     responseJson: result.responseJson,
   } satisfies ProviderExecutionResult;
+}
+
+function parseStepApplyResult(
+  raw: unknown,
+): SequenceStepRunState["applyResult"] {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const status = normalizeString(raw.status);
+  if (status !== "succeeded" && status !== "failed" && status !== "skipped") {
+    return undefined;
+  }
+  return {
+    status,
+    workflowId: normalizeString(raw.workflowId) || undefined,
+    result: raw.result,
+    error: normalizeString(raw.error) || undefined,
+    updatedAt: normalizeString(raw.updatedAt) || nowIso(),
+  };
 }
 
 function parseStep(raw: unknown): SequenceStepRunState | null {
@@ -154,6 +213,7 @@ function parseStep(raw: unknown): SequenceStepRunState | null {
   return {
     stepId,
     skillId,
+    skillName: normalizeString(raw.skillName) || undefined,
     index,
     requestId: normalizeString(raw.requestId) || undefined,
     status:
@@ -164,14 +224,19 @@ function parseStep(raw: unknown): SequenceStepRunState | null {
       status === "canceled"
         ? status
         : undefined,
+    error: normalizeString(raw.error) || undefined,
     output: raw.output,
     result: parseProviderResult(raw.result),
+    applyResult: parseStepApplyResult(raw.applyResult),
     updatedAt: normalizeString(raw.updatedAt) || nowIso(),
   };
 }
 
 function parseState(raw: unknown): SequenceRunState | null {
   if (!isRecord(raw)) {
+    return null;
+  }
+  if (normalizeString(raw.schemaVersion) !== "2.0.0") {
     return null;
   }
   const sequenceRunId = normalizeString(raw.sequenceRunId);
@@ -192,7 +257,7 @@ function parseState(raw: unknown): SequenceRunState | null {
         .filter((entry): entry is SequenceStepRunState => !!entry)
     : [];
   return {
-    schemaVersion: "1.0.0",
+    schemaVersion: "2.0.0",
     sequenceRunId,
     workflowId,
     workflowLabel: normalizeString(raw.workflowLabel) || undefined,
@@ -212,7 +277,7 @@ function parseState(raw: unknown): SequenceRunState | null {
     rootRequestId: normalizeString(raw.rootRequestId) || undefined,
     status:
       status === "running_step" ||
-      status === "waiting_recovery" ||
+      status === "waiting_interaction" ||
       status === "continuing" ||
       status === "completed" ||
       status === "failed" ||
@@ -226,15 +291,44 @@ function parseState(raw: unknown): SequenceRunState | null {
   };
 }
 
+function sequenceRunKey(sequenceRunId: string) {
+  return `sequence:${sequenceRunId}`;
+}
+
+function parseStoredSequencePayload(payload: string) {
+  try {
+    const raw = JSON.parse(payload || "{}");
+    const envelope =
+      isRecord(raw) && isRecord(raw.sequenceState) ? raw.sequenceState : raw;
+    return parseState(envelope);
+  } catch {
+    return null;
+  }
+}
+
 function persistState(state: SequenceRunState) {
-  upsertPluginTaskContextEntry(PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE, {
-    contextId: state.sequenceRunId,
-    requestId: state.rootRequestId || "",
+  const storeKind =
+    normalizeString(state.backendType) === DEFAULT_BACKEND_TYPE
+      ? "skillrunner"
+      : "acp";
+  upsertPluginRunStoreEntry(storeKind, {
+    runKey: sequenceRunKey(state.sequenceRunId),
+    requestId: "",
     backendId: state.backendId,
     state: state.status,
     updatedAt: state.updatedAt,
-    payload: JSON.stringify(state),
+    payload: JSON.stringify({
+      schema: "workflow.sequence.state.v2",
+      sequenceState: state,
+    }),
   });
+}
+
+function listSequenceStateEntries() {
+  return [
+    ...listPluginRunStoreEntries("skillrunner"),
+    ...listPluginRunStoreEntries("acp"),
+  ];
 }
 
 function updateState(
@@ -275,10 +369,11 @@ export function initializeSequenceRunState(args: {
   workflowLabel?: string;
   workflowRunId: string;
   jobId: string;
+  skillDisplayById?: SkillRunnerSkillDisplayById;
 }) {
   const now = nowIso();
   const state: SequenceRunState = {
-    schemaVersion: "1.0.0",
+    schemaVersion: "2.0.0",
     sequenceRunId: args.workflowRunId,
     workflowId: args.workflowId,
     workflowLabel: args.workflowLabel,
@@ -296,6 +391,9 @@ export function initializeSequenceRunState(args: {
     steps: args.request.steps.map((step, index) => ({
       stepId: step.id,
       skillId: step.skill_id,
+      skillName:
+        normalizeString(args.skillDisplayById?.[step.skill_id]?.skillName) ||
+        undefined,
       index,
       updatedAt: now,
     })),
@@ -311,17 +409,11 @@ export function getSequenceRunState(sequenceRunIdRaw: string) {
   if (!sequenceRunId) {
     return null;
   }
-  for (const entry of listPluginTaskContextEntries(
-    PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE,
-  )) {
-    if (entry.contextId !== sequenceRunId) {
-      continue;
-    }
-    try {
-      return parseState(JSON.parse(entry.payload || "{}"));
-    } catch {
-      return null;
-    }
+  const entry = listSequenceStateEntries().find(
+    (entry) => entry.runKey === sequenceRunKey(sequenceRunId),
+  );
+  if (entry) {
+    return parseStoredSequencePayload(entry.payload);
   }
   return null;
 }
@@ -331,20 +423,12 @@ export function getSequenceRunStateByStepRequest(requestIdRaw: string) {
   if (!requestId) {
     return null;
   }
-  for (const entry of listPluginTaskContextEntries(
-    PLUGIN_TASK_DOMAIN_WORKFLOW_SEQUENCE,
-  )) {
-    try {
-      const state = parseState(JSON.parse(entry.payload || "{}"));
-      if (
-        state?.steps.some(
-          (step) => normalizeString(step.requestId) === requestId,
-        )
-      ) {
-        return state;
-      }
-    } catch {
-      continue;
+  for (const entry of listSequenceStateEntries()) {
+    const state = parseStoredSequencePayload(entry.payload);
+    if (
+      state?.steps.some((step) => normalizeString(step.requestId) === requestId)
+    ) {
+      return state;
     }
   }
   return null;
@@ -410,7 +494,7 @@ export function recordSequenceStepSucceeded(args: {
   );
 }
 
-export function recordSequenceStepDeferred(args: {
+export function recordSequenceStepWaiting(args: {
   sequenceRunId: string;
   stepIndex: number;
   requestId: string;
@@ -420,7 +504,7 @@ export function recordSequenceStepDeferred(args: {
     const next = updateStep(
       {
         ...state,
-        status: "waiting_recovery",
+        status: "waiting_interaction",
       },
       args.stepIndex,
       (step) => ({
@@ -437,10 +521,66 @@ export function recordSequenceStepDeferred(args: {
   });
 }
 
+export function recordSequenceStepTerminal(args: {
+  sequenceRunId: string;
+  stepIndex: number;
+  requestId?: string;
+  status: "failed" | "canceled";
+  error?: string;
+}) {
+  return updateState(args.sequenceRunId, (state) =>
+    updateStep(
+      {
+        ...state,
+        status: args.status,
+        error: normalizeString(args.error) || undefined,
+      },
+      args.stepIndex,
+      (step) => ({
+        ...step,
+        requestId: normalizeString(args.requestId) || step.requestId,
+        status: args.status,
+        error: normalizeString(args.error) || undefined,
+      }),
+    ),
+  );
+}
+
+export function recordSequenceStepApplyResult(args: {
+  sequenceRunId: string;
+  stepIndex: number;
+  workflowId?: string;
+  status: "succeeded" | "failed" | "skipped";
+  result?: unknown;
+  error?: string;
+}) {
+  return updateState(args.sequenceRunId, (state) =>
+    updateStep(state, args.stepIndex, (step) => ({
+      ...step,
+      applyResult: {
+        status: args.status,
+        workflowId: normalizeString(args.workflowId) || undefined,
+        result: args.result,
+        error: normalizeString(args.error) || undefined,
+        updatedAt: nowIso(),
+      },
+    })),
+  );
+}
+
 export function markSequenceRunContinuing(sequenceRunId: string) {
   return updateState(sequenceRunId, (state) => ({
     ...state,
     status: "continuing",
+    error: undefined,
+    updatedAt: nowIso(),
+  }));
+}
+
+export function markSequenceRunWaitingInteraction(sequenceRunId: string) {
+  return updateState(sequenceRunId, (state) => ({
+    ...state,
+    status: "waiting_interaction",
     error: undefined,
     updatedAt: nowIso(),
   }));

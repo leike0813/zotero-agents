@@ -50,21 +50,12 @@ describe("zotero test background cleanup harness", function () {
       resetSkillRunnerBackendHealthRegistryForTests: mark(
         "resetSkillRunnerBackendHealthRegistryForTests",
       ),
-      resetDeferredWorkflowCompletionTrackerForTests: mark(
-        "resetDeferredWorkflowCompletionTrackerForTests",
-      ),
-      resetSkillRunnerRequestLedgerForTests: mark(
-        "resetSkillRunnerRequestLedgerForTests",
-      ),
       resetPluginStateStoreForTests: mark("resetPluginStateStoreForTests"),
       setSkillRunnerBackendReconcileFailureToastEmitterForTests: mark(
         "setSkillRunnerBackendReconcileFailureToastEmitterForTests",
       ),
       setSkillRunnerTaskLifecycleToastEmitterForTests: mark(
         "setSkillRunnerTaskLifecycleToastEmitterForTests",
-      ),
-      setDeferredWorkflowCompletionTrackerDepsForTests: mark(
-        "setDeferredWorkflowCompletionTrackerDepsForTests",
       ),
       resetWorkflowTasks: mark("resetWorkflowTasks"),
       clearRuntimeLogs: mark("clearRuntimeLogs"),
@@ -82,12 +73,9 @@ describe("zotero test background cleanup harness", function () {
       "resetManagedLocalRuntimeStateChangeListenersForTests",
       "resetLocalRuntimeToastStateForTests",
       "resetSkillRunnerBackendHealthRegistryForTests",
-      "resetDeferredWorkflowCompletionTrackerForTests",
-      "resetSkillRunnerRequestLedgerForTests",
       "resetPluginStateStoreForTests",
       "setSkillRunnerBackendReconcileFailureToastEmitterForTests",
       "setSkillRunnerTaskLifecycleToastEmitterForTests",
-      "setDeferredWorkflowCompletionTrackerDepsForTests",
       "resetWorkflowTasks",
       "clearRuntimeLogs",
     ]);
@@ -119,9 +107,7 @@ describe("zotero test background cleanup harness", function () {
 
     const cleanupPromise = cleanupBackgroundRuntimeForZoteroTests();
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      if (
-        calls.includes("resetSkillRunnerTaskReconcilerForTests:start")
-      ) {
+      if (calls.includes("resetSkillRunnerTaskReconcilerForTests:start")) {
         break;
       }
       await Promise.resolve();
@@ -175,12 +161,6 @@ describe("zotero test background cleanup harness", function () {
       resetSkillRunnerBackendHealthRegistryForTests: () => {
         calls += 1;
       },
-      resetDeferredWorkflowCompletionTrackerForTests: () => {
-        calls += 1;
-      },
-      resetSkillRunnerRequestLedgerForTests: () => {
-        calls += 1;
-      },
       resetPluginStateStoreForTests: () => {
         calls += 1;
       },
@@ -188,9 +168,6 @@ describe("zotero test background cleanup harness", function () {
         calls += 1;
       },
       setSkillRunnerTaskLifecycleToastEmitterForTests: () => {
-        calls += 1;
-      },
-      setDeferredWorkflowCompletionTrackerDepsForTests: () => {
         calls += 1;
       },
       resetWorkflowTasks: () => {
@@ -204,7 +181,7 @@ describe("zotero test background cleanup harness", function () {
     await cleanupBackgroundRuntimeForZoteroTests();
     await cleanupBackgroundRuntimeForZoteroTests();
 
-    assert.equal(calls, 34);
+    assert.equal(calls, 28);
   });
 
   it("resets local runtime loop state back to inert defaults", async function () {

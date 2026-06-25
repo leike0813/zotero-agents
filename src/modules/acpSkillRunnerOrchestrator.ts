@@ -14,11 +14,13 @@ import {
 import { createUnavailableBundleReader } from "./workflowExecution/bundleIO";
 import { createWorkflowResultContext } from "./workflowExecution/resultContext";
 import { resolveTargetParentIDFromRequest } from "./workflowExecution/requestMeta";
+import { executeSequenceStepApply } from "./workflowExecution/sequenceStepApply";
 import type {
   ProviderOrchestrationContext,
   ProviderProgressEvent,
 } from "../providers/types";
 import { appendRuntimeLog } from "./runtimeLogManager";
+import { collectSkillRunFeedbackSidecar } from "./skillRunFeedback";
 import {
   type PluginSkillRegistrySnapshot,
   scanPluginSkillRegistry,
@@ -40,6 +42,7 @@ import {
 } from "./hostBridgeCliInjection";
 import {
   createAcpSkillRunnerWorkspace,
+  registerAcpWorkflowWorkspaceForReuse,
   writeAcpSkillRunnerInputManifest,
   type AcpSkillRunnerWorkspace,
 } from "./acpSkillRunnerWorkspace";
@@ -47,6 +50,7 @@ import {
   materializeAcpSkill,
   type AcpSkillMaterializationResult,
 } from "./acpSkillMaterializer";
+import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
   buildAcpSkillRunPrompt,
   materializeAcpRunExecutionInstructions,
@@ -77,6 +81,8 @@ import { ensureZoteroMcpServer } from "./zoteroMcpServer";
 import { listZoteroMcpTools } from "./zoteroMcpProtocol";
 import {
   appendAcpSkillRunUserReply,
+  appendAcpSkillRunHardTimeoutTranscriptNotice,
+  completeAcpSkillRunTranscriptTurnBoundary,
   getAcpSkillRunRecord,
   markAcpSkillRunApplyResult,
   projectAcpSkillRunOutputEnvelopeToTranscript,
@@ -89,6 +95,10 @@ import {
   setAcpSkillRunRuntimeOptions,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
+import {
+  requestAcpSkillRunForeground,
+  type AcpSkillRunForegroundDeps,
+} from "./acpSkillRunForeground";
 import { resolveAcpRawModelIdForSelection } from "./acpModelOptionFolding";
 import {
   listWorkflowTasks,
@@ -144,6 +154,7 @@ export type AcpSkillRunnerDependencies = {
     requestId: string;
     autoApproveWrites?: boolean;
   }) => Promise<HostBridgeCliRunInjection>;
+  acpSkillRunForeground?: Partial<AcpSkillRunForegroundDeps>;
   maxRepairRounds?: number;
   sharedSkillCatalogRootDir?: string;
 };
@@ -171,6 +182,28 @@ type AcpPromptOutcome = {
   backendError?: AcpPromptBackendError;
 };
 
+const DEFAULT_ACP_SKILL_HARD_TIMEOUT_SECONDS = 1200;
+const ACP_HARD_TIMEOUT_TRANSCRIPT_DRAIN_MS = 250;
+
+const ACP_SKILL_RUNTIME_DEFAULT_OPTION_KEYS = new Set([
+  "no_cache",
+  "execution_mode",
+  "interactive_auto_reply",
+  "interactive_reply_timeout_sec",
+  "hard_timeout_seconds",
+  "workspace",
+  "env",
+  "collect_skill_run_feedback",
+]);
+
+type AcpHardTimeoutSource = "request" | "runner" | "default";
+
+export type AcpSkillRunEffectiveRuntimeOptions = {
+  runtimeOptions: Record<string, unknown>;
+  hardTimeoutSeconds: number;
+  hardTimeoutSource: AcpHardTimeoutSource;
+};
+
 type AcpPromptFailureDiagnostic = {
   stage: "acp-prompt-no-output" | "acp-prompt-stopped" | "acp-prompt-failed";
   message: string;
@@ -190,6 +223,19 @@ class AcpPromptFailureError extends Error {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function toPositiveInteger(value: unknown) {
+  const numberValue =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && normalizeString(value)
+        ? Number(value)
+        : NaN;
+  if (!Number.isInteger(numberValue) || numberValue < 1) {
+    return undefined;
+  }
+  return numberValue;
 }
 
 function errorMessage(error: unknown) {
@@ -292,6 +338,65 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function cloneJsonRecord(value: unknown) {
+  return isJsonObject(value) ? { ...value } : {};
+}
+
+function resolveRunnerRuntimeDefaultOptions(
+  runnerJson: Record<string, unknown>,
+) {
+  const runtime = runnerJson.runtime;
+  if (!isJsonObject(runtime)) {
+    return {};
+  }
+  const defaults = cloneJsonRecord(runtime.default_options);
+  return Object.fromEntries(
+    Object.entries(defaults).filter(([key]) =>
+      ACP_SKILL_RUNTIME_DEFAULT_OPTION_KEYS.has(key.trim()),
+    ),
+  );
+}
+
+export function resolveAcpSkillRunEffectiveRuntimeOptions(args: {
+  request: AcpSkillRunRequestV1;
+  runnerJson: Record<string, unknown>;
+  providerOptions?: Record<string, unknown>;
+}): AcpSkillRunEffectiveRuntimeOptions {
+  const runnerDefaults = resolveRunnerRuntimeDefaultOptions(args.runnerJson);
+  const requestRuntimeOptions = cloneJsonRecord(args.request.runtime_options);
+  const providerTimeout = toPositiveInteger(
+    args.providerOptions?.hard_timeout_seconds,
+  );
+  const providerRuntimeOptions =
+    typeof providerTimeout === "number"
+      ? { hard_timeout_seconds: providerTimeout }
+      : {};
+  const runtimeOptions: Record<string, unknown> = {
+    ...runnerDefaults,
+    ...requestRuntimeOptions,
+    ...providerRuntimeOptions,
+  };
+  const requestTimeout = toPositiveInteger(
+    providerRuntimeOptions.hard_timeout_seconds ??
+      requestRuntimeOptions.hard_timeout_seconds,
+  );
+  const runnerTimeout = toPositiveInteger(runnerDefaults.hard_timeout_seconds);
+  const hardTimeoutSeconds =
+    requestTimeout ?? runnerTimeout ?? DEFAULT_ACP_SKILL_HARD_TIMEOUT_SECONDS;
+  const hardTimeoutSource: AcpHardTimeoutSource =
+    typeof requestTimeout === "number"
+      ? "request"
+      : typeof runnerTimeout === "number"
+        ? "runner"
+        : "default";
+  runtimeOptions.hard_timeout_seconds = hardTimeoutSeconds;
+  return {
+    runtimeOptions,
+    hardTimeoutSeconds,
+    hardTimeoutSource,
+  };
+}
+
 function cloneJsonObject(
   value: unknown,
   label: string,
@@ -312,7 +417,9 @@ function normalizeStringArray(value: unknown) {
 }
 
 function resolveWorkflowWorkspaceIntent(request: AcpSkillRunRequestV1) {
-  const raw = request.runtime_options?.workflow_workspace;
+  const raw =
+    request.runtime_options?.workspace ||
+    request.runtime_options?.workflow_workspace;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return undefined;
   }
@@ -556,6 +663,149 @@ function resolveZoteroHostAccessRequirement(args: {
   };
 }
 
+function createAcpHardTimeoutMonitor(args: {
+  requestId: string;
+  seconds: number;
+  source: AcpHardTimeoutSource;
+  onTimeout: () => Promise<void>;
+}) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timeoutPromise: Promise<"timeout"> | null = null;
+  let resolveTimeout: (() => void) | null = null;
+  let triggered = false;
+  let paused = false;
+
+  const armTimer = () => {
+    if (timer || paused || triggered || !timeoutPromise) {
+      return;
+    }
+    timer = setTimeout(() => {
+      timer = null;
+      if (triggered) {
+        return;
+      }
+      triggered = true;
+      const resolve = resolveTimeout;
+      void args
+        .onTimeout()
+        .catch((error) => {
+          appendRuntimeLog({
+            level: "warn",
+            scope: "provider",
+            providerId: "acp",
+            requestId: args.requestId,
+            component: "acp-skillrunner",
+            operation: "hard-timeout-disconnect",
+            phase: "terminal",
+            stage: "hard-timeout-disconnect-failed",
+            message: errorMessage(error),
+            details: {
+              hardTimeoutSeconds: args.seconds,
+              hardTimeoutSource: args.source,
+            },
+          });
+        })
+        .finally(() => {
+          resolve?.();
+        });
+    }, args.seconds * 1000);
+  };
+
+  const clear = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    timeoutPromise = null;
+    resolveTimeout = null;
+    triggered = false;
+    paused = false;
+  };
+
+  const start = () => {
+    clear();
+    timeoutPromise = new Promise<"timeout">((resolve) => {
+      resolveTimeout = () => resolve("timeout");
+    });
+    armTimer();
+  };
+
+  const pause = () => {
+    if (!timeoutPromise || triggered) {
+      return;
+    }
+    paused = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const resume = () => {
+    if (!timeoutPromise || triggered) {
+      return;
+    }
+    paused = false;
+    armTimer();
+  };
+
+  const race = async <T>(
+    promise: Promise<T>,
+  ): Promise<{ timedOut: false; value: T } | { timedOut: true }> => {
+    if (!timeoutPromise) {
+      return { timedOut: false, value: await promise };
+    }
+    const guarded = promise
+      .then((value) => ({ kind: "value" as const, value }))
+      .catch((error) => ({ kind: "error" as const, error }));
+    const result = await Promise.race([
+      guarded,
+      timeoutPromise.then(() => ({ kind: "timeout" as const })),
+    ]);
+    if (result.kind === "timeout") {
+      promise.catch(() => undefined);
+      return { timedOut: true };
+    }
+    if (result.kind === "error") {
+      throw result.error;
+    }
+    if (triggered) {
+      return { timedOut: true };
+    }
+    return { timedOut: false, value: result.value };
+  };
+
+  return {
+    start,
+    clear,
+    pause,
+    resume,
+    race,
+    isTriggered: () => triggered,
+  };
+}
+
+async function waitForAcpHardTimeoutTranscriptDrain(
+  promptSettled: Promise<unknown> | null,
+) {
+  if (!promptSettled) {
+    return;
+  }
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([
+      promptSettled.catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ACP_HARD_TIMEOUT_TRANSCRIPT_DRAIN_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 async function defaultRequiredMcpPreflight(args: {
   requiredTools: string[];
   initialized: AcpConnectionInitializeResult;
@@ -762,6 +1012,35 @@ function handleAcpSkillRunPermissionRequest(args: {
   });
 }
 
+function wrapAcpSkillRunPermissionRequestForTimeoutPause(args: {
+  request: PermissionRequestWithResolver;
+  pause: (requestId: string) => void;
+  resume: (requestId: string) => void;
+}) {
+  const permissionRequestId = normalizeString(args.request.requestId);
+  if (!permissionRequestId) {
+    return args.request;
+  }
+  args.pause(permissionRequestId);
+  let resolved = false;
+  return {
+    ...args.request,
+    resolve: (
+      outcome: Parameters<PermissionRequestWithResolver["resolve"]>[0],
+    ) => {
+      try {
+        args.request.resolve(outcome);
+      } finally {
+        if (resolved) {
+          return;
+        }
+        resolved = true;
+        args.resume(permissionRequestId);
+      }
+    },
+  };
+}
+
 function rememberAcpSkillRunRuntimeOptions(args: {
   requestId: string;
   backend: BackendInstance;
@@ -848,6 +1127,7 @@ async function runPrompt(args: {
   runtimeOptions?: FrozenAcpRuntimeOptions;
   sessionId?: string;
   prepareSession?: (sessionId: string) => Promise<void>;
+  onPromptReady?: (sessionId: string) => void | Promise<void>;
 }): Promise<{
   sessionId: string;
   stopReason: string;
@@ -918,6 +1198,7 @@ async function runPrompt(args: {
       activePrompt: true,
     });
   }
+  await args.onPromptReady?.(sessionId);
   const response = await args.adapter.prompt({
     sessionId,
     message: args.message,
@@ -1043,6 +1324,9 @@ async function applyRecoveredAcpSkillResult(args: {
     status: "succeeded",
     requestId: args.record.requestId,
     fetchType: "result",
+    backendId: args.record.backendId,
+    backendType: args.record.backendType,
+    runId: args.record.runId,
     resultJson: args.resultJson,
     resultJsonPath: args.record.resultJsonPath,
     workspaceDir: args.record.workspaceDir,
@@ -1074,12 +1358,38 @@ async function applyRecoveredAcpSkillResult(args: {
       request,
       runResult,
     });
+    const sequenceStepId = normalizeString(args.record.sequenceStepId);
+    const sequenceState = sequenceStepId
+      ? getSequenceRunStateByStepRequest(args.record.requestId)
+      : null;
+    const sequenceStepIndex = sequenceState
+      ? getSequenceStepIndexByRequestId(sequenceState, args.record.requestId)
+      : -1;
+    await collectSkillRunFeedbackSidecar({
+      workflow,
+      request,
+      runResult,
+      resultContext,
+      bundleReader,
+      jobId: normalizeString(args.record.jobId) || undefined,
+      sequenceStep: sequenceStepId
+        ? {
+            id: sequenceStepId,
+            index: sequenceStepIndex >= 0 ? sequenceStepIndex : undefined,
+            skillId:
+              normalizeString(args.record.skillId) ||
+              normalizeString(args.record.requestedSkillId),
+          }
+        : undefined,
+      appendRuntimeLog,
+    });
     markAcpSkillRunApplyResult({
       requestId: args.record.requestId,
       state: "succeeded",
     });
     updateWorkflowTaskStateByRequest({
       backendId: args.record.backendId,
+      backendType: args.record.backendType,
       requestId: args.record.requestId,
       state: "succeeded",
     });
@@ -1109,12 +1419,52 @@ async function applyRecoveredAcpSkillResult(args: {
     });
     updateWorkflowTaskStateByRequest({
       backendId: args.record.backendId,
+      backendType: args.record.backendType,
       requestId: args.record.requestId,
       state: "failed",
       error: message,
     });
     throw error;
   }
+}
+
+function requestRecoveredSequenceStepForeground(args: {
+  event: ProviderProgressEvent;
+  record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>;
+  sequenceState: NonNullable<
+    ReturnType<typeof getSequenceRunStateByStepRequest>
+  >;
+  backend: BackendInstance;
+  dependencies?: AcpSkillRunnerDependencies;
+}) {
+  if (args.event.type !== "request-created") {
+    return;
+  }
+  const requestId = normalizeString(args.event.requestId);
+  if (!requestId) {
+    return;
+  }
+  const event = args.event as Record<string, unknown>;
+  const request = isJsonObject(event.sequenceStepRequest)
+    ? event.sequenceStepRequest
+    : undefined;
+  requestAcpSkillRunForeground({
+    requestId,
+    backend: args.backend,
+    request,
+    workflowId: args.sequenceState.workflowId,
+    workflowLabel: args.sequenceState.workflowLabel,
+    jobId: args.sequenceState.jobId,
+    runId: args.sequenceState.workflowRunId || args.record.runId,
+    sequenceStepId: normalizeString(event.sequenceStepId) || undefined,
+    sequenceStepIndex: event.sequenceStepIndex,
+    taskName: normalizeString(event.sequenceStepTaskName) || undefined,
+    skillId:
+      normalizeString(event.sequenceStepSkillId) ||
+      (request ? normalizeString(request.skill_id) : "") ||
+      undefined,
+    deps: args.dependencies?.acpSkillRunForeground,
+  });
 }
 
 async function continueRecoveredSequenceStep(args: {
@@ -1163,6 +1513,7 @@ async function continueRecoveredSequenceStep(args: {
       }
       updateWorkflowTaskStateByRequest({
         backendId: args.record.backendId,
+        backendType: args.record.backendType,
         requestId: sequenceState.rootRequestId,
         state: "succeeded",
       });
@@ -1201,6 +1552,7 @@ async function continueRecoveredSequenceStep(args: {
       resultJsonPath: args.record.resultJsonPath,
     },
   };
+  const recoveredWorkspaceDir = normalizeString(args.record.workspaceDir);
   recordSequenceStepSucceeded({
     sequenceRunId: sequenceState.sequenceRunId,
     stepIndex,
@@ -1208,6 +1560,17 @@ async function continueRecoveredSequenceStep(args: {
     output: args.resultJson,
     result: recoveredResult,
   });
+  try {
+    await registerAcpWorkflowWorkspaceForReuse({
+      workflowRunId: sequenceState.workflowRunId,
+      workspaceDir: recoveredWorkspaceDir,
+    });
+  } catch (error) {
+    const message = errorMessage(error);
+    throw new Error(
+      `ACP recovered workflow workspace is unavailable for sequence continuation: workflow_run_id=${sequenceState.workflowRunId}; requestId=${args.record.requestId}; reason=${message}`,
+    );
+  }
   const backend = await resolveBackendForRecoveredRun(args.record.backendId);
   try {
     const continuationResult = await continueSkillRunnerSequence({
@@ -1222,6 +1585,53 @@ async function continueRecoveredSequenceStep(args: {
           ...input,
           dependencies: args.dependencies,
         }),
+      onProgress: (event) => {
+        requestRecoveredSequenceStepForeground({
+          event,
+          record: args.record,
+          sequenceState:
+            getSequenceRunStateByStepRequest(args.record.requestId) ||
+            sequenceState,
+          backend,
+          dependencies: args.dependencies,
+        });
+      },
+      applySequenceStepResult: async (stepApply) => {
+        const applyWorkflow = await resolveWorkflowById(
+          stepApply.applyWorkflowId,
+        );
+        if (!applyWorkflow) {
+          throw new Error(
+            `sequence step apply workflow not found: ${stepApply.applyWorkflowId}`,
+          );
+        }
+        return executeSequenceStepApply({
+          workflow: applyWorkflow,
+          parent:
+            resolveTargetParentIDFromRequest(stepApply.sequenceRequest) || null,
+          request: stepApply.stepRequest,
+          runResult: {
+            ...stepApply.stepResult,
+            resultJson: stepApply.output,
+            backendId: normalizeString(backend.id) || undefined,
+            backendType: normalizeString(backend.type) || undefined,
+            runId: stepApply.workflowRunId,
+            sequence: {
+              workflow_run_id: stepApply.workflowRunId,
+              final_step_id: stepApply.sequenceRequest.final_step_id,
+              steps: stepApply.sequenceSteps,
+            },
+          },
+          sequenceStep: {
+            id: stepApply.step.id,
+            index: stepApply.stepIndex,
+            workflowId: stepApply.applyWorkflowId,
+            skillId: stepApply.step.skill_id,
+            finalStep: stepApply.finalStep,
+            phase: "sequence-step",
+          },
+        });
+      },
     });
     if (continuationResult.status !== "succeeded") {
       return {
@@ -1247,6 +1657,7 @@ async function continueRecoveredSequenceStep(args: {
     if (apply.ok && sequenceState.rootRequestId) {
       updateWorkflowTaskStateByRequest({
         backendId: args.record.backendId,
+        backendType: args.record.backendType,
         requestId: sequenceState.rootRequestId,
         state: "succeeded",
       });
@@ -1263,6 +1674,7 @@ async function continueRecoveredSequenceStep(args: {
     if (sequenceState.rootRequestId) {
       updateWorkflowTaskStateByRequest({
         backendId: args.record.backendId,
+        backendType: args.record.backendType,
         requestId: sequenceState.rootRequestId,
         state: "failed",
         error: message,
@@ -1666,6 +2078,20 @@ export async function recoverAcpSkillRunConversation(args: {
   const backend = await resolveBackendForRecoveredRun(record.backendId);
   rememberAcpSkillRunRuntimeOptions({ requestId, backend });
   const runnerJson = record.runnerJson || {};
+  const recoveredEffectiveRuntimeOptions =
+    resolveAcpSkillRunEffectiveRuntimeOptions({
+      request:
+        recoveredRequest ||
+        ({
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id:
+            normalizeString(record.skillId) ||
+            normalizeString(record.requestedSkillId) ||
+            "recovered-acp-skill",
+        } as AcpSkillRunRequestV1),
+      runnerJson,
+      providerOptions: record.providerOptions,
+    });
   const dependencyPlan = await buildAcpRuntimeDependencyPlan({
     backend,
     runnerJson,
@@ -1706,10 +2132,15 @@ export async function recoverAcpSkillRunConversation(args: {
   let recoveredPromptActive = false;
   let recoveredInterruptionRequested = false;
   let recoveredDisconnectRequested = false;
+  let recoveredPromptTimeoutDrain: Promise<unknown> | null = null;
   let unsubscribePermission: () => void = () => undefined;
   let unsubscribeUpdate: () => void = () => undefined;
   let unsubscribeDiagnostics: () => void = () => undefined;
   let unsubscribeClose: () => void = () => undefined;
+  let recoveredHardTimeoutMonitor: ReturnType<
+    typeof createAcpHardTimeoutMonitor
+  > | null = null;
+  const pendingPermissionPauseIds = new Set<string>();
   const detach = async (
     state: "closed" | "ended" | "error" = "closed",
     error?: string,
@@ -1722,6 +2153,7 @@ export async function recoverAcpSkillRunConversation(args: {
     unsubscribeUpdate();
     unsubscribeDiagnostics();
     unsubscribeClose();
+    recoveredHardTimeoutMonitor?.clear();
     registerAcpSkillRunController(requestId, null);
     upsertAcpSkillRun({
       requestId,
@@ -1734,6 +2166,103 @@ export async function recoverAcpSkillRunConversation(args: {
     });
     await adapter.close();
   };
+  recoveredHardTimeoutMonitor = createAcpHardTimeoutMonitor({
+    requestId,
+    seconds: recoveredEffectiveRuntimeOptions.hardTimeoutSeconds,
+    source: recoveredEffectiveRuntimeOptions.hardTimeoutSource,
+    onTimeout: async () => {
+      if (cleanupDone) {
+        return;
+      }
+      recoveredDisconnectRequested = true;
+      upsertAcpSkillRun({
+        requestId,
+        event: {
+          stage: "hard-timeout-disconnect-requested",
+          message:
+            "ACP skill run hard timeout reached; disconnecting local session.",
+          level: "warn",
+          details: {
+            hardTimeoutSeconds:
+              recoveredEffectiveRuntimeOptions.hardTimeoutSeconds,
+            hardTimeoutSource:
+              recoveredEffectiveRuntimeOptions.hardTimeoutSource,
+            recovered: true,
+          },
+        },
+      });
+      appendRuntimeLog({
+        level: "warn",
+        scope: "provider",
+        backendId: backend.id,
+        backendType: backend.type,
+        providerId: "acp",
+        requestId,
+        component: "acp-skillrunner",
+        operation: "hard-timeout-disconnect",
+        phase: "terminal",
+        stage: "hard-timeout-disconnect-requested",
+        message:
+          "ACP skill run hard timeout reached; disconnecting local session.",
+        details: {
+          hardTimeoutSeconds:
+            recoveredEffectiveRuntimeOptions.hardTimeoutSeconds,
+          hardTimeoutSource: recoveredEffectiveRuntimeOptions.hardTimeoutSource,
+          recovered: true,
+        },
+      });
+      if (liveSessionId) {
+        await adapter.cancel({ sessionId: liveSessionId }).catch((error) => {
+          appendRuntimeLog({
+            level: "warn",
+            scope: "provider",
+            backendId: backend.id,
+            backendType: backend.type,
+            providerId: "acp",
+            requestId,
+            component: "acp-skillrunner",
+            operation: "hard-timeout-cancel",
+            phase: "terminal",
+            stage: "hard-timeout-cancel-failed",
+            message: errorMessage(error),
+            details: {
+              recovered: true,
+            },
+          });
+        });
+      }
+      await waitForAcpHardTimeoutTranscriptDrain(recoveredPromptTimeoutDrain);
+      completeAcpSkillRunTranscriptTurnBoundary(requestId);
+      appendAcpSkillRunHardTimeoutTranscriptNotice({
+        requestId,
+        hardTimeoutSeconds: recoveredEffectiveRuntimeOptions.hardTimeoutSeconds,
+        hardTimeoutSource: recoveredEffectiveRuntimeOptions.hardTimeoutSource,
+        recovered: true,
+      });
+      await detach("closed");
+      upsertAcpSkillRun({
+        requestId,
+        activePrompt: false,
+        replyState: "idle",
+        error: "",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        connectionActionState: "idle",
+        event: {
+          stage: "disconnect-completed",
+          message: "ACP skill run local connection detached.",
+          level: "info",
+          details: {
+            recovered: true,
+            hardTimeoutSeconds:
+              recoveredEffectiveRuntimeOptions.hardTimeoutSeconds,
+            hardTimeoutSource:
+              recoveredEffectiveRuntimeOptions.hardTimeoutSource,
+          },
+        },
+      });
+    },
+  });
   const failRecoveredAcpPrompt = async (
     diagnostic: AcpPromptFailureDiagnostic,
   ): Promise<never> => {
@@ -1765,12 +2294,53 @@ export async function recoverAcpSkillRunConversation(args: {
     recoveredInterruptionRequested = false;
     recoveredDisconnectRequested = false;
     try {
-      const result = await runPrompt({
+      let resolvePromptReady: (() => void) | null = null;
+      const promptReady = new Promise<void>((resolve) => {
+        resolvePromptReady = resolve;
+      });
+      const promptPromise = runPrompt({
         adapter,
         requestId,
         message,
         sessionId: liveSessionId,
+        onPromptReady: () => {
+          recoveredHardTimeoutMonitor?.start();
+          resolvePromptReady?.();
+        },
       });
+      const promptDrain = promptPromise.catch(() => undefined);
+      recoveredPromptTimeoutDrain = promptDrain;
+      let guarded:
+        | { timedOut: false; value: Awaited<typeof promptPromise> }
+        | { timedOut: true };
+      if (recoveredHardTimeoutMonitor) {
+        const ready = await Promise.race([
+          promptReady.then(() => ({ kind: "ready" as const })),
+          promptPromise
+            .then((value) => ({ kind: "value" as const, value }))
+            .catch((error) => ({ kind: "error" as const, error })),
+        ]);
+        if (ready.kind === "error") {
+          throw ready.error;
+        }
+        if (ready.kind === "value") {
+          guarded = { timedOut: false, value: ready.value };
+        } else {
+          guarded = await recoveredHardTimeoutMonitor.race(promptPromise);
+        }
+      } else {
+        guarded = { timedOut: false, value: await promptPromise };
+      }
+      if (guarded.timedOut) {
+        return {
+          sessionId: liveSessionId,
+          stopReason: "cancelled",
+          assistantText: currentTurnAssistantText,
+          observedAcpActivity: currentTurnObservedAcpActivity,
+          cancelRequested: true,
+        };
+      }
+      const result = guarded.value;
       liveSessionId = result.sessionId;
       return {
         ...result,
@@ -1781,6 +2351,10 @@ export async function recoverAcpSkillRunConversation(args: {
     } finally {
       captureAssistantText = false;
       recoveredPromptActive = false;
+      recoveredPromptTimeoutDrain = null;
+      if (!recoveredHardTimeoutMonitor?.isTriggered()) {
+        recoveredHardTimeoutMonitor?.clear();
+      }
     }
   };
   const convergeRecoveredReply = async (
@@ -1905,6 +2479,7 @@ export async function recoverAcpSkillRunConversation(args: {
               payload,
               runnerJson: runnerJsonForConvergence as Record<string, unknown>,
               primarySkillDir,
+              workspaceDir: normalizeString(latest.workspaceDir),
             }),
         });
         if (fallback.warnings.length > 0) {
@@ -1948,6 +2523,7 @@ export async function recoverAcpSkillRunConversation(args: {
           executionMode,
           runnerJson: runnerJsonForConvergence,
           primarySkillDir,
+          workspaceDir: normalizeString(latest.workspaceDir),
         });
       }
       if (convergence.kind === "pending") {
@@ -2104,9 +2680,22 @@ export async function recoverAcpSkillRunConversation(args: {
     }
   };
   unsubscribePermission = adapter.onPermissionRequest((request) => {
+    const wrappedRequest = wrapAcpSkillRunPermissionRequestForTimeoutPause({
+      request,
+      pause: (permissionRequestId) => {
+        pendingPermissionPauseIds.add(permissionRequestId);
+        recoveredHardTimeoutMonitor?.pause();
+      },
+      resume: (permissionRequestId) => {
+        pendingPermissionPauseIds.delete(permissionRequestId);
+        if (pendingPermissionPauseIds.size === 0) {
+          recoveredHardTimeoutMonitor?.resume();
+        }
+      },
+    });
     handleAcpSkillRunPermissionRequest({
       requestId,
-      request,
+      request: wrappedRequest,
       runtimeOptions: recoveredRuntimeOptions,
     });
   });
@@ -2481,6 +3070,7 @@ export async function executeAcpSkillRunnerJob(args: {
   });
   upsertAcpSkillRun({
     requestId: workspace.requestId,
+    skillName: skill.skillName,
     agentFamily: injectionPlan.family,
     skillRoots: injectionPlan.skillRoots,
     event: {
@@ -2509,6 +3099,8 @@ export async function executeAcpSkillRunnerJob(args: {
     inputManifestPath: workspace.inputManifestPath,
     catalogRootDir: args.dependencies?.sharedSkillCatalogRootDir,
     executionMode,
+    collectSkillRunFeedback:
+      request.runtime_options?.collect_skill_run_feedback === true,
   });
   upsertAcpSkillRun({
     requestId: workspace.requestId,
@@ -2536,6 +3128,11 @@ export async function executeAcpSkillRunnerJob(args: {
     executionMode,
     primarySkillDir: materialization.primarySkillDir,
     runnerJson: materialization.runnerJson,
+  });
+  const effectiveRuntimeOptions = resolveAcpSkillRunEffectiveRuntimeOptions({
+    request,
+    runnerJson: materialization.runnerJson,
+    providerOptions: args.providerOptions,
   });
   const requestValidation = await validateAcpSkillRunRequestAgainstSchemas({
     request,
@@ -2755,6 +3352,12 @@ export async function executeAcpSkillRunnerJob(args: {
   let unsubscribeUpdate: () => void = () => undefined;
   let unsubscribeDiagnostics: () => void = () => undefined;
   let unsubscribeClose: () => void = () => undefined;
+  let hardTimeoutMonitor: ReturnType<
+    typeof createAcpHardTimeoutMonitor
+  > | null = null;
+  const pendingPermissionPauseIds = new Set<string>();
+  let autoHardTimeoutStarted = false;
+  let activePromptTimeoutDrain: Promise<unknown> | null = null;
   const cleanupLiveSession = async (options?: {
     closeAdapter?: boolean;
     conversationState?: "ended" | "closed" | "error";
@@ -2768,6 +3371,7 @@ export async function executeAcpSkillRunnerJob(args: {
     unsubscribeUpdate();
     unsubscribeDiagnostics();
     unsubscribeClose();
+    hardTimeoutMonitor?.clear();
     if (workspaceActivityTimer) {
       clearInterval(workspaceActivityTimer);
       workspaceActivityTimer = null;
@@ -2785,6 +3389,84 @@ export async function executeAcpSkillRunnerJob(args: {
       await adapter.close();
     }
   };
+  hardTimeoutMonitor = createAcpHardTimeoutMonitor({
+    requestId: workspace.requestId,
+    seconds: effectiveRuntimeOptions.hardTimeoutSeconds,
+    source: effectiveRuntimeOptions.hardTimeoutSource,
+    onTimeout: async () => {
+      if (cleanupDone) {
+        return;
+      }
+      disconnectRequested = true;
+      if (pendingReplyRejecter) {
+        pendingReplyRejecter(
+          new Error("ACP skill run hard timeout disconnected the session."),
+        );
+        pendingReplyResolver = null;
+        pendingReplyRejecter = null;
+      }
+      const current = upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        event: {
+          stage: "hard-timeout-disconnect-requested",
+          message:
+            "ACP skill run hard timeout reached; disconnecting local session.",
+          level: "warn",
+          details: {
+            hardTimeoutSeconds: effectiveRuntimeOptions.hardTimeoutSeconds,
+            hardTimeoutSource: effectiveRuntimeOptions.hardTimeoutSource,
+          },
+        },
+      });
+      appendRuntimeLog({
+        level: "warn",
+        scope: "provider",
+        backendId: args.backend.id,
+        backendType: args.backend.type,
+        providerId: "acp",
+        requestId: workspace.requestId,
+        component: "acp-skillrunner",
+        operation: "hard-timeout-disconnect",
+        phase: "terminal",
+        stage: "hard-timeout-disconnect-requested",
+        message:
+          "ACP skill run hard timeout reached; disconnecting local session.",
+        details: {
+          hardTimeoutSeconds: effectiveRuntimeOptions.hardTimeoutSeconds,
+          hardTimeoutSource: effectiveRuntimeOptions.hardTimeoutSource,
+        },
+      });
+      const sessionId = normalizeString(current.sessionId) || liveSessionId;
+      if (sessionId) {
+        await adapter.cancel({ sessionId }).catch((error) => {
+          appendRuntimeLog({
+            level: "warn",
+            scope: "provider",
+            backendId: args.backend.id,
+            backendType: args.backend.type,
+            providerId: "acp",
+            requestId: workspace.requestId,
+            component: "acp-skillrunner",
+            operation: "hard-timeout-cancel",
+            phase: "terminal",
+            stage: "hard-timeout-cancel-failed",
+            message: errorMessage(error),
+          });
+        });
+      }
+      await waitForAcpHardTimeoutTranscriptDrain(activePromptTimeoutDrain);
+      completeAcpSkillRunTranscriptTurnBoundary(workspace.requestId);
+      appendAcpSkillRunHardTimeoutTranscriptNotice({
+        requestId: workspace.requestId,
+        hardTimeoutSeconds: effectiveRuntimeOptions.hardTimeoutSeconds,
+        hardTimeoutSource: effectiveRuntimeOptions.hardTimeoutSource,
+      });
+      await cleanupLiveSession({
+        conversationState: "closed",
+        closeAdapter: true,
+      });
+    },
+  });
   const scanWorkspaceActivity = async () => {
     if (workspaceActivityScanRunning) {
       return;
@@ -2828,6 +3510,16 @@ export async function executeAcpSkillRunnerJob(args: {
       return;
     }
     void scanWorkspaceActivity();
+    registerBackgroundRefreshTimer({
+      owner: "acp-workspace-activity",
+      activationCondition: "ACP skill run workspace is active",
+      scopeKey: "current ACP workspace request",
+      allowedDataSources: ["current ACP workspace activity"],
+      maxReadShape: "current workspace activity hint only",
+      requiresForegroundSurface: false,
+      minimumIntervalMs: 15000,
+      intervalMs: 15000,
+    });
     workspaceActivityTimer = setInterval(() => {
       void scanWorkspaceActivity();
     }, 15000);
@@ -2879,13 +3571,65 @@ export async function executeAcpSkillRunnerJob(args: {
     captureAssistantText = true;
     startWorkspaceActivityHeartbeat();
     try {
-      const result = await runPrompt({
+      const timerAlreadyActive =
+        executionMode !== "interactive" && autoHardTimeoutStarted;
+      let resolvePromptReady: (() => void) | null = null;
+      const promptReady = new Promise<void>((resolve) => {
+        resolvePromptReady = resolve;
+      });
+      const promptPromise = runPrompt({
         adapter,
         requestId: workspace.requestId,
         message,
         runtimeOptions: frozenRuntimeOptions,
         sessionId: liveSessionId,
+        onPromptReady: () => {
+          if (executionMode === "interactive") {
+            hardTimeoutMonitor?.start();
+          } else if (!autoHardTimeoutStarted) {
+            hardTimeoutMonitor?.start();
+            autoHardTimeoutStarted = true;
+          }
+          resolvePromptReady?.();
+        },
       });
+      const promptDrain = promptPromise.catch(() => undefined);
+      activePromptTimeoutDrain = promptDrain;
+      let guarded:
+        | { timedOut: false; value: Awaited<typeof promptPromise> }
+        | { timedOut: true };
+      if (hardTimeoutMonitor) {
+        if (!timerAlreadyActive) {
+          const ready = await Promise.race([
+            promptReady.then(() => ({ kind: "ready" as const })),
+            promptPromise
+              .then((value) => ({ kind: "value" as const, value }))
+              .catch((error) => ({ kind: "error" as const, error })),
+          ]);
+          if (ready.kind === "error") {
+            throw ready.error;
+          }
+          if (ready.kind === "value") {
+            guarded = { timedOut: false, value: ready.value };
+          } else {
+            guarded = await hardTimeoutMonitor.race(promptPromise);
+          }
+        } else {
+          guarded = await hardTimeoutMonitor.race(promptPromise);
+        }
+      } else {
+        guarded = { timedOut: false, value: await promptPromise };
+      }
+      if (guarded.timedOut) {
+        return {
+          sessionId: liveSessionId,
+          stopReason: "cancelled",
+          assistantText: currentTurnAssistantText,
+          observedAcpActivity: currentTurnObservedAcpActivity,
+          cancelRequested: true,
+        };
+      }
+      const result = guarded.value;
       liveSessionId = result.sessionId;
       return {
         ...result,
@@ -2905,6 +3649,13 @@ export async function executeAcpSkillRunnerJob(args: {
       throw error;
     } finally {
       captureAssistantText = false;
+      activePromptTimeoutDrain = null;
+      if (
+        executionMode === "interactive" &&
+        !hardTimeoutMonitor?.isTriggered()
+      ) {
+        hardTimeoutMonitor?.clear();
+      }
       stopWorkspaceActivityHeartbeat();
     }
   };
@@ -2927,6 +3678,9 @@ export async function executeAcpSkillRunnerJob(args: {
       ? "waiting_user"
       : "running";
   };
+  let continueDetachedInteractiveReply:
+    | ((promptOutcome: AcpPromptOutcome) => Promise<void>)
+    | null = null;
   registerAcpSkillRunController(workspace.requestId, {
     cancel: async () => {
       cancellationRequested = true;
@@ -3005,7 +3759,14 @@ export async function executeAcpSkillRunnerJob(args: {
             message: text,
           });
           try {
-            await promptExistingSession(text);
+            interruptionRequested = false;
+            const promptOutcome = await promptExistingSession(text);
+            if (!continueDetachedInteractiveReply) {
+              throw new Error(
+                "ACP skill run output convergence is not available for replies.",
+              );
+            }
+            await continueDetachedInteractiveReply(promptOutcome);
           } catch (error) {
             if (error instanceof AcpPromptFailureError) {
               throw error;
@@ -3093,9 +3854,22 @@ export async function executeAcpSkillRunnerJob(args: {
       true,
   });
   unsubscribePermission = adapter.onPermissionRequest((request) => {
+    const wrappedRequest = wrapAcpSkillRunPermissionRequestForTimeoutPause({
+      request,
+      pause: (permissionRequestId) => {
+        pendingPermissionPauseIds.add(permissionRequestId);
+        hardTimeoutMonitor?.pause();
+      },
+      resume: (permissionRequestId) => {
+        pendingPermissionPauseIds.delete(permissionRequestId);
+        if (pendingPermissionPauseIds.size === 0) {
+          hardTimeoutMonitor?.resume();
+        }
+      },
+    });
     handleAcpSkillRunPermissionRequest({
       requestId: workspace.requestId,
-      request,
+      request: wrappedRequest,
       runtimeOptions: frozenRuntimeOptions,
     });
   });
@@ -3221,6 +3995,7 @@ export async function executeAcpSkillRunnerJob(args: {
             payload,
             runnerJson: materialization.runnerJson,
             primarySkillDir: materialization.primarySkillDir,
+            workspaceDir: workspace.workspaceDir,
           }),
       });
       if (fallback.warnings.length > 0) {
@@ -3242,7 +4017,7 @@ export async function executeAcpSkillRunnerJob(args: {
         });
       }
       if (!fallback.payload) {
-        return false;
+        return null;
       }
       const candidateText = JSON.stringify(fallback.payload);
       await writeAcpSkillRunnerResultEnvelope({
@@ -3256,7 +4031,7 @@ export async function executeAcpSkillRunnerJob(args: {
         candidateText,
         repairRound: currentRepairRound,
       });
-      convergence = {
+      const fallbackConvergence: AcpSkillOutputConvergenceResult = {
         kind: "final",
         resultJson: fallback.payload,
         candidateText,
@@ -3285,12 +4060,274 @@ export async function executeAcpSkillRunnerJob(args: {
           },
         },
       });
-      return true;
+      return fallbackConvergence;
+    };
+    const shouldContinueDetachedApply = (
+      record: NonNullable<ReturnType<typeof getAcpSkillRunRecord>>,
+    ) =>
+      !!normalizeString(record.sequenceStepId) ||
+      !!resolveRecoveredWorkflowIdFromTask(record);
+    continueDetachedInteractiveReply = async (
+      initialPromptOutcome: AcpPromptOutcome,
+    ) => {
+      let promptOutcome = initialPromptOutcome;
+      let detachedRepairRound = Math.max(
+        0,
+        getAcpSkillRunRecord(workspace.requestId)?.repairRounds ||
+          repairRound ||
+          0,
+      );
+      const startingRepairRound = detachedRepairRound;
+      while (true) {
+        if (disconnectRequested) {
+          const disconnectedStatus = resolveDisconnectedRunStatus();
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            status: disconnectedStatus,
+            activePrompt: false,
+            replyState: "idle",
+            error: "",
+            conversationState: "closed",
+            conversationRecoveryState: "available",
+            event: {
+              stage: "disconnect-completed",
+              message: "ACP skill run local connection detached.",
+              level: "info",
+            },
+          });
+          return;
+        }
+        if (interruptionRequested || promptOutcome.cancelRequested) {
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            status: "waiting_user",
+            activePrompt: false,
+            replyState: "idle",
+            error: "",
+            conversationState: "active",
+            conversationRecoveryState: "connected",
+            event: {
+              stage: "interrupt-completed",
+              message: "ACP skill run current turn interrupted.",
+              level: "warn",
+              details: {
+                detachedReply: true,
+                cancelRequested: promptOutcome.cancelRequested === true,
+              },
+            },
+          });
+          return;
+        }
+        const promptFailure = classifyAcpPromptFailure(promptOutcome);
+        let detachedConvergence: AcpSkillOutputConvergenceResult;
+        if (promptFailure?.stage === "acp-prompt-no-output") {
+          const fallbackConvergence =
+            await resolveResultFileFallbackForCurrentTurn(detachedRepairRound);
+          if (!fallbackConvergence) {
+            await failCurrentAcpPrompt(promptFailure);
+            throw new AcpPromptFailureError(promptFailure);
+          }
+          detachedConvergence = fallbackConvergence;
+        } else if (promptFailure) {
+          await failCurrentAcpPrompt(promptFailure);
+          throw new AcpPromptFailureError(promptFailure);
+        } else {
+          detachedConvergence = await convergeAcpSkillTurnOutput({
+            assistantText: promptOutcome.assistantText,
+            executionMode,
+            runnerJson: materialization.runnerJson,
+            primarySkillDir: materialization.primarySkillDir,
+            workspaceDir: workspace.workspaceDir,
+          });
+        }
+        if (detachedConvergence.kind === "pending") {
+          const replyPromise = waitForInteractiveReply();
+          projectAcpSkillRunOutputEnvelopeToTranscript({
+            requestId: workspace.requestId,
+            kind: "pending",
+            message: detachedConvergence.message,
+            candidateText: detachedConvergence.candidateText,
+            repairRound: detachedRepairRound,
+          });
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            status: "waiting_user",
+            activePrompt: false,
+            conversationState: "active",
+            validationStatus: "pending",
+            validationErrors: [],
+            outputConvergenceState: "pending",
+            repairRounds: detachedRepairRound,
+            lastTurnOutput: detachedConvergence.candidateText,
+            pendingInteraction: {
+              message: detachedConvergence.message,
+              uiHints: detachedConvergence.uiHints,
+              candidateText: detachedConvergence.candidateText,
+            },
+            event: {
+              stage: "waiting-user",
+              message: detachedConvergence.message,
+              level: "info",
+              details: {
+                detachedReply: true,
+                uiHints: detachedConvergence.uiHints,
+              },
+            },
+          });
+          const reply = await replyPromise;
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            status: "running",
+            activePrompt: true,
+            pendingInteraction: null,
+            event: {
+              stage: "reply-received",
+              message: "User reply received; continuing ACP skill run.",
+              level: "info",
+              details: {
+                detachedReply: true,
+              },
+            },
+          });
+          interruptionRequested = false;
+          promptOutcome = await promptExistingSession(reply);
+          continue;
+        }
+        if (detachedConvergence.kind === "final") {
+          await writeAcpSkillRunnerResultEnvelope({
+            resultJsonPath: workspace.resultJsonPath,
+            resultJson: detachedConvergence.resultJson,
+          });
+          projectAcpSkillRunOutputEnvelopeToTranscript({
+            requestId: workspace.requestId,
+            kind: "final",
+            resultJson: detachedConvergence.resultJson,
+            candidateText: detachedConvergence.candidateText,
+            repairRound: detachedRepairRound,
+          });
+          const latest = getAcpSkillRunRecord(workspace.requestId);
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            status: "succeeded",
+            activePrompt: false,
+            conversationState: "active",
+            validationStatus: "valid",
+            validationErrors: [],
+            outputConvergenceState: "final",
+            repairRounds: detachedRepairRound,
+            pendingInteraction: null,
+            lastTurnOutput: detachedConvergence.candidateText,
+            resultJson: detachedConvergence.resultJson,
+            applyResultState:
+              latest?.applyResultState === "succeeded"
+                ? "succeeded"
+                : "pending",
+            event: {
+              stage: "detached-reply-output-validation-succeeded",
+              message:
+                detachedRepairRound > startingRepairRound
+                  ? `Detached reply output repair round ${detachedRepairRound} succeeded.`
+                  : "Detached reply output validation succeeded.",
+              level: "info",
+              details: {
+                resultJsonPath: workspace.resultJsonPath,
+                repairRounds: detachedRepairRound,
+              },
+            },
+          });
+          const afterFinal = getAcpSkillRunRecord(workspace.requestId);
+          if (
+            afterFinal &&
+            afterFinal.applyResultState !== "succeeded" &&
+            shouldContinueDetachedApply(afterFinal)
+          ) {
+            await continueRecoveredSequenceStep({
+              record: {
+                ...afterFinal,
+                status: "succeeded",
+                resultJson: detachedConvergence.resultJson,
+              },
+              resultJson: detachedConvergence.resultJson,
+              dependencies: args.dependencies,
+            });
+          }
+          return;
+        }
+        recordAcpSkillRunOutputRevision({
+          requestId: workspace.requestId,
+          status: "invalid",
+          candidateText: detachedConvergence.candidateText,
+          repairRound: detachedRepairRound,
+          errors: detachedConvergence.errors,
+        });
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          status:
+            detachedRepairRound < maxRepairRounds ? "repairing" : "failed",
+          activePrompt: false,
+          repairRounds: detachedRepairRound,
+          validationStatus: "invalid",
+          validationErrors: detachedConvergence.errors,
+          outputConvergenceState: "invalid",
+          lastTurnOutput: detachedConvergence.candidateText,
+          error:
+            detachedRepairRound >= maxRepairRounds
+              ? `ACP SkillRunner-compatible output validation failed: ${detachedConvergence.errors.join("; ")}`
+              : "",
+          event: {
+            stage: "detached-reply-output-validation-failed",
+            message: "Detached reply output validation failed.",
+            level: detachedRepairRound < maxRepairRounds ? "warn" : "error",
+            details: {
+              errors: detachedConvergence.errors,
+              repairRound: detachedRepairRound,
+              maxRepairRounds,
+            },
+          },
+        });
+        if (detachedRepairRound >= maxRepairRounds) {
+          throw new Error(
+            `ACP SkillRunner-compatible output validation failed: ${detachedConvergence.errors.join("; ")}`,
+          );
+        }
+        detachedRepairRound += 1;
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          status: "repairing",
+          activePrompt: true,
+          repairRounds: detachedRepairRound,
+          pendingInteraction: null,
+          event: {
+            stage: "repair-started",
+            message: `Output repair round ${detachedRepairRound} started.`,
+            level: "warn",
+            details: {
+              detachedReply: true,
+              errors: detachedConvergence.errors,
+            },
+          },
+        });
+        const repairPrompt = await buildRunPrompt({
+          context,
+          repairPrompt: buildAcpSkillOutputRepairPrompt({
+            executionMode,
+            previousCandidate: detachedConvergence.candidateText,
+            errors: detachedConvergence.errors,
+            repairRound: detachedRepairRound,
+            maxRepairRounds,
+            outputContractDetails:
+              materialization.outputContractDetailsMarkdown,
+          }),
+        });
+        interruptionRequested = false;
+        promptOutcome = await promptExistingSession(repairPrompt);
+      }
     };
     while (true) {
       const promptResult = await promptExistingSession(nextPrompt);
       if (disconnectRequested) {
         keepConversationAlive = true;
+        hardTimeoutMonitor?.clear();
         const disconnectedStatus = resolveDisconnectedRunStatus();
         upsertAcpSkillRun({
           requestId: workspace.requestId,
@@ -3320,6 +4357,7 @@ export async function executeAcpSkillRunnerJob(args: {
       }
       if (interruptionRequested || promptResult.cancelRequested) {
         keepConversationAlive = true;
+        hardTimeoutMonitor?.clear();
         upsertAcpSkillRun({
           requestId: workspace.requestId,
           status: "waiting_user",
@@ -3352,7 +4390,10 @@ export async function executeAcpSkillRunnerJob(args: {
       }
       const promptFailure = classifyAcpPromptFailure(promptResult);
       if (promptFailure?.stage === "acp-prompt-no-output") {
-        if (await resolveResultFileFallbackForCurrentTurn(repairRound)) {
+        const fallbackConvergence =
+          await resolveResultFileFallbackForCurrentTurn(repairRound);
+        if (fallbackConvergence) {
+          convergence = fallbackConvergence;
           break;
         }
         await failCurrentAcpPrompt(promptFailure);
@@ -3365,6 +4406,7 @@ export async function executeAcpSkillRunnerJob(args: {
         executionMode,
         runnerJson: materialization.runnerJson,
         primarySkillDir: materialization.primarySkillDir,
+        workspaceDir: workspace.workspaceDir,
       });
       if (convergence.kind === "final") {
         await writeAcpSkillRunnerResultEnvelope({
@@ -3452,7 +4494,10 @@ export async function executeAcpSkillRunnerJob(args: {
         nextPrompt = reply;
         continue;
       }
-      if (await resolveResultFileFallbackForCurrentTurn(repairRound)) {
+      const fallbackConvergence =
+        await resolveResultFileFallbackForCurrentTurn(repairRound);
+      if (fallbackConvergence) {
+        convergence = fallbackConvergence;
         break;
       }
       upsertAcpSkillRun({
@@ -3563,6 +4608,7 @@ export async function executeAcpSkillRunnerJob(args: {
         },
       },
     });
+    hardTimeoutMonitor?.clear();
     keepConversationAlive = true;
     return {
       status: "succeeded",
@@ -3580,6 +4626,7 @@ export async function executeAcpSkillRunnerJob(args: {
         skillRoots: injectionPlan.skillRoots,
         runtimeDependencies: dependencyPlan.dependencies,
         acpRuntimeOptions: frozenRuntimeOptions,
+        effectiveRuntimeOptions: effectiveRuntimeOptions.runtimeOptions,
         sharedSkillCatalogPath: materialization.sharedSkillCatalogPath,
         runExecutionInstructionsPath,
         proxySkillCount: materialization.proxySkillCount,
@@ -3595,6 +4642,7 @@ export async function executeAcpSkillRunnerJob(args: {
     const message = errorMessage(error);
     if (disconnectRequested) {
       keepConversationAlive = true;
+      hardTimeoutMonitor?.clear();
       const disconnectedStatus = resolveDisconnectedRunStatus();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
@@ -3627,6 +4675,7 @@ export async function executeAcpSkillRunnerJob(args: {
     }
     if (interruptionRequested) {
       keepConversationAlive = true;
+      hardTimeoutMonitor?.clear();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
         status: "waiting_user",

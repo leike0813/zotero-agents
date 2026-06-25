@@ -26,7 +26,6 @@ import {
   attachWorkflowHookFailureMeta,
   summarizeWorkflowExecutionError,
 } from "./errorMeta";
-import { canWorkflowRunWithoutSelection } from "./triggerPolicy";
 import { measureAsyncTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
 import type {
   LoadedWorkflow,
@@ -40,6 +39,11 @@ import {
   buildZoteroHostAccessRuntimeOptions,
   stripZoteroHostAccessRuntimeParams,
 } from "./zoteroHostAccessOptions";
+import {
+  SKILL_RUN_FEEDBACK_RUNTIME_OPTION,
+  isSkillRunFeedbackCollectionEnabled,
+} from "../modules/skillRunFeedback";
+import { evaluateWorkflowSelection } from "./workflowSelectionValidation";
 
 type AttachmentLike = {
   item?: {
@@ -123,7 +127,8 @@ function createNoValidInputUnitsError(args: {
 }
 
 function resolveTargetParentIDFromSelection(selectionContext: SelectionLike) {
-  const attachmentParentID = selectionContext?.items?.attachments?.[0]?.parent?.id;
+  const attachmentParentID =
+    selectionContext?.items?.attachments?.[0]?.parent?.id;
   if (attachmentParentID) {
     return attachmentParentID;
   }
@@ -150,17 +155,20 @@ function resolveTargetParentIDFromSelection(selectionContext: SelectionLike) {
   return null;
 }
 
-function resolveSourceAttachmentPathsFromSelection(selectionContext: SelectionLike) {
+function resolveSourceAttachmentPathsFromSelection(
+  selectionContext: SelectionLike,
+) {
   const paths = collectAttachmentCandidates(selectionContext)
     .map((entry) => String(entry.filePath || "").trim())
     .filter(Boolean);
   return Array.from(new Set(paths));
 }
 
-function resolveTaskNameFromSelection(args: {
+export function resolveTaskNameFromSelection(args: {
   selectionContext: SelectionLike;
   targetParentID: number | null;
   sourceAttachmentPaths: string[];
+  workflowLabel?: string;
 }) {
   if (args.sourceAttachmentPaths.length > 0) {
     return getBaseName(args.sourceAttachmentPaths[0]);
@@ -179,20 +187,14 @@ function resolveTaskNameFromSelection(args: {
   if (args.targetParentID) {
     return `item-${args.targetParentID}`;
   }
-  return "task";
+  if (args.workflowLabel) {
+    return `Workflow: ${args.workflowLabel}`;
+  }
+  return "Task";
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function resolveSkillRunnerExecutionMode(manifest: LoadedWorkflow["manifest"]) {
-  const provider = String(manifest.provider || "").trim();
-  const requestKind = String(manifest.request?.kind || "").trim();
-  if (provider !== "skillrunner" && requestKind !== "skillrunner.job.v1") {
-    return "";
-  }
-  return String(manifest.execution?.skillrunner_mode || "").trim();
 }
 
 function normalizeStringArray(value: unknown) {
@@ -200,11 +202,7 @@ function normalizeStringArray(value: unknown) {
     return [] as string[];
   }
   return Array.from(
-    new Set(
-      value
-        .map((entry) => String(entry || "").trim())
-        .filter(Boolean),
-    ),
+    new Set(value.map((entry) => String(entry || "").trim()).filter(Boolean)),
   );
 }
 
@@ -212,7 +210,16 @@ function resolveWorkflowRequiredMcpTools(manifest: LoadedWorkflow["manifest"]) {
   return normalizeStringArray(manifest.execution?.mcp?.requiredTools);
 }
 
-function withInjectedSkillRunnerExecutionMode(args: {
+function normalizeSkillRunnerRequestMode(value: unknown) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return normalized === "auto" || normalized === "interactive"
+    ? normalized
+    : "";
+}
+
+function withNormalizedSkillRunnerRuntimeOptions(args: {
   workflow: LoadedWorkflow;
   requestKind: string;
   request: unknown;
@@ -228,7 +235,6 @@ function withInjectedSkillRunnerExecutionMode(args: {
   ) {
     return args.request;
   }
-  const executionMode = resolveSkillRunnerExecutionMode(args.workflow.manifest);
   const requiredTools = resolveWorkflowRequiredMcpTools(args.workflow.manifest);
   if (!isObjectRecord(args.request)) {
     return args.request;
@@ -241,8 +247,12 @@ function withInjectedSkillRunnerExecutionMode(args: {
         ...next.runtime_options,
       }
     : {};
-  if (executionMode) {
-    runtimeOptions.execution_mode = executionMode;
+  if (args.requestKind === "skillrunner.job.v1") {
+    const requestMode = normalizeSkillRunnerRequestMode(next.mode);
+    delete next.mode;
+    if (requestMode) {
+      runtimeOptions.execution_mode = requestMode;
+    }
   }
   if (requiredTools.length > 0) {
     runtimeOptions.workflow_mcp = {
@@ -260,6 +270,9 @@ function withInjectedSkillRunnerExecutionMode(args: {
       runOptions: args.executionOptions?.runOptions,
     });
   }
+  if (isSkillRunFeedbackCollectionEnabled()) {
+    runtimeOptions[SKILL_RUN_FEEDBACK_RUNTIME_OPTION] = true;
+  }
   if (Object.keys(runtimeOptions).length > 0) {
     next.runtime_options = runtimeOptions;
   } else {
@@ -271,6 +284,7 @@ function withInjectedSkillRunnerExecutionMode(args: {
 function enrichRequestWithSelectionMeta(
   request: unknown,
   selectionContext: SelectionLike,
+  workflowLabel?: string,
 ) {
   if (!request || typeof request !== "object" || Array.isArray(request)) {
     throw new Error("buildRequest must return an object request payload");
@@ -302,6 +316,7 @@ function enrichRequestWithSelectionMeta(
           ? normalized.targetParentID
           : targetParentID,
       sourceAttachmentPaths,
+      workflowLabel,
     });
   }
   return normalized;
@@ -335,22 +350,24 @@ function createRuntimeContext(
     addon:
       typeof override?.addon !== "undefined"
         ? (override.addon ?? null)
-        : ((resolveRuntimeAddon() as unknown as typeof addon | undefined) ?? null),
+        : ((resolveRuntimeAddon() as unknown as typeof addon | undefined) ??
+          null),
     debugMode:
       typeof override?.debugMode === "boolean"
         ? override.debugMode
         : isDebugModeEnabled(),
     workflowId: String(override?.workflowId || "").trim() || undefined,
     packageId: String(override?.packageId || "").trim() || undefined,
-    workflowRootDir: String(override?.workflowRootDir || "").trim() || undefined,
+    workflowRootDir:
+      String(override?.workflowRootDir || "").trim() || undefined,
     packageRootDir: String(override?.packageRootDir || "").trim() || undefined,
     workflowSourceKind:
-      override?.workflowSourceKind === "builtin" ||
+      override?.workflowSourceKind === "official" ||
+      override?.workflowSourceKind === "dev-local" ||
       override?.workflowSourceKind === "user"
         ? override.workflowSourceKind
         : "",
     hookName:
-      override?.hookName === "filterInputs" ||
       override?.hookName === "buildRequest" ||
       override?.hookName === "applyResult"
         ? override.hookName
@@ -440,7 +457,7 @@ async function withWorkflowExecutionRuntimeScope<T>(
 function createHookRuntimeContext(args: {
   runtime: WorkflowRuntimeContext;
   workflow: LoadedWorkflow;
-  hookName: "filterInputs" | "buildRequest" | "applyResult";
+  hookName: "buildRequest" | "applyResult";
 }) {
   const isPackageHostApiWorkflow =
     args.workflow.hookExecutionMode === "precompiled-host-hook";
@@ -473,7 +490,7 @@ function resolveHookCapabilitySource(workflow: LoadedWorkflow) {
 async function runWorkflowHookWithDiagnostics<T>(args: {
   workflow: LoadedWorkflow;
   runtime: WorkflowRuntimeContext;
-  hookName: "filterInputs" | "buildRequest" | "applyResult";
+  hookName: "buildRequest" | "applyResult";
   component: string;
   operation: string;
   work: (hookRuntime: WorkflowRuntimeContext) => Promise<T> | T;
@@ -484,7 +501,9 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
     hookName: args.hookName,
   });
   const capabilitySource = resolveHookCapabilitySource(args.workflow);
-  const hostApiSummary = summarizeWorkflowHostApiCapabilities(hookRuntime.hostApi);
+  const hostApiSummary = summarizeWorkflowHostApiCapabilities(
+    hookRuntime.hostApi,
+  );
   const contract =
     args.workflow.hookExecutionMode === "precompiled-host-hook"
       ? "package-host-api-facade"
@@ -525,7 +544,8 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
       operation: args.operation,
       stage: "workflow-hook-execute-succeeded",
       message: `workflow hook ${args.hookName} execution succeeded`,
-      runtimeCapabilitySummary: summarizeWorkflowRuntimeCapabilities(hookRuntime),
+      runtimeCapabilitySummary:
+        summarizeWorkflowRuntimeCapabilities(hookRuntime),
       details: {
         executionMode: args.workflow.hookExecutionMode || "node-native-module",
         contract,
@@ -557,7 +577,8 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
       operation: args.operation,
       stage: "workflow-hook-execute-failed",
       message: `workflow hook ${args.hookName} execution failed`,
-      runtimeCapabilitySummary: summarizeWorkflowRuntimeCapabilities(hookRuntime),
+      runtimeCapabilitySummary:
+        summarizeWorkflowRuntimeCapabilities(hookRuntime),
       details: {
         errorMessage: normalizedError.message,
         errorStack: normalizedError.stack,
@@ -600,7 +621,9 @@ function hasAnySelectionItems(selectionContext: SelectionLike) {
 function getSelectionItemCounts(selectionContext: SelectionLike) {
   const items = selectionContext?.items || {};
   return {
-    attachments: Array.isArray(items.attachments) ? items.attachments.length : 0,
+    attachments: Array.isArray(items.attachments)
+      ? items.attachments.length
+      : 0,
     parents: Array.isArray(items.parents) ? items.parents.length : 0,
     children: Array.isArray(items.children) ? items.children.length : 0,
     notes: Array.isArray(items.notes) ? items.notes.length : 0,
@@ -844,50 +867,12 @@ async function resolveAttachmentSelectionUnits(args: {
     collectAttachmentCandidates(copied),
     allowedMimes,
   );
-  const declarativeFiltered = withScopedAttachments(
-    copied,
-    candidates,
-    args.runtime,
-  );
-
-  let split = splitAttachmentsByPerParentRules({
+  const split = splitAttachmentsByPerParentRules({
     attachments: candidates,
     min: perParentMin,
     max: perParentMax,
   });
   const totalUnitsBeforeHook = split.valid.length + split.ambiguousParents.size;
-
-  if (args.workflow.hooks.filterInputs) {
-    const fromHook = (await runWorkflowHookWithDiagnostics({
-      workflow: args.workflow,
-      runtime: args.runtime,
-      hookName: "filterInputs",
-      component: "workflow-runtime",
-      operation: "filter-inputs",
-      work: (hookRuntime) =>
-        args.workflow.hooks.filterInputs!({
-          selectionContext: declarativeFiltered,
-          manifest: args.workflow.manifest,
-          executionOptions: args.executionOptions,
-          runtime: hookRuntime,
-        }),
-    })) as SelectionLike;
-
-    const hookSelection = copySelection(fromHook);
-    const hookDirectAttachments = hookSelection.items?.attachments;
-    const hookSourceAttachments = Array.isArray(hookDirectAttachments)
-      ? (hookDirectAttachments as AttachmentLike[])
-      : collectAttachmentCandidates(hookSelection);
-    const hookAttachments = applyAttachmentMimeFilter(
-      hookSourceAttachments,
-      allowedMimes,
-    );
-    split = splitAttachmentsByPerParentRules({
-      attachments: hookAttachments,
-      min: perParentMin,
-      max: perParentMax,
-    });
-  }
 
   const contexts = split.valid.map((entry) =>
     withScopedAttachments(copied, [entry], args.runtime),
@@ -908,123 +893,17 @@ async function resolveSelectionContexts(args: {
   };
   runtime: WorkflowRuntimeContext;
 }): Promise<ResolvedSelectionContexts> {
-  const allowsEmptySelection = canWorkflowRunWithoutSelection(
-    args.workflow.manifest,
-  );
-  const isPassThroughWorkflow =
-    String(args.workflow.manifest.provider || "").trim() ===
-    PASS_THROUGH_BACKEND_TYPE;
-  if (isPassThroughWorkflow && !args.workflow.manifest.inputs?.unit) {
-    const originalSelection = copySelection(args.selectionContext);
-    const totalUnitsBeforeHook = estimatePassThroughTotalUnits(originalSelection);
-    const startedWithoutSelection = !hasAnySelectionItems(originalSelection);
-    let scopedSelection = originalSelection;
-    if (args.workflow.hooks.filterInputs) {
-      const filtered = await runWorkflowHookWithDiagnostics({
-        workflow: args.workflow,
-        runtime: args.runtime,
-        hookName: "filterInputs",
-        component: "workflow-runtime",
-        operation: "filter-inputs",
-        work: (hookRuntime) =>
-          args.workflow.hooks.filterInputs!({
-            selectionContext: scopedSelection,
-            manifest: args.workflow.manifest,
-            executionOptions: args.executionOptions,
-            runtime: hookRuntime,
-          }),
-      });
-      scopedSelection = copySelection(filtered);
-    }
-    if (!scopedSelection || typeof scopedSelection !== "object") {
-      return {
-        contexts: [],
-        totalUnits: totalUnitsBeforeHook,
-      };
-    }
-    if (!hasAnySelectionItems(scopedSelection)) {
-      if (startedWithoutSelection && allowsEmptySelection) {
-        return {
-          contexts: [scopedSelection],
-          totalUnits: totalUnitsBeforeHook,
-        };
-      }
-      return {
-        contexts: [],
-        totalUnits: totalUnitsBeforeHook,
-      };
-    }
-    const contexts = splitPassThroughSelectionUnits(scopedSelection);
-    return {
-      contexts,
-      totalUnits: Math.max(totalUnitsBeforeHook, contexts.length),
-    };
-  }
-
-  if (allowsEmptySelection) {
-    const originalSelection = copySelection(args.selectionContext);
-    const startedWithoutSelection = !hasAnySelectionItems(originalSelection);
-    let scopedSelection = originalSelection;
-    if (args.workflow.hooks.filterInputs) {
-      const filtered = await runWorkflowHookWithDiagnostics({
-        workflow: args.workflow,
-        runtime: args.runtime,
-        hookName: "filterInputs",
-        component: "workflow-runtime",
-        operation: "filter-inputs",
-        work: (hookRuntime) =>
-          args.workflow.hooks.filterInputs!({
-            selectionContext: scopedSelection,
-            manifest: args.workflow.manifest,
-            executionOptions: args.executionOptions,
-            runtime: hookRuntime,
-          }),
-      });
-      scopedSelection = copySelection(filtered);
-    }
-    if (!scopedSelection || typeof scopedSelection !== "object") {
-      return {
-        contexts: [],
-        totalUnits: 1,
-      };
-    }
-    if (!hasAnySelectionItems(scopedSelection)) {
-      if (startedWithoutSelection) {
-        return {
-          contexts: [scopedSelection],
-          totalUnits: 1,
-        };
-      }
-      return {
-        contexts: [],
-        totalUnits: 1,
-      };
-    }
-  }
-
-  const unit = args.workflow.manifest.inputs?.unit || "attachment";
-  if (unit === "workflow") {
-    const context = copySelection(args.selectionContext);
-    return {
-      contexts: [context],
-      totalUnits: 1,
-    };
-  }
-  if (unit === "parent") {
-    const contexts = buildParentSelectionUnits(copySelection(args.selectionContext));
-    return {
-      contexts,
-      totalUnits: contexts.length,
-    };
-  }
-  if (unit === "note") {
-    const contexts = buildNoteSelectionUnits(copySelection(args.selectionContext));
-    return {
-      contexts,
-      totalUnits: contexts.length,
-    };
-  }
-  return resolveAttachmentSelectionUnits(args);
+  const result = await evaluateWorkflowSelection({
+    workflow: args.workflow,
+    selectionContext: args.selectionContext,
+    executionOptions: args.executionOptions,
+    mode: "execute",
+    runtime: args.runtime,
+  });
+  return {
+    contexts: result.scopedSelectionContexts,
+    totalUnits: result.stats.totalUnits,
+  };
 }
 
 export async function executeBuildRequests(args: {
@@ -1089,8 +968,9 @@ export async function executeBuildRequests(args: {
                 }),
             }),
             selectionContext,
+            args.workflow.manifest.label,
           );
-          const finalBuiltRequest = withInjectedSkillRunnerExecutionMode({
+          const finalBuiltRequest = withNormalizedSkillRunnerRuntimeOptions({
             workflow: args.workflow,
             requestKind,
             request: builtRequest,
@@ -1124,8 +1004,9 @@ export async function executeBuildRequests(args: {
             executionOptions: args.executionOptions,
           }),
           selectionContext,
+          args.workflow.manifest.label,
         );
-        const finalCompiledRequest = withInjectedSkillRunnerExecutionMode({
+        const finalCompiledRequest = withNormalizedSkillRunnerRuntimeOptions({
           workflow: args.workflow,
           requestKind: requestKindFromManifest,
           request: compiledRequest,
@@ -1164,6 +1045,14 @@ export async function executeApplyResult(args: {
   resultContext?: WorkflowResultContext;
   request?: unknown;
   runResult?: unknown;
+  sequenceStep?: {
+    id: string;
+    index: number;
+    workflowId: string;
+    skillId: string;
+    finalStep: boolean;
+    phase: "sequence-step";
+  };
   runtime?: Partial<WorkflowRuntimeContext>;
 }) {
   return measureAsyncTestPerformanceSpan(
@@ -1203,6 +1092,7 @@ export async function executeApplyResult(args: {
                 productStorage,
                 request: args.request,
                 runResult: args.runResult,
+                sequenceStep: args.sequenceStep,
                 manifest: args.workflow.manifest,
                 runtime: hookRuntime,
               }),

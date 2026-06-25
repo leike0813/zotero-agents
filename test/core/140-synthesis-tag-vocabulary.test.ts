@@ -10,7 +10,6 @@ import { createZoteroSynthesisLibraryAdapter } from "../../src/modules/synthesis
 import { handlers } from "../../src/handlers";
 import {
   readRuntimeTextFile,
-  removeRuntimePath,
   runtimePathExists,
 } from "../../src/modules/runtimePersistence";
 
@@ -18,15 +17,11 @@ async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-tag-vocabulary-"));
 }
 
-async function waitFor(predicate: () => Promise<boolean> | boolean) {
-  const deadline = Date.now() + 1000;
-  while (Date.now() < deadline) {
-    if (await predicate()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  assert.fail("timed out waiting for condition");
+function canonicalStoreText(root: string, kind: string) {
+  return createSynthesisRepository({ runtimeRoot: root })
+    .listCanonicalStoreRecords({ recordKinds: [kind] })
+    .map((row) => row.payloadJson)
+    .join("\n");
 }
 
 describe("Synthesis tag vocabulary", function () {
@@ -187,8 +182,7 @@ describe("Synthesis tag vocabulary", function () {
       ["topic:discard-me", "topic:suggested"],
     );
     assert.deepEqual(
-      staged.find((entry) => entry.tag === "topic:suggested")
-        ?.parent_bindings,
+      staged.find((entry) => entry.tag === "topic:suggested")?.parent_bindings,
       [10, 11],
     );
 
@@ -349,9 +343,7 @@ describe("Synthesis tag vocabulary", function () {
       snapshot.entries.map((entry) => entry.tag),
       ["topic:detr"],
     );
-    const diagnostics = await readRuntimeTextFile(
-      buildSynthesisKnowledgeGraphPaths(root).diagnosticsLog,
-    );
+    const diagnostics = canonicalStoreText(root, "diagnostic");
     assert.notInclude(diagnostics, "abc123");
     assert.notInclude(diagnostics, root);
     assert.include(diagnostics, "[redacted]");
@@ -484,8 +476,7 @@ describe("Synthesis tag vocabulary", function () {
     await service.saveTagVocabulary({
       entries: [{ tag: "model:detr", facet: "model", note: "local" }],
     });
-    await waitFor(() => syncRuns >= 1);
-    syncRuns = 0;
+    assert.equal(syncRuns, 0);
 
     await service.previewTagVocabularyImport({
       entries: [
@@ -542,10 +533,10 @@ describe("Synthesis tag vocabulary", function () {
     assert.isFalse(projection.stale);
     assert.equal(projection.target, "tag-index");
 
-    const paths = buildSynthesisKnowledgeGraphPaths(root);
-    const indexPath = path.join(paths.stateRoot, "tag-index.json");
-    assert.isTrue(await runtimePathExists(indexPath));
-    await removeRuntimePath(indexPath);
+    const indexPath = path.join(
+      buildSynthesisKnowledgeGraphPaths(root).sidecarRoot,
+      "tag-index.json",
+    );
     assert.isFalse(await runtimePathExists(indexPath));
 
     const computed = await service.readTagIndexProjection();

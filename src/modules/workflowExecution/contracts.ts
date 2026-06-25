@@ -10,6 +10,13 @@ export type WorkflowExecutionContext = Awaited<
 export type PreparedWorkflowExecution = {
   workflow: LoadedWorkflow;
   requests: unknown[];
+  skillDisplayById?: Record<
+    string,
+    {
+      skillId: string;
+      skillName?: string;
+    }
+  >;
   skippedByFilter: number;
   executionContext: WorkflowExecutionContext;
 };
@@ -42,6 +49,7 @@ export type WorkflowJobOutcome = {
   structuredApplyResult?: unknown;
   jobId: string;
   requestId?: string;
+  sequenceRunId?: string;
 };
 
 export type WorkflowApplySummary = {
@@ -50,23 +58,14 @@ export type WorkflowApplySummary = {
   pending: number;
   failureReasons: string[];
   jobOutcomes: WorkflowJobOutcome[];
-  reconcileOwnedPendingJobs: Array<
-    WorkflowJobOutcome & {
-      requestId: string;
-    }
-  >;
 };
 
 export type WorkflowToastPayload = {
   text: string;
   type: "default" | "success" | "error";
-  semantic?:
-    | "start"
-    | "waiting"
-    | "success"
-    | "error"
-    | "canceled"
-    | "runtime";
+  dedupKey?: string;
+  dedupWindowMs?: number;
+  semantic?: "start" | "waiting" | "success" | "error" | "canceled" | "runtime";
 };
 
 export type WorkflowPresentationArgs = {

@@ -2,6 +2,7 @@ import { createSynthesisConceptKbService } from "./conceptKb";
 import {
   buildSynthesisKnowledgeGraphPaths,
   hashCanonicalJson,
+  resolveSynthesisPersistenceRoot,
 } from "./foundation";
 import {
   createSynthesisRepository,
@@ -225,7 +226,7 @@ export function createSynthesisCheckpointExportService(
   const repository =
     options.repository ||
     createSynthesisRepository({
-      runtimeRoot: root,
+      runtimeRoot: resolveSynthesisPersistenceRoot(root),
       now,
     });
   const topicGraph = createSynthesisTopicGraphService({

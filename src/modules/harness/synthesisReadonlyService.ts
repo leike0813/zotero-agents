@@ -7,6 +7,7 @@ import { createZoteroReadonlyLibraryAdapter } from "./zoteroReadonlyLibraryAdapt
 export type SynthesisReadonlyServiceOptions = {
   zoteroDbPath: string;
   pluginDbPath: string;
+  synthesisDbPath?: string;
   pluginRuntimeRoot: string;
   libraryId?: number;
 };
@@ -32,7 +33,9 @@ export async function createSynthesisReadonlyService(
 ) {
   const libraryId = Math.max(1, Math.floor(Number(options.libraryId || 1)));
   installReadonlyZoteroHostMock(libraryId);
-  const sqliteAdapter = await createReadonlySqliteAdapter(options.pluginDbPath);
+  const sqliteAdapter = await createReadonlySqliteAdapter(
+    options.synthesisDbPath || options.pluginDbPath,
+  );
   const libraryAdapter = await createZoteroReadonlyLibraryAdapter({
     dbPath: options.zoteroDbPath,
     libraryId,

@@ -1,7 +1,9 @@
 import { joinPath } from "../utils/path";
 import {
+  collectExpiredRuntimeAssets,
   collectRuntimeFiles,
   getRuntimePersistencePaths,
+  listRuntimeChildren,
   removeRuntimePath,
   runtimePathExists,
   runtimeRelativePath,
@@ -55,11 +57,16 @@ export type PersistenceCleanupResult = {
   report: PersistenceIntegrityReport;
 };
 
+export type PersistenceIntegrityScanProgress = {
+  stage: string;
+  label: string;
+  current: number;
+  total: number;
+  percent: number;
+};
+
 const DAY_MS = 24 * 60 * 60 * 1000;
-const TMP_TTL_MS = DAY_MS;
-const CACHE_TTL_MS = 30 * DAY_MS;
 const ORPHAN_PRODUCT_ASSET_TTL_MS = 7 * DAY_MS;
-const LOG_TTL_MS = 30 * DAY_MS;
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -101,36 +108,6 @@ function isUnderPath(root: string, target: string) {
   const rootPath = normalizePath(root).replace(/\/+$/g, "");
   const targetPath = normalizePath(target);
   return targetPath === rootPath || targetPath.startsWith(`${rootPath}/`);
-}
-
-async function collectFilesWithTtl(args: {
-  root: string;
-  owner: string;
-  type: PersistenceIntegrityIssueType;
-  ttlMs: number;
-  nowMs: number;
-}) {
-  const issues: PersistenceIntegrityIssue[] = [];
-  for (const file of await collectRuntimeFiles(args.root)) {
-    const stat = await statRuntimePath(file);
-    if (!stat.exists || !isOlderThan(stat, args.nowMs, args.ttlMs)) {
-      continue;
-    }
-    issues.push({
-      id: issueId(args.type, file, args.owner),
-      type: args.type,
-      severity: "info",
-      path: file,
-      relativePath: runtimeRelativePath(args.root, file),
-      owner: args.owner,
-      eligibleForCleanup: true,
-      reason: `${args.owner} asset exceeded configured TTL`,
-      updatedAt: stat.lastModified
-        ? new Date(stat.lastModified).toISOString()
-        : undefined,
-    });
-  }
-  return issues;
 }
 
 function managedIssueTypeForDiagnostic(
@@ -249,11 +226,24 @@ async function collectManagedPathPolicyIssues(args: {
 export async function scanPersistenceIntegrity(args?: {
   root?: string;
   nowMs?: number;
+  onProgress?: (progress: PersistenceIntegrityScanProgress) => void;
 }): Promise<PersistenceIntegrityReport> {
   const paths = getRuntimePersistencePaths(args?.root);
   const nowMs = Math.max(0, Math.floor(Number(args?.nowMs || Date.now())));
   const issues: PersistenceIntegrityIssue[] = [];
   const referencedFiles = new Set<string>();
+  const totalSteps = 6;
+  let completedSteps = 0;
+  const reportProgress = (stage: string, label: string) => {
+    completedSteps = Math.min(totalSteps, completedSteps + 1);
+    args?.onProgress?.({
+      stage,
+      label,
+      current: completedSteps,
+      total: totalSteps,
+      percent: Math.floor((completedSteps / totalSteps) * 100),
+    });
+  };
 
   for (const product of listWorkflowProducts()) {
     for (const asset of product.assets || []) {
@@ -271,11 +261,13 @@ export async function scanPersistenceIntegrity(args?: {
           relativePath: runtimeRelativePath(paths.root, localPath),
           owner: `workflow-product:${product.productId}`,
           eligibleForCleanup: false,
-          reason: "workflow product metadata references a missing cached asset",
+          reason:
+            "workflow product metadata references a missing managed product asset",
         });
       }
     }
   }
+  reportProgress("integrity:workflow-products-db", "Workflow product records");
 
   const workflowProductsRoot = joinPath(
     paths.runtimeRoot,
@@ -297,54 +289,63 @@ export async function scanPersistenceIntegrity(args?: {
       relativePath: runtimeRelativePath(paths.root, file),
       owner: "workflow-products",
       eligibleForCleanup: eligible,
-      reason: "cached workflow product asset has no owning SQLite row",
+      reason: "managed workflow product asset has no owning SQLite row",
       updatedAt: stat.lastModified
         ? new Date(stat.lastModified).toISOString()
         : undefined,
     });
   }
+  reportProgress(
+    "integrity:workflow-products-assets",
+    "Workflow product assets",
+  );
 
-  for (const issue of await collectFilesWithTtl({
-    root: paths.tmpDir,
-    owner: "tmp",
-    type: "expired_runtime_asset",
-    ttlMs: TMP_TTL_MS,
+  for (const asset of await collectExpiredRuntimeAssets({
+    root: args?.root,
     nowMs,
   })) {
-    issues.push(issue);
+    issues.push({
+      id: issueId("expired_runtime_asset", asset.path, asset.owner),
+      type: "expired_runtime_asset",
+      severity: "info",
+      path: asset.path,
+      relativePath: asset.relativePath,
+      owner: asset.owner,
+      eligibleForCleanup: true,
+      reason: `${asset.owner} asset exceeded configured TTL`,
+      updatedAt: asset.lastModified
+        ? new Date(asset.lastModified).toISOString()
+        : undefined,
+    });
   }
-  for (const issue of await collectFilesWithTtl({
-    root: paths.cacheDir,
-    owner: "cache",
-    type: "expired_runtime_asset",
-    ttlMs: CACHE_TTL_MS,
-    nowMs,
-  })) {
-    issues.push(issue);
-  }
-  for (const issue of await collectFilesWithTtl({
-    root: paths.logsDir,
-    owner: "logs",
-    type: "expired_runtime_asset",
-    ttlMs: LOG_TTL_MS,
-    nowMs,
-  })) {
-    issues.push(issue);
-  }
+  reportProgress("integrity:expired-assets", "Expired runtime assets");
 
   const runtimeSynthesis = joinPath(paths.runtimeRoot, "synthesis");
   if (await runtimePathExists(runtimeSynthesis)) {
-    issues.push({
-      id: issueId("forbidden_durable_asset_in_runtime", runtimeSynthesis),
-      type: "forbidden_durable_asset_in_runtime",
-      severity: "error",
-      path: runtimeSynthesis,
-      relativePath: runtimeRelativePath(paths.root, runtimeSynthesis),
-      owner: "synthesis",
-      eligibleForCleanup: false,
-      reason: "durable synthesis canonical store must not live in runtime",
-    });
+    const allowedRuntimeSynthesisRoots = new Set([
+      "git-sync",
+      "git-sync-worktree",
+      "webdav-sync",
+    ]);
+    for (const child of await listRuntimeChildren(runtimeSynthesis)) {
+      const childName = basenameOf(child);
+      if (allowedRuntimeSynthesisRoots.has(childName)) {
+        continue;
+      }
+      issues.push({
+        id: issueId("forbidden_durable_asset_in_runtime", child),
+        type: "forbidden_durable_asset_in_runtime",
+        severity: "error",
+        path: child,
+        relativePath: runtimeRelativePath(paths.root, child),
+        owner: "synthesis",
+        eligibleForCleanup: false,
+        reason:
+          "durable synthesis canonical store must not live in runtime outside sync workspaces",
+      });
+    }
   }
+  reportProgress("integrity:runtime-synthesis", "Runtime synthesis workspace");
 
   const oldRuntimeSynthesis = joinPath(paths.root, "synthesis");
   if (
@@ -362,6 +363,7 @@ export async function scanPersistenceIntegrity(args?: {
       reason: "legacy synthesis root requires explicit migration",
     });
   }
+  reportProgress("integrity:legacy-roots", "Legacy persistence roots");
 
   for (const issue of await collectManagedPathPolicyIssues({
     root: paths.synthesisDataRoot,
@@ -369,6 +371,7 @@ export async function scanPersistenceIntegrity(args?: {
   })) {
     issues.push(issue);
   }
+  reportProgress("integrity:managed-paths", "Managed synthesis paths");
 
   const report: PersistenceIntegrityReport = {
     schema: "zotero-agents.persistence_integrity_report.v1",
@@ -404,7 +407,8 @@ export async function cleanupPersistenceIssues(args?: {
       path &&
       isUnderPath(paths.runtimeRoot, path) &&
       !isUnderPath(paths.dataDir, path) &&
-      path !== paths.stateDbPath;
+      path !== paths.stateDbPath &&
+      path !== paths.synthesisDbPath;
     if (!cleanable) {
       skippedIssueIds.push(issue.id);
       continue;

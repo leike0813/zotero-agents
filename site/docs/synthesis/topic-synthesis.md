@@ -1,159 +1,161 @@
-# 创建 Topic 综合
+# Creating Topic Synthesis
 
-## 什么是 Topic Synthesis？
+## What Is Topic Synthesis?
 
-Topic Synthesis（主题综合）是对一组相关文献进行系统化分析和综合的过程。它通过 AI 工作流自动提取关键信息、识别主题结构、生成综合分析报告。
+Topic Synthesis is the process of systematically analyzing and synthesizing a group of related literature. It automatically extracts key information, identifies topic structures, and generates comprehensive analysis reports through AI workflows.
 
-## Topics 表面
+## Topics Surface
 
-在 Synthesis Workbench → Topics 页面，可以浏览和管理所有已创建的主题。Topics 表面支持 **三种视图模式**：
+On the Synthesis Workbench → Topics page, you can browse and manage all created topics. The Topics surface supports **three view modes**:
 
-| 视图 | 说明 | 适用场景 |
-|------|------|---------|
-| **图视图** | 力导向图，主题为节点，关系为边 | 直观了解主题间关联 |
-| **网格视图** | 带标题、论文数、摘要和操作按钮的卡片 | 浏览和查找主题 |
-| **列表视图** | 带列的表格视图：名称、论文数、创建时间、更新日期、状态 | 排序和批量操作 |
+| View | Description | Use Case |
+|------|-------------|----------|
+| **Graph View** | Force-directed graph with topics as nodes and relationships as edges | Intuitively understand inter-topic associations |
+| **Grid View** | Cards with title, paper count, summary, and action buttons | Browse and find topics |
+| **List View** | Table view with columns: name, paper count, creation time, update date, status | Sorting and batch operations |
 
-### 主题管理操作
+![Synthesis Topics Graph View](/img/docs/synthesis/topic-graph.png)
 
-- **搜索**：按主题名称和描述搜索
-- **排序**：按标题、论文数量、更新日期排序
-- **创建新 Topic**：点击创建按钮，启动 Workflow 流水线
-- **更新 Topic**：重新运行 pipeline 更新主题分析
-- **删除 Topic**：移除不再需要的主题
+### Topic Management Operations
 
-## 创建流程
+- **Search**: Search by topic name and description
+- **Sort**: Sort by title, paper count, or update date
+- **Create New Topic**: Click the create button to start the workflow pipeline
+- **Update Topic**: Re-run the pipeline to update the topic analysis
+- **Delete Topic**: Remove topics that are no longer needed
 
-Topic 的创建由 Workflow 驱动，是一个多步骤的自动化流水线：
+## Creation Process
+
+Topic creation is driven by workflows and is a multi-step automated pipeline:
 
 ```
 1. create-topic-prepare
-   → 收集文献数据，构建论文集
+   → Collect literature data, build paper set
    
 2. topic-synthesis-core-enrichment
-   → 核心富化：提取信息、关联知识
+   → Core enrichment: extract information, associate knowledge
    
 3. topic-synthesis-finalize
-   → 生成最终的分析产物和报告
+   → Generate final analysis artifacts and reports
 
-（update-topic-synthesis-prepare 用于更新已有 Topic）
+(update-topic-synthesis-prepare is used to update existing topics)
 ```
 
-### 前提条件
+### Prerequisites
 
-- 已配置 [Skill-Runner 后端](../backends/skill-runner)
-- 文献库中有相关论文
-- 论文已生成了摘要（Digest）和引文分析（可选，推荐）
+- [Skill-Runner backend](../backends/skill-runner) configured
+- Relevant papers in the library
+- Papers have generated digests and citation analysis (optional, recommended)
 
-该 pipeline 由 [Topic 综合创建](../workflows/topic-synthesis) workflow 编排执行。
+This pipeline is orchestrated by the [Topic Synthesis Creation](../workflows/topic-synthesis) workflow.
 
-## Topic Inspector（主题检查器）
+## Topic Inspector
 
-创建 Topic 后，点击主题即可进入 Topic Inspector。这是一个多页面的阅读器，包含 8 个子页面，每个页面展示主题的不同维度。
+After creating a topic, click on it to enter the Topic Inspector. This is a multi-page reader containing 8 sub-pages, each presenting a different dimension of the topic.
 
-### Overview（概览）
+### Overview
 
-- 主题名称、描述、重要度评分
-- 核心主张摘要
-- 统计数据（论文数、分类数、声明数等）
-- 关联的 Topic Graph 位置信息
+- Topic name, description, importance score
+- Core claims summary
+- Statistics (paper count, category count, claim count, etc.)
+- Associated Topic Graph location information
 
-### Taxonomy（分类体系）
+### Taxonomy
 
-展示主题的层级化分类结构：
+Displays the hierarchical classification structure of the topic:
 
-- 上位主题（broader）：更广泛的主题领域
-- 下位主题（narrower）：更具体的子主题
-- 相关主题（related）：与之关联的其他主题
-- 在 Topic Graph 中的位置和层次
+- Broader topics: Broader topic areas
+- Narrower topics: More specific sub-topics
+- Related topics: Other associated topics
+- Position and hierarchy in the Topic Graph
 
-### Claims（关键声明）
+### Claims
 
-从文献中提取的核心声明和主张：
+Core claims and assertions extracted from the literature:
 
-- 每条声明包含原文证据引用
-- 标注声明来源的论文
-- 声明类型（发现/假设/结论等）
-- 支持该声明的论文数量
+- Each claim includes original evidence citations
+- Marks the papers from which claims originate
+- Claim type (findings / hypotheses / conclusions, etc.)
+- Number of papers supporting the claim
 
-### Compare（对比分析）
+### Compare
 
-不同论文在同一主题上的观点对比：
+Comparison of viewpoints across different papers on the same topic:
 
-- 对比维度（方法、结论、数据集等）
-- 各论文的立场和论点
-- 共识与分歧的可视化
+- Comparison dimensions (methods, conclusions, datasets, etc.)
+- Each paper's stance and arguments
+- Visualization of consensus and divergence
 
-### Future Directions（未来方向）
+### Future Directions
 
-基于文献分析识别的研究空白和未来方向：
+Research gaps and future directions identified through literature analysis:
 
-- 开放性问题
-- 潜在研究方向
-- 相关挑战和建议
+- Open questions
+- Potential research directions
+- Related challenges and recommendations
 
-### Coverage（覆盖度分析）
+### Coverage
 
-分析 Topic 对相关文献的覆盖程度：
+Analyzes the degree to which the topic covers relevant literature:
 
-- 该主题涵盖的论文列表
-- 论文的完整度（是否有摘要/引文分析等产物）
-- 覆盖的方面和未覆盖的方面
+- List of papers covered by the topic
+- Paper completeness (whether digests/citation analysis artifacts exist)
+- Aspects covered and aspects not covered
 
-### References（参考文献）
+### References
 
-该主题关联的所有参考文献，包含绑定细节：
+All references associated with the topic, including binding details:
 
-- 每条引用的 Zotero 条目链接
-- 引用在 Topic 中的角色（支持/对比/背景）
-- 引用来源和上下文
+- Zotero item link for each citation
+- Citation role in the topic (support / contrast / background)
+- Citation source and context
 
-### Report（完整报告）
+### Report (Full Report)
 
-生成的结构化综合分析报告（Markdown 格式）：
+The generated structured synthesis analysis report (in Markdown format):
 
-- 完整的主题分析文本
-- 可导出为 Markdown 或自包含 HTML
-- 适合用于学术写作的参考资料
+- Complete topic analysis text
+- Can be exported as Markdown or self-contained HTML
+- Suitable for use as reference material in academic writing
 
-## Topic Graph（主题图谱）
+## Topic Graph
 
-Topic Graph 是一个层次化的主题网络，展示主题之间的关系：
+The Topic Graph is a hierarchical topic network showing relationships between topics:
 
-### 节点类型
+### Node Types
 
-| 类型 | 说明 |
-|------|------|
-| **materialized** | 已实际创建的结构化主题 |
-| **placeholder** | 推断存在但尚未创建的主题占位符 |
+| Type | Description |
+|------|-------------|
+| **materialized** | Structured topics that have been actually created |
+| **placeholder** | Topic placeholders inferred to exist but not yet created |
 
-### 边状态
+### Edge Status
 
-| 状态 | 说明 |
-|------|------|
-| `suggested` | 系统建议的关系（等待审核） |
-| `confirmed` | 用户确认的关系 |
-| `rejected` | 用户拒绝的关系 |
-| `stale` | 数据过期，待重新评估 |
-| `deleted` | 已删除的关系 |
+| Status | Description |
+|--------|-------------|
+| `suggested` | System-suggested relationships (pending review) |
+| `confirmed` | User-confirmed relationships |
+| `rejected` | User-rejected relationships |
+| `stale` | Stale data, pending re-evaluation |
+| `deleted` | Deleted relationships |
 
-### 关系类型
+### Relationship Types
 
-| 关系 | 说明 |
-|------|------|
-| `broader_than` | A 是 B 的上位主题（更广泛） |
-| `related_to` | 两个主题相关 |
-| `overlaps_with` | 两个主题有重叠 |
-| `contrasts_with` | 两个主题形成对比 |
+| Relationship | Description |
+|--------------|-------------|
+| `broader_than` | A is a broader topic than B |
+| `related_to` | Two topics are related |
+| `overlaps_with` | Two topics overlap |
+| `contrasts_with` | Two topics contrast with each other |
 
-### 管理 Topic
+### Managing Topics
 
-- **创建新 Topic**：在 Topics 页面点击"创建"
-- **编辑 Topic**：修改名称、描述、重要度等
-- **关联论文**：向 Topic 添加或移除论文
-- **浏览 Topic Graph**：查看主题间的关系网络
+- **Create New Topic**: Click "Create" on the Topics page
+- **Edit Topic**: Modify name, description, importance, etc.
+- **Associate Papers**: Add or remove papers from a topic
+- **Browse Topic Graph**: View the relationship network between topics
 
-## 相关 Workflow
+## Related Workflows
 
-- [Topic 综合创建](../workflows/topic-synthesis) — 创建 Topic 的 Workflow 详情
-- [论文写作框架](../workflows/manuscript-literature-framing) — 基于 Topic 分析撰写论文
+- [Topic Synthesis Creation](../workflows/topic-synthesis) — Workflow details for creating topics
+- [Manuscript Literature Framing](../workflows/manuscript-literature-framing) — Write papers based on topic analysis

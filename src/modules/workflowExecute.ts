@@ -11,7 +11,10 @@ import {
 } from "./workflowSettings";
 import { openWorkflowSettingsWebDialog } from "./workflowSettingsWebDialog";
 import { loadBackendsRegistry } from "../backends/registry";
-import { isSkillRunnerBackendReconcileFlagged } from "./skillRunnerBackendHealthRegistry";
+import {
+  isSkillRunnerBackendAvailable,
+  syncSkillRunnerBackendHealthForConfiguredBackends,
+} from "./skillRunnerBackendHealthRegistry";
 import {
   alertWindow,
   emitWorkflowFinishSummary,
@@ -22,11 +25,6 @@ import {
 } from "./workflowExecution/feedbackSeam";
 import { createLocalizedMessageFormatter } from "./workflowExecution/messageFormatter";
 import { shouldShowWorkflowNotifications } from "./workflowExecution/feedbackPolicy";
-import { registerDeferredWorkflowCompletion } from "./workflowExecution/deferredCompletionTracker";
-import {
-  ensureSkillRunnerRecoverableContext,
-  promptSkillRunnerTaskReconcileRequests,
-} from "./skillRunnerTaskReconciler";
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import { getString } from "../utils/locale";
 import { localizeWorkflowLabel } from "../workflows/localization";
@@ -79,12 +77,18 @@ export async function executeWorkflowFromCurrentSelection(args: {
     const candidateBackends = loadedBackends.fatalError
       ? []
       : loadedBackends.backends;
+    if (!loadedBackends.fatalError) {
+      syncSkillRunnerBackendHealthForConfiguredBackends(candidateBackends, {
+        prune: true,
+      });
+    }
     const submitVisibleBackends = candidateBackends.filter((backend) => {
       if (String(backend.type || "").trim() !== "skillrunner") {
         return true;
       }
-      return !isSkillRunnerBackendReconcileFlagged(
-        String(backend.id || "").trim(),
+      return (
+        backend.enabled !== false &&
+        isSkillRunnerBackendAvailable(String(backend.id || "").trim())
       );
     });
     const configurable = await isWorkflowConfigurable({
@@ -223,62 +227,6 @@ export async function executeWorkflowFromCurrentSelection(args: {
     messageFormatter,
   });
 
-  if (applySummary.reconcileOwnedPendingJobs.length > 0) {
-    const registered = registerDeferredWorkflowCompletion({
-      runId: runState.runId,
-      win: args.win,
-      workflowId: args.workflow.manifest.id,
-      workflowLabel,
-      totalJobs: runState.totalJobs,
-      skipped: totalSkipped,
-      succeeded: applySummary.succeeded,
-      failed: applySummary.failed,
-      failureReasons: applySummary.failureReasons,
-      pendingJobs: applySummary.reconcileOwnedPendingJobs,
-      messageFormatter,
-    });
-    if (registered) {
-      for (const pendingJob of applySummary.reconcileOwnedPendingJobs) {
-        const queueJob = runState.queue.getJob(pendingJob.jobId);
-        const request =
-          pendingJob.index >= 0 && pendingJob.index < runState.requests.length
-            ? runState.requests[pendingJob.index]
-            : undefined;
-        if (!queueJob || typeof request === "undefined") {
-          continue;
-        }
-        ensureSkillRunnerRecoverableContext({
-          workflowId: args.workflow.manifest.id,
-          workflowLabel,
-          requestKind: preparation.prepared.executionContext.requestKind,
-          request,
-          backend: preparation.prepared.executionContext.backend,
-          providerId: preparation.prepared.executionContext.providerId,
-          providerOptions:
-            preparation.prepared.executionContext.providerOptions,
-          job: queueJob,
-        });
-      }
-      const promptBackendId =
-        applySummary.reconcileOwnedPendingJobs
-          .map((pendingJob) =>
-            String(
-              runState.queue.getJob(pendingJob.jobId)?.meta.backendId || "",
-            ).trim(),
-          )
-          .find(Boolean) ||
-        String(preparation.prepared.executionContext.backend.id || "").trim() ||
-        undefined;
-      await promptSkillRunnerTaskReconcileRequests({
-        backendId: promptBackendId,
-        requestIds: applySummary.reconcileOwnedPendingJobs
-          .map((job) => String(job.requestId || "").trim())
-          .filter(Boolean),
-        source: "post-register",
-      });
-    }
-  }
-
   if (showWorkflowNotifications) {
     const jobToastOutcomes = selectWorkflowJobOutcomesForToasts({
       outcomes: applySummary.jobOutcomes,
@@ -309,7 +257,6 @@ export async function executeWorkflowFromCurrentSelection(args: {
       pending: applySummary.pending,
       skipped: totalSkipped,
       failureCount: applySummary.failureReasons.length,
-      reconcileOwnedPending: applySummary.reconcileOwnedPendingJobs.length,
     },
   });
 

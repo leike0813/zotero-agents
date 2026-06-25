@@ -7,8 +7,10 @@ import fsSync from "fs";
 import os from "os";
 import path from "path";
 import {
+  compileSkillJsonSchema,
   validateAcpSkillRunRequestAgainstSchemas,
   validateRunnerManifestShape,
+  validateSkillSchemaAnnotations,
 } from "../../src/modules/acpSkillSchemaAssets";
 import { renderTopicSynthesisSkills } from "../../skills_src/topic-synthesis/renderer/render_topic_synthesis_skills";
 
@@ -19,6 +21,13 @@ const generatedSkillIds = [
   "topic-synthesis-core-enrichment",
   "topic-synthesis-finalize",
 ];
+
+const expectedHardTimeoutSeconds: Record<string, number> = {
+  "create-topic-synthesis-prepare": 3600,
+  "update-topic-synthesis-prepare": 3600,
+  "topic-synthesis-core-enrichment": 1800,
+  "topic-synthesis-finalize": 1800,
+};
 
 const expectedStageSchemas: Record<string, string[]> = {
   "create-topic-synthesis-prepare": [
@@ -40,6 +49,14 @@ const expectedStageSchemas: Record<string, string[]> = {
   ],
 };
 
+const taxonomyAxisTypes = [
+  "problem_formulation",
+  "technical_mechanism",
+  "evidence_scope",
+  "research_route",
+  "application_context",
+];
+
 async function assertFileExists(filePath: string) {
   await fs.access(filePath);
 }
@@ -57,18 +74,36 @@ function assertStage40ExampleCoversGateFields(example: any) {
   assert.notProperty(example, "positioning");
   assert.isString(example.taxonomy?.summary?.text);
   assert.isNotEmpty(example.taxonomy.summary.text);
-  const route = example.taxonomy?.nodes?.[0];
-  assert.isObject(route);
-  for (const key of ["definition", "core_problem", "mechanism", "maturity"]) {
-    assert.isString(route[key], `taxonomy route should include ${key}`);
-    assert.isNotEmpty(route[key], `taxonomy route ${key} should not be empty`);
+  assert.notProperty(example.taxonomy, "nodes");
+  assert.isArray(example.taxonomy?.axes);
+  assert.isAtLeast(example.taxonomy.axes.length, 2);
+  assert.isAtMost(example.taxonomy.axes.length, 5);
+  for (const axis of example.taxonomy.axes) {
+    assert.include(taxonomyAxisTypes, axis.axis_type);
+    assert.isArray(axis.nodes);
+    assert.isNotEmpty(axis.nodes);
+    for (const route of axis.nodes) {
+      assert.isObject(route);
+      for (const key of [
+        "definition",
+        "core_problem",
+        "mechanism",
+        "maturity",
+      ]) {
+        assert.isString(route[key], `taxonomy route should include ${key}`);
+        assert.isNotEmpty(
+          route[key],
+          `taxonomy route ${key} should not be empty`,
+        );
+      }
+      assert.isArray(route.strengths);
+      assert.isNotEmpty(route.strengths);
+      assert.isArray(route.limitations);
+      assert.isNotEmpty(route.limitations);
+      assert.isArray(route.source_paper_refs);
+      assert.isNotEmpty(route.source_paper_refs);
+    }
   }
-  assert.isArray(route.strengths);
-  assert.isNotEmpty(route.strengths);
-  assert.isArray(route.limitations);
-  assert.isNotEmpty(route.limitations);
-  assert.isArray(route.source_paper_refs);
-  assert.isNotEmpty(route.source_paper_refs);
 
   const timelineEvent = example.timeline_events?.events?.[0];
   assert.isString(timelineEvent?.description);
@@ -139,6 +174,29 @@ function assertStage40ExampleCoversGateFields(example: any) {
   );
 }
 
+function collectStringTitlePaths(value: unknown, pathParts: string[] = []) {
+  const paths: string[] = [];
+  if (!value || typeof value !== "object") {
+    return paths;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      paths.push(
+        ...collectStringTitlePaths(item, [...pathParts, String(index)]),
+      );
+    });
+    return paths;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = [...pathParts, key];
+    if (key === "title" && typeof child === "string") {
+      paths.push(childPath.join("."));
+    }
+    paths.push(...collectStringTitlePaths(child, childPath));
+  }
+  return paths;
+}
+
 async function collectFileMap(root: string): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
   async function visit(current: string) {
@@ -190,6 +248,10 @@ function runGateFromOtherCwd(skillId: string, extraArgs: string[] = []) {
         stdio: "pipe",
       });
   return JSON.parse(output) as Record<string, unknown>;
+}
+
+function normalizePathForAssert(value: unknown) {
+  return String(value || "").replace(/\\/g, "/");
 }
 
 function runGateRawFromOtherCwd(skillId: string) {
@@ -307,8 +369,12 @@ describe("Topic synthesis suite renderer", function () {
         skillFrontmatterName: skillId,
       });
       assert.deepEqual(errors, [], `${skillId} runner.json should be valid`);
-      assert.deepEqual(runnerJson.execution_modes, ["interactive"]);
+      assert.deepEqual(runnerJson.execution_modes, ["auto"]);
       assert.equal(runnerJson.max_attempt, 12);
+      assert.equal(
+        runnerJson.runtime?.default_options?.hard_timeout_seconds,
+        expectedHardTimeoutSeconds[skillId],
+      );
       assert.deepEqual(runnerJson.schemas, {
         input: "assets/input.schema.json",
         parameter: "assets/parameter.schema.json",
@@ -375,6 +441,32 @@ describe("Topic synthesis suite renderer", function () {
     }
   });
 
+  it("renders package-local schemas that satisfy Skill Runner meta-schemas", async function () {
+    for (const skillId of generatedSkillIds) {
+      for (const schemaKey of ["input", "parameter", "output"] as const) {
+        const schema = JSON.parse(
+          await fs.readFile(
+            path.join(
+              "skills_builtin",
+              skillId,
+              "assets",
+              `${schemaKey}.schema.json`,
+            ),
+            "utf8",
+          ),
+        ) as Record<string, unknown>;
+        assert.deepEqual(
+          [
+            ...compileSkillJsonSchema({ schema, schemaKey }),
+            ...validateSkillSchemaAnnotations({ schema, schemaKey }),
+          ],
+          [],
+          `${skillId} ${schemaKey} schema must satisfy Skill Runner meta-schema`,
+        );
+      }
+    }
+  });
+
   it("keeps generated packages local to their own stage schemas", async function () {
     for (const skillId of generatedSkillIds) {
       const schemaDir = path.join(
@@ -422,6 +514,9 @@ describe("Topic synthesis suite renderer", function () {
         assert.include(serialized, "topic_synthesis_canceled");
         assert.notInclude(serialized, "topic_synthesis_handoff");
         assert.notInclude(serialized, "handoff_manifest_path");
+        assert.include(serialized, "artifact_manifest_path");
+        assert.include(serialized, "artifact-manifest");
+        assert.notInclude(serialized, "analysis_manifest_path");
         assert.isFalse(
           validate({
             __SKILL_DONE__: true,
@@ -429,9 +524,8 @@ describe("Topic synthesis suite renderer", function () {
             operation: "create",
             language: "zh-CN",
             topic_definition: { id: "detr", title: "DETR" },
-            resolver_manifest_path: "runtime/payloads/resolver.json",
-            analysis_manifest_path: "result/topic-analysis.json",
-            candidate_output_path: "result/final-output.candidate.json",
+            artifact_manifest_path:
+              "D:/workspace/result/topic-synthesis-artifacts.json",
           }),
           `${skillId} output schema must reject ACP control fields`,
         );
@@ -446,9 +540,9 @@ describe("Topic synthesis suite renderer", function () {
             kind: "topic_synthesis_handoff",
             handoff: "prepare_analysis_context",
             operation: "create",
-            db_path: "runtime/topic-synthesis.sqlite",
+            db_path: "D:/workspace/runtime/topic-synthesis.sqlite",
             handoff_manifest_path:
-              "runtime/handoff/prepare-analysis-context.json",
+              "D:/workspace/runtime/handoff/prepare-analysis-context.json",
             next_skill_id: "topic-synthesis-core-enrichment",
           }),
           `${skillId} output schema must reject ACP control fields`,
@@ -461,6 +555,29 @@ describe("Topic synthesis suite renderer", function () {
             message: "Topic synthesis was canceled.",
           }),
           `${skillId} output schema must accept business canceled results`,
+        );
+      }
+    }
+  });
+
+  it("keeps package-local output schemas free of schema title annotations", async function () {
+    for (const skillId of generatedSkillIds) {
+      const schema = JSON.parse(
+        await fs.readFile(
+          path.join("skills_builtin", skillId, "assets", "output.schema.json"),
+          "utf8",
+        ),
+      ) as Record<string, any>;
+      assert.deepEqual(
+        collectStringTitlePaths(schema),
+        [],
+        `${skillId} output schema should not spend output-token context on schema title annotations`,
+      );
+      if (skillId === "topic-synthesis-finalize") {
+        assert.property(
+          schema.oneOf?.[0]?.properties?.topic_definition?.properties,
+          "title",
+          "business topic title field must remain part of the final output contract",
         );
       }
     }
@@ -597,6 +714,22 @@ describe("Topic synthesis suite renderer", function () {
     assert.notInclude(finalizeSkill, "未抓取");
   });
 
+  it("documents remote paper artifact export downloads in prepare skills", async function () {
+    for (const skillId of [
+      "create-topic-synthesis-prepare",
+      "update-topic-synthesis-prepare",
+    ]) {
+      const skillText = await fs.readFile(
+        path.join("skills_builtin", skillId, "SKILL.md"),
+        "utf8",
+      );
+      assert.include(skillText, "bridge-download");
+      assert.include(skillText, "downloadCommand");
+      assert.include(skillText, "unpackHint");
+      assert.include(skillText, "paper-artifacts-export-delivery.json");
+    }
+  });
+
   it("renders generated SKILL.md prose in Chinese", async function () {
     const forbiddenEnglishFragments = [
       "Required Runtime Inputs",
@@ -640,9 +773,9 @@ describe("Topic synthesis suite renderer", function () {
       assert.include(skillText, "质量检查");
       assert.include(skillText, "常见错误");
       assert.include(skillText, "Payload JSON 示例");
-      assert.include(skillText, "--action run");
-      assert.include(skillText, "--action submit --payload");
-      assert.include(
+      assert.include(skillText, "复制并执行 gate JSON 的 `command` 字段");
+      assert.include(skillText, "复制并执行 gate JSON 的 `submit_command`");
+      assert.notInclude(
         skillText,
         'python scripts/gate.py --db "runtime/topic-synthesis.sqlite"',
       );
@@ -794,7 +927,7 @@ describe("Topic synthesis suite renderer", function () {
 
     assert.include(createSkill, "duplicate_status");
     assert.include(createSkill, "硬门禁失败");
-    assert.include(createSkill, "reason: \"duplicate_topic\"");
+    assert.include(createSkill, 'reason: "duplicate_topic"');
     assert.include(createSkill, "不进入 Stage 20");
     assert.include(createSkill, "topic_synthesis_canceled");
     assert.include(createSkill, "短路后续 steps");
@@ -932,7 +1065,12 @@ describe("Topic synthesis suite renderer", function () {
     for (const skillId of generatedSkillIds) {
       const instruction = runGateFromOtherCwd(skillId);
       assert.equal(instruction.skill_id, skillId);
-      assert.equal(instruction.db_path, "runtime/topic-synthesis.sqlite");
+      const dbPath = normalizePathForAssert(instruction.db_path);
+      assert.match(dbPath, /\/runtime\/topic-synthesis\.sqlite$/);
+      assert.isTrue(
+        path.isAbsolute(String(instruction.db_path || "")),
+        "gate instruction db_path should be absolute",
+      );
       assert.isString(instruction.stage);
       assert.isString(instruction.task);
       assert.property(instruction, "needs_payload");

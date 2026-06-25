@@ -1,88 +1,93 @@
-# 文献搜索与入库
+# Literature Search & Ingest
 
-## 用途
+## Purpose
 
-通过 AI 搜索学术文献，并将结果直接入库到 Zotero。支持多种搜索模式，交互式确认后再执行入库操作。
+Search academic literature via AI and ingest the results directly into Zotero. Supports multiple search modes with interactive confirmation before executing the ingest operation.
 
-## 适用场景
+## Use Cases
 
-- 在研究一个新主题时搜索相关文献并批量入库
-- 输入一篇已知论文的标题、DOI、arXiv ID 或 PMID，快速导入
-- 基于一篇种子论文扩展搜索相关文献
+- Searching and batch-ingesting relevant literature when researching a new topic
+- Entering the title, DOI, arXiv ID, or PMID of a known paper for quick import
+- Expanding the search for related literature based on a seed paper
 
-## 输入约束
+## Input Constraints
 
-| 约束类型 | 说明 |
+| Constraint Type | Description |
 |---------|------|
-| 输入单元 | workflow（无需选中条目） |
-| 触发方式 | 右键菜单或 Dashboard 中运行，无需预先选择任何条目 |
+| Input Unit | workflow (no items need to be selected) |
+| Trigger Method | Run from context menu or Dashboard, no items need to be pre-selected |
 
-## 搜索模式
+## Search Modes
 
-| 模式 | 说明 |
+| Mode | Description |
 |------|------|
-| `auto` | 自动判断最适合的搜索模式（默认） |
-| `topic_expansion` | 按研究方向或主题搜索，查找相关文献 |
-| `paper_seed_expansion` | 基于一篇种子论文扩展搜索 | 
-| `targeted_ingest` | 精确定位导入单篇文献 |
+| `auto` | Automatically determine the most suitable search mode (default) |
+| `topic_expansion` | Search by research direction or topic to find related literature |
+| `paper_seed_expansion` | Expand search based on a seed paper |
+| `targeted_ingest` | Precisely locate and ingest a single paper |
 
-## 运行过程
+## Execution Flow
 
 ```
-1. 方案确认阶段
-   └── 读取 Zotero 库和 Synthesis 上下文
-       └── 自动判断搜索模式（auto 模式）
-       └── 向用户展示搜索方案
-       └── 等待用户确认
+1. Plan Confirmation Phase
+   └── Read Zotero library and Synthesis context
+       └── Automatically determine search mode (auto mode)
+       └── Present the search plan to the user
+       └── Wait for user confirmation
 
-2. 搜索阶段（不入库）
-   └── 按确认后的方案搜索候选文献
-       └── 展示搜索结果列表
-       └── 用户选择需要入库的文献
+2. Search Phase (no ingestion)
+   └── Search for candidate literature according to the confirmed plan
+       └── Display search result list
+       └── User selects literature to ingest
 
-3. 入库阶段
-   └── 逐篇调用 zotero-bridge 入库
-       └── 包含元数据导入和 PDF 附件导入
-       └── 显示入库进度
+3. Ingest Phase
+   └── Ingest papers one by one via zotero-bridge
+       └── Includes metadata import and PDF attachment import
+       └── Display ingest progress
 
-4. 完成
-   └── 输出入库结果汇总
-       └── 包含成功/失败的条目信息
+4. Completion
+   └── Output ingest result summary
+       └── Includes successful/failed item information
 ```
 
-### 交互说明
+### Interaction Details
 
-- 该 workflow 为**交互式**执行，在关键节点需要用户确认
-- 方案确认：AI 展示搜索方案后，用户确认或调整
-- 列表确认：搜索结果展示后，用户勾选需要入库的条目
-- 执行过程中可在 Dashboard 中查看状态
+- This workflow runs in **interactive** mode, requiring user confirmation at key points
+- Plan confirmation: After the AI presents the search plan, the user confirms or adjusts it
+- List confirmation: After search results are displayed, the user checks the items to ingest
+- Execution progress can be monitored in the Dashboard
 
-## 运行产物
+## Model Recommendation
 
-- 搜索结果直接作为 Zotero 条目入库
-- 会自动尝试下载 PDF 附件（best-effort）
-- 可指定目标 Collection 进行归类
+🔴 **Must** have web search capability. The core of this workflow is searching academic literature online — models without web search capability cannot perform this task.
+🟢 The model's reasoning capability doesn't need to be strong — search and ingest are essentially retrieval and tool-calling tasks, which lightweight models can handle.
 
-## 参数
+## Outputs
 
-| 参数 | 类型 | 说明 | 默认值 |
+- Search results are ingested directly as Zotero items
+- Automatically attempts to download PDF attachments (best-effort)
+- Can specify a target Collection for categorization
+
+## Parameters
+
+| Parameter | Type | Description | Default |
 |------|------|------|--------|
-| `query` | string | 搜索主题、研究方向、论文标题、DOI、arXiv ID、PMID 等 | — |
-| `searchMode` | string | 搜索模式 | `auto` |
-| `targetCollection` | string | 目标 Collection（可选） | 空 |
+| `query` | string | Search topic, research direction, paper title, DOI, arXiv ID, PMID, etc. | — |
+| `searchMode` | string | Search mode | `auto` |
+| `targetCollection` | string | Target Collection (optional) | Empty |
 
-### searchMode 可选值
+### searchMode Available Values
 
-- `auto`：自动判断
-- `topic_expansion`：主题扩展
-- `paper_seed_expansion`：种子论文扩展
-- `targeted_ingest`：定向入库
+- `auto`: Automatically determine
+- `topic_expansion`: Topic expansion
+- `paper_seed_expansion`: Seed paper expansion
+- `targeted_ingest`: Targeted ingest
 
-## 依赖
+## Dependencies
 
-- **后端**：ACP 后端（需要 ACP 协议支持）
-- **Skill**：后端需部署 `literature-search-ingest` skill
+- **Backend**: ACP backend (requires ACP protocol support)
+- **Skill**: The `literature-search-ingest` skill must be deployed on the backend
 
-## 相关工作流
+## Related Workflows
 
-- [文献分析](literature-analysis) — 对已入库文献生成摘要
+- [Literature Analysis](literature-analysis) — Generate digests for ingested literature

@@ -1,5 +1,7 @@
 import type { BackendInstance } from "../../backends/types";
 import { ACP_BACKEND_TYPE } from "../../config/defaults";
+import { loadWorkflowManifests } from "../../workflows/loader";
+import type { LoadedWorkflow } from "../../workflows/types";
 import { buildAcpSidebarViewSnapshot } from "../acpSidebarModel";
 import { buildAssistantPanelLabels } from "../assistantPanelLabels";
 import {
@@ -9,6 +11,7 @@ import {
   type AcpRemoteSessionRestoreStatus,
 } from "../acpTypes";
 import { getHostBridgeServerStatus } from "../hostBridgeServer";
+import { isWorkflowVisible } from "../workflowVisibility";
 import {
   buildSkillRunnerSidebarSections,
   countWaitingSkillRunnerTasks,
@@ -21,6 +24,8 @@ import {
   type PluginStateReadonlyRow,
 } from "./pluginStateReadonly";
 import { loadBackendsRegistryReadonly } from "./backendsReadonly";
+import { projectSkillRunnerReadonlyRuns } from "./skillRunnerReadonlyProjection";
+import type { HarnessSkillRunnerRunProjection } from "./skillRunnerReadonlyProjection";
 
 function cleanString(value: unknown) {
   return cleanHarnessString(value);
@@ -35,6 +40,34 @@ function parseJsonObject(value: unknown): Record<string, any> {
 
 function rowPayload(row: PluginStateReadonlyRow): Record<string, any> {
   return parseJsonObject(row.payload || row.payload_json);
+}
+
+async function loadHarnessWorkflows(args: {
+  workflowsDir?: string;
+  builtinWorkflowsDir?: string;
+}) {
+  const [official, user] = await Promise.all([
+    cleanString(args.builtinWorkflowsDir)
+      ? loadWorkflowManifests(cleanString(args.builtinWorkflowsDir), {
+          workflowSourceKind: "official",
+        })
+      : Promise.resolve({ workflows: [] }),
+    cleanString(args.workflowsDir)
+      ? loadWorkflowManifests(cleanString(args.workflowsDir), {
+          workflowSourceKind: "user",
+        })
+      : Promise.resolve({ workflows: [] }),
+  ]);
+  const byId = new Map<string, LoadedWorkflow>();
+  for (const workflow of official.workflows as LoadedWorkflow[]) {
+    byId.set(workflow.manifest.id, workflow);
+  }
+  for (const workflow of user.workflows as LoadedWorkflow[]) {
+    byId.set(workflow.manifest.id, workflow);
+  }
+  return Array.from(byId.values()).filter((workflow) =>
+    isWorkflowVisible(workflow),
+  );
 }
 
 function asArray(value: unknown): any[] {
@@ -352,6 +385,8 @@ function summarizeAcpSkillRun(row: PluginStateReadonlyRow) {
     taskName:
       cleanString(payload.taskName || payload.skillId || payload.requestId) ||
       cleanString(row.taskId),
+    skillName: cleanString(payload.skillName || payload.skill_name),
+    skillLabel: cleanString(payload.skillLabel || payload.skill_label),
     skillId: cleanString(payload.skillId),
     executionMode: cleanString(payload.executionMode),
     conversationState: cleanString(payload.conversationState),
@@ -409,6 +444,9 @@ function acpSkillRunsSnapshot(rows: PluginStateReadonlyRow[]) {
           id: selectedRun.requestId,
           requestId: selectedRun.requestId,
           workflowLabel: selectedRun.workflowLabel,
+          skillName: selectedRun.skillName,
+          skillLabel: selectedRun.skillLabel,
+          skillId: selectedRun.skillId,
           state: selectedRun.status,
           updatedAt: selectedRun.updatedAt,
           pendingPermission: selectedRun.pendingPermission,
@@ -426,98 +464,127 @@ function acpSkillRunsSnapshot(rows: PluginStateReadonlyRow[]) {
 }
 
 function skillRunnerTask(
-  row: PluginStateReadonlyRow,
+  projection: HarnessSkillRunnerRunProjection,
 ): SkillRunnerSidebarTaskItem {
-  const payload = rowPayload(row);
-  const status = cleanString(payload.status || row.state) || "unknown";
+  const status = cleanString(projection.status) || "unknown";
   return {
-    key:
-      cleanString(payload.taskKey || row.taskId) ||
-      cleanString(payload.requestId || row.requestId),
-    backendId: cleanString(payload.backendId || row.backendId),
-    backendDisplayName:
-      cleanString(payload.backendLabel || payload.backendId || row.backendId) ||
-      "SkillRunner",
-    requestId: cleanString(payload.requestId || row.requestId),
-    workflowLabel: cleanString(payload.workflowLabel || payload.workflowId),
+    key: projection.runKey,
+    backendId: projection.backendId,
+    backendDisplayName: projection.backendLabel || "SkillRunner",
+    requestId: projection.requestId,
+    skillName: projection.skillName,
+    skillId: projection.skillId,
+    workflowLabel: projection.workflowLabel,
     status,
     stateLabel: status.replace(/[_-]+/g, " "),
-    updatedAt: cleanString(payload.updatedAt || row.updatedAt),
-    title:
-      cleanString(
-        payload.taskName || payload.inputUnitLabel || payload.workflowLabel,
-      ) || cleanString(row.taskId),
-    selectable: Boolean(cleanString(payload.requestId || row.requestId)),
-    terminal: terminalStatus(status),
-    inputUnitIdentity: cleanString(payload.inputUnitIdentity),
-    relationState: payload.relationState,
+    applyState: projection.applyState,
+    applyAttempt: projection.applyAttempt,
+    applyMaxAttempt: projection.applyMaxAttempt,
+    applyNextRetryAt: projection.applyNextRetryAt,
+    applyError: projection.applyError,
+    applyUpdatedAt: projection.applyUpdatedAt,
+    updatedAt: projection.updatedAt,
+    title: projection.title || projection.runKey,
+    selectable: true,
+    requestAssigned: projection.requestAssigned,
+    backendInteractive: projection.backendInteractive,
+    canOpenStream: projection.canOpenStream,
+    canCancelBackendRun: projection.canCancelBackendRun,
+    canReply: projection.canReply,
+    canArchiveLocalRun: projection.canArchiveLocalRun,
+    skillRunnerLifecycleState: projection.skillRunnerLifecycleState,
+    terminal: projection.terminal,
   };
 }
 
-function skillRunnerSession(row?: PluginStateReadonlyRow) {
-  if (!row) return null;
-  const payload = rowPayload(row);
-  const status = cleanString(payload.status || row.state) || "unknown";
+function skillRunnerSession(projection?: HarnessSkillRunnerRunProjection) {
+  if (!projection) return null;
+  const raw = projection.raw;
+  const requestPayload = parseJsonObject(raw.requestPayload);
   const pendingAuth =
-    payload.pendingAuth ||
-    payload.pending_auth ||
-    payload.pending_auth_method_selection ||
+    requestPayload.pendingAuth ||
+    requestPayload.pending_auth ||
+    requestPayload.pending_auth_method_selection ||
     {};
+  const status = cleanString(projection.status) || "unknown";
   return {
-    title:
-      cleanString(payload.title || payload.taskName || payload.workflowLabel) ||
-      "SkillRunner Run",
-    backendTitle: cleanString(
-      payload.backendLabel || payload.backendId || row.backendId,
-    ),
-    requestId: cleanString(payload.requestId || row.requestId),
+    title: projection.title || "SkillRunner Run",
+    backendTitle: projection.backendLabel,
+    requestId: projection.requestId || "",
+    runKey: projection.runKey,
+    skillName: projection.skillName,
+    skillId: projection.skillId,
     status,
     statusSemantics: {
       normalized: status,
-      terminal: terminalStatus(status),
+      terminal: projection.terminal,
       waiting: status === "waiting_user" || status === "waiting_auth",
     },
-    updatedAt: cleanString(payload.updatedAt || row.updatedAt),
-    engine: cleanString(payload.engine),
-    model: cleanString(payload.model),
-    pendingOwner: cleanString(payload.pendingOwner || payload.pending_owner),
-    pendingInteractionId: Number(payload.pendingInteractionId || 0),
-    pendingKind: cleanString(payload.pendingKind || payload.pending_kind),
-    pendingPrompt: cleanString(payload.pendingPrompt || payload.prompt),
-    pendingOptions: asArray(payload.pendingOptions || payload.options),
-    pendingRequiredFields: asArray(payload.pendingRequiredFields).map(
+    applyState: projection.applyState,
+    applyAttempt: projection.applyAttempt,
+    applyMaxAttempt: projection.applyMaxAttempt,
+    applyNextRetryAt: projection.applyNextRetryAt,
+    applyError: projection.applyError,
+    applyUpdatedAt: projection.applyUpdatedAt,
+    updatedAt: projection.updatedAt,
+    engine: cleanString(requestPayload.engine),
+    model: cleanString(requestPayload.model),
+    pendingOwner: cleanString(
+      requestPayload.pendingOwner || requestPayload.pending_owner,
+    ),
+    pendingInteractionId: Number(requestPayload.pendingInteractionId || 0),
+    pendingKind: cleanString(
+      requestPayload.pendingKind || requestPayload.pending_kind,
+    ),
+    pendingPrompt: cleanString(
+      requestPayload.pendingPrompt || requestPayload.prompt,
+    ),
+    pendingOptions: asArray(
+      requestPayload.pendingOptions || requestPayload.options,
+    ),
+    pendingRequiredFields: asArray(requestPayload.pendingRequiredFields).map(
       cleanString,
     ),
-    pendingUiHints: payload.pendingUiHints || payload.ui_hints || {},
-    pendingAskUser: payload.pendingAskUser || payload.ask_user || {},
-    authPhase: cleanString(pendingAuth.phase || payload.authPhase),
+    pendingUiHints:
+      requestPayload.pendingUiHints || requestPayload.ui_hints || {},
+    pendingAskUser:
+      requestPayload.pendingAskUser || requestPayload.ask_user || {},
+    authPhase: cleanString(pendingAuth.phase || requestPayload.authPhase),
     authSessionId: cleanString(
-      pendingAuth.auth_session_id || payload.authSessionId,
+      pendingAuth.auth_session_id || requestPayload.authSessionId,
     ),
     authProviderId: cleanString(
-      pendingAuth.provider_id || payload.authProviderId,
+      pendingAuth.provider_id || requestPayload.authProviderId,
     ),
-    authEngine: cleanString(pendingAuth.engine || payload.authEngine),
-    authPrompt: cleanString(pendingAuth.prompt || payload.authPrompt),
+    authEngine: cleanString(pendingAuth.engine || requestPayload.authEngine),
+    authPrompt: cleanString(pendingAuth.prompt || requestPayload.authPrompt),
     authChallengeKind: cleanString(
-      pendingAuth.challenge_kind || payload.authChallengeKind,
+      pendingAuth.challenge_kind || requestPayload.authChallengeKind,
     ),
     authAvailableMethods: asArray(
-      pendingAuth.available_methods || payload.authAvailableMethods,
+      pendingAuth.available_methods || requestPayload.authAvailableMethods,
     ).map(cleanString),
-    authAskUser: pendingAuth.ask_user || payload.authAskUser || {},
+    authAskUser: pendingAuth.ask_user || requestPayload.authAskUser || {},
     authAcceptsChatInput:
       pendingAuth.accepts_chat_input === true ||
-      payload.authAcceptsChatInput === true,
-    authInputKind: cleanString(pendingAuth.input_kind || payload.authInputKind),
-    authUrl: cleanString(pendingAuth.auth_url || payload.authUrl),
-    authUserCode: cleanString(pendingAuth.user_code || payload.authUserCode),
-    authLastError: cleanString(pendingAuth.last_error || payload.authLastError),
-    authUiHints: pendingAuth.ui_hints || payload.authUiHints || {},
-    loading: payload.loading === true,
-    error: cleanString(payload.error),
+      requestPayload.authAcceptsChatInput === true,
+    authInputKind: cleanString(
+      pendingAuth.input_kind || requestPayload.authInputKind,
+    ),
+    authUrl: cleanString(pendingAuth.auth_url || requestPayload.authUrl),
+    authUserCode: cleanString(
+      pendingAuth.user_code || requestPayload.authUserCode,
+    ),
+    authLastError: cleanString(
+      pendingAuth.last_error || requestPayload.authLastError,
+    ),
+    authUiHints: pendingAuth.ui_hints || requestPayload.authUiHints || {},
+    loading: false,
+    error: projection.error || "",
     messages: asArray(
-      payload.messages || payload.chatEvents || payload.events,
+      requestPayload.messages ||
+        requestPayload.chatEvents ||
+        requestPayload.events,
     ).map((entry, index) => ({
       seq: Number(entry.seq || index + 1),
       ts: cleanString(entry.ts || entry.createdAt),
@@ -598,9 +665,8 @@ function skillRunnerSession(row?: PluginStateReadonlyRow) {
   };
 }
 
-function skillRunnerSnapshot(rows: PluginStateReadonlyRow[]) {
-  const runRows = rows.filter((row) => row.domain === "skillrunner");
-  const tasks = runRows.map(skillRunnerTask);
+function skillRunnerSnapshot(projections: HarnessSkillRunnerRunProjection[]) {
+  const tasks = projections.map(skillRunnerTask);
   const byBackend = new Map<string, SkillRunnerSidebarTaskItem[]>();
   for (const task of tasks) {
     const backendId = task.backendId || "skillrunner";
@@ -619,10 +685,8 @@ function skillRunnerSnapshot(rows: PluginStateReadonlyRow[]) {
     }),
   );
   const selectedTask = tasks[0];
-  const selectedRow = runRows.find(
-    (row) =>
-      cleanString(row.taskId || row.requestId) === selectedTask?.key ||
-      cleanString(row.requestId) === selectedTask?.requestId,
+  const selectedProjection = projections.find(
+    (projection) => projection.runKey === selectedTask?.key,
   );
   const sections = buildSkillRunnerSidebarSections({
     groups,
@@ -643,7 +707,7 @@ function skillRunnerSnapshot(rows: PluginStateReadonlyRow[]) {
       emptyTasks: "No runs.",
       backendUnavailable: "Backend unavailable.",
     },
-    session: skillRunnerSession(selectedRow),
+    session: skillRunnerSession(selectedProjection),
     workspace: {
       groups,
       selectedTaskKey: selectedTask?.key || "",
@@ -672,17 +736,33 @@ function skillRunnerSnapshot(rows: PluginStateReadonlyRow[]) {
   };
 }
 
-export async function createAssistantReadonlyModel(dbPath: string) {
+export async function createAssistantReadonlyModel(
+  dbPath: string,
+  options: {
+    workflowsDir?: string;
+    builtinWorkflowsDir?: string;
+  } = {},
+) {
   const store = await createPluginStateReadonlyStore(dbPath);
   const loadedBackends = await loadBackendsRegistryReadonly().catch(() => ({
     backends: [] as BackendInstance[],
   }));
+  const backendById = new Map(
+    (loadedBackends.backends || []).map((backend) => [backend.id, backend]),
+  );
   const acpBackends = (loadedBackends.backends || []).filter(
     (backend) => cleanString(backend.type) === ACP_BACKEND_TYPE,
   );
+  const workflows = await loadHarnessWorkflows(options);
   function snapshot() {
     const requestRows = store.listRequestRows({ limit: 300 });
     const taskRows = store.listTaskRows({ limit: 300 });
+    const skillRunnerRuns = projectSkillRunnerReadonlyRuns({
+      runRows: store.listSkillRunnerRunRows({ limit: 300 }),
+      sequenceRows: store.listSkillRunnerSequenceStateRows({ limit: 300 }),
+      backendById,
+      workflows,
+    });
     const activeSnapshot = acpConversationSnapshot({
       rows: requestRows,
       acpBackends,
@@ -704,7 +784,7 @@ export async function createAssistantReadonlyModel(dbPath: string) {
         frontendSnapshot,
       },
       acpSkills: acpSkillRunsSnapshot(taskRows),
-      skillrunner: skillRunnerSnapshot(taskRows),
+      skillrunner: skillRunnerSnapshot(skillRunnerRuns),
     };
   }
   return {

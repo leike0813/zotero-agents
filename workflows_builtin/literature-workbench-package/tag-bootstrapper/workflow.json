@@ -1,0 +1,55 @@
+{
+  "id": "tag-bootstrapper",
+  "label": "Tag Bootstrapper",
+  "provider": "skillrunner",
+  "version": "0.1.0",
+  "display": {
+    "core": false,
+    "emoji": "🌱"
+  },
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "skill_id": "tag-bootstrapper",
+      "mode": "interactive"
+    }
+  },
+  "parameters": {
+    "tag_note_language": {
+      "type": "string",
+      "title": "Tag Note Language",
+      "enum": [
+        "zh-CN",
+        "en-US",
+        "ja-JP",
+        "ko-KR",
+        "de-DE",
+        "fr-FR",
+        "es-ES",
+        "ru-RU"
+      ],
+      "allowCustom": true,
+      "default": "zh-CN"
+    }
+  },
+  "execution": {
+    "zoteroHostAccess": {
+      "required": true
+    }
+  },
+  "result": {
+    "fetch": {
+      "type": "result"
+    }
+  },
+  "hooks": {
+    "buildRequest": "hooks/buildRequest.mjs",
+    "applyResult": "hooks/applyResult.mjs"
+  }
+}

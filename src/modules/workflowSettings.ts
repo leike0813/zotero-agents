@@ -29,6 +29,7 @@ import { resolveWorkflowRequestKind } from "./workflowRequestKind";
 import {
   ACP_BACKEND_TYPE,
   ACP_SKILL_RUN_REQUEST_KIND,
+  BACKEND_TYPES,
   PASS_THROUGH_BACKEND_TYPE,
   SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../config/defaults";
@@ -41,6 +42,7 @@ import {
   mergeExecutionOptions,
   normalizeWorkflowParamsBySchema,
   parseSettingsRecord,
+  serializeSettingsRecord,
 } from "./workflowSettingsDomain";
 import {
   applyExecutionWorkflowParamsNormalizer,
@@ -54,6 +56,12 @@ import {
   workflowAllowsWriteApprovalBypass,
   type WorkflowRunOptions,
 } from "../workflows/zoteroHostAccessOptions";
+import { isSkillRunnerInteractiveAutoReplyEnabled } from "./skillRunnerInteractiveAutoReply";
+import { getStringOrFallback } from "../utils/locale";
+import {
+  localizeProviderRuntimeOptionText,
+  localizeWorkflowRunOptionText,
+} from "./workflowSettingsOptionLocalization";
 
 const WORKFLOW_SETTINGS_PREF_KEY = "workflowSettingsJson";
 
@@ -71,11 +79,16 @@ type WorkflowSettingsSchemaEntry = {
   type: "string" | "number" | "boolean";
   title?: string;
   description?: string;
+  placeholder?: string;
   enumValues?: string[];
   options?: WorkflowParameterOption[];
   allowCustom?: boolean;
   defaultValue?: unknown;
   disabled?: boolean;
+  visibleIfProviderOption?: {
+    key: string;
+    equals: boolean;
+  };
   diagnostics?: Array<{
     code: string;
     message: string;
@@ -108,6 +121,22 @@ export type WorkflowSettingsUiDescriptor = {
   blockedReason?: string;
 };
 
+type WorkflowSettingsCacheEntry = {
+  rawText: string;
+  record: WorkflowSettingsRecord;
+};
+
+const workflowSettingsReadDiagnostics = {
+  prefReadCount: 0,
+  parseCount: 0,
+  cacheHitCount: 0,
+  cacheMissCount: 0,
+  writeCount: 0,
+};
+
+let workflowSettingsCache: WorkflowSettingsCacheEntry | null = null;
+let workflowSettingsRevision = 0;
+
 function dynamicOptionsUnavailableReason(args: {
   key: string;
   title?: string;
@@ -127,20 +156,90 @@ function dynamicOptionsUnavailableReason(args: {
   return `No selectable options are available for ${label}.`;
 }
 
-function readSettingsRecord(): WorkflowSettingsRecord {
+function cloneJsonValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value ?? {})) as T;
+}
+
+function cloneSettingsRecord(
+  record: WorkflowSettingsRecord,
+): WorkflowSettingsRecord {
+  return cloneJsonValue(record);
+}
+
+function cloneExecutionOptions(
+  options: WorkflowExecutionOptions | undefined,
+): WorkflowExecutionOptions {
+  return cloneJsonValue(options || {});
+}
+
+function readSettingsRecordCached(): WorkflowSettingsRecord {
   const rawText = String(getPref(WORKFLOW_SETTINGS_PREF_KEY) || "").trim();
+  workflowSettingsReadDiagnostics.prefReadCount += 1;
+  if (workflowSettingsCache?.rawText === rawText) {
+    workflowSettingsReadDiagnostics.cacheHitCount += 1;
+    return workflowSettingsCache.record;
+  }
+  workflowSettingsReadDiagnostics.cacheMissCount += 1;
   if (!rawText) {
+    workflowSettingsCache = { rawText, record: {} };
+    workflowSettingsRevision += 1;
     return {};
   }
   try {
-    return parseSettingsRecord(JSON.parse(rawText));
+    workflowSettingsReadDiagnostics.parseCount += 1;
+    const record = parseSettingsRecord(JSON.parse(rawText));
+    workflowSettingsCache = {
+      rawText,
+      record,
+    };
+    workflowSettingsRevision += 1;
+    return record;
   } catch {
+    workflowSettingsCache = { rawText, record: {} };
+    workflowSettingsRevision += 1;
     return {};
   }
 }
 
+function readSettingsRecord(): WorkflowSettingsRecord {
+  return cloneSettingsRecord(readSettingsRecordCached());
+}
+
 function writeSettingsRecord(record: WorkflowSettingsRecord) {
-  setPref(WORKFLOW_SETTINGS_PREF_KEY, JSON.stringify(record));
+  const rawText = serializeSettingsRecord(record);
+  setPref(WORKFLOW_SETTINGS_PREF_KEY, rawText);
+  workflowSettingsReadDiagnostics.writeCount += 1;
+  try {
+    workflowSettingsCache = {
+      rawText,
+      record: parseSettingsRecord(JSON.parse(rawText)),
+    };
+  } catch {
+    workflowSettingsCache = { rawText, record: {} };
+  }
+  workflowSettingsRevision += 1;
+}
+
+export function getWorkflowSettingsRevision() {
+  readSettingsRecordCached();
+  return workflowSettingsRevision;
+}
+
+export function getWorkflowSettingsReadDiagnosticsForTests() {
+  return {
+    ...workflowSettingsReadDiagnostics,
+    revision: workflowSettingsRevision,
+  };
+}
+
+export function resetWorkflowSettingsReadDiagnosticsForTests() {
+  workflowSettingsReadDiagnostics.prefReadCount = 0;
+  workflowSettingsReadDiagnostics.parseCount = 0;
+  workflowSettingsReadDiagnostics.cacheHitCount = 0;
+  workflowSettingsReadDiagnostics.cacheMissCount = 0;
+  workflowSettingsReadDiagnostics.writeCount = 0;
+  workflowSettingsRevision = 0;
+  workflowSettingsCache = null;
 }
 
 function resolveProviderId(workflow: LoadedWorkflow) {
@@ -168,7 +267,10 @@ function isSkillRunnerSequenceWorkflow(workflow: LoadedWorkflow) {
 }
 
 function isSkillRunnerContractWorkflow(workflow: LoadedWorkflow) {
-  return isSkillRunnerJobWorkflow(workflow) || isSkillRunnerSequenceWorkflow(workflow);
+  return (
+    isSkillRunnerJobWorkflow(workflow) ||
+    isSkillRunnerSequenceWorkflow(workflow)
+  );
 }
 
 function resolveEffectiveRequestKindForBackend(args: {
@@ -205,7 +307,11 @@ function resolveProviderIdForBackend(args: {
 
 function buildLocalBackendForProvider(providerId: string): BackendInstance {
   const normalizedProvider = String(providerId || "").trim();
-  const backendType = normalizedProvider || PASS_THROUGH_BACKEND_TYPE;
+  const backendType = (BACKEND_TYPES as readonly string[]).includes(
+    normalizedProvider,
+  )
+    ? (normalizedProvider as BackendInstance["type"])
+    : PASS_THROUGH_BACKEND_TYPE;
   return {
     id: `${backendType}-local`,
     type: backendType,
@@ -254,11 +360,17 @@ function resolveLoadedWorkflowById(workflowId: string): LoadedWorkflow | null {
   );
 }
 
-function resolveSkillRunnerMode(
+type SkillRunnerModeCapability = {
+  applies: boolean;
+  hasAuto: boolean;
+  hasInteractive: boolean;
+};
+
+function resolveSkillRunnerModeCapability(
   workflow: LoadedWorkflow | null | undefined,
-): "auto" | "interactive" | "" {
+): SkillRunnerModeCapability {
   if (!workflow) {
-    return "";
+    return { applies: false, hasAuto: false, hasInteractive: false };
   }
   const providerId = String(workflow.manifest.provider || "").trim();
   const requestKind = String(workflow.manifest.request?.kind || "").trim();
@@ -267,18 +379,40 @@ function resolveSkillRunnerMode(
     requestKind !== "skillrunner.job.v1" &&
     requestKind !== SKILLRUNNER_SEQUENCE_REQUEST_KIND
   ) {
-    return "";
+    return { applies: false, hasAuto: false, hasInteractive: false };
   }
-  const mode = String(workflow.manifest.execution?.skillrunner_mode || "")
+  if (requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
+    const steps = workflow.manifest.request?.sequence?.steps || [];
+    if (!Array.isArray(steps) || steps.length === 0) {
+      return { applies: true, hasAuto: false, hasInteractive: false };
+    }
+    const modes = Array.from(
+      new Set(
+        steps
+          .map((step) =>
+            String(step.mode || "")
+              .trim()
+              .toLowerCase(),
+          )
+          .filter((mode) => mode === "auto" || mode === "interactive"),
+      ),
+    );
+    return {
+      applies: true,
+      hasAuto: modes.includes("auto"),
+      hasInteractive: modes.includes("interactive"),
+    };
+  }
+  const mode = String(workflow.manifest.request?.create?.mode || "")
     .trim()
     .toLowerCase();
   if (mode === "interactive") {
-    return "interactive";
+    return { applies: true, hasAuto: false, hasInteractive: true };
   }
   if (mode === "auto") {
-    return "auto";
+    return { applies: true, hasAuto: true, hasInteractive: false };
   }
-  return "";
+  return { applies: true, hasAuto: true, hasInteractive: true };
 }
 
 function toBooleanLike(value: unknown) {
@@ -312,28 +446,55 @@ function toPositiveInteger(value: unknown) {
   return parsed;
 }
 
+function toNonNegativeInteger(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return undefined;
+  }
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0) {
+    return undefined;
+  }
+  return parsed;
+}
+
 function constrainSkillRunnerProviderOptionsByMode(args: {
   workflow: LoadedWorkflow | null | undefined;
   options: Record<string, unknown>;
 }) {
-  const mode = resolveSkillRunnerMode(args.workflow);
-  if (!mode) {
+  const modeCapability = resolveSkillRunnerModeCapability(args.workflow);
+  if (!modeCapability.applies) {
     return { ...args.options };
   }
   const next: Record<string, unknown> = { ...args.options };
   const normalizedNoCache = toBooleanLike(next.no_cache);
-  if (mode === "interactive") {
-    delete next.no_cache;
-  } else if (typeof normalizedNoCache === "boolean") {
+  if (modeCapability.hasAuto && typeof normalizedNoCache === "boolean") {
     next.no_cache = normalizedNoCache;
   } else {
     delete next.no_cache;
   }
   const normalizedAutoReply = toBooleanLike(next.interactive_auto_reply);
-  if (mode === "interactive" && typeof normalizedAutoReply === "boolean") {
+  if (
+    isSkillRunnerInteractiveAutoReplyEnabled() &&
+    modeCapability.hasInteractive &&
+    typeof normalizedAutoReply === "boolean"
+  ) {
     next.interactive_auto_reply = normalizedAutoReply;
   } else {
     delete next.interactive_auto_reply;
+  }
+  const normalizedInteractiveReplyTimeout = toNonNegativeInteger(
+    next.interactive_reply_timeout_sec,
+  );
+  if (
+    isSkillRunnerInteractiveAutoReplyEnabled() &&
+    modeCapability.hasInteractive &&
+    next.interactive_auto_reply === true &&
+    typeof normalizedInteractiveReplyTimeout === "number"
+  ) {
+    next.interactive_reply_timeout_sec = normalizedInteractiveReplyTimeout;
+  } else {
+    delete next.interactive_reply_timeout_sec;
   }
   const normalizedHardTimeout = toPositiveInteger(next.hard_timeout_seconds);
   if (typeof normalizedHardTimeout === "number") {
@@ -365,8 +526,8 @@ function normalizeProviderOptionsForUi(args: {
         args.backend?.acp?.runtimeOptionsCache?.currentDisplayModelId,
     });
   }
-  const mode = resolveSkillRunnerMode(args.workflow);
-  if (!mode) {
+  const modeCapability = resolveSkillRunnerModeCapability(args.workflow);
+  if (!modeCapability.applies) {
     return next;
   }
   const engine = String(next.engine || "").trim();
@@ -417,8 +578,8 @@ export type {
 export function getWorkflowSettings(
   workflowId: string,
 ): WorkflowExecutionOptions {
-  const record = readSettingsRecord();
-  return record[String(workflowId || "").trim()] || {};
+  const record = readSettingsRecordCached();
+  return cloneExecutionOptions(record[String(workflowId || "").trim()]);
 }
 
 export function updateWorkflowSettings(
@@ -438,16 +599,12 @@ export function updateWorkflowSettings(
     merged,
     incoming: next,
   });
-  const workflow = resolveLoadedWorkflowById(normalizedWorkflowId);
   record[normalizedWorkflowId] = {
     ...normalized,
     runOptions: undefined,
-    providerOptions: constrainSkillRunnerProviderOptionsByMode({
-      workflow,
-      options: isObject(normalized.providerOptions)
-        ? normalized.providerOptions
-        : {},
-    }),
+    providerOptions: isObject(normalized.providerOptions)
+      ? { ...normalized.providerOptions }
+      : {},
   };
   writeSettingsRecord(record);
 }
@@ -543,9 +700,12 @@ function toRunSchemaEntries(
     {
       key: AUTO_APPROVE_ZOTERO_WRITES_PARAM,
       type: "boolean",
-      title: "自动批准写库",
-      description:
-        "仅对当前 workflow run 的 Zotero 写库动作生效；workflow 提交本身仍需要审批，且不会保存为默认参数。",
+      ...localizeWorkflowRunOptionText({
+        optionKey: AUTO_APPROVE_ZOTERO_WRITES_PARAM,
+        title: "Auto-approve Zotero writes",
+        description:
+          "Applies only to Zotero write actions in the current workflow run. Workflow submission still requires approval and this option is not saved as a default parameter.",
+      }),
       defaultValue: false,
     },
   ];
@@ -575,6 +735,14 @@ function toProviderSchemaEntries(args: {
   const isProviderScopedFieldVisible =
     providerId === "skillrunner" &&
     isSkillRunnerProviderScopedEngine(providerEngine, providerScope);
+  const localizedPlaceholder = (key: string, fallback?: string) =>
+    key === "hard_timeout_seconds"
+      ? getStringOrFallback(
+          "workflow-settings-job-timeout-placeholder" as any,
+          fallback ||
+            "Leave empty to use default; 20 min if skill has no default.",
+        )
+      : fallback;
   const baseEntries = Object.entries(schema).map(([key, entry]) => {
     const enumValues = entry.type === "string" ? toStringEnum(entry.enum) : [];
     const dynamicEnum =
@@ -597,17 +765,30 @@ function toProviderSchemaEntries(args: {
         : entry.type === "string" && dynamicEnum.length > 0
           ? toStringEnum(dynamicEnum)
           : enumValues;
+    const localizedText = localizeProviderRuntimeOptionText({
+      providerId,
+      optionKey: key,
+      entry,
+    });
     return {
       key,
       type: entry.type,
-      title: entry.title,
-      description: entry.description,
+      title: localizedText.title,
+      description: localizedText.description,
+      placeholder: localizedPlaceholder(key, localizedText.placeholder),
       enumValues: resolvedEnumValues,
       defaultValue: entry.default,
       disabled:
         (key === "effort" || key === "acpReasoningEffort") &&
         entry.type === "string" &&
         resolvedEnumValues.length <= 1,
+      visibleIfProviderOption:
+        key === "interactive_reply_timeout_sec"
+          ? {
+              key: "interactive_auto_reply",
+              equals: true,
+            }
+          : undefined,
     };
   });
   const filteredEntries = baseEntries.filter((entry) => {
@@ -622,16 +803,25 @@ function toProviderSchemaEntries(args: {
     }
     return true;
   });
-  const mode = resolveSkillRunnerMode(args.workflow);
-  if (providerId !== "skillrunner" || !mode) {
+  const modeCapability = resolveSkillRunnerModeCapability(args.workflow);
+  if (providerId !== "skillrunner" || !modeCapability.applies) {
     return filteredEntries;
   }
-  if (mode === "interactive") {
-    return filteredEntries.filter((entry) => entry.key !== "no_cache");
-  }
-  return filteredEntries.filter(
-    (entry) => entry.key !== "interactive_auto_reply",
-  );
+  return filteredEntries.filter((entry) => {
+    if (entry.key === "no_cache") {
+      return modeCapability.hasAuto;
+    }
+    if (
+      entry.key === "interactive_auto_reply" ||
+      entry.key === "interactive_reply_timeout_sec"
+    ) {
+      return (
+        modeCapability.hasInteractive &&
+        isSkillRunnerInteractiveAutoReplyEnabled()
+      );
+    }
+    return true;
+  });
 }
 
 export async function buildWorkflowSettingsUiDescriptor(args: {
@@ -641,6 +831,7 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
   excludedBackendIds?: string[];
   autoSelectFallbackProfile?: boolean;
   resolveDynamicOptions?: boolean;
+  ignoreSavedSettings?: boolean;
 }): Promise<WorkflowSettingsUiDescriptor> {
   const manifestProviderId = resolveProviderId(args.workflow);
   if (!isSkillRunnerContractWorkflow(args.workflow)) {
@@ -651,12 +842,13 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     manifestProvider.requiresBackendProfile !== false;
   const rawCandidateBackends = Array.isArray(args.candidateBackends)
     ? args.candidateBackends
-    : isSkillRunnerJobWorkflow(args.workflow)
+    : isSkillRunnerContractWorkflow(args.workflow)
       ? await listBackendsForWorkflow(args.workflow)
       : await listBackendsForProvider(manifestProviderId);
   const availableBackends = rawCandidateBackends.filter((backend) => {
     if (isSkillRunnerSequenceWorkflow(args.workflow)) {
-      if (String(backend.type || "").trim() !== ACP_BACKEND_TYPE) {
+      const backendType = String(backend.type || "").trim();
+      if (backendType !== "skillrunner" && backendType !== ACP_BACKEND_TYPE) {
         return false;
       }
     } else if (isSkillRunnerJobWorkflow(args.workflow)) {
@@ -687,7 +879,9 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
         label: `${resolveBackendDisplayName(backend.id, backend.displayName)} (${backend.type})`,
       }))
     : [];
-  const saved = getWorkflowSettings(args.workflow.manifest.id);
+  const saved = args.ignoreSavedSettings
+    ? {}
+    : getWorkflowSettings(args.workflow.manifest.id);
   const merged = mergeExecutionOptions(saved, args.draft);
   const profileFromMerged = String(merged.backendId || "").trim();
   const canAutoSelectProfile = requiresBackendProfile && profiles.length > 0;
@@ -838,7 +1032,7 @@ export async function listProviderProfilesForWorkflow(
   workflow: LoadedWorkflow,
 ) {
   const providerId = resolveProviderId(workflow);
-  if (!isSkillRunnerJobWorkflow(workflow)) {
+  if (!isSkillRunnerContractWorkflow(workflow)) {
     assertWorkflowExecutionProviderSupported(providerId);
     return listBackendsForProvider(providerId);
   }
@@ -848,20 +1042,27 @@ export async function listProviderProfilesForWorkflow(
 export async function resolveWorkflowExecutionContext(args: {
   workflow: LoadedWorkflow;
   executionOptionsOverride?: WorkflowExecutionOptions;
+  ignoreSavedSettings?: boolean;
 }): Promise<WorkflowExecutionContext> {
   const manifestProviderId = resolveProviderId(args.workflow);
   if (!isSkillRunnerContractWorkflow(args.workflow)) {
     assertWorkflowExecutionProviderSupported(manifestProviderId);
   }
   const manifestProvider = resolveProviderById(manifestProviderId);
-  const saved = getWorkflowSettings(args.workflow.manifest.id);
+  const saved = args.ignoreSavedSettings
+    ? {}
+    : getWorkflowSettings(args.workflow.manifest.id);
   const merged = mergeExecutionOptions(saved, args.executionOptionsOverride);
+  const hasExplicitBackendOverride = Boolean(
+    String(args.executionOptionsOverride?.backendId || "").trim(),
+  );
 
   const backend =
     manifestProvider.requiresBackendProfile === false
       ? buildLocalBackendForProvider(manifestProvider.id)
       : await resolveBackendForWorkflow(args.workflow, {
           preferredBackendId: merged.backendId,
+          strictPreferredBackendId: hasExplicitBackendOverride,
         });
   const requestKind = resolveEffectiveRequestKindForBackend({
     workflow: args.workflow,
@@ -921,8 +1122,11 @@ export async function resolveWorkflowExecutionContext(args: {
 export function resolveWorkflowExecutionOptionsPreview(args: {
   workflow: LoadedWorkflow;
   executionOptionsOverride?: WorkflowExecutionOptions;
+  ignoreSavedSettings?: boolean;
 }) {
-  const saved = getWorkflowSettings(args.workflow.manifest.id);
+  const saved = args.ignoreSavedSettings
+    ? {}
+    : getWorkflowSettings(args.workflow.manifest.id);
   const merged = mergeExecutionOptions(saved, args.executionOptionsOverride);
   const schemaNormalizedWorkflowParams = normalizeWorkflowParamsBySchema(
     args.workflow.manifest,

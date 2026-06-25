@@ -19,7 +19,8 @@ function readTagAttribute(tag: string, name: string) {
 
 function collectPayloadAnchors(noteHtml: string) {
   const anchors = new Map<string, string>();
-  const pattern = /<img\b[^>]*\bdata-zs-payload-anchor\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>/gi;
+  const pattern =
+    /<img\b[^>]*\bdata-zs-payload-anchor\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>/gi;
   for (const match of noteHtml.matchAll(pattern)) {
     const tag = match[0];
     const payloadType = readTagAttribute(tag, "data-zs-payload-anchor");
@@ -63,7 +64,9 @@ export async function listNotePayloadBlocksForItem(
   const blocks = listNotePayloadBlocks(html);
   const anchors = collectPayloadAnchors(html);
   const attachmentIds =
-    typeof note?.getAttachments === "function" ? note.getAttachments() || [] : [];
+    typeof note?.getAttachments === "function"
+      ? note.getAttachments() || []
+      : [];
   for (const attachmentRef of attachmentIds) {
     const attachment = resolveChildAttachment(attachmentRef);
     if (!attachment) {

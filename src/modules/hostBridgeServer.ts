@@ -11,13 +11,18 @@ import {
   getHostBridgeCapability,
   listHostBridgeCapabilities,
 } from "./hostBridgeCapabilityRegistry";
+import type { SynthesisMcpService } from "./synthesis/mcpService";
 import {
+  describeHostBridgeWorkflow,
+  buildHostBridgeWorkflowAgentRun,
   getHostBridgeWorkflowControlManifest,
   getHostBridgeWorkflowRunStatus,
   listHostBridgeTasks,
   listHostBridgeWorkflows,
   submitHostBridgeWorkflow,
   type HostBridgeTaskFilters,
+  type HostBridgeWorkflowAgentRunRequest,
+  type HostBridgeWorkflowDescribeRequest,
   type HostBridgeWorkflowSubmitRequest,
 } from "./hostBridgeWorkflowControl";
 import {
@@ -34,6 +39,7 @@ import {
   isHostBridgeWriteAutoApprovalScope,
   resetHostBridgeWriteAutoApprovalScopesForTests,
 } from "./hostBridgeWriteAutoApprovalRegistry";
+import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
   HOST_BRIDGE_PROTOCOL_VERSION,
   hostBridgeError,
@@ -41,11 +47,14 @@ import {
   type HostBridgeCallRequest,
   type HostBridgeBindMode,
   type HostBridgeHealth,
+  type HostBridgeErrorCode,
   type HostBridgeManifest,
   type HostBridgeResponse,
   type HostBridgeServiceStatus,
   type HostBridgeStatusSnapshot,
   type HostBridgePortMode,
+  type HostBridgeConnectionMode,
+  type HostBridgeAdvertisedHostSource,
 } from "./hostBridgeProtocol";
 import { writeHostBridgeWellKnownProfile } from "./hostBridgeProfileStore";
 import { getPref, setPref } from "../utils/prefs";
@@ -85,6 +94,15 @@ type HostBridgeServerState = {
   updatedAt: string;
 };
 
+type HostBridgeStartConfig = {
+  lanEnabled: boolean;
+  pinPortEnabled: boolean;
+  pinnedPort: number;
+  bindMode: HostBridgeBindMode;
+  host: string;
+  initialPortMode: HostBridgePortMode;
+};
+
 type HttpRequest = {
   method: string;
   path: string;
@@ -106,7 +124,8 @@ type HttpResponseArgs = {
 type RawHttpResponse =
   | string
   | {
-      text: string;
+      headers: string;
+      body: Uint8Array;
       binary: true;
     };
 
@@ -118,6 +137,8 @@ let serverSocketFactory: (port: number, bindMode: HostBridgeBindMode) => any =
   createServerSocket;
 let state: HostBridgeServerState = createEmptyState("idle");
 let startingPromise: Promise<HostBridgeStatusSnapshot> | null = null;
+let synthesisServiceResolverForTests: (() => SynthesisMcpService) | undefined =
+  undefined;
 
 function nowIso() {
   return new Date().toISOString();
@@ -165,7 +186,7 @@ function createEmptyState(
   status: HostBridgeServiceStatus,
 ): HostBridgeServerState {
   const lanEnabled = getLanEnabled();
-  const pinPortEnabled = getPinPortEnabled();
+  const pinPortEnabled = getEffectivePinPortEnabled(lanEnabled);
   const pinnedPort = getPinnedPort();
   const bindMode = bindModeFromLanEnabled(lanEnabled);
   return {
@@ -191,6 +212,24 @@ function createEmptyState(
   };
 }
 
+function resolveHostBridgeStartConfig(): HostBridgeStartConfig {
+  const lanEnabled = getLanEnabled();
+  if (lanEnabled && !getPinPortEnabled()) {
+    setPref("hostBridgePinPortEnabled", true);
+  }
+  const pinPortEnabled = getEffectivePinPortEnabled(lanEnabled);
+  const pinnedPort = getPinnedPort();
+  const bindMode = bindModeFromLanEnabled(lanEnabled);
+  return {
+    lanEnabled,
+    pinPortEnabled,
+    pinnedPort,
+    bindMode,
+    host: hostFromBindMode(bindMode),
+    initialPortMode: pinPortEnabled ? "pinned" : "random",
+  };
+}
+
 function updateState(partial: Partial<HostBridgeServerState>) {
   state = {
     ...state,
@@ -213,6 +252,11 @@ function getAdvertisedHost() {
   return normalizeAdvertisedHost(getPref("hostBridgeAdvertisedHost"));
 }
 
+function getAdvertisedHostSource(): HostBridgeAdvertisedHostSource {
+  const manual = String(getPref("hostBridgeAdvertisedHost") || "").trim();
+  return manual ? "manual" : "placeholder";
+}
+
 function buildRemoteEndpoint(port: number) {
   if (!port) {
     return "";
@@ -232,6 +276,26 @@ function buildLocalClientEndpoint(bindMode: HostBridgeBindMode, port: number) {
     return "";
   }
   return buildLocalProfileEndpoint(bindMode, port);
+}
+
+function hostAccessRoutes(bindMode = state.bindMode, port = state.port) {
+  const hostBridge = buildLocalClientEndpoint(bindMode, port) || state.endpoint;
+  const mcpBridgeEndpoint =
+    bindMode === "lan" ? buildRemoteEndpoint(port) || hostBridge : hostBridge;
+  const mcp = String(mcpBridgeEndpoint || "").replace(
+    /\/bridge\/v1\/?$/,
+    "/mcp",
+  );
+  return {
+    routes: {
+      hostBridge,
+      mcp,
+    },
+    mcp: {
+      enabled: getPref("mcpServer.enabled") !== false,
+      endpoint: mcp,
+    },
+  };
 }
 
 function getComponents() {
@@ -320,6 +384,16 @@ function ensureSupervisorTimer() {
   if (supervisorTimer || !supervisorEnabled) {
     return;
   }
+  registerBackgroundRefreshTimer({
+    owner: "host-bridge-supervisor",
+    activationCondition: "Host Bridge supervisor enabled",
+    scopeKey: "host bridge service status",
+    allowedDataSources: ["host bridge process state"],
+    maxReadShape: "service state flags only",
+    requiresForegroundSurface: false,
+    minimumIntervalMs: SUPERVISOR_INTERVAL_MS,
+    intervalMs: SUPERVISOR_INTERVAL_MS,
+  });
   supervisorTimer = setInterval(() => {
     if (shouldRecover()) {
       scheduleHostBridgeRecovery(
@@ -567,6 +641,18 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "");
 }
 
+function workflowValidationErrorCode(
+  error: unknown,
+  fallback: HostBridgeErrorCode,
+): HostBridgeErrorCode {
+  const code = (error as { code?: string })?.code;
+  return code === "invalid_workflow_describe_request" ||
+    code === "invalid_workflow_agent_run_request" ||
+    code === "invalid_workflow_submit_request"
+    ? code
+    : fallback;
+}
+
 function parsePermissionScopeHeader(request: HttpRequest) {
   const raw = String(request.headers["x-zotero-bridge-scope"] || "").trim();
   if (!raw) {
@@ -577,6 +663,15 @@ function parsePermissionScopeHeader(request: HttpRequest) {
   } catch {
     return null;
   }
+}
+
+function parseConnectionModeHeader(
+  request: HttpRequest,
+): HostBridgeConnectionMode {
+  const value = String(request.headers["x-zotero-bridge-connection-mode"] || "")
+    .trim()
+    .toLowerCase();
+  return value === "remote" ? "remote" : "local";
 }
 
 function permissionErrorResponse(error: HostBridgePermissionError) {
@@ -852,7 +947,8 @@ function buildCapabilityApprovalPrompt(
 
 function writeOutputStream(outputStream: any, response: RawHttpResponse) {
   if (typeof response !== "string") {
-    outputStream.write(response.text, response.text.length);
+    outputStream.write(response.headers, response.headers.length);
+    writeBinaryOutputStream(outputStream, response.body);
     outputStream.close?.();
     return;
   }
@@ -871,6 +967,29 @@ function writeOutputStream(outputStream: any, response: RawHttpResponse) {
   }
   outputStream.write(response, response.length);
   outputStream.close?.();
+}
+
+function writeBinaryOutputStream(outputStream: any, bytes: Uint8Array) {
+  const components = getComponents();
+  const classes = components?.classes || (globalThis as any).Cc;
+  const interfaces = components?.interfaces || (globalThis as any).Ci;
+  const binaryFactory = classes?.["@mozilla.org/binaryoutputstream;1"];
+  const nsIBinaryOutputStream = interfaces?.nsIBinaryOutputStream;
+  const chunkSize = 0x8000;
+  if (binaryFactory && nsIBinaryOutputStream) {
+    const binary = binaryFactory.createInstance(nsIBinaryOutputStream);
+    binary.setOutputStream(outputStream);
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      const chunk = bytes.slice(offset, offset + chunkSize);
+      binary.writeByteArray(Array.from(chunk), chunk.length);
+    }
+    return;
+  }
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.slice(offset, offset + chunkSize);
+    const text = bytesToBinaryString(chunk);
+    outputStream.write(text, text.length);
+  }
 }
 
 function buildHttpResponse(args: HttpResponseArgs) {
@@ -901,10 +1020,13 @@ function bytesToBinaryString(bytes: Uint8Array) {
 }
 
 function headerSafeFilename(filename: string) {
-  return String(filename || "download.bin").replace(
-    /["\r\n\u0000-\u001f\u007f]/g,
-    "_",
-  );
+  return String(filename || "download.bin")
+    .split("")
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      return char === '"' || code <= 0x1f || code === 0x7f ? "_" : char;
+    })
+    .join("");
 }
 
 function asciiContentDispositionFilename(filename: string) {
@@ -938,24 +1060,31 @@ function buildFileHttpResponse(args: {
   filename: string;
   contentType: string;
   bytes: Uint8Array;
+  sha256?: string;
 }) {
-  const bodyText = bytesToBinaryString(args.bytes);
+  const headers = [
+    "HTTP/1.1 200 OK",
+    `Content-Type: ${args.contentType || "application/octet-stream"}`,
+    `Content-Length: ${args.bytes.byteLength}`,
+    ...(args.sha256 ? [`X-Zotero-Bridge-Sha256: ${args.sha256}`] : []),
+    `Content-Disposition: ${contentDispositionHeader(args.filename)}`,
+    "Connection: close",
+    "",
+    "",
+  ].join("\r\n");
   return {
-    text: [
-      "HTTP/1.1 200 OK",
-      `Content-Type: ${args.contentType || "application/octet-stream"}`,
-      `Content-Length: ${args.bytes.byteLength}`,
-      `Content-Disposition: ${contentDispositionHeader(args.filename)}`,
-      "Connection: close",
-      "",
-      bodyText,
-    ].join("\r\n"),
+    headers,
+    body: args.bytes,
     binary: true as const,
   };
 }
 
 function isBridgePath(path: string) {
   return path === "/bridge/v1" || path.startsWith("/bridge/v1/");
+}
+
+function isMcpPath(path: string) {
+  return path === "/mcp" || path === "/mcp/";
 }
 
 function response(
@@ -982,6 +1111,7 @@ function health(): HostBridgeHealth {
     bindMode: state.bindMode,
     lanEnabled: state.lanEnabled,
     authRequired: true,
+    ...hostAccessRoutes(),
   };
 }
 
@@ -1007,6 +1137,7 @@ function manifest(): HostBridgeManifest {
     fileDownloads: {
       ...getHostBridgeFileDownloadManifest(),
     },
+    ...hostAccessRoutes(),
     cli: {
       supported: true,
       schema: "zotero-bridge.cli.v1",
@@ -1095,6 +1226,10 @@ async function callCapability(request: HttpRequest) {
     }
     const data = await capability.handler(payload.input, {
       getStatus: getHostBridgeServerStatus,
+      connectionMode: parseConnectionModeHeader(request),
+      ...(synthesisServiceResolverForTests
+        ? { resolveSynthesisService: synthesisServiceResolverForTests }
+        : {}),
     });
     return response(
       200,
@@ -1169,6 +1304,62 @@ async function listWorkflows(request: HttpRequest) {
   );
 }
 
+async function describeWorkflow(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow describe endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: HostBridgeWorkflowDescribeRequest;
+  try {
+    payload = parseJsonBody(request.body) as HostBridgeWorkflowDescribeRequest;
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_workflow_describe_request",
+        "Workflow describe request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_workflow_describe_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await describeHostBridgeWorkflow(payload)),
+    );
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "workflow_not_found") {
+      return response(
+        404,
+        "Not Found",
+        hostBridgeError(
+          "workflow_not_found",
+          "Workflow not found",
+          "workflow",
+          { workflowId: String(payload?.workflowId || "").trim() },
+        ),
+        "workflow_not_found",
+      );
+    }
+    const validationCode = workflowValidationErrorCode(
+      error,
+      "invalid_workflow_describe_request",
+    );
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(validationCode, errorMessage(error), "validation"),
+      validationCode,
+    );
+  }
+}
+
 async function submitWorkflow(request: HttpRequest) {
   if (request.method !== "POST") {
     return methodNotAllowed(
@@ -1184,11 +1375,11 @@ async function submitWorkflow(request: HttpRequest) {
       400,
       "Bad Request",
       hostBridgeError(
-        "invalid_workflow_input",
+        "invalid_workflow_submit_request",
         "Workflow submit request body must be valid JSON",
         "validation",
       ),
-      "invalid_workflow_input",
+      "invalid_workflow_submit_request",
     );
   }
   try {
@@ -1227,15 +1418,68 @@ async function submitWorkflow(request: HttpRequest) {
         "workflow_submit_failed",
       );
     }
+    const validationCode = workflowValidationErrorCode(
+      error,
+      "invalid_workflow_submit_request",
+    );
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(validationCode, errorMessage(error), "validation"),
+      validationCode,
+    );
+  }
+}
+
+async function agentRunWorkflow(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow agent-run endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: HostBridgeWorkflowAgentRunRequest;
+  try {
+    payload = parseJsonBody(request.body) as HostBridgeWorkflowAgentRunRequest;
+  } catch {
     return response(
       400,
       "Bad Request",
       hostBridgeError(
-        "invalid_workflow_input",
-        errorMessage(error),
+        "invalid_workflow_agent_run_request",
+        "Workflow agent-run request body must be valid JSON",
         "validation",
       ),
-      "invalid_workflow_input",
+      "invalid_workflow_agent_run_request",
+    );
+  }
+  try {
+    const result = await buildHostBridgeWorkflowAgentRun({ payload });
+    return response(200, "OK", hostBridgeOk(result));
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "workflow_not_found") {
+      return response(
+        404,
+        "Not Found",
+        hostBridgeError(
+          "workflow_not_found",
+          "Workflow not found",
+          "workflow",
+          { workflowId: String(payload?.workflowId || "").trim() },
+        ),
+        "workflow_not_found",
+      );
+    }
+    const validationCode = workflowValidationErrorCode(
+      error,
+      "invalid_workflow_agent_run_request",
+    );
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(validationCode, errorMessage(error), "validation"),
+      validationCode,
     );
   }
 }
@@ -1307,6 +1551,7 @@ async function downloadFile(request: HttpRequest): Promise<RawHttpResponse> {
       filename: download.descriptor.displayName,
       contentType: download.descriptor.contentType,
       bytes: download.bytes,
+      sha256: download.descriptor.sha256,
     });
   } catch (error) {
     if (error instanceof HostBridgeFileRegistryError) {
@@ -1343,6 +1588,12 @@ async function handleHttpRequest(request: HttpRequest) {
       ),
       request.parseError,
     );
+  }
+
+  if (isMcpPath(request.path)) {
+    const { handleZoteroMcpHostAccessRequest } =
+      await import("./zoteroMcpServer");
+    return handleZoteroMcpHostAccessRequest(request);
   }
 
   if (!isBridgePath(request.path)) {
@@ -1423,8 +1674,16 @@ async function handleHttpRequest(request: HttpRequest) {
     return listWorkflows(request);
   }
 
+  if (request.path === "/bridge/v1/workflows/describe") {
+    return describeWorkflow(request);
+  }
+
   if (request.path === "/bridge/v1/workflows/submit") {
     return submitWorkflow(request);
+  }
+
+  if (request.path === "/bridge/v1/workflows/agent-run") {
+    return agentRunWorkflow(request);
   }
 
   if (request.path.startsWith("/bridge/v1/workflows/runs/")) {
@@ -1481,61 +1740,81 @@ function listen(serverSocket: any) {
   serverSocket.asyncListen(listener);
 }
 
-async function startServer() {
-  const lanEnabled = getLanEnabled();
-  if (lanEnabled && !getPinPortEnabled()) {
-    setPref("hostBridgePinPortEnabled", true);
+async function publishWellKnownProfileAfterListen(args: {
+  config: HostBridgeStartConfig;
+  port: number;
+  portMode: HostBridgePortMode;
+  token: string;
+}) {
+  if (
+    args.config.lanEnabled &&
+    (args.portMode !== "pinned" || args.port !== args.config.pinnedPort)
+  ) {
+    throw new Error(
+      "Refusing to publish Host Bridge LAN profile for a non-pinned endpoint",
+    );
   }
-  const pinPortEnabled = getEffectivePinPortEnabled(lanEnabled);
-  const pinnedPort = getPinnedPort();
-  const bindMode = bindModeFromLanEnabled(lanEnabled);
-  const host = hostFromBindMode(bindMode);
+  const result = await writeHostBridgeWellKnownProfile({
+    endpoint: buildLocalProfileEndpoint(args.config.bindMode, args.port),
+    token: args.token,
+    updatedAt: state.updatedAt,
+  });
+  if (!result.ok) {
+    updateState({
+      lastError: `Host Bridge well-known profile was not written: ${result.reason}`,
+    });
+  }
+}
+
+async function startServer() {
+  const config = resolveHostBridgeStartConfig();
   updateState({
     status: "starting",
-    host,
-    bindMode,
-    lanEnabled,
-    pinPortEnabled,
-    pinnedPort,
-    portMode: pinPortEnabled ? "pinned" : "random",
+    host: config.host,
+    bindMode: config.bindMode,
+    lanEnabled: config.lanEnabled,
+    pinPortEnabled: config.pinPortEnabled,
+    pinnedPort: config.pinnedPort,
+    portMode: config.initialPortMode,
     lastError: "",
   });
 
   let lastError: unknown;
-  let portMode: HostBridgePortMode = pinPortEnabled ? "pinned" : "random";
+  let portMode: HostBridgePortMode = config.initialPortMode;
   let recoveryReason = state.lastRecoveryReason;
   const tryBind = async (port: number, mode: HostBridgePortMode) => {
-    const serverSocket = createConfiguredServerSocket(port, bindMode);
+    const serverSocket = createConfiguredServerSocket(port, config.bindMode);
     const token = getHostBridgeToken();
+    listen(serverSocket);
     updateState({
       status: "running",
-      host,
+      host: config.host,
       port,
-      endpoint: buildEndpoint(host, port),
+      endpoint: buildEndpoint(config.host, port),
       token,
       serverSocket,
-      bindMode,
-      lanEnabled,
-      pinPortEnabled: getEffectivePinPortEnabled(lanEnabled),
-      pinnedPort: getPinnedPort(),
+      bindMode: config.bindMode,
+      lanEnabled: config.lanEnabled,
+      pinPortEnabled: config.pinPortEnabled,
+      pinnedPort: config.pinnedPort,
       portMode: mode,
       lastRecoveryReason: recoveryReason,
       lastError: "",
     });
-    await writeHostBridgeWellKnownProfile({
-      endpoint: buildLocalProfileEndpoint(bindMode, port),
+    await publishWellKnownProfileAfterListen({
+      config,
+      port,
+      portMode: mode,
       token,
-      updatedAt: state.updatedAt,
     });
-    listen(serverSocket);
     return getHostBridgeServerStatus();
   };
 
-  if (pinPortEnabled) {
+  if (config.pinPortEnabled) {
     try {
-      return await tryBind(pinnedPort, "pinned");
+      return await tryBind(config.pinnedPort, "pinned");
     } catch (error) {
-      if (lanEnabled) {
+      if (config.lanEnabled) {
         const message =
           error instanceof Error
             ? error.message
@@ -1694,6 +1973,7 @@ export async function buildHostBridgeRemoteCliProfileForCopy() {
       schema: "zotero-bridge.profile.v1",
       protocol: HOST_BRIDGE_PROTOCOL_VERSION,
       endpoint,
+      connectionMode: "remote",
       auth: {
         type: "bearer",
         token: masterToken.token,
@@ -1708,9 +1988,11 @@ export function getHostBridgeServerStatus(): HostBridgeStatusSnapshot {
   const token = state.token || String(getPref("hostBridgeToken") || "");
   const masterToken = getHostBridgeMasterTokenStatus();
   const advertisedHost = getAdvertisedHost();
+  const advertisedHostSource = getAdvertisedHostSource();
   const remoteEndpoint = buildRemoteEndpoint(state.port || getPinnedPort());
   const localEndpoint =
     buildLocalClientEndpoint(state.bindMode, state.port) || state.endpoint;
+  const accessRoutes = hostAccessRoutes(state.bindMode, state.port);
   return {
     status: state.status,
     protocol: HOST_BRIDGE_PROTOCOL_VERSION,
@@ -1719,6 +2001,13 @@ export function getHostBridgeServerStatus(): HostBridgeStatusSnapshot {
     endpoint: localEndpoint,
     remoteEndpoint,
     advertisedHost,
+    advertisedHostSource,
+    advertisedHostDiagnostics:
+      advertisedHostSource === "placeholder"
+        ? [
+            "hostBridgeAdvertisedHost is empty; remote endpoint uses placeholder",
+          ]
+        : [],
     remoteEndpointUsesPlaceholder: advertisedHost === "<zotero-host-ip>",
     bindMode: state.bindMode,
     lanEnabled: state.lanEnabled,
@@ -1738,6 +2027,7 @@ export function getHostBridgeServerStatus(): HostBridgeStatusSnapshot {
     lastError: state.lastError,
     requestCount: state.requestCount,
     updatedAt: state.updatedAt,
+    ...accessRoutes,
   };
 }
 
@@ -1750,6 +2040,7 @@ export function resetHostBridgeServerForTests() {
   state = createEmptyState("idle");
   startingPromise = null;
   serverSocketFactory = createServerSocket;
+  synthesisServiceResolverForTests = undefined;
   resetHostBridgeWriteAutoApprovalScopesForTests();
 }
 
@@ -1759,6 +2050,7 @@ export function configureHostBridgeServerForTests(
     endpoint?: string;
     lanEnabled?: boolean;
     portMode?: HostBridgePortMode;
+    resolveSynthesisService?: () => SynthesisMcpService;
   } = {},
 ) {
   const lanEnabled = args.lanEnabled === true;
@@ -1778,6 +2070,7 @@ export function configureHostBridgeServerForTests(
     pinnedPort: getPinnedPort(),
     lastError: "",
   });
+  synthesisServiceResolverForTests = args.resolveSynthesisService;
   return token;
 }
 
@@ -1824,7 +2117,9 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     const raw = await handleHttpRequest(
       parseHttpRequestBytes(args.rawRequestBytes),
     );
-    return typeof raw === "string" ? raw : raw.text;
+    return typeof raw === "string"
+      ? raw
+      : `${raw.headers}${bytesToBinaryString(raw.body)}`;
   }
   const parsedPath = parseTestPath(args.path || "/");
   const body = args.body || "";
@@ -1838,5 +2133,7 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     parseError: parsedPath.parseError,
   };
   const raw = await handleHttpRequest(request);
-  return typeof raw === "string" ? raw : raw.text;
+  return typeof raw === "string"
+    ? raw
+    : `${raw.headers}${bytesToBinaryString(raw.body)}`;
 }

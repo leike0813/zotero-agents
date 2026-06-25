@@ -1,4 +1,9 @@
 import { createConversationNote } from "../../lib/literatureDigestNotes.mjs";
+import {
+  appendSkillDiagnosticsToResult,
+  collectSkillOutputDiagnostics,
+  formatSkillDiagnosticsForError,
+} from "../../lib/resultOutput.mjs";
 
 function stringifyUnknownError(error) {
   if (error instanceof Error) {
@@ -41,14 +46,7 @@ function getNotePathFromRecord(record) {
   if (!isRecord(record)) {
     return "";
   }
-  const candidates = [
-    record.note_path,
-    record.data?.note_path,
-    record.result?.note_path,
-    record.result?.data?.note_path,
-    record.data?.result?.note_path,
-    record.data?.result?.data?.note_path,
-  ];
+  const candidates = [record.note_path, record.data?.note_path];
   for (const value of candidates) {
     const normalized = String(value || "").trim();
     if (normalized) {
@@ -60,21 +58,9 @@ function getNotePathFromRecord(record) {
 
 function resolveNotePathFromRunResult(runResult) {
   const candidates = [
-    runResult?.resultJson?.result?.data,
-    runResult?.resultJson?.result,
     runResult?.resultJson?.data?.data,
     runResult?.resultJson?.data,
     runResult?.resultJson,
-    runResult?.responseJson?.result?.data,
-    runResult?.responseJson?.result,
-    runResult?.responseJson?.data?.data,
-    runResult?.responseJson?.data,
-    runResult?.responseJson,
-    runResult?.result?.data,
-    runResult?.result,
-    runResult?.data?.data,
-    runResult?.data,
-    runResult,
   ];
   for (const candidate of candidates) {
     const resolved = getNotePathFromRecord(candidate);
@@ -124,6 +110,10 @@ function resolveBundleEntryPath(rawPath, fallbackPath) {
 }
 
 async function resolveNotePath(args) {
+  const fromProvidedResult = getNotePathFromRecord(args.resultJson);
+  if (fromProvidedResult) {
+    return fromProvidedResult;
+  }
   if (
     args.resultContext &&
     typeof args.resultContext === "object" &&
@@ -139,11 +129,33 @@ async function resolveNotePath(args) {
     return fromRunResult;
   }
   try {
-    const resultJsonText = await args.bundleReader.readText("result/result.json");
+    const resultJsonText =
+      await args.bundleReader.readText("result/result.json");
     const parsed = JSON.parse(resultJsonText);
     return getNotePathFromRecord(parsed);
   } catch {
     return "";
+  }
+}
+
+async function readResultJsonForDiagnostics(args) {
+  if (
+    args.resultContext &&
+    typeof args.resultContext === "object" &&
+    "resultJson" in args.resultContext
+  ) {
+    return args.resultContext.resultJson;
+  }
+  const fromRunResult = args.runResult?.resultJson;
+  if (fromRunResult && typeof fromRunResult === "object") {
+    return fromRunResult;
+  }
+  try {
+    const resultJsonText =
+      await args.bundleReader.readText("result/result.json");
+    return JSON.parse(resultJsonText);
+  } catch {
+    return {};
   }
 }
 
@@ -216,27 +228,45 @@ function resolveHostApi(runtime) {
   throw new Error("workflow hostApi is unavailable in runtime");
 }
 
-export async function applyResult({ parent, bundleReader, resultContext, runResult, runtime }) {
+export async function applyResult({
+  parent,
+  bundleReader,
+  resultContext,
+  runResult,
+  runtime,
+}) {
   let stage = "resolve-parent";
+  let skillOutputDiagnostics = { warnings: [] };
   try {
     const hostApi = resolveHostApi(runtime);
     if (!hostApi.items || typeof hostApi.items.resolve !== "function") {
       throw new Error("workflow hostApi.items.resolve is unavailable");
     }
     const parentItem = hostApi.items.resolve(parent);
+    stage = "resolve-result-diagnostics";
+    const resultJson = await readResultJsonForDiagnostics({
+      bundleReader,
+      resultContext,
+      runResult,
+    });
+    skillOutputDiagnostics = collectSkillOutputDiagnostics(resultJson);
     stage = "resolve-note-path";
     const notePath = await resolveNotePath({
       bundleReader,
+      resultJson,
       resultContext,
       runResult,
     });
 
     if (!notePath) {
-      return {
-        notes: [],
-        skipped: true,
-        reason: "note_path is empty",
-      };
+      return appendSkillDiagnosticsToResult(
+        {
+          notes: [],
+          skipped: true,
+          reason: "note_path is empty",
+        },
+        skillOutputDiagnostics,
+      );
     }
 
     stage = "read-bundle-entry";
@@ -246,28 +276,34 @@ export async function applyResult({ parent, bundleReader, resultContext, runResu
       notePath,
     });
     if (resolvedNote.candidates.length === 0) {
-      return {
-        notes: [],
-        skipped: true,
-        reason: "note_path not found in bundle",
-        note_path: notePath,
-      };
+      return appendSkillDiagnosticsToResult(
+        {
+          notes: [],
+          skipped: true,
+          reason: "note_path not found in bundle",
+          note_path: notePath,
+        },
+        skillOutputDiagnostics,
+      );
     }
 
     if (!resolvedNote.noteEntry) {
-      return {
-        notes: [],
-        skipped: true,
-        reason: "note_path not found in bundle",
-        note_path: notePath,
-        bundle_entry: resolvedNote.candidates[0],
-        candidates: resolvedNote.candidates,
-        last_error: String(
-          resolvedNote.lastError && resolvedNote.lastError.message
-            ? resolvedNote.lastError.message
-            : resolvedNote.lastError || "unknown",
-        ),
-      };
+      return appendSkillDiagnosticsToResult(
+        {
+          notes: [],
+          skipped: true,
+          reason: "note_path not found in bundle",
+          note_path: notePath,
+          bundle_entry: resolvedNote.candidates[0],
+          candidates: resolvedNote.candidates,
+          last_error: String(
+            resolvedNote.lastError && resolvedNote.lastError.message
+              ? resolvedNote.lastError.message
+              : resolvedNote.lastError || "unknown",
+          ),
+        },
+        skillOutputDiagnostics,
+      );
     }
 
     stage = "create-note";
@@ -280,18 +316,21 @@ export async function applyResult({ parent, bundleReader, resultContext, runResu
       noteEntry: resolvedNote.noteEntry,
     });
 
-    return {
-      notes: [note],
-      requested_note_path: notePath,
-      note_path: resolvedNote.noteEntry,
-      bundle_candidates: resolvedNote.candidates,
-      parent_item_id: parentItem.id,
-      created_note_id: note?.id,
-      title,
-    };
+    return appendSkillDiagnosticsToResult(
+      {
+        notes: [note],
+        requested_note_path: notePath,
+        note_path: resolvedNote.noteEntry,
+        bundle_candidates: resolvedNote.candidates,
+        parent_item_id: parentItem.id,
+        created_note_id: note?.id,
+        title,
+      },
+      skillOutputDiagnostics,
+    );
   } catch (error) {
     throw new Error(
-      `literature-explainer applyResult failed at ${stage}: ${stringifyUnknownError(error)}`,
+      `literature-explainer applyResult failed at ${stage}: ${stringifyUnknownError(error)}${formatSkillDiagnosticsForError(skillOutputDiagnostics)}`,
     );
   }
 }

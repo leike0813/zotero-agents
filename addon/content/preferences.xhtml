@@ -21,6 +21,19 @@
     overflow: auto; border: 1px solid rgba(148, 163, 184, 0.45); border-radius:
     6px; padding: 8px; background: rgba(255, 251, 235, 0.45); }
     .zs-runtime-issues-panel.is-visible { display: block; }
+    .zs-host-access-status-grid { display: grid; grid-template-columns:
+    minmax(110px, auto) 10px minmax(180px, 1fr); gap: 6px 8px; align-items:
+    center; font-size: 12px; } .zs-host-access-status-label { font-weight: 600;
+    color: #334155; } .zs-host-access-settings { display: flex; flex-direction:
+    column; gap: 8px; padding-top: 4px; } .zs-host-access-operation-notice {
+    display: none; border: 1px solid rgba(59, 130, 246, 0.35); border-radius:
+    6px; padding: 8px; background: rgba(239, 246, 255, 0.75); color: #1e3a8a;
+    font-size: 12px; } .zs-host-access-operation-notice.is-visible { display:
+    block; } .zs-host-access-operation-notice.is-error { border-color: rgba(185,
+    28, 28, 0.45); background: rgba(254, 242, 242, 0.85); color: #7f1d1d; }
+    .zs-host-access-operation-notice-title { font-weight: 700; margin-right:
+    6px; } .zs-host-access-security-panel { display: none; }
+    .zs-host-access-security-panel.is-visible { display: flex; }
     .zs-runtime-issues-grid { display: grid; grid-template-columns:
     minmax(140px, 1fr) minmax(180px, 2fr) auto; gap: 6px 10px; align-items:
     center; font-size: 12px; } .zs-runtime-issue-empty { color: #64748b;
@@ -37,9 +50,12 @@
     font-size: 13px; font-weight: 700; line-height: 1; color: #dc2626;
     user-select: none; } .zs-autostart-icon.is-green { color: #16a34a; }
     .zs-autostart-icon.is-red { color: #dc2626; }
-    #zotero-prefpane-__addonRef__-skillrunner-local-progress-row { display:
-    none; align-items: center; gap: 8px; margin-top: 4px; }
+    #zotero-prefpane-__addonRef__-skillrunner-local-progress-row,
+    #zotero-prefpane-__addonRef__-runtime-data-progress-row { display: none;
+    align-items: center; gap: 8px; margin-top: 4px; }
     #zotero-prefpane-__addonRef__-skillrunner-local-progress-row.is-visible {
+    display: flex; }
+    #zotero-prefpane-__addonRef__-runtime-data-progress-row.is-visible {
     display: flex; } .custom-progress-container { width: 220px; min-width:
     220px; height: 6px; background-color: var(--fill-quaternary, rgba(128, 128,
     128, 0.2)); border-radius: 3px; overflow: hidden; margin-top: 1px;
@@ -63,6 +79,12 @@
     #7f1d1d; } .zs-pref-danger-status { color: #7f1d1d; font-size: 12px; }
     .zs-pref-danger-button { color: #991b1b; }
     .zs-host-bridge-write-approval-danger { color: #b91c1c; font-weight: 700; }
+    .zs-user-content-dir-input { flex: 1 1 360px; min-width: 320px; }
+    .zs-content-package-channel { min-width: 140px; } .zs-content-package-status
+    { font-size: 12px; color: #334155; }
+    .zs-pref-about-actions { display: flex; gap: 8px; justify-content: center; }
+    .zs-pref-about-button { min-width: 120px; text-align: center;
+    -moz-box-pack: center; justify-content: center; }
   </html:style>
   <vbox class="zs-pref-root">
     <vbox class="zs-pref-card">
@@ -80,6 +102,7 @@
         <html:input
           type="text"
           id="zotero-prefpane-__addonRef__-workflow-dir"
+          class="zs-user-content-dir-input"
           preference="workflowDir"
         ></html:input>
         <button
@@ -91,7 +114,24 @@
           data-l10n-id="pref-workflow-scan"
         ></button>
       </hbox>
-      <description data-l10n-id="pref-workflow-dir-help"></description>
+      <hbox align="center">
+        <html:label
+          for="zotero-prefpane-__addonRef__-skill-dir"
+          data-l10n-id="pref-skill-dir"
+        ></html:label>
+      </hbox>
+      <hbox class="zs-pref-actions-row">
+        <html:input
+          type="text"
+          id="zotero-prefpane-__addonRef__-skill-dir"
+          class="zs-user-content-dir-input"
+          preference="skillDir"
+        ></html:input>
+        <button
+          id="zotero-prefpane-__addonRef__-skill-browse"
+          data-l10n-id="pref-workflow-browse"
+        ></button>
+      </hbox>
       <hbox class="zs-pref-actions-row">
         <button
           id="zotero-prefpane-__addonRef__-workflow-settings"
@@ -103,6 +143,62 @@
         ></button>
       </hbox>
       <description data-l10n-id="pref-workflow-settings-help"></description>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-collect-skill-run-feedback"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-collect-skill-run-feedback"></html:span>
+      </html:label>
+      <description
+        data-l10n-id="pref-collect-skill-run-feedback-help"
+      ></description>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-markdown-reader-enabled"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-markdown-reader-enabled"></html:span>
+      </html:label>
+      <description
+        data-l10n-id="pref-markdown-reader-enabled-help"
+      ></description>
+    </vbox>
+
+    <vbox class="zs-pref-card">
+      <label
+        class="zs-pref-card-title"
+        data-l10n-id="pref-section-content-package"
+      ></label>
+      <description data-l10n-id="pref-content-package-help"></description>
+      <hbox class="zs-pref-actions-row" align="center">
+        <html:label
+          for="zotero-prefpane-__addonRef__-content-package-channel"
+          data-l10n-id="pref-content-package-channel"
+        ></html:label>
+        <menulist
+          id="zotero-prefpane-__addonRef__-content-package-channel"
+          class="zs-content-package-channel"
+        >
+          <menupopup
+            id="zotero-prefpane-__addonRef__-content-package-channel-popup"
+          ></menupopup>
+        </menulist>
+      </hbox>
+      <html:div
+        id="zotero-prefpane-__addonRef__-content-package-status"
+        class="zs-content-package-status"
+      ></html:div>
+      <hbox class="zs-pref-actions-row">
+        <button
+          id="zotero-prefpane-__addonRef__-content-package-check"
+          data-l10n-id="pref-content-package-check"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-content-package-install"
+          data-l10n-id="pref-content-package-install"
+        ></button>
+      </hbox>
     </vbox>
 
     <vbox class="zs-pref-card">
@@ -125,102 +221,165 @@
         data-l10n-id="pref-section-host-bridge"
       ></label>
       <description data-l10n-id="pref-host-bridge-help"></description>
-      <html:label class="zs-uninstall-option">
-        <html:input
-          id="zotero-prefpane-__addonRef__-mcp-server-enabled"
-          type="checkbox"
-        ></html:input>
-        <html:span data-l10n-id="pref-mcp-server-enabled"></html:span>
-      </html:label>
-      <html:label
-        class="zs-uninstall-option zs-host-bridge-write-approval-danger"
-      >
-        <html:input
-          id="zotero-prefpane-__addonRef__-host-bridge-disable-write-approval"
-          type="checkbox"
-        ></html:input>
+      <html:div class="zs-host-access-status-grid">
         <html:span
-          data-l10n-id="pref-host-bridge-disable-write-approval"
+          class="zs-host-access-status-label"
+          data-l10n-id="pref-host-bridge-service-host-bridge"
         ></html:span>
-      </html:label>
-      <description
-        class="zs-host-bridge-write-approval-danger"
-        data-l10n-id="pref-host-bridge-disable-write-approval-help"
-      ></description>
-      <description
-        id="zotero-prefpane-__addonRef__-mcp-server-status"
-        data-l10n-id="pref-mcp-server-status-idle"
-      ></description>
-      <html:label class="zs-uninstall-option">
-        <html:input
-          id="zotero-prefpane-__addonRef__-host-bridge-lan-enabled"
-          type="checkbox"
-        ></html:input>
-        <html:span data-l10n-id="pref-host-bridge-lan-enabled"></html:span>
-      </html:label>
-      <hbox align="center" class="zs-pref-actions-row">
+        <html:span
+          id="zotero-prefpane-__addonRef__-host-bridge-led"
+          class="zs-runtime-led is-gray"
+          title="-"
+        ></html:span>
+        <description
+          id="zotero-prefpane-__addonRef__-host-bridge-status"
+          data-l10n-id="pref-host-bridge-status-idle"
+        ></description>
+        <html:span
+          class="zs-host-access-status-label"
+          data-l10n-id="pref-host-bridge-service-mcp"
+        ></html:span>
+        <html:span
+          id="zotero-prefpane-__addonRef__-mcp-server-led"
+          class="zs-runtime-led is-gray"
+          title="-"
+        ></html:span>
+        <description
+          id="zotero-prefpane-__addonRef__-mcp-server-status"
+          data-l10n-id="pref-mcp-server-status-idle"
+        ></description>
+      </html:div>
+
+      <vbox class="zs-host-access-settings">
         <html:label class="zs-uninstall-option">
           <html:input
-            id="zotero-prefpane-__addonRef__-host-bridge-pin-port-enabled"
+            id="zotero-prefpane-__addonRef__-mcp-server-enabled"
             type="checkbox"
           ></html:input>
-          <html:span
-            data-l10n-id="pref-host-bridge-pin-port-enabled"
-          ></html:span>
+          <html:span data-l10n-id="pref-mcp-server-enabled"></html:span>
         </html:label>
-        <html:input
-          id="zotero-prefpane-__addonRef__-host-bridge-pinned-port"
-          type="number"
-          min="1024"
-          max="65535"
-          step="1"
-        ></html:input>
-      </hbox>
-      <hbox align="center" class="zs-pref-actions-row">
-        <html:label
-          for="zotero-prefpane-__addonRef__-host-bridge-advertised-host"
-          data-l10n-id="pref-host-bridge-advertised-host"
-        ></html:label>
-        <html:input
-          type="text"
-          id="zotero-prefpane-__addonRef__-host-bridge-advertised-host"
-          placeholder="&lt;zotero-host-ip&gt;"
-        ></html:input>
-      </hbox>
-      <html:div
-        id="zotero-prefpane-__addonRef__-host-bridge-endpoint"
-        class="zs-runtime-data-path"
-      ></html:div>
+        <html:label class="zs-uninstall-option">
+          <html:input
+            id="zotero-prefpane-__addonRef__-host-bridge-lan-enabled"
+            type="checkbox"
+          ></html:input>
+          <html:span data-l10n-id="pref-host-bridge-lan-enabled"></html:span>
+        </html:label>
+        <hbox align="center" class="zs-pref-actions-row">
+          <html:label class="zs-uninstall-option">
+            <html:input
+              id="zotero-prefpane-__addonRef__-host-bridge-pin-port-enabled"
+              type="checkbox"
+            ></html:input>
+            <html:span
+              data-l10n-id="pref-host-bridge-pin-port-enabled"
+            ></html:span>
+          </html:label>
+          <html:input
+            id="zotero-prefpane-__addonRef__-host-bridge-pinned-port"
+            type="number"
+            min="1024"
+            max="65535"
+            step="1"
+          ></html:input>
+        </hbox>
+        <hbox align="center" class="zs-pref-actions-row">
+          <html:label
+            for="zotero-prefpane-__addonRef__-host-bridge-advertised-host"
+            data-l10n-id="pref-host-bridge-advertised-host"
+          ></html:label>
+          <html:input
+            type="text"
+            id="zotero-prefpane-__addonRef__-host-bridge-advertised-host"
+            data-l10n-id="pref-host-bridge-advertised-host-input"
+          ></html:input>
+        </hbox>
+        <description
+          data-l10n-id="pref-host-bridge-advertised-host-help"
+        ></description>
+        <html:div
+          id="zotero-prefpane-__addonRef__-host-bridge-endpoint"
+          class="zs-runtime-data-path"
+        ></html:div>
+      </vbox>
       <hbox class="zs-pref-actions-row">
         <button
           id="zotero-prefpane-__addonRef__-host-bridge-show-endpoint"
           data-l10n-id="pref-host-bridge-show-endpoint"
         ></button>
         <button
-          id="zotero-prefpane-__addonRef__-host-bridge-rotate-token"
-          data-l10n-id="pref-host-bridge-rotate-token"
-        ></button>
-        <button
-          id="zotero-prefpane-__addonRef__-host-bridge-rotate-master-token"
-          data-l10n-id="pref-host-bridge-rotate-master-token"
-        ></button>
-        <button
-          id="zotero-prefpane-__addonRef__-host-bridge-copy-master-token"
-          data-l10n-id="pref-host-bridge-copy-master-token"
-        ></button>
-        <button
-          id="zotero-prefpane-__addonRef__-host-bridge-copy-remote-profile"
-          data-l10n-id="pref-host-bridge-copy-remote-profile"
-        ></button>
-        <button
           id="zotero-prefpane-__addonRef__-host-bridge-install-cli"
           data-l10n-id="pref-host-bridge-install-cli"
         ></button>
       </hbox>
-      <description
-        id="zotero-prefpane-__addonRef__-host-bridge-status"
-        data-l10n-id="pref-host-bridge-status-idle"
-      ></description>
+      <html:div
+        id="zotero-prefpane-__addonRef__-host-bridge-operation-notice"
+        class="zs-host-access-operation-notice"
+      >
+        <html:span
+          class="zs-host-access-operation-notice-title"
+          data-l10n-id="pref-host-bridge-operation-notice"
+        ></html:span>
+        <html:span
+          id="zotero-prefpane-__addonRef__-host-bridge-operation-notice-text"
+        ></html:span>
+      </html:div>
+      <vbox class="zs-pref-danger-zone">
+        <html:strong
+          class="zs-pref-danger-title"
+          data-l10n-id="pref-host-bridge-security-title"
+        ></html:strong>
+        <description
+          class="zs-pref-danger-description"
+          data-l10n-id="pref-host-bridge-security-help"
+        ></description>
+        <hbox class="zs-pref-actions-row">
+          <button
+            id="zotero-prefpane-__addonRef__-host-bridge-security-toggle"
+            class="zs-pref-danger-button"
+            data-l10n-id="pref-host-bridge-security-show"
+            aria-expanded="false"
+          ></button>
+        </hbox>
+        <vbox
+          id="zotero-prefpane-__addonRef__-host-bridge-security-panel"
+          class="zs-host-access-security-panel"
+        >
+          <html:label
+            class="zs-uninstall-option zs-host-bridge-write-approval-danger"
+          >
+            <html:input
+              id="zotero-prefpane-__addonRef__-host-bridge-disable-write-approval"
+              type="checkbox"
+            ></html:input>
+            <html:span
+              data-l10n-id="pref-host-bridge-disable-write-approval"
+            ></html:span>
+          </html:label>
+          <description
+            class="zs-host-bridge-write-approval-danger"
+            data-l10n-id="pref-host-bridge-disable-write-approval-help"
+          ></description>
+          <hbox class="zs-pref-actions-row">
+            <button
+              id="zotero-prefpane-__addonRef__-host-bridge-rotate-token"
+              data-l10n-id="pref-host-bridge-rotate-token"
+            ></button>
+            <button
+              id="zotero-prefpane-__addonRef__-host-bridge-rotate-master-token"
+              data-l10n-id="pref-host-bridge-rotate-master-token"
+            ></button>
+            <button
+              id="zotero-prefpane-__addonRef__-host-bridge-copy-master-token"
+              data-l10n-id="pref-host-bridge-copy-master-token"
+            ></button>
+            <button
+              id="zotero-prefpane-__addonRef__-host-bridge-copy-remote-profile"
+              data-l10n-id="pref-host-bridge-copy-remote-profile"
+            ></button>
+          </hbox>
+        </vbox>
+      </vbox>
     </vbox>
 
     <vbox class="zs-pref-card">
@@ -255,6 +414,17 @@
         id="zotero-prefpane-__addonRef__-runtime-data-summary"
         data-l10n-id="pref-runtime-data-summary-idle"
       ></description>
+      <html:div id="zotero-prefpane-__addonRef__-runtime-data-progress-row">
+        <html:div class="custom-progress-container">
+          <html:div
+            id="zotero-prefpane-__addonRef__-runtime-data-progressmeter"
+            class="custom-progress-bar"
+          ></html:div>
+        </html:div>
+        <html:span
+          id="zotero-prefpane-__addonRef__-runtime-data-progress-text"
+        ></html:span>
+      </html:div>
       <html:div
         id="zotero-prefpane-__addonRef__-runtime-data-categories"
         class="zs-runtime-data-grid"
@@ -289,6 +459,99 @@
           data-l10n-id="pref-synthesis-db-reset-status-idle"
         ></description>
       </vbox>
+    </vbox>
+
+    <vbox class="zs-pref-card">
+      <label
+        class="zs-pref-card-title"
+        data-l10n-id="pref-section-webdav-sync"
+      ></label>
+      <description data-l10n-id="pref-webdav-sync-help"></description>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-webdav-sync-enabled"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-webdav-sync-enabled"></html:span>
+      </html:label>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label
+          for="zotero-prefpane-__addonRef__-webdav-sync-base-url"
+          data-l10n-id="pref-webdav-sync-base-url"
+        ></html:label>
+        <html:input
+          type="text"
+          id="zotero-prefpane-__addonRef__-webdav-sync-base-url"
+          placeholder="https://example.com/webdav"
+        ></html:input>
+      </hbox>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label
+          for="zotero-prefpane-__addonRef__-webdav-sync-remote-path"
+          data-l10n-id="pref-webdav-sync-remote-path"
+        ></html:label>
+        <html:input
+          type="text"
+          id="zotero-prefpane-__addonRef__-webdav-sync-remote-path"
+          placeholder="zotero-agents"
+        ></html:input>
+      </hbox>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label
+          for="zotero-prefpane-__addonRef__-webdav-sync-username"
+          data-l10n-id="pref-webdav-sync-username"
+        ></html:label>
+        <html:input
+          type="text"
+          id="zotero-prefpane-__addonRef__-webdav-sync-username"
+        ></html:input>
+      </hbox>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-webdav-sync-auto-sync"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-webdav-sync-auto-sync"></html:span>
+      </html:label>
+      <html:label class="zs-uninstall-option">
+        <html:input
+          id="zotero-prefpane-__addonRef__-webdav-sync-auto-retry"
+          type="checkbox"
+        ></html:input>
+        <html:span data-l10n-id="pref-webdav-sync-auto-retry"></html:span>
+      </html:label>
+      <hbox align="center" class="zs-pref-actions-row">
+        <html:label
+          for="zotero-prefpane-__addonRef__-webdav-sync-credential"
+          data-l10n-id="pref-webdav-sync-credential"
+        ></html:label>
+        <html:input
+          type="password"
+          id="zotero-prefpane-__addonRef__-webdav-sync-credential"
+        ></html:input>
+        <button
+          id="zotero-prefpane-__addonRef__-webdav-sync-save-credential"
+          data-l10n-id="pref-webdav-sync-save-credential"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-webdav-sync-clear-credential"
+          data-l10n-id="pref-webdav-sync-clear-credential"
+        ></button>
+      </hbox>
+      <hbox class="zs-pref-actions-row">
+        <button
+          id="zotero-prefpane-__addonRef__-webdav-sync-save"
+          data-l10n-id="pref-webdav-sync-save"
+        ></button>
+        <button
+          id="zotero-prefpane-__addonRef__-webdav-sync-test"
+          data-l10n-id="pref-webdav-sync-test"
+        ></button>
+      </hbox>
+      <description
+        id="zotero-prefpane-__addonRef__-webdav-sync-status"
+        data-l10n-id="pref-webdav-sync-status-idle"
+      ></description>
     </vbox>
 
     <vbox class="zs-pref-card">
@@ -409,7 +672,7 @@
     <hbox align="center">
       <html:img
         src="chrome://__addonRef__/content/icons/icon_full.png"
-        alt="Zotero-Skills"
+        alt="Zotero Agents"
         style="max-width: 180px; width: 50%; height: auto"
       ></html:img>
     </hbox>
@@ -419,11 +682,23 @@
     <hbox align="center">
       <html:label data-l10n-id="pref-about-github-label"></html:label>
       <html:a
-        href="https://github.com/leike0813/Zotero-Skills"
+        href="https://github.com/leike0813/zotero-agents"
         target="_blank"
         style="margin-left: 6px"
-        >https://github.com/leike0813/Zotero-Skills</html:a
+        >https://github.com/leike0813/zotero-agents</html:a
       >
+    </hbox>
+    <hbox align="center" class="zs-pref-about-actions">
+      <button
+        id="zotero-prefpane-__addonRef__-open-help"
+        class="zs-pref-about-button"
+        data-l10n-id="pref-about-help"
+      ></button>
+      <button
+        id="zotero-prefpane-__addonRef__-open-online-docs"
+        class="zs-pref-about-button"
+        data-l10n-id="pref-about-online-docs"
+      ></button>
     </hbox>
     <hbox align="center">
       <html:label data-l10n-id="pref-about-welcome"></html:label>

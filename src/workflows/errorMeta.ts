@@ -1,8 +1,8 @@
 export type WorkflowHookFailureMeta = {
-  hookName?: "filterInputs" | "buildRequest" | "applyResult";
+  hookName?: "buildRequest" | "applyResult";
   workflowId?: string;
   packageId?: string;
-  workflowSourceKind?: "builtin" | "user" | "";
+  workflowSourceKind?: "official" | "dev-local" | "user" | "";
   capabilitySource?: string;
   executionMode?: string;
 };
@@ -60,10 +60,10 @@ export function readWorkflowHookFailureMeta(
 export function summarizeWorkflowExecutionError(error: unknown) {
   const meta = readWorkflowHookFailureMeta(error);
   const err = error instanceof Error ? error : null;
-  const carrier = (error &&
-  (typeof error === "object" || typeof error === "function")
-    ? (error as Record<string, unknown>)
-    : null);
+  const carrier =
+    error && (typeof error === "object" || typeof error === "function")
+      ? (error as Record<string, unknown>)
+      : null;
   return {
     message: err?.message || String(error || ""),
     stack: err?.stack,

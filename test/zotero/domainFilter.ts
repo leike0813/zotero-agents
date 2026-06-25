@@ -6,10 +6,7 @@ const UI_PATH_RE = /(^|\/)test\/ui\//;
 const WORKFLOW_PATH_RE = /(^|\/)test\/workflow-/;
 const NODE_MOCK_RUNTIME = "node-mock";
 
-const ZOTERO_LITE_ALLOWLIST: Record<
-  Exclude<TestDomain, "all">,
-  RegExp[]
-> = {
+const ZOTERO_LITE_ALLOWLIST: Record<Exclude<TestDomain, "all">, RegExp[]> = {
   core: [
     /(^|\/)test\/core\/00-startup\.test\.ts$/,
     /(^|\/)test\/core\/11-selection-context-rebuild\.test\.ts$/,
@@ -57,7 +54,6 @@ const ZOTERO_FULL_EXTRA_ALLOWLIST: Record<
     /(^|\/)test\/core\/70c-skillrunner-task-reconciler-ledger-reconcile\.test\.ts$/,
     /(^|\/)test\/core\/71-skillrunner-run-dialog-ui-e2e-alignment\.test\.ts$/,
     /(^|\/)test\/core\/83-skillrunner-run-dialog-waiting-auth-observer\.test\.ts$/,
-    /(^|\/)test\/core\/85-deferred-workflow-completion-tracker\.test\.ts$/,
   ],
   ui: [],
   workflow: [],
@@ -129,7 +125,6 @@ const ZOTERO_FULL_EXTRA_TITLE_ALLOWLIST: Record<
     "skillrunner task reconciler: ledger reconcile ",
     "skillrunner run dialog ui e2e alignment ",
     "skillrunner run dialog waiting auth observer ",
-    "deferred workflow completion tracker ",
     "skillrunner task reconciler restores pending contexts from sqlite store on start",
     "skillrunner task reconciler preserves existing non-terminal context when a request-created job later reports local failed state",
     "skillrunner task reconciler applies interactive bundle success for a real literature-explainer built request",
@@ -172,8 +167,7 @@ function isRealZoteroRuntime() {
     };
   };
   return (
-    !!runtime.Zotero &&
-    runtime.Zotero?.__parity?.runtime !== NODE_MOCK_RUNTIME
+    !!runtime.Zotero && runtime.Zotero?.__parity?.runtime !== NODE_MOCK_RUNTIME
   );
 }
 
@@ -220,9 +214,7 @@ export function isZoteroRoutineAllowedFile(
           ...ZOTERO_FULL_EXTRA_ALLOWLIST[testDomain],
         ]
       : ZOTERO_LITE_ALLOWLIST[testDomain];
-  return patterns.some((pattern) =>
-    pattern.test(normalized),
-  );
+  return patterns.some((pattern) => pattern.test(normalized));
 }
 
 export function isZoteroRoutineAllowedTitle(args: {

@@ -6,8 +6,46 @@ export type ProviderProgressEventRequestCreated = {
   requestId: string;
 };
 
+export type ProviderProgressEventRequestCreating = {
+  type: "request-creating";
+};
+
+export type ProviderProgressEventRequestUploading = {
+  type: "request-uploading";
+  requestId: string;
+};
+
+export type ProviderProgressEventRequestReady = {
+  type: "request-ready";
+  requestId: string;
+};
+
+export type ProviderProgressEventSequenceStep = {
+  type:
+    | "sequence-step-started"
+    | "sequence-step-succeeded"
+    | "sequence-step-deferred"
+    | "sequence-step-failed"
+    | "sequence-step-canceled"
+    | string;
+  requestId?: string;
+  sequenceStepId: string;
+  sequenceStepIndex?: number;
+  sequenceStepSkillId?: string;
+  sequenceStepSkillName?: string;
+  sequenceStepTaskName?: string;
+  sequenceJobId?: string;
+  workflowRunId?: string;
+  sequenceStepRequest?: unknown;
+  [key: string]: unknown;
+};
+
 export type ProviderProgressEvent =
+  | ProviderProgressEventRequestCreating
   | ProviderProgressEventRequestCreated
+  | ProviderProgressEventRequestUploading
+  | ProviderProgressEventRequestReady
+  | ProviderProgressEventSequenceStep
   | {
       type: string;
       [key: string]: unknown;
@@ -19,6 +57,8 @@ export type ProviderOrchestrationContext = {
   workflowRunId?: string;
   jobId?: string;
   sequenceStepId?: string;
+  sequenceStepIndex?: number;
+  skillId?: string;
   finalStepId?: string;
 };
 
@@ -42,6 +82,7 @@ export type ProviderRuntimeOptionSchemaEntry = {
   type: ProviderRuntimeOptionType;
   title?: string;
   description?: string;
+  placeholder?: string;
   default?: unknown;
   enum?: string[];
   disabled?: boolean;

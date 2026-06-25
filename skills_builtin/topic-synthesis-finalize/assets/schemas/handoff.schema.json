@@ -1,35 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "synthesis.skill_handoff.schema.json",
-  "title": "Topic synthesis skill handoff manifest",
+  "title": "Topic synthesis skill handoff artifact manifest",
   "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schema_id",
-    "schema_version",
-    "handoff",
-    "stage",
-    "db_path",
-    "artifacts"
-  ],
+  "required": ["db_path"],
+  "additionalProperties": {
+    "type": "string",
+    "minLength": 1
+  },
   "properties": {
-    "schema_id": { "const": "synthesis.skill_handoff" },
-    "schema_version": { "const": "1.0.0" },
-    "handoff": {
-      "enum": ["prepare_analysis_context", "core_enrichment", "finalize_output"]
-    },
-    "stage": { "type": "string", "minLength": 1 },
-    "db_path": { "const": "runtime/topic-synthesis.sqlite" },
-    "artifacts": {
-      "type": "object",
-      "additionalProperties": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["path"],
-        "properties": {
-          "path": { "type": "string", "minLength": 1 }
-        }
-      }
+    "db_path": {
+      "type": "string",
+      "minLength": 1
     }
   }
 }

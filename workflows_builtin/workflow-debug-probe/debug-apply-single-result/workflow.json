@@ -1,0 +1,31 @@
+{
+  "id": "debug-apply-single-result",
+  "label": "Debug: Apply Single Result",
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "mode": "auto"
+    }
+  },
+  "execution": {
+    "feedback": {
+      "showNotifications": true
+    }
+  },
+  "result": {
+    "fetch": { "type": "result" }
+  },
+  "hooks": {
+    "buildRequest": "../hooks/buildDebugApplyContractRequest.mjs",
+    "applyResult": "../hooks/applyDebugApplyContractResult.mjs"
+  }
+}

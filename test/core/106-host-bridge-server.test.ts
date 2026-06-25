@@ -1,5 +1,7 @@
 import { assert } from "chai";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   configureHostBridgeServerForTests,
   getHostBridgeServerStatus,
@@ -13,7 +15,17 @@ import {
   shutdownHostBridgeServer,
   startHostBridgeSupervisor,
 } from "../../src/modules/hostBridgeServer";
+import {
+  buildSkillRunnerHostBridgeScopeEnv,
+  buildSkillRunnerHostBridgeRuntimeEnv,
+  classifySkillRunnerBackendLocality,
+} from "../../src/modules/hostBridgeSkillRunnerEnv";
+import { detectHostBridgeAdvertisedHostForBackend } from "../../src/modules/hostBridgeAdvertisedHostDetection";
 import { HOST_BRIDGE_PROTOCOL_VERSION } from "../../src/modules/hostBridgeProtocol";
+import {
+  ensureZoteroMcpServer,
+  resetZoteroMcpServerForTests,
+} from "../../src/modules/zoteroMcpServer";
 import { getPref, setPref } from "../../src/utils/prefs";
 
 function parseRawHttpResponse(raw: string) {
@@ -50,9 +62,34 @@ function rawHttpRequestBytes(args: {
   );
 }
 
+function withTemporaryLocalAppData<T>(run: (root: string) => Promise<T>) {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "zs-host-bridge-profile-"),
+  );
+  const previousLocalAppData = process.env.LOCALAPPDATA;
+  process.env.LOCALAPPDATA = root;
+  return run(root).finally(() => {
+    if (typeof previousLocalAppData === "string") {
+      process.env.LOCALAPPDATA = previousLocalAppData;
+    } else {
+      delete process.env.LOCALAPPDATA;
+    }
+  });
+}
+
+function readTemporaryWellKnownProfile(root: string) {
+  return JSON.parse(
+    fs.readFileSync(
+      path.join(root, "zotero-agents", "bridge-profile.json"),
+      "utf8",
+    ),
+  );
+}
+
 describe("host bridge server phase 1", function () {
   afterEach(function () {
     resetHostBridgeServerForTests();
+    resetZoteroMcpServerForTests();
     setPref("hostBridgeLanEnabled", false);
     setPref("hostBridgePinPortEnabled", false);
     setPref("hostBridgePinnedPort", 26570);
@@ -86,6 +123,35 @@ describe("host bridge server phase 1", function () {
     });
     assert.notInclude(parsed.body, token);
     assert.notInclude(parsed.body, "localPath");
+  });
+
+  it("serves MCP JSON-RPC on the unified Host Access listener", async function () {
+    setPref("hostBridgeToken", "shared-host-access-token");
+    const token = configureHostBridgeServerForTests({
+      token: "shared-host-access-token",
+      endpoint: "http://127.0.0.1:26570/bridge/v1",
+    });
+
+    const parsed = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/mcp",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "tools",
+          method: "tools/list",
+          params: {},
+        }),
+      }),
+    );
+
+    assert.strictEqual(parsed.status, 200);
+    assert.isArray(parsed.json.result.tools);
+    assert.include(getHostBridgeServerStatus().mcp?.endpoint || "", "/mcp");
   });
 
   it("requires bearer auth for manifest", async function () {
@@ -272,6 +338,22 @@ describe("host bridge server phase 1", function () {
     assert.deepEqual(listened, [27654]);
   });
 
+  it("uses the Host Access port for the MCP descriptor", async function () {
+    setPref("mcpServer.enabled", true);
+    setPref("hostBridgePinPortEnabled", true);
+    setPref("hostBridgePinnedPort", 27657);
+    hostBridgeServerInternalsForTests.setServerSocketFactory(() => ({
+      asyncListen: () => undefined,
+      close: () => undefined,
+    }));
+
+    const bridge = await restartHostBridgeServer();
+    const descriptor = await ensureZoteroMcpServer();
+
+    assert.strictEqual(bridge.port, 27657);
+    assert.strictEqual(descriptor.url, "http://127.0.0.1:27657/mcp");
+  });
+
   it("forces a fixed port for LAN mode and exposes remote endpoint hints", async function () {
     const listened: Array<{ port: number; bindMode: string }> = [];
     setPref("hostBridgeLanEnabled", true);
@@ -291,10 +373,7 @@ describe("host bridge server phase 1", function () {
     assert.strictEqual(status.bindMode, "lan");
     assert.isTrue(status.lanEnabled);
     assert.strictEqual(status.host, "0.0.0.0");
-    assert.strictEqual(
-      status.endpoint,
-      "http://127.0.0.1:27655/bridge/v1",
-    );
+    assert.strictEqual(status.endpoint, "http://127.0.0.1:27655/bridge/v1");
     assert.isTrue(status.pinPortEnabled);
     assert.strictEqual(status.portMode, "pinned");
     assert.strictEqual(status.port, 27655);
@@ -304,6 +383,8 @@ describe("host bridge server phase 1", function () {
     );
     assert.isFalse(status.remoteEndpointUsesPlaceholder);
     assert.deepEqual(listened, [{ port: 27655, bindMode: "lan" }]);
+    const descriptor = await ensureZoteroMcpServer();
+    assert.strictEqual(descriptor.url, "http://192.0.2.25:27655/mcp");
 
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
@@ -323,6 +404,368 @@ describe("host bridge server phase 1", function () {
       manifest.json.result.endpoint.remoteUrl,
       "http://192.0.2.25:27655/bridge/v1",
     );
+    assert.strictEqual(
+      manifest.json.result.mcp.endpoint,
+      "http://192.0.2.25:27655/mcp",
+    );
+  });
+
+  it("classifies SkillRunner backend locality from loopback URLs", function () {
+    for (const url of [
+      "http://localhost:8030",
+      "http://127.0.0.1:8030",
+      "http://127.12.34.56:8030",
+      "http://[::1]:8030",
+    ]) {
+      assert.strictEqual(classifySkillRunnerBackendLocality(url), "local");
+    }
+    assert.strictEqual(
+      classifySkillRunnerBackendLocality("http://192.168.1.20:8030"),
+      "remote",
+    );
+    assert.throws(() => classifySkillRunnerBackendLocality(""), /required/);
+  });
+
+  it("detects advertised host through SkillRunner client-address reflection", async function () {
+    const requested: string[] = [];
+    const result = await detectHostBridgeAdvertisedHostForBackend({
+      backendUrl: "http://192.168.13.10:9813/",
+      fetchImpl: async (url) => {
+        requested.push(String(url));
+        return new Response(JSON.stringify({ client_ip: "192.168.13.12" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+
+    assert.isTrue(result.ok);
+    if (!result.ok) {
+      return;
+    }
+    assert.strictEqual(result.host, "192.168.13.12");
+    assert.deepEqual(requested, [
+      "http://192.168.13.10:9813/v1/runtime/network/client-address",
+    ]);
+    assert.strictEqual(
+      result.diagnostics.reflectionEndpoint,
+      "http://192.168.13.10:9813/v1/runtime/network/client-address",
+    );
+  });
+
+  it("rejects unusable SkillRunner client-address reflection responses", async function () {
+    const cases = [
+      {
+        response: new Response(JSON.stringify({ client_ip: "127.0.0.1" }), {
+          status: 200,
+        }),
+        code: "host_bridge_advertised_host_reflection_invalid",
+      },
+      {
+        response: new Response(JSON.stringify({ client_ip: "0.0.0.0" }), {
+          status: 200,
+        }),
+        code: "host_bridge_advertised_host_reflection_invalid",
+      },
+      {
+        response: new Response(JSON.stringify({ client_ip: "example.test" }), {
+          status: 200,
+        }),
+        code: "host_bridge_advertised_host_reflection_invalid",
+      },
+      {
+        response: new Response("not-json", { status: 200 }),
+        code: "host_bridge_advertised_host_reflection_invalid",
+      },
+      {
+        response: new Response(
+          JSON.stringify({ error: "missing route", token: "runtime-token" }),
+          { status: 404 },
+        ),
+        code: "host_bridge_advertised_host_reflection_unavailable",
+      },
+    ];
+
+    for (const entry of cases) {
+      const result = await detectHostBridgeAdvertisedHostForBackend({
+        backendUrl: "http://192.168.13.10:9813",
+        fetchImpl: async () => entry.response,
+      });
+      assert.isFalse(result.ok);
+      if (!result.ok) {
+        assert.strictEqual(result.code, entry.code);
+        assert.notInclude(JSON.stringify(result.diagnostics), "runtime-token");
+      }
+    }
+
+    const thrown = await detectHostBridgeAdvertisedHostForBackend({
+      backendUrl: "http://192.168.13.10:9813",
+      fetchImpl: async () => {
+        throw new Error("network unavailable");
+      },
+    });
+    assert.isFalse(thrown.ok);
+    if (!thrown.ok) {
+      assert.strictEqual(
+        thrown.code,
+        "host_bridge_advertised_host_reflection_unavailable",
+      );
+      assert.include(String(thrown.diagnostics.reason), "network unavailable");
+      assert.notInclude(JSON.stringify(thrown.diagnostics), "runtime-token");
+    }
+  });
+
+  it("builds local SkillRunner Host Bridge env from local endpoint", async function () {
+    const result = await buildSkillRunnerHostBridgeRuntimeEnv({
+      token: "runtime-token",
+      backendUrl: "http://127.0.0.1:8030",
+      status: {
+        status: "running",
+        protocol: HOST_BRIDGE_PROTOCOL_VERSION,
+        host: "127.0.0.1",
+        port: 27655,
+        endpoint: "http://127.0.0.1:27655/bridge/v1",
+        remoteEndpoint: "",
+        advertisedHost: "",
+        remoteEndpointUsesPlaceholder: true,
+        bindMode: "loopback",
+        lanEnabled: false,
+        portMode: "random",
+        pinPortEnabled: false,
+        pinnedPort: 0,
+        supervised: false,
+        restartCount: 0,
+        lastRecoveryReason: "",
+        authRequired: true,
+        tokenMasked: "runtime...",
+        masterTokenConfigured: false,
+        masterTokenMasked: "",
+        masterTokenUpdatedAt: "",
+        lastRequestMethod: "",
+        lastResponseStatus: 0,
+        lastError: "",
+        requestCount: 0,
+        updatedAt: "2026-06-16T00:00:00.000Z",
+      },
+    });
+
+    assert.isTrue(result.ok);
+    if (!result.ok) {
+      return;
+    }
+    assert.strictEqual(result.connectionMode, "local");
+    assert.deepEqual(result.env, {
+      ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+      ZOTERO_BRIDGE_TOKEN: "runtime-token",
+      ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+    });
+  });
+
+  it("builds SkillRunner Host Bridge scope env from frontend scope id", function () {
+    const raw = buildSkillRunnerHostBridgeScopeEnv("skillrunner-scope-1");
+
+    assert.deepEqual(JSON.parse(raw), {
+      kind: "skillrunner-run",
+      frontendScopeId: "skillrunner-scope-1",
+    });
+    assert.strictEqual(buildSkillRunnerHostBridgeScopeEnv(""), "");
+  });
+
+  it("builds remote SkillRunner Host Bridge env from advertised LAN endpoint", async function () {
+    let reflectionCalled = false;
+    const result = await buildSkillRunnerHostBridgeRuntimeEnv({
+      token: "runtime-token",
+      backendUrl: "http://192.168.1.20:8030",
+      detectAdvertisedHost: async () => {
+        reflectionCalled = true;
+        throw new Error("manual advertised host should not call reflection");
+      },
+      status: {
+        status: "running",
+        protocol: HOST_BRIDGE_PROTOCOL_VERSION,
+        host: "0.0.0.0",
+        port: 27655,
+        endpoint: "http://127.0.0.1:27655/bridge/v1",
+        remoteEndpoint: "http://192.0.2.25:27655/bridge/v1",
+        advertisedHost: "192.0.2.25",
+        remoteEndpointUsesPlaceholder: false,
+        bindMode: "lan",
+        lanEnabled: true,
+        portMode: "pinned",
+        pinPortEnabled: true,
+        pinnedPort: 27655,
+        supervised: false,
+        restartCount: 0,
+        lastRecoveryReason: "",
+        authRequired: true,
+        tokenMasked: "runtime...",
+        masterTokenConfigured: false,
+        masterTokenMasked: "",
+        masterTokenUpdatedAt: "",
+        lastRequestMethod: "",
+        lastResponseStatus: 0,
+        lastError: "",
+        requestCount: 0,
+        updatedAt: "2026-06-16T00:00:00.000Z",
+      },
+    });
+
+    assert.isTrue(result.ok);
+    if (!result.ok) {
+      return;
+    }
+    assert.strictEqual(result.connectionMode, "remote");
+    assert.deepEqual(result.env, {
+      ZOTERO_BRIDGE_ENDPOINT: "http://192.0.2.25:27655/bridge/v1",
+      ZOTERO_BRIDGE_TOKEN: "runtime-token",
+      ZOTERO_BRIDGE_CONNECTION_MODE: "remote",
+    });
+    assert.isFalse(reflectionCalled);
+  });
+
+  it("builds remote SkillRunner Host Bridge env from reflected client address", async function () {
+    const result = await buildSkillRunnerHostBridgeRuntimeEnv({
+      token: "runtime-token",
+      backendUrl: "http://192.168.13.10:9813",
+      detectAdvertisedHost: async ({ backendUrl }) => ({
+        ok: true,
+        host: "192.168.13.12",
+        source: "auto",
+        diagnostics: {
+          backendUrl,
+          backendHost: "192.168.13.10",
+          reflectionEndpoint:
+            "http://192.168.13.10:9813/v1/runtime/network/client-address",
+          status: 200,
+        },
+      }),
+      status: {
+        status: "running",
+        protocol: HOST_BRIDGE_PROTOCOL_VERSION,
+        host: "0.0.0.0",
+        port: 27655,
+        endpoint: "http://127.0.0.1:27655/bridge/v1",
+        remoteEndpoint: "http://<zotero-host-ip>:27655/bridge/v1",
+        advertisedHost: "<zotero-host-ip>",
+        advertisedHostSource: "placeholder",
+        remoteEndpointUsesPlaceholder: true,
+        bindMode: "lan",
+        lanEnabled: true,
+        portMode: "pinned",
+        pinPortEnabled: true,
+        pinnedPort: 27655,
+        supervised: false,
+        restartCount: 0,
+        lastRecoveryReason: "",
+        authRequired: true,
+        tokenMasked: "runtime...",
+        masterTokenConfigured: false,
+        masterTokenMasked: "",
+        masterTokenUpdatedAt: "",
+        lastRequestMethod: "",
+        lastResponseStatus: 0,
+        lastError: "",
+        requestCount: 0,
+        updatedAt: "2026-06-16T00:00:00.000Z",
+      },
+    });
+
+    assert.isTrue(result.ok);
+    if (!result.ok) {
+      return;
+    }
+    assert.strictEqual(result.connectionMode, "remote");
+    assert.deepEqual(result.env, {
+      ZOTERO_BRIDGE_ENDPOINT: "http://192.168.13.12:27655/bridge/v1",
+      ZOTERO_BRIDGE_TOKEN: "runtime-token",
+      ZOTERO_BRIDGE_CONNECTION_MODE: "remote",
+    });
+  });
+
+  it("rejects invalid advertised hosts for SkillRunner Host Bridge env", async function () {
+    const baseStatus = {
+      status: "running",
+      protocol: HOST_BRIDGE_PROTOCOL_VERSION,
+      host: "0.0.0.0",
+      port: 27655,
+      endpoint: "http://127.0.0.1:27655/bridge/v1",
+      remoteEndpoint: "http://192.0.2.25:27655/bridge/v1",
+      advertisedHost: "192.0.2.25",
+      remoteEndpointUsesPlaceholder: false,
+      bindMode: "lan",
+      lanEnabled: true,
+      portMode: "pinned",
+      pinPortEnabled: true,
+      pinnedPort: 27655,
+      supervised: false,
+      restartCount: 0,
+      lastRecoveryReason: "",
+      authRequired: true,
+      tokenMasked: "runtime...",
+      masterTokenConfigured: false,
+      masterTokenMasked: "",
+      masterTokenUpdatedAt: "",
+      lastRequestMethod: "",
+      lastResponseStatus: 0,
+      lastError: "",
+      requestCount: 0,
+      updatedAt: "2026-06-16T00:00:00.000Z",
+    } as const;
+
+    const cases = [
+      {
+        status: { ...baseStatus, lanEnabled: false, bindMode: "loopback" },
+        code: "host_bridge_remote_lan_disabled",
+      },
+      {
+        status: {
+          ...baseStatus,
+          advertisedHost: "<zotero-host-ip>",
+          remoteEndpointUsesPlaceholder: true,
+        },
+        code: "host_bridge_advertised_host_reflection_unavailable",
+      },
+      {
+        status: {
+          ...baseStatus,
+          advertisedHost: "127.0.0.1",
+          remoteEndpoint: "http://127.0.0.1:27655/bridge/v1",
+        },
+        code: "host_bridge_remote_advertised_host_unreachable",
+      },
+      {
+        status: {
+          ...baseStatus,
+          pinPortEnabled: false,
+          pinnedPort: 0,
+        },
+        code: "host_bridge_remote_pinned_port_required",
+      },
+    ];
+
+    for (const entry of cases) {
+      const result = await buildSkillRunnerHostBridgeRuntimeEnv({
+        token: "runtime-token",
+        backendUrl: "http://192.168.1.20:8030",
+        status: entry.status as any,
+        detectAdvertisedHost: async () => ({
+          ok: false,
+          code: "host_bridge_advertised_host_reflection_unavailable",
+          message: "reflection failed",
+          diagnostics: {
+            backendUrl: "http://192.168.1.20:8030",
+            backendHost: "192.168.1.20",
+            reflectionEndpoint:
+              "http://192.168.1.20:8030/v1/runtime/network/client-address",
+            status: 404,
+          },
+        }),
+      });
+      assert.isFalse(result.ok);
+      if (!result.ok) {
+        assert.strictEqual(result.code, entry.code);
+      }
+    }
   });
 
   it("does not fall back to a random port when the LAN fixed port is unavailable", async function () {
@@ -477,6 +920,78 @@ describe("host bridge server phase 1", function () {
     );
     assert.strictEqual(getHostBridgeServerStatus().status, "stopped");
     assert.strictEqual(listenCount, 2);
+  });
+
+  it("keeps LAN fixed-port profile after supervisor socket recovery", async function () {
+    this.timeout(5000);
+    await withTemporaryLocalAppData(async (profileRoot) => {
+      let listener: { onStopListening?: () => void } | null = null;
+      const listened: Array<{ port: number; bindMode: string }> = [];
+      setPref("hostBridgeLanEnabled", true);
+      setPref("hostBridgePinPortEnabled", false);
+      setPref("hostBridgePinnedPort", 27655);
+      hostBridgeServerInternalsForTests.setServerSocketFactory(
+        (port, bindMode) => ({
+          asyncListen: (nextListener: { onStopListening?: () => void }) => {
+            listener = nextListener;
+            listened.push({ port, bindMode });
+          },
+          close: () => undefined,
+        }),
+      );
+
+      startHostBridgeSupervisor();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.deepEqual(listened, [{ port: 27655, bindMode: "lan" }]);
+
+      listener?.onStopListening?.();
+      await new Promise((resolve) =>
+        setTimeout(
+          resolve,
+          hostBridgeServerInternalsForTests.constants.RECOVERY_DELAY_MS + 20,
+        ),
+      );
+
+      const status = getHostBridgeServerStatus();
+      assert.strictEqual(status.status, "running");
+      assert.strictEqual(status.bindMode, "lan");
+      assert.isTrue(status.lanEnabled);
+      assert.strictEqual(status.portMode, "pinned");
+      assert.strictEqual(status.port, 27655);
+      assert.deepEqual(listened, [
+        { port: 27655, bindMode: "lan" },
+        { port: 27655, bindMode: "lan" },
+      ]);
+      assert.strictEqual(status.restartCount, 1);
+
+      const profile = readTemporaryWellKnownProfile(profileRoot);
+      assert.strictEqual(profile.endpoint, "http://127.0.0.1:27655/bridge/v1");
+    });
+  });
+
+  it("does not publish a well-known profile before the socket is listening", async function () {
+    await withTemporaryLocalAppData(async (profileRoot) => {
+      setPref("hostBridgeLanEnabled", true);
+      setPref("hostBridgePinPortEnabled", true);
+      setPref("hostBridgePinnedPort", 27656);
+      hostBridgeServerInternalsForTests.setServerSocketFactory(() => ({
+        asyncListen: () => {
+          throw new Error("listen failed");
+        },
+        close: () => undefined,
+      }));
+
+      const status = await restartHostBridgeServer();
+
+      assert.strictEqual(status.status, "error");
+      assert.strictEqual(status.bindMode, "lan");
+      assert.strictEqual(status.portMode, "pinned");
+      assert.isFalse(
+        fs.existsSync(
+          path.join(profileRoot, "zotero-agents", "bridge-profile.json"),
+        ),
+      );
+    });
   });
 
   it("declares Host Bridge prefs and settings controls", function () {

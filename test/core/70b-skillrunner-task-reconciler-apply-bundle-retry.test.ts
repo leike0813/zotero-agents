@@ -1,3 +1,3 @@
-import { registerSkillRunnerTaskReconcilerApplyBundleRetryTests } from "./70-skillrunner-task-reconciler.shared";
+import { registerSkillRunnerTaskReconcilerForegroundHandoffTests } from "./70-skillrunner-task-reconciler.shared";
 
-registerSkillRunnerTaskReconcilerApplyBundleRetryTests();
+registerSkillRunnerTaskReconcilerForegroundHandoffTests();

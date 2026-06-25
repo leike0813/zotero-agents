@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skill-runner.local/schemas/skill_runner_manifest.schema.json",
+  "type": "object",
+  "required": ["id", "execution_modes"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "engines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/engine"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "unsupported_engines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/engine"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "execution_modes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["auto", "interactive"]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "max_attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "schemas": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string"
+        },
+        "parameter": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "entrypoint": {
+      "type": "object",
+      "properties": {
+        "prompts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "result_json_filename": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "engine_configs": {
+      "type": "object",
+      "properties": {
+        "codex": {
+          "type": "string"
+        },
+        "gemini": {
+          "type": "string"
+        },
+        "opencode": {
+          "type": "string"
+        },
+        "claude": {
+          "type": "string"
+        },
+        "qwen": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "mcp": {
+      "type": "object",
+      "properties": {
+        "required_servers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "language": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "default_options": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "artifacts": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "engine": {
+      "type": "string",
+      "enum": ["codex", "claude", "gemini", "opencode", "qwen"]
+    }
+  }
+}

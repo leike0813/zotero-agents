@@ -5,7 +5,6 @@
         "原始训练收敛慢，对小目标和多尺度细节不够友好。"
       ],
       "core_digest": "DETR 把目标检测重构为集合预测问题，用 Transformer decoder object queries 和 Hungarian matching 避免手工 NMS/anchor 后处理，是本 topic 的方法原点。",
-      "diagnostics": [],
       "paper_quality_level": "high",
       "paper_quality_reason": "作为 baseline 和概念源头质量高；后续变体几乎都以其训练速度和小目标表现为问题起点。",
       "paper_ref": "1:EIMSDEU3",
@@ -17,7 +16,6 @@
         "主要回答效率和多尺度问题，不直接覆盖 denoising 或实时部署路线。"
       ],
       "core_digest": "Deformable DETR 用稀疏 deformable attention 让 query 只关注少量关键采样点，显著改善训练效率和小目标检测。",
-      "diagnostics": [],
       "paper_quality_level": "high",
       "paper_quality_reason": "围绕 attention sparsity 和 multi-scale feature sampling 给出明确机制，是理解 DETR-family 工程化改进的核心文献。",
       "paper_ref": "1:5HBHAWIV",
@@ -29,7 +27,6 @@
         "标题中的 DINO 易与自监督视觉表征 DINOv2/DINOv3 混淆，topic 边界需明确限定为 DETR 检测。"
       ],
       "core_digest": "DINO 通过 denoising anchor boxes 改善 query 学习和 matching 稳定性，展示 DETR-family 从概念验证走向强检测器的训练技术路线。",
-      "diagnostics": [],
       "paper_quality_level": "high",
       "paper_quality_reason": "将 query denoising、anchor 设计和端到端检测性能结合，适合支撑训练稳定性和 high-performing variants 的分析。",
       "paper_ref": "1:HPLZ65Z2",
@@ -41,7 +38,6 @@
         "它属于 3D/自动驾驶扩展，不能替代 2D DETR-family 主线。"
       ],
       "core_digest": "DETR3D 使用 3D-to-2D queries 把多视角图像信息组织到 3D 检测中，说明 DETR 的 query/set prediction 思路可跨越 2D COCO 场景。",
-      "diagnostics": [],
       "paper_quality_level": "medium",
       "paper_quality_reason": "论文展示 query-based detection transformer 在自动驾驶 3D 场景中的迁移价值，是 topic 外延的重要证据。",
       "paper_ref": "1:3JUY9GBQ",
@@ -53,7 +49,6 @@
         "作为 2025 近期文献，需在后续人工综述中继续核实其影响力和独立复现情况。"
       ],
       "core_digest": "RF-DETR 把 DETR-family 推向实时检测和架构搜索/部署约束，显示该主题从收敛改进继续演化到效率、迁移和工程约束。",
-      "diagnostics": [],
       "paper_quality_level": "medium",
       "paper_quality_reason": "其标签覆盖 real-time、pretraining、fine-tuning、edge-deployment，适合暴露当前 collection 的近期发展面向。",
       "paper_ref": "1:SZ3GNWT9",

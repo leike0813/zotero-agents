@@ -191,8 +191,13 @@ describe("Zotero note payload codec", function () {
       payloadType: "digest-markdown",
       payload: { format: "markdown", content: "# Digest" },
     });
-    const bytes = Buffer.from(buildWorkbenchPayloadPngBytes(basePngBytes, envelope));
-    const dataOffset = findPngChunkDataOffset(bytes, WORKBENCH_EMBEDDED_PAYLOAD_CHUNK);
+    const bytes = Buffer.from(
+      buildWorkbenchPayloadPngBytes(basePngBytes, envelope),
+    );
+    const dataOffset = findPngChunkDataOffset(
+      bytes,
+      WORKBENCH_EMBEDDED_PAYLOAD_CHUNK,
+    );
     assert.isAtLeast(dataOffset, 0);
     bytes[dataOffset] = "{".charCodeAt(0);
     bytes[dataOffset + 1] = "{".charCodeAt(0);

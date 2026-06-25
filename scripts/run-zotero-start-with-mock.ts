@@ -1,14 +1,47 @@
 import { spawn } from "child_process";
+import { config as loadEnv } from "dotenv";
 import { existsSync } from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+import {
+  buildZoteroLaunchEnv,
+  patchRuntimeRootPref,
+} from "./run-zotero-direct";
 
 type Child = ReturnType<typeof spawn>;
 type SpawnOptions = Parameters<typeof spawn>[2];
+
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const ROOT = path.resolve(path.dirname(SCRIPT_PATH), "..");
+loadEnv({ path: path.resolve(ROOT, ".env") });
 
 const MOCK_PORT = process.env.ZOTERO_MOCK_SKILLRUNNER_PORT || "8030";
 const MOCK_HOST = process.env.ZOTERO_MOCK_SKILLRUNNER_HOST || "127.0.0.1";
 const TARGET_START_SCRIPT = process.argv[2] || "start:raw";
 const TARGET_START_ARGS = process.argv.slice(3);
+
+export function buildStartWithMockEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  return buildZoteroLaunchEnv(env);
+}
+
+function cleanEnvPath(value: unknown) {
+  return String(value || "")
+    .replace(/^["']|["']$/g, "")
+    .trim();
+}
+
+export function patchStartWithMockRuntimePrefs(
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const profile = cleanEnvPath(env.ZOTERO_PLUGIN_PROFILE_PATH);
+  if (!profile) {
+    return false;
+  }
+  patchRuntimeRootPref(profile, env);
+  return true;
+}
 
 function spawnNpm(args: string[], options?: SpawnOptions) {
   if (process.platform === "win32") {
@@ -85,7 +118,10 @@ function waitForMockReady(mock: Child, timeoutMs = 8000) {
     const onData = (chunk: Buffer) => {
       const text = chunk.toString("utf8");
       process.stdout.write(text);
-      if (text.includes("mock skillrunner started") || text.includes("baseUrl=")) {
+      if (
+        text.includes("mock skillrunner started") ||
+        text.includes("baseUrl=")
+      ) {
         if (settled) {
           return;
         }
@@ -142,9 +178,13 @@ function terminateChild(child: Child | null, detached = false) {
     }
 
     if (process.platform === "win32") {
-      const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-        stdio: "ignore",
-      });
+      const killer = spawn(
+        "taskkill",
+        ["/PID", String(child.pid), "/T", "/F"],
+        {
+          stdio: "ignore",
+        },
+      );
       let settled = false;
       const done = () => {
         if (settled) {
@@ -174,7 +214,8 @@ function terminateChild(child: Child | null, detached = false) {
 }
 
 async function main() {
-  const env: NodeJS.ProcessEnv = { ...process.env };
+  const env: NodeJS.ProcessEnv = buildStartWithMockEnv(process.env);
+  patchStartWithMockRuntimePrefs(env);
   console.log(`[mock-skillrunner] ${MOCK_HOST}:${MOCK_PORT}`);
   if (TARGET_START_ARGS.length > 0) {
     console.log(`[start-args] ${TARGET_START_ARGS.join(" ")}`);
@@ -228,4 +269,9 @@ async function main() {
   }
 }
 
-void main();
+const launchedDirectly =
+  process.argv[1] && path.resolve(process.argv[1]) === SCRIPT_PATH;
+
+if (launchedDirectly) {
+  void main();
+}

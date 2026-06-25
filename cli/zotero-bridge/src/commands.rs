@@ -16,8 +16,8 @@ use crate::{
         LiteratureIngestArgs, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
         PaperArtifactsArgs, PaperArtifactsCommand, ReferenceIndexArgs, ReferenceIndexCommand,
         ResolversArgs, ResolversCommand, SchemasArgs, SchemasCommand, TaskArgs, TaskCommand,
-        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowArgs, WorkflowCommand,
-        WorkflowRunArgs, WorkflowSubmitArgs,
+        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowAgentRunArgs, WorkflowArgs,
+        WorkflowCommand, WorkflowDescribeArgs, WorkflowRunArgs, WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
@@ -139,9 +139,15 @@ pub fn literature(config: &BridgeConfig, args: LiteratureArgs) -> Result<Value, 
 pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliError> {
     match args.command {
         WorkflowCommand::List => client::get(config, "/workflows"),
+        WorkflowCommand::Describe(args) => client::post(
+            config,
+            "/workflows/describe",
+            workflow_describe_input(args)?,
+        ),
         WorkflowCommand::Submit(args) => {
             client::post(config, "/workflows/submit", workflow_submit_input(args)?)
         }
+        WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
         WorkflowCommand::Run(args) => client::get(config, &workflow_run_path(args)?),
     }
 }
@@ -401,19 +407,134 @@ fn literature_ingest_input(args: LiteratureIngestArgs) -> Result<Value, CliError
     Ok(Value::Object(object))
 }
 
-fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
-    let workflow = args.workflow.trim();
+fn json_object_arg(input: Option<&str>, code: &str, message: &str) -> Result<Value, CliError> {
+    let value = read_json_arg(input)?;
+    match value {
+        Value::Object(_) => Ok(value),
+        _ => Err(CliError::validation(code, message)),
+    }
+}
+
+fn workflow_id_arg(workflow: &str, command: &str) -> Result<String, CliError> {
+    let workflow = workflow.trim();
     if workflow.is_empty() {
         return Err(CliError::validation(
             "missing_workflow_id",
-            "Workflow submit requires --workflow",
+            format!("Workflow {command} requires --workflow"),
         ));
     }
-    let input = read_json_arg(Some(&args.input))?;
+    Ok(workflow.to_string())
+}
+
+fn workflow_options_arg(input: Option<&str>) -> Result<Value, CliError> {
+    json_object_arg(
+        input,
+        "invalid_workflow_options",
+        "Workflow options must be a JSON object",
+    )
+}
+
+fn provider_profile_arg(input: Option<&str>) -> Result<Value, CliError> {
+    json_object_arg(
+        input,
+        "invalid_provider_profile",
+        "Provider profile must be a JSON object",
+    )
+}
+
+fn workflow_describe_input(args: WorkflowDescribeArgs) -> Result<Value, CliError> {
+    let workflow = workflow_id_arg(&args.workflow, "describe")?;
     Ok(json!({
         "workflowId": workflow,
-        "input": input
+        "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
+        "providerProfile": provider_profile_arg(args.provider_profile.as_deref())?
     }))
+}
+
+fn workflow_selection_from(
+    items_input: Option<&str>,
+    none: bool,
+    command: &str,
+) -> Result<Value, CliError> {
+    if none {
+        return Ok(json!({ "kind": "none" }));
+    }
+    let Some(items_input) = items_input else {
+        return Err(CliError::validation(
+            "missing_workflow_selection",
+            format!("Workflow {command} requires --items or --none"),
+        ));
+    };
+    let items = read_json_arg(Some(items_input))?;
+    if !items.is_array() {
+        return Err(CliError::validation(
+            "invalid_workflow_items",
+            "Workflow --items must be a JSON array",
+        ));
+    }
+    Ok(json!({
+        "kind": "items",
+        "items": items
+    }))
+}
+
+fn workflow_selection(args: &WorkflowSubmitArgs) -> Result<Value, CliError> {
+    workflow_selection_from(args.items.as_deref(), args.none, "submit")
+}
+
+fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
+    let workflow = workflow_id_arg(&args.workflow, "submit")?;
+    Ok(json!({
+        "workflowId": workflow,
+        "selection": workflow_selection(&args)?,
+        "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
+        "providerProfile": provider_profile_arg(args.provider_profile.as_deref())?
+    }))
+}
+
+fn workflow_agent_run_input(args: &WorkflowAgentRunArgs) -> Result<Value, CliError> {
+    let workflow = workflow_id_arg(&args.workflow, "agent-run")?;
+    Ok(json!({
+        "workflowId": workflow,
+        "selection": workflow_selection_from(args.items.as_deref(), args.none, "agent-run")?,
+        "delivery": {
+            "mode": "bundle"
+        }
+    }))
+}
+
+fn workflow_agent_run(
+    config: &BridgeConfig,
+    args: WorkflowAgentRunArgs,
+) -> Result<Value, CliError> {
+    let output_dir = args.output_dir.clone();
+    let result = client::post(
+        config,
+        "/workflows/agent-run",
+        workflow_agent_run_input(&args)?,
+    )?;
+    let Some(output_dir) = output_dir else {
+        return Ok(result);
+    };
+    let file_id = result
+        .pointer("/bundle/file/fileId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            CliError::protocol(
+                "missing_agent_run_bundle_file",
+                "Workflow agent-run response did not include a downloadable bundle file",
+            )
+        })?;
+    let display_name = result
+        .pointer("/bundle/file/displayName")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("workflow-agent-run.zip");
+    let output = available_output_path(&output_dir.join(display_name));
+    let response = client::download(config, &format!("/files/{file_id}"))
+        .map_err(|error| download_error_with_output_name(error, &output))?;
+    write_download_output(&output, &response.bytes, false)?;
+    Ok(merge_agent_run_download_payload(result, &output, &response))
 }
 
 fn workflow_run_path(args: WorkflowRunArgs) -> Result<String, CliError> {
@@ -449,6 +570,54 @@ fn task_list_path(args: TaskListArgs) -> String {
     format!("/tasks?{query}")
 }
 
+fn available_output_path(preferred: &Path) -> PathBuf {
+    if !preferred.exists() {
+        return preferred.to_path_buf();
+    }
+    let parent = preferred.parent().unwrap_or_else(|| Path::new(""));
+    let stem = preferred
+        .file_stem()
+        .and_then(|entry| entry.to_str())
+        .unwrap_or("workflow-agent-run");
+    let extension = preferred
+        .extension()
+        .and_then(|entry| entry.to_str())
+        .map(|entry| format!(".{entry}"))
+        .unwrap_or_default();
+    for index in 1..1000 {
+        let candidate = parent.join(format!("{stem}-{index}{extension}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    parent.join(format!("{stem}-{}{}", std::process::id(), extension))
+}
+
+fn merge_agent_run_download_payload(
+    mut result: Value,
+    output: &Path,
+    response: &client::DownloadResponse,
+) -> Value {
+    if let Value::Object(ref mut map) = result {
+        map.insert(
+            "download".to_string(),
+            json!({
+                "outputPath": output.display().to_string(),
+                "outputName": output_name(output),
+                "verified": response.verified,
+                "bytesExpected": response.bytes_expected,
+                "bytesWritten": response.bytes.len(),
+                "sha256Expected": response.sha256_expected,
+                "sha256Actual": response.sha256_actual,
+                "attempts": response.attempts,
+                "retried": response.retried,
+                "contentType": response.content_type
+            }),
+        );
+    }
+    result
+}
+
 fn file_download(config: &BridgeConfig, args: FileDownloadArgs) -> Result<Value, CliError> {
     let file_id = normalize_file_id(&args.file_id)?;
     let output = args.output;
@@ -460,14 +629,11 @@ fn file_download(config: &BridgeConfig, args: FileDownloadArgs) -> Result<Value,
         )
         .with_details(output_error_details(&output)));
     }
-    let response = client::download(config, &format!("/files/{file_id}"))?;
+    let response = client::download(config, &format!("/files/{file_id}"))
+        .map_err(|error| download_error_with_output_name(error, &output))?;
     write_download_output(&output, &response.bytes, args.force)?;
     Ok(download_success_payload(
-        file_id,
-        &output,
-        response.bytes.len(),
-        response.content_type,
-        args.force,
+        file_id, &output, &response, args.force,
     ))
 }
 
@@ -483,19 +649,37 @@ fn output_error_details(output: &Path) -> Value {
     json!({ "outputName": output_name(output) })
 }
 
+fn download_error_with_output_name(mut error: CliError, output: &Path) -> CliError {
+    if error.code != "download_retry_exhausted" {
+        return error;
+    }
+    let mut details = match error.details.take() {
+        Some(Value::Object(map)) => map,
+        _ => Map::new(),
+    };
+    details.insert("outputName".to_string(), json!(output_name(output)));
+    error.details = Some(Value::Object(details));
+    error
+}
+
 fn download_success_payload(
     file_id: String,
     output: &Path,
-    bytes_written: usize,
-    content_type: String,
+    response: &client::DownloadResponse,
     overwritten: bool,
 ) -> Value {
     json!({
         "command": "file.download",
         "fileId": file_id,
         "outputName": output_name(output),
-        "bytesWritten": bytes_written,
-        "contentType": content_type,
+        "verified": response.verified,
+        "bytesExpected": response.bytes_expected,
+        "bytesWritten": response.bytes.len(),
+        "sha256Expected": response.sha256_expected,
+        "sha256Actual": response.sha256_actual,
+        "attempts": response.attempts,
+        "retried": response.retried,
+        "contentType": response.content_type,
         "overwritten": overwritten
     })
 }
@@ -817,7 +1001,9 @@ mod tests {
             "topics.get_report"
         );
         assert_eq!(
-            topics_capability(&TopicsCommand::GetReviewInput(BridgeInputArgs { input: None })),
+            topics_capability(&TopicsCommand::GetReviewInput(BridgeInputArgs {
+                input: None
+            })),
             "topics.get_review_input"
         );
         assert_eq!(
@@ -1084,20 +1270,151 @@ mod tests {
     fn maps_workflow_submit_to_bridge_input() {
         let input = workflow_submit_input(WorkflowSubmitArgs {
             workflow: "topic-synthesis".to_string(),
-            input: "{\"items\":[{\"key\":\"ABC\",\"libraryId\":1}]}".to_string(),
+            items: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
+            none: false,
+            workflow_options: Some("{\"language\":\"zh-CN\"}".to_string()),
+            provider_profile: Some(
+                "{\"schema\":\"zotero-bridge.provider-profile.v1\",\"backendId\":\"acp-opencode\",\"providerOptions\":{\"acpModelId\":\"gpt-5.2\"}}".to_string(),
+            ),
         })
         .unwrap();
         assert_eq!(
             input,
             json!({
                 "workflowId": "topic-synthesis",
-                "input": {
+                "selection": {
+                    "kind": "items",
                     "items": [
                         {
                             "key": "ABC",
                             "libraryId": 1
                         }
                     ]
+                },
+                "workflowOptions": {
+                    "language": "zh-CN"
+                },
+                "providerProfile": {
+                    "schema": "zotero-bridge.provider-profile.v1",
+                    "backendId": "acp-opencode",
+                    "providerOptions": {
+                        "acpModelId": "gpt-5.2"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_submit_none_selection() {
+        let input = workflow_submit_input(WorkflowSubmitArgs {
+            workflow: "global-workflow".to_string(),
+            items: None,
+            none: true,
+            workflow_options: None,
+            provider_profile: None,
+        })
+        .unwrap();
+        assert_eq!(
+            input,
+            json!({
+                "workflowId": "global-workflow",
+                "selection": {
+                    "kind": "none"
+                },
+                "workflowOptions": {},
+                "providerProfile": {}
+            })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_agent_run_to_bridge_input() {
+        let input = workflow_agent_run_input(&WorkflowAgentRunArgs {
+            workflow: "topic-synthesis".to_string(),
+            items: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
+            none: false,
+            output_dir: None,
+        })
+        .unwrap();
+        assert_eq!(
+            input,
+            json!({
+                "workflowId": "topic-synthesis",
+                "selection": {
+                    "kind": "items",
+                    "items": [
+                        {
+                            "key": "ABC",
+                            "libraryId": 1
+                        }
+                    ]
+                },
+                "delivery": {
+                    "mode": "bundle"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_agent_run_none_selection() {
+        let input = workflow_agent_run_input(&WorkflowAgentRunArgs {
+            workflow: "global-workflow".to_string(),
+            items: None,
+            none: true,
+            output_dir: None,
+        })
+        .unwrap();
+        assert_eq!(
+            input,
+            json!({
+                "workflowId": "global-workflow",
+                "selection": {
+                    "kind": "none"
+                },
+                "delivery": {
+                    "mode": "bundle"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_agent_run_items_from_file() {
+        let path = std::env::temp_dir().join(format!(
+            "zotero-bridge-agent-run-items-{}.json",
+            std::process::id()
+        ));
+        fs::write(&path, "[{\"id\":123}]").unwrap();
+        let input = workflow_agent_run_input(&WorkflowAgentRunArgs {
+            workflow: "topic-synthesis".to_string(),
+            items: Some(format!("@{}", path.display())),
+            none: false,
+            output_dir: None,
+        })
+        .unwrap();
+        assert_eq!(input.pointer("/selection/items/0/id"), Some(&json!(123)));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn maps_workflow_describe_to_bridge_input() {
+        let input = workflow_describe_input(WorkflowDescribeArgs {
+            workflow: "topic-synthesis".to_string(),
+            workflow_options: Some("{\"language\":\"en-US\"}".to_string()),
+            provider_profile: Some("{\"backendId\":\"skillrunner\"}".to_string()),
+        })
+        .unwrap();
+        assert_eq!(
+            input,
+            json!({
+                "workflowId": "topic-synthesis",
+                "workflowOptions": {
+                    "language": "en-US"
+                },
+                "providerProfile": {
+                    "backendId": "skillrunner"
                 }
             })
         );
@@ -1152,15 +1469,53 @@ mod tests {
     #[test]
     fn builds_download_success_payload_without_absolute_output_path() {
         let output = PathBuf::from("C:\\Users\\A\\Downloads\\paper.txt");
-        let payload = download_success_payload(
-            "file-abc".to_string(),
-            &output,
-            42,
-            "text/plain".to_string(),
-            false,
-        );
+        let response = client::DownloadResponse {
+            bytes: vec![0; 42],
+            content_type: "text/plain".to_string(),
+            verified: true,
+            bytes_expected: Some(42),
+            sha256_expected: Some(
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_string(),
+            ),
+            sha256_actual:
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_string(),
+            attempts: 2,
+            retried: true,
+        };
+        let payload = download_success_payload("file-abc".to_string(), &output, &response, false);
         assert_eq!(payload["outputName"], "paper.txt");
+        assert_eq!(payload["verified"], true);
+        assert_eq!(payload["bytesExpected"], 42);
+        assert_eq!(payload["bytesWritten"], 42);
+        assert_eq!(payload["attempts"], 2);
+        assert_eq!(payload["retried"], true);
         assert!(payload.get("output").is_none());
         assert!(!payload.to_string().contains("C:\\\\Users"));
+    }
+
+    #[test]
+    fn annotates_retry_exhausted_download_error_with_output_name_only() {
+        let output = PathBuf::from("C:\\Users\\A\\Downloads\\bundle.zip");
+        let error = CliError::new(
+            "download_retry_exhausted",
+            crate::error::ErrorCategory::Download,
+            "retry exhausted",
+        )
+        .with_details(json!({
+            "attempts": 2,
+            "bytesExpected": 10,
+            "bytesReceived": 5
+        }));
+        let error = download_error_with_output_name(error, &output);
+        let details = error.details.unwrap();
+
+        assert_eq!(details["outputName"], "bundle.zip");
+        assert_eq!(details["attempts"], 2);
+        assert_eq!(details["bytesExpected"], 10);
+        assert_eq!(details["bytesReceived"], 5);
+        assert!(details.get("outputPath").is_none());
+        assert!(!details.to_string().contains("C:\\\\Users"));
     }
 }

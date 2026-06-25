@@ -1,62 +1,64 @@
-# Tags 管理
+# Tags Management
 
-## 什么是 Tag Vocabulary？
+## What Is Tag Vocabulary?
 
-Tag Vocabulary（受控标签词表）是一个规范化的标签体系，用于对文献进行一致的标注。与 Zotero 原生的自由标签不同，受控词表中的标签遵循统一的命名规范，有利于统计和检索。
+Tag Vocabulary is a standardized tagging system used for consistent annotation of literature. Unlike Zotero's native free-form tags, tags in a controlled vocabulary follow unified naming conventions, which facilitates statistics and retrieval.
 
-## Facet（标签维度）
+## Facets
 
-每个标签属于一个 Facet（维度），目前支持以下维度：
+Each tag belongs to a Facet (dimension). The following facets are currently supported:
 
-| Facet | 说明 | 示例 |
-|-------|------|------|
-| `field` | 研究领域 | `field:natural_language_processing` |
-| `topic` | 研究主题 | `topic:transformer_architecture` |
-| `method` | 研究方法 | `method:reinforcement_learning` |
-| `model` | 使用的模型 | `model:gpt-4` |
-| `ai_task` | AI 任务类型 | `ai_task:text_summarization` |
-| `data` | 数据集 | `data:imagenet` |
-| `tool` | 工具 | `tool:python` |
-| `status` | 状态标记 | `status:to_read` |
+| Facet | Description | Example |
+|-------|-------------|---------|
+| `field` | Research field | `field:natural_language_processing` |
+| `topic` | Research topic | `topic:transformer_architecture` |
+| `method` | Research method | `method:reinforcement_learning` |
+| `model` | Model used | `model:gpt-4` |
+| `ai_task` | AI task type | `ai_task:text_summarization` |
+| `data` | Dataset | `data:imagenet` |
+| `tool` | Tool | `tool:python` |
+| `status` | Status marker | `status:to_read` |
 
-标签格式：`^[a-z_]+:[a-zA-Z0-9/_.-]+$`，最长 120 字符。
+Tag format: `^[a-z_]+:[a-zA-Z0-9/_.-]+$`, maximum 120 characters.
 
-## Vocabulary Tab（词表管理）
+## Vocabulary Tab
 
-在 Synthesis Workbench → Tags → Vocabulary 页面可以：
+On the Synthesis Workbench → Tags → Vocabulary page, you can:
 
-- **查看**：所有已定义的规范标签，显示状态、Facet、别名、使用次数
-- **新增**：创建新的规范标签
-- **编辑**：修改标签的元数据
-- **弃用**：将标签标记为已弃用，可指定替代标签
-- **导入 JSON**：从 JSON 文件导入标签词表（支持预览后再确认）
-- **导出 JSON**：将当前词表导出为 JSON 文件
+- **View**: All defined canonical tags, showing status, facet, aliases, and usage count
+- **Add**: Create new canonical tags
+- **Edit**: Modify tag metadata
+- **Deprecate**: Mark a tag as deprecated, optionally specifying a replacement tag
+- **Import JSON**: Import a tag vocabulary from a JSON file (supports preview before confirmation)
+- **Export JSON**: Export the current vocabulary to a JSON file
 
-标签状态：
-- `active`：活动中
-- `deprecated`：已弃用（有替代标签）
-- `warning`：警告（可能需要审查）
+![Synthesis Tags Page](/img/docs/synthesis/tags.png)
 
-## Staged Tab（待审批标签）
+Tag statuses:
+- `active`: Active
+- `deprecated`: Deprecated (has a replacement tag)
+- `warning`: Warning (may need review)
 
-**tag-regulator** 技能会自动分析文献元数据，生成受控标签建议，显示在 Staged 页面。
+## Staged Tab (Pending Tags)
 
-### 审批流程
+The **tag-regulator** skill automatically analyzes literature metadata and generates controlled tag suggestions, displayed on the Staged page.
 
-1. 查看建议的标签列表
-2. 每个标签可以：
-   - **Promote（晋升）**：将该标签加入规范词表
-   - **Discard（丢弃）**：拒绝该建议
-   - **Clear Staged（清空待定）**：批量丢弃所有建议
+### Approval Workflow
 
-### 导入/导出格式
+1. Review the list of suggested tags
+2. For each tag, you can:
+   - **Promote**: Add the tag to the canonical vocabulary
+   - **Discard**: Reject the suggestion
+   - **Clear Staged**: Batch-discard all suggestions
 
-标签词表支持 JSON 格式的导入导出（TagVocab 格式），方便：
+### Import/Export Format
 
-- 跨库迁移标签体系
-- 团队共享标签规范
-- 备份和版本管理
+The tag vocabulary supports JSON format import/export (TagVocab format), enabling:
 
-## 相关 Workflow
+- Cross-library migration of tag systems
+- Team sharing of tag conventions
+- Backup and version control
 
-标签的规范化和自动推断由 [标签规范化](../workflows/tag-regulator) workflow 驱动。运行该 workflow 可以基于受控词表自动清理和补充标签。
+## Related Workflow
+
+Tag standardization and automatic inference are driven by the [Tag Regulator](../workflows/tag-regulator) workflow. Running this workflow can automatically clean up and supplement tags based on the controlled vocabulary.

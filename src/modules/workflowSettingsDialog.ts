@@ -426,6 +426,7 @@ function renderSchemaFields(args: {
         customInput.id = controlId;
         customInput.type = "text";
         customInput.style.width = "320px";
+        customInput.placeholder = String(entry.placeholder || "");
         customInput.value = selectedValue;
         customInput.disabled = entry.disabled === true;
         customInput.setAttribute("data-zs-option-key", entry.key);
@@ -464,6 +465,7 @@ function renderSchemaFields(args: {
       const input = createHtmlElement(doc, "input");
       input.id = controlId;
       input.style.width = "320px";
+      input.placeholder = String(entry.placeholder || "");
       input.setAttribute("data-zs-option-key", entry.key);
       input.setAttribute("data-zs-option-type", entry.type);
       if (entry.type === "number") {

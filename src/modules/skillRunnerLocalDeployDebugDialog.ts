@@ -27,7 +27,9 @@ function clearChildren(node: Element) {
 }
 
 function formatTimestamp(value: string) {
-  return String(value || "").replace("T", " ").replace("Z", "");
+  return String(value || "")
+    .replace("T", " ")
+    .replace("Z", "");
 }
 
 function formatDetails(entry: SkillRunnerLocalDeployDebugEntry) {
@@ -41,7 +43,9 @@ function formatDetails(entry: SkillRunnerLocalDeployDebugEntry) {
   if (chunk) {
     return chunk;
   }
-  const errorLike = entry.error as { name?: unknown; message?: unknown } | undefined;
+  const errorLike = entry.error as
+    | { name?: unknown; message?: unknown }
+    | undefined;
   if (String(errorLike?.message || "").trim()) {
     return `ERROR: ${String(errorLike?.name || "Error")}: ${String(errorLike?.message || "")}`;
   }
@@ -112,7 +116,9 @@ export async function openSkillRunnerLocalDeployDebugDialog() {
       if (!doc) {
         return;
       }
-      const root = doc.getElementById("zs-local-deploy-debug-root") as HTMLElement | null;
+      const root = doc.getElementById(
+        "zs-local-deploy-debug-root",
+      ) as HTMLElement | null;
       if (!root) {
         return;
       }
@@ -143,12 +149,16 @@ export async function openSkillRunnerLocalDeployDebugDialog() {
       root.appendChild(toolbar);
 
       const title = createHtmlElement(doc, "strong");
-      title.textContent = getString("pref-skillrunner-local-debug-console-title" as any);
+      title.textContent = getString(
+        "pref-skillrunner-local-debug-console-title" as any,
+      );
       toolbar.appendChild(title);
 
       const copyButton = createHtmlElement(doc, "button");
       copyButton.type = "button";
-      copyButton.textContent = getString("pref-skillrunner-local-debug-console-copy" as any);
+      copyButton.textContent = getString(
+        "pref-skillrunner-local-debug-console-copy" as any,
+      );
       toolbar.appendChild(copyButton);
 
       const status = createHtmlElement(doc, "span");
@@ -186,12 +196,19 @@ export async function openSkillRunnerLocalDeployDebugDialog() {
       copyButton.addEventListener("click", () => {
         try {
           copyTextToClipboard(output.value || "");
-          setStatus(getString("pref-skillrunner-local-debug-console-copy-success" as any));
+          setStatus(
+            getString(
+              "pref-skillrunner-local-debug-console-copy-success" as any,
+            ),
+          );
         } catch (error) {
           setStatus(
-            getString("pref-skillrunner-local-debug-console-copy-failed" as any, {
-              args: { error: String(error) },
-            }),
+            getString(
+              "pref-skillrunner-local-debug-console-copy-failed" as any,
+              {
+                args: { error: String(error) },
+              },
+            ),
             true,
           );
         }
@@ -223,8 +240,9 @@ export async function openSkillRunnerLocalDeployDebugDialog() {
     .addButton(getString("log-viewer-close" as any), "close")
     .setDialogData(dialogData)
     .open(getString("pref-skillrunner-local-debug-console-title" as any));
-  const unloadPromise = (dialogData as { unloadLock?: { promise?: Promise<void> } }).unloadLock
-    ?.promise;
+  const unloadPromise = (
+    dialogData as { unloadLock?: { promise?: Promise<void> } }
+  ).unloadLock?.promise;
   if (unloadPromise) {
     void unloadPromise.finally(() => {
       deployDebugDialog = undefined;

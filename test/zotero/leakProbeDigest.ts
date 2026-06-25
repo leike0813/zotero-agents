@@ -61,7 +61,9 @@ function getRuntime() {
 }
 
 function parseFlag(value: unknown) {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
@@ -261,7 +263,11 @@ function buildSummary(snapshots: LeakProbeSnapshot[]) {
         (entry) => entry.metric === signal.metric,
       );
       const ratio =
-        signal.headAvg > 0 ? signal.tailAvg / signal.headAvg : signal.tailAvg > 0 ? 10 : 1;
+        signal.headAvg > 0
+          ? signal.tailAvg / signal.headAvg
+          : signal.tailAvg > 0
+            ? 10
+            : 1;
       const score =
         (residual?.residualCount || 0) * 5 +
         signal.increasingSteps * 2 +

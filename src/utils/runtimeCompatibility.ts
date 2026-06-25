@@ -48,9 +48,10 @@ export async function yieldToEventLoop() {
 }
 
 function extractSubprocess(value: unknown) {
-  const record = value && typeof value === "object"
-    ? (value as { Subprocess?: unknown })
-    : null;
+  const record =
+    value && typeof value === "object"
+      ? (value as { Subprocess?: unknown })
+      : null;
   return (record?.Subprocess || null) as MozillaSubprocessModule | null;
 }
 

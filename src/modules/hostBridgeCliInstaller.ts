@@ -54,6 +54,7 @@ export type HostBridgeCliInstallerDeps = {
   platform?: () => "win32" | "darwin" | "linux" | string;
   homeDir?: () => string;
   localAppDataDir?: () => string;
+  pathEnv?: () => string;
 };
 
 function normalizeString(value: unknown) {
@@ -117,7 +118,11 @@ function resolveWindowsShellShimPath(target: {
   if (target.platform !== "win32") {
     return "";
   }
-  return joinForInstallPlatform(target.platform, target.targetDir, "zotero-bridge");
+  return joinForInstallPlatform(
+    target.platform,
+    target.targetDir,
+    "zotero-bridge",
+  );
 }
 
 function resolvePlatform() {
@@ -174,6 +179,10 @@ function resolveLocalAppDataDir() {
   );
 }
 
+function resolvePathEnv() {
+  return readEnv("PATH");
+}
+
 function packagedCliRelativePath() {
   const platform = resolveHostBridgeCliPlatform({
     platform: resolvePlatform(),
@@ -185,7 +194,7 @@ function packagedCliRelativePath() {
 export function resolveHostBridgeCliInstallTarget(
   deps: Pick<
     HostBridgeCliInstallerDeps,
-    "platform" | "homeDir" | "localAppDataDir"
+    "platform" | "homeDir" | "localAppDataDir" | "pathEnv"
   > = {},
 ) {
   const platform = deps.platform?.() || resolvePlatform();
@@ -197,7 +206,7 @@ export function resolveHostBridgeCliInstallTarget(
     const targetDir = joinForInstallPlatform(
       platform,
       root,
-      "Zotero-Skills",
+      "zotero-agents",
       "bin",
     );
     return {
@@ -211,26 +220,53 @@ export function resolveHostBridgeCliInstallTarget(
     };
   }
   if (platform === "darwin") {
-    const targetDir = joinForInstallPlatform(
+    const targetDir = resolvePreferredPosixInstallDir({
       platform,
       home,
-      "Library",
-      "Application Support",
-      "Zotero-Skills",
-      "bin",
-    );
+      pathEnv: deps.pathEnv?.() || resolvePathEnv(),
+      candidates: ["bin", ".local/bin", "/usr/local/bin", "/opt/homebrew/bin"],
+    });
     return {
       platform,
       targetDir,
       targetPath: joinForInstallPlatform(platform, targetDir, "zotero-bridge"),
     };
   }
-  const targetDir = joinForInstallPlatform(platform, home, ".local", "bin");
+  const targetDir = resolvePreferredPosixInstallDir({
+    platform,
+    home,
+    pathEnv: deps.pathEnv?.() || resolvePathEnv(),
+    candidates: [".local/bin", "bin", "/usr/local/bin"],
+  });
   return {
     platform,
     targetDir,
     targetPath: joinForInstallPlatform(platform, targetDir, "zotero-bridge"),
   };
+}
+
+function resolvePreferredPosixInstallDir(args: {
+  platform: string;
+  home: string;
+  pathEnv: string;
+  candidates: string[];
+}) {
+  const resolvedCandidates = args.candidates.map((candidate) =>
+    candidate.startsWith("/")
+      ? joinForInstallPlatform(args.platform, candidate)
+      : joinForInstallPlatform(args.platform, args.home, candidate),
+  );
+  const pathEntries = new Set(
+    normalizeString(args.pathEnv)
+      .split(":")
+      .map((entry) => formatPortablePath(entry).replace(/\/+$/, ""))
+      .filter(Boolean),
+  );
+  return (
+    resolvedCandidates.find((candidate) =>
+      pathEntries.has(formatPortablePath(candidate).replace(/\/+$/, "")),
+    ) || resolvedCandidates[0]
+  );
 }
 
 function pathDelimiter() {
@@ -570,6 +606,7 @@ export const hostBridgeCliInstallerInternalsForTests = {
   resolvePlatform,
   resolveHomeDir,
   resolveLocalAppDataDir,
+  resolvePreferredPosixInstallDir,
   defaultPathIncludes,
   defaultSetWindowsUserPath,
   joinForInstallPlatform,

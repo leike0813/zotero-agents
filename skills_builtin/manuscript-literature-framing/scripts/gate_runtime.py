@@ -10,16 +10,31 @@ from runtime_state import read_state
 STATE_PATH = "runtime/manuscript-literature-framing.json"
 
 
-def command(action: str, payload_name: str) -> str:
+def run_root_for_state(state_path: str) -> Path:
+    state_parent = Path(state_path).resolve().parent
+    if state_parent.name == "runtime":
+        return state_parent.parent
+    return Path.cwd().resolve()
+
+
+def payload_path_for_state(state_path: str, payload_name: str) -> Path:
+    return run_root_for_state(state_path) / "runtime" / "payloads" / f"{payload_name}.json"
+
+
+def command(action: str, state_path: str, payload_name: str) -> str:
+    stage_script = Path(__file__).resolve().with_name("stage_runtime.py")
+    state_absolute = Path(state_path).resolve()
+    payload_absolute = payload_path_for_state(state_path, payload_name)
     return (
-        f'python scripts/stage_runtime.py --state "{STATE_PATH}" '
-        f'--action {action} --payload-file "runtime/payloads/{payload_name}.json"'
+        f'python "{stage_script}" --state "{state_absolute}" '
+        f'--action {action} --payload-file "{payload_absolute}"'
     )
 
 
 def base_gate(state_path: str, state: dict) -> dict:
+    state_absolute = Path(state_path).resolve()
     return {
-        "state_path": state_path,
+        "state_path": state_absolute.as_posix(),
         "status": state.get("status", "running"),
         "runtime_digest": {
             "discipline": "Run only the returned next_action, write state only through stage_runtime.py, and rerun gate after each write.",
@@ -40,8 +55,8 @@ def next_step(state_path: str, state: dict, *, action: str, note: str, payload: 
         **base_gate(state_path, state),
         "next_action": action,
         "execution_note": note,
-        "required_writes": [f"runtime/payloads/{payload}.json"],
-        "command_example": command(action, payload),
+        "required_writes": [payload_path_for_state(state_path, payload).as_posix()],
+        "command_example": command(action, state_path, payload),
         **extra,
     }
 

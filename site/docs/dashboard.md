@@ -1,85 +1,118 @@
 # Dashboard
 
-## 概述
+## Overview
 
-Dashboard 是 Zotero Skills 的中央监控和控制面板。您可以在这里查看任务状态、管理工作流、浏览历史记录和检查运行日志。
+The Dashboard is the central monitoring and control panel for Zotero Agents. Here you can view task status, manage workflows, browse history, and inspect runtime logs.
 
-## 打开方式
+## How to Open
 
-- **工具栏按钮**：点击 Zotero 工具栏中的 Zotero Skills 图标
-- **菜单**：**工具 → 打开 Dashboard**
-- **Zotero Tab**：通过菜单打开，显示为独立的 Zotero 标签页
+- **Toolbar Button**: Click the Zotero Agents icon in the Zotero toolbar
+- **Menu**: **Tools → Open Dashboard**
+- **Zotero Tab**: Opened via the menu, displayed as an independent Zotero tab
 
-## 页面说明
+![Zotero Agents Toolbar Dashboard Button](/img/icon_workbench.png)
 
-### Home（首页）
+## Pages
 
-Dashboard 的默认页面，展示：
+### Home
 
-- **Workflow 列表**：所有可用的 workflow，配有运行和设置按钮
-- **ACP Chat 区域**：快速访问 ACP 对话
-- **ACP Skill Runs**：ACP 后端的技能运行状态
-- **任务摘要**：当前正在运行的任务概览
+The default page of the Dashboard, displaying:
+
+- **Workflow List**: All available workflows, with run and settings buttons
+- **ACP Chat Area**: Quick access to ACP conversations
+- **ACP Skill Runs**: Skill run status for ACP backends
+- **Skill Feedback**: View recent skill run feedback ratings and comments
+- **Task Summary**: Overview of currently running tasks
+
+![Dashboard Home](/img/docs/dashboard_home.png)
 
 ### Workflow Options
 
-Workflow 参数设置页面：
+The workflow parameter settings page:
 
-- 查看和修改每个 workflow 的配置
-- 设置默认参数
-- 选择默认后端
+- View and modify configuration for each workflow
+- Set default parameters
+- Select the default backend
 
-### Backends（后端）
+![Dashboard Workflow Options Page](/img/docs/dashboard_workflow-settings.png)
 
-后端管理页面：
+### Backends
 
-- 所有已配置的后端列表
-- 每个后端的任务历史
-- 后端详情视图（按类型区分）
+The backend management page:
 
-后端详情视图：
+- List of all configured backends
+- Task history for each backend
+- Backend detail views (varies by type)
 
-| 后端类型 | 显示内容 |
-|---------|---------|
-| Generic HTTP | 任务表格 + 运行日志 |
-| SkillRunner | 运行表格 + 状态区 + 对话区 + 回复/取消操作 |
-| ACP | Skill Run 视图 |
+Backend detail views:
 
-### Products（产物）
+| Backend Type | Display |
+|-------------|---------|
+| Generic HTTP | Task table + runtime logs |
+| SkillRunner | Run table + status area + conversation area + reply/cancel actions |
+| ACP | Skill Run view |
 
-Workflow 产物的浏览和管理：
+![Dashboard ACP Backend Task List](/img/docs/dashboard_acp-backend.png)
 
-- 查看 workflow 运行的输出产物
-- 打开产物文件夹
-- 预览和移除产物
+![Dashboard SkillRunner Backend Task List](/img/docs/dashboard_skillrunner-backend.png)
 
-## 任务状态
+### Products
 
-| 状态 | 说明 |
-|------|------|
-| `queued` | 等待执行 |
-| `running` | 正在执行 |
-| `waiting_user` | 等待用户输入 |
-| `waiting_auth` | 等待授权 |
-| `succeeded` | 执行成功 |
-| `failed` | 执行失败 |
-| `canceled` | 已取消 |
+Browsing and managing workflow products:
 
-## Runtime Logs 查看器
+- View output artifacts from workflow runs
+- Open product folders
+- Preview and remove products
 
-Dashboard 提供内建的日志查看器：
+![Dashboard Product Storage](/img/docs/dashboard_products.png)
 
-- 按后端过滤
-- 按 workflow 过滤
-- 按日志级别过滤
-- 按时间范围过滤
-- 诊断导出功能
-- 问题概要复制
+## Skill Feedback
 
-## 工具栏按钮
+The Skill Feedback panel displays recent skill run feedback:
 
-Zotero 工具栏中的 Zotero Skills 图标按钮支持：
+| Column | Description |
+|--------|-------------|
+| Workflow | Name of the executed workflow |
+| Backend | The backend that executed the run |
+| Rating | User rating (1–5) |
+| Comment | Feedback comment |
+| Timestamp | When the feedback was submitted |
 
-- 左键点击：打开/切换 Dashboard
-- 显示运行中的任务数量
-- 弹出运行任务列表
+Actions:
+- **Filter**: Filter by rating, workflow, or time range
+- **Export**: Export feedback data for analysis
+
+![Dashboard Skill Feedback Storage](/img/docs/dashboard_skill-feedback.png)
+
+## Task Status
+
+| Status | Description |
+|--------|-------------|
+| `queued` | Waiting to be executed |
+| `running` | Currently executing |
+| `waiting_user` | Waiting for user input |
+| `waiting_auth` | Waiting for authorization |
+| `succeeded` | Execution succeeded |
+| `failed` | Execution failed |
+| `canceled` | Canceled |
+
+## Runtime Logs Viewer
+
+The Dashboard includes a built-in log viewer:
+
+- Filter by backend
+- Filter by workflow
+- Filter by log level
+- Filter by time range
+- Diagnostic export
+- Issue summary copy
+
+![Dashboard Runtime Logs Viewer](/img/docs/dashboard_logs.png)
+
+## Toolbar Button
+
+The Zotero Agents icon button in the Zotero toolbar supports:
+
+- Left-click: Open/toggle the Dashboard
+- Displays the count of running tasks
+- Shows a popup with the list of running tasks

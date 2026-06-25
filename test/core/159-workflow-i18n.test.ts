@@ -180,9 +180,9 @@ describe("workflow i18n display projection", function () {
     assert.isTrue(isCoreWorkflow(coreZ));
     assert.isFalse(isCoreWorkflow(nonCore));
     assert.deepEqual(
-      [nonCore, coreZ, coreA].sort(compareWorkflowDisplayOrder).map(
-        (entry) => entry.manifest.id,
-      ),
+      [nonCore, coreZ, coreA]
+        .sort(compareWorkflowDisplayOrder)
+        .map((entry) => entry.manifest.id),
       ["core-a", "core-z", "non-core"],
     );
   });

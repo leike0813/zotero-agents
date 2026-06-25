@@ -2,6 +2,7 @@ import type { LoadedWorkflow } from "../workflows/types";
 import { getLoadedWorkflowEntries } from "./workflowRuntime";
 import {
   mergeExecutionOptions,
+  parseExecutionOptionsPatch,
   type WorkflowExecutionOptions,
 } from "./workflowSettingsDomain";
 
@@ -19,22 +20,6 @@ function resolveLoadedWorkflowById(workflowId: string): LoadedWorkflow | null {
       (entry) => entry.manifest.id === normalizedWorkflowId,
     ) || null
   );
-}
-
-function toExecutionOptionsPatch(value: unknown): WorkflowExecutionOptions {
-  if (!isObject(value)) {
-    return {};
-  }
-  return {
-    backendId:
-      typeof value.backendId === "string" ? value.backendId.trim() : undefined,
-    workflowParams: isObject(value.workflowParams)
-      ? { ...value.workflowParams }
-      : {},
-    providerOptions: isObject(value.providerOptions)
-      ? { ...value.providerOptions }
-      : {},
-  };
 }
 
 function toWorkflowParams(value: unknown): Record<string, unknown> | null {
@@ -63,7 +48,10 @@ export function applyPersistedWorkflowSettingsNormalizer(args: {
     incoming: args.incoming,
     merged: args.merged,
   });
-  return mergeExecutionOptions(args.merged, toExecutionOptionsPatch(normalized));
+  return mergeExecutionOptions(
+    args.merged,
+    parseExecutionOptionsPatch(normalized),
+  );
 }
 
 export function applyExecutionWorkflowParamsNormalizer(args: {

@@ -1,0 +1,18 @@
+{
+  "id": "debug-apply-result-probe",
+  "name": "Debug Apply Result Probe",
+  "description": "Debug-only result apply contract probe.",
+  "version": "0.1.0",
+  "debug_only": true,
+  "execution_modes": ["auto"],
+  "schemas": {
+    "input": "assets/input.schema.json",
+    "parameter": "assets/parameter.schema.json",
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "Execute this debug-only probe exactly as described in SKILL.md. Inputs: {{ input }}. Parameters: {{ parameter }}. Output exactly one JSON object."
+    }
+  }
+}

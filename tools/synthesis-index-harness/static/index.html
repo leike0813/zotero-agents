@@ -8,8 +8,13 @@
       :root {
         color-scheme: light;
         font-family:
-          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-          "Segoe UI", sans-serif;
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
         background: #f7f7f4;
         color: #202124;
       }
@@ -198,7 +203,13 @@
         projectionMode: "all",
         selectedClusterKey: "",
       };
-      const tabs = ["Library", "References", "Canonicals", "Cluster Runs", "Cluster Results"];
+      const tabs = [
+        "Library",
+        "References",
+        "Canonicals",
+        "Cluster Runs",
+        "Cluster Results",
+      ];
       const $ = (id) => document.getElementById(id);
       function text(value) {
         return String(value || "");
@@ -221,10 +232,20 @@
         return `<tr>${cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`;
       }
       function canonicalMap() {
-        return new Map((state.snapshot.canonicalReferences || []).map((canonical) => [canonical.canonical_reference_id, canonical]));
+        return new Map(
+          (state.snapshot.canonicalReferences || []).map((canonical) => [
+            canonical.canonical_reference_id,
+            canonical,
+          ]),
+        );
       }
       function canonicalInputMap() {
-        const map = new Map((state.snapshot.canonicalInputs || []).map((input) => [input.canonicalReferenceId, input]));
+        const map = new Map(
+          (state.snapshot.canonicalInputs || []).map((input) => [
+            input.canonicalReferenceId,
+            input,
+          ]),
+        );
         for (const { payload } of clusterPayloads()) {
           for (const member of payload.members || []) {
             map.set(member.canonicalReferenceId, {
@@ -239,7 +260,10 @@
         const rawCount = new Map();
         for (const ref of state.snapshot.rawReferences || []) {
           if (ref.status === "active") {
-            const effective = state.snapshot.effectiveCanonicalById?.[ref.canonical_reference_id] || ref.canonical_reference_id;
+            const effective =
+              state.snapshot.effectiveCanonicalById?.[
+                ref.canonical_reference_id
+              ] || ref.canonical_reference_id;
             rawCount.set(effective, (rawCount.get(effective) || 0) + 1);
           }
         }
@@ -252,33 +276,67 @@
         return text(canonical?.title || id);
       }
       function titleCandidateList(member) {
-        const candidates = member?.titleCandidates || canonicalInputMap().get(member?.canonicalReferenceId)?.titleCandidates || [];
-        return candidates.slice(0, 8).map((candidate) =>
-          `<div class="muted">${text(candidate.source)}${candidate.sourceCanonicalReferenceId ? ` · ${text(candidate.sourceCanonicalReferenceId)}` : ""}${candidate.frequency ? ` · x${text(candidate.frequency)}` : ""}<br><strong>${text(candidate.title)}</strong></div>`,
-        ).join("") || `<div class="muted">No title candidates captured.</div>`;
+        const candidates =
+          member?.titleCandidates ||
+          canonicalInputMap().get(member?.canonicalReferenceId)
+            ?.titleCandidates ||
+          [];
+        return (
+          candidates
+            .slice(0, 8)
+            .map(
+              (candidate) =>
+                `<div class="muted">${text(candidate.source)}${candidate.sourceCanonicalReferenceId ? ` · ${text(candidate.sourceCanonicalReferenceId)}` : ""}${candidate.frequency ? ` · x${text(candidate.frequency)}` : ""}<br><strong>${text(candidate.title)}</strong></div>`,
+            )
+            .join("") ||
+          `<div class="muted">No title candidates captured.</div>`
+        );
       }
       function actionPayloads() {
-        return (state.results.actions || []).map((row) => ({ row, payload: parsePayload(row) }));
+        return (state.results.actions || []).map((row) => ({
+          row,
+          payload: parsePayload(row),
+        }));
       }
       function clusterPayloads() {
-        return (state.results.clusters || []).map((row) => ({ row, payload: parsePayload(row) }));
+        return (state.results.clusters || []).map((row) => ({
+          row,
+          payload: parsePayload(row),
+        }));
       }
       function clusterKey(entry) {
         return `${entry.row?.run_id || state.results.runId || ""}::${entry.payload?.clusterId || entry.row?.cluster_id || ""}`;
       }
       function selectedCluster(clusters) {
         if (!clusters.length) return null;
-        if (!state.selectedClusterKey || !clusters.some((entry) => clusterKey(entry) === state.selectedClusterKey)) {
+        if (
+          !state.selectedClusterKey ||
+          !clusters.some(
+            (entry) => clusterKey(entry) === state.selectedClusterKey,
+          )
+        ) {
           state.selectedClusterKey = clusterKey(clusters[0]);
         }
-        return clusters.find((entry) => clusterKey(entry) === state.selectedClusterKey) || clusters[0];
+        return (
+          clusters.find(
+            (entry) => clusterKey(entry) === state.selectedClusterKey,
+          ) || clusters[0]
+        );
       }
       function projectedCanonicalGroups() {
-        const parent = new Map((state.snapshot.canonicalReferences || []).map((canonical) => [canonical.canonical_reference_id, canonical.canonical_reference_id]));
+        const parent = new Map(
+          (state.snapshot.canonicalReferences || []).map((canonical) => [
+            canonical.canonical_reference_id,
+            canonical.canonical_reference_id,
+          ]),
+        );
         function find(id) {
           let current = parent.get(id) || id;
           const seen = new Set();
-          while ((parent.get(current) || current) !== current && !seen.has(current)) {
+          while (
+            (parent.get(current) || current) !== current &&
+            !seen.has(current)
+          ) {
             seen.add(current);
             current = parent.get(current) || current;
           }
@@ -290,8 +348,12 @@
           if (a !== b) parent.set(a, b);
         }
         for (const { row } of actionPayloads()) {
-          if (state.projectionMode === "redirect" && row.action !== "redirect") continue;
-          union(row.source_canonical_reference_id, row.target_canonical_reference_id);
+          if (state.projectionMode === "redirect" && row.action !== "redirect")
+            continue;
+          union(
+            row.source_canonical_reference_id,
+            row.target_canonical_reference_id,
+          );
         }
         const groups = new Map();
         for (const canonical of state.snapshot.canonicalReferences || []) {
@@ -300,7 +362,11 @@
           groups.set(rep, [...(groups.get(rep) || []), id]);
         }
         return Array.from(groups.entries())
-          .map(([representative, members]) => ({ representative, members: members.sort(), title: canonicalTitle(representative) }))
+          .map(([representative, members]) => ({
+            representative,
+            members: members.sort(),
+            title: canonicalTitle(representative),
+          }))
           .sort((left, right) => left.title.localeCompare(right.title));
       }
       function setTab(tab) {
@@ -326,7 +392,10 @@
       }
       function renderTabs() {
         $("tabs").innerHTML = tabs
-          .map((tab) => `<button class="${tab === state.tab ? "active" : ""}" data-tab="${tab}">${tab}</button>`)
+          .map(
+            (tab) =>
+              `<button class="${tab === state.tab ? "active" : ""}" data-tab="${tab}">${tab}</button>`,
+          )
           .join("");
         for (const button of $("tabs").querySelectorAll("button")) {
           button.addEventListener("click", () => setTab(button.dataset.tab));
@@ -334,7 +403,8 @@
       }
       function renderSummary() {
         const s = state.snapshot?.summary || {};
-        $("summary").textContent = `Items ${s.zotero_item_count || 0} | Raw ${s.active_raw_reference_count || 0}/${s.raw_reference_count || 0} | Canonicals ${s.canonical_reference_count || 0} | Inputs ${s.canonical_dedupe_input_count || 0}`;
+        $("summary").textContent =
+          `Items ${s.zotero_item_count || 0} | Raw ${s.active_raw_reference_count || 0}/${s.raw_reference_count || 0} | Canonicals ${s.canonical_reference_count || 0} | Inputs ${s.canonical_dedupe_input_count || 0}`;
       }
       function renderLibrary() {
         const artifacts = new Map();
@@ -349,13 +419,23 @@
               `<strong>${text(item.title)}</strong><div class="muted">${item.sourceRef}</div>`,
               text(item.year),
               text(item.creators?.slice(0, 3).join("; ")),
-              (artifacts.get(item.sourceRef) || []).map((a) => `<span class="pill">${a.artifact_type}:${a.status}</span>`).join(""),
+              (artifacts.get(item.sourceRef) || [])
+                .map(
+                  (a) =>
+                    `<span class="pill">${a.artifact_type}:${a.status}</span>`,
+                )
+                .join(""),
             ]),
           );
         return table(["Paper", "Year", "Creators", "Artifacts"], rows);
       }
       function renderReferences() {
-        const items = new Map((state.snapshot.zoteroItems || []).map((item) => [item.sourceRef, item]));
+        const items = new Map(
+          (state.snapshot.zoteroItems || []).map((item) => [
+            item.sourceRef,
+            item,
+          ]),
+        );
         const rows = (state.snapshot.rawReferences || [])
           .filter((ref) => text(ref.status) === "active")
           .filter(matchSearch)
@@ -368,37 +448,54 @@
               `<span class="pill">${text(ref.canonical_reference_id)}</span><div class="muted">effective ${text(state.snapshot.effectiveCanonicalById?.[ref.canonical_reference_id] || ref.canonical_reference_id)}</div>`,
             ]),
           );
-        return table(["Source Paper", "Raw Reference", "Year", "Canonical"], rows);
+        return table(
+          ["Source Paper", "Raw Reference", "Year", "Canonical"],
+          rows,
+        );
       }
       function renderCanonicals() {
         const rawCount = new Map();
         const inputs = canonicalInputMap();
         for (const ref of state.snapshot.rawReferences || []) {
           if (ref.status === "active") {
-            rawCount.set(ref.canonical_reference_id, (rawCount.get(ref.canonical_reference_id) || 0) + 1);
+            rawCount.set(
+              ref.canonical_reference_id,
+              (rawCount.get(ref.canonical_reference_id) || 0) + 1,
+            );
           }
         }
         const rows = (state.snapshot.canonicalReferences || [])
           .filter(matchSearch)
-          .map((canonical) =>
-            {
-              const input = inputs.get(canonical.canonical_reference_id) || {};
-              return row([
-                `<strong>${text(canonical.title)}</strong><div class="muted">${canonical.canonical_reference_id}</div>`,
-                text(canonical.year),
-                String(rawCount.get(canonical.canonical_reference_id) || 0),
-                `<span class="pill">${text(input.eligibility || "n/a")}</span><div class="muted">${text((input.eligibilityReasons || []).join(", "))}</div>`,
-                text(state.snapshot.effectiveCanonicalById?.[canonical.canonical_reference_id] || canonical.canonical_reference_id),
-              ]);
-            },
-          );
-        return table(["Canonical", "Year", "Active Raw", "Eligibility", "Effective"], rows);
+          .map((canonical) => {
+            const input = inputs.get(canonical.canonical_reference_id) || {};
+            return row([
+              `<strong>${text(canonical.title)}</strong><div class="muted">${canonical.canonical_reference_id}</div>`,
+              text(canonical.year),
+              String(rawCount.get(canonical.canonical_reference_id) || 0),
+              `<span class="pill">${text(input.eligibility || "n/a")}</span><div class="muted">${text((input.eligibilityReasons || []).join(", "))}</div>`,
+              text(
+                state.snapshot.effectiveCanonicalById?.[
+                  canonical.canonical_reference_id
+                ] || canonical.canonical_reference_id,
+              ),
+            ]);
+          });
+        return table(
+          ["Canonical", "Year", "Active Raw", "Eligibility", "Effective"],
+          rows,
+        );
       }
       async function renderRuns() {
         const runs = await fetch("/api/runs").then((r) => r.json());
         return table(
           ["Run", "Created", "Counters"],
-          runs.map((run) => row([text(run.run_id), text(run.created_at), `<pre>${text(run.counters_json)}</pre>`])),
+          runs.map((run) =>
+            row([
+              text(run.run_id),
+              text(run.created_at),
+              `<pre>${text(run.counters_json)}</pre>`,
+            ]),
+          ),
         );
       }
       function renderResults() {
@@ -410,43 +507,67 @@
           `<option value="">All edge types</option>` +
           Array.from(edgeTypes)
             .sort()
-            .map((type) => `<option value="${type}" ${state.edgeType === type ? "selected" : ""}>${type}</option>`)
+            .map(
+              (type) =>
+                `<option value="${type}" ${state.edgeType === type ? "selected" : ""}>${type}</option>`,
+            )
             .join("");
-        const clusters = clusterPayloads().filter(({ payload }) => matchSearch(payload));
+        const clusters = clusterPayloads().filter(({ payload }) =>
+          matchSearch(payload),
+        );
         const actions = actionPayloads().filter(
-          ({ row, payload }) => (!state.edgeType || row.edge_type === state.edgeType) && matchSearch({ row, payload }),
+          ({ row, payload }) =>
+            (!state.edgeType || row.edge_type === state.edgeType) &&
+            matchSearch({ row, payload }),
         );
         const projection = projectedCanonicalGroups();
-        const mergedGroups = projection.filter((group) => group.members.length > 1);
+        const mergedGroups = projection.filter(
+          (group) => group.members.length > 1,
+        );
         const selected = selectedCluster(clusters);
         const rawCounts = rawCountMap();
         const actionByCluster = new Map();
         for (const action of actions) {
           const key = `${action.row.run_id || state.results.runId || ""}::${action.payload.clusterId || action.row.cluster_id}`;
-          actionByCluster.set(key, [...(actionByCluster.get(key) || []), action]);
+          actionByCluster.set(key, [
+            ...(actionByCluster.get(key) || []),
+            action,
+          ]);
         }
-        const clusterCards = clusters
-          .map((entry) => {
-            const { row, payload } = entry;
-            const key = clusterKey(entry);
-            const active = key === state.selectedClusterKey ? "active" : "";
-            const clusterActions = actionByCluster.get(key) || [];
-            const edgeLabels = Array.from(new Set(clusterActions.map(({ row }) => row.edge_type))).sort();
-            return `<div class="cluster-card ${active}" data-cluster="${key}">
+        const clusterCards =
+          clusters
+            .map((entry) => {
+              const { row, payload } = entry;
+              const key = clusterKey(entry);
+              const active = key === state.selectedClusterKey ? "active" : "";
+              const clusterActions = actionByCluster.get(key) || [];
+              const edgeLabels = Array.from(
+                new Set(clusterActions.map(({ row }) => row.edge_type)),
+              ).sort();
+              return `<div class="cluster-card ${active}" data-cluster="${key}">
               <strong>${text(canonicalTitle(payload.representativeCanonicalReferenceId))}</strong>
               <div class="muted">${text(payload.clusterId)}${row.run_id ? ` · ${text(row.run_id)}` : ""}</div>
               <div><span class="pill">${(payload.canonicalReferenceIds || []).length} members</span>${edgeLabels.map((label) => `<span class="pill ${label.includes("risk") ? "risk" : ""}">${label}</span>`).join("")}</div>
             </div>`;
-          })
-          .join("") || `<div class="panel muted">No clusters in the selected result set.</div>`;
+            })
+            .join("") ||
+          `<div class="panel muted">No clusters in the selected result set.</div>`;
         let detail = `<div class="panel muted">Select a cluster.</div>`;
         if (selected) {
           const payload = selected.payload;
-          const clusterActions = actionByCluster.get(clusterKey(selected)) || [];
-          const membersById = new Map((payload.members || []).map((member) => [member.canonicalReferenceId, member]));
+          const clusterActions =
+            actionByCluster.get(clusterKey(selected)) || [];
+          const membersById = new Map(
+            (payload.members || []).map((member) => [
+              member.canonicalReferenceId,
+              member,
+            ]),
+          );
           const members = (payload.canonicalReferenceIds || [])
             .map((id) => {
-              const member = membersById.get(id) || { canonicalReferenceId: id };
+              const member = membersById.get(id) || {
+                canonicalReferenceId: id,
+              };
               return `<div class="member">
               <strong>${text(member.title || canonicalTitle(id))}</strong>
               <div class="muted">${text(id)} · ${rawCounts.get(id) || member.rawCount || 0} active raw refs${member.stickyRepresentative ? " · sticky" : ""}${id === payload.representativeCanonicalReferenceId ? " · cluster representative" : ""}</div>
@@ -457,11 +578,13 @@
             })
             .join("");
           const subclusters = (payload.subclusters || [])
-            .map((sub) => `<div class="member">
+            .map(
+              (sub) => `<div class="member">
               <strong>${text(canonicalTitle(sub.representativeCanonicalReferenceId))}</strong>
               <div>${(sub.edgeTypes || []).map((type) => `<span class="pill ${type.includes("risk") ? "risk" : ""}">${type}</span>`).join("")}</div>
               <div class="muted">${(sub.canonicalReferenceIds || []).join(", ")}</div>
-            </div>`)
+            </div>`,
+            )
             .join("");
           const actionRows = clusterActions.map(({ row: action, payload }) =>
             row([
@@ -490,7 +613,12 @@
             row([
               `<strong>${text(group.title)}</strong><div class="muted">${text(group.representative)}</div>`,
               String(group.members.length),
-              group.members.map((id) => `<div>${text(canonicalTitle(id))}<div class="muted">${id}</div></div>`).join(""),
+              group.members
+                .map(
+                  (id) =>
+                    `<div>${text(canonicalTitle(id))}<div class="muted">${id}</div></div>`,
+                )
+                .join(""),
             ]),
           );
         const summary = `<div class="summary-grid">
@@ -542,7 +670,8 @@
       $("run").addEventListener("click", run);
       load().catch((error) => {
         $("summary").textContent = error.message;
-        $("view").innerHTML = `<section class="panel"><h2>Snapshot failed</h2><pre>${text(error.message)}</pre></section>`;
+        $("view").innerHTML =
+          `<section class="panel"><h2>Snapshot failed</h2><pre>${text(error.message)}</pre></section>`;
       });
     </script>
   </body>

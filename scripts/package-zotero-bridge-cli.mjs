@@ -8,11 +8,23 @@ const platform = (
   process.argv.find((arg) => arg.startsWith("--platform="))?.split("=")[1] ||
   ""
 ).trim();
+const targetTriple = (
+  process.env.ZOTERO_BRIDGE_TARGET ||
+  process.argv.find((arg) => arg.startsWith("--target="))?.split("=")[1] ||
+  ""
+).trim();
 
 const platformByRuntime = {
   win32: "win32-x64",
   darwin: process.arch === "arm64" ? "darwin-arm64" : "darwin-x64",
-  linux: "linux-x64",
+  linux:
+    process.arch === "ia32" || process.arch === "x32"
+      ? "linux-x86"
+      : process.arch === "arm"
+        ? "linux-arm"
+        : process.arch === "arm64"
+          ? "linux-arm64"
+          : "linux-x64",
 };
 
 const targetPlatform = platform || platformByRuntime[process.platform] || "";
@@ -27,6 +39,7 @@ const source = path.join(
   "cli",
   "zotero-bridge",
   "target",
+  ...(targetTriple ? [targetTriple] : []),
   "release",
   binaryName,
 );
@@ -45,6 +58,7 @@ console.log(
   JSON.stringify({
     ok: true,
     platform: targetPlatform,
+    targetTriple: targetTriple || null,
     source,
     target,
     sha256,

@@ -74,7 +74,7 @@ The system MUST prevent periodic/task-update refresh from rebuilding workflow-op
 - **AND** user focus and dropdown interaction SHALL remain stable
 
 ### Requirement: SkillRunner runtime options SHALL be mode-gated
-For SkillRunner workflows, UI exposure and request payload MUST follow `execution.skillrunner_mode`.
+For SkillRunner workflows, UI exposure and request payload MUST follow the skill-level execution mode declared by `request.create.mode` or `request.sequence.steps[].mode`.
 
 #### Scenario: Provider-aware engine submit snapshot uses explicit provider_id
 - **WHEN** a SkillRunner workflow resolves execution context for a provider-aware engine
@@ -145,4 +145,3 @@ provider-derived compatibility contract from `workflow-contract`.
 - **WHEN** it determines whether a workflow can run without showing settings
 - **THEN** backend/profile availability SHALL be evaluated with
   provider-derived compatibility.
-

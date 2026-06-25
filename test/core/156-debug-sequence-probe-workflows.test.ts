@@ -1,10 +1,9 @@
 import { assert } from "chai";
+import { readFile, writeFile } from "fs/promises";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { compileDeclarativeRequest } from "../../src/workflows/declarativeRequestCompiler";
 import { executeSkillRunnerSequence } from "../../src/modules/workflowExecution/sequenceRuntime";
-import {
-  scanPluginSkillRegistry,
-} from "../../src/modules/pluginSkillRegistry";
+import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { buildAcpSharedSkillCatalog } from "../../src/modules/acpSharedSkillCatalog";
 import { isWorkflowVisible } from "../../src/modules/workflowVisibility";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
@@ -13,12 +12,21 @@ import type { LoadedWorkflow } from "../../src/workflows/types";
 
 const PROBE_WORKFLOW_IDS = [
   "workflow-debug-probe",
+  "debug-host-bridge-connectivity-probe",
+  "debug-interactive-choice-probe",
   "debug-sequence-linear-probe",
   "debug-sequence-workspace-reuse-probe",
+  "debug-sequence-file-handoff-probe",
   "debug-sequence-context-isolation-probe",
 ];
 
+const RUNNABLE_PROBE_WORKFLOW_IDS = PROBE_WORKFLOW_IDS.filter(
+  (id) => id !== "workflow-debug-probe",
+);
+
 const PROBE_SKILL_IDS = [
+  "debug-host-bridge-connectivity-probe",
+  "debug-interactive-choice-probe",
   "debug-sequence-probe-emit",
   "debug-sequence-probe-check",
   "debug-sequence-probe-finalize",
@@ -30,7 +38,32 @@ function workflowById(workflows: LoadedWorkflow[], id: string) {
   return workflow!;
 }
 
+function assertSchemaHasNoNullType(value: unknown, path = "$") {
+  if (Array.isArray(value)) {
+    assert.notInclude(value, "null", `${path} must not include null type`);
+    assert.notInclude(value, null, `${path} must not include null enum value`);
+    value.forEach((entry, index) =>
+      assertSchemaHasNoNullType(entry, `${path}[${index}]`),
+    );
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    assert.notStrictEqual(
+      entry,
+      "null",
+      `${path}.${key} must not be null type`,
+    );
+    assert.notStrictEqual(entry, null, `${path}.${key} must not allow null`);
+    assertSchemaHasNoNullType(entry, `${path}.${key}`);
+  }
+}
+
 describe("debug sequence probe workflows", function () {
+  this.timeout(10000);
+
   afterEach(function () {
     setDebugModeOverrideForTests();
   });
@@ -49,16 +82,27 @@ describe("debug sequence probe workflows", function () {
       assert.equal(workflow.manifest.debug_only, true);
       assert.equal(isWorkflowVisible(workflow), true);
     }
+    for (const id of RUNNABLE_PROBE_WORKFLOW_IDS) {
+      assert.equal(
+        workflowById(loaded.workflows, id).manifest.inputs?.unit,
+        "workflow",
+      );
+    }
 
     setDebugModeOverrideForTests(false);
     for (const id of PROBE_WORKFLOW_IDS) {
-      assert.equal(isWorkflowVisible(workflowById(loaded.workflows, id)), false);
+      assert.equal(
+        isWorkflowVisible(workflowById(loaded.workflows, id)),
+        false,
+      );
     }
   });
 
   it("filters debug probe skills from registry and ACP shared catalog outside debug mode", async function () {
     setDebugModeOverrideForTests(false);
-    const hiddenRegistry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const hiddenRegistry = await scanPluginSkillRegistry({
+      cwd: process.cwd(),
+    });
     for (const id of PROBE_SKILL_IDS) {
       assert.notProperty(hiddenRegistry.entriesById, id);
     }
@@ -73,7 +117,9 @@ describe("debug sequence probe workflows", function () {
     }
 
     setDebugModeOverrideForTests(true);
-    const visibleRegistry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const visibleRegistry = await scanPluginSkillRegistry({
+      cwd: process.cwd(),
+    });
     for (const id of PROBE_SKILL_IDS) {
       assert.property(visibleRegistry.entriesById, id);
       assert.equal(visibleRegistry.entriesById[id].debugOnly, true);
@@ -86,6 +132,54 @@ describe("debug sequence probe workflows", function () {
     for (const id of PROBE_SKILL_IDS) {
       assert.property(visibleCatalog.entriesById, id);
     }
+  });
+
+  it("ships debug probe schemas without breaking sequence requests", async function () {
+    setDebugModeOverrideForTests(true);
+    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+
+    for (const id of [
+      "debug-sequence-probe-emit",
+      "debug-sequence-probe-check",
+      "debug-sequence-probe-finalize",
+    ]) {
+      const runner = JSON.parse(
+        await readFile(`skills_builtin/${id}/assets/runner.json`, "utf8"),
+      );
+      assert.equal(runner.schemas.parameter, "assets/parameter.schema.json");
+      assert.property(registry.entriesById, id);
+    }
+
+    for (const id of [
+      "debug-sequence-probe-check",
+      "debug-sequence-probe-finalize",
+    ]) {
+      const runner = JSON.parse(
+        await readFile(`skills_builtin/${id}/assets/runner.json`, "utf8"),
+      );
+      const inputSchema = JSON.parse(
+        await readFile(`skills_builtin/${id}/assets/input.schema.json`, "utf8"),
+      );
+      assert.equal(runner.schemas.input, "assets/input.schema.json");
+      assert.equal(inputSchema.properties.handoff["x-input-source"], "inline");
+      if (id === "debug-sequence-probe-check") {
+        assert.equal(
+          inputSchema.properties.artifact_file["x-input-source"],
+          "file",
+        );
+      }
+    }
+
+    const emitOutputSchema = JSON.parse(
+      await readFile(
+        "skills_builtin/debug-sequence-probe-emit/assets/output.schema.json",
+        "utf8",
+      ),
+    );
+    assert.deepInclude(emitOutputSchema.properties.artifact_path, {
+      "x-type": "artifact",
+      "x-role": "sequence-file-handoff-artifact",
+    });
   });
 
   it("compiles sequence probe manifests with expected workspace and handoff contracts", async function () {
@@ -120,6 +214,29 @@ describe("debug sequence probe workflows", function () {
       ["new", "reuse-workflow", "reuse-workflow"],
     );
 
+    const fileHandoff = compileDeclarativeRequest({
+      kind: "skillrunner.sequence.v1",
+      selectionContext: {},
+      manifest: workflowById(
+        loaded.workflows,
+        "debug-sequence-file-handoff-probe",
+      ).manifest,
+    }) as any;
+    assert.deepEqual(
+      fileHandoff.steps.map((step: { id: string }) => step.id),
+      ["emit-file", "check-file"],
+    );
+    assert.deepEqual(fileHandoff.steps[1].handoff, {
+      bindings: [
+        {
+          kind: "file",
+          step: "emit-file",
+          source: "artifact_path",
+          target: "/input/artifact_file",
+        },
+      ],
+    });
+
     const isolated = compileDeclarativeRequest({
       kind: "skillrunner.sequence.v1",
       selectionContext: {},
@@ -130,15 +247,105 @@ describe("debug sequence probe workflows", function () {
     }) as any;
     assert.equal(isolated.steps[1].workspace, "new");
     assert.deepEqual(isolated.steps[1].handoff, {
-      from_step: "emit-secret",
-      pass_through: false,
-      input: {
-        public_marker: "public_marker",
-      },
+      bindings: [
+        {
+          kind: "value",
+          step: "emit-secret",
+          source: "public_marker",
+          target: "/input/public_marker",
+        },
+      ],
     });
   });
 
-  it("does not inject default handoff when context isolation declares pass_through false", async function () {
+  it("compiles Host Bridge connectivity probe as a debug-only job with required host access", async function () {
+    setDebugModeOverrideForTests(true);
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = workflowById(
+      loaded.workflows,
+      "debug-host-bridge-connectivity-probe",
+    );
+
+    assert.equal(workflow.manifest.debug_only, true);
+    assert.deepEqual(workflow.manifest.execution?.zoteroHostAccess, {
+      required: true,
+    });
+
+    const request = compileDeclarativeRequest({
+      kind: "skillrunner.job.v1",
+      selectionContext: {},
+      manifest: workflow.manifest,
+    }) as any;
+
+    assert.deepInclude(request, {
+      kind: "skillrunner.job.v1",
+      skill_id: "debug-host-bridge-connectivity-probe",
+      skill_source: "local-package",
+      fetch_type: "result",
+    });
+    assert.deepEqual(request.parameter, {
+      probeDepth: "capability",
+      expectedConnectionMode: "auto",
+    });
+    assert.deepEqual(request.poll, {
+      interval_ms: undefined,
+    });
+  });
+
+  it("compiles Host Bridge connectivity probe through the sequence path", async function () {
+    setDebugModeOverrideForTests(true);
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = workflowById(
+      loaded.workflows,
+      "debug-host-bridge-connectivity-sequence-probe",
+    );
+
+    assert.equal(workflow.manifest.debug_only, true);
+    assert.deepEqual(workflow.manifest.execution?.zoteroHostAccess, {
+      required: true,
+    });
+
+    const request = compileDeclarativeRequest({
+      kind: "skillrunner.sequence.v1",
+      selectionContext: {},
+      manifest: workflow.manifest,
+    }) as any;
+
+    assert.deepInclude(request, {
+      kind: "skillrunner.sequence.v1",
+      final_step_id: "probe",
+    });
+    assert.deepEqual(request.parameter, {
+      probeDepth: "capability",
+      expectedConnectionMode: "auto",
+    });
+    assert.deepEqual(request.steps, [
+      {
+        id: "probe",
+        skill_id: "debug-host-bridge-connectivity-probe",
+        mode: "auto",
+        fetch_type: "result",
+        workspace: "new",
+      },
+    ]);
+  });
+
+  it("keeps Host Bridge connectivity probe output schema free of nullable fields", async function () {
+    const schema = JSON.parse(
+      await readFile(
+        "skills_builtin/debug-host-bridge-connectivity-probe/assets/output.schema.json",
+        "utf8",
+      ),
+    );
+
+    assertSchemaHasNoNullType(schema);
+  });
+
+  it("only injects explicitly bound handoff values for context isolation", async function () {
     setDebugModeOverrideForTests(true);
     const loaded = await loadWorkflowManifests("workflows_builtin", {
       workflowSourceKind: "builtin",
@@ -211,9 +418,116 @@ describe("debug sequence probe workflows", function () {
     });
     assert.notProperty(launched[1].input, "handoff");
     assert.notProperty(launched[1].input, "secret_marker");
-    assert.deepEqual(launched[1].runtime_options.workflow_workspace, {
+    assert.deepEqual(launched[1].runtime_options.workspace, {
       mode: "new",
       workflow_run_id: "debug-sequence-run-1",
     });
+    assert.notProperty(launched[1].runtime_options, "workflow_workspace");
+  });
+
+  it("runs the file handoff debug workflow across ACP and SkillRunner materialization", async function () {
+    setDebugModeOverrideForTests(true);
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const request = compileDeclarativeRequest({
+      kind: "skillrunner.sequence.v1",
+      selectionContext: {},
+      manifest: workflowById(
+        loaded.workflows,
+        "debug-sequence-file-handoff-probe",
+      ).manifest,
+    }) as any;
+    const artifactRoot = await mkTempDir("debug-sequence-file-handoff");
+    const artifactPath = `${artifactRoot}\\sequence-file-handoff-artifact.json`;
+    await writeFile(artifactPath, JSON.stringify({ probe_id: "file-handoff" }));
+    const remoteWorkspace =
+      "/home/joshua/Workspace/Code/Python/Skill-Runner/data/workspaces/debug-file-handoff";
+    const remoteArtifactPath = `${remoteWorkspace}/runtime/sequence-file-handoff-artifact.json`;
+
+    async function runForBackend(backendType: "acp" | "skillrunner") {
+      const launched: Array<Record<string, any>> = [];
+      await executeSkillRunnerSequence({
+        request,
+        backend: {
+          id: `${backendType}-backend`,
+          type: backendType,
+          baseUrl:
+            backendType === "acp" ? "local://acp" : "http://127.0.0.1:8030",
+          auth: { kind: "none" },
+        },
+        providerOptions: {},
+        workflowId: "debug-sequence-file-handoff-probe",
+        workflowRunId: `debug-file-handoff-${backendType}`,
+        jobId: `job-file-handoff-${backendType}`,
+        appendRuntimeLog: () => {},
+        executeWithProvider: async ({ request: stepRequest }) => {
+          const launchedRequest = stepRequest as Record<string, any>;
+          launched.push(launchedRequest);
+          const skillId = String(launchedRequest.skill_id || "");
+          return {
+            status: "succeeded",
+            requestId: `${skillId}-${launched.length}`,
+            fetchType: "result",
+            resultJson:
+              skillId === "debug-sequence-probe-emit"
+                ? {
+                    kind: "debug_sequence_probe_result",
+                    probe_id: "file-handoff",
+                    status: "ok",
+                    artifact_path:
+                      backendType === "acp"
+                        ? artifactPath.replace(/\\/g, "/")
+                        : remoteArtifactPath,
+                    checks: [],
+                    diagnostics: [],
+                  }
+                : {
+                    kind: "debug_sequence_probe_result",
+                    probe_id: "file-handoff",
+                    status: "ok",
+                    checks: [],
+                    diagnostics: [],
+                  },
+            responseJson:
+              backendType === "skillrunner" &&
+              skillId === "debug-sequence-probe-emit"
+                ? { workspaceDir: remoteWorkspace }
+                : {},
+          };
+        },
+      });
+      return launched;
+    }
+
+    const acpLaunched = await runForBackend("acp");
+    assert.equal(
+      String(acpLaunched[1].input.artifact_file || "").replace(/\\/g, "/"),
+      artifactPath.replace(/\\/g, "/"),
+    );
+    assert.notProperty(acpLaunched[1], "upload_files");
+
+    const skillRunnerLaunched = await runForBackend("skillrunner");
+    assert.equal(
+      skillRunnerLaunched[1].input.artifact_file,
+      "inputs/artifact_file/sequence-file-handoff-artifact.json",
+    );
+    assert.notProperty(skillRunnerLaunched[1], "upload_files");
+    assert.deepEqual(
+      (skillRunnerLaunched[1].runtime_options as any).workspace,
+      {
+        mode: "reuse",
+        request_id: "debug-sequence-probe-emit-1",
+        file_bindings: [
+          {
+            input_key: "artifact_file",
+            source_request_id: "debug-sequence-probe-emit-1",
+            source_path: "runtime/sequence-file-handoff-artifact.json",
+            target_path:
+              "inputs/artifact_file/sequence-file-handoff-artifact.json",
+          },
+        ],
+      },
+    );
   });
 });

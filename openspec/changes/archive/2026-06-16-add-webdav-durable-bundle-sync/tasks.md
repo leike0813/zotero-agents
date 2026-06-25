@@ -1,0 +1,8 @@
+- [x] Add OpenSpec proposal, design, tasks, and delta specs.
+- [x] Add WebDAV prefs, encrypted credential storage, and connection test facade.
+- [x] Add WebDAV durable bundle sync service and injectable HTTP client.
+- [x] Wire WebDAV Sync into Synthesis service and Workbench commands.
+- [x] Add Preferences UI controls and localized strings.
+- [x] Add focused WebDAV sync tests.
+- [x] Update Synthesis sync docs.
+- [x] Run focused tests, OpenSpec validation, typecheck, and build.

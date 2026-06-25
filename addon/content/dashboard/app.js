@@ -9,6 +9,12 @@
     backendTaskScrollTopByTabKey: Object.create(null),
     homeDocWorkflowId: "",
     previousTabKey: null,
+    lastChromeSignature: "",
+    lastSurfaceSignature: "",
+    lastSurfaceKey: "",
+    productsListCollapsed: false,
+    productExpandedTreePathsById: Object.create(null),
+    productTreeInitializedById: Object.create(null),
   };
 
   function sendAction(action, payload) {
@@ -52,6 +58,111 @@
     return node;
   }
 
+  function icon(className) {
+    const node = el("span", `zs-icon ${className}`);
+    node.setAttribute("aria-hidden", "true");
+    return node;
+  }
+
+  function dashboardTabIconClass(tabKey) {
+    const icons = {
+      home: "zs-icon-dashboard",
+      "workflow-options": "zs-icon-settings-applications",
+      products: "zs-icon-inventory-2",
+      "runtime-logs": "zs-icon-terminal",
+      "skillrunner-connection-audit": "zs-icon-terminal",
+    };
+    return icons[String(tabKey || "")] || "";
+  }
+
+  function createTabButton(tab, snapshot) {
+    const btn = el("button", "tab-btn", "");
+    const label = tab.label || tab.key;
+    const iconClass = dashboardTabIconClass(tab.key);
+    const content = el("span", "tab-btn-content");
+    if (iconClass) {
+      content.appendChild(icon(`zs-icon-sm tab-btn-icon ${iconClass}`));
+    }
+    content.appendChild(el("span", "tab-btn-label", label));
+    btn.appendChild(content);
+    if (tab.key === snapshot.selectedTabKey) {
+      btn.classList.add("active");
+    }
+    return btn;
+  }
+
+  function snapshotSurfaceSignatures(snapshot) {
+    return snapshot && snapshot.surfaceSignatures
+      ? snapshot.surfaceSignatures
+      : {};
+  }
+
+  function snapshotSurfaceKey(snapshot) {
+    const signatures = snapshotSurfaceSignatures(snapshot);
+    return String(
+      signatures.selectedSurfaceKey ||
+        (snapshot && snapshot.selectedTabKey) ||
+        "",
+    );
+  }
+
+  function snapshotSurfaceSignature(snapshot) {
+    const signatures = snapshotSurfaceSignatures(snapshot);
+    return String(signatures.selectedSurface || "");
+  }
+
+  function snapshotChromeSignature(snapshot) {
+    const signatures = snapshotSurfaceSignatures(snapshot);
+    return String(signatures.chrome || "");
+  }
+
+  function shouldSkipUnchangedSnapshotRender(nextSnapshot) {
+    if (!state.snapshot || !nextSnapshot) {
+      return false;
+    }
+    const nextSurfaceKey = snapshotSurfaceKey(nextSnapshot);
+    const nextSurfaceSignature = snapshotSurfaceSignature(nextSnapshot);
+    const nextChromeSignature = snapshotChromeSignature(nextSnapshot);
+    return (
+      nextSurfaceKey &&
+      nextSurfaceSignature &&
+      nextChromeSignature &&
+      nextSurfaceKey === state.lastSurfaceKey &&
+      nextSurfaceSignature === state.lastSurfaceSignature &&
+      nextChromeSignature === state.lastChromeSignature
+    );
+  }
+
+  function rememberSnapshotRenderSignature(snapshot) {
+    if (!snapshot) {
+      state.lastSurfaceKey = "";
+      state.lastSurfaceSignature = "";
+      state.lastChromeSignature = "";
+      return;
+    }
+    state.lastSurfaceKey = snapshotSurfaceKey(snapshot);
+    state.lastSurfaceSignature = snapshotSurfaceSignature(snapshot);
+    state.lastChromeSignature = snapshotChromeSignature(snapshot);
+  }
+
+  function ensureDashboardShell(app) {
+    let sidebar = app.querySelector("aside.sidebar");
+    let main = app.querySelector("main.main");
+    if (
+      !sidebar ||
+      !main ||
+      sidebar.parentNode !== app ||
+      main.parentNode !== app
+    ) {
+      clearNode(app);
+      sidebar = el("aside", "sidebar");
+      main = el("main", "main");
+      app.appendChild(sidebar);
+      app.appendChild(main);
+    }
+    return { sidebar, main };
+  }
+
   function labelText(labels, key, fallback) {
     const text = String((labels && labels[key]) || "").trim();
     if (text && !/^task-dashboard-[a-z0-9-]+$/i.test(text)) {
@@ -70,6 +181,267 @@
       return text;
     }
     return parsed.toLocaleString();
+  }
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function formatBytes(value) {
+    const bytes = Number(value);
+    if (!Number.isFinite(bytes) || bytes < 0) {
+      return "";
+    }
+    if (bytes < 1024) {
+      return bytes + " B";
+    }
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(bytes >= 10 * 1024 ? 0 : 1) + " KB";
+    }
+    return (
+      (bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1) + " MB"
+    );
+  }
+
+  function normalizeProductAssetPath(asset) {
+    return String(
+      (asset &&
+        (asset.relativePath || asset.path || asset.label || asset.assetId)) ||
+        "",
+    )
+      .replace(/\\/g, "/")
+      .split("/")
+      .map(function (part) {
+        return part.trim();
+      })
+      .filter(function (part) {
+        return part && part !== "." && part !== "..";
+      })
+      .join("/");
+  }
+
+  function compareTreeNames(a, b) {
+    if (a.kind !== b.kind) {
+      return a.kind === "folder" ? -1 : 1;
+    }
+    return String(a.name || "").localeCompare(String(b.name || ""), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  }
+
+  function buildProductAssetTree(product) {
+    const root = {
+      kind: "folder",
+      name: "",
+      path: "",
+      children: [],
+      childByName: Object.create(null),
+    };
+    (product.assets || []).forEach(function (asset) {
+      const normalizedPath =
+        normalizeProductAssetPath(asset) || String(asset.assetId || "asset");
+      const parts = normalizedPath.split("/").filter(Boolean);
+      let parent = root;
+      parts.slice(0, -1).forEach(function (part) {
+        const key = part.toLowerCase();
+        let child = parent.childByName[key];
+        if (!child || child.kind !== "folder") {
+          child = {
+            kind: "folder",
+            name: part,
+            path: parent.path ? parent.path + "/" + part : part,
+            children: [],
+            childByName: Object.create(null),
+          };
+          parent.childByName[key] = child;
+          parent.children.push(child);
+        }
+        parent = child;
+      });
+      const fileName = parts[parts.length - 1] || asset.label || asset.assetId;
+      parent.children.push({
+        kind: "file",
+        name: fileName,
+        path: normalizedPath,
+        asset: asset,
+      });
+    });
+    function sortChildren(node) {
+      node.children.sort(compareTreeNames);
+      node.children.forEach(function (child) {
+        if (child.kind === "folder") {
+          sortChildren(child);
+        }
+      });
+    }
+    sortChildren(root);
+    return root;
+  }
+
+  function collectFolderPaths(node, output) {
+    node.children.forEach(function (child) {
+      if (child.kind !== "folder") {
+        return;
+      }
+      output.push(child.path);
+      collectFolderPaths(child, output);
+    });
+    return output;
+  }
+
+  function getProductExpandedTreePaths(product, tree) {
+    const productId = String(product.productId || "");
+    if (!state.productExpandedTreePathsById[productId]) {
+      state.productExpandedTreePathsById[productId] = new Set();
+    }
+    const expanded = state.productExpandedTreePathsById[productId];
+    if (!state.productTreeInitializedById[productId]) {
+      collectFolderPaths(tree, []).forEach(function (path) {
+        expanded.add(path);
+      });
+      state.productTreeInitializedById[productId] = true;
+    }
+    return expanded;
+  }
+
+  function productFileTypeIconClass(asset) {
+    const path = normalizeProductAssetPath(asset).toLowerCase();
+    const contentType = String(
+      (asset && asset.contentType) || "",
+    ).toLowerCase();
+    if (/\.(csv|tsv)$/.test(path) || contentType.includes("csv")) {
+      return "zs-icon-product-table";
+    }
+    if (
+      /(\.md|\.markdown|\.txt|\.text|\.tex|\.bib|\.log)$/.test(path) ||
+      contentType.includes("markdown") ||
+      contentType.includes("latex") ||
+      contentType.startsWith("text/plain")
+    ) {
+      return "zs-icon-product-article";
+    }
+    if (
+      /\.(json|yaml|yml|toml|xml)$/.test(path) ||
+      contentType.includes("json") ||
+      contentType.includes("yaml") ||
+      contentType.includes("toml") ||
+      contentType.includes("xml")
+    ) {
+      return "zs-icon-product-data";
+    }
+    if (
+      /\.(html|htm|css|js|ts|mjs|tsx|jsx)$/.test(path) ||
+      contentType.includes("html") ||
+      contentType.includes("css") ||
+      contentType.includes("javascript") ||
+      contentType.includes("typescript")
+    ) {
+      return "zs-icon-product-code";
+    }
+    return "zs-icon-product-file";
+  }
+
+  function resolveHighlightLanguage(language) {
+    const raw = String(language || "text").toLowerCase();
+    const aliases = {
+      js: "javascript",
+      mjs: "javascript",
+      jsx: "javascript",
+      ts: "typescript",
+      tsx: "typescript",
+      md: "markdown",
+      text: "plaintext",
+      txt: "plaintext",
+      log: "plaintext",
+    };
+    return aliases[raw] || raw;
+  }
+
+  function highlightCode(text, language) {
+    const source = String(text || "");
+    const runtime = window.hljs;
+    const normalized = resolveHighlightLanguage(language);
+    if (!runtime || typeof runtime.highlight !== "function") {
+      return escapeHtml(source);
+    }
+    try {
+      if (runtime.getLanguage && runtime.getLanguage(normalized)) {
+        return runtime.highlight(source, {
+          language: normalized,
+          ignoreIllegals: true,
+        }).value;
+      }
+      if (typeof runtime.highlightAuto === "function") {
+        return runtime.highlightAuto(source).value;
+      }
+    } catch {
+      // fall through to escaped text
+    }
+    return escapeHtml(source);
+  }
+
+  function copyTextToClipboard(text) {
+    const source = String(text || "");
+    if (
+      navigator.clipboard &&
+      typeof navigator.clipboard.writeText === "function"
+    ) {
+      return navigator.clipboard.writeText(source);
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = source;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand("copy");
+      return Promise.resolve();
+    } finally {
+      textarea.remove();
+    }
+  }
+
+  function splitPreviewLines(text) {
+    return String(text || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split("\n");
+  }
+
+  function ensureProductMarkdownParser() {
+    if (typeof window.markdownit !== "function") {
+      return null;
+    }
+    const parser = window.markdownit({
+      html: false,
+      linkify: true,
+      breaks: false,
+      langPrefix: "language-",
+      highlight: function (source, language) {
+        return highlightCode(source, language);
+      },
+    });
+    if (window.texmath && window.katex) {
+      try {
+        parser.use(window.texmath, {
+          engine: window.katex,
+          delimiters: "dollars",
+          katexOptions: { throwOnError: false, output: "htmlAndMathML" },
+        });
+      } catch {
+        // Markdown rendering still works without math support.
+      }
+    }
+    return parser;
   }
 
   function formatMillis(value) {
@@ -383,11 +755,11 @@
             workflow.workflowLabel || workflow.workflowId || "-",
           ),
         );
-        if (workflow.builtin === true) {
+        if (workflow.official === true) {
           title.appendChild(
             el(
               "span",
-              "workflow-bubble-builtin-badge",
+              "workflow-bubble-official-badge",
               labelText(labels, "homeWorkflowBuiltinBadge"),
             ),
           );
@@ -418,9 +790,8 @@
         );
         runButton.setAttribute("aria-label", runLabel);
         runButton.disabled = workflow.quickRunEnabled !== true;
-        const runIcon = el(
-          "span",
-          "workflow-bubble-icon workflow-bubble-icon-run",
+        const runIcon = icon(
+          "zs-icon-sm workflow-bubble-icon workflow-bubble-icon-run zs-icon-play-arrow",
         );
         runButton.appendChild(runIcon);
         runButton.addEventListener("click", function () {
@@ -441,9 +812,8 @@
           "aria-label",
           labelText(labels, "homeWorkflowDocButton"),
         );
-        const docIcon = el(
-          "span",
-          "workflow-bubble-icon workflow-bubble-icon-doc",
+        const docIcon = icon(
+          "zs-icon-sm workflow-bubble-icon workflow-bubble-icon-doc zs-icon-description",
         );
         docButton.appendChild(docIcon);
         docButton.addEventListener("click", function () {
@@ -461,9 +831,8 @@
           "aria-label",
           labelText(labels, "homeWorkflowSettingsButton"),
         );
-        const settingsIcon = el(
-          "span",
-          "workflow-bubble-icon workflow-bubble-icon-settings",
+        const settingsIcon = icon(
+          "zs-icon-sm workflow-bubble-icon workflow-bubble-icon-settings zs-icon-settings",
         );
         settingsButton.appendChild(settingsIcon);
         settingsButton.disabled = workflow.configurable !== true;
@@ -515,6 +884,7 @@
             taskId: row.id,
             backendId: row.backendId || "",
             backendType: row.backendType || "",
+            runKey: row.runKey || "",
             requestId: row.requestId || "",
             requestKind: row.requestKind || "",
           });
@@ -571,6 +941,16 @@
     if (view.missingReadme) {
       content.appendChild(
         el("div", "empty", labelText(labels, "homeWorkflowDocMissingReadme")),
+      );
+    } else if (window.ZoteroSkillsMarkdownRenderer?.renderInto) {
+      window.ZoteroSkillsMarkdownRenderer.renderInto(
+        content,
+        String(view.markdown || ""),
+        {
+          profile: "document",
+          baseFileUri: String(view.baseFileUri || ""),
+          headingIdPrefix: "workflow-doc-heading",
+        },
       );
     } else {
       content.innerHTML = String(view.html || "");
@@ -790,15 +1170,17 @@
           actionCell.className = "actions-cell";
           const actionsWrap = el("div", "actions-wrap");
           const actionButtons = [];
-          if (row.requestId) {
+          if (row.runKey) {
             const openRun = el("button", "btn", labels.openRun);
             openRun.addEventListener("click", function () {
               sendAction("open-run", {
                 backendId: backend.backendId,
-                requestId: row.requestId,
+                runKey: row.runKey,
               });
             });
             actionButtons.push(openRun);
+          }
+          if (row.requestId) {
             const cancelRun = el("button", "btn", labels.cancelRun);
             cancelRun.disabled = isTerminalStatus(
               row.state,
@@ -964,6 +1346,55 @@
     return JSON.parse(JSON.stringify(raw));
   }
 
+  function coerceBoolean(value, fallback) {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (!normalized) {
+        return fallback === true;
+      }
+      return ["1", "true", "yes", "on"].indexOf(normalized) >= 0;
+    }
+    return fallback === true;
+  }
+
+  function isProviderConditionalWorkflowFieldVisible(entry, values) {
+    const condition = entry && entry.visibleIfProviderOption;
+    const key = String((condition && condition.key) || "").trim();
+    if (!key) {
+      return true;
+    }
+    const providerValues =
+      values && typeof values === "object" && !Array.isArray(values)
+        ? values
+        : {};
+    return (
+      coerceBoolean(providerValues[key], false) === (condition.equals === true)
+    );
+  }
+
+  function applyWorkflowSettingsConditionalVisibility(root, values) {
+    const container = root || document;
+    const nodes = container.querySelectorAll
+      ? container.querySelectorAll(
+          "[data-workflow-settings-visible-provider-key]",
+        )
+      : [];
+    Array.prototype.forEach.call(nodes, function (node) {
+      const key = String(
+        node.getAttribute("data-workflow-settings-visible-provider-key") || "",
+      ).trim();
+      const expected =
+        node.getAttribute("data-workflow-settings-visible-provider-equals") ===
+        "true";
+      const visible = coerceBoolean(values && values[key], false) === expected;
+      node.style.display = visible ? "" : "none";
+      node.setAttribute("aria-hidden", visible ? "false" : "true");
+    });
+  }
+
   function isPositiveIntegerField(entry) {
     if (!entry || typeof entry !== "object") {
       return false;
@@ -980,6 +1411,16 @@
     return key.includes("timeout");
   }
 
+  function isNonNegativeIntegerField(entry) {
+    if (!entry || typeof entry !== "object") {
+      return false;
+    }
+    const key = String(entry.key || "")
+      .trim()
+      .toLowerCase();
+    return key === "interactive_reply_timeout_sec";
+  }
+
   function validateNumberFieldValue(args) {
     const raw = String(args.rawValue == null ? "" : args.rawValue).trim();
     if (!raw) {
@@ -992,7 +1433,17 @@
         message: labelText(args.labels, "workflowSettingsNumberInvalid"),
       };
     }
-    if (isPositiveIntegerField(args.entry)) {
+    if (isNonNegativeIntegerField(args.entry)) {
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        return {
+          ok: false,
+          message: labelText(
+            args.labels,
+            "workflowSettingsPositiveIntegerRequired",
+          ),
+        };
+      }
+    } else if (isPositiveIntegerField(args.entry)) {
       if (!Number.isInteger(parsed) || parsed <= 0) {
         return {
           ok: false,
@@ -1012,6 +1463,21 @@
     }
 
     const row = el("div", "workflow-settings-field");
+    row.setAttribute("data-workflow-settings-field-key", args.entry.key);
+    if (args.entry.visibleIfProviderOption) {
+      row.setAttribute(
+        "data-workflow-settings-visible-provider-key",
+        String(args.entry.visibleIfProviderOption.key || ""),
+      );
+      row.setAttribute(
+        "data-workflow-settings-visible-provider-equals",
+        args.entry.visibleIfProviderOption.equals === true ? "true" : "false",
+      );
+      if (!isProviderConditionalWorkflowFieldVisible(args.entry, args.values)) {
+        row.style.display = "none";
+        row.setAttribute("aria-hidden", "true");
+      }
+    }
     const label = el(
       "label",
       isWarningProviderOptionKey(args.entry.key)
@@ -1138,6 +1604,7 @@
       control = document.createElement("input");
       control.type = "text";
       control.value = currentValueStr;
+      control.placeholder = String(args.entry.placeholder || "");
       control.className = "workflow-settings-field-control";
       control.style.flex = "1 1 45%";
       combo.appendChild(control);
@@ -1145,6 +1612,7 @@
     } else {
       control = document.createElement("input");
       control.type = "text";
+      control.placeholder = String(args.entry.placeholder || "");
       if (args.entry.type === "number") {
         control.setAttribute(
           "inputmode",
@@ -1188,11 +1656,8 @@
         }
         setFieldError("");
         if (validation.remove) {
-          changed = Object.prototype.hasOwnProperty.call(
-            args.values,
-            args.entry.key,
-          );
-          delete args.values[args.entry.key];
+          changed = args.values[args.entry.key] !== null;
+          args.values[args.entry.key] = null;
         } else {
           changed = args.values[args.entry.key] !== validation.value;
           args.values[args.entry.key] = validation.value;
@@ -1250,6 +1715,9 @@
           labels: args.labels,
         }),
       );
+    });
+    card.addEventListener("change", function () {
+      applyWorkflowSettingsConditionalVisibility(card, args.values);
     });
     return card;
   }
@@ -1403,56 +1871,226 @@
     main.appendChild(shell);
   }
 
-  function renderProductFileTree(product, selectedAssetId, labels) {
-    const wrap = el("div", "product-file-tree");
-    (product.assets || []).forEach(function (asset) {
-      const btn = el(
-        "button",
-        "product-file-node",
-        asset.label || asset.path || asset.assetId,
-      );
-      if (asset.assetId === selectedAssetId) {
-        btn.classList.add("active");
-      }
+  function renderProductTreeNode(args) {
+    const node = args.node;
+    const product = args.product;
+    const selectedAssetId = args.selectedAssetId;
+    const labels = args.labels;
+    const expandedPaths = args.expandedPaths;
+    const level = args.level || 0;
+    const wrap = el("div", "product-tree-row-wrap");
+    if (node.kind === "folder") {
+      const expanded = expandedPaths.has(node.path);
+      const btn = el("button", "product-tree-node product-tree-folder");
+      btn.type = "button";
+      btn.style.setProperty("--product-tree-level", String(level));
+      btn.setAttribute("aria-expanded", expanded ? "true" : "false");
+      btn.title = node.path;
       btn.appendChild(
-        el("span", "product-file-path", asset.path || asset.relativePath || ""),
+        icon(
+          `zs-icon-sm product-tree-folder-icon ${
+            expanded ? "zs-icon-product-folder-open" : "zs-icon-product-folder"
+          }`,
+        ),
       );
+      btn.appendChild(el("span", "product-tree-name", node.name));
       btn.addEventListener("click", function () {
-        sendAction("select-product-asset", {
-          productId: product.productId,
-          assetId: asset.assetId,
-        });
+        if (expanded) {
+          expandedPaths.delete(node.path);
+        } else {
+          expandedPaths.add(node.path);
+        }
+        render();
       });
       wrap.appendChild(btn);
+      if (expanded) {
+        node.children.forEach(function (child) {
+          wrap.appendChild(
+            renderProductTreeNode({
+              node: child,
+              product: product,
+              selectedAssetId: selectedAssetId,
+              labels: labels,
+              expandedPaths: expandedPaths,
+              level: level + 1,
+            }),
+          );
+        });
+      }
+      return wrap;
+    }
+
+    const asset = node.asset || {};
+    const btn = el("button", "product-tree-node product-tree-file");
+    btn.type = "button";
+    btn.style.setProperty("--product-tree-level", String(level));
+    if (asset.assetId === selectedAssetId) {
+      btn.classList.add("active");
+    }
+    btn.title = normalizeProductAssetPath(asset);
+    btn.appendChild(
+      icon(
+        `zs-icon-sm product-tree-file-icon ${productFileTypeIconClass(asset)}`,
+      ),
+    );
+    const text = el("span", "product-tree-file-text");
+    text.appendChild(
+      el(
+        "span",
+        "product-tree-name",
+        asset.label || node.name || asset.assetId,
+      ),
+    );
+    const details = [
+      normalizeProductAssetPath(asset),
+      formatBytes(asset.size),
+    ].filter(Boolean);
+    if (details.length) {
+      text.appendChild(el("span", "product-tree-meta", details.join(" · ")));
+    }
+    btn.appendChild(text);
+    btn.addEventListener("click", function () {
+      sendAction("select-product-asset", {
+        productId: product.productId,
+        assetId: asset.assetId,
+      });
     });
+    wrap.appendChild(btn);
+    return wrap;
+  }
+
+  function renderProductFileTree(product, selectedAssetId, labels) {
+    const wrap = el("div", "product-file-tree");
     if (!product.assets || product.assets.length === 0) {
       wrap.appendChild(
         el("div", "empty", labelText(labels, "productsNoFiles")),
       );
+      return wrap;
     }
+    const tree = buildProductAssetTree(product);
+    const expandedPaths = getProductExpandedTreePaths(product, tree);
+    tree.children.forEach(function (child) {
+      wrap.appendChild(
+        renderProductTreeNode({
+          node: child,
+          product: product,
+          selectedAssetId: selectedAssetId,
+          labels: labels,
+          expandedPaths: expandedPaths,
+          level: 0,
+        }),
+      );
+    });
     return wrap;
   }
 
-  function renderProductCode(text, language) {
-    const pre = el("pre", "product-preview-code");
-    pre.classList.add(
-      "lang-" + String(language || "text").replace(/[^a-z0-9_-]/gi, ""),
+  function renderProductCode(text, language, labels) {
+    const source = String(text || "");
+    const viewer = el("div", "product-code-viewer wrap-lines");
+    const resolvedLanguage = resolveHighlightLanguage(language);
+    const safeLanguage = String(resolvedLanguage || "plaintext").replace(
+      /[^a-z0-9_-]/gi,
+      "",
     );
-    pre.textContent = text || "";
-    return pre;
+    viewer.classList.add("language-" + safeLanguage);
+
+    const toolbar = el("div", "product-code-toolbar");
+    const summary = el("div", "product-code-summary");
+    summary.textContent = [
+      safeLanguage,
+      splitPreviewLines(source).length + " lines",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    toolbar.appendChild(summary);
+
+    const actions = el("div", "product-code-actions");
+    const wrapButton = el(
+      "button",
+      "product-code-tool active",
+      labelText(labels, "productsViewerWrap", "Wrap"),
+    );
+    wrapButton.type = "button";
+    wrapButton.setAttribute("aria-pressed", "true");
+    wrapButton.addEventListener("click", function () {
+      const enabled = !viewer.classList.contains("wrap-lines");
+      viewer.classList.toggle("wrap-lines", enabled);
+      wrapButton.classList.toggle("active", enabled);
+      wrapButton.setAttribute("aria-pressed", enabled ? "true" : "false");
+    });
+    actions.appendChild(wrapButton);
+
+    const copyButton = el(
+      "button",
+      "product-code-tool",
+      labelText(labels, "productsViewerCopy", "Copy"),
+    );
+    copyButton.type = "button";
+    copyButton.addEventListener("click", function () {
+      copyTextToClipboard(source).then(
+        function () {
+          copyButton.textContent = labelText(
+            labels,
+            "productsViewerCopied",
+            "Copied",
+          );
+          window.setTimeout(function () {
+            copyButton.textContent = labelText(
+              labels,
+              "productsViewerCopy",
+              "Copy",
+            );
+          }, 900);
+        },
+        function () {
+          copyButton.textContent = labelText(
+            labels,
+            "productsViewerCopyFailed",
+            "Copy failed",
+          );
+        },
+      );
+    });
+    actions.appendChild(copyButton);
+    toolbar.appendChild(actions);
+    viewer.appendChild(toolbar);
+
+    const scroller = el("div", "product-code-scroller");
+    const lines = el("div", "product-code-lines");
+    splitPreviewLines(source).forEach(function (line, index) {
+      const row = el("div", "product-code-line");
+      const number = el("span", "product-code-line-number", String(index + 1));
+      const code = el(
+        "code",
+        "product-code-line-text hljs language-" + safeLanguage,
+      );
+      if (line) {
+        code.innerHTML = highlightCode(line, resolvedLanguage);
+      } else {
+        code.appendChild(document.createElement("br"));
+      }
+      row.appendChild(number);
+      row.appendChild(code);
+      lines.appendChild(row);
+    });
+    scroller.appendChild(lines);
+    viewer.appendChild(scroller);
+    return viewer;
   }
 
-  function renderProductMarkdown(text) {
+  function renderProductMarkdown(text, labels) {
     const wrap = el("div", "product-preview-markdown");
-    if (typeof window.markdownit === "function") {
-      const parser = window.markdownit({
-        html: false,
-        linkify: true,
-        breaks: false,
+    if (window.ZoteroSkillsMarkdownRenderer?.renderInto) {
+      window.ZoteroSkillsMarkdownRenderer.renderInto(wrap, text || "", {
+        profile: "preview",
       });
+      return wrap;
+    }
+    const parser = ensureProductMarkdownParser();
+    if (parser) {
       wrap.innerHTML = parser.render(text || "");
     } else {
-      wrap.appendChild(renderProductCode(text || "", "markdown"));
+      wrap.appendChild(renderProductCode(text || "", "markdown", labels));
     }
     return wrap;
   }
@@ -1485,12 +2123,14 @@
       return wrap;
     }
     if (preview.kind === "markdown") {
-      wrap.appendChild(renderProductMarkdown(preview.text || ""));
+      wrap.appendChild(renderProductMarkdown(preview.text || "", labels));
       const raw = el("details", "product-preview-raw");
       raw.appendChild(
         el("summary", "", labelText(labels, "productsRawMarkdown")),
       );
-      raw.appendChild(renderProductCode(preview.text || "", "markdown"));
+      raw.appendChild(
+        renderProductCode(preview.text || "", "markdown", labels),
+      );
       wrap.appendChild(raw);
       return wrap;
     }
@@ -1498,6 +2138,7 @@
       renderProductCode(
         preview.formattedText || preview.text || "",
         preview.language || preview.kind,
+        labels,
       ),
     );
     return wrap;
@@ -1506,13 +2147,34 @@
   function renderProducts(main, snapshot) {
     const labels = snapshot.labels || {};
     const view = snapshot.productStorageView || {};
+    const section = view.section === "feedback" ? "feedback" : "products";
     const products = Array.isArray(view.products) ? view.products : [];
+    const feedbackProducts = Array.isArray(view.feedbackProducts)
+      ? view.feedbackProducts
+      : [];
+    const selectedFeedbackIds = new Set(view.selectedFeedbackProductIds || []);
     const selected = view.selectedProduct;
     const toolbar = el("div", "toolbar");
     toolbar.appendChild(
       el("h2", "page-title", labelText(labels, "tabProducts")),
     );
-    if (selected) {
+    const sectionTabs = el("div", "toolbar-actions product-section-tabs");
+    [
+      ["products", labelText(labels, "productsSectionFiles")],
+      ["feedback", labelText(labels, "productsSectionFeedback")],
+    ].forEach(function (entry) {
+      const btn = el(
+        "button",
+        section === entry[0] ? "btn active" : "btn",
+        entry[1],
+      );
+      btn.addEventListener("click", function () {
+        sendAction("select-product-section", { section: entry[0] });
+      });
+      sectionTabs.appendChild(btn);
+    });
+    toolbar.appendChild(sectionTabs);
+    if (section === "products" && selected) {
       const actions = el("div", "toolbar-actions");
       const openFolder = el(
         "button",
@@ -1523,7 +2185,12 @@
         sendAction("open-product-folder", { productId: selected.productId });
       });
       actions.appendChild(openFolder);
-      if (selected.requestId && selected.backendId) {
+      const selectedBackendType = String(selected.backendType || "").trim();
+      const canOpenSelectedRun =
+        selected.backendId &&
+        ((selectedBackendType === "skillrunner" && selected.runKey) ||
+          (selectedBackendType !== "skillrunner" && selected.requestId));
+      if (canOpenSelectedRun) {
         const openRun = el(
           "button",
           "btn",
@@ -1532,7 +2199,8 @@
         openRun.addEventListener("click", function () {
           sendAction("open-run", {
             backendId: selected.backendId,
-            requestId: selected.requestId,
+            runKey: selected.runKey || "",
+            requestId: selected.requestId || "",
           });
         });
         actions.appendChild(openRun);
@@ -1547,38 +2215,271 @@
       });
       actions.appendChild(remove);
       toolbar.appendChild(actions);
+    } else if (section === "feedback") {
+      const actions = el("div", "toolbar-actions");
+      const filter = el("select", "input feedback-skill-filter");
+      const all = el(
+        "option",
+        "",
+        labelText(labels, "feedbackFilterAllSkills"),
+      );
+      all.value = "";
+      filter.appendChild(all);
+      (view.feedbackSkillOptions || []).forEach(function (skillId) {
+        const option = el("option", "", skillId);
+        option.value = skillId;
+        filter.appendChild(option);
+      });
+      filter.value = view.feedbackSkillFilter || "";
+      filter.setAttribute(
+        "aria-label",
+        labelText(labels, "feedbackFilterSkill"),
+      );
+      filter.addEventListener("change", function () {
+        sendAction("select-feedback-skill-filter", { skillId: filter.value });
+      });
+      actions.appendChild(filter);
+      const exportBtn = el(
+        "button",
+        "btn",
+        labelText(labels, "feedbackExportSelected"),
+      );
+      exportBtn.disabled = selectedFeedbackIds.size === 0;
+      exportBtn.addEventListener("click", function () {
+        sendAction("export-selected-feedback");
+      });
+      actions.appendChild(exportBtn);
+      const deleteSelectedBtn = el(
+        "button",
+        "btn danger",
+        labelText(labels, "feedbackDeleteSelected"),
+      );
+      deleteSelectedBtn.disabled = selectedFeedbackIds.size === 0;
+      deleteSelectedBtn.addEventListener("click", function () {
+        sendAction("delete-selected-feedback");
+      });
+      actions.appendChild(deleteSelectedBtn);
+      const deleteAllBtn = el(
+        "button",
+        "btn danger",
+        labelText(labels, "feedbackDeleteAll"),
+      );
+      deleteAllBtn.disabled = feedbackProducts.length === 0;
+      deleteAllBtn.addEventListener("click", function () {
+        sendAction("delete-all-feedback");
+      });
+      actions.appendChild(deleteAllBtn);
+      toolbar.appendChild(actions);
     }
     main.appendChild(toolbar);
+    if (section === "feedback") {
+      if (feedbackProducts.length === 0) {
+        main.appendChild(
+          el("div", "empty", labelText(labels, "feedbackEmpty")),
+        );
+        return;
+      }
+      const selectedFeedback = view.selectedFeedbackProduct;
+      const visibleFeedbackIds = feedbackProducts
+        .map(function (product) {
+          return String(product.productId || "").trim();
+        })
+        .filter(Boolean);
+      const selectedVisibleFeedbackCount = visibleFeedbackIds.filter(
+        function (productId) {
+          return selectedFeedbackIds.has(productId);
+        },
+      ).length;
+      const layout = el("div", "products-layout");
+      const list = el("div", "product-list");
+      const listHeader = el("div", "product-list-header");
+      const title = el(
+        "div",
+        "product-list-title",
+        labelText(labels, "productsSectionFeedback"),
+      );
+      title.appendChild(
+        el("span", "product-list-count", String(feedbackProducts.length)),
+      );
+      listHeader.appendChild(title);
+      const selectAllLabelText = labelText(labels, "feedbackSelectAll");
+      const selectAll = el("label", "feedback-select-all");
+      const selectAllCheckbox = el("input", "feedback-select-all-checkbox");
+      selectAllCheckbox.type = "checkbox";
+      selectAllCheckbox.checked =
+        visibleFeedbackIds.length > 0 &&
+        selectedVisibleFeedbackCount === visibleFeedbackIds.length;
+      selectAllCheckbox.indeterminate =
+        selectedVisibleFeedbackCount > 0 &&
+        selectedVisibleFeedbackCount < visibleFeedbackIds.length;
+      selectAllCheckbox.setAttribute("aria-label", selectAllLabelText);
+      selectAllCheckbox.addEventListener("change", function () {
+        sendAction("toggle-all-feedback-products-selected", {
+          selected: selectAllCheckbox.checked,
+        });
+      });
+      selectAll.appendChild(selectAllCheckbox);
+      selectAll.appendChild(el("span", "", selectAllLabelText));
+      listHeader.appendChild(selectAll);
+      list.appendChild(listHeader);
+      feedbackProducts.forEach(function (product) {
+        const row = el("div", "product-card feedback-product-card");
+        if (
+          selectedFeedback &&
+          product.productId === selectedFeedback.productId
+        ) {
+          row.classList.add("active");
+        }
+        const checkbox = el("input", "feedback-product-checkbox");
+        checkbox.type = "checkbox";
+        checkbox.checked = selectedFeedbackIds.has(product.productId);
+        checkbox.addEventListener("change", function (event) {
+          event.stopPropagation();
+          sendAction("toggle-feedback-product-selected", {
+            productId: product.productId,
+            selected: checkbox.checked,
+          });
+        });
+        row.appendChild(checkbox);
+        const body = el("button", "feedback-product-body");
+        body.appendChild(el("strong", "", product.title || product.productId));
+        body.appendChild(
+          el(
+            "span",
+            "product-card-meta",
+            [
+              product.metadata && product.metadata.skillId,
+              product.workflowLabel || product.workflowId,
+              formatTime(product.updatedAt),
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          ),
+        );
+        body.addEventListener("click", function () {
+          sendAction("select-feedback-product", {
+            productId: product.productId,
+          });
+        });
+        row.appendChild(body);
+        list.appendChild(row);
+      });
+      layout.appendChild(list);
+      const detail = el("div", "product-detail");
+      if (selectedFeedback) {
+        detail.appendChild(
+          el(
+            "h3",
+            "panel-title",
+            selectedFeedback.title || selectedFeedback.productId,
+          ),
+        );
+        const meta = el("div", "product-meta");
+        meta.textContent = [
+          selectedFeedback.metadata && selectedFeedback.metadata.skillId,
+          selectedFeedback.workflowLabel || selectedFeedback.workflowId,
+          selectedFeedback.backendType,
+          selectedFeedback.requestId,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        detail.appendChild(meta);
+        detail.appendChild(
+          renderProductPreview(view.selectedFeedbackPreview, labels),
+        );
+      }
+      layout.appendChild(detail);
+      main.appendChild(layout);
+      return;
+    }
     if (products.length === 0) {
       main.appendChild(el("div", "empty", labelText(labels, "productsEmpty")));
       return;
     }
     const layout = el("div", "products-layout");
+    if (state.productsListCollapsed) {
+      layout.classList.add("products-layout-collapsed");
+    }
     const list = el("div", "product-list");
-    products.forEach(function (product) {
-      const btn = el("button", "product-card");
-      if (selected && product.productId === selected.productId) {
-        btn.classList.add("active");
-      }
-      btn.appendChild(el("strong", "", product.title || product.productId));
-      btn.appendChild(
+    const listHeader = el("div", "product-list-header");
+    const listTitle = el(
+      "div",
+      "product-list-title",
+      labelText(labels, "productsListTitle"),
+    );
+    listTitle.appendChild(
+      el("span", "product-list-count", String(products.length)),
+    );
+    listHeader.appendChild(listTitle);
+    const toggleList = el("button", "product-list-toggle");
+    toggleList.type = "button";
+    toggleList.title = state.productsListCollapsed
+      ? labelText(labels, "productsListExpand")
+      : labelText(labels, "productsListCollapse");
+    toggleList.setAttribute("aria-label", toggleList.title);
+    toggleList.appendChild(
+      icon(
+        `zs-icon-sm ${
+          state.productsListCollapsed
+            ? "zs-icon-right-panel-open"
+            : "zs-icon-right-panel-close"
+        }`,
+      ),
+    );
+    toggleList.addEventListener("click", function () {
+      state.productsListCollapsed = !state.productsListCollapsed;
+      render();
+    });
+    listHeader.appendChild(toggleList);
+    list.appendChild(listHeader);
+    if (state.productsListCollapsed) {
+      const rail = el("div", "product-list-rail");
+      rail.appendChild(
+        el("span", "product-list-rail-count", String(products.length)),
+      );
+      rail.appendChild(
         el(
           "span",
-          "product-card-meta",
-          [
-            product.workflowLabel || product.workflowId,
-            product.storageMode,
-            formatTime(product.updatedAt),
-          ]
-            .filter(Boolean)
-            .join(" · "),
+          "product-list-rail-label",
+          labelText(labels, "productsListRail"),
         ),
       );
-      btn.addEventListener("click", function () {
-        sendAction("select-product", { productId: product.productId });
+      if (selected) {
+        rail.appendChild(
+          el(
+            "span",
+            "product-list-rail-current",
+            selected.title || selected.productId,
+          ),
+        );
+      }
+      list.appendChild(rail);
+    } else {
+      products.forEach(function (product) {
+        const btn = el("button", "product-card");
+        if (selected && product.productId === selected.productId) {
+          btn.classList.add("active");
+        }
+        btn.appendChild(el("strong", "", product.title || product.productId));
+        btn.appendChild(
+          el(
+            "span",
+            "product-card-meta",
+            [
+              product.workflowLabel || product.workflowId,
+              product.storageMode,
+              formatTime(product.updatedAt),
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          ),
+        );
+        btn.addEventListener("click", function () {
+          sendAction("select-product", { productId: product.productId });
+        });
+        list.appendChild(btn);
       });
-      list.appendChild(btn);
-    });
+    }
     layout.appendChild(list);
     const detail = el("div", "product-detail");
     if (selected) {
@@ -1606,6 +2507,268 @@
     main.appendChild(layout);
   }
 
+  function formatAuditTimestamp(value) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return formatMillis(new Date(parsed).toISOString());
+    }
+    return formatTime(value);
+  }
+
+  function auditCountRows(rows, keyName) {
+    return Array.isArray(rows)
+      ? rows
+          .map(function (row) {
+            return {
+              key: String((row && row[keyName]) || "").trim() || "-",
+              count: Number((row && row.count) || 0),
+            };
+          })
+          .filter(function (row) {
+            return row.count > 0;
+          })
+      : [];
+  }
+
+  function renderAuditMetric(label, value) {
+    const card = el("div", "audit-metric");
+    card.appendChild(el("span", "audit-metric-label", label));
+    card.appendChild(el("strong", "audit-metric-value", String(value || 0)));
+    return card;
+  }
+
+  function renderAuditBars(title, rows) {
+    const section = el("section", "section audit-bars-section");
+    section.appendChild(el("h3", "section-title", title));
+    const panel = el("div", "panel audit-bars");
+    if (!rows.length) {
+      panel.appendChild(el("div", "empty", "-"));
+      section.appendChild(panel);
+      return section;
+    }
+    const max = rows.reduce(function (value, row) {
+      return Math.max(value, row.count);
+    }, 1);
+    rows.forEach(function (row) {
+      const item = el("div", "audit-bar-row");
+      item.appendChild(el("span", "audit-bar-label mono", row.key));
+      const track = el("span", "audit-bar-track");
+      const fill = el("span", "audit-bar-fill");
+      fill.style.width = Math.max(4, Math.round((row.count / max) * 100)) + "%";
+      track.appendChild(fill);
+      item.appendChild(track);
+      item.appendChild(el("span", "audit-bar-count", String(row.count)));
+      panel.appendChild(item);
+    });
+    section.appendChild(panel);
+    return section;
+  }
+
+  function renderSkillRunnerConnectionAudit(main, snapshot) {
+    const labels = snapshot.labels || {};
+    const view = snapshot.skillRunnerConnectionAuditView;
+    if (!view || !view.governor) {
+      main.appendChild(
+        el(
+          "div",
+          "empty",
+          labelText(labels, "skillRunnerConnectionAuditEmpty"),
+        ),
+      );
+      return;
+    }
+    const governor = view.governor || {};
+    const summary = governor.summary || {};
+    const events = Array.isArray(governor.events) ? governor.events : [];
+    const active = Array.isArray(governor.active) ? governor.active : [];
+    const queued = Array.isArray(governor.queued) ? governor.queued : [];
+
+    const toolbar = el("div", "toolbar");
+    toolbar.appendChild(
+      el(
+        "h2",
+        "page-title",
+        labelText(labels, "skillRunnerConnectionAuditTitle"),
+      ),
+    );
+    const actions = el("div", "toolbar-actions");
+    const copy = el(
+      "button",
+      "",
+      labelText(labels, "skillRunnerConnectionAuditCopyJson"),
+    );
+    copy.addEventListener("click", function () {
+      copyTextToClipboard(JSON.stringify(view, null, 2)).then(function () {
+        showToast(labelText(labels, "skillRunnerConnectionAuditCopied"));
+      });
+    });
+    actions.appendChild(copy);
+    toolbar.appendChild(actions);
+    main.appendChild(toolbar);
+
+    const metrics = el("div", "audit-metrics");
+    metrics.appendChild(
+      renderAuditMetric(
+        labelText(labels, "skillRunnerConnectionAuditMetricActive"),
+        summary.activeTotal || active.length,
+      ),
+    );
+    metrics.appendChild(
+      renderAuditMetric(
+        labelText(labels, "skillRunnerConnectionAuditMetricQueued"),
+        summary.queuedTotal || queued.length,
+      ),
+    );
+    metrics.appendChild(
+      renderAuditMetric(
+        labelText(labels, "skillRunnerConnectionAuditMetricStreams"),
+        summary.streamTotal || 0,
+      ),
+    );
+    metrics.appendChild(
+      renderAuditMetric(
+        labelText(labels, "skillRunnerConnectionAuditMetricTimeouts"),
+        summary.timeoutCount || 0,
+      ),
+    );
+    metrics.appendChild(
+      renderAuditMetric(
+        labelText(labels, "skillRunnerConnectionAuditMetricLate"),
+        summary.lateSettlementCount || 0,
+      ),
+    );
+    metrics.appendChild(
+      renderAuditMetric("Physical debt", summary.physicalDebtTotal || 0),
+    );
+    metrics.appendChild(
+      renderAuditMetric("Degraded backends", summary.degradedBackendCount || 0),
+    );
+    metrics.appendChild(
+      renderAuditMetric(
+        "Skipped low-priority",
+        (summary.skippedReachabilityCount || 0) +
+          (summary.skippedBackgroundCount || 0) +
+          (summary.skippedHistoryCount || 0),
+      ),
+    );
+    main.appendChild(metrics);
+
+    const grids = el("div", "audit-grid");
+    grids.appendChild(
+      renderAuditBars(
+        labelText(labels, "skillRunnerConnectionAuditByBackend"),
+        auditCountRows(summary.activeByBackend, "backendId").concat(
+          auditCountRows(summary.queuedByBackend, "backendId").map(
+            function (row) {
+              return { key: row.key + " queued", count: row.count };
+            },
+          ),
+        ),
+      ),
+    );
+    grids.appendChild(
+      renderAuditBars(
+        labelText(labels, "skillRunnerConnectionAuditByLane"),
+        auditCountRows(summary.activeByLane, "lane").concat(
+          auditCountRows(summary.queuedByLane, "lane").map(function (row) {
+            return { key: row.key + " queued", count: row.count };
+          }),
+        ),
+      ),
+    );
+    grids.appendChild(
+      renderAuditBars(
+        "Physical debt",
+        auditCountRows(summary.physicalDebtByBackend, "backendId"),
+      ),
+    );
+    main.appendChild(grids);
+
+    const eventRows = events
+      .slice()
+      .reverse()
+      .map(function (event) {
+        return {
+          id: String(event.id || ""),
+          ts: event.ts,
+          type: event.type,
+          backendId: event.backendId || "",
+          lane: event.lane || "",
+          requestId: event.requestId || "",
+          operation: event.operation || "",
+          durationMs: event.durationMs,
+          reason: event.reason || event.errorName || "",
+        };
+      });
+    const section = el("section", "section");
+    section.appendChild(
+      el(
+        "h3",
+        "section-title",
+        labelText(labels, "skillRunnerConnectionAuditEvents"),
+      ),
+    );
+    section.appendChild(
+      renderTaskTable({
+        rows: eventRows,
+        labels,
+        emptyText: labelText(labels, "skillRunnerConnectionAuditEmpty"),
+        tableClassName: "logs-table audit-events-table",
+        tableWrapClassName: "logs-table-wrap",
+        columns: [
+          "时间",
+          "事件",
+          "后端",
+          "Lane",
+          "Request ID",
+          "操作",
+          "耗时",
+          "原因",
+        ],
+        renderRow: function (tr, row) {
+          const timeCell = document.createElement("td");
+          timeCell.textContent = formatAuditTimestamp(row.ts);
+          tr.appendChild(timeCell);
+
+          const eventCell = document.createElement("td");
+          eventCell.appendChild(renderStatusBadge(row.type, row.type));
+          tr.appendChild(eventCell);
+
+          const backendCell = document.createElement("td");
+          backendCell.className = "mono";
+          backendCell.textContent = row.backendId || "-";
+          tr.appendChild(backendCell);
+
+          const laneCell = document.createElement("td");
+          laneCell.className = "mono";
+          laneCell.textContent = row.lane || "-";
+          tr.appendChild(laneCell);
+
+          const requestCell = document.createElement("td");
+          requestCell.className = "mono";
+          requestCell.textContent = row.requestId || "-";
+          tr.appendChild(requestCell);
+
+          const operationCell = document.createElement("td");
+          operationCell.className = "mono";
+          operationCell.textContent = row.operation || "-";
+          tr.appendChild(operationCell);
+
+          const durationCell = document.createElement("td");
+          durationCell.className = "center-cell";
+          durationCell.textContent =
+            typeof row.durationMs === "number" ? row.durationMs + " ms" : "-";
+          tr.appendChild(durationCell);
+
+          const reasonCell = document.createElement("td");
+          reasonCell.textContent = row.reason || "-";
+          tr.appendChild(reasonCell);
+        },
+      }),
+    );
+    main.appendChild(section);
+  }
+
   function renderRuntimeLogs(main, snapshot) {
     const labels = snapshot.labels || {};
     const view = snapshot.runtimeLogsView;
@@ -1615,6 +2778,13 @@
 
     const filters = view.filters || {};
     const selectedIds = new Set(view.selectedEntryIds || []);
+    const pendingRuntimeLogFilters = Object.assign({}, filters);
+    function sendRuntimeLogFilterPatch(patch) {
+      Object.assign(pendingRuntimeLogFilters, patch);
+      sendAction("runtime-logs-set-filters", {
+        filters: Object.assign({}, pendingRuntimeLogFilters),
+      });
+    }
 
     main.appendChild(
       el("h2", "page-title", labelText(labels, "runtimeLogsTabTitle")),
@@ -1634,21 +2804,19 @@
       const labelNode = el("label", "logs-filter-checkbox-label");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
+      checkbox.value = level;
       checkbox.checked = currentLevels.indexOf(level) !== -1;
       checkbox.addEventListener("change", function () {
-        const nextLevels = levels
-          .map(function (l) {
-            return String(l).toLowerCase();
-          })
+        const nextLevels = Array.from(
+          levelWrap.querySelectorAll("input[type='checkbox']"),
+        )
           .filter(function (l) {
-            if (l === level) {
-              return checkbox.checked;
-            }
-            return currentLevels.indexOf(l) !== -1;
+            return l.checked;
+          })
+          .map(function (l) {
+            return l.value;
           });
-        sendAction("runtime-logs-set-filters", {
-          filters: { levels: nextLevels },
-        });
+        sendRuntimeLogFilterPatch({ levels: nextLevels });
       });
       labelNode.appendChild(checkbox);
       labelNode.appendChild(el("span", "logs-filter-text", levelTitle));
@@ -1682,9 +2850,7 @@
         function (nextVals) {
           const payloadIds =
             nextVals.length >= backendOptions.length ? undefined : nextVals;
-          sendAction("runtime-logs-set-filters", {
-            filters: { backendId: payloadIds },
-          });
+          sendRuntimeLogFilterPatch({ backendId: payloadIds });
         },
         labelText(labels, "runtimeLogsFilterAll"),
       );
@@ -1717,9 +2883,7 @@
         function (nextVals) {
           const payloadIds =
             nextVals.length >= workflowOptions.length ? undefined : nextVals;
-          sendAction("runtime-logs-set-filters", {
-            filters: { workflowId: payloadIds },
-          });
+          sendRuntimeLogFilterPatch({ workflowId: payloadIds });
         },
         labelText(labels, "runtimeLogsFilterAll"),
       );
@@ -2032,6 +3196,23 @@
       header.appendChild(
         el("h3", "", `${labelText(labels, "logsDetailTitle")} `),
       );
+      const headerActions = el("div", "logs-detail-actions");
+      const copyBtn = el(
+        "button",
+        "btn logs-detail-copy",
+        labelText(labels, "runtimeLogsCopyDetail"),
+      );
+      copyBtn.addEventListener("click", function () {
+        sendAction("runtime-logs-copy-entry", {
+          entryId: rowEntry.id,
+          format: "pretty-json",
+        });
+        const msg = labels.runtimeLogsCopySuccess
+          ? labels.runtimeLogsCopySuccess.replace("{ $count }", 1)
+          : "Copied 1 log entry!";
+        showToast(msg);
+      });
+      headerActions.appendChild(copyBtn);
       const closeBtn = el(
         "button",
         "btn clear logs-detail-close",
@@ -2045,7 +3226,8 @@
         state.logsActiveReadingId = null;
         state.logsDetailScrollTop = 0;
       });
-      header.appendChild(closeBtn);
+      headerActions.appendChild(closeBtn);
+      header.appendChild(headerActions);
       detailPane.appendChild(header);
 
       const contentWrap = el("div", "logs-detail-content");
@@ -2157,6 +3339,7 @@
 
         tableWrap.scrollTop = currentScroll;
         state.logsScrollTop = currentScroll;
+        rememberSnapshotRenderSignature(snapshot);
         return;
       }
     }
@@ -2249,10 +3432,14 @@
           state.backendTaskScrollTopByTabKey[currentTabKey];
       }
     }
-    clearNode(app);
+    const shell = ensureDashboardShell(app);
+    const sidebar = shell.sidebar;
+    const main = shell.main;
+    clearNode(sidebar);
+    clearNode(main);
+    main.className = "main";
     if (!snapshot) {
-      const loading = el("div", "main");
-      loading.appendChild(
+      main.appendChild(
         el(
           "div",
           "empty",
@@ -2262,14 +3449,12 @@
           ),
         ),
       );
-      app.appendChild(el("aside", "sidebar"));
-      app.appendChild(loading);
+      rememberSnapshotRenderSignature(snapshot);
       return;
     }
 
     document.title = snapshot.title || labelText(snapshot.labels, "tabHome");
 
-    const sidebar = el("aside", "sidebar");
     sidebar.appendChild(
       el("h3", "sidebar-title", labelText(snapshot.labels, "tabHome")),
     );
@@ -2279,10 +3464,7 @@
     } else {
       const homeTab = tabs.find((tab) => tab.key === "home");
       if (homeTab) {
-        const btn = el("button", "tab-btn", homeTab.label || homeTab.key);
-        if (homeTab.key === snapshot.selectedTabKey) {
-          btn.classList.add("active");
-        }
+        const btn = createTabButton(homeTab, snapshot);
         btn.addEventListener("click", function () {
           sendAction("select-tab", {
             tabKey: homeTab.key,
@@ -2294,14 +3476,7 @@
         (tab) => tab.key === "workflow-options",
       );
       if (workflowOptionsTab) {
-        const btn = el(
-          "button",
-          "tab-btn",
-          workflowOptionsTab.label || workflowOptionsTab.key,
-        );
-        if (workflowOptionsTab.key === snapshot.selectedTabKey) {
-          btn.classList.add("active");
-        }
+        const btn = createTabButton(workflowOptionsTab, snapshot);
         btn.addEventListener("click", function () {
           sendAction("select-tab", {
             tabKey: workflowOptionsTab.key,
@@ -2311,14 +3486,7 @@
       }
       const productsTab = tabs.find((tab) => tab.key === "products");
       if (productsTab) {
-        const btn = el(
-          "button",
-          "tab-btn",
-          productsTab.label || productsTab.key,
-        );
-        if (productsTab.key === snapshot.selectedTabKey) {
-          btn.classList.add("active");
-        }
+        const btn = createTabButton(productsTab, snapshot);
         btn.addEventListener("click", function () {
           sendAction("select-tab", {
             tabKey: productsTab.key,
@@ -2328,17 +3496,22 @@
       }
       const runtimeLogsTab = tabs.find((tab) => tab.key === "runtime-logs");
       if (runtimeLogsTab) {
-        const btn = el(
-          "button",
-          "tab-btn",
-          runtimeLogsTab.label || runtimeLogsTab.key,
-        );
-        if (runtimeLogsTab.key === snapshot.selectedTabKey) {
-          btn.classList.add("active");
-        }
+        const btn = createTabButton(runtimeLogsTab, snapshot);
         btn.addEventListener("click", function () {
           sendAction("select-tab", {
             tabKey: runtimeLogsTab.key,
+          });
+        });
+        sidebar.appendChild(btn);
+      }
+      const connectionAuditTab = tabs.find(
+        (tab) => tab.key === "skillrunner-connection-audit",
+      );
+      if (connectionAuditTab) {
+        const btn = createTabButton(connectionAuditTab, snapshot);
+        btn.addEventListener("click", function () {
+          sendAction("select-tab", {
+            tabKey: connectionAuditTab.key,
           });
         });
         sidebar.appendChild(btn);
@@ -2354,14 +3527,12 @@
             tab.key !== "home" &&
             tab.key !== "workflow-options" &&
             tab.key !== "products" &&
-            tab.key !== "runtime-logs",
+            tab.key !== "runtime-logs" &&
+            tab.key !== "skillrunner-connection-audit",
         )
         .forEach(function (tab) {
           const isDisabled = tab.disabled === true;
-          const btn = el("button", "tab-btn", tab.label || tab.key);
-          if (tab.key === snapshot.selectedTabKey) {
-            btn.classList.add("active");
-          }
+          const btn = createTabButton(tab, snapshot);
           if (isDisabled) {
             btn.classList.add("disabled");
             btn.disabled = true;
@@ -2387,10 +3558,6 @@
           sidebar.appendChild(btn);
         });
     }
-    app.appendChild(sidebar);
-
-    const main = el("main", "main");
-    main.classList.remove("skillrunner-fill");
     if (snapshot.backendLoadError) {
       main.appendChild(el("div", "error-banner", snapshot.backendLoadError));
     }
@@ -2410,6 +3577,9 @@
     } else if (snapshot.selectedTabKey === "runtime-logs") {
       main.classList.add("skillrunner-fill"); // reuse the full-height flex config
       renderRuntimeLogs(main, snapshot);
+    } else if (snapshot.selectedTabKey === "skillrunner-connection-audit") {
+      main.classList.add("skillrunner-fill");
+      renderSkillRunnerConnectionAudit(main, snapshot);
     } else if (
       snapshot.backendView &&
       snapshot.backendView.backendType === "skillrunner"
@@ -2425,7 +3595,6 @@
     } else {
       renderGenericBackend(main, snapshot);
     }
-    app.appendChild(main);
     if (shouldRestoreWorkflowOptionsScroll && previousMainScrollTop > 0) {
       main.scrollTop = previousMainScrollTop;
     }
@@ -2456,6 +3625,7 @@
         ] = previousBackendTaskScrollTop;
       }
     }
+    rememberSnapshotRenderSignature(snapshot);
 
     // Synchronously restore scroll layout in the same frame for runtime logs
     if (snapshot.selectedTabKey === "runtime-logs" && state.logsScrollTop > 0) {
@@ -2472,7 +3642,15 @@
       return;
     }
     if (data.type === "dashboard:init" || data.type === "dashboard:snapshot") {
-      state.snapshot = data.payload || null;
+      const nextSnapshot = data.payload || null;
+      if (
+        data.type === "dashboard:snapshot" &&
+        shouldSkipUnchangedSnapshotRender(nextSnapshot)
+      ) {
+        state.snapshot = nextSnapshot;
+        return;
+      }
+      state.snapshot = nextSnapshot;
       render();
     }
   });

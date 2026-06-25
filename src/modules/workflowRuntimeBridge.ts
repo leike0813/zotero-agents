@@ -6,8 +6,13 @@ const GLOBAL_WORKFLOW_RUNTIME_BRIDGE_KEY = "__zsWorkflowRuntimeBridge";
 const ADDON_WORKFLOW_RUNTIME_BRIDGE_KEY = "workflowRuntimeBridge";
 
 type WorkflowRuntimeBridge = {
-  appendRuntimeLog: (input: RuntimeLogInput) => ReturnType<typeof appendRuntimeLog>;
-  showToast: (args: { text: string; type?: "default" | "success" | "error" }) => void;
+  appendRuntimeLog: (
+    input: RuntimeLogInput,
+  ) => ReturnType<typeof appendRuntimeLog>;
+  showToast: (args: {
+    text: string;
+    type?: "default" | "success" | "error";
+  }) => void;
 };
 
 const workflowRuntimeBridge: WorkflowRuntimeBridge = {

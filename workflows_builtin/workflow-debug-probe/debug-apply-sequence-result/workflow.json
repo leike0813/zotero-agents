@@ -1,0 +1,43 @@
+{
+  "id": "debug-apply-sequence-result",
+  "label": "Debug: Apply Sequence Result",
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "request": {
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "result_one",
+          "skill_id": "debug-apply-result-probe",
+          "mode": "auto",
+          "workspace": "new",
+          "fetch_type": "result"
+        },
+        {
+          "id": "result_two",
+          "skill_id": "debug-apply-result-probe",
+          "mode": "auto",
+          "workspace": "reuse-workflow",
+          "fetch_type": "result"
+        }
+      ]
+    }
+  },
+  "execution": {
+    "feedback": {
+      "showNotifications": true
+    }
+  },
+  "hooks": {
+    "buildRequest": "../hooks/buildDebugApplyContractRequest.mjs",
+    "applyResult": "../hooks/applyDebugApplyContractResult.mjs"
+  }
+}

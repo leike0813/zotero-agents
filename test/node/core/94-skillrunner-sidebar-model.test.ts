@@ -4,8 +4,68 @@ import {
   isSkillRunnerTaskRelatedToContext,
   pickSkillRunnerSidebarFocusedTaskKey,
 } from "../../../src/modules/skillRunnerSidebarModel";
+import {
+  ASSISTANT_SIDEBAR_STREAM_FLUSH_MS,
+  decorateAssistantSidebarChildSnapshot,
+} from "../../../src/modules/assistantSidebarViewModel";
 
 describe("skillrunner sidebar model", function () {
+  it("decorates active sidebar panes with render hints and strips inactive transcript payloads", function () {
+    const active = decorateAssistantSidebarChildSnapshot({
+      scopeKey: "scope-1",
+      activeTab: "acp-chat",
+      tab: "acp-chat",
+      revision: 2,
+      waitingCount: 3,
+      full: true,
+      snapshot: {
+        title: "Chat",
+        items: [{ id: "msg-1", kind: "message", text: "hello" }],
+      },
+    });
+    assert.deepEqual(active.items, [
+      { id: "msg-1", kind: "message", text: "hello" },
+    ]);
+    assert.equal(active.sidebar.scopeKey, "scope-1");
+    assert.equal(active.sidebar.activeTab, "acp-chat");
+    assert.equal(active.sidebar.attention.waitingCount, 3);
+    assert.equal(active.renderHints.streamingMode, "plain-incremental");
+    assert.equal(
+      active.renderHints.streamFlushMs,
+      ASSISTANT_SIDEBAR_STREAM_FLUSH_MS,
+    );
+
+    const inactive = decorateAssistantSidebarChildSnapshot({
+      scopeKey: "scope-1",
+      activeTab: "acp-chat",
+      tab: "acp-skills",
+      revision: 3,
+      full: false,
+      snapshot: {
+        selectedRun: {
+          requestId: "run-1",
+          transcriptItems: [{ id: "chunk-1", text: "stream" }],
+        },
+        runs: [
+          {
+            requestId: "run-1",
+            transcriptItems: [{ id: "chunk-1", text: "stream" }],
+          },
+        ],
+      },
+    });
+    assert.deepEqual(
+      (inactive.selectedRun as { transcriptItems: unknown[] }).transcriptItems,
+      [],
+    );
+    assert.deepEqual(
+      (inactive.runs as Array<{ transcriptItems: unknown[] }>)[0]
+        .transcriptItems,
+      [],
+    );
+    assert.isTrue(inactive.sidebar.transcript.stripped);
+  });
+
   it("matches tasks only against related parent item ids", function () {
     const context = {
       primaryParentItemId: 101,
@@ -32,7 +92,7 @@ describe("skillrunner sidebar model", function () {
     );
   });
 
-  it("builds running/completed drawer sections and hides invalid or terminal runs outside succeeded", function () {
+  it("builds running/completed drawer sections and keeps terminal run rows", function () {
     const sections = buildSkillRunnerSidebarSections({
       groups: [
         {
@@ -181,8 +241,66 @@ describe("skillrunner sidebar model", function () {
     assert.lengthOf(sections[0].groups[0].finishedTasks, 0);
     assert.lengthOf(sections[1].groups, 1);
     assert.lengthOf(sections[1].groups[0].activeTasks, 0);
-    assert.lengthOf(sections[1].groups[0].finishedTasks, 1);
-    assert.equal(sections[1].groups[0].finishedTasks[0].requestId, "req-3");
+    assert.lengthOf(sections[1].groups[0].finishedTasks, 3);
+    assert.sameMembers(
+      sections[1].groups[0].finishedTasks.map((task) => task.requestId),
+      ["req-3", "req-4", "req-5"],
+    );
+  });
+
+  it("keeps pre-ready selectable tasks visible without a backend request id", function () {
+    const sections = buildSkillRunnerSidebarSections({
+      groups: [
+        {
+          backendId: "alpha",
+          backendDisplayName: "Alpha",
+          disabled: false,
+          collapsed: false,
+          finishedCollapsed: true,
+          latestUpdatedAt: "2026-04-17T10:00:00.000Z",
+          activeTasks: [
+            {
+              key: "alpha::task:local-run-1",
+              backendId: "alpha",
+              backendDisplayName: "Alpha",
+              workflowLabel: "Flow Pending",
+              status: "request_creating",
+              stateLabel: "Submitting",
+              updatedAt: "2026-04-17T10:00:00.000Z",
+              title: "Pending Placeholder",
+              selectable: true,
+              requestAssigned: false,
+              backendInteractive: false,
+              canOpenStream: false,
+              canCancelBackendRun: false,
+              canReply: false,
+              skillRunnerLifecycleState: "request_creating",
+              terminal: false,
+              targetParentID: 101,
+            },
+          ],
+          finishedTasks: [],
+        },
+      ],
+      context: {
+        primaryParentItemId: 101,
+        relatedParentItemIds: [101],
+      },
+      selectedTaskKey: "alpha::task:local-run-1",
+      completedCollapsed: true,
+    });
+
+    assert.lengthOf(sections[0].groups, 1);
+    assert.lengthOf(sections[0].groups[0].activeTasks, 1);
+    const task = sections[0].groups[0].activeTasks[0];
+    assert.equal(task.key, "alpha::task:local-run-1");
+    assert.isUndefined(task.requestId);
+    assert.equal(task.relationState, "focused");
+    assert.isFalse(task.requestAssigned);
+    assert.isFalse(task.backendInteractive);
+    assert.isFalse(task.canOpenStream);
+    assert.isFalse(task.canCancelBackendRun);
+    assert.isFalse(task.canReply);
   });
 
   it("keeps current focus when still related, otherwise falls back to the first primary related running task", function () {

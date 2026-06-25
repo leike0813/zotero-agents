@@ -1,4 +1,5 @@
 import { appendRuntimeLog } from "../modules/runtimeLogManager";
+import { emitVerboseConsole } from "../modules/diagnosticVerbosity";
 import {
   normalizeStatusWithGuard,
   validateTransition,
@@ -8,7 +9,13 @@ import {
   coerceRecoverableSkillRunnerState,
   getSkillRunnerRequestIdFromJob,
   hasRecoverableSkillRunnerRequest,
+  isNonRecoverableSkillRunnerFailure,
 } from "../modules/skillRunnerRecoverableState";
+import { settleSkillRunnerRunAsFailed } from "../modules/skillRunnerRunSettlement";
+import {
+  getSkillRunnerRunRecordByRequest,
+  recordSkillRunnerObserverFailure,
+} from "../modules/skillRunnerRunStore";
 
 export type JobState =
   | "queued"
@@ -19,11 +26,66 @@ export type JobState =
   | "failed"
   | "canceled";
 
+export type JobRecordMeta = {
+  runId?: string;
+  workflowRunId?: string;
+  localRunId?: string;
+  workflowLabel?: string;
+  taskName?: string;
+  inputUnitIdentity?: string;
+  inputUnitLabel?: string;
+  skillName?: string;
+  skillLabel?: string;
+  skillId?: string;
+  sequenceStepId?: string;
+  sequenceStepIndex?: number;
+  sequenceJobId?: string;
+  sequenceStepSkillId?: string;
+  sequenceStepSkillName?: string;
+  engine?: string;
+  executionMode?: string;
+  providerId?: string;
+  providerOptions?: Record<string, unknown>;
+  requestKind?: string;
+  requestId?: string;
+  backendId?: string;
+  backendType?: string;
+  backendBaseUrl?: string;
+  targetParentID?: number;
+  skillRunnerLifecycleState?:
+    | "pre_request_id"
+    | "request_creating"
+    | "uploading"
+    | JobState;
+  skillRunnerRequestReady?: boolean;
+  skillRunnerSubmitPhase?: string;
+  skillRunnerSubmitStartedAt?: string;
+  skillRunnerSubmitTimeoutAt?: string;
+  skillRunnerSubmitError?: string;
+  skillRunnerTerminalRunError?: boolean;
+  [key: string]: unknown;
+};
+
+const JOB_META_LIFECYCLE_STATES = new Set<
+  NonNullable<JobRecordMeta["skillRunnerLifecycleState"]>
+>([
+  "pre_request_id",
+  "request_creating",
+  "uploading",
+  "queued",
+  "running",
+  "waiting_user",
+  "waiting_auth",
+  "succeeded",
+  "failed",
+  "canceled",
+]);
+
 export type JobRecord = {
   id: string;
   workflowId: string;
   request: unknown;
-  meta: Record<string, unknown>;
+  meta: JobRecordMeta;
   state: JobState;
   error?: string;
   result?: unknown;
@@ -48,6 +110,129 @@ type QueueConfig = {
   onJobProgress?: (job: JobRecord, event: JobProgressEvent) => void;
 };
 
+const JOB_META_STRING_FIELDS = [
+  "runId",
+  "workflowRunId",
+  "localRunId",
+  "workflowLabel",
+  "taskName",
+  "inputUnitIdentity",
+  "inputUnitLabel",
+  "skillName",
+  "skillLabel",
+  "skillId",
+  "sequenceStepId",
+  "sequenceJobId",
+  "sequenceStepSkillId",
+  "sequenceStepSkillName",
+  "engine",
+  "executionMode",
+  "providerId",
+  "requestKind",
+  "requestId",
+  "backendId",
+  "backendType",
+  "backendBaseUrl",
+  "skillRunnerSubmitPhase",
+  "skillRunnerSubmitStartedAt",
+  "skillRunnerSubmitTimeoutAt",
+  "skillRunnerSubmitError",
+] as const;
+
+const JOB_META_INTEGER_FIELDS = [
+  "sequenceStepIndex",
+  "targetParentID",
+] as const;
+
+const JOB_META_BOOLEAN_FIELDS = [
+  "skillRunnerRequestReady",
+  "skillRunnerTerminalRunError",
+] as const;
+
+function normalizeJobMetaBoolean(value: unknown) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return undefined;
+}
+
+export function normalizeJobRecordMeta(meta: JobRecordMeta | undefined) {
+  const normalized: JobRecordMeta = { ...(meta || {}) };
+  for (const key of JOB_META_STRING_FIELDS) {
+    const value = normalized[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) {
+        normalized[key] = trimmed;
+      } else {
+        delete normalized[key];
+      }
+    }
+  }
+  const lifecycleState = normalized.skillRunnerLifecycleState;
+  if (typeof lifecycleState === "string") {
+    const trimmed = lifecycleState.trim();
+    if (
+      JOB_META_LIFECYCLE_STATES.has(
+        trimmed as NonNullable<JobRecordMeta["skillRunnerLifecycleState"]>,
+      )
+    ) {
+      normalized.skillRunnerLifecycleState = trimmed as NonNullable<
+        JobRecordMeta["skillRunnerLifecycleState"]
+      >;
+    } else {
+      delete normalized.skillRunnerLifecycleState;
+    }
+  } else if (typeof lifecycleState !== "undefined") {
+    delete normalized.skillRunnerLifecycleState;
+  }
+  for (const key of JOB_META_INTEGER_FIELDS) {
+    const value = normalized[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      normalized[key] = Math.floor(value);
+    } else if (typeof value !== "undefined") {
+      delete normalized[key];
+    }
+  }
+  for (const key of JOB_META_BOOLEAN_FIELDS) {
+    const value = normalizeJobMetaBoolean(normalized[key]);
+    if (typeof value === "boolean") {
+      normalized[key] = value;
+    } else if (typeof normalized[key] !== "undefined") {
+      delete normalized[key];
+    }
+  }
+  return normalized;
+}
+
+function getExecutionResultRecord(
+  result: unknown,
+): Record<string, unknown> | null {
+  return result && typeof result === "object" && !Array.isArray(result)
+    ? (result as Record<string, unknown>)
+    : null;
+}
+
+function getExecutionResultStatus(result: unknown) {
+  const record = getExecutionResultRecord(result);
+  return String(record?.status || "").trim();
+}
+
+function getExecutionResultError(result: unknown) {
+  const record = getExecutionResultRecord(result);
+  return String(record?.error || "").trim();
+}
+
 export class JobQueueManager {
   private readonly concurrency: number;
 
@@ -59,7 +244,10 @@ export class JobQueueManager {
   ) => Promise<unknown>;
 
   private readonly onJobUpdated?: (job: JobRecord) => void;
-  private readonly onJobProgress?: (job: JobRecord, event: JobProgressEvent) => void;
+  private readonly onJobProgress?: (
+    job: JobRecord,
+    event: JobProgressEvent,
+  ) => void;
 
   private readonly jobs = new Map<string, JobRecord>();
 
@@ -81,7 +269,7 @@ export class JobQueueManager {
   enqueue(args: {
     workflowId: string;
     request: unknown;
-    meta?: Record<string, unknown>;
+    meta?: JobRecordMeta;
   }) {
     const now = new Date().toISOString();
     const id = `job-${this.nextId++}`;
@@ -89,7 +277,7 @@ export class JobQueueManager {
       id,
       workflowId: args.workflowId,
       request: args.request,
-      meta: args.meta || {},
+      meta: normalizeJobRecordMeta(args.meta),
       state: "queued",
       createdAt: now,
       updatedAt: now,
@@ -115,7 +303,7 @@ export class JobQueueManager {
       },
     });
     this.pendingIds.push(id);
-    void this.drain();
+    void Promise.resolve().then(() => this.drain());
     return id;
   }
 
@@ -205,7 +393,8 @@ export class JobQueueManager {
               scope: "job",
               workflowId: job.workflowId,
               backendId: String(job.meta.backendId || "").trim() || undefined,
-              backendType: String(job.meta.backendType || "").trim() || undefined,
+              backendType:
+                String(job.meta.backendType || "").trim() || undefined,
               providerId: String(job.meta.providerId || "").trim() || undefined,
               runId: String(job.meta.runId || "").trim() || undefined,
               jobId: job.id,
@@ -221,11 +410,8 @@ export class JobQueueManager {
         },
       );
       job.result = executionResult;
-      if (
-        executionResult &&
-        typeof executionResult === "object" &&
-        (executionResult as { status?: unknown }).status === "deferred"
-      ) {
+      const executionStatus = getExecutionResultStatus(executionResult);
+      if (executionStatus === "deferred") {
         const requestId = String(
           (executionResult as { requestId?: unknown }).requestId ||
             job.meta.requestId ||
@@ -255,6 +441,16 @@ export class JobQueueManager {
           violation: transition.violation,
         });
         job.state = transition.ok ? transition.nextState : transition.prevState;
+      } else if (
+        executionStatus === "failed" ||
+        executionStatus === "canceled"
+      ) {
+        job.state = executionStatus;
+        job.error =
+          getExecutionResultError(executionResult) ||
+          (executionStatus === "canceled"
+            ? "provider execution canceled"
+            : "provider execution failed");
       } else {
         job.state = "succeeded";
       }
@@ -264,11 +460,13 @@ export class JobQueueManager {
         (executionResult as { requestId?: unknown })?.requestId || "",
       ).trim();
       const stage =
-        executionResult &&
-        typeof executionResult === "object" &&
-        (executionResult as { status?: unknown }).status === "deferred"
+        executionStatus === "deferred"
           ? "dispatch-deferred"
-          : "dispatch-succeeded";
+          : executionStatus === "failed"
+            ? "dispatch-failed"
+            : executionStatus === "canceled"
+              ? "dispatch-canceled"
+              : "dispatch-succeeded";
       appendRuntimeLog({
         level: "info",
         scope: "job",
@@ -286,16 +484,94 @@ export class JobQueueManager {
         message:
           stage === "dispatch-deferred"
             ? "provider dispatch deferred to backend reconciler"
-            : "provider dispatch finished",
+            : stage === "dispatch-failed"
+              ? "provider dispatch finished with terminal failure"
+              : stage === "dispatch-canceled"
+                ? "provider dispatch finished with cancellation"
+                : "provider dispatch finished",
       });
     } catch (error) {
       this.logJobError(job, error);
       job.error = error instanceof Error ? error.message : String(error);
       const requestId = getSkillRunnerRequestIdFromJob(job);
-      if (hasRecoverableSkillRunnerRequest(job)) {
+      const isSkillRunnerJob =
+        String(job.meta.backendType || "").trim() === "skillrunner" &&
+        String(job.meta.requestKind || "").trim() === "skillrunner.job.v1";
+      if (isSkillRunnerJob) {
+        job.meta.skillRunnerSubmitError = job.error;
+        if (!requestId) {
+          job.meta.skillRunnerLifecycleState = "failed";
+          job.meta.skillRunnerSubmitPhase =
+            String(job.meta.skillRunnerSubmitPhase || "").trim() ||
+            "request_creating";
+        } else if (
+          !(
+            job.meta.skillRunnerRequestReady === true ||
+            String(job.meta.skillRunnerRequestReady || "").trim() === "true"
+          )
+        ) {
+          job.meta.skillRunnerLifecycleState = "failed";
+          job.meta.skillRunnerSubmitPhase =
+            String(job.meta.skillRunnerSubmitPhase || "").trim() || "uploading";
+        }
+      }
+      if (requestId && isNonRecoverableSkillRunnerFailure(error)) {
+        job.meta.skillRunnerTerminalRunError = true;
+        job.state = "failed";
+        this.touch(job);
+        this.emitJobUpdated(job);
+        settleSkillRunnerRunAsFailed({
+          backendId: String(job.meta.backendId || "").trim(),
+          backendType: String(job.meta.backendType || "").trim(),
+          providerId: String(job.meta.providerId || "").trim() || "skillrunner",
+          workflowId: job.workflowId,
+          runId: String(job.meta.runId || "").trim(),
+          jobId: job.id,
+          requestId,
+          reason: job.error,
+          source: "job-queue-dispatch",
+          error,
+          updatedAt: job.updatedAt,
+        });
+        appendRuntimeLog({
+          level: "error",
+          scope: "job",
+          workflowId: job.workflowId,
+          backendId: String(job.meta.backendId || "").trim() || undefined,
+          backendType: String(job.meta.backendType || "").trim() || undefined,
+          providerId: String(job.meta.providerId || "").trim() || undefined,
+          runId: String(job.meta.runId || "").trim() || undefined,
+          jobId: job.id,
+          requestId,
+          component: "job-queue",
+          operation: "dispatch-failed-terminal-run",
+          phase: "terminal",
+          stage: "dispatch-failed-terminal-run",
+          message:
+            "provider dispatch failed after request creation with terminal run-level error",
+          error,
+        });
+        return;
+      }
+      if (
+        hasRecoverableSkillRunnerRequest(job) ||
+        (isSkillRunnerJob && requestId)
+      ) {
         job.state = coerceRecoverableSkillRunnerState(job.state);
         this.touch(job);
         this.emitJobUpdated(job);
+        const runRecord = getSkillRunnerRunRecordByRequest({
+          backendId: String(job.meta.backendId || "").trim(),
+          requestId,
+        });
+        if (runRecord) {
+          recordSkillRunnerObserverFailure({
+            runKey: runRecord.runKey,
+            error,
+            source: "job-queue-dispatch",
+            updatedAt: job.updatedAt,
+          });
+        }
         appendRuntimeLog({
           level: "warn",
           scope: "job",
@@ -330,6 +606,7 @@ export class JobQueueManager {
           providerId: String(job.meta.providerId || "").trim() || undefined,
           runId: String(job.meta.runId || "").trim() || undefined,
           jobId: job.id,
+          requestId: requestId || undefined,
           component: "job-queue",
           operation: "dispatch-failed",
           phase: "terminal",
@@ -349,9 +626,7 @@ export class JobQueueManager {
       Zotero?: { logError?: (err: unknown) => void };
     };
     try {
-      if (typeof console !== "undefined" && typeof console.error === "function") {
-        console.error(label, error);
-      }
+      emitVerboseConsole("error", label, error);
     } catch {
       // ignore logging failures
     }

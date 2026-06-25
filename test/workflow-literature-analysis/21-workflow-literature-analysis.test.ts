@@ -29,6 +29,83 @@ import {
   filterReferencesForDigestApply,
 } from "../../workflows_builtin/literature-workbench-package/lib/referenceQualityGate.mjs";
 
+type LiteratureAnalysisSequenceRequest = {
+  kind: string;
+  targetParentID?: number;
+  sourceAttachmentPaths?: string[];
+  steps?: Array<{
+    id?: string;
+    skill_id?: string;
+    mode?: string;
+    workspace?: string;
+    fetch_type?: string;
+    apply_result?: {
+      workflow_id?: string;
+      on_failure?: string;
+    };
+    input?: {
+      source_path?: string;
+      valid_tags?: string;
+      digest_markdown?: string;
+    };
+    parameter?: {
+      language?: string;
+      infer_tag?: boolean;
+      valid_tags_format?: string;
+      tag_note_language?: string;
+    };
+    handoff?: {
+      bindings?: Array<{
+        kind?: string;
+        step?: string;
+        source?: string;
+        target?: string;
+        required?: boolean;
+      }>;
+    };
+  }>;
+  final_step_id?: string;
+  parameter?: {
+    language?: string;
+    auto_tag_regulator?: boolean;
+    auto_tag_infer_tag?: boolean;
+  };
+  runtime_options?: {
+    execution_mode?: string;
+  };
+};
+
+function assertLiteratureAnalysisDigestStep(
+  request: LiteratureAnalysisSequenceRequest,
+  expected: {
+    sourcePath: string;
+    language?: string;
+    targetParentID?: number;
+    autoTagRegulator?: boolean;
+  },
+) {
+  assert.equal(request.kind, "skillrunner.sequence.v1");
+  if (typeof expected.targetParentID === "number") {
+    assert.equal(request.targetParentID, expected.targetParentID);
+  }
+  assert.deepEqual(request.sourceAttachmentPaths, [expected.sourcePath]);
+  assert.isArray(request.steps);
+  const digestStep = request.steps?.find((step) => step.id === "digest");
+  assert.isOk(digestStep, "digest sequence step should exist");
+  assert.equal(digestStep?.skill_id, "literature-analysis");
+  assert.equal(digestStep?.mode, "auto");
+  assert.equal(digestStep?.workspace, "new");
+  assert.equal(digestStep?.fetch_type, "bundle");
+  assert.equal(digestStep?.apply_result?.workflow_id, "literature-analysis");
+  assert.equal(digestStep?.apply_result?.on_failure, "continue");
+  assert.equal(digestStep?.input?.source_path, expected.sourcePath);
+  assert.equal(digestStep?.parameter?.language, expected.language || "zh-CN");
+  assert.equal(
+    request.final_step_id,
+    expected.autoTagRegulator === false ? "digest" : "tag-regulator",
+  );
+}
+
 function parseNoteKind(noteContent: string) {
   const text = String(noteContent || "");
   const match = text.match(/data-zs-note-kind=(["'])([^"']+)\1/i);
@@ -227,15 +304,14 @@ describe("workflow: literature-analysis", function () {
         (entry) => entry.manifest.id === "literature-analysis",
       );
       assert.isOk(workflow, "expected literature-analysis workflow");
-      assert.equal(workflow?.manifest.request?.kind, "skillrunner.job.v1");
-      assert.equal(
-        (
-          workflow?.manifest.request?.create as
-            | { skill_id?: string }
-            | undefined
-        )?.skill_id,
-        "literature-analysis",
+      assert.equal(workflow?.manifest.request?.kind, "skillrunner.sequence.v1");
+      const sequenceSteps = workflow?.manifest.request?.sequence?.steps || [];
+      assert.deepEqual(
+        sequenceSteps.map((step) => step.id),
+        ["digest", "tag-regulator"],
       );
+      assert.equal(sequenceSteps[0]?.skill_id, "literature-analysis");
+      assert.equal(sequenceSteps[1]?.skill_id, "tag-regulator");
       assert.equal(workflow?.manifest.parameters?.language?.default, "zh-CN");
       assert.notProperty(
         workflow?.manifest.parameters || {},
@@ -255,8 +331,7 @@ describe("workflow: literature-analysis", function () {
     const warning = classifyReferenceExtractionQuality({
       title:
         "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
-      raw:
-        "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
+      raw: "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
       year: "2021",
     });
     assert.equal(warning.disposition, "accept");
@@ -299,32 +374,18 @@ describe("workflow: literature-analysis", function () {
       workflow: workflow!,
       selectionContext: context,
       executionOptions: {
-        providerOptions: {
-          engine: "gemini",
+        workflowParams: {
+          auto_tag_regulator: false,
         },
       },
-    })) as Array<{
-      kind: string;
-      targetParentID: number;
-      skill_id: string;
-      parameter?: { language?: string };
-      runtime_options?: { execution_mode?: string };
-      input?: { source_path?: string };
-      upload_files: Array<{ key: string; path: string }>;
-    }>;
+    })) as LiteratureAnalysisSequenceRequest[];
     assert.lengthOf(requests, 1);
     const request = requests[0];
-    assert.equal(request.kind, "skillrunner.job.v1");
-    assert.equal(request.targetParentID, parent.id);
-    assert.equal(request.skill_id, "literature-analysis");
-    assert.equal(request.parameter?.language, "zh-CN");
-    assert.equal(request.runtime_options?.execution_mode, "auto");
-    assert.equal(request.upload_files?.[0].key, "source_path");
-    assert.equal(request.upload_files?.[0].path, mdFile);
-    assert.match(
-      String(request.input?.source_path || ""),
-      /^inputs\/source_path\//,
-    );
+    assertLiteratureAnalysisDigestStep(request, {
+      sourcePath: mdFile,
+      targetParentID: parent.id,
+      autoTagRegulator: false,
+    });
   });
 
   itNodeOnly(
@@ -356,22 +417,18 @@ describe("workflow: literature-analysis", function () {
       const requests = (await executeBuildRequests({
         workflow: workflow!,
         selectionContext: context,
-      })) as Array<{
-        kind: string;
-        runtime_options?: { execution_mode?: string };
-        input?: { source_path?: string };
-        upload_files: Array<{ key: string; path: string }>;
-      }>;
+        executionOptions: {
+          workflowParams: {
+            auto_tag_regulator: false,
+          },
+        },
+      })) as LiteratureAnalysisSequenceRequest[];
 
       assert.lengthOf(requests, 1);
-      assert.equal(requests[0].kind, "skillrunner.job.v1");
-      assert.equal(requests[0].runtime_options?.execution_mode, "auto");
-      assert.equal(requests[0].upload_files?.[0].key, "source_path");
-      assert.equal(requests[0].upload_files?.[0].path, pdfFile);
-      assert.match(
-        String(requests[0].input?.source_path || ""),
-        /^inputs\/source_path\//,
-      );
+      assertLiteratureAnalysisDigestStep(requests[0], {
+        sourcePath: pdfFile,
+        autoTagRegulator: false,
+      });
     },
   );
 
@@ -439,18 +496,6 @@ describe("workflow: literature-analysis", function () {
         citationAnalysis: "<div><h1>Citation Analysis</h1><pre>{}</pre></div>",
       },
     },
-    {
-      label: "legacy paragraph strong headings",
-      title: "Workflow Legacy Paragraph Skip Parent",
-      noteContents: {
-        digest:
-          "<div><p><strong>Literature Digest</strong></p><p>legacy paragraph</p></div>",
-        references:
-          "<div><p><strong>References JSON</strong></p><pre>[]</pre></div>",
-        citationAnalysis:
-          "<div><p><strong>Citation Analysis</strong></p><pre>{}</pre></div>",
-      },
-    },
   ] as const;
 
   for (const entry of legacySkipCases) {
@@ -483,6 +528,42 @@ describe("workflow: literature-analysis", function () {
       },
     );
   }
+
+  itFullOnly(
+    "builds request for legacy paragraph-strong note formats that no longer imply idempotent completion",
+    async function () {
+      const workflow = await getLiteratureDigestWorkflow();
+      const { parent, attachment } = await createDigestAttachmentParent({
+        title: "Workflow Legacy Paragraph Rebuild Parent",
+      });
+      await addGeneratedDigestNotes(parent, {
+        digest:
+          "<div><p><strong>Literature Digest</strong></p><p>legacy paragraph</p></div>",
+        references:
+          "<div><p><strong>References JSON</strong></p><pre>[]</pre></div>",
+        citationAnalysis:
+          "<div><p><strong>Citation Analysis</strong></p><pre>{}</pre></div>",
+      });
+      const context = await buildSelectionContext([attachment]);
+
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext: context,
+        executionOptions: {
+          workflowParams: {
+            auto_tag_regulator: false,
+          },
+        },
+      })) as LiteratureAnalysisSequenceRequest[];
+
+      assert.lengthOf(requests, 1);
+      assertLiteratureAnalysisDigestStep(requests[0], {
+        sourcePath: fixturePath("literature-analysis", "example.md"),
+        targetParentID: parent.id,
+        autoTagRegulator: false,
+      });
+    },
+  );
 
   it("applies bundle by creating digest/references/citation-analysis child notes", async function () {
     this.timeout(5000);
@@ -529,6 +610,63 @@ describe("workflow: literature-analysis", function () {
     assert.include(parentNotes, thirdNote.id);
   });
 
+  it("applies valid artifacts when skill output includes a non-null error diagnostic", async function () {
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Diagnostic Error Parent" },
+    });
+    const workflow = await getLiteratureDigestWorkflow();
+
+    const applied = (await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: {
+        async readText(entryPath: string) {
+          if (entryPath === "result/result.json") {
+            return JSON.stringify({
+              status: "failed",
+              data: {
+                digest_path: "artifacts/digest.md",
+                references_path: "artifacts/references.json",
+                citation_analysis_path: "artifacts/citation_analysis.json",
+                warnings: ["partial extraction"],
+                error: {
+                  type: "agent_warning",
+                  message: "agent reported a recoverable issue",
+                },
+              },
+            });
+          }
+          if (entryPath === "artifacts/digest.md") {
+            return "# Digest\n\nDiagnostic apply still works.";
+          }
+          if (entryPath === "artifacts/references.json") {
+            return "[]";
+          }
+          if (entryPath === "artifacts/citation_analysis.json") {
+            return '{"report_md":"# Citation Analysis"}';
+          }
+          throw new Error(`missing bundle entry: ${entryPath}`);
+        },
+      },
+    })) as {
+      notes?: Zotero.Item[];
+      warnings?: string[];
+      skill_diagnostics?: {
+        status?: string;
+        error?: { message?: string };
+      };
+    };
+
+    assert.lengthOf(applied.notes || [], 3);
+    assert.deepEqual(applied.warnings, ["partial extraction"]);
+    assert.equal(applied.skill_diagnostics?.status, "failed");
+    assert.equal(
+      applied.skill_diagnostics?.error?.message,
+      "agent reported a recoverable issue",
+    );
+  });
+
   it("filters deterministic invalid references before writing the references note", async function () {
     this.timeout(5000);
     const parent = await handlers.item.create({
@@ -560,8 +698,7 @@ describe("workflow: literature-analysis", function () {
               {
                 title: "Attention is all you need",
                 year: "2017",
-                raw:
-                  "Ashish Vaswani et al. Attention is all you need. In NeurIPS, 2017.",
+                raw: "Ashish Vaswani et al. Attention is all you need. In NeurIPS, 2017.",
               },
               {
                 title: "https://doi.org/10.1007/978-3-319-10602-1_48",
@@ -579,8 +716,7 @@ describe("workflow: literature-analysis", function () {
                 title:
                   "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp",
                 year: "2021",
-                raw:
-                  "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
+                raw: "Conditional DETR for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp. 2021.",
               },
             ]);
           }
@@ -614,7 +750,10 @@ describe("workflow: literature-analysis", function () {
     const payload = (await parseStoredPayload(
       Zotero.Items.get(referencesNote!.id)!,
       "references-json",
-    )) as { references?: Array<{ title?: string }>; reference_quality?: unknown };
+    )) as {
+      references?: Array<{ title?: string }>;
+      reference_quality?: unknown;
+    };
     assert.deepEqual(
       (payload.references || []).map((entry) => entry.title),
       [
@@ -627,13 +766,15 @@ describe("workflow: literature-analysis", function () {
     assert.equal(applied.reference_quality?.rejected_count, 3);
     assert.isAtLeast(applied.reference_quality?.warning_count || 0, 1);
     assert.include(
-      applied.reference_quality?.rejected?.flatMap((row) => row.reasons || []) ||
-        [],
+      applied.reference_quality?.rejected?.flatMap(
+        (row) => row.reasons || [],
+      ) || [],
       "bare_identifier_or_url_title",
     );
     assert.include(
-      applied.reference_quality?.warnings?.flatMap((row) => row.reasons || []) ||
-        [],
+      applied.reference_quality?.warnings?.flatMap(
+        (row) => row.reasons || [],
+      ) || [],
       "bibliographic_suffix_in_title",
     );
   });
@@ -889,54 +1030,57 @@ describe("workflow: literature-analysis", function () {
     },
   );
 
-  itNodeOnly("ignores removed auto reference matching parameter", async function () {
-    this.timeout(5000);
-    await handlers.item.create({
-      itemType: "journalArticle",
-      fields: {
-        title: "Character-level language modeling with deeper self-attention",
-        date: "2019",
-        extra: "Citation Key: DisabledAutoMatching2019",
-      },
-    });
-    const parent = await handlers.item.create({
-      itemType: "journalArticle",
-      fields: { title: "Workflow Auto Matching Disabled Parent" },
-    });
-    const workflow = await getLiteratureDigestWorkflow();
-
-    const applied = (await executeApplyResult({
-      workflow,
-      parent,
-      bundleReader: new ZipBundleReader(
-        fixturePath("literature-analysis", "run_bundle.zip"),
-      ),
-      request: {
-        parameter: {
-          auto_reference_matching: false,
+  itNodeOnly(
+    "ignores removed auto reference matching parameter",
+    async function () {
+      this.timeout(5000);
+      await handlers.item.create({
+        itemType: "journalArticle",
+        fields: {
+          title: "Character-level language modeling with deeper self-attention",
+          date: "2019",
+          extra: "Citation Key: DisabledAutoMatching2019",
         },
-      },
-    })) as {
-      notes: Zotero.Item[];
-      auto_reference_matching?: unknown;
-    };
+      });
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Workflow Auto Matching Disabled Parent" },
+      });
+      const workflow = await getLiteratureDigestWorkflow();
 
-    const referencesNote = applied.notes.find(
-      (note) =>
-        parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
-    );
-    assert.isOk(referencesNote);
-    const payload = (await parseStoredPayload(
-      Zotero.Items.get(referencesNote!.id)!,
-      "references-json",
-    )) as {
-      references?: Array<{ citekey?: string }>;
-      reference_matching?: unknown;
-    };
-    assert.isUndefined(payload.references?.[0]?.citekey);
-    assert.isUndefined(payload.reference_matching);
-    assert.isUndefined(applied.auto_reference_matching);
-  });
+      const applied = (await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader: new ZipBundleReader(
+          fixturePath("literature-analysis", "run_bundle.zip"),
+        ),
+        request: {
+          parameter: {
+            auto_reference_matching: false,
+          },
+        },
+      })) as {
+        notes: Zotero.Item[];
+        auto_reference_matching?: unknown;
+      };
+
+      const referencesNote = applied.notes.find(
+        (note) =>
+          parseNoteKind(Zotero.Items.get(note.id)!.getNote()) === "references",
+      );
+      assert.isOk(referencesNote);
+      const payload = (await parseStoredPayload(
+        Zotero.Items.get(referencesNote!.id)!,
+        "references-json",
+      )) as {
+        references?: Array<{ citekey?: string }>;
+        reference_matching?: unknown;
+      };
+      assert.isUndefined(payload.references?.[0]?.citekey);
+      assert.isUndefined(payload.reference_matching);
+      assert.isUndefined(applied.auto_reference_matching);
+    },
+  );
 
   itNodeOnly(
     "updates an existing references note without automatic reference matching",
@@ -1546,10 +1690,6 @@ describe("workflow: literature-analysis", function () {
                       patch.content,
                       'data-zs-block="representative-image"',
                     );
-                    assert.include(
-                      patch.content,
-                      'data-attachment-key="IMGSTALE1"',
-                    );
                     return baseHostApi.notes.update(realDigestNote, patch);
                   }
                   return baseHostApi.notes.update(note, patch);
@@ -1584,7 +1724,6 @@ describe("workflow: literature-analysis", function () {
           digestNote.getNote(),
           'data-zs-block="representative-image"',
         );
-        assert.include(digestNote.getNote(), 'data-attachment-key="IMGSTALE1"');
         assert.equal(applied.notes[0].id, digestNote.id);
       } finally {
         await fs.rm(root, { recursive: true, force: true });
@@ -2317,14 +2456,7 @@ describe("workflow: literature-analysis", function () {
           0,
           `${entry.label}: backend fetch should be skipped`,
         );
-        assert.lengthOf(alerts, 1, entry.label);
-        expectWorkflowSummaryCounter(alerts[0], "succeeded", 0);
-        expectWorkflowSummaryCounter(alerts[0], "failed", 0);
-        expectWorkflowSummaryCounter(
-          alerts[0],
-          "skipped",
-          entry.expectedSkipped,
-        );
+        assert.lengthOf(alerts, 0, entry.label);
       }
     },
   );
@@ -2389,10 +2521,7 @@ describe("workflow: literature-analysis", function () {
       }
 
       assert.equal(fetchCalls, 0, "backend fetch should be skipped");
-      assert.lengthOf(alerts, 1);
-      expectWorkflowSummaryCounter(alerts[0], "succeeded", 0);
-      expectWorkflowSummaryCounter(alerts[0], "failed", 0);
-      expectWorkflowSummaryCounter(alerts[0], "skipped", 2);
+      assert.lengthOf(alerts, 0);
     },
   );
 

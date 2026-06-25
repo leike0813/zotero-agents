@@ -5,4 +5,3 @@ export function resolveAddonRuntimeEnv(): AddonRuntimeEnv {
   const value = runtime.__env__;
   return value === "production" ? "production" : "development";
 }
-

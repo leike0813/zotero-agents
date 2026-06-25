@@ -1,46 +1,106 @@
-# 快速开始
+# Getting Started
 
-## 1. 配置后端
+## 1. Install Official Workflow Packages
 
-安装插件后，您需要配置至少一个后端连接。
+The plugin itself contains no business logic. After installing the plugin, you first need to install the official workflow packages:
 
-1. 打开 **工具 → 后端管理器**
-2. 点击 **添加** 来添加新的后端
-3. 填写必要字段：
-   - **显示名称**：一个友好的名称（例如"我的本地 Skill-Runner"）
-   - **类型**：对应 Skill-Runner 后端选择 `skillrunner`
-   - **基础 URL**：后端的地址（例如 `http://127.0.0.1:8080`）
-   - **认证令牌**：如果后端需要认证
-4. 点击 **保存**
+1. Right-click any Zotero item → **Zotero Agents** → **📦 Install Official Workflow Packages**
+2. Wait for the download and installation to complete
+3. After successful installation, all official workflows will be visible in the Dashboard
 
-> 对于 ACP 兼容后端，选择 `acp` 类型并提供启动后端进程的命令。
+You can also install or update the official packages at any time from **Zotero → Settings → Zotero Agents**.
 
-## 2. 验证连接
+## 2. Configure a Backend
 
-1. 从 Zotero 工具栏或 **工具 → 任务面板** 打开任务面板
-2. 您配置的后端应出现在面板侧边栏中
-3. 如果后端正在运行，其状态指示器应显示为已连接
+### ACP Backend (Recommended)
 
-## 3. 运行第一个技能
+This is the most recommended approach — as long as you have any ACP-compatible agent tool installed on your machine, it requires zero additional configuration.
 
-1. 在任务面板中，从 **技能** 区域选择一个技能
-2. 配置所需的参数
-3. 点击 **运行** 来执行技能
-4. 在面板中监控进度——您将看到技能执行期间的实时更新
-5. 完成后，查看结果和输出
+1. Open **Tools → [Backend Manager](backends/backend-manager)**
+2. Switch to the **ACP** tab
+3. Select your agent tool from the **Add from Preset** dropdown (Codex / OpenCode / Claude Code, etc.)
+4. The preset auto-fills the command; click **Save** in the bottom-right corner
 
-## 4. 探索工作流
+**First time using an agent tool?** Refer to the official documentation of the respective tool for installation:
 
-工作流将多个技能链接到自动化的流水线中。
+| Agent | Installation Guide |
+|-------|-------------------|
+| **OpenCode** | [opencode.ai docs](https://opencode.ai/docs) |
+| **Codex** | [OpenAI Codex docs](https://platform.openai.com/docs) |
+| **Claude Code** | [Anthropic docs](https://docs.anthropic.com/en/docs/claude-code) |
+| **Gemini CLI** | [Google docs](https://github.com/google-gemini/gemini-cli) |
+| **Qwen Code** | [Alibaba Cloud docs](https://help.aliyun.com/zh/model-studio/qwen-code) |
 
-1. 打开 **工具 → 工作流设置**
-2. 浏览可用的工作流或创建新的工作流
-3. 配置工作流步骤和触发条件
-4. 运行工作流并在面板中监控其进度
+→ See [ACP Backend Configuration](backends/acp) for details
 
-## 下一步
+### MinerU Backend (for PDF Parsing)
 
-- **探索预置技能**：在面板中浏览可用的技能
-- **创建自定义工作流**：将技能组合成自动化的流水线
-- **监控性能**：使用运行日志和面板中的检查工具
-- **加入社区**：在 [GitHub 仓库](https://github.com/leike0813/Zotero-Skills) 中报告问题或建议功能
+The MinerU workflow can convert PDFs to Markdown, making it the ideal preprocessing step for all subsequent literature analysis. Configuration is straightforward:
+
+1. Visit [mineru.net](https://mineru.net) to register an account, and obtain an API Token from **API → API Management**
+2. Open **Tools → [Backend Manager](backends/backend-manager)**
+3. Switch to the **Generic HTTP** tab, click **Add Generic HTTP**
+4. Fill in: Display Name `MinerU Official` · Base URL `https://mineru.net` · Authentication `bearer` · Auth Token: paste your API Token · Timeout `60000`
+5. Click **Save** in the bottom-right corner
+
+→ See [MinerU Usage Guide](workflows/mineru) for details
+
+### Alternative: Docker-deployed Skill-Runner
+
+If you need persistent background execution or LAN sharing, you can [deploy Skill-Runner with Docker](backends/skill-runner#recommended-docker-persistent-deployment). After deployment, add a backend instance in the SkillRunner tab.
+
+> For detailed operation instructions, see [Backend Manager](backends/backend-manager).
+
+## 3. Complete Workflow
+
+Below is a complete end-to-end workflow. It is recommended to try each step in order. First, select a paper with a PDF attachment from your library.
+
+### Step 1: PDF → Markdown (MinerU)
+
+Right-click this paper (or directly right-click its PDF attachment), and select **Zotero Agents → MinerU**. After a short wait, a `.md` file of the paper content will be generated in the same directory as the PDF.
+
+### Step 2: Try the Built-in Markdown Reader
+
+Find the newly generated `.md` file in the Zotero attachment list and **double-click to open it in the built-in reader** — featuring outline navigation, search, math formula rendering, and code syntax highlighting. If you prefer not to use the built-in reader, you can disable it in Preferences and revert to the system default opener.
+
+→ See [Built-in Markdown Reader](markdown-reader) for details
+
+### Step 3: Run Literature Analysis
+
+Right-click this paper (or directly right-click the `.md` attachment), and select **Zotero Agents → Literature Analysis**. The agent will automatically generate three artifacts; upon completion, three note attachments will appear under the item:
+
+| Note | Content |
+|------|---------|
+| **Digest** | Paper digest — research background, methods, results, and conclusions |
+| **References** | Structured references — a tabular citation list |
+| **Citation Analysis** | Citation analysis report — citation context and citation intent classification |
+
+→ See [Literature Analysis](workflows/literature-analysis) for details
+
+### Step 4: Interactive Literature Explainer
+
+If you have any questions about this paper, right-click and select **Zotero Agents → Literature Explainer**. The sidebar will automatically open the chat panel, where you can freely converse with the agent about the paper's content. The agent's answers go through a verification gateway, so you don't need to worry about fabrication. After the conversation, the Q&A record will be generated as study notes.
+
+→ See [Literature Explainer](workflows/literature-explainer) for details
+
+### Step 5: Deep Reading
+
+When you need to thoroughly and systematically read an important paper, right-click and select **Zotero Agents → Deep Reading**. The agent will produce a polished standalone HTML document — including section analysis, key concepts, references, and bilingual translations. Enriched with your library information (if available), this document will also carry the broader research context, related concepts, and key questions.
+
+→ See [Deep Reading](workflows/literature-deep-reading) for details
+
+### Step 6: Topic Synthesis — From Individual Papers to the Big Picture
+
+Once your library has reached a certain size and the relevant papers have all undergone literature analysis and tag normalization, you can create a Topic Synthesis.
+
+Run **Create Topic Synthesis** from the Dashboard, enter a description of your research direction, and the agent will automatically identify relevant papers in your library and generate an extremely rigorous, accurate, and comprehensive synthesis report. This report is written entirely based on your library content, far more precise and reliable than generic AI responses.
+
+→ See [Topic Synthesis](workflows/topic-synthesis) for details
+
+## Next Steps
+
+- **Batch Processing**: Run [Literature Analysis](workflows/literature-analysis) on papers in your library in bulk to build the foundation for Synthesis
+- **Tag System**: Use [Tag Bootstrapper](workflows/tag-bootstrapper) to create a controlled vocabulary and standardize your metadata
+- **Graph Exploration**: Visualize your citation network in the [Synthesis Workbench](synthesis)
+- **Custom Development**: Refer to [Custom Workflows](workflows/custom/) to create your own workflows
+- **Report Issues**: Report problems on [GitHub](https://github.com/leike0813/zotero-agents/issues) or [Gitee](https://gitee.com/leike0813/zotero-agents/issues)

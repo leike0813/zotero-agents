@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "probe_id": { "type": "string", "minLength": 1 },
+    "public_marker": { "type": "string" },
+    "secret_marker": { "type": "string" },
+    "write_sentinel": { "type": "boolean" },
+    "sentinel_path": { "type": "string" }
+  },
+  "required": ["probe_id"],
+  "additionalProperties": true
+}

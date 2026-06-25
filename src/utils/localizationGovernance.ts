@@ -148,12 +148,47 @@ export function resolveManagedLocalRuntimeToastText(
 export function resolveSkillRunnerBackendCommunicationFailedToastText(
   backendDisplayName: string,
 ) {
-  const normalizedDisplayName = String(backendDisplayName || "").trim() || "unknown";
+  const normalizedDisplayName =
+    String(backendDisplayName || "").trim() || "unknown";
   return getStringWithLocaleFallback({
     key: "skillrunner-backend-communication-failed",
     fallback: {
       zhCN: `与后端${normalizedDisplayName}通信失败`,
       enUS: `Failed to communicate with backend ${normalizedDisplayName}`,
+    },
+    values: {
+      backend: normalizedDisplayName,
+    },
+  });
+}
+
+export function resolveSkillRunnerBackendUnavailableToastText(
+  backendDisplayName: string,
+) {
+  const normalizedDisplayName =
+    String(backendDisplayName || "").trim() || "unknown";
+  return getStringWithLocaleFallback({
+    key: "skillrunner-backend-unavailable-toast",
+    fallback: {
+      zhCN: `后端${normalizedDisplayName}暂时不可达，请稍后再试。`,
+      enUS: `Backend ${normalizedDisplayName} is temporarily unreachable. Please try again later.`,
+    },
+    values: {
+      backend: normalizedDisplayName,
+    },
+  });
+}
+
+export function resolveSkillRunnerBackendAutoDisabledToastText(
+  backendDisplayName: string,
+) {
+  const normalizedDisplayName =
+    String(backendDisplayName || "").trim() || "unknown";
+  return getStringWithLocaleFallback({
+    key: "skillrunner-backend-auto-disabled-toast",
+    fallback: {
+      zhCN: `后端${normalizedDisplayName}已在 6 小时未成功连接后自动禁用。请在后端管理器中重新启用后再探测。`,
+      enUS: `Backend ${normalizedDisplayName} was disabled after 6 hours without a successful connection. Re-enable it in Backend Manager to probe again.`,
     },
     values: {
       backend: normalizedDisplayName,

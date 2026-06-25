@@ -29,7 +29,9 @@ describe("acp message stream", function () {
   it("encodes and decodes ndjson messages without global Web Streams", async function () {
     const outputChunks: Uint8Array[] = [];
     const inputChunks = [
-      new TextEncoder().encode('{"jsonrpc":"2.0","id":1,"result":{"ok":true}}\n'),
+      new TextEncoder().encode(
+        '{"jsonrpc":"2.0","id":1,"result":{"ok":true}}\n',
+      ),
     ];
     const output: AcpWritableLike<Uint8Array> = {
       getWriter() {
@@ -153,7 +155,8 @@ describe("acp message stream", function () {
           async write() {
             throw {
               message: "File closed",
-              fileName: "resource://gre/modules/subprocess/subprocess_worker_win.js",
+              fileName:
+                "resource://gre/modules/subprocess/subprocess_worker_win.js",
               lineNumber: 706,
               errorCode: 4286185473,
             };
@@ -191,9 +194,12 @@ describe("acp message stream", function () {
     assert.instanceOf(thrown, Error);
     assert.equal((thrown as Error & { stage?: string }).stage, "ndjson_write");
     assert.include((thrown as Error).message, "File closed");
-    assert.deepInclude((thrown as Error & { cause?: unknown }).cause as object, {
-      message: "File closed",
-      errorCode: 4286185473,
-    });
+    assert.deepInclude(
+      (thrown as Error & { cause?: unknown }).cause as object,
+      {
+        message: "File closed",
+        errorCode: 4286185473,
+      },
+    );
   });
 });

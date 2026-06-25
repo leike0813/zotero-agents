@@ -32,6 +32,7 @@ import {
   workflowsPath,
 } from "../zotero/workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
+import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 import {
   flushSaveTxLoadProbeReport,
   isTagRegulatorSaveTxLoadProbeEnabled,
@@ -269,8 +270,12 @@ function clonePersistedTagEntry(entry: PersistedTagEntry): PersistedTagEntry {
 function normalizePersistedTagEntry(entry: Partial<PersistedTagEntry>) {
   const tag = String(entry.tag || "").trim();
   const facet =
-    String(entry.facet || "").trim().toLowerCase() ||
-    String(tag.split(":")[0] || "topic").trim().toLowerCase();
+    String(entry.facet || "")
+      .trim()
+      .toLowerCase() ||
+    String(tag.split(":")[0] || "topic")
+      .trim()
+      .toLowerCase();
   return {
     tag,
     facet,
@@ -311,9 +316,8 @@ function installSynthesisTagVocabularyHostApiGlobals() {
           };
         },
         async saveTagVocabulary(args: { entries?: PersistedTagEntry[] }) {
-          synthesisVocabularyEntries = (Array.isArray(args?.entries)
-            ? args.entries
-            : []
+          synthesisVocabularyEntries = (
+            Array.isArray(args?.entries) ? args.entries : []
           )
             .map(normalizePersistedTagEntry)
             .filter((entry) => entry.tag);
@@ -345,13 +349,18 @@ function installSynthesisTagVocabularyHostApiGlobals() {
             : []) {
             const normalized = normalizePersistedTagEntry({
               ...incoming,
-              source: String((incoming as any).source_flow || incoming.source || "tag-regulator-suggest"),
+              source: String(
+                (incoming as any).source_flow ||
+                  incoming.source ||
+                  "tag-regulator-suggest",
+              ),
               parentBindings: Array.isArray((incoming as any).parent_bindings)
                 ? (incoming as any).parent_bindings
                 : incoming.parentBindings,
             });
             const existingIndex = synthesisStagedEntries.findIndex(
-              (entry) => entry.tag.toLowerCase() === normalized.tag.toLowerCase(),
+              (entry) =>
+                entry.tag.toLowerCase() === normalized.tag.toLowerCase(),
             );
             if (existingIndex >= 0) {
               const existing = synthesisStagedEntries[existingIndex];
@@ -376,7 +385,11 @@ function installSynthesisTagVocabularyHostApiGlobals() {
         async discardStagedTagSuggestions(args?: { tags?: string[] }) {
           const tags = new Set(
             (Array.isArray(args?.tags) ? args!.tags : [])
-              .map((tag) => String(tag || "").trim().toLowerCase())
+              .map((tag) =>
+                String(tag || "")
+                  .trim()
+                  .toLowerCase(),
+              )
               .filter(Boolean),
           );
           synthesisStagedEntries = synthesisStagedEntries.filter(
@@ -683,8 +696,10 @@ async function runSuggestTagsEmptyScenario(args?: { titleSuffix?: string }) {
 
 function setupTagRegulatorWorkflowSuite() {
   let restoreHostApi: (() => void) | null = null;
+  let restorePrefs: (() => void) | null = null;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     clearTagVocabularyState();
     resetRuntimeBridgeOverrideForTests();
     restoreHostApi = installSynthesisTagVocabularyHostApiGlobals();
@@ -695,6 +710,8 @@ function setupTagRegulatorWorkflowSuite() {
     restoreHostApi = null;
     resetRuntimeBridgeOverrideForTests();
     clearTagVocabularyState();
+    restorePrefs?.();
+    restorePrefs = null;
   });
   return { itNodeOnly, itZoteroFullOrNode };
 }
@@ -961,7 +978,10 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
         (entry) => entry.key === "digest_markdown",
       );
       assert.isOk(digestUpload, "digest markdown upload should be present");
-      assert.equal(await readUtf8(String(digestUpload?.path || "")), digestMarkdown);
+      assert.equal(
+        await readUtf8(String(digestUpload?.path || "")),
+        digestMarkdown,
+      );
     },
   );
 
@@ -1147,7 +1167,7 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
             addon: {
               getConfig() {
                 return {
-                  addonName: "Zotero Skills",
+                  addonName: "Zotero Agents",
                   addonRef: "zotero-skills",
                   prefsPrefix,
                 };
@@ -1188,9 +1208,6 @@ function registerTagRegulatorApplyIntakeSegment(
   itNodeOnly: typeof it,
   itZoteroFullOrNode: typeof it,
 ) {
-  const itSaveTxLoadProbe =
-    isZoteroRuntime() && isTagRegulatorSaveTxLoadProbeEnabled() ? it : it.skip;
-
   if (isTagRegulatorSaveTxLoadProbeEnabled() && isZoteroRuntime()) {
     after(async function () {
       await flushSaveTxLoadProbeReport();
@@ -1294,11 +1311,10 @@ function registerTagRegulatorApplyIntakeSegment(
     },
   );
 
-  for (const mode of ["create-only", "create-and-update"] as const) {
-    for (const count of [0, 20, 50, 100]) {
-      itSaveTxLoadProbe(
-        `diagnostic saveTx load probe mode=${mode} count=${count}`,
-        async function () {
+  if (isZoteroRuntime() && isTagRegulatorSaveTxLoadProbeEnabled()) {
+    for (const mode of ["create-only", "create-and-update"] as const) {
+      for (const count of [0, 20, 50, 100]) {
+        it(`diagnostic saveTx load probe mode=${mode} count=${count}`, async function () {
           this.timeout(120000);
           const title = `mode=${mode};count=${count};test=${this.test?.title || ""}`;
           const startedAt = new Date().toISOString();
@@ -1331,19 +1347,26 @@ function registerTagRegulatorApplyIntakeSegment(
             startedAt,
             finishedAt: new Date().toISOString(),
           });
-        },
-      );
+        });
+      }
     }
-  }
 
-  for (const probeCase of [
-    { mode: "create-only" as const, count: 100, idleEvery: 10, idleMs: 50 },
-    { mode: "create-and-update" as const, count: 20, idleEvery: 5, idleMs: 50 },
-    { mode: "create-and-update" as const, count: 50, idleEvery: 5, idleMs: 50 },
-  ]) {
-    itSaveTxLoadProbe(
-      `diagnostic saveTx idle control mode=${probeCase.mode} count=${probeCase.count} every=${probeCase.idleEvery} idleMs=${probeCase.idleMs}`,
-      async function () {
+    for (const probeCase of [
+      { mode: "create-only" as const, count: 100, idleEvery: 10, idleMs: 50 },
+      {
+        mode: "create-and-update" as const,
+        count: 20,
+        idleEvery: 5,
+        idleMs: 50,
+      },
+      {
+        mode: "create-and-update" as const,
+        count: 50,
+        idleEvery: 5,
+        idleMs: 50,
+      },
+    ]) {
+      it(`diagnostic saveTx idle control mode=${probeCase.mode} count=${probeCase.count} every=${probeCase.idleEvery} idleMs=${probeCase.idleMs}`, async function () {
         this.timeout(180000);
         const idlePolicy = `every-${probeCase.idleEvery}x${probeCase.idleMs}ms`;
         const title = `mode=${probeCase.mode};count=${probeCase.count};idle=${idlePolicy};test=${this.test?.title || ""}`;
@@ -1391,8 +1414,8 @@ function registerTagRegulatorApplyIntakeSegment(
           startedAt,
           finishedAt: new Date().toISOString(),
         });
-      },
-    );
+      });
+    }
   }
 
   itNodeOnly(
@@ -1762,7 +1785,9 @@ function registerTagRegulatorApplyIntakeSegment(
         saved: false,
         actionId: "stage-all",
         result: {
-          suggestTagEntries: [{ tag: "topic:stage-upsert", note: "stage note" }],
+          suggestTagEntries: [
+            { tag: "topic:stage-upsert", note: "stage note" },
+          ],
           rowErrors: {},
           addedDirect: [],
           staged: [],
@@ -1891,7 +1916,9 @@ function registerTagRegulatorApplyIntakeSegment(
         assert.deepEqual(loadStagedTagVocabularyState().entries, []);
         assert.deepEqual(listTags(parent), ["topic:join-fail"]);
         assert.isFalse(
-          toasts.some((entry) => /publish failed/i.test(String(entry.text || ""))),
+          toasts.some((entry) =>
+            /publish failed/i.test(String(entry.text || "")),
+          ),
         );
         assert.isFalse(
           logs.some(
@@ -2304,7 +2331,7 @@ function registerTagRegulatorApplyIntakeSegment(
   );
 
   itNodeOnly(
-    "skips mutation when skill output has non-null error",
+    "applies valid mutation when skill output has non-null error diagnostic",
     async function () {
       const parent = await handlers.item.create({
         itemType: "journalArticle",
@@ -2343,13 +2370,27 @@ function registerTagRegulatorApplyIntakeSegment(
       })) as {
         applied: boolean;
         skipped: boolean;
-        reason?: string;
+        removed?: string[];
+        added?: string[];
+        warnings?: string[];
+        skill_diagnostics?: {
+          status?: string;
+          error?: { message?: string };
+        };
       };
 
-      assert.isFalse(applied.applied);
-      assert.isTrue(applied.skipped);
-      assert.match(String(applied.reason || ""), /skill error/i);
-      assert.deepEqual(listTags(parent), before);
+      assert.isTrue(applied.applied);
+      assert.isFalse(applied.skipped);
+      assert.deepEqual(applied.removed, ["topic:legacy"]);
+      assert.deepEqual(applied.added, ["topic:tunnel"]);
+      assert.deepEqual(applied.warnings, ["backend failed"]);
+      assert.equal(applied.skill_diagnostics?.status, "failed");
+      assert.equal(
+        applied.skill_diagnostics?.error?.message,
+        "missing valid_tags",
+      );
+      assert.notDeepEqual(listTags(parent), before);
+      assert.deepEqual(listTags(parent), ["topic:tunnel"]);
     },
   );
 
@@ -2378,8 +2419,10 @@ function registerTagRegulatorApplyIntakeSegment(
                 remove_tags: ["topic:legacy"],
                 add_tags: "topic:tunnel",
                 suggest_tags: [],
-                warnings: [],
-                error: null,
+                warnings: ["malformed mutation payload"],
+                error: {
+                  message: "agent emitted add_tags as a string",
+                },
               },
               artifacts: [],
               validation_warnings: [],
@@ -2391,11 +2434,18 @@ function registerTagRegulatorApplyIntakeSegment(
         applied: boolean;
         skipped: boolean;
         reason?: string;
+        warnings?: string[];
+        skill_diagnostics?: { error?: { message?: string } };
       };
 
       assert.isFalse(applied.applied);
       assert.isTrue(applied.skipped);
       assert.match(String(applied.reason || ""), /malformed/i);
+      assert.deepEqual(applied.warnings, ["malformed mutation payload"]);
+      assert.equal(
+        applied.skill_diagnostics?.error?.message,
+        "agent emitted add_tags as a string",
+      );
       assert.deepEqual(listTags(parent), before);
     },
   );
@@ -2448,7 +2498,7 @@ function registerTagRegulatorApplyIntakeSegment(
   );
 
   itNodeOnly(
-    "uses resultJson.result.data and ignores poll responseJson envelope",
+    "uses canonical resultJson and ignores poll responseJson envelope",
     async function () {
       const parent = await handlers.item.create({
         itemType: "journalArticle",
@@ -2488,58 +2538,53 @@ function registerTagRegulatorApplyIntakeSegment(
           },
           runResult: {
             resultJson: {
-              request_id: "req-live-shape",
-              result: {
-                status: "success",
-                data: {
-                  metadata: {
-                    key: "KSM65VAD",
-                    title:
-                      "MOTR: end-to-end multiple-object tracking with transformer",
-                  },
-                  input_tags: [
-                    "/unread",
-                    "End-to-End",
-                    "Multiple-object tracking",
-                    "Transformer",
-                  ],
-                  remove_tags: [
-                    "/unread",
-                    "End-to-End",
-                    "Multiple-object tracking",
-                    "Transformer",
-                  ],
-                  add_tags: [
-                    "ai_task:tracking",
-                    "data:video",
-                    "field:CS/AI/CV",
-                    "model:DL/transformer",
-                  ],
-                  suggest_tags: [
-                    {
-                      tag: "topic:end-to-end",
-                      note: "end-to-end topic",
-                    },
-                    {
-                      tag: "topic:multiple-object-tracking",
-                      note: "multiple-object-tracking topic",
-                    },
-                  ],
-                  warnings: [
-                    "Inferred tags based on title and abstract.",
-                    "Mapped 'Multiple-object tracking' to 'ai_task:tracking'.",
-                  ],
-                  error: null,
-                },
-                artifacts: [],
-                validation_warnings: ["OUTPUT_REPAIRED_GENERIC"],
-                error: null,
+              metadata: {
+                key: "KSM65VAD",
+                title:
+                  "MOTR: end-to-end multiple-object tracking with transformer",
               },
+              input_tags: [
+                "/unread",
+                "End-to-End",
+                "Multiple-object tracking",
+                "Transformer",
+              ],
+              remove_tags: [
+                "/unread",
+                "End-to-End",
+                "Multiple-object tracking",
+                "Transformer",
+              ],
+              add_tags: [
+                "ai_task:tracking",
+                "data:video",
+                "field:CS/AI/CV",
+                "model:DL/transformer",
+              ],
+              suggest_tags: [
+                {
+                  tag: "topic:end-to-end",
+                  note: "end-to-end topic",
+                },
+                {
+                  tag: "topic:multiple-object-tracking",
+                  note: "multiple-object-tracking topic",
+                },
+              ],
+              warnings: [
+                "Inferred tags based on title and abstract.",
+                "Mapped 'Multiple-object tracking' to 'ai_task:tracking'.",
+              ],
+              error: null,
             },
             responseJson: {
               status: "succeeded",
-              warnings: ["OUTPUT_REPAIRED_GENERIC"],
-              error: null,
+              result: {
+                data: {
+                  remove_tags: [],
+                  add_tags: ["stale:poll-envelope"],
+                },
+              },
             },
           },
         })) as {

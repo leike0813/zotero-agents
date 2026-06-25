@@ -1,13 +1,17 @@
 import { upsertLiteratureDigestGeneratedNotes } from "../../lib/literatureDigestNotes.mjs";
+import { applyLiteratureDigestSidecar } from "../../lib/literatureDigestSidecar.mjs";
 import { extractRepresentativeImageLocator } from "../../lib/representativeImage.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import { filterReferencesForDigestApply } from "../../lib/referenceQualityGate.mjs";
+import {
+  appendSkillDiagnosticsToResult,
+  collectSkillOutputDiagnostics,
+} from "../../lib/resultOutput.mjs";
 import {
   measureWorkflowTestSpan,
   requireHostApi,
   withPackageRuntimeScope,
 } from "../../lib/runtime.mjs";
-import { applyResult as applyTagRegulatorResult } from "../../tag-regulator/hooks/applyResult.mjs";
 
 function normalizePathForCompare(targetPath) {
   const text = String(targetPath || "").trim();
@@ -84,8 +88,7 @@ function getResultArtifactPath(result, key) {
   }
   return (
     String(result?.[key] || "").trim() ||
-    String(result?.data?.[key] || "").trim() ||
-    String(result?.result?.[key] || "").trim()
+    String(result?.data?.[key] || "").trim()
   );
 }
 
@@ -94,7 +97,6 @@ function resolveWorkflowParameter(args) {
     args?.request?.parameter,
     args?.request?.request?.json?.parameter,
     args?.runResult?.resultJson?.parameter,
-    args?.runResult?.responseJson?.parameter,
   ];
   for (const candidate of candidates) {
     if (
@@ -131,38 +133,6 @@ function findDigestNote(notes) {
 
 function findCitationAnalysisNote(notes) {
   return findGeneratedNote(notes, "citation-analysis");
-}
-
-async function applyLiteratureDigestSidecar(args) {
-  const synthesis = requireHostApi(args.runtime)?.synthesis;
-  if (
-    !synthesis ||
-    typeof synthesis.applyLiteratureDigestSidecar !== "function"
-  ) {
-    return null;
-  }
-  return synthesis.applyLiteratureDigestSidecar({
-    parentItem: args.parentItem,
-    digest: {
-      noteKey: String(args.digestNote?.key || "").trim(),
-      content: args.digestText,
-    },
-    references: {
-      noteKey: String(args.referencesNote?.key || "").trim(),
-      references: args.referencesPayload?.references || [],
-    },
-    citationAnalysis: {
-      noteKey: String(args.citationAnalysisNote?.key || "").trim(),
-      payloadHash: "",
-    },
-    literatureMatchingMetadata: args.literatureMatchingMetadata || null,
-    source: {
-      workflow: "literature-analysis",
-      digest_entry: args.digestEntryPath,
-      references_entry: args.referencesEntryPath,
-      citation_analysis_entry: args.citationAnalysisEntryPath,
-    },
-  });
 }
 
 const LITERATURE_MATCHING_METADATA_SCHEMA = "literature_matching_metadata.v1";
@@ -478,6 +448,7 @@ async function applyResultImpl({
     {},
     () => readResultJson({ resultContext, bundleReader }),
   );
+  const skillOutputDiagnostics = collectSkillOutputDiagnostics(result);
   const sourceAttachmentPaths =
     collectSourceAttachmentPathsFromRequest(request);
   const representativeImageLocator = extractRepresentativeImageLocator(result);
@@ -536,7 +507,8 @@ async function applyResultImpl({
       const normalizedReferences = runtime.helpers.normalizeReferencesPayload(
         JSON.parse(referencesResolved.text),
       );
-      const referenceQuality = filterReferencesForDigestApply(normalizedReferences);
+      const referenceQuality =
+        filterReferencesForDigestApply(normalizedReferences);
       return {
         payload: {
           version: 1,
@@ -639,19 +611,22 @@ async function applyResultImpl({
     representative_image: representativeImage,
     reference_quality: referencesPayload.quality,
   };
-  return {
-    ...appliedWithRepresentativeImage,
-    sidecar_apply: sidecarApply,
-    literature_matching_metadata: literatureMatchingMetadataResolved.payload
-      ? {
-          status: "attached",
-          entry: literatureMatchingMetadataResolved.entryPath,
-        }
-      : {
-          status: "unavailable",
-          warning: literatureMatchingMetadataResolved.warning,
-        },
-  };
+  return appendSkillDiagnosticsToResult(
+    {
+      ...appliedWithRepresentativeImage,
+      sidecar_apply: sidecarApply,
+      literature_matching_metadata: literatureMatchingMetadataResolved.payload
+        ? {
+            status: "attached",
+            entry: literatureMatchingMetadataResolved.entryPath,
+          }
+        : {
+            status: "unavailable",
+            warning: literatureMatchingMetadataResolved.warning,
+          },
+    },
+    skillOutputDiagnostics,
+  );
 }
 
 function resolveSequenceSteps(runResult) {
@@ -669,7 +644,9 @@ function findSequenceStep(runResult, stepId) {
 function requireSequenceStepContext(runResult, stepId) {
   const step = findSequenceStep(runResult, stepId);
   if (!step) {
-    throw new Error(`literature-analysis sequence apply missing step: ${stepId}`);
+    throw new Error(
+      `literature-analysis sequence apply missing step: ${stepId}`,
+    );
   }
   if (
     !step.bundleReader ||
@@ -696,54 +673,18 @@ function summarizeSequence(runResult) {
 }
 
 async function applySequenceResultImpl(args) {
-  const digestStep = requireSequenceStepContext(args.runResult, "digest");
-  const digest = await applyResultImpl({
-    ...args,
-    bundleReader: digestStep.bundleReader,
-    resultContext: digestStep.resultContext,
-    runResult: {
-      ...(digestStep.result && typeof digestStep.result === "object"
-        ? digestStep.result
-        : {}),
-      sequence: args.runResult?.sequence,
-    },
-  });
-  const tagStep = findSequenceStep(args.runResult, "tag-regulator");
-  if (!tagStep) {
-    return digest;
-  }
-  if (
-    !tagStep.bundleReader ||
-    typeof tagStep.bundleReader.readText !== "function" ||
-    !tagStep.resultContext
-  ) {
-    throw new Error(
-      "literature-analysis sequence apply missing result context for step: tag-regulator",
-    );
-  }
-  const tagRegulator = await applyTagRegulatorResult({
-    parent: args.parent,
-    bundleReader: tagStep.bundleReader,
-    resultContext: tagStep.resultContext,
-    productStorage: args.productStorage,
-    request: {
-      kind: "skillrunner.sequence.step.v1",
-      step_id: "tag-regulator",
-      workflow_request: args.request,
-    },
-    runResult: tagStep.result,
-    manifest: args.manifest,
-    runtime: args.runtime,
-  });
   return {
-    digest,
-    tag_regulator: tagRegulator,
+    skipped: true,
+    reason: "sequence steps own applyResult",
     sequence: summarizeSequence(args.runResult),
   };
 }
 
 export async function applyResult(args) {
   return withPackageRuntimeScope(args?.runtime, () => {
+    if (args?.sequenceStep?.phase === "sequence-step") {
+      return applyResultImpl(args);
+    }
     if (resolveSequenceSteps(args?.runResult).length > 0) {
       return applySequenceResultImpl(args);
     }

@@ -149,13 +149,11 @@ describe("Synthesis checkpoint export", function () {
     );
     assert.isFalse(
       await runtimePathExists(
-        path.join(paths.stateRoot, oldSidecarIndexFile),
+        path.join(paths.sidecarRoot, oldSidecarIndexFile),
       ),
     );
     assert.isFalse(
-      await runtimePathExists(
-        path.join(paths.stateRoot, oldGraphIndexFile),
-      ),
+      await runtimePathExists(path.join(paths.sidecarRoot, oldGraphIndexFile)),
     );
 
     const verified = await service.verifySynthesisCheckpoint();

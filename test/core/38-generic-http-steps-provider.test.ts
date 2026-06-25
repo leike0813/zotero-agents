@@ -52,7 +52,9 @@ describe("generic-http provider: steps", function () {
           return jsonResponse({ code: 0, msg: "uploaded" });
         }
         if (url.endsWith("/api/v4/extract-results/batch/batch-1")) {
-          return pollResponses.shift() || pollResponses[pollResponses.length - 1];
+          return (
+            pollResponses.shift() || pollResponses[pollResponses.length - 1]
+          );
         }
         if (url === "http://download.local/full.zip") {
           return new Response(bundleBytes, {
@@ -156,7 +158,10 @@ describe("generic-http provider: steps", function () {
     assert.equal(result.status, "succeeded");
     assert.equal(result.fetchType, "bundle");
     assert.equal(result.requestId, "batch-1");
-    assert.deepEqual(Array.from(result.bundleBytes || []), Array.from(bundleBytes));
+    assert.deepEqual(
+      Array.from(result.bundleBytes || []),
+      Array.from(bundleBytes),
+    );
 
     assert.lengthOf(calls, 5);
     assert.equal(calls[0].url, "http://mineru.local/api/v4/file-urls/batch");
@@ -186,7 +191,10 @@ describe("generic-http provider: steps", function () {
         const url = String(input);
         if (url.endsWith("/create")) {
           return jsonResponse({
-            data: { batch_id: "batch-fail", upload_url: "http://upload.local/f" },
+            data: {
+              batch_id: "batch-fail",
+              upload_url: "http://upload.local/f",
+            },
           });
         }
         if (url === "http://upload.local/f") {

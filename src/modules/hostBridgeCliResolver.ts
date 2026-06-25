@@ -103,7 +103,15 @@ export function resolveHostBridgeCliPlatform(args: {
     };
   }
   if (platform === "linux") {
-    return { dir: "linux-x64", binary: "zotero-bridge" };
+    const dir =
+      arch === "ia32" || arch === "x86" || arch === "x32"
+        ? "linux-x86"
+        : arch === "arm"
+          ? "linux-arm"
+          : arch === "arm64" || arch === "aarch64"
+            ? "linux-arm64"
+            : "linux-x64";
+    return { dir, binary: "zotero-bridge" };
   }
   return { dir: "unknown", binary: "zotero-bridge" };
 }

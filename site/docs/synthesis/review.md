@@ -1,86 +1,88 @@
-# 审核中心
+# Review Hub
 
-Review 表面是集中处理 Synthesis 系统中各类待审核事项的地方。包含三个子标签页：**引用匹配**、**概念** 和 **主题图**。
+The Review surface is the centralized place for handling all pending review items in the Synthesis system. It contains three sub-tabs: **Citation Matches**, **Concepts**, and **Topic Graph**.
 
-## 引用匹配审核
+![Synthesis Review Hub](/img/docs/synthesis/review.png)
 
-当系统自动匹配参考文献与 Zotero 条目时，无法确定性判定的匹配会作为提案进入审核队列。
+## Citation Match Review
 
-### 匹配提案状态
+When the system automatically matches references to Zotero items, matches that cannot be determined with certainty are submitted as proposals to the review queue.
 
-| 状态 | 说明 |
-|------|------|
-| **待审核** | 系统生成的匹配候选，等待用户确认或拒绝 |
-| **已接受** | 用户确认绑定，该引用已与 Zotero 条目关联 |
-| **已拒绝** | 用户拒绝该绑定 |
-| **已重新打开** | 之前处理过的提案重新开放审核 |
+### Match Proposal Status
 
-### 可执行的操作
+| Status | Description |
+|--------|-------------|
+| **Pending** | System-generated match candidate awaiting user confirmation or rejection |
+| **Accepted** | User confirmed the binding; the reference is now linked to a Zotero item |
+| **Rejected** | User rejected the binding |
+| **Reopened** | A previously processed proposal reopened for review |
 
-- **接受（Accept）**：确认引用与条目的绑定关系
-- **拒绝（Reject）**：拒绝该匹配提案
-- **批量操作**：勾选多个提案后批量接受或拒绝
+### Available Actions
 
-### 匹配置信度
+- **Accept**: Confirm the citation-to-item binding relationship
+- **Reject**: Decline the match proposal
+- **Batch Operations**: Select multiple proposals to accept or reject in bulk
 
-参考 [索引与引文图谱](index-and-citation) 中的置信度级别说明。确定性（deterministic）和高置信度（high）的匹配通常自动处理，中等（medium）及以下置信度的匹配会进入审核。
+### Match Confidence
 
-### 筛选与排序
+See [Index & Citation Graph](index-and-citation) for confidence level descriptions. Deterministic and high-confidence matches are usually processed automatically; medium and lower confidence matches enter the review queue.
 
-可以按以下条件筛选提案列表：
+### Filtering & Sorting
 
-- 匹配状态（待审核/已接受/已拒绝）
-- 匹配策略（DOI/标题/作者等）
-- 置信度级别
-- 按时间或相关性排序
+You can filter the proposal list by:
 
-## 概念审核
+- Match status (pending / accepted / rejected)
+- Match strategy (DOI / title / author, etc.)
+- Confidence level
+- Sort by time or relevance
 
-概念知识库的自动扩展可能会产生置信度较低的概念匹配建议，需要用户审核确认。
+## Concept Review
 
-### 审核对象
+Automatic expansion of the concept knowledge base may produce concept match suggestions with low confidence, requiring user review and confirmation.
 
-- **新概念建议**：从文献中自动提取的新概念候选
-- **概念义项确认**：为已有概念添加新的含义（义项）时需确认
-- **别名建议**：检测到同一概念的替代名称时需确认
+### Review Targets
 
-### 操作方式
+- **New Concept Suggestions**: New concept candidates automatically extracted from literature
+- **Sense Confirmation**: Confirming when a new meaning (sense) is added to an existing concept
+- **Alias Suggestions**: Confirming when an alternative name for the same concept is detected
 
-每条建议显示概念名称、提取来源、置信度和支持证据。用户可：
+### How to Operate
 
-- **接受**：确认该建议，写入概念 KB
-- **拒绝**：忽略该建议
-- **查看上下文**：查看该概念在文献中的出现位置
+Each suggestion displays the concept name, extraction source, confidence level, and supporting evidence. You can:
 
-## 主题图审核
+- **Accept**: Confirm the suggestion and write it to the concept KB
+- **Reject**: Dismiss the suggestion
+- **View Context**: See where the concept appears in the literature
 
-当系统检测到主题之间可能存在关系时，会生成关系提案供审核。
+## Topic Graph Review
 
-### 关系类型
+When the system detects potential relationships between topics, it generates relationship proposals for review.
 
-| 关系 | 说明 |
-|------|------|
-| `broader_than` | A 是 B 的上位主题（更广泛） |
-| `related_to` | 两个主题相关 |
-| `overlaps_with` | 两个主题有内容重叠 |
-| `contrasts_with` | 两个主题形成对比 |
+### Relationship Types
 
-### 提案内容
+| Relationship | Description |
+|--------------|-------------|
+| `broader_than` | A is a broader topic than B |
+| `related_to` | Two topics are related |
+| `overlaps_with` | Two topics have content overlap |
+| `contrasts_with` | Two topics contrast with each other |
 
-每条提案显示：
+### Proposal Content
 
-- **源主题和目标主题**的名称与描述
-- **建议的关系类型**
-- **置信度**（基于主题内容的语义分析）
-- **支持证据**（共同覆盖的论文等）
+Each proposal displays:
 
-### 操作方式
+- **Source and Target Topic** names and descriptions
+- **Suggested Relationship Type**
+- **Confidence** (based on semantic analysis of topic content)
+- **Supporting Evidence** (co-covered papers, etc.)
 
-- **接受**：确认该关系，写入 Topic Graph
-- **拒绝**：忽略该关系建议
-- **重新打开**：将已处理的提案重新开放审核
+### How to Operate
 
-## 下一步
+- **Accept**: Confirm the relationship and write it to the Topic Graph
+- **Reject**: Dismiss the relationship suggestion
+- **Reopen**: Reopen a previously processed proposal for review
 
-- [概念知识库](concepts) — 管理概念、义项、别名
-- [Topics](topic-synthesis) — 管理主题综合
+## Next Steps
+
+- [Concept Knowledge Base](concepts) — Manage concepts, senses, aliases
+- [Topics](topic-synthesis) — Manage topic syntheses

@@ -1,0 +1,51 @@
+{
+  "id": "debug-host-bridge-connectivity-probe",
+  "label": "Debug: Host Bridge Connectivity Probe",
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "parameters": {
+    "probeDepth": {
+      "type": "string",
+      "title": "Probe Depth",
+      "default": "capability",
+      "enum": ["basic", "auth", "capability"]
+    },
+    "expectedConnectionMode": {
+      "type": "string",
+      "title": "Expected Connection Mode",
+      "default": "auto",
+      "enum": ["auto", "local", "remote"]
+    }
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "skill_id": "debug-host-bridge-connectivity-probe",
+      "mode": "auto"
+    }
+  },
+  "execution": {
+    "zoteroHostAccess": {
+      "required": true
+    },
+    "feedback": {
+      "showNotifications": true
+    }
+  },
+  "result": {
+    "fetch": { "type": "result" },
+    "expects": {
+      "result_json": "result/result.json"
+    }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applyHostBridgeConnectivityProbeResult.mjs"
+  }
+}

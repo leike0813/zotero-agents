@@ -20,7 +20,9 @@ export function buildTempBundlePath(requestId: string) {
 
 export async function writeBytes(filePath: string, bytes: Uint8Array) {
   const runtime = globalThis as unknown as {
-    IOUtils?: { write?: (targetPath: string, data: Uint8Array) => Promise<number | void> };
+    IOUtils?: {
+      write?: (targetPath: string, data: Uint8Array) => Promise<number | void>;
+    };
   };
   if (typeof runtime.IOUtils?.write === "function") {
     await runtime.IOUtils.write(filePath, bytes);
@@ -32,7 +34,12 @@ export async function writeBytes(filePath: string, bytes: Uint8Array) {
 
 export async function removeFileIfExists(filePath: string) {
   const runtime = globalThis as {
-    IOUtils?: { remove?: (targetPath: string, options?: { ignoreAbsent?: boolean }) => Promise<void> };
+    IOUtils?: {
+      remove?: (
+        targetPath: string,
+        options?: { ignoreAbsent?: boolean },
+      ) => Promise<void>;
+    };
   };
   if (typeof runtime.IOUtils?.remove === "function") {
     await runtime.IOUtils.remove(filePath, {

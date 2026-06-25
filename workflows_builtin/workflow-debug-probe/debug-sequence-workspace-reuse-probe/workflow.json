@@ -2,13 +2,15 @@
   "id": "debug-sequence-workspace-reuse-probe",
   "label": "Debug: Sequence Workspace Reuse Probe",
   "version": "0.1.0",
-  "provider": "acp",
+  "provider": "skillrunner",
   "debug_only": true,
   "trigger": {
     "requiresSelection": false
   },
+  "inputs": {
+    "unit": "workflow"
+  },
   "execution": {
-    "skillrunner_mode": "auto",
     "feedback": {
       "showNotifications": false
     }
@@ -23,6 +25,7 @@
         {
           "id": "writer",
           "skill_id": "debug-sequence-probe-emit",
+          "mode": "auto",
           "workspace": "new",
           "parameter": {
             "probe_id": "workspace-reuse",
@@ -35,6 +38,7 @@
         {
           "id": "reader",
           "skill_id": "debug-sequence-probe-check",
+          "mode": "auto",
           "workspace": "reuse-workflow",
           "parameter": {
             "probe_id": "workspace-reuse",
@@ -46,6 +50,7 @@
         {
           "id": "finalize",
           "skill_id": "debug-sequence-probe-finalize",
+          "mode": "auto",
           "workspace": "reuse-workflow",
           "parameter": {
             "probe_id": "workspace-reuse",

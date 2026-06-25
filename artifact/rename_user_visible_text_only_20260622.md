@@ -1,0 +1,337 @@
+# 插件改名调查（仅用户可见文本）：zotero-skills → zotero-agents
+
+**调查日期**：2026-06-22  
+**调查目的**：评估仅修改用户可见的插件名称文本，保持内部标识符不变的改动范围和风险
+
+---
+
+## 一、改动策略
+
+### 仅改用户可见文本
+
+- **改**：用户界面中显示的品牌名称 "Zotero Skills" → "Zotero Agents"
+- **不改**：内部标识符（addonID、addonRef、addonInstance、prefsPrefix 等）
+
+### 保持不变的部分
+
+| 字段 | 保持值 | 说明 |
+|------|--------|------|
+| `addonID` | `zotero-skills@leike0813@gmail.com` | 插件唯一标识，不变 |
+| `addonRef` | `zotero-skills` | 资源路径前缀，不变 |
+| `addonInstance` | `ZoteroSkills` | 全局命名空间，不变 |
+| `prefsPrefix` | `extensions.zotero.zotero-skills` | 偏好设置前缀，不变 |
+| CSS 类名 | `.icon-zotero-skills-workspace` | 不变 |
+| Tab ID | `zotero-skills-workspace` | 不变 |
+| JS 全局对象 | `window.ZoteroSkillsTheme` 等 | 不变 |
+| 事件名 | `zotero-skills-theme-change` | 不变 |
+
+---
+
+## 二、改动清单
+
+### 1. package.json（1 处）
+
+```json
+{
+  "config": {
+    "addonName": "Zotero Agents"  // 原值: "Zotero Skills"
+  }
+}
+```
+
+### 2. addon/locale/ 本地化文件（4 个语言，24 处）
+
+#### en-US/addon.ftl（4 处）
+
+```
+task-dashboard-toolbar-open = Open Zotero Agents Workspace
+workspace-shell-tab-title = Zotero Agents
+prefs-title = Zotero Agents
+synthesis-brand-alt = Zotero Agents
+```
+
+#### zh-CN/addon.ftl（4 处）
+
+```
+task-dashboard-toolbar-open = 打开 Zotero Agents 工作区
+workspace-shell-tab-title = Zotero Agents
+prefs-title = Zotero Agents
+synthesis-brand-alt = Zotero Agents
+```
+
+#### ja-JP/addon.ftl（8 处）
+
+```
+menuitem-label = Zotero Agents
+task-dashboard-toolbar-open = Zotero Agents ワークスペースを開く
+workspace-shell-tab-title = Zotero Agents
+menupopup-label = Zotero Agents: メニュー
+menuitem-submenulabel = Zotero Agents
+menuitem-filemenulabel = Zotero Agents: ファイルメニュー項目
+prefs-title = Zotero Agents
+synthesis-brand-alt = Zotero Agents
+```
+
+#### fr-FR/addon.ftl（8 处）
+
+```
+menuitem-label = Zotero Agents
+task-dashboard-toolbar-open = Ouvrir l'espace de travail Zotero Agents
+workspace-shell-tab-title = Zotero Agents
+menupopup-label = Zotero Agents: Menu
+menuitem-submenulabel = Zotero Agents
+menuitem-filemenulabel = Zotero Agents: Élément de menu Fichier
+prefs-title = Zotero Agents
+synthesis-brand-alt = Zotero Agents
+```
+
+### 3. src/ 源码硬编码（~8 个文件，~15 处）
+
+#### src/synthesisWorkbenchI18n.ts（1 处）
+
+```typescript
+"synthesis-brand-alt": "Zotero Agents",
+```
+
+#### src/workspaceApp.ts（2 处）
+
+```typescript
+tabTitle: "Zotero Agents",
+brand.appendChild(el("strong", "", "Zotero Agents"));
+```
+
+#### src/workflows/hostApi.ts（1 处）
+
+```typescript
+addonName: String(addonConfig?.addonName || "Zotero Agents").trim(),
+```
+
+#### src/utils/runtimeBridge.ts（1 处）
+
+```typescript
+export function resolveAddonName(fallback = "Zotero Agents") {
+```
+
+#### src/modules/dashboardToolbarButton.ts（1 处）
+
+```typescript
+"Open Zotero Agents Workspace",
+```
+
+#### src/modules/synthesis/gitSyncCommandAdapter.ts（1 处）
+
+```typescript
+await run(worktreePath, ["config", "user.name", "Zotero Agents"]);
+```
+
+#### src/modules/workflowExecution/feedbackSeam.ts（1 处）
+
+```typescript
+const addonName = resolveAddonName("Zotero Agents");
+```
+
+#### src/modules/zoteroMcpProtocol.ts（1 处）
+
+```typescript
+title: "Zotero Agents Context Broker",
+```
+
+#### src/modules/workspaceTab.ts（4 处）
+
+```typescript
+"Zotero Agents",
+"Cannot open Zotero Agents Workspace: Zotero_Tabs is unavailable.",
+"Zotero Agents",
+"Cannot open Zotero Agents Workspace: tab container is missing.",
+```
+
+### 4. cli/ Rust CLI（2 个文件，5 处）
+
+#### cli/zotero-bridge/Cargo.toml（1 处）
+
+```toml
+description = "Agent-first CLI for the Zotero Agents Host Bridge"
+```
+
+#### cli/zotero-bridge/src/args.rs（4 处）
+
+```rust
+about = "Agent-first CLI for Zotero Agents Host Bridge",
+long_about = "Call the Zotero Agents Host Bridge over local HTTP JSON...\n\nOutput contract: stdout contains exactly one final JSON object. Use --help on subcommands for input fields and examples."
+long_help = "Path to a Host Bridge profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions."
+long_about = "Call GET /bridge/v1/manifest. Requires ZOTERO_BRIDGE_TOKEN, a profile token/tokenEnv, or the Zotero Agents well-known profile. The response lists bridge protocol metadata and capability names."
+```
+
+### 5. workflows_builtin/ + skills_builtin/（~5 个文件，~10 处）
+
+#### workflows_builtin/literature-workbench-package/lib/runtime.mjs（2 处）
+
+```javascript
+addonName: "Zotero Agents",
+```
+
+#### workflows_builtin/literature-workbench-package/lib/remote.mjs（1 处）
+
+```javascript
+message: `Update ${config.filePath} via Zotero Agents Tag Manager`,
+```
+
+#### workflows_builtin/literature-workbench-package/tag-regulator/hooks/applyResult.mjs（1 处）
+
+```javascript
+message: `Update ${config.filePath} via Zotero Agents Tag Regulator`,
+```
+
+#### workflows_builtin/literature-workbench-package/debug-digest-apply-fixture/hooks/applyResult.mjs（3 处）
+
+```javascript
+"This source markdown is generated by the Zotero Agents debug workflow.",
+author: ["Zotero Agents"],
+raw: "Zotero Agents. Debug fixture reference. 2026.",
+```
+
+#### skills_builtin/debug-apply-result-probe/SKILL.md（1 处）
+
+```
+This skill is only for Zotero Agents debug workflows.
+```
+
+---
+
+## 三、改动统计
+
+### 按区域分布
+
+| 区域 | 文件数 | 改动数 | 说明 |
+|------|--------|--------|------|
+| **package.json** | 1 | 1 | `addonName` 字段 |
+| **addon/locale/** | 4 | 24 | 4 个语言的 UI 文本 |
+| **src/ (源码)** | ~8 | ~15 | 硬编码的显示文本 |
+| **cli/ (Rust CLI)** | 2 | 5 | `--help` 文本 |
+| **workflows_builtin/ + skills_builtin/** | ~5 | ~10 | Git 提交信息、调试文本 |
+| **总计** | **~20** | **~55** | |
+
+### 对比全量改名
+
+| 指标 | 全量改名 | 仅改用户可见 |
+|------|---------|-------------|
+| 文件数 | ~120 | ~20 |
+| 改动数 | ~400 | ~55 |
+| 风险等级 | P0-P3 | 几乎无风险 |
+| 用户数据影响 | 需迁移脚本 | 无影响 |
+| 插件兼容性 | 需卸载重装 | 完全兼容 |
+
+---
+
+## 四、风险评估
+
+### 无风险项
+
+| 改动点 | 说明 |
+|--------|------|
+| **用户数据** | prefsPrefix 不变，所有偏好设置保持不变 |
+| **插件身份** | addonID 不变，Zotero 视为同一插件，可正常升级 |
+| **资源路径** | addonRef 不变，chrome://、resource:// 路径不变 |
+| **功能逻辑** | 内部标识符不变，所有功能逻辑保持不变 |
+| **构建系统** | esbuild global-name 不变，构建产物不变 |
+| **测试用例** | 测试中的硬编码不变，测试继续通过 |
+
+### 潜在注意事项
+
+| 注意事项 | 说明 |
+|---------|------|
+| **Git 提交历史** | Git 提交的 `user.name` 从 "Zotero Skills" 变为 "Zotero Agents"，不影响功能 |
+| **调试信息** | 调试日志中的品牌文本变化，不影响功能 |
+| **文档一致性** | 建议同步更新 README 和 site/ 文档，但非必须 |
+
+---
+
+## 五、执行步骤
+
+### 阶段一：修改 package.json
+
+1. 修改 `config.addonName` 为 `"Zotero Agents"`
+
+### 阶段二：修改本地化文件
+
+1. 修改 `addon/locale/en-US/addon.ftl`（4 处）
+2. 修改 `addon/locale/zh-CN/addon.ftl`（4 处）
+3. 修改 `addon/locale/ja-JP/addon.ftl`（8 处）
+4. 修改 `addon/locale/fr-FR/addon.ftl`（8 处）
+
+### 阶段三：修改源码硬编码
+
+1. 修改 `src/synthesisWorkbenchI18n.ts`
+2. 修改 `src/workspaceApp.ts`
+3. 修改 `src/workflows/hostApi.ts`
+4. 修改 `src/utils/runtimeBridge.ts`
+5. 修改 `src/modules/dashboardToolbarButton.ts`
+6. 修改 `src/modules/synthesis/gitSyncCommandAdapter.ts`
+7. 修改 `src/modules/workflowExecution/feedbackSeam.ts`
+8. 修改 `src/modules/zoteroMcpProtocol.ts`
+9. 修改 `src/modules/workspaceTab.ts`
+
+### 阶段四：修改 Rust CLI
+
+1. 修改 `cli/zotero-bridge/Cargo.toml`
+2. 修改 `cli/zotero-bridge/src/args.rs`
+
+### 阶段五：修改内置 workflow/skill
+
+1. 修改 `workflows_builtin/literature-workbench-package/lib/runtime.mjs`
+2. 修改 `workflows_builtin/literature-workbench-package/lib/remote.mjs`
+3. 修改 `workflows_builtin/literature-workbench-package/tag-regulator/hooks/applyResult.mjs`
+4. 修改 `workflows_builtin/literature-workbench-package/debug-digest-apply-fixture/hooks/applyResult.mjs`
+5. 修改 `skills_builtin/debug-apply-result-probe/SKILL.md`
+
+### 阶段六：验证
+
+1. 运行构建：`npm run build`
+2. 运行测试：`npm run test`
+3. 在 Zotero 中加载插件，验证 UI 显示
+
+---
+
+## 六、结论
+
+### 改动规模
+
+- **文件数**：~20 个（vs 全量 ~120 个）
+- **改动数**：~55 处（vs 全量 ~400 处）
+- **改动性质**：纯文本替换，无逻辑变更
+
+### 风险评估
+
+- **风险等级**：几乎为零
+- **用户数据**：完全保留，无需迁移
+- **插件兼容性**：完全兼容，现有用户可无缝升级
+- **功能影响**：无
+
+### 用户感知
+
+- 插件名称从 "Zotero Skills" 变为 "Zotero Agents"
+- 所有功能保持不变
+- 偏好设置、本地数据完全保留
+
+### 建议
+
+- 这是一个**低风险、高收益**的改动
+- 可以在主分支上直接进行，无需独立分支
+- 建议同步更新 README 和 site/ 文档（非必须）
+- 建议在发布说明中提及品牌名称变更
+
+---
+
+## 七、对比总结
+
+| 维度 | 全量改名 | 仅改用户可见 |
+|------|---------|-------------|
+| **改动范围** | ~120 文件，~400 处 | ~20 文件，~55 处 |
+| **风险等级** | P0-P3（高） | 几乎无风险 |
+| **用户数据** | 需迁移脚本 | 无影响 |
+| **插件兼容性** | 需卸载重装 | 完全兼容 |
+| **功能影响** | 可能影响多处功能 | 无影响 |
+| **执行复杂度** | 高（需多阶段验证） | 低（简单文本替换） |
+| **建议** | 需独立分支、充分测试 | 可直接在主分支进行 |
+
+**推荐方案**：如果目标是快速、安全地更新品牌名称，建议采用"仅改用户可见文本"方案。

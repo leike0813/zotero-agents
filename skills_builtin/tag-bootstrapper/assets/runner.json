@@ -1,0 +1,12 @@
+{
+  "id": "tag-bootstrapper",
+  "name": "🌱 Tag Bootstrapper",
+  "description": "Interactively generate initial or incremental controlled vocabulary additions for Zotero Agents tags.",
+  "version": "1.0.0",
+  "execution_modes": ["interactive"],
+  "entrypoint": {
+    "prompts": {
+      "common": "- inline inputs: existing_tags={{ input.existing_tags }}, protocol={{ input.protocol }}\n- parameters: tag_note_language={{ parameter.tag_note_language }}\n\nExecute the tasks strictly according to `SKILL.md`. Read `references/tag_standard.md` before generating tags. When Host Bridge is available, read the built-in `zotero-bridge-cli` wrapper skill and use `library-index get` with pagination to ground vocabulary design in the current Zotero library. If Host Bridge or the library index is unavailable, continue from the provided inputs and user interaction, and add a warning. Treat `add_tags` as objects similar to `tag-regulator.suggest_tags`: each item needs `tag` and `note`, with optional `facet`. Use `scripts/normalize_output.py` and `scripts/validate_output.py` when available before final stdout. Output exactly one valid JSON object to stdout."
+    }
+  }
+}

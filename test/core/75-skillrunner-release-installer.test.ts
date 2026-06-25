@@ -13,7 +13,10 @@ function toResponse(bytes: Uint8Array, status = 200): FakeResponse {
     ok: status >= 200 && status < 300,
     status,
     arrayBuffer: async () =>
-      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+      bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength,
+      ) as ArrayBuffer,
   };
 }
 
@@ -39,7 +42,8 @@ describe("skillrunner release installer", function () {
     } else {
       (globalThis as { IOUtils?: unknown }).IOUtils = prevIOUtils;
     }
-    const zoteroRuntime = (globalThis as { Zotero?: { isWin?: unknown } }).Zotero;
+    const zoteroRuntime = (globalThis as { Zotero?: { isWin?: unknown } })
+      .Zotero;
     if (zoteroRuntime) {
       zoteroRuntime.isWin = prevIsWin;
     }
@@ -49,7 +53,8 @@ describe("skillrunner release installer", function () {
     const files = new Map<string, Uint8Array>();
     const dirs = new Set<string>();
     const removedPaths: string[] = [];
-    const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } }).Zotero;
+    const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } })
+      .Zotero;
     if (!zoteroRuntime) {
       throw new Error("zotero runtime unavailable");
     }
@@ -118,7 +123,8 @@ describe("skillrunner release installer", function () {
 
   it("fails when checksum does not match artifact hash", async function () {
     const dirs = new Set<string>();
-    const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } }).Zotero;
+    const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } })
+      .Zotero;
     if (!zoteroRuntime) {
       throw new Error("zotero runtime unavailable");
     }
@@ -168,7 +174,8 @@ describe("skillrunner release installer", function () {
   });
 
   it("fails when tar extraction exits non-zero", async function () {
-    const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } }).Zotero;
+    const zoteroRuntime = (globalThis as { Zotero?: { isWin?: boolean } })
+      .Zotero;
     if (!zoteroRuntime) {
       throw new Error("zotero runtime unavailable");
     }

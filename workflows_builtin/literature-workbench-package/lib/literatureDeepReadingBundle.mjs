@@ -29,6 +29,33 @@ function isRemoteOrInlineImage(src) {
   return /^(https?:|data:|blob:|about:|zotero:)/i.test(normalizeString(src));
 }
 
+function stripLocalImageSuffix(src) {
+  const value = normalizeString(src);
+  const queryIndex = value.indexOf("?");
+  const hashIndex = value.indexOf("#");
+  const indexes = [queryIndex, hashIndex].filter((index) => index >= 0);
+  if (indexes.length === 0) {
+    return value;
+  }
+  return value.slice(0, Math.min(...indexes));
+}
+
+function safeDecodeURIComponent(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function fileUrlToPath(src) {
+  const value = normalizeString(src);
+  if (!/^file:/i.test(value)) {
+    return value;
+  }
+  return value.replace(/^file:\/\/\/?/i, "");
+}
+
 function isAbsolutePath(src) {
   return /^[A-Za-z]:[\\/]/.test(src) || /^[\\/]/.test(src);
 }
@@ -80,28 +107,95 @@ async function sha256Hex(bytes) {
 function extractMarkdownImageReferences(markdown) {
   const refs = [];
   const text = String(markdown || "");
-  const markdownPattern = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
-  let match;
-  while ((match = markdownPattern.exec(text))) {
-    refs.push({
-      kind: "markdown",
-      src: match[2],
-      start: match.index + match[0].indexOf(match[2]),
-      end: match.index + match[0].indexOf(match[2]) + match[2].length,
-    });
+  let cursor = 0;
+  while (cursor < text.length) {
+    const imageStart = text.indexOf("![", cursor);
+    if (imageStart < 0) {
+      break;
+    }
+    const labelEnd = text.indexOf("]", imageStart + 2);
+    if (labelEnd < 0 || text[labelEnd + 1] !== "(") {
+      cursor = imageStart + 2;
+      continue;
+    }
+    const destinationStart = labelEnd + 2;
+    let index = destinationStart;
+    let depth = 0;
+    let destinationEnd = -1;
+    while (index < text.length) {
+      const char = text[index];
+      if (char === "(") {
+        depth += 1;
+      } else if (char === ")") {
+        if (depth === 0) {
+          destinationEnd = index;
+          break;
+        }
+        depth -= 1;
+      }
+      index += 1;
+    }
+    if (destinationEnd < 0) {
+      cursor = imageStart + 2;
+      continue;
+    }
+    const rawDestination = text.slice(destinationStart, destinationEnd);
+    const leadingWhitespace = rawDestination.match(/^\s*/)?.[0]?.length || 0;
+    let srcOffset = leadingWhitespace;
+    let src = rawDestination.slice(srcOffset).trimEnd();
+    if (src.startsWith("<")) {
+      const angleEnd = src.indexOf(">");
+      if (angleEnd >= 0) {
+        srcOffset += 1;
+        src = src.slice(1, angleEnd);
+      }
+    } else {
+      const titleMatch = src.match(/\s+(?:"[^"]*"|'[^']*')\s*$/);
+      if (titleMatch?.index) {
+        src = src.slice(0, titleMatch.index);
+      }
+    }
+    const trailingTrimmed = src.length;
+    src = src.trim();
+    if (src) {
+      const trimLeft = rawDestination.slice(srcOffset).match(/^\s*/)?.[0]
+        ?.length || 0;
+      const start = destinationStart + srcOffset + trimLeft;
+      refs.push({
+        kind: "markdown",
+        src,
+        start,
+        end: start + trailingTrimmed - trimLeft,
+      });
+    }
+    cursor = destinationEnd + 1;
   }
 
-  const htmlPattern = /<img\b[^>]*\bsrc\s*=\s*(["'])(.*?)\1[^>]*>/gi;
+  const htmlPattern =
+    /<img\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>/gi;
+  let match;
   while ((match = htmlPattern.exec(text))) {
+    const src = match[1] || match[2] || match[3] || "";
+    const offset = match[0].indexOf(src);
     refs.push({
       kind: "html",
-      src: match[2],
-      start: match.index + match[0].indexOf(match[2]),
-      end: match.index + match[0].indexOf(match[2]) + match[2].length,
+      src,
+      start: match.index + offset,
+      end: match.index + offset + src.length,
     });
   }
 
   return refs.sort((a, b) => a.start - b.start);
+}
+
+function resolveLocalImagePath(sourceDir, rawSrc) {
+  const decoded = fileUrlToPath(
+    safeDecodeURIComponent(stripLocalImageSuffix(rawSrc)),
+  ).replaceAll("\\", "/");
+  if (isAbsolutePath(decoded)) {
+    return decoded;
+  }
+  return normalizeRelativePath(sourceDir, decoded);
 }
 
 async function rewriteMarkdownImages({
@@ -115,6 +209,7 @@ async function rewriteMarkdownImages({
   const refs = extractMarkdownImageReferences(markdown);
   const replacements = [];
   const imageManifest = [];
+  const copiedBySourcePath = new Map();
   let copiedCount = 0;
 
   for (const ref of refs) {
@@ -131,20 +226,7 @@ async function rewriteMarkdownImages({
       });
       continue;
     }
-    if (isAbsolutePath(rawSrc)) {
-      diagnostics.push({
-        level: "warning",
-        code: "image_outside_source_dir",
-        message: `Absolute image path was not bundled: ${rawSrc}`,
-        source: rawSrc,
-      });
-      continue;
-    }
-
-    const resolvedPath = normalizeRelativePath(
-      sourceDir,
-      decodeURIComponent(rawSrc),
-    );
+    const resolvedPath = resolveLocalImagePath(sourceDir, rawSrc);
     if (!resolvedPath || !isWithinDirectory(sourceDir, resolvedPath)) {
       diagnostics.push({
         level: "warning",
@@ -156,6 +238,16 @@ async function rewriteMarkdownImages({
     }
 
     try {
+      const sourceKey = normalizePathForCompare(resolvedPath);
+      const existingBundlePath = copiedBySourcePath.get(sourceKey);
+      if (existingBundlePath) {
+        replacements.push({
+          start: ref.start,
+          end: ref.end,
+          value: existingBundlePath,
+        });
+        continue;
+      }
       if (!(await hostFile.exists(resolvedPath))) {
         diagnostics.push({
           level: "warning",
@@ -174,11 +266,12 @@ async function rewriteMarkdownImages({
           source: rawSrc,
           source_path: resolvedPath,
         });
-        imageManifest.push({
-          id: `img-${String(copiedCount + 1).padStart(3, "0")}`,
-          source: rawSrc,
-          source_path: resolvedPath,
-          bundle_path: "",
+      imageManifest.push({
+        id: `img-${String(copiedCount + 1).padStart(3, "0")}`,
+        source: rawSrc,
+        original_src: rawSrc,
+        source_path: resolvedPath,
+        bundle_path: "",
           status: "corrupt",
           bytes: 0,
           sha256: "",
@@ -190,6 +283,7 @@ async function rewriteMarkdownImages({
       const imageName = `${String(copiedCount).padStart(3, "0")}-${sanitizeFileNameSegment(getBaseName(resolvedPath))}`;
       const bundlePath = `images/${imageName}`;
       const hash = await sha256Hex(bytes);
+      copiedBySourcePath.set(sourceKey, bundlePath);
       entries.push({
         name: bundlePath,
         bytes,
@@ -202,6 +296,7 @@ async function rewriteMarkdownImages({
       imageManifest.push({
         id: `img-${String(copiedCount).padStart(3, "0")}`,
         source: rawSrc,
+        original_src: rawSrc,
         source_path: resolvedPath,
         bundle_path: bundlePath,
         status: "available",
@@ -256,6 +351,27 @@ async function resolveAttachmentFilePath(entry, runtime) {
 
 function readParentField(parentItem, fieldName) {
   return normalizeString(parentItem?.getField?.(fieldName));
+}
+
+function readParentCreators(parentItem) {
+  const creators = parentItem?.getCreators?.();
+  if (!Array.isArray(creators)) {
+    return [];
+  }
+  return creators
+    .map((creator) => ({
+      firstName: normalizeString(creator?.firstName),
+      lastName: normalizeString(creator?.lastName),
+      name: normalizeString(creator?.name),
+      creatorType: normalizeString(creator?.creatorType),
+    }))
+    .filter(
+      (creator) =>
+        creator.firstName ||
+        creator.lastName ||
+        creator.name ||
+        creator.creatorType,
+    );
 }
 
 function normalizePaperRef(parentItem) {
@@ -630,7 +746,13 @@ async function collectSidecarArtifacts({
 }
 
 export async function buildLiteratureDeepReadingSourceBundle(args) {
-  const { sourceEntry, parentItem, runtime, workflowParams } = args;
+  const {
+    sourceEntry,
+    parentItem,
+    runtime,
+    workflowParams,
+    translatorAlignmentPath,
+  } = args;
   const hostFile = runtime.hostApi.file;
   const sourcePath = await resolveAttachmentFilePath(sourceEntry, runtime);
   const diagnostics = [];
@@ -677,6 +799,68 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
     diagnostics,
   });
 
+  let translatorAlignment = {
+    status: "missing",
+    path: "",
+    target_language: "",
+    source: "none",
+  };
+  if (normalizeString(translatorAlignmentPath)) {
+    try {
+      const alignmentText = await hostFile.readText(translatorAlignmentPath);
+      const alignment = JSON.parse(alignmentText);
+      const alignmentTargetLanguage = normalizeString(
+        alignment?.target_language,
+      );
+      const requestedTargetLanguage = normalizeString(
+        workflowParams.target_language,
+      );
+      if (
+        alignment?.format === "v1" &&
+        Array.isArray(alignment?.blocks) &&
+        alignmentTargetLanguage === requestedTargetLanguage
+      ) {
+        entries.push({
+          name: "translator/alignment.json",
+          text: alignmentText,
+        });
+        translatorAlignment = {
+          status: "available",
+          path: "translator/alignment.json",
+          target_language: alignmentTargetLanguage,
+          source: "existing_translator_alignment",
+        };
+      } else {
+        translatorAlignment = {
+          status: "invalid",
+          path: normalizeString(translatorAlignmentPath),
+          target_language: alignmentTargetLanguage,
+          source: "existing_translator_alignment",
+        };
+        diagnostics.push({
+          level: "warning",
+          code: "translator_alignment_invalid",
+          message:
+            "Existing translator alignment was not bundled because it does not match the requested target language or v1 contract.",
+          path: normalizeString(translatorAlignmentPath),
+        });
+      }
+    } catch (error) {
+      translatorAlignment = {
+        status: "unavailable",
+        path: normalizeString(translatorAlignmentPath),
+        target_language: "",
+        source: "existing_translator_alignment",
+      };
+      diagnostics.push({
+        level: "warning",
+        code: "translator_alignment_unreadable",
+        message: String(error?.message || error || "alignment unreadable"),
+        path: normalizeString(translatorAlignmentPath),
+      });
+    }
+  }
+
   const sourceManifest = {
     version: 1,
     workflow: "literature-deep-reading",
@@ -697,7 +881,7 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
       item_key: normalizeString(parentItem?.key),
       paper_ref: normalizePaperRef(parentItem),
       title: readParentField(parentItem, "title"),
-      creators: [],
+      creators: readParentCreators(parentItem),
       year: readParentField(parentItem, "date"),
     },
     parameters: {
@@ -709,6 +893,7 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
       references: sidecarArtifacts[sidecarManifestKey("references")],
       citation_analysis: sidecarArtifacts["citation-analysis"],
     },
+    translator_alignment: translatorAlignment,
     diagnostics,
   };
 

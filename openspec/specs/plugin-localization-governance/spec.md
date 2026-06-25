@@ -159,3 +159,31 @@ localization dictionary and four-locale Fluent parity checks.
 - **AND** `en-US`, `zh-CN`, `ja-JP`, and `fr-FR` contain the same key set
 - **AND** export envelope field names and schema identifiers are not treated as user-visible UI copy
 
+### Requirement: User-visible plugin brand text
+
+The plugin SHALL present the current public brand as `Zotero Agents` in active
+menus, toolbar labels, preference titles, workspace titles, harness titles, and
+Synthesis workbench brand text.
+
+#### Scenario: Visible labels use the current brand
+- **WHEN** the plugin renders an active user-facing label for the product
+- **THEN** the label uses `Zotero Agents`
+- **AND** it does not use `Zotero Skills` or `Zotero-Skills` unless describing
+  a compatibility-only internal identifier.
+
+#### Scenario: Compatibility identifiers are preserved
+- **WHEN** code refers to add-on identity, resource namespaces, global bridge
+  object names, event names, or preference prefixes
+- **THEN** existing `zotero-skills` / `ZoteroSkills` identifiers MAY remain
+  unchanged for upgrade compatibility.
+
+### Requirement: Bundled help center shell localization SHALL be governed
+
+Bundled help center shell labels SHALL be localized for every locale included in the bundled help manifest, even when those labels are loaded before Fluent resources are available to the chrome page.
+
+#### Scenario: Help center shell label is added
+
+- **WHEN** the bundled help center adds a fixed shell label such as title, Online Docs, language selector, loading state, unavailable state, or failure state
+- **THEN** the help center SHALL provide that label for every bundled help locale
+- **AND** the bundled help center packaging tests SHALL cover the localization table contract.
+

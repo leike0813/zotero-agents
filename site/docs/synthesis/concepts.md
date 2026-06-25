@@ -1,93 +1,95 @@
-# 概念知识库
+# Concept Knowledge Base
 
-概念知识库（Concept KB）是 Synthesis 系统的可选知识层，对文献中涉及的核心概念进行结构化管理。概念可以叠加到主题图和阅读器上，为主题综合提供更丰富的上下文。
+The Concept Knowledge Base (Concept KB) is an optional knowledge layer in the Synthesis system that provides structured management of core concepts referenced in the literature. Concepts can be overlaid onto the topic graph and reader, enriching the context for topic synthesis.
 
-## 什么是概念？
+## What Is a Concept?
 
-在 Synthesis 系统中，**概念** 是研究领域中具有独立含义的术语或实体。不同于标签（Tags）的扁平化分类，概念可以有多层结构，包括义项、别名和关系。
+In the Synthesis system, a **concept** is a term or entity with independent meaning within a research domain. Unlike the flat classification of tags, concepts can have a multi-layered structure, including senses, aliases, and relationships.
 
-### 概念的四层结构
+### Four-Layer Structure of Concepts
 
 ```
-概念 (Concept)           — 如 "Transformer"
-  └── 义项 (Sense)       — 如 "Transformer (machine learning architecture)"
-       ├── 别名 (Alias)  — 如 "Transformer model", "Transformer network"
-       └── 关系 (Relation) — broader_than "Attention Mechanism"
+Concept                 — e.g., "Transformer"
+  └── Sense             — e.g., "Transformer (machine learning architecture)"
+       ├── Alias        — e.g., "Transformer model", "Transformer network"
+       └── Relation     — broader_than "Attention Mechanism"
 ```
 
-### 概念类型
+### Concept Types
 
-| 类型 | 说明 | 示例 |
-|------|------|------|
-| `method` | 研究方法 | 深度学习、强化学习 |
-| `model` | 模型或架构 | Transformer、ResNet |
-| `dataset` | 数据集 | ImageNet、COCO |
-| `metric` | 评估指标 | BLEU、F1-score |
-| `field` | 研究领域 | 计算机视觉、自然语言处理 |
-| `task` | 任务 | 图像分类、机器翻译 |
-| `tool` | 工具 | PyTorch、TensorFlow |
+| Type | Description | Examples |
+|------|-------------|----------|
+| `method` | Research methods | Deep learning, reinforcement learning |
+| `model` | Models or architectures | Transformer, ResNet |
+| `dataset` | Datasets | ImageNet, COCO |
+| `metric` | Evaluation metrics | BLEU, F1-score |
+| `field` | Research fields | Computer vision, natural language processing |
+| `task` | Tasks | Image classification, machine translation |
+| `tool` | Tools | PyTorch, TensorFlow |
 
-## Concepts 表面功能
+## Concepts Surface Features
 
-### 概念列表
+### Concept List
 
-在 Synthesis Workbench → Concepts 页面，可以浏览所有已收录的概念：
+On the Synthesis Workbench → Concepts page, you can browse all indexed concepts:
 
-- **筛选**：按类型（method/model/dataset 等）、状态、关联主题筛选
-- **搜索**：按名称搜索概念
-- **视图切换**：紧凑/舒适密度
+- **Filter**: By type (method / model / dataset, etc.), status, or associated topics
+- **Search**: Search concepts by name
+- **View Toggle**: Compact / comfortable density
 
-### 概念详情
+![Synthesis Concepts Page](/img/docs/synthesis/concepts.png)
 
-选中一个概念后，可以查看和编辑：
+### Concept Details
 
-| 信息 | 说明 |
-|------|------|
-| **标识** | 概念 ID、名称、类型 |
-| **状态** | active / deprecated / pending |
-| **定义** | 概念的定义描述 |
-| **义项（Senses）** | 该概念在不同上下文中的具体含义 |
-| **别名（Aliases）** | 同一概念的其他名称 |
-| **关系** | 与其他概念的关联（broader/narrower/related） |
-| **关联主题** | 引用该概念的 Topic |
+After selecting a concept, you can view and edit:
 
-### 义项管理
+| Information | Description |
+|-------------|-------------|
+| **Identity** | Concept ID, name, type |
+| **Status** | active / deprecated / pending |
+| **Definition** | Descriptive definition of the concept |
+| **Senses** | Specific meanings of the concept in different contexts |
+| **Aliases** | Alternative names for the same concept |
+| **Relations** | Associations with other concepts (broader / narrower / related) |
+| **Related Topics** | Topics that reference this concept |
 
-同一个概念在不同学科中可能有不同含义。义项机制允许：
+### Sense Management
 
-- 为概念添加多个义项，每个义项有独立的定义
-- 标注义项的使用上下文或领域
-- 将特定义项与文献或主题关联
+The same concept may have different meanings across disciplines. The sense mechanism allows:
 
-### 别名管理
+- Adding multiple senses to a concept, each with its own definition
+- Annotating the usage context or domain for each sense
+- Associating specific senses with papers or topics
 
-- 记录同一概念的不同命名方式（如全称、缩写、替代术语）
-- 别名会用于引用匹配和概念识别
+### Alias Management
 
-### 叠加功能
+- Recording different naming conventions for the same concept (e.g., full name, abbreviation, alternative terms)
+- Aliases are used for citation matching and concept identification
 
-概念信息可以叠加到其他表面：
+### Overlay Features
 
-- **叠加到主题图**：在 Topic Graph 中显示与该主题相关的概念
-- **叠加到阅读器**：在 Topic Detail 页面中显示概念卡片
+Concept information can be overlaid onto other surfaces:
 
-## 审核
+- **Overlay onto Topic Graph**: Display concepts related to a topic in the Topic Graph
+- **Overlay onto Reader**: Display concept cards on the Topic Detail page
 
-概念知识库的变更建议（新概念、新义项、新关系）会出现在 [审核中心](review) 的概念审核标签页中。您可以审核并决定是否接受这些建议。
+## Review
 
-## 与标签的关系
+Change proposals to the concept knowledge base (new concepts, new senses, new relationships) appear in the Concepts review tab of the [Review Hub](review). You can review and decide whether to accept these proposals.
 
-概念和标签是互补的两种知识组织方式：
+## Relationship with Tags
 
-| 维度 | 标签（Tags） | 概念（Concepts） |
-|------|-------------|-----------------|
-| 结构 | 扁平化，facet:value | 多层结构（义项 + 别名 + 关系） |
-| 用途 | 文献分类和过滤 | 知识管理和关联分析 |
-| 来源 | 受控词表 + AI 推断 | 从文献自动提取 + 用户管理 |
-| 范围 | 覆盖所有文献 | 深度覆盖选定的核心术语 |
+Concepts and tags are two complementary approaches to knowledge organization:
 
-## 下一步
+| Dimension | Tags | Concepts |
+|-----------|------|----------|
+| Structure | Flat, facet:value | Multi-layered (senses + aliases + relationships) |
+| Purpose | Literature classification and filtering | Knowledge management and association analysis |
+| Source | Controlled vocabulary + AI inference | Auto-extracted from literature + user-managed |
+| Scope | Covers all literature | Deep coverage of selected core terms |
 
-- [审核中心](review) — 审核概念建议
-- [Tags 管理](tags) — 管理受控标签词表
-- [Topic 综合](topic-synthesis) — 创建主题综合时利用概念知识
+## Next Steps
+
+- [Review Hub](review) — Review concept suggestions
+- [Tags Management](tags) — Manage the controlled tag vocabulary
+- [Topic Synthesis](topic-synthesis) — Leverage concept knowledge when creating topic syntheses

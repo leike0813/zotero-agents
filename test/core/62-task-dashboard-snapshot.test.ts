@@ -177,6 +177,26 @@ describe("task dashboard snapshot", function () {
     assert.equal(normalized, "products");
   });
 
+  it("keeps SkillRunner connection audit tab only when debug mode is enabled", function () {
+    const backends = [makeBackend("skillrunner-primary", "skillrunner")];
+    assert.equal(
+      normalizeDashboardTabKey({
+        requestedTabKey: "skillrunner-connection-audit",
+        backends,
+        debugModeEnabled: true,
+      }),
+      "skillrunner-connection-audit",
+    );
+    assert.equal(
+      normalizeDashboardTabKey({
+        requestedTabKey: "skillrunner-connection-audit",
+        backends,
+        debugModeEnabled: false,
+      }),
+      "home",
+    );
+  });
+
   it("maps managed local backend id to localized display name", function () {
     const displayName = resolveBackendDisplayName("local-skillrunner-backend");
     assert.notEqual(displayName, "local-skillrunner-backend");

@@ -142,16 +142,20 @@ type SynthesisKnowledgeGraphPaths = {
   citationGraphRoot: string;    // <root>/citation-graph/
   tagsRoot: string;             // <root>/tags/
   syncRoot: string;             // <root>/sync/
-  stateRoot: string;            // <root>/state/
-  transactionsRoot: string;     // <root>/transactions/
-  receiptsLog: string;          // <root>/receipts.log
-  eventsLog: string;            // <root>/events.log
-  diagnosticsLog: string;       // <root>/diagnostics.log
-  projectionRegistry: string;   // <root>/projection-registry.json
+  sidecarRoot: string;          // <root>/sidecar/
+  transactionsRoot: string;     // <root>/sidecar/transactions/
+  receiptsLog: string;          // legacy path, not normal runtime output
+  eventsLog: string;            // legacy path, not normal runtime output
+  diagnosticsLog: string;       // legacy path, not normal runtime output
+  projectionRegistry: string;   // legacy path, not normal runtime output
 };
 ```
 
-`initializeSynthesisKnowledgeGraphStore(root)` creates all directories.
+`initializeSynthesisKnowledgeGraphStore(root)` creates only the Synthesis root.
+Domain directories are created by the operation that writes actual topic
+artifacts, canonical checkpoint assets, sync transport files, or debug outputs.
+Canonical-store receipts/events/diagnostics are normal repository DB rows, and
+projection registry state is stored through DB-backed cache-basis rows.
 
 ---
 

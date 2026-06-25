@@ -14,6 +14,7 @@ export type RuntimePersistenceCategory =
   | "skillrunner-ledger"
   | "acp-conversations"
   | "acp-skill-runs"
+  | "workflow-products"
   | "cache"
   | "tmp";
 
@@ -23,7 +24,10 @@ export type RuntimePersistencePaths = {
   dataDir: string;
   synthesisDataRoot: string;
   stateDir: string;
+  /** Workflow/plugin runtime database for task rows, ACP/SkillRunner ledgers, and product metadata. */
   stateDbPath: string;
+  /** Synthesis repository database for synt_* sidecar/runtime state. */
+  synthesisDbPath: string;
   logsDir: string;
   runtimeLogPath: string;
   acpChatRoot: string;
@@ -33,6 +37,7 @@ export type RuntimePersistencePaths = {
   legacyAcpChatWorkspacesDir: string;
   acpChatRuntimeDir: string;
   acpSkillRunsDir: string;
+  workflowProductsDir: string;
   cacheDir: string;
   tmpDir: string;
   legacyDir: string;
@@ -50,6 +55,7 @@ export type RuntimePersistenceCategoryUsage = {
 };
 
 export type RuntimePersistenceStateDatabaseUsage = {
+  kind?: "runtime" | "synthesis";
   path: string;
   bytes: number;
   exists: boolean;
@@ -62,6 +68,15 @@ export type RuntimePersistenceUsageSnapshot = {
   totalBytes: number;
   categories: RuntimePersistenceCategoryUsage[];
   stateDatabase?: RuntimePersistenceStateDatabaseUsage;
+  stateDatabases?: RuntimePersistenceStateDatabaseUsage[];
+};
+
+export type RuntimePersistenceScanProgress = {
+  stage: string;
+  label: string;
+  current: number;
+  total: number;
+  percent: number;
 };
 
 export type ManagedPathDiagnosticCode =
@@ -144,8 +159,28 @@ const WINDOWS_RESERVED_BASENAMES = new Set([
 const INTERNAL_APP_DIR_NAME = "zotero-agents";
 const LEGACY_APP_DIR_NAME = "zotero-skills";
 const SQLITE_FILE_NAME = "zotero-agents.db";
+const SYNTHESIS_SQLITE_FILE_NAME = "synthesis.db";
 const LEGACY_SQLITE_FILE_NAME = "zotero-skills.db";
 const RUNTIME_LOG_FILE_NAME = "runtime-logs.json";
+const PLUGIN_PREFS_PREFIX = "extensions.zotero.zotero-skills";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export type RuntimeExpiredAssetOwner = "tmp" | "cache" | "logs";
+
+export type RuntimeExpiredAsset = {
+  owner: RuntimeExpiredAssetOwner;
+  root: string;
+  path: string;
+  relativePath: string;
+  ttlMs: number;
+  lastModified?: number;
+};
+
+const RUNTIME_EXPIRED_ASSET_TTL_MS: Record<RuntimeExpiredAssetOwner, number> = {
+  tmp: DAY_MS,
+  cache: 30 * DAY_MS,
+  logs: 30 * DAY_MS,
+};
 
 let runtimeLogClearer: (() => void) | null = null;
 let pluginTaskDomainClearer: ((domain: string) => number) | null = null;
@@ -167,6 +202,13 @@ let pluginTaskDomainExceptRowScopesByteEstimator:
 let pluginTaskScopeByteEstimator:
   | ((domain: string, scope: string) => number)
   | null = null;
+let pluginRunStoreCounter: ((kind: "acp" | "skillrunner") => number) | null =
+  null;
+let pluginRunStoreByteEstimator:
+  | ((kind: "acp" | "skillrunner") => number)
+  | null = null;
+let pluginRunStoreClearer: ((kind: "acp" | "skillrunner") => number) | null =
+  null;
 let acpSkillRunsMemoryClearer: (() => void) | null = null;
 let acpSkillRunsRetentionCleaner:
   | ((args: { retentionMs: number; nowMs: number }) => {
@@ -232,6 +274,24 @@ export function registerPluginTaskScopeByteEstimator(
   estimator: ((domain: string, scope: string) => number) | null,
 ) {
   pluginTaskScopeByteEstimator = estimator;
+}
+
+export function registerPluginRunStoreCounter(
+  counter: ((kind: "acp" | "skillrunner") => number) | null,
+) {
+  pluginRunStoreCounter = counter;
+}
+
+export function registerPluginRunStoreByteEstimator(
+  estimator: ((kind: "acp" | "skillrunner") => number) | null,
+) {
+  pluginRunStoreByteEstimator = estimator;
+}
+
+export function registerPluginRunStoreClearer(
+  clearer: ((kind: "acp" | "skillrunner") => number) | null,
+) {
+  pluginRunStoreClearer = clearer;
 }
 
 export function registerAcpSkillRunsMemoryClearer(
@@ -540,6 +600,19 @@ function readEnv(key: string) {
   return "";
 }
 
+function readPluginPref(key: string) {
+  const runtime = globalThis as {
+    Zotero?: { Prefs?: { get?: (name: string, global?: boolean) => unknown } };
+  };
+  try {
+    return normalizeString(
+      runtime.Zotero?.Prefs?.get?.(`${PLUGIN_PREFS_PREFIX}.${key}`, true),
+    );
+  } catch {
+    return "";
+  }
+}
+
 function getPlatform() {
   const runtime = globalThis as {
     process?: { platform?: string };
@@ -563,6 +636,10 @@ function resolvePlatformDataRoot() {
   const override = readEnv("ZOTERO_SKILLS_RUNTIME_ROOT");
   if (override) {
     return override;
+  }
+  const prefOverride = readPluginPref("runtimeRoot");
+  if (prefOverride) {
+    return prefOverride;
   }
 
   const zoteroDataDir = normalizeString(
@@ -629,6 +706,7 @@ export function getRuntimePersistencePaths(
     synthesisDataRoot: joinPath(dataDir, "synthesis"),
     stateDir,
     stateDbPath: joinPath(stateDir, SQLITE_FILE_NAME),
+    synthesisDbPath: joinPath(stateDir, SYNTHESIS_SQLITE_FILE_NAME),
     logsDir,
     runtimeLogPath: joinPath(logsDir, RUNTIME_LOG_FILE_NAME),
     acpChatRoot,
@@ -637,6 +715,7 @@ export function getRuntimePersistencePaths(
     legacyAcpChatWorkspacesDir: joinPath(acpChatRoot, "workspaces"),
     acpChatRuntimeDir: joinPath(acpChatRoot, "runtime"),
     acpSkillRunsDir: joinPath(runtimeRoot, "acp", "skill-runs"),
+    workflowProductsDir: joinPath(runtimeRoot, "workflow-products"),
     cacheDir: joinPath(runtimeRoot, "cache"),
     tmpDir: joinPath(runtimeRoot, "tmp"),
     legacyDir: joinPath(root, "legacy"),
@@ -1173,6 +1252,62 @@ export function runtimeRelativePath(rootRaw: string, targetRaw: string) {
   return target.startsWith(prefix) ? target.slice(prefix.length) : target;
 }
 
+function runtimeExpiredAssetRoots(paths: RuntimePersistencePaths) {
+  return {
+    tmp: paths.tmpDir,
+    cache: paths.cacheDir,
+    logs: paths.logsDir,
+  } satisfies Record<RuntimeExpiredAssetOwner, string>;
+}
+
+function statIsOlderThan(
+  stat: { lastModified?: number },
+  nowMs: number,
+  ttlMs: number,
+) {
+  const lastModified = Number(stat.lastModified || 0);
+  return Number.isFinite(lastModified) && lastModified > 0
+    ? nowMs - lastModified >= ttlMs
+    : false;
+}
+
+export function getRuntimeExpiredAssetTtlMs(owner: RuntimeExpiredAssetOwner) {
+  return RUNTIME_EXPIRED_ASSET_TTL_MS[owner];
+}
+
+export async function collectExpiredRuntimeAssets(args?: {
+  root?: string;
+  nowMs?: number;
+  owners?: RuntimeExpiredAssetOwner[];
+}) {
+  const paths = getRuntimePersistencePaths(args?.root);
+  const nowMs = Math.max(0, Number(args?.nowMs || 0) || 0) || Date.now();
+  const roots = runtimeExpiredAssetRoots(paths);
+  const owners = args?.owners?.length
+    ? args.owners
+    : (Object.keys(roots) as RuntimeExpiredAssetOwner[]);
+  const assets: RuntimeExpiredAsset[] = [];
+  for (const owner of owners) {
+    const root = roots[owner];
+    const ttlMs = getRuntimeExpiredAssetTtlMs(owner);
+    for (const file of await collectRuntimeFiles(root)) {
+      const stat = await statRuntimePath(file);
+      if (!stat.exists || !statIsOlderThan(stat, nowMs, ttlMs)) {
+        continue;
+      }
+      assets.push({
+        owner,
+        root,
+        path: file,
+        relativePath: runtimeRelativePath(paths.root, file),
+        ttlMs,
+        lastModified: stat.lastModified,
+      });
+    }
+  }
+  return assets.sort((left, right) => left.path.localeCompare(right.path));
+}
+
 export async function getRuntimePathSize(pathRaw: string): Promise<{
   bytes: number;
   itemCount: number;
@@ -1260,7 +1395,11 @@ export async function copyRuntimeDirectory(args: {
   }
 }
 
-export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceUsageSnapshot> {
+export async function scanRuntimePersistenceUsage(
+  args: {
+    onProgress?: (progress: RuntimePersistenceScanProgress) => void;
+  } = {},
+): Promise<RuntimePersistenceUsageSnapshot> {
   const paths = getRuntimePersistencePaths();
   const categoryDefs: Array<{
     category: RuntimePersistenceCategory;
@@ -1283,8 +1422,12 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
       label: "SkillRunner local ledger",
       path: paths.stateDbPath,
       cleanable: true,
-      recordCount: () => pluginTaskDomainCounter?.("skillrunner") || 0,
-      recordBytes: () => pluginTaskDomainByteEstimator?.("skillrunner") || 0,
+      recordCount: () =>
+        (pluginRunStoreCounter?.("skillrunner") || 0) +
+        (pluginTaskDomainCounter?.("skillrunner") || 0),
+      recordBytes: () =>
+        (pluginRunStoreByteEstimator?.("skillrunner") || 0) +
+        (pluginTaskDomainByteEstimator?.("skillrunner") || 0),
     },
     {
       category: "acp-conversations",
@@ -1303,9 +1446,23 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
       label: "ACP skill runs",
       path: paths.acpSkillRunsDir,
       cleanable: true,
-      recordCount: () => pluginTaskScopeCounter?.("acp", "skill-runs") || 0,
+      recordCount: () =>
+        (pluginRunStoreCounter?.("acp") || 0) +
+        (pluginTaskScopeCounter?.("acp", "skill-runs") || 0),
       recordBytes: () =>
-        pluginTaskScopeByteEstimator?.("acp", "skill-runs") || 0,
+        (pluginRunStoreByteEstimator?.("acp") || 0) +
+        (pluginTaskScopeByteEstimator?.("acp", "skill-runs") || 0),
+      fileBacked: true,
+    },
+    {
+      category: "workflow-products",
+      label: "Workflow products",
+      path: paths.workflowProductsDir,
+      cleanable: true,
+      recordCount: () =>
+        pluginTaskScopeCounter?.("workflow-products", "products") || 0,
+      recordBytes: () =>
+        pluginTaskScopeByteEstimator?.("workflow-products", "products") || 0,
       fileBacked: true,
     },
     {
@@ -1324,6 +1481,18 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
     },
   ];
   const categories: RuntimePersistenceCategoryUsage[] = [];
+  const totalSteps = categoryDefs.length + 2;
+  let completedSteps = 0;
+  const reportProgress = (stage: string, label: string) => {
+    completedSteps = Math.min(totalSteps, completedSteps + 1);
+    args.onProgress?.({
+      stage,
+      label,
+      current: completedSteps,
+      total: totalSteps,
+      percent: Math.floor((completedSteps / totalSteps) * 100),
+    });
+  };
   for (const def of categoryDefs) {
     const size =
       def.path && def.fileBacked
@@ -1341,19 +1510,35 @@ export async function scanRuntimePersistenceUsage(): Promise<RuntimePersistenceU
       itemCount: size.itemCount,
       recordCount,
     });
+    reportProgress(`usage:${def.category}`, def.label);
   }
   const stateDatabaseSize = await getRuntimePathSize(paths.stateDbPath);
-  return {
-    root: paths.root,
-    scannedAt: new Date().toISOString(),
-    totalBytes: categories.reduce((sum, entry) => sum + entry.bytes, 0),
-    categories,
-    stateDatabase: {
+  const synthesisDatabaseSize = await getRuntimePathSize(paths.synthesisDbPath);
+  reportProgress("usage:state-db", "State database");
+  reportProgress("usage:synthesis-db", "Synthesis database");
+  const stateDatabases: RuntimePersistenceStateDatabaseUsage[] = [
+    {
+      kind: "runtime",
       path: paths.stateDbPath,
       bytes: stateDatabaseSize.bytes,
       exists: stateDatabaseSize.exists,
       itemCount: stateDatabaseSize.itemCount,
     },
+    {
+      kind: "synthesis",
+      path: paths.synthesisDbPath,
+      bytes: synthesisDatabaseSize.bytes,
+      exists: synthesisDatabaseSize.exists,
+      itemCount: synthesisDatabaseSize.itemCount,
+    },
+  ];
+  return {
+    root: paths.root,
+    scannedAt: new Date().toISOString(),
+    totalBytes: categories.reduce((sum, entry) => sum + entry.bytes, 0),
+    categories,
+    stateDatabase: stateDatabases[0],
+    stateDatabases,
   };
 }
 
@@ -1373,15 +1558,28 @@ export async function cleanupRuntimePersistenceCategory(
     runtimeLogClearer?.();
     await removeAndTrack(paths.logsDir);
   } else if (category === "skillrunner-ledger") {
-    details.rowsDeleted = pluginTaskDomainClearer?.("skillrunner") || 0;
+    const runRowsDeleted = pluginRunStoreClearer?.("skillrunner") || 0;
+    const legacyRowsDeleted = pluginTaskDomainClearer?.("skillrunner") || 0;
+    details.rowsDeleted = runRowsDeleted + legacyRowsDeleted;
+    details.runStoreRowsDeleted = runRowsDeleted;
+    details.legacyRowsDeleted = legacyRowsDeleted;
   } else if (category === "acp-conversations") {
     details.rowsDeleted =
       pluginTaskDomainExceptRowScopesClearer?.("acp", ["skill-runs"]) || 0;
     await removeAndTrack(paths.acpChatRoot);
   } else if (category === "acp-skill-runs") {
-    details.rowsDeleted = pluginTaskScopeClearer?.("acp", "skill-runs") || 0;
+    const runRowsDeleted = pluginRunStoreClearer?.("acp") || 0;
+    const legacyRowsDeleted =
+      pluginTaskScopeClearer?.("acp", "skill-runs") || 0;
+    details.rowsDeleted = runRowsDeleted + legacyRowsDeleted;
+    details.runStoreRowsDeleted = runRowsDeleted;
+    details.legacyRowsDeleted = legacyRowsDeleted;
     acpSkillRunsMemoryClearer?.();
     await removeAndTrack(paths.acpSkillRunsDir);
+  } else if (category === "workflow-products") {
+    details.rowsDeleted =
+      pluginTaskScopeClearer?.("workflow-products", "products") || 0;
+    await removeAndTrack(paths.workflowProductsDir);
   } else if (category === "cache") {
     await removeAndTrack(paths.cacheDir);
   } else if (category === "tmp") {
@@ -1422,6 +1620,23 @@ export async function cleanupRuntimePersistenceRetention(args?: {
       removedPaths.push(workspaceDir);
     }
   }
+  const expiredAssets = await collectExpiredRuntimeAssets({ nowMs });
+  const expiredByOwner: Record<RuntimeExpiredAssetOwner, number> = {
+    tmp: 0,
+    cache: 0,
+    logs: 0,
+  };
+  for (const asset of expiredAssets) {
+    if (!isPathWithinRoot(asset.root, asset.path)) {
+      continue;
+    }
+    if (await removeRuntimePath(asset.path)) {
+      removedPaths.push(asset.path);
+      expiredByOwner[asset.owner] += 1;
+    }
+  }
+  details.expiredRuntimeAssetCount = expiredAssets.length;
+  details.expiredRuntimeAssetsDeleted = expiredByOwner;
   return {
     ok: true,
     removedPaths,

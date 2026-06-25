@@ -1,16 +1,8 @@
 import { assert } from "chai";
-import { handlers } from "../../src/handlers";
 import { JobQueueManager } from "../../src/jobQueue/manager";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { SkillRunnerProvider } from "../../src/providers/skillrunner/provider";
-import { loadWorkflowManifests } from "../../src/workflows/loader";
-import { executeBuildRequests } from "../../src/workflows/runtime";
 import { isFullTestMode } from "./testMode";
-import {
-  fixturePath,
-  isZoteroRuntime,
-  workflowsPath,
-} from "./workflow-test-utils";
+import { fixturePath, isZoteroRuntime } from "./workflow-test-utils";
 
 const MOCK_SKILLRUNNER_BASE_URL =
   (typeof process !== "undefined" &&
@@ -44,6 +36,28 @@ async function isMockSkillRunnerReachable(baseUrl: string) {
   }
 }
 
+function makeLiteratureAnalysisJobRequest(label: string) {
+  return {
+    kind: "skillrunner.job.v1",
+    skill_id: "literature-analysis",
+    skill_source: "installed",
+    input: {
+      source_path: `inputs/source_path/${label}.md`,
+    },
+    upload_files: [
+      {
+        key: "source_path",
+        path: fixturePath("literature-analysis", "example.md"),
+      },
+    ],
+    poll: {
+      interval_ms: 40,
+      timeout_ms: 5000,
+    },
+    fetch_type: "bundle",
+  };
+}
+
 const describeJobQueueTransportSuite =
   isZoteroRuntime() || isFullTestMode() ? describe : describe.skip;
 
@@ -55,50 +69,10 @@ describeJobQueueTransportSuite("job-queue: transport integration", function () {
       this.skip();
     }
     try {
-      const parentA = await handlers.item.create({
-        itemType: "journalArticle",
-        fields: { title: "Queue Parent A" },
-      });
-      const parentB = await handlers.item.create({
-        itemType: "journalArticle",
-        fields: { title: "Queue Parent B" },
-      });
-      const mdFile = fixturePath("literature-analysis", "example.md");
-      const attachmentA = await handlers.attachment.createFromPath({
-        parent: parentA,
-        path: mdFile,
-        title: "a.md",
-        mimeType: "text/markdown",
-      });
-      const attachmentB = await handlers.attachment.createFromPath({
-        parent: parentB,
-        path: mdFile,
-        title: "b.md",
-        mimeType: "text/markdown",
-      });
-
-      const selectionContext = await buildSelectionContext([attachmentA, attachmentB]);
-      const loaded = await loadWorkflowManifests(workflowsPath());
-      const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-analysis",
-      );
-      assert.isOk(workflow, "workflow literature-analysis not found");
-      const requests = (await executeBuildRequests({
-        workflow: workflow!,
-        selectionContext,
-      })) as unknown[];
-      assert.lengthOf(requests, 2);
-
-      const adjustedRequests = requests.map((request) => {
-        const typed = request as {
-          poll?: { interval_ms?: number; timeout_ms?: number };
-        };
-        typed.poll = {
-          interval_ms: 40,
-          timeout_ms: 5000,
-        };
-        return typed;
-      });
+      const adjustedRequests = [
+        makeLiteratureAnalysisJobRequest("a"),
+        makeLiteratureAnalysisJobRequest("b"),
+      ];
 
       const provider = new SkillRunnerProvider({
         baseUrl: MOCK_SKILLRUNNER_BASE_URL,
@@ -107,14 +81,14 @@ describeJobQueueTransportSuite("job-queue: transport integration", function () {
         concurrency: adjustedRequests.length,
         executeJob: async (job) =>
           provider.execute({
-            requestKind: workflow!.manifest.request!.kind,
+            requestKind: "skillrunner.job.v1",
             request: job.request,
           }),
       });
 
       const jobIds = adjustedRequests.map((request) =>
         queue.enqueue({
-          workflowId: workflow!.manifest.id,
+          workflowId: "literature-analysis",
           request,
           meta: {},
         }),

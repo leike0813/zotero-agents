@@ -392,7 +392,7 @@ function buildBundleScript(args: {
 export async function bundlePackageHookScript(args: {
   entryFilePath: string;
   packageRootDir: string;
-  entryExportName: "applyResult" | "filterInputs" | "buildRequest" | "normalizeSettings";
+  entryExportName: "applyResult" | "buildRequest" | "normalizeSettings";
 }) {
   const modules = new Map<string, BundledModule>();
   await collectModuleGraph({

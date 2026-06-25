@@ -1,0 +1,11 @@
+{
+  "schema": "zotero-agents.content-version.v1",
+  "id": "zotero-agents-official-workflows",
+  "version": "0.1.0",
+  "content_api": "1.0.0",
+  "requires": {
+    "plugin": ">=0.5.0",
+    "content_api": "^1.0.0",
+    "zotero": ">=7 <10"
+  }
+}

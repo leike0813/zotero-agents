@@ -17,10 +17,16 @@
       "max": 1
     }
   },
+  "validateSelection": {
+    "select": {
+      "policy": "literature-source"
+    }
+  },
   "request": {
     "kind": "skillrunner.job.v1",
     "create": {
-      "skill_id": "literature-explainer"
+      "skill_id": "literature-explainer",
+      "mode": "interactive"
     },
     "input": {
       "upload": {
@@ -49,10 +55,7 @@
     }
   },
   "execution": {
-    "mode": "auto",
-    "skillrunner_mode": "interactive",
-    "poll_interval_ms": 2000,
-    "timeout_ms": 1200000
+    "poll_interval_ms": 2000
   },
   "result": {
     "fetch": { "type": "bundle" },
@@ -61,7 +64,6 @@
     }
   },
   "hooks": {
-    "filterInputs": "hooks/filterInputs.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }

@@ -49,10 +49,16 @@ tools using the exact current Host Bridge capability names.
 ### Requirement: ACP session setup SHALL inject the MCP server descriptor when available
 
 
-ACP session creation and attachment SHALL pass the embedded Zotero MCP server to
-the backend when the server is running. The descriptor SHALL be the direct
-descriptor for the embedded Zotero MCP endpoint and SHALL NOT be wrapped through
-a host MCP gateway, proxy URL, stdio shim, or equivalent forwarding layer.
+ACP session creation and attachment SHALL pass the embedded Zotero MCP descriptor
+when the unified Host Access listener is running and MCP is enabled.
+
+#### Scenario: Descriptor uses unified Host Access port
+
+- **WHEN** ACP creates, loads, or resumes a session with MCP enabled
+- **THEN** the MCP descriptor URL SHALL use the unified Host Access listener port
+  with path `/mcp`
+- **AND** in LAN mode the descriptor SHALL use the same advertised host as the
+  Host Bridge remote endpoint.
 
 #### Scenario: Descriptor injection succeeds
 
@@ -94,8 +100,22 @@ The embedded MCP server SHALL release its listening port during ACP/plugin clean
 ### Requirement: Embedded MCP server SHALL expose a localhost HTTP endpoint
 
 
-The plugin SHALL provide an embedded MCP server bound to localhost when the MCP
-server preference is enabled.
+The plugin SHALL provide embedded MCP over the unified Host Access HTTP listener
+when the MCP server preference is enabled.
+
+#### Scenario: MCP JSON-RPC endpoint shares Host Access listener
+
+- **WHEN** the embedded MCP route is enabled
+- **THEN** `POST /mcp` SHALL be served by the same listener and port as
+  `/bridge/v1/*`
+- **AND** JSON-RPC behavior SHALL remain unchanged.
+
+#### Scenario: Preference-disabled route
+
+- **GIVEN** `mcpServer.enabled` is false
+- **WHEN** plugin startup or ACP compatibility asks for MCP
+- **THEN** the MCP descriptor SHALL be unavailable
+- **AND** the unified Host Access listener MAY continue serving `/bridge/v1/*`.
 
 #### Scenario: Preference-enabled startup
 
@@ -111,8 +131,13 @@ server preference is enabled.
 ### Requirement: Embedded MCP server SHALL use Host Bridge authentication
 
 
-The embedded MCP server SHALL accept the same bearer token authentication as the
+The embedded MCP route SHALL accept the same bearer token authentication as the
 Host Bridge CLI and SHALL NOT mint a separate MCP-only token.
+
+#### Scenario: Token rotation affects MCP route
+
+- **WHEN** the Host Bridge token is rotated
+- **THEN** subsequent MCP requests SHALL require the new Host Bridge token.
 
 #### Scenario: Host Bridge token authorizes MCP
 

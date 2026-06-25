@@ -1,0 +1,34 @@
+{
+  "link.title.Docs": {
+    "message": "Документация",
+    "description": "The title of the footer links column with title=Docs in the footer"
+  },
+  "link.title.More": {
+    "message": "Ещё",
+    "description": "The title of the footer links column with title=More in the footer"
+  },
+  "link.item.label.Home": {
+    "message": "Главная",
+    "description": "The label of footer link with label=Home linking to /intro"
+  },
+  "link.item.label.Installation": {
+    "message": "Установка",
+    "description": "The label of footer link with label=Installation linking to /installation"
+  },
+  "link.item.label.Quick Start": {
+    "message": "Быстрый старт",
+    "description": "The label of footer link with label=Quick Start linking to /getting-started"
+  },
+  "link.item.label.GitHub": {
+    "message": "GitHub",
+    "description": "The label of footer link with label=GitHub linking to https://github.com/leike0813/zotero-agents"
+  },
+  "link.item.label.Issues": {
+    "message": "Issues",
+    "description": "The label of footer link with label=Issues linking to https://github.com/leike0813/zotero-agents/issues"
+  },
+  "copyright": {
+    "message": "Copyright © 2026 Zotero Agents. Built with Docusaurus.",
+    "description": "The footer copyright"
+  }
+}

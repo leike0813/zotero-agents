@@ -1,4 +1,5 @@
 import { isDebugModeEnabled } from "./debugMode";
+import { isDiagnosticVerboseEnabled } from "./diagnosticVerbosity";
 import {
   appendRuntimeLog,
   setRuntimeLogAllowedLevels,
@@ -91,6 +92,9 @@ function emitToConsole(args: {
   payload: Record<string, unknown>;
   runtime?: DiagnosticRuntimeLike | null;
 }) {
+  if (!isDiagnosticVerboseEnabled()) {
+    return;
+  }
   const label = `[workflow-package-debug] ${args.message}`;
   const method = resolveConsoleMethod(args.level);
   if (method) {
@@ -98,9 +102,11 @@ function emitToConsole(args: {
   }
   const zoteroDebug =
     args.runtime?.zotero?.debug ||
-    (globalThis as typeof globalThis & {
-      Zotero?: { debug?: (message: string) => void };
-    }).Zotero?.debug;
+    (
+      globalThis as typeof globalThis & {
+        Zotero?: { debug?: (message: string) => void };
+      }
+    ).Zotero?.debug;
   if (typeof zoteroDebug === "function") {
     try {
       zoteroDebug(`${label} ${JSON.stringify(args.payload)}`);
@@ -156,19 +162,22 @@ export function emitWorkflowPackageDiagnostic(args: {
     level,
     scope: args.scope || "system",
     workflowId:
-      String(args.workflowId || args.runtime?.workflowId || "").trim() || undefined,
+      String(args.workflowId || args.runtime?.workflowId || "").trim() ||
+      undefined,
     component: String(args.component || "workflow-package-runtime").trim(),
     operation: String(args.operation || "").trim() || undefined,
     stage: String(args.stage || "unknown").trim() || "unknown",
     message: String(args.message || "").trim() || "workflow-package diagnostic",
     details: {
       packageId:
-        String(args.packageId || args.runtime?.packageId || "").trim() || undefined,
+        String(args.packageId || args.runtime?.packageId || "").trim() ||
+        undefined,
       workflowSourceKind:
         String(
           args.workflowSourceKind || args.runtime?.workflowSourceKind || "",
         ).trim() || undefined,
-      hook: String(args.hook || args.runtime?.hookName || "").trim() || undefined,
+      hook:
+        String(args.hook || args.runtime?.hookName || "").trim() || undefined,
       filePath: String(args.filePath || "").trim() || undefined,
       moduleSpecifier: String(args.moduleSpecifier || "").trim() || undefined,
       runtimeCapabilitySummary: args.runtimeCapabilitySummary,

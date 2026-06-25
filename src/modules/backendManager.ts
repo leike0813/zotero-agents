@@ -3,7 +3,9 @@ import {
   DEFAULT_BACKEND_ID,
   DEFAULT_BACKEND_TYPE,
   DEFAULT_SKILLRUNNER_ENDPOINT,
+  GENERIC_HTTP_BACKEND_TYPE,
 } from "../config/defaults";
+import { config } from "../../package.json";
 import { refreshWorkflowMenus } from "./workflowMenu";
 import { getPref, setPref } from "../utils/prefs";
 import {
@@ -13,10 +15,12 @@ import {
 } from "../backends/registry";
 import { isWindowAlive } from "../utils/window";
 import { getString } from "../utils/locale";
+import { resolveAddonRef } from "../utils/runtimeBridge";
 import { buildSkillRunnerManagementUiUrl } from "./skillRunnerManagementDialog";
 import { openZoteroSkillsWorkspaceTab } from "./workspaceTab";
 import type { BackendInstance } from "../backends/types";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
+import { emitVerboseConsole } from "./diagnosticVerbosity";
 import {
   generateBackendInternalId,
   isManagedLocalBackendId,
@@ -24,7 +28,14 @@ import {
 } from "../backends/identity";
 import { MANAGED_LOCAL_BACKEND_ID } from "./skillRunnerLocalRuntimeConstants";
 import { stopSessionSync } from "./skillRunnerSessionSyncManager";
-import { untrackSkillRunnerBackendHealth } from "./skillRunnerBackendHealthRegistry";
+import {
+  getSkillRunnerBackendHealthState,
+  markSkillRunnerBackendHealthFailure,
+  markSkillRunnerBackendHealthSuccess,
+  syncSkillRunnerBackendHealthForConfiguredBackends,
+  untrackSkillRunnerBackendHealth,
+} from "./skillRunnerBackendHealthRegistry";
+import { scheduleSkillRunnerBackendReachabilityProbe } from "./skillRunnerBackendReachabilityCoordinator";
 import { purgeSkillRunnerBackendReconcileState } from "./skillRunnerTaskReconciler";
 import { pruneAcpSessionSlotsForBackends } from "./acpSessionManager";
 import {
@@ -33,6 +44,7 @@ import {
 } from "./acpBackendProbe";
 import {
   createAcpBackendFromPreset,
+  ensureManagedAcpBackendEnvironmentDirectories,
   findAcpBackendPreset,
   listAcpBackendPresets,
 } from "./acpBackendPresets";
@@ -40,18 +52,20 @@ import {
 const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 const PROVIDER_SECTIONS = [
   {
+    type: ACP_BACKEND_TYPE,
+    labelKey: "backend-manager-provider-acp",
+  },
+  {
     type: DEFAULT_BACKEND_TYPE,
     labelKey: "backend-manager-provider-skillrunner",
   },
   {
-    type: "generic-http",
+    type: GENERIC_HTTP_BACKEND_TYPE,
     labelKey: "backend-manager-provider-generic-http",
   },
-  {
-    type: ACP_BACKEND_TYPE,
-    labelKey: "backend-manager-provider-acp",
-  },
-];
+] as const;
+
+type BackendManagerProviderType = (typeof PROVIDER_SECTIONS)[number]["type"];
 
 type BackendPersistenceDeps = {
   setPref: typeof setPref;
@@ -63,6 +77,7 @@ type EditableBackendRow = {
   internalId: string;
   displayName: string;
   type: string;
+  enabled: boolean;
   baseUrl: string;
   authKind: "none" | "bearer";
   authToken: string;
@@ -76,8 +91,62 @@ type EditableBackendRow = {
 type BackendManagerDialogData = Record<string, unknown> & {
   _allowBackendManagerClose?: boolean;
   _initialBackendDraftSignature?: string;
+  _currentBackendDraftSignature?: string;
   _lastButtonId?: string;
   _nativeBeforeUnloadListener?: (event: BeforeUnloadEvent) => void;
+};
+
+type BackendManagerEnvDraftItem = {
+  key: string;
+  value: string;
+};
+
+type BackendManagerDraftRow = {
+  internalId: string;
+  displayName: string;
+  type: string;
+  enabled: boolean;
+  baseUrl: string;
+  authKind: "none" | "bearer";
+  authToken: string;
+  timeoutMs: string;
+  command: string;
+  args: string[];
+  env: BackendManagerEnvDraftItem[];
+  acp?: BackendInstance["acp"];
+};
+
+type BackendManagerSnapshot = {
+  title: string;
+  help: string;
+  labels: Record<string, string>;
+  initialProviderType?: string;
+  providers: Array<{ type: string; label: string; title: string }>;
+  rows: BackendManagerDraftRow[];
+  skillRunnerHealth: Record<
+    string,
+    {
+      enabled: boolean;
+      reachable: boolean;
+      status?: string;
+      updatedAt?: string;
+      lastReachableAt?: string;
+      lastProbeAt?: string;
+      lastError?: string;
+    }
+  >;
+  acpPresets: Array<{ id: string; label: string }>;
+};
+
+type BackendManagerActionEnvelope = {
+  type: "backend-manager-dialog:action";
+  action: string;
+  payload?: Record<string, unknown>;
+};
+
+type OpenBackendManagerDialogArgs = {
+  window?: Window;
+  initialProviderType?: string;
 };
 
 export type SkillRunnerManagementLaunchPayload = {
@@ -87,6 +156,8 @@ export type SkillRunnerManagementLaunchPayload = {
 };
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
+
+let activeBackendManagerFrameWindow: Window | null = null;
 
 function createHtmlElement<K extends keyof HTMLElementTagNameMap>(
   doc: Document,
@@ -177,6 +248,9 @@ function setChoiceSelection(args: {
 function getElementValue(control: Element) {
   if (control.getAttribute("data-zs-choice-control") === "1") {
     return String(control.getAttribute("data-zs-choice-value") || "").trim();
+  }
+  if ((control as HTMLInputElement).type === "checkbox") {
+    return (control as HTMLInputElement).checked ? "true" : "false";
   }
   return String(
     (control as HTMLInputElement | HTMLSelectElement).value || "",
@@ -416,6 +490,7 @@ function buildFallbackBackendRow(): EditableBackendRow {
     internalId: DEFAULT_BACKEND_ID,
     displayName: DEFAULT_BACKEND_ID,
     type: DEFAULT_BACKEND_TYPE,
+    enabled: true,
     baseUrl: String(
       getPref("skillRunnerEndpoint") || DEFAULT_SKILLRUNNER_ENDPOINT,
     ).trim(),
@@ -434,6 +509,7 @@ function normalizeRowFromBackend(backend: BackendInstance): EditableBackendRow {
     internalId: backend.id,
     displayName: normalizeBackendDisplayName(backend.displayName, backend.id),
     type: backend.type,
+    enabled: backend.enabled !== false,
     baseUrl: backend.baseUrl,
     authKind: backend.auth?.kind === "bearer" ? "bearer" : "none",
     authToken: backend.auth?.kind === "bearer" ? backend.auth.token || "" : "",
@@ -450,6 +526,79 @@ function normalizeRowFromBackend(backend: BackendInstance): EditableBackendRow {
       : "",
     acp: backend.acp,
   };
+}
+
+function envRecordToDraftItems(
+  env: BackendInstance["env"] | undefined,
+): BackendManagerEnvDraftItem[] {
+  return env
+    ? Object.entries(env).map(([key, value]) => ({
+        key,
+        value: String(value ?? ""),
+      }))
+    : [];
+}
+
+function editableRowToDraft(row: EditableBackendRow): BackendManagerDraftRow {
+  return {
+    internalId: row.internalId,
+    displayName: row.displayName,
+    type: row.type,
+    enabled: row.enabled !== false,
+    baseUrl: row.baseUrl,
+    authKind: row.authKind,
+    authToken: row.authToken,
+    timeoutMs: row.timeoutMs,
+    command: row.command,
+    args: parseBackendArgsText(row.argsText),
+    env: envRecordToDraftItems(parseBackendEnvText(row.envText)),
+    acp: row.acp,
+  };
+}
+
+function normalizeDraftRows(raw: unknown): BackendManagerDraftRow[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => {
+      const row = entry as Record<string, unknown>;
+      const authKind =
+        String(row.authKind || "").trim() === "bearer" ? "bearer" : "none";
+      const args = Array.isArray(row.args)
+        ? row.args.map((item) => String(item ?? ""))
+        : parseBackendArgsText(String(row.argsText || ""));
+      const env = Array.isArray(row.env)
+        ? row.env
+            .filter((item) => item && typeof item === "object")
+            .map((item) => {
+              const typed = item as Record<string, unknown>;
+              return {
+                key: String(typed.key ?? ""),
+                value: String(typed.value ?? ""),
+              };
+            })
+        : envRecordToDraftItems(parseBackendEnvText(String(row.envText || "")));
+      const acp =
+        row.acp && typeof row.acp === "object" && !Array.isArray(row.acp)
+          ? (row.acp as BackendInstance["acp"])
+          : undefined;
+      return {
+        internalId: String(row.internalId || "").trim(),
+        displayName: String(row.displayName || ""),
+        type: String(row.type || "").trim(),
+        enabled: row.enabled !== false,
+        baseUrl: String(row.baseUrl || ""),
+        authKind,
+        authToken: String(row.authToken || ""),
+        timeoutMs: String(row.timeoutMs || ""),
+        command: String(row.command || ""),
+        args,
+        env,
+        ...(acp ? { acp } : {}),
+      };
+    });
 }
 
 function appendCell(row: HTMLElement) {
@@ -506,6 +655,15 @@ function appendSelectCell(
   control.setAttribute("data-zs-backend-field", label);
   applySelectVisualStyle(control, width);
   cell.appendChild(control);
+}
+
+function appendCheckboxCell(row: HTMLElement, label: string, checked: boolean) {
+  const cell = appendCell(row);
+  const input = createHtmlElement(row.ownerDocument!, "input");
+  input.type = "checkbox";
+  input.checked = checked;
+  input.setAttribute("data-zs-backend-field", label);
+  cell.appendChild(input);
 }
 
 function readAcpMetadataFromRow(
@@ -732,6 +890,9 @@ function appendBackendRow(args: {
   }
 
   appendTextCell(row, "displayName", args.backend.displayName, "190px");
+  if (args.backend.type === DEFAULT_BACKEND_TYPE) {
+    appendCheckboxCell(row, "enabled", args.backend.enabled !== false);
+  }
   if (args.backend.type === ACP_BACKEND_TYPE) {
     appendTextCell(row, "command", args.backend.command, "180px");
     appendTextAreaCell(row, "args", args.backend.argsText, "240px");
@@ -836,6 +997,9 @@ function appendProviderSection(args: {
         ]
       : [
           "backend-manager-column-id",
+          ...(args.provider.type === DEFAULT_BACKEND_TYPE
+            ? ["backend-manager-column-enabled"]
+            : []),
           "backend-manager-column-base-url",
           "backend-manager-column-auth",
           "backend-manager-column-token",
@@ -982,7 +1146,7 @@ function readRowInternalId(row: Element) {
   return String(row.getAttribute("data-zs-backend-internal-id") || "").trim();
 }
 
-function createBackendManagerDraftSignature(doc: Document) {
+function createBackendManagerDomDraftSignature(doc: Document) {
   const rows = Array.from(
     doc.querySelectorAll("[data-zs-backend-row='1']"),
   ) as Element[];
@@ -991,6 +1155,7 @@ function createBackendManagerDraftSignature(doc: Document) {
       type: String(row.getAttribute("data-zs-backend-type") || "").trim(),
       internalId: readRowInternalId(row),
       displayName: readRowField(row, "displayName"),
+      enabled: readRowField(row, "enabled"),
       baseUrl: readRowField(row, "baseUrl"),
       authKind: readRowField(row, "authKind"),
       authToken: readRowField(row, "authToken"),
@@ -1004,13 +1169,12 @@ function createBackendManagerDraftSignature(doc: Document) {
 }
 
 function hasBackendManagerUnsavedChanges(
-  doc: Document,
+  _doc: Document,
   dialogData: BackendManagerDialogData,
 ) {
   const initial = String(dialogData._initialBackendDraftSignature || "");
-  return Boolean(
-    initial && createBackendManagerDraftSignature(doc) !== initial,
-  );
+  const current = String(dialogData._currentBackendDraftSignature || initial);
+  return Boolean(initial && current !== initial);
 }
 
 function confirmBackendManagerClose(
@@ -1141,6 +1305,7 @@ function resolveSkillRunnerBackendFromRow(row: Element): BackendInstance {
     id: backendId,
     displayName: normalizeBackendDisplayName(displayName, backendId),
     type: DEFAULT_BACKEND_TYPE,
+    ...(readRowField(row, "enabled") === "false" ? { enabled: false } : {}),
     baseUrl,
     auth:
       authKind === "bearer"
@@ -1249,6 +1414,9 @@ export async function launchSkillRunnerManagementFromRow(args: {
   row: Element;
   openDialog?: (payload: SkillRunnerManagementLaunchPayload) => Promise<void>;
 }) {
+  if (readRowField(args.row, "enabled") === "false") {
+    throw new Error("SkillRunner backend is disabled");
+  }
   const payload = resolveSkillRunnerManagementLaunchPayloadFromRow(args.row);
   if (args.openDialog) {
     await args.openDialog(payload);
@@ -1262,15 +1430,69 @@ export async function launchSkillRunnerManagementFromRow(args: {
   return payload;
 }
 
+function resolveSkillRunnerManagementLaunchPayloadFromDraft(
+  row: BackendManagerDraftRow,
+): SkillRunnerManagementLaunchPayload {
+  const backend = collectBackendsFromDraftRows([row]).backends[0];
+  if (String(backend.type || "").trim() !== DEFAULT_BACKEND_TYPE) {
+    throw new Error(
+      getString("backend-manager-error-unsupported-provider" as any, {
+        args: { row: "?", type: backend.type },
+      }),
+    );
+  }
+  if (backend.enabled === false) {
+    throw new Error("SkillRunner backend is disabled");
+  }
+  const uiUrl = buildSkillRunnerManagementUiUrl(backend.baseUrl);
+  return {
+    backendId: backend.id || DEFAULT_BACKEND_ID,
+    baseUrl: backend.baseUrl,
+    uiUrl,
+  };
+}
+
+async function launchSkillRunnerManagementFromDraft(args: {
+  row: BackendManagerDraftRow;
+}) {
+  const payload = resolveSkillRunnerManagementLaunchPayloadFromDraft(args.row);
+  await openZoteroSkillsWorkspaceTab({
+    initialView: "dashboard",
+    initialDashboardTabKey: `backend:${payload.backendId}`,
+    initialDashboardBackendSubview: "management",
+  });
+  return payload;
+}
+
 export async function refreshSkillRunnerModelCacheFromRow(args: {
   row: Element;
   refresh?: (args: { backend: BackendInstance }) => Promise<unknown>;
 }) {
   const backend = resolveSkillRunnerBackendFromRow(args.row);
+  if (backend.enabled === false) {
+    throw new Error("SkillRunner backend is disabled");
+  }
   const refresh = args.refresh || refreshSkillRunnerModelCacheForBackend;
   return refresh({
     backend,
   });
+}
+
+async function refreshSkillRunnerModelCacheFromDraft(args: {
+  row: BackendManagerDraftRow;
+}) {
+  const backend = collectBackendsFromDraftRows([args.row]).backends[0];
+  if (String(backend.type || "").trim() !== DEFAULT_BACKEND_TYPE) {
+    throw new Error(
+      getString("backend-manager-error-unsupported-provider" as any, {
+        args: { row: "?", type: backend.type },
+      }),
+    );
+  }
+  if (backend.enabled === false) {
+    throw new Error("SkillRunner backend is disabled");
+  }
+  return refreshSkillRunnerModelCacheForBackend({ backend });
 }
 
 export async function refreshAcpRuntimeOptionsFromRow(args: {
@@ -1284,6 +1506,20 @@ export async function refreshAcpRuntimeOptionsFromRow(args: {
   });
   writeAcpMetadataToRow(args.row, result.backend.acp);
   return result;
+}
+
+async function refreshAcpRuntimeOptionsFromDraft(args: {
+  row: BackendManagerDraftRow;
+}) {
+  const backend = collectBackendsFromDraftRows([args.row]).backends[0];
+  if (String(backend.type || "").trim() !== ACP_BACKEND_TYPE) {
+    throw new Error(
+      getString("backend-manager-error-unsupported-provider" as any, {
+        args: { row: "?", type: backend.type },
+      }),
+    );
+  }
+  return probeAcpBackendRuntimeOptions({ backend });
 }
 
 export async function persistAcpBackendProbeResultFromRow(
@@ -1319,17 +1555,20 @@ export function collectBackendsFromDialog(doc: Document): {
 
   const seen = new Set<string>();
   const usedIds = new Set<string>();
-  const supportedTypes = new Set(PROVIDER_SECTIONS.map((entry) => entry.type));
   const backends: BackendInstance[] = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const type = String(row.getAttribute("data-zs-backend-type") || "").trim();
+    const typeText = String(
+      row.getAttribute("data-zs-backend-type") || "",
+    ).trim();
+    const type = normalizeBackendManagerProviderType(typeText);
     let id = readRowInternalId(row);
     const displayName = String(readRowField(row, "displayName") || "").trim();
     const baseUrl = readRowField(row, "baseUrl");
     const authKind = readRowField(row, "authKind") || "none";
     const authToken = readRowField(row, "authToken");
     const timeoutText = readRowField(row, "timeoutMs");
+    const enabled = readRowField(row, "enabled") !== "false";
     const command = readRowField(row, "command");
     const argsText = readRowField(row, "args");
     const envText = readRowField(row, "env");
@@ -1338,6 +1577,13 @@ export function collectBackendsFromDialog(doc: Document): {
       throw new Error(
         getString("backend-manager-error-id-required" as any, {
           args: { row: i + 1 },
+        }),
+      );
+    }
+    if (!type) {
+      throw new Error(
+        getString("backend-manager-error-unsupported-provider" as any, {
+          args: { row: i + 1, type: typeText },
         }),
       );
     }
@@ -1358,13 +1604,6 @@ export function collectBackendsFromDialog(doc: Document): {
       );
     }
     seen.add(id);
-    if (!type || !supportedTypes.has(type)) {
-      throw new Error(
-        getString("backend-manager-error-unsupported-provider" as any, {
-          args: { row: i + 1, type },
-        }),
-      );
-    }
     if (type === ACP_BACKEND_TYPE) {
       if (!command) {
         throw new Error(
@@ -1445,6 +1684,9 @@ export function collectBackendsFromDialog(doc: Document): {
       id,
       displayName: normalizeBackendDisplayName(displayName, id),
       type,
+      ...(type === DEFAULT_BACKEND_TYPE && enabled === false
+        ? { enabled: false }
+        : {}),
       baseUrl,
       auth:
         authKind === "bearer"
@@ -1468,6 +1710,201 @@ export function collectBackendsFromDialog(doc: Document): {
   return {
     backends,
   };
+}
+
+function normalizeDraftArgs(args: unknown) {
+  return Array.isArray(args)
+    ? args
+        .map((entry) => String(entry ?? "").trim())
+        .filter((entry) => entry.length > 0)
+    : [];
+}
+
+function normalizeDraftEnv(
+  env: unknown,
+  rowNumber: number | string,
+): Record<string, string> {
+  const parsed: Record<string, string> = {};
+  if (!Array.isArray(env)) {
+    return parsed;
+  }
+  for (const item of env) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const typed = item as Record<string, unknown>;
+    const key = String(typed.key ?? "").trim();
+    const value = String(typed.value ?? "");
+    if (!key && !value.trim()) {
+      continue;
+    }
+    if (!key) {
+      throw new Error(
+        getString("backend-manager-error-env-key-required" as any, {
+          args: { row: rowNumber },
+        }),
+      );
+    }
+    parsed[key] = value;
+  }
+  return parsed;
+}
+
+export function collectBackendsFromDraftRows(rawRows: unknown): {
+  backends: BackendInstance[];
+} {
+  const rows = normalizeDraftRows(rawRows);
+  const seen = new Set<string>();
+  const usedIds = new Set<string>();
+  const backends: BackendInstance[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rowNumber = i + 1;
+    const typeText = String(row.type || "").trim();
+    const type = normalizeBackendManagerProviderType(typeText);
+    let id = String(row.internalId || "").trim();
+    const displayName = String(row.displayName || "").trim();
+    const baseUrl = String(row.baseUrl || "").trim();
+    const authKind = row.authKind === "bearer" ? "bearer" : "none";
+    const authToken = String(row.authToken || "").trim();
+    const timeoutText = String(row.timeoutMs || "").trim();
+    const command = String(row.command || "").trim();
+
+    if (!displayName) {
+      throw new Error(
+        getString("backend-manager-error-id-required" as any, {
+          args: { row: rowNumber },
+        }),
+      );
+    }
+    if (!type) {
+      throw new Error(
+        getString("backend-manager-error-unsupported-provider" as any, {
+          args: { row: rowNumber, type: typeText },
+        }),
+      );
+    }
+    if (!id) {
+      id = generateBackendInternalId({
+        displayName,
+        type,
+        usedIds,
+      });
+      row.internalId = id;
+    }
+    usedIds.add(id);
+    if (seen.has(id)) {
+      throw new Error(
+        getString("backend-manager-error-duplicate-id" as any, {
+          args: { row: rowNumber, id },
+        }),
+      );
+    }
+    seen.add(id);
+
+    if (type === ACP_BACKEND_TYPE) {
+      if (!command) {
+        throw new Error(
+          getString("backend-manager-error-command-required" as any, {
+            args: { row: rowNumber },
+          }),
+        );
+      }
+      const parsedEnv = normalizeDraftEnv(row.env, rowNumber);
+      const backend: BackendInstance = {
+        id,
+        displayName: normalizeBackendDisplayName(displayName, id),
+        type,
+        baseUrl: `local://${id}`,
+        command,
+        args: normalizeDraftArgs(row.args),
+        ...(Object.keys(parsedEnv).length > 0 ? { env: parsedEnv } : {}),
+        ...(row.acp ? { acp: row.acp } : {}),
+      };
+      const expectedFingerprint = computeAcpBackendConfigFingerprint(backend);
+      if (
+        backend.acp?.connectionTest?.configFingerprint &&
+        backend.acp.connectionTest.configFingerprint !== expectedFingerprint
+      ) {
+        backend.acp = {
+          ...backend.acp,
+          connectionTest: {
+            ...backend.acp.connectionTest,
+            status: "stale",
+            error: "Backend command, args, env, or ACP overrides changed.",
+          },
+        };
+      }
+      backends.push(backend);
+      continue;
+    }
+
+    if (!baseUrl) {
+      throw new Error(
+        getString("backend-manager-error-base-url-required" as any, {
+          args: { row: rowNumber },
+        }),
+      );
+    }
+    try {
+      const parsed = new URL(baseUrl);
+      if (!["http:", "https:"].includes(parsed.protocol)) {
+        throw new Error("protocol");
+      }
+    } catch {
+      throw new Error(
+        getString("backend-manager-error-base-url-invalid" as any, {
+          args: { row: rowNumber },
+        }),
+      );
+    }
+    if (authKind === "bearer" && !authToken) {
+      throw new Error(
+        getString("backend-manager-error-bearer-required" as any, {
+          args: { row: rowNumber },
+        }),
+      );
+    }
+    const timeoutMs = timeoutText ? Number(timeoutText) : undefined;
+    if (
+      typeof timeoutMs !== "undefined" &&
+      (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+    ) {
+      throw new Error(
+        getString("backend-manager-error-timeout-invalid" as any, {
+          args: { row: rowNumber },
+        }),
+      );
+    }
+    backends.push({
+      id,
+      displayName: normalizeBackendDisplayName(displayName, id),
+      type,
+      ...(type === DEFAULT_BACKEND_TYPE && row.enabled === false
+        ? { enabled: false }
+        : {}),
+      baseUrl,
+      auth:
+        authKind === "bearer"
+          ? {
+              kind: "bearer",
+              token: authToken,
+            }
+          : {
+              kind: "none",
+            },
+      ...(typeof timeoutMs === "number"
+        ? {
+            defaults: {
+              timeout_ms: timeoutMs,
+            },
+          }
+        : {}),
+    });
+  }
+
+  return { backends };
 }
 
 const defaultBackendPersistenceDeps: BackendPersistenceDeps = {
@@ -1532,6 +1969,7 @@ function triggerSilentModelCacheRefreshForAddedSkillRunnerBackends(args: {
     const backendId = String(backend.id || "").trim();
     return (
       String(backend.type || "").trim() === "skillrunner" &&
+      backend.enabled !== false &&
       !!backendId &&
       !args.existingSkillRunnerIds.has(backendId)
     );
@@ -1540,8 +1978,9 @@ function triggerSilentModelCacheRefreshForAddedSkillRunnerBackends(args: {
     void args
       .refreshModelCache({ backend })
       .then((result) => {
-        if (!result?.ok && typeof console !== "undefined") {
-          console.warn(
+        if (!result?.ok) {
+          emitVerboseConsole(
+            "warn",
             `[backend-manager] silent model cache refresh failed for backend=${backend.id}: ${String(
               result?.error || "unknown error",
             )}`,
@@ -1549,11 +1988,10 @@ function triggerSilentModelCacheRefreshForAddedSkillRunnerBackends(args: {
         }
       })
       .catch((error) => {
-        if (typeof console !== "undefined") {
-          console.warn(
-            `[backend-manager] silent model cache refresh threw for backend=${backend.id}: ${String(error)}`,
-          );
-        }
+        emitVerboseConsole(
+          "warn",
+          `[backend-manager] silent model cache refresh threw for backend=${backend.id}: ${String(error)}`,
+        );
       });
   }
 }
@@ -1642,6 +2080,20 @@ export function persistBackendsConfig(
     BACKENDS_CONFIG_PREF_KEY,
     JSON.stringify(createBackendsPrefsDocument(mergedBackends)),
   );
+  syncSkillRunnerBackendHealthForConfiguredBackends(mergedBackends, {
+    prune: true,
+  });
+  for (const backend of mergedBackends) {
+    if (
+      String(backend.type || "").trim() === DEFAULT_BACKEND_TYPE &&
+      backend.enabled !== false
+    ) {
+      scheduleSkillRunnerBackendReachabilityProbe({
+        backendId: backend.id,
+        source: "settings",
+      });
+    }
+  }
   syncBackendReferenceState({
     idMapping,
     removedIds,
@@ -1669,19 +2121,313 @@ function getAlertWindow(window?: Window) {
   return ztoolkit.getGlobal("window") as Window | undefined;
 }
 
-export async function openBackendManagerDialog(args?: { window?: Window }) {
+function localizeBackendManager(
+  key: string,
+  fallback: string,
+  options?: { args?: Record<string, unknown> },
+) {
+  try {
+    const value = String(
+      options ? getString(key as any, options) : getString(key as any),
+    ).trim();
+    return value || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function resolveBackendManagerPageUrl() {
+  const addonRef = String(config.addonRef || "").trim() || resolveAddonRef("");
+  if (!addonRef) {
+    return "about:blank";
+  }
+  return `chrome://${addonRef}/content/dashboard/backend-manager.html?ui=20260617-html-backend-manager-v2`;
+}
+
+function createBackendManagerFrame(doc: Document) {
+  const frame = doc.createElement("iframe");
+  frame.setAttribute("type", "content");
+  frame.setAttribute("data-zs-role", "backend-manager-dialog-frame");
+  frame.style.width = "100%";
+  frame.style.height = "100%";
+  frame.style.display = "block";
+  frame.style.flex = "1 1 auto";
+  frame.style.minHeight = "620px";
+  frame.style.border = "none";
+  return frame;
+}
+
+function resolveFrameWindow(frame: Element | null) {
+  if (!frame) {
+    return null;
+  }
+  const candidate = frame as Element & { contentWindow?: Window | null };
+  return candidate.contentWindow || null;
+}
+
+function normalizeBackendManagerProviderType(
+  value: unknown,
+): BackendManagerProviderType | undefined {
+  const text = String(value || "").trim();
+  return PROVIDER_SECTIONS.some((provider) => provider.type === text)
+    ? (text as BackendManagerProviderType)
+    : undefined;
+}
+
+function postBackendManagerProviderSelection(providerType?: string) {
+  const selectedProviderType =
+    normalizeBackendManagerProviderType(providerType);
+  if (!selectedProviderType) {
+    return;
+  }
+  try {
+    activeBackendManagerFrameWindow?.postMessage(
+      {
+        type: "backend-manager-dialog:select-provider",
+        payload: { providerType: selectedProviderType },
+      },
+      "*",
+    );
+  } catch {
+    activeBackendManagerFrameWindow = null;
+  }
+}
+
+function createBackendManagerDraftSignature(rows: BackendManagerDraftRow[]) {
+  return JSON.stringify(
+    normalizeDraftRows(rows).map((row) => ({
+      internalId: row.internalId,
+      displayName: row.displayName,
+      type: row.type,
+      enabled: row.enabled !== false,
+      baseUrl: row.baseUrl,
+      authKind: row.authKind,
+      authToken: row.authToken,
+      timeoutMs: row.timeoutMs,
+      command: row.command,
+      args: normalizeDraftArgs(row.args),
+      env: Array.isArray(row.env)
+        ? row.env.map((item) => ({
+            key: String(item.key || "").trim(),
+            value: String(item.value || ""),
+          }))
+        : [],
+      acp: row.acp || null,
+    })),
+  );
+}
+
+function buildBackendManagerLabels() {
+  return {
+    addProfile: localizeBackendManager(
+      "backend-manager-provider-add",
+      "Add { $provider } Profile",
+    ),
+    addAcpPreset: localizeBackendManager(
+      "backend-manager-acp-preset-add",
+      "Add ACP Preset",
+    ),
+    customAcp: localizeBackendManager(
+      "backend-manager-acp-preset-custom",
+      "Custom ACP",
+    ),
+    displayName: localizeBackendManager("backend-manager-column-id", "ID"),
+    enabled: localizeBackendManager(
+      "backend-manager-column-enabled",
+      "Enabled",
+    ),
+    baseUrl: localizeBackendManager(
+      "backend-manager-column-base-url",
+      "Base URL",
+    ),
+    auth: localizeBackendManager("backend-manager-column-auth", "Auth"),
+    token: localizeBackendManager("backend-manager-column-token", "Token"),
+    timeoutMs: localizeBackendManager(
+      "backend-manager-column-timeout-ms",
+      "Timeout(ms)",
+    ),
+    command: localizeBackendManager(
+      "backend-manager-column-command",
+      "Command",
+    ),
+    args: localizeBackendManager("backend-manager-column-args", "Args"),
+    env: localizeBackendManager("backend-manager-column-env", "Env"),
+    actions: localizeBackendManager(
+      "backend-manager-column-actions",
+      "Actions",
+    ),
+    authNone: localizeBackendManager("backend-manager-auth-none", "None"),
+    authBearer: localizeBackendManager("backend-manager-auth-bearer", "Bearer"),
+    remove: localizeBackendManager("backend-manager-remove", "Remove"),
+    save: localizeBackendManager("backend-manager-save", "Save"),
+    cancel: localizeBackendManager("backend-manager-cancel", "Cancel"),
+    openManagement: localizeBackendManager(
+      "backend-manager-open-management",
+      "Open Management",
+    ),
+    refreshModelCache: localizeBackendManager(
+      "backend-manager-refresh-model-cache",
+      "Refresh Model Cache",
+    ),
+    unreachable: localizeBackendManager(
+      "backend-manager-status-unreachable",
+      "Unreachable",
+    ),
+    disabled: localizeBackendManager(
+      "backend-manager-status-disabled",
+      "Disabled",
+    ),
+    statusModelCacheRefreshed: localizeBackendManager(
+      "backend-manager-status-model-cache-refreshed",
+      "Model cache refreshed",
+    ),
+    statusModelCacheRefreshFailed: localizeBackendManager(
+      "backend-manager-status-model-cache-refresh-failed",
+      "Model cache refresh failed",
+    ),
+    statusAcpRuntimeCacheRefreshed: localizeBackendManager(
+      "backend-manager-status-acp-runtime-cache-refreshed",
+      "ACP config cache refreshed",
+    ),
+    statusAcpRuntimeCacheRefreshFailed: localizeBackendManager(
+      "backend-manager-status-acp-runtime-cache-refresh-failed",
+      "ACP config cache refresh failed",
+    ),
+    refreshAcpRuntimeCache: localizeBackendManager(
+      "backend-manager-refresh-acp-runtime-cache",
+      "Refresh Config Cache",
+    ),
+    testAcpConnection: localizeBackendManager(
+      "backend-manager-test-acp-connection",
+      "Test Connection",
+    ),
+    addArg: localizeBackendManager("backend-manager-add-arg", "Add Argument"),
+    addEnv: localizeBackendManager(
+      "backend-manager-add-env",
+      "Add Environment Variable",
+    ),
+    argPlaceholder: localizeBackendManager(
+      "backend-manager-arg-placeholder",
+      "Argument",
+    ),
+    envKeyPlaceholder: localizeBackendManager(
+      "backend-manager-env-key-placeholder",
+      "Variable",
+    ),
+    envValuePlaceholder: localizeBackendManager(
+      "backend-manager-env-value-placeholder",
+      "Value",
+    ),
+    noProfiles: localizeBackendManager(
+      "backend-manager-empty-provider",
+      "No profiles configured.",
+    ),
+    unsavedExitConfirm: localizeBackendManager(
+      "backend-manager-unsaved-exit-confirm",
+      "Discard unsaved backend changes?",
+    ),
+  };
+}
+
+function buildSkillRunnerHealthSnapshot(rows: BackendManagerDraftRow[]) {
+  const healthById: BackendManagerSnapshot["skillRunnerHealth"] = {};
+  for (const row of rows) {
+    if (row.type !== DEFAULT_BACKEND_TYPE || !row.internalId) {
+      continue;
+    }
+    const health = getSkillRunnerBackendHealthState(row.internalId);
+    healthById[row.internalId] = {
+      enabled: row.enabled !== false && health?.status !== "disabled",
+      reachable: health?.reachable === true && health?.status === "reachable",
+      status: row.enabled === false ? "disabled" : health?.status || "unknown",
+      updatedAt: health?.updatedAt,
+      lastReachableAt: health?.lastReachableAt,
+      lastProbeAt: health?.lastProbeAt,
+      ...(health?.lastError ? { lastError: health.lastError } : {}),
+    };
+  }
+  return healthById;
+}
+
+function buildBackendManagerSnapshot(
+  rows: BackendManagerDraftRow[],
+  args?: { initialProviderType?: string },
+): BackendManagerSnapshot {
+  return {
+    title: localizeBackendManager("backend-manager-title", "Backend Manager"),
+    help: localizeBackendManager(
+      "backend-manager-help",
+      'Profiles are managed by provider. Click "Save" to persist.',
+    ),
+    labels: buildBackendManagerLabels(),
+    initialProviderType: normalizeBackendManagerProviderType(
+      args?.initialProviderType,
+    ),
+    providers: PROVIDER_SECTIONS.map((provider) => {
+      const label = localizeBackendManager(provider.labelKey, provider.type);
+      return {
+        type: provider.type,
+        label,
+        title: localizeBackendManager(
+          "backend-manager-provider-profiles-title",
+          `${label} Profiles`,
+          { args: { provider: label } },
+        ),
+      };
+    }),
+    rows,
+    acpPresets: listAcpBackendPresets().map((preset) => ({
+      id: preset.id,
+      label: preset.displayName,
+    })),
+    skillRunnerHealth: buildSkillRunnerHealthSnapshot(rows),
+  };
+}
+
+async function persistAcpBackendProbeResultFromDraft(
+  row: BackendManagerDraftRow,
+) {
+  const backend = collectBackendsFromDraftRows([row]).backends[0];
+  const loaded = await loadBackendsRegistry();
+  if (loaded.fatalError) {
+    throw new Error(loaded.fatalError);
+  }
+  let replaced = false;
+  const nextBackends = loaded.backends.map((entry) => {
+    if (entry.id !== backend.id) {
+      return entry;
+    }
+    replaced = true;
+    return backend;
+  });
+  if (!replaced) {
+    nextBackends.push(backend);
+  }
+  persistBackendsConfig(nextBackends);
+  return backend;
+}
+
+export async function openBackendManagerDialog(
+  args?: OpenBackendManagerDialogArgs,
+) {
   if (isWindowAlive(addon.data.dialog?.window)) {
     addon.data.dialog?.window?.focus();
+    postBackendManagerProviderSelection(args?.initialProviderType);
     return;
   }
 
   const alertWindow = getAlertWindow(args?.window);
+  const initialProviderType = normalizeBackendManagerProviderType(
+    args?.initialProviderType,
+  );
   const loaded = await loadBackendsRegistry();
-  const initialRows = loaded.fatalError
-    ? [buildFallbackBackendRow()]
-    : loaded.backends
-        .filter((entry) => !isManagedLocalBackendId(entry.id))
-        .map((entry) => normalizeRowFromBackend(entry));
+  const initialRows = (
+    loaded.fatalError
+      ? [buildFallbackBackendRow()]
+      : loaded.backends
+          .filter((entry) => !isManagedLocalBackendId(entry.id))
+          .map((entry) => normalizeRowFromBackend(entry))
+  ).map(editableRowToDraft);
 
   if (loaded.fatalError) {
     alertWindow?.alert?.(
@@ -1691,9 +2437,17 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
     );
   }
 
+  let frameWindow: Window | null = null;
+  let removeMessageListener: (() => void) | undefined;
+  let currentDraftRows = normalizeDraftRows(initialRows);
+  const initialSignature = createBackendManagerDraftSignature(currentDraftRows);
+
   const dialogData: BackendManagerDialogData = {
+    _initialBackendDraftSignature: initialSignature,
+    _currentBackendDraftSignature: initialSignature,
     loadCallback: () => {
       const doc = addon.data.dialog?.window?.document;
+      const dialogWindow = addon.data.dialog?.window;
       if (!doc) {
         return;
       }
@@ -1704,183 +2458,234 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
         return;
       }
 
-      ensureTableSkeleton(doc, root, dialogData);
-      installBackendManagerBeforeUnloadPrompt(doc, dialogData);
-      const bodies = Array.from(
-        doc.querySelectorAll(
-          "[data-zs-backend-body='1'][data-zs-provider-type]",
-        ),
-      ) as HTMLElement[];
-      const bodyMap = new Map<string, HTMLElement>();
-      bodies.forEach((body) => {
-        const type = String(
-          body.getAttribute("data-zs-provider-type") || "",
-        ).trim();
-        if (type) {
-          bodyMap.set(type, body);
+      root.innerHTML = "";
+      const frame = createBackendManagerFrame(doc);
+      const postToFrame = (
+        type:
+          | "backend-manager-dialog:init"
+          | "backend-manager-dialog:snapshot"
+          | "backend-manager-dialog:action-result",
+        payload: Record<string, unknown>,
+      ) => {
+        const targetWindow = resolveFrameWindow(frame);
+        if (!targetWindow) {
+          return;
         }
-      });
-
-      const openManagementFromRow = (row: HTMLElement) => {
-        void launchSkillRunnerManagementFromRow({
-          row,
-        }).catch((error) => {
-          alertWindow?.alert?.(
-            getString("backend-manager-open-management-failed" as any, {
-              args: { error: String(error) },
-            }),
-          );
-        });
+        frameWindow = targetWindow;
+        targetWindow.postMessage({ type, payload }, "*");
       };
-      const refreshModelCacheFromRow = (row: HTMLElement) => {
-        void refreshSkillRunnerModelCacheFromRow({
-          row,
-        })
-          .then((result) => {
-            const typed = (result || {}) as {
-              ok?: boolean;
-              refreshedAt?: string;
-              error?: string;
-            };
-            if (typed.ok === true) {
-              alertWindow?.alert?.(
-                getString(
-                  "backend-manager-refresh-model-cache-success" as any,
-                  {
-                    args: {
-                      refreshedAt: String(typed.refreshedAt || ""),
-                    },
-                  },
-                ),
+      const pushSnapshot = (
+        type: "backend-manager-dialog:init" | "backend-manager-dialog:snapshot",
+      ) => {
+        postToFrame(
+          type,
+          buildBackendManagerSnapshot(currentDraftRows, {
+            initialProviderType,
+          }),
+        );
+      };
+      const onMessage = (event: MessageEvent) => {
+        const sourceWindow =
+          event.source && "postMessage" in event.source
+            ? (event.source as Window)
+            : null;
+        const currentFrameWindow = resolveFrameWindow(frame);
+        if (
+          sourceWindow &&
+          currentFrameWindow &&
+          sourceWindow !== currentFrameWindow
+        ) {
+          return;
+        }
+        const data = event.data as { type?: unknown };
+        if (!data || data.type !== "backend-manager-dialog:action") {
+          return;
+        }
+        frameWindow = sourceWindow || currentFrameWindow;
+        activeBackendManagerFrameWindow = frameWindow;
+        const envelope = data as BackendManagerActionEnvelope;
+        const action = String(envelope.action || "").trim();
+        const payload = envelope.payload || {};
+        if (action === "ready") {
+          pushSnapshot("backend-manager-dialog:init");
+          return;
+        }
+        if (action === "draft-changed") {
+          currentDraftRows = normalizeDraftRows(payload.rows);
+          dialogData._currentBackendDraftSignature =
+            createBackendManagerDraftSignature(currentDraftRows);
+          return;
+        }
+        if (action === "cancel") {
+          dialogData._lastButtonId = "cancel";
+          dialogData._allowBackendManagerClose = true;
+          dialogWindow?.close();
+          return;
+        }
+        if (action === "save") {
+          void (async () => {
+            try {
+              currentDraftRows = normalizeDraftRows(payload.rows);
+              const collected = collectBackendsFromDraftRows(currentDraftRows);
+              await ensureManagedAcpBackendEnvironmentDirectories(
+                collected.backends,
               );
-              return;
+              persistBackendsConfig(collected.backends);
+              dialogData._lastButtonId = "save";
+              dialogData._allowBackendManagerClose = true;
+              alertWindow?.alert?.(getString("backend-manager-saved" as any));
+              dialogWindow?.close();
+            } catch (error) {
+              alertWindow?.alert?.(
+                getString("backend-manager-save-failed" as any, {
+                  args: { error: String(error) },
+                }),
+              );
             }
-            throw new Error(String(typed.error || "unknown error"));
-          })
-          .catch((error) => {
+          })();
+          return;
+        }
+        if (action === "open-management") {
+          void launchSkillRunnerManagementFromDraft({
+            row: normalizeDraftRows([payload.row])[0],
+          }).catch((error) => {
             alertWindow?.alert?.(
-              getString("backend-manager-refresh-model-cache-failed" as any, {
+              getString("backend-manager-open-management-failed" as any, {
                 args: { error: String(error) },
               }),
             );
           });
-      };
-      const refreshAcpRuntimeOptions = (row: HTMLElement) => {
-        const button = row.querySelector(
-          "[data-zs-backend-action='refresh-acp-runtime-options']",
-        ) as HTMLButtonElement | null;
-        if (button?.disabled) {
           return;
         }
-        setAcpBackendRowBusy(row, true);
-        void refreshAcpRuntimeOptionsFromRow({
-          row,
-        })
-          .then(async (result) => {
-            await persistAcpBackendProbeResultFromRow(row);
+        if (action === "refresh-model-cache") {
+          const rowIndex = Number(payload.rowIndex);
+          const row = normalizeDraftRows([payload.row])[0];
+          const backendId = row?.internalId || "";
+          void refreshSkillRunnerModelCacheFromDraft({
+            row,
           })
-          .catch((error) => {
-            writeAcpMetadataToRow(row, {
-              connectionTest: {
-                status: "failed",
-                testedAt: new Date().toISOString(),
+            .then((result) => {
+              const typed = (result || {}) as {
+                ok?: boolean;
+                refreshedAt?: string;
+                error?: string;
+                backendId?: string;
+              };
+              const resultBackendId = String(
+                typed.backendId || backendId || "",
+              ).trim();
+              if (typed.ok === true) {
+                markSkillRunnerBackendHealthSuccess(resultBackendId);
+                postToFrame("backend-manager-dialog:action-result", {
+                  action,
+                  rowIndex,
+                  backendId: resultBackendId,
+                  refreshedAt: String(typed.refreshedAt || ""),
+                  ok: true,
+                });
+                return;
+              }
+              throw new Error(String(typed.error || "unknown error"));
+            })
+            .catch((error) => {
+              markSkillRunnerBackendHealthFailure({ backendId, error });
+              postToFrame("backend-manager-dialog:action-result", {
+                action,
+                rowIndex,
+                backendId,
                 error: String(error),
-              },
+                ok: false,
+              });
             });
-          })
-          .finally(() => {
-            setAcpBackendRowBusy(row, false);
-          });
-      };
-
-      initialRows.forEach((backend) => {
-        const tbody = bodyMap.get(backend.type);
-        if (!tbody) {
           return;
         }
-        appendBackendRow({
-          tbody,
-          backend,
-          onOpenManagement: openManagementFromRow,
-          onRefreshModelCache: refreshModelCacheFromRow,
-          onRefreshAcpRuntimeOptions: refreshAcpRuntimeOptions,
-        });
-      });
-
-      const addButtons = Array.from(
-        doc.querySelectorAll(
-          "[data-zs-backend-action='add'][data-zs-provider-type]",
-        ),
-      ) as HTMLButtonElement[];
-      addButtons.forEach((button) => {
-        button.addEventListener("click", () => {
-          closeAllAcpPresetMenus(doc);
-          const providerType = String(
-            button.getAttribute("data-zs-provider-type") || "",
-          ).trim();
-          const tbody = bodyMap.get(providerType);
-          if (!tbody) {
-            return;
-          }
-          appendBackendRow({
-            tbody,
-            backend: {
-              internalId: "",
-              displayName: "",
-              type: providerType,
-              baseUrl: "",
-              authKind: "none",
-              authToken: "",
-              timeoutMs: "",
-              command: "",
-              argsText: "",
-              envText: "",
-            },
-            onOpenManagement: openManagementFromRow,
-            onRefreshModelCache: refreshModelCacheFromRow,
-            onRefreshAcpRuntimeOptions: refreshAcpRuntimeOptions,
-          });
-        });
-      });
-
-      const presetButtons = Array.from(
-        doc.querySelectorAll(
-          "[data-zs-backend-action='add-acp-preset'][data-zs-provider-type='acp']",
-        ),
-      ) as HTMLButtonElement[];
-      presetButtons.forEach((button) => {
-        button.addEventListener("click", () => {
-          closeAllAcpPresetMenus(doc);
-          const presetId = String(
-            button.getAttribute("data-zs-acp-preset-id") || "",
-          ).trim();
-          const preset = findAcpBackendPreset(presetId);
-          const tbody = bodyMap.get(ACP_BACKEND_TYPE);
-          if (!preset || !tbody) {
-            return;
-          }
-          if (hasBackendRowInternalId(doc, preset.backendId)) {
-            alertWindow?.alert?.(
-              getString("backend-manager-acp-preset-exists" as any, {
-                args: { name: preset.displayName },
-              }),
+        if (action === "refresh-acp-runtime-options") {
+          const rowIndex = Number(payload.rowIndex);
+          const row = normalizeDraftRows([payload.row])[0];
+          const backendId = row?.internalId || "";
+          void refreshAcpRuntimeOptionsFromDraft({
+            row,
+          })
+            .then(async (result) => {
+              const updatedRow = normalizeDraftRows([payload.row])[0];
+              updatedRow.acp = result.backend.acp;
+              await persistAcpBackendProbeResultFromDraft(updatedRow);
+              postToFrame("backend-manager-dialog:action-result", {
+                action,
+                rowIndex,
+                backendId,
+                acp: result.backend.acp,
+                ok: result.ok,
+              });
+            })
+            .catch((error) => {
+              postToFrame("backend-manager-dialog:action-result", {
+                action,
+                rowIndex,
+                backendId,
+                acp: {
+                  connectionTest: {
+                    status: "failed",
+                    testedAt: new Date().toISOString(),
+                    error: String(error),
+                  },
+                },
+                error: String(error),
+                ok: false,
+              });
+            });
+          return;
+        }
+        if (action === "add-acp-preset") {
+          try {
+            const presetId = String(payload.presetId || "").trim();
+            const preset = findAcpBackendPreset(presetId);
+            if (!preset) {
+              throw new Error(`Unknown ACP backend preset: ${presetId}`);
+            }
+            const existingIds = new Set(
+              normalizeDraftRows(payload.rows || currentDraftRows)
+                .map((row) => row.internalId)
+                .filter(Boolean),
             );
-            return;
+            if (existingIds.has(preset.backendId)) {
+              throw new Error(
+                getString("backend-manager-acp-preset-exists" as any, {
+                  args: { name: preset.displayName },
+                }),
+              );
+            }
+            postToFrame("backend-manager-dialog:action-result", {
+              action,
+              row: editableRowToDraft(
+                editableRowFromAcpBackendPreset(presetId),
+              ),
+            });
+          } catch (error) {
+            alertWindow?.alert?.(String(error));
           }
-          appendBackendRow({
-            tbody,
-            backend: editableRowFromAcpBackendPreset(preset.id),
-            onOpenManagement: openManagementFromRow,
-            onRefreshModelCache: refreshModelCacheFromRow,
-            onRefreshAcpRuntimeOptions: refreshAcpRuntimeOptions,
-          });
-        });
+        }
+      };
+      dialogWindow?.addEventListener("message", onMessage);
+      removeMessageListener = () => {
+        dialogWindow?.removeEventListener("message", onMessage);
+      };
+      frame.addEventListener("load", () => {
+        frameWindow = resolveFrameWindow(frame);
+        activeBackendManagerFrameWindow = frameWindow;
+        pushSnapshot("backend-manager-dialog:init");
       });
-
-      dialogData._initialBackendDraftSignature =
-        createBackendManagerDraftSignature(doc);
+      root.appendChild(frame);
+      frame.src = resolveBackendManagerPageUrl();
+      installBackendManagerBeforeUnloadPrompt(doc, dialogData);
     },
     unloadCallback: () => {
+      if (removeMessageListener) {
+        removeMessageListener();
+        removeMessageListener = undefined;
+      }
+      frameWindow = null;
+      activeBackendManagerFrameWindow = null;
       removeBackendManagerBeforeUnloadPrompt(
         addon.data.dialog?.window?.document,
         dialogData,
@@ -1896,7 +2701,8 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
       styles: {
         width: "100%",
         height: "100%",
-        minHeight: "0",
+        minWidth: "1040px",
+        minHeight: "620px",
         padding: "0",
         margin: "0",
         display: "flex",
@@ -1909,34 +2715,12 @@ export async function openBackendManagerDialog(args?: { window?: Window }) {
       centerscreen: true,
       resizable: true,
       fitContent: false,
-      width: 1320,
-      height: 760,
+      width: 1180,
+      height: 700,
     });
 
   addon.data.dialog = dialogHelper;
   await (dialogData as { unloadLock?: { promise?: Promise<void> } }).unloadLock
     ?.promise;
   addon.data.dialog = undefined;
-
-  if (dialogData._lastButtonId !== "save") {
-    return;
-  }
-
-  try {
-    const doc = dialogHelper.window?.document;
-    if (!doc) {
-      throw new Error(
-        getString("backend-manager-error-window-unavailable" as any),
-      );
-    }
-    const collected = collectBackendsFromDialog(doc);
-    persistBackendsConfig(collected.backends);
-    alertWindow?.alert?.(getString("backend-manager-saved" as any));
-  } catch (error) {
-    alertWindow?.alert?.(
-      getString("backend-manager-save-failed" as any, {
-        args: { error: String(error) },
-      }),
-    );
-  }
 }

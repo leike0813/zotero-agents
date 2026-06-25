@@ -166,18 +166,15 @@ describe("Synthesis review input workflow DTO", function () {
       ["event-1"],
     );
     assert.deepEqual(
-      input.structured_topic?.paper_evidence.map(
+      (input.structured_topic?.paper_evidence || []).map(
         (evidence: any) => evidence.id,
       ),
-      ["ev-a"],
+      [],
     );
-    assert.equal(
-      (input.structured_topic?.external_literature_analysis as any).summary,
-      "External context.",
-    );
+    assert.isUndefined(input.structured_topic?.external_literature_analysis);
     assert.equal((input.structured_topic?.coverage as any).status, "partial");
     assert.deepEqual(
-      input.structured_topic?.future_directions.map(
+      (input.structured_topic?.future_directions || []).map(
         (direction: any) => direction.id,
       ),
       ["future-1"],

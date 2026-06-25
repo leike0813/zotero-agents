@@ -3,7 +3,10 @@ import type { BackendInstance } from "../../src/backends/types";
 import { AcpClientConnection } from "../../src/modules/acpClientConnection";
 import { createAcpNdJsonMessageStream } from "../../src/modules/acpMessageStream";
 import { ACP_PROTOCOL_VERSION } from "../../src/modules/acpProtocol";
-import { launchAcpTransport, type AcpTransport } from "../../src/modules/acpTransport";
+import {
+  launchAcpTransport,
+  type AcpTransport,
+} from "../../src/modules/acpTransport";
 import {
   configureZoteroMcpServerForTests,
   getZoteroMcpServerStatus,
@@ -13,10 +16,11 @@ import {
 } from "../../src/modules/zoteroMcpServer";
 import { ZOTERO_MCP_TOOL_GET_CURRENT_VIEW } from "../../src/modules/zoteroMcpProtocol";
 
-const dynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as <T = any>(specifier: string) => Promise<T>;
+const dynamicImport = new Function("specifier", "return import(specifier)") as <
+  T = any,
+>(
+  specifier: string,
+) => Promise<T>;
 
 function shouldRunRealOpenCodeIntegration() {
   const runtime = globalThis as {
@@ -24,7 +28,9 @@ function shouldRunRealOpenCodeIntegration() {
       env?: Record<string, string | undefined>;
     };
   };
-  return runtime.process?.env?.ZOTERO_SKILLS_RUN_OPENCODE_ACP_INTEGRATION === "1";
+  return (
+    runtime.process?.env?.ZOTERO_SKILLS_RUN_OPENCODE_ACP_INTEGRATION === "1"
+  );
 }
 
 function parseRawHttpResponse(raw: string) {
@@ -39,9 +45,7 @@ function parseRawHttpResponse(raw: string) {
     if (separator < 0) {
       continue;
     }
-    headers[line.slice(0, separator).trim()] = line
-      .slice(separator + 1)
-      .trim();
+    headers[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
   }
   return {
     status,
@@ -51,9 +55,8 @@ function parseRawHttpResponse(raw: string) {
 }
 
 async function readRequestBody(request: any) {
-  const bufferModule = await dynamicImport<typeof import("node:buffer")>(
-    "node:buffer",
-  );
+  const bufferModule =
+    await dynamicImport<typeof import("node:buffer")>("node:buffer");
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
     chunks.push(
@@ -220,8 +223,9 @@ describe("real OpenCode ACP MCP integration", function () {
       "tools/list",
     );
     assert.isAbove(
-      status.recentRequests.find((entry) => entry.jsonrpcMethod === "tools/list")
-        ?.responseBodyLength || 0,
+      status.recentRequests.find(
+        (entry) => entry.jsonrpcMethod === "tools/list",
+      )?.responseBodyLength || 0,
       0,
       `tools/list response did not include ${ZOTERO_MCP_TOOL_GET_CURRENT_VIEW}`,
     );

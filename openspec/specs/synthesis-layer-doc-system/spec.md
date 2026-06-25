@@ -144,3 +144,30 @@ Active Synthesis documentation SHALL state that manual stale graph refresh may r
 - **WHEN** readers consult graph or related-items documentation
 - **THEN** they SHALL see that post-refresh related-items sync uses the final affected source refs
 - **AND** full graph rebuild SHALL NOT be described as automatically running full-library related-items sync.
+### Requirement: Synthesis docs define Git Sync durable-state exchange
+
+Active Synthesis docs SHALL describe Git Sync as a retained deprecated transport, not the current primary user-facing sync option.
+
+#### Scenario: Developer reads sync docs
+
+- **WHEN** docs discuss current user-visible sync
+- **THEN** they SHALL identify WebDAV durable bundle sync as the visible manual sync transport
+- **AND** they SHALL note that Git Sync code is retained but hidden/deprecated.
+### Requirement: Synthesis docs describe Git Sync configuration and conflict approval
+
+Active Synthesis docs SHALL document preferences-backed Git Sync configuration, encrypted token storage, non-mutating connection tests, empty-remote initialization, and semantic conflict approval actions.
+
+#### Scenario: Developer reads Git Sync durable-state docs
+
+- **WHEN** the docs discuss Git Sync operation
+- **THEN** they SHALL identify Preferences as the durable configuration surface
+- **AND** they SHALL state that Workbench only exposes runtime state and conflict approval actions
+- **AND** they SHALL state that a missing remote branch is initialized on first sync rather than treated as a connection failure.
+### Requirement: Synthesis docs describe WebDAV durable bundle sync
+
+Active Synthesis documentation SHALL describe WebDAV Sync as the current visible manual durable bundle transport.
+
+#### Scenario: Developer reads WebDAV sync docs
+
+- **WHEN** docs discuss WebDAV Sync
+- **THEN** they SHALL state that the Preferences and Synthesis Home UI expose WebDAV Sync only.

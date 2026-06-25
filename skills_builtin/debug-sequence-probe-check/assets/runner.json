@@ -1,11 +1,13 @@
 {
   "id": "debug-sequence-probe-check",
-  "name": "Debug Sequence Probe Check",
+  "name": "🔎 Debug Sequence Probe Check",
   "description": "Debug-only sequence probe step that validates handoff mapping and workspace sentinel state.",
   "version": "0.1.0",
   "debug_only": true,
   "execution_modes": ["auto"],
   "schemas": {
+    "input": "assets/input.schema.json",
+    "parameter": "assets/parameter.schema.json",
     "output": "assets/output.schema.json"
   },
   "entrypoint": {

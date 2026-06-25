@@ -4,16 +4,19 @@ const sidebars: SidebarsConfig = {
   docsSidebar: [
     {
       type: "category",
-      label: "📖 指南",
-      items: ["intro", "installation", "getting-started"],
+      label: "📖 Guide",
+      items: ["intro", "installation", "getting-started", "markdown-reader"],
     },
     {
       type: "category",
-      label: "⚙️ 后端配置",
+      label: "⚙️ Backend Configuration",
       items: [
         "backends/index",
+        "backends/backend-manager",
         "backends/acp",
         "backends/skill-runner",
+        "backends/host-bridge",
+        "backends/mcp-server",
         "backends/generic-http",
       ],
     },
@@ -25,12 +28,13 @@ const sidebars: SidebarsConfig = {
         "workflows/invocation",
         {
           type: "category",
-          label: "内建 Workflow",
+          label: "Official Workflows",
           items: [
             "workflows/literature-analysis",
             "workflows/literature-explainer",
             "workflows/literature-deep-reading",
             "workflows/literature-search-ingest",
+            "workflows/tag-bootstrapper",
             "workflows/tag-regulator",
             "workflows/export-import-notes",
             "workflows/mineru",
@@ -41,7 +45,7 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "category",
-          label: "自定义 Workflow",
+          label: "Custom Workflows",
           items: [
             "workflows/custom/index",
             "workflows/custom/manifest",
@@ -64,7 +68,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
-      label: "🖥️ 侧边栏与 ACP Chat",
+      label: "🖥️ Sidebar & ACP Chat",
       items: ["sidebar/index", "sidebar/acp-chat", "sidebar/acp-skills", "sidebar/skillrunner-tab"],
     },
     {
@@ -76,6 +80,7 @@ const sidebars: SidebarsConfig = {
         "synthesis/review",
         "synthesis/concepts",
         "synthesis/git-sync",
+        "synthesis/webdav-sync",
         "synthesis/tags",
         "synthesis/index-and-citation",
         "synthesis/topic-synthesis",
@@ -83,7 +88,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "doc",
-      label: "⚙️ 偏好设置",
+      label: "⚙️ Preferences",
       id: "preferences",
     },
   ],

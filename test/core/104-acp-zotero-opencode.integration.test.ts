@@ -3,7 +3,10 @@ import type { BackendInstance } from "../../src/backends/types";
 import { AcpClientConnection } from "../../src/modules/acpClientConnection";
 import { createAcpNdJsonMessageStream } from "../../src/modules/acpMessageStream";
 import { ACP_PROTOCOL_VERSION } from "../../src/modules/acpProtocol";
-import { launchAcpTransport, type AcpTransport } from "../../src/modules/acpTransport";
+import {
+  launchAcpTransport,
+  type AcpTransport,
+} from "../../src/modules/acpTransport";
 import {
   ensureZoteroMcpServer,
   getZoteroMcpServerStatus,
@@ -19,10 +22,7 @@ function isRealZoteroRuntime() {
       };
     };
   };
-  return (
-    !!runtime.Zotero &&
-    runtime.Zotero.__parity?.runtime !== "node-mock"
-  );
+  return !!runtime.Zotero && runtime.Zotero.__parity?.runtime !== "node-mock";
 }
 
 function shouldRunRealOpenCodeIntegration() {
@@ -51,9 +51,7 @@ function resolveTestCwd() {
     };
   };
   return (
-    runtime.process?.cwd?.() ||
-    runtime.Zotero?.DataDirectory?.dir ||
-    "C:\\"
+    runtime.process?.cwd?.() || runtime.Zotero?.DataDirectory?.dir || "C:\\"
   );
 }
 

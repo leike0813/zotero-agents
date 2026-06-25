@@ -26,9 +26,9 @@ function makeJob(args: {
       runId: "run-1",
       workflowLabel: "Tag Regulator",
       taskName: "paper-a",
-      providerId: args.backendType || "skillrunner",
-      backendId: args.backendId || "skillrunner-local",
-      backendType: args.backendType || "skillrunner",
+      providerId: args.backendType ?? "generic-http",
+      backendId: args.backendId ?? "generic-http-local",
+      backendType: args.backendType ?? "generic-http",
       backendBaseUrl: "http://127.0.0.1:8030",
       engine: args.engine || "",
       targetParentID: args.targetParentID,
@@ -70,7 +70,7 @@ describe("task dashboard history", function () {
     assert.equal(history[0].id, "run-1:job-1");
     assert.equal(history[0].state, "succeeded");
     assert.equal(history[0].requestId, "req-1");
-    assert.equal(history[0].backendId, "skillrunner-local");
+    assert.equal(history[0].backendId, "generic-http-local");
     assert.equal(history[0].engine, "gemini");
   });
 
@@ -122,7 +122,9 @@ describe("task dashboard history", function () {
 
   it("drops expired entries older than 30 days", function () {
     const retentionMs = getTaskDashboardHistoryRetentionConfig().retentionMs;
-    const oldDate = new Date(Date.now() - retentionMs - 24 * 60 * 60 * 1000).toISOString();
+    const oldDate = new Date(
+      Date.now() - retentionMs - 24 * 60 * 60 * 1000,
+    ).toISOString();
     recordTaskDashboardHistoryFromJob(
       makeJob({
         id: "job-1",

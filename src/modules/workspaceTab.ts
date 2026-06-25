@@ -1,6 +1,8 @@
 import { config } from "../../package.json";
+import { getDocsUrl } from "../utils/docsUrl";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import { getStringOrFallback } from "../utils/locale";
+import { openHelpCenterTab } from "./helpCenterTab";
 import {
   mountSynthesisWorkbenchRuntime,
   type MountedSynthesisWorkbenchRuntime,
@@ -17,15 +19,19 @@ import {
   toggleAssistantWorkspaceSidebar,
 } from "./assistantWorkspaceSidebar";
 import {
-  listAcpSkillRuns,
+  listAcpSkillRunSummaries,
   subscribeAcpSkillRunSnapshots,
 } from "./acpSkillRunStore";
 import { countDashboardHumanAttentionTasks } from "./dashboardActiveTasks";
-import { listActiveWorkflowTasks, subscribeWorkflowTasks } from "./taskRuntime";
+import {
+  listActiveWorkflowTaskSummaries,
+  subscribeWorkflowTaskChanges,
+} from "./taskRuntime";
 import {
   installWorkspaceToolbarTaskPopover,
   uninstallWorkspaceToolbarTaskPopover,
 } from "./workspaceToolbarTaskPopover";
+import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 
 type WorkspaceView = "dashboard" | "synthesis";
 type WorkspaceShellLabels = {
@@ -38,8 +44,12 @@ type WorkspaceShellLabels = {
   themeSystem: string;
   themeLight: string;
   themeDark: string;
+  help: string;
+  onlineDocs: string;
   refresh: string;
   toggleSidebar: string;
+  openSidebar: string;
+  closeSidebar: string;
 };
 type DashboardSelection = {
   tabKey?: string;
@@ -100,7 +110,7 @@ function buildWorkspaceShellLabels(): WorkspaceShellLabels {
   return {
     tabTitle: localizeWorkspaceShellLabel(
       "workspace-shell-tab-title",
-      "Zotero Skills",
+      "Zotero Agents",
     ),
     brandSubtitle: localizeWorkspaceShellLabel(
       "workspace-shell-brand-subtitle",
@@ -134,13 +144,23 @@ function buildWorkspaceShellLabels(): WorkspaceShellLabels {
       "workspace-shell-theme-dark",
       "Dark",
     ),
-    refresh: localizeWorkspaceShellLabel(
-      "workspace-shell-refresh",
-      "Refresh",
+    help: localizeWorkspaceShellLabel("workspace-shell-help", "Help"),
+    onlineDocs: localizeWorkspaceShellLabel(
+      "workspace-shell-online-docs",
+      "Online Docs",
     ),
+    refresh: localizeWorkspaceShellLabel("workspace-shell-refresh", "Refresh"),
     toggleSidebar: localizeWorkspaceShellLabel(
       "workspace-shell-toggle-sidebar",
       "Toggle sidebar",
+    ),
+    openSidebar: localizeWorkspaceShellLabel(
+      "workspace-shell-open-sidebar",
+      "Open sidebar",
+    ),
+    closeSidebar: localizeWorkspaceShellLabel(
+      "workspace-shell-close-sidebar",
+      "Close sidebar",
     ),
   };
 }
@@ -430,8 +450,8 @@ function clearBridge(runtime: WorkspaceRuntime) {
 
 function countWorkspaceHumanAttentionTasks() {
   return countDashboardHumanAttentionTasks({
-    activeTasks: listActiveWorkflowTasks(),
-    acpSkillRuns: listAcpSkillRuns(),
+    activeTasks: listActiveWorkflowTaskSummaries(),
+    acpSkillRuns: listAcpSkillRunSummaries({ activeOnly: true }),
   });
 }
 
@@ -531,6 +551,9 @@ function postSnapshot(
       payload: {
         selectedView: runtime.selectedView,
         waitingCount: countWorkspaceHumanAttentionTasks(),
+        sidebarOpen: isAssistantWorkspaceSidebarOpen({
+          window: runtime.window,
+        }),
         labels: buildWorkspaceShellLabels(),
       },
     },
@@ -603,6 +626,16 @@ function scheduleWorkspaceHandshake(runtime: WorkspaceRuntime) {
     });
   };
   run();
+  registerBackgroundRefreshTimer({
+    owner: "workspace-tab-handshake",
+    activationCondition: "workspace tab frame is mounting",
+    scopeKey: "current workspace frame",
+    allowedDataSources: ["workspace frame handshake"],
+    maxReadShape: "frame handshake signal only",
+    requiresForegroundSurface: true,
+    minimumIntervalMs: WORKSPACE_HANDSHAKE_INTERVAL_MS,
+    intervalMs: WORKSPACE_HANDSHAKE_INTERVAL_MS,
+  });
   runtime.handshakeTimer = setInterval(run, WORKSPACE_HANDSHAKE_INTERVAL_MS);
 }
 
@@ -705,15 +738,28 @@ async function handleAction(
     await mountSynthesisRuntimeIfReady(runtime);
     return;
   }
+  if (action === "open-help") {
+    await openHelpCenterTab({
+      window: runtime.window,
+    });
+    return;
+  }
+  if (action === "open-online-docs" || action === "open-docs") {
+    const zotero = (globalThis as any).Zotero || (runtime.window as any).Zotero;
+    zotero?.launchURL?.(getDocsUrl());
+    return;
+  }
   if (action === "open-sidebar") {
     await openAssistantWorkspaceSidebar({
       window: runtime.window,
       target: "reader",
     });
+    postSnapshot(runtime, "workspace:snapshot");
     return;
   }
   if (action === "close-sidebar") {
     closeAssistantWorkspaceSidebar({ window: runtime.window });
+    postSnapshot(runtime, "workspace:snapshot");
     return;
   }
   if (action === "toggle-sidebar") {
@@ -721,6 +767,7 @@ async function handleAction(
       window: runtime.window,
       target: "reader",
     });
+    postSnapshot(runtime, "workspace:snapshot");
     return;
   }
 }
@@ -785,7 +832,7 @@ export async function openZoteroSkillsWorkspaceTab(
   const tabs = resolveZoteroTabs(hostWindow);
   if (!hostWindow || !tabs?.add || !tabs.select) {
     throw new Error(
-      "Cannot open Zotero Skills Workspace: Zotero_Tabs is unavailable.",
+      "Cannot open Zotero Agents Workspace: Zotero_Tabs is unavailable.",
     );
   }
   const Zotero_Tabs = tabs as ZoteroTabs & {
@@ -822,7 +869,7 @@ export async function openZoteroSkillsWorkspaceTab(
     type: "zotero-skills-workspace",
     title: localizeWorkspaceShellLabel(
       "workspace-shell-tab-title",
-      "Zotero Skills",
+      "Zotero Agents",
     ),
     data: {
       kind: "zotero-skills-workspace",
@@ -841,7 +888,7 @@ export async function openZoteroSkillsWorkspaceTab(
   const container = result?.container;
   if (!container) {
     throw new Error(
-      "Cannot open Zotero Skills Workspace: tab container is missing.",
+      "Cannot open Zotero Agents Workspace: tab container is missing.",
     );
   }
   const frame = createWorkspaceBrowser(hostWindow.document);
@@ -860,7 +907,7 @@ export async function openZoteroSkillsWorkspaceTab(
   runtime.removeAcpSkillRunSubscription = subscribeAcpSkillRunSnapshots(() => {
     syncWorkspaceSidebarEntry(runtime);
   });
-  runtime.removeTaskSubscription = subscribeWorkflowTasks(() => {
+  runtime.removeTaskSubscription = subscribeWorkflowTaskChanges(() => {
     syncWorkspaceSidebarEntry(runtime);
   });
   workspaceTab = runtime;

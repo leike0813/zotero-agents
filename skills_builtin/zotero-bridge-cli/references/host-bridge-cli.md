@@ -4,6 +4,17 @@ This reference is generated from the Host Bridge surface catalog. Edit the Host
 Bridge capability registry or Rust CLI source, then run
 `npm run render:host-bridge-surface`.
 
+The published bundle includes `install.ps1`, `install.sh`, and
+`assets/profile.template.json`. Use `.\install.ps1 --yes --json` on Windows or
+`./install.sh --yes --json` on POSIX to install or upgrade without a Node
+dependency. The installer auto-detects the platform and does not accept a
+platform override. Copy the template to the Host Bridge well-known profile
+location or set `ZOTERO_BRIDGE_PROFILE` to its path. Override the template at
+runtime with `ZOTERO_BRIDGE_ENDPOINT`, `ZOTERO_BRIDGE_TOKEN`,
+`ZOTERO_BRIDGE_SCOPE`, and `ZOTERO_BRIDGE_CONNECTION_MODE=local|remote`.
+`ZOTERO_BRIDGE_SCOPE` may contain `{"kind":"skillrunner-run","frontendScopeId":"..."}`
+so Host Bridge write approvals return to the SkillRunner panel.
+
 ## Resolver Payloads
 
 For resolver commands, pass direct resolver fields: `tag`, `collection_key`,
@@ -80,6 +91,8 @@ zotero-bridge file --help
 | `paper-artifacts resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
 | `insights attention-queue` | `insights.get_attention_queue` | capability | - |
 | `literature ingest` | `mutation.execute` | capability | - |
+| `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
+| `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
 | `workflow run` | `GET /bridge/v1/workflows/runs/{runId}` | endpoint | - |
 | `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
@@ -102,6 +115,16 @@ zotero-bridge file --help
 - Examples: `zotero-bridge resolvers resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge resolvers resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
 - Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
 
+### Workflow payloads
+
+- Use `workflow describe --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.
+- `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use legacy `--input`.
+- Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.
+- Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.
+- Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
+- `workflow agent-run` is read-only: it does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task.
+- `workflow agent-run` gates bundle creation only on `inputs`; `validateSelection` is returned as `applyStatus` advisory and may disable future host-side apply without blocking self-owned execution.
+
 ### Raw-only and debug capabilities
 
 | Capability | Category | Approval | Input | CLI exposure | Flags |
@@ -115,6 +138,7 @@ zotero-bridge file --help
 | `diagnostic.get_status` | diagnostic | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 | `debug.acpSkillRun.reapplyResult` | debug | `none` | `object` | `debug acp-skill-run reapply-result` | debug-only, mcp-mirror |
 | `debug.persistence.snapshot` | debug | `none` | `object` | `debug persistence` | debug-only, mcp-mirror |
+| `debug.skillrunner.connections.snapshot` | debug | `none` | `object` |  | debug-only, mcp-mirror |
 | `debug.status` | debug | `none` | `object` | `debug status` | debug-only, mcp-mirror |
 | `debug.synthesis.cache.list` | debug | `none` | `object` |  | debug-only, mcp-mirror |
 | `debug.synthesis.cleanInstallReset` | debug | `zotero-ui-required` | `object` |  | debug-only, dangerous, mcp-mirror |
@@ -127,3 +151,8 @@ zotero-bridge file --help
 | `debug.tasks.snapshot` | debug | `none` | `object` | `debug tasks` | debug-only, mcp-mirror |
 | `debug.zotero.eval` | debug | `zotero-ui-required` | `object` | `raw call only` | debug-only, dangerous, raw-only, mcp-mirror |
 <!-- host-bridge-surface:wrapper-reference:end -->
+
+## Remote Export Bundles
+
+- With a remote profile, `topics get-context` with `outputPath` returns `delivery.mode="bridge-download"` instead of writing the caller path. Run `delivery.downloadCommand`, then run `delivery.unpackHint`.
+- With a remote profile, `paper-artifacts export-filtered` returns the same kind of zip bundle. Treat `manifest_file` as a path inside the unpacked zip.

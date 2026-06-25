@@ -22,8 +22,18 @@
         "operation": {
           "enum": ["create", "update_full"]
         },
-        "db_path": { "const": "runtime/topic-synthesis.sqlite" },
-        "handoff_manifest_path": { "type": "string", "minLength": 1 },
+        "db_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact",
+          "x-role": "runtime-state-db"
+        },
+        "handoff_manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact-manifest",
+          "x-role": "artifact-manifest"
+        },
         "next_skill_id": { "type": "string", "minLength": 1 }
       }
     },
@@ -33,17 +43,18 @@
       "required": [
         "kind",
         "operation",
-        "analysis_manifest_path",
-        "candidate_output_path"
+        "artifact_manifest_path"
       ],
       "properties": {
         "kind": { "const": "topic_synthesis" },
         "operation": {
           "enum": ["create", "update_full"]
         },
-        "analysis_manifest_path": { "type": "string", "minLength": 1 },
-        "candidate_output_path": {
-          "const": "result/final-output.candidate.json"
+        "artifact_manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact-manifest",
+          "x-role": "artifact-manifest"
         }
       }
     }

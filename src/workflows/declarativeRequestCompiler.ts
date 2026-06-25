@@ -343,7 +343,10 @@ function resolveTaskName(args: {
   if (args.targetParentID) {
     return `item-${args.targetParentID}`;
   }
-  return "task";
+  if (args.manifest.label) {
+    return `Workflow: ${args.manifest.label}`;
+  }
+  return "Task";
 }
 
 function buildSkillRunnerJobRequest(args: {
@@ -361,6 +364,12 @@ function buildSkillRunnerJobRequest(args: {
   if (!skillId) {
     throw new Error(
       `Workflow ${args.manifest.id} skillrunner.job.v1 requires request.create.skill_id`,
+    );
+  }
+  const mode = String(request.create?.mode || "").trim();
+  if (mode !== "auto" && mode !== "interactive") {
+    throw new Error(
+      `Workflow ${args.manifest.id} skillrunner.job.v1 requires request.create.mode`,
     );
   }
   const declaredSkillSource = String(request.create?.skill_source || "").trim();
@@ -419,14 +428,15 @@ function buildSkillRunnerJobRequest(args: {
     sourceAttachmentPaths,
     skill_id: skillId,
     skill_source: skillSource,
+    runtime_options: {
+      execution_mode: mode,
+    },
     ...(uploadFiles.length > 0 ? { upload_files: uploadFiles } : {}),
     parameter: workflowParams,
     ...(Object.keys(inlineInput).length > 0 ? { input: inlineInput } : {}),
     poll: {
       interval_ms:
         request.poll?.interval_ms || args.manifest.execution?.poll_interval_ms,
-      timeout_ms:
-        request.poll?.timeout_ms || args.manifest.execution?.timeout_ms,
     },
     fetch_type: fetchType === "result" ? "result" : "bundle",
   };
@@ -456,9 +466,10 @@ function buildSkillRunnerSequenceRequest(args: {
       `Workflow ${args.manifest.id} skillrunner.sequence.v1 requires request.sequence.steps`,
     );
   }
-  if (String(args.manifest.provider || "").trim() !== "acp") {
+  const provider = String(args.manifest.provider || "").trim();
+  if (provider !== "acp" && provider !== "skillrunner") {
     throw new Error(
-      `Workflow ${args.manifest.id} skillrunner.sequence.v1 requires provider=acp`,
+      `Workflow ${args.manifest.id} skillrunner.sequence.v1 requires provider=acp or provider=skillrunner`,
     );
   }
   const finalStepId = String(args.manifest.result?.final_step_id || "").trim();
@@ -488,10 +499,14 @@ function buildSkillRunnerSequenceRequest(args: {
     steps: steps.map((step) => ({
       id: String(step.id || "").trim(),
       skill_id: String(step.skill_id || "").trim(),
+      mode: String(step.mode || "").trim(),
       ...(step.input ? { input: cloneRecord(step.input) } : {}),
       ...(step.parameter ? { parameter: cloneRecord(step.parameter) } : {}),
       ...(step.fetch_type ? { fetch_type: step.fetch_type } : {}),
       ...(step.workspace ? { workspace: step.workspace } : {}),
+      ...(step.apply_result
+        ? { apply_result: cloneRecord(step.apply_result) as any }
+        : {}),
       ...(step.handoff ? { handoff: cloneRecord(step.handoff) as any } : {}),
       ...(step.short_circuit
         ? { short_circuit: cloneRecord(step.short_circuit) as any }
@@ -502,8 +517,6 @@ function buildSkillRunnerSequenceRequest(args: {
     poll: {
       interval_ms:
         request?.poll?.interval_ms || args.manifest.execution?.poll_interval_ms,
-      timeout_ms:
-        request?.poll?.timeout_ms || args.manifest.execution?.timeout_ms,
     },
   };
   if (targetParentID) {

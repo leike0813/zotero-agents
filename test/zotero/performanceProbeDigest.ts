@@ -99,7 +99,9 @@ function getRuntime() {
 }
 
 function parseFlag(value: unknown) {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes";
 }
 
@@ -109,7 +111,9 @@ function isPerformanceProbeEnabled() {
 
 function isRealZoteroRuntime() {
   const runtime = getRuntime();
-  return !!runtime.IOUtils && !!runtime.PathUtils && typeof Zotero !== "undefined";
+  return (
+    !!runtime.IOUtils && !!runtime.PathUtils && typeof Zotero !== "undefined"
+  );
 }
 
 function resolveOutputPath() {
@@ -177,20 +181,24 @@ async function countLibraryItemsBySearch(args?: {
 
 function enumerateWindows() {
   const runtime = getRuntime();
-  const windows: Array<Window & {
-    document?: Document;
-    location?: { href?: string };
-  }> = [];
+  const windows: Array<
+    Window & {
+      document?: Document;
+      location?: { href?: string };
+    }
+  > = [];
   try {
     const enumerator = runtime.Services?.wm?.getEnumerator?.(null);
     if (enumerator?.hasMoreElements && enumerator?.getNext) {
       while (enumerator.hasMoreElements()) {
         const next = enumerator.getNext();
         if (next && typeof next === "object") {
-          windows.push(next as Window & {
-            document?: Document;
-            location?: { href?: string };
-          });
+          windows.push(
+            next as Window & {
+              document?: Document;
+              location?: { href?: string };
+            },
+          );
         }
       }
       return windows;
@@ -257,9 +265,11 @@ async function buildHostResourceMetrics() {
   }).length;
   let collectionCount: number | null = null;
   try {
-    const getByLibrary = (Zotero.Collections as unknown as {
-      getByLibrary?: (libraryID: number) => Array<unknown>;
-    }).getByLibrary;
+    const getByLibrary = (
+      Zotero.Collections as unknown as {
+        getByLibrary?: (libraryID: number) => Array<unknown>;
+      }
+    ).getByLibrary;
     if (typeof getByLibrary === "function") {
       const collections = getByLibrary(Zotero.Libraries.userLibraryID);
       collectionCount = Array.isArray(collections) ? collections.length : null;
@@ -371,17 +381,19 @@ function buildSummary(args: {
       map.set(snapshot.phase, entries);
       return map;
     }, new Map<PerformanceProbePhase, number[]>()),
-  ).map(([phase, values]) => {
-    const { head, tail } = splitHeadTail(values);
-    return {
-      phase,
-      headAvg: average(head),
-      tailAvg: average(tail),
-      delta: average(tail) - average(head),
-      p95: percentile(values, 95),
-      max: Math.max(...values),
-    };
-  }).sort((left, right) => right.delta - left.delta);
+  )
+    .map(([phase, values]) => {
+      const { head, tail } = splitHeadTail(values);
+      return {
+        phase,
+        headAvg: average(head),
+        tailAvg: average(tail),
+        delta: average(tail) - average(head),
+        p95: percentile(values, 95),
+        max: Math.max(...values),
+      };
+    })
+    .sort((left, right) => right.delta - left.delta);
 
   const resourceSeries = new Map<string, number[]>();
   for (const snapshot of args.snapshots) {
@@ -615,4 +627,3 @@ export function getZoteroPerformanceProbeStateForTests() {
 export const __performanceProbeTestOnly = {
   buildSummary,
 };
-

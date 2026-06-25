@@ -7,6 +7,7 @@ import {
   normalizeRunDialogChoiceOptions,
   resolveRunDialogInteractionResponse,
   shouldClearRunDialogPendingForStatus,
+  shouldRefreshRunDialogLocalMessages,
   shouldRefreshRunDialogStateFromChatEvent,
   type SkillRunnerConversationEntry,
   toRunDialogConversationEntry,
@@ -40,6 +41,44 @@ describe("skillrunner run dialog bubble message model", function () {
     assert.equal(entry?.displayText, "final answer");
     assert.isNull(entry?.displayFormat);
     assert.equal(entry?.ts, "2026-03-10T10:20:00Z");
+  });
+
+  it("does not refresh local notices over backend transcript entries", function () {
+    const backendMessage: SkillRunnerConversationEntry = {
+      seq: 3,
+      ts: "2026-06-23T10:00:00Z",
+      role: "assistant",
+      kind: "assistant_message",
+      text: "backend transcript",
+      displayText: "backend transcript",
+      raw: {
+        type: "message",
+      },
+    };
+
+    assert.equal(
+      shouldRefreshRunDialogLocalMessages({ messages: [backendMessage] }),
+      false,
+    );
+  });
+
+  it("refreshes local notices only while no backend transcript exists", function () {
+    const localNotice: SkillRunnerConversationEntry = {
+      seq: -5,
+      role: "system",
+      kind: "orchestration_notice",
+      text: "Task submitted locally.",
+      displayText: "Task submitted locally.",
+      raw: {
+        type: "local_submit_notice",
+      },
+    };
+
+    assert.equal(shouldRefreshRunDialogLocalMessages({ messages: [] }), true);
+    assert.equal(
+      shouldRefreshRunDialogLocalMessages({ messages: [localNotice] }),
+      true,
+    );
   });
 
   it("prefers projected display_text over raw text for assistant_final display", function () {
@@ -99,10 +138,22 @@ describe("skillrunner run dialog bubble message model", function () {
   });
 
   it("normalizes known message kind and defaults unknown to unknown", function () {
-    assert.equal(normalizeRunDialogMessageKind("assistant_process"), "assistant_process");
-    assert.equal(normalizeRunDialogMessageKind("assistant_message"), "assistant_message");
-    assert.equal(normalizeRunDialogMessageKind("assistant_final"), "assistant_final");
-    assert.equal(normalizeRunDialogMessageKind("assistant_revision"), "assistant_revision");
+    assert.equal(
+      normalizeRunDialogMessageKind("assistant_process"),
+      "assistant_process",
+    );
+    assert.equal(
+      normalizeRunDialogMessageKind("assistant_message"),
+      "assistant_message",
+    );
+    assert.equal(
+      normalizeRunDialogMessageKind("assistant_final"),
+      "assistant_final",
+    );
+    assert.equal(
+      normalizeRunDialogMessageKind("assistant_revision"),
+      "assistant_revision",
+    );
     assert.equal(normalizeRunDialogMessageKind("weird_kind"), "unknown");
   });
 
@@ -530,6 +581,96 @@ describe("skillrunner run dialog bubble message model", function () {
     });
   });
 
+  it("normalizes choose_one string options from pending ui_hints", function () {
+    const normalized = normalizeRunDialogPendingState({
+      request_id: "req-1",
+      status: "waiting_user",
+      pending_owner: "waiting_user",
+      pending: {
+        interaction_id: 19,
+        kind: "choose_one",
+        prompt: "choose one",
+        ui_hints: {
+          kind: "choose_one",
+          prompt: "choose any option",
+          options: ["Alpha", "Beta", "Gamma"],
+        },
+      },
+    });
+    assert.equal(normalized.pendingInteraction?.kind, "choose_one");
+    assert.deepEqual(normalized.pendingInteraction?.options, [
+      { label: "Alpha", value: "Alpha" },
+      { label: "Beta", value: "Beta" },
+      { label: "Gamma", value: "Gamma" },
+    ]);
+    assert.deepEqual(normalized.pendingInteraction?.uiHints, {
+      kind: "choose_one",
+      prompt: "choose any option",
+      options: ["Alpha", "Beta", "Gamma"],
+    });
+  });
+
+  it("normalizes object choice options from ask_user with stable response values", function () {
+    const normalized = normalizeRunDialogPendingState({
+      request_id: "req-object-options",
+      status: "waiting_user",
+      pending_owner: "waiting_user",
+      pending: {
+        interaction_id: 20,
+        kind: "choose_one",
+        prompt: "choose by value",
+        ask_user: {
+          kind: "choose_one",
+          prompt: "choose by value",
+          options: [
+            { label: "Continue", value: "continue_value" },
+            { label: "Stop", value: "stop_value" },
+          ],
+        },
+      },
+    });
+    assert.deepEqual(normalized.pendingInteraction?.options, [
+      { label: "Continue", value: "continue_value" },
+      { label: "Stop", value: "stop_value" },
+    ]);
+    assert.deepEqual(
+      resolveRunDialogInteractionResponse({
+        responseValue: normalized.pendingInteraction?.options?.[0]?.value,
+        replyText: normalized.pendingInteraction?.options?.[0]?.label,
+      }),
+      {
+        hasResponse: true,
+        response: "continue_value",
+      },
+    );
+  });
+
+  it("normalizes raw pending branch message and ui_hints", function () {
+    const normalized = normalizeRunDialogPendingState({
+      request_id: "req-1",
+      status: "waiting_user",
+      pending_owner: "waiting_user",
+      pending: {
+        __SKILL_DONE__: false,
+        message: "Debug interactive probe: choose any option to continue.",
+        ui_hints: {
+          kind: "choose_one",
+          prompt: "Choose any option.",
+          options: ["Alpha", "Beta"],
+        },
+      },
+    });
+    assert.equal(normalized.pendingInteraction?.kind, "choose_one");
+    assert.equal(
+      normalized.pendingInteraction?.prompt,
+      "Debug interactive probe: choose any option to continue.",
+    );
+    assert.deepEqual(normalized.pendingInteraction?.options, [
+      { label: "Alpha", value: "Alpha" },
+      { label: "Beta", value: "Beta" },
+    ]);
+  });
+
   it("normalizes waiting_auth method selection fields for e2e parity", function () {
     const normalized = normalizeRunDialogPendingState({
       request_id: "req-1",
@@ -626,7 +767,10 @@ describe("skillrunner run dialog bubble message model", function () {
     });
     assert.equal(normalized.pendingAuth?.acceptsChatInput, false);
     assert.isUndefined(normalized.pendingAuth?.inputKind);
-    assert.equal(normalized.pendingAuth?.authUrl, "https://auth.example/device");
+    assert.equal(
+      normalized.pendingAuth?.authUrl,
+      "https://auth.example/device",
+    );
     assert.equal(normalized.pendingAuth?.userCode, "FGHIJ");
   });
 
@@ -660,6 +804,7 @@ describe("skillrunner run dialog bubble message model", function () {
   it("clears pending cards when status leaves waiting states", function () {
     assert.equal(shouldClearRunDialogPendingForStatus("waiting_user"), false);
     assert.equal(shouldClearRunDialogPendingForStatus("waiting_auth"), false);
+    assert.equal(shouldClearRunDialogPendingForStatus("queued"), true);
     assert.equal(shouldClearRunDialogPendingForStatus("running"), true);
     assert.equal(shouldClearRunDialogPendingForStatus("succeeded"), true);
   });

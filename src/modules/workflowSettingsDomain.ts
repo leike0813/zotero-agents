@@ -13,6 +13,13 @@ export type WorkflowExecutionOptions = {
 
 export type WorkflowSettingsRecord = Record<string, WorkflowExecutionOptions>;
 
+export const WORKFLOW_SETTINGS_SCHEMA_VERSION = 1;
+
+export type WorkflowSettingsDocument = {
+  schemaVersion: typeof WORKFLOW_SETTINGS_SCHEMA_VERSION;
+  workflows: WorkflowSettingsRecord;
+};
+
 export type WorkflowSettingsDialogInitialState = {
   selectedProfile: string;
   persistedWorkflowParams: Record<string, unknown>;
@@ -26,27 +33,74 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-export function parseSettingsRecord(raw: unknown): WorkflowSettingsRecord {
+function parseWorkflowSettingsEntry(
+  value: unknown,
+): WorkflowExecutionOptions | null {
+  if (!isObject(value)) {
+    return null;
+  }
+  const runOptions = normalizeWorkflowRunOptions(
+    isObject(value.runOptions) ? value.runOptions : undefined,
+  );
+  return {
+    backendId:
+      typeof value.backendId === "string" ? value.backendId.trim() : undefined,
+    workflowParams: isObject(value.workflowParams)
+      ? { ...value.workflowParams }
+      : {},
+    providerOptions: isObject(value.providerOptions)
+      ? { ...value.providerOptions }
+      : {},
+    ...(Object.keys(runOptions).length > 0 ? { runOptions } : {}),
+  };
+}
+
+function resolveSettingsRecordSource(raw: unknown): unknown {
   if (!isObject(raw)) {
     return {};
   }
+  if (
+    Object.prototype.hasOwnProperty.call(raw, "schemaVersion") &&
+    Object.prototype.hasOwnProperty.call(raw, "workflows")
+  ) {
+    return isObject(raw.workflows) ? raw.workflows : {};
+  }
+  return raw;
+}
+
+export function parseSettingsRecord(raw: unknown): WorkflowSettingsRecord {
+  const source = resolveSettingsRecordSource(raw);
+  if (!isObject(source)) {
+    return {};
+  }
   const normalized: WorkflowSettingsRecord = {};
-  for (const [workflowId, value] of Object.entries(raw)) {
-    if (!isObject(value)) {
+  for (const [workflowId, value] of Object.entries(source)) {
+    const entry = parseWorkflowSettingsEntry(value);
+    if (!entry) {
       continue;
     }
-    normalized[workflowId] = {
-      backendId:
-        typeof value.backendId === "string" ? value.backendId.trim() : undefined,
-      workflowParams: isObject(value.workflowParams)
-        ? { ...value.workflowParams }
-        : {},
-      providerOptions: isObject(value.providerOptions)
-        ? { ...value.providerOptions }
-        : {},
-    };
+    normalized[workflowId] = entry;
   }
   return normalized;
+}
+
+export function parseExecutionOptionsPatch(
+  value: unknown,
+): WorkflowExecutionOptions {
+  return parseWorkflowSettingsEntry(value) || {};
+}
+
+export function createWorkflowSettingsDocument(
+  record: WorkflowSettingsRecord,
+): WorkflowSettingsDocument {
+  return {
+    schemaVersion: WORKFLOW_SETTINGS_SCHEMA_VERSION,
+    workflows: parseSettingsRecord(record),
+  };
+}
+
+export function serializeSettingsRecord(record: WorkflowSettingsRecord) {
+  return JSON.stringify(createWorkflowSettingsDocument(record));
 }
 
 function coerceBySchemaType(type: string, value: unknown) {
@@ -103,7 +157,10 @@ export function normalizeWorkflowParamsBySchema(
         schema.type === "string" && schema.allowCustom === true
       );
       if (Array.isArray(schema.enum) && schema.enum.length > 0) {
-        if (enumIsStrict && !schema.enum.some((candidate) => candidate === coerced)) {
+        if (
+          enumIsStrict &&
+          !schema.enum.some((candidate) => candidate === coerced)
+        ) {
           return undefined;
         }
       }
@@ -126,7 +183,9 @@ export function normalizeWorkflowParamsBySchema(
       return coerced;
     };
 
-    let coerced = pickValidValue(hasExplicitInput ? input[key] : schema.default);
+    let coerced = pickValidValue(
+      hasExplicitInput ? input[key] : schema.default,
+    );
     if (typeof coerced === "undefined" && hasExplicitInput) {
       coerced = pickValidValue(schema.default);
     }
@@ -143,17 +202,36 @@ export function mergeExecutionOptions(
   override: WorkflowExecutionOptions | undefined,
 ): WorkflowExecutionOptions {
   return {
-    backendId: String(override?.backendId || base?.backendId || "").trim() || undefined,
-    workflowParams: {
-      ...(base?.workflowParams || {}),
-      ...(override?.workflowParams || {}),
-    },
-    providerOptions: {
-      ...(base?.providerOptions || {}),
-      ...(override?.providerOptions || {}),
-    },
+    backendId:
+      String(override?.backendId || base?.backendId || "").trim() || undefined,
+    workflowParams: mergeOptionRecord(
+      base?.workflowParams,
+      override?.workflowParams,
+    ),
+    providerOptions: mergeOptionRecord(
+      base?.providerOptions,
+      override?.providerOptions,
+    ),
     runOptions: normalizeWorkflowRunOptions(override?.runOptions),
   };
+}
+
+function mergeOptionRecord(
+  base: Record<string, unknown> | undefined,
+  override: Record<string, unknown> | undefined,
+) {
+  const merged: Record<string, unknown> = { ...(base || {}) };
+  if (!isObject(override)) {
+    return merged;
+  }
+  for (const [key, value] of Object.entries(override)) {
+    if (value === null || typeof value === "undefined") {
+      delete merged[key];
+      continue;
+    }
+    merged[key] = value;
+  }
+  return merged;
 }
 
 export function normalizeSavedWorkflowSettings(args: {

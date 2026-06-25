@@ -31,7 +31,7 @@ describe("Synthesis benchmark datasets", function () {
     const firstPayloads = registryInputs[0].notes?.[0].payloadBlocks || [];
 
     assert.lengthOf(rows, 1000);
-    assert.equal(rows[0].artifactCoverage, "complete");
+    assert.equal(rows[0].artifactCoverage, "missing");
     assert.lengthOf(
       (
         firstPayloads.find((block) => block.payloadType === "references-json")

@@ -63,7 +63,11 @@ export function isAbsoluteCommandPath(commandRaw: string) {
   if (!command) {
     return false;
   }
-  return /^[A-Za-z]:[\\/]/.test(command) || /^\\\\/.test(command) || command.startsWith("/");
+  return (
+    /^[A-Za-z]:[\\/]/.test(command) ||
+    /^\\\\/.test(command) ||
+    command.startsWith("/")
+  );
 }
 
 function joinWindowsPath(...segments: string[]) {
@@ -79,7 +83,10 @@ function joinWindowsPath(...segments: string[]) {
   const flattened = normalizedSegments
     .flatMap((entry) => entry.split(/[\\/]+/))
     .filter(Boolean);
-  if (drivePrefix && flattened[0]?.toLowerCase() === drivePrefix.toLowerCase()) {
+  if (
+    drivePrefix &&
+    flattened[0]?.toLowerCase() === drivePrefix.toLowerCase()
+  ) {
     flattened.shift();
   }
   const joined = flattened.join("\\");
@@ -191,7 +198,10 @@ export function getWindowsPowerShellAbsoluteCandidates(platform?: string) {
   );
 }
 
-export function getWindowsExecutableCandidates(command: string, platform?: string) {
+export function getWindowsExecutableCandidates(
+  command: string,
+  platform?: string,
+) {
   if (!detectWindowsHost(platform)) {
     return [] as string[];
   }
@@ -242,9 +252,7 @@ export function getWindowsShellCommandCandidates(
   }
   const lower = normalized.toLowerCase();
   const systemRoot =
-    readProcessEnv("SystemRoot") ||
-    readProcessEnv("WINDIR") ||
-    "C:\\Windows";
+    readProcessEnv("SystemRoot") || readProcessEnv("WINDIR") || "C:\\Windows";
   const comspec = normalizeString(
     readProcessEnv("ComSpec") || readProcessEnv("COMSPEC"),
   );
@@ -336,7 +344,10 @@ function getWindowsUserLocalBinRoots(platform?: string) {
 }
 
 function buildWindowsCommandCandidates(command: string) {
-  const withoutExt = normalizeString(command).replace(/\.(exe|cmd|bat|ps1)$/i, "");
+  const withoutExt = normalizeString(command).replace(
+    /\.(exe|cmd|bat|ps1)$/i,
+    "",
+  );
   return [
     `${withoutExt}.cmd`,
     `${withoutExt}.exe`,

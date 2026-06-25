@@ -90,20 +90,17 @@ describe("Synthesis Zotero runtime smoke", function () {
     assert.equal(result.status, "persisted");
 
     const paths = buildSynthesisStoragePaths(root, "topic-runtime-smoke");
-    assert.include(
-      await readRuntimeTextFile(paths.currentExportMarkdown),
-      "# Runtime Smoke Topic",
+    const artifact = JSON.parse(
+      await readRuntimeTextFile(paths.currentArtifact),
     );
+    assert.equal(artifact.topic.title, "Runtime Smoke Topic");
 
     const hostApi = createWorkflowHostApi();
     assert.isFunction(hostApi.synthesis?.applyTopicSynthesisResult);
 
     const snapshot = await service.getSynthesisSnapshot();
     assert.equal(snapshot.sync.status, "ready");
-    assert.include(
-      await readRuntimeTextFile(paths.currentExportMarkdown),
-      "# Runtime Smoke Topic",
-    );
+    assert.isAbove(snapshot.artifacts.rows.length, 0);
   });
 
   it("does not identify or mutate Zotero note shards through invalid note title fields", async function () {

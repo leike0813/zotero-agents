@@ -7,6 +7,10 @@ import { createSynthesisService } from "../../src/modules/synthesis/service";
 import type { SynthesisMcpService } from "../../src/modules/synthesis/mcpService";
 import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
+import {
+  resetHostBridgeFileRegistryForTests,
+  resolveHostBridgeFileDownload,
+} from "../../src/modules/hostBridgeFileRegistry";
 
 function request(id: number, name: string, args: Record<string, unknown> = {}) {
   return {
@@ -331,18 +335,10 @@ describe("Synthesis MCP tools", function () {
     };
 
     for (const [id, name, args] of [
-      [
-        1,
-        "reference_index.get",
-        { sourceRefs: ["1:ABCD1234"] },
-      ],
+      [1, "reference_index.get", { sourceRefs: ["1:ABCD1234"] }],
       [2, "citation_graph.get_slice", { paperRef: "1:ABCD1234" }],
       [6, "citation_graph.get_layout", { scope: "full" }],
-      [
-        3,
-        "citation_graph.get_metrics",
-        { paperRefs: ["1:ABCD1234"] },
-      ],
+      [3, "citation_graph.get_metrics", { paperRefs: ["1:ABCD1234"] }],
       [4, "concepts.query", { concept_candidate_labels: ["DETR"] }],
       [
         5,
@@ -620,10 +616,7 @@ describe("Synthesis MCP tools", function () {
         manifest.schema_id,
         "synthesis.filtered_paper_artifacts_manifest",
       );
-      assert.equal(
-        manifest.exported_by,
-        "paper_artifacts.export_filtered",
-      );
+      assert.equal(manifest.exported_by, "paper_artifacts.export_filtered");
       assert.notInclude(manifestText, "decoded_text");
       assert.notInclude(manifestText, 'content":"');
       assert.notInclude(manifestText, '"markdown":');
@@ -682,7 +675,37 @@ describe("Synthesis MCP tools", function () {
         citationEntry.removed_trailing_section_heading,
         "Trailing Section",
       );
+
+      const remoteResult: any = await service.exportFilteredPaperArtifacts(
+        {
+          paper_refs: ["1:ABCD1234"],
+          artifact_types: ["digest", "references"],
+        },
+        { hostBridge: { connectionMode: "remote" } },
+      );
+      assert.equal(
+        remoteResult.manifest_file,
+        "runtime/payloads/paper-artifacts-manifest.json",
+      );
+      assert.equal(remoteResult.delivery.mode, "bridge-download");
+      assert.include(
+        remoteResult.delivery.downloadCommand,
+        "zotero-bridge file download",
+      );
+      assert.include(remoteResult.delivery.unpackHint, "unzip ");
+      const fileId = remoteResult.delivery.bundle.fileId;
+      assert.isString(fileId);
+      assert.notInclude(JSON.stringify(remoteResult), runRoot);
+      const downloaded = await resolveHostBridgeFileDownload(fileId);
+      const zipText = Buffer.from(downloaded.bytes).toString("utf8");
+      assert.include(zipText, "runtime/payloads/paper-artifacts-manifest.json");
+      assert.include(
+        zipText,
+        "runtime/payloads/artifacts/1_ABCD1234/digest.md",
+      );
+      assert.include(zipText, "#### Digest One");
     } finally {
+      resetHostBridgeFileRegistryForTests();
       await fs.rm(runRoot, { recursive: true, force: true });
     }
   });
@@ -929,6 +952,9 @@ describe("Synthesis MCP tools", function () {
     const response: any = await handleZoteroMcpRequestForTests(
       request(20, "reference_index.get", {
         sourceRefs: ["1:BBBB2222", "1:CCCC3333"],
+        includeReferences: true,
+        referenceSourceRefs: ["1:CCCC3333"],
+        rawReferenceIds: [],
         cursor: "1",
         limit: 1,
       }),

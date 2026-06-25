@@ -22,10 +22,7 @@ function isRealZoteroRuntime() {
       };
     };
   };
-  return (
-    !!runtime.Zotero &&
-    runtime.Zotero.__parity?.runtime !== "node-mock"
-  );
+  return !!runtime.Zotero && runtime.Zotero.__parity?.runtime !== "node-mock";
 }
 
 function parseRawHttpResponse(raw: string) {
@@ -51,7 +48,12 @@ function toolCallBody(id: string, name: string, args: Record<string, unknown>) {
   });
 }
 
-function postToolCall(token: string, id: string, name: string, args: Record<string, unknown>) {
+function postToolCall(
+  token: string,
+  id: string,
+  name: string,
+  args: Record<string, unknown>,
+) {
   return handleZoteroMcpHttpRequestForTests({
     method: "POST",
     path: "/mcp",
@@ -96,21 +98,36 @@ describe("Zotero MCP concurrency queue policy in Zotero runtime", function () {
 
     try {
       const calls = [
-        postToolCall(token, "runtime-current", ZOTERO_MCP_TOOL_GET_CURRENT_VIEW, {}),
-        postToolCall(token, "runtime-selected", ZOTERO_MCP_TOOL_GET_SELECTED_ITEMS, {}),
+        postToolCall(
+          token,
+          "runtime-current",
+          ZOTERO_MCP_TOOL_GET_CURRENT_VIEW,
+          {},
+        ),
+        postToolCall(
+          token,
+          "runtime-selected",
+          ZOTERO_MCP_TOOL_GET_SELECTED_ITEMS,
+          {},
+        ),
         postToolCall(token, "runtime-search", ZOTERO_MCP_TOOL_SEARCH_ITEMS, {
           query: "MCP Queue Policy Runtime Probe",
           limit: 3,
         }),
-        postToolCall(token, "runtime-preview", ZOTERO_MCP_TOOL_PREVIEW_MUTATION, {
-          request: {
-            operation: "item.addTags",
-            target: {
-              id: tempItem.id,
+        postToolCall(
+          token,
+          "runtime-preview",
+          ZOTERO_MCP_TOOL_PREVIEW_MUTATION,
+          {
+            request: {
+              operation: "item.addTags",
+              target: {
+                id: tempItem.id,
+              },
+              tags: ["test:mcp-queue-preview"],
             },
-            tags: ["test:mcp-queue-preview"],
           },
-        }),
+        ),
         postToolCall(token, "runtime-write", ZOTERO_MCP_TOOL_ADD_ITEM_TAGS, {
           id: tempItem.id,
           tags: ["test:mcp-queue-write"],

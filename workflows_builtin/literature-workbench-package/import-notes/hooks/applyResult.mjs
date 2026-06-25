@@ -10,6 +10,7 @@ import {
   importCustomNotes,
   upsertLiteratureDigestGeneratedNotes,
 } from "../../lib/literatureDigestNotes.mjs";
+import { applyLiteratureDigestSidecar } from "../../lib/literatureDigestSidecar.mjs";
 import { parseGeneratedNoteKind } from "../../lib/referencesNote.mjs";
 import { resolveRepresentativeImageMarkdownImportCandidate } from "../../lib/representativeImage.mjs";
 import {
@@ -684,11 +685,54 @@ function buildImportedRepresentativeImageRequest(digest) {
   };
 }
 
+function findAppliedGeneratedNote(notes, kind) {
+  return (notes || []).find(
+    (note) => parseGeneratedNoteKind(String(note?.getNote?.() || "")) === kind,
+  );
+}
+
+async function applyImportedStandardSidecar(args) {
+  if (args.standardCount <= 0) {
+    return undefined;
+  }
+  const selected = args.selected || {};
+  const digestNote = selected.digest
+    ? findAppliedGeneratedNote(args.applied?.notes, "digest")
+    : null;
+  const referencesNote = selected.references
+    ? findAppliedGeneratedNote(args.applied?.notes, "references")
+    : null;
+  const citationAnalysisNote = selected.citationAnalysis
+    ? findAppliedGeneratedNote(args.applied?.notes, "citation-analysis")
+    : null;
+
+  return applyLiteratureDigestSidecar({
+    runtime: args.runtime,
+    parentItem: args.parentItem,
+    sourceWorkflow: "import-notes",
+    digestNote,
+    digestText: selected.digest
+      ? String(selected.digest.markdown || "")
+      : undefined,
+    digestEntryPath: selected.digest?.sourcePath,
+    referencesNote,
+    referencesPayload: selected.references?.payload,
+    referencesEntryPath:
+      selected.references?.sourcePath || selected.references?.payload?.entry,
+    citationAnalysisNote,
+    citationAnalysisPayload: selected.citationAnalysis?.payload,
+    citationAnalysisEntryPath:
+      selected.citationAnalysis?.sourcePath ||
+      selected.citationAnalysis?.payload?.entry,
+  });
+}
+
 async function applySelectedImportBatch(args) {
   let importedCount = 0;
   let representativeImage = {
     status: "none",
   };
+  let sidecarApply;
 
   if (args.standardCount > 0) {
     const applied = await upsertLiteratureDigestGeneratedNotes({
@@ -720,6 +764,13 @@ async function applySelectedImportBatch(args) {
     });
     importedCount += applied.notes.length;
     representativeImage = applied.representative_image || representativeImage;
+    sidecarApply = await applyImportedStandardSidecar({
+      runtime: args.runtime,
+      parentItem: args.parentItem,
+      selected: args.selected,
+      standardCount: args.standardCount,
+      applied,
+    });
   }
 
   if (args.customCount > 0) {
@@ -734,6 +785,11 @@ async function applySelectedImportBatch(args) {
   return {
     imported: importedCount,
     representative_image: representativeImage,
+    ...(sidecarApply !== undefined
+      ? {
+          sidecar_apply: sidecarApply,
+        }
+      : {}),
   };
 }
 
@@ -800,6 +856,11 @@ async function applyResultImpl({ parent, runtime }) {
         imported: applied.imported,
         skipped: 0,
         representative_image: applied.representative_image,
+        ...(applied.sidecar_apply !== undefined
+          ? {
+              sidecar_apply: applied.sidecar_apply,
+            }
+          : {}),
       };
     }
 
@@ -820,6 +881,11 @@ async function applyResultImpl({ parent, runtime }) {
         imported: applied.imported,
         skipped: 0,
         representative_image: applied.representative_image,
+        ...(applied.sidecar_apply !== undefined
+          ? {
+              sidecar_apply: applied.sidecar_apply,
+            }
+          : {}),
       };
     }
     if (actionId === "skip") {

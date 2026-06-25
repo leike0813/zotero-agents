@@ -90,10 +90,50 @@ export type WorkflowDisplaySpec = {
 };
 
 export type WorkflowHooksSpec = {
-  filterInputs?: string;
   buildRequest?: string;
   normalizeSettings?: string;
   applyResult: string;
+};
+
+export type WorkflowSelectionCountRule = {
+  min?: number;
+  max?: number;
+  exact?: number;
+};
+
+export type WorkflowValidateSelectionSpec = {
+  require?: {
+    counts?: {
+      parents?: WorkflowSelectionCountRule;
+      attachments?: WorkflowSelectionCountRule;
+      notes?: WorkflowSelectionCountRule;
+      children?: WorkflowSelectionCountRule;
+      total?: WorkflowSelectionCountRule;
+    };
+    allowMixed?: boolean;
+  };
+  select?: {
+    policy?:
+      | "input-unit"
+      | "literature-source"
+      | "pdf-attachment"
+      | "selected-parent"
+      | "generated-note-candidates"
+      | "digest-representative-image";
+    unit?: "attachment" | "parent" | "note" | "workflow";
+  };
+  exclude?: Array<
+    | {
+        kind: "generated-notes-all";
+        noteKinds: string[];
+      }
+    | {
+        kind: "artifact-exists";
+        target: "deep-reading-html" | "translator-markdown" | "mineru-markdown";
+        parameter?: string;
+      }
+  >;
+  derive?: Array<"exportCandidates" | "digestRepresentativeImageTarget">;
 };
 
 export type WorkflowInputsSpec = {
@@ -112,7 +152,6 @@ export type WorkflowTriggerSpec = {
 };
 
 export type WorkflowExecutionSpec = {
-  mode?: "auto" | "sync" | "async";
   mcp?: {
     requiredTools?: string[];
   };
@@ -120,7 +159,6 @@ export type WorkflowExecutionSpec = {
     required?: boolean;
     allowWriteApprovalBypass?: boolean;
   };
-  skillrunner_mode?: "auto" | "interactive";
   poll_interval_ms?: number;
   timeout_ms?: number;
   feedback?: {
@@ -143,6 +181,7 @@ export type WorkflowRequestSpec = {
   kind: string;
   create?: {
     skill_id?: string;
+    mode: "auto" | "interactive";
     skill_source?: "local-package" | "installed";
   };
   input?: {
@@ -162,21 +201,35 @@ export type WorkflowRequestSpec = {
     steps?: Array<{
       id?: string;
       skill_id?: string;
+      mode: "auto" | "interactive";
       input?: Record<string, unknown>;
       parameter?: Record<string, unknown>;
       fetch_type?: "bundle" | "result";
       workspace?: "new" | "reuse-workflow";
-      handoff?: {
-        from_step?: string;
-        required?: boolean;
-        pass_through?: boolean;
-        input?: Record<string, string>;
-        parameter?: Record<string, string>;
-        defaults?: {
-          input?: Record<string, unknown>;
-          parameter?: Record<string, unknown>;
-        };
+      apply_result?: {
+        workflow_id?: string;
+        on_failure?: "continue" | "fail_sequence";
       };
+      handoff?: {
+        bindings: Array<{
+          kind: "value" | "file";
+          target: string;
+          source?: string;
+          step?: string;
+          required?: boolean;
+          value?: unknown;
+        }>;
+      };
+      include_if?:
+        | {
+            kind: "parameter";
+            parameter: string;
+            equals: string | number | boolean | null;
+          }
+        | {
+            kind: "runtime";
+            condition: string;
+          };
       short_circuit?: {
         when?: {
           path?: string;
@@ -200,6 +253,7 @@ export type WorkflowManifest = {
   i18n?: WorkflowI18nSpec;
   parameters?: Record<string, WorkflowParameterSchema>;
   inputs?: WorkflowInputsSpec;
+  validateSelection?: WorkflowValidateSelectionSpec;
   trigger?: WorkflowTriggerSpec;
   execution?: WorkflowExecutionSpec;
   result?: WorkflowResultSpec;
@@ -449,8 +503,8 @@ export type WorkflowRuntimeContext = {
   packageId?: string;
   workflowRootDir?: string;
   packageRootDir?: string;
-  workflowSourceKind?: "builtin" | "user" | "";
-  hookName?: "filterInputs" | "buildRequest" | "applyResult" | "";
+  workflowSourceKind?: "official" | "dev-local" | "user" | "";
+  hookName?: "buildRequest" | "applyResult" | "";
   fetch?: typeof globalThis.fetch | null;
   Buffer?: typeof globalThis.Buffer | null;
   btoa?: typeof globalThis.btoa | null;
@@ -481,17 +535,15 @@ export type ApplyResultHook = (args: {
   productStorage?: ProductStorageApi;
   request?: unknown;
   runResult?: unknown;
-  manifest: WorkflowManifest;
-  runtime: WorkflowRuntimeContext;
-}) => unknown | Promise<unknown>;
-
-export type FilterInputsHook = (args: {
-  selectionContext: unknown;
-  manifest: WorkflowManifest;
-  executionOptions?: {
-    workflowParams?: Record<string, unknown>;
-    providerOptions?: Record<string, unknown>;
+  sequenceStep?: {
+    id: string;
+    index: number;
+    workflowId: string;
+    skillId: string;
+    finalStep: boolean;
+    phase: "sequence-step";
   };
+  manifest: WorkflowManifest;
   runtime: WorkflowRuntimeContext;
 }) => unknown | Promise<unknown>;
 
@@ -527,7 +579,6 @@ export type NormalizeWorkflowSettingsHook = (
 ) => unknown;
 
 export type WorkflowHooksModule = {
-  filterInputs?: FilterInputsHook;
   buildRequest?: BuildRequestHook;
   normalizeSettings?: NormalizeWorkflowSettingsHook;
   applyResult: ApplyResultHook;
@@ -546,7 +597,7 @@ export type LoadedWorkflow = {
   packageRootDir?: string;
   manifestPath?: string;
   localization?: WorkflowLocalizationResources;
-  workflowSourceKind?: "builtin" | "user" | "";
+  workflowSourceKind?: "official" | "dev-local" | "user" | "";
   hooks: WorkflowHooksModule;
   buildStrategy: ResolvedBuildStrategy;
   hookExecutionMode?: WorkflowHookExecutionMode;
@@ -566,7 +617,8 @@ export type LoadedWorkflows = {
       | "hook_import_error"
       | "hook_export_error"
       | "scan_path_error"
-      | "scan_runtime_warning";
+      | "scan_runtime_warning"
+      | "skill_dependency_missing";
     message: string;
     entry?: string;
     workflowId?: string;

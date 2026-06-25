@@ -13,6 +13,13 @@ The unified Assistant Workspace SHALL be the only active sidebar host for these
 views. Legacy standalone sidebar host modules SHALL NOT be imported by active
 source code.
 
+The Assistant Workspace static entry SHALL be packaged at
+`content/sidebar/assistant-workspace.html`. Its sidebar-owned child panel pages
+SHALL be packaged under `content/sidebar`. Shared Assistant panel renderer,
+model, transcript, conversation, and common panel CSS assets SHALL be packaged
+under `content/shared/assistant`. Shared markdown, math, and highlight vendor
+assets SHALL be packaged under `content/shared/vendor`.
+
 #### Scenario: Tab shell opens existing views
 
 Given the Assistant sidebar is opened
@@ -38,7 +45,16 @@ separate Zotero side-pane button.
 
 - **WHEN** the unified Assistant Workspace loads
 - **THEN** it SHALL continue to load `acp-chat.html`, `acp-skill-run.html`, and
-  `run-dialog.html` as child panels.
+  `run-dialog.html` as child panels from the sidebar content directory.
+
+#### Scenario: Shared resources are not dashboard-owned
+
+- **WHEN** Assistant sidebar panels, dashboard markdown previews, Markdown
+  Reader, or Synthesis load markdown/math/highlight libraries
+- **THEN** those pages SHALL reference `content/shared/vendor` rather than
+  `content/dashboard/vendor`.
+- **AND** Assistant sidebar panels SHALL reference shared Assistant panel assets
+  from `content/shared/assistant` rather than `content/dashboard`.
 
 ### Requirement: ACP visual alignment
 

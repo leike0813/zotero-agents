@@ -65,6 +65,10 @@ describe("skillrunner model catalog", function () {
       "iflow",
     ]);
     assert.equal(schema.effort?.default, "default");
+    assert.equal(
+      schema.hard_timeout_seconds?.placeholder,
+      "Leave empty to use default; 20 min if skill has no default.",
+    );
 
     const modelEnum = provider.getRuntimeOptionEnumValues?.({
       key: "model",
@@ -96,11 +100,18 @@ describe("skillrunner model catalog", function () {
     const schema = provider.getRuntimeOptionSchema?.() || {};
     assert.equal(schema.autoApproveAcpPermissions?.type, "boolean");
     assert.isFalse(schema.autoApproveAcpPermissions?.default as boolean);
+    assert.equal(schema.hard_timeout_seconds?.type, "number");
+    assert.equal(schema.hard_timeout_seconds?.title, "Job Timeout (sec)");
+    assert.equal(
+      schema.hard_timeout_seconds?.placeholder,
+      "Leave empty to use default; 20 min if skill has no default.",
+    );
 
     const normalizedWithoutCache = provider.normalizeRuntimeOptions?.(
       {
         acpModeId: "ignored-without-cache",
         autoApproveAcpPermissions: true,
+        hard_timeout_seconds: "30",
       },
       {
         id: "acp-no-cache",
@@ -111,7 +122,21 @@ describe("skillrunner model catalog", function () {
     );
     assert.deepEqual(normalizedWithoutCache, {
       autoApproveAcpPermissions: true,
+      hard_timeout_seconds: 30,
     });
+
+    const normalizedInvalidHardTimeout = provider.normalizeRuntimeOptions?.(
+      {
+        hard_timeout_seconds: 0,
+      },
+      {
+        id: "acp-no-cache",
+        type: "acp",
+        baseUrl: "local://acp-no-cache",
+        auth: { kind: "none" },
+      } as any,
+    );
+    assert.deepEqual(normalizedInvalidHardTimeout, {});
   });
 
   it("prefers backend-scoped model cache when available", function () {

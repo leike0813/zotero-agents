@@ -1,10 +1,11 @@
 import { config } from "../../package.json";
 import { getPref, setPref } from "../utils/prefs";
 import {
+  getDefaultSkillDirForWorkflowDir,
   getDefaultWorkflowDir,
   getEffectiveWorkflowDir,
 } from "./workflowRuntime";
-import { getString } from "../utils/locale";
+import { getString, getStringOrFallback } from "../utils/locale";
 import { isDebugModeEnabled } from "./debugMode";
 import { subscribeManagedLocalRuntimeStateChange } from "./skillRunnerLocalRuntimeManager";
 import { runtimeFileExists } from "../utils/runtimeCompatibility";
@@ -21,6 +22,26 @@ export async function registerPrefsScripts(window: Window) {
   bindPrefEvents();
 }
 
+function bindXulButtonActivation(
+  button: XUL.Button | null,
+  handler: () => void,
+) {
+  if (!button) {
+    return;
+  }
+  let lastActivation = 0;
+  const onActivate = () => {
+    const now = Date.now();
+    if (now - lastActivation < 100) {
+      return;
+    }
+    lastActivation = now;
+    handler();
+  };
+  button.addEventListener("command", onActivate);
+  button.addEventListener("click", onActivate);
+}
+
 function bindPrefEvents() {
   const doc = addon.data.prefs?.window.document;
   if (!doc) {
@@ -34,8 +55,14 @@ function bindPrefEvents() {
   const workflowDirInput = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-workflow-dir`,
   ) as HTMLInputElement | null;
+  const skillDirInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-skill-dir`,
+  ) as HTMLInputElement | null;
   const browseWorkflowDirButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-workflow-browse`,
+  ) as XUL.Button | null;
+  const browseSkillDirButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-skill-browse`,
   ) as XUL.Button | null;
   const scanButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-workflow-scan`,
@@ -46,9 +73,66 @@ function bindPrefEvents() {
   const workflowOpenLogsButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-workflow-open-logs`,
   ) as XUL.Button | null;
+  const contentPackageStatusText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-status`,
+  ) as HTMLElement | null;
+  const contentPackageChannelSelect = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-channel`,
+  ) as (XUL.Element & { value?: string }) | null;
+  const contentPackageChannelPopup = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-channel-popup`,
+  ) as XUL.Element | null;
+  const contentPackageCheckButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-check`,
+  ) as XUL.Button | null;
+  const contentPackageInstallButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-install`,
+  ) as XUL.Button | null;
+  const collectSkillRunFeedbackCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-collect-skill-run-feedback`,
+  ) as HTMLInputElement | null;
+  const markdownReaderEnabledCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-markdown-reader-enabled`,
+  ) as HTMLInputElement | null;
   const backendManageButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-backend-manage`,
   ) as XUL.Button | null;
+  const webDavSyncEnabledCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-enabled`,
+  ) as HTMLInputElement | null;
+  const webDavSyncBaseUrlInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-base-url`,
+  ) as HTMLInputElement | null;
+  const webDavSyncRemotePathInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-remote-path`,
+  ) as HTMLInputElement | null;
+  const webDavSyncUsernameInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-username`,
+  ) as HTMLInputElement | null;
+  const webDavSyncAutoSyncCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-auto-sync`,
+  ) as HTMLInputElement | null;
+  const webDavSyncAutoRetryCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-auto-retry`,
+  ) as HTMLInputElement | null;
+  const webDavSyncCredentialInput = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-credential`,
+  ) as HTMLInputElement | null;
+  const webDavSyncSaveCredentialButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-save-credential`,
+  ) as XUL.Button | null;
+  const webDavSyncClearCredentialButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-clear-credential`,
+  ) as XUL.Button | null;
+  const webDavSyncSaveButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-save`,
+  ) as XUL.Button | null;
+  const webDavSyncTestButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-test`,
+  ) as XUL.Button | null;
+  const webDavSyncStatusText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-webdav-sync-status`,
+  ) as HTMLElement | null;
   const hostBridgeLanCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-lan-enabled`,
   ) as HTMLInputElement | null;
@@ -60,6 +144,12 @@ function bindPrefEvents() {
   ) as HTMLInputElement | null;
   const mcpServerStatusText = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-mcp-server-status`,
+  ) as HTMLElement | null;
+  const hostBridgeLed = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-led`,
+  ) as HTMLElement | null;
+  const mcpServerLed = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-mcp-server-led`,
   ) as HTMLElement | null;
   const hostBridgePinPortCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-pin-port-enabled`,
@@ -94,6 +184,18 @@ function bindPrefEvents() {
   const hostBridgeInstallCliButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-host-bridge-install-cli`,
   ) as XUL.Button | null;
+  const hostBridgeOperationNotice = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-operation-notice`,
+  ) as HTMLElement | null;
+  const hostBridgeOperationNoticeText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-operation-notice-text`,
+  ) as HTMLElement | null;
+  const hostBridgeSecurityToggle = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-security-toggle`,
+  ) as XUL.Button | null;
+  const hostBridgeSecurityPanel = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-host-bridge-security-panel`,
+  ) as HTMLElement | null;
   const runtimeDataRoot = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-runtime-data-root`,
   ) as HTMLElement | null;
@@ -112,6 +214,15 @@ function bindPrefEvents() {
   const runtimeDataStateDbInfo = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-runtime-data-state-db-info`,
   ) as HTMLElement | null;
+  const runtimeDataProgressRow = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-progress-row`,
+  ) as HTMLElement | null;
+  const runtimeDataProgressmeter = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-progressmeter`,
+  ) as (HTMLElement & { value?: string | number }) | null;
+  const runtimeDataProgressText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-runtime-data-progress-text`,
+  ) as HTMLElement | null;
   const runtimeDataRescanButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-runtime-data-rescan`,
   ) as XUL.Button | null;
@@ -127,6 +238,12 @@ function bindPrefEvents() {
   const synthesisDbResetStatus = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-synthesis-db-reset-status`,
   ) as HTMLElement | null;
+  const openHelpButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-open-help`,
+  ) as XUL.Button | null;
+  const openOnlineDocsButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-open-online-docs`,
+  ) as XUL.Button | null;
 
   const localRuntimeDeployButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-skillrunner-local-deploy`,
@@ -243,6 +360,7 @@ function bindPrefEvents() {
   let lastRuntimeDataRoot = "";
   let runtimeDataIssuesExpanded = false;
   let lastRuntimeDataSnapshot: any = null;
+  let hostBridgeSecurityExpanded = false;
 
   const clearChildren = (
     element: {
@@ -311,28 +429,76 @@ function bindPrefEvents() {
     "skillrunner-ledger",
     "acp-conversations",
     "acp-skill-runs",
+    "workflow-products",
     "cache",
     "tmp",
   ];
 
-  const runtimeDataCategoryLabels: Record<string, string> = {
+  const runtimeDataCategoryLabelKeys: Record<string, string> = {
+    logs: "pref-runtime-data-category-logs",
+    "skillrunner-ledger": "pref-runtime-data-category-skillrunner-ledger",
+    "acp-conversations": "pref-runtime-data-category-acp-conversations",
+    "acp-skill-runs": "pref-runtime-data-category-acp-skill-runs",
+    "workflow-products": "pref-runtime-data-category-workflow-products",
+    cache: "pref-runtime-data-category-cache",
+    tmp: "pref-runtime-data-category-tmp",
+  };
+
+  const runtimeDataCategoryFallbackLabels: Record<string, string> = {
     logs: "Runtime logs",
     "skillrunner-ledger": "SkillRunner local ledger",
     "acp-conversations": "ACP conversations",
     "acp-skill-runs": "ACP skill runs",
+    "workflow-products": "Workflow products",
     cache: "Cache",
     tmp: "Temporary files",
   };
 
   let runtimeDataScanState: "idle" | "scanning" | "ready" | "failed" = "idle";
-  let runtimeDataScanProgressIndex = 0;
-  let runtimeDataScanProgressTimer: ReturnType<typeof setInterval> | null =
-    null;
+  let runtimeDataRefreshPromise: Promise<void> | null = null;
 
-  const stopRuntimeDataScanProgress = () => {
-    if (runtimeDataScanProgressTimer) {
-      clearInterval(runtimeDataScanProgressTimer);
-      runtimeDataScanProgressTimer = null;
+  const runtimeDataCategoryLabel = (category: string, fallback = "") => {
+    const id = String(category || "").trim();
+    const key = runtimeDataCategoryLabelKeys[id];
+    const fallbackLabel =
+      fallback || runtimeDataCategoryFallbackLabels[id] || id;
+    return key ? getStringOrFallback(key, fallbackLabel) : fallbackLabel;
+  };
+
+  const runtimeDataCleaningText = (target: string) =>
+    getStringOrFallback(
+      "pref-runtime-data-cleaning-target",
+      `Cleaning ${target || ""}...`,
+      { args: { target: target || "" } },
+    );
+
+  const runtimeDataScanningText = (progress?: {
+    current?: number;
+    total?: number;
+  }) => {
+    const base = getString("pref-runtime-data-scanning" as any);
+    const current = Number(progress?.current || 0);
+    const total = Number(progress?.total || 0);
+    return total > 0 && current > 0 ? `${base} ${current}/${total}` : base;
+  };
+
+  const setRuntimeDataProgress = (visible: boolean, percent = 0, text = "") => {
+    if (runtimeDataProgressRow) {
+      if (visible) {
+        runtimeDataProgressRow.classList.add("is-visible");
+      } else {
+        runtimeDataProgressRow.classList.remove("is-visible");
+      }
+    }
+    const normalizedPercent = Math.max(
+      0,
+      Math.min(100, Math.floor(Number(percent) || 0)),
+    );
+    if (runtimeDataProgressmeter) {
+      runtimeDataProgressmeter.style.width = `${normalizedPercent}%`;
+    }
+    if (runtimeDataProgressText) {
+      runtimeDataProgressText.textContent = visible ? text : "";
     }
   };
 
@@ -453,7 +619,9 @@ function bindPrefEvents() {
         label,
         relativePath || "-",
         getString("pref-runtime-data-cleanup" as any),
-        issue?.eligibleForCleanup === true && Boolean(issueId),
+        runtimeDataScanState !== "scanning" &&
+          issue?.eligibleForCleanup === true &&
+          Boolean(issueId),
         () => {
           void cleanupPersistenceGovernanceIssue(
             issueId,
@@ -481,18 +649,7 @@ function bindPrefEvents() {
       const issues = Array.isArray(integrity?.issues) ? integrity.issues : [];
       const issueCount = Number(integrity?.issueCount ?? issues.length ?? 0);
       const issueText = `${getString("pref-runtime-data-issue-count" as any)} ${issueCount}`;
-      if (runtimeDataScanState === "scanning") {
-        const progressIndex = Math.min(
-          runtimeDataScanProgressIndex,
-          runtimeDataCategoryOrder.length - 1,
-        );
-        const label =
-          runtimeDataCategoryLabels[runtimeDataCategoryOrder[progressIndex]] ||
-          "-";
-        runtimeDataSummary.textContent = `${getString(
-          "pref-runtime-data-scanning" as any,
-        )} ${progressIndex + 1}/${runtimeDataCategoryOrder.length}: ${label}`;
-      } else if (usage?.categories) {
+      if (usage?.categories) {
         runtimeDataSummary.textContent = `${getString("pref-runtime-data-summary" as any)} ${total} · ${issueText}${scannedAt ? ` · ${scannedAt}` : ""}`;
       } else {
         runtimeDataSummary.textContent = getString(
@@ -501,16 +658,29 @@ function bindPrefEvents() {
       }
     }
     if (runtimeDataStateDbInfo) {
-      const stateDb = usage?.stateDatabase;
-      const statePath = String(stateDb?.path || "").trim();
-      const stateDetail = stateDb
+      const stateDbs = Array.isArray(usage?.stateDatabases)
+        ? usage.stateDatabases
+        : usage?.stateDatabase
+          ? [usage.stateDatabase]
+          : [];
+      const statePaths = stateDbs
+        .map((entry: any) => String(entry?.path || "").trim())
+        .filter(Boolean);
+      const stateBytes = stateDbs.reduce(
+        (sum: number, entry: any) =>
+          sum + Math.max(0, Number(entry?.bytes) || 0),
+        0,
+      );
+      const stateDetail = stateDbs.length
         ? `${getString("pref-runtime-data-state-db" as any)}: ${formatBytes(
-            stateDb.bytes,
-          )}${statePath ? ` · ${statePath}` : ""}`
+            stateBytes,
+          )}${statePaths.length ? ` · ${statePaths.join(" · ")}` : ""}`
         : getString("pref-runtime-data-state-db-idle" as any);
       runtimeDataStateDbInfo.textContent = stateDetail;
-      if (statePath) {
-        runtimeDataStateDbInfo.setAttribute("title", statePath);
+      if (statePaths.length) {
+        runtimeDataStateDbInfo.setAttribute("title", statePaths.join("\n"));
+      } else {
+        runtimeDataStateDbInfo.removeAttribute("title");
       }
     }
     if (!runtimeDataCategories) {
@@ -556,12 +726,13 @@ function bindPrefEvents() {
     for (const id of runtimeDataCategoryOrder) {
       const category = (categories.get(id) || {
         category: id,
-        label: runtimeDataCategoryLabels[id] || id,
+        label: runtimeDataCategoryLabel(id),
         cleanable: false,
       }) as any;
-      const label = String(
-        (category as any)?.label || runtimeDataCategoryLabels[id] || id || "-",
-      ).trim();
+      const label = runtimeDataCategoryLabel(
+        id,
+        String((category as any)?.label || id || "-").trim(),
+      );
       const path = String(category?.path || "").trim();
       appendRow(
         label,
@@ -578,32 +749,45 @@ function bindPrefEvents() {
   };
 
   const refreshRuntimeDataUsage = async () => {
-    try {
-      runtimeDataScanState = "scanning";
-      runtimeDataScanProgressIndex = 0;
-      renderRuntimeDataUsage(lastRuntimeDataSnapshot);
-      stopRuntimeDataScanProgress();
-      runtimeDataScanProgressTimer = setInterval(() => {
-        runtimeDataScanProgressIndex =
-          (runtimeDataScanProgressIndex + 1) % runtimeDataCategoryOrder.length;
-        renderRuntimeDataUsage(lastRuntimeDataSnapshot);
-      }, 350);
-      const snapshot = await addon.hooks.onPrefsEvent(
-        "scanPersistenceGovernance",
-        {
-          window: addon.data.prefs?.window,
-        },
-      );
-      stopRuntimeDataScanProgress();
-      runtimeDataScanState = "ready";
-      renderRuntimeDataUsage(snapshot);
-    } catch (error) {
-      stopRuntimeDataScanProgress();
-      runtimeDataScanState = "failed";
-      if (runtimeDataSummary) {
-        runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
-      }
+    if (runtimeDataRefreshPromise) {
+      return runtimeDataRefreshPromise;
     }
+    runtimeDataRefreshPromise = (async () => {
+      runtimeDataScanState = "scanning";
+      setRuntimeDataProgress(true, 0, runtimeDataScanningText());
+      renderRuntimeDataUsage(lastRuntimeDataSnapshot);
+      try {
+        const snapshot = await addon.hooks.onPrefsEvent(
+          "scanPersistenceGovernance",
+          {
+            window: addon.data.prefs?.window,
+            onProgress: (progress: {
+              percent?: number;
+              current?: number;
+              total?: number;
+            }) => {
+              setRuntimeDataProgress(
+                true,
+                Number(progress?.percent || 0),
+                runtimeDataScanningText(progress),
+              );
+            },
+          },
+        );
+        runtimeDataScanState = "ready";
+        setRuntimeDataProgress(true, 100, runtimeDataScanningText());
+        renderRuntimeDataUsage(snapshot);
+      } catch (error) {
+        runtimeDataScanState = "failed";
+        if (runtimeDataSummary) {
+          runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
+        }
+      } finally {
+        setRuntimeDataProgress(false);
+        runtimeDataRefreshPromise = null;
+      }
+    })();
+    return runtimeDataRefreshPromise;
   };
 
   const cleanupRuntimeDataCategory = async (
@@ -618,11 +802,9 @@ function bindPrefEvents() {
     }
     try {
       runtimeDataScanState = "scanning";
-      if (runtimeDataSummary) {
-        runtimeDataSummary.textContent = getString(
-          "pref-runtime-data-cleaning" as any,
-        );
-      }
+      const cleaningText = runtimeDataCleaningText(label);
+      setRuntimeDataProgress(true, 50, cleaningText);
+      renderRuntimeDataUsage(lastRuntimeDataSnapshot);
       const result = await addon.hooks.onPrefsEvent(
         "cleanupRuntimePersistenceCategory",
         {
@@ -639,6 +821,10 @@ function bindPrefEvents() {
       if (runtimeDataSummary) {
         runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
       }
+    } finally {
+      if (!runtimeDataRefreshPromise) {
+        setRuntimeDataProgress(false);
+      }
     }
   };
 
@@ -647,11 +833,6 @@ function bindPrefEvents() {
     label: string,
     detailText: string,
   ) => {
-    if (runtimeDataSummary) {
-      runtimeDataSummary.textContent = getString(
-        "pref-runtime-data-cleaning" as any,
-      );
-    }
     try {
       const preview = await addon.hooks.onPrefsEvent(
         "cleanupPersistenceGovernanceIssues",
@@ -666,8 +847,13 @@ function bindPrefEvents() {
       );
       if (!confirmed) {
         renderRuntimeDataUsage(preview);
+        setRuntimeDataProgress(false);
         return;
       }
+      runtimeDataScanState = "scanning";
+      const cleaningText = runtimeDataCleaningText(label);
+      setRuntimeDataProgress(true, 50, cleaningText);
+      renderRuntimeDataUsage(lastRuntimeDataSnapshot);
       const result = await addon.hooks.onPrefsEvent(
         "cleanupPersistenceGovernanceIssues",
         {
@@ -676,11 +862,15 @@ function bindPrefEvents() {
           dryRun: false,
         },
       );
+      runtimeDataScanState = "ready";
       renderRuntimeDataUsage(result);
     } catch (error) {
+      runtimeDataScanState = "failed";
       if (runtimeDataSummary) {
         runtimeDataSummary.textContent = `${getString("pref-runtime-data-failed" as any)} ${String(error)}`;
       }
+    } finally {
+      setRuntimeDataProgress(false);
     }
   };
 
@@ -689,6 +879,180 @@ function bindPrefEvents() {
       return;
     }
     localRuntimeStatusText.textContent = text;
+  };
+
+  const setDynamicStatusText = (element: HTMLElement | null, text: string) => {
+    if (!element) {
+      return;
+    }
+    element.removeAttribute("data-l10n-id");
+    element.removeAttribute("data-l10n-args");
+    element.textContent = text;
+  };
+
+  const getPrefText = (key: string, fallback: string) =>
+    getStringOrFallback(key as any, fallback);
+
+  const setLocalizedElementText = (
+    element: HTMLElement | null,
+    key: string,
+    fallback: string,
+  ) => {
+    setDynamicStatusText(element, getPrefText(key, fallback));
+  };
+
+  const statusTextKey = (status: unknown) => {
+    const normalized = String(status || "")
+      .trim()
+      .toLowerCase();
+    if (normalized === "running") {
+      return "pref-host-access-status-running";
+    }
+    if (
+      normalized === "loading" ||
+      normalized === "starting" ||
+      normalized === "reconciling" ||
+      normalized === "reconciling_after_heartbeat_fail"
+    ) {
+      return "pref-host-access-status-loading";
+    }
+    if (normalized === "error" || normalized === "failed") {
+      return "pref-host-access-status-error";
+    }
+    if (normalized === "disabled") {
+      return "pref-host-access-status-disabled";
+    }
+    if (normalized === "stopped") {
+      return "pref-host-access-status-stopped";
+    }
+    return "pref-host-access-status-idle";
+  };
+
+  const statusTextFallback = (status: unknown) => {
+    const normalized = String(status || "")
+      .trim()
+      .toLowerCase();
+    if (normalized === "running") {
+      return "Running";
+    }
+    if (
+      normalized === "loading" ||
+      normalized === "starting" ||
+      normalized === "reconciling" ||
+      normalized === "reconciling_after_heartbeat_fail"
+    ) {
+      return "Loading";
+    }
+    if (normalized === "error" || normalized === "failed") {
+      return "Error";
+    }
+    if (normalized === "disabled") {
+      return "Disabled";
+    }
+    if (normalized === "stopped") {
+      return "Stopped";
+    }
+    return "Idle";
+  };
+
+  const localizedStatusText = (status: unknown) =>
+    getPrefText(statusTextKey(status), statusTextFallback(status));
+
+  const ledClassForStatus = (status: unknown) => {
+    const normalized = String(status || "")
+      .trim()
+      .toLowerCase();
+    if (normalized === "running") {
+      return "is-green";
+    }
+    if (
+      normalized === "loading" ||
+      normalized === "starting" ||
+      normalized === "reconciling" ||
+      normalized === "reconciling_after_heartbeat_fail"
+    ) {
+      return "is-orange";
+    }
+    if (normalized === "error" || normalized === "failed") {
+      return "is-red";
+    }
+    return "is-gray";
+  };
+
+  const setServiceLed = (element: HTMLElement | null, status: unknown) => {
+    if (!element) {
+      return;
+    }
+    element.className = `zs-runtime-led ${ledClassForStatus(status)}`;
+    element.setAttribute("title", localizedStatusText(status));
+  };
+
+  const statusPair = (
+    labelKey: string,
+    labelFallback: string,
+    value: string,
+  ) => (value ? `${getPrefText(labelKey, labelFallback)}=${value}` : "");
+
+  const sanitizeHostAccessNoticeText = (text: string) =>
+    String(text || "")
+      .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer <redacted>")
+      .replace(
+        /\b(token|masterToken|authorization)\s*[:=]\s*\S+/gi,
+        "$1=<redacted>",
+      )
+      .replace(/[A-Za-z]:\\[^\s)]+/g, "<path>")
+      .replace(
+        /(?:^|\s)\/(?:Users|home|var|tmp|private|mnt)\/[^\s)]+/g,
+        " <path>",
+      )
+      .trim();
+
+  const renderHostBridgeOperationNotice = (response: unknown) => {
+    if (!hostBridgeOperationNotice || !hostBridgeOperationNoticeText) {
+      return;
+    }
+    const result = (response || {}) as {
+      ok?: unknown;
+      message?: unknown;
+    };
+    const message = sanitizeHostAccessNoticeText(String(result.message || ""));
+    if (!message) {
+      hostBridgeOperationNotice.classList.remove("is-visible", "is-error");
+      hostBridgeOperationNoticeText.textContent = "";
+      return;
+    }
+    hostBridgeOperationNotice.classList.add("is-visible");
+    if (result.ok === false) {
+      hostBridgeOperationNotice.classList.add("is-error");
+    } else {
+      hostBridgeOperationNotice.classList.remove("is-error");
+    }
+    hostBridgeOperationNoticeText.textContent = message;
+  };
+
+  const updateHostBridgeSecurityPanel = () => {
+    if (hostBridgeSecurityPanel) {
+      if (hostBridgeSecurityExpanded) {
+        hostBridgeSecurityPanel.classList.add("is-visible");
+      } else {
+        hostBridgeSecurityPanel.classList.remove("is-visible");
+      }
+    }
+    if (hostBridgeSecurityToggle) {
+      hostBridgeSecurityToggle.setAttribute(
+        "aria-expanded",
+        hostBridgeSecurityExpanded ? "true" : "false",
+      );
+      setLocalizedElementText(
+        hostBridgeSecurityToggle as unknown as HTMLElement,
+        hostBridgeSecurityExpanded
+          ? "pref-host-bridge-security-hide"
+          : "pref-host-bridge-security-show",
+        hostBridgeSecurityExpanded
+          ? "Hide security actions"
+          : "Show security actions",
+      );
+    }
   };
 
   const setProgressVisible = (visible: boolean) => {
@@ -1433,31 +1797,93 @@ function bindPrefEvents() {
     }
   };
 
+  const getWorkflowDirValueForDefault = () =>
+    String(workflowDirInput?.value || "").trim() || getEffectiveWorkflowDir();
+
+  const pathPlaceholderPrefix = () =>
+    addon.data.locale?.current
+      ? getStringOrFallback(
+          "pref-path-placeholder-zotero-data-dir",
+          "<Zotero Data Directory>",
+        )
+      : "<Zotero Data Directory>";
+
+  const formatDefaultPathPlaceholder = (path: string) => {
+    const normalizedPath = String(path || "").replace(/\\/g, "/");
+    const defaultWorkflowDir = getDefaultWorkflowDir().replace(/\\/g, "/");
+    const defaultSkillDir = getDefaultSkillDirForWorkflowDir(
+      getDefaultWorkflowDir(),
+    ).replace(/\\/g, "/");
+    if (normalizedPath === defaultWorkflowDir) {
+      return `${pathPlaceholderPrefix()}/content/user/workflows`;
+    }
+    if (normalizedPath === defaultSkillDir) {
+      return `${pathPlaceholderPrefix()}/content/user/skills`;
+    }
+    return path;
+  };
+
+  const refreshDirectoryPlaceholders = () => {
+    const workflowDefault = getEffectiveWorkflowDir();
+    if (workflowDirInput) {
+      const placeholder = formatDefaultPathPlaceholder(workflowDefault);
+      workflowDirInput.placeholder = placeholder;
+      workflowDirInput.setAttribute("placeholder", placeholder);
+    }
+    if (skillDirInput) {
+      const skillDefault = getDefaultSkillDirForWorkflowDir(
+        getWorkflowDirValueForDefault(),
+      );
+      const placeholder = formatDefaultPathPlaceholder(skillDefault);
+      skillDirInput.placeholder = placeholder;
+      skillDirInput.setAttribute("placeholder", placeholder);
+    }
+  };
+
   const persistWorkflowDir = (rawValue: string) => {
-    const nextValue = rawValue.trim() || getEffectiveWorkflowDir();
+    const nextValue = rawValue.trim();
     setPref("workflowDir", nextValue);
     if (workflowDirInput) {
       workflowDirInput.value = nextValue;
     }
-    return nextValue;
+    refreshDirectoryPlaceholders();
+    return nextValue || getEffectiveWorkflowDir();
   };
 
-  const persistWorkflowDirFromInput = (options?: {
-    fallbackWhenEmpty?: boolean;
-  }) => {
+  const persistWorkflowDirFromInput = () => {
     const rawValue = String(workflowDirInput?.value || "");
     const normalized = rawValue.trim();
-    if (options?.fallbackWhenEmpty === false) {
-      setPref("workflowDir", normalized);
-      return normalized;
+    setPref("workflowDir", normalized);
+    refreshDirectoryPlaceholders();
+    return normalized || getEffectiveWorkflowDir();
+  };
+
+  const persistSkillDir = (rawValue: string) => {
+    const nextValue = rawValue.trim();
+    setPref("skillDir", nextValue);
+    if (skillDirInput) {
+      skillDirInput.value = nextValue;
     }
-    return persistWorkflowDir(normalized);
+    refreshDirectoryPlaceholders();
+    return (
+      nextValue ||
+      getDefaultSkillDirForWorkflowDir(getWorkflowDirValueForDefault())
+    );
+  };
+
+  const persistSkillDirFromInput = () => {
+    const rawValue = String(skillDirInput?.value || "");
+    const normalized = rawValue.trim();
+    setPref("skillDir", normalized);
+    refreshDirectoryPlaceholders();
+    return (
+      normalized ||
+      getDefaultSkillDirForWorkflowDir(getWorkflowDirValueForDefault())
+    );
   };
 
   const formatHostBridgeStatus = (response: unknown) => {
     const result = (response || {}) as {
-      ok?: unknown;
-      message?: unknown;
       details?: Record<string, unknown>;
     };
     const details = (result.details || {}) as Record<string, unknown>;
@@ -1465,62 +1891,51 @@ function bindPrefEvents() {
     const status = String(server.status || "idle").trim() || "idle";
     const bindMode = String(server.bindMode || "loopback").trim() || "loopback";
     const portMode = String(server.portMode || "").trim();
+    const port = Number(server.port || server.pinnedPort);
     const pinnedPort = Number(
       server.pinnedPort || getPref("hostBridgePinnedPort"),
     );
-    const recoveryReason = String(server.lastRecoveryReason || "").trim();
-    const tokenMasked = String(server.tokenMasked || "").trim();
-    const message = String(result.message || "").trim();
-    const runtimeDetails = (details.runtime || {}) as Record<string, unknown>;
-    const runtimeText =
-      result.ok === false
-        ? [
-            String(runtimeDetails.rootURI || "").trim()
-              ? `rootURI=${String(runtimeDetails.rootURI).trim()}`
-              : "",
-            String(runtimeDetails.resourceURI || "").trim()
-              ? `resourceURI=${String(runtimeDetails.resourceURI).trim()}`
-              : "",
-            String(runtimeDetails.rootPath || "").trim()
-              ? `rootPath=${String(runtimeDetails.rootPath).trim()}`
-              : "",
-          ]
-            .filter(Boolean)
-            .join(" | ")
-        : "";
-    const detailsText =
-      result.ok === false
-        ? [
-            Array.isArray(details.checkedPaths) &&
-            details.checkedPaths.length > 0
-              ? `checkedPaths=${details.checkedPaths.join(" | ")}`
-              : "",
-            Array.isArray(details.checkedUris) && details.checkedUris.length > 0
-              ? `checkedUris=${details.checkedUris.join(" | ")}`
-              : "",
-            runtimeText ? `runtime=${runtimeText}` : "",
-          ]
-            .filter(Boolean)
-            .join(" · ")
-        : "";
-    const prefix =
-      result.ok === false
-        ? getString("pref-skillrunner-local-status-failed-prefix" as any)
-        : getString("pref-skillrunner-local-status-ok-prefix" as any);
-    if (message) {
-      return `${prefix} ${message}${detailsText ? ` (${detailsText})` : ""}`;
-    }
+    const endpoint = String(server.endpoint || "").trim();
+    const error = String(
+      server.lastError || server.lastRecoveryReason || "",
+    ).trim();
     return [
-      `status=${status}`,
-      `bind=${bindMode}`,
-      portMode ? `portMode=${portMode}` : "",
-      Number.isInteger(pinnedPort) ? `pinnedPort=${pinnedPort}` : "",
-      recoveryReason ? `recovery=${recoveryReason}` : "",
-      tokenMasked ? `token=${tokenMasked}` : "",
+      statusPair(
+        "pref-host-access-status-label",
+        "Status",
+        localizedStatusText(status),
+      ),
+      statusPair("pref-host-access-bind-label", "Bind", bindMode),
+      statusPair(
+        "pref-host-access-port-label",
+        "Port",
+        [
+          portMode,
+          Number.isInteger(port)
+            ? String(port)
+            : Number.isInteger(pinnedPort)
+              ? String(pinnedPort)
+              : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      ),
+      statusPair("pref-host-access-endpoint-label", "Endpoint", endpoint),
+      statusPair("pref-host-access-error-label", "Error", error),
     ]
       .filter(Boolean)
       .join(" · ");
   };
+
+  const hostBridgePrefSnapshot = (status: string) => ({
+    status,
+    bindMode: getPref("hostBridgeLanEnabled") === true ? "lan" : "loopback",
+    lanEnabled: getPref("hostBridgeLanEnabled") === true,
+    pinPortEnabled:
+      getPref("hostBridgeLanEnabled") === true ||
+      getPref("hostBridgePinPortEnabled") === true,
+    pinnedPort: Number(getPref("hostBridgePinnedPort") || 26570),
+  });
 
   const renderHostBridgeState = (response: unknown) => {
     const result = (response || {}) as {
@@ -1530,6 +1945,8 @@ function bindPrefEvents() {
     const server = (details.server || details || {}) as Record<string, unknown>;
     const endpoint = String(server.endpoint || "").trim();
     const remoteEndpoint = String(server.remoteEndpoint || "").trim();
+    const status = String(server.status || "idle").trim() || "idle";
+    setServiceLed(hostBridgeLed, status);
     const hasServerSnapshot =
       Boolean(details.server) ||
       Object.prototype.hasOwnProperty.call(server, "status") ||
@@ -1543,7 +1960,10 @@ function bindPrefEvents() {
         .join(" · ");
     }
     if (hostBridgeStatusText) {
-      hostBridgeStatusText.textContent = formatHostBridgeStatus(response);
+      setDynamicStatusText(
+        hostBridgeStatusText,
+        formatHostBridgeStatus(response),
+      );
     }
     if (hasServerSnapshot && hostBridgeLanCheckbox) {
       hostBridgeLanCheckbox.checked =
@@ -1576,32 +1996,55 @@ function bindPrefEvents() {
     }
   };
 
+  const renderHostBridgeOperationResult = (response: unknown) => {
+    renderHostBridgeState(response);
+    renderHostBridgeOperationNotice(response);
+  };
+
   const renderMcpServerState = (response: unknown) => {
     const result = (response || {}) as {
       details?: Record<string, unknown>;
     };
     const details = (result.details || {}) as Record<string, unknown>;
     const server = (details.server || {}) as Record<string, unknown>;
-    const enabled =
-      details.enabled === true || getPref("mcpServer.enabled") !== false;
+    const enabled = Object.prototype.hasOwnProperty.call(details, "enabled")
+      ? details.enabled === true
+      : getPref("mcpServer.enabled") !== false;
     if (mcpServerEnabledCheckbox) {
       mcpServerEnabledCheckbox.checked = enabled;
     }
     if (mcpServerStatusText) {
       const endpoint = String(server.endpoint || "").trim();
-      const status = String(server.status || "unknown").trim();
-      const tokenMasked = String(server.tokenMasked || "").trim();
+      const status =
+        enabled === true
+          ? String(server.status || "idle").trim() || "idle"
+          : "disabled";
       const error = String(server.lastError || "").trim();
-      mcpServerStatusText.textContent = [
-        enabled ? "enabled" : "disabled",
-        `status=${status}`,
-        endpoint ? `endpoint=${endpoint}` : "",
-        tokenMasked ? `token=${tokenMasked}` : "",
-        error ? `error=${error}` : "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
+      setServiceLed(mcpServerLed, status);
+      setDynamicStatusText(
+        mcpServerStatusText,
+        [
+          statusPair(
+            "pref-host-access-enabled-label",
+            "Enabled",
+            enabled
+              ? getPrefText("pref-host-access-enabled-yes", "Enabled")
+              : getPrefText("pref-host-access-enabled-no", "Disabled"),
+          ),
+          statusPair(
+            "pref-host-access-status-label",
+            "Status",
+            localizedStatusText(status),
+          ),
+          statusPair("pref-host-access-endpoint-label", "Endpoint", endpoint),
+          statusPair("pref-host-access-error-label", "Error", error),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      );
+      return;
     }
+    setServiceLed(mcpServerLed, enabled ? server.status : "disabled");
   };
 
   const copyTextToClipboard = (text: string) => {
@@ -1626,7 +2069,10 @@ function bindPrefEvents() {
       const response = {
         ok: false,
         message: String(error),
-        details: {},
+        details: {
+          ...hostBridgePrefSnapshot("error"),
+          lastError: String(error),
+        },
       };
       renderHostBridgeState(response);
       return response;
@@ -1646,6 +2092,10 @@ function bindPrefEvents() {
         message: String(error),
         details: {
           enabled: getPref("mcpServer.enabled") !== false,
+          server: {
+            status: "error",
+            lastError: String(error),
+          },
         },
       };
       renderMcpServerState(response);
@@ -1707,58 +2157,108 @@ function bindPrefEvents() {
     return currentWorkflowDir || defaultWorkflowDir || homeDir || "";
   };
 
+  const resolveSkillBrowseStartDir = async (preferredCurrentDir?: string) => {
+    const defaultSkillDir = getDefaultSkillDirForWorkflowDir(
+      getWorkflowDirValueForDefault(),
+    );
+    const currentSkillDir =
+      String(preferredCurrentDir || "").trim() ||
+      String(skillDirInput?.value || "").trim() ||
+      String(getPref("skillDir") || "").trim();
+    const homeDir = getHomeDir();
+    const candidates = [currentSkillDir, defaultSkillDir, homeDir].filter(
+      (value, index, array) => Boolean(value) && array.indexOf(value) === index,
+    );
+    for (const candidate of candidates) {
+      if (await pathExists(candidate)) {
+        return candidate;
+      }
+    }
+    return currentSkillDir || defaultSkillDir || homeDir || "";
+  };
+
+  const getDirectoryFilePicker = () =>
+    ((typeof ztoolkit !== "undefined" ? ztoolkit : undefined) ||
+      (
+        globalThis as {
+          ztoolkit?: {
+            FilePicker?: new (
+              title: string,
+              mode: string,
+              filters: [string, string][],
+              suggestion: string,
+              window: Window | undefined,
+              filterMask?: string,
+              directory?: string,
+            ) => { open: () => Promise<unknown> };
+          };
+        }
+      ).ztoolkit) as {
+      FilePicker?: new (
+        title: string,
+        mode: string,
+        filters: [string, string][],
+        suggestion: string,
+        window: Window | undefined,
+        filterMask?: string,
+        directory?: string,
+      ) => { open: () => Promise<unknown> };
+    } | null;
+
   if (workflowDirInput) {
     const workflowDir = String(getPref("workflowDir") || "").trim();
     persistWorkflowDir(workflowDir);
     workflowDirInput.addEventListener("input", () => {
-      persistWorkflowDirFromInput({
-        fallbackWhenEmpty: false,
-      });
+      persistWorkflowDirFromInput();
     });
     workflowDirInput.addEventListener("change", () => {
-      persistWorkflowDirFromInput({
-        fallbackWhenEmpty: true,
-      });
+      persistWorkflowDirFromInput();
+    });
+  }
+
+  if (skillDirInput) {
+    const skillDir = String(getPref("skillDir") || "").trim();
+    persistSkillDir(skillDir);
+    skillDirInput.addEventListener("input", () => {
+      persistSkillDirFromInput();
+    });
+    skillDirInput.addEventListener("change", () => {
+      persistSkillDirFromInput();
+    });
+  } else {
+    refreshDirectoryPlaceholders();
+  }
+
+  if (collectSkillRunFeedbackCheckbox) {
+    collectSkillRunFeedbackCheckbox.checked =
+      getPref("collectSkillRunFeedbackEnabled") === true;
+    collectSkillRunFeedbackCheckbox.addEventListener("change", () => {
+      setPref(
+        "collectSkillRunFeedbackEnabled",
+        collectSkillRunFeedbackCheckbox.checked === true,
+      );
+    });
+  }
+
+  if (markdownReaderEnabledCheckbox) {
+    markdownReaderEnabledCheckbox.checked =
+      getPref("markdownReaderEnabled") !== false;
+    markdownReaderEnabledCheckbox.addEventListener("change", () => {
+      setPref(
+        "markdownReaderEnabled",
+        markdownReaderEnabledCheckbox.checked === true,
+      );
     });
   }
 
   if (browseWorkflowDirButton) {
     browseWorkflowDirButton.addEventListener("command", () => {
       void (async () => {
-        const runtimeToolkit = ((typeof ztoolkit !== "undefined"
-          ? ztoolkit
-          : undefined) ||
-          (
-            globalThis as {
-              ztoolkit?: {
-                FilePicker?: new (
-                  title: string,
-                  mode: string,
-                  filters: [string, string][],
-                  suggestion: string,
-                  window: Window | undefined,
-                  filterMask?: string,
-                  directory?: string,
-                ) => { open: () => Promise<unknown> };
-              };
-            }
-          ).ztoolkit) as {
-          FilePicker?: new (
-            title: string,
-            mode: string,
-            filters: [string, string][],
-            suggestion: string,
-            window: Window | undefined,
-            filterMask?: string,
-            directory?: string,
-          ) => { open: () => Promise<unknown> };
-        } | null;
+        const runtimeToolkit = getDirectoryFilePicker();
         if (typeof runtimeToolkit?.FilePicker !== "function") {
           return;
         }
-        const currentWorkflowDir = persistWorkflowDirFromInput({
-          fallbackWhenEmpty: false,
-        });
+        const currentWorkflowDir = persistWorkflowDirFromInput();
         const initialDirectory =
           await resolveWorkflowBrowseStartDir(currentWorkflowDir);
         const selectedPath = await new runtimeToolkit.FilePicker(
@@ -1772,6 +2272,32 @@ function bindPrefEvents() {
         ).open();
         if (typeof selectedPath === "string" && selectedPath.trim()) {
           persistWorkflowDir(selectedPath);
+        }
+      })();
+    });
+  }
+
+  if (browseSkillDirButton) {
+    browseSkillDirButton.addEventListener("command", () => {
+      void (async () => {
+        const runtimeToolkit = getDirectoryFilePicker();
+        if (typeof runtimeToolkit?.FilePicker !== "function") {
+          return;
+        }
+        const currentSkillDir = persistSkillDirFromInput();
+        const initialDirectory =
+          await resolveSkillBrowseStartDir(currentSkillDir);
+        const selectedPath = await new runtimeToolkit.FilePicker(
+          getString("pref-skill-dir" as any),
+          "folder",
+          [],
+          "",
+          addon.data.prefs?.window,
+          undefined,
+          initialDirectory,
+        ).open();
+        if (typeof selectedPath === "string" && selectedPath.trim()) {
+          persistSkillDir(selectedPath);
         }
       })();
     });
@@ -1808,11 +2334,530 @@ function bindPrefEvents() {
     });
   }
 
+  const setContentPackageStatus = (text: string) => {
+    if (contentPackageStatusText) {
+      contentPackageStatusText.textContent = text;
+    }
+  };
+
+  const contentPackageString = (
+    id: string,
+    fallback: string,
+    args?: Record<string, string>,
+  ) => getStringOrFallback(id, fallback, { args });
+
+  const setContentPackageInstallEnabled = (enabled: boolean) => {
+    setButtonDisabled(contentPackageInstallButton, !enabled);
+  };
+
+  const setContentPackageInstallLabel = (action?: string) => {
+    if (!contentPackageInstallButton) {
+      return;
+    }
+    const labelByAction: Record<string, string> = {
+      install: contentPackageString(
+        "pref-content-package-install-action-install",
+        "Install",
+      ),
+      update: contentPackageString(
+        "pref-content-package-install-action-update",
+        "Update",
+      ),
+      rollback: contentPackageString(
+        "pref-content-package-install-action-rollback",
+        "Rollback",
+      ),
+      replace: contentPackageString(
+        "pref-content-package-install-action-replace",
+        "Replace",
+      ),
+    };
+    const label =
+      labelByAction[String(action || "")] ||
+      contentPackageString("pref-content-package-install", "Install / Update");
+    contentPackageInstallButton.setAttribute("label", label);
+    (contentPackageInstallButton as unknown as HTMLElement).textContent = label;
+  };
+
+  const effectiveContentAction = (result: any) =>
+    String(result?.action || (result?.updateAvailable ? "update" : "none"));
+
+  const isInstallAction = (action: string) =>
+    action === "install" ||
+    action === "update" ||
+    action === "rollback" ||
+    action === "replace";
+
+  const canInstallFromStatus = (status: any) => !status?.installed;
+
+  const canInstallFromCheckResult = (result: any) =>
+    result?.compatible === true &&
+    isInstallAction(effectiveContentAction(result));
+
+  const formatContentPackageStatus = (status: any) => {
+    const installed = status?.installed;
+    const channel = String(status?.channel || "stable");
+    if (status?.staleState) {
+      return contentPackageString(
+        "pref-content-package-status-stale",
+        "Official Workflow package files are missing. Install the package again.",
+      );
+    }
+    if (!installed) {
+      return contentPackageString(
+        "pref-content-package-status-not-installed",
+        "Official Workflow package is not installed. Channel: { $channel }.",
+        { channel },
+      );
+    }
+    const packageInfo = installed.package || {};
+    return contentPackageString(
+      "pref-content-package-status-installed",
+      "Installed: { $id } · version { $version } · revision { $revision } · channel { $channel }",
+      {
+        id: String(packageInfo.id || "official-content"),
+        version: String(packageInfo.version || "unknown"),
+        revision: String(installed.feed_revision || "unknown"),
+        channel,
+      },
+    );
+  };
+
+  const syncContentPackageChannelSelect = (status?: any) => {
+    if (!contentPackageChannelSelect) {
+      return;
+    }
+    const currentChannel = String(
+      status?.channel || getPref("contentFeedChannel") || "stable",
+    );
+    const channels = [
+      { value: "stable", label: "Stable" },
+      { value: "beta", label: "Beta" },
+      ...(debugModeEnabled ? [{ value: "dev", label: "Dev" }] : []),
+    ];
+    const popup = contentPackageChannelPopup || contentPackageChannelSelect;
+    clearChildren(popup);
+    for (const channel of channels) {
+      const option =
+        typeof doc.createXULElement === "function"
+          ? doc.createXULElement("menuitem")
+          : doc.createElement("menuitem");
+      option.setAttribute("value", channel.value);
+      option.setAttribute("label", channel.label);
+      (option as unknown as { value?: string }).value = channel.value;
+      (option as unknown as HTMLElement).textContent = channel.label;
+      if (channel.value === currentChannel) {
+        option.setAttribute("selected", "selected");
+      }
+      popup?.appendChild(option);
+    }
+    contentPackageChannelSelect.value = channels.some(
+      (channel) => channel.value === currentChannel,
+    )
+      ? currentChannel
+      : "stable";
+  };
+
+  const refreshContentPackageStatus = () => {
+    void (async () => {
+      const status = await addon.hooks.onPrefsEvent("stateContentPackage", {
+        window: addon.data.prefs?.window,
+      });
+      syncContentPackageChannelSelect(status);
+      setContentPackageStatus(formatContentPackageStatus(status));
+      setContentPackageInstallEnabled(canInstallFromStatus(status));
+      setContentPackageInstallLabel(
+        canInstallFromStatus(status) ? "install" : undefined,
+      );
+    })();
+  };
+
+  if (contentPackageChannelSelect) {
+    syncContentPackageChannelSelect();
+    const handleContentPackageChannelChange = () => {
+      const channel = String(contentPackageChannelSelect.value || "stable");
+      setPref(
+        "contentFeedChannel",
+        channel === "beta" || (channel === "dev" && debugModeEnabled)
+          ? channel
+          : "stable",
+      );
+      setContentPackageInstallLabel();
+      refreshContentPackageStatus();
+    };
+    contentPackageChannelSelect.addEventListener(
+      "command",
+      handleContentPackageChannelChange,
+    );
+    contentPackageChannelSelect.addEventListener(
+      "change",
+      handleContentPackageChannelChange,
+    );
+  }
+
+  if (contentPackageCheckButton) {
+    contentPackageCheckButton.addEventListener("command", () => {
+      void (async () => {
+        setButtonDisabled(contentPackageCheckButton, true);
+        setButtonDisabled(contentPackageInstallButton, true);
+        setContentPackageStatus(
+          contentPackageString(
+            "pref-content-package-status-checking",
+            "Checking official Workflow package feed...",
+          ),
+        );
+        try {
+          const result: any = await addon.hooks.onPrefsEvent(
+            "checkContentPackageUpdate",
+            { window: addon.data.prefs?.window },
+          );
+          if (result?.ok) {
+            const action = effectiveContentAction(result);
+            setContentPackageStatus(
+              !result.compatible
+                ? contentPackageString(
+                    "pref-content-package-status-incompatible",
+                    "Official Workflow package update is not compatible: { $reason }",
+                    {
+                      reason: String(
+                        result.incompatibility?.message ||
+                          "unknown requirement",
+                      ),
+                    },
+                  )
+                : action === "update"
+                  ? contentPackageString(
+                      "pref-content-package-status-update-available",
+                      "Update available: { $version } ({ $revision })",
+                      {
+                        version: String(result.package?.version || "unknown"),
+                        revision: String(result.feed?.revision || "unknown"),
+                      },
+                    )
+                  : action === "rollback"
+                    ? contentPackageString(
+                        "pref-content-package-status-rollback-available",
+                        "Rollback available: { $version } ({ $revision })",
+                        {
+                          version: String(result.package?.version || "unknown"),
+                          revision: String(result.feed?.revision || "unknown"),
+                        },
+                      )
+                    : action === "install"
+                      ? contentPackageString(
+                          "pref-content-package-status-install-available",
+                          "Package available: { $version } ({ $revision })",
+                          {
+                            version: String(
+                              result.package?.version || "unknown",
+                            ),
+                            revision: String(
+                              result.feed?.revision || "unknown",
+                            ),
+                          },
+                        )
+                      : action === "replace"
+                        ? contentPackageString(
+                            "pref-content-package-status-replace-available",
+                            "Package replacement available: { $version } ({ $revision })",
+                            {
+                              version: String(
+                                result.package?.version || "unknown",
+                              ),
+                              revision: String(
+                                result.feed?.revision || "unknown",
+                              ),
+                            },
+                          )
+                        : contentPackageString(
+                            "pref-content-package-status-current",
+                            "Official Workflow package is up to date.",
+                          ),
+            );
+            setContentPackageInstallEnabled(canInstallFromCheckResult(result));
+            setContentPackageInstallLabel(action);
+          } else {
+            setContentPackageStatus(
+              contentPackageString(
+                "pref-content-package-status-check-failed",
+                "Official Workflow package feed check failed: { $reason }",
+                { reason: String(result?.message || "unknown error") },
+              ),
+            );
+            setContentPackageInstallEnabled(
+              canInstallFromStatus(result?.status),
+            );
+            setContentPackageInstallLabel(
+              canInstallFromStatus(result?.status) ? "install" : undefined,
+            );
+          }
+        } finally {
+          setButtonDisabled(contentPackageCheckButton, false);
+        }
+      })();
+    });
+  }
+
+  if (contentPackageInstallButton) {
+    contentPackageInstallButton.addEventListener("command", () => {
+      void (async () => {
+        setButtonDisabled(contentPackageInstallButton, true);
+        setButtonDisabled(contentPackageCheckButton, true);
+        setContentPackageStatus(
+          contentPackageString(
+            "pref-content-package-status-installing",
+            "Installing official Workflow package...",
+          ),
+        );
+        try {
+          const result: any = await addon.hooks.onPrefsEvent(
+            "installContentPackage",
+            { window: addon.data.prefs?.window },
+          );
+          setContentPackageStatus(
+            result?.ok
+              ? formatContentPackageStatus(result.status)
+              : contentPackageString(
+                  "pref-content-package-status-install-failed",
+                  "Official Workflow package install failed: { $reason }",
+                  { reason: String(result?.message || "unknown error") },
+                ),
+          );
+          setContentPackageInstallEnabled(canInstallFromStatus(result?.status));
+        } finally {
+          setButtonDisabled(contentPackageCheckButton, false);
+        }
+      })();
+    });
+  }
+
+  if (
+    contentPackageChannelSelect ||
+    contentPackageStatusText ||
+    contentPackageCheckButton ||
+    contentPackageInstallButton
+  ) {
+    refreshContentPackageStatus();
+  }
+
   if (backendManageButton) {
     backendManageButton.addEventListener("command", () => {
       void addon.hooks.onPrefsEvent("openBackendManager", {
         window: addon.data.prefs?.window,
       });
+    });
+  }
+
+  bindXulButtonActivation(openHelpButton, () => {
+    void addon.hooks.onPrefsEvent("openHelpCenter", {
+      window: addon.data.prefs?.window,
+    });
+  });
+
+  bindXulButtonActivation(openOnlineDocsButton, () => {
+    void addon.hooks.onPrefsEvent("openOnlineDocs", {
+      window: addon.data.prefs?.window,
+    });
+  });
+
+  if (hostBridgeSecurityToggle) {
+    hostBridgeSecurityToggle.addEventListener("command", () => {
+      hostBridgeSecurityExpanded = !hostBridgeSecurityExpanded;
+      updateHostBridgeSecurityPanel();
+    });
+  }
+  updateHostBridgeSecurityPanel();
+
+  const renderWebDavSyncPrefsStatus = (status: any, fallbackMessage = "") => {
+    if (!status || typeof status !== "object") {
+      if (webDavSyncStatusText && fallbackMessage) {
+        webDavSyncStatusText.textContent = fallbackMessage;
+      }
+      return;
+    }
+    if (webDavSyncEnabledCheckbox) {
+      webDavSyncEnabledCheckbox.checked = status.enabled === true;
+    }
+    if (webDavSyncBaseUrlInput) {
+      webDavSyncBaseUrlInput.value = String(status.base_url || "");
+    }
+    if (webDavSyncRemotePathInput) {
+      webDavSyncRemotePathInput.value = String(
+        status.remote_path || "zotero-agents",
+      );
+    }
+    if (webDavSyncUsernameInput) {
+      webDavSyncUsernameInput.value = String(status.username || "");
+    }
+    if (webDavSyncAutoSyncCheckbox) {
+      webDavSyncAutoSyncCheckbox.checked = status.auto_sync_enabled === true;
+    }
+    if (webDavSyncAutoRetryCheckbox) {
+      webDavSyncAutoRetryCheckbox.checked = status.auto_retry_enabled === true;
+    }
+    if (webDavSyncCredentialInput) {
+      const updatedAt = String(status.credential_updated_at || "").trim();
+      webDavSyncCredentialInput.setAttribute(
+        "placeholder",
+        status.credential_configured
+          ? `${getString("pref-webdav-sync-credential-placeholder-saved" as any)}${
+              updatedAt ? ` (${updatedAt})` : ""
+            }`
+          : getString("pref-webdav-sync-credential-placeholder-empty" as any),
+      );
+    }
+    if (webDavSyncStatusText) {
+      const diagnostics = Array.isArray(status.diagnostics)
+        ? status.diagnostics
+        : [];
+      const connection = status.connection_test;
+      const diagnosticText = diagnostics
+        .map((entry: any) =>
+          entry && typeof entry === "object"
+            ? `${String(entry.code || "")}: ${String(entry.message || "")}`.trim()
+            : "",
+        )
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(" | ");
+      webDavSyncStatusText.textContent = [
+        fallbackMessage,
+        `Config: ${String(status.config_status || "unknown")}`,
+        connection && typeof connection === "object"
+          ? `${connection.ok ? "Connection ready" : "Connection failed"} ${String(
+              connection.tested_at || "",
+            )}`.trim()
+          : "",
+        diagnosticText,
+      ]
+        .filter(Boolean)
+        .join(" | ");
+    }
+  };
+
+  const refreshWebDavSyncPrefsStatus = () => {
+    void (async () => {
+      const status = await addon.hooks.onPrefsEvent(
+        "getWebDavSyncPrefsStatus",
+        {
+          window: addon.data.prefs?.window,
+        },
+      );
+      renderWebDavSyncPrefsStatus(status);
+    })();
+  };
+
+  const webDavSyncPrefsPayload = () => ({
+    window: addon.data.prefs?.window,
+    enabled: webDavSyncEnabledCheckbox?.checked === true,
+    baseUrl: webDavSyncBaseUrlInput?.value || "",
+    remotePath: webDavSyncRemotePathInput?.value || "zotero-agents",
+    username: webDavSyncUsernameInput?.value || "",
+    autoSyncEnabled: webDavSyncAutoSyncCheckbox?.checked === true,
+    autoRetryEnabled: webDavSyncAutoRetryCheckbox?.checked === true,
+  });
+
+  if (
+    webDavSyncEnabledCheckbox ||
+    webDavSyncBaseUrlInput ||
+    webDavSyncRemotePathInput ||
+    webDavSyncUsernameInput ||
+    webDavSyncAutoSyncCheckbox ||
+    webDavSyncAutoRetryCheckbox
+  ) {
+    refreshWebDavSyncPrefsStatus();
+  }
+
+  if (webDavSyncSaveButton) {
+    webDavSyncSaveButton.addEventListener("command", () => {
+      void (async () => {
+        const response: any = await addon.hooks.onPrefsEvent(
+          "saveWebDavSyncPrefs",
+          webDavSyncPrefsPayload(),
+        );
+        renderWebDavSyncPrefsStatus(
+          response?.status || response,
+          response?.ok === false
+            ? getString("pref-webdav-sync-save-failed" as any)
+            : getString("pref-webdav-sync-save-success" as any),
+        );
+      })();
+    });
+  }
+
+  if (webDavSyncSaveCredentialButton) {
+    webDavSyncSaveCredentialButton.addEventListener("command", () => {
+      void (async () => {
+        const response: any = await addon.hooks.onPrefsEvent(
+          "saveWebDavSyncCredential",
+          {
+            window: addon.data.prefs?.window,
+            credential: webDavSyncCredentialInput?.value || "",
+          },
+        );
+        if (webDavSyncCredentialInput) {
+          webDavSyncCredentialInput.value = "";
+        }
+        renderWebDavSyncPrefsStatus(
+          response?.status || response,
+          getString("pref-webdav-sync-credential-saved" as any),
+        );
+      })();
+    });
+  }
+
+  if (webDavSyncClearCredentialButton) {
+    webDavSyncClearCredentialButton.addEventListener("command", () => {
+      void (async () => {
+        const response: any = await addon.hooks.onPrefsEvent(
+          "clearWebDavSyncCredential",
+          { window: addon.data.prefs?.window },
+        );
+        if (webDavSyncCredentialInput) {
+          webDavSyncCredentialInput.value = "";
+        }
+        renderWebDavSyncPrefsStatus(
+          response?.status || response,
+          getString("pref-webdav-sync-credential-cleared" as any),
+        );
+      })();
+    });
+  }
+
+  if (webDavSyncTestButton) {
+    webDavSyncTestButton.addEventListener("command", () => {
+      void (async () => {
+        if (webDavSyncStatusText) {
+          webDavSyncStatusText.textContent = getString(
+            "pref-webdav-sync-test-running" as any,
+          );
+        }
+        const save: any = await addon.hooks.onPrefsEvent(
+          "saveWebDavSyncPrefs",
+          webDavSyncPrefsPayload(),
+        );
+        if (save?.ok === false) {
+          renderWebDavSyncPrefsStatus(
+            save.status,
+            getString("pref-webdav-sync-save-failed" as any),
+          );
+          return;
+        }
+        const test: any = await addon.hooks.onPrefsEvent(
+          "testWebDavSyncConfiguration",
+          { window: addon.data.prefs?.window },
+        );
+        renderWebDavSyncPrefsStatus(
+          {
+            ...(save?.status || {}),
+            connection_test: test,
+            diagnostics: test?.diagnostics || save?.status?.diagnostics || [],
+          },
+          test?.ok
+            ? getString("pref-webdav-sync-test-success" as any)
+            : getString("pref-webdav-sync-test-failed" as any),
+        );
+      })();
     });
   }
 
@@ -1831,7 +2876,8 @@ function bindPrefEvents() {
           hostBridgePinPortCheckbox.checked = true;
           hostBridgePinPortCheckbox.disabled = true;
         }
-        renderHostBridgeState(response);
+        renderHostBridgeOperationResult(response);
+        void refreshMcpServerState();
       })();
     });
   }
@@ -1845,6 +2891,7 @@ function bindPrefEvents() {
           enabled: mcpServerEnabledCheckbox.checked === true,
         });
         renderMcpServerState(response);
+        renderHostBridgeOperationNotice(response);
       })();
     });
   }
@@ -1879,7 +2926,8 @@ function bindPrefEvents() {
         enabled: hostBridgePinPortCheckbox.checked === true,
         port,
       });
-      renderHostBridgeState(response);
+      renderHostBridgeOperationResult(response);
+      void refreshMcpServerState();
     })();
   };
 
@@ -1923,7 +2971,8 @@ function bindPrefEvents() {
             host: hostBridgeAdvertisedHostInput.value,
           },
         );
-        renderHostBridgeState(response);
+        renderHostBridgeOperationResult(response);
+        void refreshMcpServerState();
       })();
     });
   }
@@ -1937,7 +2986,7 @@ function bindPrefEvents() {
             window: addon.data.prefs?.window,
           },
         );
-        renderHostBridgeState(response);
+        renderHostBridgeOperationResult(response);
       })();
     });
   }
@@ -1951,7 +3000,7 @@ function bindPrefEvents() {
             window: addon.data.prefs?.window,
           },
         );
-        renderHostBridgeState(response);
+        renderHostBridgeOperationResult(response);
       })();
     });
   }
@@ -1965,7 +3014,7 @@ function bindPrefEvents() {
             window: addon.data.prefs?.window,
           },
         );
-        renderHostBridgeState(response);
+        renderHostBridgeOperationResult(response);
       })();
     });
   }
@@ -1979,7 +3028,7 @@ function bindPrefEvents() {
     if (clipboardText) {
       copyTextToClipboard(clipboardText);
     }
-    renderHostBridgeState(response);
+    renderHostBridgeOperationResult(response);
   };
 
   if (hostBridgeCopyMasterTokenButton) {
@@ -2019,7 +3068,8 @@ function bindPrefEvents() {
             window: addon.data.prefs?.window,
           },
         );
-        renderHostBridgeState(response);
+        renderHostBridgeOperationNotice(response);
+        void refreshHostBridgeState();
       })();
     });
   }
@@ -2032,10 +3082,23 @@ function bindPrefEvents() {
     hostBridgePinnedPortInput ||
     hostBridgeAdvertisedHostInput
   ) {
+    renderHostBridgeState({
+      ok: true,
+      details: hostBridgePrefSnapshot("loading"),
+    });
     void refreshHostBridgeState();
   }
 
   if (mcpServerEnabledCheckbox || mcpServerStatusText) {
+    renderMcpServerState({
+      ok: true,
+      details: {
+        enabled: getPref("mcpServer.enabled") !== false,
+        server: {
+          status: "loading",
+        },
+      },
+    });
     void refreshMcpServerState();
   }
 

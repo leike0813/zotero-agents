@@ -219,6 +219,45 @@ sequenceDiagram
   end
 ```
 
+## `seq.git_sync.export_import`
+
+Git Sync exchanges durable Synthesis state through Git assets. It does not synchronize the live SQLite file.
+
+```mermaid
+sequenceDiagram
+  participant U as User or Autosync
+  participant G as Git Sync Service
+  participant S as Sidecar Repository
+  participant A as Topic Artifact Root
+  participant W as Git Worktree
+  participant R as Remote Git Repo
+
+  U->>G: request sync
+  G->>S: read durable facts
+  G->>A: read topics/<topicId>/current assets
+  G->>W: write durable envelopes and manifest.json
+  G->>R: fetch and merge
+  G->>W: validate path, manifest, asset hashes, schema, duplicates
+  G->>G: compare sync-index base, local export hash, remote hash
+  alt blocking conflict
+    G->>G: write conflict report
+    G-->>U: blocked_conflict
+  else clean preview
+    G->>R: push validated durable assets
+    G->>S: apply durable facts through repository/domain services
+    G->>A: restore topic current assets
+    G->>S: mark rebuildable projections stale
+    G-->>U: idle
+  end
+```
+
+Constraints:
+
+- Validation and dry-run happen before any SQLite write.
+- Same-entity local and remote edits block import.
+- Projection rows are not imported as durable facts; they become stale after durable import.
+- `zotero-agents.db`, `synthesis.db`, WAL/SHM, operations, logs, locks, credentials, and temp workspaces never enter Git.
+
 Constraints:
 
 - Related-items sync never starts from graph refresh automatically.

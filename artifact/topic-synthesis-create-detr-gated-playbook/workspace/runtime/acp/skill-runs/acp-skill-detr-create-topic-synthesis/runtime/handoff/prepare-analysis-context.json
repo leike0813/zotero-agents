@@ -1,28 +1,7 @@
 {
-  "artifacts": {
-    "cross_paper_context": {
-      "hash": "sha256:ca97bda4165ad240812b082f43b04d39cbdbe613f2be32e4a6202c1a446bf346",
-      "path": "runtime/views/cross-paper-context.md"
-    },
-    "external_literature_context": {
-      "hash": "sha256:784c1d7e0c5000fe2d994917e2609a95cd642e3f3da173724e2e5aa30ee99ecf",
-      "path": "runtime/views/external-literature-context.md"
-    },
-    "paper_artifacts_manifest_batch_1": {
-      "hash": "sha256:2bec987ad676249a3407810ea918181928dcccc31a78e6a7bfe15324a7fb0972",
-      "path": "runtime/payloads/paper-artifacts-manifest-batch-1.json"
-    },
-    "resolver_manifest": {
-      "hash": "sha256:bc7c9cc5e404dc90965c7268804fd2c87b69950c4078bd4cbc88267e3d6a7b7c",
-      "path": "runtime/payloads/resolver.json"
-    },
-    "source_paper_evidence_index": {
-      "hash": "sha256:5aa17d8f6e6bee020d41f1db55ac20918920905eeb63bcce44be1923bc42af4c",
-      "path": "runtime/views/source-paper-evidence-index.json"
-    }
-  },
+  "artifacts": "runtime/handoff/prepare-analysis-context.artifacts.json",
   "db_path": "runtime/topic-synthesis.sqlite",
-  "diagnostics": [],
+  "diagnostics": "[]",
   "handoff": "prepare_analysis_context",
   "schema_id": "synthesis.skill_handoff",
   "schema_version": "1.0.0",

@@ -28,12 +28,13 @@ describe("skillrunner sidebar entrypoints", function () {
 
     assert.include(workflowMenu, "menu-workflows-open-assistant-sidebar");
     assert.include(workflowMenu, 'onPrefsEvent("openSkillRunnerSidebar"');
+    assert.include(workflowMenu, "menu-workflows-open-help");
+    assert.include(workflowMenu, "menu-workflows-open-online-docs");
+    assert.include(workflowMenu, 'onPrefsEvent("openHelpCenter"');
+    assert.include(workflowMenu, 'onPrefsEvent("openOnlineDocs"');
     assert.include(hooks, "openAssistantWorkspaceSidebar");
     assert.include(hooks, 'case "openSkillRunnerSidebar":');
-    assert.include(
-      hooks,
-      'tab: requestId || backend ? "skillrunner" : undefined',
-    );
+    assert.include(hooks, 'tab: "skillrunner"');
     assert.include(hooks, 'case "openAcpSidebar":');
     assert.include(hooks, 'tab: "acp-chat"');
     assert.include(hooks, 'case "openAcpSkillRunnerSidebar":');
@@ -60,14 +61,18 @@ describe("skillrunner sidebar entrypoints", function () {
     assert.include(zh, "task-dashboard-sidebar-skillrunner = Skill-Runner");
     assert.include(en, "menu-workflows-open-assistant-sidebar = Open Sidebar");
     assert.include(zh, "menu-workflows-open-assistant-sidebar = 打开侧边栏");
+    assert.include(en, "menu-workflows-open-help = Open Help");
+    assert.include(zh, "menu-workflows-open-help = 打开帮助");
+    assert.include(en, "menu-workflows-open-online-docs = Open Online Docs");
+    assert.include(zh, "menu-workflows-open-online-docs = 打开在线文档");
   });
 
   it("keeps the current child pages behind the unified Assistant workspace", async function () {
     const html = await readProjectFile(
-      "addon/content/dashboard/assistant-workspace.html",
+      "addon/content/sidebar/assistant-workspace.html",
     );
     const js = await readProjectFile(
-      "addon/content/dashboard/assistant-workspace.js",
+      "addon/content/sidebar/assistant-workspace.js",
     );
     assert.include(html, 'src="./acp-chat.html"');
     assert.include(html, 'src="./acp-skill-run.html"');
@@ -92,18 +97,18 @@ describe("skillrunner sidebar entrypoints", function () {
     );
     assert.include(hooks, 'case "toggleSkillRunnerSidebar":');
     assert.include(hooks, "toggleAssistantWorkspaceSidebar({");
-    assert.notInclude(
+    assert.include(
       hooks,
       'case "toggleSkillRunnerSidebar":\n      await toggleAssistantWorkspaceSidebar({\n        window: data.window,\n        tab: "skillrunner",',
     );
   });
 
-  it("routes interactive request-created openings through the Assistant shell entrypoint", async function () {
+  it("routes interactive request-ready openings through the Assistant shell entrypoint", async function () {
     const ts = await readProjectFile(
       "src/modules/workflowExecution/runSeam.ts",
     );
     assert.include(ts, "openAssistantWorkspaceSidebar");
-    assert.include(ts, "focusSkillRunnerWorkspace");
+    assert.include(ts, 'event.type === "request-ready"');
     assert.include(ts, "selectAcpSkillRun");
     assert.notInclude(ts, "resolved.openSkillRunnerRunDialog({");
     assert.notInclude(ts, "openSkillRunnerSidebar");

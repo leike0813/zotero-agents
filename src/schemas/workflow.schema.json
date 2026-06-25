@@ -35,6 +35,9 @@
     "inputs": {
       "$ref": "#/$defs/inputsSpec"
     },
+    "validateSelection": {
+      "$ref": "#/$defs/validateSelectionSpec"
+    },
     "trigger": {
       "$ref": "#/$defs/triggerSpec"
     },
@@ -56,49 +59,6 @@
   "allOf": [
     {
       "if": {
-        "anyOf": [
-          {
-            "properties": {
-              "provider": {
-                "const": "skillrunner"
-              }
-            },
-            "required": ["provider"]
-          },
-          {
-            "properties": {
-              "request": {
-                "type": "object",
-                "properties": {
-                  "kind": {
-                    "enum": ["skillrunner.job.v1", "skillrunner.sequence.v1"]
-                  }
-                },
-                "required": ["kind"]
-              }
-            },
-            "required": ["request"]
-          }
-        ]
-      },
-      "then": {
-        "required": ["execution"],
-        "properties": {
-          "execution": {
-            "type": "object",
-            "properties": {
-              "skillrunner_mode": {
-                "type": "string",
-                "enum": ["auto", "interactive"]
-              }
-            },
-            "required": ["skillrunner_mode"]
-          }
-        }
-      }
-    },
-    {
-      "if": {
         "allOf": [
           {
             "properties": {
@@ -106,7 +66,7 @@
                 "type": "object",
                 "properties": {
                   "kind": {
-                    "const": "skillrunner.sequence.v1"
+                    "const": "skillrunner.job.v1"
                   }
                 },
                 "required": ["kind"]
@@ -132,17 +92,37 @@
       },
       "then": {
         "properties": {
-          "provider": {
-            "const": "acp"
-          },
-          "result": {
+          "request": {
             "type": "object",
             "properties": {
-              "final_step_id": {
-                "$ref": "#/$defs/nonEmptyString"
+              "create": {
+                "$ref": "#/$defs/requestCreateSpec"
               }
             },
-            "required": ["final_step_id"]
+            "required": ["create"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "request": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "skillrunner.sequence.v1"
+              }
+            },
+            "required": ["kind"]
+          }
+        },
+        "required": ["request"]
+      },
+      "then": {
+        "properties": {
+          "provider": {
+            "enum": ["acp", "skillrunner"]
           },
           "request": {
             "type": "object",
@@ -150,11 +130,36 @@
               "sequence": {
                 "$ref": "#/$defs/requestSequenceSpec"
               }
-            },
-            "required": ["sequence"]
+            }
           }
         },
-        "required": ["provider", "result"]
+        "anyOf": [
+          {
+            "properties": {
+              "request": {
+                "type": "object",
+                "properties": {
+                  "sequence": {}
+                },
+                "required": ["sequence"]
+              }
+            },
+            "required": ["request"]
+          },
+          {
+            "properties": {
+              "hooks": {
+                "type": "object",
+                "properties": {
+                  "buildRequest": {}
+                },
+                "required": ["buildRequest"]
+              }
+            },
+            "required": ["hooks"]
+          }
+        ],
+        "required": ["provider"]
       }
     }
   ],
@@ -314,9 +319,6 @@
       "type": "object",
       "required": ["applyResult"],
       "properties": {
-        "filterInputs": {
-          "$ref": "#/$defs/nonEmptyString"
-        },
         "buildRequest": {
           "$ref": "#/$defs/nonEmptyString"
         },
@@ -325,6 +327,130 @@
         },
         "applyResult": {
           "$ref": "#/$defs/nonEmptyString"
+        }
+      },
+      "additionalProperties": false
+    },
+    "countRule": {
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max": {
+          "type": "number",
+          "minimum": 0
+        },
+        "exact": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "validateSelectionSpec": {
+      "type": "object",
+      "properties": {
+        "require": {
+          "type": "object",
+          "properties": {
+            "counts": {
+              "type": "object",
+              "properties": {
+                "parents": { "$ref": "#/$defs/countRule" },
+                "attachments": { "$ref": "#/$defs/countRule" },
+                "notes": { "$ref": "#/$defs/countRule" },
+                "children": { "$ref": "#/$defs/countRule" },
+                "total": { "$ref": "#/$defs/countRule" }
+              },
+              "additionalProperties": false
+            },
+            "allowMixed": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "select": {
+          "type": "object",
+          "properties": {
+            "policy": {
+              "type": "string",
+              "enum": [
+                "input-unit",
+                "literature-source",
+                "pdf-attachment",
+                "selected-parent",
+                "generated-note-candidates",
+                "digest-representative-image"
+              ]
+            },
+            "unit": {
+              "type": "string",
+              "enum": ["attachment", "parent", "note", "workflow"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["kind", "noteKinds"],
+                "properties": {
+                  "kind": {
+                    "const": "generated-notes-all"
+                  },
+                  "noteKinds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "digest",
+                        "references",
+                        "citation-analysis",
+                        "conversation-note",
+                        "custom"
+                      ]
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["kind", "target"],
+                "properties": {
+                  "kind": {
+                    "const": "artifact-exists"
+                  },
+                  "target": {
+                    "type": "string",
+                    "enum": [
+                      "deep-reading-html",
+                      "translator-markdown",
+                      "mineru-markdown"
+                    ]
+                  },
+                  "parameter": {
+                    "$ref": "#/$defs/nonEmptyString"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "derive": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["exportCandidates", "digestRepresentativeImageTarget"]
+          }
         }
       },
       "additionalProperties": false
@@ -376,10 +502,6 @@
     "executionSpec": {
       "type": "object",
       "properties": {
-        "mode": {
-          "type": "string",
-          "enum": ["auto", "sync", "async"]
-        },
         "mcp": {
           "type": "object",
           "properties": {
@@ -404,10 +526,6 @@
             }
           },
           "additionalProperties": false
-        },
-        "skillrunner_mode": {
-          "type": "string",
-          "enum": ["auto", "interactive"]
         },
         "poll_interval_ms": {
           "type": "number"
@@ -489,9 +607,14 @@
     },
     "requestCreateSpec": {
       "type": "object",
+      "required": ["mode"],
       "properties": {
         "skill_id": {
           "$ref": "#/$defs/nonEmptyString"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["auto", "interactive"]
         },
         "skill_source": {
           "type": "string",
@@ -553,13 +676,17 @@
     },
     "requestSequenceStepSpec": {
       "type": "object",
-      "required": ["id", "skill_id"],
+      "required": ["id", "skill_id", "mode"],
       "properties": {
         "id": {
           "$ref": "#/$defs/nonEmptyString"
         },
         "skill_id": {
           "$ref": "#/$defs/nonEmptyString"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["auto", "interactive"]
         },
         "input": {
           "type": "object",
@@ -577,14 +704,66 @@
           "type": "string",
           "enum": ["new", "reuse-workflow"]
         },
+        "apply_result": {
+          "$ref": "#/$defs/requestSequenceStepApplySpec"
+        },
         "handoff": {
           "$ref": "#/$defs/requestSequenceHandoffSpec"
         },
         "short_circuit": {
           "$ref": "#/$defs/requestSequenceShortCircuitSpec"
+        },
+        "include_if": {
+          "$ref": "#/$defs/requestSequenceStepIncludeIfSpec"
         }
       },
       "additionalProperties": false
+    },
+    "requestSequenceStepIncludeIfSpec": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "parameter", "equals"],
+          "properties": {
+            "kind": {
+              "const": "parameter"
+            },
+            "parameter": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "equals": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "condition"],
+          "properties": {
+            "kind": {
+              "const": "runtime"
+            },
+            "condition": {
+              "$ref": "#/$defs/nonEmptyString"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "requestSequenceShortCircuitSpec": {
       "type": "object",
@@ -623,38 +802,54 @@
       },
       "additionalProperties": false
     },
-    "requestSequenceHandoffSpec": {
+    "requestSequenceStepApplySpec": {
       "type": "object",
       "properties": {
-        "from_step": {
+        "workflow_id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "on_failure": {
+          "type": "string",
+          "enum": ["continue", "fail_sequence"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "requestSequenceHandoffSpec": {
+      "type": "object",
+      "required": ["bindings"],
+      "properties": {
+        "bindings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/requestSequenceHandoffBindingSpec"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "requestSequenceHandoffBindingSpec": {
+      "type": "object",
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["value", "file"]
+        },
+        "target": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "source": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "step": {
           "$ref": "#/$defs/nonEmptyString"
         },
         "required": {
           "type": "boolean"
         },
-        "pass_through": {
-          "type": "boolean"
-        },
-        "input": {
-          "$ref": "#/$defs/stringMap"
-        },
-        "parameter": {
-          "$ref": "#/$defs/stringMap"
-        },
-        "defaults": {
-          "type": "object",
-          "properties": {
-            "input": {
-              "type": "object",
-              "additionalProperties": true
-            },
-            "parameter": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "additionalProperties": false
-        }
+        "value": {}
       },
       "additionalProperties": false
     },

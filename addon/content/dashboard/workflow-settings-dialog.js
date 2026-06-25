@@ -8,6 +8,8 @@
       runOptions: {},
     },
     fieldCollectors: [],
+    refreshingAcpRuntimeCache: false,
+    refreshingSkillRunnerModelCache: false,
   };
 
   function sendAction(action, payload) {
@@ -28,6 +30,42 @@
       } catch {
         // ignore postMessage errors
       }
+    });
+  }
+
+  function measureDialogContentHeight() {
+    const root = document.getElementById("app");
+    const shell = root && root.querySelector(".settings-shell");
+    const rootStyle = root ? window.getComputedStyle(root) : null;
+    const paddingTop = Number.parseFloat(rootStyle?.paddingTop || "0") || 0;
+    const paddingBottom =
+      Number.parseFloat(rootStyle?.paddingBottom || "0") || 0;
+    const shellHeight = Math.max(
+      Number(shell && shell.scrollHeight) || 0,
+      Number(shell && shell.getBoundingClientRect().height) || 0,
+    );
+    return Math.ceil(shellHeight + paddingTop + paddingBottom);
+  }
+
+  function sendDialogContentResizeRequest() {
+    const contentHeight = measureDialogContentHeight();
+    if (contentHeight > 0) {
+      sendAction("resize-to-content", { contentHeight });
+    }
+  }
+
+  function buildExecutionOptionsPayload() {
+    return {
+      backendId: toText(state.draft.backendId || "").trim(),
+      workflowParams: cloneRecord(state.draft.workflowParams),
+      providerOptions: cloneRecord(state.draft.providerOptions),
+      runOptions: cloneRecord(state.draft.runOptions),
+    };
+  }
+
+  function requestDialogContentResize() {
+    window.requestAnimationFrame(function () {
+      sendDialogContentResizeRequest();
     });
   }
 
@@ -53,6 +91,120 @@
     return toText(section).trim() + "." + toText(key).trim();
   }
 
+  function coerceBoolean(value, fallback) {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (!normalized) {
+        return fallback === true;
+      }
+      return ["1", "true", "yes", "on"].indexOf(normalized) >= 0;
+    }
+    return fallback === true;
+  }
+
+  function isProviderConditionalFieldVisible(entry, draft) {
+    const condition = entry && entry.visibleIfProviderOption;
+    const key = toText(condition && condition.key).trim();
+    if (!key) {
+      return true;
+    }
+    const providerOptions =
+      draft &&
+      draft.providerOptions &&
+      typeof draft.providerOptions === "object"
+        ? draft.providerOptions
+        : {};
+    return (
+      coerceBoolean(providerOptions[key], false) === (condition.equals === true)
+    );
+  }
+
+  function applyConditionalFieldVisibility(root) {
+    const container = root || document;
+    const nodes = container.querySelectorAll
+      ? container.querySelectorAll(
+          "[data-workflow-settings-visible-provider-key]",
+        )
+      : [];
+    Array.prototype.forEach.call(nodes, function (node) {
+      const key = toText(
+        node.getAttribute("data-workflow-settings-visible-provider-key"),
+      ).trim();
+      const expected =
+        node.getAttribute("data-workflow-settings-visible-provider-equals") ===
+        "true";
+      const visible =
+        coerceBoolean(state.draft.providerOptions[key], false) === expected;
+      node.style.display = visible ? "" : "none";
+      node.setAttribute("aria-hidden", visible ? "false" : "true");
+    });
+    requestDialogContentResize();
+  }
+
+  function getDraftSectionValues(section) {
+    const key = toText(section).trim();
+    if (key === "workflowParams") {
+      return state.draft.workflowParams;
+    }
+    if (key === "providerOptions") {
+      return state.draft.providerOptions;
+    }
+    if (key === "runOptions") {
+      return state.draft.runOptions;
+    }
+    return {};
+  }
+
+  function setDraftFieldValue(args, value) {
+    args.values[args.entry.key] = value;
+    const sectionValues = getDraftSectionValues(args.section);
+    if (sectionValues && typeof sectionValues === "object") {
+      sectionValues[args.entry.key] = value;
+    }
+  }
+
+  function deleteDraftFieldValue(args) {
+    delete args.values[args.entry.key];
+    const sectionValues = getDraftSectionValues(args.section);
+    if (sectionValues && typeof sectionValues === "object") {
+      delete sectionValues[args.entry.key];
+    }
+  }
+
+  function appendRefreshActionButton(actions, options) {
+    if (!actions || !options || options.visible !== true) {
+      return;
+    }
+    const refreshBtn = document.createElement("button");
+    const stateKey = toText(options.stateKey);
+    const isRefreshing = state[stateKey] === true;
+    refreshBtn.type = "button";
+    refreshBtn.className = "settings-btn";
+    refreshBtn.classList.toggle("is-busy", isRefreshing);
+    refreshBtn.disabled = isRefreshing;
+    refreshBtn.setAttribute("aria-busy", isRefreshing ? "true" : "false");
+    refreshBtn.textContent = isRefreshing
+      ? options.runningText || options.text
+      : options.text;
+    refreshBtn.addEventListener("click", function () {
+      if (!flushDraftFromControls()) {
+        return;
+      }
+      state[stateKey] = true;
+      refreshBtn.disabled = true;
+      refreshBtn.classList.add("is-busy");
+      refreshBtn.setAttribute("aria-busy", "true");
+      refreshBtn.textContent = options.runningText || options.text;
+      sendAction(options.action, {
+        executionOptions: buildExecutionOptionsPayload(),
+      });
+    });
+    actions.appendChild(refreshBtn);
+  }
+
   function isWarningProviderOptionKey(key) {
     return key === "autoApproveAcpPermissions";
   }
@@ -65,8 +217,16 @@
         return {
           key: toText(entry && entry.key),
           type: toText(entry && entry.type),
+          placeholder: toText(entry && entry.placeholder),
           allowCustom: entry && entry.allowCustom === true,
           disabled: entry && entry.disabled === true,
+          visibleIfProviderOption:
+            entry && entry.visibleIfProviderOption
+              ? {
+                  key: toText(entry.visibleIfProviderOption.key),
+                  equals: entry.visibleIfProviderOption.equals === true,
+                }
+              : null,
           enumValues: Array.isArray(entry && entry.enumValues)
             ? entry.enumValues
             : [],
@@ -177,6 +337,13 @@
     return key.includes("timeout");
   }
 
+  function isNonNegativeIntegerField(entry) {
+    const key = toText(entry && entry.key)
+      .trim()
+      .toLowerCase();
+    return key === "interactive_reply_timeout_sec";
+  }
+
   function validateNumberFieldValue(args) {
     const raw = toText(args.rawValue).trim();
     if (!raw) {
@@ -189,7 +356,14 @@
         message: args.labels.workflowSettingsNumberInvalid,
       };
     }
-    if (isPositiveIntegerField(args.entry)) {
+    if (isNonNegativeIntegerField(args.entry)) {
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        return {
+          ok: false,
+          message: args.labels.workflowSettingsPositiveIntegerRequired,
+        };
+      }
+    } else if (isPositiveIntegerField(args.entry)) {
       if (!Number.isInteger(parsed) || parsed <= 0) {
         return {
           ok: false,
@@ -214,6 +388,7 @@
         typeof meta.changedSection === "string" ? meta.changedSection : "",
       changedKey: typeof meta.changedKey === "string" ? meta.changedKey : "",
     });
+    applyConditionalFieldVisibility(document);
   }
 
   function registerFieldCollector(collector) {
@@ -257,6 +432,22 @@
   function createField(args) {
     const wrap = document.createElement("div");
     wrap.className = "field-row";
+    wrap.setAttribute("data-workflow-settings-field-section", args.section);
+    wrap.setAttribute("data-workflow-settings-field-key", args.entry.key);
+    if (args.entry.visibleIfProviderOption) {
+      wrap.setAttribute(
+        "data-workflow-settings-visible-provider-key",
+        toText(args.entry.visibleIfProviderOption.key),
+      );
+      wrap.setAttribute(
+        "data-workflow-settings-visible-provider-equals",
+        args.entry.visibleIfProviderOption.equals === true ? "true" : "false",
+      );
+      if (!isProviderConditionalFieldVisible(args.entry, state.draft)) {
+        wrap.style.display = "none";
+        wrap.setAttribute("aria-hidden", "true");
+      }
+    }
     const label = document.createElement("div");
     label.className = "field-label";
     if (isWarningProviderOptionKey(args.entry.key)) {
@@ -282,7 +473,7 @@
       checkbox.checked = currentValue === true;
       checkbox.disabled = args.entry.disabled === true;
       checkbox.addEventListener("change", function () {
-        args.values[args.entry.key] = checkbox.checked;
+        setDraftFieldValue(args, checkbox.checked);
         args.onChange({
           changedSection: args.section,
           changedKey: args.entry.key,
@@ -290,7 +481,7 @@
       });
       checkbox.className = "field-checkbox-control";
       registerFieldCollector(function () {
-        args.values[args.entry.key] = checkbox.checked;
+        setDraftFieldValue(args, checkbox.checked);
         return true;
       });
       controlWrap.appendChild(checkbox);
@@ -326,7 +517,7 @@
         selectedValue,
         function (newValue) {
           selectedValue = toText(newValue);
-          args.values[args.entry.key] = selectedValue;
+          setDraftFieldValue(args, selectedValue);
           args.onChange({
             changedSection: args.section,
             changedKey: args.entry.key,
@@ -341,7 +532,7 @@
         markCustomSelectDisabled(customSelect.element);
       }
       registerFieldCollector(function () {
-        args.values[args.entry.key] = selectedValue;
+        setDraftFieldValue(args, selectedValue);
         return true;
       });
       controlWrap.appendChild(customSelect.element);
@@ -358,7 +549,7 @@
         currentText,
         function (newValue) {
           control.value = toText(newValue);
-          args.values[args.entry.key] = control.value;
+          setDraftFieldValue(args, control.value);
           args.onChange({
             changedSection: args.section,
             changedKey: args.entry.key,
@@ -377,6 +568,7 @@
       control = document.createElement("input");
       control.type = "text";
       control.setAttribute("data-workflow-settings-control-key", controlKey);
+      control.placeholder = toText(args.entry.placeholder);
       control.value = currentText;
       control.style.flex = "1 1 45%";
       combo.appendChild(control);
@@ -385,6 +577,7 @@
       control = document.createElement("input");
       control.type = "text";
       control.setAttribute("data-workflow-settings-control-key", controlKey);
+      control.placeholder = toText(args.entry.placeholder);
       if (args.entry.type === "number") {
         control.setAttribute(
           "inputmode",
@@ -442,14 +635,11 @@
         }
         setFieldError("");
         if (validation.remove) {
-          changed = Object.prototype.hasOwnProperty.call(
-            args.values,
-            args.entry.key,
-          );
-          delete args.values[args.entry.key];
+          changed = args.values[args.entry.key] !== null;
+          setDraftFieldValue(args, null);
         } else {
           changed = args.values[args.entry.key] !== validation.value;
-          args.values[args.entry.key] = validation.value;
+          setDraftFieldValue(args, validation.value);
         }
       } else {
         setFieldError("");
@@ -459,10 +649,10 @@
             args.values,
             args.entry.key,
           );
-          delete args.values[args.entry.key];
+          deleteDraftFieldValue(args);
         } else {
           changed = args.values[args.entry.key] !== nextValue;
-          args.values[args.entry.key] = nextValue;
+          setDraftFieldValue(args, nextValue);
         }
       }
       if (emitChange && (changed || rawValue !== lastCommittedRaw)) {
@@ -478,7 +668,7 @@
       if (args.entry.type === "number") {
         setFieldError("");
       }
-      args.values[args.entry.key] = control.value;
+      setDraftFieldValue(args, control.value);
     });
     control.addEventListener("change", function () {
       commitControlValue(true);
@@ -518,6 +708,9 @@
           labels: args.labels,
         }),
       );
+    });
+    card.addEventListener("change", function () {
+      applyConditionalFieldVisibility(card);
     });
     return card;
   }
@@ -678,26 +871,24 @@
 
     const actions = document.createElement("div");
     actions.className = "settings-actions";
-    if (form.canRefreshAcpRuntimeCache === true) {
-      const refreshBtn = document.createElement("button");
-      refreshBtn.type = "button";
-      refreshBtn.className = "settings-btn";
-      refreshBtn.textContent = snapshot.labels.refreshAcpRuntimeCache;
-      refreshBtn.addEventListener("click", function () {
-        if (!flushDraftFromControls()) {
-          return;
-        }
-        sendAction("refresh-acp-runtime-cache", {
-          executionOptions: {
-            backendId: toText(state.draft.backendId || "").trim(),
-            workflowParams: cloneRecord(state.draft.workflowParams),
-            providerOptions: cloneRecord(state.draft.providerOptions),
-            runOptions: cloneRecord(state.draft.runOptions),
-          },
-        });
-      });
-      actions.appendChild(refreshBtn);
-    }
+    appendRefreshActionButton(actions, {
+      visible: form.canRefreshAcpRuntimeCache === true,
+      stateKey: "refreshingAcpRuntimeCache",
+      action: "refresh-acp-runtime-cache",
+      text: snapshot.labels.refreshAcpRuntimeCache,
+      runningText:
+        snapshot.labels.refreshAcpRuntimeCacheRunning ||
+        snapshot.labels.refreshAcpRuntimeCache,
+    });
+    appendRefreshActionButton(actions, {
+      visible: form.canRefreshSkillRunnerModelCache === true,
+      stateKey: "refreshingSkillRunnerModelCache",
+      action: "refresh-skillrunner-model-cache",
+      text: snapshot.labels.refreshSkillRunnerModelCache,
+      runningText:
+        snapshot.labels.refreshSkillRunnerModelCacheRunning ||
+        snapshot.labels.refreshSkillRunnerModelCache,
+    });
     const cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
     cancelBtn.className = "settings-btn";
@@ -730,6 +921,7 @@
     shell.appendChild(footer);
     root.appendChild(shell);
     restoreActiveFormState(root, preservedState);
+    requestDialogContentResize();
   }
 
   window.addEventListener("message", function (event) {
@@ -741,6 +933,8 @@
       return;
     }
     const nextSnapshot = data.payload || null;
+    state.refreshingAcpRuntimeCache = false;
+    state.refreshingSkillRunnerModelCache = false;
     const resetDraft = shouldResetDraftForSnapshot(nextSnapshot);
     state.snapshot = nextSnapshot;
     const form =

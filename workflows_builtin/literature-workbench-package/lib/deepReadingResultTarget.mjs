@@ -2,7 +2,7 @@ function normalizeString(value) {
   return String(value || "").trim();
 }
 
-function toNativePath(value) {
+export function toNativePath(value) {
   const text = normalizeString(value);
   if (/^[A-Za-z]:\//.test(text)) {
     return text.replace(/\//g, "\\");

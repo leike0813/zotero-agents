@@ -1,76 +1,100 @@
-# 深度阅读
+# Deep Reading
 
-## 用途
+## Purpose
 
-对文献进行深度精读，生成结构化、多视角的阅读理解分析视图。自动提取章节结构、核心概念、参考文献，并支持逐段翻译，最终输出为独立的 HTML 阅读文档。
+Perform deep reading of a paper, generating a structured, multi-perspective reading comprehension analysis view. Automatically extracts chapter structure, core concepts, and references, supports paragraph-by-paragraph translation, and outputs a standalone HTML reading document.
 
-## 适用场景
+## Use Cases
 
-- 需要系统性地精读一篇重要论文
-- 希望获得包含章节说明、关键概念、扩展阅读的综合分析
-- 需要双语对照阅读（原文 + 目标语言翻译）
+- Systematically deep reading an important paper
+- Obtaining a comprehensive analysis including chapter annotations, key concepts, and further reading
+- Needing bilingual parallel reading (original text + target language translation)
 
-## 输入约束
+## Input Constraints
 
-| 约束类型 | 说明 |
+| Constraint Type | Description |
 |---------|------|
-| 输入单元 | 附件（attachment） |
-| 接受类型 | `text/markdown`、`text/x-markdown`、`text/plain`、`application/pdf` |
-| 每父条目限制 | 最多 1 个附件 |
+| Input Unit | Attachment |
+| Accepted Types | `text/markdown`, `text/x-markdown`, `text/plain`, `application/pdf` |
+| Per-parent limit | At most 1 attachment |
 
-### 触发方式
+### Trigger Methods
 
-- 直接选中一个 PDF 或 Markdown 附件
-- 选中父条目，插件自动展开其第一个符合条件的附件
+- Directly select a PDF or Markdown attachment
+- Select the parent item, and the plugin will automatically expand its first qualifying attachment
 
-## 运行过程
+## Execution Flow
 
-深度阅读 workflow 是一个多阶段的自动化处理流水线：
+The Deep Reading workflow is a **fully automatic** multi-stage processing pipeline requiring no user intervention:
+
+## Estimated Duration
+
+| File Size | Estimated Time |
+|---------|---------|
+| Short paper (≤10 pages) | 8-12 minutes |
+| Standard (10-30 pages) | 12-18 minutes |
+| Long paper (30+ pages) | 18-25 minutes |
+
+This workflow involves multi-stage processing (guidance → enrichment → translation → organization → rendering), making it the longest-running single-paper analysis workflow.
+
+## Model Recommendation
+
+🟡 Models with **strong text comprehension** are recommended. This workflow requires multi-layer deep analysis of the paper (structure, concepts, argumentation logic), placing high demands on the model's semantic understanding. If subagent delegation capability is available, stages can be executed in parallel, significantly reducing total time.
+
+## Outputs
 
 ```
-1. 准备阶段
-   └── 上传源文件，生成 source_bundle.zip
-       └── 包含原文、图片、已有参考资料
+1. Preparation Phase
+   └── Upload source file, generate source_bundle.zip
+       └── Contains original text, images, and existing references
 
-2. 引导与上下文收集
-   └── 分析原文结构和元数据
-       └── 通过 Host Bridge 收集相关上下文
+2. Guidance & Context Collection
+   └── Analyze original text structure and metadata
+       └── Collect related context via Host Bridge
 
-3. 阅读富化
-   └── 生成章节说明、关键概念、参考文献分析
-       └── 总结和扩展阅读视图
+3. Reading Enrichment
+   └── Generate chapter annotations, key concepts, reference analysis
+       └── Summary and further reading views
 
-4. 逐块翻译
-   └── 按稳定区块进行规范化翻译
-       └── 生成双语对照翻译视图
+4. Block-by-Block Translation
+   └── Normalize translation by stable blocks
+       └── Generate bilingual parallel translation view
 
-5. 最终渲染
-   └── 整合所有分析视图
-       └── 渲染为独立的 HTML 文件
+5. Final Rendering
+   └── Integrate all analysis views
+       └── Render as a standalone HTML file
 ```
 
-## 运行产物
+## Output Artifacts
 
-执行完成后，在父条目下创建链接附件指向生成的 HTML 文件：
+After execution completes, a linked attachment pointing to the generated HTML file is created under the parent item:
 
-- **格式**：独立的 HTML 文件（可在浏览器中打开）
-- **内容**：包含原文结构、章节说明、概念分析、参考文献、双语翻译等完整精读视图
-- **生命周期**：每次执行覆盖更新
+- **Format**: Standalone HTML file (can be opened in a browser)
+- **Content**: Complete deep reading view including original text structure, chapter annotations, concept analysis, references, bilingual translations, etc.
+- **Lifecycle**: Each execution overwrites and updates
 
-## 参数
+![Deep Reading Opening Guide](/img/docs/workflows/literature-deep-reading_1.png)
 
-| 参数 | 类型 | 说明 | 默认值 |
+![Deep Reading Bilingual Dynamic Reading](/img/docs/workflows/literature-deep-reading_2.png)
+
+![Deep Reading Reference Abstract Reading](/img/docs/workflows/literature-deep-reading_3.png)
+
+![Deep Reading Reference 2-hop Subgraph](/img/docs/workflows/literature-deep-reading_4.png)
+
+## Parameters
+
+| Parameter | Type | Description | Default |
 |------|------|------|--------|
-| `target_language` | string | 目标语言 | `zh-CN` |
+| `target_language` | string | Target language | `zh-CN` |
 
-可选值：`zh-CN`、`en-US`、`ja-JP`、`ko-KR`、`de-DE`、`fr-FR`、`es-ES`、`ru-RU`，支持自定义输入。
+Available values: `zh-CN`, `en-US`, `ja-JP`, `ko-KR`, `de-DE`, `fr-FR`, `es-ES`, `ru-RU`. Custom input is also supported.
 
-## 依赖
+## Dependencies
 
-- **后端**：ACP 后端（需要 ACP 协议支持）
-- **Backend 配置**：在 Backend Manager 中配置 ACP 类型的后端
+- **Backend**: ACP backend (requires ACP protocol support)
+- **Backend Configuration**: Configure an ACP type backend in Backend Manager
 
-## 相关工作流
+## Related Workflows
 
-- [文献分析](literature-analysis) — 自动生成文献摘要和引用分析
-- [交互式文献解读](literature-explainer) — 与 AI 对话深入理解文献
+- [Literature Analysis](literature-analysis) — Automatically generate literature digests and citation analysis
+- [Interactive Literature Explainer](literature-explainer) — Dialogue with AI for deep literature understanding

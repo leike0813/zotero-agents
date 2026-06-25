@@ -4,10 +4,11 @@ import {
 } from "../config/defaults";
 import { getStringOrFallback } from "../utils/locale";
 import {
-  PLUGIN_TASK_DOMAIN_ACP,
-  deletePluginTaskRowEntry,
-  listPluginTaskRowEntries,
-  upsertPluginTaskRowEntry,
+  appendPluginRunEventStoreEntry,
+  clearPluginRunStore,
+  deletePluginRunStoreEntry,
+  listPluginRunStoreEntries,
+  upsertPluginRunStoreEntry,
 } from "./pluginStateStore";
 import {
   registerAcpSkillRunsMemoryClearer,
@@ -16,6 +17,7 @@ import {
 import { listRuntimeLogs } from "./runtimeLogManager";
 import { buildAssistantPanelLabels } from "./assistantPanelLabels";
 import {
+  listActiveWorkflowTaskSummaries,
   listWorkflowTasks,
   removeWorkflowTasksByBackendAndRequestIds,
   updateWorkflowTaskStateByRequest,
@@ -188,6 +190,7 @@ export type AcpSkillRunHostBridgeCliState = {
 export type AcpSkillRunRecord = {
   requestId: string;
   status: AcpSkillRunStatus;
+  backendStatus?: AcpSkillRunStatus;
   backendId: string;
   backendType: string;
   backendLabel?: string;
@@ -196,8 +199,11 @@ export type AcpSkillRunRecord = {
   jobId?: string;
   runId?: string;
   sequenceStepId?: string;
+  sequenceStepIndex?: number;
   sequenceFinalStepId?: string;
   taskName?: string;
+  skillName?: string;
+  skillLabel?: string;
   skillId?: string;
   requestPayload?: unknown;
   providerOptions?: Record<string, unknown>;
@@ -274,6 +280,7 @@ export type AcpSkillRunSummary = Pick<
   AcpSkillRunRecord,
   | "requestId"
   | "status"
+  | "backendStatus"
   | "backendId"
   | "backendType"
   | "backendLabel"
@@ -281,15 +288,21 @@ export type AcpSkillRunSummary = Pick<
   | "workflowLabel"
   | "jobId"
   | "runId"
+  | "sequenceStepId"
+  | "sequenceStepIndex"
   | "taskName"
+  | "skillName"
+  | "skillLabel"
   | "skillId"
   | "executionMode"
   | "workspaceDir"
   | "acpModeId"
   | "acpModelId"
   | "acpReasoningEffort"
+  | "agentFamily"
   | "conversationState"
   | "conversationRecoveryState"
+  | "conversationError"
   | "replyState"
   | "connectionActionState"
   | "applyResultState"
@@ -302,6 +315,14 @@ export type AcpSkillRunSummary = Pick<
   | "updatedAt"
 >;
 
+export type AcpSkillRunSummaryListOptions = {
+  activeOnly?: boolean;
+  backendId?: string;
+  requestId?: string;
+  includeArchived?: boolean;
+  limit?: number;
+};
+
 export type AcpSkillRunPanelSnapshot = {
   generatedAt: string;
   selectedRequestId: string;
@@ -313,6 +334,10 @@ export type AcpSkillRunPanelSnapshot = {
     active: number;
     failed: number;
     recent: number;
+  };
+  drawer?: {
+    notice?: string;
+    truncated?: boolean;
   };
   runs: AcpSkillRunSummary[];
   selectedRun?: AcpSkillRunRecord;
@@ -328,6 +353,11 @@ export type AcpSkillRunPanelSnapshot = {
   }>;
   labels?: {
     assistantPanel: ReturnType<typeof buildAssistantPanelLabels>;
+    title?: string;
+    completedTasksTitle?: string;
+    panelRendererUnavailable?: string;
+    panelRendererFailed?: string;
+    transcriptRendererUnavailable?: string;
   };
 };
 
@@ -363,7 +393,6 @@ type AcpSkillRunRecoveryHandler = (args: {
   reason: "connect" | "reply";
 }) => Promise<void>;
 
-const STORE_SCOPE = "skill-runs";
 const runRecords = new Map<string, AcpSkillRunRecord>();
 const controllers = new Map<string, AcpSkillRunController>();
 const runtimeOptionsByRequestId = new Map<
@@ -382,6 +411,14 @@ let hydrated = false;
 let selectedRequestId = "";
 let recoveryHandler: AcpSkillRunRecoveryHandler | null = null;
 let changedEmitTimer: ReturnType<typeof setTimeout> | null = null;
+const activeRunRequestIds = new Set<string>();
+const ACP_SKILL_RUN_PANEL_RUN_LIMIT = 100;
+const acpSkillRunSummaryDiagnostics = {
+  summaryQueryCount: 0,
+  fullRunRecordScanCount: 0,
+  activeIndexScanCount: 0,
+  runCandidateReadCount: 0,
+};
 
 function nowIso() {
   return new Date().toISOString();
@@ -389,6 +426,51 @@ function nowIso() {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function isActiveAcpSkillRunRecordForSummary(record: AcpSkillRunRecord) {
+  return (
+    !record.removedAt &&
+    !record.archivedAt &&
+    record.status !== "succeeded" &&
+    record.status !== "failed" &&
+    record.status !== "canceled"
+  );
+}
+
+function syncAcpSkillRunActiveIndex(record: AcpSkillRunRecord) {
+  if (isActiveAcpSkillRunRecordForSummary(record)) {
+    activeRunRequestIds.add(record.requestId);
+  } else {
+    activeRunRequestIds.delete(record.requestId);
+  }
+}
+
+function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
+  runRecords.set(record.requestId, record);
+  syncAcpSkillRunActiveIndex(record);
+}
+
+function deleteAcpSkillRunRecord(requestId: string) {
+  const removed = runRecords.delete(requestId);
+  activeRunRequestIds.delete(requestId);
+  return removed;
+}
+
+function clearAcpSkillRunRecords() {
+  runRecords.clear();
+  activeRunRequestIds.clear();
+}
+
+function normalizeOptionalNonNegativeInteger(value: unknown) {
+  if (value === null || typeof value === "undefined" || value === "") {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return undefined;
+  }
+  return Math.floor(parsed);
 }
 
 function normalizeSelectableOption(value: unknown): AcpSelectableOption | null {
@@ -988,6 +1070,9 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
   return {
     requestId,
     status: normalizeStatus(raw.status),
+    backendStatus: raw.backendStatus
+      ? normalizeStatus(raw.backendStatus)
+      : normalizeStatus(raw.status),
     backendId: normalizeString(raw.backendId),
     backendType: normalizeString(raw.backendType) || "acp",
     backendLabel: normalizeString(raw.backendLabel) || undefined,
@@ -996,8 +1081,13 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     jobId: normalizeString(raw.jobId) || undefined,
     runId: normalizeString(raw.runId) || undefined,
     sequenceStepId: normalizeString(raw.sequenceStepId) || undefined,
+    sequenceStepIndex: normalizeOptionalNonNegativeInteger(
+      raw.sequenceStepIndex,
+    ),
     sequenceFinalStepId: normalizeString(raw.sequenceFinalStepId) || undefined,
     taskName: normalizeString(raw.taskName) || undefined,
+    skillName: normalizeString(raw.skillName) || undefined,
+    skillLabel: normalizeString(raw.skillLabel) || undefined,
     skillId: normalizeString(raw.skillId) || undefined,
     requestPayload: raw.requestPayload,
     providerOptions: isRecord(raw.providerOptions)
@@ -1142,16 +1232,13 @@ function ensureHydrated() {
     return;
   }
   hydrated = true;
-  for (const row of listPluginTaskRowEntries(
-    PLUGIN_TASK_DOMAIN_ACP,
-    STORE_SCOPE,
-  )) {
+  for (const row of listPluginRunStoreEntries("acp")) {
     try {
       const parsed = parseRunRecord(JSON.parse(row.payload || "{}"));
       if (!parsed) {
         continue;
       }
-      runRecords.set(parsed.requestId, parsed);
+      setAcpSkillRunRecord(parsed);
     } catch {
       continue;
     }
@@ -1159,14 +1246,29 @@ function ensureHydrated() {
 }
 
 function persistRun(record: AcpSkillRunRecord) {
-  upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_ACP, STORE_SCOPE, {
-    taskId: record.requestId,
+  if (normalizeString(record.backendType) !== ACP_BACKEND_TYPE) {
+    return;
+  }
+  upsertPluginRunStoreEntry("acp", {
+    runKey: record.requestId,
     requestId: record.requestId,
     backendId: record.backendId,
     state: record.status,
     updatedAt: record.updatedAt,
     payload: JSON.stringify(record),
   });
+  const latestEvent = record.events[record.events.length - 1];
+  if (latestEvent) {
+    appendPluginRunEventStoreEntry("acp", {
+      eventId: `${record.requestId}:${latestEvent.ts}:${record.events.length}:${latestEvent.stage}`,
+      runKey: record.requestId,
+      requestId: record.requestId,
+      backendId: record.backendId,
+      type: latestEvent.stage,
+      createdAt: latestEvent.ts || record.updatedAt,
+      payload: JSON.stringify(latestEvent),
+    });
+  }
 }
 
 function isTerminalAcpSkillRunStatus(
@@ -1214,8 +1316,10 @@ function syncWorkflowTaskForAcpSkillRun(record: AcpSkillRunRecord) {
   }
   updateWorkflowTaskStateByRequest({
     backendId: record.backendId,
+    backendType: ACP_BACKEND_TYPE,
     requestId,
     state: record.status,
+    backendStatus: record.backendStatus,
     error: record.error || record.conversationError,
     updatedAt: record.updatedAt,
   });
@@ -1283,6 +1387,7 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
       if (removed === 0) {
         updateWorkflowTaskStateByRequest({
           requestId,
+          backendType: ACP_BACKEND_TYPE,
           state: "failed",
           error:
             "ACP skill run task projection was restored without an available ACP run record.",
@@ -1319,6 +1424,7 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
       const updated = getAcpSkillRunRecord(requestId) || run;
       updateWorkflowTaskStateByRequest({
         backendId: updated.backendId || task.backendId,
+        backendType: ACP_BACKEND_TYPE,
         requestId,
         state: acpRunStatusToWorkflowTaskState(updated),
         error:
@@ -1380,6 +1486,7 @@ function scheduleChangedEmit() {
 export function upsertAcpSkillRun(update: {
   requestId: string;
   status?: AcpSkillRunStatus;
+  backendStatus?: AcpSkillRunStatus;
   backendId?: string;
   backendType?: string;
   backendLabel?: string;
@@ -1388,8 +1495,11 @@ export function upsertAcpSkillRun(update: {
   jobId?: string;
   runId?: string;
   sequenceStepId?: string;
+  sequenceStepIndex?: number;
   sequenceFinalStepId?: string;
   taskName?: string;
+  skillName?: string;
+  skillLabel?: string;
   skillId?: string;
   requestPayload?: unknown;
   providerOptions?: Record<string, unknown>;
@@ -1448,6 +1558,12 @@ export function upsertAcpSkillRun(update: {
   if (!requestId) {
     throw new Error("ACP skill run update requires requestId");
   }
+  const incomingBackendType = normalizeString(update.backendType);
+  if (incomingBackendType && incomingBackendType !== ACP_BACKEND_TYPE) {
+    throw new Error(
+      `ACP skill run store rejected non-ACP backend type: ${incomingBackendType}`,
+    );
+  }
   const now = nowIso();
   const existing = runRecords.get(requestId);
   const next: AcpSkillRunRecord = {
@@ -1481,6 +1597,15 @@ export function upsertAcpSkillRun(update: {
   assignString("createdAt", update.createdAt);
   assignString("updatedAt", update.updatedAt);
   if (update.status) next.status = update.status;
+  if (update.backendStatus) {
+    next.backendStatus = update.backendStatus;
+  } else if (
+    update.status &&
+    isTerminalAcpSkillRunStatus(update.status) &&
+    update.applyResultState !== "failed"
+  ) {
+    next.backendStatus = update.status;
+  }
   assignString("backendId", update.backendId);
   assignString("backendType", update.backendType);
   assignString("backendLabel", update.backendLabel);
@@ -1489,8 +1614,18 @@ export function upsertAcpSkillRun(update: {
   assignString("jobId", update.jobId);
   assignString("runId", update.runId);
   assignString("sequenceStepId", update.sequenceStepId);
+  if (Object.prototype.hasOwnProperty.call(update, "sequenceStepIndex")) {
+    const sequenceStepIndex = normalizeOptionalNonNegativeInteger(
+      update.sequenceStepIndex,
+    );
+    if (typeof sequenceStepIndex === "number") {
+      next.sequenceStepIndex = sequenceStepIndex;
+    }
+  }
   assignString("sequenceFinalStepId", update.sequenceFinalStepId);
   assignString("taskName", update.taskName);
+  assignString("skillName", update.skillName);
+  assignString("skillLabel", update.skillLabel);
   assignString("skillId", update.skillId);
   if (Object.prototype.hasOwnProperty.call(update, "requestPayload")) {
     next.requestPayload = update.requestPayload;
@@ -1626,7 +1761,7 @@ export function upsertAcpSkillRun(update: {
     next.events = [...next.events, event].slice(-80);
     appendStatusTranscriptItem(next, event);
   }
-  runRecords.set(requestId, next);
+  setAcpSkillRunRecord(next);
   selectedRequestId = selectedRequestId || requestId;
   persistRun(next);
   syncWorkflowTaskForAcpSkillRun(next);
@@ -1667,7 +1802,7 @@ export function appendAcpSkillRunUserReply(args: {
     updatedAt: now,
     transcriptItems: [...existing.transcriptItems, item].slice(-200),
   };
-  runRecords.set(requestId, next);
+  setAcpSkillRunRecord(next);
   persistRun(next);
   scheduleChangedEmit();
 }
@@ -1675,7 +1810,80 @@ export function appendAcpSkillRunUserReply(args: {
 function formatFinalEnvelopeMarkdown(payload: Record<string, unknown>) {
   const displayPayload = { ...payload };
   delete displayPayload.__SKILL_DONE__;
-  return `\`\`\`json\n${JSON.stringify(displayPayload, null, 2)}\n\`\`\``;
+  const lines = formatJsonMarkdownList(displayPayload);
+  return lines.length > 0 ? lines.join("\n") : "- result: complete";
+}
+
+function isMarkdownListComposite(value: unknown) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    (Array.isArray(value) ||
+      Object.keys(value as Record<string, unknown>).length > 0)
+  );
+}
+
+function formatMarkdownListKey(value: string) {
+  return (
+    String(value || "")
+      .replace(/\s+/g, " ")
+      .trim() || "value"
+  );
+}
+
+function formatMarkdownListScalar(value: unknown) {
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "string") {
+    const text = value.replace(/\s+/g, " ").trim();
+    return text || '""';
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0 ? JSON.stringify(value) : "[]";
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value as Record<string, unknown>).length > 0
+      ? JSON.stringify(value)
+      : "{}";
+  }
+  return String(value ?? "");
+}
+
+function formatJsonMarkdownList(value: unknown, depth = 0): string[] {
+  const indent = "  ".repeat(Math.max(0, depth));
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return [`${indent}- []`];
+    }
+    return value.flatMap((entry, index) => {
+      if (isMarkdownListComposite(entry)) {
+        return [
+          `${indent}- item ${index + 1}:`,
+          ...formatJsonMarkdownList(entry, depth + 1),
+        ];
+      }
+      return [`${indent}- ${formatMarkdownListScalar(entry)}`];
+    });
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(
+      ([key, entry]) => {
+        const label = formatMarkdownListKey(key);
+        if (isMarkdownListComposite(entry)) {
+          return [
+            `${indent}- ${label}:`,
+            ...formatJsonMarkdownList(entry, depth + 1),
+          ];
+        }
+        return [`${indent}- ${label}: ${formatMarkdownListScalar(entry)}`];
+      },
+    );
+  }
+  return [`${indent}- ${formatMarkdownListScalar(value)}`];
 }
 
 function replaceLatestAssistantMessage(args: {
@@ -1822,7 +2030,7 @@ export function recordAcpSkillRunOutputRevision(args: {
     now,
   });
   removeLatestAssistantCandidateMessage(next, args.candidateText);
-  runRecords.set(requestId, next);
+  setAcpSkillRunRecord(next);
   persistRun(next);
   emitChanged();
 }
@@ -1884,7 +2092,7 @@ export function projectAcpSkillRunOutputEnvelopeToTranscript(
     now,
     revision,
   });
-  runRecords.set(requestId, next);
+  setAcpSkillRunRecord(next);
   persistRun(next);
   emitChanged();
 }
@@ -1944,11 +2152,13 @@ function completeOpenStreamingTextItems(
   record: AcpSkillRunRecord,
   now: string,
 ) {
+  let changed = false;
   record.transcriptItems = record.transcriptItems.map((entry) => {
     if (
       (entry.kind === "message" || entry.kind === "thought") &&
       entry.state === "streaming"
     ) {
+      changed = true;
       return {
         ...entry,
         state: "complete",
@@ -1957,6 +2167,7 @@ function completeOpenStreamingTextItems(
     }
     return entry;
   });
+  return changed;
 }
 
 function appendTextChunk(args: {
@@ -2151,15 +2362,19 @@ export function recordAcpSkillRunSessionUpdate(
   if (!existing) {
     return;
   }
+  const update = event.update || { sessionUpdate: "" };
+  const kind = normalizeString(update.sessionUpdate);
+  const isTextChunkUpdate =
+    kind === "agent_message_chunk" ||
+    kind === "user_message_chunk" ||
+    kind === "agent_thought_chunk";
   const next: AcpSkillRunRecord = {
     ...existing,
-    updatedAt: now,
+    updatedAt: isTextChunkUpdate ? existing.updatedAt : now,
     transcriptItems: [...existing.transcriptItems],
     planEntries: existing.planEntries ? [...existing.planEntries] : undefined,
     usage: existing.usage ? { ...existing.usage } : undefined,
   };
-  const update = event.update || { sessionUpdate: "" };
-  const kind = normalizeString(update.sessionUpdate);
   if (kind === "agent_message_chunk" || kind === "user_message_chunk") {
     const content = (
       update as { content?: { type?: string | null; text?: string | null } }
@@ -2202,9 +2417,91 @@ export function recordAcpSkillRunSessionUpdate(
       };
     }
   }
-  runRecords.set(requestId, next);
+  setAcpSkillRunRecord(next);
   persistRun(next);
   scheduleChangedEmit();
+}
+
+export function completeAcpSkillRunTranscriptTurnBoundary(
+  runRequestIdRaw: string,
+) {
+  ensureHydrated();
+  const requestId = normalizeString(runRequestIdRaw);
+  if (!requestId) {
+    return;
+  }
+  const existing = runRecords.get(requestId);
+  if (!existing) {
+    return;
+  }
+  const now = nowIso();
+  const next: AcpSkillRunRecord = {
+    ...existing,
+    updatedAt: now,
+    transcriptItems: [...existing.transcriptItems],
+  };
+  if (!completeOpenStreamingTextItems(next, now)) {
+    return;
+  }
+  setAcpSkillRunRecord(next);
+  persistRun(next);
+  emitChanged();
+}
+
+export function appendAcpSkillRunHardTimeoutTranscriptNotice(args: {
+  requestId: string;
+  hardTimeoutSeconds: number;
+  hardTimeoutSource?: string;
+  recovered?: boolean;
+}) {
+  ensureHydrated();
+  const requestId = normalizeString(args.requestId);
+  if (!requestId) {
+    return;
+  }
+  const existing = runRecords.get(requestId);
+  if (!existing) {
+    return;
+  }
+  const now = nowIso();
+  const text = getStringOrFallback(
+    "task-dashboard-acp-hard-timeout-disconnected" as any,
+    `Local ACP connection disconnected because the Job Timeout (${args.hardTimeoutSeconds} sec) was reached. Reconnect to continue from the remote session.`,
+    {
+      args: {
+        seconds: args.hardTimeoutSeconds,
+      },
+    },
+  );
+  const last = existing.transcriptItems[existing.transcriptItems.length - 1];
+  if (
+    last?.kind === "status" &&
+    last.label === "hard-timeout-disconnect" &&
+    last.text === text
+  ) {
+    return;
+  }
+  const item: AcpSkillRunTranscriptItem = {
+    id: `acp-skill-status-${existing.transcriptItems.length + 1}`,
+    kind: "status",
+    level: "warn",
+    label: "hard-timeout-disconnect",
+    text,
+    details: {
+      hardTimeoutSeconds: args.hardTimeoutSeconds,
+      hardTimeoutSource: normalizeString(args.hardTimeoutSource) || undefined,
+      recovered: args.recovered === true,
+    },
+    createdAt: now,
+  };
+  const next: AcpSkillRunRecord = {
+    ...existing,
+    updatedAt: now,
+    transcriptItems: [...existing.transcriptItems, item].slice(-200),
+  };
+  setAcpSkillRunRecord(next);
+  persistRun(next);
+  emitChanged();
 }
 
 export function registerAcpSkillRunController(
@@ -2936,6 +3233,18 @@ export async function connectAcpSkillRun(requestIdRaw: string) {
   });
   try {
     await recoveryHandler({ requestId, reason: "connect" });
+    const recovered = getAcpSkillRunRecord(requestId);
+    if (
+      !controllers.has(requestId) &&
+      recovered?.conversationState === "closed" &&
+      recovered?.conversationRecoveryState === "available"
+    ) {
+      upsertAcpSkillRun({
+        requestId,
+        connectionActionState: "idle",
+      });
+      return;
+    }
     upsertAcpSkillRun({
       requestId,
       connectionActionState: "idle",
@@ -3031,8 +3340,24 @@ export function markAcpSkillRunApplyResult(args: {
   if (!requestId) {
     return;
   }
+  const existing = getAcpSkillRunRecord(requestId);
+  if (!existing) {
+    return;
+  }
+  const backendStatus =
+    existing.backendStatus ||
+    (isTerminalAcpSkillRunStatus(existing.status)
+      ? existing.status
+      : "succeeded");
   upsertAcpSkillRun({
     requestId,
+    status:
+      args.state === "failed"
+        ? "failed"
+        : args.state === "succeeded"
+          ? "succeeded"
+          : existing.status,
+    backendStatus,
     applyResultState: args.state,
     appliedAt: args.state === "succeeded" ? nowIso() : undefined,
     error: args.state === "failed" ? normalizeString(args.error) : undefined,
@@ -3077,6 +3402,115 @@ export function listAcpSkillRuns() {
     });
 }
 
+function isActiveAcpSkillRunForSummary(run: AcpSkillRunRecord) {
+  return isActiveAcpSkillRunRecordForSummary(run);
+}
+
+function normalizeSummaryListLimit(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  const normalized = Math.floor(value);
+  return normalized > 0 ? normalized : 0;
+}
+
+export function listAcpSkillRunSummaries(
+  options: AcpSkillRunSummaryListOptions = {},
+) {
+  ensureHydrated();
+  const backendId = String(options.backendId || "").trim();
+  const requestId = String(options.requestId || "").trim();
+  const limit = normalizeSummaryListLimit(options.limit);
+  acpSkillRunSummaryDiagnostics.summaryQueryCount += 1;
+  const candidates = requestId
+    ? [runRecords.get(requestId)].filter(
+        (run): run is AcpSkillRunRecord => !!run,
+      )
+    : options.activeOnly && !options.includeArchived
+      ? Array.from(activeRunRequestIds.values())
+          .map((id) => runRecords.get(id))
+          .filter((run): run is AcpSkillRunRecord => !!run)
+      : Array.from(runRecords.values());
+  if (requestId) {
+    acpSkillRunSummaryDiagnostics.runCandidateReadCount += candidates.length;
+  } else if (options.activeOnly && !options.includeArchived) {
+    acpSkillRunSummaryDiagnostics.activeIndexScanCount += 1;
+    acpSkillRunSummaryDiagnostics.runCandidateReadCount += candidates.length;
+  } else {
+    acpSkillRunSummaryDiagnostics.fullRunRecordScanCount += 1;
+    acpSkillRunSummaryDiagnostics.runCandidateReadCount += candidates.length;
+  }
+  const rows = candidates
+    .filter((run) => {
+      if (!options.includeArchived && (run.removedAt || run.archivedAt)) {
+        return false;
+      }
+      if (options.activeOnly && !isActiveAcpSkillRunForSummary(run)) {
+        return false;
+      }
+      if (backendId && String(run.backendId || "").trim() !== backendId) {
+        return false;
+      }
+      if (requestId && String(run.requestId || "").trim() !== requestId) {
+        return false;
+      }
+      return true;
+    })
+    .map(summarizeAcpSkillRun)
+    .sort((a, b) => {
+      const created = b.createdAt.localeCompare(a.createdAt);
+      if (created !== 0) return created;
+      return b.requestId.localeCompare(a.requestId);
+    });
+  return limit ? rows.slice(0, limit) : rows;
+}
+
+export function countActiveAcpSkillRunSummaries(
+  options: {
+    backendId?: string;
+    waitingOnly?: boolean;
+  } = {},
+) {
+  ensureHydrated();
+  acpSkillRunSummaryDiagnostics.summaryQueryCount += 1;
+  acpSkillRunSummaryDiagnostics.activeIndexScanCount += 1;
+  const backendId = normalizeString(options.backendId);
+  let count = 0;
+  for (const requestId of activeRunRequestIds.values()) {
+    const run = runRecords.get(requestId);
+    if (!run) {
+      continue;
+    }
+    acpSkillRunSummaryDiagnostics.runCandidateReadCount += 1;
+    if (backendId && normalizeString(run.backendId) !== backendId) {
+      continue;
+    }
+    if (options.waitingOnly) {
+      const normalized = normalizeString(run.status).toLowerCase();
+      if (
+        normalized !== "waiting_user" &&
+        normalized !== "waiting_auth" &&
+        !run.pendingPermission
+      ) {
+        continue;
+      }
+    }
+    count += 1;
+  }
+  return count;
+}
+
+export function getAcpSkillRunSummaryDiagnosticsForTests() {
+  return { ...acpSkillRunSummaryDiagnostics };
+}
+
+export function resetAcpSkillRunSummaryDiagnosticsForTests() {
+  acpSkillRunSummaryDiagnostics.summaryQueryCount = 0;
+  acpSkillRunSummaryDiagnostics.fullRunRecordScanCount = 0;
+  acpSkillRunSummaryDiagnostics.activeIndexScanCount = 0;
+  acpSkillRunSummaryDiagnostics.runCandidateReadCount = 0;
+}
+
 export function cleanupExpiredAcpSkillRunsForRetention(args: {
   retentionMs: number;
   nowMs?: number;
@@ -3103,12 +3537,8 @@ export function cleanupExpiredAcpSkillRunsForRetention(args: {
     if (workspaceDir) {
       workspaceDirs.push(workspaceDir);
     }
-    deletePluginTaskRowEntry(
-      PLUGIN_TASK_DOMAIN_ACP,
-      record.requestId,
-      STORE_SCOPE,
-    );
-    runRecords.delete(record.requestId);
+    deletePluginRunStoreEntry("acp", record.requestId);
+    deleteAcpSkillRunRecord(record.requestId);
     if (selectedRequestId === record.requestId) {
       selectedRequestId = "";
     }
@@ -3146,15 +3576,17 @@ export function getAcpSkillRunRecord(requestIdRaw: string) {
 
 function findTaskForRun(run: AcpSkillRunRecord) {
   const requestId = normalizeString(run.requestId);
-  return listWorkflowTasks().find((task) => {
-    return requestId && normalizeString(task.requestId) === requestId;
-  });
+  if (!requestId) {
+    return undefined;
+  }
+  return listActiveWorkflowTaskSummaries({ requestId })[0];
 }
 
 function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
   return {
     requestId: run.requestId,
     status: run.status,
+    backendStatus: run.backendStatus,
     backendId: run.backendId,
     backendType: run.backendType,
     backendLabel: run.backendLabel,
@@ -3162,15 +3594,21 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
     workflowLabel: run.workflowLabel,
     jobId: run.jobId,
     runId: run.runId,
+    sequenceStepId: run.sequenceStepId,
+    sequenceStepIndex: run.sequenceStepIndex,
     taskName: run.taskName,
+    skillName: run.skillName,
+    skillLabel: run.skillLabel,
     skillId: run.skillId,
     executionMode: run.executionMode,
     workspaceDir: run.workspaceDir,
     acpModeId: run.acpModeId,
     acpModelId: run.acpModelId,
     acpReasoningEffort: run.acpReasoningEffort,
+    agentFamily: run.agentFamily,
     conversationState: run.conversationState,
     conversationRecoveryState: run.conversationRecoveryState,
+    conversationError: run.conversationError,
     replyState: run.replyState,
     connectionActionState: run.connectionActionState,
     applyResultState: run.applyResultState,
@@ -3189,12 +3627,33 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
 export function buildAcpSkillRunPanelSnapshot(args?: {
   selectedRequestId?: string;
 }): AcpSkillRunPanelSnapshot {
-  const runs = listAcpSkillRuns().filter(
-    (run) => !run.removedAt && !run.archivedAt,
-  );
+  const listedRuns = listAcpSkillRunSummaries({
+    limit: ACP_SKILL_RUN_PANEL_RUN_LIMIT + 1,
+  });
+  const truncated = listedRuns.length > ACP_SKILL_RUN_PANEL_RUN_LIMIT;
+  let runs = listedRuns.slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT);
   const requested =
     normalizeString(args?.selectedRequestId) || selectedRequestId;
-  const selected = runs.find((run) => run.requestId === requested) || runs[0];
+  const requestedRecord = requested ? getAcpSkillRunRecord(requested) : null;
+  const selected =
+    (requestedRecord &&
+    !requestedRecord.removedAt &&
+    !requestedRecord.archivedAt
+      ? requestedRecord
+      : null) ||
+    (runs[0] ? getAcpSkillRunRecord(runs[0].requestId) : null) ||
+    undefined;
+  if (
+    requestedRecord &&
+    !requestedRecord.removedAt &&
+    !requestedRecord.archivedAt &&
+    !runs.some((run) => run.requestId === requestedRecord.requestId)
+  ) {
+    runs = [
+      summarizeAcpSkillRun(requestedRecord),
+      ...runs.filter((run) => run.requestId !== requestedRecord.requestId),
+    ].slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT);
+  }
   selectedRequestId = selected?.requestId || "";
   const selectedTask = selected ? findTaskForRun(selected) : undefined;
   const logs = selected
@@ -3216,6 +3675,10 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
     title: getStringOrFallback(
       "task-dashboard-home-acp-skill-runs-title" as any,
       "ACP Skill Runs",
+    ),
+    completedTasksTitle: getStringOrFallback(
+      "task-dashboard-run-completed-tasks-title" as any,
+      "Completed Tasks",
     ),
     panelRendererUnavailable: getStringOrFallback(
       "task-dashboard-acp-skill-run-panel-renderer-unavailable" as any,
@@ -3248,7 +3711,16 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
       failed: runs.filter((run) => run.status === "failed").length,
       recent: runs.slice(0, 20).length,
     },
-    runs: runs.map(summarizeAcpSkillRun),
+    drawer: {
+      notice: truncated
+        ? getStringOrFallback(
+            "task-dashboard-panel-history-truncated" as any,
+            "Showing recent runs only. View older records in Dashboard.",
+          )
+        : undefined,
+      truncated: truncated || undefined,
+    },
+    runs,
     selectedRun: selected,
     selectedRuntimeOptions: selected
       ? runtimeOptionsForRun(selected)
@@ -3308,20 +3780,23 @@ export function resetAcpSkillRunsForTests() {
     clearTimeout(changedEmitTimer);
     changedEmitTimer = null;
   }
-  runRecords.clear();
+  clearAcpSkillRunRecords();
   controllers.clear();
   runtimeOptionsByRequestId.clear();
   permissionResolvers.clear();
   listeners.clear();
   selectedRequestId = "";
   hydrated = false;
+  resetAcpSkillRunSummaryDiagnosticsForTests();
+  clearPluginRunStore("acp");
 }
 
 registerAcpSkillRunsMemoryClearer(() => {
-  runRecords.clear();
+  clearAcpSkillRunRecords();
   runtimeOptionsByRequestId.clear();
   selectedRequestId = "";
   hydrated = false;
+  clearPluginRunStore("acp");
   emitChanged();
 });
 

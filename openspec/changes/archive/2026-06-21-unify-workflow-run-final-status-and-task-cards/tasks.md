@@ -1,0 +1,8 @@
+- [x] 1. Add OpenSpec deltas for unified main/backend/apply run status.
+- [x] 2. Persist ACP and SkillRunner backend status separately from main status.
+- [x] 3. Mark main status failed when required apply fails.
+- [x] 4. Keep failed and apply-failed task cards visible until archived or removed.
+- [x] 5. Render ACP Skills and SkillRunner task cards with shared status fields.
+- [x] 6. Replace the task archive hand-drawn icon with the shared Material Symbols icon system.
+- [x] 7. Update focused integration and UI/model tests.
+- [x] 8. Run minimal relevant verification.

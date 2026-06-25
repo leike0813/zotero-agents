@@ -35,7 +35,9 @@ function sqliteText(dbPath: string, sql: string) {
 }
 
 function createFixture() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "synthesis-index-harness-"));
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "synthesis-index-harness-"),
+  );
   const zoteroDb = path.join(dir, "zotero.sqlite");
   const pluginDb = path.join(dir, "plugin.sqlite");
   const debugDb = path.join(dir, "debug.sqlite");
@@ -191,7 +193,10 @@ describe("Synthesis index harness", function () {
       );
       assert.equal(after, before);
       assert.isAtLeast(result.result.counters.extension_risk_edge_count, 1);
-      assert.equal(sqliteText(fixture.debugDb, "SELECT COUNT(*) FROM harness_run"), "1");
+      assert.equal(
+        sqliteText(fixture.debugDb, "SELECT COUNT(*) FROM harness_run"),
+        "1",
+      );
       assert.equal(
         sqliteText(fixture.debugDb, "SELECT COUNT(*) FROM harness_action"),
         String(result.result.actions.length),
@@ -237,18 +242,24 @@ describe("Synthesis index harness", function () {
       "utf8",
     );
     for (const table of LEGACY_TABLE_NAMES) {
-      assert.notInclude(source.replace(/LEGACY_TABLE_NAMES[\s\S]*?\];/, ""), table);
+      assert.notInclude(
+        source.replace(/LEGACY_TABLE_NAMES[\s\S]*?\];/, ""),
+        table,
+      );
     }
   });
 
   it("keeps the static harness UI script parseable", function () {
     const html = fs.readFileSync(
-      path.resolve(process.cwd(), "tools/synthesis-index-harness/static/index.html"),
+      path.resolve(
+        process.cwd(),
+        "tools/synthesis-index-harness/static/index.html",
+      ),
       "utf8",
     );
-    const scripts = Array.from(html.matchAll(/<script>([\s\S]*?)<\/script>/g)).map(
-      (match) => match[1],
-    );
+    const scripts = Array.from(
+      html.matchAll(/<script>([\s\S]*?)<\/script>/g),
+    ).map((match) => match[1]);
     assert.isNotEmpty(scripts);
     for (const script of scripts) {
       assert.doesNotThrow(() => new Function(script));

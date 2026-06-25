@@ -3,8 +3,16 @@
   "label": "Export Notes",
   "version": "1.0.0",
   "provider": "pass-through",
+  "inputs": {
+    "unit": "workflow"
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "generated-note-candidates"
+    },
+    "derive": ["exportCandidates"]
+  },
   "hooks": {
-    "filterInputs": "hooks/filterInputs.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }

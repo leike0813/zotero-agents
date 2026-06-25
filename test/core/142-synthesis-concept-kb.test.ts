@@ -7,12 +7,18 @@ import { createSynthesisConceptKbService } from "../../src/modules/synthesis/con
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import {
   readRuntimeTextFile,
-  removeRuntimePath,
   runtimePathExists,
 } from "../../src/modules/runtimePersistence";
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-concept-kb-"));
+}
+
+function canonicalStoreText(root: string, kind: string) {
+  return createSynthesisRepository({ runtimeRoot: root })
+    .listCanonicalStoreRecords({ recordKinds: [kind] })
+    .map((row) => row.payloadJson)
+    .join("\n");
 }
 
 describe("Synthesis concept KB", function () {
@@ -241,9 +247,7 @@ describe("Synthesis concept KB", function () {
     assert.lengthOf(snapshot.review_items, 1);
     assert.equal(snapshot.review_items[0]?.reason, "low_confidence_concept");
 
-    const diagnostics = await readRuntimeTextFile(
-      buildSynthesisKnowledgeGraphPaths(root).diagnosticsLog,
-    );
+    const diagnostics = canonicalStoreText(root, "diagnostic");
     assert.include(diagnostics, "low_confidence_concept");
     assert.notInclude(diagnostics, root);
     assert.notInclude(diagnostics, "abc123");
@@ -477,9 +481,8 @@ describe("Synthesis concept KB", function () {
     const state = await service.rebuildConceptKbIndexProjection();
     assert.isFalse(state.stale);
     const paths = buildSynthesisKnowledgeGraphPaths(root);
-    const indexPath = path.join(paths.stateRoot, "concept-kb-index.json");
-    assert.isTrue(await runtimePathExists(indexPath));
-    await removeRuntimePath(indexPath);
+    const indexPath = path.join(paths.sidecarRoot, "concept-kb-index.json");
+    assert.isFalse(await runtimePathExists(indexPath));
 
     const projection = await service.readConceptKbIndexProjection();
     assert.deepEqual(
@@ -499,9 +502,7 @@ describe("Synthesis concept KB", function () {
       payload: { cards_missing: true },
     });
 
-    const diagnostics = await readRuntimeTextFile(
-      buildSynthesisKnowledgeGraphPaths(root).diagnosticsLog,
-    );
+    const diagnostics = canonicalStoreText(root, "diagnostic");
     assert.include(diagnostics, "invalid_concept_cards_payload");
     assert.notInclude(diagnostics, root);
     assert.notInclude(diagnostics, "abc123");

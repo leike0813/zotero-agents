@@ -1,0 +1,6 @@
+- [x] Add `validateSelection` manifest types and schema.
+- [x] Add shared selection validation evaluator.
+- [x] Remove `filterInputs` from loader/runtime/package hook surfaces.
+- [x] Route menu and debug probe through selection validation instead of request build.
+- [x] Migrate builtin workflow manifests and remove builtin filter hooks.
+- [x] Update focused tests and run validation.

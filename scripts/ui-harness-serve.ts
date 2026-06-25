@@ -666,6 +666,9 @@ async function main() {
   const pluginDbPath = pluginRuntimeRoot
     ? path.join(pluginRuntimeRoot, "state", "zotero-agents.db")
     : "";
+  const synthesisDbPath = pluginRuntimeRoot
+    ? path.join(pluginRuntimeRoot, "state", "synthesis.db")
+    : "";
   const prefsPath = resolveZoteroPrefsPath({
     explicitPrefsPath: env.zoteroPrefsPath,
     profilePath: env.zoteroPluginProfilePath,
@@ -675,6 +678,9 @@ async function main() {
   }
   if (pluginDbPath && !(await exists(pluginDbPath))) {
     diagnostics.push(`Plugin DB not found: ${pluginDbPath}`);
+  }
+  if (synthesisDbPath && !(await exists(synthesisDbPath))) {
+    diagnostics.push(`Synthesis DB not found: ${synthesisDbPath}`);
   }
   if (prefsPath && (await exists(prefsPath))) {
     installReadonlyZoteroPrefs(await readZoteroPrefsStore(prefsPath));
@@ -715,26 +721,34 @@ async function main() {
       );
       return null;
     });
-    assistantModel = await createAssistantReadonlyModel(pluginDbPath).catch(
-      (error) => {
-        diagnostics.push(
-          `Assistant readonly model failed: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-        return null;
-      },
-    );
+    assistantModel = await createAssistantReadonlyModel(pluginDbPath, {
+      workflowsDir,
+      builtinWorkflowsDir: path.join(
+        pluginRuntimeRoot,
+        "data",
+        "workflows_builtin",
+      ),
+    }).catch((error) => {
+      diagnostics.push(
+        `Assistant readonly model failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    });
   }
   if (
     zoteroDbPath &&
     pluginDbPath &&
+    synthesisDbPath &&
     (await exists(zoteroDbPath)) &&
-    (await exists(pluginDbPath))
+    (await exists(pluginDbPath)) &&
+    (await exists(synthesisDbPath))
   ) {
     const serviceHandle = await createSynthesisReadonlyService({
       zoteroDbPath,
       pluginDbPath,
+      synthesisDbPath,
       pluginRuntimeRoot,
       libraryId: 1,
     }).catch((error) => {

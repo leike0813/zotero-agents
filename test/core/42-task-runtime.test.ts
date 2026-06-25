@@ -8,6 +8,10 @@ import {
   reconcileWorkflowTaskProjectionsOnStartup,
   resetWorkflowTasks,
 } from "../../src/modules/taskRuntime";
+import {
+  attachSkillRunnerRequestId,
+  createSkillRunnerRun,
+} from "../../src/modules/skillRunnerRunStore";
 
 function makeJob(args: {
   id: string;
@@ -38,11 +42,11 @@ function makeJob(args: {
       taskName: args.taskName || "paper.md",
       inputUnitIdentity: args.inputUnitIdentity || "",
       inputUnitLabel: args.inputUnitLabel || "",
-      providerId: args.providerId || "skillrunner",
-      backendId: args.backendId || "skillrunner-local",
-      backendType: args.backendType || "skillrunner",
-      backendBaseUrl: args.backendBaseUrl || "http://127.0.0.1:8030",
-      engine: args.engine || "",
+      providerId: args.providerId ?? "generic-http",
+      backendId: args.backendId ?? "generic-http-local",
+      backendType: args.backendType ?? "generic-http",
+      backendBaseUrl: args.backendBaseUrl ?? "http://127.0.0.1:8030",
+      engine: args.engine ?? "",
       targetParentID: args.targetParentID,
     },
     state: args.state,
@@ -107,9 +111,9 @@ describe("task runtime", function () {
     assert.equal(tasks[0].taskName, "attachment-a.md");
     assert.equal(tasks[0].workflowLabel, "Literature Digest");
     assert.equal(tasks[0].state, "succeeded");
-    assert.equal(tasks[0].providerId, "skillrunner");
-    assert.equal(tasks[0].backendId, "skillrunner-local");
-    assert.equal(tasks[0].backendType, "skillrunner");
+    assert.equal(tasks[0].providerId, "generic-http");
+    assert.equal(tasks[0].backendId, "generic-http-local");
+    assert.equal(tasks[0].backendType, "generic-http");
   });
 
   it("clears finished tasks and keeps active tasks", function () {
@@ -310,20 +314,23 @@ describe("task runtime", function () {
     assert.include(task.error || "", "previous Zotero plugin session");
   });
 
-  it("preserves SkillRunner request projections for backend ledger reconciliation", function () {
-    recordWorkflowTaskUpdate(
-      makeJob({
-        id: "job-skillrunner",
-        state: "running",
-        createdAt: "2026-02-10T01:00:00.000Z",
-        updatedAt: "2026-02-10T01:00:01.000Z",
-        runId: "run-skillrunner",
-        taskName: "backend.md",
-        backendId: "skillrunner-backend",
-        backendType: "skillrunner",
-        requestId: "request-skillrunner",
-      }),
-    );
+  it("reads SkillRunner request projections from the run store", function () {
+    const run = createSkillRunnerRun({
+      backendId: "skillrunner-backend",
+      workflowId: "literature-analysis",
+      workflowRunId: "run-skillrunner",
+      jobId: "job-skillrunner",
+      taskName: "backend.md",
+      skillId: "literature-analysis",
+      createdAt: "2026-02-10T01:00:00.000Z",
+      updatedAt: "2026-02-10T01:00:00.000Z",
+    });
+    assert.isOk(run);
+    attachSkillRunnerRequestId({
+      runKey: run!.runKey,
+      requestId: "request-skillrunner",
+      updatedAt: "2026-02-10T01:00:01.000Z",
+    });
 
     const result = reconcileWorkflowTaskProjectionsOnStartup();
 

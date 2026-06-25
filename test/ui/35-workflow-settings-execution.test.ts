@@ -30,6 +30,9 @@ import {
   writeUtf8,
 } from "./workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
+import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/modules/skillRunnerInteractiveAutoReply";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 const itZoteroFullOrNode =
@@ -44,8 +47,10 @@ describe("workflow settings execution", function () {
   const workflowSettingsPrefKey = `${config.prefsPrefix}.workflowSettingsJson`;
   let prevBackendsConfigPref: unknown;
   let prevWorkflowSettingsPref: unknown;
+  let restorePrefs: (() => void) | undefined;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     prevBackendsConfigPref = Zotero.Prefs.get(backendsConfigPrefKey, true);
     prevWorkflowSettingsPref = Zotero.Prefs.get(workflowSettingsPrefKey, true);
 
@@ -84,6 +89,8 @@ describe("workflow settings execution", function () {
   });
 
   afterEach(function () {
+    setDebugModeOverrideForTests();
+    setSkillRunnerInteractiveAutoReplyEnabledForTests();
     clearSkillRunnerModelCache();
     clearWorkflowSettings("literature-analysis");
     clearWorkflowSettings("literature-explainer");
@@ -99,6 +106,8 @@ describe("workflow settings execution", function () {
     } else {
       Zotero.Prefs.set(workflowSettingsPrefKey, prevWorkflowSettingsPref, true);
     }
+    restorePrefs?.();
+    restorePrefs = undefined;
   });
 
   it("applies persisted workflow params/provider options/profile to request build", async function () {
@@ -262,12 +271,14 @@ describe("workflow settings execution", function () {
   itNodeOnly(
     "enforces interactive-mode runtime options for interactive workflows",
     async function () {
+      setSkillRunnerInteractiveAutoReplyEnabledForTests(false);
       updateWorkflowSettings("literature-explainer", {
         backendId: "skillrunner-alt",
         providerOptions: {
           engine: "gemini",
           no_cache: true,
           interactive_auto_reply: true,
+          interactive_reply_timeout_sec: 30,
           hard_timeout_seconds: 900,
         },
       });
@@ -282,8 +293,183 @@ describe("workflow settings execution", function () {
         workflow: workflow!,
       });
       assert.isUndefined(context.providerOptions.no_cache);
-      assert.equal(context.providerOptions.interactive_auto_reply, true);
+      assert.isUndefined(context.providerOptions.interactive_auto_reply);
+      assert.isUndefined(context.providerOptions.interactive_reply_timeout_sec);
       assert.equal(context.providerOptions.hard_timeout_seconds, 900);
+    },
+  );
+
+  itNodeOnly(
+    "treats a blank run-once job timeout as clearing the saved timeout override",
+    async function () {
+      updateWorkflowSettings("literature-explainer", {
+        backendId: "skillrunner-alt",
+        providerOptions: {
+          engine: "gemini",
+          hard_timeout_seconds: 5,
+        },
+      });
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-explainer",
+      );
+      assert.isOk(workflow);
+
+      const saved = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(saved.providerOptions.hard_timeout_seconds, 5);
+
+      const cleared = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+        executionOptionsOverride: {
+          providerOptions: {
+            hard_timeout_seconds: null,
+          },
+        },
+      });
+      assert.notProperty(cleared.providerOptions, "hard_timeout_seconds");
+    },
+  );
+
+  itNodeOnly(
+    "clears a persisted job timeout when the settings payload sends an explicit blank",
+    async function () {
+      updateWorkflowSettings("literature-explainer", {
+        backendId: "skillrunner-alt",
+        providerOptions: {
+          engine: "gemini",
+          hard_timeout_seconds: 5,
+        },
+      });
+      updateWorkflowSettings("literature-explainer", {
+        providerOptions: {
+          hard_timeout_seconds: null,
+        },
+      });
+
+      const snapshot =
+        await resetRunOnceOverridesForSettingsOpen("literature-explainer");
+      assert.notProperty(snapshot.providerOptions, "hard_timeout_seconds");
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-explainer",
+      );
+      assert.isOk(workflow);
+
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.notProperty(context.providerOptions, "hard_timeout_seconds");
+    },
+  );
+
+  itNodeOnly(
+    "keeps interactive auto reply only when the feature switch is enabled",
+    async function () {
+      setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
+      updateWorkflowSettings("literature-explainer", {
+        backendId: "skillrunner-alt",
+        providerOptions: {
+          engine: "gemini",
+          interactive_auto_reply: true,
+          interactive_reply_timeout_sec: 0,
+        },
+      });
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-explainer",
+      );
+      assert.isOk(workflow);
+
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.providerOptions.interactive_auto_reply, true);
+      assert.equal(context.providerOptions.interactive_reply_timeout_sec, 0);
+    },
+  );
+
+  itNodeOnly(
+    "shows auto reply timeout only when interactive auto reply is checked",
+    async function () {
+      setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-explainer",
+      );
+      assert.isOk(workflow);
+
+      const withoutAutoReply = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        draft: {
+          providerOptions: {
+            engine: "gemini",
+            interactive_auto_reply: false,
+          },
+        },
+      });
+      const timeoutWithoutAutoReply =
+        withoutAutoReply.providerSchemaEntries.find(
+          (entry) => entry.key === "interactive_reply_timeout_sec",
+        );
+      assert.isOk(timeoutWithoutAutoReply);
+      assert.deepEqual(timeoutWithoutAutoReply?.visibleIfProviderOption, {
+        key: "interactive_auto_reply",
+        equals: true,
+      });
+
+      const withAutoReply = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        draft: {
+          providerOptions: {
+            engine: "gemini",
+            interactive_auto_reply: true,
+          },
+        },
+      });
+      const keys = withAutoReply.providerSchemaEntries.map(
+        (entry) => entry.key,
+      );
+      assert.include(keys, "interactive_auto_reply");
+      assert.include(keys, "interactive_reply_timeout_sec");
+      const jobTimeout = withAutoReply.providerSchemaEntries.find(
+        (entry) => entry.key === "hard_timeout_seconds",
+      );
+      assert.include(jobTimeout?.title || "", "(sec)");
+    },
+  );
+
+  itNodeOnly(
+    "shows auto and interactive options for mixed-mode sequence workflows",
+    async function () {
+      setDebugModeOverrideForTests(true);
+      setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "debug-interactive-then-result",
+      );
+      assert.isOk(workflow);
+
+      const descriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: [
+          {
+            id: "skillrunner-local",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8030",
+            auth: { kind: "none" },
+          },
+        ],
+        autoSelectFallbackProfile: true,
+      });
+      const keys = descriptor.providerSchemaEntries.map((entry) => entry.key);
+      assert.include(keys, "interactive_auto_reply");
+      assert.include(keys, "interactive_reply_timeout_sec");
+      assert.include(keys, "no_cache");
     },
   );
 
@@ -296,6 +482,7 @@ describe("workflow settings execution", function () {
           engine: "gemini",
           no_cache: true,
           interactive_auto_reply: true,
+          interactive_reply_timeout_sec: 30,
           hard_timeout_seconds: 1200,
         },
       });
@@ -311,6 +498,7 @@ describe("workflow settings execution", function () {
       });
       assert.equal(context.providerOptions.no_cache, true);
       assert.isUndefined(context.providerOptions.interactive_auto_reply);
+      assert.isUndefined(context.providerOptions.interactive_reply_timeout_sec);
       assert.equal(context.providerOptions.hard_timeout_seconds, 1200);
     },
   );
@@ -696,7 +884,7 @@ describe("workflow settings execution", function () {
   );
 
   itNodeOnly(
-    "lists only ACP backends as compatible profiles for skillrunner sequence workflows",
+    "lists ACP and SkillRunner backends as compatible profiles for skillrunner sequence workflows",
     async function () {
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
@@ -713,9 +901,11 @@ describe("workflow settings execution", function () {
       });
 
       const profileIds = descriptor.profiles.map((entry) => entry.id).sort();
-      assert.includeMembers(profileIds, ["acp-opencode"]);
-      assert.isFalse(profileIds.includes("skillrunner-alt"));
-      assert.isFalse(profileIds.includes("skillrunner-primary"));
+      assert.includeMembers(profileIds, [
+        "acp-opencode",
+        "skillrunner-alt",
+        "skillrunner-primary",
+      ]);
       assert.isFalse(profileIds.includes("generic-http-local"));
     },
   );
@@ -800,6 +990,29 @@ describe("workflow settings execution", function () {
         acpModelId: "qwen3",
         acpReasoningEffort: "default",
       });
+    },
+  );
+
+  itNodeOnly(
+    "resolves skillrunner sequence workflows to SkillRunner provider when a SkillRunner backend is selected",
+    async function () {
+      updateWorkflowSettings("literature-analysis", {
+        backendId: "skillrunner-primary",
+      });
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-analysis",
+      );
+      assert.isOk(workflow);
+
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.backend.id, "skillrunner-primary");
+      assert.equal(context.backend.type, "skillrunner");
+      assert.equal(context.providerId, "skillrunner");
+      assert.equal(context.requestKind, "skillrunner.sequence.v1");
     },
   );
 
@@ -1042,6 +1255,35 @@ describe("workflow settings execution", function () {
       updateWorkflowSettings("literature-analysis", {
         backendId: "acp-config-options",
         providerOptions: {
+          acpModelProvider: "anthropic",
+          acpModelId: "claude",
+          acpReasoningEffort: "low",
+        },
+      });
+
+      const lowEffortDescriptor = await buildWorkflowSettingsUiDescriptor({
+        workflow: workflow!,
+        candidateBackends: registry.backends,
+      });
+      assert.deepEqual(lowEffortDescriptor.providerOptions, {
+        acpModeId: "ask",
+        acpModelProvider: "anthropic",
+        acpModelId: "claude",
+        acpReasoningEffort: "low",
+      });
+
+      const lowEffortContext = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.deepEqual(lowEffortContext.providerOptions, {
+        acpModeId: "ask",
+        acpModelId: "anthropic/claude",
+        acpReasoningEffort: "low",
+      });
+
+      updateWorkflowSettings("literature-analysis", {
+        backendId: "acp-config-options",
+        providerOptions: {
           acpModelProvider: "openai",
           acpModelId: "gpt-5",
           acpReasoningEffort: "high",
@@ -1132,6 +1374,38 @@ describe("workflow settings execution", function () {
       assert.isFalse(
         descriptor.profiles.some((entry) => entry.id === "generic-http-local"),
       );
+    },
+  );
+
+  itNodeOnly(
+    "falls back from incompatible persisted backendId but keeps explicit override strict",
+    async function () {
+      updateWorkflowSettings("literature-analysis", {
+        backendId: "generic-http-local",
+      });
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-analysis",
+      );
+      assert.isOk(workflow);
+
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(context.backend.id, "skillrunner-primary");
+
+      try {
+        await resolveWorkflowExecutionContext({
+          workflow: workflow!,
+          executionOptionsOverride: {
+            backendId: "generic-http-local",
+          },
+        });
+        assert.fail("expected explicit incompatible backend override to fail");
+      } catch (error) {
+        assert.match(String(error), /Unknown or incompatible backendId/);
+      }
     },
   );
 

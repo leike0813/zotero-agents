@@ -44,6 +44,19 @@ function toPortablePath(path: string) {
   return normalizeString(path).replace(/\\/g, "/");
 }
 
+function getPortableDirName(path: string) {
+  const portable = toPortablePath(path);
+  const index = portable.lastIndexOf("/");
+  return index > 0 ? portable.slice(0, index) : "";
+}
+
+function resolveFeedbackSidecarPath(resultJsonPath: string) {
+  const resultDir = getPortableDirName(resultJsonPath);
+  return resultDir
+    ? `${resultDir}/_skill_run_feedback.md`
+    : "_skill_run_feedback.md";
+}
+
 type AcpSkillExecutionMode = "auto" | "interactive";
 
 function normalizeExecutionMode(value: unknown): AcpSkillExecutionMode {
@@ -71,17 +84,18 @@ async function resolveOutputSchemaPath(args: {
     schemas && typeof schemas === "object" && !Array.isArray(schemas)
       ? normalizeString((schemas as Record<string, unknown>).output)
       : "";
-  const candidates = [
-    declared,
-    "assets/output.schema.json",
-  ].filter((entry, index, array) => entry && array.indexOf(entry) === index);
+  const candidates = [declared, "assets/output.schema.json"].filter(
+    (entry, index, array) => entry && array.indexOf(entry) === index,
+  );
   for (const candidate of candidates) {
     const resolved = resolveRelativeOrAbsolutePath(args.skillRoot, candidate);
     if (resolved && (await runtimePathExists(resolved))) {
       return resolved;
     }
   }
-  return declared ? resolveRelativeOrAbsolutePath(args.skillRoot, declared) : "";
+  return declared
+    ? resolveRelativeOrAbsolutePath(args.skillRoot, declared)
+    : "";
 }
 
 function describeJsonSchemaType(schema: Record<string, unknown>) {
@@ -90,7 +104,10 @@ function describeJsonSchemaType(schema: Record<string, unknown>) {
     return type;
   }
   if (Array.isArray(type)) {
-    return type.map((entry) => normalizeString(entry)).filter(Boolean).join(" | ");
+    return type
+      .map((entry) => normalizeString(entry))
+      .filter(Boolean)
+      .join(" | ");
   }
   if (Object.prototype.hasOwnProperty.call(schema, "const")) {
     return `const ${JSON.stringify(schema.const)}`;
@@ -124,7 +141,9 @@ function buildSchemaFieldRows(schema: unknown) {
       : {};
   const required = new Set(
     Array.isArray(objectSchema.required)
-      ? objectSchema.required.map((entry) => normalizeString(entry)).filter(Boolean)
+      ? objectSchema.required
+          .map((entry) => normalizeString(entry))
+          .filter(Boolean)
       : [],
   );
   const propertyRows = Object.entries(properties)
@@ -140,7 +159,9 @@ function buildSchemaFieldRows(schema: unknown) {
     "| `__SKILL_DONE__` | boolean | yes | Set to `true` for the final branch. |",
     ...(propertyRows.length > 0
       ? propertyRows
-      : ["| `(schema)` | object | yes | Final payload must satisfy the output schema. |"]),
+      : [
+          "| `(schema)` | object | yes | Final payload must satisfy the output schema. |",
+        ]),
   ].join("\n");
 }
 
@@ -157,14 +178,18 @@ function buildExampleFromSchema(schema: unknown) {
       ? (objectSchema.properties as Record<string, unknown>)
       : {};
   const required = Array.isArray(objectSchema.required)
-    ? objectSchema.required.map((entry) => normalizeString(entry)).filter(Boolean)
+    ? objectSchema.required
+        .map((entry) => normalizeString(entry))
+        .filter(Boolean)
     : [];
   for (const name of required) {
     if (name === "__SKILL_DONE__") {
       continue;
     }
     const fieldSchema =
-      properties[name] && typeof properties[name] === "object" && !Array.isArray(properties[name])
+      properties[name] &&
+      typeof properties[name] === "object" &&
+      !Array.isArray(properties[name])
         ? (properties[name] as Record<string, unknown>)
         : {};
     if (Object.prototype.hasOwnProperty.call(fieldSchema, "const")) {
@@ -173,7 +198,10 @@ function buildExampleFromSchema(schema: unknown) {
       example[name] = fieldSchema.enum[0];
     } else if (fieldSchema.type === "boolean") {
       example[name] = true;
-    } else if (fieldSchema.type === "number" || fieldSchema.type === "integer") {
+    } else if (
+      fieldSchema.type === "number" ||
+      fieldSchema.type === "integer"
+    ) {
       example[name] = 0;
     } else if (fieldSchema.type === "array") {
       example[name] = [];
@@ -207,10 +235,7 @@ async function buildResourceMappingSection(args: {
       workspace_dir: toPortablePath(args.workspaceDir),
       catalog_skill_root: toPortablePath(args.entry.catalogSkillRoot),
     },
-    requiredPlaceholders: [
-      "workspace_dir",
-      "catalog_skill_root",
-    ],
+    requiredPlaceholders: ["workspace_dir", "catalog_skill_root"],
   });
 }
 
@@ -301,6 +326,20 @@ async function buildModePatchSection(executionMode: AcpSkillExecutionMode) {
   );
 }
 
+async function buildSkillRunFeedbackPatchSection(args: {
+  resultJsonPath: string;
+}) {
+  return renderAcpSkillPatchTemplate({
+    template: await loadAcpSkillPatchTemplate(
+      ACP_SKILL_PATCH_TEMPLATES_BY_MODULE.skill_run_feedback,
+    ),
+    replacements: {
+      feedback_path: resolveFeedbackSidecarPath(args.resultJsonPath),
+    },
+    requiredPlaceholders: ["feedback_path"],
+  });
+}
+
 async function buildPatchBlock(args: {
   entry: AcpSharedSkillCatalogEntry;
   workspaceDir: string;
@@ -309,6 +348,7 @@ async function buildPatchBlock(args: {
   requested: boolean;
   runnerJson: Record<string, unknown>;
   executionMode: AcpSkillExecutionMode;
+  collectSkillRunFeedback?: boolean;
 }) {
   const outputContractDetails = await buildOutputContractDetailsSection({
     runnerJson: args.runnerJson,
@@ -321,6 +361,13 @@ async function buildPatchBlock(args: {
     await buildOutputFormatContractSection(),
     outputContractDetails,
     await buildModePatchSection(args.executionMode),
+    ...(args.collectSkillRunFeedback
+      ? [
+          await buildSkillRunFeedbackPatchSection({
+            resultJsonPath: args.resultJsonPath,
+          }),
+        ]
+      : []),
   ].join("\n\n");
   return {
     headerPatchBlock: [
@@ -352,7 +399,10 @@ function shouldUseFullSnapshot(runnerJson: Record<string, unknown>) {
 
 async function readJsonFile(path: string) {
   try {
-    return JSON.parse(await readRuntimeTextFile(path)) as Record<string, unknown>;
+    return JSON.parse(await readRuntimeTextFile(path)) as Record<
+      string,
+      unknown
+    >;
   } catch {
     return {};
   }
@@ -367,6 +417,7 @@ async function writeProxySkill(args: {
   requested: boolean;
   executionMode: AcpSkillExecutionMode;
   runnerJson: Record<string, unknown>;
+  collectSkillRunFeedback?: boolean;
 }) {
   await removeRuntimePath(args.targetDir);
   const original = await readRuntimeTextFile(args.entry.skillMdPath);
@@ -405,6 +456,34 @@ async function writeProxySkill(args: {
   };
 }
 
+async function appendFeedbackPatchToSnapshotSkill(args: {
+  targetDir: string;
+  resultJsonPath: string;
+  collectSkillRunFeedback?: boolean;
+}) {
+  if (!args.collectSkillRunFeedback) {
+    return;
+  }
+  const skillMdPath = joinPath(args.targetDir, "SKILL.md");
+  if (!(await runtimePathExists(skillMdPath))) {
+    return;
+  }
+  const original = await readRuntimeTextFile(skillMdPath);
+  const feedbackPatch = await buildSkillRunFeedbackPatchSection({
+    resultJsonPath: args.resultJsonPath,
+  });
+  await writeRuntimeTextFile(
+    skillMdPath,
+    [
+      original.trimEnd(),
+      "",
+      "<!-- zotero-skills-acp-runtime-patch:start -->",
+      feedbackPatch,
+      "<!-- zotero-skills-acp-runtime-patch:end -->",
+    ].join("\n"),
+  );
+}
+
 export async function materializeAcpThinProxySkills(args: {
   catalog: AcpSharedSkillCatalog;
   requestedSkillId: string;
@@ -413,6 +492,7 @@ export async function materializeAcpThinProxySkills(args: {
   resultJsonPath: string;
   inputManifestPath: string;
   executionMode?: string;
+  collectSkillRunFeedback?: boolean;
 }): Promise<AcpThinProxyMaterializationResult> {
   const materializedDirs: string[] = [];
   const requestedSkillProxyDirs: string[] = [];
@@ -430,6 +510,11 @@ export async function materializeAcpThinProxySkills(args: {
           sourceDir: entry.catalogSkillRoot,
           targetDir,
         });
+        await appendFeedbackPatchToSnapshotSkill({
+          targetDir,
+          resultJsonPath: args.resultJsonPath,
+          collectSkillRunFeedback: args.collectSkillRunFeedback,
+        });
         diagnostics.push({
           level: "warning",
           code: "acp_skill_full_snapshot_fallback",
@@ -445,6 +530,7 @@ export async function materializeAcpThinProxySkills(args: {
           requested,
           executionMode,
           runnerJson,
+          collectSkillRunFeedback: args.collectSkillRunFeedback,
         });
         resourceRewriteWarnings.push(
           ...proxy.warnings.map((warning) => `${entry.skillId}: ${warning}`),

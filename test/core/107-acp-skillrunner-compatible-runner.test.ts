@@ -27,6 +27,7 @@ import {
   replyAcpSkillRun,
   resolveAcpSkillRunPermissionRequest,
   resetAcpSkillRunsForTests,
+  selectAcpSkillRun,
   setAcpSkillRunMode,
   setAcpSkillRunModel,
   setAcpSkillRunRecoveryHandlerForTests,
@@ -47,6 +48,7 @@ import {
   type AcpSkillRunnerDependencies,
   executeAcpSkillRunnerJob,
   recoverAcpSkillRunConversation,
+  resolveAcpSkillRunEffectiveRuntimeOptions,
 } from "../../src/modules/acpSkillRunnerOrchestrator";
 import {
   applyHostBridgeCliEnvToBackend,
@@ -73,11 +75,19 @@ import {
 } from "../../src/modules/acpSkillOutputValidator";
 import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
 import { resolveAcpSkillResultFileFallback } from "../../src/modules/acpSkillResultFileFallback";
-import { createAcpSkillRunnerWorkspace } from "../../src/modules/acpSkillRunnerWorkspace";
+import {
+  createAcpSkillRunnerWorkspace,
+  resetAcpWorkflowWorkspaceRegistryForTests,
+} from "../../src/modules/acpSkillRunnerWorkspace";
 import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
 import { RequestError } from "../../src/modules/acpProtocol";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import {
+  SKILL_RUN_FEEDBACK_ASSET_ID,
+  listSkillRunFeedbackProducts,
+  readProductAssetPreview,
+} from "../../src/modules/workflowProductStore";
 import {
   listActiveWorkflowTasks,
   listWorkflowTasks,
@@ -154,6 +164,7 @@ async function createSkill(
     declareSchemas?: boolean;
     mcpRequiredTools?: string[];
     skillId?: string;
+    runtimeDefaultOptions?: Record<string, unknown>;
   },
 ) {
   const skillId = args?.skillId || "demo-skill";
@@ -161,7 +172,16 @@ async function createSkill(
   await fs.mkdir(path.join(skillDir, "assets"), { recursive: true });
   await fs.writeFile(
     path.join(skillDir, "SKILL.md"),
-    "# Demo Skill\n\nReturn structured output.\n",
+    [
+      "---",
+      `name: ${skillId}`,
+      "---",
+      "",
+      "# Demo Skill",
+      "",
+      "Return structured output.",
+      "",
+    ].join("\n"),
     "utf8",
   );
   await fs.writeFile(
@@ -183,6 +203,9 @@ async function createSkill(
       execution_modes: args?.executionModes || ["auto"],
       runtime: {
         dependencies: args?.dependencies || [],
+        ...(args?.runtimeDefaultOptions
+          ? { default_options: args.runtimeDefaultOptions }
+          : {}),
       },
       ...(args?.mcpRequiredTools
         ? {
@@ -216,8 +239,12 @@ async function createSkill(
   };
 }
 
-async function createRecoveryApplyWorkflowRoot(root: string) {
+async function createRecoveryApplyWorkflowRoot(
+  root: string,
+  args?: { finalSkillId?: string },
+) {
   const workflowId = "recovered-sequence-apply-workflow";
+  const finalSkillId = args?.finalSkillId || "topic-synthesis-finalize";
   const workflowsDir = path.join(root, "workflows");
   const workflowDir = path.join(workflowsDir, workflowId);
   await fs.mkdir(path.join(workflowDir, "hooks"), { recursive: true });
@@ -234,13 +261,13 @@ async function createRecoveryApplyWorkflowRoot(root: string) {
           steps: [
             {
               id: "finalize",
-              skill_id: "topic-synthesis-finalize",
+              skill_id: finalSkillId,
+              mode: "interactive",
               workspace: "reuse-workflow",
             },
           ],
         },
       },
-      execution: { mode: "auto", skillrunner_mode: "interactive" },
       result: { final_step_id: "finalize" },
       hooks: { applyResult: "hooks/applyResult.mjs" },
     }),
@@ -717,6 +744,517 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.deepEqual(setModelCalls, ["alibaba-coding-plan:qwen3.6-plus"]);
   });
 
+  it("synthesizes ACP effective runtime hard timeout like SkillRunner", function () {
+    const request = {
+      kind: ACP_SKILL_RUN_REQUEST_KIND,
+      skill_id: "demo-skill",
+      runtime_options: {},
+    };
+    const runnerJson = {
+      runtime: {
+        default_options: {
+          hard_timeout_seconds: 45,
+          unknown_key: 1,
+        },
+      },
+    };
+
+    const fromRunner = resolveAcpSkillRunEffectiveRuntimeOptions({
+      request,
+      runnerJson,
+    });
+    assert.equal(fromRunner.hardTimeoutSeconds, 45);
+    assert.equal(fromRunner.hardTimeoutSource, "runner");
+    assert.notProperty(fromRunner.runtimeOptions, "unknown_key");
+    assert.notProperty(request.runtime_options, "hard_timeout_seconds");
+
+    const fromRequest = resolveAcpSkillRunEffectiveRuntimeOptions({
+      request: {
+        ...request,
+        runtime_options: { hard_timeout_seconds: 9 },
+      },
+      runnerJson,
+    });
+    assert.equal(fromRequest.hardTimeoutSeconds, 9);
+    assert.equal(fromRequest.hardTimeoutSource, "request");
+
+    const fromProviderOption = resolveAcpSkillRunEffectiveRuntimeOptions({
+      request,
+      runnerJson,
+      providerOptions: { hard_timeout_seconds: 7 },
+    });
+    assert.equal(fromProviderOption.hardTimeoutSeconds, 7);
+    assert.equal(fromProviderOption.hardTimeoutSource, "request");
+
+    const providerOptionWinsRequest = resolveAcpSkillRunEffectiveRuntimeOptions(
+      {
+        request: {
+          ...request,
+          runtime_options: { hard_timeout_seconds: 9 },
+        },
+        runnerJson,
+        providerOptions: { hard_timeout_seconds: 7 },
+      },
+    );
+    assert.equal(providerOptionWinsRequest.hardTimeoutSeconds, 7);
+    assert.equal(providerOptionWinsRequest.hardTimeoutSource, "request");
+
+    const fallback = resolveAcpSkillRunEffectiveRuntimeOptions({
+      request: {
+        ...request,
+        runtime_options: { hard_timeout_seconds: "bad" },
+      },
+      runnerJson: {},
+    });
+    assert.equal(fallback.hardTimeoutSeconds, 1200);
+    assert.equal(fallback.hardTimeoutSource, "default");
+  });
+
+  it("disconnects auto ACP skill runs recoverably when hard timeout expires", async function () {
+    this.timeout(5000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["auto"],
+    });
+    let cancelCount = 0;
+    let closeCount = 0;
+    let releasePrompt: (() => void) | null = null;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-hard-timeout" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async () => {
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        cancelCount += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCount += 1;
+        releasePrompt?.();
+      },
+    };
+
+    try {
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "auto",
+            hard_timeout_seconds: 1,
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      const record = getAcpSkillRunRecord(result.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(result.status, "deferred");
+      assert.equal(record?.status, "running");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.notEqual(record?.status, "failed");
+      assert.notEqual(record?.status, "canceled");
+      assert.equal(cancelCount, 1);
+      assert.equal(closeCount, 1);
+      assert.include(stages, "hard-timeout-disconnect-requested");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("starts initial ACP hard timeout after session setup reaches prompt", async function () {
+    this.timeout(6000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["auto"],
+    });
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let cancelCount = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => {
+        await delay(1200);
+        return { sessionId: "session-slow-initial-setup" };
+      },
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCount += 1;
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({
+                __SKILL_DONE__: true,
+                ok: true,
+              }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        cancelCount += 1;
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+
+    try {
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "auto",
+            hard_timeout_seconds: 1,
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      const record = getAcpSkillRunRecord(result.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(promptCount, 1);
+      assert.equal(cancelCount, 0);
+      assert.equal(record?.status, "succeeded");
+      assert.notInclude(stages, "hard-timeout-disconnect-requested");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("settles received ACP transcript before hard timeout disconnect cleanup", async function () {
+    this.timeout(5000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["auto"],
+    });
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let releasePrompt: (() => void) | null = null;
+    const transcriptText = "received transcript before timeout";
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-timeout-transcript" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: transcriptText,
+            },
+          },
+        });
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        releasePrompt?.();
+      },
+    };
+
+    try {
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "auto",
+            hard_timeout_seconds: 1,
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      const record = getAcpSkillRunRecord(result.requestId);
+      const transcriptItems = record?.transcriptItems || [];
+      const messageIndex = transcriptItems.findIndex(
+        (item: any) =>
+          item.kind === "message" &&
+          item.role === "assistant" &&
+          item.text === transcriptText,
+      );
+      const message = transcriptItems[messageIndex] as any;
+      const noticeIndex = transcriptItems.findIndex(
+        (item: any) =>
+          item.kind === "status" && item.label === "hard-timeout-disconnect",
+      );
+      const notice = transcriptItems[noticeIndex] as any;
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(result.status, "deferred");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(message?.state, "complete");
+      assert.isAbove(noticeIndex, messageIndex);
+      assert.include(notice?.text || "", "Job Timeout");
+      assert.include(stages, "hard-timeout-disconnect-requested");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("pauses ACP hard timeout while a permission request is pending and restarts after resolution", async function () {
+    this.timeout(7000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["auto"],
+    });
+    let permissionListener: ((request: any) => void | Promise<void>) | null =
+      null;
+    let requestId = "";
+    let cancelCount = 0;
+    let closeCount = 0;
+    let releasePrompt: (() => void) | null = null;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: (
+        listener: (request: any) => void | Promise<void>,
+      ) => {
+        permissionListener = listener;
+        return () => {
+          permissionListener = null;
+        };
+      },
+      newSession: async () => ({ sessionId: "session-permission-timeout" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        await permissionListener?.({
+          requestId: "permission-timeout-pause",
+          sessionId,
+          toolCallId: "tool-timeout-pause",
+          toolTitle: "Run protected tool",
+          source: "acp-tool-call",
+          summary: "Run protected tool.",
+          requestedAt: "2026-06-05T00:00:00.000Z",
+          options: [
+            {
+              optionId: "approve",
+              kind: "allow_once",
+              name: "Approve",
+            },
+          ],
+          resolve: () => undefined,
+        });
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        cancelCount += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCount += 1;
+        releasePrompt?.();
+      },
+    };
+
+    try {
+      const execution = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "auto",
+            hard_timeout_seconds: 1,
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: async (workspaceArgs) => {
+            const workspace = await createAcpSkillRunnerWorkspace({
+              ...workspaceArgs,
+              rootDir: root,
+            });
+            requestId = workspace.requestId;
+            return workspace;
+          },
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      await delay(1200);
+      const pausedRecord = getAcpSkillRunRecord(requestId);
+      const pausedStages = (pausedRecord?.events || []).map(
+        (event) => event.stage,
+      );
+      assert.isOk(pausedRecord?.pendingPermission);
+      assert.equal(cancelCount, 0);
+      assert.equal(closeCount, 0);
+      assert.notInclude(pausedStages, "hard-timeout-disconnect-requested");
+
+      resolveAcpSkillRunPermissionRequest({
+        runRequestId: requestId,
+        permissionRequestId: "permission-timeout-pause",
+        outcome: "selected",
+        optionId: "approve",
+      });
+
+      const result = await execution;
+      const resumedRecord = getAcpSkillRunRecord(result.requestId);
+      const resumedStages = (resumedRecord?.events || []).map(
+        (event) => event.stage,
+      );
+      assert.equal(result.status, "deferred");
+      assert.equal(cancelCount, 1);
+      assert.equal(closeCount, 1);
+      assert.include(resumedStages, "hard-timeout-disconnect-requested");
+      assert.isNull(resumedRecord?.pendingPermission || null);
+    } finally {
+      releasePrompt?.();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps workflow active task rows synchronized with terminal ACP skill runs", function () {
     recordWorkflowTaskUpdate(
       makeAcpWorkflowTaskJob({
@@ -1053,6 +1591,16 @@ describe("ACP SkillRunner-compatible runner", function () {
           });
           return { stopReason: "cancelled" };
         }
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({ ok: true, __SKILL_DONE__: true }),
+            },
+          },
+        });
         return { stopReason: "end_turn" };
       },
       cancel: async () => {
@@ -1613,7 +2161,10 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.include(prompt, "- pending output requires ui_hints object");
     assert.include(prompt, "Target output contract details:");
     assert.include(prompt, "`ui_hints.options`");
-    assert.include(prompt, "Do not hand-write the runner-owned result JSON path.");
+    assert.include(
+      prompt,
+      "Do not hand-write the runner-owned result JSON path.",
+    );
     assert.include(prompt, "runtime-generated file is allowed");
     assert.include(prompt, "Do not output explanations.");
     assert.include(prompt, "Do not output Markdown fences.");
@@ -2034,6 +2585,76 @@ describe("ACP SkillRunner-compatible runner", function () {
         formatPortablePathForTest(valid.schemaPath || ""),
         "/assets/output.schema.json",
       );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("validates ACP artifact-manifest output files as flat manifests", async function () {
+    const root = await mkTempRoot();
+    try {
+      const { skillDir } = await createSkill(root);
+      const runnerJson = JSON.parse(
+        await fs.readFile(path.join(skillDir, "assets", "runner.json"), "utf8"),
+      );
+      await fs.writeFile(
+        path.join(skillDir, "assets", "output.schema.json"),
+        JSON.stringify({
+          type: "object",
+          required: ["ok", "artifact_manifest_path"],
+          additionalProperties: false,
+          properties: {
+            ok: { const: true },
+            artifact_manifest_path: {
+              type: "string",
+              "x-type": "artifact-manifest",
+              "x-role": "artifact-manifest",
+            },
+          },
+        }),
+        "utf8",
+      );
+
+      const manifestPath = path.join(
+        root,
+        "workspace",
+        "result",
+        "artifacts.json",
+      );
+      const nested = await validateAcpSkillFinalPayload({
+        payload: {
+          ok: true,
+          artifact_manifest_path: manifestPath,
+        },
+        runnerJson,
+        primarySkillDir: skillDir,
+        readArtifactText: async () =>
+          JSON.stringify({
+            artifacts: {
+              digest: { path: path.join(root, "workspace", "result", "d.md") },
+            },
+          }),
+      });
+      const flat = await validateAcpSkillFinalPayload({
+        payload: {
+          ok: true,
+          artifact_manifest_path: manifestPath,
+        },
+        runnerJson,
+        primarySkillDir: skillDir,
+        readArtifactText: async () =>
+          JSON.stringify({
+            digest: path.join(root, "workspace", "result", "d.md"),
+            notes: "result/notes.md",
+          }),
+      });
+
+      assert.isFalse(nested.ok);
+      assert.include(
+        nested.errors.join("\n"),
+        "artifact_manifest_path.artifacts",
+      );
+      assert.isTrue(flat.ok, flat.errors.join("; "));
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -3560,6 +4181,41 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
   });
 
+  it("keeps run updatedAt stable while appending streaming text chunks", function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-stream-updated-at-stable",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      activePrompt: true,
+      updatedAt: "2026-06-18T00:00:00.000Z",
+    });
+    recordAcpSkillRunSessionUpdate("run-stream-updated-at-stable", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "first " },
+      },
+    } as any);
+    recordAcpSkillRunSessionUpdate("run-stream-updated-at-stable", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "second" },
+      },
+    } as any);
+
+    const run = getAcpSkillRunRecord("run-stream-updated-at-stable");
+    assert.equal(run?.updatedAt, "2026-06-18T00:00:00.000Z");
+    const assistantMessages =
+      run?.transcriptItems.filter(
+        (item) => item.kind === "message" && item.role === "assistant",
+      ) || [];
+    assert.lengthOf(assistantMessages, 1);
+    assert.equal(assistantMessages[0].text, "first second");
+  });
+
   it("keeps tool calls as assistant streaming message boundaries around workspace activity", function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({
@@ -4017,6 +4673,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("auto-continues a detached recoverable running run after explicit connect", async function () {
+    this.timeout(6000);
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -4151,7 +4808,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(recovered?.applyResultState, "succeeded");
       assert.lengthOf(promptMessages, 1);
       assert.include(promptMessages[0], "ACP Skills continuation guard");
-      assert.include(promptMessages[0], "Continue the interrupted ACP Skills workflow");
+      assert.include(
+        promptMessages[0],
+        "Continue the interrupted ACP Skills workflow",
+      );
       assert.include(stages, "recovered-auto-continuation-started");
       assert.include(stages, "recovered-output-validation-succeeded");
       assert.isFalse(
@@ -4256,6 +4916,129 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(recovered?.conversationState, "active");
       assert.equal(recovered?.conversationRecoveryState, "connected");
       assert.equal(recovered?.pendingInteraction?.message, "Need user input.");
+    } finally {
+      setAcpSkillRunRecoveryHandlerForTests(null);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("restarts hard timeout for automatic continuation after reconnect", async function () {
+    this.timeout(5000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["auto"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-reconnect-hard-timeout",
+    });
+    let releasePrompt: (() => void) | null = null;
+    let cancelCalls = 0;
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({ sessionId }),
+      prompt: async () => {
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        cancelCalls += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+        releasePrompt?.();
+      },
+    };
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "running",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        workflowId: "demo-skill",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-reconnect-hard-timeout",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: {
+          execution_modes: ["auto"],
+          schemas: { output: "assets/output.schema.json" },
+        },
+        executionMode: "auto",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        applyResultState: "pending",
+        requestPayload: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "auto",
+            hard_timeout_seconds: 1,
+          },
+        },
+      });
+      setAcpSkillRunRecoveryHandlerForTests(({ requestId, reason }) =>
+        recoverAcpSkillRunConversation({
+          requestId,
+          reason,
+          dependencies: {
+            createAdapter: async () => fakeAdapter,
+            dependencyProbe: async () => ({ ok: true }),
+          },
+        }),
+      );
+
+      await connectAcpSkillRun(workspace.requestId);
+      for (let index = 0; index < 50; index += 1) {
+        const record = getAcpSkillRunRecord(workspace.requestId);
+        const stages = (record?.events || []).map((event) => event.stage);
+        if (stages.includes("disconnect-completed")) {
+          break;
+        }
+        await delay(25);
+      }
+
+      const record = getAcpSkillRunRecord(workspace.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(cancelCalls, 1);
+      assert.equal(closeCalls, 1);
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.include(stages, "recovered-auto-continuation-started");
+      assert.include(stages, "hard-timeout-disconnect-requested");
+      assert.include(stages, "disconnect-completed");
     } finally {
       setAcpSkillRunRecoveryHandlerForTests(null);
       await fs.rm(root, { recursive: true, force: true });
@@ -4706,6 +5489,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("recovers sequence final-step apply from workflow task ownership when stored workflow id is the skill id", async function () {
+    this.timeout(6000);
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -4761,6 +5545,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           fetch_type: "result",
         },
       });
+      resetAcpWorkflowWorkspaceRegistryForTests();
 
       await recoverAcpSkillRunConversation({
         requestId: workspace.requestId,
@@ -4801,6 +5586,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("continues downstream sequence steps after a recovered non-final step succeeds", async function () {
+    this.timeout(6000);
     const root = await mkTempRoot();
     const prepare = await createSkill(root, {
       executionModes: ["interactive"],
@@ -4814,7 +5600,9 @@ describe("ACP SkillRunner-compatible runner", function () {
       executionModes: ["interactive"],
       skillId: "finalize-skill",
     });
-    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root);
+    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root, {
+      finalSkillId: "finalize-skill",
+    });
     const previousWorkflowDir = process.env.ZOTERO_TEST_WORKFLOW_DIR;
     process.env.ZOTERO_TEST_WORKFLOW_DIR = recoveryWorkflow.workflowsDir;
     const backend = createBackend({ id: ACP_OPENCODE_BACKEND_ID });
@@ -4823,15 +5611,22 @@ describe("ACP SkillRunner-compatible runner", function () {
     const sequenceRequest = {
       kind: "skillrunner.sequence.v1" as const,
       steps: [
-        { id: "prepare", skill_id: "prepare-skill", workspace: "new" as const },
+        {
+          id: "prepare",
+          skill_id: "prepare-skill",
+          mode: "interactive",
+          workspace: "new" as const,
+        },
         {
           id: "core",
           skill_id: "core-skill",
+          mode: "interactive",
           workspace: "reuse-workflow" as const,
         },
         {
           id: "finalize",
           skill_id: "finalize-skill",
+          mode: "interactive",
           workspace: "reuse-workflow" as const,
         },
       ],
@@ -4853,6 +5648,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       { ok: true, step: "core" },
       { ok: true, step: "finalize" },
     ];
+    const foregroundSelectedRequestIds: string[] = [];
+    const foregroundOpenedRequestIds: string[] = [];
     try {
       await rescanWorkflowRegistry({
         workflowsDir: recoveryWorkflow.workflowsDir,
@@ -4934,6 +5731,18 @@ describe("ACP SkillRunner-compatible runner", function () {
             createFinalOutputAdapter(adapterOutputs.shift() || { ok: true }),
           dependencyProbe: async () => ({ ok: true }),
           sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+          acpSkillRunForeground: {
+            selectAcpSkillRun: (requestId) => {
+              foregroundSelectedRequestIds.push(requestId);
+              selectAcpSkillRun(requestId);
+            },
+            openAssistantWorkspaceSidebar: async (input) => {
+              foregroundOpenedRequestIds.push(
+                String(input?.requestId || "").trim(),
+              );
+              return true;
+            },
+          },
         },
       });
       await replyAcpSkillRun({
@@ -4950,6 +5759,20 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
       assert.equal(coreRun?.status, "succeeded");
       assert.equal(finalizeRun?.status, "succeeded");
+      assert.equal(coreRun?.workspaceDir, workspace.workspaceDir);
+      assert.equal(finalizeRun?.workspaceDir, workspace.workspaceDir);
+      assert.deepEqual(foregroundSelectedRequestIds, [
+        coreRun?.requestId,
+        finalizeRun?.requestId,
+      ]);
+      assert.deepEqual(foregroundOpenedRequestIds, [
+        coreRun?.requestId,
+        finalizeRun?.requestId,
+      ]);
+      assert.equal(
+        buildAcpSkillRunPanelSnapshot({}).selectedRun?.requestId,
+        finalizeRun?.requestId,
+      );
       assert.equal(finalizeRun?.applyResultState, "succeeded");
       assert.equal(coreRun?.workflowId, recoveryWorkflow.workflowId);
       assert.equal(finalizeRun?.workflowId, recoveryWorkflow.workflowId);
@@ -5105,6 +5928,49 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(record?.conversationRecoveryState, "available");
   });
 
+  it("does not mark connect succeeded after recovery already detached the session", async function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-connect-timeout",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-connect-timeout",
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+    });
+    setAcpSkillRunRecoveryHandlerForTests(async ({ requestId, reason }) => {
+      assert.equal(requestId, "run-connect-timeout");
+      assert.equal(reason, "connect");
+      upsertAcpSkillRun({
+        requestId,
+        activePrompt: false,
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        connectionActionState: "idle",
+        event: {
+          stage: "disconnect-completed",
+          message: "ACP skill run local connection detached.",
+          level: "info",
+          details: { recovered: true },
+        },
+      });
+    });
+
+    try {
+      await connectAcpSkillRun("run-connect-timeout");
+
+      const record = getAcpSkillRunRecord("run-connect-timeout");
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.include(stages, "disconnect-completed");
+      assert.notInclude(stages, "connect-succeeded");
+    } finally {
+      setAcpSkillRunRecoveryHandlerForTests(null);
+    }
+  });
+
   it("interrupts a recovered active prompt without detaching the session", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
@@ -5224,6 +6090,117 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.include(stages, "interrupt-completed");
       assert.notInclude(stages, "recovered-output-validation-failed");
       assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("disconnects a recovered active prompt recoverably when hard timeout expires", async function () {
+    this.timeout(5000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-recovered-hard-timeout",
+    });
+    let releasePrompt: (() => void) | null = null;
+    let cancelCalls = 0;
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({ sessionId }),
+      prompt: async () => {
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        cancelCalls += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+        releasePrompt?.();
+      },
+    };
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "waiting_user",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-hard-timeout",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: { execution_modes: ["interactive"] },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        requestPayload: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "interactive",
+            hard_timeout_seconds: 1,
+          },
+        },
+      });
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          createAdapter: async () => fakeAdapter,
+          dependencyProbe: async () => ({ ok: true }),
+        },
+      });
+
+      await replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "continue recovered prompt",
+      });
+
+      const record = getAcpSkillRunRecord(workspace.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(cancelCalls, 1);
+      assert.equal(closeCalls, 1);
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.notEqual(record?.status, "failed");
+      assert.notEqual(record?.status, "canceled");
+      assert.include(stages, "hard-timeout-disconnect-requested");
+      assert.include(stages, "disconnect-completed");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -5598,7 +6575,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       "utf8",
     );
     const resourceIndex = proxySkillMd.indexOf(
-      "## Zotero Skills ACP Thin Proxy Resource Mapping",
+      "## Zotero Agents ACP Thin Proxy Resource Mapping",
     );
     const originalBodyIndex = proxySkillMd.indexOf("# Demo Skill");
     const runtimeIndex = proxySkillMd.indexOf("Runtime Enforcement");
@@ -5684,10 +6661,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       (item) => item.kind === "message" && item.role === "assistant",
     );
     assert.isTrue(
-      assistantMessages.some(
-        (item) =>
-          item.text.includes("```json") && item.text.includes('"ok": true'),
-      ),
+      assistantMessages.some((item) => item.text.includes("- ok: true")),
+    );
+    assert.isFalse(
+      assistantMessages.some((item) => item.text.includes("```json")),
     );
     assert.isFalse(
       assistantMessages.some((item) => item.text.includes("__SKILL_DONE__")),
@@ -5931,10 +6908,10 @@ describe("ACP SkillRunner-compatible runner", function () {
         (item) => item.kind === "message" && item.role === "assistant",
       ) || [];
     assert.isTrue(
-      finalAssistantMessages.some(
-        (item) =>
-          item.text.includes("```json") && item.text.includes('"ok": true'),
-      ),
+      finalAssistantMessages.some((item) => item.text.includes("- ok: true")),
+    );
+    assert.isFalse(
+      finalAssistantMessages.some((item) => item.text.includes("```json")),
     );
     assert.isFalse(
       finalAssistantMessages.some((item) =>
@@ -5951,6 +6928,127 @@ describe("ACP SkillRunner-compatible runner", function () {
         .then(() => true)
         .catch(() => false),
     );
+  });
+
+  it("pauses interactive hard timeout while waiting for user reply and restarts next turn", async function () {
+    this.timeout(6000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let cancelCount = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-interactive-timeout" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCount += 1;
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text:
+                promptCount === 1
+                  ? JSON.stringify({
+                      __SKILL_DONE__: false,
+                      message: "Need user confirmation.",
+                    })
+                  : JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        cancelCount += 1;
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    let replied = false;
+    let replyError: Error | null = null;
+    const unsubscribe = subscribeAcpSkillRunSnapshots(() => {
+      const waiting = buildAcpSkillRunPanelSnapshot({}).runs.find(
+        (entry) => entry.status === "waiting_user",
+      );
+      if (!waiting || replied) {
+        return;
+      }
+      replied = true;
+      setTimeout(() => {
+        void replyAcpSkillRun({
+          requestId: waiting.requestId,
+          message: "Continue.",
+        }).catch((error) => {
+          replyError =
+            error instanceof Error ? error : new Error(String(error));
+        });
+      }, 1300);
+    });
+    try {
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "interactive",
+            hard_timeout_seconds: 1,
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      if (replyError) throw replyError;
+      assert.equal(result.status, "succeeded");
+      assert.equal(promptCount, 2);
+      assert.equal(cancelCount, 0);
+      const record = getAcpSkillRunRecord(result.requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.notInclude(stages, "hard-timeout-disconnect-requested");
+    } finally {
+      unsubscribe();
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("keeps a waiting interactive ACP skill run deferred when Zotero shutdown detaches the session", async function () {
@@ -6085,6 +7183,438 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.notInclude(stages, "apply-succeeded");
     } finally {
       await shutdownAcpSkillRunConversations().catch(() => undefined);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("converges a live deferred reply final output and continues sequence apply", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "topic-synthesis-finalize",
+    });
+    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root);
+    const previousWorkflowDir = process.env.ZOTERO_TEST_WORKFLOW_DIR;
+    const backend = createBackend({ id: ACP_OPENCODE_BACKEND_ID });
+    const workflowRunId = "workflow-run-live-deferred-final";
+    const jobId = "job-live-deferred-final";
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let resolveFirstPromptStarted: (() => void) | null = null;
+    let resolveCancelledPrompt: (() => void) | null = null;
+    const firstPromptStarted = new Promise<void>((resolve) => {
+      resolveFirstPromptStarted = resolve;
+    });
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-live-deferred-final" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCount += 1;
+        if (promptCount === 1) {
+          resolveFirstPromptStarted?.();
+          await new Promise<void>((resolve) => {
+            resolveCancelledPrompt = resolve;
+          });
+          return { stopReason: "cancelled", cancelRequested: true };
+        }
+        const resultJsonPath =
+          getAcpSkillRunRecord(requestId)?.resultJsonPath || "";
+        if (resultJsonPath) {
+          await fs.mkdir(path.dirname(resultJsonPath), { recursive: true });
+          await fs.writeFile(
+            path.join(path.dirname(resultJsonPath), "_skill_run_feedback.md"),
+            "## Recovered live reply feedback\n\nDetached continuation reached apply.",
+            "utf8",
+          );
+        }
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: JSON.stringify({
+                __SKILL_DONE__: true,
+                kind: "live_deferred_final",
+                ok: true,
+              }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        resolveCancelledPrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    const sequenceRequest = {
+      kind: "skillrunner.sequence.v1" as const,
+      steps: [
+        {
+          id: "finalize",
+          skill_id: "topic-synthesis-finalize",
+          mode: "interactive",
+          workspace: "reuse-workflow" as const,
+        },
+      ],
+      final_step_id: "finalize",
+    };
+    let requestId = "";
+    try {
+      resetAcpSkillRunsForTests();
+      resetWorkflowTasks();
+      process.env.ZOTERO_TEST_WORKFLOW_DIR = recoveryWorkflow.workflowsDir;
+      await rescanWorkflowRegistry({
+        workflowsDir: recoveryWorkflow.workflowsDir,
+      });
+      initializeSequenceRunState({
+        request: sequenceRequest,
+        backend,
+        providerOptions: { mode: "live-deferred-final-test" },
+        workflowId: recoveryWorkflow.workflowId,
+        workflowLabel: "Recovered Sequence Apply Workflow",
+        workflowRunId,
+        jobId,
+      });
+      const execution = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend,
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "topic-synthesis-finalize",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "interactive",
+            collect_skill_run_feedback: true,
+          },
+        },
+        orchestrationContext: {
+          workflowId: recoveryWorkflow.workflowId,
+          workflowLabel: "Recovered Sequence Apply Workflow",
+          workflowRunId,
+          jobId,
+          sequenceStepId: "finalize",
+          finalStepId: "finalize",
+        },
+        onProgress: (event) => {
+          if (event.type !== "request-created") {
+            return;
+          }
+          requestId = String(event.requestId);
+          recordSequenceStepRequestCreated({
+            sequenceRunId: workflowRunId,
+            stepIndex: 0,
+            requestId,
+          });
+          recordWorkflowTaskUpdate(
+            makeAcpWorkflowTaskJob({
+              requestId,
+              workflowId: recoveryWorkflow.workflowId,
+              backendId: ACP_OPENCODE_BACKEND_ID,
+              state: "running",
+            }),
+          );
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "topic-synthesis-finalize": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      await firstPromptStarted;
+      assert.isNotEmpty(requestId);
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      const deferred = await execution;
+      assert.equal(deferred.status, "deferred");
+      assert.equal(deferred.backendStatus, "waiting_user");
+
+      await replyAcpSkillRun({
+        requestId,
+        message: "continue to final",
+      });
+
+      const finished = buildAcpSkillRunPanelSnapshot({
+        selectedRequestId: requestId,
+      }).selectedRun;
+      assert.equal(finished?.status, "succeeded");
+      assert.equal(finished?.applyResultState, "succeeded");
+      assert.equal(finished?.outputConvergenceState, "final");
+      assert.deepEqual(
+        finished?.outputRevisions.map((entry) => entry.status),
+        ["final"],
+      );
+      const assistantMessages =
+        finished?.transcriptItems.filter(
+          (item) => item.kind === "message" && item.role === "assistant",
+        ) || [];
+      assert.isTrue(
+        assistantMessages.some((item) =>
+          item.text.includes("- kind: live_deferred_final"),
+        ),
+      );
+      assert.isFalse(
+        assistantMessages.some((item) => item.text.includes("```json")),
+      );
+      assert.isFalse(
+        assistantMessages.some((item) => item.text.includes("__SKILL_DONE__")),
+      );
+      assert.equal(
+        listWorkflowTasks().find((task) => task.requestId === requestId)?.state,
+        "succeeded",
+      );
+      const feedbackProducts = listSkillRunFeedbackProducts(
+        "topic-synthesis-finalize",
+      );
+      assert.lengthOf(feedbackProducts, 1);
+      assert.equal(feedbackProducts[0].metadata.requestId, requestId);
+      assert.equal(feedbackProducts[0].metadata.sequenceStepId, "finalize");
+      const feedbackPreview = await readProductAssetPreview(
+        feedbackProducts[0].productId,
+        SKILL_RUN_FEEDBACK_ASSET_ID,
+      );
+      assert.include(
+        feedbackPreview.text,
+        "Detached continuation reached apply",
+      );
+      assert.equal(promptCount, 2);
+    } finally {
+      if (typeof previousWorkflowDir === "string") {
+        process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
+      } else {
+        delete process.env.ZOTERO_TEST_WORKFLOW_DIR;
+      }
+      await shutdownAcpSkillRunConversations().catch(() => undefined);
+      await rescanWorkflowRegistry();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs invalid output from a live deferred reply before sequence apply", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "topic-synthesis-finalize",
+    });
+    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root);
+    const previousWorkflowDir = process.env.ZOTERO_TEST_WORKFLOW_DIR;
+    const backend = createBackend({ id: ACP_OPENCODE_BACKEND_ID });
+    const workflowRunId = "workflow-run-live-deferred-repair";
+    const jobId = "job-live-deferred-repair";
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let resolveFirstPromptStarted: (() => void) | null = null;
+    let resolveCancelledPrompt: (() => void) | null = null;
+    const firstPromptStarted = new Promise<void>((resolve) => {
+      resolveFirstPromptStarted = resolve;
+    });
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-live-deferred-repair" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCount += 1;
+        if (promptCount === 1) {
+          resolveFirstPromptStarted?.();
+          await new Promise<void>((resolve) => {
+            resolveCancelledPrompt = resolve;
+          });
+          return { stopReason: "cancelled", cancelRequested: true };
+        }
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text:
+                promptCount === 2
+                  ? "not valid json"
+                  : JSON.stringify({
+                      __SKILL_DONE__: true,
+                      kind: "live_deferred_repaired",
+                      ok: true,
+                    }),
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        resolveCancelledPrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    const sequenceRequest = {
+      kind: "skillrunner.sequence.v1" as const,
+      steps: [
+        {
+          id: "finalize",
+          skill_id: "topic-synthesis-finalize",
+          mode: "interactive",
+          workspace: "reuse-workflow" as const,
+        },
+      ],
+      final_step_id: "finalize",
+    };
+    let requestId = "";
+    try {
+      resetAcpSkillRunsForTests();
+      resetWorkflowTasks();
+      process.env.ZOTERO_TEST_WORKFLOW_DIR = recoveryWorkflow.workflowsDir;
+      await rescanWorkflowRegistry({
+        workflowsDir: recoveryWorkflow.workflowsDir,
+      });
+      initializeSequenceRunState({
+        request: sequenceRequest,
+        backend,
+        providerOptions: { mode: "live-deferred-repair-test" },
+        workflowId: recoveryWorkflow.workflowId,
+        workflowLabel: "Recovered Sequence Apply Workflow",
+        workflowRunId,
+        jobId,
+      });
+      const execution = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend,
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "topic-synthesis-finalize",
+          fetch_type: "result",
+          runtime_options: { execution_mode: "interactive" },
+        },
+        orchestrationContext: {
+          workflowId: recoveryWorkflow.workflowId,
+          workflowLabel: "Recovered Sequence Apply Workflow",
+          workflowRunId,
+          jobId,
+          sequenceStepId: "finalize",
+          finalStepId: "finalize",
+        },
+        onProgress: (event) => {
+          if (event.type !== "request-created") {
+            return;
+          }
+          requestId = String(event.requestId);
+          recordSequenceStepRequestCreated({
+            sequenceRunId: workflowRunId,
+            stepIndex: 0,
+            requestId,
+          });
+          recordWorkflowTaskUpdate(
+            makeAcpWorkflowTaskJob({
+              requestId,
+              workflowId: recoveryWorkflow.workflowId,
+              backendId: ACP_OPENCODE_BACKEND_ID,
+              state: "running",
+            }),
+          );
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "topic-synthesis-finalize": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          maxRepairRounds: 2,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      await firstPromptStarted;
+      assert.isNotEmpty(requestId);
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      const deferred = await execution;
+      assert.equal(deferred.status, "deferred");
+      assert.equal(deferred.backendStatus, "waiting_user");
+
+      await replyAcpSkillRun({
+        requestId,
+        message: "continue and repair",
+      });
+
+      const finished = buildAcpSkillRunPanelSnapshot({
+        selectedRequestId: requestId,
+      }).selectedRun;
+      assert.equal(finished?.status, "succeeded");
+      assert.equal(finished?.applyResultState, "succeeded");
+      assert.equal(finished?.repairRounds, 1);
+      assert.deepEqual(
+        finished?.outputRevisions.map((entry) => entry.status),
+        ["invalid", "final"],
+      );
+      assert.equal(
+        listWorkflowTasks().find((task) => task.requestId === requestId)?.state,
+        "succeeded",
+      );
+      assert.equal(promptCount, 3);
+    } finally {
+      if (typeof previousWorkflowDir === "string") {
+        process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
+      } else {
+        delete process.env.ZOTERO_TEST_WORKFLOW_DIR;
+      }
+      await shutdownAcpSkillRunConversations().catch(() => undefined);
+      await rescanWorkflowRegistry();
       await fs.rm(root, { recursive: true, force: true });
     }
   });

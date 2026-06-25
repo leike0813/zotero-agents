@@ -1,0 +1,11 @@
+{
+  "schema": "zotero-bridge.profile.v1",
+  "protocol": "host-bridge.v1",
+  "endpoint": "http://127.0.0.1:26570/bridge/v1",
+  "connectionMode": "local",
+  "auth": {
+    "type": "bearer",
+    "tokenEnv": "ZOTERO_BRIDGE_TOKEN"
+  },
+  "source": "published-bundle-template"
+}

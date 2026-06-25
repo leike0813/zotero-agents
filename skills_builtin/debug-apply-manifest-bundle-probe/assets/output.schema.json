@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Debug Apply Manifest Bundle Probe Result",
+  "type": "object",
+  "required": [
+    "kind",
+    "workflow_id",
+    "step_id",
+    "run_key",
+    "apply_mode",
+    "artifact_manifest_path",
+    "message"
+  ],
+  "properties": {
+    "kind": { "const": "debug_apply_contract_result" },
+    "workflow_id": { "type": "string", "minLength": 1 },
+    "step_id": { "type": "string", "minLength": 1 },
+    "run_key": { "type": "string", "minLength": 1 },
+    "apply_mode": { "const": "bundle" },
+    "artifact_manifest_path": {
+      "type": "string",
+      "minLength": 1,
+      "x-type": "artifact-manifest",
+      "x-role": "artifact-manifest"
+    },
+    "message": { "type": "string" }
+  },
+  "not": {
+    "required": ["artifact_path"]
+  },
+  "additionalProperties": true
+}

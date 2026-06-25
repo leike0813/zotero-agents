@@ -9,13 +9,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function normalizeExecutionMode(value: unknown, runnerJson: Record<string, unknown>) {
+function normalizeExecutionMode(
+  value: unknown,
+  runnerJson: Record<string, unknown>,
+) {
   const explicit = normalizeString(value).toLowerCase();
   if (explicit === "interactive" || explicit === "auto") {
     return explicit;
   }
   const modes = Array.isArray(runnerJson.execution_modes)
-    ? runnerJson.execution_modes.map((entry) => normalizeString(entry).toLowerCase())
+    ? runnerJson.execution_modes.map((entry) =>
+        normalizeString(entry).toLowerCase(),
+      )
     : [];
   if (modes.includes("auto")) {
     return "auto";
@@ -116,8 +121,13 @@ export async function convergeAcpSkillTurnOutput(args: {
   executionMode?: string;
   runnerJson: Record<string, unknown>;
   primarySkillDir: string;
+  workspaceDir?: string;
+  readArtifactText?: (path: string) => Promise<string> | string;
 }): Promise<AcpSkillOutputConvergenceResult> {
-  const executionMode = normalizeExecutionMode(args.executionMode, args.runnerJson);
+  const executionMode = normalizeExecutionMode(
+    args.executionMode,
+    args.runnerJson,
+  );
   const extracted = extractAcpSkillTurnJsonCandidate(args.assistantText);
   if (!extracted.payload) {
     return {
@@ -171,6 +181,8 @@ export async function convergeAcpSkillTurnOutput(args: {
     payload: finalPayload,
     runnerJson: args.runnerJson,
     primarySkillDir: args.primarySkillDir,
+    workspaceDir: args.workspaceDir,
+    readArtifactText: args.readArtifactText,
   });
   if (!validation.ok || !isRecord(validation.resultJson)) {
     return {

@@ -94,28 +94,34 @@ describe("runtime bridge", function () {
   });
 
   it("prefers the most complete Zotero candidate by shape", function () {
-    const previousZotero = (globalThis as Record<string, unknown>).Zotero;
+    const runtime = globalThis as Record<string, unknown>;
+    const previousZotero = Object.getOwnPropertyDescriptor(runtime, "Zotero");
+    const zoteroCandidate = {
+      Items: {
+        get() {
+          return null;
+        },
+      },
+      Prefs: {
+        get() {
+          return "";
+        },
+        set() {
+          return undefined;
+        },
+      },
+      File: {
+        pathToFile(path: string) {
+          return path;
+        },
+      },
+    };
     try {
-      (globalThis as Record<string, unknown>).Zotero = {
-        Items: {
-          get() {
-            return null;
-          },
-        },
-        Prefs: {
-          get() {
-            return "";
-          },
-          set() {
-            return undefined;
-          },
-        },
-        File: {
-          pathToFile(path: string) {
-            return path;
-          },
-        },
-      };
+      Object.defineProperty(runtime, "Zotero", {
+        configurable: true,
+        writable: true,
+        value: zoteroCandidate,
+      });
       installRuntimeBridgeOverrideForTests({
         zotero: {
           File: {
@@ -130,9 +136,13 @@ describe("runtime bridge", function () {
       assert.equal(details.source, "global-var");
       assert.equal(details.shape.hasItems, true);
       assert.equal(details.shape.hasPrefs, true);
-      assert.strictEqual(resolveRuntimeZotero(), (globalThis as any).Zotero);
+      assert.strictEqual(resolveRuntimeZotero(), zoteroCandidate);
     } finally {
-      (globalThis as Record<string, unknown>).Zotero = previousZotero;
+      if (previousZotero) {
+        Object.defineProperty(runtime, "Zotero", previousZotero);
+      } else {
+        delete runtime.Zotero;
+      }
     }
   });
 
@@ -147,7 +157,10 @@ describe("runtime bridge", function () {
     const runtime = globalThis as typeof globalThis & {
       Services?: unknown;
     };
-    const previousServices = Object.getOwnPropertyDescriptor(runtime, "Services");
+    const previousServices = Object.getOwnPropertyDescriptor(
+      runtime,
+      "Services",
+    );
     try {
       Object.defineProperty(runtime, "Services", {
         configurable: true,
@@ -177,8 +190,9 @@ describe("runtime bridge", function () {
 
   it("resolves alert capability with window -> toolkit -> global fallback order", function () {
     const calls: string[] = [];
-    const previousGlobalAlert = (globalThis as { alert?: (message: string) => void })
-      .alert;
+    const previousGlobalAlert = (
+      globalThis as { alert?: (message: string) => void }
+    ).alert;
 
     try {
       installRuntimeBridgeOverrideForTests({

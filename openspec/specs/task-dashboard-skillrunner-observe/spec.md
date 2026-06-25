@@ -36,9 +36,40 @@ Plugin MUST maintain reachability/reconcile gating at backend level and apply it
 - **THEN** dashboard home running list MUST hide tasks belonging to that backend
 - **AND** hidden tasks MUST remain stored (no cleanup side effect)
 
-### Requirement: SkillRunner stream lifecycle MUST be bounded by state and session ownership
+### Requirement: SkillRunner stream lifecycle MUST be bounded by state and UI stream ownership
 
-Plugin MUST minimize long-lived stream connections.
+Plugin MUST minimize long-lived stream connections while preserving stable
+RunDialog switching for recently focused runs.
+
+#### Scenario: UI foreground stream pool ownership
+
+- **WHEN** run workspace selection moves between SkillRunner runs on the same
+  backend
+- **THEN** the selected running run SHALL have a foreground chat stream
+- **AND** the most recently selected previous running run MAY keep a warm
+  foreground chat stream
+- **AND** the backend SHALL keep at most two active UI foreground chat streams
+
+#### Scenario: third selected run evicts least-recently focused stream
+
+- **WHEN** two runs on a backend already hold warm foreground chat streams
+- **AND** a third running run on the same backend becomes selected
+- **THEN** plugin SHALL abort the least-recently focused existing stream
+- **AND** plugin SHALL start or reuse the selected run stream
+
+#### Scenario: two-run switching reuses warm streams
+
+- **WHEN** the user switches repeatedly between the same two running runs on one
+  backend
+- **THEN** plugin SHALL reuse the existing streams
+- **AND** switching SHALL NOT repeatedly disconnect and reconnect those streams
+
+#### Scenario: state boundaries release stream sessions
+
+- **WHEN** a stream-owned run becomes waiting, terminal, backend-gated, or the
+  workspace closes
+- **THEN** plugin SHALL abort that run's foreground stream
+- **AND** stream disconnect SHALL NOT mark the backend unreachable
 
 #### Scenario: chat stream singleton ownership
 
@@ -51,6 +82,14 @@ Plugin MUST minimize long-lived stream connections.
 - **WHEN** request snapshot is not `running`
 - **THEN** plugin MUST keep event stream disconnected for that request
 - **AND** upon transition to `waiting_user`/`waiting_auth`/terminal plugin MUST disconnect event stream immediately
+
+#### Scenario: Sequence step observation uses step request identity
+
+- **WHEN** SkillRunner sequence step requests are observed in dashboard or run
+  workspace
+- **THEN** each observed row SHALL be keyed by that step's backend `requestId`
+- **AND** interactions SHALL target the selected step request rather than an
+  outer sequence orchestration id
 
 ### Requirement: SkillRunner non-terminal state MUST remain observer-only
 
@@ -198,19 +237,30 @@ modes using the same requestId-driven lifecycle.
 ### Requirement: SkillRunner recoverable terminal apply MUST have a single owner
 
 Plugin MUST ensure exactly one execution path owns terminal `applyResult` for
-recoverable SkillRunner requests.
+SkillRunner runs.
 
-#### Scenario: foreground apply skips SkillRunner auto terminal success
+#### Scenario: SkillRunner sequence terminal success applies only through reconciler
 
-- **WHEN** a SkillRunner `auto` job reaches foreground queue state `succeeded`
-- **THEN** foreground apply MUST NOT call `applyResult`
-- **AND** plugin MUST mark that request as reconciler-owned pending terminal work
+- **GIVEN** a SkillRunner request belongs to a sequence step
+- **WHEN** the request reaches terminal success
+- **THEN** foreground workflow apply SHALL NOT apply that step
+- **AND** `SkillRunnerTaskReconciler` SHALL apply the step result when declared
+- **AND** plugin SHALL NOT execute the outer sequence workflow apply for that
+  step request
 
-#### Scenario: reconciler owns recoverable terminal apply for both modes
+#### Scenario: SkillRunner sequence apply does not update ACP run store
 
-- **WHEN** a recoverable SkillRunner request reaches terminal `succeeded`
-- **THEN** reconciler MUST be the only path allowed to execute `applyResult`
-- **AND** this ownership rule MUST apply to both `auto` and `interactive`
+- **WHEN** a SkillRunner sequence step apply succeeds or fails
+- **THEN** plugin SHALL update SkillRunner task/runtime and sequence state
+- **AND** plugin SHALL NOT write ACP skill-run apply state for that request
+
+#### Scenario: SkillRunner sequence waits for reconciler settlement
+
+- **WHEN** a SkillRunner sequence step is waiting for reconciler-owned terminal
+  apply
+- **THEN** workflow completion SHALL remain pending/deferred
+- **AND** plugin SHALL NOT emit an unknown foreground apply failure toast for
+  the sequence root
 
 ### Requirement: SkillRunner auto completion summary MUST be deferred to reconciler convergence
 
@@ -360,6 +410,23 @@ Run dialog MUST tolerate stale cached chat core assets during rollout.
 - **AND** 重建目标 MUST 是 `events/history -> events SSE`
 - **AND** 前端 MUST NOT 直接用 jobs API 轮询去改写 `queued/running` 非终态
 
+#### Scenario: pending endpoint can clear stale interaction cards
+- **WHEN** run 处于 `waiting_user` 或 `waiting_auth`
+- **AND** `interaction/pending` 返回 HTTP 200
+- **AND** response has `pending=null`
+- **AND** response `status` is not `waiting_user` or `waiting_auth`
+- **THEN** frontend MUST clear the pending interaction/auth card
+- **AND** frontend MUST update the local run state from response `status`
+- **AND** frontend MUST NOT keep the stale pending interaction actionable
+
+#### Scenario: cancel rejection with terminal status settles local run
+- **WHEN** user cancels a SkillRunner run
+- **AND** cancel endpoint returns HTTP 200 with `accepted=false`
+- **AND** response `status` is terminal `succeeded`, `failed`, or `canceled`
+- **THEN** frontend MUST settle the local run to that terminal state
+- **AND** frontend MUST stop targeting that request with further cancel, reply, pending, chat, or event requests
+- **AND** frontend MUST NOT leave the run visible as an active cancellable task
+
 ### Requirement: request-created local failure MUST remain recoverable non-terminal state
 
 Plugin MUST distinguish backend terminal failure from plugin-side communication
@@ -435,3 +502,536 @@ The sidebar observation UI MUST expose current-parent-item-related running tasks
 - **THEN** the plugin MUST auto-focus only non-terminal tasks related to the new primary parent item
 - **AND** if the currently focused task remains within the related non-terminal set the plugin MUST keep focus unchanged
 
+### Requirement: request-created local failure MUST remain recoverable non-terminal state
+
+Plugin MUST distinguish backend terminal failure from plugin-side communication failure after SkillRunner request creation.
+
+#### Scenario: request-created communication failure remains recoverable
+
+- **WHEN** a SkillRunner request has already emitted `request-ready`
+- **AND** later plugin-side communication fails due to network error, timeout, `429`, or `5xx`
+- **THEN** plugin MUST keep the task in a recoverable non-terminal state
+- **AND** plugin MUST preserve request context and request ledger ownership
+- **AND** plugin MUST continue reconcile/sync against backend truth
+
+#### Scenario: request-created does not start upload-backed run observation
+
+- **WHEN** a SkillRunner request has emitted `request-created` but has not emitted `request-ready`
+- **THEN** plugin MUST NOT start run polling, event history sync, chat stream, session sync, or interaction UI for that request
+- **AND** plugin MUST NOT issue `/v1/jobs/{requestId}` or `/v1/jobs/{requestId}/events/history` observation requests for that request solely because of `request-created`
+
+#### Scenario: request-ready run-level client failure stops observation
+
+- **WHEN** a SkillRunner request has already emitted `request-ready`
+- **AND** run polling, pending sync, chat stream, event stream, or interaction action returns `400`, `404`, `410`, or `422` for that request
+- **THEN** plugin MUST settle the request as failed in local task/dashboard projections
+- **AND** plugin MUST stop observer loops and session sync for that request
+- **AND** plugin MUST NOT continue sending reply, cancel, auth import, poll, chat, or event requests for that request
+- **AND** plugin MUST NOT gate or hide the whole backend solely because of that request-level failure
+
+### Requirement: Backend reconcile gating MUST control interaction entry points
+
+Backend reconcile gating MUST remain backend-scoped and MUST NOT be triggered by terminal client errors for a single known request.
+
+#### Scenario: run-level 404 does not gate backend
+
+- **WHEN** a SkillRunner run interaction returns `404` for a known `backendId + requestId`
+- **THEN** plugin MUST mark only that request failed
+- **AND** dashboard backend tab and workspace backend group MUST remain governed by backend health probe state
+- **AND** backend reconcile flag MUST NOT be set solely from that 404 response
+
+### Requirement: SkillRunner event observation MUST require ready visible ownership
+
+Dashboard and workspace event observation MUST be gated by a post-upload ready context or a user-visible task projection. A backend `request_id` observed at `request-created` is not sufficient to start event-session sync.
+
+#### Scenario: request-created without request-ready does not start events
+
+- **GIVEN** a SkillRunner backend has returned a `request_id` for a new request
+- **AND** upload has not completed and no `request-ready` context exists
+- **WHEN** frontend dispatch bookkeeping, request ledger, dashboard refresh, or workspace refresh sees that request id
+- **THEN** plugin MUST NOT start `events/history -> events SSE` for that request
+- **AND** plugin MUST NOT open an interaction UI for that request solely from `request-created`
+- **AND** plugin MUST NOT issue repeated `/v1/jobs/{request_id}/events/history` requests for that pre-ready request
+
+#### Scenario: invisible request does not drive session sync
+
+- **GIVEN** a SkillRunner `backendId + requestId` exists in internal bookkeeping
+- **AND** there is no active or history task projection visible to the user for that request
+- **WHEN** session sync is requested for that request
+- **THEN** plugin MUST skip or stop event-session sync for that request
+- **AND** plugin MUST preserve dispatch/ledger bookkeeping without creating an observer-only invisible task
+
+### Requirement: SkillRunner queued run event observation MUST be bounded
+
+Dashboard and run-workspace observation MUST avoid repeatedly starting event-session sync for SkillRunner requests that remain `queued` without observable state changes.
+
+#### Scenario: long-unchanged queued request does not restart event history every tick
+
+- **GIVEN** a SkillRunner request has emitted `request-ready`
+- **AND** the request snapshot remains `queued` across repeated observations
+- **WHEN** dashboard or workspace observation refreshes
+- **THEN** plugin MUST NOT start a new `events/history -> events SSE` session for that request on every refresh tick
+- **AND** plugin MUST use bounded request-local cadence before trying queued-state event sync again
+- **AND** the task MUST remain visible in dashboard/workspace projections
+
+#### Scenario: running and waiting requests remain session-sync eligible
+
+- **WHEN** a SkillRunner request is observed as `running`, `waiting_user`, or `waiting_auth`
+- **THEN** plugin MAY start or maintain the normal state/session sync chain for that request
+- **AND** queued-state throttling MUST NOT prevent interactive prompt/auth observation after the state changes
+
+#### Scenario: queued observation throttling does not gate backend
+
+- **WHEN** plugin throttles event observation for an unchanged queued SkillRunner request
+- **THEN** plugin MUST NOT mark the backend unreachable solely because of that throttling
+- **AND** backend tab and backend group interactivity MUST continue to follow backend health probe state
+
+### Requirement: SkillRunner session sync start MUST be idempotent under unchanged state
+
+SkillRunner session sync start requests MUST be idempotent for a request whose relevant non-terminal state has not changed.
+
+#### Scenario: duplicate start request reuses or skips existing sync
+
+- **GIVEN** session sync has already been started or recently attempted for a SkillRunner request
+- **WHEN** another observer path asks to start sync for the same unchanged request state
+- **THEN** plugin MUST reuse the existing sync or skip the duplicate start according to request-local cadence
+
+## ADDED Requirements
+
+### Requirement: SkillRunner UI projection MUST derive from SkillRunner run store
+
+Dashboard, Task Manager, and SkillRunner workspace UI MUST treat the
+SkillRunner run store as the source for SkillRunner task projections.
+
+#### Scenario: terminal run remains visible
+
+- **WHEN** a SkillRunner run reaches terminal success, failure, or cancellation
+- **THEN** UI history SHALL keep a visible projection derived from the
+  SkillRunner run store
+- **AND** terminal observation SHALL stop stream, poll, and interaction loops for that request.
+
+#### Scenario: run-level client error is not backend gating
+
+- **WHEN** a known SkillRunner request returns `400`, `404`, `410`, or `422`
+- **THEN** plugin SHALL settle that run as failed in the SkillRunner run store
+- **AND** plugin SHALL NOT mark the backend unreachable solely from that run-level error.
+- **AND** plugin MUST NOT open parallel event-history loops for the same request
+
+### Requirement: Foreground chat stream MUST be isolated from background session sync
+
+RunDialog chat stream frames SHALL update the selected or warm run session
+without starting background event-session sync.
+
+#### Scenario: interaction event does not start background sync
+
+- **WHEN** a foreground `/chat` stream emits an interaction or auth event
+- **THEN** RunDialog MAY refresh pending/auth state for that run
+- **AND** it SHALL NOT call the background session sync entrypoint for that
+  event
+
+#### Scenario: clean stream close reconnects lightly
+
+- **WHEN** a foreground chat stream ends without a terminal run error
+- **THEN** RunDialog SHALL use reconnect backoff
+- **AND** it SHALL NOT immediately run a full metadata, pending, and history
+  refresh chain unless a cursor gap, stream error, or explicit refresh requires
+  catch-up
+
+### Requirement: SkillRunner observation MUST read run-store projections
+
+Dashboard, popover, RunDialog, and assistant workspace observation SHALL use
+SkillRunner run-store projections as their source of task state.
+
+#### Scenario: request-ready is first visible projection
+
+- **WHEN** a SkillRunner request is created but upload or initialization has not
+  reached request-ready
+- **THEN** observers SHALL NOT show a task row for that run
+- **AND** pre-ready failure SHALL be surfaced by dispatch diagnostics or toast
+
+#### Scenario: deferred apply remains visible after terminal success
+
+- **WHEN** a SkillRunner run is terminal succeeded
+- **AND** its apply state is `pending`, `running`, or `failed`
+- **THEN** observers SHALL keep the run visible with the apply state and error
+  summary
+- **AND** the run SHALL NOT silently disappear from Dashboard or popover
+
+#### Scenario: host-side settlement failure is observable
+
+- **WHEN** result parse, bundle artifact lookup, apply hook, Host Bridge, or
+  store write failure occurs during settlement
+- **THEN** observers SHALL receive a failed or retryable apply projection
+- **AND** no UI indicator SHALL remain indefinitely in waiting state without a
+  recorded error or next retry time
+
+### Requirement: Backend health gating MUST NOT suppress direct observation of active SkillRunner runs
+
+SkillRunner observe and reconcile logic SHALL distinguish backend-level health
+state from direct state checks for already-known active runs.
+
+#### Scenario: flagged backend still polls active run
+
+- **WHEN** a SkillRunner backend is marked health-flagged
+- **AND** a projectable active run with a backend request id is already known
+- **THEN** the reconciler SHALL still attempt direct `/v1/jobs/{request_id}`
+  polling in the `reconcile` lane
+- **AND** a successful poll SHALL clear the backend health failure state
+
+#### Scenario: health failure gates only non-critical observe
+
+- **WHEN** a backend health probe fails or is delayed
+- **THEN** non-critical background observe MAY be backed off or gated
+- **AND** submit, terminal settlement, and direct active-run reconciliation SHALL
+  remain schedulable
+
+### Requirement: Background history sync MUST NOT drive terminal settlement
+
+SkillRunner terminal settlement SHALL be driven by reconciler state polling and
+settlement fetches, not by background history synchronization.
+
+#### Scenario: history timeout does not block state poll
+
+- **WHEN** a background history or gap-sync request is slow or times out
+- **THEN** `/v1/jobs/{request_id}` terminal polling SHALL still be able to run
+  in the `reconcile` lane
+- **AND** the history timeout SHALL NOT mark the backend unreachable by itself
+
+### Requirement: Dashboard SHALL expose SkillRunner connection audit only in debug mode
+
+The Dashboard SHALL provide a read-only SkillRunner connection audit tab only
+when debug mode is enabled.
+
+#### Scenario: debug mode shows audit tab
+
+- **WHEN** debug mode is enabled
+- **THEN** the Dashboard tab list SHALL include
+  `skillrunner-connection-audit`
+- **AND** selecting that tab SHALL render active connections, queued
+  connections, backend/lane summaries, and recent governor lifecycle events
+
+#### Scenario: debug mode disabled hides and gates audit data
+
+- **WHEN** debug mode is disabled
+- **THEN** the Dashboard tab list SHALL NOT include
+  `skillrunner-connection-audit`
+- **AND** requesting that tab SHALL fall back to `home`
+- **AND** Dashboard snapshot construction SHALL NOT read the SkillRunner
+  connection governor audit snapshot
+
+### Requirement: SkillRunner connection audit SHALL be read-only
+
+The connection audit UI SHALL NOT mutate connection governor state.
+
+#### Scenario: audit tab has no connection mutation controls
+
+- **WHEN** the audit tab is rendered
+- **THEN** it MAY offer copy-current-JSON
+- **AND** it SHALL NOT offer abort, retry, cleanup, clear-events, or other
+  connection mutation actions
+
+### Requirement: SkillRunner observation MUST degrade under connection pressure
+
+Dashboard and run workspace observation MUST prefer stable operation over real-time refresh when connection pressure is detected.
+
+#### Scenario: reachability probe is idle-only
+
+- **WHEN** a SkillRunner backend has active or queued plugin-side requests
+- **THEN** plugin SHALL NOT send a reachability probe for that backend
+- **AND** ordinary successful backend responses SHALL be used as reachability success signals.
+
+#### Scenario: physical debt degrades observation
+
+- **WHEN** a backend has physical connection debt from timed-out requests without late settlement
+- **THEN** plugin SHALL skip low-priority reachability/background/history requests
+- **AND** plugin SHALL keep submit, settlement, and request-level reconcile available.
+
+#### Scenario: degraded stream pool keeps only selected run
+
+- **WHEN** a backend is in degraded observation mode
+- **THEN** plugin SHALL keep at most one foreground chat stream for the selected run
+- **AND** warm streams for recently selected runs SHALL be released.
+
+#### Scenario: connection audit exposes degraded reachability state
+
+- **WHEN** debug connection audit is opened
+- **THEN** it SHALL expose reachability mode, physical debt, degraded mode, and skipped low-priority request counters.
+
+## ADDED Requirements
+
+### Requirement: Selectable Pre-Ready SkillRunner Rows
+
+SkillRunner pre-ready rows MUST be selectable in the SkillRunner panel while
+remaining non-interactive with the backend.
+
+#### Scenario: user selects pre-ready task
+- **WHEN** a user selects a SkillRunner task without backend `request_id`
+- **THEN** the SkillRunner panel shows the normal foreground layout and banner
+- **AND** the banner does not display a request id
+- **AND** the conversation area shows sparse local system messages for submit/upload phases.
+
+#### Scenario: backend operations are gated
+- **WHEN** the selected task has no backend `request_id`
+- **THEN** no stream, history, pending, auth, reply, cancel, or backend-state request is sent.
+
+#### Scenario: task becomes request-ready
+- **WHEN** the same local task receives a backend `request_id` and reaches request-ready
+- **THEN** the same selected foreground task upgrades to the normal backend-interactive run.
+
+## ADDED Requirements
+
+### Requirement: Reconciler recovery is one-shot foreground handoff
+
+The SkillRunner recovery coordinator SHALL NOT continuously poll jobs or apply
+results. It SHALL run only after a SkillRunner backend transitions from
+unavailable to reachable, or after managed local runtime post-up handoff, and
+recoverable work SHALL be handed to foreground continuation.
+
+#### Scenario: Interval reconcile skips ordinary foreground tasks
+
+- **GIVEN** an active SkillRunner task is running under foreground ownership
+- **WHEN** normal interval reconcile runs
+- **THEN** it SHALL NOT call `GET /v1/jobs/{request_id}` for that task.
+
+#### Scenario: Startup probe recovery hands off recoverable work
+
+- **WHEN** plugin startup registers an enabled SkillRunner backend as
+  unavailable
+- **AND** the startup reachability probe succeeds
+- **THEN** recoverable non-terminal or unapplied terminal runs SHALL be handed
+  to foreground continuation once
+- **AND** recovery SHALL NOT fetch `/result` or `/bundle` directly.
+
+#### Scenario: Backend recovery scans only recovered backend
+
+- **WHEN** a SkillRunner backend transitions from unavailable to reachable
+- **THEN** recovery handoff SHALL run once for that backend only.
+
+#### Scenario: Backend recovery de-dupes active sweeps
+
+- **GIVEN** a backend recovery sweep is already in flight for a backend
+- **WHEN** the same backend reports another recovered-health transition
+- **THEN** recovery SHALL NOT start a second backend sweep for that backend.
+
+#### Scenario: Only enabled reachable SkillRunner backends are submittable
+
+- **GIVEN** a configured SkillRunner backend is disabled, unknown, probing, or
+  unreachable
+- **WHEN** submit-time settings collect visible backends
+- **THEN** the backend SHALL be filtered out.
+
+#### Scenario: Reachable enabled SkillRunner backend is submittable
+
+- **GIVEN** a configured SkillRunner backend is enabled
+- **AND** a successful probe or active connection has marked it reachable
+- **WHEN** submit-time settings collect visible backends
+- **THEN** the backend SHALL be included.
+
+#### Scenario: Tracked backend is not implicitly reachable
+
+- **WHEN** a configured SkillRunner backend is registered for health tracking
+- **THEN** it SHALL remain unconfirmed reachable until a real successful
+  backend operation is observed
+- **AND** backend management UI SHALL NOT show it as reachable solely because
+  it is configured.
+
+#### Scenario: Disabled backend is not probed
+
+- **GIVEN** a configured SkillRunner backend has `enabled:false`
+- **WHEN** reachability probe scheduling runs
+- **THEN** no health probe SHALL be issued for that backend
+- **AND** its tasks SHALL be hidden from dashboard task lists.
+
+#### Scenario: Reachability probe auto-disables stale backend
+
+- **GIVEN** an enabled SkillRunner backend has no successful reachable event for
+  six hours
+- **WHEN** a due reachability probe cycle evaluates the backend
+- **THEN** the backend configuration SHALL be updated to `enabled:false`
+- **AND** a sticky runtime toast SHALL tell the user to re-enable it manually.
+
+#### Scenario: Backend settings synchronize health tracking
+
+- **WHEN** SkillRunner backend settings are saved
+- **THEN** current SkillRunner backends SHALL be registered for health tracking
+- **AND** removed SkillRunner backends SHALL be untracked.
+
+#### Scenario: Missing context is unrecoverable
+
+- **GIVEN** an active SkillRunner task has no recoverable run-store context
+- **WHEN** one-shot recovery scans it
+- **THEN** the task SHALL be marked failed locally
+- **AND** recovery SHALL NOT write `apply.skipped`
+- **AND** recovery SHALL NOT show a missing-context terminal success toast.
+
+#### Scenario: Waiting runs stay detached
+
+- **GIVEN** a recovered SkillRunner run is in `waiting_user` or `waiting_auth`
+- **WHEN** one-shot recovery scans it
+- **THEN** the task projection SHALL remain waiting with reply controls
+- **AND** recovery SHALL NOT poll the job until a user reply/auth action starts
+  foreground continuation.
+
+### Requirement: Request-ready is submit phase only
+
+SkillRunner dashboard projections SHALL NOT use `request_ready` as the current
+run lifecycle state.
+
+#### Scenario: Request-ready projects as running with submit phase
+
+- **WHEN** a SkillRunner request reaches the request-ready boundary before a
+  backend waiting or terminal status is observed
+- **THEN** the task lifecycle SHALL be `running`
+- **AND** the task submit phase MAY be `request_ready`.
+
+#### Scenario: Waiting backend status wins over submit phase
+
+- **WHEN** a SkillRunner sequence step reaches `waiting_user` or `waiting_auth`
+- **THEN** the task lifecycle SHALL be that waiting state
+- **AND** reply controls SHALL be enabled.
+
+### Requirement: Task cards SHALL expose unified status axes
+
+ACP Skills and SkillRunner task cards SHALL use the same status display model.
+
+#### Scenario: Card status axes are rendered
+
+- **WHEN** a task card is rendered for an ACP Skills or SkillRunner run
+- **THEN** it SHALL show main status as a prominent badge
+- **AND** it SHALL show Backend and Apply as compact label-plus-LED rows.
+
+#### Scenario: Failed tasks remain visible
+
+- **WHEN** a task reaches failed, canceled, or apply-failed main status
+- **AND** the task is not archived or removed
+- **THEN** ACP Skills and SkillRunner panels SHALL keep the task visible.
+
+#### Scenario: Archive icon uses shared icon system
+
+- **WHEN** a task card archive action is rendered
+- **THEN** it SHALL use the shared Material Symbols SVG icon classes
+- **AND** it SHALL NOT rely on CSS pseudo-element drawing.
+
+### Requirement: SkillRunner auto-reply waiting observer SHALL be opt-in and handoff-only
+
+The plugin SHALL observe SkillRunner `waiting_user` auto-reply runs only when a
+hard-coded feature switch is enabled and the run request explicitly enabled
+`interactive_auto_reply`.
+
+#### Scenario: Default-off auto reply behaves like normal waiting detach
+
+- **WHEN** a SkillRunner interactive run enters `waiting_user`
+- **AND** the auto-reply feature switch is disabled
+- **THEN** the plugin SHALL NOT start background job polling for that waiting run
+- **AND** the task SHALL remain user-replyable as before.
+
+#### Scenario: Enabled auto reply resumes through foreground continuation
+
+- **WHEN** an auto-reply-enabled SkillRunner run is locally `waiting_user`
+- **AND** backend state changes to `running`, `succeeded`, `failed`, or `canceled`
+- **THEN** the observer SHALL stop observing that request
+- **AND** it SHALL hand off to foreground continuation
+- **AND** it SHALL NOT fetch result or apply directly.
+
+#### Scenario: Observer stops when local or backend ownership disappears
+
+- **WHEN** an auto-reply observer is active
+- **AND** the local run becomes terminal, archived, deleted, no longer waiting,
+  or no longer auto-reply-enabled
+- **THEN** the observer SHALL stop without settling or applying the run.
+
+#### Scenario: Observer stops while backend is unreachable
+
+- **WHEN** an auto-reply observer state check fails because the backend is not
+  reachable
+- **THEN** the observer SHALL stop
+- **AND** backend recovery SHALL be responsible for recreating an observer if
+  the run is still waiting after reachability is restored.
+
+#### Scenario: User reply racing backend auto reply is reconciled
+
+- **WHEN** a user replies to an auto-reply-enabled `waiting_user` run
+- **AND** the backend has already left `waiting_user`
+- **THEN** the plugin SHALL avoid treating the late reply as local terminal failure
+- **AND** it SHALL use the latest backend state to hand off to foreground continuation.
+
+### Requirement: SkillRunner auto-reply observer state SHALL be visible in task UI
+
+Interactive auto-reply SkillRunner tasks SHALL expose a compact Auto Reply
+indicator next to the existing interaction indicator.
+
+#### Scenario: Auto reply indicator is inactive before observer starts
+
+- **WHEN** a SkillRunner task is interactive and auto reply is enabled
+- **AND** no observer is active for its request
+- **THEN** the task UI SHALL show an inactive Auto Reply indicator.
+
+#### Scenario: Auto reply indicator shows active countdown for foreground observer
+
+- **WHEN** a foreground auto-reply observer is active
+- **AND** the configured timeout is greater than zero
+- **THEN** the task UI SHALL show an active Auto Reply indicator with a
+  remaining-seconds value.
+
+#### Scenario: Recovery observer hides countdown
+
+- **WHEN** a recovery-started auto-reply observer is active
+- **THEN** the task UI SHALL show an active Auto Reply indicator without a
+  countdown value.
+
+### Requirement: SkillRunner recovery MUST scan run store SSOT
+
+SkillRunner recovery MUST scan local SkillRunner run records as the lifecycle SSOT and MUST NOT use backend-wide scans as fallback truth.
+
+#### Scenario: Recoverable request-ready row is handed off
+
+- **GIVEN** a local SkillRunner run has `runKey`, `requestId`, and
+  `submitPhase = "request_ready"`
+- **WHEN** startup, backend-health, or local-runtime-up recovery runs
+- **THEN** recovery MUST project that run from the local run store
+- **AND** it MAY hand the projected run to foreground continuation.
+
+#### Scenario: Backend-wide scan is not lifecycle fallback
+
+- **GIVEN** a backend has running requests
+- **WHEN** local SkillRunner run records are missing or unprojectable
+- **THEN** recovery MUST NOT create lifecycle rows from a backend-wide scan
+- **AND** the missing local lifecycle projection MUST be treated as a local
+  state bug to fix.
+
+### Requirement: SkillRunner observation MUST consume run projections only
+
+Dashboard SkillRunner observation surfaces MUST consume `SkillRunnerRunProjection` rows derived from the run store and registry cascades.
+
+#### Scenario: Dashboard reads projected skill name
+
+- **GIVEN** a SkillRunner run has `skillId`
+- **WHEN** the dashboard renders the row
+- **THEN** it MUST read `skillName` from the projection
+- **AND** it MUST NOT expect `skillLabel` in the lifecycle record.
+
+#### Scenario: Dashboard actions use projected capabilities
+
+- **GIVEN** a SkillRunner run projection contains `canReply` and
+  `canCancelBackendRun`
+- **WHEN** the dashboard renders row actions
+- **THEN** it MUST use those projected capabilities
+- **AND** it MUST NOT independently decide lifecycle state from UI-only fields.
+
+### Requirement: SkillRunner lifecycle invariants MUST be SSOT-governed
+
+SkillRunner lifecycle invariants MUST capture lifecycle, projection, terminal ownership, and recovery scan rules as YAML invariants.
+
+#### Scenario: Design round records invariants without runtime facts
+
+- **GIVEN** this change is in the design-only round
+- **WHEN** the invariant YAML is added
+- **THEN** it MUST document the intended `SKILLRUNNER_SSOT_FACTS` anchors
+- **AND** it MUST NOT require runtime code changes in this round.
+
+#### Scenario: Implementation round wires invariants to checker
+
+- **GIVEN** the runtime implementation adds `SKILLRUNNER_SSOT_FACTS.runLifecycle`
+- **WHEN** the invariant checker is updated
+- **THEN** the lifecycle invariant YAML MUST become part of
+  `check:ssot-invariants`.

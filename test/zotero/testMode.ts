@@ -2,7 +2,9 @@ export type TestMode = "lite" | "full";
 export type TestDomain = "all" | "core" | "ui" | "workflow";
 
 function normalizeMode(value: unknown): TestMode {
-  const raw = String(value || "").trim().toLowerCase();
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
   return raw === "full" ? "full" : "lite";
 }
 
@@ -70,7 +72,9 @@ function readGrepFromServicesEnv() {
 }
 
 function normalizeDomain(value: unknown): TestDomain {
-  const raw = String(value || "").trim().toLowerCase();
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
   if (raw === "core" || raw === "ui" || raw === "workflow") {
     return raw;
   }

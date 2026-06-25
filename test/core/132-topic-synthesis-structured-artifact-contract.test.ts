@@ -1,6 +1,4 @@
 import { assert } from "chai";
-import Ajv from "ajv";
-import { readFileSync } from "fs";
 
 type AnyModule = Record<string, any> & { __loadError?: unknown };
 
@@ -26,28 +24,6 @@ function requireExport(module: AnyModule, exportName: string) {
     `expected synthesis structured artifact module to export ${exportName}`,
   );
   return module[exportName] as (...args: any[]) => any;
-}
-
-function topicArtifactSchema() {
-  return JSON.parse(
-    readFileSync(
-      "skills_builtin/create-topic-synthesis/assets/schemas/topic_synthesis_artifact.schema.json",
-      "utf8",
-    ),
-  );
-}
-
-function validateWithTopicArtifactSchema(value: unknown) {
-  const ajv = new Ajv({ allErrors: true, strict: false });
-  const validate = ajv.compile(topicArtifactSchema());
-  const ok = validate(value);
-  return {
-    ok,
-    errors:
-      validate.errors?.map(
-        (error) => `${error.instancePath} ${error.message}`,
-      ) ?? [],
-  };
 }
 
 function completeSidecars() {
@@ -79,112 +55,44 @@ function completeSidecars() {
   };
 }
 
+const COMPLETE_SECTIONS = [
+  "topic",
+  "summary",
+  "taxonomy",
+  "improvement_dimensions",
+  "claims",
+  "timeline_events",
+  "source_papers",
+  "debates",
+  "coverage",
+  "future_directions",
+  "review_outline",
+  "statistics",
+  "synthesis_report",
+  "source_artifacts",
+  "diagnostics",
+];
+
+function sectionEntry(section: string) {
+  return {
+    path: `result/sections/${section.replace(/_/g, "-")}.json`,
+    hash: `sha256:${section}`,
+    content_type: "json",
+  };
+}
+
 function completeSectionManifest(overrides: Record<string, unknown> = {}) {
   return {
     schema_id: "synthesis.topic_analysis_manifest",
-    schema_version: "2.0.0",
+    schema_version: "3.0.0",
     operation: "create",
     topic_id: "object-detection",
     language: "zh-CN",
     created_at: "2026-05-16T00:00:00.000Z",
     sidecars: completeSidecars(),
-    sections: {
-      topic: {
-        path: "result/sections/topic.json",
-        hash: "sha256:topic",
-        content_type: "json",
-      },
-      summary: {
-        path: "result/sections/summary.json",
-        hash: "sha256:summary",
-        content_type: "json",
-      },
-      claims: {
-        path: "result/sections/claims.json",
-        hash: "sha256:claims",
-        content_type: "json",
-      },
-      positioning: {
-        path: "result/sections/positioning.json",
-        hash: "sha256:positioning",
-        content_type: "json",
-      },
-      taxonomy: {
-        path: "result/sections/taxonomy.json",
-        hash: "sha256:taxonomy",
-        content_type: "json",
-      },
-      improvement_dimension_summary: {
-        path: "result/sections/improvement-dimension-summary.json",
-        hash: "sha256:improvement-summary",
-        content_type: "json",
-      },
-      improvement_dimensions: {
-        path: "result/sections/improvement-dimensions.json",
-        hash: "sha256:improvement-dimensions",
-        content_type: "json",
-      },
-      debates: {
-        path: "result/sections/debates.json",
-        hash: "sha256:debates",
-        content_type: "json",
-      },
-      review_outline: {
-        path: "result/sections/review-outline.json",
-        hash: "sha256:outline",
-        content_type: "json",
-      },
-      statistics: {
-        path: "result/sections/statistics.json",
-        hash: "sha256:statistics",
-        content_type: "json",
-      },
-      synthesis_report: {
-        path: "result/sections/synthesis-report.json",
-        hash: "sha256:report",
-        content_type: "json",
-      },
-      evidence_map: {
-        path: "result/sections/evidence-map.json",
-        hash: "sha256:evidence-map",
-        content_type: "json",
-      },
-      timeline_events: {
-        path: "result/sections/timeline-events.json",
-        hash: "sha256:timeline",
-        content_type: "json",
-      },
-      paper_evidence: {
-        path: "result/sections/paper-evidence.json",
-        hash: "sha256:evidence",
-        content_type: "json",
-      },
-      external_literature_analysis: {
-        path: "result/sections/external-literature-analysis.json",
-        hash: "sha256:external",
-        content_type: "json",
-      },
-      coverage: {
-        path: "result/sections/coverage.json",
-        hash: "sha256:coverage",
-        content_type: "json",
-      },
-      gaps: {
-        path: "result/sections/gaps.json",
-        hash: "sha256:gaps",
-        content_type: "json",
-      },
-      source_artifacts: {
-        path: "result/sections/source-artifacts.json",
-        hash: "sha256:sources",
-        content_type: "json",
-      },
-      diagnostics: {
-        path: "result/sections/diagnostics.json",
-        hash: "sha256:diagnostics",
-        content_type: "json",
-      },
-    },
+    sections: Object.fromEntries(
+      COMPLETE_SECTIONS.map((section) => [section, sectionEntry(section)]),
+    ),
     ...overrides,
   };
 }
@@ -192,7 +100,7 @@ function completeSectionManifest(overrides: Record<string, unknown> = {}) {
 function sectionPatchManifest(overrides: Record<string, unknown> = {}) {
   return {
     schema_id: "synthesis.topic_section_patch_manifest",
-    schema_version: "2.0.0",
+    schema_version: "3.0.0",
     operation: "update_patch",
     topic_id: "object-detection",
     language: "zh-CN",
@@ -231,7 +139,7 @@ function sectionPatchManifest(overrides: Record<string, unknown> = {}) {
 function structuredArtifact(overrides: Record<string, unknown> = {}) {
   return {
     schema_id: "synthesis.topic_synthesis_artifact",
-    schema_version: "2.0.0",
+    schema_version: "3.0.0",
     language: "zh-CN",
     topic: {
       id: "object-detection",
@@ -257,17 +165,53 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
       timeline_span: { start_year: 2020, end_year: 2020 },
       coverage_verdict: "partial",
     },
+    taxonomy: {
+      primary_axis: "method route",
+      axis_rationale:
+        "对象检测方法的关键差异主要体现在候选生成、查询机制和匹配策略。",
+      summary: {
+        text: "示例 taxonomy 只包含 end-to-end set prediction 一条路线，用于验证路线 summary 与节点细节可以共同表达技术路线版图。",
+      },
+      nodes: [
+        {
+          id: "tax:end-to-end",
+          label: "End-to-end set prediction",
+          definition: "用查询和集合匹配替代 proposal/NMS pipeline 的路线。",
+          core_problem: "降低检测 pipeline 中手工组件和后处理依赖。",
+          mechanism:
+            "Transformer decoder query 与 Hungarian matching 建立预测集合和目标集合的一一对应。",
+          source_paper_refs: ["1:DETR"],
+          main_contributions: ["证明 set prediction detection 可行。"],
+          strengths: ["结构统一"],
+          limitations: ["早期收敛慢"],
+          maturity: "概念验证后进入效率优化阶段",
+          relation_to_other_routes:
+            "与 anchor/proposal 路线构成端到端建模对照。",
+          review_angle:
+            "可用于 Related Work 中解释 query-based detection 的范式起点。",
+        },
+      ],
+    },
+    improvement_dimensions: [
+      {
+        id: "dim:detr",
+        label: "Set prediction formulation",
+        analysis:
+          "DETR 用 object queries 与 Hungarian matching 将对象检测改写为集合预测问题。",
+        trajectory: "后续路线继续优化 query 设计、匹配稳定性和效率。",
+        source_paper_refs: ["1:DETR"],
+      },
+    ],
     claims: [
       {
         id: "claim:detector-evolution",
         text: "检测器从手工 proposal 走向端到端集合预测。",
         analysis:
           "该判断来自 DETR 对集合预测的范式引入以及后续路线围绕查询、匹配和收敛展开的连续改进。",
-        evidence_refs: ["paper:1:DETR"],
-        evidence_map_refs: ["claim:detector-evolution"],
+        source_paper_refs: ["1:DETR"],
         confidence: 0.8,
         scope: "示例 fixture 的最小对象检测 topic。",
-        limitations: ["示例 fixture 只包含一篇库内 evidence。"],
+        limitations: ["示例 fixture 只包含一篇库内 source paper。"],
         review_usage: "可作为介绍 set prediction 检测范式的段落主题句。",
       },
     ],
@@ -288,112 +232,12 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
             "后续工作主要围绕收敛速度、小目标性能和部署效率修正 DETR 的初始瓶颈。",
           follow_on_effect:
             "后续路线围绕 query、matching 和 efficiency 继续扩展。",
-          evidence_refs: ["paper:1:DETR"],
-          evidence_map_refs: ["claim:detector-evolution"],
+          source_paper_refs: ["1:DETR"],
         },
       ],
     },
-    positioning: {
-      importance: "对象检测是视觉感知系统的基础任务之一。",
-      timeliness: "Transformer 检测器路线仍在围绕效率和部署持续发展。",
-      field_position:
-        "该 topic 位于 computer vision detection 与 transformer vision models 的交叉处。",
-      review_position:
-        "可用于说明检测器从传统 pipeline 到 query-based set prediction 的方法迁移。",
-      scope_boundary: {
-        covered: "DETR-style set prediction 示例路线。",
-        not_covered: "完整传统检测器历史。",
-      },
-      evidence_map_refs: ["claim:detector-evolution"],
-    },
-    taxonomy: {
-      primary_axis: "method route",
-      axis_rationale:
-        "对象检测方法的关键差异主要体现在候选生成、查询机制和匹配策略。",
-      summary: {
-        text: "示例 taxonomy 只包含 end-to-end set prediction 一条路线，用于验证路线 summary 与节点细节可以共同表达技术路线版图。",
-      },
-      nodes: [
-        {
-          id: "tax:end-to-end",
-          label: "End-to-end set prediction",
-          definition: "用查询和集合匹配替代 proposal/NMS pipeline 的路线。",
-          core_problem: "降低检测 pipeline 中手工组件和后处理依赖。",
-          mechanism:
-            "Transformer decoder query 与 Hungarian matching 建立预测集合和目标集合的一一对应。",
-          representative_papers: ["paper:1:DETR"],
-          main_contributions: ["证明 set prediction detection 可行。"],
-          strengths: ["结构统一"],
-          limitations: ["早期收敛慢"],
-          maturity: "概念验证后进入效率优化阶段",
-          relation_to_other_routes:
-            "与 anchor/proposal 路线构成端到端建模对照。",
-          review_angle:
-            "可用于 Related Work 中解释 query-based detection 的范式起点。",
-          paper_refs: ["1:DETR"],
-          evidence_map_refs: ["tax:end-to-end"],
-        },
-      ],
-    },
-    improvement_dimension_summary: {
-      summary: "对象检测方法的关键差异主要体现在候选生成、查询机制和匹配策略。",
-      evidence_map_refs: ["dim:detr"],
-    },
-    improvement_dimensions: [
+    source_papers: [
       {
-        id: "dim:detr",
-        label: "Set prediction formulation",
-        analysis:
-          "DETR 用 object queries 与 Hungarian matching 将对象检测改写为集合预测问题。",
-        source_paper_refs: ["1:DETR"],
-        evidence_refs: ["paper:1:DETR"],
-        evidence_map_refs: ["dim:detr"],
-      },
-    ],
-    debates: [],
-    review_outline: {
-      introduction_logic: [
-        {
-          id: "intro:detector-shift",
-          purpose: "说明对象检测建模方式变化。",
-          source_sections: ["topic", "claims"],
-          candidate_citations: ["paper:1:DETR"],
-          evidence_map_refs: ["claim:detector-evolution"],
-        },
-      ],
-      related_work_logic: [
-        {
-          id: "rw:set-prediction",
-          purpose: "按 set prediction route 组织最小 Related Work。",
-          organization: "按方法路线组织。",
-          source_sections: ["taxonomy", "timeline_events"],
-          evidence_map_refs: ["tax:end-to-end"],
-        },
-      ],
-      body_sections: [
-        {
-          id: "outline:intro",
-          title: "Introduction",
-          role: "定位对象检测方法迁移。",
-        },
-      ],
-    },
-    evidence_map: {
-      path: "runtime/payloads/cross-paper-evidence-map.json",
-      hash: "sha256:evidence-map",
-      candidate_counts: {
-        taxonomy_candidates: 1,
-        improvement_dimension_candidates: 1,
-        claim_candidates: 1,
-        debate_candidates: 0,
-        gap_candidates: 0,
-        review_outline_seeds: 1,
-      },
-      candidate_ids: ["claim:detector-evolution", "tax:end-to-end", "dim:detr"],
-    },
-    paper_evidence: [
-      {
-        id: "paper:1:DETR",
         paper_ref: "1:DETR",
         title: "End-to-End Object Detection with Transformers",
         evidence_summary: "提出 object queries 与二分图匹配的端到端检测范式。",
@@ -407,40 +251,7 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
         },
       },
     ],
-    external_literature_analysis: {
-      summary: "外部文献提供方法脉络和背景约束。",
-      themes: [
-        {
-          id: "theme:transformers",
-          title: "Transformer 背景",
-          analysis:
-            "Transformer attention 为 DETR 的 query/key/value 建模提供方法背景。",
-          related_topic_aspect: "解释 DETR 使用 transformer decoder 的来源。",
-          reference_ids: ["external:vaswani2017"],
-        },
-      ],
-      coverage_verdict: "partial",
-      coverage_reason: "示例 fixture 只覆盖一个外部 Transformer 背景主题。",
-      suggested_additions: [
-        {
-          title: "Faster R-CNN",
-          reason: "补充 proposal/anchor pipeline 背景。",
-          priority: "high",
-        },
-      ],
-      representative_references: [
-        {
-          id: "external:vaswani2017",
-          title: "Attention Is All You Need",
-          cited_by_papers: ["paper:1:DETR"],
-          why_relevant: "提供 Transformer attention 的基础概念。",
-          information_completeness: "partial",
-        },
-      ],
-      citation_contexts: [],
-      contribution_to_topic: "说明 DETR 借用 Transformer 的建模基础。",
-      limitations: "库外证据不直接支撑主结论。",
-    },
+    debates: [],
     coverage: {
       paper_count: 1,
       paper_evidence_count: 1,
@@ -448,11 +259,46 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
       references_coverage: "1/1",
       citation_analysis_coverage: "1/1",
       route_coverage_summary: "仅覆盖 set prediction 示例路线。",
-      claim_coverage_summary: "唯一 claim 有一篇库内 evidence 支撑。",
+      claim_coverage_summary: "唯一 claim 有一篇库内 source paper 支撑。",
       timeline_coverage_summary: "仅包含 2020 年 DETR 示例事件。",
       coverage_verdict: "partial",
-      external_literature_count: 1,
+      coverage_reason: "示例 fixture 只覆盖一条库内证据路线。",
+      coverage_caveats: ["示例 fixture 不代表完整对象检测领域。"],
+      external_context_summary:
+        "库外背景只作为后续补充方向，不作为主证据内嵌到 artifact。",
+      suggested_collection_directions: [
+        "补充 Faster R-CNN、YOLO 和 anchor-free detector 的 digest。",
+      ],
       warnings: ["示例 fixture 不代表完整对象检测领域。"],
+    },
+    future_directions: [
+      {
+        id: "future:background",
+        title: "补充传统检测器背景",
+        rationale:
+          "当前 fixture 只覆盖 DETR，真实综述需要 proposal、anchor 和 anchor-free 检测器作为对照。",
+        source_paper_refs: ["1:DETR"],
+        priority: "high",
+      },
+    ],
+    review_outline: {
+      topic_importance:
+        "对象检测是视觉感知系统的基础任务，DETR-style route 体现了从 pipeline 到 set prediction 的建模迁移。",
+      writing_strategies: [
+        {
+          id: "strategy:set-prediction",
+          title: "Set prediction route",
+          review_thesis:
+            "用 DETR 作为最小里程碑解释 query-based object detection 的路线起点。",
+          writing_strategy:
+            "先界定任务，再说明传统 pipeline 的约束，最后引出 object queries 与 bipartite matching。",
+          best_for: "介绍 query-based detection 的 Related Work 小节。",
+          risks: "证据范围窄，不能外推为完整对象检测史。",
+          section_plan: ["Background", "Route shift", "Limitations"],
+          source_paper_refs: ["1:DETR"],
+        },
+      ],
+      recommended_strategy_id: "strategy:set-prediction",
     },
     statistics: {
       paper_count: 1,
@@ -464,7 +310,6 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
       route_count: 1,
       route_coverage: "仅覆盖 end-to-end set prediction 示例路线。",
       coverage_verdict: "partial",
-      external_reference_count: 1,
       suggested_addition_count: 1,
       citation_graph_role_counts: {
         core: 1,
@@ -478,9 +323,8 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
         research_routes: "taxonomy.summary",
         historical_progression: "timeline_events.summary",
       },
-      body: "对象检测 topic 的核心是从图像中定位并识别目标实例。该示例 artifact 只包含 DETR 这一条库内证据，因此它只能展示端到端集合预测路线的最小综合形态。DETR 的意义在于把检测从 proposal、anchor 和 NMS 组成的 pipeline 转向 query-based set prediction；这一变化为后续关于查询设计、匹配稳定性、收敛速度和部署效率的研究提供了共同问题框架。由于 fixture 证据有限，任何关于全领域路线覆盖、外部文献充分性和长期历史演进的判断都必须标记为 partial。报告仍然明确保留 topic 定义、路线分析、时间递进、核心结论、比较争议、覆盖缺口和库外文献建议这些维度，使 host validator 能验证完整协议而不是只接受一段简短摘要。它还说明 taxonomy.summary 如何承担研究路线章节的上游真源，timeline_events.summary 如何承担历史沿革章节的上游真源，并通过 coverage、statistics 与 external_literature_analysis 标记当前库内证据的局限和下一步入库建议。",
+      body: "对象检测 topic 的核心是从图像中定位并识别目标实例。该示例 artifact 只包含 DETR 这一条库内证据，因此它只能展示端到端集合预测路线的最小综合形态。DETR 的意义在于把检测从 proposal、anchor 和 NMS 组成的 pipeline 转向 query-based set prediction；这一变化为后续关于查询设计、匹配稳定性、收敛速度和部署效率的研究提供了共同问题框架。由于 fixture 证据有限，任何关于全领域路线覆盖、外部文献充分性和长期历史演进的判断都必须标记为 partial。报告仍然明确保留 topic 定义、路线分析、时间递进、核心结论、比较争议、覆盖缺口和后续入库方向这些维度，使 host validator 能验证完整协议而不是只接受一段简短摘要。它还说明 taxonomy.summary 如何承担研究路线章节的上游真源，timeline_events.summary 如何承担历史沿革章节的上游真源，并通过 coverage、statistics 与 future_directions 标记当前库内证据的局限和下一步入库建议。",
     },
-    gaps: [],
     source_artifacts: [],
     diagnostics: {
       warnings: [],
@@ -505,6 +349,7 @@ describe("Topic synthesis structured artifact contract", function () {
     assert.equal(result.manifest.operation, "create");
     assert.equal(result.manifest.language, "zh-CN");
     assert.notProperty(result.manifest, "markdown_path");
+    assert.containsAllKeys(result.manifest.sections, COMPLETE_SECTIONS);
   });
 
   it("rejects complete section manifests that still declare markdown_path", async function () {
@@ -522,6 +367,28 @@ describe("Topic synthesis structured artifact contract", function () {
 
     assert.isFalse(result.ok);
     assert.include(result.errors.join("; "), "markdown_path");
+  });
+
+  it("rejects legacy complete sections removed from the current contract", async function () {
+    const module = await importOptional(
+      "../../src/modules/synthesis/topicStructuredArtifact",
+    );
+    const validateTopicAnalysisManifest = requireExport(
+      module,
+      "validateTopicAnalysisManifest",
+    );
+    const manifest = completeSectionManifest({
+      sections: {
+        ...completeSectionManifest().sections,
+        positioning: sectionEntry("positioning"),
+        gaps: sectionEntry("gaps"),
+      },
+    });
+
+    const result = validateTopicAnalysisManifest(manifest);
+
+    assert.isFalse(result.ok);
+    assert.match(result.errors.join("\n"), /positioning|gaps/);
   });
 
   it("accepts section patch manifests with read-set CAS and inherit-current unchanged sections", async function () {
@@ -631,10 +498,18 @@ describe("Topic synthesis structured artifact contract", function () {
     assert.equal(result.artifact.language, "zh-CN");
   });
 
-  it("validates complete topic synthesis products with the package schema", function () {
-    const result = validateWithTopicArtifactSchema(structuredArtifact());
+  it("validates complete topic synthesis products at the current host boundary", async function () {
+    const module = await importOptional(
+      "../../src/modules/synthesis/topicStructuredArtifact",
+    );
+    const validateTopicSynthesisArtifact = requireExport(
+      module,
+      "validateTopicSynthesisArtifact",
+    );
 
-    assert.isTrue(result.ok, result.errors.join("\n"));
+    const result = validateTopicSynthesisArtifact(structuredArtifact());
+
+    assert.isTrue(result.ok, result.errors?.join("\n"));
   });
 
   it("accepts improvement dimensions and runtime timeline markers", async function () {
@@ -657,12 +532,10 @@ describe("Topic synthesis structured artifact contract", function () {
             label: "DETR",
             description: "DETR 将检测问题转化为集合预测。",
             phase: "paradigm_shift",
-            why_it_matters: "它证明检测可以被重新表述为集合预测问题。",
             progression_logic:
               "后续工作围绕 query、matching 和 efficiency 展开。",
             follow_on_effect: "形成 query-based detection 的后续改进链条。",
-            evidence_refs: ["paper:1:DETR"],
-            evidence_map_refs: ["claim:detector-evolution"],
+            source_paper_refs: ["1:DETR"],
           },
         ],
         markers: [
@@ -670,14 +543,11 @@ describe("Topic synthesis structured artifact contract", function () {
             id: "tm:1",
             kind: "milestone",
             event_id: "event:detr",
-            paper_evidence_id: "paper:1:DETR",
+            source_paper_ref: "1:DETR",
             year: 2020,
             label: "DETR",
           },
         ],
-      },
-      improvement_dimension_summary: {
-        text: "改进维度从建模范式、匹配机制和效率权衡解释 DETR 路线。",
       },
       improvement_dimensions: [
         {
@@ -686,34 +556,13 @@ describe("Topic synthesis structured artifact contract", function () {
           analysis: "DETR 的主要改进是把检测重写为集合预测问题。",
           trajectory: "后续路线继续优化 query 设计、匹配稳定性和效率。",
           source_paper_refs: ["1:DETR"],
-          evidence_refs: ["paper:1:DETR"],
-          evidence_map_refs: ["dim:set-prediction"],
         },
       ],
-      evidence_map: {
-        path: "runtime/payloads/cross-paper-evidence-map.json",
-        hash: "sha256:evidence-map",
-        candidate_counts: {
-          taxonomy_candidates: 1,
-          improvement_dimension_candidates: 1,
-          claim_candidates: 1,
-          debate_candidates: 0,
-          gap_candidates: 0,
-          review_outline_seeds: 1,
-        },
-        candidate_ids: [
-          "claim:detector-evolution",
-          "tax:end-to-end",
-          "dim:set-prediction",
-        ],
-      },
     });
 
-    const schemaResult = validateWithTopicArtifactSchema(artifact);
-    const hostResult = validateTopicSynthesisArtifact(artifact);
+    const result = validateTopicSynthesisArtifact(artifact);
 
-    assert.isTrue(schemaResult.ok, schemaResult.errors.join("\n"));
-    assert.isTrue(hostResult.ok, hostResult.errors?.join("; "));
+    assert.isTrue(result.ok, result.errors?.join("; "));
   });
 
   it("rejects final reports without title or sufficient depth at the host boundary", async function () {
@@ -770,40 +619,42 @@ describe("Topic synthesis structured artifact contract", function () {
 
     const result = validateTopicSynthesisArtifact(
       structuredArtifact({
-        external_literature_analysis: {
-          summary: "",
-          themes: [],
-          representative_references: [],
-          suggested_additions: [],
+        future_directions: [],
+        coverage: {
+          paper_count: 1,
+          coverage_verdict: "partial",
         },
       }),
     );
 
     assert.isFalse(result.ok);
-    assert.match(
-      result.errors.join("\n"),
-      /external literature|source dimensions/i,
-    );
+    assert.match(result.errors.join("\n"), /coverage|future_directions/i);
   });
 
-  it("rejects shallow products at the package schema boundary", function () {
-    const result = validateWithTopicArtifactSchema(
+  it("rejects shallow products at the current host boundary", async function () {
+    const module = await importOptional(
+      "../../src/modules/synthesis/topicStructuredArtifact",
+    );
+    const validateTopicSynthesisArtifact = requireExport(
+      module,
+      "validateTopicSynthesisArtifact",
+    );
+
+    const result = validateTopicSynthesisArtifact(
       structuredArtifact({
         taxonomy: {
           primary_axis: "method",
           axis_rationale: "thin axis",
           nodes: [{ id: "route:thin", label: "Thin route" }],
         },
-        timeline_events: [
-          {
-            id: "event:thin",
-            label: "Thin event",
-          },
-        ],
-        external_literature_analysis: {
-          summary: "External references exist.",
-          themes: [],
-          representative_references: [],
+        timeline_events: {
+          summary: {},
+          events: [
+            {
+              id: "event:thin",
+              label: "Thin event",
+            },
+          ],
         },
         synthesis_report: {
           title: "Bad report",
@@ -819,7 +670,7 @@ describe("Topic synthesis structured artifact contract", function () {
     assert.isFalse(result.ok);
     assert.match(
       result.errors.join("\n"),
-      /taxonomy|timeline_events|coverage_verdict|source_section_chapters|body/i,
+      /taxonomy|timeline_events|source_section_chapters|body/i,
     );
   });
 
@@ -854,7 +705,7 @@ describe("Topic synthesis structured artifact contract", function () {
     assert.match(hashes.section_hashes.claims, /^sha256:/);
   });
 
-  it("validates claims and timeline events against library paper evidence links", async function () {
+  it("validates claims and timeline events against source paper links", async function () {
     const module = await importOptional(
       "../../src/modules/synthesis/topicStructuredArtifact",
     );
@@ -868,7 +719,9 @@ describe("Topic synthesis structured artifact contract", function () {
         {
           id: "claim:bad",
           text: "Unsupported claim",
-          evidence_refs: ["paper:1:MISSING"],
+          analysis: "Unsupported claim analysis.",
+          source_paper_refs: ["1:MISSING"],
+          scope: "Unsupported scope.",
         },
       ],
       timeline_events: {
@@ -881,7 +734,7 @@ describe("Topic synthesis structured artifact contract", function () {
             description: "Unsupported event.",
             phase: "unsupported",
             progression_logic: "Unsupported event logic.",
-            evidence_refs: ["external:vaswani2017"],
+            source_paper_refs: ["external:vaswani2017"],
           },
         ],
       },
@@ -892,7 +745,7 @@ describe("Topic synthesis structured artifact contract", function () {
     assert.isFalse(result.ok);
     assert.match(
       result.errors.join("\n"),
-      /paper_evidence|evidence_refs|external/i,
+      /source_papers|source_paper_refs|missing/i,
     );
   });
 
@@ -907,14 +760,13 @@ describe("Topic synthesis structured artifact contract", function () {
 
     const result = validateTopicSynthesisArtifact(
       structuredArtifact({
-        paper_evidence: [
+        source_papers: [
           {
-            id: "paper:1:DETR",
             paper_ref: "1:DETR",
             digest_markdown: "# Full digest body must not be embedded",
             digest_ref: {
               paper_ref: "1:DETR",
-              payload_type: "digest-markdown",
+              payload_type: "wrong-type",
             },
           },
         ],
@@ -922,13 +774,10 @@ describe("Topic synthesis structured artifact contract", function () {
     );
 
     assert.isFalse(result.ok);
-    assert.match(
-      result.errors.join("\n"),
-      /digest_ref|digest_markdown|payload_hash/i,
-    );
+    assert.match(result.errors.join("\n"), /digest_ref|digest-markdown/i);
   });
 
-  it("keeps external references inside external_literature_analysis instead of main timeline evidence nodes", async function () {
+  it("rejects legacy evidence maps and external timeline evidence nodes", async function () {
     const module = await importOptional(
       "../../src/modules/synthesis/topicStructuredArtifact",
     );
@@ -939,6 +788,19 @@ describe("Topic synthesis structured artifact contract", function () {
 
     const result = validateTopicSynthesisArtifact(
       structuredArtifact({
+        claims: [
+          {
+            id: "claim:legacy",
+            text: "Legacy evidence claim",
+            analysis: "Legacy evidence claim analysis.",
+            source_paper_refs: ["1:DETR"],
+            evidence_refs: ["paper:1:DETR"],
+            scope: "Legacy evidence scope.",
+          },
+        ],
+        evidence_map: {
+          candidate_ids: ["claim:legacy"],
+        },
         timeline_events: {
           summary: { text: "External-only event summary." },
           events: [
@@ -949,7 +811,7 @@ describe("Topic synthesis structured artifact contract", function () {
               description: "External-only background event.",
               phase: "background",
               progression_logic: "External-only background logic.",
-              evidence_refs: ["external:vaswani2017"],
+              source_paper_refs: ["external:vaswani2017"],
             },
           ],
         },
@@ -959,11 +821,11 @@ describe("Topic synthesis structured artifact contract", function () {
     assert.isFalse(result.ok);
     assert.match(
       result.errors.join("\n"),
-      /external_literature_analysis|timeline|library paper/i,
+      /evidence_refs|evidence_map|source_papers/i,
     );
   });
 
-  it("rejects shallow topic synthesis sections without route, timeline, external coverage, statistics, and report depth", async function () {
+  it("rejects shallow topic synthesis sections without route, timeline, coverage, statistics, and report depth", async function () {
     const module = await importOptional(
       "../../src/modules/synthesis/topicStructuredArtifact",
     );
@@ -986,8 +848,7 @@ describe("Topic synthesis structured artifact contract", function () {
           {
             id: "claim:thin",
             text: "A shallow finding.",
-            evidence_refs: ["paper:1:DETR"],
-            evidence_map_refs: ["claim:detector-evolution"],
+            source_paper_refs: ["1:DETR"],
           },
         ],
         timeline_events: {
@@ -997,14 +858,9 @@ describe("Topic synthesis structured artifact contract", function () {
               id: "event:thin",
               year: 2020,
               label: "A paper appeared",
-              evidence_refs: ["paper:1:DETR"],
+              source_paper_refs: ["1:DETR"],
             },
           ],
-        },
-        external_literature_analysis: {
-          summary: "External references exist.",
-          themes: [],
-          representative_references: [],
         },
         statistics: {},
         synthesis_report: {
@@ -1016,7 +872,7 @@ describe("Topic synthesis structured artifact contract", function () {
     assert.isFalse(result.ok);
     assert.match(
       result.errors.join("\n"),
-      /discipline|taxonomy route|analysis\/rationale|progression|coverage_verdict|statistics\.paper_count|synthesis_report/i,
+      /discipline|taxonomy route|analysis\/rationale|progression|statistics\.paper_count|synthesis_report/i,
     );
   });
 });

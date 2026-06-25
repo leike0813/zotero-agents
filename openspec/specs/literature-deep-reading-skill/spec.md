@@ -420,9 +420,11 @@ The `literature-deep-reading` runtime SHALL accept `runtime/payloads/final-revie
 - **WHEN** the agent runs `python scripts/deep_reading_runtime.py submit-final-review --payload runtime/payloads/final-review.json`
 - **THEN** the runtime SHALL write `result/deep-reading.html`
 - **AND** it SHALL write `result/deep-reading-manifest.json`
+- **AND** it SHALL write a flat `result/deep-reading-artifacts.json` artifact manifest
 - **AND** it SHALL write `result/final-output.candidate.json`
 - **AND** it SHALL return `kind: "literature_deep_reading_finalized"` and `status: "completed"`
-- **AND** it SHALL declare `final_html_available: true`.
+- **AND** the final output SHALL expose `html_path` and `artifact_manifest_path`
+- **AND** it SHALL NOT require runtime-internal `db_path` or `views` fields as business output.
 
 ### Requirement: Final HTML renderer
 
@@ -603,3 +605,213 @@ The final renderer SHALL expose citation graph render readiness and diagnostics.
 - **WHEN** the standalone graph renderer cannot initialize
 - **THEN** the graph container SHALL report `data-zs-cg-status="failed"`
 - **AND** the user SHALL see a compact fallback message instead of an empty frame
+
+### Requirement: Runtime SHALL materialize stage agent packets
+
+The `literature-deep-reading` runtime SHALL materialize compact agent-facing
+packet views at each stage handoff so agents can read one default packet instead
+of many runtime-owned intermediate views.
+
+#### Scenario: Bootstrap creates the Stage 10 packet
+
+- **WHEN** `scripts/deep_reading_runtime.py bootstrap --input runtime/input.json`
+  succeeds
+- **THEN** the runtime SHALL write `runtime/views/stage-10-agent-packet.json`
+- **AND** the packet SHALL include the next payload path, submit command,
+  validate command, summary, work items, diagnostics summary, and trace paths
+- **AND** the packet SHALL NOT inline full source markdown or full reading
+  blocks.
+
+#### Scenario: Stage 10 creates the Stage 20 packet
+
+- **WHEN** `submit-context-request` succeeds
+- **THEN** the runtime SHALL write `runtime/views/stage-20-agent-packet.json`
+- **AND** the packet SHALL summarize Host context availability, topic context,
+  concept needs, reference digest availability, diagnostics, and trace paths.
+
+#### Scenario: Stage 20 creates the Stage 30 worklist
+
+- **WHEN** `submit-reading-enrichment` succeeds
+- **THEN** the runtime SHALL write
+  `runtime/views/stage-30-translation-worklist.json`
+- **AND** the worklist SHALL summarize translation source, target language,
+  required translation count, required block ids, batch paths, batch counts, and
+  diagnostics.
+- **AND** if translator alignment already supplies translations, the worklist
+  SHALL identify that block translation submission should be skipped.
+
+#### Scenario: Stage 30 creates the Stage 40 review packet
+
+- **WHEN** `submit-block-translations` succeeds
+- **THEN** the runtime SHALL write `runtime/views/stage-40-review-packet.json`
+- **AND** the packet SHALL summarize translation counts, translation source,
+  diagnostics, and trace paths for final review.
+
+### Requirement: Stage validation SHALL require packet handoffs
+
+The `literature-deep-reading` validation commands SHALL verify that the expected
+agent-facing packet exists and contains valid JSON before declaring a stage
+valid.
+
+#### Scenario: Packet is missing after bootstrap
+
+- **GIVEN** bootstrap views exist
+- **AND** `runtime/views/stage-10-agent-packet.json` is missing
+- **WHEN** `validate-bootstrap` runs
+- **THEN** validation SHALL fail.
+
+#### Scenario: Packet is missing after a submit stage
+
+- **GIVEN** a submit command has generated its normal runtime views
+- **AND** the corresponding agent-facing packet is missing
+- **WHEN** the matching `validate-*` command runs
+- **THEN** validation SHALL fail.
+
+### Requirement: Skill instructions SHALL enforce submit validate gates
+
+The generated `literature-deep-reading` skill instructions SHALL require agents
+to validate each stage immediately after submit and to repair the current stage
+payload before continuing.
+
+#### Scenario: Generated instructions describe the gate
+
+- **WHEN** the built-in skill package is rendered
+- **THEN** `SKILL.md` and `assets/runner.json` SHALL instruct the agent to run
+  the matching `validate-*` command after each submit command
+- **AND** they SHALL instruct the agent not to continue to the next stage until
+  validation returns `ok: true`.
+
+#### Scenario: Generated instructions are packet-first
+
+- **WHEN** the built-in skill package is rendered
+- **THEN** Stage 30 instructions SHALL default to reading
+  `runtime/views/stage-30-translation-worklist.json` and the listed batch files
+- **AND** Stage 40 instructions SHALL default to reading
+  `runtime/views/stage-40-review-packet.json`
+- **AND** larger runtime views SHALL be described as trace paths for use only
+  when needed.
+
+### Requirement: Skill instructions SHALL define reader-first task goals
+
+The generated `literature-deep-reading` skill instructions SHALL state that the
+skill produces a self-contained HTML reading experience for the current paper,
+with source reading as the primary task and translation, topic context, citation
+graph, reference digests, and concept explanations as supporting layers.
+
+#### Scenario: Generated instructions describe the product goal
+
+- **WHEN** the built-in skill package is rendered
+- **THEN** `SKILL.md` SHALL include a task goal section
+- **AND** the section SHALL state that the source paper remains primary
+- **AND** the section SHALL state that the skill is not a generic survey,
+  pure translation task, or report generator.
+
+### Requirement: Skill instructions SHALL define LLM and runtime responsibilities
+
+The generated `literature-deep-reading` skill instructions SHALL state which
+work is owned by the LLM and which work is owned by the runtime.
+
+#### Scenario: Generated instructions describe responsibility boundaries
+
+- **WHEN** the built-in skill package is rendered
+- **THEN** `SKILL.md` SHALL list LLM-owned semantic responsibilities
+- **AND** it SHALL list runtime-owned deterministic responsibilities
+- **AND** it SHALL forbid hand-editing runtime-owned views, SQLite state, or
+  final HTML.
+
+### Requirement: Skill instructions SHALL define general safety and recovery rules
+
+The generated `literature-deep-reading` skill instructions SHALL define
+packet-first recovery and runtime-owned artifact safety rules.
+
+#### Scenario: Generated instructions describe recovery
+
+- **WHEN** the built-in skill package is rendered
+- **THEN** `SKILL.md` SHALL instruct agents to run `status` before recovery
+- **AND** it SHALL instruct agents to read the current stage packet by default
+- **AND** it SHALL say missing packets must be repaired through the matching
+  validate/submit stage rather than skipped.
+
+### Requirement: Skill instructions SHALL define optional subagent delegation protocol
+
+The generated `literature-deep-reading` skill instructions SHALL define Stage 30
+subagent delegation as optional batch-level work with main-agent ownership of
+review and submission.
+
+#### Scenario: Generated instructions describe Stage 30 delegation
+
+- **WHEN** the built-in skill package is rendered
+- **THEN** Stage 30 instructions SHALL say subagents translate one runtime batch
+- **AND** they SHALL define a result shape containing `batch_id`,
+  `translations[]`, and `quality_notes[]` or equivalent stdout
+- **AND** they SHALL state that the main agent owns merge, quality review,
+  `block-translations.json`, submit, and validation.
+
+### Requirement: Context request payloads SHALL include semantic intent
+
+The `literature-deep-reading` skill SHALL require Stage 10 context request
+payloads to include enough semantic intent for Host context collection.
+
+#### Scenario: Context request is missing semantic anchors
+
+- **WHEN** `validate-context-request` checks a payload without non-empty
+  `main_task` or `method_family`
+- **THEN** validation SHALL fail.
+
+#### Scenario: Optional context request lacks required intent
+
+- **WHEN** `request_topic_context` is true without `topic_context_reason`
+- **OR** `request_concept_context` is true without `concept_labels`
+- **OR** `reference_digest_policy` is `priority_only` without
+  `priority_reference_indices`
+- **THEN** validation SHALL fail.
+
+### Requirement: Reading enrichment payloads SHALL meet minimum semantic content
+
+The `literature-deep-reading` skill SHALL require Stage 20 reading enrichment
+payloads to provide the minimum content needed for a useful reader-first HTML
+experience.
+
+#### Scenario: Preface cards are incomplete
+
+- **WHEN** `validate-reading-enrichment` checks a payload whose preface cards do
+  not match the four stable slots
+- **THEN** validation SHALL fail.
+
+#### Scenario: Section notes are incomplete
+
+- **WHEN** `validate-reading-enrichment` checks a section note missing a
+  reading goal, warning list, question list, citation note body, or citation
+  reference role list
+- **THEN** validation SHALL fail.
+
+#### Scenario: Concept or reference notes are incomplete
+
+- **WHEN** an agent-supplied concept lacks `definition`
+- **OR** a reference digest note lacks `role_in_current_paper` or `why_open`
+- **THEN** validation SHALL fail.
+
+### Requirement: Citation role guidance SHALL remain recommended not enumerated
+
+The skill instructions SHALL recommend citation role terms from
+`literature-analysis`, but the runtime SHALL NOT reject a non-empty custom role
+solely because it is outside the recommended examples.
+
+#### Scenario: Custom citation role is non-empty
+
+- **WHEN** `validate-reading-enrichment` checks a citation reference role with a
+  known `reference_id` and a non-empty custom `role`
+- **THEN** validation SHALL allow that role value.
+
+### Requirement: Translation and final review validation SHALL use runtime-owned checks
+
+The Stage 30 instructions SHALL direct agents to collect batch JSON, merge,
+submit, validate, and repair by runtime error. Final review validation SHALL
+check assessment consistency.
+
+#### Scenario: Final review assessment is inconsistent
+
+- **WHEN** `overall_assessment` is `needs_revision` without warning/error
+  observations
+- **OR** `overall_assessment` is `ready` with an error observation
+- **THEN** validation SHALL fail.

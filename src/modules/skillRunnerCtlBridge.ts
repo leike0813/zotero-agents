@@ -161,7 +161,10 @@ function joinFsPath(...segments: string[]) {
   const flattened = normalizedSegments
     .flatMap((entry) => entry.split(/[\\/]+/))
     .filter(Boolean);
-  if (drivePrefix && flattened[0]?.toLowerCase() === drivePrefix.toLowerCase()) {
+  if (
+    drivePrefix &&
+    flattened[0]?.toLowerCase() === drivePrefix.toLowerCase()
+  ) {
     flattened.shift();
   }
   const joined = flattened.join(separator);
@@ -349,7 +352,10 @@ async function readJsonObject(pathValue: string) {
   return null;
 }
 
-async function writeJsonObject(pathValue: string, value: Record<string, unknown>) {
+async function writeJsonObject(
+  pathValue: string,
+  value: Record<string, unknown>,
+) {
   await writeUtf8File(pathValue, `${JSON.stringify(value, null, 2)}\n`);
 }
 
@@ -358,7 +364,9 @@ function nowIso() {
 }
 
 async function sleepMs(ms: number) {
-  await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.floor(ms))));
+  await new Promise((resolve) =>
+    setTimeout(resolve, Math.max(0, Math.floor(ms))),
+  );
 }
 
 function toInteger(value: unknown, fallback: number) {
@@ -399,7 +407,10 @@ function getGlobalFetch() {
     fetch?: unknown;
   };
   if (typeof runtime.fetch === "function") {
-    return runtime.fetch as (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    return runtime.fetch as (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => Promise<Response>;
   }
   return undefined;
 }
@@ -407,7 +418,10 @@ function getGlobalFetch() {
 async function isTcpPortAvailable(host: string, port: number) {
   const mozillaRuntime = globalThis as {
     Components?: {
-      classes?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
+      classes?: Record<
+        string,
+        { createInstance?: (iface: unknown) => unknown }
+      >;
       interfaces?: Record<string, unknown>;
     };
     Cc?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
@@ -415,17 +429,27 @@ async function isTcpPortAvailable(host: string, port: number) {
   };
   try {
     const classes = mozillaRuntime.Components?.classes || mozillaRuntime.Cc;
-    const interfaces = mozillaRuntime.Components?.interfaces || mozillaRuntime.Ci;
-    const serverSocketFactory = classes?.["@mozilla.org/network/server-socket;1"];
+    const interfaces =
+      mozillaRuntime.Components?.interfaces || mozillaRuntime.Ci;
+    const serverSocketFactory =
+      classes?.["@mozilla.org/network/server-socket;1"];
     const nsIServerSocket = interfaces?.nsIServerSocket;
     if (serverSocketFactory?.createInstance && nsIServerSocket) {
-      const serverSocket = serverSocketFactory.createInstance(nsIServerSocket) as {
+      const serverSocket = serverSocketFactory.createInstance(
+        nsIServerSocket,
+      ) as {
         init?: (port: number, loopbackOnly: boolean, backLog: number) => void;
         close?: () => void;
       };
-      if (typeof serverSocket.init === "function" && typeof serverSocket.close === "function") {
+      if (
+        typeof serverSocket.init === "function" &&
+        typeof serverSocket.close === "function"
+      ) {
         const normalizedHost = normalizeString(host).toLowerCase();
-        const loopbackOnly = normalizedHost === "127.0.0.1" || normalizedHost === "localhost" || normalizedHost === "::1";
+        const loopbackOnly =
+          normalizedHost === "127.0.0.1" ||
+          normalizedHost === "localhost" ||
+          normalizedHost === "::1";
         serverSocket.init(port, loopbackOnly, -1);
         serverSocket.close();
         return true;
@@ -517,7 +541,10 @@ async function waitMozillaProcessExit(proc: unknown) {
       return 1;
     }
   }
-  if (typeof process.exitCode === "number" && Number.isFinite(process.exitCode)) {
+  if (
+    typeof process.exitCode === "number" &&
+    Number.isFinite(process.exitCode)
+  ) {
     return Math.floor(process.exitCode);
   }
   return 0;
@@ -527,20 +554,15 @@ async function runWithMozillaSubprocess(args: {
   command: string;
   argv: string[];
 }): Promise<CommandOutput> {
-  const subprocess = getMozillaSubprocessModule() as
-    | {
-        pathSearch?: (command: string) => Promise<string>;
-        call?: (args: {
-          command: string;
-          arguments?: string[];
-        }) => Promise<{
-          stdout?: unknown;
-          stderr?: unknown;
-          wait?: () => Promise<number>;
-          exitCode?: unknown;
-        }>;
-      }
-    | null;
+  const subprocess = getMozillaSubprocessModule() as {
+    pathSearch?: (command: string) => Promise<string>;
+    call?: (args: { command: string; arguments?: string[] }) => Promise<{
+      stdout?: unknown;
+      stderr?: unknown;
+      wait?: () => Promise<number>;
+      exitCode?: unknown;
+    }>;
+  } | null;
   if (!subprocess?.call) {
     throw new Error("mozilla subprocess unavailable");
   }
@@ -574,7 +596,9 @@ async function runWithMozillaSubprocess(args: {
     (isExecutableNotFoundText(stderr) || isExecutableNotFoundText(stdout))
   ) {
     throw new Error(
-      normalizeString(stderr) || normalizeString(stdout) || "executable not found",
+      normalizeString(stderr) ||
+        normalizeString(stdout) ||
+        "executable not found",
     );
   }
   return {
@@ -619,8 +643,9 @@ async function runWithZoteroSubprocess(args: {
       "pwsh.exe",
     ]);
     if (!powerShellSet.has(normalized)) {
-      const resolvedCandidates =
-        await resolveWindowsCommandFromPowerShell(args.command);
+      const resolvedCandidates = await resolveWindowsCommandFromPowerShell(
+        args.command,
+      );
       const candidates = [
         args.command,
         ...resolvedCandidates,
@@ -628,7 +653,9 @@ async function runWithZoteroSubprocess(args: {
         `${normalized.replace(/\.(exe|cmd|bat)$/i, "")}.exe`,
       ];
       return Array.from(
-        new Set(candidates.map((entry) => normalizeString(entry)).filter(Boolean)),
+        new Set(
+          candidates.map((entry) => normalizeString(entry)).filter(Boolean),
+        ),
       );
     }
     const candidates = [
@@ -640,7 +667,9 @@ async function runWithZoteroSubprocess(args: {
       "powershell",
     ];
     return Array.from(
-      new Set(candidates.map((entry) => normalizeString(entry)).filter(Boolean)),
+      new Set(
+        candidates.map((entry) => normalizeString(entry)).filter(Boolean),
+      ),
     );
   })();
   let lastErrorText = "";
@@ -680,17 +709,28 @@ async function resolveWindowsCommandForNsIProcess(command: string) {
   if (!normalized) {
     return "";
   }
-  const powerShellSet = new Set(["powershell", "powershell.exe", "pwsh", "pwsh.exe"]);
+  const powerShellSet = new Set([
+    "powershell",
+    "powershell.exe",
+    "pwsh",
+    "pwsh.exe",
+  ]);
   const lower = normalized.toLowerCase();
   const candidates = Array.from(
-    new Set([
-      ...(isAbsoluteCommand(normalized) || hasPathSeparator(normalized)
-        ? [normalized]
-        : []),
-      ...(powerShellSet.has(lower) ? getWindowsPowerShellAbsoluteCandidates() : []),
-      ...(await resolveWindowsCommandFromPowerShell(normalized)),
-      ...getWindowsExecutableCandidates(normalized),
-    ].map((entry) => normalizeString(entry)).filter(Boolean)),
+    new Set(
+      [
+        ...(isAbsoluteCommand(normalized) || hasPathSeparator(normalized)
+          ? [normalized]
+          : []),
+        ...(powerShellSet.has(lower)
+          ? getWindowsPowerShellAbsoluteCandidates()
+          : []),
+        ...(await resolveWindowsCommandFromPowerShell(normalized)),
+        ...getWindowsExecutableCandidates(normalized),
+      ]
+        .map((entry) => normalizeString(entry))
+        .filter(Boolean),
+    ),
   );
   for (const candidate of candidates) {
     if (await pathExists(candidate)) {
@@ -750,7 +790,10 @@ async function runWithWindowsNsIProcessHidden(args: {
   }
   const runtime = globalThis as {
     Components?: {
-      classes?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
+      classes?: Record<
+        string,
+        { createInstance?: (iface: unknown) => unknown }
+      >;
       interfaces?: Record<string, unknown>;
     };
     Cc?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
@@ -770,9 +813,13 @@ async function runWithWindowsNsIProcessHidden(args: {
   ) {
     throw new Error("XPCOM nsIProcess APIs are unavailable");
   }
-  const resolvedCommand = await resolveWindowsCommandForNsIProcess(args.command);
+  const resolvedCommand = await resolveWindowsCommandForNsIProcess(
+    args.command,
+  );
   if (!resolvedCommand) {
-    throw new Error(`failed to resolve command for nsIProcess: ${args.command}`);
+    throw new Error(
+      `failed to resolve command for nsIProcess: ${args.command}`,
+    );
   }
   const captureContext = await buildWindowsPowerShellCaptureContext(args.argv);
   const invocationArgv = captureContext ? captureContext.argv : args.argv;
@@ -805,11 +852,12 @@ async function runWithWindowsNsIProcessHidden(args: {
   } catch {
     // ignore if unsupported
   }
-  const runAsync = typeof proc.runwAsync === "function"
-    ? proc.runwAsync.bind(proc)
-    : typeof proc.runAsync === "function"
-      ? proc.runAsync.bind(proc)
-      : null;
+  const runAsync =
+    typeof proc.runwAsync === "function"
+      ? proc.runwAsync.bind(proc)
+      : typeof proc.runAsync === "function"
+        ? proc.runAsync.bind(proc)
+        : null;
   if (!runAsync) {
     throw new Error("nsIProcess async execution is unavailable");
   }
@@ -960,7 +1008,10 @@ async function pathExists(pathValue: string) {
   const runtime = globalThis as {
     IOUtils?: { exists?: (path: string) => Promise<boolean> };
     Components?: {
-      classes?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
+      classes?: Record<
+        string,
+        { createInstance?: (iface: unknown) => unknown }
+      >;
       interfaces?: Record<string, unknown>;
     };
     Cc?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
@@ -1041,8 +1092,7 @@ function normalizeCtlResult(args: {
     typeof payload?.exit_code === "number" && Number.isFinite(payload.exit_code)
       ? Math.floor(payload.exit_code)
       : args.output.exitCode;
-  const ok =
-    typeof payload?.ok === "boolean" ? payload.ok : exitCode === 0;
+  const ok = typeof payload?.ok === "boolean" ? payload.ok : exitCode === 0;
   const message =
     normalizeString(payload?.message) ||
     normalizeString(args.output.stderr) ||
@@ -1086,7 +1136,7 @@ function buildWindowsPowerShellScriptInvocation(args: {
     "$ErrorActionPreference='Stop'",
     "if ([string]::IsNullOrWhiteSpace($env:PATH) -and -not [string]::IsNullOrWhiteSpace($env:Path)) { $env:PATH = $env:Path }",
     "$npmCommand = Get-Command npm -ErrorAction SilentlyContinue",
-    "if ($npmCommand -and $npmCommand.Source) { $npmDir = Split-Path -Parent $npmCommand.Source; if ($npmDir -and ($env:PATH -notlike \"*${npmDir}*\")) { $env:PATH = \"$npmDir;$env:PATH\" } }",
+    'if ($npmCommand -and $npmCommand.Source) { $npmDir = Split-Path -Parent $npmCommand.Source; if ($npmDir -and ($env:PATH -notlike "*${npmDir}*")) { $env:PATH = "$npmDir;$env:PATH" } }',
     `& ${toPowerShellSingleQuotedLiteral(scriptPath)}${inlineScriptArgs ? ` ${inlineScriptArgs}` : ""}`,
     "exit $LASTEXITCODE",
   ].join("; ");
@@ -1122,7 +1172,10 @@ function buildCtlInvocation(args: CtlArgs): ScriptCommandInvocation {
       Number.isFinite(args.portFallbackSpan) &&
       args.portFallbackSpan >= 0
     ) {
-      commandArgs.push("--port-fallback-span", String(Math.floor(args.portFallbackSpan)));
+      commandArgs.push(
+        "--port-fallback-span",
+        String(Math.floor(args.portFallbackSpan)),
+      );
     }
   } else if (args.command === "up") {
     commandArgs.push("--mode", args.mode || "local");
@@ -1144,7 +1197,10 @@ function buildCtlInvocation(args: CtlArgs): ScriptCommandInvocation {
       Number.isFinite(args.portFallbackSpan) &&
       args.portFallbackSpan >= 0
     ) {
-      commandArgs.push("--port-fallback-span", String(Math.floor(args.portFallbackSpan)));
+      commandArgs.push(
+        "--port-fallback-span",
+        String(Math.floor(args.portFallbackSpan)),
+      );
     }
   } else if (args.command === "down" || args.command === "status") {
     commandArgs.push("--mode", args.mode || "local");
@@ -1170,7 +1226,9 @@ function buildCtlInvocation(args: CtlArgs): ScriptCommandInvocation {
   };
 }
 
-function buildUninstallInvocation(args: UninstallArgs): ScriptCommandInvocation {
+function buildUninstallInvocation(
+  args: UninstallArgs,
+): ScriptCommandInvocation {
   const safeLocalRoot = normalizeSafeLocalRootArg(args.localRoot);
   if (detectWindows()) {
     const scriptArgs: string[] = ["-Json"];
@@ -1229,7 +1287,11 @@ function appendCtlStreamChunks(args: {
     return;
   }
   const chunks: string[] = [];
-  for (let offset = 0; offset < normalized.length; offset += STREAM_CHUNK_SIZE) {
+  for (
+    let offset = 0;
+    offset < normalized.length;
+    offset += STREAM_CHUNK_SIZE
+  ) {
     chunks.push(normalized.slice(offset, offset + STREAM_CHUNK_SIZE));
   }
   const total = chunks.length;
@@ -1293,7 +1355,9 @@ function appendCtlLog(args: {
 }
 
 export class SkillRunnerCtlBridge {
-  private readonly runCommandImpl: NonNullable<SkillRunnerCtlBridgeDeps["runCommand"]>;
+  private readonly runCommandImpl: NonNullable<
+    SkillRunnerCtlBridgeDeps["runCommand"]
+  >;
 
   private readonly shouldPreflightScripts: boolean;
 
@@ -1335,9 +1399,20 @@ export class SkillRunnerCtlBridge {
     if (!base.ok) {
       return base;
     }
-    const stateFile = joinFsPath(base.agentCacheDir, "local_runtime_service.json");
-    const localLogFile = joinFsPath(base.dataDir, "logs", "local_runtime_service.log");
-    const localErrLogFile = joinFsPath(base.dataDir, "logs", "local_runtime_service.stderr.log");
+    const stateFile = joinFsPath(
+      base.agentCacheDir,
+      "local_runtime_service.json",
+    );
+    const localLogFile = joinFsPath(
+      base.dataDir,
+      "logs",
+      "local_runtime_service.log",
+    );
+    const localErrLogFile = joinFsPath(
+      base.dataDir,
+      "logs",
+      "local_runtime_service.stderr.log",
+    );
     return {
       ...base,
       stateFile,
@@ -1377,7 +1452,10 @@ export class SkillRunnerCtlBridge {
     }
     const output = await this.runCommandImpl({
       command: "sh",
-      args: ["-lc", `command -v ${toPosixSingleQuotedLiteral(normalized)} >/dev/null 2>&1`],
+      args: [
+        "-lc",
+        `command -v ${toPosixSingleQuotedLiteral(normalized)} >/dev/null 2>&1`,
+      ],
       timeoutMs: 30 * 1000,
     });
     return output.exitCode === 0;
@@ -1517,10 +1595,7 @@ export class SkillRunnerCtlBridge {
     }
     const output = await this.runCommandImpl({
       command: "sh",
-      args: [
-        "-lc",
-        `lsof -tiTCP:${normalizedPort} -sTCP:LISTEN | head -n 1`,
-      ],
+      args: ["-lc", `lsof -tiTCP:${normalizedPort} -sTCP:LISTEN | head -n 1`],
       timeoutMs: 30 * 1000,
     });
     if (output.exitCode !== 0) {
@@ -1541,7 +1616,8 @@ export class SkillRunnerCtlBridge {
     if (!fetchImpl) {
       return { ok: false, status: 0, body: null as unknown };
     }
-    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const controller =
+      typeof AbortController === "function" ? new AbortController() : null;
     const timer = controller
       ? setTimeout(() => {
           try {
@@ -1572,7 +1648,11 @@ export class SkillRunnerCtlBridge {
     }
   }
 
-  private async selectPortWithFallback(host: string, requestedPort: number, span: number) {
+  private async selectPortWithFallback(
+    host: string,
+    requestedPort: number,
+    span: number,
+  ) {
     const triedPorts: number[] = [];
     const fallbackSpan = normalizePortFallbackSpan(span, 0);
     for (let offset = 0; offset <= fallbackSpan; offset++) {
@@ -1616,7 +1696,9 @@ export class SkillRunnerCtlBridge {
     hostFallback: string;
     portFallback: number;
   }) {
-    const statePayload = await this.readLocalRuntimeState(args.layout.stateFile);
+    const statePayload = await this.readLocalRuntimeState(
+      args.layout.stateFile,
+    );
     const host = normalizeString(statePayload?.host) || args.hostFallback;
     const port = normalizePort(statePayload?.port, args.portFallback);
     const pid = toInteger(statePayload?.pid, 0);
@@ -1730,9 +1812,9 @@ export class SkillRunnerCtlBridge {
               "$ErrorActionPreference='Stop'",
               "if ([string]::IsNullOrWhiteSpace($env:PATH) -and -not [string]::IsNullOrWhiteSpace($env:Path)) { $env:PATH = $env:Path }",
               "$npmCommand = Get-Command npm -ErrorAction SilentlyContinue",
-              "if ($npmCommand -and $npmCommand.Source) { $npmDir = Split-Path -Parent $npmCommand.Source; if ($npmDir -and ($env:PATH -notlike \"*${npmDir}*\")) { $env:PATH = \"$npmDir;$env:PATH\" } }",
+              'if ($npmCommand -and $npmCommand.Source) { $npmDir = Split-Path -Parent $npmCommand.Source; if ($npmDir -and ($env:PATH -notlike "*${npmDir}*")) { $env:PATH = "$npmDir;$env:PATH" } }',
               "$uvCommand = Get-Command uv -ErrorAction SilentlyContinue",
-              "if ($uvCommand -and $uvCommand.Source) { $uvDir = Split-Path -Parent $uvCommand.Source; if ($uvDir -and ($env:PATH -notlike \"*${uvDir}*\")) { $env:PATH = \"$uvDir;$env:PATH\" }; $uvExe = $uvCommand.Source } else { $uvExe = 'uv' }",
+              'if ($uvCommand -and $uvCommand.Source) { $uvDir = Split-Path -Parent $uvCommand.Source; if ($uvDir -and ($env:PATH -notlike "*${uvDir}*")) { $env:PATH = "$uvDir;$env:PATH" }; $uvExe = $uvCommand.Source } else { $uvExe = \'uv\' }',
               `$env:SKILL_RUNNER_RUNTIME_MODE = ${toPowerShellSingleQuotedLiteral("local")}`,
               `$env:SKILL_RUNNER_LOCAL_ROOT = ${toPowerShellSingleQuotedLiteral(layout.localRoot)}`,
               `$env:SKILL_RUNNER_DATA_DIR = ${toPowerShellSingleQuotedLiteral(layout.dataDir)}`,
@@ -1776,15 +1858,15 @@ export class SkillRunnerCtlBridge {
               `export SKILL_RUNNER_AGENT_CACHE_DIR=${toPosixSingleQuotedLiteral(layout.agentCacheDir)}`,
               `export SKILL_RUNNER_AGENT_HOME=${toPosixSingleQuotedLiteral(layout.agentHome)}`,
               `export SKILL_RUNNER_NPM_PREFIX=${toPosixSingleQuotedLiteral(layout.npmPrefix)}`,
-              "export NPM_CONFIG_PREFIX=\"$SKILL_RUNNER_NPM_PREFIX\"",
+              'export NPM_CONFIG_PREFIX="$SKILL_RUNNER_NPM_PREFIX"',
               `export UV_CACHE_DIR=${toPosixSingleQuotedLiteral(layout.uvCacheDir)}`,
               `export UV_PROJECT_ENVIRONMENT=${toPosixSingleQuotedLiteral(layout.uvVenvDir)}`,
-              "mkdir -p \"$SKILL_RUNNER_DATA_DIR\" \"$SKILL_RUNNER_AGENT_CACHE_DIR\" \"$SKILL_RUNNER_AGENT_HOME\"",
+              'mkdir -p "$SKILL_RUNNER_DATA_DIR" "$SKILL_RUNNER_AGENT_CACHE_DIR" "$SKILL_RUNNER_AGENT_HOME"',
               `mkdir -p ${toPosixSingleQuotedLiteral(joinFsPath(layout.dataDir, "logs"))}`,
               `DIRECT_STDOUT=${toPosixSingleQuotedLiteral(directStdoutFile)}`,
               `DIRECT_STDERR=${toPosixSingleQuotedLiteral(directStderrFile)}`,
-              "rm -f \"$DIRECT_STDOUT\" \"$DIRECT_STDERR\"",
-              `uv run python scripts/agent_manager.py --ensure --bootstrap-report-file ${toPosixSingleQuotedLiteral(layout.reportFilePath)} 1>\"$DIRECT_STDOUT\" 2>\"$DIRECT_STDERR\"`,
+              'rm -f "$DIRECT_STDOUT" "$DIRECT_STDERR"',
+              `uv run python scripts/agent_manager.py --ensure --bootstrap-report-file ${toPosixSingleQuotedLiteral(layout.reportFilePath)} 1>"$DIRECT_STDOUT" 2>"$DIRECT_STDERR"`,
             ].join(" && "),
           ],
         };
@@ -1830,8 +1912,7 @@ export class SkillRunnerCtlBridge {
     };
 
     const shouldRetryBrokenUvVenv = (text: string) =>
-      /failed to locate pyvenv\.cfg/i.test(text) ||
-      /pyvenv\.cfg/i.test(text);
+      /failed to locate pyvenv\.cfg/i.test(text) || /pyvenv\.cfg/i.test(text);
 
     let retryAttempted = false;
     let retryReason = "";
@@ -1977,7 +2058,11 @@ export class SkillRunnerCtlBridge {
         });
       }
     }
-    const portSelection = await this.selectPortWithFallback(host, requestedPort, fallbackSpan);
+    const portSelection = await this.selectPortWithFallback(
+      host,
+      requestedPort,
+      fallbackSpan,
+    );
     if (portSelection.selectedPort <= 0) {
       blockingIssues.push({
         code: "port_unavailable",
@@ -2018,7 +2103,8 @@ export class SkillRunnerCtlBridge {
 
     const statePayload = await this.readLocalRuntimeState(layout.stateFile);
     const statePid = toInteger(statePayload?.pid, 0);
-    const statePidAlive = statePid > 0 ? await this.isPidAlive(statePid) : false;
+    const statePidAlive =
+      statePid > 0 ? await this.isPidAlive(statePid) : false;
     const stateStale = !!statePayload && !statePidAlive;
     if (stateStale) {
       warnings.push({
@@ -2073,7 +2159,9 @@ export class SkillRunnerCtlBridge {
           state_file: {
             path: layout.stateFile,
             exists: !!statePayload,
-            parse_ok: statePayload ? true : !(await pathExists(layout.stateFile)),
+            parse_ok: statePayload
+              ? true
+              : !(await pathExists(layout.stateFile)),
             pid: statePid > 0 ? statePid : null,
             pid_alive: statePidAlive,
             stale: stateStale,
@@ -2171,7 +2259,10 @@ export class SkillRunnerCtlBridge {
       };
     }
     const statePayload = await this.readLocalRuntimeState(layout.stateFile);
-    const host = normalizeString(statePayload?.host) || normalizeString(args.host) || "127.0.0.1";
+    const host =
+      normalizeString(statePayload?.host) ||
+      normalizeString(args.host) ||
+      "127.0.0.1";
     const port = normalizePort(
       statePayload?.port,
       normalizePort(args.port, 29813),
@@ -2282,7 +2373,10 @@ export class SkillRunnerCtlBridge {
       hostFallback: host,
       portFallback: requestedPort,
     });
-    if (currentStatus.ok && normalizeString(currentStatus.details?.status) === "running") {
+    if (
+      currentStatus.ok &&
+      normalizeString(currentStatus.details?.status) === "running"
+    ) {
       const alreadyRunning: SkillRunnerCtlCommandResult = {
         ...currentStatus,
         message: "Local runtime already running.",
@@ -2296,7 +2390,11 @@ export class SkillRunnerCtlBridge {
       return alreadyRunning;
     }
 
-    const portSelection = await this.selectPortWithFallback(host, requestedPort, fallbackSpan);
+    const portSelection = await this.selectPortWithFallback(
+      host,
+      requestedPort,
+      fallbackSpan,
+    );
     if (portSelection.selectedPort <= 0) {
       return {
         ok: false,
@@ -2323,7 +2421,10 @@ export class SkillRunnerCtlBridge {
     await ensureDirectory(layout.agentCacheDir);
     await ensureDirectory(layout.agentHome);
     await ensureDirectory(getParentFsPath(layout.localLogFile));
-    const pidCaptureFile = joinFsPath(layout.agentCacheDir, "local_runtime_startup.pid");
+    const pidCaptureFile = joinFsPath(
+      layout.agentCacheDir,
+      "local_runtime_startup.pid",
+    );
     await removePath(pidCaptureFile);
 
     let output: CommandOutput = {
@@ -2336,7 +2437,7 @@ export class SkillRunnerCtlBridge {
         "$ErrorActionPreference='Stop'",
         "if ([string]::IsNullOrWhiteSpace($env:PATH) -and -not [string]::IsNullOrWhiteSpace($env:Path)) { $env:PATH = $env:Path }",
         "$uvCommand = Get-Command uv -ErrorAction SilentlyContinue",
-        "if ($uvCommand -and $uvCommand.Source) { $uvDir = Split-Path -Parent $uvCommand.Source; if ($uvDir -and ($env:PATH -notlike \"*${uvDir}*\")) { $env:PATH = \"$uvDir;$env:PATH\" }; $uvExe = $uvCommand.Source } else { $uvExe = 'uv' }",
+        'if ($uvCommand -and $uvCommand.Source) { $uvDir = Split-Path -Parent $uvCommand.Source; if ($uvDir -and ($env:PATH -notlike "*${uvDir}*")) { $env:PATH = "$uvDir;$env:PATH" }; $uvExe = $uvCommand.Source } else { $uvExe = \'uv\' }',
         `$env:SKILL_RUNNER_RUNTIME_MODE = ${toPowerShellSingleQuotedLiteral("local")}`,
         `$env:SKILL_RUNNER_LOCAL_ROOT = ${toPowerShellSingleQuotedLiteral(layout.localRoot)}`,
         `$env:SKILL_RUNNER_DATA_DIR = ${toPowerShellSingleQuotedLiteral(layout.dataDir)}`,
@@ -2384,7 +2485,7 @@ export class SkillRunnerCtlBridge {
         `export SKILL_RUNNER_AGENT_CACHE_DIR=${toPosixSingleQuotedLiteral(layout.agentCacheDir)}`,
         `export SKILL_RUNNER_AGENT_HOME=${toPosixSingleQuotedLiteral(layout.agentHome)}`,
         `export SKILL_RUNNER_NPM_PREFIX=${toPosixSingleQuotedLiteral(layout.npmPrefix)}`,
-        "export NPM_CONFIG_PREFIX=\"$SKILL_RUNNER_NPM_PREFIX\"",
+        'export NPM_CONFIG_PREFIX="$SKILL_RUNNER_NPM_PREFIX"',
         `export UV_CACHE_DIR=${toPosixSingleQuotedLiteral(layout.uvCacheDir)}`,
         `export UV_PROJECT_ENVIRONMENT=${toPosixSingleQuotedLiteral(layout.uvVenvDir)}`,
         `nohup uv run uvicorn server.main:app --host ${toPosixSingleQuotedLiteral(
@@ -2691,7 +2792,9 @@ export class SkillRunnerCtlBridge {
     return result;
   }
 
-  async runUninstallCommand(args: UninstallArgs): Promise<SkillRunnerCtlCommandResult> {
+  async runUninstallCommand(
+    args: UninstallArgs,
+  ): Promise<SkillRunnerCtlCommandResult> {
     const invocation = buildUninstallInvocation(args);
     if (this.shouldPreflightScripts) {
       if (!(await pathExists(args.uninstallPath))) {
@@ -2730,5 +2833,4 @@ export class SkillRunnerCtlBridge {
     });
     return result;
   }
-
 }

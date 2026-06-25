@@ -2,13 +2,15 @@
   "id": "debug-sequence-linear-probe",
   "label": "Debug: Sequence Linear Probe",
   "version": "0.1.0",
-  "provider": "acp",
+  "provider": "skillrunner",
   "debug_only": true,
   "trigger": {
     "requiresSelection": false
   },
+  "inputs": {
+    "unit": "workflow"
+  },
   "execution": {
-    "skillrunner_mode": "auto",
     "feedback": {
       "showNotifications": false
     }
@@ -23,6 +25,7 @@
         {
           "id": "emit",
           "skill_id": "debug-sequence-probe-emit",
+          "mode": "auto",
           "workspace": "new",
           "parameter": {
             "probe_id": "linear",
@@ -33,7 +36,16 @@
         {
           "id": "check",
           "skill_id": "debug-sequence-probe-check",
+          "mode": "auto",
           "workspace": "reuse-workflow",
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "value",
+                "target": "/input/handoff"
+              }
+            ]
+          },
           "parameter": {
             "probe_id": "linear",
             "expect_handoff_present": true,
@@ -45,6 +57,7 @@
         {
           "id": "finalize",
           "skill_id": "debug-sequence-probe-finalize",
+          "mode": "auto",
           "workspace": "reuse-workflow",
           "parameter": {
             "probe_id": "linear"

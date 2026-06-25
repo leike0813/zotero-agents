@@ -11,8 +11,14 @@ import {
   ensureDefaultWorkflowDirExistsOnStartup,
   rescanWorkflowRegistry,
 } from "./modules/workflowRuntime";
-import { syncBuiltinWorkflowsOnStartup } from "./modules/builtinWorkflowSync";
 import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegistry";
+import {
+  checkContentPackageUpdate,
+  type ContentPackageCheckResult,
+  getContentPackageStatus,
+  installContentPackageFromFeed,
+  type ContentPackageInstallResult,
+} from "./modules/contentPackageSubscription";
 import { openBackendManagerDialog } from "./modules/backendManager";
 import { openTaskManagerDialog } from "./modules/taskManagerDialog";
 import {
@@ -20,6 +26,8 @@ import {
   prewarmSynthesisWorkbenchSurfaces,
 } from "./modules/synthesisWorkbenchTab";
 import { openZoteroSkillsWorkspaceTab } from "./modules/workspaceTab";
+import { openHelpCenterTab } from "./modules/helpCenterTab";
+import { getDocsUrl } from "./utils/docsUrl";
 import { installWorkflowEditorHostBridge } from "./modules/workflowEditorHost";
 import { installWorkflowRuntimeBridge } from "./modules/workflowRuntimeBridge";
 import { enableWorkflowPackageDiagnosticsForDebugMode } from "./modules/workflowPackageDiagnostics";
@@ -28,11 +36,14 @@ import {
   ensureDashboardToolbarButton,
   removeDashboardToolbarButton,
 } from "./modules/dashboardToolbarButton";
+import {
+  installMarkdownAttachmentOpenProbe,
+  uninstallMarkdownAttachmentOpenProbe,
+} from "./modules/markdownAttachmentOpenProbe";
 import { resolveRuntimeToolkit } from "./utils/runtimeBridge";
 import { openFolderInSystemFileManager } from "./utils/fileSystem";
 import { startSkillRunnerModelCacheAutoRefresh } from "./providers/skillrunner/modelCache";
 import {
-  reconcileSkillRunnerBackendTaskLedgerOnce,
   purgeSkillRunnerBackendReconcileState,
   startSkillRunnerTaskReconciler,
 } from "./modules/skillRunnerTaskReconciler";
@@ -54,7 +65,12 @@ import { loadBackendsRegistry } from "./backends/registry";
 import { refreshSkillRunnerModelCacheForBackend } from "./providers/skillrunner/modelCache";
 import { MANAGED_LOCAL_BACKEND_ID } from "./modules/skillRunnerLocalRuntimeConstants";
 import { isDebugModeEnabled } from "./modules/debugMode";
+import { emitVerboseConsole } from "./modules/diagnosticVerbosity";
 import { untrackSkillRunnerBackendHealth } from "./modules/skillRunnerBackendHealthRegistry";
+import {
+  startSkillRunnerBackendReachabilityCoordinator,
+  stopSkillRunnerBackendReachabilityCoordinator,
+} from "./modules/skillRunnerBackendReachabilityCoordinator";
 import { shutdownSkillRunnerAsyncLifecycle } from "./modules/skillRunnerAsyncLifecycle";
 import { flushRuntimeLogsPersistence } from "./modules/runtimeLogManager";
 import {
@@ -98,17 +114,36 @@ import {
 import { installHostBridgeCli } from "./modules/hostBridgeCliInstaller";
 import { writeHostBridgeWellKnownProfile } from "./modules/hostBridgeProfileStore";
 import { delay } from "./utils/runtimeCompatibility";
-import { getDefaultSynthesisService } from "./modules/synthesis/service";
+import {
+  getDefaultSynthesisService,
+  invalidateDefaultSynthesisService,
+} from "./modules/synthesis/service";
+import {
+  clearGitSyncToken,
+  getGitSyncPrefsStatus,
+  saveGitSyncPrefs,
+  saveGitSyncToken,
+  testGitSyncConfiguration,
+} from "./modules/synthesis/gitSyncPrefs";
+import {
+  clearWebDavSyncCredential,
+  getWebDavSyncPrefsStatus,
+  saveWebDavSyncCredential,
+  saveWebDavSyncPrefs,
+  testWebDavSyncConfiguration,
+} from "./modules/synthesis/webDavSyncPrefs";
 import {
   isSynthesisLibraryReadModelInvalidationEvent,
   recordSynthesisZoteroItemNotifications,
 } from "./modules/synthesis/itemObserver";
 import { reconcileWorkflowTaskProjectionsOnStartup } from "./modules/taskRuntime";
+import { closeVisibleWorkflowToasts } from "./modules/workflowExecution/feedbackSeam";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
 const LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID = "skillrunner-local";
 const SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS = 1500;
+let startupOfficialWorkflowPackageUpdateCheckStarted = false;
 
 let registeredZoteroPaneStylesheet:
   | {
@@ -179,6 +214,139 @@ function registerZoteroPaneStylesheet() {
   }
 }
 
+function localizedMessage(
+  id: string,
+  fallback: string,
+  args?: Record<string, string>,
+) {
+  try {
+    const localized = String(getString(id as any, { args })).trim();
+    const fallbackKey = `${addon.data.config.addonRef}-${id}`;
+    return localized && localized !== fallbackKey ? localized : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function promptOfficialWorkflowPackageUpdateOnStartup(args: {
+  win: _ZoteroTypes.MainWindow;
+  check?: () => Promise<ContentPackageCheckResult>;
+  install?: () => Promise<ContentPackageInstallResult>;
+  onInstalled?: () => Promise<void> | void;
+}) {
+  const check = await (args.check || checkContentPackageUpdate)();
+  if (!check.ok || !check.status.installed || !check.updateAvailable) {
+    return {
+      prompted: false,
+      installed: false,
+      check,
+    };
+  }
+
+  if (!check.compatible) {
+    args.win.alert(
+      localizedMessage(
+        "content-package-startup-update-incompatible",
+        `A new official Workflow package is available, but it cannot be installed: ${String(check.incompatibility?.message || "incompatible package")}`,
+        {
+          reason: String(
+            check.incompatibility?.message || "incompatible package",
+          ),
+        },
+      ),
+    );
+    return {
+      prompted: true,
+      installed: false,
+      check,
+    };
+  }
+
+  const currentPackage = check.status.installed.package;
+  const currentVersion = String(currentPackage.version || "unknown");
+  const latestVersion = String(check.package.version || "unknown");
+  const channel = String(
+    check.feed.channel || check.status.channel || "stable",
+  );
+  const confirmed = args.win.confirm(
+    localizedMessage(
+      "content-package-startup-update-confirm",
+      [
+        "A new official Workflow package is available.",
+        "",
+        `Current: ${currentVersion}`,
+        `Latest: ${latestVersion}`,
+        `Channel: ${channel}`,
+        "",
+        "Install the update now?",
+      ].join("\n"),
+      {
+        currentVersion,
+        latestVersion,
+        channel,
+      },
+    ),
+  );
+  if (!confirmed) {
+    return {
+      prompted: true,
+      installed: false,
+      check,
+    };
+  }
+
+  const install = await (args.install || installContentPackageFromFeed)();
+  if (install.ok) {
+    if (args.onInstalled) {
+      await args.onInstalled();
+    } else {
+      await rescanWorkflowRegistry();
+      refreshWorkflowMenus();
+    }
+    return {
+      prompted: true,
+      installed: true,
+      check,
+      install,
+    };
+  }
+
+  args.win.alert(
+    localizedMessage(
+      "content-package-startup-update-failed",
+      `Official Workflow package update failed: ${String(install.message || "unknown error")}`,
+      {
+        reason: String(install.message || "unknown error"),
+      },
+    ),
+  );
+  return {
+    prompted: true,
+    installed: false,
+    check,
+    install,
+  };
+}
+
+function scheduleOfficialWorkflowPackageUpdateCheck() {
+  if (startupOfficialWorkflowPackageUpdateCheckStarted) {
+    return;
+  }
+  startupOfficialWorkflowPackageUpdateCheckStarted = true;
+  const win = Zotero.getMainWindows?.()[0] as _ZoteroTypes.MainWindow | null;
+  if (!win) {
+    return;
+  }
+  void promptOfficialWorkflowPackageUpdateOnStartup({ win }).catch((error) => {
+    if (typeof console !== "undefined") {
+      console.warn(
+        "[content-package] startup official workflow package update check failed",
+        error,
+      );
+    }
+  });
+}
+
 function unregisterZoteroPaneStylesheet() {
   if (!registeredZoteroPaneStylesheet) {
     return;
@@ -205,40 +373,6 @@ function registerPrefsPane() {
     label: getString("prefs-title"),
     image: `chrome://${addon.data.config.addonRef}/content/icons/favicon.png`,
   });
-}
-
-async function reconcileSkillRunnerBackendsOnStartup() {
-  try {
-    const loaded = await loadBackendsRegistry();
-    if (loaded.fatalError) {
-      return;
-    }
-    for (const backend of loaded.backends) {
-      if (String(backend.type || "").trim() !== "skillrunner") {
-        continue;
-      }
-      if (String(backend.id || "").trim() === MANAGED_LOCAL_BACKEND_ID) {
-        continue;
-      }
-      await reconcileSkillRunnerBackendTaskLedgerOnce({
-        backend,
-        source: "startup",
-        emitFailureToast: true,
-      });
-    }
-  } catch {
-    // Keep external SkillRunner ledger reconciliation background/non-blocking.
-  }
-}
-
-let startupSkillRunnerBackendReconcileRunner: () => Promise<void> =
-  reconcileSkillRunnerBackendsOnStartup;
-
-export function setSkillRunnerStartupBackendReconcileRunnerForTests(
-  runner?: () => Promise<void>,
-) {
-  startupSkillRunnerBackendReconcileRunner =
-    runner || reconcileSkillRunnerBackendsOnStartup;
 }
 
 async function delayMs(ms: number) {
@@ -350,28 +484,11 @@ async function onStartup() {
   installWorkflowRuntimeBridge();
   installWorkflowDebugProbeBridge();
   enableWorkflowPackageDiagnosticsForDebugMode();
+  installMarkdownAttachmentOpenProbe();
   registerZoteroPaneStylesheet();
 
   const runtimeRootURI = resolveRuntimeRootURI();
-  const runtimeResourceURI =
-    typeof resourceURI === "string" && resourceURI ? resourceURI : "";
-  const runtimeRootPath =
-    typeof rootPath === "string" && rootPath ? rootPath : "";
   setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
-  try {
-    await syncBuiltinWorkflowsOnStartup({
-      rootURI: runtimeRootURI,
-      resourceURI: runtimeResourceURI,
-      devCwd: runtimeRootPath,
-    });
-  } catch (error) {
-    if (typeof console !== "undefined") {
-      console.error(
-        "[workflow-builtin-sync] failed to sync builtin workflows",
-        error,
-      );
-    }
-  }
 
   await ensureDefaultWorkflowDirExistsOnStartup();
   await rescanWorkflowRegistry();
@@ -379,13 +496,13 @@ async function onStartup() {
   purgeSkillRunnerBackendReconcileState(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   untrackSkillRunnerBackendHealth(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   startSkillRunnerModelCacheAutoRefresh();
+  startSkillRunnerBackendReachabilityCoordinator();
   startSkillRunnerTaskReconciler();
   void cleanupRuntimePersistenceRetention().catch((error) => {
     if (typeof console !== "undefined") {
       console.warn("[runtime-persistence] retention cleanup failed", error);
     }
   });
-  void startupSkillRunnerBackendReconcileRunner();
   hydrateLocalRuntimeAutoStartSessionStateFromPersistedState();
   if (!isLocalRuntimeAutoStartPaused()) {
     await runManagedRuntimeStartupPreflightProbe();
@@ -394,9 +511,7 @@ async function onStartup() {
   startHostBridgeSupervisor();
   if (getPref("mcpServer.enabled") !== false) {
     void ensureZoteroMcpServer().catch((error) => {
-      if (typeof console !== "undefined") {
-        console.warn("[zotero-mcp] startup failed", error);
-      }
+      emitVerboseConsole("warn", "[zotero-mcp] startup failed", error);
     });
   }
 
@@ -410,6 +525,7 @@ async function onStartup() {
   // outside of the plugin (e.g. scaffold testing process)
   addon.data.initialized = true;
   prewarmSynthesisWorkbenchAfterStartup();
+  scheduleOfficialWorkflowPackageUpdateCheck();
 }
 
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
@@ -458,6 +574,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
 }
 
 async function onMainWindowUnload(win: Window): Promise<void> {
+  closeVisibleWorkflowToasts();
   removeDashboardToolbarButton(win);
   removeAssistantWorkspaceSidebarShell(win as _ZoteroTypes.MainWindow);
   unregisterToolkitSafely();
@@ -465,6 +582,7 @@ async function onMainWindowUnload(win: Window): Promise<void> {
 }
 
 async function onShutdown(): Promise<void> {
+  stopSkillRunnerBackendReachabilityCoordinator();
   await shutdownAcpSkillRunConversations();
   await shutdownAcpSessionManager();
   await shutdownZoteroMcpServer();
@@ -475,8 +593,10 @@ async function onShutdown(): Promise<void> {
     removeDashboardToolbarButton(win);
     removeAssistantWorkspaceSidebarShell(win);
   }
+  closeVisibleWorkflowToasts();
   unregisterToolkitSafely();
   unregisterZoteroPaneStylesheet();
+  uninstallMarkdownAttachmentOpenProbe();
   addon.data.dialog?.window?.close();
   // Remove addon object
   addon.data.alive = false;
@@ -562,20 +682,32 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       if (state.loaded.warnings.length > 0) {
         messageLines.push(`First warning: ${state.loaded.warnings[0]}`);
       }
-      if (typeof console !== "undefined") {
-        if (state.loaded.errors.length > 0) {
-          console.error(
-            `[workflow-scan] dir=${state.workflowsDir} errors=${JSON.stringify(state.loaded.errors)} warnings=${JSON.stringify(state.loaded.warnings)}`,
-          );
-        } else {
-          console.info(
-            `[workflow-scan] dir=${state.workflowsDir} loaded=${state.loaded.workflows.length} warnings=${state.loaded.warnings.length}`,
-          );
-        }
+      if (state.loaded.errors.length > 0) {
+        emitVerboseConsole(
+          "error",
+          `[workflow-scan] dir=${state.workflowsDir} errors=${JSON.stringify(state.loaded.errors)} warnings=${JSON.stringify(state.loaded.warnings)}`,
+        );
+      } else {
+        emitVerboseConsole(
+          "info",
+          `[workflow-scan] dir=${state.workflowsDir} loaded=${state.loaded.workflows.length} warnings=${state.loaded.warnings.length}`,
+        );
       }
       const message = messageLines.join("\n");
       data.window?.alert?.(message);
       break;
+    }
+    case "stateContentPackage":
+      return getContentPackageStatus();
+    case "checkContentPackageUpdate":
+      return checkContentPackageUpdate();
+    case "installContentPackage": {
+      const result = await installContentPackageFromFeed();
+      if (result.ok) {
+        await rescanWorkflowRegistry();
+        refreshWorkflowMenus();
+      }
+      return result;
     }
     case "openBackendManager":
       await openBackendManagerDialog({
@@ -589,6 +721,14 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           typeof data.workflowId === "string" ? data.workflowId : undefined,
       });
       break;
+    case "openPreferencesPane": {
+      const paneId = `zotero-prefpane-${addon.data.config.addonRef}`;
+      const opener = (Zotero as any).Utilities?.Internal?.openPreferences;
+      if (typeof opener === "function") {
+        opener(paneId);
+      }
+      break;
+    }
     case "openTaskManager":
       await openTaskManagerDialog();
       break;
@@ -597,7 +737,22 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         window: data.window,
       });
       break;
+    case "openHelpCenter":
+      await openHelpCenterTab({
+        window: data.window,
+      });
+      break;
+    case "openOnlineDocs": {
+      const zotero = (globalThis as any).Zotero || (data.window as any)?.Zotero;
+      zotero?.launchURL?.(getDocsUrl());
+      break;
+    }
     case "listDashboardActiveTasksForPopover": {
+      const limitRaw =
+        typeof data.limit === "number" && Number.isFinite(data.limit)
+          ? Math.floor(data.limit)
+          : 12;
+      const limit = Math.max(1, Math.min(50, limitRaw));
       const [activeTasks, acpSkillRuns, filter, displayName] =
         await Promise.all([
           import("./modules/taskRuntime"),
@@ -615,9 +770,13 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       );
       return filter
         .projectDashboardActiveTasks({
-          activeTasks: activeTasks.listActiveWorkflowTasks(),
-          acpSkillRuns: acpSkillRuns.listAcpSkillRuns(),
+          activeTasks: activeTasks.listActiveWorkflowTaskSummaries({ limit }),
+          acpSkillRuns: acpSkillRuns.listAcpSkillRunSummaries({
+            activeOnly: true,
+            limit,
+          }),
         })
+        .slice(0, limit)
         .map((entry) => {
           const backendId = String(entry.backendId || "").trim();
           const backendMeta = backendId
@@ -653,7 +812,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           : undefined;
         await openAssistantWorkspaceSidebar({
           window: data.window,
-          tab: requestId || backend ? "skillrunner" : undefined,
+          tab: "skillrunner",
           backend,
           requestId: requestId || undefined,
         });
@@ -678,6 +837,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
     case "toggleSkillRunnerSidebar":
       await toggleAssistantWorkspaceSidebar({
         window: data.window,
+        tab: "skillrunner",
       });
       break;
     case "openLogViewer":
@@ -692,10 +852,51 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         String(data.category || "") as RuntimePersistenceCategory,
       );
     case "scanPersistenceGovernance": {
-      const [usage, integrity] = await Promise.all([
-        scanRuntimePersistenceUsage(),
-        scanPersistenceIntegrity(),
-      ]);
+      const onProgress =
+        typeof data.onProgress === "function" ? data.onProgress : null;
+      const emitProgress = (progress: {
+        stage: string;
+        label: string;
+        current: number;
+        total: number;
+        percent: number;
+      }) => {
+        try {
+          onProgress?.(progress);
+        } catch (error) {
+          console.warn("[runtime-persistence] progress callback failed", error);
+        }
+      };
+      let usageStepCount = 0;
+      let integrityStepCount = 0;
+      const usage = await scanRuntimePersistenceUsage({
+        onProgress: (progress) => {
+          usageStepCount = Math.max(usageStepCount, progress.total);
+          emitProgress({
+            ...progress,
+            percent: Math.floor((progress.percent || 0) / 2),
+          });
+        },
+      });
+      const integrity = await scanPersistenceIntegrity({
+        onProgress: (progress) => {
+          integrityStepCount = Math.max(integrityStepCount, progress.total);
+          const total = usageStepCount + progress.total;
+          emitProgress({
+            ...progress,
+            current: usageStepCount + progress.current,
+            total,
+            percent: 50 + Math.floor((progress.percent || 0) / 2),
+          });
+        },
+      });
+      emitProgress({
+        stage: "complete",
+        label: "Persistence scan complete",
+        current: Math.max(usageStepCount + integrityStepCount, 0),
+        total: Math.max(usageStepCount + integrityStepCount, 0),
+        percent: 100,
+      });
       return { usage, integrity };
     }
     case "cleanupPersistenceGovernanceIssues": {
@@ -716,6 +917,65 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       return getDefaultSynthesisService().resetSynthesisDatabase({
         confirmationText: data.confirmationText,
       });
+    case "getGitSyncPrefsStatus":
+      return getGitSyncPrefsStatus();
+    case "saveGitSyncPrefs": {
+      const result = saveGitSyncPrefs({
+        enabled: data.enabled,
+        remoteUrl: data.remoteUrl,
+        branch: data.branch,
+        autoSyncEnabled: data.autoSyncEnabled,
+        autoRetryEnabled: data.autoRetryEnabled,
+      });
+      if (result.ok) {
+        invalidateDefaultSynthesisService();
+      }
+      return result;
+    }
+    case "saveGitSyncToken": {
+      const result = await saveGitSyncToken(String(data.token || ""));
+      invalidateDefaultSynthesisService();
+      return result;
+    }
+    case "clearGitSyncToken": {
+      const result = await clearGitSyncToken();
+      invalidateDefaultSynthesisService();
+      return result;
+    }
+    case "testGitSyncConfiguration":
+      return testGitSyncConfiguration({
+        cwd: getRuntimePersistencePaths().dataDir,
+      });
+    case "getWebDavSyncPrefsStatus":
+      return getWebDavSyncPrefsStatus();
+    case "saveWebDavSyncPrefs": {
+      const result = saveWebDavSyncPrefs({
+        enabled: data.enabled,
+        baseUrl: data.baseUrl,
+        remotePath: data.remotePath,
+        username: data.username,
+        autoSyncEnabled: data.autoSyncEnabled,
+        autoRetryEnabled: data.autoRetryEnabled,
+      });
+      if (result.ok) {
+        invalidateDefaultSynthesisService();
+      }
+      return result;
+    }
+    case "saveWebDavSyncCredential": {
+      const result = await saveWebDavSyncCredential(
+        String(data.credential || ""),
+      );
+      invalidateDefaultSynthesisService();
+      return result;
+    }
+    case "clearWebDavSyncCredential": {
+      const result = await clearWebDavSyncCredential();
+      invalidateDefaultSynthesisService();
+      return result;
+    }
+    case "testWebDavSyncConfiguration":
+      return testWebDavSyncConfiguration();
     case "openRuntimePersistenceRoot":
       try {
         openFolderInSystemFileManager(getRuntimePersistencePaths().root, {
@@ -836,8 +1096,8 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         ok: true,
         stage: "host-bridge-advertised-host",
         message: host
-          ? "Host Bridge remote host updated."
-          : "Host Bridge remote host placeholder will be used.",
+          ? "Host Bridge local IP override updated."
+          : "Host Bridge local IP override cleared; auto-detection will be used.",
         details: getHostBridgeServerStatus(),
       };
     }

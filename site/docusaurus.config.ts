@@ -3,12 +3,12 @@ import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
 
 const orgName = "leike0813";
-const repoName = "Zotero-Skills";
+const repoName = "zotero-agents";
 
 const config: Config = {
-  title: "Zotero Skills",
-  tagline: "一个用于执行 Agent 技能的 Zotero 插件",
-  favicon: "img/favicon.ico",
+  title: "Zotero Agents",
+  tagline: "A Zotero plugin for executing agent skills",
+  favicon: "img/favicon.png",
 
   url: `https://${orgName}.github.io`,
   baseUrl: `/${repoName}/`,
@@ -18,12 +18,24 @@ const config: Config = {
 
   onBrokenLinks: "throw",
 
+  clientModules: [
+    "./src/clientModules/localePersistence",
+    "./src/clientModules/imageCaptions",
+  ],
+
   i18n: {
-    defaultLocale: "zh-CN",
-    locales: ["zh-CN", "en"],
+    defaultLocale: "en",
+    locales: ["en", "zh-CN", "fr", "ja", "de", "es", "it", "ko", "ru"],
     localeConfigs: {
-      "zh-CN": { label: "简体中文" },
       en: { label: "English" },
+      "zh-CN": { label: "简体中文" },
+      fr: { label: "Français" },
+      ja: { label: "日本語" },
+      de: { label: "Deutsch" },
+      es: { label: "Español" },
+      it: { label: "Italiano" },
+      ko: { label: "한국어" },
+      ru: { label: "Русский" },
     },
   },
 
@@ -50,17 +62,17 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: "Zotero Skills",
+      title: "Zotero Agents",
       logo: {
-        alt: "Zotero Skills",
-        src: "img/logo.svg",
+        alt: "Zotero Agents",
+        src: "img/icon_full.png",
       },
       items: [
         {
           type: "docSidebar",
           sidebarId: "docsSidebar",
           position: "left",
-          label: "文档",
+          label: "Docs",
         },
         {
           type: "localeDropdown",
@@ -77,15 +89,15 @@ const config: Config = {
       style: "dark",
       links: [
         {
-          title: "文档",
+          title: "Docs",
           items: [
-            { label: "首页", to: "/intro" },
-            { label: "安装", to: "/installation" },
-            { label: "快速开始", to: "/getting-started" },
+            { label: "Home", to: "/intro" },
+            { label: "Installation", to: "/installation" },
+            { label: "Quick Start", to: "/getting-started" },
           ],
         },
         {
-          title: "更多",
+          title: "More",
           items: [
             {
               label: "GitHub",
@@ -98,7 +110,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Zotero Skills. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Zotero Agents. Built with Docusaurus.`,
     },
     prism: {
       theme: prismThemes.github,

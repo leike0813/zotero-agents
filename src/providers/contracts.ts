@@ -37,12 +37,26 @@ export type SkillRunnerHttpStepsRequest = ProviderExecutionRequestMeta & {
 export type SkillRunnerJobRequestV1 = ProviderExecutionRequestMeta & {
   kind: "skillrunner.job.v1";
   skill_id: string;
+  mode?: "auto" | "interactive" | string;
   skill_source?: "local-package" | "installed";
   upload_files?: Array<{ key: string; path: string }>;
   input?: unknown;
   parameter?: Record<string, unknown>;
   runtime_options?: {
     execution_mode?: "auto" | "interactive" | string;
+    hard_timeout_seconds?: unknown;
+    collect_skill_run_feedback?: boolean;
+    workspace?: {
+      mode?: "reuse";
+      request_id?: string;
+      file_bindings?: Array<{
+        input_key: string;
+        source_request_id: string;
+        source_path: string;
+        target_path: string;
+      }>;
+    };
+    env?: Record<string, string>;
     zotero_host_access?: {
       required?: boolean;
       auto_approve_writes?: boolean;
@@ -58,16 +72,17 @@ export type SkillRunnerJobRequestV1 = ProviderExecutionRequestMeta & {
 
 export type SkillRunnerSequenceWorkspaceMode = "new" | "reuse-workflow";
 
-export type SkillRunnerSequenceHandoffSpec = {
-  from_step?: string;
+export type SkillRunnerSequenceHandoffBinding = {
+  kind: "value" | "file";
+  target: string;
+  source?: string;
+  step?: string;
   required?: boolean;
-  pass_through?: boolean;
-  input?: Record<string, string>;
-  parameter?: Record<string, string>;
-  defaults?: {
-    input?: Record<string, unknown>;
-    parameter?: Record<string, unknown>;
-  };
+  value?: unknown;
+};
+
+export type SkillRunnerSequenceHandoffSpec = {
+  bindings: SkillRunnerSequenceHandoffBinding[];
 };
 
 export type SkillRunnerSequenceShortCircuitSpec = {
@@ -78,15 +93,22 @@ export type SkillRunnerSequenceShortCircuitSpec = {
   result: "step_output";
 };
 
+export type SkillRunnerSequenceStepApplySpec = {
+  workflow_id?: string;
+  on_failure?: "continue" | "fail_sequence";
+};
+
 export type SkillRunnerSequenceStepV1 = {
   id: string;
   skill_id: string;
+  mode?: "auto" | "interactive" | string;
   input?: Record<string, unknown>;
   parameter?: Record<string, unknown>;
   fetch_type?: "bundle" | "result";
   workspace?: SkillRunnerSequenceWorkspaceMode;
   handoff?: SkillRunnerSequenceHandoffSpec;
   short_circuit?: SkillRunnerSequenceShortCircuitSpec;
+  apply_result?: SkillRunnerSequenceStepApplySpec;
 };
 
 export type SkillRunnerSequenceRequestV1 = ProviderExecutionRequestMeta & {
@@ -100,6 +122,19 @@ export type SkillRunnerSequenceRequestV1 = ProviderExecutionRequestMeta & {
   };
   runtime_options?: {
     execution_mode?: "auto" | "interactive" | string;
+    hard_timeout_seconds?: unknown;
+    collect_skill_run_feedback?: boolean;
+    workspace?: {
+      mode?: "reuse";
+      request_id?: string;
+      file_bindings?: Array<{
+        input_key: string;
+        source_request_id: string;
+        source_path: string;
+        target_path: string;
+      }>;
+    };
+    env?: Record<string, string>;
     zotero_host_access?: {
       required?: boolean;
       auto_approve_writes?: boolean;
@@ -175,10 +210,17 @@ export type AcpSkillRunRequestV1 = ProviderExecutionRequestMeta & {
   parameter?: Record<string, unknown>;
   runtime_options?: {
     execution_mode?: "auto" | "interactive" | string;
+    hard_timeout_seconds?: unknown;
+    collect_skill_run_feedback?: boolean;
     zotero_host_access?: {
       required?: boolean;
       auto_approve_writes?: boolean;
     };
+    workspace?: {
+      mode?: "new" | "reuse";
+      workflow_run_id?: string;
+    };
+    /** Legacy ACP fallback. New requests must use runtime_options.workspace. */
     workflow_workspace?: {
       mode?: "new" | "reuse";
       workflow_run_id?: string;
@@ -201,6 +243,9 @@ export type ProviderExecutionSucceededResult = {
   bundleBytes?: Uint8Array;
   bundleDir?: string;
   resultJson?: unknown;
+  resultJsonPath?: string;
+  workspaceDir?: string;
+  resultArtifactBasePath?: string;
   responseJson?: unknown;
   sequence?: {
     workflow_run_id?: string;
@@ -213,6 +258,13 @@ export type ProviderExecutionSucceededResult = {
       request_id?: string;
       output?: unknown;
       result?: ProviderExecutionResult;
+      apply_result?: {
+        status?: "succeeded" | "failed" | "skipped";
+        workflow_id?: string;
+        error?: string;
+        result?: unknown;
+        updated_at?: string;
+      };
     }>;
   };
 };
@@ -222,6 +274,8 @@ export type ProviderExecutionDeferredResult = {
   requestId: string;
   fetchType: "bundle" | "result";
   backendStatus: "queued" | "running" | "waiting_user" | "waiting_auth";
+  detachReason?: "waiting" | "observer_failure";
+  continuationOwner?: "foreground" | "recovery";
   bundleBytes?: undefined;
   resultJson?: undefined;
   responseJson?: unknown;
@@ -234,6 +288,9 @@ export type ProviderExecutionTerminalErrorResult = {
   error?: string;
   bundleBytes?: undefined;
   resultJson?: unknown;
+  resultJsonPath?: string;
+  workspaceDir?: string;
+  resultArtifactBasePath?: string;
   responseJson?: unknown;
 };
 

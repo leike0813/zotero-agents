@@ -16,6 +16,7 @@ import {
   readSynthesisJobProfilerSnapshotForTests,
   resetSynthesisJobProfilerForTests,
 } from "../../src/modules/synthesis/jobProfiler";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-sidecar-cache-"));
@@ -173,6 +174,52 @@ describe("Synthesis sidecar cache hard cut", function () {
     });
     assert.equal(registry.rows[0]?.paper_ref, "1:AAA");
     assert.equal(registry.rows[0]?.artifactCoverage, "complete");
+  });
+
+  it("treats unchanged literature-analysis reruns as sidecar governance no-ops", async function () {
+    const root = await makeRuntimeRoot();
+    let tick = 0;
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => `2026-06-15T00:00:0${tick++}.000Z`,
+    });
+    const { service } = makeService({ root, repository });
+    const input = {
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Attention Paper",
+      year: "2020",
+      digest: { noteKey: "NDIGEST", content: "# Digest\n\nBody" },
+      references: {
+        noteKey: "NREFS",
+        references: [{ title: "Detection Transformer", year: "2021" }],
+      },
+      citationAnalysis: { noteKey: "NCITE", payloadHash: "sha256:cite" },
+      matchedReferences: [{ title: "Detection Transformer", itemKey: "BBB" }],
+    };
+
+    await service.applyLiteratureDigestSidecar(input);
+    const graphBasis = repository.getCacheBasis("citation-graph:library");
+    const relatedBasis = repository.getCacheBasis("related-items-sync:global");
+
+    const rerun = await service.applyLiteratureDigestSidecar(input);
+
+    assert.equal((rerun as { unchanged?: boolean }).unchanged, true);
+    assert.equal(
+      repository.getCacheBasis("citation-graph:library")?.updatedAt,
+      graphBasis?.updatedAt,
+    );
+    assert.equal(
+      repository.getCacheBasis("related-items-sync:global")?.updatedAt,
+      relatedBasis?.updatedAt,
+    );
+    assert.lengthOf(
+      repository.listRawReferences({
+        sourceRefs: ["1:AAA"],
+        statuses: ["stale"],
+      }),
+      0,
+    );
   });
 
   it("persists best-effort citation roles from literature-analysis apply", async function () {
@@ -558,6 +605,75 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.equal(
       repository.getCacheBasis("citation-graph:library")?.status,
       "ready",
+    );
+  });
+
+  it("returns nested reference facts only when reference rows are requested", async function () {
+    const root = await makeRuntimeRoot();
+    const { service } = makeService({
+      root,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "AAA",
+          title: "Attention Paper",
+          year: "2020",
+          notes: [],
+        },
+        {
+          libraryId: 1,
+          itemKey: "BBB",
+          title: "Detection Transformer",
+          year: "2021",
+          notes: [],
+        },
+      ],
+    });
+    await service.applyReferenceMatchingSidecar({
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Attention Paper",
+      year: "2020",
+      references: [
+        { title: "Detection Transformer", year: "2021" },
+        { title: "External Reference", year: "2022" },
+      ],
+      matchedItems: [
+        {
+          libraryId: 1,
+          itemKey: "BBB",
+          title: "Detection Transformer",
+          year: "2021",
+        },
+      ],
+    });
+
+    const defaultIndex = await service.getReferenceSidecarIndex({
+      sourceRefs: ["1:AAA"],
+    });
+    assert.notProperty(defaultIndex.rows[0] || {}, "references");
+
+    const index = await service.getReferenceSidecarIndex({
+      sourceRefs: ["1:AAA"],
+      includeReferences: true,
+      referenceSourceRefs: ["1:AAA"],
+    });
+    const references = index.rows[0]?.references || [];
+    assert.lengthOf(references, 2);
+    assert.equal(references[0]?.reference_index, 0);
+    assert.equal(references[0]?.target_paper_ref, "1:BBB");
+    assert.equal(references[0]?.target_binding, "library");
+    assert.equal(references[0]?.binding_status, "accepted");
+    assert.equal(index.rows[0]?.reference_count, 2);
+
+    const filtered = await service.getReferenceSidecarIndex({
+      sourceRefs: ["1:AAA"],
+      rawReferenceIds: [references[0].reference_instance_id],
+    });
+    assert.lengthOf(filtered.rows[0]?.references || [], 1);
+    assert.equal(
+      filtered.rows[0]?.references?.[0]?.reference_instance_id,
+      references[0].reference_instance_id,
     );
   });
 
@@ -965,43 +1081,48 @@ describe("Synthesis sidecar cache hard cut", function () {
   it("profiles reference sidecar and citation graph rebuild phases", async function () {
     const root = await makeRuntimeRoot();
     resetSynthesisJobProfilerForTests(root);
-    const { service } = makeService({
-      root,
-      registryInputs: null,
-      citationGraphPapers: [
-        {
-          libraryId: 1,
-          itemKey: "AAA",
-          title: "Attention Paper",
-          references: [{ title: "Detection Transformer" }],
-        },
-      ],
-    });
+    setDebugModeOverrideForTests(true);
+    try {
+      const { service } = makeService({
+        root,
+        registryInputs: null,
+        citationGraphPapers: [
+          {
+            libraryId: 1,
+            itemKey: "AAA",
+            title: "Attention Paper",
+            references: [{ title: "Detection Transformer" }],
+          },
+        ],
+      });
 
-    await service.refreshReferenceSidecarNow();
-    await service.rebuildCitationGraphCacheNow();
+      await service.refreshReferenceSidecarNow();
+      await service.rebuildCitationGraphCacheNow();
 
-    const snapshot = await readSynthesisJobProfilerSnapshotForTests(root);
-    const runNames = snapshot.runs.map((run) => run.job_name);
-    assert.include(runNames, "synthesis:reference-sidecar");
-    assert.include(runNames, "synthesis:citation-graph-cache");
+      const snapshot = await readSynthesisJobProfilerSnapshotForTests(root);
+      const runNames = snapshot.runs.map((run) => run.job_name);
+      assert.include(runNames, "synthesis:reference-sidecar");
+      assert.include(runNames, "synthesis:citation-graph-cache");
 
-    const graphRun = snapshot.runs.find(
-      (run) => run.job_name === "synthesis:citation-graph-cache",
-    );
-    assert.equal(graphRun?.status, "completed");
-    assert.includeMembers(
-      snapshot.phases
-        .filter((phase) => phase.run_id === graphRun?.run_id)
-        .map((phase) => phase.phase_name),
-      [
-        "load_sidecar_inputs",
-        "load_source_metadata",
-        "build_graph_records",
-        "replace_graph_cache",
-        "hash_and_commit",
-      ],
-    );
+      const graphRun = snapshot.runs.find(
+        (run) => run.job_name === "synthesis:citation-graph-cache",
+      );
+      assert.equal(graphRun?.status, "completed");
+      assert.includeMembers(
+        snapshot.phases
+          .filter((phase) => phase.run_id === graphRun?.run_id)
+          .map((phase) => phase.phase_name),
+        [
+          "load_sidecar_inputs",
+          "load_source_metadata",
+          "build_graph_records",
+          "replace_graph_cache",
+          "hash_and_commit",
+        ],
+      );
+    } finally {
+      setDebugModeOverrideForTests();
+    }
   });
 
   it("does not surface stale failed sidecar operations after a ready cache basis", async function () {

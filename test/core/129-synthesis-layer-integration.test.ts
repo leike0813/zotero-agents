@@ -1,4 +1,3 @@
-/* eslint-disable mocha/max-top-level-suites */
 import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
@@ -21,6 +20,14 @@ import {
   createDefaultSynthesisUiState,
 } from "../../src/modules/synthesis/uiModel";
 import { decideSynthesisApply } from "../../src/modules/synthesis/workflow";
+import {
+  resetHostBridgeFileRegistryForTests,
+  resolveHostBridgeFileDownload,
+} from "../../src/modules/hostBridgeFileRegistry";
+import {
+  clearRuntimeLogs,
+  listRuntimeLogs,
+} from "../../src/modules/runtimeLogManager";
 
 async function withMockZoteroPrefs<T>(run: () => Promise<T>): Promise<T> {
   const runtime = globalThis as { Zotero?: any };
@@ -425,6 +432,62 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.lengthOf(mirror.upserts, 0);
   });
 
+  it("mirrors synthesis audit events into the unified runtime log", async function () {
+    clearRuntimeLogs();
+    try {
+      const root = await makeRoot();
+      const service = createSynthesisService({
+        root,
+        libraryId: 1,
+        now: () => "2026-05-11T00:00:00.000Z",
+        registryInputs: [
+          registryInput({ itemKey: "A" }),
+          registryInput({ itemKey: "B" }),
+        ],
+      });
+
+      const result = await service.applyTopicSynthesisResult(validBundle());
+      const auditLog = await fs.readFile(
+        buildSynthesisStoragePaths(root).log,
+        "utf8",
+      );
+      const runtimeLogs = listRuntimeLogs({
+        component: "synthesis-layer",
+        jobId: "topic:topic-alpha",
+      });
+      const applied = runtimeLogs.find(
+        (entry) => entry.operation === "topic_synthesis_applied",
+      );
+      const baseline = runtimeLogs.find(
+        (entry) => entry.operation === "baseline_reset",
+      );
+      const sidecarFailure = runtimeLogs.find(
+        (entry) => entry.operation === "concept_cards_proposal_failed",
+      );
+
+      assert.equal(result.status, "persisted");
+      assert.include(auditLog, '"event":"topic_synthesis_applied"');
+      assert.include(auditLog, '"event":"baseline_reset"');
+      assert.isOk(applied);
+      assert.equal(applied?.level, "info");
+      assert.equal(applied?.scope, "job");
+      assert.deepInclude(applied?.details as Record<string, unknown>, {
+        event: "topic_synthesis_applied",
+        topic_id: "topic-alpha",
+      });
+      assert.isOk(baseline);
+      assert.equal(baseline?.level, "info");
+      assert.isOk(sidecarFailure);
+      assert.equal(sidecarFailure?.level, "error");
+      assert.include(
+        sidecarFailure?.error?.message || "",
+        "concept-cards-proposal.json",
+      );
+    } finally {
+      clearRuntimeLogs();
+    }
+  });
+
   it("keeps topic freshness unchanged when the reference sidecar is explicitly refreshed", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
@@ -706,8 +769,8 @@ describe("Synthesis Layer v1 integration service", function () {
     const root = await makeRoot();
     const paths = buildSynthesisStoragePaths(root);
     const kgPaths = buildSynthesisKnowledgeGraphPaths(root);
-    await fs.mkdir(paths.stateRoot, { recursive: true });
-    await fs.mkdir(kgPaths.stateRoot, { recursive: true });
+    await fs.mkdir(paths.sidecarRoot, { recursive: true });
+    await fs.mkdir(kgPaths.sidecarRoot, { recursive: true });
     await fs.writeFile(
       paths.index,
       JSON.stringify(
@@ -1117,24 +1180,26 @@ describe("Synthesis Layer v1 integration service", function () {
         },
       }),
     );
-    await createSynthesisTopicGraphService({ root }).importTopicGraphCheckpoint({
-      nodes: [
-        {
-          topic_id: "topic-alpha",
-          title: "Alpha Topic",
-          aliases: [],
-          node_type: "materialized",
-          definition_status: "has_synthesis",
-          current_artifact_path: "topics/topic-alpha/current/artifact.json",
-          paper_count: 1,
-          last_synthesis_at: "2026-05-12T00:00:00.000Z",
-          created_at: "2026-05-12T00:00:00.000Z",
-          updated_at: "2026-05-12T00:00:00.000Z",
-        },
-      ],
-      edges: [],
-      reviewItems: [],
-    });
+    await createSynthesisTopicGraphService({ root }).importTopicGraphCheckpoint(
+      {
+        nodes: [
+          {
+            topic_id: "topic-alpha",
+            title: "Alpha Topic",
+            aliases: [],
+            node_type: "materialized",
+            definition_status: "has_synthesis",
+            current_artifact_path: "topics/topic-alpha/current/artifact.json",
+            paper_count: 1,
+            last_synthesis_at: "2026-05-12T00:00:00.000Z",
+            created_at: "2026-05-12T00:00:00.000Z",
+            updated_at: "2026-05-12T00:00:00.000Z",
+          },
+        ],
+        edges: [],
+        reviewItems: [],
+      },
+    );
 
     const inventory = await service.listTopics();
     const topic = inventory.topics[0] as Record<string, unknown>;
@@ -1256,7 +1321,11 @@ describe("Synthesis Layer v1 integration service", function () {
 
     assert.equal(result.ok, true);
     assert.equal(result.status, "ok");
-    assert.deepEqual(result.paper_refs, ["1:BASELINE", "1:CURRENT", "1:MISSING"]);
+    assert.deepEqual(result.paper_refs, [
+      "1:BASELINE",
+      "1:CURRENT",
+      "1:MISSING",
+    ]);
     assert.deepEqual(result.diagnostics.unmatched_paper_refs, ["1:MISSING"]);
     assert.equal(result.diagnostics.source, "artifact_state");
     assert.lengthOf(result.topics, 1);
@@ -1794,7 +1863,9 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.equal(full.status, "ready");
     assert.equal(full.scope, "full");
     assert.equal(full.layout_status, "ready");
-    assert.isNumber(full.nodes.find((node) => node.node_id === "zotero:item:A")?.x);
+    assert.isNumber(
+      full.nodes.find((node) => node.node_id === "zotero:item:A")?.x,
+    );
     assert.include(
       slice.nodes.map((node) => node.node_id),
       "zotero:item:B",
@@ -2286,8 +2357,7 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.isTrue(
       redirects.some(
         (redirect) =>
-          redirect.fromCanonicalReferenceId ===
-            "cref:merge-original-target" &&
+          redirect.fromCanonicalReferenceId === "cref:merge-original-target" &&
           redirect.toCanonicalReferenceId === "cref:merge-selected-target",
       ),
     );
@@ -2628,9 +2698,7 @@ describe("Synthesis Layer v1 integration service", function () {
       "cref:effective",
     );
     assert.equal(proposal?.target_projected_literature_item_id, "1:BOUND");
-    assert.deepEqual(proposal?.source_raw_reference_ids, [
-      "raw:accepted-only",
-    ]);
+    assert.deepEqual(proposal?.source_raw_reference_ids, ["raw:accepted-only"]);
   });
 
   it("filters manual target canonical candidates to citation graph projected nodes", async function () {
@@ -2768,7 +2836,8 @@ describe("Synthesis Layer v1 integration service", function () {
             ? JSON.stringify({ doi: "10.1000/source" })
             : "{}",
         metadataHash: `hash:${canonicalReferenceId}`,
-        status: canonicalReferenceId === "cref:stale-source" ? "stale" : "active",
+        status:
+          canonicalReferenceId === "cref:stale-source" ? "stale" : "active",
       });
     }
     repository.upsertCanonicalReferenceRedirect({
@@ -2829,7 +2898,9 @@ describe("Synthesis Layer v1 integration service", function () {
 
     const input = await service.getSynthesisWorkbenchSurfaceInput("index");
     const rows = input.registry?.canonicalRows || [];
-    const boundRow = rows.find((row) => row.projected_literature_item_id === "1:BOUND");
+    const boundRow = rows.find(
+      (row) => row.projected_literature_item_id === "1:BOUND",
+    );
     const externalRow = rows.find(
       (row) => row.effective_canonical_id === "cref:external",
     );
@@ -3133,6 +3204,80 @@ describe("Synthesis Layer v1 integration service", function () {
     );
   });
 
+  it("serves Home overview counts from persisted surface caches before lazy tabs load", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => "2026-06-16T00:00:00.000Z",
+    });
+    repository.upsertReviewItem({
+      reviewItemId: "review:home-delete",
+      reviewKind: "zotero_item_delete",
+      priority: 1,
+      status: "open",
+      scopeKind: "zotero_binding",
+      scopeRef: "1:A",
+      payloadJson: JSON.stringify({
+        paper_ref: "1:A",
+        title: "Home Review Paper",
+      }),
+    });
+    repository.upsertReferenceMatchProposal({
+      proposalId: "proposal:home-match",
+      kind: "canonical_merge",
+      status: "open",
+      sourceCanonicalReferenceId: "cref:home-source",
+      targetCanonicalReferenceId: "cref:home-target",
+      confidence: "review",
+      score: 0.5,
+      reasonsJson: JSON.stringify(["home_overview_fixture"]),
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      registryInputs: [
+        registryInput({ itemKey: "A", references: null, citation: null }),
+        registryInput({ itemKey: "B", references: null, citation: null }),
+      ],
+      citationGraphPapers: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Alpha Paper",
+          references: [{ title: "Beta Paper" }],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Beta Paper",
+        },
+      ],
+      now: () => "2026-06-16T00:00:00.000Z",
+    });
+
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
+    const homeInput = await service.getSynthesisWorkbenchSurfaceInput("home");
+
+    assert.isAtLeast(homeInput.registry?.rows?.length || 0, 2);
+    assert.isAtLeast(homeInput.graph?.nodes?.length || 0, 2);
+    assert.isString(homeInput.graph?.graph_hash);
+    assert.equal(homeInput.graph?.diagnostics?.storage, "sqlite");
+    assert.include(
+      (homeInput.registry?.cleanupProposals || []).map(
+        (proposal) => proposal.proposal_id,
+      ),
+      "review:home-delete",
+    );
+    assert.include(
+      (homeInput.registry?.matchProposals || []).map(
+        (proposal) => proposal.proposal_id,
+      ),
+      "proposal:home-match",
+    );
+  });
+
   it("persists and reads citation graph metrics with graph rebuilds", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
@@ -3250,10 +3395,7 @@ describe("Synthesis Layer v1 integration service", function () {
     await updated.refreshReferenceSidecarNow();
     const staleSnapshot = await updated.getSynthesisSnapshot();
 
-    assert.equal(
-      staleSnapshot.graph.diagnostics.cache_status,
-      "stale",
-    );
+    assert.equal(staleSnapshot.graph.diagnostics.cache_status, "stale");
 
     const refresh = await updated.refreshCitationGraphCacheIncrementalNow();
     assert.equal(refresh.status, "completed");
@@ -3666,7 +3808,14 @@ function v2TopicBundle(overrides: Record<string, unknown> = {}) {
 function v2SectionContext(
   sections: Record<string, unknown>,
   extraFiles: Record<string, unknown> = {},
+  options: { absoluteRoot?: string } = {},
 ) {
+  const absoluteRoot = String(options.absoluteRoot || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  const artifactPath = (relativePath: string) =>
+    absoluteRoot ? `${absoluteRoot}/${relativePath}` : relativePath;
   const sectionEntries = Object.fromEntries(
     Object.keys(sections).map((section) => [
       section,
@@ -3710,8 +3859,24 @@ function v2SectionContext(
     },
     sections: sectionEntries,
   };
-  const files = new Map<string, string>([
+  const fileEntries: Array<readonly [string, string]> = [
     ["result/topic-analysis.json", JSON.stringify(manifest)],
+    [
+      "result/topic-synthesis-artifacts.json",
+      JSON.stringify({
+        resolver_manifest: artifactPath("runtime/payloads/resolver.json"),
+        topic_analysis: artifactPath("result/topic-analysis.json"),
+        final_output_candidate: artifactPath(
+          "result/final-output.candidate.json",
+        ),
+        ...Object.fromEntries(
+          Object.keys(sections).map((section) => [
+            `${section}_section`,
+            artifactPath(`result/sections/${section.replace(/_/g, "-")}.json`),
+          ]),
+        ),
+      }),
+    ],
     [
       "result/sidecars/topic-interest-metadata.json",
       JSON.stringify({
@@ -3777,7 +3942,14 @@ function v2SectionContext(
           typeof value === "string" ? value : JSON.stringify(value),
         ] as const,
     ),
-  ]);
+  ];
+  const files = new Map<string, string>();
+  for (const [filePath, value] of fileEntries) {
+    files.set(filePath, value);
+    if (absoluteRoot && !/^[A-Za-z]:\//.test(filePath.replace(/\\/g, "/"))) {
+      files.set(`${absoluteRoot}/${filePath.replace(/\\/g, "/")}`, value);
+    }
+  }
   return {
     bundleReader: {
       readText(pathValue: string) {
@@ -4180,7 +4352,9 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
           runtime: "split-skill",
           topic_id: "object-detection",
         },
-        candidate_output_path: "result/final-output.candidate.json",
+        resolver_manifest_path: "",
+        analysis_manifest_path: "",
+        artifact_manifest_path: "result/topic-synthesis-artifacts.json",
       }),
       v2SectionContext(v2SectionsWithEvidence(hashMarkdown("# Digest DETR"))),
     );
@@ -4199,6 +4373,93 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       detail.artifact_provenance.sidecars.topic_interest_metadata.schema_id,
       "topic_interest_metadata.v1",
     );
+  });
+
+  it("applies split final candidates using ACP absolute artifact manifest paths", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-16T00:00:00.000Z",
+      registryInputs: [
+        registryInput({
+          itemKey: "DETR",
+          digest: "# Digest DETR",
+          references: null,
+          citation: null,
+        }),
+      ],
+    });
+    const absoluteRoot =
+      "D:/Workspace/Artifact/Zotero-Skills/run/acp-skill-test";
+
+    const result = await service.applyTopicSynthesisResult(
+      v2TopicBundle({
+        artifact_metadata: {
+          runtime: "split-skill",
+          topic_id: "object-detection",
+        },
+        resolver_manifest_path: "",
+        analysis_manifest_path: "",
+        artifact_manifest_path: `${absoluteRoot}/result/topic-synthesis-artifacts.json`,
+      }),
+      v2SectionContext(
+        v2SectionsWithEvidence(hashMarkdown("# Digest DETR")),
+        {},
+        { absoluteRoot },
+      ),
+    );
+    const detail = await service.readTopicDetail({
+      topicId: "object-detection",
+    });
+
+    assert.equal(result.status, "persisted");
+    assert.equal(
+      detail.artifact_provenance.manifest_schema_id,
+      "synthesis.topic_analysis_manifest",
+    );
+    assert.isAtLeast(Number(detail.artifact_provenance.section_count), 10);
+  });
+
+  it("reports invalid artifact manifest paths instead of hiding them as missing resolver manifests", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-16T00:00:00.000Z",
+      registryInputs: [],
+    });
+
+    try {
+      await service.applyTopicSynthesisResult(
+        v2TopicBundle({
+          artifact_metadata: {
+            runtime: "split-skill",
+            topic_id: "object-detection",
+          },
+          resolver_manifest_path: "",
+          analysis_manifest_path: "",
+          artifact_manifest_path: "result/topic-synthesis-artifacts.json",
+        }),
+        v2SectionContext(
+          v2SectionsWithEvidence(hashMarkdown("# Digest DETR")),
+          {
+            "result/topic-synthesis-artifacts.json": {
+              resolver_manifest: "../runtime/payloads/resolver.json",
+              topic_analysis: "result/topic-analysis.json",
+            },
+          },
+        ),
+      );
+      assert.fail("expected invalid artifact manifest path to be rejected");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      assert.include(
+        message,
+        "artifact_manifest_path contains invalid artifact path",
+      );
+      assert.notInclude(message, "requires resolver_manifest_path");
+    }
   });
 
   it("rejects incomplete split manifests with actionable diagnostics", async function () {
@@ -4487,19 +4748,19 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     ]);
     assert.deepEqual(
       hints.map((hint) => hint.literatureItemId),
-      ["lit:candidate"],
+      ["1:DETR", "lit:candidate"],
     );
     assert.deepEqual(
       acceptedHints.map((hint) => hint.literatureItemId),
-      ["1:DETR"],
+      ["1:DETR", "lit:candidate"],
     );
     assert.equal(state.freshness, "fresh");
     assert.equal(state.known_dependency_status, "fresh");
     assert.equal(state.discovery_status, "candidates");
-    assert.equal(state.candidate_count, 1);
+    assert.equal(state.candidate_count, 2);
     assert.equal(snapshotRow?.freshness, "fresh");
     assert.equal(snapshotRow?.discovery_status, "candidates");
-    assert.equal(snapshotRow?.candidate_count, 1);
+    assert.equal(snapshotRow?.candidate_count, 2);
     assert.deepInclude(snapshotRow?.updateIntent || {}, {
       topicId: "object-detection",
       updateMode: "update_patch",
@@ -4510,7 +4771,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(topicContext.freshness?.discovery_status, "candidates");
     assert.deepEqual(
       (topicContext.discovery_hints || []).map((hint) => hint.literatureItemId),
-      ["lit:candidate"],
+      ["1:DETR", "lit:candidate"],
     );
 
     repository.upsertLiteratureMatchingMetadata({
@@ -4532,14 +4793,14 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(refreshedState.freshness, "fresh");
     assert.equal(refreshedState.known_dependency_status, "fresh");
     assert.equal(refreshedState.discovery_status, "candidates");
-    assert.equal(refreshedState.candidate_count, 1);
+    assert.equal(refreshedState.candidate_count, 2);
     assert.deepEqual(
       refreshedHints.map((hint) => hint.literatureItemId),
-      ["lit:candidate"],
+      ["1:DETR", "lit:candidate"],
     );
     assert.deepEqual(
       refreshedAcceptedHints.map((hint) => hint.literatureItemId),
-      ["1:DETR"],
+      ["1:DETR", "lit:candidate"],
     );
 
     repository.upsertTopicGraphNode({
@@ -4580,13 +4841,13 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       (cascadedContext.discovery_hints || []).map(
         (hint) => hint.literatureItemId,
       ),
-      ["lit:candidate", "lit:child-new"],
+      ["1:DETR", "lit:candidate", "lit:child-new"],
     );
     const cascadedSnapshot = await service.getSynthesisSnapshot();
     const cascadedSnapshotRow = cascadedSnapshot.artifacts.rows.find(
       (row) => row.id === "object-detection",
     );
-    assert.equal(cascadedSnapshotRow?.candidate_count, 2);
+    assert.equal(cascadedSnapshotRow?.candidate_count, 3);
     assert.deepEqual(
       repository
         .listTopicDiscoveryHints({
@@ -4752,6 +5013,15 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
         outputPath,
         overwrite: true,
       })) as any;
+      const remotePath = path.join(root, "remote-topic-context.semantic.json");
+      const remoteEnvelope = (await service.getTopicContext(
+        {
+          topicId: "object-detection",
+          view: "semantic",
+          outputPath: remotePath,
+        },
+        { hostBridge: { connectionMode: "remote" } },
+      )) as any;
 
       assert.equal(envelope.omitted_inline_result, true);
       assert.equal(envelope.output.mode, "file");
@@ -4766,6 +5036,29 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       assert.notProperty(envelope, "semantic");
       assert.equal(duplicate.status, "output_exists");
       assert.equal(overwritten.omitted_inline_result, true);
+      assert.equal(remoteEnvelope.output.mode, "bridge-download");
+      assert.equal(
+        remoteEnvelope.output.path,
+        "remote-topic-context.semantic.json",
+      );
+      assert.equal(remoteEnvelope.delivery.mode, "bridge-download");
+      assert.include(
+        remoteEnvelope.delivery.downloadCommand,
+        "zotero-bridge file download",
+      );
+      assert.isFalse(
+        await fs
+          .access(remotePath)
+          .then(() => true)
+          .catch(() => false),
+      );
+      const downloaded = await resolveHostBridgeFileDownload(
+        remoteEnvelope.delivery.bundle.fileId,
+      );
+      const zipText = Buffer.from(downloaded.bytes).toString("utf8");
+      assert.include(zipText, "remote-topic-context.semantic.json");
+      assert.include(zipText, "DETR introduced a set-prediction framing");
+      resetHostBridgeFileRegistryForTests();
     });
   });
 

@@ -3,6 +3,8 @@ import type { WorkflowManifest } from "./types";
 export const AUTO_APPROVE_ZOTERO_WRITES_PARAM = "autoApproveZoteroWrites";
 export const SKILLRUNNER_ZOTERO_HOST_ACCESS_STRIPPED_WARNING_CODE =
   "skillrunner_zotero_host_access_runtime_option_stripped";
+export const SKILLRUNNER_ZOTERO_HOST_ACCESS_ENV_INJECTION_CODE =
+  "skillrunner_zotero_host_access_env_injected";
 
 // Temporary compatibility switch: current SkillRunner backend rejects
 // runtime_options.zotero_host_access. Flip/remove this when SkillRunner gains

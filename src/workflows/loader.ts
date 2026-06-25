@@ -1,7 +1,6 @@
 import type {
   ApplyResultHook,
   BuildRequestHook,
-  FilterInputsHook,
   NormalizeWorkflowSettingsHook,
   LoadedWorkflow,
   LoadedWorkflows,
@@ -27,6 +26,7 @@ import {
   emitWorkflowPackageDiagnostic,
   summarizeWorkflowRuntimeCapabilities,
 } from "../modules/workflowPackageDiagnostics";
+import { isDebugModeEnabled } from "../modules/debugMode";
 import { bundlePackageHookScript } from "./packageHookBundler";
 import {
   resolveRuntimeConsole,
@@ -37,11 +37,9 @@ import {
   summarizeWorkflowHostApiCapabilities,
   WORKFLOW_HOST_API_VERSION,
 } from "./hostApi";
-import type {
-  WorkflowHookExecutionMode,
-} from "./types";
+import type { WorkflowHookExecutionMode } from "./types";
 
-type WorkflowModuleResourceKind = "builtin" | "user";
+type WorkflowModuleResourceKind = "official" | "dev-local" | "user";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -77,9 +75,11 @@ async function readTextFile(filePath: string) {
     return io.readUTF8(filePath);
   }
   if (isZoteroRuntime()) {
-    const runtimeIo = (globalThis as {
-      IOUtils: { readUTF8: (path: string) => Promise<string> };
-    }).IOUtils;
+    const runtimeIo = (
+      globalThis as {
+        IOUtils: { readUTF8: (path: string) => Promise<string> };
+      }
+    ).IOUtils;
     return runtimeIo.readUTF8(filePath);
   }
   const fs = await dynamicImport("fs/promises");
@@ -97,9 +97,11 @@ async function listDirectoryEntries(dirPath: string): Promise<string[]> {
     return children.map((entryPath) => getBaseName(entryPath));
   }
   if (isZoteroRuntime()) {
-    const runtimeIo = (globalThis as {
-      IOUtils: { getChildren: (path: string) => Promise<string[]> };
-    }).IOUtils;
+    const runtimeIo = (
+      globalThis as {
+        IOUtils: { getChildren: (path: string) => Promise<string[]> };
+      }
+    ).IOUtils;
     const children = await runtimeIo.getChildren(dirPath);
     return children.map((entryPath) => getBaseName(entryPath));
   }
@@ -118,9 +120,11 @@ async function statPath(targetPath: string): Promise<{ isDirectory: boolean }> {
     return { isDirectory: stat.type === "directory" };
   }
   if (isZoteroRuntime()) {
-    const runtimeIo = (globalThis as {
-      IOUtils: { stat: (path: string) => Promise<{ type: string }> };
-    }).IOUtils;
+    const runtimeIo = (
+      globalThis as {
+        IOUtils: { stat: (path: string) => Promise<{ type: string }> };
+      }
+    ).IOUtils;
     const stat = await runtimeIo.stat(targetPath);
     return { isDirectory: stat.type === "directory" };
   }
@@ -166,7 +170,10 @@ async function importHooksModuleFromText(filePath: string) {
     const runtime = globalThis as unknown as {
       IOUtils: {
         writeUTF8: (path: string, data: string) => Promise<void>;
-        remove?: (path: string, options?: { ignoreAbsent?: boolean }) => Promise<void>;
+        remove?: (
+          path: string,
+          options?: { ignoreAbsent?: boolean },
+        ) => Promise<void>;
       };
       PathUtils: { tempDir: string };
       Services: {
@@ -211,7 +218,6 @@ async function importHooksModuleFromText(filePath: string) {
 function hasKnownHookExport(loaded: Record<string, unknown>) {
   return (
     typeof loaded.applyResult === "function" ||
-    typeof loaded.filterInputs === "function" ||
     typeof loaded.buildRequest === "function" ||
     typeof loaded.normalizeSettings === "function"
   );
@@ -282,11 +288,7 @@ async function importPrecompiledPackageHooksModule(
   filePath: string,
   args: {
     packageRootDir: string;
-    exportName:
-      | "applyResult"
-      | "filterInputs"
-      | "buildRequest"
-      | "normalizeSettings";
+    exportName: "applyResult" | "buildRequest" | "normalizeSettings";
     workflowSourceKind?: WorkflowModuleResourceKind | "";
   },
 ) {
@@ -320,7 +322,10 @@ async function importPrecompiledPackageHooksModule(
   const runtime = globalThis as unknown as {
     IOUtils: {
       writeUTF8: (path: string, data: string) => Promise<void>;
-      remove?: (path: string, options?: { ignoreAbsent?: boolean }) => Promise<void>;
+      remove?: (
+        path: string,
+        options?: { ignoreAbsent?: boolean },
+      ) => Promise<void>;
     };
     PathUtils: { tempDir: string };
     Services: {
@@ -406,11 +411,7 @@ async function loadHooksModule(
     allowTextFallback?: boolean;
     workflowSourceKind?: WorkflowModuleResourceKind | "";
     packageRootDir?: string;
-    exportName?:
-      | "applyResult"
-      | "filterInputs"
-      | "buildRequest"
-      | "normalizeSettings";
+    exportName?: "applyResult" | "buildRequest" | "normalizeSettings";
   },
 ): Promise<{
   loaded: Record<string, unknown>;
@@ -445,7 +446,9 @@ async function loadHooksModule(
     };
   }
   if (!args?.packageRootDir || !args.exportName) {
-    throw new Error("packageRootDir and exportName are required for package hook bundling");
+    throw new Error(
+      "packageRootDir and exportName are required for package hook bundling",
+    );
   }
   return {
     loaded: await importPrecompiledPackageHooksModule(filePath, {
@@ -672,8 +675,7 @@ async function collectSingleWorkflowCandidate(args: {
   return [
     {
       entry: args.entry,
-      packageId:
-        String(manifestResult.manifest.id || "").trim() || args.entry,
+      packageId: String(manifestResult.manifest.id || "").trim() || args.entry,
       packageRootDir: args.workflowRoot,
       manifestPath: args.manifestPath,
       workflowRoot: args.workflowRoot,
@@ -689,7 +691,10 @@ async function collectWorkflowCandidates(args: {
   workflowRoot: string;
   diagnostics: LoaderDiagnostic[];
 }) {
-  const packageManifestPath = joinPath(args.workflowRoot, "workflow-package.json");
+  const packageManifestPath = joinPath(
+    args.workflowRoot,
+    "workflow-package.json",
+  );
   if (await pathExists(packageManifestPath)) {
     return collectPackageWorkflowCandidates({
       entry: args.entry,
@@ -710,7 +715,7 @@ async function collectWorkflowCandidates(args: {
   });
 }
 
-async function filterDirectoryEntriesByBuiltinManifest(
+async function filterDirectoryEntriesByOfficialManifest(
   workflowsDir: string,
   entries: string[],
   diagnostics: LoaderDiagnostic[],
@@ -728,12 +733,13 @@ async function filterDirectoryEntriesByBuiltinManifest(
     }
     const shippedRoots = new Set(
       parsed.files
-        .map((entry) =>
-          String(entry || "")
-            .replace(/\\/g, "/")
-            .split("/")
-            .map((segment) => segment.trim())
-            .filter(Boolean)[0],
+        .map(
+          (entry) =>
+            String(entry || "")
+              .replace(/\\/g, "/")
+              .split("/")
+              .map((segment) => segment.trim())
+              .filter(Boolean)[0],
         )
         .filter(Boolean),
     );
@@ -746,7 +752,7 @@ async function filterDirectoryEntriesByBuiltinManifest(
       createLoaderDiagnostic({
         level: "warning",
         category: "manifest_parse_error",
-        message: `Unable to read builtin workflow manifest filter: ${builtinManifestPath} (${String(error)})`,
+        message: `Unable to read official workflow manifest filter: ${builtinManifestPath} (${String(error)})`,
         path: builtinManifestPath,
         reason: String(error),
       }),
@@ -755,15 +761,13 @@ async function filterDirectoryEntriesByBuiltinManifest(
   }
 }
 
-async function loadHooks(
-  args: {
-    workflowRoot: string;
-    packageRootDir: string;
-    manifest: WorkflowManifest;
-    isPackageWorkflow: boolean;
-    workflowSourceKind?: WorkflowModuleResourceKind | "";
-  },
-): Promise<{
+async function loadHooks(args: {
+  workflowRoot: string;
+  packageRootDir: string;
+  manifest: WorkflowManifest;
+  isPackageWorkflow: boolean;
+  workflowSourceKind?: WorkflowModuleResourceKind | "";
+}): Promise<{
   hooks: WorkflowHooksModule;
   executionMode: WorkflowHookExecutionMode;
 }> {
@@ -841,54 +845,12 @@ async function loadHooks(
   }
   hooks.applyResult = applyResultModule.applyResult as ApplyResultHook;
 
-  if (manifest.hooks.filterInputs) {
-    assertPackageHookPath(manifest.hooks.filterInputs, "filterInputs");
-    const filterInputsPath = joinPath(workflowRoot, manifest.hooks.filterInputs);
-    try {
-      await statPath(filterInputsPath);
-    } catch (error) {
-      throw new WorkflowLoaderDiagnosticError({
-        category: "hook_missing_error",
-        message: `Hook file missing: ${manifest.hooks.filterInputs}`,
-        workflowId: manifest.id,
-        path: filterInputsPath,
-        reason: String(error),
-      });
-    }
-    let filterInputsModule: Record<string, unknown>;
-    try {
-      const loaded = await loadHooksModule(filterInputsPath, {
-        allowTextFallback,
-        workflowSourceKind: args.workflowSourceKind,
-        packageRootDir: args.packageRootDir,
-        exportName: "filterInputs",
-      });
-      filterInputsModule = loaded.loaded;
-      assignExecutionMode(loaded.executionMode);
-    } catch (error) {
-      throw new WorkflowLoaderDiagnosticError({
-        category: "hook_import_error",
-        message: `Hook import failed: ${manifest.hooks.filterInputs}`,
-        workflowId: manifest.id,
-        path: filterInputsPath,
-        reason: String(error),
-      });
-    }
-    if (typeof filterInputsModule.filterInputs !== "function") {
-      throw new WorkflowLoaderDiagnosticError({
-        category: "hook_export_error",
-        message: `Hook export filterInputs() not found: ${manifest.hooks.filterInputs}`,
-        workflowId: manifest.id,
-        path: filterInputsPath,
-        reason: "filterInputs export missing",
-      });
-    }
-    hooks.filterInputs = filterInputsModule.filterInputs as FilterInputsHook;
-  }
-
   if (manifest.hooks.buildRequest) {
     assertPackageHookPath(manifest.hooks.buildRequest, "buildRequest");
-    const buildRequestPath = joinPath(workflowRoot, manifest.hooks.buildRequest);
+    const buildRequestPath = joinPath(
+      workflowRoot,
+      manifest.hooks.buildRequest,
+    );
     try {
       await statPath(buildRequestPath);
     } catch (error) {
@@ -932,7 +894,10 @@ async function loadHooks(
   }
 
   if (manifest.hooks.normalizeSettings) {
-    assertPackageHookPath(manifest.hooks.normalizeSettings, "normalizeSettings");
+    assertPackageHookPath(
+      manifest.hooks.normalizeSettings,
+      "normalizeSettings",
+    );
     const normalizeSettingsPath = joinPath(
       workflowRoot,
       manifest.hooks.normalizeSettings,
@@ -970,8 +935,7 @@ async function loadHooks(
     if (typeof normalizeSettingsModule.normalizeSettings !== "function") {
       throw new WorkflowLoaderDiagnosticError({
         category: "hook_export_error",
-        message:
-          `Hook export normalizeSettings() not found: ${manifest.hooks.normalizeSettings}`,
+        message: `Hook export normalizeSettings() not found: ${manifest.hooks.normalizeSettings}`,
         workflowId: manifest.id,
         path: normalizeSettingsPath,
         reason: "normalizeSettings export missing",
@@ -1016,7 +980,7 @@ export async function loadWorkflowManifests(
     };
   }
   entries = normalizeDirectoryEntries(entries);
-  entries = await filterDirectoryEntriesByBuiltinManifest(
+  entries = await filterDirectoryEntriesByOfficialManifest(
     workflowsDir,
     entries,
     diagnostics,
@@ -1035,58 +999,84 @@ export async function loadWorkflowManifests(
         diagnostics,
       });
       for (const candidate of candidates) {
-        if (!isNonEmptyString(candidate.manifest.provider)) {
-          diagnostics.push(
-            createLoaderDiagnostic({
+        try {
+          const hiddenByDebugMode =
+            candidate.manifest.debug_only === true && !isDebugModeEnabled();
+          if (!isNonEmptyString(candidate.manifest.provider)) {
+            diagnostics.push(
+              createLoaderDiagnostic({
+                level: "warning",
+                category: "manifest_validation_error",
+                message: `Skip workflow ${candidate.manifest.id}: missing provider declaration`,
+                entry: candidate.entry,
+                workflowId: candidate.manifest.id,
+                path: candidate.manifestPath,
+                reason: "provider missing",
+              }),
+            );
+            continue;
+          }
+
+          const buildStrategy = resolveBuildStrategy(candidate.manifest);
+          if (!buildStrategy) {
+            diagnostics.push(
+              createLoaderDiagnostic({
+                level: "warning",
+                category: "manifest_validation_error",
+                message: `Skip workflow ${candidate.manifest.id}: missing hooks.buildRequest and request declaration`,
+                entry: candidate.entry,
+                workflowId: candidate.manifest.id,
+                path: candidate.manifestPath,
+                reason: "build strategy unresolved",
+              }),
+            );
+            continue;
+          }
+
+          const hookResult = await loadHooks({
+            workflowRoot: candidate.workflowRoot,
+            packageRootDir: candidate.packageRootDir,
+            manifest: candidate.manifest,
+            isPackageWorkflow: candidate.declaredFromPackage,
+            workflowSourceKind: args?.workflowSourceKind,
+          });
+          if (hiddenByDebugMode) {
+            continue;
+          }
+          workflowsById.set(candidate.manifest.id, {
+            manifest: candidate.manifest,
+            rootDir: candidate.workflowRoot,
+            packageId: candidate.packageId,
+            packageRootDir: candidate.packageRootDir,
+            manifestPath: candidate.manifestPath,
+            localization: candidate.localization,
+            workflowSourceKind: args?.workflowSourceKind,
+            hooks: hookResult.hooks,
+            buildStrategy,
+            hookExecutionMode: hookResult.executionMode,
+          });
+        } catch (error) {
+          const normalized = toDiagnosticFromUnknown({
+            error,
+            fallback: createLoaderDiagnostic({
               level: "warning",
-              category: "manifest_validation_error",
-              message:
-                `Skip workflow ${candidate.manifest.id}: missing provider declaration`,
+              category: "scan_runtime_warning",
+              message: `Skip workflow ${candidate.manifest.id}: ${String(error)}`,
               entry: candidate.entry,
               workflowId: candidate.manifest.id,
               path: candidate.manifestPath,
-              reason: "provider missing",
             }),
-          );
-          continue;
+          });
+          diagnostics.push({
+            ...normalized,
+            entry: normalized.entry || candidate.entry,
+            workflowId: normalized.workflowId || candidate.manifest.id,
+            path: normalized.path || candidate.manifestPath,
+            message: normalized.message.startsWith("Skip workflow")
+              ? normalized.message
+              : `Skip workflow ${candidate.manifest.id}: ${normalized.message}`,
+          });
         }
-
-        const buildStrategy = resolveBuildStrategy(candidate.manifest);
-        if (!buildStrategy) {
-          diagnostics.push(
-            createLoaderDiagnostic({
-              level: "warning",
-              category: "manifest_validation_error",
-              message:
-                `Skip workflow ${candidate.manifest.id}: missing hooks.buildRequest and request declaration`,
-              entry: candidate.entry,
-              workflowId: candidate.manifest.id,
-              path: candidate.manifestPath,
-              reason: "build strategy unresolved",
-            }),
-          );
-          continue;
-        }
-
-        const hookResult = await loadHooks({
-          workflowRoot: candidate.workflowRoot,
-          packageRootDir: candidate.packageRootDir,
-          manifest: candidate.manifest,
-          isPackageWorkflow: candidate.declaredFromPackage,
-          workflowSourceKind: args?.workflowSourceKind,
-        });
-        workflowsById.set(candidate.manifest.id, {
-          manifest: candidate.manifest,
-          rootDir: candidate.workflowRoot,
-          packageId: candidate.packageId,
-          packageRootDir: candidate.packageRootDir,
-          manifestPath: candidate.manifestPath,
-          localization: candidate.localization,
-          workflowSourceKind: args?.workflowSourceKind,
-          hooks: hookResult.hooks,
-          buildStrategy,
-          hookExecutionMode: hookResult.executionMode,
-        });
       }
     } catch (error) {
       const fallbackPath = joinPath(workflowRoot, "workflow-package.json");

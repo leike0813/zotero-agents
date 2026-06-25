@@ -65,7 +65,9 @@ function buildWrappedCitationPayload() {
 
 describe("literature-workbench import schema validation", function () {
   it("accepts native references artifact arrays and normalizes them for note writing", function () {
-    const raw = validateImportedReferencesPayload(buildNativeReferencesArrayPayload());
+    const raw = validateImportedReferencesPayload(
+      buildNativeReferencesArrayPayload(),
+    );
     assert.deepEqual(raw.errors, []);
 
     const normalizedRaw = normalizeImportedReferencesPayload(
@@ -76,16 +78,22 @@ describe("literature-workbench import schema validation", function () {
   });
 
   it("accepts schema-style native references artifact objects with top-level items", function () {
-    const raw = validateImportedReferencesPayload(buildRawReferencesSchemaPayload());
+    const raw = validateImportedReferencesPayload(
+      buildRawReferencesSchemaPayload(),
+    );
     assert.deepEqual(raw.errors, []);
 
-    const normalizedRaw = normalizeImportedReferencesPayload(buildRawReferencesSchemaPayload());
+    const normalizedRaw = normalizeImportedReferencesPayload(
+      buildRawReferencesSchemaPayload(),
+    );
     assert.equal(Array.isArray(normalizedRaw.references), true);
     assert.equal(normalizedRaw.references[0].title, "Structured Reference");
   });
 
   it("rejects wrapper-shaped references payloads", function () {
-    const wrapped = validateImportedReferencesPayload(buildWrappedReferencesPayload());
+    const wrapped = validateImportedReferencesPayload(
+      buildWrappedReferencesPayload(),
+    );
     assert.isAbove(wrapped.errors.length, 0);
   });
 
@@ -111,7 +119,9 @@ describe("literature-workbench import schema validation", function () {
   });
 
   it("rejects wrapper-shaped citation payloads", function () {
-    const result = validateImportedCitationPayload(buildWrappedCitationPayload());
+    const result = validateImportedCitationPayload(
+      buildWrappedCitationPayload(),
+    );
     assert.isAbove(result.errors.length, 0);
   });
 

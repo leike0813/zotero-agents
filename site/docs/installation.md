@@ -1,47 +1,61 @@
-# 安装指南
+# Installation Guide
 
-## 系统要求
+## System Requirements
 
-- **Zotero**：7.0 或更高版本
-- **平台**：Windows 10+、macOS 12+ 或 Linux（x86_64）
+- **Zotero**: 7.0 or later (Zotero 9 recommended)
+- **Platform**: Windows 10+, macOS 12+, Linux (x86_64 / x86 / ARM64 / ARM)
 
-## 安装插件
+> **About Zotero Versions**: This plugin is developed and tested on Zotero 9. Zotero 8 is theoretically fully supported (the plugin framework has no significant changes between Zotero 8/9); Zotero 7 should also be supported in theory but has not been thoroughly tested due to limited resources. Future maintenance will focus on Zotero 9. If you encounter issues on Zotero 7, please report them on [Issues](https://github.com/leike0813/zotero-agents/issues).
 
-### 从 GitHub Release 安装（推荐）
+## Installing the Plugin
 
-1. 访问 [Releases 页面](https://github.com/leike0813/Zotero-Skills/releases)
-2. 下载最新的 `.xpi` 文件
-3. 在 Zotero 中，打开 **工具 → 附加组件**
-4. 点击齿轮图标，选择 **从文件安装附加组件...**
-5. 选择下载的 `.xpi` 文件
+### From GitHub/Gitee Release (Recommended)
 
-### 从源码构建
+1. Visit [GitHub Releases](https://github.com/leike0813/zotero-agents/releases) or [Gitee Releases Mirror](https://gitee.com/leike0813/zotero-agents/releases)
+2. Download the latest `.xpi` file
+3. In Zotero, open **Tools → Add-ons**
+4. Click the gear icon and select **Install Add-on From File...**
+5. Select the downloaded `.xpi` file
+
+### Building from Source
 
 ```bash
-git clone https://github.com/leike0813/Zotero-Skills.git
-cd Zotero-Skills
+git clone https://github.com/leike0813/zotero-agents.git
+cd zotero-agents
 npm install
 npm run build
 ```
 
-构建产物位于 `.scaffold/build/` 目录。
+The build output is located in the `.scaffold/build/` directory.
 
-## 安装 Skill-Runner 后端
+## Installing Official Workflow Packages
 
-技能由 Skill-Runner 后端执行。您可以使用：
+The plugin ships with **no built-in business logic**. All workflows are provided through separate official workflow packages.
 
-- **本地 Skill-Runner** — 在您自己的机器上运行，需要 Python 3.10+
-- **远程 Skill-Runner** — 连接到共享或云托管的实例
+### Method 1: Menu Installation (Recommended)
 
-### 快速安装（本地）
+1. After restarting Zotero, right-click any item → **Zotero Agents** → **📦 Install Official Workflow Packages**
+2. The plugin automatically downloads the latest official packages from GitHub / Gitee
+3. A success notification appears upon completion; all official workflows will then be visible in the Dashboard
 
-请参考 [Skill-Runner 仓库](https://github.com/leike0813/skill-runner) 中的说明来搭建本地后端。
+### Method 2: Install from Preferences
 
-## 验证安装
+1. Open **Zotero → Settings → Zotero Agents**
+2. In the **Workflow Settings** section, click **Install Official Workflow Packages**
+3. You can also switch the update channel (stable / beta / dev) here and check for updates
 
-安装完成后：
+### Update Mechanism
 
-1. 重启 Zotero
-2. 您应该能在 Zotero 工具栏中看到新的 **Zotero Skills** 区域
-3. 打开 **工具 → 后端管理器** 来配置后端连接
-4. 后端管理器对话框将显示可用的 provider 类型
+- The plugin automatically checks for new versions of official packages on startup
+- A confirmation dialog appears when a new version is available
+- The workflow list is automatically reloaded after updating
+
+Official Workflow Package Repository: [GitHub](https://github.com/leike0813/zotero-agents-workflows) · [Gitee Mirror](https://gitee.com/leike0813/zotero-agents-workflows)
+
+## Verifying the Installation
+
+1. Restart Zotero
+2. You should see the **Zotero Agents** icon in the Zotero toolbar
+3. Right-click any item — the **Zotero Agents** submenu should appear (with available workflows)
+
+If the right-click menu only shows a **📦 Install Official Workflow Packages** option, the official packages have not been installed yet — follow the instructions above to install them. After successful installation, proceed to [Getting Started](/getting-started) to configure a backend and run your first workflow.

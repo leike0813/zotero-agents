@@ -5,6 +5,10 @@ import {
   resolveDeepReadingHtmlPathFromSourcePath,
   resolveSourcePathFromRequest,
 } from "../../lib/deepReadingResultTarget.mjs";
+import {
+  appendSkillDiagnosticsToResult,
+  collectSkillOutputDiagnostics,
+} from "../../lib/resultOutput.mjs";
 import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
 
 function normalizeString(value) {
@@ -22,11 +26,7 @@ function getResultArtifactPath(result, key) {
   if (!result || typeof result !== "object") {
     return "";
   }
-  return (
-    normalizeString(result?.[key]) ||
-    normalizeString(result?.data?.[key]) ||
-    normalizeString(result?.result?.[key])
-  );
+  return normalizeString(result?.[key]) || normalizeString(result?.data?.[key]);
 }
 
 function resolveBundleEntryPath(rawPath, fallbackPath) {
@@ -148,12 +148,14 @@ async function applyResultImpl({
   bundleReader,
   request,
   resultContext,
+  runResult,
   runtime,
 }) {
   const hostApi = requireHostApi(runtime);
   const parentItem = runtime.helpers.resolveItemRef(parent);
   const diagnostics = [];
   const result = await readResultJson({ bundleReader, resultContext });
+  const skillOutputDiagnostics = collectSkillOutputDiagnostics(result);
   const htmlResolved = await readArtifactText({
     resultContext,
     bundleReader,
@@ -206,16 +208,19 @@ async function applyResultImpl({
     });
   }
 
-  return {
-    ok: true,
-    attachmentKey: normalizeString(attachment?.key),
-    attachmentId: attachment?.id || null,
-    htmlPath,
-    sourcePath,
-    htmlEntryPath: htmlResolved.entryPath,
-    manifest,
-    diagnostics,
-  };
+  return appendSkillDiagnosticsToResult(
+    {
+      ok: true,
+      attachmentKey: normalizeString(attachment?.key),
+      attachmentId: attachment?.id || null,
+      htmlPath,
+      sourcePath,
+      htmlEntryPath: htmlResolved.entryPath,
+      manifest,
+      diagnostics,
+    },
+    skillOutputDiagnostics,
+  );
 }
 
 export async function applyResult(args) {

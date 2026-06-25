@@ -25,7 +25,7 @@
   color: var(--zs-text, var(--text, #333));
   background: var(--zs-input-bg, #fff);
   /* The user-select property was duplicated, removing the second one */
-  
+
   /* Prevent text wrapping and maintain single line */
   /* These properties are now explicitly defined above */
 }

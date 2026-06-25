@@ -2,6 +2,7 @@ const data = JSON.parse(
   document.getElementById("deep-reading-data").textContent,
 );
 const body = document.body;
+const shell = document.querySelector(".shell");
 const toc = document.querySelector("[data-toc]");
 const conceptRail = document.querySelector("[data-concept-rail]");
 const paper = document.querySelector("[data-paper]");
@@ -23,6 +24,14 @@ let conceptBubbleTimer = 0;
 let activeAnchor = "preface";
 let scrollUpdateFrame = 0;
 let scheduleActiveAnchorUpdate = () => {};
+const viewerEnvironment = detectConstrainedViewer();
+let activeReferenceView = data.references?.default_view || "item";
+const labels = data.labels || {};
+const RESPONSIVE_THRESHOLDS = {
+  collapseConceptRail: 2050,
+  collapseToc: 1840,
+  disableCompare: 1580,
+};
 
 function esc(value) {
   return String(value ?? "").replace(
@@ -38,7 +47,128 @@ function cssEscape(value) {
     ? CSS.escape(String(value || ""))
     : String(value || "").replace(/"/g, '\\"');
 }
+function label(key, fallback) {
+  return labels[key] || fallback;
+}
+function markdownInline(value) {
+  return esc(value)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+}
+function headingId(text, index) {
+  const normalized = String(text || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `digest-heading-${normalized || index}`;
+}
+function digestHeadings(markdown) {
+  const headings = [];
+  String(markdown || "")
+    .split(/\r?\n/)
+    .forEach((line) => {
+      const match = /^(#{1,4})\s+(.+?)\s*$/.exec(line);
+      if (match) {
+        headings.push({
+          level: match[1].length,
+          title: match[2],
+          id: headingId(match[2], headings.length + 1),
+        });
+      }
+    });
+  return headings;
+}
+function renderMarkdown(markdown) {
+  if (window.ZoteroSkillsMarkdownRenderer?.renderToHtml) {
+    return window.ZoteroSkillsMarkdownRenderer.renderToHtml(markdown || "", {
+      profile: "standaloneDigest",
+      headingIdPrefix: "digest-heading",
+    });
+  }
+  const lines = String(markdown || "").split(/\r?\n/);
+  const parts = [];
+  let paragraph = [];
+  let list = [];
+  let inCode = false;
+  let codeLines = [];
+  const headings = digestHeadings(markdown);
+  let headingIndex = 0;
+  const flushParagraph = () => {
+    const text = paragraph.join(" ").trim();
+    if (text) parts.push(`<p>${markdownInline(text)}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (list.length) {
+      parts.push(
+        `<ul>${list.map((item) => `<li>${markdownInline(item)}</li>`).join("")}</ul>`,
+      );
+      list = [];
+    }
+  };
+  lines.forEach((line) => {
+    if (/^```/.test(line.trim())) {
+      if (inCode) {
+        parts.push(`<pre><code>${esc(codeLines.join("\n"))}</code></pre>`);
+        codeLines = [];
+        inCode = false;
+      } else {
+        flushParagraph();
+        flushList();
+        inCode = true;
+      }
+      return;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      return;
+    }
+    const heading = /^(#{1,4})\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = Math.min(4, Math.max(2, heading[1].length + 1));
+      const id =
+        headings[headingIndex]?.id || headingId(heading[2], headingIndex + 1);
+      headingIndex += 1;
+      parts.push(`<h${level} id="${esc(id)}">${esc(heading[2])}</h${level}>`);
+      return;
+    }
+    const listItem = /^\s*[-*]\s+(.+)$/.exec(line);
+    if (listItem) {
+      flushParagraph();
+      list.push(listItem[1]);
+      return;
+    }
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+    paragraph.push(line.trim());
+  });
+  flushParagraph();
+  flushList();
+  if (inCode)
+    parts.push(`<pre><code>${esc(codeLines.join("\n"))}</code></pre>`);
+  return parts.join("");
+}
+function renderDigestOutline(markdown) {
+  const headings = digestHeadings(markdown);
+  if (!headings.length) return "";
+  return `<nav class="digest-outline" aria-label="Digest outline"><strong>Outline</strong>${headings
+    .map(
+      (heading) =>
+        `<a class="digest-outline-link depth-${esc(heading.level)}" href="#${esc(heading.id)}">${esc(heading.title)}</a>`,
+    )
+    .join("")}</nav>`;
+}
 function setMode(mode) {
+  if (mode === "compare" && body.classList.contains("compare-disabled")) {
+    mode = "original";
+  }
   body.classList.remove(
     "mode-original",
     "mode-translated",
@@ -51,6 +181,37 @@ function setMode(mode) {
     .forEach((button) =>
       button.classList.toggle("active", button.dataset.mode === mode),
     );
+  window.setTimeout(scheduleActiveAnchorUpdate, 0);
+}
+function viewportWidth() {
+  return window.innerWidth || document.documentElement.clientWidth || 0;
+}
+function canOpenConceptRail() {
+  return viewportWidth() > RESPONSIVE_THRESHOLDS.collapseConceptRail;
+}
+function syncResponsiveLayout() {
+  const width = viewportWidth();
+  if (
+    width <= RESPONSIVE_THRESHOLDS.collapseConceptRail &&
+    conceptRail?.classList.contains("is-open")
+  ) {
+    conceptRail.classList.remove("is-open");
+    shell?.classList.remove("concept-rail-open");
+    renderConceptRail();
+  }
+  body.classList.toggle(
+    "toc-collapsed",
+    width <= RESPONSIVE_THRESHOLDS.collapseToc,
+  );
+  const compareDisabled = width <= RESPONSIVE_THRESHOLDS.disableCompare;
+  body.classList.toggle("compare-disabled", compareDisabled);
+  document.querySelectorAll('[data-mode="compare"]').forEach((button) => {
+    button.disabled = compareDisabled;
+    button.setAttribute("aria-disabled", compareDisabled ? "true" : "false");
+  });
+  if (compareDisabled && body.classList.contains("mode-compare")) {
+    setMode("original");
+  }
   window.setTimeout(scheduleActiveAnchorUpdate, 0);
 }
 function setImageSources(root) {
@@ -128,13 +289,25 @@ function renderConceptRail() {
   const concepts = allConcepts();
   if (!concepts.length) {
     conceptRail.style.display = "none";
+    shell?.classList.remove("concept-rail-open");
     return;
   }
-  conceptRail.innerHTML = `<div class="concept-rail-header"><strong>Concepts</strong><button type="button" class="concept-toggle" data-concept-toggle>${conceptRail.classList.contains("is-open") ? "收起" : "展开"}</button></div><div class="concept-list">${concepts.map((concept) => `<button type="button" class="concept-chip" data-concept-chip="${esc(conceptId(concept))}"><strong>${esc(conceptLabel(concept))}</strong><span>${esc(concept.kind || concept.status || "concept")}</span></button>`).join("")}</div>`;
+  const isOpen = conceptRail.classList.contains("is-open");
+  shell?.classList.toggle("concept-rail-open", isOpen);
+  conceptRail.innerHTML = `<div class="concept-rail-header"><strong>${esc(label("concepts", "Concepts"))}</strong><button type="button" class="concept-toggle" data-concept-toggle>${conceptRail.classList.contains("is-open") ? "收起" : "展开"}</button></div><div class="concept-list">${concepts.map((concept) => `<button type="button" class="concept-chip" data-concept-chip="${esc(conceptId(concept))}"><strong>${esc(conceptLabel(concept))}</strong><span>${esc(concept.kind || concept.status || "concept")}</span></button>`).join("")}</div>`;
   conceptRail
     .querySelector("[data-concept-toggle]")
     ?.addEventListener("click", () => {
+      if (!conceptRail.classList.contains("is-open") && !canOpenConceptRail()) {
+        conceptRail.classList.remove("is-open");
+        shell?.classList.remove("concept-rail-open");
+        return;
+      }
       conceptRail.classList.toggle("is-open");
+      shell?.classList.toggle(
+        "concept-rail-open",
+        conceptRail.classList.contains("is-open"),
+      );
       renderConceptRail();
     });
   conceptRail.querySelectorAll("[data-concept-chip]").forEach((button) => {
@@ -220,11 +393,155 @@ function renderNav() {
     });
   });
 }
+function referenceDigestByPaperRef() {
+  const rows = [
+    ...(data.references?.item_view?.items || []),
+    ...timelineDigestRows(),
+  ];
+  const byRef = new Map();
+  rows.forEach((ref) => {
+    if (!ref?.digest_modal?.available) return;
+    [ref.bound_paper_ref, ref.paper_ref, ref.zotero_item_key]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .forEach((key) => byRef.set(key, ref.reference_id));
+  });
+  return byRef;
+}
+function timelineDigestRows() {
+  return (data.preface?.topic_timeline?.items || [])
+    .filter((item) => item?.kind === "paper" && item?.digest_modal?.available)
+    .map((item) => ({
+      ...item,
+      reference_id:
+        item.digest_reference_id ||
+        `timeline:${item.paper_ref || item.item_key}`,
+      title:
+        item.title || item.paper_ref || label("paper_digest", "Paper digest"),
+      bound_paper_ref: item.paper_ref || "",
+      zotero_item_key: item.item_key || "",
+      digest_modal: item.digest_modal,
+    }));
+}
+function timelineTargetPaperRef(timeline) {
+  return (
+    timeline?.target?.paper_ref ||
+    data.paper?.paper_ref ||
+    data.paper?.paperRef ||
+    ""
+  );
+}
+function timelineTargetItemKey(timeline) {
+  const ref = timelineTargetPaperRef(timeline);
+  return (
+    timeline?.target?.item_key ||
+    data.paper?.item_key ||
+    data.paper?.itemKey ||
+    (ref.includes(":") ? ref.split(":").pop() : "")
+  );
+}
+function timelineRenderer() {
+  return window.ZoteroSkillsTopicTimeline;
+}
+function renderPrefaceTimelineNode(timeline) {
+  if (!timeline?.available) return null;
+  const renderer = timelineRenderer();
+  if (!renderer?.renderTopicTimeline) return null;
+  const digestByRef = referenceDigestByPaperRef();
+  const papers = [];
+  const events = [];
+  (timeline.items || []).forEach((item, index) => {
+    const year = Number(item?.year);
+    if (!Number.isFinite(year)) return;
+    if ((item.kind || "paper") === "event") {
+      events.push({
+        key: item.key || `event:${year}:${index}`,
+        year,
+        label: item.label || String(year),
+        title: item.title || item.description || `Milestone ${index + 1}`,
+        order: index,
+        weight: Number(item.pin_scale) || 1.24,
+        tone: item.tone || "milestone",
+        descriptions: [item.description || item.summary || item.title].filter(
+          Boolean,
+        ),
+      });
+      return;
+    }
+    const paperRef = item.paper_ref || item.paperRef || "";
+    const itemKey =
+      item.item_key ||
+      item.itemKey ||
+      (paperRef.includes(":") ? paperRef.split(":").pop() : "");
+    const digestReferenceId =
+      item.digest_reference_id ||
+      digestByRef.get(paperRef) ||
+      digestByRef.get(itemKey) ||
+      "";
+    papers.push({
+      key: item.key || `paper:${paperRef || index}`,
+      year,
+      label: item.label || `P${index + 1}`,
+      title: item.title || paperRef || `Paper ${index + 1}`,
+      order: index,
+      weight: Number(item.pin_scale) || 1,
+      tone: item.tone === "current" ? "paper" : item.tone || "paper",
+      paperRef,
+      itemKey,
+      digestReferenceId,
+    });
+  });
+  if (!papers.length) return null;
+  return renderer.renderTopicTimeline(
+    {
+      summary: timeline.summary || "",
+      papers,
+      events,
+    },
+    {
+      labels: {
+        title: label("topic_timeline", "Topic Timeline"),
+        milestones: label("timeline_milestones", "Milestones"),
+        papers: label("timeline_papers", "Papers"),
+        currentPaper: label("timeline_current_paper", "Current Paper"),
+        empty: label("timeline_empty", "No dated topic papers"),
+      },
+      className: "preface-topic-timeline",
+      currentPaperRef: timelineTargetPaperRef(timeline),
+      currentItemKey: timelineTargetItemKey(timeline),
+      currentPaperClass: "timeline-current-paper",
+      currentPaperPinScale: 1.5,
+      currentPaperPinColor: "red",
+      canClickPaper: (paper) => Boolean(paper.digestReferenceId),
+      disableUnclickablePapers: false,
+      onPaperClick: (paper) => {
+        if (paper.digestReferenceId) openDigest(paper.digestReferenceId);
+      },
+    },
+  );
+}
+function renderReadingGuide(preface) {
+  const pathItems = preface?.reading_path || [];
+  const questions = (preface?.questions || []).filter(
+    (item) => item?.question || item?.answer,
+  );
+  if (!pathItems.length && !questions.length) return "";
+  const pathHtml = pathItems.length
+    ? `<section><h3>${esc(label("reading_path", "Reading Path"))}</h3><ul>${pathItems.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></section>`
+    : "";
+  const questionHtml = questions.length
+    ? `<section><h3>${esc(label("reading_questions", "Questions to Keep in Mind"))}</h3>${questions.map((item) => `<article class="preface-question"><strong>${esc(item.question || "")}</strong>${item.answer ? `<p>${esc(item.answer)}</p>` : ""}</article>`).join("")}</section>`
+    : "";
+  return `<section class="reading-guide"><h2>${esc(label("reading_guide", "Reading Guide"))}</h2>${pathHtml}${questionHtml}</section>`;
+}
 function renderPreface() {
   const root = document.querySelector("[data-preface]");
   const cards = data.preface?.cards || [];
   root.id = data.preface?.anchor || "preface";
-  root.innerHTML = `<h1>${esc(data.preface?.title || "阅读前导读")}</h1><p class="kicker">${esc(data.preface?.goal || "")}</p><div class="preface-grid">${cards.map((card) => `<article class="preface-card"><h2>${esc(card.title)}</h2><p>${esc(card.body)}</p></article>`).join("")}</div>${(data.preface?.reading_path || []).length ? `<h2>阅读路线</h2><ul>${data.preface.reading_path.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}`;
+  root.innerHTML = `<h1>${esc(data.preface?.title || "阅读前导读")}</h1><p class="kicker">${esc(data.preface?.goal || "")}</p><div class="preface-grid">${cards.map((card) => `<article class="preface-card"><h2>${esc(card.title)}</h2><p>${esc(card.body)}</p></article>`).join("")}</div>`;
+  const timelineNode = renderPrefaceTimelineNode(data.preface?.topic_timeline);
+  if (timelineNode) root.appendChild(timelineNode);
+  root.insertAdjacentHTML("beforeend", renderReadingGuide(data.preface));
 }
 function blockHtml(block, sideName) {
   return sideName === "translation"
@@ -277,12 +594,16 @@ function renderReading() {
 function renderSummary() {
   const root = document.querySelector("[data-summary]");
   root.id = "summary";
-  root.innerHTML = `<h1>Summary</h1>${(data.summary?.sections || []).map((section) => `<section class="summary-block"><h2>${esc(section.title)}</h2><p>${esc(section.body || section.markdown || "")}</p></section>`).join("")}`;
+  root.innerHTML = `<h1>${esc(label("summary", "Summary"))}</h1>${(data.summary?.sections || []).map((section) => `<section class="summary-block"><h2>${esc(section.title)}</h2><p>${esc(section.body || section.markdown || "")}</p></section>`).join("")}`;
 }
 function referencesById() {
-  return new Map(
-    (data.references?.items || []).map((ref) => [ref.reference_id, ref]),
-  );
+  const refs = [
+    ...(data.references?.raw_view?.items || []),
+    ...(data.references?.items || []),
+    ...(data.references?.item_view?.items || []),
+    ...timelineDigestRows(),
+  ];
+  return new Map(refs.map((ref) => [ref.reference_id, ref]));
 }
 function referenceTitle(referenceId) {
   const ref = referencesById().get(referenceId);
@@ -297,11 +618,11 @@ function renderInsight(insight) {
   );
   const roles = insight.citation_note?.reference_roles || [];
   const qaHtml = questions.length
-    ? `<section><h2>可能的问题</h2>${questions.map((item) => `<div class="qa-item"><h3>${esc(item.question)}</h3><p>${esc(item.answer)}</p></div>`).join("")}</section>`
+    ? `<section><h2>${esc(label("possible_questions", "Questions to Consider"))}</h2>${questions.map((item) => `<div class="qa-item"><h3>${esc(item.question)}</h3><p>${esc(item.answer)}</p></div>`).join("")}</section>`
     : "";
   const citationHtml =
     insight.citation_note?.body || roles.length
-      ? `<section><h2>引用线索</h2>${insight.citation_note?.body ? `<p>${esc(insight.citation_note.body)}</p>` : ""}${roles
+      ? `<section><h2>${esc(label("citation_clues", "Citation Clues"))}</h2>${insight.citation_note?.body ? `<p>${esc(insight.citation_note.body)}</p>` : ""}${roles
           .slice(0, 5)
           .map(
             (role) =>
@@ -326,7 +647,7 @@ function renderSide(anchor) {
   const terms = insight.concepts?.length
     ? insight.concepts
     : data.preface?.concepts || [];
-  side.innerHTML = `<section><h2>当前位置</h2><p>${esc(navItem.title || anchor)}</p></section><section><h2>阅读目标</h2><p>${esc(insight.reading_goal || data.preface?.goal || "")}</p></section><section><h2>相关概念</h2><div class="chips">${terms.map(conceptChip).join("")}</div></section>${(insight.misread_warnings || []).length ? `<section><h2>误读提醒</h2>${insight.misread_warnings.map((item) => `<p>${esc(item)}</p>`).join("")}</section>` : ""}${renderInsight(insight)}`;
+  side.innerHTML = `<section><h2>${esc(label("current_position", "Current Position"))}</h2><p>${esc(navItem.title || anchor)}</p></section><section><h2>${esc(label("reading_goal", "Reading Goal"))}</h2><p>${esc(insight.reading_goal || data.preface?.goal || "")}</p></section><section><h2>${esc(label("related_concepts", "Related Concepts"))}</h2><div class="chips">${terms.map(conceptChip).join("")}</div></section>${(insight.misread_warnings || []).length ? `<section><h2>${esc(label("misread_warnings", "Misreading Warnings"))}</h2>${insight.misread_warnings.map((item) => `<p>${esc(item)}</p>`).join("")}</section>` : ""}${renderInsight(insight)}`;
   side.querySelectorAll("[data-side-concept]").forEach((button) => {
     const concept = allConcepts().find(
       (item) => conceptId(item) === button.getAttribute("data-side-concept"),
@@ -388,25 +709,105 @@ function scrollElementForTarget(node) {
     }) || node
   );
 }
+function closeDigest() {
+  modal.hidden = true;
+  modal.innerHTML = "";
+}
 function openDigest(referenceId) {
   const ref = referencesById().get(referenceId);
   if (!ref?.digest_modal?.available) return;
+  const result = ref.digest_modal.result || {};
+  const markdown = result.digest_markdown || ref.digest_modal.markdown || "";
+  const image = result.representative_image || {};
+  const imageHtml =
+    image.status === "available" &&
+    /^data:image\//i.test(String(image.data_url || ""))
+      ? `<figure class="digest-representative-image"><img src="${esc(image.data_url)}" alt="${esc(image.alt || image.caption || label("representative_image", "Representative image"))}" loading="lazy"${Number(image.width) > 0 ? ` width="${esc(image.width)}"` : ""}${Number(image.height) > 0 ? ` height="${esc(image.height)}"` : ""}>${image.caption || image.alt ? `<figcaption>${esc(image.caption || image.alt)}</figcaption>` : ""}</figure>`
+      : "";
+  const warningHtml = result.source_changed
+    ? '<div class="digest-warning">Digest source changed since this topic was synthesized.</div>'
+    : "";
+  const outlineHtml = renderDigestOutline(markdown);
+  modal.className = "paper-digest-modal";
   modal.hidden = false;
-  modal.innerHTML = `<div class="digest-dialog"><button type="button" class="digest-close" data-close>关闭</button><h2>${esc(ref.digest_modal.title || ref.title)}</h2><pre>${esc(ref.digest_modal.markdown)}</pre></div>`;
-  modal
-    .querySelector("[data-close]")
-    ?.addEventListener("click", () => (modal.hidden = true));
+  modal.innerHTML = `<section class="paper-digest-dialog"><div class="paper-digest-header"><strong>${esc(ref.digest_modal.title || ref.title || label("paper_digest", "Paper digest"))}</strong><button type="button" data-close>${esc(label("close", "Close"))}</button></div><div class="paper-digest-content">${markdown ? `<div class="paper-digest-body${outlineHtml ? "" : " no-outline"}">${outlineHtml}<div class="digest-scroll-body"><div class="digest-modal-intro">${warningHtml}${imageHtml}</div><div class="markdown-body">${renderMarkdown(markdown)}</div></div></div>` : `<div class="empty">${esc(result.status || label("digest_unavailable", "Digest is unavailable."))}</div>`}</div></section>`;
+  modal.querySelector("[data-close]")?.addEventListener("click", closeDigest);
+}
+function referenceSourceLabel(source) {
+  return source === "markdown"
+    ? label("markdown_references", "markdown references")
+    : source || label("raw_references", "raw");
+}
+function renderReferenceItem(ref, view) {
+  if (view === "raw") {
+    const rawMarkdown =
+      ref.raw_markdown || (typeof ref.raw === "string" ? ref.raw : "");
+    return `<article class="reference-item reference-raw-view"><span class="reference-index">${esc(ref.reference_index || "")}</span><pre class="reference-raw-markdown">${esc(rawMarkdown)}</pre></article>`;
+  }
+  const rawText =
+    typeof ref.raw === "string"
+      ? ref.raw
+      : ref.raw?.raw ||
+        ref.raw?.reference_title ||
+        ref.raw?.referenceTitle ||
+        "";
+  const title = ref.title || rawText || "Untitled reference";
+  const meta = (ref.authors || []).join(", ");
+  const libraryBound = view === "item" && ref.binding_status === "library";
+  const hasDigest = Boolean(ref.digest_modal?.available);
+  const classes = [
+    "reference-item",
+    "reference-item-view",
+    libraryBound ? "is-library-bound" : "",
+    hasDigest ? "has-digest" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const badges =
+    view === "item"
+      ? `<div class="reference-badges">${libraryBound ? `<span class="reference-badge library">${esc(label("library_item", "Library item"))}</span>` : `<span class="reference-badge muted">${esc(label("no_library_binding", "No library binding"))}</span>`}${ref.bound_paper_ref ? `<span class="reference-badge">${esc(ref.bound_paper_ref)}</span>` : ""}</div>`
+      : "";
+  const note =
+    view === "item" && ref.digest_note?.role_in_current_paper
+      ? `<p class="reference-note">${esc(ref.digest_note.role_in_current_paper)}</p>`
+      : "";
+  const content = `<span class="reference-index">${esc(ref.reference_index || "")}</span><div><p class="reference-title">${esc(title)}</p><div class="reference-meta">${esc(meta)}</div>${badges}${note}</div><div class="reference-year">${esc(ref.year || "")}</div>`;
+  return hasDigest
+    ? `<button type="button" class="${esc(classes)}" data-digest-ref="${esc(ref.reference_id)}">${content}</button>`
+    : `<article class="${esc(classes)}">${content}</article>`;
 }
 function renderReferences() {
+  const itemView = data.references?.item_view || { items: [] };
+  const rawView = data.references?.raw_view || {
+    items: data.references?.items || [],
+    source: data.references?.references_source || "none",
+  };
+  const itemAvailable = (itemView.items || []).length > 0;
+  const forcedRaw = viewerEnvironment.constrained || !itemAvailable;
+  const activeView = forcedRaw
+    ? "raw"
+    : activeReferenceView === "raw"
+      ? "raw"
+      : "item";
+  const viewData = activeView === "item" ? itemView : rawView;
+  const controls = forcedRaw
+    ? ""
+    : `<div class="reference-view-toggle" role="tablist" aria-label="${esc(label("references_view", "References view"))}"><button type="button" data-reference-view="item" aria-selected="${activeView === "item"}">${esc(label("item", "Item"))}</button><button type="button" data-reference-view="raw" aria-selected="${activeView === "raw"}">${esc(label("raw", "Raw"))}</button></div>`;
   const sourceLabel =
-    data.references?.references_source === "artifact"
-      ? "structured references artifact"
-      : "markdown fallback";
-  return `<section class="structured-references" id="references"><div class="references-summary"><strong>References</strong><span>${esc(data.references?.reference_count || 0)} 篇 · ${esc(sourceLabel)}</span></div><div class="reference-list">${(data.references?.items || []).map((ref) => `<article class="reference-item"><span class="reference-index">${esc(ref.reference_index || "")}</span><div><p class="reference-title">${esc(ref.title || ref.raw?.raw || "Untitled reference")}</p><div class="reference-meta">${esc((ref.authors || []).join(", "))}</div>${ref.digest_note?.role_in_current_paper ? `<p class="reference-note">${esc(ref.digest_note.role_in_current_paper)}</p>` : ""}${ref.digest_modal?.available ? `<button type="button" class="digest-button" data-digest-ref="${esc(ref.reference_id)}">Digest</button>` : ""}</div><div class="reference-year">${esc(ref.year || "")}</div></article>`).join("")}</div></section>`;
+    activeView === "item"
+      ? label("reference_index", "reference index")
+      : referenceSourceLabel(viewData.source);
+  return `<section class="structured-references reference-view-${esc(activeView)}" id="references" data-reference-active-view="${esc(activeView)}"><div class="references-summary"><div><strong>${esc(label("references", "References"))}</strong><span>${esc(viewData.reference_count || (viewData.items || []).length || 0)} ${esc(label("paper_count_unit", "papers"))} · ${esc(sourceLabel)}</span></div>${controls}</div><div class="reference-list">${(viewData.items || []).map((ref) => renderReferenceItem(ref, activeView)).join("")}</div></section>`;
 }
 function renderPostReading() {
   const root = document.querySelector("[data-post-reading]");
   root.innerHTML = renderReferences();
+  root.querySelectorAll("[data-reference-view]").forEach((button) =>
+    button.addEventListener("click", () => {
+      activeReferenceView = button.dataset.referenceView || "item";
+      renderPostReading();
+    }),
+  );
   root
     .querySelectorAll("[data-digest-ref]")
     .forEach((button) =>
@@ -415,28 +816,227 @@ function renderPostReading() {
       ),
     );
 }
-function renderCitationGraph() {
+
+function scriptTagText(value) {
+  return String(value || "").replace(/<\/script/gi, "<\\/script");
+}
+function jsonScriptText(value) {
+  return JSON.stringify(value || {})
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+function detectConstrainedViewer() {
+  const userAgent = String(navigator.userAgent || "");
+  const href = String(location.href || "");
+  const protocol = String(location.protocol || "");
+  const referrer = String(document.referrer || "");
+  const uriLike = [href, protocol, referrer].join(" ");
+  let embeddedViewer = false;
+  try {
+    embeddedViewer = window.self !== window.top;
+  } catch (_error) {
+    embeddedViewer = true;
+  }
+  const zoteroDetected =
+    /\bZotero\b/i.test(userAgent) ||
+    typeof globalThis.Zotero !== "undefined" ||
+    /\b(?:zotero:|chrome:\/\/zotero|resource:\/\/zotero)\b/i.test(uriLike);
+  const hostViewerDetected = zoteroDetected || embeddedViewer;
+  let iframeSrcdocSupported = false;
+  try {
+    iframeSrcdocSupported = "srcdoc" in document.createElement("iframe");
+  } catch (_error) {
+    iframeSrcdocSupported = false;
+  }
+  return {
+    zoteroDetected: hostViewerDetected,
+    constrained: hostViewerDetected || !iframeSrcdocSupported,
+    forceGraphFallback: hostViewerDetected || !iframeSrcdocSupported,
+  };
+}
+function applyViewerEnvironment() {
+  body.classList.toggle(
+    "zotero-viewer-detected",
+    viewerEnvironment.zoteroDetected,
+  );
+  body.classList.toggle(
+    "constrained-viewer-detected",
+    viewerEnvironment.constrained && !viewerEnvironment.zoteroDetected,
+  );
+}
+function setViewerWarningVisible(visible) {
+  const warning = document.querySelector("[data-zotero-viewer-warning]");
+  if (!warning) return;
+  warning.classList.toggle("is-visible", visible);
+  warning.classList.toggle("is-hidden", !visible);
+  warning.setAttribute("aria-hidden", visible ? "false" : "true");
+  if (visible) {
+    warning.setAttribute("role", "alert");
+    warning.textContent = label(
+      "viewer_warning",
+      "Open this HTML in a browser for the full interactive experience.",
+    );
+    warning.style.setProperty("display", "flex", "important");
+    warning.style.setProperty("visibility", "visible", "important");
+    warning.style.setProperty("opacity", "1", "important");
+    return;
+  }
+  warning.removeAttribute("role");
+  warning.style.removeProperty("display");
+  warning.style.removeProperty("visibility");
+  warning.style.removeProperty("opacity");
+}
+function showViewerWarningForGraphFallback() {
+  viewerEnvironment.constrained = true;
+  if (viewerEnvironment.zoteroDetected) {
+    body.classList.add("zotero-viewer-detected");
+    body.classList.remove("constrained-viewer-detected");
+    return;
+  }
+  body.classList.add("constrained-viewer-detected");
+}
+function renderCitationGraphFallback(reason) {
+  showViewerWarningForGraphFallback();
+  setViewerWarningVisible(true);
   const renderer = window.ZoteroSkillsCitationGraph?.renderCitationGraph;
   const model = data.citation_graph?.model || { nodes: [], edges: [] };
   if (!renderer) {
     graphSection.dataset.zsCgStatus = "failed";
-    graphSection.dataset.zsCgError = "renderer_unavailable";
-    graphSection.innerHTML = `<h2 id="citation-graph">Citation Graph</h2><p>引用图渲染器不可用。</p>`;
+    graphSection.dataset.zsCgError = reason || "renderer_unavailable";
+    if (!graphSection.querySelector("[data-static-citation-graph]")) {
+      graphSection.innerHTML = `<h2 id="citation-graph">${esc(label("citation_graph", "Citation Graph"))}</h2><p>${esc(label("graph_fallback_note", "The citation graph renderer is unavailable. Open this HTML in a system browser for the full interactive view."))}</p>`;
+    }
     return;
   }
+  graphSection.dataset.zsCgFallback = "standalone";
+  if (reason) graphSection.dataset.zsCgFallbackReason = reason;
   renderer(graphSection, model, {
     readonly: true,
     labels: {
-      title: "Citation Graph",
-      search: "Search graph",
-      clear: "Clear",
+      title: label("citation_graph", "Citation Graph"),
       noGraph: "当前没有可用的图布局坐标。",
+      direction: "引用方向",
+      incoming: "指向当前节点",
+      outgoing: "从当前节点指出",
+      importance: "引用重要性",
+      nodeSize: "节点大小 = 入站引用数",
+      halo: "光环 = 可见节点中高被引项",
+      currentPaper: "当前论文",
+      scope: "当前论文 2 跳引用邻域",
     },
   });
 }
+function synthesisCitationGraphHtml(envelope, assets) {
+  const locale = envelope?.i18n?.locale || envelope?.locale || "en-US";
+  return [
+    "<!doctype html>",
+    `<html lang="${esc(locale)}">`,
+    "<head>",
+    '<meta charset="UTF-8" />',
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+    "<style>",
+    String(assets.synthesisCss || ""),
+    "\nhtml,body,#app{height:100%;margin:0;overflow:hidden}.synthesis-root.standalone-graph-export-root{display:block;width:100%;height:100vh;min-height:0}.standalone-graph-export-main{width:100%;height:100vh;min-height:0}.standalone-graph-export-main .graph-shell{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);height:100vh;min-height:0}.standalone-graph-export-main .graph-stage{height:auto;min-height:0}",
+    "</style>",
+    "</head>",
+    '<body class="synthesis-standalone-export">',
+    '<div id="app" class="synthesis-root"></div>',
+    "<script>",
+    `window.__zoteroSkillsSynthesisGraphExport=${jsonScriptText(envelope)};`,
+    "<\/script>",
+    "<script>",
+    scriptTagText(assets.synthesisThemeJs),
+    "<\/script>",
+    "<script>",
+    scriptTagText(assets.synthesisAppJs),
+    "<\/script>",
+    "</body>",
+    "</html>",
+  ].join("\n");
+}
+function renderCitationGraph() {
+  if (!data.citation_graph?.available) {
+    if (graphSection) {
+      graphSection.hidden = true;
+      graphSection.innerHTML = "";
+    }
+    return;
+  }
+  if (graphSection) graphSection.hidden = false;
+  const envelope = data.citation_graph?.synthesis_export_envelope;
+  const assets = window.__ZoteroSkillsDeepReadingCitationGraphAssets || {};
+  if (viewerEnvironment.forceGraphFallback) {
+    renderCitationGraphFallback(
+      viewerEnvironment.zoteroDetected
+        ? "zotero_viewer_detected"
+        : "constrained_viewer_detected",
+    );
+    return;
+  }
+  if (
+    !envelope ||
+    !assets.synthesisAppJs ||
+    !assets.synthesisCss ||
+    !graphSection
+  ) {
+    renderCitationGraphFallback("synthesis_assets_unavailable");
+    return;
+  }
+  graphSection.dataset.zsCgStatus = "initializing";
+  delete graphSection.dataset.zsCgError;
+  delete graphSection.dataset.zsCgFallback;
+  graphSection.innerHTML = `<iframe class="citation-graph-synthesis-frame" title="${esc(label("citation_graph", "Citation Graph"))}" data-citation-graph-synthesis-frame></iframe>`;
+  const frame = graphSection.querySelector(
+    "[data-citation-graph-synthesis-frame]",
+  );
+  if (!frame) {
+    renderCitationGraphFallback("synthesis_frame_unavailable");
+    return;
+  }
+  let settled = false;
+  function fallback(reason) {
+    if (settled) return;
+    settled = true;
+    viewerEnvironment.constrained = true;
+    body.classList.add("constrained-viewer-detected");
+    renderCitationGraphFallback(reason);
+  }
+  function confirmSynthesisGraphReady(attempt = 0) {
+    window.setTimeout(() => {
+      if (settled) return;
+      const doc = frame.contentDocument;
+      if (doc?.querySelector(".graph-shell")) {
+        settled = true;
+        graphSection.dataset.zsCgStatus = "ready";
+        setViewerWarningVisible(false);
+        return;
+      }
+      if (attempt < 40) {
+        confirmSynthesisGraphReady(attempt + 1);
+        return;
+      }
+      if (!doc?.querySelector(".graph-shell")) {
+        fallback("synthesis_graph_shell_missing");
+        return;
+      }
+    }, 100);
+  }
+  frame.addEventListener("load", () => confirmSynthesisGraphReady());
+  try {
+    frame.setAttribute(
+      "sandbox",
+      "allow-scripts allow-same-origin allow-popups",
+    );
+    frame.srcdoc = synthesisCitationGraphHtml(envelope, assets);
+    confirmSynthesisGraphReady();
+  } catch (error) {
+    fallback(error?.message || "synthesis_frame_failed");
+  }
+}
 function renderExtensions() {
   const root = document.querySelector("[data-extensions]");
-  root.innerHTML = `<h1 id="extensions">Extensions</h1>${(data.extensions?.items || []).map((item) => `<article class="extension"><h2>${esc(item.title)}</h2><p>${esc(item.body || item.description || "")}</p></article>`).join("")}`;
+  root.innerHTML = `<h1 id="extensions">${esc(label("extensions", "Extensions"))}</h1>${(data.extensions?.items || []).map((item) => `<article class="extension"><h2>${esc(item.title)}</h2><p>${esc(item.body || item.description || "")}</p></article>`).join("")}`;
 }
 function initScrollTracking() {
   const anchors = new Set((data.navigation || []).map((item) => item.anchor));
@@ -524,7 +1124,10 @@ function initScrollTracking() {
   paperScroll.addEventListener("scroll", scheduleActiveAnchorUpdate, {
     passive: true,
   });
-  window.addEventListener("resize", scheduleActiveAnchorUpdate);
+  window.addEventListener("resize", () => {
+    syncResponsiveLayout();
+    scheduleActiveAnchorUpdate();
+  });
   document
     .querySelectorAll("[data-section-anchor]")
     .forEach((node) =>
@@ -536,6 +1139,9 @@ function initScrollTracking() {
   scheduleActiveAnchorUpdate();
 }
 function init() {
+  body.classList.add("js-ready");
+  applyViewerEnvironment();
+  setViewerWarningVisible(viewerEnvironment.constrained);
   document.querySelector("[data-paper-title]").textContent =
     data.paper?.title || "Literature Deep Reading";
   document.querySelector("[data-paper-meta]").textContent =
@@ -545,6 +1151,12 @@ function init() {
     .forEach((button) =>
       button.addEventListener("click", () => setMode(button.dataset.mode)),
     );
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) closeDigest();
+  });
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !modal.hidden) closeDigest();
+  });
   renderNav();
   renderConceptRail();
   renderPreface();
@@ -555,6 +1167,7 @@ function init() {
   renderExtensions();
   renderSide("preface");
   initScrollTracking();
+  syncResponsiveLayout();
   setMode("compare");
 }
 init();

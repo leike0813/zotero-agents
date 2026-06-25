@@ -51,7 +51,10 @@ async function readSelectionFixture(rootDir: string) {
   return JSON.parse(raw) as SelectionContext;
 }
 
-function normalizeAttachmentPaths(rootDir: string, selection: SelectionContext) {
+function normalizeAttachmentPaths(
+  rootDir: string,
+  selection: SelectionContext,
+) {
   const copied = JSON.parse(JSON.stringify(selection)) as SelectionContext;
   const baseDir = path.join(rootDir, "test", "fixtures", "selection-context");
   for (const attachment of copied.items?.attachments || []) {
@@ -75,7 +78,10 @@ async function main() {
 
   try {
     const fixtureSelection = await readSelectionFixture(rootDir);
-    const selectionContext = normalizeAttachmentPaths(rootDir, fixtureSelection);
+    const selectionContext = normalizeAttachmentPaths(
+      rootDir,
+      fixtureSelection,
+    );
     const loaded = await loadWorkflowManifests("workflows_builtin");
     const workflow = loaded.workflows.find(
       (entry) => entry.manifest.id === "literature-analysis",

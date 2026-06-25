@@ -1,0 +1,34 @@
+{
+  "id": "debug-interactive-choice-probe",
+  "label": "Debug: Interactive Choice Probe",
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "skill_id": "debug-interactive-choice-probe",
+      "mode": "interactive"
+    }
+  },
+  "execution": {
+    "feedback": {
+      "showNotifications": true
+    }
+  },
+  "result": {
+    "fetch": { "type": "result" },
+    "expects": {
+      "result_json": "result/result.json"
+    }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applyInteractiveChoiceProbeResult.mjs"
+  }
+}

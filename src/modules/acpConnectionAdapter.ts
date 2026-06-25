@@ -121,10 +121,16 @@ export type AcpConnectionAdapter = {
   onUpdate: (listener: AcpConnectionUpdateListener) => () => void;
   onClose: (listener: AcpConnectionCloseListener) => () => void;
   onDiagnostics: (listener: AcpConnectionDiagnosticsListener) => () => void;
-  onPermissionRequest: (listener: AcpConnectionPermissionListener) => () => void;
+  onPermissionRequest: (
+    listener: AcpConnectionPermissionListener,
+  ) => () => void;
   newSession: () => Promise<AcpConnectionNewSessionResult>;
-  loadSession: (args: { sessionId: string }) => Promise<AcpConnectionAttachSessionResult>;
-  resumeSession: (args: { sessionId: string }) => Promise<AcpConnectionAttachSessionResult>;
+  loadSession: (args: {
+    sessionId: string;
+  }) => Promise<AcpConnectionAttachSessionResult>;
+  resumeSession: (args: {
+    sessionId: string;
+  }) => Promise<AcpConnectionAttachSessionResult>;
   prompt: (args: {
     sessionId: string;
     message: string;
@@ -156,9 +162,7 @@ function isRequestError(value: unknown): value is RequestError {
 }
 
 function compactError(error: unknown) {
-  return describeAcpError(error, "unknown error")
-    .replace(/\s+/g, " ")
-    .trim();
+  return describeAcpError(error, "unknown error").replace(/\s+/g, " ").trim();
 }
 
 function normalizeString(value: unknown) {
@@ -202,11 +206,15 @@ function compactDiagnosticData(value: unknown) {
 }
 
 function compactText(value: unknown, limit = 360) {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  const text = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!text) {
     return "";
   }
-  return text.length > limit ? `${text.slice(0, Math.max(0, limit - 1))}…` : text;
+  return text.length > limit
+    ? `${text.slice(0, Math.max(0, limit - 1))}…`
+    : text;
 }
 
 function safeJson(value: unknown, limit = 4000) {
@@ -287,16 +295,16 @@ function normalizeAuthMethods(value: unknown) {
   }
   const normalized: AcpAuthMethod[] = [];
   for (const entry of value) {
-      const id = String(entry?.id || "").trim();
-      const name = String(entry?.name || "").trim();
-      if (!id || !name) {
-        continue;
-      }
-      normalized.push({
-        id,
-        name,
-        description: String(entry?.description || "").trim() || undefined,
-      });
+    const id = String(entry?.id || "").trim();
+    const name = String(entry?.name || "").trim();
+    if (!id || !name) {
+      continue;
+    }
+    normalized.push({
+      id,
+      name,
+      description: String(entry?.description || "").trim() || undefined,
+    });
   }
   return normalized;
 }
@@ -310,9 +318,8 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     new Set<AcpConnectionPermissionListener>();
   private readonly authMethods: AcpAuthMethod[] = [];
   private connection: AcpClientConnection | null = null;
-  private transport:
-    | Awaited<ReturnType<typeof launchAcpTransport>>
-    | null = null;
+  private transport: Awaited<ReturnType<typeof launchAcpTransport>> | null =
+    null;
   private initialized = false;
   private commandLabel = "";
   private commandLine = "";
@@ -339,7 +346,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   >();
   private closing = false;
   private unsubscribeZoteroMcpDiagnostics: () => void = () => undefined;
-  private readonly zoteroMcpDiagnosticListener = (event: ZoteroMcpDiagnosticEvent) => {
+  private readonly zoteroMcpDiagnosticListener = (
+    event: ZoteroMcpDiagnosticEvent,
+  ) => {
     this.emitDiagnostic({
       kind: event.kind,
       level: event.level || "info",
@@ -424,7 +433,8 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         : "";
     this.emitDiagnostic({
       kind: "jsonrpc_trace",
-      message: `${event.direction} ${event.kind}${methodText}${idText}${errorText}`.trim(),
+      message:
+        `${event.direction} ${event.kind}${methodText}${idText}${errorText}`.trim(),
       detail: JSON.stringify(event),
       raw: event,
     });
@@ -469,7 +479,11 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     if (!isRequestError(error)) {
       return false;
     }
-    if (error.code !== -32600 && error.code !== -32602 && error.code !== -32603) {
+    if (
+      error.code !== -32600 &&
+      error.code !== -32602 &&
+      error.code !== -32603
+    ) {
       return false;
     }
     const detail = `${error.message} ${safeJsonRaw(error.data, 2000)}`;
@@ -537,7 +551,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
 
   private async emitSessionUpdate(params: SessionNotification) {
     const sessionId = normalizeString(params.sessionId);
-    const capture = sessionId ? this.promptCapturesBySession.get(sessionId) : null;
+    const capture = sessionId
+      ? this.promptCapturesBySession.get(sessionId)
+      : null;
     if (capture) {
       capture.observedAcpActivity = true;
     }
@@ -611,7 +627,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       normalizeString(errorObject?.message) ||
       normalizeString(update.message) ||
       normalizeString(update.reason) ||
-      (typeof explicitError === "string" ? normalizeString(explicitError) : "") ||
+      (typeof explicitError === "string"
+        ? normalizeString(explicitError)
+        : "") ||
       "ACP backend reported a prompt error.";
     return {
       source: "session_update",
@@ -635,7 +653,10 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       return;
     }
     const chunks = this.rawAssistantTextBySession.get(sessionId) || [];
-    if (chunks.length === 0 || this.standardAssistantTextSessions.has(sessionId)) {
+    if (
+      chunks.length === 0 ||
+      this.standardAssistantTextSessions.has(sessionId)
+    ) {
       return;
     }
     this.emitDiagnostic({
@@ -742,9 +763,12 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       markZoteroMcpServerDescriptorInjected();
       this.emitDiagnostic({
         kind: "mcp_compat_descriptor_injected",
-        message: "Injected embedded Zotero MCP server for explicit compatibility mode",
+        message:
+          "Injected embedded Zotero MCP server for explicit compatibility mode",
         detail: JSON.stringify(
-          redactZoteroMcpServerDescriptor(descriptor as ZoteroMcpServerDescriptor),
+          redactZoteroMcpServerDescriptor(
+            descriptor as ZoteroMcpServerDescriptor,
+          ),
         ),
         stage,
       });
@@ -754,7 +778,8 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       this.emitDiagnostic({
         kind: "zotero_mcp_unavailable",
         level: "warn",
-        message: "Embedded Zotero MCP server is unavailable; continuing without MCP tools",
+        message:
+          "Embedded Zotero MCP server is unavailable; continuing without MCP tools",
         detail,
         stage,
       });
@@ -842,20 +867,24 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     return {
       requestPermission: async (params) => {
         const normalizedOptions = Array.isArray(params.options)
-          ? params.options.reduce((acc, entry) => {
-              const optionId = String(entry?.optionId || "").trim();
-              const name = String(entry?.name || "").trim();
-              if (!optionId || !name) {
+          ? params.options.reduce(
+              (acc, entry) => {
+                const optionId = String(entry?.optionId || "").trim();
+                const name = String(entry?.name || "").trim();
+                if (!optionId || !name) {
+                  return acc;
+                }
+                acc.push({
+                  optionId,
+                  kind: String(entry?.kind || "").trim(),
+                  name,
+                  description:
+                    String(entry?.description || "").trim() || undefined,
+                });
                 return acc;
-              }
-              acc.push({
-                optionId,
-                kind: String(entry?.kind || "").trim(),
-                name,
-                description: String(entry?.description || "").trim() || undefined,
-              });
-              return acc;
-            }, [] as AcpPendingPermissionRequest["options"])
+              },
+              [] as AcpPendingPermissionRequest["options"],
+            )
           : [];
         this.emitDiagnostic({
           kind: "permission_requested",
@@ -891,25 +920,27 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           },
           8000,
         );
-        const outcome = await new Promise<RequestPermissionOutcome>((resolve) => {
-          const request: AcpPendingPermissionRequest & {
-            resolve: (outcome: RequestPermissionOutcome) => void;
-          } = {
-            requestId,
-            sessionId: String(params.sessionId || "").trim(),
-            toolCallId: String(toolCall.toolCallId || "").trim(),
-            toolTitle: String(toolCall.title || "Tool Call").trim(),
-            source: "acp-tool-call",
-            summary,
-            detail,
-            requestedAt: nowIso(),
-            options: normalizedOptions,
-            resolve,
-          };
-          for (const listener of this.permissionListeners) {
-            void listener(request);
-          }
-        });
+        const outcome = await new Promise<RequestPermissionOutcome>(
+          (resolve) => {
+            const request: AcpPendingPermissionRequest & {
+              resolve: (outcome: RequestPermissionOutcome) => void;
+            } = {
+              requestId,
+              sessionId: String(params.sessionId || "").trim(),
+              toolCallId: String(toolCall.toolCallId || "").trim(),
+              toolTitle: String(toolCall.title || "Tool Call").trim(),
+              source: "acp-tool-call",
+              summary,
+              detail,
+              requestedAt: nowIso(),
+              options: normalizedOptions,
+              resolve,
+            };
+            for (const listener of this.permissionListeners) {
+              void listener(request);
+            }
+          },
+        );
         return {
           outcome,
         };
@@ -1032,7 +1063,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           this.canLoadSession ? "load" : "",
           this.canUseHttpMcp ? "mcp-http" : "",
           this.canUseSseMcp ? "mcp-sse" : "",
-        ].filter(Boolean).join(" "),
+        ]
+          .filter(Boolean)
+          .join(" "),
         raw: {
           agentCapabilities: response.agentCapabilities || null,
         },
@@ -1103,7 +1136,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         title?: string | null;
         updatedAt?: string | null;
       };
-      const configOptions = this.updateLatestConfigOptions(response.configOptions);
+      const configOptions = this.updateLatestConfigOptions(
+        response.configOptions,
+      );
       this.emitDiagnostic({
         kind: "session_created",
         message: `Created ACP session ${String(response.sessionId || "").trim()}`,
@@ -1111,10 +1146,8 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       this.currentSessionId = String(response.sessionId || "").trim();
       return {
         sessionId: this.currentSessionId,
-        sessionTitle:
-          String(response.title || "").trim() || undefined,
-        sessionUpdatedAt:
-          String(response.updatedAt || "").trim() || undefined,
+        sessionTitle: String(response.title || "").trim() || undefined,
+        sessionUpdatedAt: String(response.updatedAt || "").trim() || undefined,
         configOptions,
         modes: response.modes || null,
         models: response.models || null,
@@ -1143,7 +1176,8 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         return {
           sessionId: this.currentSessionId,
           sessionTitle: String(response.title || "").trim() || undefined,
-          sessionUpdatedAt: String(response.updatedAt || "").trim() || undefined,
+          sessionUpdatedAt:
+            String(response.updatedAt || "").trim() || undefined,
           configOptions,
           modes: response.modes || null,
           models: response.models || null,
@@ -1197,7 +1231,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         message: `Loaded ACP session ${sessionId}`,
       });
       this.currentSessionId = sessionId;
-      const configOptions = this.updateLatestConfigOptions(response?.configOptions);
+      const configOptions = this.updateLatestConfigOptions(
+        response?.configOptions,
+      );
       return {
         sessionId,
         sessionTitle: String(response?.title || "").trim() || undefined,
@@ -1228,7 +1264,8 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         return {
           sessionId,
           sessionTitle: String(response?.title || "").trim() || undefined,
-          sessionUpdatedAt: String(response?.updatedAt || "").trim() || undefined,
+          sessionUpdatedAt:
+            String(response?.updatedAt || "").trim() || undefined,
           configOptions,
           modes: response?.modes || null,
           models: response?.models || null,
@@ -1268,7 +1305,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         message: `Resumed ACP session ${sessionId}`,
       });
       this.currentSessionId = sessionId;
-      const configOptions = this.updateLatestConfigOptions(response?.configOptions);
+      const configOptions = this.updateLatestConfigOptions(
+        response?.configOptions,
+      );
       return {
         sessionId,
         sessionTitle: String(response?.title || "").trim() || undefined,
@@ -1299,7 +1338,8 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         return {
           sessionId,
           sessionTitle: String(response?.title || "").trim() || undefined,
-          sessionUpdatedAt: String(response?.updatedAt || "").trim() || undefined,
+          sessionUpdatedAt:
+            String(response?.updatedAt || "").trim() || undefined,
           configOptions,
           modes: response?.modes || null,
           models: response?.models || null,
@@ -1315,10 +1355,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     }
   }
 
-  async prompt(args: {
-    sessionId: string;
-    message: string;
-  }) {
+  async prompt(args: { sessionId: string; message: string }) {
     if (!this.connection) {
       await this.initialize();
     }
@@ -1361,7 +1398,8 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       const requestError = isRequestError(error)
         ? {
             source: "request_error" as const,
-            message: normalizeString(error.message) || "ACP prompt request failed.",
+            message:
+              normalizeString(error.message) || "ACP prompt request failed.",
             name: error.name,
             code: error.code,
             data: error.data,

@@ -20,7 +20,10 @@ export type WorkflowMessageFormatter = {
   overflow: (count: number) => string;
   unknownError: string;
   startToast: (args: { workflowLabel: string; totalJobs: number }) => string;
-  waitingToast: (args: { workflowLabel: string; pendingJobs: number }) => string;
+  waitingToast: (args: {
+    workflowLabel: string;
+    pendingJobs: number;
+  }) => string;
   jobToastSuccess: (args: {
     workflowLabel: string;
     taskLabel: string;
@@ -93,13 +96,16 @@ export function normalizeErrorMessage(
   }
 }
 
-export function buildWorkflowFinishMessage(args: {
-  workflowLabel: string;
-  succeeded: number;
-  failed: number;
-  skipped?: number;
-  failureReasons: string[];
-}, formatter?: Partial<WorkflowMessageFormatter>) {
+export function buildWorkflowFinishMessage(
+  args: {
+    workflowLabel: string;
+    succeeded: number;
+    failed: number;
+    skipped?: number;
+    failureReasons: string[];
+  },
+  formatter?: Partial<WorkflowMessageFormatter>,
+) {
   const resolved = resolveFormatter(formatter);
   const skipped = Math.max(0, args.skipped || 0);
   const base = resolved.summary({
@@ -123,31 +129,40 @@ export function buildWorkflowFinishMessage(args: {
   return `${base}\n${resolved.failureReasonsTitle}\n${details}`;
 }
 
-export function buildWorkflowStartToastMessage(args: {
-  workflowLabel: string;
-  totalJobs: number;
-}, formatter?: Partial<WorkflowMessageFormatter>) {
+export function buildWorkflowStartToastMessage(
+  args: {
+    workflowLabel: string;
+    totalJobs: number;
+  },
+  formatter?: Partial<WorkflowMessageFormatter>,
+) {
   const resolved = resolveFormatter(formatter);
   return resolved.startToast(args);
 }
 
-export function buildWorkflowWaitingToastMessage(args: {
-  workflowLabel: string;
-  pendingJobs: number;
-}, formatter?: Partial<WorkflowMessageFormatter>) {
+export function buildWorkflowWaitingToastMessage(
+  args: {
+    workflowLabel: string;
+    pendingJobs: number;
+  },
+  formatter?: Partial<WorkflowMessageFormatter>,
+) {
   const resolved = resolveFormatter(formatter);
   return resolved.waitingToast(args);
 }
 
-export function buildWorkflowJobToastMessage(args: {
-  workflowLabel: string;
-  taskLabel: string;
-  index: number;
-  total: number;
-  succeeded: boolean;
-  terminalState?: "succeeded" | "failed" | "canceled";
-  reason?: string;
-}, formatter?: Partial<WorkflowMessageFormatter>) {
+export function buildWorkflowJobToastMessage(
+  args: {
+    workflowLabel: string;
+    taskLabel: string;
+    index: number;
+    total: number;
+    succeeded: boolean;
+    terminalState?: "succeeded" | "failed" | "canceled";
+    reason?: string;
+  },
+  formatter?: Partial<WorkflowMessageFormatter>,
+) {
   const resolved = resolveFormatter(formatter);
   if (args.terminalState === "canceled") {
     return resolved.jobToastCanceled(args);

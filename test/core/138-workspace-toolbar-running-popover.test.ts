@@ -58,7 +58,7 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(workspace, "syncWorkspaceSidebarEntry");
     assert.include(workspace, "workspace:attention");
     assert.include(workspace, "countDashboardHumanAttentionTasks");
-    assert.include(workspace, "subscribeWorkflowTasks");
+    assert.include(workspace, "subscribeWorkflowTaskChanges");
     assert.include(workspace, "subscribeAcpSkillRunSnapshots");
     assert.include(workspaceApp, "workspace:attention");
     assert.include(workspaceApp, "updateWorkspaceSidebarAttention");
@@ -155,6 +155,8 @@ describe("workspace toolbar running tasks popover", function () {
       "workspace-shell-theme-system",
       "workspace-shell-theme-light",
       "workspace-shell-theme-dark",
+      "workspace-shell-help",
+      "workspace-shell-online-docs",
       "workspace-shell-refresh",
       "workspace-shell-toggle-sidebar",
     ];
@@ -166,6 +168,13 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(workspaceApp, "updateWorkspaceLocalizedText");
     assert.include(workspaceApp, "data-workspace-label");
     assert.include(workspaceApp, "data-workspace-icon-label");
+    assert.include(workspaceApp, "renderDocsButtons");
+    assert.include(workspaceApp, "zs-icon-help");
+    assert.include(workspaceApp, "zs-icon-description");
+    assert.include(workspace, "openHelpCenterTab");
+    assert.include(workspace, "getDocsUrl");
+    assert.include(workspace, 'action === "open-help"');
+    assert.include(workspace, 'action === "open-online-docs"');
     for (const key of keys) {
       assert.include(workspace, key);
       assert.include(en, `${key} =`);
@@ -274,15 +283,24 @@ describe("workspace toolbar running tasks popover", function () {
     const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
     const fr = await readProjectFile("addon/locale/fr-FR/addon.ftl");
     const ja = await readProjectFile("addon/locale/ja-JP/addon.ftl");
+    const cssRule = (selector: string) => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = css.match(new RegExp(`${escaped}\\s*\\{([\\s\\S]*?)\\}`));
+      assert.isOk(match, `missing CSS rule for ${selector}`);
+      return match?.[1] ?? "";
+    };
+    const panelRule = cssRule(".zs-workspace-running-popover-panel");
+    const popoverRule = cssRule(".zs-workspace-running-popover");
 
     assert.include(css, ".zs-workspace-running-popover");
     assert.include(css, ".zs-workspace-running-popover-panel");
-    assert.match(
-      css,
-      /\.zs-workspace-running-popover\s*\{[\s\S]*?border:\s*0;[\s\S]*?border-radius:\s*0;[\s\S]*?box-shadow:\s*none;/,
-    );
-    assert.include(css, "padding: 5px 8px 10px");
-    assert.include(css, "transform: translateY(-3px)");
+    assert.include(panelRule, "border: 0;");
+    assert.include(panelRule, "background: transparent;");
+    assert.include(popoverRule, "padding: 5px 8px 10px;");
+    assert.include(popoverRule, "border: 0;");
+    assert.include(popoverRule, "border-radius: 0;");
+    assert.include(popoverRule, "box-shadow: var(--zs-pv-shadow);");
+    assert.include(popoverRule, "transform: translateY(-3px);");
     assert.include(css, ".zs-workspace-running-popover-separator");
     assert.include(css, ".zs-workspace-running-popover-led-cell");
     assert.include(css, ".zs-workspace-running-popover-led");

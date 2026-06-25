@@ -34,7 +34,7 @@
 | `backend` | backend registry + `backendId` | 由持久化的 `backendId` 解析出的 backend profile |
 | `requestKind` | workflow manifest + backend type | 声明式请求编译结果 |
 | `workflowParams` | 持久化 | 业务参数 |
-| `providerOptions` | 持久化 + 一次性覆盖 | 运行期选项，支持持久化默认和 run-once 覆盖 |
+| `providerOptions` | 持久化 + 一次性覆盖 | 运行期选项，支持持久化默认和 run-once 覆盖；执行时作为同名 request `runtime_options` 的显式 override |
 | `runOptions` | workflow manifest + 一次性覆盖 | Zotero 主机访问策略、写入自动审批等运行期选项。**不持久化**——仅从 `WorkflowExecutionOptions` 的 `runOptions` 覆盖字段合并，`mergeExecutionOptions` 中 `override.runOptions` 完全替换 `base.runOptions` |
 | `providerId` | 运行时解析 | 由 `resolveProvider` 根据 requestKind + 选定的 backend 解析得出。**不持久化** |
 
@@ -96,6 +96,17 @@ workflow 被判定为“可配置”当且仅当以下任一维度可编辑：
   - 显示并生效：`no_cache`、`hard_timeout_seconds`
   - 隐藏并丢弃：`interactive_auto_reply`
 - `hard_timeout_seconds` 仅允许正整数；空值表示后端默认
+
+### 4.4a ACP Runtime Options Contract
+
+- ACP backend 的 workflow 选项页和提交前设置弹窗必须通过 provider option schema
+  显示 `hard_timeout_seconds`。
+- 字段标题为 `Job Timeout (sec)`，placeholder 必须提示留空采用 effective
+  default；如果 skill 未声明默认值，则 fallback 为 20 分钟。该文案使用插件多语言资源。
+- `hard_timeout_seconds` 仅允许正整数；空值表示使用 runner/default 合成结果。
+- 提交时 `providerOptions.hard_timeout_seconds` 作为运行期 override 进入 ACP
+  skill run，并覆盖 workflow request payload 中已有的
+  `runtime_options.hard_timeout_seconds`。
 
 ### 4.5 Submit Dialog Shape Contract
 

@@ -1,14 +1,7 @@
 import { assert } from "chai";
-import { handlers } from "../../src/handlers";
-import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { SkillRunnerProvider } from "../../src/providers/skillrunner/provider";
-import { loadWorkflowManifests } from "../../src/workflows/loader";
-import { executeBuildRequests } from "../../src/workflows/runtime";
 import { isFullTestMode } from "./testMode";
-import {
-  fixturePath,
-  workflowsPath,
-} from "./workflow-test-utils";
+import { fixturePath } from "./workflow-test-utils";
 
 const MOCK_SKILLRUNNER_BASE_URL =
   (typeof process !== "undefined" &&
@@ -42,6 +35,31 @@ async function isMockSkillRunnerReachable(baseUrl: string) {
   }
 }
 
+function makeLiteratureAnalysisJobRequest(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    kind: "skillrunner.job.v1",
+    skill_id: "literature-analysis",
+    skill_source: "installed",
+    input: {
+      source_path: "inputs/source_path/example.md",
+    },
+    upload_files: [
+      {
+        key: "source_path",
+        path: fixturePath("literature-analysis", "example.md"),
+      },
+    ],
+    poll: {
+      interval_ms: 40,
+      timeout_ms: 5000,
+    },
+    fetch_type: "bundle",
+    ...overrides,
+  };
+}
+
 describe("transport: skillrunner mock", function () {
   this.timeout(15000);
   const itFullOnly = isFullTestMode() ? it : it.skip;
@@ -51,43 +69,13 @@ describe("transport: skillrunner mock", function () {
       this.skip();
     }
     try {
-      const parent = await handlers.item.create({
-        itemType: "journalArticle",
-        fields: { title: "Transport Parent" },
-      });
-      const mdFile = fixturePath("literature-analysis", "example.md");
-      const attachment = await handlers.attachment.createFromPath({
-        parent,
-        path: mdFile,
-        title: "example.md",
-        mimeType: "text/markdown",
-      });
-      const selectionContext = await buildSelectionContext([attachment]);
-
-      const loaded = await loadWorkflowManifests(workflowsPath());
-      const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-analysis",
-      );
-      assert.isOk(workflow, "workflow literature-analysis not found");
-      const requests = (await executeBuildRequests({
-        workflow: workflow!,
-        selectionContext,
-      })) as unknown[];
-      assert.lengthOf(requests, 1);
-
-      const request = requests[0] as {
-        poll?: { interval_ms?: number; timeout_ms?: number };
-      };
-      request.poll = {
-        interval_ms: 40,
-        timeout_ms: 5000,
-      };
+      const request = makeLiteratureAnalysisJobRequest();
 
       const provider = new SkillRunnerProvider({
         baseUrl: MOCK_SKILLRUNNER_BASE_URL,
       });
       const result = await provider.execute({
-        requestKind: workflow!.manifest.request!.kind,
+        requestKind: "skillrunner.job.v1",
         request,
       });
 
@@ -108,60 +96,25 @@ describe("transport: skillrunner mock", function () {
       this.skip();
     }
     try {
-      const parent = await handlers.item.create({
-        itemType: "journalArticle",
-        fields: { title: "Transport Canceled Parent" },
+      const request = makeLiteratureAnalysisJobRequest({
+        parameter: {
+          __mock_final_status: "canceled",
+        },
       });
-      const mdFile = fixturePath("literature-analysis", "example.md");
-      const attachment = await handlers.attachment.createFromPath({
-        parent,
-        path: mdFile,
-        title: "example.md",
-        mimeType: "text/markdown",
-      });
-      const selectionContext = await buildSelectionContext([attachment]);
-
-      const loaded = await loadWorkflowManifests(workflowsPath());
-      const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-analysis",
-      );
-      assert.isOk(workflow, "workflow literature-analysis not found");
-      const requests = (await executeBuildRequests({
-        workflow: workflow!,
-        selectionContext,
-      })) as Array<{
-        poll?: { interval_ms?: number; timeout_ms?: number };
-        parameter?: Record<string, unknown>;
-      }>;
-      assert.lengthOf(requests, 1);
-
-      const request = requests[0];
-      request.poll = {
-        interval_ms: 40,
-        timeout_ms: 5000,
-      };
-      request.parameter = {
-        ...(request.parameter || {}),
-        __mock_final_status: "canceled",
-      };
 
       const provider = new SkillRunnerProvider({
         baseUrl: MOCK_SKILLRUNNER_BASE_URL,
       });
 
-      let thrown: unknown = null;
-      try {
-        await provider.execute({
-          requestKind: workflow!.manifest.request!.kind,
-          request,
-        });
-      } catch (error) {
-        thrown = error;
-      }
+      const result = await provider.execute({
+        requestKind: "skillrunner.job.v1",
+        request,
+      });
 
-      assert.isOk(thrown);
-      assert.match(String(thrown), /terminal failure/i);
-      assert.match(String(thrown), /status=canceled/i);
+      assert.equal(result.status, "canceled");
+      assert.isString(result.requestId);
+      assert.match(String(result.error), /mock terminal canceled/i);
+      assert.isUndefined(result.bundleBytes);
     } catch (error) {
       console.error(
         `[transport: skillrunner mock] canceled terminal test failed\n${formatError(error)}`,
@@ -170,85 +123,55 @@ describe("transport: skillrunner mock", function () {
     }
   });
 
-  itFullOnly("supports result fetch step without requiring bundle download", async function () {
-    if (!(await isMockSkillRunnerReachable(MOCK_SKILLRUNNER_BASE_URL))) {
-      this.skip();
-    }
-    try {
-      const parent = await handlers.item.create({
-        itemType: "journalArticle",
-        fields: { title: "Transport Result Parent" },
-      });
-      const mdFile = fixturePath("literature-analysis", "example.md");
-      const attachment = await handlers.attachment.createFromPath({
-        parent,
-        path: mdFile,
-        title: "example.md",
-        mimeType: "text/markdown",
-      });
-      const selectionContext = await buildSelectionContext([attachment]);
+  itFullOnly(
+    "supports result fetch step without requiring bundle download",
+    async function () {
+      if (!(await isMockSkillRunnerReachable(MOCK_SKILLRUNNER_BASE_URL))) {
+        this.skip();
+      }
+      try {
+        const request = makeLiteratureAnalysisJobRequest({
+          fetch_type: "result",
+        });
 
-      const loaded = await loadWorkflowManifests(workflowsPath());
-      const workflow = loaded.workflows.find(
-        (entry) => entry.manifest.id === "literature-analysis",
-      );
-      assert.isOk(workflow, "workflow literature-analysis not found");
-      const requests = (await executeBuildRequests({
-        workflow: workflow!,
-        selectionContext,
-      })) as unknown[];
-      assert.lengthOf(requests, 1);
+        const provider = new SkillRunnerProvider({
+          baseUrl: MOCK_SKILLRUNNER_BASE_URL,
+        });
+        const result = await provider.execute({
+          requestKind: "skillrunner.job.v1",
+          request,
+        });
 
-      const request = requests[0] as {
-        poll?: { interval_ms?: number; timeout_ms?: number };
-        fetch_type?: "bundle" | "result";
-      };
-      request.poll = {
-        interval_ms: 40,
-        timeout_ms: 5000,
-      };
-      request.fetch_type = "result";
-
-      const provider = new SkillRunnerProvider({
-        baseUrl: MOCK_SKILLRUNNER_BASE_URL,
-      });
-      const result = await provider.execute({
-        requestKind: workflow!.manifest.request!.kind,
-        request,
-      });
-
-      assert.equal(result.status, "succeeded");
-      assert.isUndefined(result.bundleBytes);
-      const resultEnvelope = result.resultJson as {
-        request_id?: string;
-        result?: {
-          status?: string;
-          data?: {
-            digest_path?: string;
-            references_path?: string;
-            citation_analysis_path?: string;
+        assert.equal(result.status, "succeeded");
+        assert.isUndefined(result.bundleBytes);
+        const resultPayload = result.resultJson as {
+          digest_path?: string;
+          references_path?: string;
+          citation_analysis_path?: string;
+        };
+        assert.match(String(resultPayload.digest_path || ""), /digest\.md$/);
+        assert.match(
+          String(resultPayload.references_path || ""),
+          /references\.json$/,
+        );
+        assert.match(
+          String(resultPayload.citation_analysis_path || ""),
+          /citation_analysis\.json$/,
+        );
+        const response = result.responseJson as {
+          resultResponseJson?: {
+            request_id?: string;
+            result?: { status?: string };
           };
         };
-      };
-      assert.equal(resultEnvelope.request_id, result.requestId);
-      assert.equal(resultEnvelope.result?.status, "success");
-      assert.match(
-        String(resultEnvelope.result?.data?.digest_path || ""),
-        /digest\.md$/,
-      );
-      assert.match(
-        String(resultEnvelope.result?.data?.references_path || ""),
-        /references\.json$/,
-      );
-      assert.match(
-        String(resultEnvelope.result?.data?.citation_analysis_path || ""),
-        /citation_analysis\.json$/,
-      );
-    } catch (error) {
-      console.error(
-        `[transport: skillrunner mock] supports result fetch step failed\n${formatError(error)}`,
-      );
-      throw error;
-    }
-  });
+        assert.equal(response.resultResponseJson?.request_id, result.requestId);
+        assert.equal(response.resultResponseJson?.result?.status, "success");
+      } catch (error) {
+        console.error(
+          `[transport: skillrunner mock] supports result fetch step failed\n${formatError(error)}`,
+        );
+        throw error;
+      }
+    },
+  );
 });

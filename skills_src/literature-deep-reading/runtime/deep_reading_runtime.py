@@ -33,12 +33,17 @@ RESULT_PATH = Path("literature-deep-reading.result.json")
 RESULT_DIR = Path("result")
 RESULT_SECTIONS_DIR = RESULT_DIR / "sections"
 FINAL_HTML_PATH = RESULT_DIR / "deep-reading.html"
+FINAL_ARTIFACT_MANIFEST_PATH = RESULT_DIR / "deep-reading-artifacts.json"
+STAGE10_AGENT_PACKET_PATH = VIEWS_DIR / "stage-10-agent-packet.json"
+STAGE20_AGENT_PACKET_PATH = VIEWS_DIR / "stage-20-agent-packet.json"
+STAGE30_TRANSLATION_WORKLIST_PATH = VIEWS_DIR / "stage-30-translation-worklist.json"
+STAGE40_REVIEW_PACKET_PATH = VIEWS_DIR / "stage-40-review-packet.json"
 MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\n]+)\)")
 HTML_IMAGE_RE = re.compile(r"<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 REFERENCES_HEADING_RE = re.compile(r"\b(references|bibliography)\b|参考文献", re.IGNORECASE)
 APPENDIX_HEADING_RE = re.compile(r"\b(appendix|appendices|supplementary\s+material|supplemental\s+material|supplementary\s+information)\b|附录", re.IGNORECASE)
-APPENDIX_LETTER_HEADING_RE = re.compile(r"^(?:appendix\s+)?[A-Z](?:\.\d+(?:\.\d+)*)?(?:\s+|\.?\s*$)", re.IGNORECASE)
+APPENDIX_LETTER_HEADING_RE = re.compile(r"^(?:appendix\s+)?[A-Z](?:\.\d+)*(?:\.?\s+|\.?$)", re.IGNORECASE)
 REFERENCE_ENTRY_RE = re.compile(r"^\s*(?:\[(\d{1,4})\]|(\d{1,4})[\.)])\s+(.+?)\s*$")
 DISPLAY_MATH_RE = re.compile(r"\$\$\s*([\s\S]*?)\s*\$\$")
 INLINE_MATH_RE = re.compile(r"(?<!\$)\$([^$\n]+?)\$(?!\$)")
@@ -55,6 +60,7 @@ READING_ENRICHMENT_FIELDS = {
     "preface_warnings",
     "preface_questions",
     "section_notes",
+    "section_roles",
     "concepts",
     "reference_digest_notes",
     "summary_fallback_enabled",
@@ -68,6 +74,27 @@ FINAL_REVIEW_FIELDS = {"overall_assessment", "quality_observations"}
 FINAL_REVIEW_OBSERVATION_FIELDS = {"severity", "kind", "block_id", "section_anchor", "message"}
 FINAL_REVIEW_ASSESSMENTS = {"ready", "ready_with_notes", "needs_revision"}
 FINAL_REVIEW_SEVERITIES = {"info", "warning", "error"}
+CONTEXT_REQUEST_REQUIRED_FIELDS = {
+    "main_task",
+    "method_family",
+    "external_context_section_anchors",
+    "request_topic_context",
+    "request_concept_context",
+    "request_citation_graph",
+    "reference_digest_policy",
+    "priority_reference_indices",
+}
+READING_ENRICHMENT_REQUIRED_FIELDS = {
+    "preface_title",
+    "preface_cards",
+    "preface_reading_path",
+    "preface_goal",
+    "preface_questions",
+    "section_notes",
+    "summary_fallback_enabled",
+    "extensions",
+}
+SECTION_ROLE_VALUES = {"main", "bibliography", "appendix"}
 TRANSLATION_BATCH_MAX_WORDS = 1600
 TRANSLATION_BATCH_MAX_CHARS = 6000
 TRANSLATION_BATCH_MAX_BLOCKS = 20
@@ -75,8 +102,12 @@ PREFACE_SLOT_DEFINITIONS = [
     ("research_field", "研究领域", "定位论文所在的上位研究领域。"),
     ("research_direction", "研究方向", "说明论文所属方向及其与领域的关系。"),
     ("paper_position", "本文位置", "概括本文在相关主题中的作用和贡献位置。"),
-    ("reading_path", "阅读路线", "给出进入正文前最值得带着阅读的问题。"),
+    ("core_innovation", "核心创新", "总结本文解决的问题、核心贡献及其奠基作用。"),
 ]
+
+
+class RemoteBridgeDownloadRequired(RuntimeError):
+    pass
 
 
 def utc_now() -> str:
@@ -140,6 +171,84 @@ def resolve_input_path(raw: str, input_path: Path) -> Path:
     return (Path.cwd() / candidate).resolve()
 
 
+def request_input_from_manifest(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    request_input = value.get("input")
+    return request_input if isinstance(request_input, dict) else {}
+
+
+def request_parameter_from_manifest(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    request_parameter = value.get("parameter")
+    return request_parameter if isinstance(request_parameter, dict) else {}
+
+
+def audit_input_manifest_candidates(input_path: Path, skill_id: str) -> list[Path]:
+    run_root = Path.cwd()
+    candidates: list[Path] = []
+    audit_root = run_root / ".audit"
+    if skill_id:
+        candidates.extend(sorted(audit_root.glob(f"{skill_id}*/input_manifest.json")))
+    candidates.extend(sorted(audit_root.glob("*/input_manifest.json")))
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except Exception:
+            resolved = candidate
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(candidate)
+    return unique
+
+
+def hydrate_input_from_audit_manifest(input_payload: dict[str, Any], input_path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    hydrated = dict(input_payload)
+    parameter = hydrated.get("parameter") if isinstance(hydrated.get("parameter"), dict) else {}
+    hydrated_parameter = dict(parameter)
+    diagnostics: list[dict[str, Any]] = []
+    for candidate in audit_input_manifest_candidates(input_path, "literature-deep-reading"):
+        if not candidate.exists() or not candidate.is_file():
+            continue
+        try:
+            manifest = read_json(candidate, {})
+        except Exception as exc:
+            diagnostics.append({"severity": "warning", "code": "input_manifest_read_failed", "path": normalize_posix(candidate), "message": str(exc)})
+            continue
+        manifest_input = request_input_from_manifest(manifest)
+        manifest_parameter = request_parameter_from_manifest(manifest)
+        changed: list[str] = []
+        for key in ["source_bundle_path", "translator_alignment_path", "translator_output_path", "translator_status"]:
+            if clean_text(hydrated.get(key)):
+                continue
+            value = manifest_input.get(key)
+            if value is None:
+                continue
+            hydrated[key] = value
+            changed.append(key)
+        for key in ["target_language"]:
+            if clean_text(hydrated_parameter.get(key)) or clean_text(hydrated.get(key)):
+                continue
+            value = manifest_parameter.get(key)
+            if value is None:
+                continue
+            hydrated_parameter[key] = value
+            changed.append(f"parameter.{key}")
+        if changed:
+            hydrated["parameter"] = hydrated_parameter
+            diagnostics.append({"severity": "info", "code": "input_hydrated_from_audit_manifest", "path": normalize_posix(candidate), "fields": changed})
+            try:
+                write_json(input_path, hydrated)
+            except Exception as exc:
+                diagnostics.append({"severity": "warning", "code": "runtime_input_writeback_failed", "path": normalize_posix(input_path), "message": str(exc)})
+        break
+    return hydrated, diagnostics
+
+
 def is_object(value: Any) -> bool:
     return isinstance(value, dict)
 
@@ -150,6 +259,38 @@ def as_list(value: Any) -> list[Any]:
 
 def clean_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def creator_name(value: Any) -> str:
+    if isinstance(value, str):
+        return clean_text(value)
+    if not isinstance(value, dict):
+        return ""
+    full_name = first_text(value.get("name"), value.get("fullName"), value.get("full_name"))
+    if full_name:
+        return full_name
+    first = first_text(value.get("firstName"), value.get("first_name"), value.get("given"))
+    last = first_text(value.get("lastName"), value.get("last_name"), value.get("family"))
+    return " ".join(part for part in [first, last] if part).strip()
+
+
+def normalize_author_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [clean_text(value)] if clean_text(value) else []
+    authors: list[str] = []
+    for entry in as_list(value):
+        name = creator_name(entry)
+        if name:
+            authors.append(name)
+    return authors
+
+
+def authors_from_record(record: dict[str, Any]) -> list[str]:
+    for key in ["authors", "author", "creators", "creator"]:
+        authors = normalize_author_list(record.get(key))
+        if authors:
+            return authors
+    return []
 
 
 def first_text(*values: Any) -> str:
@@ -178,6 +319,389 @@ def read_view(name: str, default: Any = None) -> Any:
     return read_json(VIEWS_DIR / name, default)
 
 
+def view_path(name: str) -> str:
+    return normalize_posix(VIEWS_DIR / name)
+
+
+def payload_path(name: str) -> str:
+    return normalize_posix(PAYLOADS_DIR / name)
+
+
+def runtime_command(*parts: str) -> str:
+    return "python scripts/deep_reading_runtime.py " + " ".join(parts)
+
+
+def count_by_key(items: list[Any], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        value = clean_text(item.get(key)) or "unknown"
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def short_diagnostics(items: list[Any], limit: int = 12) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            {
+                "severity": clean_text(item.get("severity") or item.get("level") or "info"),
+                "code": clean_text(item.get("code") or item.get("kind") or item.get("status")),
+                "message": clean_text(item.get("message")),
+            }
+        )
+        if len(result) >= limit:
+            break
+    return result
+
+
+def diagnostics_summary(*sources: Any) -> dict[str, Any]:
+    items: list[Any] = []
+    for source in sources:
+        if isinstance(source, dict):
+            items.extend(as_list(source.get("diagnostics")))
+        elif isinstance(source, list):
+            items.extend(source)
+    return {
+        "count": len([item for item in items if isinstance(item, dict)]),
+        "by_severity": count_by_key(items, "severity"),
+        "codes": sorted(
+            {
+                clean_text(item.get("code") or item.get("kind") or item.get("status"))
+                for item in items
+                if isinstance(item, dict) and clean_text(item.get("code") or item.get("kind") or item.get("status"))
+            }
+        )[:40],
+        "items": short_diagnostics(items),
+    }
+
+
+def trace_paths(paths: dict[str, str]) -> dict[str, dict[str, str]]:
+    return {
+        key: {"path": value, "read": "if_needed"}
+        for key, value in paths.items()
+        if value
+    }
+
+
+def compact_sections(structure: dict[str, Any], limit: int = 30) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    for section in as_list(structure.get("sections"))[:limit]:
+        if not isinstance(section, dict):
+            continue
+        sections.append(
+            {
+                "anchor": clean_text(section.get("anchor")),
+                "title": clean_text(section.get("title")),
+                "role": clean_text(section.get("role")),
+                "level": safe_int(section.get("level"), 0),
+            }
+        )
+    return sections
+
+
+def compact_topic_candidates(topic_candidates: dict[str, Any], limit: int = 8) -> list[dict[str, str]]:
+    topics: list[dict[str, str]] = []
+    for topic in as_list(topic_candidates.get("topics"))[:limit]:
+        if not isinstance(topic, dict):
+            continue
+        topics.append(
+            {
+                "topic_id": clean_text(topic.get("topic_id")),
+                "title": clean_text(topic.get("title")),
+                "status": clean_text(topic.get("status")),
+            }
+        )
+    return topics
+
+
+def compact_concept_needs(concept_needs: dict[str, Any], limit: int = 30) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for item in as_list(concept_needs.get("items"))[:limit]:
+        if not isinstance(item, dict):
+            continue
+        items.append(
+            {
+                "label": clean_text(item.get("label")),
+                "source": clean_text(item.get("source")),
+                "status": clean_text(item.get("status")),
+            }
+        )
+    return items
+
+
+def compact_reference_items(view: dict[str, Any], limit: int = 20) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for item in as_list(view.get("references") or view.get("items"))[:limit]:
+        if not isinstance(item, dict):
+            continue
+        items.append(
+            {
+                "reference_id": clean_text(item.get("reference_id") or item.get("id")),
+                "reference_index": safe_int(item.get("reference_index") or item.get("index"), 0),
+                "title": first_text(item.get("title"), item.get("raw")),
+                "binding_status": clean_text(item.get("binding_status")),
+            }
+        )
+    return items
+
+
+def build_stage10_agent_packet(target_language: str, source_kind: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    structure = read_view("source-structure.json", {})
+    reading_blocks = read_view("reading-blocks.json", {})
+    references_seed = read_view("references-seed-view.json", {})
+    target_artifacts = read_view("target-artifacts-view.json", {})
+    host_preflight = read_view("host-preflight-view.json", {})
+    topic_candidates = read_view("topic-candidates-view.json", {})
+    concept_needs = read_view("concept-needs-view.json", {})
+    blocks = as_list(reading_blocks.get("blocks"))
+    references = as_list(references_seed.get("references"))
+    return {
+        "schema_version": "literature-deep-reading.stage-10-agent-packet.v0",
+        "stage_id": "stage_10_source_reading_context_request",
+        "payload_path": payload_path("context-request.json"),
+        "submit_command": runtime_command("submit-context-request", "--payload", "runtime/payloads/context-request.json"),
+        "validate_command": runtime_command("validate-context-request"),
+        "required_next_action": "write_context_request",
+        "summary": {
+            "target_language": target_language,
+            "source_kind": source_kind,
+            "section_count": len(as_list(structure.get("sections"))),
+            "block_count": len(blocks),
+            "block_roles": count_by_key(blocks, "role"),
+            "references_count": len(references),
+            "target_artifact_count": len(as_list(target_artifacts.get("artifacts"))),
+            "topic_candidate_count": len(as_list(topic_candidates.get("topics"))),
+            "concept_need_count": len(as_list(concept_needs.get("items"))),
+        },
+        "work_items": {
+            "sections": compact_sections(structure),
+            "references": compact_reference_items(references_seed),
+            "topic_candidates": compact_topic_candidates(topic_candidates),
+            "concept_needs": compact_concept_needs(concept_needs),
+        },
+        "diagnostics_summary": diagnostics_summary(diagnostics, host_preflight, topic_candidates, concept_needs),
+        "trace_paths": trace_paths(
+            {
+                "source_structure": view_path("source-structure.json"),
+                "source_reading": view_path("source-reading-view.json"),
+                "references_seed": view_path("references-seed-view.json"),
+                "target_artifacts": view_path("target-artifacts-view.json"),
+                "host_preflight": view_path("host-preflight-view.json"),
+                "topic_candidates": view_path("topic-candidates-view.json"),
+                "concept_needs": view_path("concept-needs-view.json"),
+                "diagnostics": view_path("diagnostics-bootstrap.json"),
+            }
+        ),
+    }
+
+
+def write_stage10_agent_packet(target_language: str, source_kind: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    packet = build_stage10_agent_packet(target_language, source_kind, diagnostics)
+    write_json(STAGE10_AGENT_PACKET_PATH, packet)
+    return packet
+
+
+def build_stage20_agent_packet(context: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    source_structure = read_view("source-structure.json", {})
+    host_context = read_view("host-context-view.json", {})
+    reference_bindings = read_view("reference-bindings-view.json", {})
+    reference_digests = read_view("reference-digests-view.json", {})
+    citation_snapshot = read_view("citation-graph-snapshot.json", {})
+    citation_layout = read_view("citation-graph-layout.json", {})
+    topic_context = read_view("topic-context.json", {})
+    topic_candidate_digests = read_view("topic-candidate-digests-view.json", {})
+    graph_context = read_view("graph-context.json", {})
+    concept_candidates = read_view("concept-candidates-view.json", {})
+    concept_needs = read_view("concept-needs-view.json", {})
+    digest_items = as_list(reference_digests.get("items"))
+    return {
+        "schema_version": "literature-deep-reading.stage-20-agent-packet.v0",
+        "stage_id": "stage_20_reading_enrichment",
+        "payload_path": payload_path("reading-enrichment.json"),
+        "submit_command": runtime_command("submit-reading-enrichment", "--payload", "runtime/payloads/reading-enrichment.json"),
+        "validate_command": runtime_command("validate-reading-enrichment"),
+        "required_next_action": "write_reading_enrichment",
+        "summary": {
+            "target_language": target_language_from_db(),
+            "requested_topic_context": bool(context.get("request_topic_context")),
+            "topic_context_source": clean_text(topic_context.get("source")),
+            "topic_id": clean_text(topic_context.get("topic_id")),
+            "reference_binding_count": len(as_list(reference_bindings.get("items"))),
+            "reference_digest_count": len(digest_items),
+            "available_reference_digest_count": sum(1 for item in digest_items if clean_text((item.get("digest") if isinstance(item, dict) and isinstance(item.get("digest"), dict) else {}).get("status")) == "available"),
+            "citation_node_count": len(as_list(citation_snapshot.get("nodes"))),
+            "citation_edge_count": len(as_list(citation_snapshot.get("edges"))),
+            "citation_layout_status": clean_text(citation_layout.get("status") or graph_context.get("layout_status")),
+            "concept_candidate_count": len(as_list(concept_candidates.get("concepts"))),
+            "concept_need_count": len(as_list(concept_needs.get("items"))),
+        },
+        "work_items": {
+            "sections": compact_sections(source_structure),
+            "concept_needs": compact_concept_needs(concept_needs),
+            "reference_bindings": compact_reference_items(reference_bindings),
+            "topic_candidates": compact_topic_candidates(read_view("topic-candidates-view.json", {})),
+        },
+        "diagnostics_summary": diagnostics_summary(
+            diagnostics,
+            host_context,
+            reference_bindings,
+            reference_digests,
+            citation_snapshot,
+            citation_layout,
+            topic_context,
+            topic_candidate_digests,
+            concept_candidates,
+            concept_needs,
+        ),
+        "trace_paths": trace_paths(
+            {
+                "source_structure": view_path("source-structure.json"),
+                "source_reading": view_path("source-reading-view.json"),
+                "host_context": view_path("host-context-view.json"),
+                "reference_bindings": view_path("reference-bindings-view.json"),
+                "reference_digests": view_path("reference-digests-view.json"),
+                "citation_graph_snapshot": view_path("citation-graph-snapshot.json"),
+                "citation_graph_layout": view_path("citation-graph-layout.json"),
+                "topic_context": view_path("topic-context.json"),
+                "topic_candidate_digests": view_path("topic-candidate-digests-view.json"),
+                "graph_context": view_path("graph-context.json"),
+                "concept_candidates": view_path("concept-candidates-view.json"),
+                "concept_needs": view_path("concept-needs-view.json"),
+                "diagnostics": view_path("diagnostics-host-context.json"),
+            }
+        ),
+    }
+
+
+def write_stage20_agent_packet(context: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    packet = build_stage20_agent_packet(context, diagnostics)
+    write_json(STAGE20_AGENT_PACKET_PATH, packet)
+    return packet
+
+
+def build_stage30_translation_worklist(translation_batches: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    batches = [
+        {
+            "batch_id": clean_text(batch.get("batch_id")),
+            "path": clean_text(batch.get("path")),
+            "block_count": safe_int(batch.get("block_count"), 0),
+            "required_translation_count": safe_int(batch.get("required_translation_count"), 0),
+            "estimated_words": safe_int(batch.get("estimated_words"), 0),
+            "chars": safe_int(batch.get("chars"), 0),
+            "section_anchors": [clean_text(item) for item in as_list(batch.get("section_anchors")) if clean_text(item)],
+        }
+        for batch in as_list(translation_batches.get("batches"))
+        if isinstance(batch, dict)
+    ]
+    batch_count = safe_int(translation_batches.get("batch_count"), 0)
+    source = clean_text(translation_batches.get("source"))
+    skip_translation = batch_count == 0 and source in {"translator_alignment", "source_only_alignment"}
+    return {
+        "schema_version": "literature-deep-reading.stage-30-translation-worklist.v0",
+        "stage_id": "stage_30_block_translation",
+        "payload_path": payload_path("block-translations.json"),
+        "submit_command": runtime_command("submit-block-translations", "--payload", "runtime/payloads/block-translations.json"),
+        "validate_command": runtime_command("validate-block-translations"),
+        "required_next_action": "skip_translation_submit" if skip_translation else "write_block_translations",
+        "summary": {
+            "target_language": clean_text(translation_batches.get("target_language")) or target_language_from_db(),
+            "source": source,
+            "batch_count": batch_count,
+            "required_translation_count": safe_int(translation_batches.get("required_translation_count"), 0),
+            "limits": translation_batches.get("limits") if isinstance(translation_batches.get("limits"), dict) else {},
+        },
+        "work_items": {
+            "required_block_ids": [clean_text(item) for item in as_list(translation_batches.get("required_block_ids")) if clean_text(item)],
+            "batches": batches,
+        },
+        "diagnostics_summary": diagnostics_summary(diagnostics, read_view("diagnostics-enrichment.json", {})),
+        "trace_paths": trace_paths(
+            {
+                "translation_batches": view_path("translation-batches-view.json"),
+                "translation_batch_dir": normalize_posix(TRANSLATION_BATCHES_DIR),
+                "concept_overlay": view_path("concept-overlay-view.json"),
+                "section_insights": view_path("section-insights-view.json"),
+                "reading_blocks": view_path("reading-blocks.json"),
+                "diagnostics": view_path("diagnostics-enrichment.json"),
+                "translation": view_path("translation-view.json") if skip_translation else "",
+            }
+        ),
+    }
+
+
+def write_stage30_translation_worklist(translation_batches: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    packet = build_stage30_translation_worklist(translation_batches, diagnostics)
+    write_json(STAGE30_TRANSLATION_WORKLIST_PATH, packet)
+    return packet
+
+
+def build_stage40_review_packet(translation_view: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    items = as_list(translation_view.get("items"))
+    by_status = count_by_key(items, "status")
+    diagnostics_view = read_view("diagnostics-translation.json", {})
+    return {
+        "schema_version": "literature-deep-reading.stage-40-review-packet.v0",
+        "stage_id": "stage_40_final_review_and_render",
+        "payload_path": payload_path("final-review.json"),
+        "submit_command": runtime_command("submit-final-review", "--payload", "runtime/payloads/final-review.json"),
+        "validate_command": runtime_command("validate-final-output"),
+        "required_next_action": "write_final_review",
+        "summary": {
+            "target_language": clean_text(translation_view.get("target_language")) or target_language_from_db(),
+            "translation_source": clean_text(translation_view.get("source")),
+            "translation_item_count": len(items),
+            "translated_count": safe_int(translation_view.get("translated_count"), 0),
+            "carried_over_count": safe_int(translation_view.get("carried_over_count"), 0),
+            "status_counts": by_status,
+        },
+        "work_items": {
+            "quality_observation_candidates": short_diagnostics(as_list(diagnostics_view.get("diagnostics")) + diagnostics, limit=20),
+        },
+        "diagnostics_summary": diagnostics_summary(
+            diagnostics,
+            read_view("diagnostics-bootstrap.json", {}),
+            read_view("diagnostics-host-context.json", {}),
+            read_view("diagnostics-enrichment.json", {}),
+            diagnostics_view,
+        ),
+        "trace_paths": trace_paths(
+            {
+                "translation": view_path("translation-view.json"),
+                "preface": view_path("preface-view.json"),
+                "section_insights": view_path("section-insights-view.json"),
+                "concept_overlay": view_path("concept-overlay-view.json"),
+                "references": view_path("references-view.json"),
+                "summary": view_path("summary-view.json"),
+                "extensions": view_path("extensions-view.json"),
+                "diagnostics_bootstrap": view_path("diagnostics-bootstrap.json"),
+                "diagnostics_host_context": view_path("diagnostics-host-context.json"),
+                "diagnostics_enrichment": view_path("diagnostics-enrichment.json"),
+                "diagnostics_translation": view_path("diagnostics-translation.json"),
+            }
+        ),
+    }
+
+
+def write_stage40_review_packet(translation_view: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    packet = build_stage40_review_packet(translation_view, diagnostics)
+    write_json(STAGE40_REVIEW_PACKET_PATH, packet)
+    return packet
+
+
+def validate_json_file(errors: list[str], path: Path) -> None:
+    if not path.exists():
+        errors.append(f"missing: {normalize_posix(path)}")
+        return
+    try:
+        read_json(path, {})
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"invalid json: {normalize_posix(path)}: {exc}")
+
+
 def source_manifest() -> dict[str, Any]:
     value = read_json(SOURCE_DIR / "source-manifest.json", {})
     return value if isinstance(value, dict) else {}
@@ -199,7 +723,13 @@ def bridge_executable(run_root: Path) -> Path:
     for candidate in candidates:
         if candidate.exists():
             return candidate.resolve()
-    raise FileNotFoundError(f"Host Bridge CLI not found under {bridge_dir}")
+    path_bridge = shutil.which("zotero-bridge")
+    if path_bridge:
+        return Path(path_bridge).resolve()
+    raise FileNotFoundError(
+        "Host Bridge CLI not found. Checked ZOTERO_BRIDGE_BIN, "
+        f"workspace shim under {bridge_dir}, and PATH entry zotero-bridge."
+    )
 
 
 def run_bridge_json(run_root: Path, subcommand: list[str], payload: dict[str, Any], input_name: str) -> dict[str, Any]:
@@ -759,6 +1289,223 @@ def parse_markdown(markdown: str) -> tuple[list[dict[str, Any]], list[dict[str, 
     return sections, blocks, references_anchor
 
 
+def alignment_pair_text(pair: Any, key: str) -> str:
+    return clean_text(pair.get(key)) if isinstance(pair, dict) else ""
+
+
+def alignment_block_markdown(block: dict[str, Any], key: str, pair_key: str) -> str:
+    direct = clean_text(block.get(key))
+    if direct:
+        return direct
+    lines = [
+        alignment_pair_text(pair, pair_key)
+        for pair in as_list(block.get("pairs"))
+        if alignment_pair_text(pair, pair_key)
+    ]
+    return "\n".join(lines).strip()
+
+
+def translator_kind_to_reading_kind(kind: str, source_markdown: str) -> str:
+    normalized = clean_text(kind)
+    if normalized == "equation":
+        return "formula"
+    if normalized == "figure_caption" and extract_image_refs(source_markdown):
+        return "image"
+    if normalized == "abstract":
+        return "paragraph"
+    if normalized == "bib_item":
+        return "paragraph"
+    if normalized in {"heading", "paragraph", "table", "list", "image", "formula", "code"}:
+        return normalized
+    return "paragraph"
+
+
+def heading_title_from_markdown(source_markdown: str, fallback: str) -> tuple[str, int]:
+    match = HEADING_RE.match(source_markdown.strip())
+    if match:
+        return match.group(2).strip(), len(match.group(1))
+    return clean_text(fallback) or "Document", 1
+
+
+def alignment_to_reading_structure(alignment: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str | None]:
+    sections: list[dict[str, Any]] = []
+    blocks: list[dict[str, Any]] = []
+    used_anchors: dict[str, int] = {}
+    current_anchor = "sec-document"
+    current_role = "main"
+    references_anchor: str | None = None
+    bibliography_seen = False
+
+    def ensure_default_section() -> None:
+        if not sections:
+            sections.append(
+                {
+                    "section_id": "section-0001",
+                    "anchor": current_anchor,
+                    "title": "Document",
+                    "level": 0,
+                    "order_index": 1,
+                    "parent_anchor": "",
+                    "source_start_block": "",
+                    "source_end_block": "",
+                    "role": current_role,
+                }
+            )
+
+    def add_section(title: str, level: int, role: str) -> str:
+        anchor = slugify(title, used_anchors)
+        parent_anchor = ""
+        for section in reversed(sections):
+            if int(section["level"]) < level:
+                parent_anchor = str(section["anchor"])
+                break
+        sections.append(
+            {
+                "section_id": f"section-{len(sections) + 1:04d}",
+                "anchor": anchor,
+                "title": title,
+                "level": level,
+                "order_index": len(sections) + 1,
+                "parent_anchor": parent_anchor,
+                "source_start_block": "",
+                "source_end_block": "",
+                "role": role,
+            }
+        )
+        return anchor
+
+    for index, raw_block in enumerate(as_list(alignment.get("blocks")), start=1):
+        if not isinstance(raw_block, dict):
+            continue
+        block_id = clean_text(raw_block.get("b")) or f"b_{index:03d}"
+        source_markdown = alignment_block_markdown(raw_block, "source_markdown", "src")
+        if not source_markdown:
+            continue
+        source_type = clean_text(raw_block.get("type"))
+        if source_type == "heading":
+            title, level = heading_title_from_markdown(
+                source_markdown,
+                clean_text(raw_block.get("heading")),
+            )
+            current_role = role_for_heading(title, current_role, bibliography_seen)
+            current_anchor = add_section(title, level, current_role)
+            if current_role == "bibliography":
+                references_anchor = current_anchor
+                bibliography_seen = True
+        else:
+            ensure_default_section()
+        kind = translator_kind_to_reading_kind(source_type, source_markdown)
+        role = "bibliography" if source_type == "bib_item" else current_role
+        block = {
+            "block_id": block_id,
+            "section_anchor": current_anchor,
+            "kind": kind,
+            "role": role,
+            "order_index": len(blocks) + 1,
+            "line_start": index,
+            "line_end": index,
+            "source_markdown": source_markdown,
+            "image_refs": extract_image_refs(source_markdown),
+            "translate": role != "bibliography",
+        }
+        if kind == "formula":
+            match = DISPLAY_MATH_RE.search(source_markdown)
+            block["latex"] = match.group(1).strip() if match else source_markdown.strip().strip("$").strip()
+        if kind == "table":
+            block["table_markdown_or_html"] = source_markdown
+            block["caption_markdown"] = ""
+        blocks.append(block)
+        for section in sections:
+            if section["anchor"] == current_anchor:
+                if not section["source_start_block"]:
+                    section["source_start_block"] = block_id
+                section["source_end_block"] = block_id
+                break
+
+    return sections, blocks, references_anchor
+
+
+def source_only_alignment_from_blocks(blocks: list[dict[str, Any]], target_language: str) -> dict[str, Any]:
+    alignment_blocks: list[dict[str, Any]] = []
+    for index, block in enumerate(blocks, start=1):
+        block_id = f"b_{index:03d}"
+        source_markdown = clean_text(block.get("source_markdown"))
+        kind = clean_text(block.get("kind"))
+        source_type = "equation" if kind == "formula" else kind or "paragraph"
+        alignment_blocks.append(
+            {
+                "b": block_id,
+                "type": source_type,
+                "heading": "",
+                "source_markdown": source_markdown,
+                "translated_markdown": "",
+                "pairs": [
+                    {
+                        "i": 1,
+                        "src": source_markdown,
+                        "tgt": "",
+                        "status": "source_only",
+                        "repair_count": 0,
+                    }
+                ],
+            }
+        )
+    return {
+        "format": "v1",
+        "doc_id": "D1",
+        "source_language": "",
+        "target_language": target_language,
+        "metadata": {
+            "source": "literature-deep-reading.source_only_alignment",
+        },
+        "blocks": alignment_blocks,
+    }
+
+
+def valid_translator_alignment(value: Any, target_language: str) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("format") == "v1"
+        and clean_text(value.get("target_language")) == target_language
+        and isinstance(value.get("blocks"), list)
+    )
+
+
+def load_translator_alignment(input_payload: dict[str, Any], input_path: Path, target_language: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any] | None:
+    candidates: list[tuple[str, Path]] = []
+    explicit = clean_text(input_payload.get("translator_alignment_path"))
+    if explicit:
+        candidates.append(("input.translator_alignment_path", resolve_input_path(explicit, input_path)))
+    candidates.append(("bundle.translator_alignment", SOURCE_DIR / "translator" / "alignment.json"))
+    for source, path in candidates:
+        if not path.exists():
+            continue
+        try:
+            alignment = read_json(path, {})
+        except Exception as exc:
+            diagnostics.append({"severity": "warning", "code": "translator_alignment_read_failed", "source": source, "path": normalize_posix(path), "message": str(exc)})
+            continue
+        if valid_translator_alignment(alignment, target_language):
+            metadata = alignment.get("metadata") if isinstance(alignment.get("metadata"), dict) else {}
+            return {
+                **alignment,
+                "metadata": {
+                    **metadata,
+                    "import_source": source,
+                    "import_path": normalize_posix(path),
+                },
+            }
+        diagnostics.append({"severity": "warning", "code": "translator_alignment_invalid", "source": source, "path": normalize_posix(path)})
+    return None
+
+
+def alignment_has_translations(alignment: dict[str, Any]) -> bool:
+    for block in as_list(alignment.get("blocks")):
+        if isinstance(block, dict) and alignment_block_markdown(block, "translated_markdown", "tgt"):
+            return True
+    return False
+
+
 def build_image_manifest(extract_dir: Path, blocks: list[dict[str, Any]], source_manifest: dict[str, Any] | None) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -768,9 +1515,11 @@ def build_image_manifest(extract_dir: Path, blocks: list[dict[str, Any]], source
             if not isinstance(entry, dict):
                 continue
             bundle_path = str(entry.get("bundle_path") or entry.get("path") or "")
-            original_src = str(entry.get("original_src") or entry.get("src") or bundle_path)
+            original_src = str(entry.get("original_src") or entry.get("src") or entry.get("source") or bundle_path)
             if bundle_path:
                 seen.add(bundle_path)
+            if original_src:
+                seen.add(original_src)
             path = extract_dir / bundle_path if bundle_path else Path()
             exists = bool(bundle_path and path.exists())
             byte_count = path.stat().st_size if exists else safe_int(entry.get("bytes"), 0)
@@ -941,6 +1690,19 @@ def artifact_bundle_destination(entry: dict[str, Any]) -> str:
     return ""
 
 
+def resolve_run_artifact_path(run_root: Path, raw_path: str) -> Path:
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        candidate = run_root / candidate
+    resolved = candidate.resolve()
+    root = run_root.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"artifact path is outside run root: {raw_path}") from exc
+    return resolved
+
+
 def export_manifest_path(run_root: Path, export_data: dict[str, Any]) -> Path | None:
     raw_path = first_text(
         export_data.get("manifestPath"),
@@ -950,10 +1712,7 @@ def export_manifest_path(run_root: Path, export_data: dict[str, Any]) -> Path | 
     )
     if not raw_path:
         return None
-    candidate = Path(raw_path)
-    if not candidate.is_absolute():
-        candidate = run_root / candidate
-    return candidate
+    return resolve_run_artifact_path(run_root, raw_path)
 
 
 def load_export_manifest(run_root: Path, export_data: dict[str, Any]) -> dict[str, Any]:
@@ -982,6 +1741,63 @@ def export_manifest_artifacts(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 normalized["paper_ref"] = paper_ref
             artifacts.append(normalized)
     return artifacts
+
+
+def remote_export_delivery_message(run_root: Path, delivery_name: str, artifact_data: dict[str, Any]) -> str:
+    delivery_path = run_root / PAYLOADS_DIR / delivery_name
+    delivery = artifact_data.get("delivery") if isinstance(artifact_data.get("delivery"), dict) else {}
+    download_command = clean_text(delivery.get("downloadCommand"))
+    unpack_hint = clean_text(delivery.get("unpackHint"))
+    manifest_file = first_text(
+        artifact_data.get("manifest_file"),
+        artifact_data.get("manifestFile"),
+        artifact_data.get("manifest_path"),
+        artifact_data.get("manifestPath"),
+        delivery.get("manifest_file"),
+        delivery.get("manifestFile"),
+    )
+    instructions = [
+        "paper-artifacts export-filtered returned a remote bridge-download bundle",
+        f"delivery details were written to {normalize_posix(delivery_path)}",
+    ]
+    if download_command:
+        instructions.append(f"run delivery.downloadCommand: {download_command}")
+    if unpack_hint:
+        instructions.append(f"then run delivery.unpackHint: {unpack_hint}")
+    if manifest_file:
+        instructions.append(f"manifest_file inside the unpacked bundle: {manifest_file}")
+    instructions.append("after downloading and unpacking into the run workspace, rerun the same runtime command")
+    return "; ".join(instructions)
+
+
+def cached_remote_export_data(run_root: Path, delivery_name: str) -> dict[str, Any] | None:
+    delivery_path = run_root / PAYLOADS_DIR / delivery_name
+    cached = read_json(delivery_path, {})
+    if not isinstance(cached, dict) or not isinstance(cached.get("export_data"), dict):
+        return None
+    export_data = cached["export_data"]
+    manifest_file = export_manifest_path(run_root, export_data)
+    if manifest_file and manifest_file.exists():
+        return export_data
+    raise RemoteBridgeDownloadRequired(remote_export_delivery_message(run_root, delivery_name, export_data))
+
+
+def export_filtered_paper_artifacts(run_root: Path, payload: dict[str, Any], input_name: str, delivery_name: str) -> dict[str, Any]:
+    cached = cached_remote_export_data(run_root, delivery_name)
+    if cached is not None:
+        return cached
+    export_output = run_bridge_json(
+        run_root,
+        ["paper-artifacts", "export-filtered"],
+        payload,
+        input_name,
+    )
+    export_data = unwrap_bridge_data(export_output)
+    delivery = export_data.get("delivery") if isinstance(export_data.get("delivery"), dict) else {}
+    if clean_text(delivery.get("mode")) == "bridge-download":
+        write_json(run_root / PAYLOADS_DIR / delivery_name, {"delivery": delivery, "export_data": export_data})
+        raise RemoteBridgeDownloadRequired(remote_export_delivery_message(run_root, delivery_name, export_data))
+    return export_data
 
 
 def copy_exported_target_artifacts(run_root: Path, target_paper_ref: str, export_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1014,9 +1830,7 @@ def copy_exported_target_artifacts(run_root: Path, target_paper_ref: str, export
                 }
             )
             continue
-        source_path = Path(content_file)
-        if not source_path.is_absolute():
-            source_path = run_root / content_file
+        source_path = resolve_run_artifact_path(run_root, content_file)
         destination_path = SOURCE_DIR / destination
         if not source_path.exists() or source_path.stat().st_size <= 0:
             exported.append(
@@ -1051,6 +1865,73 @@ def reference_index_rows(index_data: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(rows, list):
         return [row for row in rows if isinstance(row, dict)]
     return []
+
+
+def reference_index_request_payload(paper_ref: str) -> dict[str, Any]:
+    return {
+        "sourceRefs": [paper_ref],
+        "referenceSourceRefs": [paper_ref],
+        "includeReferences": True,
+        "limit": 250,
+        "artifactCoverage": "all",
+    }
+
+
+def reference_index_reference_rows(index_data: dict[str, Any], target: dict[str, str]) -> list[dict[str, Any]]:
+    target_paper_ref = clean_text(target.get("paper_ref"))
+    target_item_key = clean_text(target.get("item_key"))
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in reference_index_rows(index_data):
+        nested_references = row.get("references") if isinstance(row.get("references"), list) else []
+        if nested_references:
+            source_paper_ref = first_text(row.get("paper_ref"), row.get("paperRef"), row.get("source_ref"), row.get("sourceRef"))
+            for nested in nested_references:
+                if not isinstance(nested, dict):
+                    continue
+                entry = {**nested}
+                if source_paper_ref and not first_text(entry.get("source_paper_ref"), entry.get("sourcePaperRef")):
+                    entry["source_paper_ref"] = source_paper_ref
+                key = first_text(
+                    entry.get("reference_id"),
+                    entry.get("referenceId"),
+                    entry.get("reference_instance_id"),
+                    entry.get("referenceInstanceId"),
+                    entry.get("id"),
+                ) or str(entry.get("reference_index") if entry.get("reference_index") is not None else entry.get("referenceIndex") or entry.get("index") or len(rows) + 1)
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(entry)
+            continue
+        row_paper_ref = first_text(row.get("paper_ref"), row.get("paperRef"), row.get("source_ref"), row.get("sourceRef"))
+        row_item_key = first_text(row.get("item_key"), row.get("itemKey"), row.get("zotero_item_key"), row.get("zoteroItemKey"))
+        if (target_paper_ref and row_paper_ref == target_paper_ref) or (target_item_key and row_item_key == target_item_key):
+            continue
+        has_reference_shape = bool(
+            row.get("reference_index")
+            or row.get("referenceIndex")
+            or row.get("index")
+            or row.get("reference_title")
+            or row.get("referenceTitle")
+            or row.get("raw_reference")
+            or row.get("rawReference")
+            or row.get("raw")
+        )
+        if not has_reference_shape:
+            continue
+        key = first_text(
+            row.get("reference_id"),
+            row.get("referenceId"),
+            row.get("reference_instance_id"),
+            row.get("referenceInstanceId"),
+            row.get("id"),
+        ) or str(row.get("reference_index") if row.get("reference_index") is not None else row.get("referenceIndex") or row.get("index") or len(rows) + 1)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(row)
+    return rows
 
 
 def find_target_reference_index_row(index_data: dict[str, Any], target: dict[str, str]) -> dict[str, Any]:
@@ -1154,7 +2035,7 @@ def run_host_preflight(run_root: Path, diagnostics: list[dict[str, Any]]) -> dic
         reference_output = run_bridge_json(
             run_root,
             ["reference-index", "get"],
-            {"sourceRefs": [target["paper_ref"]], "limit": 250, "artifactCoverage": "all"},
+            reference_index_request_payload(target["paper_ref"]),
             "bootstrap-reference-index-input.json",
         )
         reference_data = unwrap_bridge_data(reference_output)
@@ -1199,15 +2080,16 @@ def run_host_preflight(run_root: Path, diagnostics: list[dict[str, Any]]) -> dic
             "bootstrap-paper-artifacts-manifest-input.json",
         )
         result["paper_artifacts_manifest"] = unwrap_bridge_data(manifest_output)
-        export_output = run_bridge_json(
+        export_data = export_filtered_paper_artifacts(
             run_root,
-            ["paper-artifacts", "export-filtered"],
             {"run_root": str(run_root), "paper_refs": [target["paper_ref"]], "artifact_types": ["digest", "references", "citation_analysis"]},
             "bootstrap-paper-artifacts-export-input.json",
+            "bootstrap-paper-artifacts-export-delivery.json",
         )
-        export_data = unwrap_bridge_data(export_output)
         result["paper_artifacts_export"] = export_data
         result["exported_target_artifacts"] = copy_exported_target_artifacts(run_root, target["paper_ref"], export_data)
+    except RemoteBridgeDownloadRequired:
+        raise
     except Exception as exc:  # noqa: BLE001
         diagnostic = {"severity": "warning", "code": "host_preflight_artifact_export_failed", "message": str(exc)}
         preflight_diagnostics.append(diagnostic)
@@ -1216,32 +2098,77 @@ def run_host_preflight(run_root: Path, diagnostics: list[dict[str, Any]]) -> dic
     return result
 
 
-def build_references_seed_view(extract_dir: Path, blocks: list[dict[str, Any]], references_anchor: str | None) -> dict[str, Any]:
-    references_path = extract_dir / "artifacts" / "references.json"
-    payload = read_json(references_path, None)
-    if isinstance(payload, dict):
-        references = payload.get("references") or payload.get("items") or []
-        if isinstance(references, list):
-            return {
-                "schema_version": "literature-deep-reading.references-seed-view.v0",
-                "source": "artifact",
-                "references": references,
-                "reference_count": len(references),
-            }
-    raw_entries: list[dict[str, Any]] = []
+def markdown_reference_items_from_blocks(blocks: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    raw_blocks: list[str] = []
     for block in blocks:
         if clean_text(block.get("role")) != "bibliography" or block.get("kind") == "heading":
             continue
-        for line in block_text(block).splitlines():
-            match = REFERENCE_ENTRY_RE.match(line)
-            if match:
-                index = match.group(1) or match.group(2)
-                raw_entries.append({"id": f"ref-{index}", "index": int(index), "raw": match.group(3).strip()})
+        source_markdown = clean_text(block.get("source_markdown")) or block_text(block)
+        if source_markdown:
+            raw_blocks.append(source_markdown.strip())
+    raw_markdown = "\n\n".join(raw_blocks).strip()
+    entries: list[dict[str, Any]] = []
+    current_lines: list[str] = []
+    current_index: int | None = None
+
+    def flush() -> None:
+        nonlocal current_lines, current_index
+        raw_entry = "\n".join(current_lines).strip()
+        if raw_entry:
+            index = current_index or len(entries) + 1
+            entries.append(
+                {
+                    "reference_id": f"ref-{index}",
+                    "reference_index": index,
+                    "raw_markdown": raw_entry,
+                }
+            )
+        current_lines = []
+        current_index = None
+
+    for line in raw_markdown.splitlines():
+        match = REFERENCE_ENTRY_RE.match(line)
+        if match:
+            flush()
+            raw_index = match.group(1) or match.group(2)
+            current_index = safe_int(raw_index, len(entries) + 1)
+            current_lines = [line.strip()]
+        elif current_lines:
+            current_lines.append(line.rstrip())
+    flush()
+    if raw_markdown and not entries:
+        for chunk in re.split(r"\n\s*\n", raw_markdown):
+            raw_entry = chunk.strip()
+            if raw_entry:
+                index = len(entries) + 1
+                entries.append(
+                    {
+                        "reference_id": f"ref-{index}",
+                        "reference_index": index,
+                        "raw_markdown": raw_entry,
+                    }
+                )
+    return raw_markdown, entries
+
+
+def build_references_seed_view(extract_dir: Path, blocks: list[dict[str, Any]], references_anchor: str | None) -> dict[str, Any]:
+    references_path = extract_dir / "artifacts" / "references.json"
+    payload = read_json(references_path, None)
+    artifact_references = []
+    if isinstance(payload, dict):
+        references = payload.get("references") or payload.get("items") or []
+        if isinstance(references, list):
+            artifact_references = references
+    raw_markdown, raw_entries = markdown_reference_items_from_blocks(blocks)
     return {
         "schema_version": "literature-deep-reading.references-seed-view.v0",
         "source": "markdown" if raw_entries else "none",
+        "raw_markdown": raw_markdown,
+        "raw_items": raw_entries,
         "references": raw_entries,
         "reference_count": len(raw_entries),
+        "artifact_reference_count": len(artifact_references),
+        "artifact_references_available": bool(artifact_references),
     }
 
 
@@ -1569,6 +2496,7 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
     input_payload = read_json(input_path, {})
     if not isinstance(input_payload, dict):
         raise ValueError("runtime input must be a JSON object")
+    input_payload, input_hydration_diagnostics = hydrate_input_from_audit_manifest(input_payload, input_path)
     bundle_raw = str(input_payload.get("source_bundle_path") or "").strip()
     if not bundle_raw:
         raise ValueError("runtime input requires source_bundle_path")
@@ -1578,11 +2506,11 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
 
     parameter = input_payload.get("parameter") if isinstance(input_payload.get("parameter"), dict) else {}
     target_language = str(parameter.get("target_language") or input_payload.get("target_language") or "zh-CN")
+    diagnostics: list[dict[str, Any]] = list(input_hydration_diagnostics)
     extracted = safe_extract_zip(bundle_path, SOURCE_DIR)
     source_manifest = read_json(SOURCE_DIR / "source-manifest.json", {}) or {}
     source_kind = str(source_manifest.get("source_kind") or "mineru_markdown")
     source_md = SOURCE_DIR / "source.md"
-    diagnostics: list[dict[str, Any]] = []
     if not source_md.exists():
         diagnostics.append({"severity": "warning", "code": "source_md_missing", "message": "source.md is missing; PDF fallback parsing is deferred."})
         markdown = ""
@@ -1590,7 +2518,42 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
     else:
         markdown = source_md.read_text(encoding="utf-8", errors="replace")
 
-    sections, blocks, references_anchor = parse_markdown(markdown)
+    translator_alignment = load_translator_alignment(
+        input_payload,
+        input_path,
+        target_language,
+        diagnostics,
+    )
+    if translator_alignment:
+        sections, blocks, references_anchor = alignment_to_reading_structure(translator_alignment)
+        if not blocks:
+            diagnostics.append({"severity": "warning", "code": "translator_alignment_empty_blocks"})
+            sections, blocks, references_anchor = parse_markdown(markdown)
+            translator_alignment = None
+        else:
+            source_kind = "translator_alignment"
+    else:
+        if clean_text(input_payload.get("translator_status")) == "success":
+            diagnostics.append({"severity": "error", "code": "translator_alignment_handoff_missing", "message": "translator_status is success but no valid translator alignment was provided."})
+            write_json(
+                VIEWS_DIR / "diagnostics-bootstrap.json",
+                {
+                    "schema_version": "literature-deep-reading.diagnostics-bootstrap.v0",
+                    "diagnostics": diagnostics,
+                    "extracted_files": extracted,
+                    "source_bundle": {
+                        "path": str(bundle_path),
+                        "sha256": sha256_file(bundle_path),
+                        "bytes": bundle_path.stat().st_size,
+                    },
+                },
+            )
+            raise ValueError("translator_alignment_handoff_missing: translator_status=success requires a valid translator_alignment_path or bundle translator/alignment.json")
+        sections, blocks, references_anchor = parse_markdown(markdown)
+        if clean_text(input_payload.get("translator_status")) == "cancelled" and blocks:
+            translator_alignment = source_only_alignment_from_blocks(blocks, target_language)
+            sections, blocks, references_anchor = alignment_to_reading_structure(translator_alignment)
+            diagnostics.append({"severity": "info", "code": "source_only_alignment_generated"})
     if not sections:
         sections = [
             {
@@ -1632,6 +2595,17 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
     write_json(VIEWS_DIR / "host-preflight-view.json", host_preflight)
     write_json(VIEWS_DIR / "concept-needs-view.json", concept_needs)
     write_json(
+        VIEWS_DIR / "translator-alignment-view.json",
+        translator_alignment
+        if translator_alignment
+        else {
+            "format": "v1",
+            "status": "unavailable",
+            "target_language": target_language,
+            "blocks": [],
+        },
+    )
+    write_json(
         VIEWS_DIR / "diagnostics-bootstrap.json",
         {
             "schema_version": "literature-deep-reading.diagnostics-bootstrap.v0",
@@ -1644,6 +2618,7 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
             },
         },
     )
+    write_stage10_agent_packet(target_language, source_kind, diagnostics)
     result = {
         "kind": "literature_deep_reading_bootstrap",
         "status": "bootstrapped",
@@ -1658,11 +2633,13 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
             "host_preflight": normalize_posix(VIEWS_DIR / "host-preflight-view.json"),
             "topic_candidates": normalize_posix(VIEWS_DIR / "topic-candidates-view.json"),
             "concept_needs": normalize_posix(VIEWS_DIR / "concept-needs-view.json"),
+            "translator_alignment": normalize_posix(VIEWS_DIR / "translator-alignment-view.json"),
+            "stage_10_agent_packet": normalize_posix(STAGE10_AGENT_PACKET_PATH),
         },
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-bootstrap.json"),
         "final_html_available": False,
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics],
-        "error": None,
+        "error": {},
     }
     write_json(RESULT_PATH, result)
     return result
@@ -1705,14 +2682,42 @@ def validate_context_request_payload(payload: Any) -> list[str]:
     unknown = sorted(set(payload) - allowed)
     if unknown:
         errors.append("unknown fields: " + ", ".join(unknown))
+    missing = sorted(field for field in CONTEXT_REQUEST_REQUIRED_FIELDS if field not in payload)
+    if missing:
+        errors.append("missing required fields: " + ", ".join(missing))
+    for field in ["main_task", "method_family"]:
+        if not clean_text(payload.get(field)):
+            errors.append(f"{field} must be a non-empty string")
     structure = read_view("source-structure.json", {})
     anchors = {str(section.get("anchor")) for section in as_list(structure.get("sections")) if isinstance(section, dict)}
     for anchor in as_list(payload.get("external_context_section_anchors")):
         if clean_text(anchor) not in anchors:
             errors.append(f"external_context_section_anchors contains unknown anchor: {anchor}")
+    if bool(payload.get("request_topic_context")):
+        if not clean_text(payload.get("topic_context_reason")):
+            errors.append("topic_context_reason is required when request_topic_context is true")
+        topic_candidates = read_view("topic-candidates-view.json", {})
+        candidate_ids = {
+            clean_text(topic.get("topic_id"))
+            for topic in as_list(topic_candidates.get("topics"))
+            if isinstance(topic, dict) and clean_text(topic.get("topic_id"))
+        }
+        selected_topic_id = clean_text(payload.get("selected_topic_id"))
+        if candidate_ids and not selected_topic_id:
+            errors.append("selected_topic_id is required when request_topic_context is true and topic candidates are available")
+        elif candidate_ids and selected_topic_id not in candidate_ids:
+            errors.append(f"selected_topic_id must be one of available topic candidates: {selected_topic_id}")
+    if bool(payload.get("request_concept_context")) and not [clean_text(item) for item in as_list(payload.get("concept_labels")) if clean_text(item)]:
+        errors.append("concept_labels is required when request_concept_context is true")
+    if bool(payload.get("request_citation_graph")):
+        for field in ["citation_graph_depth", "citation_graph_direction", "citation_graph_max_nodes", "citation_graph_max_edges"]:
+            if field not in payload:
+                errors.append(f"{field} is required when request_citation_graph is true")
     policy = clean_text(payload.get("reference_digest_policy") or "none")
     if policy not in REFERENCE_DIGEST_POLICIES:
         errors.append(f"reference_digest_policy must be one of {sorted(REFERENCE_DIGEST_POLICIES)}")
+    if policy == "priority_only" and not [item for item in as_list(payload.get("priority_reference_indices")) if safe_int(item, 0) > 0]:
+        errors.append("priority_reference_indices is required when reference_digest_policy is priority_only")
     direction = clean_text(payload.get("citation_graph_direction") or "both")
     if direction not in CITATION_DIRECTIONS:
         errors.append(f"citation_graph_direction must be one of {sorted(CITATION_DIRECTIONS)}")
@@ -1785,6 +2790,51 @@ def normalize_reference(entry: Any, index: int) -> dict[str, Any]:
         "bound_paper_ref": bound_paper_ref,
         "zotero_item_key": item_key,
         "match_confidence": raw.get("match_confidence") or raw.get("matchConfidence"),
+    }
+
+
+def normalize_index_reference(entry: dict[str, Any], index: int) -> dict[str, Any]:
+    reference_index = safe_int(entry.get("reference_index") or entry.get("referenceIndex") or entry.get("index"), index)
+    reference_id = first_text(
+        entry.get("reference_id"),
+        entry.get("referenceId"),
+        entry.get("reference_instance_id"),
+        entry.get("referenceInstanceId"),
+        entry.get("id"),
+    ) or f"ref-{reference_index if reference_index is not None else index}"
+    target_binding = clean_text(entry.get("target_binding") or entry.get("targetBinding"))
+    binding_status = clean_text(entry.get("binding_status") or entry.get("bindingStatus"))
+    paper_ref = first_text(
+        entry.get("target_paper_ref"),
+        entry.get("targetPaperRef"),
+        entry.get("bound_paper_ref"),
+        entry.get("boundPaperRef"),
+        entry.get("paper_ref"),
+        entry.get("paperRef"),
+    )
+    item_key = first_text(entry.get("zotero_item_key"), entry.get("zoteroItemKey"), entry.get("item_key"), entry.get("itemKey"))
+    if not item_key and paper_ref:
+        parsed = re.match(r"^\d+:([A-Z0-9]+)$", paper_ref)
+        if parsed:
+            item_key = parsed.group(1)
+    if target_binding and target_binding != "library":
+        item_key = ""
+    elif item_key and not paper_ref:
+        paper_ref = f"1:{item_key}"
+    library_bound = bool((not target_binding or target_binding == "library") and (paper_ref or item_key))
+    return {
+        "reference_id": reference_id,
+        "reference_index": reference_index,
+        "title": first_text(entry.get("target_title"), entry.get("targetTitle"), entry.get("title"), entry.get("reference_title"), entry.get("referenceTitle"), entry.get("raw_reference"), entry.get("rawReference"), entry.get("raw")),
+        "authors": as_list(entry.get("authors") or entry.get("target_authors") or entry.get("targetAuthors")),
+        "year": first_text(entry.get("target_year"), entry.get("targetYear"), entry.get("year")),
+        "raw": entry,
+        "binding_status": "library" if library_bound else first_text(target_binding, binding_status, "unresolved"),
+        "bound_paper_ref": paper_ref if library_bound else "",
+        "zotero_item_key": item_key if library_bound else "",
+        "target_binding": target_binding,
+        "match_confidence": entry.get("match_confidence") or entry.get("matchConfidence") or entry.get("confidence"),
+        "reference_index_status": binding_status,
     }
 
 
@@ -1867,6 +2917,24 @@ def merge_reference_index_bindings(bindings: list[dict[str, Any]], index_result:
     return merged
 
 
+def merge_index_reference_items(items: list[dict[str, Any]], index_result: dict[str, Any], target_refs: dict[str, str]) -> list[dict[str, Any]]:
+    merged = list(items)
+    seen = {
+        first_text(item.get("reference_id"), str(item.get("reference_index")))
+        for item in merged
+        if first_text(item.get("reference_id"), str(item.get("reference_index")))
+    }
+    for index, entry in enumerate(reference_index_reference_rows(index_result, target_refs), start=1):
+        normalized = normalize_index_reference(entry, index)
+        key = first_text(normalized.get("reference_id"), str(normalized.get("reference_index")))
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        merged.append(normalized)
+    return sorted(merged, key=lambda item: safe_int(item.get("reference_index"), 999999))
+
+
 def build_reference_bindings(context: dict[str, Any], run_root: Path, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
     seed = read_view("references-seed-view.json", {})
     references = as_list(seed.get("references"))
@@ -1874,17 +2942,23 @@ def build_reference_bindings(context: dict[str, Any], run_root: Path, diagnostic
     target_refs = infer_target_refs(source_manifest())
     preflight = read_view("host-preflight-view.json", {})
     preflight_index = preflight.get("reference_index") if isinstance(preflight.get("reference_index"), dict) else {}
+    item_references: list[dict[str, Any]] = []
     if bindings and preflight_index:
         bindings = merge_reference_index_bindings(bindings, preflight_index)
-    if bindings and target_refs["paper_ref"]:
+    if preflight_index:
+        item_references = merge_index_reference_items(item_references, preflight_index, target_refs)
+    if target_refs["paper_ref"]:
         try:
             output = run_bridge_json(
                 run_root,
                 ["reference-index", "get"],
-                {"sourceRefs": [target_refs["paper_ref"]], "limit": 250, "artifactCoverage": "all"},
+                reference_index_request_payload(target_refs["paper_ref"]),
                 "reference-index-input.json",
             )
-            bindings = merge_reference_index_bindings(bindings, unwrap_bridge_data(output))
+            index_data = unwrap_bridge_data(output)
+            if bindings:
+                bindings = merge_reference_index_bindings(bindings, index_data)
+            item_references = merge_index_reference_items(item_references, index_data, target_refs)
             diagnostics.append({"severity": "info", "code": "reference_index_available", "count": len(bindings)})
         except Exception as exc:  # noqa: BLE001
             diagnostics.append({"severity": "warning", "code": "reference_index_unavailable", "message": str(exc)})
@@ -1892,9 +2966,26 @@ def build_reference_bindings(context: dict[str, Any], run_root: Path, diagnostic
         "schema_version": "literature-deep-reading.reference-bindings-view.v0",
         "source": "references_seed_and_reference_index",
         "items": bindings,
+        "item_references": item_references,
         "target": target_refs,
         "diagnostics": [item for item in diagnostics if str(item.get("code", "")).startswith("reference_")],
     }
+
+
+def digest_reference_bindings(reference_bindings: dict[str, Any]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in [*as_list(reference_bindings.get("item_references")), *as_list(reference_bindings.get("items"))]:
+        if not isinstance(item, dict):
+            continue
+        paper_ref = clean_text(item.get("bound_paper_ref"))
+        key = first_text(item.get("reference_id"), paper_ref, item.get("zotero_item_key"))
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        merged.append(item)
+    return merged
 
 
 def library_bindings_for_policy(bindings: list[dict[str, Any]], context: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1912,7 +3003,103 @@ def library_bindings_for_policy(bindings: list[dict[str, Any]], context: dict[st
     return selected
 
 
-def normalize_exported_digest_items(run_root: Path, bindings: list[dict[str, Any]], export_data: dict[str, Any]) -> list[dict[str, Any]]:
+def topic_timeline_digest_bindings(topic_context: dict[str, Any]) -> list[dict[str, Any]]:
+    semantic = topic_context_semantic(topic_context)
+    if not semantic:
+        return []
+    bindings: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, paper in enumerate(as_list(semantic.get("source_papers")), start=1):
+        if not isinstance(paper, dict):
+            continue
+        paper_ref = source_paper_ref(paper)
+        if not paper_ref or paper_ref in seen:
+            continue
+        seen.add(paper_ref)
+        item_key = source_paper_item_key(paper)
+        bindings.append(
+            {
+                "reference_id": f"timeline:{paper_ref}",
+                "reference_index": 0,
+                "title": first_text(paper.get("title"), paper_ref, f"Timeline paper {index}"),
+                "authors": as_list(paper.get("authors") or paper.get("creators")),
+                "year": first_text(paper.get("year"), paper.get("publication_year"), paper.get("publicationYear")),
+                "raw": paper,
+                "binding_status": "library",
+                "bound_paper_ref": paper_ref,
+                "zotero_item_key": item_key,
+                "target_binding": "library",
+                "match_confidence": "topic_timeline",
+                "reference_index_status": "topic_timeline",
+                "digest_source": "topic_timeline",
+            }
+        )
+    return bindings
+
+
+def digest_ref_from_artifact(paper_ref: str, artifact: dict[str, Any]) -> dict[str, Any]:
+    digest_ref = {
+        "paper_ref": paper_ref,
+        "payload_type": "digest-markdown",
+    }
+    for source_key, target_key in (
+        ("note_key", "note_key"),
+        ("noteKey", "note_key"),
+        ("payload_hash", "payload_hash"),
+        ("payloadHash", "payload_hash"),
+        ("artifact_id", "artifact_id"),
+        ("artifactId", "artifact_id"),
+        ("content_file", "content_file"),
+        ("contentFile", "content_file"),
+        ("path", "content_file"),
+        ("payload_path", "content_file"),
+    ):
+        value = clean_text(artifact.get(source_key))
+        if value and target_key not in digest_ref:
+            digest_ref[target_key] = value
+    return digest_ref
+
+
+def resolve_reference_digest_result(run_root: Path, paper_ref: str, artifact: dict[str, Any], fallback_markdown: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    digest_ref = digest_ref_from_artifact(paper_ref, artifact)
+    try:
+        output = run_bridge_json(
+            run_root,
+            ["paper-artifacts", "resolve-topic-digest"],
+            {
+                "paper_ref": paper_ref,
+                "digest_ref": digest_ref,
+                "include_representative_image": True,
+                "includeRepresentativeImage": True,
+            },
+            f"paper-artifacts-resolve-topic-digest-{re.sub(r'[^A-Za-z0-9_.-]+', '_', paper_ref)}-input.json",
+        )
+        result = unwrap_bridge_data(output)
+        if isinstance(result, dict):
+            if fallback_markdown and not clean_text(result.get("digest_markdown")):
+                result = {**result, "digest_markdown": fallback_markdown}
+            return result
+    except Exception as exc:  # noqa: BLE001
+        diagnostics.append(
+            {
+                "severity": "warning",
+                "code": "reference_digest_resolve_failed",
+                "paper_ref": paper_ref,
+                "message": str(exc),
+            }
+        )
+    return {
+        "ok": bool(fallback_markdown),
+        "status": "available" if fallback_markdown else "missing",
+        "paper_ref": paper_ref,
+        "digest_markdown": fallback_markdown,
+        "representative_image": {"status": "unavailable"},
+        "source_changed": False,
+        "diagnostics": [],
+    }
+
+
+def normalize_exported_digest_items(run_root: Path, bindings: list[dict[str, Any]], export_data: dict[str, Any], diagnostics: list[dict[str, Any]]) -> list[dict[str, Any]]:
     target_dir = clean_text(export_data.get("targetDir") or export_data.get("target_dir"))
     manifest = load_export_manifest(run_root, export_data)
     artifacts = export_manifest_artifacts(manifest)
@@ -1932,12 +3119,10 @@ def normalize_exported_digest_items(run_root: Path, bindings: list[dict[str, Any
         content_file = first_text(artifact.get("content_file"), artifact.get("contentFile"), artifact.get("path"), artifact.get("payload_path"))
         candidate: Path | None = None
         if content_file:
-            candidate = Path(content_file)
-            if not candidate.is_absolute():
-                candidate = run_root / content_file
+            candidate = resolve_run_artifact_path(run_root, content_file)
         elif target_dir:
             safe_ref = re.sub(r"[^A-Za-z0-9_.-]+", "_", paper_ref)
-            candidate = run_root / target_dir / safe_ref / "digest.md"
+            candidate = resolve_run_artifact_path(run_root, str(Path(target_dir) / safe_ref / "digest.md"))
         markdown = ""
         status = "missing"
         bytes_value = 0
@@ -1947,6 +3132,12 @@ def normalize_exported_digest_items(run_root: Path, bindings: list[dict[str, Any
             status = "available"
             bytes_value = candidate.stat().st_size
             sha256 = sha256_file(candidate)
+        result = resolve_reference_digest_result(run_root, paper_ref, artifact, markdown, diagnostics)
+        result_markdown = clean_text(result.get("digest_markdown")) if isinstance(result, dict) else markdown
+        representative_image = result.get("representative_image") if isinstance(result, dict) else {}
+        resolved_status = clean_text(result.get("status")) if isinstance(result, dict) else ""
+        resolved_ok = bool(result.get("ok")) if isinstance(result, dict) else False
+        final_status = "available" if result_markdown and (resolved_ok or resolved_status == "available" or status == "available") else status
         items.append(
             {
                 "reference_id": binding["reference_id"],
@@ -1955,10 +3146,12 @@ def normalize_exported_digest_items(run_root: Path, bindings: list[dict[str, Any
                 "zotero_item_key": binding.get("zotero_item_key") or "",
                 "title": binding.get("title") or "",
                 "digest": {
-                    "status": status,
+                    "status": final_status,
                     "payload_type": "digest-markdown",
-                    "markdown": markdown,
+                    "markdown": result_markdown,
                     "html": "",
+                    "result": result,
+                    "representative_image": representative_image if isinstance(representative_image, dict) else {"status": "unavailable"},
                     "sha256": sha256,
                     "bytes": bytes_value,
                     "truncated": False,
@@ -1969,8 +3162,15 @@ def normalize_exported_digest_items(run_root: Path, bindings: list[dict[str, Any
     return items
 
 
-def collect_reference_digests(context: dict[str, Any], run_root: Path, bindings: list[dict[str, Any]], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
-    selected = library_bindings_for_policy(bindings, context)
+def collect_reference_digests(context: dict[str, Any], run_root: Path, bindings: list[dict[str, Any]], topic_context: dict[str, Any], diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    selected_by_paper: dict[str, dict[str, Any]] = {}
+    for item in [*library_bindings_for_policy(bindings, context), *topic_timeline_digest_bindings(topic_context)]:
+        paper_ref = clean_text(item.get("bound_paper_ref"))
+        if not paper_ref:
+            continue
+        if paper_ref not in selected_by_paper or clean_text(selected_by_paper[paper_ref].get("digest_source")) == "topic_timeline":
+            selected_by_paper[paper_ref] = item
+    selected = list(selected_by_paper.values())
     paper_refs = sorted({clean_text(item.get("bound_paper_ref")) for item in selected if clean_text(item.get("bound_paper_ref"))})
     if not paper_refs:
         return {
@@ -1986,14 +3186,13 @@ def collect_reference_digests(context: dict[str, Any], run_root: Path, bindings:
             {"paper_refs": paper_refs, "artifact_types": ["digest"]},
             "paper-artifacts-manifest-input.json",
         )
-        export_output = run_bridge_json(
+        export_data = export_filtered_paper_artifacts(
             run_root,
-            ["paper-artifacts", "export-filtered"],
             {"run_root": str(run_root), "paper_refs": paper_refs, "artifact_types": ["digest"]},
             "paper-artifacts-export-input.json",
+            "reference-digests-paper-artifacts-export-delivery.json",
         )
-        export_data = unwrap_bridge_data(export_output)
-        items = normalize_exported_digest_items(run_root, selected, export_data)
+        items = normalize_exported_digest_items(run_root, selected, export_data, diagnostics)
         return {
             "schema_version": "literature-deep-reading.reference-digests-view.v0",
             "source": "host_paper_artifacts",
@@ -2002,6 +3201,8 @@ def collect_reference_digests(context: dict[str, Any], run_root: Path, bindings:
             "items": items,
             "diagnostics": [],
         }
+    except RemoteBridgeDownloadRequired:
+        raise
     except Exception as exc:  # noqa: BLE001
         diagnostics.append({"severity": "warning", "code": "reference_digest_collection_failed", "message": str(exc)})
         return {
@@ -2307,18 +3508,150 @@ def collect_topic_context(context: dict[str, Any], run_root: Path, diagnostics: 
         diagnostics.append(diagnostic)
         return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "none", "topic_id": "", "context": {}, "diagnostics": [diagnostic]}
     try:
-        output = run_bridge_json(run_root, ["topics", "get-context"], {"topicId": topic_id}, "topic-context-input.json")
-        data = unwrap_bridge_data(output)
-        return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "host_topics_get_context", "topic_id": topic_id, "context": data, "diagnostics": as_list(data.get("diagnostics"))}
+        output = run_bridge_json(run_root, ["topics", "get-context"], {"topicId": topic_id, "view": "semantic"}, "topic-context-input.json")
+        raw_data = unwrap_bridge_data(output)
+        data = raw_data if isinstance(raw_data, dict) else {}
+        return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "host_topics_get_context", "topic_id": topic_id, "view": "semantic", "context": data, "diagnostics": as_list(data.get("diagnostics"))}
     except Exception as exc:  # noqa: BLE001
         diagnostic = {"severity": "warning", "code": "topic_context_failed", "message": str(exc)}
         diagnostics.append(diagnostic)
-        return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "host_topics_get_context", "topic_id": topic_id, "context": {}, "diagnostics": [diagnostic]}
+        return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "host_topics_get_context", "topic_id": topic_id, "view": "semantic", "context": {}, "diagnostics": [diagnostic]}
+
+
+def sanitize_runtime_filename_segment(value: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.-]+", "-", clean_text(value)).strip("-")
+    return text[:80] or "topic"
+
+
+def collect_topic_candidate_digests(context: dict[str, Any], run_root: Path, selected_topic_id: str, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
+    topic_candidates_view = read_view("topic-candidates-view.json", {})
+    candidates = [item for item in as_list(topic_candidates_view.get("topics")) if isinstance(item, dict)]
+    view_diagnostics: list[dict[str, Any]] = []
+    if len(candidates) <= 1:
+        return {
+            "schema_version": "literature-deep-reading.topic-candidate-digests-view.v0",
+            "source": "none",
+            "selected_topic_id": selected_topic_id,
+            "items": [],
+            "diagnostics": [],
+        }
+    selected = clean_text(selected_topic_id)
+    items: list[dict[str, Any]] = []
+    for candidate in candidates:
+        topic_id = clean_text(candidate.get("topic_id"))
+        if not topic_id:
+            continue
+        if selected and topic_id == selected:
+            continue
+        try:
+            output = run_bridge_json(
+                run_root,
+                ["topics", "get-context"],
+                {"topicId": topic_id, "view": "digest"},
+                f"topic-candidate-digest-{sanitize_runtime_filename_segment(topic_id)}-input.json",
+            )
+            raw_data = unwrap_bridge_data(output)
+            data = raw_data if isinstance(raw_data, dict) else {}
+            items.append(
+                {
+                    "topic_id": topic_id,
+                    "title": clean_text(candidate.get("title")),
+                    "status": clean_text(candidate.get("status")),
+                    "digest": data.get("digest") if isinstance(data.get("digest"), dict) else data,
+                    "diagnostics": as_list(data.get("diagnostics")),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            diagnostic = {
+                "severity": "warning",
+                "code": "topic_candidate_digest_failed",
+                "topic_id": topic_id,
+                "message": str(exc),
+            }
+            view_diagnostics.append(diagnostic)
+            diagnostics.append(diagnostic)
+            items.append(
+                {
+                    "topic_id": topic_id,
+                    "title": clean_text(candidate.get("title")),
+                    "status": clean_text(candidate.get("status")),
+                    "digest": {},
+                    "diagnostics": [diagnostic],
+                }
+            )
+    return {
+        "schema_version": "literature-deep-reading.topic-candidate-digests-view.v0",
+        "source": "host_topics_get_context_digest",
+        "selected_topic_id": selected_topic_id,
+        "items": items,
+        "diagnostics": view_diagnostics,
+    }
 
 
 def available_section_anchors() -> set[str]:
     structure = read_view("source-structure.json", {})
     return {clean_text(section.get("anchor")) for section in as_list(structure.get("sections")) if isinstance(section, dict) and clean_text(section.get("anchor"))}
+
+
+def normalize_section_role(entry: Any) -> dict[str, str] | None:
+    if not isinstance(entry, dict):
+        return None
+    anchor = clean_text(entry.get("section_anchor"))
+    role = clean_text(entry.get("role")).lower()
+    if not anchor or role not in SECTION_ROLE_VALUES:
+        return None
+    return {
+        "section_anchor": anchor,
+        "role": role,
+        "reason": clean_text(entry.get("reason")),
+    }
+
+
+def section_role_overrides(payload_or_view: dict[str, Any] | None = None) -> dict[str, str]:
+    source = payload_or_view if isinstance(payload_or_view, dict) else read_view("section-roles-view.json", {})
+    raw_items = source.get("section_roles") if "section_roles" in source else source.get("items")
+    result: dict[str, str] = {}
+    for item in as_list(raw_items):
+        normalized = normalize_section_role(item)
+        if normalized:
+            result[normalized["section_anchor"]] = normalized["role"]
+    return result
+
+
+def build_section_roles_view(payload: dict[str, Any]) -> dict[str, Any]:
+    items = [item for item in (normalize_section_role(entry) for entry in as_list(payload.get("section_roles"))) if item]
+    return {
+        "schema_version": "literature-deep-reading.section-roles-view.v0",
+        "source": "agent_enrichment",
+        "items": items,
+        "section_roles": items,
+        "override_count": len(items),
+    }
+
+
+def apply_section_roles_to_sections(sections: list[dict[str, Any]], overrides: dict[str, str]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        anchor = clean_text(section.get("anchor"))
+        role = overrides.get(anchor)
+        result.append({**section, **({"role": role} if role else {})})
+    return result
+
+
+def apply_section_roles_to_blocks(blocks: list[dict[str, Any]], overrides: dict[str, str]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        anchor = clean_text(block.get("section_anchor"))
+        role = overrides.get(anchor)
+        if not role:
+            result.append(block)
+            continue
+        result.append({**block, "role": role, "translate": role != "bibliography"})
+    return result
 
 
 def normalize_question(entry: Any) -> dict[str, str]:
@@ -2356,13 +3689,34 @@ def validate_reading_enrichment_payload(payload: Any) -> list[str]:
     unknown = sorted(set(payload) - READING_ENRICHMENT_FIELDS)
     if unknown:
         errors.append("unknown fields: " + ", ".join(unknown))
+    missing = sorted(field for field in READING_ENRICHMENT_REQUIRED_FIELDS if field not in payload)
+    if missing:
+        errors.append("missing required fields: " + ", ".join(missing))
+    for field in ["preface_title", "preface_goal"]:
+        if not clean_text(payload.get(field)):
+            errors.append(f"{field} must be a non-empty string")
+    if "summary_fallback_enabled" in payload and not isinstance(payload.get("summary_fallback_enabled"), bool):
+        errors.append("summary_fallback_enabled must be a boolean")
 
     anchors = available_section_anchors()
     reference_ids = reference_ids_from_views()
 
-    for field in ["preface_cards", "preface_questions", "section_notes", "concepts", "reference_digest_notes", "summary_fallback_sections", "extensions"]:
+    for field in ["preface_cards", "preface_questions", "section_notes", "section_roles", "concepts", "reference_digest_notes", "summary_fallback_sections", "extensions"]:
         if field in payload and not isinstance(payload.get(field), list):
             errors.append(f"{field} must be an array")
+
+    expected_preface_titles = [title for _, title, _ in PREFACE_SLOT_DEFINITIONS]
+    preface_cards = as_list(payload.get("preface_cards"))
+    if "preface_cards" in payload and isinstance(payload.get("preface_cards"), list):
+        actual_titles = [clean_text(card.get("title")) for card in preface_cards if isinstance(card, dict)]
+        if len(preface_cards) != len(expected_preface_titles) or actual_titles != expected_preface_titles:
+            errors.append("preface_cards must contain exactly these titles in order: " + ", ".join(expected_preface_titles))
+    if "preface_reading_path" in payload and not [clean_text(item) for item in as_list(payload.get("preface_reading_path")) if clean_text(item)]:
+        errors.append("preface_reading_path must contain at least one item")
+    if "preface_questions" in payload and not as_list(payload.get("preface_questions")):
+        errors.append("preface_questions must contain at least one item")
+    if "section_notes" in payload and not as_list(payload.get("section_notes")):
+        errors.append("section_notes must contain at least one item")
 
     for index, card in enumerate(as_list(payload.get("preface_cards")), start=1):
         normalized = normalize_titled_text(card)
@@ -2383,6 +3737,21 @@ def validate_reading_enrichment_payload(payload: Any) -> list[str]:
             errors.append(f"section_notes[{index}] requires section_anchor")
         elif anchor not in anchors:
             errors.append(f"section_notes[{index}] references unknown section_anchor: {anchor}")
+        for required_field in ["reading_goal", "misread_warnings", "questions", "citation_note_body", "citation_reference_roles"]:
+            if required_field not in section_note:
+                errors.append(f"section_notes[{index}] missing required field: {required_field}")
+        if not clean_text(section_note.get("reading_goal")):
+            errors.append(f"section_notes[{index}] requires reading_goal")
+        if "misread_warnings" in section_note and not isinstance(section_note.get("misread_warnings"), list):
+            errors.append(f"section_notes[{index}].misread_warnings must be an array")
+        if "questions" in section_note and not isinstance(section_note.get("questions"), list):
+            errors.append(f"section_notes[{index}].questions must be an array")
+        elif "questions" in section_note and not as_list(section_note.get("questions")):
+            errors.append(f"section_notes[{index}].questions must contain at least one item")
+        if not clean_text(section_note.get("citation_note_body")):
+            errors.append(f"section_notes[{index}] requires citation_note_body")
+        if "citation_reference_roles" in section_note and not isinstance(section_note.get("citation_reference_roles"), list):
+            errors.append(f"section_notes[{index}].citation_reference_roles must be an array")
         for question_index, question in enumerate(as_list(section_note.get("questions")), start=1):
             normalized = normalize_question(question)
             if not normalized["question"] or not normalized["answer"]:
@@ -2396,13 +3765,36 @@ def validate_reading_enrichment_payload(payload: Any) -> list[str]:
                 errors.append(f"section_notes[{index}].citation_reference_roles[{role_index}] requires reference_id")
             elif reference_id not in reference_ids:
                 errors.append(f"section_notes[{index}].citation_reference_roles[{role_index}] references unknown reference_id: {reference_id}")
+            if not clean_text(role.get("role")):
+                errors.append(f"section_notes[{index}].citation_reference_roles[{role_index}] requires role")
+
+    for index, entry in enumerate(as_list(payload.get("section_roles")), start=1):
+        if not isinstance(entry, dict):
+            errors.append(f"section_roles[{index}] must be an object")
+            continue
+        row_unknown = sorted(set(entry) - {"section_anchor", "role", "reason"})
+        if row_unknown:
+            errors.append(f"section_roles[{index}] has unknown fields: " + ", ".join(row_unknown))
+        anchor = clean_text(entry.get("section_anchor"))
+        role = clean_text(entry.get("role")).lower()
+        if not anchor:
+            errors.append(f"section_roles[{index}] requires section_anchor")
+        elif anchor not in anchors:
+            errors.append(f"section_roles[{index}] references unknown section_anchor: {anchor}")
+        if role not in SECTION_ROLE_VALUES:
+            errors.append(f"section_roles[{index}].role must be one of: " + ", ".join(sorted(SECTION_ROLE_VALUES)))
 
     for index, concept in enumerate(as_list(payload.get("concepts")), start=1):
         if not isinstance(concept, dict):
             errors.append(f"concepts[{index}] must be an object")
             continue
+        row_unknown = sorted(set(concept) - {"label", "aliases", "kind", "definition"})
+        if row_unknown:
+            errors.append(f"concepts[{index}] has unknown fields: " + ", ".join(row_unknown))
         if not clean_text(concept.get("label")):
             errors.append(f"concepts[{index}] requires label")
+        if not clean_text(concept.get("definition")):
+            errors.append(f"concepts[{index}] requires definition")
 
     for index, note in enumerate(as_list(payload.get("reference_digest_notes")), start=1):
         if not isinstance(note, dict):
@@ -2413,6 +3805,10 @@ def validate_reading_enrichment_payload(payload: Any) -> list[str]:
             errors.append(f"reference_digest_notes[{index}] requires reference_id")
         elif reference_id not in reference_ids:
             errors.append(f"reference_digest_notes[{index}] references unknown reference_id: {reference_id}")
+        if not clean_text(note.get("role_in_current_paper")):
+            errors.append(f"reference_digest_notes[{index}] requires role_in_current_paper")
+        if not clean_text(note.get("why_open")):
+            errors.append(f"reference_digest_notes[{index}] requires why_open")
 
     for index, section in enumerate(as_list(payload.get("summary_fallback_sections")), start=1):
         normalized = normalize_titled_text(section)
@@ -2436,6 +3832,7 @@ def normalized_reading_enrichment(payload: dict[str, Any]) -> dict[str, Any]:
         "preface_warnings": [clean_text(item) for item in as_list(payload.get("preface_warnings")) if clean_text(item)],
         "preface_questions": [normalize_question(item) for item in as_list(payload.get("preface_questions"))],
         "section_notes": as_list(payload.get("section_notes")),
+        "section_roles": [item for item in (normalize_section_role(entry) for entry in as_list(payload.get("section_roles"))) if item],
         "concepts": as_list(payload.get("concepts")),
         "reference_digest_notes": as_list(payload.get("reference_digest_notes")),
         "summary_fallback_enabled": bool(payload.get("summary_fallback_enabled")),
@@ -2558,6 +3955,8 @@ def preface_slot_key(title: str, index: int) -> str:
         return "research_direction"
     if any(token in text for token in ["position", "地位", "位置", "role", "contribution", "贡献"]):
         return "paper_position"
+    if any(token in text for token in ["innovation", "创新", "breakthrough", "problem", "问题", "foundation", "奠定"]):
+        return "core_innovation"
     if any(token in text for token in ["path", "路线", "route", "guide", "目标", "goal", "阅读"]):
         return "reading_path"
     return PREFACE_SLOT_DEFINITIONS[min(index, len(PREFACE_SLOT_DEFINITIONS) - 1)][0]
@@ -2577,10 +3976,198 @@ def preface_slot_fallback(slot_key: str, payload: dict[str, Any], concept_view: 
         return "本文属于一个围绕问题建模、方法结构和实验验证展开的具体研究方向。"
     if slot_key == "paper_position":
         return clean_text(payload.get("preface_goal")) or "本文的价值需要结合问题设定、方法取舍和后续引用关系来判断。"
+    if slot_key == "core_innovation":
+        return "本文的核心创新应围绕它解决的问题、提出的关键机制，以及它为后续研究打开的路径来理解。"
     path_items = [clean_text(item) for item in as_list(payload.get("preface_reading_path")) if clean_text(item)]
     if path_items:
         return "建议按以下路径阅读：" + " → ".join(path_items) + "。"
     return "建议先看问题设定，再看方法结构，最后回到实验结果和局限。"
+
+
+def topic_context_semantic(topic_context: dict[str, Any]) -> dict[str, Any]:
+    context = topic_context.get("context") if isinstance(topic_context.get("context"), dict) else {}
+    semantic = context.get("semantic") if isinstance(context.get("semantic"), dict) else {}
+    if semantic:
+        return semantic
+    if any(key in context for key in ["topic", "summary", "taxonomy", "timeline_events", "source_papers"]):
+        return context
+    return {}
+
+
+def topic_context_digest(topic_context: dict[str, Any]) -> dict[str, Any]:
+    context = topic_context.get("context") if isinstance(topic_context.get("context"), dict) else {}
+    digest = context.get("digest") if isinstance(context.get("digest"), dict) else {}
+    if digest:
+        return digest
+    return {}
+
+
+def parse_year_value(value: Any) -> int | None:
+    if isinstance(value, (int, float)):
+        year = int(value)
+        return year if 1000 <= year <= 3000 else None
+    text = clean_text(value)
+    if not text:
+        return None
+    match = re.search(r"(?:19|20)\d{2}", text)
+    if not match:
+        return None
+    year = int(match.group(0))
+    return year if 1000 <= year <= 3000 else None
+
+
+def source_paper_year(paper: dict[str, Any]) -> int | None:
+    for key in ["year", "publication_year", "publicationYear", "date", "published_at", "publishedAt"]:
+        year = parse_year_value(paper.get(key))
+        if year is not None:
+            return year
+    return None
+
+
+def source_paper_ref(paper: dict[str, Any]) -> str:
+    return first_text(paper.get("paper_ref"), paper.get("paperRef"), paper.get("literature_item_id"), paper.get("literatureItemId"), paper.get("id"))
+
+
+def source_paper_item_key(paper: dict[str, Any]) -> str:
+    explicit = first_text(paper.get("item_key"), paper.get("itemKey"), paper.get("zotero_item_key"), paper.get("zoteroItemKey"))
+    if explicit:
+        return explicit
+    paper_ref = source_paper_ref(paper)
+    if ":" in paper_ref:
+        return paper_ref.rsplit(":", 1)[-1]
+    return ""
+
+
+def current_paper_matches_source_paper(paper: dict[str, Any], target: dict[str, str]) -> bool:
+    paper_ref = source_paper_ref(paper)
+    item_key = source_paper_item_key(paper)
+    return bool(
+        (paper_ref and paper_ref == clean_text(target.get("paper_ref")))
+        or (item_key and item_key == clean_text(target.get("item_key")))
+    )
+
+
+def timeline_event_year(event: dict[str, Any]) -> int | None:
+    for key in ["year", "date", "start_year", "startYear", "phase_year", "phaseYear"]:
+        year = parse_year_value(event.get(key))
+        if year is not None:
+            return year
+    return None
+
+
+def topic_timeline_summary(semantic: dict[str, Any]) -> str:
+    timeline = semantic.get("timeline_events") if isinstance(semantic.get("timeline_events"), dict) else {}
+    summary = timeline.get("summary") if isinstance(timeline.get("summary"), dict) else {}
+    return first_text(summary.get("text"), summary.get("analysis"), summary.get("overview"))
+
+
+def topic_title_from_context(topic_context: dict[str, Any], semantic: dict[str, Any], digest: dict[str, Any]) -> str:
+    topic = semantic.get("topic") if isinstance(semantic.get("topic"), dict) else {}
+    return first_text(
+        topic.get("title"),
+        digest.get("title"),
+        topic_context.get("title"),
+        topic_context.get("topic_id"),
+    )
+
+
+def digest_modal_from_digest_item(digest_item: dict[str, Any], title: str, paper_ref: str) -> dict[str, Any]:
+    digest = digest_item.get("digest") if isinstance(digest_item.get("digest"), dict) else {}
+    digest_result = digest.get("result") if isinstance(digest.get("result"), dict) else {}
+    digest_markdown = first_text(digest_result.get("digest_markdown") if isinstance(digest_result, dict) else "", digest.get("markdown"))
+    digest_available = clean_text(digest.get("status")) == "available" and bool(clean_text(digest_markdown))
+    modal_result = digest_result if isinstance(digest_result, dict) and digest_result else {
+        "ok": digest_available,
+        "status": "available" if digest_available else clean_text(digest.get("status") or "missing"),
+        "paper_ref": paper_ref,
+        "digest_markdown": digest_markdown,
+        "representative_image": digest.get("representative_image") if isinstance(digest.get("representative_image"), dict) else {"status": "unavailable"},
+        "source_changed": False,
+        "diagnostics": [],
+    }
+    return {
+        "available": digest_available,
+        "title": clean_text(digest_item.get("title") or title) if digest_available else "",
+        "markdown": clean_text(digest_markdown) if digest_available else "",
+        "payload_type": clean_text(digest.get("payload_type")) if digest_available else "",
+        "result": modal_result if digest_available else {},
+    }
+
+
+def build_preface_topic_timeline(topic_context: dict[str, Any]) -> dict[str, Any]:
+    topic_id = clean_text(topic_context.get("topic_id"))
+    semantic = topic_context_semantic(topic_context)
+    if not topic_id or not semantic:
+        return {
+            "schema_version": "literature-deep-reading.preface-topic-timeline.v0",
+            "available": False,
+            "topic_id": topic_id,
+            "items": [],
+            "diagnostics": [],
+        }
+    digest = topic_context_digest(topic_context)
+    digest_by_paper = digest_items_by_paper_ref()
+    target = infer_target_refs(source_manifest())
+    items: list[dict[str, Any]] = []
+    for index, paper in enumerate(as_list(semantic.get("source_papers")), start=1):
+        if not isinstance(paper, dict):
+            continue
+        year = source_paper_year(paper)
+        if year is None:
+            continue
+        paper_ref = source_paper_ref(paper)
+        current = current_paper_matches_source_paper(paper, target)
+        title = first_text(paper.get("title"), paper_ref, f"Paper {index}")
+        digest_item = digest_by_paper.get(paper_ref, {}) if paper_ref else {}
+        digest_reference_id = clean_text(digest_item.get("reference_id")) if isinstance(digest_item, dict) else ""
+        items.append(
+            {
+                "key": f"paper:{paper_ref or index}",
+                "kind": "paper",
+                "year": year,
+                "label": clean_text(paper.get("label")) or f"P{index}",
+                "title": title,
+                "paper_ref": paper_ref,
+                "item_key": source_paper_item_key(paper),
+                "is_current_paper": current,
+                "pin_scale": 1.5 if current else 1,
+                "tone": "current" if current else clean_text(paper.get("tone")) or "paper",
+                "digest_reference_id": digest_reference_id,
+                "digest_modal": digest_modal_from_digest_item(digest_item, title, paper_ref) if digest_reference_id else {"available": False},
+            }
+        )
+    timeline = semantic.get("timeline_events") if isinstance(semantic.get("timeline_events"), dict) else {}
+    for index, event in enumerate(as_list(timeline.get("events")), start=1):
+        if not isinstance(event, dict):
+            continue
+        year = timeline_event_year(event)
+        if year is None:
+            continue
+        items.append(
+            {
+                "key": f"event:{first_text(event.get('id'), event.get('label'), index)}",
+                "kind": "event",
+                "year": year,
+                "label": clean_text(event.get("label")) or str(year),
+                "title": first_text(event.get("title"), event.get("label"), f"Milestone {index}"),
+                "description": first_text(event.get("description"), event.get("analysis"), event.get("summary")),
+                "source_paper_refs": [clean_text(item) for item in as_list(event.get("source_paper_refs") or event.get("sourcePaperRefs")) if clean_text(item)],
+                "pin_scale": 1,
+                "tone": clean_text(event.get("tone")) or "milestone",
+            }
+        )
+    items = sorted(items, key=lambda item: (safe_int(item.get("year"), 999999), clean_text(item.get("kind")), clean_text(item.get("key"))))
+    return {
+        "schema_version": "literature-deep-reading.preface-topic-timeline.v0",
+        "available": bool(items),
+        "topic_id": topic_id,
+        "topic_title": topic_title_from_context(topic_context, semantic, digest),
+        "summary": topic_timeline_summary(semantic),
+        "target": target,
+        "items": items,
+        "current_paper_key": next((clean_text(item.get("key")) for item in items if item.get("is_current_paper")), ""),
+        "diagnostics": [] if items else [{"severity": "info", "code": "topic_timeline_no_dated_items"}],
+    }
 
 
 def build_stable_preface_cards(payload: dict[str, Any], concept_view: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
@@ -2622,6 +4209,8 @@ def build_preface_view(payload: dict[str, Any], concept_view: dict[str, Any]) ->
             }
         )
     cards, extra_cards = build_stable_preface_cards(payload, concept_view)
+    topic_context = read_view("topic-context.json", {})
+    candidate_digests = read_view("topic-candidate-digests-view.json", {})
     return {
         "schema_version": "literature-deep-reading.preface-view.v0",
         "source": "agent_enrichment",
@@ -2634,6 +4223,9 @@ def build_preface_view(payload: dict[str, Any], concept_view: dict[str, Any]) ->
         "concepts": preface_concepts,
         "warnings": as_list(payload.get("preface_warnings")),
         "questions": as_list(payload.get("preface_questions")),
+        "topic_context": topic_context,
+        "candidate_digests": candidate_digests,
+        "topic_timeline": build_preface_topic_timeline(topic_context if isinstance(topic_context, dict) else {}),
     }
 
 
@@ -2688,22 +4280,6 @@ def build_section_insights_view(payload: dict[str, Any], concept_view: dict[str,
     }
 
 
-def references_by_id() -> dict[str, dict[str, Any]]:
-    bindings = {
-        clean_text(item.get("reference_id")): item
-        for item in as_list(read_view("reference-bindings-view.json", {}).get("items"))
-        if isinstance(item, dict) and clean_text(item.get("reference_id"))
-    }
-    references: dict[str, dict[str, Any]] = {}
-    for index, entry in enumerate(as_list(read_view("references-seed-view.json", {}).get("references")), start=1):
-        normalized = normalize_reference(entry, index)
-        binding = bindings.get(normalized["reference_id"], {})
-        references[normalized["reference_id"]] = {**normalized, **binding, "seed": entry}
-    for reference_id, binding in bindings.items():
-        references.setdefault(reference_id, binding)
-    return references
-
-
 def digest_items_by_reference_id() -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for item in as_list(read_view("reference-digests-view.json", {}).get("items")):
@@ -2712,55 +4288,127 @@ def digest_items_by_reference_id() -> dict[str, dict[str, Any]]:
     return result
 
 
+def digest_items_by_paper_ref() -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for item in as_list(read_view("reference-digests-view.json", {}).get("items")):
+        if isinstance(item, dict) and clean_text(item.get("bound_paper_ref")):
+            result[clean_text(item.get("bound_paper_ref"))] = item
+    return result
+
+
+def raw_reference_view_item(entry: Any, index: int) -> dict[str, Any]:
+    if isinstance(entry, dict):
+        raw_markdown = clean_text(entry.get("raw_markdown") or entry.get("source_markdown") or entry.get("raw"))
+        reference_index = safe_int(entry.get("reference_index") or entry.get("index"), index)
+        reference_id = clean_text(entry.get("reference_id") or entry.get("id") or f"ref-{reference_index}")
+    else:
+        raw_markdown = clean_text(entry)
+        reference_index = index
+        reference_id = f"ref-{index}"
+    return {
+        "reference_id": reference_id,
+        "reference_index": reference_index,
+        "raw_markdown": raw_markdown,
+        "binding_status": "raw",
+        "digest_modal": {"available": False},
+    }
+
+
+def reference_digest_note(notes: dict[str, dict[str, Any]], reference_id: str) -> dict[str, str]:
+    note = notes.get(reference_id, {})
+    return {
+        "role_in_current_paper": clean_text(note.get("role_in_current_paper")) if isinstance(note, dict) else "",
+        "why_open": clean_text(note.get("why_open")) if isinstance(note, dict) else "",
+        "note": clean_text(note.get("note")) if isinstance(note, dict) else "",
+    }
+
+
+def item_reference_view_item(reference: dict[str, Any], notes: dict[str, dict[str, Any]], digest_by_id: dict[str, dict[str, Any]], digest_by_paper: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    reference_id = clean_text(reference.get("reference_id"))
+    bound_paper_ref = clean_text(reference.get("bound_paper_ref"))
+    digest_item = digest_by_id.get(reference_id) or digest_by_paper.get(bound_paper_ref) or {}
+    digest = digest_item.get("digest") if isinstance(digest_item.get("digest"), dict) else {}
+    digest_result = digest.get("result") if isinstance(digest.get("result"), dict) else {}
+    digest_markdown = first_text(digest_result.get("digest_markdown") if isinstance(digest_result, dict) else "", digest.get("markdown"))
+    digest_available = (
+        clean_text(reference.get("binding_status")) == "library"
+        and clean_text(digest.get("status")) == "available"
+        and bool(clean_text(digest_markdown))
+    )
+    modal_result = digest_result if isinstance(digest_result, dict) and digest_result else {
+        "ok": digest_available,
+        "status": "available" if digest_available else clean_text(digest.get("status") or "missing"),
+        "paper_ref": bound_paper_ref,
+        "digest_markdown": digest_markdown,
+        "representative_image": digest.get("representative_image") if isinstance(digest.get("representative_image"), dict) else {"status": "unavailable"},
+        "source_changed": False,
+        "diagnostics": [],
+    }
+    return {
+        "reference_id": reference_id,
+        "reference_index": safe_int(reference.get("reference_index"), 0),
+        "title": clean_text(reference.get("title")),
+        "authors": as_list(reference.get("authors")),
+        "year": clean_text(reference.get("year")),
+        "raw": reference.get("raw") or {},
+        "binding_status": clean_text(reference.get("binding_status") or "unresolved"),
+        "bound_paper_ref": bound_paper_ref,
+        "zotero_item_key": clean_text(reference.get("zotero_item_key")),
+        "target_binding": clean_text(reference.get("target_binding")),
+        "match_confidence": reference.get("match_confidence"),
+        "reference_index_status": clean_text(reference.get("reference_index_status")),
+        "digest_note": reference_digest_note(notes, reference_id),
+        "digest_modal": {
+            "available": digest_available,
+            "title": clean_text(digest_item.get("title") or reference.get("title")) if digest_available else "",
+            "markdown": clean_text(digest_markdown) if digest_available else "",
+            "payload_type": clean_text(digest.get("payload_type")) if digest_available else "",
+            "result": modal_result if digest_available else {},
+        },
+    }
+
+
 def build_references_view(payload: dict[str, Any]) -> dict[str, Any]:
     seed = read_view("references-seed-view.json", {})
+    bindings_view = read_view("reference-bindings-view.json", {})
     notes = {
         clean_text(item.get("reference_id")): item
         for item in as_list(payload.get("reference_digest_notes"))
         if isinstance(item, dict) and clean_text(item.get("reference_id"))
     }
-    digest_items = digest_items_by_reference_id()
-    items: list[dict[str, Any]] = []
-    for reference in sorted(references_by_id().values(), key=lambda item: safe_int(item.get("reference_index"), 999999)):
-        reference_id = clean_text(reference.get("reference_id"))
-        digest_item = digest_items.get(reference_id, {})
-        digest = digest_item.get("digest") if isinstance(digest_item.get("digest"), dict) else {}
-        digest_available = (
-            clean_text(reference.get("binding_status")) == "library"
-            and clean_text(digest.get("status")) == "available"
-            and bool(clean_text(digest.get("markdown")))
-        )
-        note = notes.get(reference_id, {})
-        items.append(
-            {
-                "reference_id": reference_id,
-                "reference_index": safe_int(reference.get("reference_index"), 0),
-                "title": clean_text(reference.get("title")),
-                "authors": as_list(reference.get("authors")),
-                "year": clean_text(reference.get("year")),
-                "raw": reference.get("raw") or reference.get("seed") or {},
-                "binding_status": clean_text(reference.get("binding_status") or "unresolved"),
-                "bound_paper_ref": clean_text(reference.get("bound_paper_ref")),
-                "zotero_item_key": clean_text(reference.get("zotero_item_key")),
-                "digest_note": {
-                    "role_in_current_paper": clean_text(note.get("role_in_current_paper")) if isinstance(note, dict) else "",
-                    "why_open": clean_text(note.get("why_open")) if isinstance(note, dict) else "",
-                    "note": clean_text(note.get("note")) if isinstance(note, dict) else "",
-                },
-                "digest_modal": {
-                    "available": digest_available,
-                    "title": clean_text(digest_item.get("title") or reference.get("title")) if digest_available else "",
-                    "markdown": clean_text(digest.get("markdown")) if digest_available else "",
-                    "payload_type": clean_text(digest.get("payload_type")) if digest_available else "",
-                },
-            }
-        )
+    digest_by_id = digest_items_by_reference_id()
+    digest_by_paper = digest_items_by_paper_ref()
+    role_overrides = section_role_overrides(payload)
+    raw_markdown, role_raw_items = markdown_reference_items_from_blocks(
+        apply_section_roles_to_blocks(reading_blocks(), role_overrides)
+    )
+    seed_raw_items = role_raw_items if role_overrides else role_raw_items or as_list(seed.get("raw_items")) or as_list(seed.get("references"))
+    raw_items = [raw_reference_view_item(entry, index) for index, entry in enumerate(seed_raw_items, start=1)]
+    item_items = [
+        item_reference_view_item(reference, notes, digest_by_id, digest_by_paper)
+        for reference in sorted(as_list(bindings_view.get("item_references")), key=lambda item: safe_int(item.get("reference_index"), 999999))
+        if isinstance(reference, dict)
+    ]
+    compat_items = item_items if item_items else raw_items
+    default_view = "item" if item_items else "raw"
     return {
         "schema_version": "literature-deep-reading.references-view.v0",
-        "source": "references_seed_bindings_and_digests",
+        "source": "reference_index_and_raw_references",
         "references_source": seed.get("source") or "none",
-        "reference_count": len(items),
-        "items": items,
+        "default_view": default_view,
+        "reference_count": len(compat_items),
+        "item_view": {
+            "source": "reference_index",
+            "reference_count": len(item_items),
+            "items": item_items,
+        },
+        "raw_view": {
+            "source": seed.get("source") or "none",
+            "reference_count": len(raw_items),
+            "raw_markdown": raw_markdown if role_overrides else raw_markdown or clean_text(seed.get("raw_markdown")),
+            "items": raw_items,
+        },
+        "items": compat_items,
     }
 
 
@@ -2943,9 +4591,10 @@ def block_translation_source(block: dict[str, Any]) -> str:
     return clean_text(block.get("source_markdown"))
 
 
-def translatable_blocks_for_batches() -> list[dict[str, Any]]:
+def translatable_blocks_for_batches(section_roles: dict[str, str] | None = None) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    for block in reading_blocks():
+    blocks = apply_section_roles_to_blocks(reading_blocks(), section_roles or section_role_overrides())
+    for block in blocks:
         if not bool(block.get("translate")):
             continue
         role = clean_text(block.get("role")) or "main"
@@ -3027,9 +4676,148 @@ def make_translation_batch(
     }
 
 
-def prepare_translation_batches(concepts_view: dict[str, Any], insights_view: dict[str, Any]) -> dict[str, Any]:
+def build_translation_view_from_translator_alignment(
+    alignment: dict[str, Any],
+    diagnostics: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not valid_translator_alignment(alignment, target_language_from_db()):
+        return None
     target_language = target_language_from_db()
-    blocks = translatable_blocks_for_batches()
+    has_translations = alignment_has_translations(alignment)
+    alignment_by_id = {
+        clean_text(block.get("b")): block
+        for block in as_list(alignment.get("blocks"))
+        if isinstance(block, dict) and clean_text(block.get("b"))
+    }
+    if not has_translations:
+        metadata = alignment.get("metadata") if isinstance(alignment.get("metadata"), dict) else {}
+        source_only = (
+            clean_text(alignment.get("status")) == "source_only"
+            or clean_text(metadata.get("source")) == "literature-deep-reading.source_only_alignment"
+            or (
+                bool(alignment_by_id)
+                and all(
+                    any(clean_text(pair.get("status")) == "source_only" for pair in as_list(block.get("pairs")) if isinstance(pair, dict))
+                    for block in alignment_by_id.values()
+                )
+            )
+        )
+        if not source_only:
+            return None
+        items: list[dict[str, Any]] = []
+        for block in reading_blocks():
+            block_id = clean_text(block.get("block_id"))
+            if not bool(block.get("translate")):
+                continue
+            items.append(
+                {
+                    "block_id": block_id,
+                    "section_anchor": clean_text(block.get("section_anchor")),
+                    "kind": clean_text(block.get("kind")),
+                    "source_markdown": clean_text(block.get("source_markdown")),
+                    "translated_markdown": "",
+                    "status": "source_only",
+                    "quality_notes": [],
+                }
+            )
+        diagnostics.append({"severity": "info", "code": "source_only_alignment_used"})
+        return {
+            "schema_version": "literature-deep-reading.translation-view.v0",
+            "source": "source_only_alignment",
+            "target_language": target_language,
+            "items": items,
+            "translated_count": 0,
+            "carried_over_count": 0,
+        }
+    items: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for block in reading_blocks():
+        block_id = clean_text(block.get("block_id"))
+        if not bool(block.get("translate")):
+            continue
+        kind = clean_text(block.get("kind"))
+        alignment_block = alignment_by_id.get(block_id)
+        if kind in FORMULA_BLOCK_KINDS:
+            items.append(
+                {
+                    "block_id": block_id,
+                    "section_anchor": clean_text(block.get("section_anchor")),
+                    "kind": kind,
+                    "source_markdown": clean_text(block.get("source_markdown")),
+                    "translated_markdown": clean_text(block.get("source_markdown")),
+                    "status": "carried_over",
+                    "quality_notes": [],
+                }
+            )
+            continue
+        translated = (
+            alignment_block_markdown(alignment_block, "translated_markdown", "tgt")
+            if isinstance(alignment_block, dict)
+            else ""
+        )
+        if not translated:
+            missing.append(block_id)
+            continue
+        if kind == "table":
+            table_error = table_translation_structure_error(translated)
+            if table_error:
+                diagnostics.append({"severity": "warning", "code": "translator_alignment_table_structure", "block_id": block_id, "message": table_error})
+            else:
+                diagnostics.append({"severity": "info", "code": "table_translation_structure_not_deep_verified", "block_id": block_id})
+        if kind == "image":
+            image_error = image_translation_structure_error(block, translated)
+            if image_error:
+                diagnostics.append({"severity": "warning", "code": "translator_alignment_image_structure", "block_id": block_id, "message": image_error})
+        items.append(
+            {
+                "block_id": block_id,
+                "section_anchor": clean_text(block.get("section_anchor")),
+                "kind": kind,
+                "source_markdown": clean_text(block.get("source_markdown")),
+                "translated_markdown": translated,
+                "status": "available",
+                "quality_notes": [],
+            }
+        )
+    if missing:
+        diagnostics.append({"severity": "warning", "code": "translator_alignment_incomplete", "missing_block_ids": missing})
+        return None
+    return {
+        "schema_version": "literature-deep-reading.translation-view.v0",
+        "source": "translator_alignment",
+        "target_language": target_language,
+        "items": items,
+        "translated_count": sum(1 for item in items if item.get("status") == "available"),
+        "carried_over_count": sum(1 for item in items if item.get("status") == "carried_over"),
+    }
+
+
+def empty_translation_batches_view(source: str = "translator_alignment") -> dict[str, Any]:
+    if TRANSLATION_BATCHES_DIR.exists():
+        shutil.rmtree(TRANSLATION_BATCHES_DIR)
+    TRANSLATION_BATCHES_DIR.mkdir(parents=True, exist_ok=True)
+    view = {
+        "schema_version": "literature-deep-reading.translation-batches-view.v0",
+        "source": source,
+        "target_language": target_language_from_db(),
+        "batch_dir": normalize_posix(TRANSLATION_BATCHES_DIR),
+        "batch_count": 0,
+        "required_translation_count": 0,
+        "required_block_ids": [],
+        "limits": {
+            "max_words": TRANSLATION_BATCH_MAX_WORDS,
+            "max_chars": TRANSLATION_BATCH_MAX_CHARS,
+            "max_blocks": TRANSLATION_BATCH_MAX_BLOCKS,
+        },
+        "batches": [],
+    }
+    write_json(VIEWS_DIR / "translation-batches-view.json", view)
+    return view
+
+
+def prepare_translation_batches(concepts_view: dict[str, Any], insights_view: dict[str, Any], section_roles: dict[str, str] | None = None) -> dict[str, Any]:
+    target_language = target_language_from_db()
+    blocks = translatable_blocks_for_batches(section_roles)
     if TRANSLATION_BATCHES_DIR.exists():
         shutil.rmtree(TRANSLATION_BATCHES_DIR)
     TRANSLATION_BATCHES_DIR.mkdir(parents=True, exist_ok=True)
@@ -3124,19 +4912,30 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
         raise ValueError("; ".join(errors))
     payload = normalized_reading_enrichment(payload_raw)
     diagnostics: list[dict[str, Any]] = []
+    section_roles = build_section_roles_view(payload)
+    effective_section_roles = section_role_overrides(section_roles)
     concept_overlay = build_concept_overlay_view(payload, diagnostics)
     preface = build_preface_view(payload, concept_overlay)
     section_insights = build_section_insights_view(payload, concept_overlay)
     references = build_references_view(payload)
     summary = build_summary_view(payload, diagnostics)
     extensions = build_extensions_view(payload)
-    translation_batches = prepare_translation_batches(concept_overlay, section_insights)
+    translator_translation = build_translation_view_from_translator_alignment(
+        read_view("translator-alignment-view.json", {}),
+        diagnostics,
+    )
+    if translator_translation:
+        write_json(VIEWS_DIR / "translation-view.json", translator_translation)
+        translation_batches = empty_translation_batches_view(clean_text(translator_translation.get("source")) or "translator_alignment")
+    else:
+        translation_batches = prepare_translation_batches(concept_overlay, section_insights, effective_section_roles)
     diagnostics_view = {
         "schema_version": "literature-deep-reading.diagnostics-enrichment.v0",
         "diagnostics": diagnostics,
     }
     view_map = {
         "preface-view": preface,
+        "section-roles-view": section_roles,
         "section-insights-view": section_insights,
         "concept-overlay-view": concept_overlay,
         "references-view": references,
@@ -3145,8 +4944,20 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
         "translation-batches-view": translation_batches,
         "diagnostics-enrichment": diagnostics_view,
     }
+    if translator_translation:
+        view_map["translation-view"] = translator_translation
     for filename, view in view_map.items():
         write_json(VIEWS_DIR / f"{filename}.json", view)
+    write_stage30_translation_worklist(translation_batches, diagnostics)
+    if translator_translation:
+        write_json(
+            VIEWS_DIR / "diagnostics-translation.json",
+            {
+                "schema_version": "literature-deep-reading.diagnostics-translation.v0",
+                "diagnostics": diagnostics,
+            },
+        )
+        write_stage40_review_packet(translator_translation, diagnostics)
     persist_stage20_db(payload_path, view_map, diagnostics)
     result = {
         "kind": "literature_deep_reading_enriched",
@@ -3155,18 +4966,22 @@ def submit_reading_enrichment(payload_path: Path) -> dict[str, Any]:
         "views": {
             "preface": normalize_posix(VIEWS_DIR / "preface-view.json"),
             "section_insights": normalize_posix(VIEWS_DIR / "section-insights-view.json"),
+            "section_roles": normalize_posix(VIEWS_DIR / "section-roles-view.json"),
             "concept_overlay": normalize_posix(VIEWS_DIR / "concept-overlay-view.json"),
             "references": normalize_posix(VIEWS_DIR / "references-view.json"),
             "summary": normalize_posix(VIEWS_DIR / "summary-view.json"),
             "extensions": normalize_posix(VIEWS_DIR / "extensions-view.json"),
             "translation_batches": normalize_posix(VIEWS_DIR / "translation-batches-view.json"),
+            "stage_30_translation_worklist": normalize_posix(STAGE30_TRANSLATION_WORKLIST_PATH),
+            **({"translation": normalize_posix(VIEWS_DIR / "translation-view.json")} if translator_translation else {}),
+            **({"stage_40_review_packet": normalize_posix(STAGE40_REVIEW_PACKET_PATH)} if translator_translation else {}),
         },
         "translation_batch_count": safe_int(translation_batches.get("batch_count"), 0),
         "required_translation_count": safe_int(translation_batches.get("required_translation_count"), 0),
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-enrichment.json"),
         "final_html_available": False,
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics],
-        "error": None,
+        "error": {},
     }
     write_json(RESULT_PATH, result)
     return result
@@ -3186,6 +5001,174 @@ def target_language_from_db() -> str:
         return clean_text(row[0]) if row and clean_text(row[0]) else "zh-CN"
     finally:
         conn.close()
+
+
+DEEP_READING_LABELS: dict[str, dict[str, str]] = {
+    "en": {
+        "preface": "Reading Guide",
+        "summary": "Summary",
+        "references": "References",
+        "citation_graph": "Citation Graph",
+        "extensions": "Extensions",
+        "current_position": "Current Position",
+        "reading_goal": "Reading Goal",
+        "related_concepts": "Related Concepts",
+        "misread_warnings": "Misreading Warnings",
+        "possible_questions": "Questions to Consider",
+        "citation_clues": "Citation Clues",
+        "reading_guide": "Reading Guide",
+        "reading_path": "Reading Path",
+        "reading_questions": "Questions to Keep in Mind",
+        "topic_timeline": "Topic Timeline",
+        "timeline_papers": "Papers",
+        "timeline_milestones": "Milestones",
+        "timeline_current_paper": "Current Paper",
+        "timeline_empty": "No dated topic papers",
+        "item": "Item",
+        "raw": "Raw",
+        "references_view": "References view",
+        "paper_count_unit": "papers",
+        "reference_index": "reference index",
+        "markdown_references": "markdown references",
+        "raw_references": "raw",
+        "library_item": "Library item",
+        "no_library_binding": "No library binding",
+        "paper_digest": "Paper digest",
+        "digest_unavailable": "Digest is unavailable.",
+        "close": "Close",
+        "representative_image": "Representative image",
+        "viewer_warning": "Open this HTML in a browser for the full interactive experience.",
+        "noscript_warning": "Static reading mode is active. Open this HTML in a browser for the full interactive experience.",
+        "graph_fallback_note": "The citation graph renderer is unavailable. Open this HTML in a system browser for the full interactive view.",
+        "graph_no_layout": "No graph layout coordinates are available.",
+        "static_viewer_warning": "Static reading mode is active.",
+        "concepts": "Concepts",
+        "graph_direction": "Citation Direction",
+        "graph_relation": "Citation relation",
+        "graph_importance": "Citation Importance",
+        "graph_node_size": "Node size = inbound citations",
+        "graph_current_paper": "Current Paper",
+        "graph_scope": "Current paper 2-hop citation neighborhood",
+    },
+    "zh": {
+        "preface": "阅读前导读",
+        "summary": "总结",
+        "references": "参考文献",
+        "citation_graph": "引用图谱",
+        "extensions": "扩展阅读",
+        "current_position": "当前位置",
+        "reading_goal": "阅读目标",
+        "related_concepts": "相关概念",
+        "misread_warnings": "误读提醒",
+        "possible_questions": "可能的问题",
+        "citation_clues": "引用线索",
+        "reading_guide": "阅读指引",
+        "reading_path": "阅读路线",
+        "reading_questions": "带着这些问题阅读",
+        "topic_timeline": "Topic Timeline",
+        "timeline_papers": "论文",
+        "timeline_milestones": "里程碑",
+        "timeline_current_paper": "当前论文",
+        "item": "Item",
+        "raw": "Raw",
+        "paper_count_unit": "篇",
+        "reference_index": "reference index",
+        "markdown_references": "markdown references",
+        "raw_references": "raw",
+        "library_item": "Library item",
+        "no_library_binding": "No library binding",
+        "viewer_warning": "请用浏览器打开以获得完整的交互体验。",
+        "noscript_warning": "当前处于静态阅读模式。请用浏览器打开以获得完整的交互体验。",
+        "graph_fallback_note": "引用图渲染器不可用。建议使用系统浏览器打开此 HTML。",
+        "graph_no_layout": "当前没有可用的图布局坐标。",
+        "static_viewer_warning": "当前处于静态阅读模式。",
+        "concepts": "Concepts",
+        "graph_direction": "引用方向",
+        "graph_relation": "引用关系",
+        "graph_importance": "引用重要性",
+        "graph_node_size": "节点大小 = 入站引用数",
+        "graph_current_paper": "当前论文",
+        "graph_scope": "当前论文 2 跳引用邻域",
+    },
+    "ja": {
+        "preface": "読解ガイド",
+        "summary": "要約",
+        "references": "参考文献",
+        "citation_graph": "引用グラフ",
+        "extensions": "発展読解",
+        "current_position": "現在位置",
+        "reading_goal": "読解目標",
+        "related_concepts": "関連概念",
+        "misread_warnings": "誤読の注意",
+        "possible_questions": "考えるべき問い",
+        "citation_clues": "引用の手がかり",
+        "reading_guide": "読解指針",
+        "reading_path": "読解ルート",
+        "reading_questions": "意識して読む問い",
+        "timeline_papers": "論文",
+        "timeline_milestones": "マイルストーン",
+        "timeline_current_paper": "現在の論文",
+        "paper_count_unit": "件",
+        "viewer_warning": "完全なインタラクティブ体験にはブラウザでこの HTML を開いてください。",
+        "noscript_warning": "静的読解モードです。完全なインタラクティブ体験にはブラウザでこの HTML を開いてください。",
+        "graph_fallback_note": "引用グラフのレンダラーを利用できません。完全な対話表示にはシステムブラウザでこの HTML を開いてください。",
+        "graph_no_layout": "利用可能なグラフ配置座標がありません。",
+        "static_viewer_warning": "静的読解モードです。",
+        "concepts": "概念",
+        "graph_direction": "引用方向",
+        "graph_relation": "引用関係",
+        "graph_importance": "引用の重要度",
+        "graph_node_size": "ノードサイズ = 入次数",
+        "graph_current_paper": "現在の論文",
+        "graph_scope": "現在の論文の2ホップ引用近傍",
+    },
+    "fr": {
+        "preface": "Guide de lecture",
+        "summary": "Résumé",
+        "references": "Références",
+        "citation_graph": "Graphe de citations",
+        "extensions": "Prolongements",
+        "current_position": "Position actuelle",
+        "reading_goal": "Objectif de lecture",
+        "related_concepts": "Concepts liés",
+        "misread_warnings": "Points de vigilance",
+        "possible_questions": "Questions à garder en tête",
+        "citation_clues": "Indices de citation",
+        "reading_guide": "Guide de lecture",
+        "reading_path": "Parcours de lecture",
+        "reading_questions": "Questions pour la lecture",
+        "timeline_papers": "Articles",
+        "timeline_milestones": "Jalons",
+        "timeline_current_paper": "Article actuel",
+        "paper_count_unit": "articles",
+        "viewer_warning": "Ouvrez ce fichier HTML dans un navigateur pour profiter de l'expérience interactive complète.",
+        "noscript_warning": "Le mode de lecture statique est actif. Ouvrez ce fichier HTML dans un navigateur pour profiter de l'expérience interactive complète.",
+        "graph_fallback_note": "Le rendu du graphe de citations est indisponible. Ouvrez ce fichier HTML dans un navigateur système pour l'interaction complète.",
+        "graph_no_layout": "Aucune coordonnée de graphe n'est disponible.",
+        "static_viewer_warning": "Mode de lecture statique actif.",
+        "concepts": "Concepts",
+        "graph_direction": "Sens des citations",
+        "graph_relation": "Relation de citation",
+        "graph_importance": "Importance des citations",
+        "graph_node_size": "Taille du nœud = citations entrantes",
+        "graph_current_paper": "Article actuel",
+        "graph_scope": "Voisinage de citations à 2 sauts de l'article actuel",
+    },
+}
+
+
+def deep_reading_labels(target_language: str | None = None) -> dict[str, str]:
+    language = clean_text(target_language) or target_language_from_db()
+    language_key = language.split("-", 1)[0].lower() if language else "zh"
+    return {**DEEP_READING_LABELS["en"], **DEEP_READING_LABELS.get(language_key, {})}
+
+
+def labels_from_sections(sections_view: dict[str, Any]) -> dict[str, str]:
+    labels = sections_view.get("labels") if isinstance(sections_view.get("labels"), dict) else {}
+    language = clean_text((sections_view.get("paper") or {}).get("target_language")) if isinstance(sections_view.get("paper"), dict) else ""
+    merged = deep_reading_labels(language)
+    merged.update({str(key): clean_text(value) for key, value in labels.items() if clean_text(value)})
+    return merged
 
 
 def quality_notes(value: Any) -> list[str]:
@@ -3532,6 +5515,7 @@ def submit_block_translations(payload_path: Path) -> dict[str, Any]:
     }
     write_json(VIEWS_DIR / "translation-view.json", translation_view)
     write_json(VIEWS_DIR / "diagnostics-translation.json", diagnostics_view)
+    write_stage40_review_packet(translation_view, diagnostics)
     persist_stage30_db(payload_path, translation_view, diagnostics)
     result = {
         "kind": "literature_deep_reading_translated",
@@ -3539,11 +5523,12 @@ def submit_block_translations(payload_path: Path) -> dict[str, Any]:
         "db_path": normalize_posix(DB_PATH),
         "views": {
             "translation": normalize_posix(VIEWS_DIR / "translation-view.json"),
+            "stage_40_review_packet": normalize_posix(STAGE40_REVIEW_PACKET_PATH),
         },
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-translation.json"),
         "final_html_available": False,
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics],
-        "error": None,
+        "error": {},
     }
     write_json(RESULT_PATH, result)
     return result
@@ -3561,6 +5546,12 @@ def validate_final_review_payload(payload: Any) -> list[str]:
         errors.append(f"overall_assessment must be one of {sorted(FINAL_REVIEW_ASSESSMENTS)}")
     if "quality_observations" in payload and not isinstance(payload.get("quality_observations"), list):
         errors.append("quality_observations must be an array")
+    observations = [item for item in as_list(payload.get("quality_observations")) if isinstance(item, dict)]
+    severities = {clean_text(item.get("severity")) for item in observations}
+    if assessment == "needs_revision" and not severities.intersection({"warning", "error"}):
+        errors.append("needs_revision requires at least one warning or error quality_observation")
+    if assessment == "ready" and "error" in severities:
+        errors.append("ready final review cannot include error quality_observations")
     anchors = available_section_anchors()
     block_ids = {clean_text(block.get("block_id")) for block in reading_blocks() if clean_text(block.get("block_id"))}
     for index, observation in enumerate(as_list(payload.get("quality_observations")), start=1):
@@ -3615,6 +5606,47 @@ def read_template(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+SUPPORTED_GRAPH_LOCALES = {"en-US", "zh-CN", "fr-FR", "ja-JP"}
+
+
+def resolve_graph_locale(target_language: str) -> str:
+    normalized = clean_text(target_language).replace("_", "-")
+    if normalized in SUPPORTED_GRAPH_LOCALES:
+        return normalized
+    language = normalized.split("-")[0].lower() if normalized else ""
+    for locale in SUPPORTED_GRAPH_LOCALES:
+        if locale.split("-")[0].lower() == language:
+            return locale
+    return "en-US"
+
+
+def synthesis_graph_i18n(target_language: str) -> dict[str, Any]:
+    locale = resolve_graph_locale(target_language)
+    try:
+        payload = json.loads(read_template("citation-graph-synthesis-i18n.json"))
+    except Exception:
+        payload = {}
+    envelope = payload.get(locale) if isinstance(payload, dict) else None
+    if not isinstance(envelope, dict):
+        envelope = payload.get("en-US") if isinstance(payload, dict) else None
+    if isinstance(envelope, dict):
+        return {
+            "locale": clean_text(envelope.get("locale")) or locale,
+            "messages": envelope.get("messages") if isinstance(envelope.get("messages"), dict) else {},
+        }
+    return {"locale": locale, "messages": {}}
+
+
+def synthesis_graph_scope_label(locale: str) -> str:
+    labels = {
+        "en-US": "Current paper centered 2-hop citation neighborhood",
+        "zh-CN": "以当前文献为中心的 2 跳引用邻域",
+        "fr-FR": "Voisinage de citations a 2 sauts centre sur l'article courant",
+        "ja-JP": "現在の文献を中心とした2ホップ引用近傍",
+    }
+    return labels.get(locale, labels["en-US"])
+
+
 def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any]) -> dict[str, Any]:
     layout_nodes = {
         clean_text(node.get("node_id") or node.get("id")): node
@@ -3624,6 +5656,14 @@ def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any])
     snapshot_nodes = as_list(snapshot.get("nodes"))
     snapshot_edges = as_list(snapshot.get("edges"))
     start_node_id = clean_text(snapshot.get("start_node_id"))
+    if not start_node_id:
+        manifest = source_manifest()
+        paper = manifest.get("paper") if isinstance(manifest.get("paper"), dict) else {}
+        item_key = first_text(paper.get("item_key"), paper.get("itemKey"), paper.get("key"))
+        start_node_id = f"zotero:item:{item_key}" if item_key else ""
+    manifest = source_manifest()
+    paper = manifest.get("paper") if isinstance(manifest.get("paper"), dict) else {}
+    focus_authors = authors_from_record(paper)
     nodes: list[dict[str, Any]] = []
     for node in snapshot_nodes:
         if not isinstance(node, dict):
@@ -3643,17 +5683,24 @@ def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any])
         display_tier = clean_text(node.get("display_tier") or node.get("displayTier"))
         if not display_tier:
             display_tier = "library" if kind == "library_paper" else "shared_external"
+        is_focus = bool(start_node_id and node_id == start_node_id)
+        authors = authors_from_record(node)
+        if not authors and is_focus:
+            authors = focus_authors
         nodes.append(
             {
                 "id": node_id,
                 "title": first_text(node.get("title"), node.get("label"), node_id),
                 "kind": kind,
                 "year": clean_text(node.get("year")),
+                "authors": authors,
                 "x": x,
                 "y": y,
                 "low_signal": bool(node.get("low_signal") or node.get("lowSignal")),
                 "visibility": clean_text(node.get("visibility")) or "default",
                 "display_tier": display_tier,
+                "is_focus": is_focus,
+                "focus_role": "current_paper" if is_focus else "",
                 "metrics": node.get("metrics") if isinstance(node.get("metrics"), dict) else {},
                 "source": node,
             }
@@ -3707,6 +5754,262 @@ def build_citation_graph_model(snapshot: dict[str, Any], layout: dict[str, Any])
         "nodes": nodes,
         "edges": edges,
         "diagnostics": diagnostics,
+    }
+
+
+def synthesis_graph_layout_status(model: dict[str, Any]) -> str:
+    diagnostics = model.get("diagnostics") if isinstance(model.get("diagnostics"), dict) else {}
+    layout_status = clean_text(diagnostics.get("layout_status"))
+    if layout_status in {"ready", "available", ""} and as_list(model.get("nodes")):
+        return "ready"
+    if layout_status in {"missing", "refreshing", "stale", "failed"}:
+        return layout_status
+    return "missing" if not as_list(model.get("nodes")) else "ready"
+
+
+def synthesis_graph_hash(model: dict[str, Any]) -> str:
+    payload = {
+        "nodes": [
+            [node.get("id"), node.get("x"), node.get("y")]
+            for node in as_list(model.get("nodes"))
+            if isinstance(node, dict)
+        ],
+        "edges": [
+            [edge.get("id"), edge.get("source"), edge.get("target")]
+            for edge in as_list(model.get("edges"))
+            if isinstance(edge, dict)
+        ],
+    }
+    digest = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    return f"literature-deep-reading:{digest[:16]}"
+
+
+def percentile_value(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = int((len(ordered) - 1) * max(0.0, min(1.0, percentile)))
+    return ordered[index]
+
+
+def compress_graph_coordinates_around_focus(nodes: list[dict[str, Any]], focus_node_id: str) -> None:
+    if len(nodes) < 4:
+        return
+    focus = next((node for node in nodes if clean_text(node.get("id")) == focus_node_id), None)
+    if not isinstance(focus, dict):
+        focus = next((node for node in nodes if bool(node.get("is_focus"))), None)
+    if not isinstance(focus, dict):
+        return
+    focus_x = focus.get("x")
+    focus_y = focus.get("y")
+    if not isinstance(focus_x, (int, float)) or not isinstance(focus_y, (int, float)):
+        return
+    distances: list[float] = []
+    for node in nodes:
+        x = node.get("x")
+        y = node.get("y")
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            distances.append(float(((x - focus_x) ** 2 + (y - focus_y) ** 2) ** 0.5))
+    cap = percentile_value([value for value in distances if value > 0], 0.80)
+    if cap <= 0:
+        return
+    for node in nodes:
+        x = node.get("x")
+        y = node.get("y")
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            continue
+        dx = float(x - focus_x)
+        dy = float(y - focus_y)
+        distance = float((dx**2 + dy**2) ** 0.5)
+        if distance <= cap or distance <= 0:
+            node["x"] = dx
+            node["y"] = dy
+            continue
+        compressed = cap + (distance - cap) * 0.22
+        ratio = compressed / distance
+        node["x"] = dx * ratio
+        node["y"] = dy * ratio
+    balance_graph_axis_around_focus(nodes, "x")
+    balance_graph_axis_around_focus(nodes, "y")
+
+
+def balance_graph_axis_around_focus(nodes: list[dict[str, Any]], axis: str) -> None:
+    values = [float(node.get(axis)) for node in nodes if isinstance(node.get(axis), (int, float))]
+    if not values:
+        return
+    negative = abs(min(values))
+    positive = max(values)
+    if negative <= 0 or positive <= 0:
+        return
+    target = min(negative, positive)
+    if target <= 0:
+        return
+    for node in nodes:
+        value = node.get(axis)
+        if not isinstance(value, (int, float)) or value == 0:
+            continue
+        if value > 0:
+            node[axis] = float(value) * target / positive
+        else:
+            node[axis] = float(value) * target / negative
+
+
+def build_synthesis_graph_from_model(model: dict[str, Any]) -> dict[str, Any]:
+    nodes: list[dict[str, Any]] = []
+    for node in as_list(model.get("nodes")):
+        if not isinstance(node, dict):
+            continue
+        node_id = clean_text(node.get("id"))
+        if not node_id:
+            continue
+        nodes.append(
+            {
+                "id": node_id,
+                "label": first_text(node.get("title"), node.get("label"), node_id),
+                "kind": clean_text(node.get("kind")) or "external_reference",
+                "year": clean_text(node.get("year")),
+                "authors": normalize_author_list(node.get("authors")),
+                "x": node.get("x") if isinstance(node.get("x"), (int, float)) else 0,
+                "y": node.get("y") if isinstance(node.get("y"), (int, float)) else 0,
+                "low_signal": bool(node.get("low_signal") or node.get("lowSignal")),
+                "visibility": clean_text(node.get("visibility")) or "default",
+                "display_tier": clean_text(node.get("display_tier") or node.get("displayTier")) or "shared_external",
+                "is_focus": bool(node.get("is_focus") or node.get("isFocus")),
+                "focus_role": clean_text(node.get("focus_role") or node.get("focusRole")),
+                "metrics": node.get("metrics") if isinstance(node.get("metrics"), dict) else {},
+            }
+        )
+    focus_node_id = clean_text(model.get("start_node_id"))
+    compress_graph_coordinates_around_focus(nodes, focus_node_id)
+    node_ids = {node["id"] for node in nodes}
+    edges: list[dict[str, Any]] = []
+    for edge in as_list(model.get("edges")):
+        if not isinstance(edge, dict):
+            continue
+        source = clean_text(edge.get("source"))
+        target = clean_text(edge.get("target"))
+        edge_id = clean_text(edge.get("id"))
+        if not edge_id or source not in node_ids or target not in node_ids:
+            continue
+        edges.append(
+            {
+                "id": edge_id,
+                "source": source,
+                "target": target,
+                "primary_role": clean_text(edge.get("primary_role") or edge.get("role")),
+                "mention_count": safe_int(edge.get("mention_count") or edge.get("mentions"), 0),
+                "visibility": clean_text(edge.get("visibility")) or "default",
+            }
+        )
+    diagnostics = model.get("diagnostics") if isinstance(model.get("diagnostics"), dict) else {}
+    filters = {
+        "search": "",
+        "role": "all",
+        "topicId": "literature-deep-reading",
+        "layoutAlgorithm": "force",
+        "nodeKinds": ["library_paper", "external_reference"],
+        "showLowSignalReferences": True,
+    }
+    topic_scope = {
+        "topicId": "literature-deep-reading",
+        "title": "Citation Graph",
+        "paperRefs": [],
+        "nodeIds": [node["id"] for node in nodes],
+    }
+    return {
+        "filters": filters,
+        "graph_hash": synthesis_graph_hash(model) if nodes else "",
+        "layoutStatus": synthesis_graph_layout_status(model),
+        "layoutAlgorithm": "force",
+        "topicScopes": [topic_scope],
+        "selectedTopicScope": topic_scope,
+        "nodes": nodes,
+        "edges": edges,
+        "hoverOnlyNodes": [],
+        "hoverOnlyEdges": [],
+        "visibleNodes": nodes,
+        "visibleEdges": edges,
+        "diagnostics": {
+            **diagnostics,
+            "cache_status": "ready" if nodes else "missing",
+            "library_node_count": sum(1 for node in nodes if node.get("kind") == "library_paper"),
+            "shared_external_count": sum(1 for node in nodes if node.get("display_tier") == "shared_external"),
+            "hover_only_external_count": 0,
+        },
+    }
+
+
+def empty_synthesis_snapshot(graph: dict[str, Any], paper: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "libraryId": 0,
+        "selectedTab": "reader",
+        "storage": {},
+        "preferences": {},
+        "deletedArtifacts": {"count": 0, "rows": []},
+        "artifacts": {"filters": {}, "rows": [], "visibleRows": []},
+        "registry": {"filters": {}, "rows": [], "visibleRows": []},
+        "topicGraph": {
+            "filters": {"mode": "hierarchy", "search": ""},
+            "nodes": [],
+            "edges": [],
+            "reviewItems": [],
+            "visibleNodes": [],
+            "visibleEdges": [],
+            "inspector": {
+                "parents": [],
+                "children": [],
+                "related": [],
+                "suggestedRelations": [],
+                "relationReviewItems": [],
+                "suggestedCount": 0,
+            },
+            "manifest": {},
+            "projection": {},
+            "diagnostics": [],
+        },
+        "concepts": {
+            "filters": {
+                "search": "",
+                "conceptType": "all",
+                "status": "all",
+                "topicId": "all",
+                "overlayEnabled": False,
+                "reviewMergeTargets": {},
+            },
+            "rows": [],
+            "visibleRows": [],
+            "senses": [],
+            "aliases": [],
+            "relations": [],
+            "reviewItems": [],
+            "overlayEntries": [],
+            "conceptTypes": [],
+            "projection": {},
+            "manifest": {},
+            "diagnostics": [],
+        },
+        "graph": graph,
+        "reader": {"topicId": "literature-deep-reading", "previousTab": "artifacts"},
+    }
+
+
+def build_synthesis_export_envelope(citation_graph_model: dict[str, Any], paper: dict[str, Any]) -> dict[str, Any]:
+    graph = build_synthesis_graph_from_model(citation_graph_model)
+    snapshot = empty_synthesis_snapshot(graph, paper)
+    target_language = clean_text(paper.get("target_language")) or target_language_from_db()
+    i18n = synthesis_graph_i18n(target_language)
+    focus_node_id = first_text(
+        citation_graph_model.get("start_node_id"),
+        next((node.get("id") for node in as_list(graph.get("nodes")) if isinstance(node, dict) and node.get("is_focus")), ""),
+    )
+    return {
+        "version": 1,
+        "generatedAt": utc_now(),
+        "i18n": i18n,
+        "scopeLabel": synthesis_graph_scope_label(clean_text(i18n.get("locale")) or "en-US"),
+        "focusNodeId": focus_node_id,
+        "snapshot": snapshot,
+        "graphLayouts": {"force": graph},
     }
 
 
@@ -3774,8 +6077,8 @@ def inferred_navigation_level(title: str, markdown_level: int) -> int:
     return max(base_level, depth)
 
 
-def build_navigation(source_structure: dict[str, Any]) -> list[dict[str, Any]]:
-    navigation = [{"anchor": "preface", "title": "阅读前导读", "level": 0, "kind": "preface"}]
+def build_navigation(source_structure: dict[str, Any], labels: dict[str, str], citation_graph_available: bool = True) -> list[dict[str, Any]]:
+    navigation = [{"anchor": "preface", "title": labels.get("preface", "Reading Guide"), "level": 0, "kind": "preface"}]
     appendix_sections: list[dict[str, Any]] = []
     for section in as_list(source_structure.get("sections")):
         if not isinstance(section, dict):
@@ -3800,8 +6103,8 @@ def build_navigation(source_structure: dict[str, Any]) -> list[dict[str, Any]]:
         )
     navigation.extend(
         [
-            {"anchor": "summary", "title": "Summary", "level": 0, "kind": "summary"},
-            {"anchor": "references", "title": "References", "level": 0, "kind": "references"},
+            {"anchor": "summary", "title": labels.get("summary", "Summary"), "level": 0, "kind": "summary"},
+            {"anchor": "references", "title": labels.get("references", "References"), "level": 0, "kind": "references"},
         ]
     )
     for section in appendix_sections:
@@ -3814,12 +6117,9 @@ def build_navigation(source_structure: dict[str, Any]) -> list[dict[str, Any]]:
                 "kind": "appendix_section",
             }
         )
-    navigation.extend(
-        [
-            {"anchor": "citation-graph", "title": "Citation Graph", "level": 0, "kind": "citation_graph"},
-            {"anchor": "extensions", "title": "Extensions", "level": 0, "kind": "extensions"},
-        ]
-    )
+    if citation_graph_available:
+        navigation.append({"anchor": "citation-graph", "title": labels.get("citation_graph", "Citation Graph"), "level": 0, "kind": "citation_graph"})
+    navigation.append({"anchor": "extensions", "title": labels.get("extensions", "Extensions"), "level": 0, "kind": "extensions"})
     return navigation
 
 
@@ -3829,6 +6129,7 @@ def paper_metadata() -> dict[str, Any]:
     return {
         "title": first_text(paper.get("title"), manifest.get("title"), "Literature Deep Reading"),
         "item_key": first_text(paper.get("item_key"), paper.get("itemKey"), paper.get("key")),
+        "authors": authors_from_record(paper),
         "target_language": target_language_from_db(),
     }
 
@@ -3868,21 +6169,30 @@ def build_final_sections_view(final_review: dict[str, Any], diagnostics: list[di
     source_structure = read_view("source-structure.json", {})
     source_images = build_source_images_view()
     translation = read_view("translation-view.json", {})
+    translation_available = safe_int(translation.get("translated_count"), 0) > 0
     citation_snapshot = read_view("citation-graph-snapshot.json", {})
     citation_layout = read_view("citation-graph-layout.json", {})
     layout_nodes = as_list(citation_layout.get("nodes"))
     if as_list(citation_snapshot.get("nodes")) and not layout_nodes:
         diagnostics.append({"severity": "warning", "code": "citation_graph_layout_missing"})
     citation_graph_model = build_citation_graph_model(citation_snapshot, citation_layout)
-    blocks = reading_blocks()
+    citation_graph_available = bool(as_list(citation_graph_model.get("nodes")))
+    paper = paper_metadata()
+    citation_graph_envelope = build_synthesis_export_envelope(citation_graph_model, paper) if citation_graph_available else {}
+    role_overrides = section_role_overrides()
+    blocks = apply_section_roles_to_blocks(reading_blocks(), role_overrides)
+    sections = apply_section_roles_to_sections(as_list(source_structure.get("sections")), role_overrides)
+    labels = deep_reading_labels(paper.get("target_language"))
     sections_view = {
         "schema_version": "literature-deep-reading.seamless-scroll.v0",
-        "paper": paper_metadata(),
-        "navigation": build_navigation(source_structure),
+        "paper": paper,
+        "labels": labels,
+        "navigation": build_navigation({**source_structure, "sections": sections}, labels, citation_graph_available),
         "preface": read_view("preface-view.json", {}),
-        "sections": as_list(source_structure.get("sections")),
+        "sections": sections,
         "reading_blocks": build_render_reading_blocks(blocks, translation, "main"),
         "appendix_reading_blocks": build_render_reading_blocks(blocks, translation, "appendix"),
+        "translation_available": translation_available,
         "summary": read_view("summary-view.json", {}),
         "post_reading_markdown": "",
         "section_insights": read_view("section-insights-view.json", {}),
@@ -3891,9 +6201,11 @@ def build_final_sections_view(final_review: dict[str, Any], diagnostics: list[di
         "concepts": read_view("concept-overlay-view.json", {}),
         "citation_graph": {
             "anchor": "citation-graph",
+            "available": citation_graph_available,
             "snapshot": citation_snapshot,
             "layout": citation_layout,
             "model": citation_graph_model,
+            "synthesis_export_envelope": citation_graph_envelope,
         },
         "extensions": read_view("extensions-view.json", {}),
         "translation": translation,
@@ -3918,24 +6230,383 @@ def safe_inline_json(value: Any) -> str:
     )
 
 
-def render_final_html(sections_view: dict[str, Any]) -> str:
-    title = html.escape(clean_text(sections_view.get("paper", {}).get("title")) or "Literature Deep Reading")
-    template = read_template("deep-reading.html.tpl")
-    style = read_template("deep-reading.css")
-    graph_style = read_template("citation-graph-standalone.css")
-    script = read_template("deep-reading.js")
-    graph_script = read_template("citation-graph-standalone.js")
+def html_attr(value: Any) -> str:
+    return html.escape(str(value or ""), quote=True)
+
+
+def static_block_id(block: dict[str, Any]) -> str:
+    return clean_text(block.get("id")) or clean_text(block.get("block_id"))
+
+
+def sanitize_static_html_fragment(fragment: str) -> str:
+    return re.sub(r"\s+xmlns=[\"']http://www\.w3\.org/1998/Math/MathML[\"']", "", fragment or "", flags=re.IGNORECASE)
+
+
+def static_attach_image_sources(fragment: str, images: dict[str, Any]) -> str:
+    if not fragment:
+        return ""
+    by_path = images.get("by_path") if isinstance(images.get("by_path"), dict) else {}
+    by_src = images.get("by_src") if isinstance(images.get("by_src"), dict) else {}
+
+    def replace_img(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        if re.search(r"\ssrc=", tag, re.IGNORECASE):
+            return tag
+        key_match = re.search(r"\sdata-image-src=[\"']([^\"']+)[\"']", tag, re.IGNORECASE)
+        if not key_match:
+            return tag
+        key = key_match.group(1)
+        item = by_path.get(key) or by_src.get(key)
+        data_uri = item.get("data_uri") if isinstance(item, dict) else ""
+        if not data_uri:
+            return tag
+        return tag[:-1] + f' src="{html_attr(data_uri)}">'
+
+    return sanitize_static_html_fragment(re.sub(r"<img\b[^>]*>", replace_img, fragment, flags=re.IGNORECASE))
+
+
+def static_reading_block_html(block: dict[str, Any], mode: str, images: dict[str, Any]) -> str:
+    block_id = static_block_id(block)
+    section_anchor = clean_text(block.get("section_anchor"))
+    kind = clean_text(block.get("kind")) or "text"
+    source_html = static_attach_image_sources(str(block.get("source_html") or ""), images)
+    translation_html = static_attach_image_sources(str(block.get("translation_html") or ""), images)
+    if mode == "source":
+        return f'<section class="source-block block-{html_attr(kind)}" data-block-id="{html_attr(block_id)}" data-section-anchor="{html_attr(section_anchor)}">{source_html}</section>'
+    if mode == "translation":
+        return f'<section class="translation-section block-{html_attr(kind)}" data-block-id="{html_attr(block_id)}" data-section-anchor="{html_attr(section_anchor)}">{translation_html}</section>'
     return (
-        template.replace("{{TITLE}}", title)
-        .replace("{{STYLE}}", style + "\n" + graph_style)
-        .replace("{{DATA_JSON}}", safe_inline_json(sections_view))
-        .replace("{{SCRIPT}}", graph_script + "\n" + script)
+        f'<section class="aligned-block-pair block-{html_attr(kind)}" data-block-id="{html_attr(block_id)}" data-section-anchor="{html_attr(section_anchor)}">'
+        f'<div class="aligned-source">{source_html}</div><div class="aligned-translation">{translation_html}</div></section>'
     )
 
 
+def static_reading_region(blocks: list[dict[str, Any]], mode: str, images: dict[str, Any]) -> str:
+    return "".join(static_reading_block_html(block, mode, images) for block in blocks if isinstance(block, dict))
+
+
+def static_nav_html(sections_view: dict[str, Any]) -> str:
+    items = []
+    for item in as_list(sections_view.get("navigation")):
+        if not isinstance(item, dict):
+            continue
+        anchor = clean_text(item.get("anchor"))
+        title = clean_text(item.get("title"))
+        if not anchor or not title:
+            continue
+        level = safe_int(item.get("level"), 1)
+        items.append(f'<a href="#{html_attr(anchor)}" data-anchor="{html_attr(anchor)}" class="level-{html_attr(level)}">{html.escape(title)}</a>')
+    return "".join(items)
+
+
+def static_concept_rail_html(sections_view: dict[str, Any]) -> str:
+    labels = labels_from_sections(sections_view)
+    concepts = as_list((sections_view.get("concepts") or {}).get("concepts") if isinstance(sections_view.get("concepts"), dict) else [])
+    chips = []
+    for concept in concepts[:24]:
+        if not isinstance(concept, dict):
+            continue
+        label = first_text(concept.get("label"), concept.get("id"), concept.get("concept_id"))
+        if not label:
+            continue
+        kind = clean_text(concept.get("kind"))
+        chips.append(f'<button type="button" class="concept-chip"><strong>{html.escape(label)}</strong>{f"<span>{html.escape(kind)}</span>" if kind else ""}</button>')
+    return f'<div class="concept-rail-header"><strong>{html.escape(labels.get("concepts", "Concepts"))}</strong></div><button type="button" class="concept-toggle" aria-label="概念导航"></button><div class="concept-list">' + "".join(chips) + "</div>"
+
+
+def static_preface_html(sections_view: dict[str, Any]) -> str:
+    labels = labels_from_sections(sections_view)
+    preface = sections_view.get("preface") if isinstance(sections_view.get("preface"), dict) else {}
+    title = first_text(preface.get("title"), labels.get("preface"), "Reading Guide")
+    goal = clean_text(preface.get("goal"))
+    cards = "".join(
+        f'<article class="preface-card"><h2>{html.escape(clean_text(card.get("title")) or "阅读提示")}</h2><p>{html.escape(clean_text(card.get("body")))}</p></article>'
+        for card in as_list(preface.get("cards"))
+        if isinstance(card, dict)
+    )
+    return f'<h1 id="{html_attr(preface.get("anchor") or "preface")}">{html.escape(title)}</h1><p class="kicker">{html.escape(goal)}</p><div class="preface-grid">{cards}</div>{static_preface_timeline_html(preface, labels)}{static_reading_guide_html(preface, labels)}'
+
+
+def timeline_item_left_percent(item: dict[str, Any], min_year: int, max_year: int) -> float:
+    year = safe_int(item.get("year"), min_year)
+    if max_year <= min_year:
+        return 50.0
+    return 5.0 + ((year - min_year) / (max_year - min_year)) * 90.0
+
+
+def static_preface_timeline_html(preface: dict[str, Any], labels: dict[str, str] | None = None) -> str:
+    labels = labels or deep_reading_labels()
+    timeline = preface.get("topic_timeline") if isinstance(preface.get("topic_timeline"), dict) else {}
+    if not timeline.get("available"):
+        return ""
+    items = [item for item in as_list(timeline.get("items")) if isinstance(item, dict) and parse_year_value(item.get("year")) is not None]
+    if not items:
+        return ""
+    years = [safe_int(item.get("year"), 0) for item in items]
+    min_year = min(years)
+    max_year = max(years)
+    width = max(760, min(1800, 180 + max(1, len(set(years))) * 150))
+    ticks = "".join(
+        f'<span style="position:absolute;left:{timeline_item_left_percent({"year": year}, min_year, max_year):.2f}%;transform:translateX(-50%)">{html.escape(str(year))}</span>'
+        for year in sorted(set(years))
+    )
+    markers = []
+    for item in items:
+        kind = clean_text(item.get("kind")) or "paper"
+        current = bool(item.get("is_current_paper"))
+        classes = [
+            "timeline-marker",
+            f"timeline-{kind}",
+            f"timeline-tone-{clean_text(item.get('tone')) or ('current' if current else kind)}",
+        ]
+        if current:
+            classes.append("timeline-current-paper")
+        left = timeline_item_left_percent(item, min_year, max_year)
+        label = clean_text(item.get("label")) or str(item.get("year"))
+        title = clean_text(item.get("title")) or label
+        scale = "1.5" if current else clean_text(item.get("pin_scale")) or "1"
+        markers.append(
+            '<section class="timeline-phase" style="left:{left:.2f}%"><div class="marker-list">'
+            '<span class="{classes}" style="--pin-scale:{scale}" title="{title}" aria-label="{title}">'
+            '<span class="timeline-code">{label}</span><span class="timeline-pin"><span class="timeline-pin-body"></span><span class="timeline-pin-dot"></span></span>'
+            '</span></div></section>'.format(
+                left=left,
+                classes=html_attr(" ".join(classes)),
+                scale=html_attr(scale),
+                title=html_attr(title),
+                label=html.escape(label),
+            )
+        )
+    summary = clean_text(timeline.get("summary"))
+    summary_html = f'<div class="timeline-summary"><p>{html.escape(summary)}</p></div>' if summary else ""
+    return (
+        '<section class="topic-timeline preface-topic-timeline">'
+        f'<div class="timeline-head"><strong>{html.escape(labels.get("topic_timeline", "Topic Timeline"))}</strong><div class="timeline-legend"><span><i class="legend-icon legend-icon-paper"></i>{html.escape(labels.get("timeline_papers", "Papers"))}</span><span><i class="legend-icon legend-icon-event"></i>{html.escape(labels.get("timeline_milestones", "Milestones"))}</span><span><i class="legend-icon legend-icon-current"></i>{html.escape(labels.get("timeline_current_paper", "Current Paper"))}</span></div></div>'
+        f'{summary_html}<div class="timeline-scroll"><div class="horizontal-timeline" style="width:{width}px"><div class="timeline-inner-rail"><div class="time-axis">{ticks}</div>{"".join(markers)}</div></div></div>'
+        '</section>'
+    )
+
+
+def static_reading_guide_html(preface: dict[str, Any], labels: dict[str, str] | None = None) -> str:
+    labels = labels or deep_reading_labels()
+    reading_path = as_list(preface.get("reading_path"))
+    questions = [item for item in as_list(preface.get("questions")) if isinstance(item, dict) and (clean_text(item.get("question")) or clean_text(item.get("answer")))]
+    if not reading_path and not questions:
+        return ""
+    path_html = ""
+    if reading_path:
+        path_html = f'<section><h3>{html.escape(labels.get("reading_path", "Reading Path"))}</h3><ul>' + "".join(f"<li>{html.escape(clean_text(item))}</li>" for item in reading_path if clean_text(item)) + "</ul></section>"
+    questions_html = ""
+    if questions:
+        question_items = []
+        for item in questions:
+            question = clean_text(item.get("question"))
+            answer = clean_text(item.get("answer"))
+            answer_html = f"<p>{html.escape(answer)}</p>" if answer else ""
+            question_items.append(f'<article class="preface-question"><strong>{html.escape(question)}</strong>{answer_html}</article>')
+        questions_html = f'<section><h3>{html.escape(labels.get("reading_questions", "Questions to Keep in Mind"))}</h3>' + "".join(question_items) + "</section>"
+    return f'<section class="reading-guide"><h2>{html.escape(labels.get("reading_guide", "Reading Guide"))}</h2>{path_html}{questions_html}</section>'
+
+
+def static_summary_html(sections_view: dict[str, Any]) -> str:
+    labels = labels_from_sections(sections_view)
+    summary = sections_view.get("summary") if isinstance(sections_view.get("summary"), dict) else {}
+    sections = as_list(summary.get("sections"))
+    body = "".join(
+        f'<section class="summary-block"><h2>{html.escape(clean_text(section.get("title")) or labels.get("summary", "Summary"))}</h2><p>{html.escape(clean_text(section.get("body")) or clean_text(section.get("markdown")))}</p></section>'
+        for section in sections
+        if isinstance(section, dict)
+    )
+    return f'<h1 id="summary">{html.escape(labels.get("summary", "Summary"))}</h1>{body}'
+
+
+def static_references_html(sections_view: dict[str, Any]) -> str:
+    labels = labels_from_sections(sections_view)
+    references = sections_view.get("references") if isinstance(sections_view.get("references"), dict) else {}
+    raw_view = references.get("raw_view") if isinstance(references.get("raw_view"), dict) else {}
+    source = raw_view.get("source") or references.get("references_source")
+    source_label = labels.get("markdown_references", "markdown references") if source == "markdown" else labels.get("raw_references", "raw")
+    items = []
+    for ref in as_list(raw_view.get("items") or references.get("items")):
+        if not isinstance(ref, dict):
+            continue
+        ref_index = clean_text(ref.get("reference_index"))
+        raw_markdown = clean_text(ref.get("raw_markdown") or ref.get("raw"))
+        if not raw_markdown:
+            continue
+        items.append(
+            '<article class="reference-item reference-raw-view">'
+            f'<span class="reference-index">{html.escape(ref_index)}</span>'
+            f'<pre class="reference-raw-markdown">{html.escape(raw_markdown)}</pre>'
+            "</article>"
+        )
+    count_label = clean_text(raw_view.get("reference_count")) or str(len(items))
+    return f'<section class="structured-references" id="references"><div class="references-summary"><strong>{html.escape(labels.get("references", "References"))}</strong><span>{html.escape(count_label)} {html.escape(labels.get("paper_count_unit", "papers"))} · {html.escape(source_label)}</span></div><div class="reference-list">{"".join(items)}</div></section>'
+
+
+def static_extensions_html(sections_view: dict[str, Any]) -> str:
+    labels = labels_from_sections(sections_view)
+    extensions = sections_view.get("extensions") if isinstance(sections_view.get("extensions"), dict) else {}
+    items = "".join(
+        f'<article class="extension"><h2>{html.escape(clean_text(item.get("title")) or labels.get("extensions", "Extensions"))}</h2><p>{html.escape(clean_text(item.get("body")) or clean_text(item.get("description")))}</p></article>'
+        for item in as_list(extensions.get("items"))
+        if isinstance(item, dict)
+    )
+    return f'<h1 id="extensions">{html.escape(labels.get("extensions", "Extensions"))}</h1>{items}'
+
+
+def static_reading_aid_html(sections_view: dict[str, Any]) -> str:
+    labels = labels_from_sections(sections_view)
+    preface = sections_view.get("preface") if isinstance(sections_view.get("preface"), dict) else {}
+    concepts = as_list(preface.get("concepts"))
+    chips = "".join(f'<span class="chip">{html.escape(clean_text(item.get("label") if isinstance(item, dict) else item))}</span>' for item in concepts[:10] if clean_text(item.get("label") if isinstance(item, dict) else item))
+    return f'<section><h2>{html.escape(labels.get("current_position", "Current Position"))}</h2><p>{html.escape(labels.get("preface", "Reading Guide"))}</p></section><section><h2>{html.escape(labels.get("reading_goal", "Reading Goal"))}</h2><p>{html.escape(clean_text(preface.get("goal")))}</p></section><section><h2>{html.escape(labels.get("related_concepts", "Related Concepts"))}</h2><div class="chips">{chips}</div></section>'
+
+
+def static_graph_is_current_node(node: dict[str, Any], model: dict[str, Any]) -> bool:
+    return bool(node.get("is_focus") or clean_text(node.get("focus_role")) == "current_paper" or (clean_text(model.get("start_node_id")) and clean_text(node.get("id")) == clean_text(model.get("start_node_id"))))
+
+
+def static_citation_graph_html(sections_view: dict[str, Any]) -> str:
+    labels = labels_from_sections(sections_view)
+    graph = sections_view.get("citation_graph") if isinstance(sections_view.get("citation_graph"), dict) else {}
+    if not graph.get("available"):
+        return ""
+    model = graph.get("model") if isinstance(graph.get("model"), dict) else {}
+    nodes = [node for node in as_list(model.get("nodes")) if isinstance(node, dict) and isinstance(node.get("x"), (int, float)) and isinstance(node.get("y"), (int, float))]
+    node_ids = {clean_text(node.get("id")) for node in nodes}
+    edges = [edge for edge in as_list(model.get("edges")) if isinstance(edge, dict) and clean_text(edge.get("source")) in node_ids and clean_text(edge.get("target")) in node_ids]
+    if not nodes:
+        return ""
+    width, height = 900, 520
+    xs = [float(node.get("x")) for node in nodes]
+    ys = [float(node.get("y")) for node in nodes]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    pad = 42
+    span_x = max(1.0, max_x - min_x)
+    span_y = max(1.0, max_y - min_y)
+
+    def point(node: dict[str, Any]) -> tuple[float, float]:
+        x = pad + (float(node.get("x")) - min_x) / span_x * (width - pad * 2)
+        y = pad + (max_y - float(node.get("y"))) / span_y * (height - pad * 2)
+        return x, y
+
+    node_by_id = {clean_text(node.get("id")): node for node in nodes}
+    edge_html = []
+    for edge in edges:
+        source = node_by_id.get(clean_text(edge.get("source")))
+        target = node_by_id.get(clean_text(edge.get("target")))
+        if not source or not target:
+            continue
+        x1, y1 = point(source)
+        x2, y2 = point(target)
+        edge_html.append(f'<line class="static-cg-edge" x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" />')
+    node_html = []
+    for node in nodes:
+        x, y = point(node)
+        is_current = static_graph_is_current_node(node, model)
+        kind = clean_text(node.get("kind"))
+        display_tier = clean_text(node.get("display_tier"))
+        incoming = safe_int((node.get("metrics") or {}).get("internal_in_degree") if isinstance(node.get("metrics"), dict) else 0, 0)
+        radius = min(15, 6 + max(0, incoming) * 1.2)
+        if is_current:
+            radius *= 1.5
+            color = "#ef4444"
+        elif kind == "library_paper":
+            color = "#2563eb"
+        elif display_tier == "single_external":
+            color = "#d97706"
+        else:
+            color = "#65a30d"
+        halo = f'<circle class="static-cg-halo" cx="{x:.2f}" cy="{y:.2f}" r="{radius + 7:.2f}" />' if is_current or incoming >= 2 else ""
+        label = f'<text class="static-cg-label" x="{x + radius + 5:.2f}" y="{y + 4:.2f}">{html.escape(clean_text(node.get("title"))[:64])}</text>' if is_current else ""
+        node_html.append(f'{halo}<circle class="static-cg-node{" is-current-paper" if is_current else ""}" cx="{x:.2f}" cy="{y:.2f}" r="{radius:.2f}" fill="{color}"><title>{html.escape(clean_text(node.get("title")) or clean_text(node.get("id")))}</title></circle>{label}')
+    return (
+        '<div class="static-citation-graph" data-static-citation-graph>'
+        f'<div class="static-cg-legend"><strong>{html.escape(labels.get("graph_direction", "Citation Direction"))}</strong><span><i class="edge"></i>{html.escape(labels.get("graph_relation", "Citation relation"))}</span><strong>{html.escape(labels.get("graph_importance", "Citation Importance"))}</strong><span><i class="node"></i>{html.escape(labels.get("graph_node_size", "Node size = inbound citations"))}</span><span><i class="current"></i>{html.escape(labels.get("graph_current_paper", "Current Paper"))}</span></div>'
+        f'<div class="static-cg-stage"><div class="static-cg-scope">{html.escape(labels.get("graph_scope", "Current paper 2-hop citation neighborhood"))}</div>'
+        f'<svg class="static-cg-svg" viewBox="0 0 {width} {height}" role="img" aria-label="{html_attr(labels.get("citation_graph", "Citation Graph"))}">'
+        f'<g>{ "".join(edge_html) }</g><g>{ "".join(node_html) }</g></svg></div></div>'
+    )
+
+
+def build_static_shell_fragments(sections_view: dict[str, Any]) -> dict[str, str]:
+    labels = labels_from_sections(sections_view)
+    images = sections_view.get("images") if isinstance(sections_view.get("images"), dict) else {}
+    reading_blocks = [block for block in as_list(sections_view.get("reading_blocks")) if isinstance(block, dict)]
+    appendix_blocks = [block for block in as_list(sections_view.get("appendix_reading_blocks")) if isinstance(block, dict)]
+    return {
+        "STATIC_VIEWER_WARNING": html.escape(labels.get("viewer_warning", "Open this HTML in a browser for the full interactive experience.")),
+        "STATIC_NOSCRIPT_WARNING": html.escape(labels.get("noscript_warning", "Static reading mode is active. Open this HTML in a browser for the full interactive experience.")),
+        "STATIC_CONCEPT_RAIL": static_concept_rail_html(sections_view),
+        "STATIC_NAV": static_nav_html(sections_view),
+        "STATIC_PREFACE": static_preface_html(sections_view),
+        "STATIC_SOURCE_READING": static_reading_region(reading_blocks, "source", images),
+        "STATIC_COMPARE_READING": static_reading_region(reading_blocks, "compare", images),
+        "STATIC_TRANSLATION_READING": static_reading_region(reading_blocks, "translation", images),
+        "STATIC_SUMMARY": static_summary_html(sections_view),
+        "STATIC_POST_READING": static_references_html(sections_view),
+        "STATIC_APPENDIX_SOURCE": static_reading_region(appendix_blocks, "source", images),
+        "STATIC_APPENDIX_COMPARE": static_reading_region(appendix_blocks, "compare", images),
+        "STATIC_APPENDIX_TRANSLATION": static_reading_region(appendix_blocks, "translation", images),
+        "STATIC_CITATION_GRAPH": static_citation_graph_html(sections_view),
+        "CITATION_GRAPH_SECTION_ATTRS": "" if (sections_view.get("citation_graph") or {}).get("available") else "hidden",
+        "STATIC_EXTENSIONS": static_extensions_html(sections_view),
+        "STATIC_READING_AID": static_reading_aid_html(sections_view),
+    }
+
+
+def render_final_html(sections_view: dict[str, Any]) -> str:
+    title = html.escape(clean_text(sections_view.get("paper", {}).get("title")) or "Literature Deep Reading")
+    target_language = html.escape(clean_text(sections_view.get("paper", {}).get("target_language")))
+    body_class = "mode-compare static-fallback" if sections_view.get("translation_available") is not False else "mode-original translation-unavailable"
+    template = read_template("deep-reading.html.tpl")
+    style = read_template("deep-reading.css")
+    markdown_renderer_style = read_template("markdown-renderer.css")
+    fallback_graph_style = read_template("citation-graph-standalone.css")
+    topic_timeline_style = read_template("topic-timeline-shared.css")
+    script = read_template("deep-reading.js")
+    markdown_renderer_script = read_template("markdown-renderer.js")
+    fallback_graph_script = read_template("citation-graph-standalone.js")
+    topic_timeline_script = read_template("topic-timeline-shared.js")
+    graph_assets = {
+        "synthesisCss": read_template("citation-graph-synthesis.css"),
+        "synthesisThemeJs": read_template("citation-graph-synthesis-theme.js"),
+        "synthesisAppJs": read_template("citation-graph-synthesis-app.js"),
+    }
+    graph_assets_script = "window.__ZoteroSkillsDeepReadingCitationGraphAssets=" + safe_inline_json(graph_assets) + ";"
+    html_text = (
+        template.replace("{{TITLE}}", title)
+        .replace("{{HTML_LANG}}", html_attr(clean_text(sections_view.get("paper", {}).get("target_language")) or "zh-CN"))
+        .replace("{{BODY_CLASS}}", body_class)
+        .replace("{{PAPER_TITLE}}", title)
+        .replace("{{PAPER_META}}", target_language)
+        .replace(
+            "{{STYLE}}",
+            markdown_renderer_style + "\n" + style + "\n" + topic_timeline_style + "\n" + fallback_graph_style,
+        )
+        .replace("{{DATA_JSON}}", safe_inline_json(sections_view))
+        .replace(
+            "{{SCRIPT}}",
+            graph_assets_script + "\n" + topic_timeline_script + "\n" + fallback_graph_script + "\n" + markdown_renderer_script + "\n" + script,
+        )
+    )
+    for key, value in build_static_shell_fragments(sections_view).items():
+        html_text = html_text.replace("{{" + key + "}}", value)
+    return html_text
+
+
 def external_html_references(html_text: str) -> list[str]:
-    patterns = ["http://", "https://", "file://", 'src="assets/', "src='assets/", 'href="assets/', "href='assets/", 'src="sections/', "src='sections/", 'href="sections/', "href='sections/"]
-    return [pattern for pattern in patterns if pattern in html_text]
+    checks = [
+        ("external src", r"\bsrc=[\"'](?:https?://|file://)"),
+        ("external srcset", r"\bsrcset=[\"'](?:https?://|file://)"),
+        ("external resource href", r"<(?:link|base)\b[^>]*\bhref=[\"'](?:https?://|file://)"),
+        ("file href", r"\bhref=[\"']file://"),
+        ("loose asset src", r"\bsrc=[\"'](?:assets|sections)/"),
+        ("loose asset href", r"\bhref=[\"'](?:assets|sections)/"),
+    ]
+    return [label for label, pattern in checks if re.search(pattern, html_text, flags=re.IGNORECASE)]
 
 
 def persist_stage40_db(payload_path: Path, final_review: dict[str, Any], diagnostics: list[dict[str, Any]]) -> None:
@@ -4019,28 +6690,31 @@ def submit_final_review(payload_path: Path) -> dict[str, Any]:
         "diagnostics_count": len(diagnostics_view["diagnostics"]),
     }
     write_json(RESULT_DIR / "deep-reading-manifest.json", manifest)
+    artifact_manifest = {
+        "deep_reading_html": normalize_posix(FINAL_HTML_PATH),
+        "deep_reading_manifest": normalize_posix(RESULT_DIR / "deep-reading-manifest.json"),
+        "final_output_candidate": normalize_posix(RESULT_DIR / "final-output.candidate.json"),
+        "sections": normalize_posix(RESULT_SECTIONS_DIR / "sections.json"),
+        "source_images": normalize_posix(RESULT_SECTIONS_DIR / "source-images.json"),
+        "diagnostics": normalize_posix(RESULT_SECTIONS_DIR / "diagnostics.json"),
+    }
     candidate = {
         "html": normalize_posix(FINAL_HTML_PATH),
         "sections": [normalize_posix(RESULT_SECTIONS_DIR / "sections.json")],
         "diagnostics": diagnostics_view["diagnostics"],
     }
     write_json(RESULT_DIR / "final-output.candidate.json", candidate)
+    write_json(FINAL_ARTIFACT_MANIFEST_PATH, artifact_manifest)
     persist_stage40_db(payload_path, final_review, diagnostics_view["diagnostics"])
     result = {
         "kind": "literature_deep_reading_finalized",
         "status": "completed",
-        "db_path": normalize_posix(DB_PATH),
-        "views": {
-            "sections": normalize_posix(RESULT_SECTIONS_DIR / "sections.json"),
-            "source_images": normalize_posix(RESULT_SECTIONS_DIR / "source-images.json"),
-            "diagnostics": normalize_posix(RESULT_SECTIONS_DIR / "diagnostics.json"),
-            "manifest": normalize_posix(RESULT_DIR / "deep-reading-manifest.json"),
-        },
         "diagnostics_path": normalize_posix(RESULT_SECTIONS_DIR / "diagnostics.json"),
         "final_html_available": True,
         "html_path": normalize_posix(FINAL_HTML_PATH),
+        "artifact_manifest_path": normalize_posix(FINAL_ARTIFACT_MANIFEST_PATH),
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics_view["diagnostics"]],
-        "error": None,
+        "error": {},
     }
     write_json(RESULT_PATH, result)
     return result
@@ -4067,7 +6741,7 @@ def persist_stage10_db(context: dict[str, Any], payload_path: Path, views: dict[
                 now,
             ),
         )
-        for export_index, name in enumerate(["reference-bindings", "reference-digests", "citation-graph-snapshot", "citation-graph-layout", "topic-context", "concept-candidates"], start=1):
+        for export_index, name in enumerate(["reference-bindings", "reference-digests", "citation-graph-snapshot", "citation-graph-layout", "topic-context", "topic-candidate-digests-view", "concept-candidates"], start=1):
             view = views.get(name) or {}
             status_value = clean_text(view.get("status") or ("available" if view.get("source") not in ("", "none") else "missing"))
             conn.execute(
@@ -4199,12 +6873,18 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
         bridge_executable(run_root)
     except Exception as exc:  # noqa: BLE001
         diagnostics.append({"severity": "warning", "code": "host_bridge_unavailable", "message": str(exc)})
+    topic_context = collect_topic_context(context, run_root, diagnostics)
     reference_bindings = build_reference_bindings(context, run_root, diagnostics)
-    reference_digests = collect_reference_digests(context, run_root, as_list(reference_bindings.get("items")), diagnostics)
+    reference_digests = collect_reference_digests(context, run_root, digest_reference_bindings(reference_bindings), topic_context, diagnostics)
     citation_snapshot, citation_layout = collect_citation_graph(context, run_root, diagnostics)
     concepts = collect_concepts(context, run_root, diagnostics)
     concept_needs = build_concept_needs_view(context, concepts)
-    topic_context = collect_topic_context(context, run_root, diagnostics)
+    topic_candidate_digests = collect_topic_candidate_digests(
+        context,
+        run_root,
+        clean_text(topic_context.get("topic_id")),
+        diagnostics,
+    )
     graph_context = {
         "schema_version": "literature-deep-reading.graph-context.v0",
         "source": "citation_graph_stage_10",
@@ -4223,6 +6903,7 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
             "citation_graph_snapshot": normalize_posix(VIEWS_DIR / "citation-graph-snapshot.json"),
             "citation_graph_layout": normalize_posix(VIEWS_DIR / "citation-graph-layout.json"),
             "topic_context": normalize_posix(VIEWS_DIR / "topic-context.json"),
+            "topic_candidate_digests": normalize_posix(VIEWS_DIR / "topic-candidate-digests-view.json"),
             "graph_context": normalize_posix(VIEWS_DIR / "graph-context.json"),
             "concept_candidates": normalize_posix(VIEWS_DIR / "concept-candidates-view.json"),
             "concept_needs": normalize_posix(VIEWS_DIR / "concept-needs-view.json"),
@@ -4240,6 +6921,7 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
         "citation-graph-snapshot": citation_snapshot,
         "citation-graph-layout": citation_layout,
         "topic-context": topic_context,
+        "topic-candidate-digests-view": topic_candidate_digests,
         "graph-context": graph_context,
         "concept-candidates-view": concepts,
         "concept-needs-view": concept_needs,
@@ -4247,6 +6929,7 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
     }
     for filename, view in view_map.items():
         write_json(VIEWS_DIR / f"{filename}.json", view)
+    write_stage20_agent_packet(context, diagnostics)
     persist_stage10_db(
         context,
         payload_path,
@@ -4256,20 +6939,25 @@ def submit_context_request(payload_path: Path) -> dict[str, Any]:
             "citation-graph-snapshot": citation_snapshot,
             "citation-graph-layout": citation_layout,
             "topic-context": topic_context,
+            "topic-candidate-digests-view": topic_candidate_digests,
             "concept-candidates": concepts,
             "concept-needs": concept_needs,
         },
         diagnostics,
     )
+    result_views = {
+        **host_context["views"],
+        "stage_20_agent_packet": normalize_posix(STAGE20_AGENT_PACKET_PATH),
+    }
     result = {
         "kind": "literature_deep_reading_context_ready",
         "status": "context_ready",
         "db_path": normalize_posix(DB_PATH),
-        "views": host_context["views"],
+        "views": result_views,
         "diagnostics_path": normalize_posix(VIEWS_DIR / "diagnostics-host-context.json"),
         "final_html_available": False,
         "warnings": [str(item.get("code") or item.get("message") or item) for item in diagnostics],
-        "error": None,
+        "error": {},
     }
     write_json(RESULT_PATH, result)
     return result
@@ -4300,6 +6988,7 @@ def validate_bootstrap() -> dict[str, Any]:
         VIEWS_DIR / "host-preflight-view.json",
         VIEWS_DIR / "concept-needs-view.json",
         VIEWS_DIR / "diagnostics-bootstrap.json",
+        STAGE10_AGENT_PACKET_PATH,
         RESULT_PATH,
     ]
     errors: list[str] = []
@@ -4353,10 +7042,12 @@ def validate_context_request(payload_path: Path | None = None) -> dict[str, Any]
         VIEWS_DIR / "citation-graph-snapshot.json",
         VIEWS_DIR / "citation-graph-layout.json",
         VIEWS_DIR / "topic-context.json",
+        VIEWS_DIR / "topic-candidate-digests-view.json",
         VIEWS_DIR / "graph-context.json",
         VIEWS_DIR / "concept-candidates-view.json",
         VIEWS_DIR / "concept-needs-view.json",
         VIEWS_DIR / "diagnostics-host-context.json",
+        STAGE20_AGENT_PACKET_PATH,
     ]
     if not any(errors):
         for path in required_views:
@@ -4411,6 +7102,7 @@ def validate_reading_enrichment(payload_path: Path | None = None) -> dict[str, A
         VIEWS_DIR / "extensions-view.json",
         VIEWS_DIR / "translation-batches-view.json",
         VIEWS_DIR / "diagnostics-enrichment.json",
+        STAGE30_TRANSLATION_WORKLIST_PATH,
     ]
     if not any(errors):
         for path in required_views:
@@ -4465,6 +7157,7 @@ def validate_block_translations(payload_path: Path | None = None) -> dict[str, A
     required_views = [
         VIEWS_DIR / "translation-view.json",
         VIEWS_DIR / "diagnostics-translation.json",
+        STAGE40_REVIEW_PACKET_PATH,
     ]
     if not any(errors):
         for path in required_views:
@@ -4519,6 +7212,7 @@ def validate_final_output(payload_path: Path | None = None) -> dict[str, Any]:
     required = [
         FINAL_HTML_PATH,
         RESULT_DIR / "deep-reading-manifest.json",
+        FINAL_ARTIFACT_MANIFEST_PATH,
         RESULT_DIR / "final-output.candidate.json",
         RESULT_SECTIONS_DIR / "sections.json",
         RESULT_SECTIONS_DIR / "source-images.json",

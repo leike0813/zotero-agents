@@ -1,40 +1,40 @@
-# Host API 参考
+# Host API Reference
 
-`runtime.hostApi` 是 workflow hook 与 Zotero 交互的主要接口。它封装了对 Zotero 库、条目、文件系统、偏好设置等的完整操作能力。
+`runtime.hostApi` is the primary interface for workflow hooks to interact with Zotero. It encapsulates complete operational capabilities for Zotero libraries, items, file systems, preferences, and more.
 
-## 条目操作（hostApi.items）
+## Item Operations (hostApi.items)
 
 ```ts
 hostApi.items = {
-  get: (ref) => Zotero.Item | null,          // 通过引用获取条目
-  resolve: (ref) => Zotero.Item,             // 同 get，但条目不存在时抛出异常
-  getByLibraryAndKey: (libraryID, key) => Zotero.Item | null,  // 通过库 ID + Key 获取
-  getAll: () => Promise<Zotero.Item[]>,      // 获取所有条目
+  get: (ref) => Zotero.Item | null,          // Get item by reference
+  resolve: (ref) => Zotero.Item,             // Same as get, but throws if item doesn't exist
+  getByLibraryAndKey: (libraryID, key) => Zotero.Item | null,  // Get by library ID + Key
+  getAll: () => Promise<Zotero.Item[]>,      // Get all items
 }
 ```
 
-`ref` 可以是 `Zotero.Item` 对象、数字 ID 或字符串 Key。
+`ref` can be a `Zotero.Item` object, a numeric ID, or a string Key.
 
-**示例：**
+**Example:**
 
 ```js
-// 通过 ID 获取条目
+// Get item by ID
 const item = hostApi.items.get(12345);
 
-// 通过库 Key 获取
+// Get item by library Key
 const item = hostApi.items.getByLibraryAndKey(1, "ABCD1234");
 ```
 
-## 上下文（hostApi.context）
+## Context (hostApi.context)
 
 ```ts
 hostApi.context = {
-  getCurrentView: () => ZoteroHostCurrentViewDto,  // 当前活动视图信息
-  getSelectedItems: () => ZoteroHostItemSummaryDto[],  // 当前选中的条目列表
+  getCurrentView: () => ZoteroHostCurrentViewDto,  // Current active view information
+  getSelectedItems: () => ZoteroHostItemSummaryDto[],  // Currently selected items list
 }
 ```
 
-**示例：**
+**Example:**
 
 ```js
 const view = hostApi.context.getCurrentView();
@@ -44,63 +44,63 @@ const selected = hostApi.context.getSelectedItems();
 // [{ id, key, libraryID, title, ... }, ...]
 ```
 
-## 库操作（hostApi.library）
+## Library Operations (hostApi.library)
 
 ```ts
 hostApi.library = {
-  listItems: (args) => Promise<LibraryListResponse>,       // 分页列出条目
-  searchItems: (args) => Promise<ItemSummaryDto[]>,        // 搜索条目
-  getItemDetail: (ref) => Promise<ItemDetailDto | null>,   // 获取条目详细信息
-  getItemNotes: (ref, args?) => Promise<NoteDto[]>,        // 获取条目的笔记列表
-  getNoteDetail: (ref, args?) => Promise<NoteDetailChunkDto>, // 获取笔记正文
-  listNotePayloads: (ref) => Promise<NotePayloadDto[]>,    // 列出笔记的 embedded payload
-  getNotePayload: (ref, args?) => Promise<NotePayloadDto>, // 获取指定 payload
-  getItemAttachments: (ref) => Promise<AttachmentDto[]>,   // 获取条目的附件列表
+  listItems: (args) => Promise<LibraryListResponse>,       // Paginated item listing
+  searchItems: (args) => Promise<ItemSummaryDto[]>,        // Search items
+  getItemDetail: (ref) => Promise<ItemDetailDto | null>,   // Get item detail information
+  getItemNotes: (ref, args?) => Promise<NoteDto[]>,        // Get item's note list
+  getNoteDetail: (ref, args?) => Promise<NoteDetailChunkDto>, // Get note body
+  listNotePayloads: (ref) => Promise<NotePayloadDto[]>,    // List note embedded payloads
+  getNotePayload: (ref, args?) => Promise<NotePayloadDto>, // Get a specific payload
+  getItemAttachments: (ref) => Promise<AttachmentDto[]>,   // Get item's attachment list
 }
 ```
 
-**示例：**
+**Example:**
 
 ```js
-// 搜索条目
+// Search items
 const results = await hostApi.library.searchItems({
   query: "transformer",
   limit: 10,
 });
 
-// 获取条目的笔记
+// Get item's notes
 const notes = await hostApi.library.getItemNotes(ref);
 
-// 获取条目的附件
+// Get item's attachments
 const attachments = await hostApi.library.getItemAttachments(ref);
 ```
 
-## 变更操作（hostApi.mutations）
+## Mutation Operations (hostApi.mutations)
 
-用来创建、更新、删除 Zotero 中的数据。写操作需要用户审批（在 Zotero UI 中确认）。
+Used to create, update, and delete data in Zotero. Write operations require user approval (confirmed in the Zotero UI).
 
 ```ts
 hostApi.mutations = {
-  preview: (request) => Promise<MutationPreviewResponse>,   // 预览变更效果
-  execute: (request) => Promise<MutationExecuteResponse>,   // 执行变更
+  preview: (request) => Promise<MutationPreviewResponse>,   // Preview mutation effects
+  execute: (request) => Promise<MutationExecuteResponse>,   // Execute mutation
 }
 ```
 
-### 支持的变更操作
+### Supported Mutation Operations
 
-| `operation` | 用途 | 说明 |
-|-------------|------|------|
-| `item.updateFields` | 更新条目字段 | 修改标题、作者、日期等字段 |
-| `item.addTags` | 添加标签 | 为条目添加一个或多个标签 |
-| `item.removeTags` | 移除标签 | 从条目移除指定标签 |
-| `note.createChild` | 创建子笔记 | 在父条目下创建新的笔记 |
-| `note.update` | 更新笔记 | 修改已有笔记的内容 |
-| `note.upsertPayload` | 更新 embedded payload | 更新笔记的工作流负载附件 |
-| `literature.ingest` | 导入文献 | 将一篇论文导入到 Zotero |
-| `collection.addItems` | 添加到合集 | 将条目添加到合集 |
-| `collection.removeItems` | 从合集移除 | 从合集中移除条目 |
+| `operation` | Purpose | Description |
+|-------------|---------|-------------|
+| `item.updateFields` | Update item fields | Modify title, author, date, and other fields |
+| `item.addTags` | Add tags | Add one or more tags to an item |
+| `item.removeTags` | Remove tags | Remove specified tags from an item |
+| `note.createChild` | Create child note | Create a new note under a parent item |
+| `note.update` | Update note | Modify the content of an existing note |
+| `note.upsertPayload` | Update embedded payload | Update the note's workflow payload attachment |
+| `literature.ingest` | Ingest literature | Import a paper into Zotero |
+| `collection.addItems` | Add to collection | Add items to a collection |
+| `collection.removeItems` | Remove from collection | Remove items from a collection |
 
-**示例：创建笔记**
+**Example: Create a note**
 
 ```js
 const result = await hostApi.mutations.execute({
@@ -113,7 +113,7 @@ const result = await hostApi.mutations.execute({
 });
 ```
 
-**示例：添加标签**
+**Example: Add tags**
 
 ```js
 await hostApi.mutations.execute({
@@ -123,11 +123,11 @@ await hostApi.mutations.execute({
 });
 ```
 
-## 笔记操作（hostApi.notes）
+## Note Operations (hostApi.notes)
 
 ```ts
 hostApi.notes = {
-  // ... 底层笔记 handler 的所有方法
+  // ... All methods from the low-level note handler
   importEmbeddedImage: (noteRef, image) => Promise<{
     attachmentKey: string;
     attachmentItem: Zotero.Item;
@@ -137,7 +137,7 @@ hostApi.notes = {
 }
 ```
 
-### 图片处理（hostApi.images）
+### Image Processing (hostApi.images)
 
 ```ts
 hostApi.images = {
@@ -145,7 +145,7 @@ hostApi.images = {
 }
 ```
 
-用于将图片处理为可在笔记中嵌入的格式：
+Used to process images into a format suitable for embedding in notes:
 
 ```js
 const prepared = await hostApi.images.prepareForNoteEmbedding(filePath, {
@@ -156,94 +156,94 @@ const prepared = await hostApi.images.prepareForNoteEmbedding(filePath, {
 const result = await hostApi.notes.importEmbeddedImage(noteRef, prepared);
 ```
 
-## 附件操作（hostApi.attachments）
+## Attachment Operations (hostApi.attachments)
 
 ```ts
 hostApi.attachments = {
-  // 底层附件 handler 的所有方法
-  // 包括：列出附件、获取附件路径、创建附件等
+  // All methods from the low-level attachment handler
+  // Including: list attachments, get attachment paths, create attachments, etc.
 }
 ```
 
-## 标签操作（hostApi.tags）
+## Tag Operations (hostApi.tags)
 
 ```ts
 hostApi.tags = {
-  // 底层标签 handler 的所有方法
-  // 包括：列出标签、获取标签、创建标签等
+  // All methods from the low-level tag handler
+  // Including: list tags, get tags, create tags, etc.
 }
 ```
 
-## 合集操作（hostApi.collections）
+## Collection Operations (hostApi.collections)
 
 ```ts
 hostApi.collections = {
-  // 底层合集 handler 的所有方法
-  // 包括：列出合集、获取子合集等
+  // All methods from the low-level collection handler
+  // Including: list collections, get sub-collections, etc.
 }
 ```
 
-## 文件操作（hostApi.file）
+## File Operations (hostApi.file)
 
 ```ts
 hostApi.file = {
-  readText: (path) => Promise<string>,                    // 读取文本文件
-  writeText: (path, content) => Promise<void>,            // 写入文本文件
-  readBytes: (path) => Promise<Uint8Array>,               // 读取二进制文件
-  writeBytes: (path, bytes) => Promise<void>,             // 写入二进制文件
-  copy: (source, target) => Promise<void>,                // 复制文件
-  exists: (path) => Promise<boolean>,                     // 检查文件是否存在
-  makeDirectory: (path) => Promise<void>,                 // 创建目录（含父目录）
-  pathToFile: (path) => nsIFile,                          // 路径转 Zotero 文件对象
-  getTempDirectoryPath: () => string,                     // 获取临时目录路径
-  pickDirectory: (args?) => Promise<string | null>,       // 打开目录选择器
-  pickFile: (args?) => Promise<string | null>,            // 打开文件选择器
-  pickFiles: (args?) => Promise<string[] | null>,         // 打开多文件选择器
+  readText: (path) => Promise<string>,                    // Read text file
+  writeText: (path, content) => Promise<void>,            // Write text file
+  readBytes: (path) => Promise<Uint8Array>,               // Read binary file
+  writeBytes: (path, bytes) => Promise<void>,             // Write binary file
+  copy: (source, target) => Promise<void>,                // Copy file
+  exists: (path) => Promise<boolean>,                     // Check if file exists
+  makeDirectory: (path) => Promise<void>,                 // Create directory (including parent directories)
+  pathToFile: (path) => nsIFile,                          // Convert path to Zotero file object
+  getTempDirectoryPath: () => string,                     // Get temporary directory path
+  pickDirectory: (args?) => Promise<string | null>,       // Open directory picker
+  pickFile: (args?) => Promise<string | null>,            // Open file picker
+  pickFiles: (args?) => Promise<string[] | null>,         // Open multi-file picker
 }
 ```
 
-**示例：**
+**Example:**
 
 ```js
-// 读取文件
+// Read file
 const content = await hostApi.file.readText("/path/to/file.md");
 
-// 写入文件
+// Write file
 await hostApi.file.writeText("/path/to/output.md", newContent);
 
-// 打开目录选择器让用户选择导出目录
+// Open directory picker to let user choose export directory
 const dir = await hostApi.file.pickDirectory({
-  title: "选择导出目录",
+  title: "Select Export Directory",
 });
 if (dir) {
-  // 用户选择了目录
+  // User selected a directory
   await hostApi.file.writeText(`${dir}/result.md`, content);
 }
 ```
 
-## 偏好设置（hostApi.prefs）
+## Preferences (hostApi.prefs)
 
 ```ts
 hostApi.prefs = {
-  get: (key, global?) => unknown,      // 读取偏好设置
-  set: (key, value, global?) => void,  // 写入偏好设置
-  clear: (key, global?) => void,       // 清除偏好设置
+  get: (key, global?) => unknown,      // Read preference
+  set: (key, value, global?) => void,  // Write preference
+  clear: (key, global?) => void,       // Clear preference
 }
 ```
 
-前缀由插件自动处理，只需传入键名即可。
+The prefix is automatically handled by the plugin; you only need to pass the key name.
 
-**示例：**
+**Example:**
 
 ```js
-// 读取配置
+// Read configuration
 const vocab = hostApi.prefs.get("tagVocabularyJson");
 
-// 写入配置
+// Write configuration
 hostApi.prefs.set("mySetting", "myValue");
 ```
 
-## UI 通知（hostApi.notifications）
+## UI Notifications (hostApi.notifications)
 
 ```ts
 hostApi.notifications = {
@@ -252,16 +252,16 @@ hostApi.notifications = {
 // type: "default" | "success" | "error"
 ```
 
-**示例：**
+**Example:**
 
 ```js
 hostApi.notifications.toast({
-  text: "处理完成！",
+  text: "Processing complete!",
   type: "success",
 });
 ```
 
-## 运行时日志（hostApi.logging）
+## Runtime Logging (hostApi.logging)
 
 ```ts
 hostApi.logging = {
@@ -269,9 +269,9 @@ hostApi.logging = {
 }
 ```
 
-用于向运行时日志记录器追加诊断信息。
+Used to append diagnostic information to the runtime logger.
 
-## 插件配置（hostApi.addon）
+## Plugin Configuration (hostApi.addon)
 
 ```ts
 hostApi.addon = {
@@ -279,38 +279,86 @@ hostApi.addon = {
 }
 ```
 
-## 完整示例
+## API Version (hostApi.version)
+
+```ts
+hostApi.version: number
+```
+
+The current Host API version number. Use it to guard against breaking changes when writing hooks that need compatibility across plugin versions.
+
+## Parent Operations (hostApi.parents)
+
+```ts
+hostApi.parents = {
+  // Low-level parent item handler operations
+}
+```
+
+Provides lower-level access to parent item management. Prefer using `hostApi.library` and `hostApi.mutations` unless you need the lower-level handler interface.
+
+## Command Operations (hostApi.command)
+
+```ts
+hostApi.command = {
+  // Low-level command handler operations
+}
+```
+
+Lower-level interface for command execution. Typically not needed in workflow hooks.
+
+## Editor Operations (hostApi.editor)
+
+```ts
+hostApi.editor = {
+  openSession: (args) => ReturnType<typeof openWorkflowEditorSession>,
+  registerRenderer: (rendererId, renderer) => void,
+  unregisterRenderer: (rendererId) => void,
+}
+```
+
+Manages workflow editor sessions. `registerRenderer` and `unregisterRenderer` allow custom renderers for workflow-specific output formats.
+
+## Synthesis Operations (hostApi.synthesis)
+
+```ts
+hostApi.synthesis?: SynthesisService
+```
+
+Provides access to the Synthesis Workbench service (topics, concepts, tags, citation graph, etc.). Available only when the Synthesis system is initialized.
+
+## Complete Example
 
 ```js
 export async function applyResult({ parent, bundleReader, runtime }) {
   const { hostApi, helpers } = runtime;
 
-  // 1. 解析父条目
+  // 1. Resolve parent item
   const parentItem = helpers.resolveItemRef(parent);
 
-  // 2. 读取 bundle 中的产物
+  // 2. Read artifact from bundle
   const markdownContent = await bundleReader.readText("result/output.md");
 
-  // 3. 转换为 HTML 笔记
-  const htmlContent = helpers.toHtmlNote("处理结果", markdownContent);
+  // 3. Convert to HTML note
+  const htmlContent = helpers.toHtmlNote("Processing Result", markdownContent);
 
-  // 4. 创建笔记
+  // 4. Create note
   const noteResult = await hostApi.mutations.execute({
     operation: "note.createChild",
     parentItem: parentItem.getField("id"),
     data: { content: htmlContent },
   });
 
-  // 5. 添加标签
+  // 5. Add tags
   await hostApi.mutations.execute({
     operation: "item.addTags",
     item: parentItem.getField("id"),
     data: { tags: ["processed"] },
   });
 
-  // 6. 通知用户
+  // 6. Notify user
   hostApi.notifications.toast({
-    text: `处理完成：${parentItem.getField("title")}`,
+    text: `Processing complete: ${parentItem.getField("title")}`,
     type: "success",
   });
 
@@ -318,7 +366,7 @@ export async function applyResult({ parent, bundleReader, runtime }) {
 }
 ```
 
-## 下一步
+## Next Steps
 
-- [打包与部署](packaging) — 发布自定义 workflow
-- [调试与测试](debugging) — 验证 workflow 的正确性
+- [Packaging & Deployment](packaging) — Publish custom workflows
+- [Debugging & Testing](debugging) — Verify workflow correctness

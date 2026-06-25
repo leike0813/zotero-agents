@@ -78,10 +78,12 @@ function collectWorkflowFetchTargets() {
   return targets;
 }
 
-export function installTagVocabularyHostApiGlobals(args: {
-  hostApi?: Record<string, unknown>;
-  hostApiVersion?: number;
-} = {}) {
+export function installTagVocabularyHostApiGlobals(
+  args: {
+    hostApi?: Record<string, unknown>;
+    hostApiVersion?: number;
+  } = {},
+) {
   const runtime = globalThis as typeof globalThis & Record<string, unknown>;
   const previousHostApi = runtime[HOST_API_KEY];
   const previousHostApiVersion = runtime[HOST_API_VERSION_KEY];
@@ -167,7 +169,9 @@ export function installTagVocabularySyncCapture(args: {
   logs?: RuntimeLogEntry[];
   toasts?: ToastCaptureEntry[];
 }) {
-  const restoreLogs = args.logs ? installRuntimeLogCapture(args.logs) : () => undefined;
+  const restoreLogs = args.logs
+    ? installRuntimeLogCapture(args.logs)
+    : () => undefined;
   const restoreToasts = args.toasts
     ? installWorkflowToastCapture(args.toasts)
     : () => undefined;

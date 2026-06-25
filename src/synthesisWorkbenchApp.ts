@@ -25,6 +25,10 @@ import {
   GRAPH_ZOOM_SLIDER_MAX,
 } from "./shared/citationGraphVisualRules";
 import {
+  renderTopicTimeline as renderSharedTopicTimeline,
+  type TopicTimelineData,
+} from "./shared/topicTimelineRenderer";
+import {
   SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
   formatSynthesisWorkbenchMessage,
   type SynthesisWorkbenchI18nEnvelope,
@@ -36,8 +40,16 @@ declare const window: Window &
     markdownit?: (options?: Record<string, unknown>) => MarkdownItLike;
     texmath?: MarkdownItPlugin;
     katex?: unknown;
+    ZoteroSkillsMarkdownRenderer?: {
+      renderInto?: (
+        container: HTMLElement,
+        markdown: string,
+        options?: Record<string, unknown>,
+      ) => HTMLElement | null;
+    };
     __zoteroSkillsSynthesisWorkbenchBridge?: SynthesisWorkbenchBridge;
     __zoteroSkillsSynthesisTopicExport?: SynthesisTopicExportEnvelope;
+    __zoteroSkillsSynthesisGraphExport?: SynthesisGraphExportEnvelope;
   };
 declare const document: Document;
 
@@ -67,6 +79,7 @@ type GraphNode = {
   label: string;
   kind: GraphNodeKind;
   year?: string;
+  authors?: string[];
   tags?: string[];
   collections?: string[];
   x?: number;
@@ -75,6 +88,8 @@ type GraphNode = {
   external_degree?: number;
   visibility?: "default" | "hover_only";
   display_tier?: "library" | "shared_external" | "single_external";
+  is_focus?: boolean;
+  focus_role?: string;
   metrics?: {
     internal_in_degree?: number;
     internal_out_degree?: number;
@@ -110,6 +125,39 @@ type WorkbenchSurfaceName =
   | "concepts"
   | "reader";
 
+type SyncTransportSnapshot = {
+  queue_state?: string;
+  paused?: boolean;
+  adapter_configured?: boolean;
+  config_status?: string;
+  remote_url?: string;
+  branch?: string;
+  base_url?: string;
+  remote_path?: string;
+  token_masked?: string;
+  token_updated_at?: string;
+  connection_test?: {
+    ok?: boolean;
+    tested_at?: string;
+    remote_branch_state?: string;
+    remote_state?: string;
+    diagnostics?: Array<Record<string, unknown>>;
+  };
+  last_run_status?: string;
+  last_run_at?: string;
+  conflict_count?: number;
+  conflict_assets?: Array<{
+    asset_path?: string;
+    reason?: string;
+    base_hash?: string;
+    local_hash?: string;
+    remote_hash?: string;
+  }>;
+  conflictActions?: string[];
+  diagnostics?: Array<Record<string, unknown>>;
+  allowedActions?: string[];
+};
+
 type Snapshot = {
   libraryId: number;
   selectedTab: SynthesisTab;
@@ -129,19 +177,8 @@ type Snapshot = {
   sync?: {
     status?: string;
     diagnostics?: Array<Record<string, unknown>>;
-    git?: {
-      queue_state?: string;
-      paused?: boolean;
-      adapter_configured?: boolean;
-      remote_url?: string;
-      branch?: string;
-      last_run_status?: string;
-      last_run_at?: string;
-      conflict_count?: number;
-      conflict_assets?: Array<{ asset_path?: string; reason?: string }>;
-      diagnostics?: Array<Record<string, unknown>>;
-      allowedActions?: string[];
-    };
+    git?: SyncTransportSnapshot;
+    webdav?: SyncTransportSnapshot;
   };
   conflicts?: { candidates?: Array<Record<string, unknown>> };
   deletedArtifacts: {
@@ -173,6 +210,13 @@ type Snapshot = {
   };
   reviews?: {
     filters: Record<string, unknown>;
+    summary?: {
+      openCount?: number;
+      indexCount?: number;
+      referenceMatchingCount?: number;
+      conceptCount?: number;
+      topicGraphCount?: number;
+    };
   };
   tags: {
     filters: Record<string, unknown>;
@@ -394,6 +438,16 @@ type SynthesisTopicExportEnvelope = {
   graphLayouts?: Record<string, Snapshot["graph"]>;
 };
 
+type SynthesisGraphExportEnvelope = {
+  version?: number;
+  generatedAt?: string;
+  i18n?: SynthesisI18nPayload;
+  snapshot?: Snapshot;
+  graphLayouts?: Record<string, Snapshot["graph"]>;
+  scopeLabel?: string;
+  focusNodeId?: string;
+};
+
 type ActionOperation = {
   key: string;
   command: string;
@@ -546,6 +600,9 @@ const state: {
   graphSearchDraft?: string;
   graphReturnTopicId?: string;
   standaloneExport: boolean;
+  standaloneGraphOnly: boolean;
+  standaloneGraphScopeLabel: string;
+  standaloneGraphFocusNodeId: string;
   standaloneDigestsByKey: Map<string, Record<string, unknown>>;
   standaloneGraphLayouts: Map<string, Snapshot["graph"]>;
   dynamicHoverNodeIds: Set<string>;
@@ -617,6 +674,9 @@ const state: {
   dynamicHoverNodeIds: new Set(),
   dynamicHoverEdgeIds: new Set(),
   standaloneExport: false,
+  standaloneGraphOnly: false,
+  standaloneGraphScopeLabel: "",
+  standaloneGraphFocusNodeId: "",
   standaloneDigestsByKey: new Map(),
   standaloneGraphLayouts: new Map(),
   locale: "en-US",
@@ -878,8 +938,9 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
       payload.layoutAlgorithm || payload.layoutPreset,
       state.snapshot.graph.layoutAlgorithm,
     );
-    const layoutGraph =
-      state.standaloneGraphLayouts.get(nextAlgorithm) || state.snapshot.graph;
+    const layoutGraph = normalizeStandaloneGraphSnapshot(
+      state.standaloneGraphLayouts.get(nextAlgorithm) || state.snapshot.graph,
+    );
     const filters = {
       ...layoutGraph.filters,
       ...state.snapshot.graph.filters,
@@ -978,14 +1039,16 @@ function sendAction(action: string, payload: Record<string, unknown> = {}) {
           };
         }
       }
-      state.localPendingActions.set(key, {
-        key,
-        command,
-        status: "pending",
-        label: operationLabel(command),
-        started_at: new Date().toISOString(),
-      });
-      renderWorkbenchChrome();
+      if (shouldTrackLocalPendingAction(command)) {
+        state.localPendingActions.set(key, {
+          key,
+          command,
+          status: "pending",
+          label: operationLabel(command),
+          started_at: new Date().toISOString(),
+        });
+        renderWorkbenchChrome();
+      }
     }
   }
   const direct = window.__zoteroSkillsSynthesisWorkbenchBridge;
@@ -1054,6 +1117,23 @@ function normalizeGraphLayoutAlgorithm(value: unknown) {
     : "force";
 }
 
+function normalizeStandaloneGraphSnapshot(graph: Snapshot["graph"]) {
+  const layoutAlgorithm = normalizeGraphLayoutAlgorithm(graph.layoutAlgorithm);
+  return {
+    ...graph,
+    layoutStatus: "ready" as const,
+    layoutAlgorithm,
+    filters: {
+      ...graph.filters,
+      layoutAlgorithm,
+    },
+    diagnostics: {
+      ...(graph.diagnostics || {}),
+      cache_status: "ready",
+    },
+  };
+}
+
 function operationKey(command: string, args: Record<string, unknown> = {}) {
   if (!command) return "";
   switch (command) {
@@ -1104,6 +1184,20 @@ function operationKey(command: string, args: Record<string, unknown> = {}) {
 function operationLabel(command: string) {
   const key = `synthesis-operation-${command}` as SynthesisWorkbenchMessageKey;
   return key in SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES ? t(key) : command;
+}
+
+function shouldTrackLocalPendingAction(command: string) {
+  return command !== "openTopicArtifact";
+}
+
+function clearLocalPendingAction(
+  command: string,
+  args: Record<string, unknown> = {},
+) {
+  const key = operationKey(command, args);
+  if (key) {
+    state.localPendingActions.delete(key);
+  }
 }
 
 function snapshotInFlightKeys(snapshot = state.snapshot) {
@@ -1254,85 +1348,10 @@ function elRawText<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function iconSvg(
-  name:
-    | "home"
-    | "topics"
-    | "graph"
-    | "index"
-    | "review"
-    | "tags"
-    | "concepts"
-    | "controls"
-    | "panel-open"
-    | "panel-close"
-    | "jobs",
-) {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("focusable", "false");
-  const paths: Record<typeof name, string[]> = {
-    home: ["M3.5 10.5 12 3.5l8.5 7", "M5.5 9.5V20h4.8v-5.7h3.4V20h4.8V9.5"],
-    topics: [
-      "M7 4.5h8.5L19 8v11.5H7z",
-      "M15.5 4.5V8H19",
-      "M5 7.5H3v12h2",
-      "M10 12h6",
-      "M10 15h4",
-    ],
-    graph: [
-      "M7 7.5 12 12l5-4.5",
-      "M7 16.5 12 12l5 4.5",
-      "M5.2 5.7a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6",
-      "M18.8 5.7a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6",
-      "M12 9.7a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6",
-      "M5.2 14.2a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6",
-      "M18.8 14.2a2.3 2.3 0 1 0 0 4.6 2.3 2.3 0 0 0 0-4.6",
-    ],
-    index: [
-      "M8 6h12",
-      "M8 12h12",
-      "M8 18h12",
-      "M4 6h.01",
-      "M4 12h.01",
-      "M4 18h.01",
-    ],
-    review: ["M6 4.5h12v15H6z", "M9 8h6", "M9 12h4", "M8.5 16l1.5 1.5 3-3"],
-    tags: ["M20 12.5 12.5 20 4 11.5V4h7.5z", "M8.5 8.5h.01", "M14 7l3 3"],
-    concepts: [
-      "M9 18h6",
-      "M10 21h4",
-      "M8.5 14.5c-1.7-1.2-2.5-2.9-2.5-5a6 6 0 1 1 12 0c0 2.1-.9 3.8-2.5 5l-1.2.9c-.5.4-.8 1-.8 1.6H10c0-.7-.3-1.2-.8-1.6z",
-    ],
-    controls: [
-      "M4 7h4",
-      "M12 7h8",
-      "M8 5v4",
-      "M4 12h10",
-      "M18 12h2",
-      "M14 10v4",
-      "M4 17h8",
-      "M16 17h4",
-      "M16 15v4",
-    ],
-    "panel-open": ["M4 5h16v14H4z", "M9 5v14", "M13 9l3 3-3 3"],
-    "panel-close": ["M4 5h16v14H4z", "M9 5v14", "M16 9l-3 3 3 3"],
-    jobs: [
-      "M5 7h14",
-      "M5 12h14",
-      "M5 17h14",
-      "M3 7h.01",
-      "M3 12h.01",
-      "M3 17h.01",
-    ],
-  };
-  paths[name].forEach((data) => {
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", data);
-    svg.appendChild(path);
-  });
-  return svg;
+function iconEl(className: string) {
+  const node = el("span", `zs-icon ${className}`);
+  node.setAttribute("aria-hidden", "true");
+  return node;
 }
 
 function clear(node: Element) {
@@ -1666,6 +1685,23 @@ function statusbarMessage(entry: ActionOperation) {
   return message ? `${label} - ${message}` : label;
 }
 
+function backgroundJobStatusbarOperation(
+  job: BackgroundJobRow | undefined,
+): ActionOperation | undefined {
+  if (!job) {
+    return undefined;
+  }
+  return {
+    key: `background:${job.job_id}`,
+    command: job.command || job.source || "backgroundJob",
+    status: "failed",
+    label: job.label,
+    started_at: job.updated_at,
+    completed_at: job.updated_at,
+    message: job.detail,
+  };
+}
+
 function activeActionPriority(status: ActionOperation["status"]) {
   if (status === "running") return 0;
   if (status === "pending") return 1;
@@ -1868,6 +1904,13 @@ function renderActionStatusbar(snapshot: Snapshot) {
   const activeJobs = jobs.filter((job) => job.status !== "failed");
   const activeActions = listActiveActionOperations(snapshot);
   const failedJob = jobs.find((job) => job.status === "failed");
+  const failedJobEntry = backgroundJobStatusbarOperation(failedJob);
+  const showFailedJob = shouldShowTimedStatusbarEntry(
+    failedJobEntry,
+    STATUSBAR_FAILED_TIMEOUT_MS,
+    "failed",
+  );
+  const statusbarJobs = activeJobs.length || showFailedJob ? jobs : activeJobs;
   const latestWarning = (snapshot.actions?.warnings || []).slice(-1)[0];
   const failed =
     snapshot.actions?.lastFailed ||
@@ -1883,7 +1926,7 @@ function renderActionStatusbar(snapshot: Snapshot) {
   statusbar.setAttribute("role", "status");
   statusbar.setAttribute("aria-live", "polite");
 
-  const appendJobButton = () => {
+  const appendJobButton = (buttonJobs: BackgroundJobRow[] = statusbarJobs) => {
     const button = el("button", "action-statusbar-job-button");
     button.type = "button";
     button.title = t("synthesis-jobs-show");
@@ -1892,8 +1935,12 @@ function renderActionStatusbar(snapshot: Snapshot) {
       "aria-expanded",
       state.jobPopoverOpen ? "true" : "false",
     );
-    button.appendChild(iconSvg("jobs"));
-    const count = jobs.length;
+    button.appendChild(
+      iconEl(
+        "zs-icon-sm action-statusbar-job-icon zs-icon-format-list-bulleted",
+      ),
+    );
+    const count = buttonJobs.length;
     if (count > 0) {
       button.appendChild(
         el("span", "action-statusbar-job-button-count", String(count)),
@@ -1908,7 +1955,7 @@ function renderActionStatusbar(snapshot: Snapshot) {
     const wrap = el("span", "action-statusbar-job-anchor");
     wrap.appendChild(button);
     if (state.jobPopoverOpen) {
-      wrap.appendChild(renderBackgroundJobPopover(jobs));
+      wrap.appendChild(renderBackgroundJobPopover(buttonJobs));
     }
     statusbar.appendChild(wrap);
   };
@@ -1961,11 +2008,11 @@ function renderActionStatusbar(snapshot: Snapshot) {
         el("span", "action-statusbar-count", `+${activeActions.length - 1}`),
       );
     }
-    if (jobs.length || state.jobPopoverOpen) appendJobButton();
+    if (statusbarJobs.length || state.jobPopoverOpen) appendJobButton();
     return statusbar;
   }
 
-  if (failedJob) {
+  if (failedJob && showFailedJob) {
     statusbar.className = "action-statusbar is-danger";
     statusbar.appendChild(
       el("span", "action-statusbar-state", t("synthesis-status-failed")),
@@ -1991,7 +2038,7 @@ function renderActionStatusbar(snapshot: Snapshot) {
     statusbar.appendChild(
       el("span", "action-statusbar-message", statusbarMessage(failed!)),
     );
-    if (jobs.length) appendJobButton();
+    if (statusbarJobs.length) appendJobButton();
     return statusbar;
   }
 
@@ -2009,7 +2056,7 @@ function renderActionStatusbar(snapshot: Snapshot) {
     statusbar.appendChild(
       el("span", "action-statusbar-message", statusbarMessage(latestWarning!)),
     );
-    if (jobs.length) appendJobButton();
+    if (statusbarJobs.length) appendJobButton();
     return statusbar;
   }
 
@@ -2027,17 +2074,26 @@ function renderActionStatusbar(snapshot: Snapshot) {
     statusbar.appendChild(
       el("span", "action-statusbar-message", statusbarMessage(completed!)),
     );
-    if (jobs.length) appendJobButton();
+    if (statusbarJobs.length) appendJobButton();
     return statusbar;
   }
 
   statusbar.appendChild(
     el("span", "action-statusbar-state", t("synthesis-status-ready")),
   );
-  if (jobs.length || state.jobPopoverOpen) {
+  if (statusbarJobs.length || state.jobPopoverOpen) {
     appendJobButton();
   }
   return statusbar;
+}
+
+function renderTopbar(snapshot: Snapshot) {
+  const topbar = el("div", "topbar");
+  topbar.appendChild(el("h1", "", titleForTab(snapshot.selectedTab)));
+  if (snapshot.selectedTab === "reader" && state.topicDetail) {
+    topbar.appendChild(renderTopicDetailToolbar(state.topicDetail, snapshot));
+  }
+  return topbar;
 }
 
 function renderShell(root: HTMLElement, snapshot: Snapshot) {
@@ -2062,7 +2118,11 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
     state.sidebarExpanded ? "true" : "false",
   );
   sidebarToggle.appendChild(
-    iconSvg(state.sidebarExpanded ? "panel-close" : "panel-open"),
+    iconEl(
+      state.sidebarExpanded
+        ? "zs-icon-right-panel-open"
+        : "zs-icon-right-panel-close",
+    ),
   );
   sidebarToggle.addEventListener("click", () => {
     state.sidebarExpanded = !state.sidebarExpanded;
@@ -2096,18 +2156,16 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
     button.title = label;
     button.setAttribute("aria-label", label);
     const icon = el("span", `nav-icon nav-icon-${iconName}`);
-    icon.appendChild(
-      iconSvg(
-        iconName as
-          | "home"
-          | "topics"
-          | "graph"
-          | "index"
-          | "review"
-          | "tags"
-          | "concepts",
-      ),
-    );
+    const iconClasses: Record<string, string> = {
+      home: "zs-icon-home",
+      topics: "zs-icon-topic",
+      concepts: "zs-icon-lightbulb",
+      graph: "zs-icon-hub",
+      index: "zs-icon-manage-search",
+      tags: "zs-icon-sell",
+      review: "zs-icon-fact-check",
+    };
+    icon.appendChild(iconEl(iconClasses[String(iconName)] || "zs-icon-hub"));
     button.appendChild(icon);
     button.appendChild(el("span", "nav-label", label));
     nav.appendChild(button);
@@ -2116,12 +2174,7 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   root.appendChild(sidebar);
 
   const content = el("main", "content");
-  const topbar = el("div", "topbar");
-  topbar.appendChild(el("h1", "", titleForTab(snapshot.selectedTab)));
-  if (snapshot.selectedTab === "reader" && state.topicDetail) {
-    topbar.appendChild(renderTopicDetailToolbar(state.topicDetail, snapshot));
-  }
-  content.appendChild(topbar);
+  content.appendChild(renderTopbar(snapshot));
   const main = el("section", "main");
   main.dataset.synthesisSurface = surfaceForTab(snapshot.selectedTab);
   renderCurrentView(main, snapshot);
@@ -2169,6 +2222,7 @@ function renderSelectedTabShell() {
         button.dataset.synthesisTab === state.snapshot?.selectedTab;
       button.classList.toggle("active", active);
     });
+  const renderState = captureWorkbenchRenderState(root);
   clear(topbar);
   topbar.appendChild(el("h1", "", titleForTab(state.snapshot.selectedTab)));
   if (state.snapshot.selectedTab === "reader" && state.topicDetail) {
@@ -2184,6 +2238,7 @@ function renderSelectedTabShell() {
   clear(main);
   if (state.standaloneExport) {
     renderStandaloneTopicExportShell(root, state.snapshot);
+    restoreWorkbenchRenderState(root, renderState);
     localizeWorkbenchDom(root);
     state.lastContentSignature = "";
     return;
@@ -2262,9 +2317,20 @@ function renderWorkbenchChrome() {
   if (!root || !state.snapshot) {
     return;
   }
+  let replaced = false;
+  const existingTopbar = root.querySelector(
+    ".topbar:not(.standalone-topic-export-header)",
+  );
+  if (existingTopbar && !state.standaloneExport) {
+    existingTopbar.replaceWith(renderTopbar(state.snapshot));
+    replaced = true;
+  }
   const existingStatusbar = root.querySelector(".action-statusbar");
   if (existingStatusbar) {
     existingStatusbar.replaceWith(renderActionStatusbar(state.snapshot));
+    replaced = true;
+  }
+  if (replaced) {
     localizeWorkbenchDom(root);
     return;
   }
@@ -2454,6 +2520,37 @@ function renderInsightCard(
   return card;
 }
 
+function openReviewCount(rows: Array<Record<string, unknown>> | undefined) {
+  return (rows || []).filter((row) => textValue(row.status) === "open").length;
+}
+
+function reviewSummaryForHome(snapshot: Snapshot) {
+  const summary = snapshot.reviews?.summary || {};
+  const indexFallback =
+    openReviewCount(snapshot.registry.cleanupProposals) +
+    openReviewCount(snapshot.registry.matchProposals);
+  const conceptFallback = openReviewCount(snapshot.concepts.reviewItems);
+  const topicGraphFallback = openReviewCount(snapshot.topicGraph.reviewItems);
+  const indexCount = Math.max(Number(summary.indexCount || 0), indexFallback);
+  const conceptCount = Math.max(
+    Number(summary.conceptCount || 0),
+    conceptFallback,
+  );
+  const topicGraphCount = Math.max(
+    Number(summary.topicGraphCount || 0),
+    topicGraphFallback,
+  );
+  return {
+    openCount: Math.max(
+      Number(summary.openCount || 0),
+      indexCount + conceptCount + topicGraphCount,
+    ),
+    indexCount,
+    conceptCount,
+    topicGraphCount,
+  };
+}
+
 function renderTopicCard(row: Record<string, unknown>) {
   const card = el("button", "topic-card");
   card.type = "button";
@@ -2560,17 +2657,22 @@ function renderHome(main: HTMLElement, snapshot: Snapshot) {
       `${snapshot.graph.visibleEdges.length} visible edges`,
     ),
   );
+  const reviewSummary = reviewSummaryForHome(snapshot);
   grid.appendChild(
     renderInsightCard(
-      "Sync",
-      snapshot.sync?.status || "ready",
-      `${snapshot.conflicts?.candidates?.length || 0} open conflicts`,
-      "orange",
+      t("synthesis-home-review-items"),
+      reviewSummary.openCount,
+      t("synthesis-home-review-items-detail", {
+        index: reviewSummary.indexCount,
+        concepts: reviewSummary.conceptCount,
+        topicGraph: reviewSummary.topicGraphCount,
+      }),
+      reviewSummary.openCount ? "orange" : "",
     ),
   );
   insights.appendChild(grid);
   shell.appendChild(insights);
-  shell.appendChild(renderGitSyncPanel(snapshot));
+  shell.appendChild(renderSyncPanel(snapshot));
 
   const topics = el("section", "workspace-section");
   const topicHeader = el("div", "section-heading");
@@ -2598,150 +2700,275 @@ function renderHome(main: HTMLElement, snapshot: Snapshot) {
   main.appendChild(shell);
 }
 
-function renderGitSyncPanel(snapshot: Snapshot) {
+function renderSyncPanel(snapshot: Snapshot) {
   const section = el("section", "workspace-section");
+  section.classList.add("sync-panel");
   const header = el("div", "section-heading");
-  header.appendChild(el("h2", "", "Sync"));
+  header.appendChild(el("h2", "", t("synthesis-home-sync")));
   section.appendChild(header);
-  const git = snapshot.sync?.git || {};
-  const grid = el("div", "insight-grid");
-  grid.appendChild(
-    renderInsightCard(
-      "Git exchange",
-      git.queue_state || "disabled",
-      git.paused ? "Paused" : "Canonical store exchange state",
-      git.queue_state === "blocked_conflict" ? "orange" : "teal",
-    ),
+  const webdav = snapshot.sync?.webdav || {};
+  const webDavSyncNowPending = isOperationPending("syncWebDavNow", {});
+  const webDavRetryPending = isOperationPending("retryWebDavSync", {});
+  const webDavSyncPending = webDavSyncNowPending || webDavRetryPending;
+  const summary = el("div", "sync-summary");
+  const appendSummaryItem = (label: string, value: string, detail = "") => {
+    const item = el("div", "sync-summary-item");
+    item.appendChild(el("span", "sync-summary-label", label));
+    item.appendChild(el("strong", "sync-summary-value", value));
+    if (detail) {
+      item.appendChild(el("span", "sync-summary-detail", detail));
+    }
+    summary.appendChild(item);
+  };
+  appendSummaryItem(
+    t("synthesis-sync-webdav-exchange"),
+    textValue(webdav.queue_state, "disabled"),
+    webdav.config_status
+      ? t("synthesis-sync-config", { status: webdav.config_status })
+      : webdav.paused
+        ? t("synthesis-sync-paused")
+        : t("synthesis-sync-webdav-exchange-detail"),
   );
-  grid.appendChild(
-    renderInsightCard(
-      "Remote",
-      git.remote_url || "Not configured",
-      git.branch ? `Branch ${git.branch}` : "Single remote branch",
-      "blue",
-    ),
+  appendSummaryItem(
+    t("synthesis-sync-remote"),
+    textValue(webdav.remote_path) || t("synthesis-sync-not-configured"),
+    textValue(webdav.base_url) || t("synthesis-sync-remote-detail"),
   );
-  grid.appendChild(
-    renderInsightCard(
-      "Last run",
-      git.last_run_status || "-",
-      git.last_run_at || "No sync run recorded",
-    ),
-  );
-  grid.appendChild(
-    renderInsightCard(
-      "Review items",
-      git.conflict_count || 0,
-      "Canonical assets waiting for conflict review",
-      "orange",
-    ),
-  );
-  section.appendChild(grid);
-  const actions = el("div", "toolbar");
-  const allowed = new Set(git.allowedActions || []);
-  actions.appendChild(
-    makeButton(
-      "Sync now",
-      "hostCommand",
-      { command: "syncNow" },
-      false,
-      !allowed.has("syncNow"),
-    ),
-  );
-  actions.appendChild(
-    makeButton(
-      git.paused ? "Resume" : "Pause",
-      "hostCommand",
-      { command: git.paused ? "resumeGitSync" : "pauseGitSync" },
-      false,
-      git.paused ? !allowed.has("resumeGitSync") : !allowed.has("pauseGitSync"),
-    ),
-  );
-  actions.appendChild(
-    makeButton(
-      "Retry",
-      "hostCommand",
-      { command: "retryGitSync" },
-      false,
-      !allowed.has("retryGitSync"),
-    ),
-  );
-  actions.appendChild(
-    makeButton(
-      "Mark reviewed",
-      "hostCommand",
-      {
-        command: "resolveGitSyncConflict",
-        args: { action: "resolved" },
-      },
-      false,
-      !allowed.has("resolveGitSyncConflict"),
-    ),
-  );
-  section.appendChild(actions);
-  const diagnostics = [
-    ...(snapshot.sync?.diagnostics || []),
-    ...(git.diagnostics || []),
-  ];
-  if (diagnostics.length) {
-    const list = el("div", "details");
-    diagnostics.slice(0, 4).forEach((entry) => {
-      list.appendChild(
-        el(
-          "div",
-          "muted",
-          `${textValue(entry.code)}: ${textValue(entry.message)}`,
-        ),
-      );
-    });
-    section.appendChild(list);
-  }
-  if (git.queue_state === "blocked_conflict" && git.conflict_assets?.length) {
-    const asset = git.conflict_assets[0];
-    section.appendChild(
-      renderReviewPanel(
-        renderReviewCard({
-          kind: "Sync review",
-          title: textValue(asset.asset_path, "Canonical asset conflict"),
-          meta:
-            git.conflict_assets.length > 1
-              ? `${git.conflict_assets.length - 1} more asset(s) waiting`
-              : "One asset waiting",
-          body: "This canonical asset changed in more than one place. Review the affected asset before allowing sync to continue.",
-          details: [
-            ["reason", asset.reason || "both_changed"],
-            ["queue state", git.queue_state],
-            ["remote", git.remote_url || "not configured"],
-            ["branch", git.branch || "-"],
-          ],
-          actions: [
-            makeButton(
-              "Mark reviewed",
-              "hostCommand",
-              {
-                command: "resolveGitSyncConflict",
-                args: { action: "resolved" },
-              },
-              false,
-              !allowed.has("resolveGitSyncConflict"),
-            ),
-            makeButton(
-              "Skip",
-              "hostCommand",
-              {
-                command: "resolveGitSyncConflict",
-                args: { action: "skip" },
-              },
-              false,
-              !allowed.has("resolveGitSyncConflict"),
-            ),
-          ],
-        }),
-        "sync-review-panel",
+  section.appendChild(summary);
+  const webDavActions = el("div", "toolbar");
+  const webDavAllowed = new Set(webdav.allowedActions || []);
+  if (!webdav.adapter_configured) {
+    webDavActions.appendChild(
+      makeButton(t("synthesis-action-open-preferences"), "hostCommand", {
+        command: "openPreferences",
+      }),
+    );
+  } else {
+    webDavActions.appendChild(
+      makeButton(
+        t("synthesis-action-webdav-sync-now"),
+        "hostCommand",
+        { command: "syncWebDavNow" },
+        false,
+        !webDavAllowed.has("syncWebDavNow"),
+      ),
+    );
+    webDavActions.appendChild(
+      makeButton(
+        webdav.paused
+          ? t("synthesis-action-resume-webdav-sync")
+          : t("synthesis-action-pause-webdav-sync"),
+        "hostCommand",
+        { command: webdav.paused ? "resumeWebDavSync" : "pauseWebDavSync" },
+        false,
+        webdav.paused
+          ? !webDavAllowed.has("resumeWebDavSync")
+          : !webDavAllowed.has("pauseWebDavSync"),
+      ),
+    );
+    webDavActions.appendChild(
+      makeButton(
+        t("synthesis-action-retry-webdav-sync"),
+        "hostCommand",
+        { command: "retryWebDavSync" },
+        false,
+        !webDavAllowed.has("retryWebDavSync"),
       ),
     );
   }
+  section.appendChild(webDavActions);
+  section.appendChild(
+    renderSyncFeedbackLog(snapshot, webdav, webDavSyncPending),
+  );
+  appendSyncConflictPanel(section, webdav, webDavAllowed);
   return section;
+}
+
+function renderSyncFeedbackLog(
+  snapshot: Snapshot,
+  webdav: SyncTransportSnapshot,
+  webDavSyncPending: boolean,
+) {
+  const log = el("div", "sync-feedback-terminal");
+  const appendLine = (
+    level: "info" | "ok" | "warn" | "error",
+    source: string,
+    message: string,
+  ) => {
+    const line = el("div", `sync-log-line sync-log-level-${level}`);
+    line.appendChild(el("span", "sync-log-source", source));
+    line.appendChild(el("span", "sync-log-message", message));
+    log.appendChild(line);
+  };
+
+  const syncOperations = [
+    "syncWebDavNow",
+    "retryWebDavSync",
+    "pauseWebDavSync",
+    "resumeWebDavSync",
+    "resolveWebDavSyncConflict",
+  ];
+  (snapshot.actions?.inFlight || [])
+    .filter((entry) => syncOperations.includes(entry.command || ""))
+    .forEach((entry) =>
+      appendLine(
+        "info",
+        t("synthesis-sync-log-pending"),
+        `${entry.label || entry.command} ${t("synthesis-sync-log-running")}`,
+      ),
+    );
+  if (webDavSyncPending && !(snapshot.actions?.inFlight || []).length) {
+    appendLine(
+      "info",
+      t("synthesis-sync-log-pending"),
+      t("synthesis-sync-log-webdav-running"),
+    );
+  }
+  const lastFailed = snapshot.actions?.lastFailed;
+  if (lastFailed && syncOperations.includes(lastFailed.command || "")) {
+    appendLine(
+      "error",
+      t("synthesis-sync-log-failed"),
+      `${lastFailed.label || lastFailed.command}: ${
+        lastFailed.message || t("synthesis-sync-log-failed")
+      }`,
+    );
+  }
+  const lastCompleted = snapshot.actions?.lastCompleted;
+  if (lastCompleted && syncOperations.includes(lastCompleted.command || "")) {
+    appendLine(
+      "ok",
+      t("synthesis-sync-log-completed"),
+      `${lastCompleted.label || lastCompleted.command} ${t(
+        "synthesis-sync-log-completed",
+      )}`,
+    );
+  }
+
+  const diagnostics = [
+    ...(snapshot.sync?.diagnostics || []),
+    ...(webdav.diagnostics || []),
+  ];
+  diagnostics.slice(0, 6).forEach((entry) => {
+    appendLine(
+      entry.severity === "error"
+        ? "error"
+        : entry.severity === "warning"
+          ? "warn"
+          : "info",
+      t("synthesis-sync-log-diagnostic"),
+      `${textValue(entry.code)}: ${textValue(entry.message)}`,
+    );
+  });
+
+  const connectionDiagnostics = webdav.connection_test?.diagnostics || [];
+  if (webdav.connection_test || connectionDiagnostics.length) {
+    appendLine(
+      webdav.connection_test?.ok ? "ok" : "warn",
+      t("synthesis-sync-log-connection"),
+      `${webdav.connection_test?.ok ? t("synthesis-sync-log-ready") : t("synthesis-sync-log-not-ready")} ${
+        webdav.connection_test?.tested_at || ""
+      }`.trim(),
+    );
+    connectionDiagnostics
+      .slice(0, 3)
+      .forEach((entry) =>
+        appendLine(
+          entry.severity === "error" ? "error" : "warn",
+          t("synthesis-sync-log-connection"),
+          `${textValue(entry.code)}: ${textValue(entry.message)}`,
+        ),
+      );
+  }
+
+  if (webdav.last_run_status || webdav.last_run_at) {
+    appendLine(
+      webdav.last_run_status?.startsWith("failed") ? "error" : "info",
+      t("synthesis-sync-log-last-run"),
+      `${
+        webdav.last_run_status || t("synthesis-sync-log-unknown")
+      } ${webdav.last_run_at || ""}`.trim(),
+    );
+  }
+  if (!log.childElementCount) {
+    appendLine(
+      "info",
+      t("synthesis-home-sync"),
+      t("synthesis-sync-log-no-activity"),
+    );
+  }
+  return log;
+}
+
+function appendSyncConflictPanel(
+  section: HTMLElement,
+  state: SyncTransportSnapshot,
+  actionSet: Set<string>,
+) {
+  if (
+    state.queue_state !== "blocked_conflict" ||
+    !state.conflict_assets?.length
+  ) {
+    return;
+  }
+  const asset = state.conflict_assets[0];
+  const conflictActions = new Set(state.conflictActions || []);
+  const command = "resolveWebDavSyncConflict";
+  const conflictButton = (label: string, action: string) =>
+    makeButton(
+      label,
+      "hostCommand",
+      {
+        command,
+        args: { action },
+      },
+      false,
+      !actionSet.has(command) || !conflictActions.has(action),
+    );
+  section.appendChild(
+    renderReviewPanel(
+      renderReviewCard({
+        kind: t("synthesis-sync-review"),
+        title: textValue(asset.asset_path, t("synthesis-sync-conflict-title")),
+        meta:
+          state.conflict_assets.length > 1
+            ? t("synthesis-sync-more-assets", {
+                count: String(state.conflict_assets.length - 1),
+              })
+            : t("synthesis-sync-one-asset"),
+        body: t("synthesis-sync-conflict-body-webdav"),
+        details: [
+          [t("synthesis-field-reason"), asset.reason || "both_changed"],
+          ["base", asset.base_hash || "-"],
+          ["local", asset.local_hash || "-"],
+          ["remote", asset.remote_hash || "-"],
+          [t("synthesis-field-queue-state"), state.queue_state],
+          [
+            t("synthesis-field-remote"),
+            state.base_url || t("synthesis-field-not-configured"),
+          ],
+          [t("synthesis-field-remote-path"), state.remote_path || "-"],
+        ],
+        actions: [
+          conflictButton(t("synthesis-action-keep-local"), "keep_local"),
+          conflictButton(
+            t("synthesis-action-save-remote-copy"),
+            "save_remote_copy",
+          ),
+          conflictButton(
+            t("synthesis-action-recheck-sync"),
+            "clear_after_manual_edit",
+          ),
+          conflictButton(t("synthesis-action-use-remote"), "use_remote"),
+          conflictButton(
+            t("synthesis-action-needs-attention"),
+            "mark_needs_attention",
+          ),
+        ],
+      }),
+      "sync-review-panel",
+    ),
+  );
 }
 
 function renderTopics(main: HTMLElement, snapshot: Snapshot) {
@@ -3196,10 +3423,10 @@ function renderTopicGraphCanvas(snapshot: Snapshot) {
 
   const legend = el("div", "topic-graph-legend");
   [
-    ["broader_than", "Hierarchy"],
-    ["related_to", "Related"],
-    ["overlaps_with", "Overlap"],
-    ["contrasts_with", "Contrast"],
+    ["broader_than", t("synthesis-topic-graph-legend-hierarchy")],
+    ["related_to", t("synthesis-topic-graph-legend-related")],
+    ["overlaps_with", t("synthesis-topic-graph-legend-overlap")],
+    ["contrasts_with", t("synthesis-topic-graph-legend-contrast")],
   ].forEach(([relation, label]) => {
     const item = el("span", `topic-graph-legend-item relation-${relation}`);
     item.appendChild(el("span", "topic-graph-legend-line"));
@@ -4052,6 +4279,18 @@ function buildReportOutline(markdownNode: HTMLElement) {
 }
 
 function renderMarkdown(markdown: string) {
+  const sharedRenderer = window.ZoteroSkillsMarkdownRenderer;
+  if (typeof sharedRenderer?.renderInto === "function") {
+    const body = el("article", "reader-body markdown-body");
+    sharedRenderer.renderInto(body, markdown, {
+      profile: "synthesis",
+      headingIdPrefix: "synthesis-markdown-heading",
+      afterRender: (root: HTMLElement) => {
+        renderMarkdownCircleShortcodes(root);
+      },
+    });
+    return applyConceptOverlay(body, state.snapshot);
+  }
   const parser = getMarkdownParser();
   if (!parser) {
     const pre = el("pre", "markdown-fallback");
@@ -4855,6 +5094,131 @@ function renderTopicOverviewSection(detail: TopicDetailDto) {
   return section;
 }
 
+const TAXONOMY_AXIS_MESSAGE_KEYS: Record<string, SynthesisWorkbenchMessageKey> =
+  {
+    problem_formulation: "synthesis-taxonomy-axis-problem-formulation",
+    technical_mechanism: "synthesis-taxonomy-axis-technical-mechanism",
+    evidence_scope: "synthesis-taxonomy-axis-evidence-scope",
+    research_route: "synthesis-taxonomy-axis-research-route",
+    application_context: "synthesis-taxonomy-axis-application-context",
+  };
+
+const TAXONOMY_AXIS_TONE_CLASSES = [
+  "axis-tone-blue",
+  "axis-tone-green",
+  "axis-tone-purple",
+  "axis-tone-orange",
+  "axis-tone-teal",
+];
+
+function taxonomyAxisLabel(axisType: string) {
+  const key = TAXONOMY_AXIS_MESSAGE_KEYS[axisType];
+  return key ? t(key) : axisType.replace(/_/g, " ");
+}
+
+function renderTaxonomyNodeCard(
+  detail: TopicDetailDto,
+  node: Record<string, unknown>,
+  index: number,
+) {
+  const card = el("article", "taxonomy-list-item");
+
+  const header = el("header", "taxonomy-item-header");
+  const titleWrap = el("div", "taxonomy-item-title");
+  titleWrap.appendChild(el("span", "claim-index", `T${index + 1}`));
+  titleWrap.appendChild(
+    elRawText(
+      "h3",
+      "",
+      firstText(
+        node,
+        ["title", "label", "name", "id"],
+        t("synthesis-taxonomy-node", { count: index + 1 }),
+      ),
+    ),
+  );
+  header.appendChild(titleWrap);
+
+  const maturity = firstText(node, ["maturity", "status", "development_stage"]);
+  if (maturity) header.appendChild(badge(maturity, "purple"));
+  card.appendChild(header);
+
+  const text = firstText(node, [
+    "description",
+    "summary",
+    "rationale",
+    "definition",
+  ]);
+  if (text) card.appendChild(elRawText("p", "taxonomy-item-desc", text));
+
+  const detailsWrap = el("div", "taxonomy-item-details");
+
+  const probMech = el("div", "taxonomy-detail-group");
+  const prob = firstText(node, ["core_problem", "problem", "target_problem"]);
+  if (prob) {
+    const pDiv = el("div", "taxonomy-detail-row");
+    pDiv.appendChild(el("span", "muted", t("synthesis-detail-problem")));
+    pDiv.appendChild(elRawText("strong", "", prob));
+    probMech.appendChild(pDiv);
+  }
+  const mech = firstText(node, [
+    "mechanism",
+    "technical_mechanism",
+    "core_mechanism",
+  ]);
+  if (mech) {
+    const mDiv = el("div", "taxonomy-detail-row");
+    mDiv.appendChild(el("span", "muted", t("synthesis-detail-mechanism")));
+    mDiv.appendChild(elRawText("strong", "", mech));
+    probMech.appendChild(mDiv);
+  }
+  if (probMech.childElementCount) detailsWrap.appendChild(probMech);
+
+  const prosCons = el("div", "taxonomy-detail-group pros-cons");
+  const strengths = stringArray(node.strengths || node.advantages);
+  if (strengths.length) {
+    const sDiv = el("div", "taxonomy-detail-row");
+    sDiv.appendChild(el("span", "muted", t("synthesis-detail-strengths")));
+    const sList = el("ul", "taxonomy-bullet-list");
+    strengths.forEach((st) =>
+      sList.appendChild(elRawText("li", "pro-item", st)),
+    );
+    sDiv.appendChild(sList);
+    prosCons.appendChild(sDiv);
+  }
+  const limits = stringArray(node.limitations || node.weaknesses);
+  if (limits.length) {
+    const lDiv = el("div", "taxonomy-detail-row");
+    lDiv.appendChild(el("span", "muted", t("synthesis-detail-limitations")));
+    const lList = el("ul", "taxonomy-bullet-list");
+    limits.forEach((lt) => lList.appendChild(elRawText("li", "con-item", lt)));
+    lDiv.appendChild(lList);
+    prosCons.appendChild(lDiv);
+  }
+  if (prosCons.childElementCount) detailsWrap.appendChild(prosCons);
+
+  if (detailsWrap.childElementCount) card.appendChild(detailsWrap);
+
+  const refs = node.source_paper_refs;
+  if (stringArray(refs).length) {
+    const foot = el("footer", "taxonomy-item-footer");
+    foot.appendChild(evidenceRefChips(detail, refs, "blue"));
+    card.appendChild(foot);
+  }
+  return card;
+}
+
+function renderTaxonomyNodeList(
+  detail: TopicDetailDto,
+  nodes: Record<string, unknown>[],
+) {
+  const list = el("div", "taxonomy-list");
+  nodes.forEach((node, index) => {
+    list.appendChild(renderTaxonomyNodeCard(detail, node, index));
+  });
+  return list;
+}
+
 function renderTopicTaxonomySection(detail: TopicDetailDto) {
   const section = el("div", "topic-section");
   section.appendChild(el("h2", "", t("synthesis-topic-tab-taxonomy")));
@@ -4869,130 +5233,90 @@ function renderTopicTaxonomySection(detail: TopicDetailDto) {
       ),
     );
   }
-  const axis = firstText(taxonomy, [
-    "primary_axis",
-    "axis",
-    "classification_axis",
-  ]);
-  const rationale = firstText(taxonomy, [
-    "axis_rationale",
-    "rationale",
-    "reason",
-  ]);
-  if (axis || rationale) {
-    const head = el("div", "taxonomy-head");
-    if (axis) head.appendChild(badge(axis, "blue"));
-    if (rationale) head.appendChild(renderParagraphs(rationale));
-    section.appendChild(
-      renderContentCard(t("synthesis-classification-axis"), head),
-    );
-  }
-  const nodes = recordArray(
-    taxonomy.nodes || taxonomy.categories || taxonomy.taxonomy_nodes,
-  );
-  if (nodes.length) {
-    const list = el("div", "taxonomy-list");
-    nodes.forEach((node, index) => {
-      const card = el("article", "taxonomy-list-item");
 
-      const header = el("header", "taxonomy-item-header");
-      const titleWrap = el("div", "taxonomy-item-title");
-      titleWrap.appendChild(el("span", "claim-index", `T${index + 1}`));
-      titleWrap.appendChild(
-        elRawText(
-          "h3",
-          "",
-          firstText(
-            node,
-            ["title", "label", "name", "id"],
-            t("synthesis-taxonomy-node", { count: index + 1 }),
-          ),
+  const axes = recordArray(taxonomy.axes);
+  if (axes.length) {
+    axes.forEach((axis, axisIndex) => {
+      const axisType = firstText(axis, ["axis_type", "type", "axis"]);
+      const nodes = recordArray(axis.nodes);
+      if (!axisType && !nodes.length) {
+        return;
+      }
+      const group = el(
+        "section",
+        `taxonomy-axis-group ${
+          TAXONOMY_AXIS_TONE_CLASSES[
+            axisIndex % TAXONOMY_AXIS_TONE_CLASSES.length
+          ]
+        }`,
+      );
+      const head = el("header", "taxonomy-axis-header");
+      head.appendChild(
+        el(
+          "span",
+          "taxonomy-axis-index",
+          String(axisIndex + 1).padStart(2, "0"),
         ),
       );
-      header.appendChild(titleWrap);
-
-      const maturity = firstText(node, [
-        "maturity",
-        "status",
-        "development_stage",
-      ]);
-      if (maturity) header.appendChild(badge(maturity, "purple"));
-      card.appendChild(header);
-
-      const text = firstText(node, [
-        "description",
-        "summary",
+      const heading = el("div", "taxonomy-axis-heading");
+      heading.appendChild(
+        el("span", "taxonomy-axis-kicker", t("synthesis-classification-axis")),
+      );
+      heading.appendChild(
+        elRawText(
+          "h3",
+          "taxonomy-axis-title",
+          axisType
+            ? taxonomyAxisLabel(axisType)
+            : `${t("synthesis-classification-axis")} ${axisIndex + 1}`,
+        ),
+      );
+      const rationale = firstText(axis, [
+        "axis_rationale",
         "rationale",
-        "definition",
+        "reason",
       ]);
-      if (text) card.appendChild(elRawText("p", "taxonomy-item-desc", text));
-
-      const detailsWrap = el("div", "taxonomy-item-details");
-
-      const probMech = el("div", "taxonomy-detail-group");
-      const prob = firstText(node, [
-        "core_problem",
-        "problem",
-        "target_problem",
-      ]);
-      if (prob) {
-        const pDiv = el("div", "taxonomy-detail-row");
-        pDiv.appendChild(el("span", "muted", t("synthesis-detail-problem")));
-        pDiv.appendChild(elRawText("strong", "", prob));
-        probMech.appendChild(pDiv);
-      }
-      const mech = firstText(node, [
-        "mechanism",
-        "technical_mechanism",
-        "core_mechanism",
-      ]);
-      if (mech) {
-        const mDiv = el("div", "taxonomy-detail-row");
-        mDiv.appendChild(el("span", "muted", t("synthesis-detail-mechanism")));
-        mDiv.appendChild(elRawText("strong", "", mech));
-        probMech.appendChild(mDiv);
-      }
-      if (probMech.childElementCount) detailsWrap.appendChild(probMech);
-
-      const prosCons = el("div", "taxonomy-detail-group pros-cons");
-      const strengths = stringArray(node.strengths || node.advantages);
-      if (strengths.length) {
-        const sDiv = el("div", "taxonomy-detail-row");
-        sDiv.appendChild(el("span", "muted", t("synthesis-detail-strengths")));
-        const sList = el("ul", "taxonomy-bullet-list");
-        strengths.forEach((st) =>
-          sList.appendChild(elRawText("li", "pro-item", st)),
+      if (rationale)
+        heading.appendChild(
+          elRawText("p", "taxonomy-axis-rationale", rationale),
         );
-        sDiv.appendChild(sList);
-        prosCons.appendChild(sDiv);
+      head.appendChild(heading);
+      group.appendChild(head);
+      if (nodes.length) {
+        const body = el("div", "taxonomy-axis-body");
+        body.appendChild(renderTaxonomyNodeList(detail, nodes));
+        group.appendChild(body);
       }
-      const limits = stringArray(node.limitations || node.weaknesses);
-      if (limits.length) {
-        const lDiv = el("div", "taxonomy-detail-row");
-        lDiv.appendChild(
-          el("span", "muted", t("synthesis-detail-limitations")),
-        );
-        const lList = el("ul", "taxonomy-bullet-list");
-        limits.forEach((lt) =>
-          lList.appendChild(elRawText("li", "con-item", lt)),
-        );
-        lDiv.appendChild(lList);
-        prosCons.appendChild(lDiv);
-      }
-      if (prosCons.childElementCount) detailsWrap.appendChild(prosCons);
-
-      if (detailsWrap.childElementCount) card.appendChild(detailsWrap);
-
-      const refs = node.source_paper_refs;
-      if (stringArray(refs).length) {
-        const foot = el("footer", "taxonomy-item-footer");
-        foot.appendChild(evidenceRefChips(detail, refs, "blue"));
-        card.appendChild(foot);
-      }
-      list.appendChild(card);
+      section.appendChild(group);
     });
-    section.appendChild(list);
   } else {
+    const axis = firstText(taxonomy, [
+      "primary_axis",
+      "axis",
+      "classification_axis",
+    ]);
+    const rationale = firstText(taxonomy, [
+      "axis_rationale",
+      "rationale",
+      "reason",
+    ]);
+    if (axis || rationale) {
+      const head = el("div", "taxonomy-head");
+      if (axis) head.appendChild(badge(axis, "blue"));
+      if (rationale) head.appendChild(renderParagraphs(rationale));
+      section.appendChild(
+        renderContentCard(t("synthesis-classification-axis"), head),
+      );
+    }
+    const nodes = recordArray(
+      taxonomy.nodes || taxonomy.categories || taxonomy.taxonomy_nodes,
+    );
+    if (nodes.length) {
+      section.appendChild(renderTaxonomyNodeList(detail, nodes));
+    }
+  }
+
+  if (section.childElementCount <= 1) {
     section.appendChild(
       renderEmptyStructuredState(t("synthesis-empty-taxonomy")),
     );
@@ -6162,26 +6486,6 @@ function numericYear(value: unknown) {
   return NaN;
 }
 
-type TimelineCluster = {
-  key: string;
-  label: string;
-  left: number;
-  items: TimelineItem[];
-};
-
-type PlacedTimelineItem = {
-  cluster: TimelineCluster;
-  item: TimelineItem;
-  left: number;
-};
-
-const TIMELINE_LABEL_COLLISION_GAP_PERCENT = 7;
-const TIMELINE_BASE_WIDTH_PX = 1080;
-const TIMELINE_YEAR_MIN_WIDTH_PX = 80;
-const TIMELINE_MARKER_MIN_WIDTH_PX = 34;
-const TIMELINE_RAIL_PADDING_PX = 80;
-const TIMELINE_EDGE_TOOLTIP_PERCENT = 7;
-
 type TimelineItem = {
   key: string;
   kind: "paper" | "event";
@@ -6201,111 +6505,6 @@ type TimelineItem = {
     | "external"
     | "warning";
 };
-
-type TimelineInterval = {
-  year: number;
-  count: number;
-  start: number;
-  end: number;
-};
-
-type TimelineLayout = {
-  minYear: number;
-  maxYear: number;
-  endYear: number;
-  widthPx: number;
-  intervals: TimelineInterval[];
-};
-
-function timelineYearCounts(items: TimelineItem[]): Map<number, number> {
-  const counts = new Map<number, number>();
-  items.forEach((item) => {
-    const year = item.year;
-    if (!Number.isFinite(year)) {
-      return;
-    }
-    const normalized = Math.floor(year);
-    counts.set(normalized, (counts.get(normalized) || 0) + 1);
-  });
-  return counts;
-}
-
-function timelineLayoutFromItems(
-  items: TimelineItem[],
-): TimelineLayout | undefined {
-  const counts = timelineYearCounts(items);
-  const years = Array.from(counts.keys()).sort((left, right) => left - right);
-  if (!years.length) return undefined;
-  const minYear = years[0];
-  const maxYear = years[years.length - 1];
-  const intervalYears: number[] = [];
-  for (let year = minYear; year <= maxYear; year += 1) {
-    intervalYears.push(year);
-  }
-  const weights = intervalYears.map((year) =>
-    Math.max(
-      TIMELINE_YEAR_MIN_WIDTH_PX,
-      Math.max(1, counts.get(year) || 0) * TIMELINE_MARKER_MIN_WIDTH_PX,
-    ),
-  );
-  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
-  const widthPx = Math.max(
-    TIMELINE_BASE_WIDTH_PX,
-    totalWeight + TIMELINE_RAIL_PADDING_PX,
-  );
-  let cursor = 0;
-  const intervals = intervalYears.map((year, index) => {
-    const start = cursor;
-    const width = (weights[index] / totalWeight) * 100;
-    cursor += width;
-    return {
-      year,
-      count: counts.get(year) || 0,
-      start,
-      end: index === intervalYears.length - 1 ? 100 : cursor,
-    };
-  });
-  return {
-    minYear,
-    maxYear,
-    endYear: maxYear + 1,
-    widthPx,
-    intervals,
-  };
-}
-
-function timelineAxisTicks(
-  layout: TimelineLayout | undefined,
-): { label: string; left: number }[] {
-  if (!layout) return [];
-  const ticks = layout.intervals.map((interval) => ({
-    label: String(interval.year),
-    left: interval.start,
-  }));
-  ticks.push({ label: String(layout.endYear), left: 100 });
-  return ticks;
-}
-
-function timelineIntervalForYear(
-  layout: TimelineLayout,
-  year: number,
-): TimelineInterval | undefined {
-  return layout.intervals.find(
-    (interval) => interval.year === Math.floor(year),
-  );
-}
-
-function timelinePaperLeft(
-  interval: TimelineInterval,
-  itemIndex: number,
-  total: number,
-) {
-  const count = Math.max(1, total);
-  return (
-    interval.start +
-    ((itemIndex + 1) * (interval.end - interval.start)) / (count + 1)
-  );
-}
 
 function evidenceYear(evidence: Record<string, unknown>) {
   const keys = [
@@ -6453,28 +6652,6 @@ function timelineTooltipLines(item: TimelineItem) {
     .filter(Boolean);
 }
 
-function timelineTooltipText(item: TimelineItem) {
-  return timelineTooltipLines(item).join("\n") || item.title;
-}
-
-function timelineDenseMarkerKeys(items: PlacedTimelineItem[]) {
-  const dense = new Set<string>();
-  const sorted = [...items]
-    .filter((item) => Number.isFinite(item.left))
-    .sort((left, right) => left.left - right.left);
-  sorted.forEach((item, index) => {
-    const prev = sorted[index - 1];
-    const next = sorted[index + 1];
-    if (
-      (prev && item.left - prev.left < TIMELINE_LABEL_COLLISION_GAP_PERCENT) ||
-      (next && next.left - item.left < TIMELINE_LABEL_COLLISION_GAP_PERCENT)
-    ) {
-      dense.add(item.item.key);
-    }
-  });
-  return dense;
-}
-
 function timelineItems(detail: TopicDetailDto) {
   const papers = evidenceRows(detail);
   return papers
@@ -6530,246 +6707,60 @@ function timelineEventGroups(detail: TopicDetailDto): TimelineItem[] {
     });
 }
 
-function renderTimelineEventPopover(item: TimelineItem) {
-  const popover = el(
-    "div",
-    "timeline-hover-popover timeline-milestone-popover",
-  );
-  const lines = timelineTooltipLines(item);
-  lines.forEach((line) => {
-    popover.appendChild(el("span", "timeline-milestone-row", line));
-  });
-  popover.title = lines.join("\n");
-  return popover;
-}
-
-function renderTimelinePaperPopover(item: TimelineItem) {
-  const popover = el("div", "timeline-hover-popover timeline-paper-popover");
-  popover.appendChild(el("span", "timeline-milestone-row", item.title));
-  popover.title = item.title;
-  return popover;
-}
-
-let activeTimelinePopover: HTMLElement | undefined;
-
-function hideTimelineTooltip() {
-  activeTimelinePopover?.remove();
-  activeTimelinePopover = undefined;
-}
-
-function showTimelineTooltip(anchor: HTMLElement, item: TimelineItem) {
-  hideTimelineTooltip();
-  const popover =
-    item.kind === "event"
-      ? renderTimelineEventPopover(item)
-      : renderTimelinePaperPopover(item);
-  const overlayRoot = document.body || document.documentElement;
-  if (!overlayRoot) {
-    return;
-  }
-  overlayRoot.appendChild(popover);
-  const anchorRect = anchor.getBoundingClientRect();
-  const popoverRect = popover.getBoundingClientRect();
-  const margin = 8;
-  const centeredLeft =
-    anchorRect.left + anchorRect.width / 2 - popoverRect.width / 2;
-  const maxLeft = Math.max(
-    margin,
-    window.innerWidth - popoverRect.width - margin,
-  );
-  const left = Math.min(Math.max(margin, centeredLeft), maxLeft);
-  let top = anchorRect.top - popoverRect.height - 10;
-  if (top < margin) {
-    top = anchorRect.bottom + 10;
-  }
-  popover.style.left = `${left}px`;
-  popover.style.top = `${Math.max(margin, top)}px`;
-  activeTimelinePopover = popover;
-}
-
-function renderTimelineClusters(items: TimelineItem[], layout: TimelineLayout) {
-  const byYear = new Map<string, TimelineItem[]>();
-  items.forEach((item) => {
-    const key = String(Math.floor(item.year));
-    const list = byYear.get(key) || [];
-    list.push(item);
-    byYear.set(key, list);
-  });
-  const clusters: TimelineCluster[] = Array.from(byYear.entries()).map(
-    ([key, clusterItems]) => {
-      const year = Number(key);
-      const interval = timelineIntervalForYear(layout, year);
-      return {
-        key,
-        label: "",
-        left: interval ? interval.start : 0,
-        items: clusterItems,
-      };
-    },
-  );
-  const fragment = document.createDocumentFragment();
-  const placedItems: PlacedTimelineItem[] = [];
-  clusters.forEach((cluster) => {
-    const year = Number(cluster.key);
-    const sortedItems = [...cluster.items].sort((left, right) =>
-      timelineItemSortKey(left).localeCompare(timelineItemSortKey(right)),
-    );
-    const interval = timelineIntervalForYear(layout, year);
-    if (!interval) return;
-    const paperItems = sortedItems.filter((item) => item.kind === "paper");
-    const eventItems = sortedItems.filter((item) => item.kind === "event");
-    paperItems.forEach((item, itemIndex) => {
-      const left = timelinePaperLeft(interval, itemIndex, paperItems.length);
-      placedItems.push({
-        cluster,
-        item,
-        left,
-      });
-    });
-    eventItems.forEach((item) => {
-      placedItems.push({
-        cluster,
-        item,
-        left: interval.end,
-      });
-    });
-  });
-  const denseTimelineMarkerKeys = timelineDenseMarkerKeys(placedItems);
-  placedItems.forEach((placedItem) => {
-    const { cluster, item, left } = placedItem;
-    const phase = el("section", "timeline-phase");
-    phase.style.left = `${left}%`;
-    const title = el("div", "phase-title");
-    if (cluster.label) {
-      title.appendChild(el("strong", "", cluster.label));
-    }
-    phase.appendChild(title);
-    const markerList = el("div", "marker-list");
-    const evidence = item.evidence;
-    const markerClasses = [
-      "timeline-marker",
-      `timeline-${item.kind}`,
-      `timeline-tone-${item.tone}`,
-    ];
-    if (left <= TIMELINE_EDGE_TOOLTIP_PERCENT) markerClasses.push("near-left");
-    if (left >= 100 - TIMELINE_EDGE_TOOLTIP_PERCENT)
-      markerClasses.push("near-right");
-    if (denseTimelineMarkerKeys.has(item.key)) markerClasses.push("too-dense");
-    if (evidence && evidenceId(evidence) === state.selectedEvidenceId)
-      markerClasses.push("selected");
-    const marker = el("button", markerClasses.join(" "));
-    marker.type = "button";
-    marker.style.left = "0";
-    marker.style.setProperty("--pin-scale", String(item.weight));
-    marker.title = timelineTooltipText(item);
-    marker.setAttribute("aria-label", marker.title);
-    const code = el("span", "timeline-code", item.label);
-    marker.appendChild(code);
-    const pin = el("span", "timeline-pin");
-    pin.appendChild(el("span", "timeline-pin-body"));
-    pin.appendChild(el("span", "timeline-pin-dot"));
-    marker.appendChild(pin);
-    marker.addEventListener("mouseenter", () =>
-      showTimelineTooltip(marker, item),
-    );
-    marker.addEventListener("focus", () => showTimelineTooltip(marker, item));
-    marker.addEventListener("mouseleave", hideTimelineTooltip);
-    marker.addEventListener("blur", hideTimelineTooltip);
-    if (evidence) {
-      marker.addEventListener("click", () => {
-        openEvidenceExplorer(evidenceId(evidence));
-      });
-    } else if (item.kind !== "event") {
-      marker.disabled = true;
-    }
-    markerList.appendChild(marker);
-    phase.appendChild(markerList);
-    fragment.appendChild(phase);
-  });
-  return fragment;
-}
-
 function renderTopicTimeline(detail: TopicDetailDto) {
   const paperItems = timelineItems(detail);
   const milestoneItems = timelineEventGroups(detail);
-  const layout = timelineLayoutFromItems(paperItems);
-  const items = [...paperItems, ...milestoneItems].filter((item) => {
-    if (!layout) return false;
-    return !!timelineIntervalForYear(layout, item.year);
-  });
-  items.sort((a, b) => {
-    const aFinite = Number.isFinite(a.year);
-    const bFinite = Number.isFinite(b.year);
-    if (aFinite && bFinite) return a.year - b.year;
-    if (aFinite) return -1;
-    if (bFinite) return 1;
-    return 0;
-  });
-  const rail = el("section", "topic-timeline");
-  const head = el("div", "timeline-head");
-  head.appendChild(el("strong", "", t("synthesis-timeline")));
-
-  // Legend
-  const legend = el("div", "timeline-legend");
-
-  const legEvent = el("div", "legend-item");
-  const dotEvent = el("span", "legend-icon legend-icon-event");
-  legEvent.appendChild(dotEvent);
-  legEvent.appendChild(
-    el("span", "legend-label", t("synthesis-timeline-key-milestones")),
-  );
-  legend.appendChild(legEvent);
-
-  const legPaper = el("div", "legend-item");
-  const dotPaper = el("span", "legend-icon legend-icon-paper");
-  legPaper.appendChild(dotPaper);
-  legPaper.appendChild(
-    el("span", "legend-label", t("synthesis-timeline-literature-papers")),
-  );
-  legend.appendChild(legPaper);
-
-  head.appendChild(legend);
-  rail.appendChild(head);
-
   const summaryText = firstText(topicTimelineSummary(detail), [
     "text",
     "analysis",
     "overview",
   ]);
-  if (summaryText) {
-    const summBlock = el("div", "timeline-summary");
-    summBlock.appendChild(renderParagraphs(summaryText));
-    rail.appendChild(summBlock);
-  }
-
-  if (!layout || !paperItems.length) {
-    rail.appendChild(
-      renderEmptyStructuredState(t("synthesis-timeline-empty-dated-papers")),
-    );
-    return rail;
-  }
-
-  const scroll = el("div", "timeline-scroll");
-  scroll.addEventListener("scroll", hideTimelineTooltip);
-  const timeline = el("div", "horizontal-timeline");
-  timeline.style.width = `${layout.widthPx}px`;
-  const trackInner = el("div", "timeline-inner-rail");
-
-  const axis = el("div", "time-axis");
-  const ticks = timelineAxisTicks(layout);
-  ticks.forEach((tick) => {
-    const stepEl = el("span", "", tick.label);
-    stepEl.style.position = "absolute";
-    stepEl.style.left = `${tick.left}%`;
-    stepEl.style.transform = "translateX(-50%)";
-    axis.appendChild(stepEl);
+  const timelineData: TopicTimelineData = {
+    summary: summaryText,
+    papers: paperItems.map((item) => ({
+      key: item.key,
+      year: item.year,
+      label: item.label,
+      title: item.title,
+      order: item.order,
+      weight: item.weight,
+      tone: item.tone,
+      evidence: item.evidence,
+      evidenceId: item.evidence ? evidenceId(item.evidence) : "",
+      paperRef: firstText(item.evidence || {}, ["paper_ref", "paperRef", "id"]),
+      itemKey: firstText(item.evidence || {}, ["item_key", "itemKey"]),
+      sortKey: timelineItemSortKey(item),
+    })),
+    events: milestoneItems.map((item) => ({
+      key: item.key,
+      year: item.year,
+      label: item.label,
+      title: item.title,
+      order: item.order,
+      weight: item.weight,
+      tone: item.tone,
+      event: item.event,
+      descriptions: timelineTooltipLines(item),
+      sortKey: timelineItemSortKey(item),
+    })),
+  };
+  return renderSharedTopicTimeline(timelineData, {
+    labels: {
+      title: t("synthesis-timeline"),
+      milestones: t("synthesis-timeline-key-milestones"),
+      papers: t("synthesis-timeline-literature-papers"),
+      empty: t("synthesis-timeline-empty-dated-papers"),
+    },
+    selectedEvidenceId: state.selectedEvidenceId,
+    renderSummary: renderParagraphs,
+    renderEmpty: renderEmptyStructuredState,
+    onPaperClick: (paper) => {
+      if (!paper.evidence) return;
+      openEvidenceExplorer(evidenceId(paper.evidence));
+    },
+    canClickPaper: (paper) => Boolean(paper.evidence),
+    disableUnclickablePapers: true,
   });
-  trackInner.appendChild(axis);
-  trackInner.appendChild(renderTimelineClusters(items, layout));
-  timeline.appendChild(trackInner);
-  scroll.appendChild(timeline);
-  rail.appendChild(scroll);
-  return rail;
 }
 
 function renderTopicDetailToolbar(detail: TopicDetailDto, snapshot: Snapshot) {
@@ -7983,6 +7974,94 @@ function renderReferenceMatchReviewCard(
   });
 }
 
+function isCanonicalRevisionProposal(proposal: Record<string, unknown>) {
+  return (
+    textValue(proposal.review_kind || proposal.kind) === "canonical_revision"
+  );
+}
+
+function canonicalRevisionReviewContext(proposal: Record<string, unknown>) {
+  const sourceTitle =
+    textValue(proposal.reference_title) ||
+    textValue(proposal.source_paper_title) ||
+    textValue(proposal.source_paper_ref, "Canonical reference");
+  const targetTitle =
+    textValue(proposal.target_paper_title) ||
+    textValue(proposal.target_work_title) ||
+    textValue(proposal.target_paper_ref) ||
+    t("synthesis-review-canonical-no-successor");
+  return {
+    sourceTitle,
+    targetTitle,
+    reason:
+      textValue(proposal.reason) ||
+      textValue(proposal.decision_summary) ||
+      t("synthesis-review-canonical-revision-body"),
+  };
+}
+
+function canonicalRevisionReviewActionButtons(
+  proposal: Record<string, unknown>,
+) {
+  const reviewItemId = textValue(proposal.proposal_id);
+  if (
+    !reviewItemId ||
+    textValue(proposal.status, "open") !== "open" ||
+    isReviewOptimisticallyResolved("canonical-revision", reviewItemId)
+  ) {
+    return [];
+  }
+  return [
+    makeButton(t("synthesis-action-accept"), "hostCommand", {
+      command: "applyCanonicalRevisionReviewAction",
+      args: { reviewItemId, action: "accept" },
+    }),
+    makeButton(t("synthesis-action-reject"), "hostCommand", {
+      command: "applyCanonicalRevisionReviewAction",
+      args: { reviewItemId, action: "reject" },
+    }),
+  ];
+}
+
+function renderCanonicalRevisionReviewActions(
+  proposal: Record<string, unknown>,
+) {
+  const actions = el("div", "review-table-actions");
+  const buttons = canonicalRevisionReviewActionButtons(proposal);
+  if (buttons.length) {
+    buttons.forEach((button) => actions.appendChild(button));
+  } else {
+    actions.appendChild(
+      el("span", "muted", t("synthesis-review-managed-by-canonical")),
+    );
+  }
+  return actions;
+}
+
+function renderCanonicalRevisionReviewCard(proposal: Record<string, unknown>) {
+  const context = canonicalRevisionReviewContext(proposal);
+  return renderReviewCard({
+    kind: enumLabel("kind", "canonical_revision"),
+    title: t("synthesis-review-canonical-revision-title"),
+    showKindBadge: false,
+    body: context.reason,
+    details: [
+      ["kind", proposal.review_kind || proposal.kind],
+      ["status", proposal.status],
+      ["blocked by", proposal.blocked_by_review_item_id],
+      ["diagnostics", proposal.diagnostics],
+      ["proposal id", proposal.proposal_id],
+    ],
+    primaryChildren: [
+      renderReferenceMatchDecisionSummary({
+        source: context.sourceTitle,
+        target: context.targetTitle,
+      }),
+    ],
+    actions: canonicalRevisionReviewActionButtons(proposal),
+  });
+}
+
 function renderCleanupReviewCard(proposal: Record<string, unknown>) {
   const reviewKind = textValue(proposal.review_kind || proposal.kind);
   const isDeleteReview = reviewKind === "zotero_item_delete";
@@ -8110,7 +8189,9 @@ function renderIndexReviewDrawer(snapshot: Snapshot) {
   drawer.appendChild(
     item.type === "reference_match"
       ? renderReferenceMatchReviewCard(snapshot, item.proposal, lookup!)
-      : renderCleanupReviewCard(item.proposal),
+      : isCanonicalRevisionProposal(item.proposal)
+        ? renderCanonicalRevisionReviewCard(item.proposal)
+        : renderCleanupReviewCard(item.proposal),
   );
   return drawer;
 }
@@ -10007,6 +10088,14 @@ function renderReviewCenterToolbar(snapshot: Snapshot) {
               "canonical_merge",
             ),
           ],
+          [
+            "canonical_revision",
+            filterOptionLabel(
+              "synthesis-filter-kind",
+              "kind",
+              "canonical_revision",
+            ),
+          ],
         ],
         textValue(filters.kind, "all"),
         (kind) => sendAction("setFilters", { reviews: { kind } }),
@@ -10871,42 +10960,18 @@ function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
       proposal.updated_at,
       "review-cell-center review-updated-cell",
     );
-    if (
-      textValue(proposal.review_kind || proposal.kind) ===
-        "canonical_revision" &&
-      textValue(proposal.status, "open") === "open" &&
-      !isReviewOptimisticallyResolved(
-        "canonical-revision",
-        proposal.proposal_id,
-      )
-    ) {
-      const actions = el("div", "review-table-actions");
-      actions.appendChild(
-        makeButton("Accept", "hostCommand", {
-          command: "applyCanonicalRevisionReviewAction",
-          args: { reviewItemId: proposal.proposal_id, action: "accept" },
-        }),
+    if (isCanonicalRevisionProposal(proposal)) {
+      appendReviewTableCell(
+        row,
+        renderCanonicalRevisionReviewActions(proposal),
+        "review-action-cell",
       );
-      actions.appendChild(
-        makeButton("Reject", "hostCommand", {
-          command: "applyCanonicalRevisionReviewAction",
-          args: { reviewItemId: proposal.proposal_id, action: "reject" },
-        }),
-      );
-      appendReviewTableCell(row, actions, "review-action-cell");
       tbody.appendChild(row);
       return;
     }
     appendReviewTableCell(
       row,
-      el(
-        "span",
-        "muted",
-        textValue(proposal.review_kind || proposal.kind) ===
-          "canonical_revision"
-          ? "Managed by Canonical Revision"
-          : "Managed in Index Review",
-      ),
+      el("span", "muted", t("synthesis-review-managed-in-index")),
       "review-action-cell",
     );
     tbody.appendChild(row);
@@ -10919,9 +10984,11 @@ function renderReferenceMatchingReviewTable(snapshot: Snapshot) {
 function cleanupProposalRowsForIndexReview(snapshot: Snapshot) {
   const filters = reviewFilters(snapshot);
   const status = textValue(filters.status, "open");
+  const kind = textValue(filters.kind, "all");
   const query = textValue(filters.search);
   return (snapshot.registry.cleanupProposals || []).filter(
     (row) =>
+      (kind === "all" || textValue(row.review_kind || row.kind) === kind) &&
       reviewStatusMatches(row.status, status) &&
       reviewSearchMatches(
         [
@@ -10932,6 +10999,7 @@ function cleanupProposalRowsForIndexReview(snapshot: Snapshot) {
           row.target_paper_title,
           row.reason,
           row.kind,
+          row.review_kind,
         ],
         query,
       ),
@@ -11580,6 +11648,17 @@ function renderTagsTable(args: {
   return wrap;
 }
 
+function renderTagBootstrapperEmptyState() {
+  return renderEmptyState({
+    title: t("synthesis-tags-empty"),
+    message: t("synthesis-tags-empty-message"),
+    action: makeButton(t("synthesis-action-bootstrap-tags"), "hostCommand", {
+      command: "runTagBootstrapper",
+    }),
+    tone: "info",
+  });
+}
+
 function expandedRowKey(kind: string, tag: unknown) {
   return `${kind}:${textValue(tag)}`;
 }
@@ -12001,15 +12080,13 @@ function renderVocabularySubview(snapshot: Snapshot) {
         }
         return details;
       },
-      emptyState: renderEmptyState({
-        title: snapshot.tags.rows.length
-          ? t("synthesis-tags-empty-filtered")
-          : t("synthesis-tags-empty"),
-        message: snapshot.tags.rows.length
-          ? t("synthesis-tags-empty-filtered-message")
-          : t("synthesis-tags-empty-message"),
-        tone: snapshot.tags.rows.length ? "default" : "info",
-      }),
+      emptyState: snapshot.tags.rows.length
+        ? renderEmptyState({
+            title: t("synthesis-tags-empty-filtered"),
+            message: t("synthesis-tags-empty-filtered-message"),
+            tone: "default",
+          })
+        : renderTagBootstrapperEmptyState(),
     }),
   );
   const tagImportPanel = renderTagImportPanel(snapshot);
@@ -13079,6 +13156,9 @@ function selectedGraphTopicTitle(snapshot: Snapshot) {
 }
 
 function graphScopeLabel(snapshot: Snapshot) {
+  if (state.standaloneGraphOnly && state.standaloneGraphScopeLabel) {
+    return state.standaloneGraphScopeLabel;
+  }
   const selectedTopicTitle = selectedGraphTopicTitle(snapshot);
   if (selectedTopicTitle) {
     return t("synthesis-graph-scope-topic", {
@@ -13124,7 +13204,12 @@ function graphDiagnosticSummary(
 }
 
 function renderCitationGraphLegend() {
-  const legend = el("div", "citation-graph-legend");
+  const legend = el(
+    "div",
+    state.standaloneGraphOnly
+      ? "citation-graph-legend citation-graph-legend-horizontal"
+      : "citation-graph-legend",
+  );
   legend.setAttribute("aria-label", t("synthesis-graph-legend"));
   legend.appendChild(el("strong", "", t("synthesis-graph-legend-direction")));
   const rows: Array<[string, string]> = [
@@ -13159,11 +13244,27 @@ function renderCitationGraphLegend() {
   haloRow.appendChild(haloSwatch);
   haloRow.appendChild(el("span", "", t("synthesis-graph-legend-halo")));
   legend.appendChild(haloRow);
+  if (state.standaloneGraphOnly) {
+    const focusRow = el("div", "citation-graph-legend-row");
+    const focusSwatch = el("span", "citation-graph-legend-node-size");
+    focusSwatch.appendChild(
+      el("span", "citation-graph-legend-node is-large is-current-paper"),
+    );
+    focusRow.appendChild(focusSwatch);
+    focusRow.appendChild(
+      el("span", "", t("synthesis-graph-legend-current-paper")),
+    );
+    legend.appendChild(focusRow);
+  }
   return legend;
 }
 
 function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   const shell = el("div", "graph-shell");
+  if (state.standaloneGraphOnly) {
+    shell.classList.add("graph-shell-standalone-only");
+    shell.appendChild(renderCitationGraphLegend());
+  }
   const stage = el("div", "graph-stage");
   const canvas = el("div", "sigma-stage");
   stage.appendChild(canvas);
@@ -13171,75 +13272,80 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   stage.appendChild(el("div", "graph-scope-badge", graphScopeLabel(snapshot)));
   shell.appendChild(stage);
 
-  const detail = el("aside", "panel details graph-control-drawer");
-  detail.tabIndex = 0;
-  detail.setAttribute("aria-label", t("synthesis-graph-controls"));
-  const header = el("div", "panel-header");
-  const controlIcon = el("span", "graph-control-icon");
-  controlIcon.appendChild(iconSvg("controls"));
-  header.appendChild(controlIcon);
-  header.appendChild(
-    el("strong", "graph-control-title", t("synthesis-graph-controls")),
-  );
-  detail.appendChild(header);
-  const controls = el("div", "details");
-  controls.dataset.synthesisScrollKey = "graph.controls";
-  controls.appendChild(
-    state.standaloneExport
-      ? renderStandaloneGraphControls(snapshot)
-      : renderGraphControls(snapshot),
-  );
   const selectedTopicTitle = selectedGraphTopicTitle(snapshot);
-  if (
-    !state.standaloneExport &&
-    state.graphReturnTopicId &&
-    snapshot.graph.filters.topicId === state.graphReturnTopicId
-  ) {
+  if (!state.standaloneGraphOnly) {
+    const detail = el("aside", "panel details graph-control-drawer");
+    detail.tabIndex = 0;
+    detail.setAttribute("aria-label", t("synthesis-graph-controls"));
+    const header = el("div", "panel-header");
+    const controlIcon = el("span", "graph-control-icon");
+    controlIcon.appendChild(iconEl("zs-icon-tune"));
+    header.appendChild(controlIcon);
+    header.appendChild(
+      el("strong", "graph-control-title", t("synthesis-graph-controls")),
+    );
+    detail.appendChild(header);
+    const controls = el("div", "details");
+    controls.dataset.synthesisScrollKey = "graph.controls";
     controls.appendChild(
-      makeLocalButton(t("synthesis-action-back-to-topic-details"), () =>
-        sendAction("backToTopicDetail", {
-          topicId: state.graphReturnTopicId,
+      state.standaloneExport
+        ? renderStandaloneGraphControls(snapshot)
+        : renderGraphControls(snapshot),
+    );
+    if (
+      !state.standaloneExport &&
+      state.graphReturnTopicId &&
+      snapshot.graph.filters.topicId === state.graphReturnTopicId
+    ) {
+      controls.appendChild(
+        makeLocalButton(t("synthesis-action-back-to-topic-details"), () =>
+          sendAction("backToTopicDetail", {
+            topicId: state.graphReturnTopicId,
+          }),
+        ),
+      );
+    }
+    controls.appendChild(
+      el(
+        "p",
+        "muted",
+        t("synthesis-graph-shown-count", {
+          nodes: snapshot.graph.visibleNodes.length,
+          edges: snapshot.graph.visibleEdges.length,
         }),
       ),
     );
+    const libraryCount = Number(
+      snapshot.graph.diagnostics.library_node_count || 0,
+    );
+    const sharedExternalCount = Number(
+      snapshot.graph.diagnostics.shared_external_count || 0,
+    );
+    const hoverOnlyExternalCount = Number(
+      snapshot.graph.diagnostics.hover_only_external_count ||
+        snapshot.graph.hoverOnlyNodes.length ||
+        0,
+    );
+    controls.appendChild(
+      el(
+        "p",
+        "muted",
+        t("synthesis-graph-node-counts", {
+          library: libraryCount,
+          shared: sharedExternalCount,
+          hoverOnly: hoverOnlyExternalCount,
+        }),
+      ),
+    );
+    detail.appendChild(controls);
+    shell.appendChild(detail);
   }
-  controls.appendChild(
-    el(
-      "p",
-      "muted",
-      t("synthesis-graph-shown-count", {
-        nodes: snapshot.graph.visibleNodes.length,
-        edges: snapshot.graph.visibleEdges.length,
-      }),
-    ),
-  );
-  const libraryCount = Number(
-    snapshot.graph.diagnostics.library_node_count || 0,
-  );
-  const sharedExternalCount = Number(
-    snapshot.graph.diagnostics.shared_external_count || 0,
-  );
-  const hoverOnlyExternalCount = Number(
-    snapshot.graph.diagnostics.hover_only_external_count ||
-      snapshot.graph.hoverOnlyNodes.length ||
-      0,
-  );
-  controls.appendChild(
-    el(
-      "p",
-      "muted",
-      t("synthesis-graph-node-counts", {
-        library: libraryCount,
-        shared: sharedExternalCount,
-        hoverOnly: hoverOnlyExternalCount,
-      }),
-    ),
-  );
-  detail.appendChild(controls);
-  shell.appendChild(detail);
 
   if (snapshot.graph.selectedElement) {
     const selection = el("aside", "panel details graph-selection-drawer");
+    if (state.standaloneGraphOnly) {
+      selection.classList.add("graph-selection-drawer-compact");
+    }
     selection.tabIndex = 0;
     selection.setAttribute("aria-label", t("synthesis-graph-selection"));
     const selectionHeader = el("div", "panel-header");
@@ -13370,7 +13476,9 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     stage.appendChild(pending);
     return;
   }
-  stage.appendChild(renderCitationGraphLegend());
+  if (!state.standaloneGraphOnly) {
+    stage.appendChild(renderCitationGraphLegend());
+  }
   renderSigmaGraph(canvas, snapshot);
 }
 
@@ -13805,7 +13913,19 @@ function makeGraphIncrementalRefreshButton(snapshot: Snapshot) {
   return button;
 }
 
+function isCurrentPaperGraphNode(node: GraphNode) {
+  return Boolean(
+    node.is_focus ||
+    node.focus_role === "current_paper" ||
+    (state.standaloneGraphFocusNodeId &&
+      node.id === state.standaloneGraphFocusNodeId),
+  );
+}
+
 function graphNodeColor(node: GraphNode) {
+  if (isCurrentPaperGraphNode(node)) {
+    return "#dc2626";
+  }
   if (node.display_tier === "single_external") {
     return "#b6bd74";
   }
@@ -13813,6 +13933,9 @@ function graphNodeColor(node: GraphNode) {
 }
 
 function graphNodeImportanceColor(node: GraphNode) {
+  if (isCurrentPaperGraphNode(node)) {
+    return "#ef4444";
+  }
   if (node.kind === "library_paper") {
     return "#2f7df6";
   }
@@ -13849,14 +13972,20 @@ function graphNodeSizeCap(node: GraphNode) {
 
 function graphNodeSize(node: GraphNode, importance?: GraphNodeImportance) {
   const base = graphNodeBaseSize(node);
+  const multiplier = isCurrentPaperGraphNode(node) ? 1.5 : 1;
   if (!importance || importance.incomingDegree <= 0) {
-    return base;
+    return base * multiplier;
   }
   const cap = graphNodeSizeCap(node);
-  return Math.min(cap, base + (cap - base) * importance.percentile);
+  return (
+    Math.min(cap, base + (cap - base) * importance.percentile) * multiplier
+  );
 }
 
 function graphNodeZIndex(node: GraphNode, importance?: GraphNodeImportance) {
+  if (isCurrentPaperGraphNode(node)) {
+    return 18;
+  }
   const importanceZIndex = importance?.halo ? 8 : 0;
   if (node.kind === "library_paper") {
     return Math.max(4, importanceZIndex);
@@ -13956,24 +14085,34 @@ function drawGraphImportanceHalo(
     size: number;
     kind?: unknown;
     importanceHalo?: unknown;
+    currentPaperNode?: unknown;
   },
 ) {
   const dark = graphUsesDarkTheme();
   const libraryNode = data.kind === "library_paper";
-  const strong = libraryNode
+  const currentPaperNode = Boolean(data.currentPaperNode);
+  const strong = currentPaperNode
     ? dark
-      ? GRAPH_LIBRARY_IMPORTANCE_HALO_DARK
-      : GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT
-    : dark
-      ? GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK
-      : GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT;
-  const soft = libraryNode
+      ? "rgba(248, 113, 113, 0.88)"
+      : "rgba(220, 38, 38, 0.62)"
+    : libraryNode
+      ? dark
+        ? GRAPH_LIBRARY_IMPORTANCE_HALO_DARK
+        : GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT
+      : dark
+        ? GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK
+        : GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT;
+  const soft = currentPaperNode
     ? dark
-      ? GRAPH_LIBRARY_IMPORTANCE_HALO_DARK_SOFT
-      : GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT
-    : dark
-      ? GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK_SOFT
-      : GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT;
+      ? "rgba(248, 113, 113, 0.32)"
+      : "rgba(220, 38, 38, 0.2)"
+    : libraryNode
+      ? dark
+        ? GRAPH_LIBRARY_IMPORTANCE_HALO_DARK_SOFT
+        : GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT
+      : dark
+        ? GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK_SOFT
+        : GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT;
   const radius = Math.max(5, Number(data.size || 1)) + 3;
   context.save();
   context.lineCap = "round";
@@ -14004,6 +14143,7 @@ function drawGraphNodeHover(
         size: number;
         kind?: unknown;
         importanceHalo?: unknown;
+        currentPaperNode?: unknown;
       },
     );
     return;
@@ -14079,19 +14219,22 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   );
   for (const node of snapshot.graph.visibleNodes) {
     const importance = importanceByNodeId.get(node.id);
+    const currentPaperNode = isCurrentPaperGraphNode(node);
     graph.addNode(node.id, {
       title: node.label,
       label: "",
       x: typeof node.x === "number" ? node.x : 0,
       y: typeof node.y === "number" ? node.y : 0,
       size: graphNodeSize(node, importance),
-      color: importance?.halo
-        ? graphNodeImportanceColor(node)
-        : graphNodeColor(node),
+      color:
+        importance?.halo || currentPaperNode
+          ? graphNodeImportanceColor(node)
+          : graphNodeColor(node),
       zIndex: graphNodeZIndex(node, importance),
-      highlighted: importance?.halo || false,
-      importanceHalo: importance?.halo || false,
+      highlighted: importance?.halo || currentPaperNode || false,
+      importanceHalo: importance?.halo || currentPaperNode || false,
       importanceInteractive: false,
+      currentPaperNode,
       incomingDegree: importance?.incomingDegree || 0,
       kind: node.kind,
       visibility: node.visibility || "default",
@@ -14130,11 +14273,16 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       const query = currentGraphSearchQuery(snapshot);
       const searchActive = !!query.trim();
       const searchMatch = graphNodeMatchesSearchText(data.searchable, query);
+      const currentPaperNode = Boolean(data.currentPaperNode);
       if (!state.hoveredNode || !graph.hasNode(state.hoveredNode)) {
         if (!searchActive) return data;
         return {
           ...data,
-          color: searchMatch ? "#0ea5e9" : "#d3d8de",
+          color: searchMatch
+            ? "#0ea5e9"
+            : currentPaperNode
+              ? data.color
+              : "#d3d8de",
           size: searchMatch
             ? Math.max(
                 Number(data.size || 1) * 1.35,
@@ -14144,7 +14292,9 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
           zIndex: searchMatch
             ? Math.max(30, Number(data.zIndex || 0))
             : Number(data.zIndex || 0),
-          highlighted: Boolean(data.importanceHalo && searchMatch),
+          highlighted: Boolean(
+            currentPaperNode || (data.importanceHalo && searchMatch),
+          ),
           importanceInteractive: false,
           label: searchMatch ? data.title : "",
         };
@@ -14163,7 +14313,11 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
           (data.kind === "library_paper" || data.visibility === "hover_only"));
       return {
         ...data,
-        color: searchMatch ? "#0ea5e9" : neighbor ? data.color : "#d3d8de",
+        color: searchMatch
+          ? "#0ea5e9"
+          : neighbor || currentPaperNode
+            ? data.color
+            : "#d3d8de",
         size: searchMatch
           ? Math.max(Number(data.size || 1) * 1.35, Number(data.size || 1) + 1)
           : neighbor || data.visibility !== "hover_only"
@@ -14174,7 +14328,10 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
           : neighbor
             ? Math.max(10, Number(data.zIndex || 0))
             : Number(data.zIndex || 0),
-        highlighted: Boolean(data.importanceHalo && (searchMatch || neighbor)),
+        highlighted: Boolean(
+          currentPaperNode ||
+          (data.importanceHalo && (searchMatch || neighbor)),
+        ),
         importanceInteractive: activeHaloNode,
         label: showHoverLabel ? data.title : "",
       };
@@ -14317,38 +14474,48 @@ function renderSelectedDetail(snapshot: Snapshot) {
       ["title", node?.label || selected.id],
       ["type", node?.kind || selected.kind],
       ["year", node?.year || "-"],
-      [
+      ["authors", node?.authors?.length ? node.authors.join("; ") : "-"],
+      ["signal", node?.low_signal ? "low" : "normal"],
+    ];
+    if (!state.standaloneGraphOnly) {
+      fields.splice(4, 0, [
         "incoming citations",
         node ? graphNodeIncomingDegree(node, incomingDegrees) : "-",
-      ],
-      ["signal", node?.low_signal ? "low" : "normal"],
-      ["id", selected.id],
-    ];
+      ]);
+    }
+    if (!state.standaloneExport) {
+      fields.push(["id", selected.id]);
+    }
     wrap.appendChild(renderDetailList(fields));
-    if (!state.standaloneExport && node?.kind === "library_paper") {
-      wrap.appendChild(
-        makeButton(t("synthesis-action-open-zotero-item"), "hostCommand", {
-          command: "openZoteroItem",
-          args: { nodeId: node.id, libraryId: snapshot.libraryId },
-        }),
-      );
-      wrap.appendChild(renderSelectedNodeCitations(snapshot, node));
+    if (node?.kind === "library_paper") {
+      if (!state.standaloneExport) {
+        wrap.appendChild(
+          makeButton(t("synthesis-action-open-zotero-item"), "hostCommand", {
+            command: "openZoteroItem",
+            args: { nodeId: node.id, libraryId: snapshot.libraryId },
+          }),
+        );
+      }
+      if (!state.standaloneGraphOnly) {
+        wrap.classList.add("has-citation-list");
+        wrap.appendChild(renderSelectedNodeCitations(snapshot, node));
+      }
     }
     return wrap;
   }
   const edge = graphEdgeById(snapshot).get(selected.id);
-  wrap.appendChild(
-    renderDetailList([
-      [
-        "role",
-        edge?.primary_role ? graphEdgeRoleLabel(edge.primary_role) : "-",
-      ],
-      ["source", edge?.source || "-"],
-      ["target", edge?.target || "-"],
-      ["mentions", edge?.mention_count || 0],
-      ["id", selected.id],
-    ]),
-  );
+  const edgeFields: Array<[string, unknown]> = [
+    ["role", edge?.primary_role ? graphEdgeRoleLabel(edge.primary_role) : "-"],
+    ["source", edge?.source || "-"],
+    ["target", edge?.target || "-"],
+  ];
+  if (!state.standaloneGraphOnly) {
+    edgeFields.push(["mentions", edge?.mention_count || 0]);
+  }
+  if (!state.standaloneExport) {
+    edgeFields.push(["id", selected.id]);
+  }
+  wrap.appendChild(renderDetailList(edgeFields));
   return wrap;
 }
 
@@ -14401,7 +14568,7 @@ function graphCitationKindLabel(node: GraphNode | undefined) {
 function renderSelectedNodeCitations(snapshot: Snapshot, node: GraphNode) {
   const section = el("section", "graph-citation-section");
   const header = el("div", "graph-citation-header");
-  header.appendChild(el("h3", "", "Citations"));
+  header.appendChild(el("h3", "", t("synthesis-graph-citations-title")));
   const citations = collectSelectedNodeCitations(snapshot, node.id);
   header.appendChild(el("span", "badge", `${citations.length} outgoing`));
   section.appendChild(header);
@@ -14409,7 +14576,10 @@ function renderSelectedNodeCitations(snapshot: Snapshot, node: GraphNode) {
     section.appendChild(
       renderEmptyState({
         title: "No outgoing citations",
-        message: "This library paper has no citation targets in the graph.",
+        message:
+          node.kind === "library_paper"
+            ? "This library paper has no citation targets in the graph."
+            : "This reference has no outgoing citation targets in the graph.",
       }),
     );
     return section;
@@ -14829,7 +14999,10 @@ type WorkbenchRenderState = {
 };
 
 function graphCameraRestoreKey(snapshot: Snapshot | null) {
-  if (!snapshot || snapshot.selectedTab !== "graph") {
+  const graphSurfaceActive =
+    snapshot?.selectedTab === "graph" ||
+    (state.standaloneExport && state.topicDetailSection === "citation_graph");
+  if (!snapshot || !graphSurfaceActive) {
     return "";
   }
   return [
@@ -15004,7 +15177,9 @@ function render() {
   }
   const renderState = captureWorkbenchRenderState(root as HTMLElement);
   disposeGraphRenderer();
-  if (state.standaloneExport) {
+  if (state.standaloneGraphOnly) {
+    renderStandaloneGraphExportShell(root as HTMLElement, state.snapshot);
+  } else if (state.standaloneExport) {
     renderStandaloneTopicExportShell(root as HTMLElement, state.snapshot);
   } else {
     renderShell(root as HTMLElement, state.snapshot);
@@ -15016,6 +15191,17 @@ function render() {
   state.lastContentSignature = snapshotContentSignature(state.snapshot);
   state.lastChromeSignature = snapshotChromeSignature(state.snapshot);
   maybeRequestGraphLayoutRefresh(state.snapshot);
+}
+
+function renderStandaloneGraphExportShell(
+  root: HTMLElement,
+  snapshot: Snapshot,
+) {
+  clear(root);
+  root.className = "synthesis-root standalone-graph-export-root";
+  const main = el("main", "standalone-graph-export-main");
+  root.appendChild(main);
+  renderGraph(main, snapshot);
 }
 
 function maybeRequestGraphLayoutRefresh(snapshot: Snapshot | null) {
@@ -15119,7 +15305,9 @@ function applyStandaloneTopicExportEnvelope(
   });
   const graphLayouts = recordValue(envelope.graphLayouts);
   Object.entries(graphLayouts).forEach(([key, value]) => {
-    const graph = recordValue(value) as Snapshot["graph"];
+    const graph = normalizeStandaloneGraphSnapshot(
+      recordValue(value) as Snapshot["graph"],
+    );
     if (key && Array.isArray(graph.nodes) && Array.isArray(graph.edges)) {
       state.standaloneGraphLayouts.set(
         normalizeGraphLayoutAlgorithm(key),
@@ -15129,6 +15317,10 @@ function applyStandaloneTopicExportEnvelope(
   });
   if (state.snapshot) {
     if (state.snapshot.graph) {
+      state.snapshot = {
+        ...state.snapshot,
+        graph: normalizeStandaloneGraphSnapshot(state.snapshot.graph),
+      };
       state.standaloneGraphLayouts.set(
         normalizeGraphLayoutAlgorithm(state.snapshot.graph.layoutAlgorithm),
         state.snapshot.graph,
@@ -15144,6 +15336,49 @@ function applyStandaloneTopicExportEnvelope(
       },
     };
   }
+  render();
+  return true;
+}
+
+function applyStandaloneGraphExportEnvelope(
+  envelope: SynthesisGraphExportEnvelope | undefined,
+) {
+  if (!envelope || typeof envelope !== "object" || !envelope.snapshot) {
+    return false;
+  }
+  state.standaloneExport = true;
+  state.standaloneGraphOnly = true;
+  state.standaloneGraphScopeLabel = textValue(envelope.scopeLabel);
+  state.standaloneGraphFocusNodeId = textValue(envelope.focusNodeId);
+  applyI18nEnvelope({ i18n: envelope.i18n || {} });
+  state.snapshot = {
+    ...envelope.snapshot,
+    graph: normalizeStandaloneGraphSnapshot(envelope.snapshot.graph),
+    selectedTab: "graph",
+  };
+  state.topicDetail = undefined;
+  state.artifactReader = undefined;
+  state.digestModal = undefined;
+  state.evidenceExplorerOpen = false;
+  state.graphReturnTopicId = undefined;
+  state.standaloneDigestsByKey.clear();
+  state.standaloneGraphLayouts.clear();
+  const graphLayouts = recordValue(envelope.graphLayouts);
+  Object.entries(graphLayouts).forEach(([key, value]) => {
+    const graph = normalizeStandaloneGraphSnapshot(
+      recordValue(value) as Snapshot["graph"],
+    );
+    if (key && Array.isArray(graph.nodes) && Array.isArray(graph.edges)) {
+      state.standaloneGraphLayouts.set(
+        normalizeGraphLayoutAlgorithm(key),
+        graph,
+      );
+    }
+  });
+  state.standaloneGraphLayouts.set(
+    normalizeGraphLayoutAlgorithm(state.snapshot.graph.layoutAlgorithm),
+    state.snapshot.graph,
+  );
   render();
   return true;
 }
@@ -15433,6 +15668,9 @@ window.addEventListener("message", (event: MessageEvent) => {
     state.artifactReader = undefined;
     state.digestModal = undefined;
     state.evidenceExplorerOpen = false;
+    clearLocalPendingAction("openTopicArtifact", {
+      topicId: state.topicDetail?.topicId || "",
+    });
     if (state.snapshot) {
       state.snapshot = {
         ...state.snapshot,
@@ -15456,6 +15694,9 @@ window.addEventListener("message", (event: MessageEvent) => {
 });
 
 if (
+  !applyStandaloneGraphExportEnvelope(
+    window.__zoteroSkillsSynthesisGraphExport,
+  ) &&
   !applyStandaloneTopicExportEnvelope(window.__zoteroSkillsSynthesisTopicExport)
 ) {
   sendAction("ready");

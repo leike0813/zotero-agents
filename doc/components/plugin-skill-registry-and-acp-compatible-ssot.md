@@ -8,10 +8,10 @@ Workflows continue to emit `skillrunner.job.v1`. ACP compatibility is a provider
 
 The plugin owns a shared skill registry that can discover plugin-side skills from:
 
-- `skills_builtin/`: packaged built-in skills
+- official content root: installed subscription skills under `content/official/skills`
 - `skills/`: user skills
 
-User skills override built-in skills when the same skill id exists in both roots. SkillRunner backend-installed skills still execute by default unless a later explicit override policy requests plugin-side skill assets.
+User skills override official skills when the same skill id exists in both roots. Dev-local skills sit between official and user sources; debug mode only controls whether debug-only entries are visible. SkillRunner backend-installed skills still execute by default unless a later explicit override policy requests plugin-side skill assets.
 
 ## Registry Scope
 
@@ -23,14 +23,30 @@ For ACP SkillRunner-compatible backends, the plugin consumes the same `skillrunn
 
 The runner resolves plugin-side skill assets, materializes them into run-local agent skill roots, injects a minimal SkillRunner-compatible run contract into the materialized `SKILL.md`, validates the runner-owned result JSON envelope recorded in `resultJsonPath`, and returns a normal `ProviderExecutionResult` for existing workflow `applyResult()` hooks. Business scripts should write package fallback files when needed; they must not hand-write the runner-owned result envelope.
 
-v1 supports auto execution only. Interactive workflow reply loops are explicitly out of scope.
+ACP-compatible runs synthesize effective runtime options from these sources,
+with later numbered sources overriding earlier numbered sources:
+
+1. `runner.json.runtime.default_options`
+2. request payload `runtime_options`
+3. submit-time provider runtime options (`providerOptions`)
+
+For `hard_timeout_seconds`, only positive integers are valid; if none of those
+sources provides a valid value, the ACP compatibility layer falls back to
+`1200` seconds. The synthesized effective options control local ACP execution
+behavior but do not mutate the original submitted request payload.
+
+`hard_timeout_seconds` is implemented as a local recoverable connection guard:
+the timer starts at the ACP prompt-ready boundary, disconnects locally on
+expiry, finalizes already-drained transcript content before appending the
+timeout status item, and leaves the remote session recoverable. It must not mark
+the run `failed` or `canceled`.
 
 ## Registry Entry
 
 An effective plugin skill entry records:
 
 - `skillId`
-- `sourceKind`: `user` or `builtin`
+- `sourceKind`: `official`, `dev-local`, or `user`
 - `sourceDir`
 - `skillMdPath`
 - `runnerJsonPath`

@@ -93,9 +93,7 @@ describeSchemaSuite("selection-context schema", function () {
     const failures: string[] = [];
     for (const fixture of fixtures) {
       if (!validate(fixture.data)) {
-        failures.push(
-          `${fixture.name}: ${ajv.errorsText(validate.errors)}`,
-        );
+        failures.push(`${fixture.name}: ${ajv.errorsText(validate.errors)}`);
       }
     }
 

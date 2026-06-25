@@ -6,7 +6,8 @@ import packageJson from "../../../package.json";
 type ScriptsMap = Record<string, string>;
 
 function getScripts() {
-  return ((packageJson as { scripts?: ScriptsMap }).scripts || {}) as ScriptsMap;
+  return ((packageJson as { scripts?: ScriptsMap }).scripts ||
+    {}) as ScriptsMap;
 }
 
 function collectJavaScriptFiles(rootDir: string): string[] {
@@ -61,8 +62,7 @@ function resolveOwningPackageRoot(filePath: string, builtinRoot: string) {
 
 function extractModuleSpecifiers(source: string) {
   const specifiers: string[] = [];
-  const pattern =
-    /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g;
+  const pattern = /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g;
   let match: RegExpExecArray | null = pattern.exec(source);
   while (match) {
     specifiers.push(String(match[1] || ""));
@@ -87,7 +87,10 @@ describe("suite governance constraints", function () {
       const isWorkflowPackageFile =
         !!packageRoot && existsSync(join(packageRoot, "workflow-package.json"));
       const relativeToPackage = packageRoot
-        ? normalizeFsPath(filePath).replace(`${normalizeFsPath(packageRoot)}/`, "")
+        ? normalizeFsPath(filePath).replace(
+            `${normalizeFsPath(packageRoot)}/`,
+            "",
+          )
         : "";
       if (
         isWorkflowPackageFile &&
@@ -179,7 +182,10 @@ describe("suite governance constraints", function () {
 
     assert.match(scripts["test:node:core"] || "", /\blite\b.*\bcore\b/i);
     assert.match(scripts["test:node:ui"] || "", /\blite\b.*\bui\b/i);
-    assert.match(scripts["test:node:workflow"] || "", /\blite\b.*\bworkflow\b/i);
+    assert.match(
+      scripts["test:node:workflow"] || "",
+      /\blite\b.*\bworkflow\b/i,
+    );
   });
 
   it("Risk: MR-02 keeps full-suite scripts explicitly pinned to full mode", function () {

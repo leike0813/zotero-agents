@@ -49,12 +49,16 @@ async function collectCandidatePaths(args: {
   workspaceDir: string;
   filename: string;
 }) {
-  const candidates: Array<{ path: string; relpath: string; mtime: number }> = [];
+  const candidates: Array<{ path: string; relpath: string; mtime: number }> =
+    [];
   for (const path of await collectRuntimeFiles(args.workspaceDir)) {
     if (getBaseName(path) !== args.filename) {
       continue;
     }
-    const relpath = runtimeRelativePath(args.workspaceDir, path).replace(/\\/g, "/");
+    const relpath = runtimeRelativePath(args.workspaceDir, path).replace(
+      /\\/g,
+      "/",
+    );
     if (relpath.startsWith("result/") || relpath.startsWith(".audit/")) {
       continue;
     }
@@ -69,7 +73,8 @@ async function collectCandidatePaths(args: {
     if (right.mtime !== left.mtime) {
       return right.mtime - left.mtime;
     }
-    const depth = left.relpath.split("/").length - right.relpath.split("/").length;
+    const depth =
+      left.relpath.split("/").length - right.relpath.split("/").length;
     if (depth !== 0) {
       return depth;
     }
@@ -153,4 +158,3 @@ export async function resolveAcpSkillResultFileFallback(args: {
     warnings,
   };
 }
-

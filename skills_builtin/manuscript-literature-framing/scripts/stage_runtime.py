@@ -20,6 +20,7 @@ from runtime_state import (
 )
 
 FALLBACK_RESULT_FILENAME = "manuscript-literature-framing.result.json"
+ARTIFACT_MANIFEST_FILENAME = "manuscript-literature-framing-artifacts.json"
 
 
 def payload_file_required(action: str, payload_file: str | None) -> str:
@@ -31,8 +32,25 @@ def payload_file_required(action: str, payload_file: str | None) -> str:
 def root_for_state(state_path: str) -> Path:
     state_parent = Path(state_path).parent
     if state_parent.name == "runtime":
-        return state_parent.parent
-    return Path(".")
+        return state_parent.parent.resolve()
+    return Path(".").resolve()
+
+
+def require_run_root_path(root: Path, path: Path, label: str) -> Path:
+    resolved_root = root.resolve()
+    resolved_path = path.resolve()
+    try:
+        resolved_path.relative_to(resolved_root)
+    except ValueError as error:
+        raise ValueError(f"{label} must stay under run root: {resolved_path}") from error
+    return resolved_path
+
+
+def require_existing_file(root: Path, path: Path, label: str) -> str:
+    resolved_path = require_run_root_path(root, path, label)
+    if not resolved_path.is_file():
+        raise ValueError(f"{label} does not exist: {resolved_path}")
+    return resolved_path.as_posix()
 
 
 def payload_object(payload: dict[str, Any], key: str, label: str) -> dict[str, Any]:
@@ -296,22 +314,6 @@ def action_confirm_writing_plan(state: dict[str, Any], payload: dict[str, Any]) 
     state["writing_plan_confirmation"] = payload
 
 
-def summarize_diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
-    diagnostics = payload.get("diagnostics")
-    if not isinstance(diagnostics, dict):
-        diagnostics = {}
-    missing = diagnostics.get("missing_citekeys", [])
-    warnings = diagnostics.get("warnings", [])
-    if not isinstance(missing, list):
-        missing = []
-    if not isinstance(warnings, list):
-        warnings = []
-    return {
-        "missing_citekeys": len(missing),
-        "warnings": warnings,
-    }
-
-
 def build_framing_analysis(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "domain_route_analysis": state.get("domain_route_analysis") or {},
@@ -349,38 +351,41 @@ def action_persist_final_draft(state_path: str, state: dict[str, Any], payload: 
     )
     language = payload.get("language") or intent_brief.get("language") or "auto"
     topic_ids = state.get("confirmed_topics") or payload.get("topic_ids") or []
-    assets = {
-        "introduction_tex": "result/introduction.tex",
-        "related_work_tex": "result/related-work.tex",
-        "intent_brief": "result/intent-brief.json",
-        "evidence_inventory": "result/evidence-inventory.json",
-        "framing_analysis": "result/framing-analysis.json",
-        "writing_plan": "result/writing-plan.json",
-        "citation_map": "result/citation-map.json",
-        "diagnostics": "result/diagnostics.json",
+    asset_paths = {
+        "introduction_tex": result_dir / "introduction.tex",
+        "related_work_tex": result_dir / "related-work.tex",
+        "intent_brief": result_dir / "intent-brief.json",
+        "evidence_inventory": result_dir / "evidence-inventory.json",
+        "framing_analysis": result_dir / "framing-analysis.json",
+        "writing_plan": result_dir / "writing-plan.json",
+        "citation_map": result_dir / "citation-map.json",
+        "diagnostics": result_dir / "diagnostics.json",
     }
+    write_text(asset_paths["introduction_tex"], introduction.rstrip() + "\n")
+    write_text(asset_paths["related_work_tex"], related.rstrip() + "\n")
+    write_json(asset_paths["intent_brief"], intent_brief if isinstance(intent_brief, dict) else {})
+    write_json(asset_paths["evidence_inventory"], evidence_inventory if isinstance(evidence_inventory, dict) else {})
+    write_json(asset_paths["framing_analysis"], framing_analysis)
+    write_json(asset_paths["writing_plan"], writing_plan if isinstance(writing_plan, dict) else {})
+    write_json(asset_paths["citation_map"], citation_map if isinstance(citation_map, dict) else {})
+    write_json(asset_paths["diagnostics"], diagnostics if isinstance(diagnostics, dict) else {})
+    artifact_manifest = {
+        key: require_existing_file(root, path, key)
+        for key, path in asset_paths.items()
+    }
+    artifact_manifest_path = result_dir / ARTIFACT_MANIFEST_FILENAME
+    write_json(artifact_manifest_path, artifact_manifest)
     result_json = {
         "kind": "writing.manuscript_literature_framing",
-        "status": "completed",
         "title": str(title),
         "language": str(language),
-        "assets": assets,
         "topic_ids": topic_ids,
-        "diagnostics_summary": summarize_diagnostics({"diagnostics": diagnostics}),
-        "product_metadata": {
-            "kind": "writing.manuscript_literature_framing",
-            "title": str(title),
-            "asset_count": len(assets),
-        },
+        "artifact_manifest_path": require_existing_file(
+            root,
+            artifact_manifest_path,
+            "artifact_manifest_path",
+        ),
     }
-    write_text(result_dir / "introduction.tex", introduction.rstrip() + "\n")
-    write_text(result_dir / "related-work.tex", related.rstrip() + "\n")
-    write_json(result_dir / "intent-brief.json", intent_brief if isinstance(intent_brief, dict) else {})
-    write_json(result_dir / "evidence-inventory.json", evidence_inventory if isinstance(evidence_inventory, dict) else {})
-    write_json(result_dir / "framing-analysis.json", framing_analysis)
-    write_json(result_dir / "writing-plan.json", writing_plan if isinstance(writing_plan, dict) else {})
-    write_json(result_dir / "citation-map.json", citation_map if isinstance(citation_map, dict) else {})
-    write_json(result_dir / "diagnostics.json", diagnostics if isinstance(diagnostics, dict) else {})
     write_json(root / FALLBACK_RESULT_FILENAME, result_json)
     state["status"] = "completed"
     state["result"] = result_json

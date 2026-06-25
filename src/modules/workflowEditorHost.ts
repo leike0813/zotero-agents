@@ -85,7 +85,10 @@ type WorkflowEditorBridge = {
   unregisterRenderer: (rendererId: string) => void;
 };
 
-type DialogCtor = new (rows: number, columns: number) => {
+type DialogCtor = new (
+  rows: number,
+  columns: number,
+) => {
   addCell: (...args: unknown[]) => any;
   addButton: (...args: unknown[]) => any;
   setDialogData: (data: Record<string, unknown>) => any;
@@ -95,15 +98,18 @@ type DialogCtor = new (rows: number, columns: number) => {
 const rendererRegistry = new Map<string, WorkflowEditorRenderer>();
 let sessionQueue: Promise<void> = Promise.resolve();
 let workflowEditorSessionOverrideForTests:
-  | ((args: WorkflowEditorOpenArgs) => Promise<WorkflowEditorOpenResult> | WorkflowEditorOpenResult)
+  | ((
+      args: WorkflowEditorOpenArgs,
+    ) => Promise<WorkflowEditorOpenResult> | WorkflowEditorOpenResult)
   | null = null;
 
 function createHtmlElement<K extends keyof HTMLElementTagNameMap>(
   doc: Document,
   tag: K,
 ) {
-  const createNs = (doc as { createElementNS?: (ns: string, name: string) => Element })
-    .createElementNS;
+  const createNs = (
+    doc as { createElementNS?: (ns: string, name: string) => Element }
+  ).createElementNS;
   if (typeof createNs === "function") {
     return createNs.call(doc, HTML_NS, tag) as HTMLElementTagNameMap[K];
   }
@@ -270,7 +276,10 @@ function normalizeLayout(layout?: WorkflowEditorLayout) {
   };
 }
 
-function applyWindowSizing(doc: Document, layout: ReturnType<typeof normalizeLayout>) {
+function applyWindowSizing(
+  doc: Document,
+  layout: ReturnType<typeof normalizeLayout>,
+) {
   const win = doc.defaultView;
   if (win) {
     try {
@@ -329,7 +338,9 @@ function applyFooterVisibility(args: {
   }
   const acceptedLabels = new Set(
     [args.labels.save, args.labels.cancel].map((entry) =>
-      String(entry || "").trim().toLowerCase(),
+      String(entry || "")
+        .trim()
+        .toLowerCase(),
     ),
   );
   for (const button of buttons) {
@@ -540,7 +551,8 @@ async function openDialogSession(
       const actionId = String(action.id || "").trim();
       const actionLabel = String(action.label || "").trim();
       dialogBuilder = dialogBuilder.addButton(actionLabel, actionId, {
-        noClose: action.noClose === true || typeof action.onClick === "function",
+        noClose:
+          action.noClose === true || typeof action.onClick === "function",
         callback: () => {
           if (typeof action.onClick === "function") {
             action.onClick({
@@ -569,7 +581,8 @@ async function openDialogSession(
   const dialog = dialogBuilder
     .setDialogData(dialogData)
     .open(String(args.title || "Workflow Editor"));
-  dialogWindow = (dialog as { window?: _ZoteroTypes.MainWindow }).window || null;
+  dialogWindow =
+    (dialog as { window?: _ZoteroTypes.MainWindow }).window || null;
 
   addon.data.dialog = dialog as typeof addon.data.dialog;
   await (dialogData as { unloadLock?: { promise?: Promise<void> } }).unloadLock
@@ -710,7 +723,9 @@ export function clearWorkflowEditorRendererRegistry() {
 
 export function installWorkflowEditorSessionOverrideForTests(
   override?:
-    | ((args: WorkflowEditorOpenArgs) => Promise<WorkflowEditorOpenResult> | WorkflowEditorOpenResult)
+    | ((
+        args: WorkflowEditorOpenArgs,
+      ) => Promise<WorkflowEditorOpenResult> | WorkflowEditorOpenResult)
     | null,
 ) {
   workflowEditorSessionOverrideForTests =

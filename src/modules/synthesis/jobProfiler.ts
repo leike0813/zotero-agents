@@ -150,7 +150,7 @@ function hasZoteroSqlRuntime() {
 
 export function getSynthesisJobProfilerDatabasePath(root: string) {
   const paths = buildSynthesisKnowledgeGraphPaths(root);
-  return joinPath(paths.stateRoot, "debug", "synthesis-job-profiler.db");
+  return joinPath(paths.sidecarRoot, "debug", "synthesis-job-profiler.db");
 }
 
 function getMemoryStore(dbPath: string) {
@@ -167,7 +167,9 @@ function replaceMemoryRun(
   store: MemoryProfilerStore,
   run: SynthesisJobProfileRunRow,
 ) {
-  const existingIndex = store.runs.findIndex((entry) => entry.run_id === run.run_id);
+  const existingIndex = store.runs.findIndex(
+    (entry) => entry.run_id === run.run_id,
+  );
   if (existingIndex >= 0) {
     store.runs[existingIndex] = run;
     return;
@@ -225,7 +227,7 @@ async function writeStartedProfileRun(
   }
 
   await ensureRuntimeDirectory(
-    joinPath(buildSynthesisKnowledgeGraphPaths(root).stateRoot, "debug"),
+    joinPath(buildSynthesisKnowledgeGraphPaths(root).sidecarRoot, "debug"),
   );
   const db = createSynthesisSqlAdapterForPath(dbPath);
   ensureProfilerSchema(db);
@@ -258,7 +260,7 @@ async function appendProfilePhase(
   }
 
   await ensureRuntimeDirectory(
-    joinPath(buildSynthesisKnowledgeGraphPaths(root).stateRoot, "debug"),
+    joinPath(buildSynthesisKnowledgeGraphPaths(root).sidecarRoot, "debug"),
   );
   const db = createSynthesisSqlAdapterForPath(dbPath);
   ensureProfilerSchema(db);
@@ -289,7 +291,7 @@ async function writeProfileDraft(root: string, draft: ProfileRunDraft) {
   }
 
   await ensureRuntimeDirectory(
-    joinPath(buildSynthesisKnowledgeGraphPaths(root).stateRoot, "debug"),
+    joinPath(buildSynthesisKnowledgeGraphPaths(root).sidecarRoot, "debug"),
   );
   const db = createSynthesisSqlAdapterForPath(dbPath);
   ensureProfilerSchema(db);
@@ -310,10 +312,9 @@ async function writeProfileDraft(root: string, draft: ProfileRunDraft) {
       `,
       draft.run,
     );
-    db.run(
-      "DELETE FROM job_profile_phase WHERE run_id = :run_id;",
-      { run_id: draft.run.run_id },
-    );
+    db.run("DELETE FROM job_profile_phase WHERE run_id = :run_id;", {
+      run_id: draft.run.run_id,
+    });
     for (const phase of draft.phases) {
       db.run(
         `

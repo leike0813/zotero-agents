@@ -1,56 +1,60 @@
-# 侧边栏概览
+# Sidebar Overview
 
-## 什么是侧边栏？
+## What is the Sidebar?
 
-侧边栏是 Zotero Skills 提供的便捷操作面板，悬浮在 Zotero 主窗口右侧。它允许您在不离开当前工作上下文的情况下与后端交互，查看运行状态，管理技能执行。
+The sidebar is a convenient operation panel provided by Zotero Agents, floating on the right side of the Zotero main window. It allows you to interact with backends, view run status, and manage skill execution without leaving your current work context.
 
-## 打开方式
+## How to Open
 
-- **工具栏按钮**：点击 Zotero 工具栏中的侧边栏切换按钮
-- **菜单**：**工具 → 打开侧边栏**
-- **Dashboard 操作**：在 Dashboard 中点击"打开/关闭侧边栏"
+- **Toolbar Button**: Click the sidebar toggle button in the Zotero toolbar
+- **Menu**: **Tools → Open Sidebar**
+- **Dashboard Action**: Click "Open/Close Sidebar" in the Dashboard
 
-## 架构说明
+![Sidebar toolbar button](/img/icon_sidebar.png)
 
-侧边栏采用 **iframe 架构**：三个 Tab 各自加载独立的 HTML 页面作为子 iframe，通过 postMessage 与插件主进程通信。这种设计确保 Tab 之间互不干扰，每个面板有独立的渲染上下文。
+![Sidebar awaiting-reply indicator state](/img/icon_sidebar_glow.png)
 
-在工作台（Workspace）模式下，三个 Tab 集成在统一的容器中；在旧版模式下，各面板也可以直接嵌入到 Zotero 的库面板和阅读器面板中。
+## Architecture Notes
 
-## 三个 Tab
+The sidebar uses an **iframe architecture**: three tabs each load an independent HTML page as a child iframe, communicating with the plugin main process via postMessage. This design ensures tabs do not interfere with each other, with each panel having an independent rendering context.
 
-| Tab | 功能 | 适用场景 |
-|-----|------|---------|
-| **ACP Chat** | 与 ACP 后端进行对话，以当前条目为上下文 | 阅读文献时提问、辅助写作 |
-| **ACP Skills** | 监控和管理 ACP 后端执行的技能运行 | 查看运行进度、检查结果、处理权限请求 |
-| **SkillRunner** | 查看和交互 SkillRunner 后端的运行 | 管理交互式运行、处理认证 |
+In Workspace mode, the three tabs are integrated in a unified container; in legacy mode, each panel can also be embedded directly into Zotero's library pane and reader pane.
 
-## 界面说明
+## Three Tabs
 
-### Tab 切换
+| Tab | Function | Use Cases |
+|-----|----------|-----------| 
+| **ACP Chat** | Converse with the ACP backend using the current item as context | Asking questions while reading literature, writing assistance |
+| **ACP Skills** | Monitor and manage skill runs executed through the ACP backend | View run progress, inspect results, handle permission requests |
+| **SkillRunner** | View and interact with Skill-Runner backend runs | Manage interactive runs, handle authentication |
 
-侧边栏顶部是 Tab 栏，点击即可在三个面板间切换。切换后上一个 Tab 的状态会被保留。
+## Interface Guide
 
-### 宽度调整
+### Tab Switching
 
-侧边栏宽度可以通过拖动左边框自由调整，满足不同内容的显示需求。
+The tab bar at the top of the sidebar lets you switch between the three panels. The state of the previous tab is preserved when switching.
 
-### 通用组件
+### Width Adjustment
 
-所有 Tab 共享以下通用 UI 组件：
+The sidebar width can be freely adjusted by dragging the left border to accommodate different content display needs.
 
-- **Banner**：顶部信息栏，显示当前选中的项目信息和操作按钮
-- **转写视图**：对话或运行记录的主体区域，支持 Plain/Bubble 两种显示模式
-- **回复区**：底部的输入区域，用于发送消息或回复
-- **抽屉面板**：左右两侧可展开的详细信息面板
-- **提示组件**：在需要用户交互时显示的提示信息
-- **计划组件**：多步骤计划的可视化进度
+### Common Components
 
-## 各 Tab 快速入口
+All tabs share the following common UI components:
 
-- [ACP Chat 使用](./acp-chat) — 与后端的对话交互
-- [ACP Skills](./acp-skills) — 管理 ACP 技能运行
-- [SkillRunner Tab](./skillrunner-tab) — 管理 SkillRunner 运行
+- **Banner**: Top information bar displaying the currently selected project information and action buttons
+- **Transcript View**: Main area for conversation or run logs, supporting Plain and Bubble display modes
+- **Reply Area**: Bottom input area for sending messages or replies
+- **Drawer Panels**: Expandable detail panels on the left and right sides
+- **Prompt Component**: Prompts displayed when user interaction is required
+- **Plan Component**: Visual progress for multi-step plans
 
-## 相关页面
+## Quick Links to Each Tab
 
-- [Dashboard 介绍](../dashboard) — 中央监控和任务管理
+- [ACP Chat Usage](./acp-chat) — Conversation interaction with the backend
+- [ACP Skills](./acp-skills) — Manage ACP skill runs
+- [SkillRunner Tab](./skillrunner-tab) — Manage Skill-Runner runs
+
+## Related Pages
+
+- [Dashboard Overview](../dashboard) — Central monitoring and task management

@@ -6,6 +6,7 @@ import type {
 } from "../contracts";
 import type { Provider, ProviderSupportsArgs } from "../types";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
+import { GENERIC_HTTP_BACKEND_TYPE } from "../../config/defaults";
 import { delay } from "../../utils/runtimeCompatibility";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -177,7 +178,9 @@ function compactListPreview(entries: string[], max = 6) {
 }
 
 function compactTextPreview(value: unknown, max = 40) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!text) {
     return "";
   }
@@ -212,11 +215,11 @@ function summarizeRequestForDebug(args: {
       String(value || ""),
     ]),
   );
-  const headerKeys = compactListPreview(
-    Object.keys(normalizedHeaders),
-    5,
+  const headerKeys = compactListPreview(Object.keys(normalizedHeaders), 5);
+  const contentType = compactTextPreview(
+    normalizedHeaders["content-type"] || "",
+    48,
   );
-  const contentType = compactTextPreview(normalizedHeaders["content-type"] || "", 48);
   const accept = compactTextPreview(normalizedHeaders.accept || "", 48);
   const authText = normalizedHeaders.authorization
     ? compactTextPreview(normalizedHeaders.authorization, 24)
@@ -233,9 +236,7 @@ function summarizeRequestForDebug(args: {
     : "";
   const bodyType = resolveValueType(args.body);
   const bodyPreview =
-    typeof args.body === "string"
-      ? compactTextPreview(args.body, 160)
-      : "";
+    typeof args.body === "string" ? compactTextPreview(args.body, 160) : "";
   const bodyText = bodyPreview
     ? ` bodyType=${bodyType} body=${bodyPreview}`
     : ` bodyType=${bodyType}`;
@@ -266,9 +267,7 @@ function resolvePayloadSummary(payload: unknown) {
       ? String((payload as Record<string, unknown>).message || "")
       : "";
   const data = (payload as Record<string, unknown>).data;
-  const dataKeys = isObject(data)
-    ? compactListPreview(Object.keys(data))
-    : "";
+  const dataKeys = isObject(data) ? compactListPreview(Object.keys(data)) : "";
   const msgText = msg ? `,msg=${compactTextPreview(msg)}` : "";
   const dataText = dataKeys ? `,dataKeys=${dataKeys}` : "";
   return `prev(code=${code}${msgText}${dataText})`;
@@ -283,17 +282,25 @@ function rethrowWithInterpolationContext(args: {
 }) {
   const message =
     args.error instanceof Error ? args.error.message : String(args.error || "");
-  const missingMatch = message.match(/^Missing interpolation variable:\s*(.+)$/i);
+  const missingMatch = message.match(
+    /^Missing interpolation variable:\s*(.+)$/i,
+  );
   if (!missingMatch) {
     throw args.error;
   }
   const missingKey = String(missingMatch[1] || "").trim() || "unknown";
   const stateKeys = compactListPreview(Object.keys(args.state), 4);
   const payloadSummary = resolvePayloadSummary(args.lastPayload);
-  const hasBatchId = Object.prototype.hasOwnProperty.call(args.state, "batch_id")
+  const hasBatchId = Object.prototype.hasOwnProperty.call(
+    args.state,
+    "batch_id",
+  )
     ? "yes"
     : "no";
-  const hasUploadUrl = Object.prototype.hasOwnProperty.call(args.state, "upload_url")
+  const hasUploadUrl = Object.prototype.hasOwnProperty.call(
+    args.state,
+    "upload_url",
+  )
     ? "yes"
     : "no";
   const stateText = stateKeys ? `keys=${stateKeys}` : "keys=none";
@@ -500,7 +507,7 @@ function resolveRequestId(args: {
 }
 
 export class GenericHttpProvider implements Provider {
-  readonly id = "generic-http";
+  readonly id = GENERIC_HTTP_BACKEND_TYPE;
 
   private readonly fetchImpl: FetchLike;
 
@@ -518,7 +525,7 @@ export class GenericHttpProvider implements Provider {
 
   supports(args: ProviderSupportsArgs) {
     return (
-      args.backend.type === "generic-http" &&
+      args.backend.type === GENERIC_HTTP_BACKEND_TYPE &&
       (args.requestKind === "generic-http.request.v1" ||
         args.requestKind === "generic-http.steps.v1")
     );
@@ -637,7 +644,9 @@ export class GenericHttpProvider implements Provider {
 
     for (const step of args.request.steps) {
       if (!step?.id || !step.request?.method) {
-        throw new Error("Invalid step definition: step.id and request.method are required");
+        throw new Error(
+          "Invalid step definition: step.id and request.method are required",
+        );
       }
       const startedAt = Date.now();
       let retryCount = 0;
@@ -692,7 +701,10 @@ export class GenericHttpProvider implements Provider {
           backendId: args.backend.id,
           backendType: args.backend.type,
           providerId: this.id,
-          requestId: String(state.request_id || state.batch_id || state.task_id || "").trim() || undefined,
+          requestId:
+            String(
+              state.request_id || state.batch_id || state.task_id || "",
+            ).trim() || undefined,
           component: "generic-http-provider",
           operation: "step",
           phase: "running",

@@ -104,6 +104,7 @@ type AcpEmitOptions = {
   persist?: boolean;
   throttleUi?: boolean;
   throttlePersist?: boolean;
+  touchUpdatedAt?: boolean;
 };
 
 let adapterFactory: (
@@ -478,7 +479,13 @@ function scheduleUiEmit(slot: AcpSessionSlot) {
 }
 
 function emitSlotSnapshot(slot: AcpSessionSlot, options: AcpEmitOptions = {}) {
-  updateSnapshotTimestamp(slot);
+  if (options.touchUpdatedAt !== false) {
+    updateSnapshotTimestamp(slot);
+  } else {
+    slot.snapshot.authMethodIds = slot.snapshot.authMethods.map(
+      (entry) => entry.id,
+    );
+  }
   const persist = options.persist !== false;
   if (persist) {
     if (options.throttlePersist) {
@@ -1026,11 +1033,12 @@ function applyCurrentReasoningEffort(
   if (!effortId) {
     return;
   }
-  snapshot.currentReasoningEffort =
-    snapshot.reasoningEffortOptions.find((entry) => entry.id === effortId) || {
-      id: effortId,
-      label: toTitleCase(effortId),
-    };
+  snapshot.currentReasoningEffort = snapshot.reasoningEffortOptions.find(
+    (entry) => entry.id === effortId,
+  ) || {
+    id: effortId,
+    label: toTitleCase(effortId),
+  };
 }
 
 function applySessionConfigOptionsState(
@@ -1040,7 +1048,10 @@ function applySessionConfigOptionsState(
   const state = buildAcpRuntimeOptionsStateFromConfigOptions(
     Array.isArray(configOptions) ? configOptions : null,
   );
-  if (!hasAcpRuntimeOptionSelectors(state) && state.reasoningEfforts.length === 0) {
+  if (
+    !hasAcpRuntimeOptionSelectors(state) &&
+    state.reasoningEfforts.length === 0
+  ) {
     return {
       modeApplied: false,
       modelApplied: false,
@@ -1085,9 +1096,11 @@ function applySessionConfigOptionsState(
   }
 
   if (state.reasoningEfforts.length > 0) {
-    slot.snapshot.reasoningEffortOptions = state.reasoningEfforts.map((entry) => ({
-      ...entry,
-    }));
+    slot.snapshot.reasoningEffortOptions = state.reasoningEfforts.map(
+      (entry) => ({
+        ...entry,
+      }),
+    );
     applyCurrentReasoningEffort(
       slot.snapshot,
       state.currentReasoningEffortId ||
@@ -1466,12 +1479,14 @@ function handleSessionUpdate(
       }
       let target = getLatestActiveAssistantItem(slot);
       if (!target) {
+        const createdAt = nowIso();
         target = {
           id: nextOpaqueId("acp-msg-assistant"),
           kind: "message",
           role: "assistant",
           text: "",
-          createdAt: nowIso(),
+          createdAt,
+          updatedAt: createdAt,
           state: "streaming",
         };
         slot.activeAssistantItemId = target.id;
@@ -1479,8 +1494,11 @@ function handleSessionUpdate(
       }
       target.text += chunk;
       target.state = "streaming";
-      target.updatedAt = nowIso();
-      emitSlotSnapshot(slot, { throttleUi: true, throttlePersist: true });
+      emitSlotSnapshot(slot, {
+        throttleUi: true,
+        throttlePersist: true,
+        touchUpdatedAt: false,
+      });
       return;
     }
     case "agent_thought_chunk": {
@@ -1497,11 +1515,13 @@ function handleSessionUpdate(
       }
       let target = getLatestActiveThoughtItem(slot);
       if (!target) {
+        const createdAt = nowIso();
         target = {
           id: nextOpaqueId("acp-thought"),
           kind: "thought",
           text: "",
-          createdAt: nowIso(),
+          createdAt,
+          updatedAt: createdAt,
           state: "streaming",
         };
         slot.activeThoughtItemId = target.id;
@@ -1509,8 +1529,11 @@ function handleSessionUpdate(
       }
       target.text += chunk;
       target.state = "streaming";
-      target.updatedAt = nowIso();
-      emitSlotSnapshot(slot, { throttleUi: true, throttlePersist: true });
+      emitSlotSnapshot(slot, {
+        throttleUi: true,
+        throttlePersist: true,
+        touchUpdatedAt: false,
+      });
       return;
     }
     case "tool_call": {
@@ -2167,7 +2190,7 @@ function buildFrontendSnapshot(): AcpFrontendSnapshot {
   activeSnapshot.mcpServer = getZoteroMcpServerStatus();
   activeSnapshot.mcpHealth = getZoteroMcpHealthSnapshot();
   const chatSessions = listAcpChatSessions(activeBackendId);
-  const knownBackends =
+  const knownBackends: BackendInstance[] =
     cachedAcpBackends.length > 0
       ? cachedAcpBackends
       : activeSlot.snapshot.backend

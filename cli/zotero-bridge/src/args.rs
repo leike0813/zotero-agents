@@ -6,8 +6,8 @@ use clap::{Args, Parser, Subcommand};
 #[command(
     name = "zotero-bridge",
     version,
-    about = "Agent-first CLI for Zotero Skills Host Bridge",
-    long_about = "Call the Zotero Skills Host Bridge over local HTTP JSON.\n\nOutput contract: stdout contains exactly one final JSON object. Use --help on subcommands for input fields and examples."
+    about = "Agent-first CLI for Zotero Agents Host Bridge",
+    long_about = "Call the Zotero Agents Host Bridge over local HTTP JSON.\n\nOutput contract: stdout contains exactly one final JSON object. Use --help on subcommands for input fields and examples."
 )]
 pub struct Cli {
     #[arg(
@@ -25,7 +25,7 @@ pub struct Cli {
         env = "ZOTERO_BRIDGE_PROFILE",
         value_name = "PATH",
         help = "Path to a Host Bridge profile JSON file",
-        long_help = "Path to a Host Bridge profile JSON file. If omitted, the CLI tries the Zotero Skills well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions."
+        long_help = "Path to a Host Bridge profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions."
     )]
     pub profile: Option<PathBuf>,
 
@@ -43,7 +43,7 @@ pub enum Command {
 
     #[command(
         about = "Read authenticated Host Bridge manifest",
-        long_about = "Call GET /bridge/v1/manifest. Requires ZOTERO_BRIDGE_TOKEN, a profile token/tokenEnv, or the Zotero Skills well-known profile. The response lists bridge protocol metadata and capability names."
+        long_about = "Call GET /bridge/v1/manifest. Requires ZOTERO_BRIDGE_TOKEN, a profile token/tokenEnv, or the Zotero Agents well-known profile. The response lists bridge protocol metadata and capability names."
     )]
     Manifest,
 
@@ -267,7 +267,7 @@ pub enum TopicsCommand {
 
     #[command(
         about = "Read one topic synthesis context",
-        long_about = "Map to Host Bridge capability topics.get_context. Use --input for the topic lookup payload. Explicit view values are digest, semantic, audit, and full. No view keeps the legacy flat response. For large semantic or full contexts, pass outputPath/output_path and optional overwrite in --input so the Host Bridge writes the view JSON to a file and stdout only contains a compact envelope."
+        long_about = "Map to Host Bridge capability topics.get_context. Use --input for the topic lookup payload. Explicit view values are digest, semantic, audit, and full. No view keeps the legacy flat response. For large semantic or full contexts, pass outputPath/output_path and optional overwrite in --input. Local profiles write the view JSON directly. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle."
     )]
     GetContext(BridgeInputArgs),
 
@@ -307,7 +307,6 @@ pub struct ConceptsArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum ConceptsCommand {
-
     #[command(
         about = "Query Synthesis Concept KB candidates",
         long_about = "Map to Host Bridge capability concepts.query. Use --input with concept_candidate_labels/labels for bounded read-only alias matching."
@@ -412,7 +411,7 @@ pub struct ReferenceIndexArgs {
 pub enum ReferenceIndexCommand {
     #[command(
         about = "Read the Synthesis reference index",
-        long_about = "Map to Host Bridge capability reference_index.get."
+        long_about = "Map to Host Bridge capability reference_index.get. Pass includeReferences=true with referenceSourceRefs to include per-reference binding rows for selected source papers."
     )]
     Get(BridgeInputArgs),
 }
@@ -425,7 +424,6 @@ pub struct PaperArtifactsArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum PaperArtifactsCommand {
-
     #[command(
         about = "Read paper artifact manifest metadata",
         long_about = "Map to Host Bridge capability paper_artifacts.get_manifest."
@@ -440,7 +438,7 @@ pub enum PaperArtifactsCommand {
 
     #[command(
         about = "Export bounded paper artifacts into the run workspace",
-        long_about = "Map to Host Bridge capability paper_artifacts.export_filtered."
+        long_about = "Map to Host Bridge capability paper_artifacts.export_filtered. Local profiles write runtime/payloads files inside the supplied run_root. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle before reading manifest_file."
     )]
     ExportFiltered(BridgeInputArgs),
 
@@ -459,7 +457,6 @@ pub struct InsightsArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum InsightsCommand {
-
     #[command(
         about = "Read aggregate graph/artifact/reference attention items",
         long_about = "Map to Host Bridge capability insights.get_attention_queue."
@@ -520,9 +517,21 @@ pub enum WorkflowCommand {
 
     #[command(
         about = "Submit a workflow with explicit JSON input",
-        long_about = "Call POST /bridge/v1/workflows/submit. Requires --workflow and --input. The input file must contain explicit input such as {\"items\":[{\"key\":\"ABCD1234\",\"libraryId\":1}]} or {\"kind\":\"none\"}. Workflow submit requires Zotero-side approval."
+        long_about = "Call POST /bridge/v1/workflows/submit. Requires --workflow and either --items or --none. Use --workflow-options for workflow parameters and --provider-profile for backend/provider runtime options. Workflow submit requires Zotero-side approval."
     )]
     Submit(WorkflowSubmitArgs),
+
+    #[command(
+        about = "Describe workflow selection, option, and provider profile requirements",
+        long_about = "Call POST /bridge/v1/workflows/describe. This read-only command returns selection requirements, workflow option schema, compatible backend profiles, provider option schema, and normalized draft values."
+    )]
+    Describe(WorkflowDescribeArgs),
+
+    #[command(
+        about = "Prepare a self-owned agent workflow handoff bundle",
+        long_about = "Call POST /bridge/v1/workflows/agent-run. This read-only command returns a downloadable workflow context bundle for the calling agent. Requires --workflow and either --items or --none. It does not accept workflow options or provider profiles and does not start a backend task."
+    )]
+    AgentRun(WorkflowAgentRunArgs),
 
     #[command(
         about = "Read one workflow run status",
@@ -539,9 +548,81 @@ pub struct WorkflowSubmitArgs {
     #[arg(
         long,
         value_name = "JSON_OR_FILE",
-        help = "Workflow input JSON, file path, @file, or '-' for stdin"
+        conflicts_with = "none",
+        required_unless_present = "none",
+        help = "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
     )]
-    pub input: String,
+    pub items: Option<String>,
+
+    #[arg(
+        long,
+        conflicts_with = "items",
+        help = "Submit a no-selection workflow"
+    )]
+    pub none: bool,
+
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "Workflow options JSON object, file path, @file, or '-' for stdin"
+    )]
+    pub workflow_options: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "Provider profile JSON object with backendId and providerOptions"
+    )]
+    pub provider_profile: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowDescribeArgs {
+    #[arg(long, help = "Workflow id to describe")]
+    pub workflow: String,
+
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "Draft workflow options JSON object, file path, @file, or '-' for stdin"
+    )]
+    pub workflow_options: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "Draft provider profile JSON object with backendId and providerOptions"
+    )]
+    pub provider_profile: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowAgentRunArgs {
+    #[arg(long, help = "Workflow id to prepare for self-owned agent execution")]
+    pub workflow: String,
+
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        conflicts_with = "none",
+        required_unless_present = "none",
+        help = "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
+    )]
+    pub items: Option<String>,
+
+    #[arg(
+        long,
+        conflicts_with = "items",
+        help = "Prepare a no-selection workflow"
+    )]
+    pub none: bool,
+
+    #[arg(
+        long,
+        value_name = "DIR",
+        help = "Download the handoff zip into this directory"
+    )]
+    pub output_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -700,9 +781,11 @@ pub struct FileDownloadArgs {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use clap::{CommandFactory, Parser};
 
-    use super::{Cli, Command, LiteratureCommand, TopicsCommand};
+    use super::{Cli, Command, LiteratureCommand, TopicsCommand, WorkflowCommand};
 
     #[test]
     fn top_level_help_exposes_agent_discovery_cues() {
@@ -806,11 +889,19 @@ mod tests {
 
         let artifacts = command.find_subcommand_mut("paper-artifacts").unwrap();
         let artifacts_help = artifacts.render_long_help().to_string();
-        for name in ["manifest", "read", "export-filtered", "resolve-topic-digest"] {
+        for name in [
+            "manifest",
+            "read",
+            "export-filtered",
+            "resolve-topic-digest",
+        ] {
             assert!(artifacts_help.contains(name), "missing {name}");
         }
         let insights = command.find_subcommand_mut("insights").unwrap();
-        assert!(insights.render_long_help().to_string().contains("attention-queue"));
+        assert!(insights
+            .render_long_help()
+            .to_string()
+            .contains("attention-queue"));
     }
 
     #[test]
@@ -846,5 +937,200 @@ mod tests {
             },
             _ => panic!("expected topics command"),
         }
+    }
+
+    #[test]
+    fn parses_workflow_describe_with_profile_inputs() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "describe",
+            "--workflow",
+            "literature-analysis",
+            "--workflow-options",
+            "{\"language\":\"zh-CN\"}",
+            "--provider-profile",
+            "{\"backendId\":\"acp-opencode\"}",
+        ]);
+
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Describe(input) => {
+                    assert_eq!(input.workflow, "literature-analysis");
+                    assert_eq!(
+                        input.workflow_options.as_deref(),
+                        Some("{\"language\":\"zh-CN\"}")
+                    );
+                    assert_eq!(
+                        input.provider_profile.as_deref(),
+                        Some("{\"backendId\":\"acp-opencode\"}")
+                    );
+                }
+                _ => panic!("expected workflow describe"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn parses_workflow_submit_with_items() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "submit",
+            "--workflow",
+            "literature-analysis",
+            "--items",
+            "[{\"key\":\"ABC\",\"libraryId\":1}]",
+        ]);
+
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Submit(input) => {
+                    assert_eq!(input.workflow, "literature-analysis");
+                    assert_eq!(
+                        input.items.as_deref(),
+                        Some("[{\"key\":\"ABC\",\"libraryId\":1}]")
+                    );
+                    assert!(!input.none);
+                }
+                _ => panic!("expected workflow submit"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn parses_workflow_submit_with_none() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "submit",
+            "--workflow",
+            "global-workflow",
+            "--none",
+        ]);
+
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Submit(input) => {
+                    assert_eq!(input.workflow, "global-workflow");
+                    assert!(input.none);
+                    assert!(input.items.is_none());
+                }
+                _ => panic!("expected workflow submit"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn parses_workflow_agent_run_with_output_dir() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "agent-run",
+            "--workflow",
+            "literature-analysis",
+            "--items",
+            "[{\"key\":\"ABC\",\"libraryId\":1}]",
+            "--output-dir",
+            "handoff",
+        ]);
+
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::AgentRun(input) => {
+                    assert_eq!(input.workflow, "literature-analysis");
+                    assert_eq!(
+                        input.items.as_deref(),
+                        Some("[{\"key\":\"ABC\",\"libraryId\":1}]")
+                    );
+                    assert_eq!(
+                        input.output_dir.as_deref(),
+                        Some(PathBuf::from("handoff").as_path())
+                    );
+                }
+                _ => panic!("expected workflow agent-run"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn rejects_workflow_agent_run_items_and_none_together() {
+        let result = Cli::try_parse_from([
+            "zotero-bridge",
+            "workflow",
+            "agent-run",
+            "--workflow",
+            "global-workflow",
+            "--items",
+            "[]",
+            "--none",
+        ]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_workflow_agent_run_provider_profile_flag() {
+        let result = Cli::try_parse_from([
+            "zotero-bridge",
+            "workflow",
+            "agent-run",
+            "--workflow",
+            "global-workflow",
+            "--none",
+            "--provider-profile",
+            "{}",
+        ]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn workflow_help_lists_agent_run_without_platform_or_provider_flags() {
+        let mut command = Cli::command();
+        let workflow_help = command
+            .find_subcommand_mut("workflow")
+            .unwrap()
+            .render_help()
+            .to_string();
+
+        assert!(workflow_help.contains("agent-run"));
+        assert!(!workflow_help.contains("--platform"));
+        assert!(!workflow_help.contains("--provider-profile"));
+    }
+
+    #[test]
+    fn rejects_workflow_submit_items_and_none_together() {
+        let result = Cli::try_parse_from([
+            "zotero-bridge",
+            "workflow",
+            "submit",
+            "--workflow",
+            "global-workflow",
+            "--items",
+            "[]",
+            "--none",
+        ]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_legacy_workflow_submit_input_flag() {
+        let result = Cli::try_parse_from([
+            "zotero-bridge",
+            "workflow",
+            "submit",
+            "--workflow",
+            "global-workflow",
+            "--input",
+            "{}",
+        ]);
+
+        assert!(result.is_err());
     }
 }

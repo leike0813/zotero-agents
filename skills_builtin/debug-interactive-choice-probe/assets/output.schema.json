@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Debug Interactive Choice Probe Result",
+  "type": "object",
+  "required": [
+    "kind",
+    "ok",
+    "accepted_any_reply",
+    "message",
+    "warnings"
+  ],
+  "properties": {
+    "kind": { "const": "debug_interactive_choice_probe_result" },
+    "ok": { "type": "boolean" },
+    "accepted_any_reply": { "type": "boolean" },
+    "message": { "type": "string" },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,174 @@
+/*
+ * Material Symbols Rounded SVG subset.
+ * Source: https://fonts.google.com/icons
+ * License: Apache License 2.0, https://www.apache.org/licenses/LICENSE-2.0
+ */
+
+.zs-icon {
+  --zs-icon-size: 18px;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: var(--zs-icon-size);
+  height: var(--zs-icon-size);
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.zs-icon-sm {
+  --zs-icon-size: 16px;
+}
+
+.zs-icon-lg {
+  --zs-icon-size: 20px;
+}
+
+.zs-icon-dashboard {
+  -webkit-mask-image: url("../icons/material-symbols/dashboard.svg");
+  mask-image: url("../icons/material-symbols/dashboard.svg");
+}
+
+.zs-icon-settings-applications {
+  -webkit-mask-image: url("../icons/material-symbols/settings_applications.svg");
+  mask-image: url("../icons/material-symbols/settings_applications.svg");
+}
+
+.zs-icon-inventory-2,
+.zs-icon-archive {
+  -webkit-mask-image: url("../icons/material-symbols/inventory_2.svg");
+  mask-image: url("../icons/material-symbols/inventory_2.svg");
+}
+
+.zs-icon-terminal {
+  -webkit-mask-image: url("../icons/material-symbols/terminal.svg");
+  mask-image: url("../icons/material-symbols/terminal.svg");
+}
+
+.zs-icon-play-arrow {
+  -webkit-mask-image: url("../icons/material-symbols/play_arrow.svg");
+  mask-image: url("../icons/material-symbols/play_arrow.svg");
+}
+
+.zs-icon-description {
+  -webkit-mask-image: url("../icons/material-symbols/description.svg");
+  mask-image: url("../icons/material-symbols/description.svg");
+}
+
+.zs-icon-help {
+  -webkit-mask-image: url("../icons/material-symbols/article.svg");
+  mask-image: url("../icons/material-symbols/article.svg");
+}
+
+.zs-icon-settings {
+  -webkit-mask-image: url("../icons/material-symbols/settings.svg");
+  mask-image: url("../icons/material-symbols/settings.svg");
+}
+
+.zs-icon-refresh {
+  -webkit-mask-image: url("../icons/material-symbols/refresh.svg");
+  mask-image: url("../icons/material-symbols/refresh.svg");
+}
+
+.zs-icon-right-panel-open {
+  -webkit-mask-image: url("../icons/material-symbols/right_panel_open.svg");
+  mask-image: url("../icons/material-symbols/right_panel_open.svg");
+}
+
+.zs-icon-right-panel-close {
+  -webkit-mask-image: url("../icons/material-symbols/right_panel_close.svg");
+  mask-image: url("../icons/material-symbols/right_panel_close.svg");
+}
+
+.zs-icon-subject {
+  -webkit-mask-image: url("../icons/material-symbols/subject.svg");
+  mask-image: url("../icons/material-symbols/subject.svg");
+}
+
+.zs-icon-forum {
+  -webkit-mask-image: url("../icons/material-symbols/forum.svg");
+  mask-image: url("../icons/material-symbols/forum.svg");
+}
+
+.zs-icon-home {
+  -webkit-mask-image: url("../icons/material-symbols/home.svg");
+  mask-image: url("../icons/material-symbols/home.svg");
+}
+
+.zs-icon-topic {
+  -webkit-mask-image: url("../icons/material-symbols/topic.svg");
+  mask-image: url("../icons/material-symbols/topic.svg");
+}
+
+.zs-icon-lightbulb {
+  -webkit-mask-image: url("../icons/material-symbols/lightbulb.svg");
+  mask-image: url("../icons/material-symbols/lightbulb.svg");
+}
+
+.zs-icon-hub {
+  -webkit-mask-image: url("../icons/material-symbols/hub.svg");
+  mask-image: url("../icons/material-symbols/hub.svg");
+}
+
+.zs-icon-manage-search {
+  -webkit-mask-image: url("../icons/material-symbols/manage_search.svg");
+  mask-image: url("../icons/material-symbols/manage_search.svg");
+}
+
+.zs-icon-sell {
+  -webkit-mask-image: url("../icons/material-symbols/sell.svg");
+  mask-image: url("../icons/material-symbols/sell.svg");
+}
+
+.zs-icon-fact-check {
+  -webkit-mask-image: url("../icons/material-symbols/fact_check.svg");
+  mask-image: url("../icons/material-symbols/fact_check.svg");
+}
+
+.zs-icon-tune {
+  -webkit-mask-image: url("../icons/material-symbols/tune.svg");
+  mask-image: url("../icons/material-symbols/tune.svg");
+}
+
+.zs-icon-format-list-bulleted {
+  -webkit-mask-image: url("../icons/material-symbols/format_list_bulleted.svg");
+  mask-image: url("../icons/material-symbols/format_list_bulleted.svg");
+}
+
+.zs-icon-product-folder {
+  -webkit-mask-image: url("../icons/material-symbols/folder.svg");
+  mask-image: url("../icons/material-symbols/folder.svg");
+}
+
+.zs-icon-product-folder-open {
+  -webkit-mask-image: url("../icons/material-symbols/folder_open.svg");
+  mask-image: url("../icons/material-symbols/folder_open.svg");
+}
+
+.zs-icon-product-file {
+  -webkit-mask-image: url("../icons/material-symbols/draft.svg");
+  mask-image: url("../icons/material-symbols/draft.svg");
+}
+
+.zs-icon-product-article {
+  -webkit-mask-image: url("../icons/material-symbols/article.svg");
+  mask-image: url("../icons/material-symbols/article.svg");
+}
+
+.zs-icon-product-data {
+  -webkit-mask-image: url("../icons/material-symbols/data_object.svg");
+  mask-image: url("../icons/material-symbols/data_object.svg");
+}
+
+.zs-icon-product-code {
+  -webkit-mask-image: url("../icons/material-symbols/code.svg");
+  mask-image: url("../icons/material-symbols/code.svg");
+}
+
+.zs-icon-product-table {
+  -webkit-mask-image: url("../icons/material-symbols/table_chart.svg");
+  mask-image: url("../icons/material-symbols/table_chart.svg");
+}

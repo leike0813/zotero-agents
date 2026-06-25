@@ -127,9 +127,7 @@ describe("zotero test performance probe digest", function () {
     });
 
     const outputPath = await flushZoteroPerformanceProbeDigest();
-    const payload = JSON.parse(
-      await fs.readFile(outputPath, "utf8"),
-    ) as {
+    const payload = JSON.parse(await fs.readFile(outputPath, "utf8")) as {
       spans: Array<{ name: string }>;
       summary: {
         durationHeadVsTail: Array<{ name: string }>;
@@ -146,7 +144,8 @@ describe("zotero test performance probe digest", function () {
     );
     assert.isTrue(
       payload.summary.durationHeadVsTail.some(
-        (entry) => entry.name === "executeApplyResult:tagRegulator:applyTagMutations",
+        (entry) =>
+          entry.name === "executeApplyResult:tagRegulator:applyTagMutations",
       ) === false,
     );
     assert.equal(payload.summary.topSlowTests[0].name, "buildSelectionContext");

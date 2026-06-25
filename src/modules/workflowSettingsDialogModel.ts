@@ -1,6 +1,7 @@
 import { resolveProviderById } from "../providers/registry";
 import { isSkillRunnerProviderScopedEngine } from "../providers/skillrunner/modelCatalog";
 import { projectAcpProviderModelOptionsForUi } from "./acpModelOptionFolding";
+import { localizeProviderRuntimeOptionText } from "./workflowSettingsOptionLocalization";
 import type { ProviderRuntimeOptionSchemaEntry } from "../providers/types";
 import type { BackendInstance } from "../backends/types";
 import type { WorkflowParameterSchema } from "../workflows/types";
@@ -21,6 +22,7 @@ export type FormSchemaEntry = {
   };
   title?: string;
   description?: string;
+  placeholder?: string;
   enumValues?: string[];
   options?: WorkflowParameterOption[];
   allowCustom?: boolean;
@@ -82,24 +84,35 @@ function fromWorkflowParameterSchema(
 }
 
 function fromProviderOptionSchema(
+  providerId: string,
   schema: Record<string, ProviderRuntimeOptionSchemaEntry>,
 ) {
-  return Object.entries(schema).map(([key, entry]) => ({
-    key,
-    type: entry.type,
-    title: entry.title,
-    description: entry.description,
-    enumValues: entry.type === "string" ? normalizeEnum(entry.enum) : [],
-    defaultValue: entry.default,
-    disabled: entry.disabled === true,
-  }));
+  return Object.entries(schema).map(([key, entry]) => {
+    const localizedText = localizeProviderRuntimeOptionText({
+      providerId,
+      optionKey: key,
+      entry,
+    });
+    return {
+      key,
+      type: entry.type,
+      title: localizedText.title,
+      description: localizedText.description,
+      placeholder: localizedText.placeholder,
+      enumValues: entry.type === "string" ? normalizeEnum(entry.enum) : [],
+      defaultValue: entry.default,
+      disabled: entry.disabled === true,
+    };
+  });
 }
 
 function getElementValue(control: Element) {
   if (control.getAttribute("data-zs-choice-control") === "1") {
     return String(control.getAttribute("data-zs-choice-value") || "").trim();
   }
-  return String((control as HTMLInputElement | HTMLSelectElement).value || "").trim();
+  return String(
+    (control as HTMLInputElement | HTMLSelectElement).value || "",
+  ).trim();
 }
 
 export function resolveProviderSchemaEntries(args: {
@@ -110,7 +123,7 @@ export function resolveProviderSchemaEntries(args: {
   try {
     const provider = resolveProviderById(args.providerId);
     const schema = provider.getRuntimeOptionSchema?.() || {};
-    const entries = fromProviderOptionSchema(schema);
+    const entries = fromProviderOptionSchema(args.providerId, schema);
     const values =
       args.providerId === "acp" &&
       String(args.backend?.type || "").trim() === "acp"
@@ -155,8 +168,7 @@ export function resolveProviderSchemaEntries(args: {
                 ? values[entry.key]
                 : entry.defaultValue,
             disabled:
-              (entry.key === "effort" ||
-                entry.key === "acpReasoningEffort") &&
+              (entry.key === "effort" || entry.key === "acpReasoningEffort") &&
               enumValues.length <= 1,
           };
         }
@@ -232,6 +244,11 @@ export function collectSchemaValues(container: HTMLElement) {
 
     const raw = getElementValue(control);
     if (!raw) {
+      if (type === "number") {
+        result[key] = null;
+      } else if (type === "string") {
+        result[key] = "";
+      }
       continue;
     }
     if (type === "number") {

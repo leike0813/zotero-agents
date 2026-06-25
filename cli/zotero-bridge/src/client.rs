@@ -5,9 +5,13 @@ use std::{
     time::Duration,
 };
 
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 
-use crate::{config::BridgeConfig, error::CliError};
+use crate::{
+    config::BridgeConfig,
+    error::{CliError, ErrorCategory},
+};
 
 const PROTOCOL: &str = "host-bridge.v1";
 
@@ -22,6 +26,12 @@ struct ParsedEndpoint {
 pub struct DownloadResponse {
     pub bytes: Vec<u8>,
     pub content_type: String,
+    pub verified: bool,
+    pub bytes_expected: Option<usize>,
+    pub sha256_expected: Option<String>,
+    pub sha256_actual: String,
+    pub attempts: usize,
+    pub retried: bool,
 }
 
 pub fn health(config: &BridgeConfig) -> Result<Value, CliError> {
@@ -68,9 +78,39 @@ pub fn download(config: &BridgeConfig, path: &str) -> Result<DownloadResponse, C
         &target,
         Some(config.require_token()?),
         scope_text.as_deref(),
+        config.connection_mode.as_deref(),
         None,
     );
-    let raw = send_http(&endpoint, &request)?;
+    for attempt in 1..=2 {
+        match download_once(&endpoint, &request, attempt) {
+            Ok(mut response) => {
+                response.attempts = attempt;
+                response.retried = attempt > 1;
+                return Ok(response);
+            }
+            Err(error) if is_retriable_download_error(&error) && attempt < 2 => {
+                continue;
+            }
+            Err(error) if is_retriable_download_error(&error) => {
+                return Err(download_retry_exhausted(error, attempt));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(CliError::new(
+        "download_retry_exhausted",
+        ErrorCategory::Download,
+        "Host Bridge download retry was exhausted",
+    )
+    .with_details(json!({ "attempts": 2 })))
+}
+
+fn download_once(
+    endpoint: &ParsedEndpoint,
+    request: &str,
+    attempt: usize,
+) -> Result<DownloadResponse, CliError> {
+    let raw = send_http(endpoint, request)?;
     let parsed = parse_http_response_bytes(&raw)?;
     if parsed.status == 401 {
         return Err(CliError::auth(
@@ -81,6 +121,58 @@ pub fn download(config: &BridgeConfig, path: &str) -> Result<DownloadResponse, C
     if parsed.status >= 400 {
         return Err(bridge_error_from_json(parsed.status, &parsed.body));
     }
+    let bytes_expected = parsed
+        .headers
+        .get("content-length")
+        .map(|value| {
+            value.parse::<usize>().map_err(|_| {
+                CliError::new(
+                    "download_truncated",
+                    ErrorCategory::Download,
+                    "Host Bridge download Content-Length is invalid",
+                )
+                .with_details(json!({
+                    "bytesReceived": parsed.body.len(),
+                    "attempts": attempt
+                }))
+            })
+        })
+        .transpose()?;
+    if let Some(expected) = bytes_expected {
+        if expected != parsed.body.len() {
+            return Err(CliError::new(
+                "download_truncated",
+                ErrorCategory::Download,
+                "Host Bridge download body length did not match Content-Length",
+            )
+            .with_details(json!({
+                "bytesExpected": expected,
+                "bytesReceived": parsed.body.len(),
+                "attempts": attempt
+            })));
+        }
+    }
+    let sha256_expected = parsed
+        .headers
+        .get("x-zotero-bridge-sha256")
+        .map(|value| normalize_sha256(value));
+    let sha256_actual = sha256_hex(&parsed.body);
+    if let Some(expected) = sha256_expected.as_deref() {
+        if expected != sha256_actual {
+            return Err(CliError::new(
+                "download_checksum_mismatch",
+                ErrorCategory::Download,
+                "Host Bridge download checksum did not match",
+            )
+            .with_details(json!({
+                "bytesExpected": bytes_expected,
+                "bytesReceived": parsed.body.len(),
+                "sha256Expected": expected,
+                "sha256Actual": sha256_actual,
+                "attempts": attempt
+            })));
+        }
+    }
     Ok(DownloadResponse {
         bytes: parsed.body,
         content_type: parsed
@@ -88,7 +180,54 @@ pub fn download(config: &BridgeConfig, path: &str) -> Result<DownloadResponse, C
             .get("content-type")
             .cloned()
             .unwrap_or_else(|| "application/octet-stream".to_string()),
+        verified: true,
+        bytes_expected,
+        sha256_expected,
+        sha256_actual,
+        attempts: attempt,
+        retried: attempt > 1,
     })
+}
+
+fn is_retriable_download_error(error: &CliError) -> bool {
+    matches!(
+        error.code.as_str(),
+        "download_truncated" | "download_checksum_mismatch" | "bridge_response_failed"
+    )
+}
+
+fn download_retry_exhausted(error: CliError, attempts: usize) -> CliError {
+    let mut details = Map::new();
+    details.insert("attempts".to_string(), json!(attempts));
+    details.insert("lastErrorCode".to_string(), json!(error.code));
+    if let Some(Value::Object(map)) = error.details {
+        for key in ["bytesExpected", "bytesReceived"] {
+            if let Some(value) = map.get(key) {
+                details.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+    CliError::new(
+        "download_retry_exhausted",
+        ErrorCategory::Download,
+        "Host Bridge download retry was exhausted",
+    )
+    .with_details(Value::Object(details))
+}
+
+fn normalize_sha256(value: &str) -> String {
+    let trimmed = value.trim().to_ascii_lowercase();
+    if trimmed.starts_with("sha256:") {
+        trimmed
+    } else {
+        format!("sha256:{trimmed}")
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("sha256:{:x}", hasher.finalize())
 }
 
 fn request_json(
@@ -125,6 +264,11 @@ fn request_json(
         &target,
         token,
         scope_text.as_deref(),
+        if auth {
+            config.connection_mode.as_deref()
+        } else {
+            None
+        },
         body_text.as_deref(),
     );
     let raw = send_http(&endpoint, &request)?;
@@ -189,7 +333,10 @@ fn bridge_error_from_value(status: u16, json: Value) -> CliError {
             crate::error::ErrorCategory::Download
         }
         "invalid_capability_input"
+        | "invalid_workflow_agent_run_request"
         | "invalid_workflow_input"
+        | "invalid_workflow_submit_request"
+        | "invalid_workflow_describe_request"
         | "invalid_file_id"
         | "bad_request" => crate::error::ErrorCategory::Validation,
         _ => crate::error::ErrorCategory::Protocol,
@@ -242,6 +389,7 @@ fn build_http_request(
     path: &str,
     token: Option<&str>,
     scope: Option<&str>,
+    connection_mode: Option<&str>,
     body: Option<&str>,
 ) -> String {
     let body = body.unwrap_or("");
@@ -256,6 +404,11 @@ fn build_http_request(
     }
     if let Some(scope) = scope {
         lines.push(format!("X-Zotero-Bridge-Scope: {scope}"));
+    }
+    if let Some(connection_mode) = connection_mode {
+        lines.push(format!(
+            "X-Zotero-Bridge-Connection-Mode: {connection_mode}"
+        ));
     }
     if !body.is_empty() {
         lines.push("Content-Type: application/json".to_string());
@@ -350,7 +503,10 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{build_http_request, manifest, parse_endpoint, parse_http_response};
+    use super::{
+        build_http_request, download, manifest, parse_endpoint, parse_http_response,
+        parse_http_response_bytes, sha256_hex,
+    };
     use crate::config::BridgeConfig;
 
     #[test]
@@ -369,6 +525,7 @@ mod tests {
             "/bridge/v1/call",
             Some("secret-token"),
             None,
+            None,
             Some("{}"),
         );
         assert!(request.starts_with("POST /bridge/v1/call HTTP/1.1"));
@@ -385,6 +542,7 @@ mod tests {
             "/bridge/v1/workflows/submit",
             Some("secret-token"),
             Some(scope),
+            None,
             Some("{}"),
         );
 
@@ -393,11 +551,119 @@ mod tests {
     }
 
     #[test]
+    fn includes_connection_mode_when_building_authenticated_request() {
+        let request = build_http_request(
+            "POST",
+            "127.0.0.1",
+            "/bridge/v1/call",
+            Some("secret-token"),
+            None,
+            Some("remote"),
+            Some("{}"),
+        );
+
+        assert!(request.contains("Authorization: Bearer secret-token"));
+        assert!(request.contains("X-Zotero-Bridge-Connection-Mode: remote"));
+    }
+
+    #[test]
     fn parses_http_response_body() {
         let (status, body) =
             parse_http_response("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}").unwrap();
         assert_eq!(status, 200);
         assert_eq!(body, "{}");
+    }
+
+    #[test]
+    fn parses_http_response_bytes_preserves_content_length_mismatches() {
+        let short =
+            parse_http_response_bytes(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nab").unwrap();
+        assert_eq!(short.headers["content-length"], "4");
+        assert_eq!(short.body, b"ab");
+
+        let long =
+            parse_http_response_bytes(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nabcd").unwrap();
+        assert_eq!(long.headers["content-length"], "1");
+        assert_eq!(long.body, b"abcd");
+    }
+
+    fn download_config(port: u16) -> BridgeConfig {
+        BridgeConfig {
+            endpoint: format!("http://127.0.0.1:{port}/bridge/v1"),
+            token: Some("secret-token".to_string()),
+            scope: None,
+            connection_mode: Some("remote".to_string()),
+        }
+    }
+
+    fn spawn_download_server(responses: Vec<Vec<u8>>) -> (u16, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = thread::spawn(move || {
+            for response in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0_u8; 4096];
+                let read = stream.read(&mut buffer).unwrap_or_default();
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                assert!(request.contains("GET /bridge/v1/files/file-1 HTTP/1.1"));
+                assert!(request.contains("Authorization: Bearer secret-token"));
+                stream.write_all(&response).unwrap();
+            }
+        });
+        (port, handle)
+    }
+
+    fn download_response(body: &[u8], content_length: usize, sha256: &str) -> Vec<u8> {
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: {content_length}\r\nX-Zotero-Bridge-Sha256: {sha256}\r\nConnection: close\r\n\r\n"
+        );
+        [head.as_bytes(), body].concat()
+    }
+
+    #[test]
+    fn download_retries_truncated_body_and_reports_success_metadata() {
+        let expected_hash = sha256_hex(b"abc");
+        let (port, handle) = spawn_download_server(vec![
+            download_response(b"ab", 3, &expected_hash),
+            download_response(b"abc", 3, &expected_hash),
+        ]);
+        let result = download(&download_config(port), "/files/file-1").unwrap();
+
+        assert_eq!(result.bytes, b"abc");
+        assert_eq!(result.content_type, "application/zip");
+        assert_eq!(result.bytes_expected, Some(3));
+        assert_eq!(
+            result.sha256_expected.as_deref(),
+            Some(expected_hash.as_str())
+        );
+        assert_eq!(result.sha256_actual, expected_hash);
+        assert_eq!(result.attempts, 2);
+        assert!(result.retried);
+        assert!(result.verified);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn download_retries_checksum_mismatch_and_reports_exhaustion() {
+        let bad_hash = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+        let (port, handle) = spawn_download_server(vec![
+            download_response(b"abc", 3, bad_hash),
+            download_response(b"abc", 3, bad_hash),
+        ]);
+        let error = download(&download_config(port), "/files/file-1").unwrap_err();
+
+        assert_eq!(error.code, "download_retry_exhausted");
+        assert_eq!(error.category, crate::error::ErrorCategory::Download);
+        let details = error.details.unwrap();
+        assert_eq!(details["attempts"], 2);
+        assert_eq!(details["lastErrorCode"], "download_checksum_mismatch");
+        assert_eq!(details["bytesExpected"], 3);
+        assert_eq!(details["bytesReceived"], 3);
+        assert!(details.get("sha256Expected").is_none());
+        assert!(details.get("sha256Actual").is_none());
+        assert!(details.get("outputPath").is_none());
+        assert!(!details.to_string().contains("secret-token"));
+        handle.join().unwrap();
     }
 
     #[test]
@@ -430,6 +696,7 @@ mod tests {
             endpoint: format!("http://127.0.0.1:{port}/bridge/v1"),
             token: Some("secret-token".to_string()),
             scope: None,
+            connection_mode: Some("remote".to_string()),
         };
         let result = manifest(&config).unwrap();
 

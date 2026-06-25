@@ -135,14 +135,20 @@ function parseCapabilities(source: string) {
   }> = [];
 
   for (const match of source.matchAll(
-    /\bcapability\(\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`][\s\S]*?\{\s*type:\s*["`]([^"`]+)["`]\s*,\s*required:\s*(true|false)\s*\}/g,
+    /\bcapability\(\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`]\s*,([\s\S]*?)\n\s{2}\),/g,
   )) {
+    const input = match[4].match(
+      /\{\s*type:\s*["`]([^"`]+)["`]\s*,\s*required:\s*(true|false)/,
+    );
+    if (!input) {
+      continue;
+    }
     entries.push({
       name: match[1],
       category: match[2],
       summary: normalizeSummary(match[3]),
-      inputType: match[4],
-      inputRequired: match[5] === "true",
+      inputType: input[1],
+      inputRequired: input[2] === "true",
     });
   }
 
@@ -196,7 +202,9 @@ function parseDomainMappings(source: string): HostBridgeCliMapping[] {
       });
     }
   }
-  return mappings.sort((left, right) => left.command.localeCompare(right.command));
+  return mappings.sort((left, right) =>
+    left.command.localeCompare(right.command),
+  );
 }
 
 function parseDebugMappings(source: string): HostBridgeCliMapping[] {
@@ -223,7 +231,9 @@ function parseDebugMappings(source: string): HostBridgeCliMapping[] {
     });
   }
 
-  return mappings.sort((left, right) => left.command.localeCompare(right.command));
+  return mappings.sort((left, right) =>
+    left.command.localeCompare(right.command),
+  );
 }
 
 function coreCliMappings(): HostBridgeCliMapping[] {
@@ -249,7 +259,9 @@ function endpointMappings(): HostBridgeCliMapping[] {
     ["status", "GET /bridge/v1/health"],
     ["manifest", "GET /bridge/v1/manifest"],
     ["workflow list", "GET /bridge/v1/workflows"],
+    ["workflow describe", "POST /bridge/v1/workflows/describe"],
     ["workflow submit", "POST /bridge/v1/workflows/submit"],
+    ["workflow agent-run", "POST /bridge/v1/workflows/agent-run"],
     ["workflow run", "GET /bridge/v1/workflows/runs/{runId}"],
     ["task list", "GET /bridge/v1/tasks"],
     ["file download", "GET /bridge/v1/files/{fileId}"],
@@ -303,7 +315,9 @@ export function buildHostBridgeSurfaceCatalog(
   };
 }
 
-export function validateHostBridgeSurfaceCatalog(catalog: HostBridgeSurfaceCatalog) {
+export function validateHostBridgeSurfaceCatalog(
+  catalog: HostBridgeSurfaceCatalog,
+) {
   const errors: string[] = [];
   const capabilities = new Set(catalog.capabilities.map((entry) => entry.name));
 

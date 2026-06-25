@@ -260,6 +260,40 @@ Disconnecting detaches the local ACP connection.
 - Any assistant text returned after the disconnect request is ignored for output
   validation, result-file fallback, and output repair.
 
+### Hard Timeout Disconnect
+
+`runtime_options.hard_timeout_seconds` is a local ACP connection guard for ACP
+SkillRunner-compatible runs. It is not a task terminal state and does not add a
+new state axis.
+
+- Effective timeout options are resolved before execution. Submit-time
+  `providerOptions.hard_timeout_seconds` is the highest-priority runtime
+  override, followed by request payload `runtime_options.hard_timeout_seconds`,
+  then `runner.json.runtime.default_options.hard_timeout_seconds`, then the
+  built-in default of `1200` seconds. Only positive integers are valid.
+- The initial run starts timeout monitoring only after ACP session creation,
+  mode/model/config setup, and session preparation have reached the prompt-ready
+  boundary. Session setup time is not counted as agent execution time.
+- Auto execution uses one continuous prompt execution window. Interactive
+  execution uses one window per agent turn; entering `waiting_user` clears the
+  timer, and a later user reply starts a fresh window.
+- Pending ACP permission requests pause the local hard timeout guard for both
+  auto and interactive runs. Approval, denial, cancellation, or auto-approval
+  resumes timeout monitoring with a fresh full timeout window for the still
+  active agent turn. This does not change `status`, `pendingPermission`, the
+  remote session, or the permission UI protocol.
+- Recovered sessions recompute effective timeout options and apply the same
+  prompt-ready/per-turn timing rules.
+- On expiry, the runner records `hard-timeout-disconnect-requested`, attempts
+  to cancel the active ACP prompt, drains already-arrived transcript updates for
+  a bounded local window, closes any open streaming transcript item, appends a
+  localized timeout status item after the drained transcript, and then closes
+  the local adapter through the recoverable disconnect path.
+- Hard timeout disconnect leaves the run non-terminal. `status` must not become
+  `failed` or `canceled`; `conversationState` becomes `closed`,
+  `conversationRecoveryState` remains `available` when the session can be
+  recovered, and `activePrompt`/`replyState` return to idle values.
+
 ### Connect Recoverable Detached Run
 
 Connecting a recoverable detached run is explicit user action; plugin startup

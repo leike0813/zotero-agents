@@ -5,7 +5,7 @@ description: Debug-only ACP sequence probe step that emits structured markers an
 
 # Debug Sequence Probe Emit
 
-This skill is only for Zotero Skills debug workflows. Do not write Zotero items,
+This skill is only for Zotero Agents debug workflows. Do not write Zotero items,
 notes, preferences, or external files. Use the current working directory as the
 ACP run workspace.
 
@@ -21,8 +21,10 @@ Rules:
    `parameter.sentinel_path` under the current working directory. Create parent
    directories as needed. The file content must be JSON containing `probe_id`,
    `public_marker`, `secret_marker`, and `sentinel_path`.
-5. Do not create a sentinel when `parameter.write_sentinel` is not true.
-6. Return JSON matching `assets/output.schema.json`.
+5. When a sentinel is created, set `artifact_path` to the absolute local path of
+   that file.
+6. Do not create a sentinel when `parameter.write_sentinel` is not true.
+7. Return JSON matching `assets/output.schema.json`.
 
 Output example:
 

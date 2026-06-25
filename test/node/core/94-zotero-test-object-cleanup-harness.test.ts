@@ -60,7 +60,9 @@ describe("zotero test real object cleanup harness", function () {
     });
 
     assert.deepEqual(getTrackedZoteroTestObjectIdsForTests(), {
-      itemIds: [attachment.id, note.id, parent.id].sort((left, right) => left - right),
+      itemIds: [attachment.id, note.id, parent.id].sort(
+        (left, right) => left - right,
+      ),
       collectionIds: [collection.id],
     });
 
@@ -194,12 +196,10 @@ describe("zotero test real object cleanup harness", function () {
       resetManagedLocalRuntimeStateChangeListenersForTests: () => undefined,
       resetLocalRuntimeToastStateForTests: () => undefined,
       resetSkillRunnerBackendHealthRegistryForTests: () => undefined,
-      resetDeferredWorkflowCompletionTrackerForTests: () => undefined,
-      resetSkillRunnerRequestLedgerForTests: () => undefined,
       resetPluginStateStoreForTests: () => undefined,
-      setSkillRunnerBackendReconcileFailureToastEmitterForTests: () => undefined,
+      setSkillRunnerBackendReconcileFailureToastEmitterForTests: () =>
+        undefined,
       setSkillRunnerTaskLifecycleToastEmitterForTests: () => undefined,
-      setDeferredWorkflowCompletionTrackerDepsForTests: () => undefined,
       resetWorkflowTasks: () => undefined,
       clearRuntimeLogs: () => undefined,
     });

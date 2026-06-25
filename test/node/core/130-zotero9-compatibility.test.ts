@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { readFileSync } from "fs";
 import fs from "fs/promises";
 import path from "path";
 import {
@@ -32,7 +33,9 @@ async function listSourceFiles(root: string): Promise<string[]> {
   return files;
 }
 
-function installFetchMock(handler: (url: string) => Promise<Response> | Response) {
+function installFetchMock(
+  handler: (url: string) => Promise<Response> | Response,
+) {
   const runtime = globalThis as typeof globalThis & {
     fetch?: typeof fetch;
   };
@@ -112,18 +115,18 @@ function installZotero9SandboxFileRuntime(tempRoot: string) {
     configurable: true,
     writable: true,
     value: {
-    readUTF8: (filePath: string) => fs.readFile(filePath, "utf8"),
-    getChildren: async (dirPath: string) =>
-      (await fs.readdir(dirPath)).map((name) => path.join(dirPath, name)),
-    stat: async (targetPath: string) => {
-      const stat = await fs.stat(targetPath);
-      return { type: stat.isDirectory() ? "directory" : "regular" };
-    },
-    writeUTF8: async (filePath: string, content: string) => {
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.writeFile(filePath, content, "utf8");
-    },
-    remove: (filePath: string) => fs.rm(filePath, { force: true }),
+      readUTF8: (filePath: string) => fs.readFile(filePath, "utf8"),
+      getChildren: async (dirPath: string) =>
+        (await fs.readdir(dirPath)).map((name) => path.join(dirPath, name)),
+      stat: async (targetPath: string) => {
+        const stat = await fs.stat(targetPath);
+        return { type: stat.isDirectory() ? "directory" : "regular" };
+      },
+      writeUTF8: async (filePath: string, content: string) => {
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.writeFile(filePath, content, "utf8");
+      },
+      remove: (filePath: string) => fs.rm(filePath, { force: true }),
     },
   });
   Object.defineProperty(runtime, "PathUtils", {
@@ -135,32 +138,44 @@ function installZotero9SandboxFileRuntime(tempRoot: string) {
     configurable: true,
     writable: true,
     value: {
-    io: {
-      newFileURI: (filePath: unknown) => ({ spec: String(filePath) }),
-    },
-    scriptloader: {
-      loadSubScript: (scriptPath: string, scope: Record<string, unknown>) => {
-        const scriptText = require("fs").readFileSync(scriptPath, "utf8");
-        const runner = new Function(scriptText) as () => void;
-        runner.call(scope);
+      io: {
+        newFileURI: (filePath: unknown) => ({ spec: String(filePath) }),
       },
-    },
+      storage: {
+        openDatabase: () => ({
+          createStatement: () => ({
+            bindByName: () => undefined,
+            executeStep: () => false,
+            finalize: () => undefined,
+          }),
+          executeSimpleSQL: () => undefined,
+        }),
+      },
+      scriptloader: {
+        loadSubScript: (scriptPath: string, scope: Record<string, unknown>) => {
+          const scriptText = readFileSync(scriptPath, "utf8");
+          const runner = new Function(scriptText) as () => void;
+          runner.call(scope);
+        },
+      },
     },
   });
   Object.defineProperty(runtime, "Zotero", {
     configurable: true,
     writable: true,
     value: {
-    ...(previous.Zotero || {}),
-    version: "9.0.0",
-    File: {
-      ...(previous.Zotero?.File || {}),
-      pathToFile: (filePath: string) => filePath,
-    },
+      ...(previous.Zotero || {}),
+      version: "9.0.0",
+      File: {
+        ...(previous.Zotero?.File || {}),
+        pathToFile: (filePath: string) => filePath,
+      },
     } as typeof Zotero,
   });
   return () => {
-    for (const key of Object.keys(descriptors) as Array<keyof typeof descriptors>) {
+    for (const key of Object.keys(descriptors) as Array<
+      keyof typeof descriptors
+    >) {
       const descriptor = descriptors[key];
       if (descriptor) {
         Object.defineProperty(runtime, key, descriptor);
@@ -183,12 +198,13 @@ describe("Zotero 9 compatibility baseline", function () {
       return new Response("root manifest", { status: 200 });
     });
     try {
-      const result = await __builtinWorkflowSyncTestOnly.readPackagedTextForTests({
-        rootURI: "https://root.example/addon/",
-        resourceURI: "https://resource.example/addon/",
-        relativePath: "manifest.json",
-        devCwd: path.join(process.cwd(), "missing-dev-cwd"),
-      });
+      const result =
+        await __builtinWorkflowSyncTestOnly.readPackagedTextForTests({
+          rootURI: "https://root.example/addon/",
+          resourceURI: "https://resource.example/addon/",
+          relativePath: "manifest.json",
+          devCwd: path.join(process.cwd(), "missing-dev-cwd"),
+        });
       assert.equal(result.text, "root manifest");
       assert.equal(result.source.label, "rootURI-fetch");
       assert.deepEqual(seen, [
@@ -209,12 +225,13 @@ describe("Zotero 9 compatibility baseline", function () {
       return new Response("missing", { status: 404 });
     });
     try {
-      const result = await __builtinWorkflowSyncTestOnly.readPackagedTextForTests({
-        rootURI: "https://root.example/addon/",
-        resourceURI: "https://resource.example/addon/",
-        relativePath: "manifest.json",
-        devCwd: path.join(process.cwd(), "missing-dev-cwd"),
-      });
+      const result =
+        await __builtinWorkflowSyncTestOnly.readPackagedTextForTests({
+          rootURI: "https://root.example/addon/",
+          resourceURI: "https://resource.example/addon/",
+          relativePath: "manifest.json",
+          devCwd: path.join(process.cwd(), "missing-dev-cwd"),
+        });
       assert.equal(result.text, "resource manifest");
       assert.equal(result.source.label, "resourceURI-fetch");
       assert.deepEqual(seen, [
@@ -227,15 +244,18 @@ describe("Zotero 9 compatibility baseline", function () {
   });
 
   it("falls back to development cwd when runtime resource reads fail", async function () {
-    const restore = installFetchMock(() => new Response("missing", { status: 404 }));
+    const restore = installFetchMock(
+      () => new Response("missing", { status: 404 }),
+    );
     try {
-      const result = await __builtinWorkflowSyncTestOnly.readPackagedTextForTests({
-        rootURI: "https://root.example/addon/",
-        resourceURI: "https://resource.example/addon/",
-        relativePath: "manifest.json",
-        devCwd: process.cwd(),
-      });
-      assert.include(result.text, "\"files\"");
+      const result =
+        await __builtinWorkflowSyncTestOnly.readPackagedTextForTests({
+          rootURI: "https://root.example/addon/",
+          resourceURI: "https://resource.example/addon/",
+          relativePath: "manifest.json",
+          devCwd: process.cwd(),
+        });
+      assert.include(result.text, '"files"');
       assert.equal(result.source.label, "dev-cwd");
       assert.isAtLeast(result.diagnostics.failures.length, 2);
     } finally {
@@ -247,10 +267,14 @@ describe("Zotero 9 compatibility baseline", function () {
     const tempRoot = await fs.mkdtemp(
       path.join(process.cwd(), ".tmp-zotero9-sync-fail-"),
     );
-    const restore = installFetchMock(() => new Response("missing", { status: 404 }));
-    const previousDataDirectory = (Zotero as unknown as {
-      DataDirectory?: unknown;
-    }).DataDirectory;
+    const restore = installFetchMock(
+      () => new Response("missing", { status: 404 }),
+    );
+    const previousDataDirectory = (
+      Zotero as unknown as {
+        DataDirectory?: unknown;
+      }
+    ).DataDirectory;
     (Zotero as unknown as { DataDirectory?: { dir: string } }).DataDirectory = {
       dir: path.join(tempRoot, "zotero-data"),
     };
@@ -273,7 +297,13 @@ describe("Zotero 9 compatibility baseline", function () {
       assert.equal(latest?.ok, false);
       assert.equal(
         latest?.targetRoot,
-        path.join(tempRoot, "zotero-data", "zotero-skills", "workflows_builtin"),
+        path.join(
+          tempRoot,
+          "zotero-data",
+          "zotero-agents",
+          "data",
+          "workflows_builtin",
+        ),
       );
       assert.isAtLeast(latest?.diagnostics?.failures.length || 0, 2);
       assert.include(JSON.stringify(latest), "rootURI-fetch");
@@ -294,14 +324,20 @@ describe("Zotero 9 compatibility baseline", function () {
     const restoreRuntime = installZotero9SandboxFileRuntime(tempRoot);
     try {
       assert.equal(__workflowLoaderTestOnly.isZoteroRuntime(), true);
-      const loaded = await loadWorkflowManifests(path.join(tempRoot, "workflows"), {
-        workflowSourceKind: "builtin",
-      });
+      const loaded = await loadWorkflowManifests(
+        path.join(tempRoot, "workflows"),
+        {
+          workflowSourceKind: "builtin",
+        },
+      );
       assert.deepEqual(
         loaded.workflows.map((workflow) => workflow.manifest.id),
         ["runtime-workflow"],
       );
-      assert.equal(loaded.workflows[0]?.hookExecutionMode, "precompiled-host-hook");
+      assert.equal(
+        loaded.workflows[0]?.hookExecutionMode,
+        "precompiled-host-hook",
+      );
       assert.deepEqual(loaded.errors, []);
       assert.deepEqual(loaded.warnings, []);
     } finally {
@@ -315,13 +351,27 @@ describe("Zotero 9 compatibility baseline", function () {
       path.join(process.cwd(), ".tmp-zotero9-registry-"),
     );
     const dataDir = path.join(tempRoot, "zotero-data");
-    const builtinDir = path.join(dataDir, "zotero-skills", "workflows_builtin");
-    const userDir = path.join(dataDir, "zotero-skills", "workflows");
+    const builtinDir = path.join(
+      dataDir,
+      "zotero-agents",
+      "content",
+      "official",
+      "workflows",
+    );
+    const userDir = path.join(
+      dataDir,
+      "zotero-agents",
+      "content",
+      "user",
+      "workflows",
+    );
     await createMinimalWorkflowPackage(builtinDir);
     await fs.mkdir(userDir, { recursive: true });
-    const previousDataDirectory = (Zotero as unknown as {
-      DataDirectory?: unknown;
-    }).DataDirectory;
+    const previousDataDirectory = (
+      Zotero as unknown as {
+        DataDirectory?: unknown;
+      }
+    ).DataDirectory;
     (Zotero as unknown as { DataDirectory?: { dir: string } }).DataDirectory = {
       dir: dataDir,
     };
@@ -348,7 +398,10 @@ describe("Zotero 9 compatibility baseline", function () {
 
   it("declares Zotero 7 through Zotero 9.0 manifest compatibility", async function () {
     const manifest = JSON.parse(
-      await fs.readFile(path.join(process.cwd(), "addon", "manifest.json"), "utf8"),
+      await fs.readFile(
+        path.join(process.cwd(), "addon", "manifest.json"),
+        "utf8",
+      ),
     );
     assert.equal(manifest.applications.zotero.strict_min_version, "7.0");
     assert.equal(manifest.applications.zotero.strict_max_version, "9.0.*");
@@ -359,14 +412,19 @@ describe("Zotero 9 compatibility baseline", function () {
       .filter((file) => /\.(ts|js|mjs)$/.test(file))
       .map((file) => path.relative(process.cwd(), file).replace(/\\/g, "/"));
     const allowDirectDelay = new Set(["src/utils/runtimeCompatibility.ts"]);
-    const allowSubprocessImport = new Set(["src/utils/runtimeCompatibility.ts"]);
+    const allowSubprocessImport = new Set([
+      "src/utils/runtimeCompatibility.ts",
+    ]);
     const allowOsFile = new Set([
       "src/utils/runtimeCompatibility.ts",
       "src/modules/runtimePersistence.ts",
     ]);
 
     for (const relativePath of sourceFiles) {
-      const text = await fs.readFile(path.join(process.cwd(), relativePath), "utf8");
+      const text = await fs.readFile(
+        path.join(process.cwd(), relativePath),
+        "utf8",
+      );
       if (!allowDirectDelay.has(relativePath)) {
         assert.notInclude(text, "Zotero.Promise.delay", relativePath);
       }

@@ -20,7 +20,7 @@ concurrency:
 env:
   GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
   GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-  REPO_NAME: Zotero-Skills
+  REPO_NAME: zotero-agents
 
 jobs:
   deploy:

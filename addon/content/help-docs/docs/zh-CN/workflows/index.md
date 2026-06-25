@@ -1,0 +1,88 @@
+# Workflow 介绍
+
+## 什么是 Workflow？
+
+Workflow（工作流）是 Zotero Agents 的核心功能，它允许您将多个技能步骤组合成自动化的处理流水线。一个 Workflow 定义了一个完整的任务：从接收输入、处理数据、到输出结果。
+
+## Workflow 的结构
+
+```
+workflow.json（清单文件）
+├── manifest：声明元数据、版本、名称
+├── parameters：定义可配置的参数
+├── inputs：定义输入类型（附件、条目、笔记等）
+├── hooks：JavaScript 钩子脚本（过滤输入、构建请求、应用结果）
+└── provider：指定需要的后端类型
+```
+
+### 输入单元类型
+
+| 类型 | 说明 |
+|------|------|
+| `attachment` | 条目的附件文件 |
+| `parent` | 选中条目的父条目 |
+| `note` | 笔记条目 |
+| `workflow` | 批量作用域 |
+
+### 钩子系统（Hooks）
+
+Workflow 可以在执行的各个阶段运行自定义 JavaScript 脚本：
+
+- **filterInputs**：对输入进行过滤和筛选
+- **buildRequest**：构建发送给后端的请求内容
+- **normalizeSettings**：规范化用户设置
+- **applyResult**：将后端返回的结果应用到 Zotero
+
+## 三种执行方式
+
+Workflow 可以通过三种后端类型执行：
+
+| 后端 | 请求类型 | 适用场景 |
+|------|---------|---------|
+| **Skill-Runner** | `skill.run.v1` | 通用技能执行，支持交互模式 |
+| **ACP** | `acp.skill.run.v1` | ACP 后端的技能执行 |
+| **Generic HTTP** | `generic-http.request.v1` | HTTP API 调用 |
+
+## 官方 Workflow 包
+
+官方 Workflow 以**独立包**的形式发布和安装，与插件本体解耦。安装方式：
+
+- 右键菜单 → **Zotero Agents** → **📦 安装官方 Workflow 包**
+- 偏好设置中点击 **安装官方 Workflow 包**
+
+官方包支持 stable / beta / dev 三个更新频道，插件启动时自动检查更新。
+
+## 官方 Workflows
+
+插件附带了一系列官方 workflow，按功能分组：
+
+### 📚 文献分析工具包
+
+| Workflow | 用途 | 输入 | 后端 | 文档 |
+|---------|------|------|------|------|
+| **文献分析** ⭐ | 从 PDF/MD 生成摘要、参考文献、引文分析。可级联标签规范化 | 附件 | Skill-Runner | [详情](#doc/workflows%2Fliterature-analysis) |
+| **交互式文献解读** | 与 AI 多轮对话深入理解文献，答案经验证门禁防幻觉 | 附件 | Skill-Runner | [详情](#doc/workflows%2Fliterature-explainer) |
+| **深度阅读** | 生成结构化精读 HTML 视图，支持翻译 | 附件 | ACP | [详情](#doc/workflows%2Fliterature-deep-reading) |
+| **文献搜索与入库** | 让 Agent 搜索学术文献并直接入库到 Zotero | workflow | ACP | [详情](#doc/workflows%2Fliterature-search-ingest) |
+| **标签词表初始化** | 与 AI 交互创建研究领域的受控标签词表 | workflow | Skill-Runner | [详情](#doc/workflows%2Ftag-bootstrapper) |
+| **标签规范化** | 基于受控词表规范化标签，推断新标签 | 父条目 | Skill-Runner | [详情](#doc/workflows%2Ftag-regulator) |
+| **导出/导入笔记** | 导出或导入分析笔记，支持编辑后重新导入 | 父条目 | 无需后端 | [详情](#doc/workflows%2Fexport-import-notes) |
+
+### 🛠️ 实用工具
+
+| Workflow | 用途 | 输入 | 后端 | 文档 |
+|---------|------|------|------|------|
+| **MinerU PDF 解析** | 调用 MinerU 服务解析 PDF 为 Markdown | 附件 | Generic HTTP | [详情](#doc/workflows%2Fmineru) |
+| **Topic 综合创建** | 三步流水线创建主题综合分析与报告 | workflow | ACP | [详情](#doc/workflows%2Ftopic-synthesis) |
+| **论文写作框架** | 生成 Introduction / Related Work LaTeX 草稿 | workflow | ACP | [详情](#doc/workflows%2Fmanuscript-literature-framing) |
+
+### 🔧 调试工具
+
+| Workflow | 用途 | 后端 | 文档 |
+|---------|------|------|------|
+| **调试工具包** | Workflow 系统开发测试和诊断 | Skill-Runner | [详情](#doc/workflows%2Fdebug-probe) |
+
+## 下一步
+
+- [Workflow 调用与配置](#doc/workflows%2Finvocation)
+- [后端配置](#doc/backends%2Findex) — 配置后端的详细说明

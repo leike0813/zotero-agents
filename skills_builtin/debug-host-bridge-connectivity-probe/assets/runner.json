@@ -1,0 +1,17 @@
+{
+  "id": "debug-host-bridge-connectivity-probe",
+  "name": "🧪 Debug Host Bridge Connectivity Probe",
+  "description": "Debug-only Host Bridge connectivity probe for validating CLI injection, endpoint reachability, authentication, and read-only capability routing.",
+  "version": "0.1.0",
+  "debug_only": true,
+  "execution_modes": ["auto"],
+  "schemas": {
+    "parameter": "assets/parameter.schema.json",
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "Execute this debug-only Host Bridge connectivity probe exactly as described in SKILL.md. Inputs: {{ input }}. Parameters: {{ parameter }}. Use the current working directory as the run workspace. Output exactly one JSON object."
+    }
+  }
+}

@@ -1,14 +1,12 @@
 import { config } from "../../package.json";
 import { getString } from "../utils/locale";
 import { buildSelectionContext } from "./selectionContext";
-import { executeBuildRequests } from "../workflows/runtime";
 import { executeWorkflowFromCurrentSelection } from "./workflowExecute";
-import { getLoadedWorkflowSourceById } from "./workflowRuntime";
-import { resolveProvider } from "../providers/registry";
 import {
-  buildWorkflowSettingsUiDescriptor,
-  resolveWorkflowExecutionContext,
-} from "./workflowSettings";
+  getLoadedWorkflowSourceById,
+  getWorkflowRegistryState,
+} from "./workflowRuntime";
+import { resolveWorkflowExecutionOptionsPreview } from "./workflowSettings";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { alertWindow } from "./workflowExecution/feedbackSeam";
 import { shouldShowWorkflowNotifications } from "./workflowExecution/feedbackPolicy";
@@ -20,6 +18,7 @@ import {
   isCoreWorkflow,
   localizeWorkflowLabel,
 } from "../workflows/localization";
+import { evaluateWorkflowSelection } from "../workflows/workflowSelectionValidation";
 
 const ROOT_MENU_ID = `${config.addonRef}-workflows-menu`;
 const ROOT_POPUP_ID = `${config.addonRef}-workflows-popup`;
@@ -36,6 +35,20 @@ function getMenuLabel(id: string, fallback: string) {
   const localized = getString(id as any);
   const fallbackKey = `${config.addonRef}-${id}`;
   return localized === fallbackKey ? fallback : localized;
+}
+
+function getMenuLabelWithArgs(
+  id: string,
+  fallback: string,
+  args: Record<string, string>,
+) {
+  try {
+    const localized = String(getString(id as any, { args })).trim();
+    const fallbackKey = `${config.addonRef}-${id}`;
+    return localized && localized !== fallbackKey ? localized : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function getItemMenuPopup(win: _ZoteroTypes.MainWindow) {
@@ -59,10 +72,7 @@ function appendDisabledItem(
   popup.appendChild(item);
 }
 
-function appendWorkspaceItem(
-  win: _ZoteroTypes.MainWindow,
-  popup: XULElement,
-) {
+function appendWorkspaceItem(win: _ZoteroTypes.MainWindow, popup: XULElement) {
   const item = win.document.createXULElement("menuitem");
   item.setAttribute(
     "label",
@@ -84,13 +94,34 @@ function appendAssistantSidebarItem(
   const item = win.document.createXULElement("menuitem");
   item.setAttribute(
     "label",
-    getMenuLabel(
-      "menu-workflows-open-assistant-sidebar",
-      "Open Sidebar",
-    ),
+    getMenuLabel("menu-workflows-open-assistant-sidebar", "Open Sidebar"),
   );
   item.addEventListener("command", () => {
     void addon.hooks.onPrefsEvent("openSkillRunnerSidebar", { window: win });
+  });
+  popup.appendChild(item);
+}
+
+function appendHelpItem(win: _ZoteroTypes.MainWindow, popup: XULElement) {
+  const item = win.document.createXULElement("menuitem");
+  item.setAttribute(
+    "label",
+    getMenuLabel("menu-workflows-open-help", "Open Help"),
+  );
+  item.addEventListener("command", () => {
+    void addon.hooks.onPrefsEvent("openHelpCenter", { window: win });
+  });
+  popup.appendChild(item);
+}
+
+function appendOnlineDocsItem(win: _ZoteroTypes.MainWindow, popup: XULElement) {
+  const item = win.document.createXULElement("menuitem");
+  item.setAttribute(
+    "label",
+    getMenuLabel("menu-workflows-open-online-docs", "Open Online Docs"),
+  );
+  item.addEventListener("command", () => {
+    void addon.hooks.onPrefsEvent("openOnlineDocs", { window: win });
   });
   popup.appendChild(item);
 }
@@ -100,12 +131,55 @@ function appendMenuSeparator(win: _ZoteroTypes.MainWindow, popup: XULElement) {
   popup.appendChild(separator);
 }
 
-function shouldRunRequestPreflightFromMenu(workflow: LoadedWorkflow) {
-  const parameterCount = Object.keys(workflow.manifest.parameters || {}).length;
-  if (workflow.manifest.inputs?.unit === "workflow" && parameterCount > 0) {
-    return false;
-  }
-  return true;
+function shouldShowInstallOfficialPackageItem() {
+  const state = getWorkflowRegistryState();
+  return state.loadedFromOfficial.workflows.length === 0;
+}
+
+function buildInstallOfficialPackageFailureMessage(reason: string) {
+  return getMenuLabelWithArgs(
+    "menu-workflows-install-official-failed",
+    `Official workflow package install failed: ${reason}`,
+    { reason },
+  );
+}
+
+function appendInstallOfficialPackageItem(
+  win: _ZoteroTypes.MainWindow,
+  popup: XULElement,
+) {
+  const item = win.document.createXULElement("menuitem");
+  item.setAttribute(
+    "label",
+    getMenuLabel(
+      "menu-workflows-install-official-package",
+      "📦 Install Official Workflow Package",
+    ),
+  );
+  item.setAttribute("style", "font-weight: 700;");
+  item.addEventListener("command", () => {
+    item.setAttribute("disabled", "true");
+    void (async () => {
+      const result = (await addon.hooks.onPrefsEvent("installContentPackage", {
+        window: win,
+        source: "workflow-menu",
+      })) as { ok?: boolean; message?: string } | undefined;
+      if (result?.ok) {
+        alertWindow(
+          win,
+          getMenuLabel(
+            "menu-workflows-install-official-success",
+            "Official workflow package installed.",
+          ),
+        );
+        return;
+      }
+      item.removeAttribute("disabled");
+      const reason = compactError(result?.message || "unknown error");
+      alertWindow(win, buildInstallOfficialPackageFailureMessage(reason));
+    })();
+  });
+  popup.appendChild(item);
 }
 
 function compactError(error: unknown) {
@@ -211,6 +285,14 @@ export async function rebuildWorkflowActionPopup(
     appendAssistantSidebarItem(win, popup);
   }
   if (includeWorkspaceItem || includeSkillRunnerSidebarItem) {
+    appendHelpItem(win, popup);
+    appendOnlineDocsItem(win, popup);
+  }
+  if (includeWorkspaceItem || includeSkillRunnerSidebarItem) {
+    appendMenuSeparator(win, popup);
+  }
+  if (shouldShowInstallOfficialPackageItem()) {
+    appendInstallOfficialPackageItem(win, popup);
     appendMenuSeparator(win, popup);
   }
   if (workflows.length === 0) {
@@ -243,30 +325,24 @@ export async function rebuildWorkflowActionPopup(
       );
     } else if (shouldPreflightWorkflowInputs) {
       try {
-        const executionContext = await resolveWorkflowExecutionContext({
+        const executionOptionsPreview = resolveWorkflowExecutionOptionsPreview({
           workflow,
         });
-        resolveProvider({
-          requestKind: executionContext.requestKind,
-          backend: executionContext.backend,
-        });
-        const descriptor = await buildWorkflowSettingsUiDescriptor({
+        const selectionValidation = await evaluateWorkflowSelection({
           workflow,
-          candidateBackends: [executionContext.backend],
-          resolveDynamicOptions: false,
+          selectionContext,
+          mode: "menu",
+          executionOptions: {
+            workflowParams: executionOptionsPreview.workflowParams,
+            providerOptions: executionOptionsPreview.providerOptions,
+          },
         });
-        if (descriptor.blockedReason) {
-          throw new Error(descriptor.blockedReason);
-        }
-        if (shouldRunRequestPreflightFromMenu(workflow)) {
-          await executeBuildRequests({
-            workflow,
-            selectionContext,
-            executionOptions: {
-              workflowParams: executionContext.workflowParams,
-              providerOptions: executionContext.providerOptions,
-            },
-          });
+        if (selectionValidation.state === "disabled") {
+          const error = new Error(
+            `Workflow ${workflow.manifest.id} has no valid input units after filtering`,
+          );
+          (error as { code?: string }).code = "NO_VALID_INPUT_UNITS";
+          throw error;
         }
       } catch (error) {
         disabledReason = resolveDisabledReason(error);
@@ -312,7 +388,7 @@ export function ensureWorkflowMenuForWindow(win: _ZoteroTypes.MainWindow) {
   menu.id = ROOT_MENU_ID;
   menu.setAttribute(
     "label",
-    getMenuLabel("menu-workflows-root", "Zotero-Skills"),
+    getMenuLabel("menu-workflows-root", "Zotero Agents"),
   );
   menu.setAttribute("class", "menu-iconic");
   menu.setAttribute("image", MENU_ICON_URI);

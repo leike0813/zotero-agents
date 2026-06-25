@@ -1,0 +1,6 @@
+- [x] 1. Add OpenSpec delta for the manifest-based output contract.
+- [x] 2. Update skill output schema and instructions to expose only meaningful output plus `artifact_manifest_path`.
+- [x] 3. Update runtime scripts to emit absolute manifest paths and cwd-independent gate paths.
+- [x] 4. Update workflow manifest and apply hook to consume the artifact manifest.
+- [x] 5. Update existing tests for the new output contract and hook behavior.
+- [x] 6. Run OpenSpec, schema/runtime, TypeScript, and targeted workflow tests.

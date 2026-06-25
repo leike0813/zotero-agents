@@ -79,7 +79,7 @@ async function createCollection(name: string, parentId?: number) {
 }
 
 describe("Literature Search Ingest workflow contract", function () {
-  it("ships an ACP-only interactive literature search ingest workflow", async function () {
+  it("ships a SkillRunner interactive literature search ingest workflow", async function () {
     const workflow = JSON.parse(
       await fs.readFile(
         "workflows_builtin/literature-workbench-package/literature-search-ingest/workflow.json",
@@ -88,7 +88,7 @@ describe("Literature Search Ingest workflow contract", function () {
     );
 
     assert.equal(workflow.id, "literature-search-ingest");
-    assert.equal(workflow.provider, "acp");
+    assert.equal(workflow.provider, "skillrunner");
     assert.equal(
       workflow.request?.create?.skill_id,
       "literature-search-ingest",
@@ -97,7 +97,7 @@ describe("Literature Search Ingest workflow contract", function () {
       workflow.taskNameTemplate,
       "Search and ingest literature: {query}",
     );
-    assert.equal(workflow.execution?.skillrunner_mode, "interactive");
+    assert.equal(workflow.request?.create?.mode, "interactive");
     assert.notProperty(workflow.execution || {}, "supportedBackends");
     assert.isTrue(workflow.execution?.zoteroHostAccess?.required);
     assert.isTrue(
@@ -493,6 +493,7 @@ describe("Literature Search Ingest workflow contract", function () {
     const files = skillManifest.files.map((file) => file.relativePath);
     assert.include(files, "SKILL.md");
     assert.include(files, "assets/runner.json");
+    assert.include(files, "assets/parameter.schema.json");
     assert.include(files, "assets/output.schema.json");
   });
 

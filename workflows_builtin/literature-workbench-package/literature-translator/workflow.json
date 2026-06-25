@@ -1,0 +1,75 @@
+{
+  "id": "literature-translator",
+  "label": "Literature Translator",
+  "provider": "skillrunner",
+  "version": "0.1.0",
+  "display": {
+    "core": true,
+    "emoji": "🌐"
+  },
+  "inputs": {
+    "unit": "attachment",
+    "accepts": {
+      "mime": ["text/markdown", "text/x-markdown", "text/plain", "application/pdf"]
+    },
+    "per_parent": {
+      "min": 1,
+      "max": 1
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "literature-source"
+    },
+    "exclude": [
+      {
+        "kind": "artifact-exists",
+        "target": "translator-markdown",
+        "parameter": "target_language"
+      }
+    ]
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "mode": "auto"
+    }
+  },
+  "parameters": {
+    "target_language": {
+      "type": "string",
+      "title": "Target Language",
+      "enum": [
+        "zh-CN",
+        "en-US",
+        "ja-JP",
+        "ko-KR",
+        "de-DE",
+        "fr-FR",
+        "es-ES",
+        "ru-RU"
+      ],
+      "allowCustom": true,
+      "default": "zh-CN"
+    },
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "enum": ["fast", "high_quality"],
+      "default": "fast"
+    }
+  },
+  "execution": {
+    "poll_interval_ms": 2000
+  },
+  "result": {
+    "fetch": { "type": "bundle" },
+    "expects": {
+      "result_json": "result/result.json"
+    }
+  },
+  "hooks": {
+    "buildRequest": "hooks/buildRequest.mjs",
+    "applyResult": "hooks/applyResult.mjs"
+  }
+}

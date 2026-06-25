@@ -1,57 +1,67 @@
-# Git 同步
+# Git Sync
 
-Git 同步是 Synthesis Workbench 的可选功能，将 Canonical Store 中的知识图谱数据同步到 Git 仓库，实现版本管理、备份和协作。
+:::warning Deprecated
 
-## 用途
+Git Sync has been deprecated in the current version and is no longer available externally. The plugin has switched to **WebDAV Durable Bundle Sync**, which uses the WebDAV protocol to exchange Synthesis persistence state snapshots (instead of Git repositories) for lighter-weight cross-device sync.
 
-- **版本管理**：追踪所有标签词表、主题综合、概念知识库的变更历史
-- **备份**：将结构化知识数据备份到远程 Git 仓库
-- **协作**：多个研究人员共享同一套标签体系和分析结果
+**Please use [WebDAV Sync](webdav-sync) instead.**
 
-## 配置方式
+Git Sync is retained only as an implicit internal transport channel (used for historical diagnostics and future cleanup). The documentation below is kept for historical reference.
 
-在 Zotero 偏好设置中配置 Git 同步：
+:::
 
-Zotero → 设置 → Zotero Skills → Synthesis Git Sync
+Git Sync is an optional feature of Synthesis Workbench that synchronizes knowledge graph data from the Canonical Store to a Git repository, enabling version control, backup, and collaboration.
 
-| 设置项 | 说明 |
-|-------|------|
-| **启用 Git 同步** | 开启/关闭同步功能 |
-| **远程仓库 URL** | Git 远程仓库地址（支持 HTTPS 和 SSH） |
-| **分支名** | 同步使用的 Git 分支 |
+## Use Cases
 
-### 前置条件
+- **Version Control**: Track change history for all tag vocabularies, topic syntheses, and concept knowledge base
+- **Backup**: Back up structured knowledge data to a remote Git repository
+- **Collaboration**: Multiple researchers share the same tag system and analysis results
 
-- 已安装 Git（在系统 PATH 中可用）
-- 有可访问的 Git 远程仓库（GitHub、Gitee、自托管等）
-- 如果使用 HTTPS 仓库，需要配置 Git 凭据
+## Configuration
 
-## 同步范围
+Configure Git Sync in Zotero Preferences:
 
-Git 同步只同步 **规范域资产**（Canonical Store 中的结构化知识数据），不包含运行时数据。
+Zotero → Settings → Zotero Agents → Synthesis Git Sync
 
-### 同步的内容
+| Setting | Description |
+|---------|-------------|
+| **Enable Git Sync** | Turn sync on/off |
+| **Remote Repository URL** | Git remote repository address (supports HTTPS and SSH) |
+| **Branch Name** | Git branch used for sync |
 
-| 域 | 内容 |
-|----|------|
-| `tags/` | 受控标签词表（vocabulary） |
-| `topics/` | 主题综合的结构化产物 |
-| `concepts/` | 概念知识库（概念、义项、别名、关系） |
-| `topic-graph/` | 主题图谱的节点和边 |
-| `citation-graph/` | 引文图谱的快照 |
+### Prerequisites
 
-### 不同步的内容
+- Git installed (available in system PATH)
+- An accessible Git remote repository (GitHub, Gitee, self-hosted, etc.)
+- If using an HTTPS repository, Git credentials must be configured
 
-| 不同步 | 原因 |
-|--------|------|
-| `state/` 数据库 | SQLite 运行时状态，可从规范资产重建 |
-| 运行时日志 | 临时诊断数据 |
-| 工作区文件 | 执行过程中的临时数据 |
-| 队列和锁状态 | 内部调度状态 |
+## Sync Scope
 
-## 同步状态机
+Git Sync only synchronizes **canonical domain assets** (structured knowledge data in the Canonical Store), excluding runtime data.
 
-同步系统使用队列驱动的状态机确保一致性：
+### What Is Synced
+
+| Domain | Content |
+|--------|---------|
+| `tags/` | Controlled tag vocabulary |
+| `topics/` | Structured artifacts for topic synthesis |
+| `concepts/` | Concept knowledge base (concepts, senses, aliases, relationships) |
+| `topic-graph/` | Topic graph nodes and edges |
+| `citation-graph/` | Citation graph snapshots |
+
+### What Is Not Synced
+
+| Not Synced | Reason |
+|------------|--------|
+| `state/` databases | SQLite runtime state; can be rebuilt from canonical assets |
+| Runtime logs | Temporary diagnostic data |
+| Workspace files | Temporary data generated during execution |
+| Queue and lock state | Internal scheduling state |
+
+## Sync State Machine
+
+The sync system uses a queue-driven state machine to ensure consistency:
 
 ```
 idle → queued → syncing → idle
@@ -61,61 +71,61 @@ idle → queued → syncing → idle
             failed_retryable / failed_permanent / disabled
 ```
 
-| 状态 | 说明 |
-|------|------|
-| `idle` | 空闲，无待处理任务 |
-| `queued` | 有变更待同步 |
-| `syncing` | 正在执行同步操作 |
-| `blocked_conflict` | 同步失败，存在需要手动解决的冲突 |
-| `failed_retryable` | 临时失败（如网络问题），可重试 |
-| `failed_permanent` | 永久失败（如配置错误） |
-| `disabled` | Git 同步已关闭 |
+| State | Description |
+|-------|-------------|
+| `idle` | Idle, no pending tasks |
+| `queued` | Changes pending sync |
+| `syncing` | Sync operation in progress |
+| `blocked_conflict` | Sync failed; conflicts require manual resolution |
+| `failed_retryable` | Temporary failure (e.g., network issues); retryable |
+| `failed_permanent` | Permanent failure (e.g., configuration error) |
+| `disabled` | Git Sync is turned off |
 
-## 冲突处理
+## Conflict Handling
 
-当本地和远程同时有未合并的变更时，会产生冲突。
+Conflicts arise when both local and remote have unmerged changes.
 
-### 冲突报告
+### Conflict Report
 
-冲突报告中会列出：
+The conflict report lists:
 
-- **冲突的文件路径**
-- **本地版本哈希**
-- **远程版本哈希**
-- **冲突原因**（如：双方同时修改了同一个标签）
+- **Conflicting file paths**
+- **Local version hash**
+- **Remote version hash**
+- **Conflict reason** (e.g., both sides modified the same tag simultaneously)
 
-### 解决方式
+### Resolution Steps
 
-1. 在 Home 页面的 Git 同步面板中查看冲突报告
-2. 分析冲突内容（文件级粒度）
-3. 决定保留本地版本、远程版本，或手动编辑合并
-4. 完成合并后，提交变更
+1. View the conflict report in the Git Sync panel on the Home page
+2. Analyze the conflict content (file-level granularity)
+3. Decide whether to keep the local version, the remote version, or manually merge
+4. After completing the merge, commit the changes
 
-## 最佳实践
+## Best Practices
 
-### 定期同步
+### Regular Sync
 
-Git 同步不是实时同步。建议：
+Git Sync is not real-time sync. It is recommended to:
 
-- 在完成一批标签管理或主题修改后手动触发起同步
-- 或在 Home 页面观察同步状态，确保队列不会积压
+- Manually trigger sync after completing a batch of tag management or topic modifications
+- Or monitor sync status on the Home page to ensure the queue does not back up
 
-### 团队协作
+### Team Collaboration
 
-多人共享同一标签词表时：
+When multiple people share the same tag vocabulary:
 
-- 建议指定专人负责词表管理
-- 标签变更通过 Git 同步传播后，其他成员执行同步拉取
-- 冲突时以协商方式解决
+- It is recommended to designate a dedicated person for vocabulary management
+- After tag changes propagate via Git Sync, other members perform a sync pull
+- Resolve conflicts through negotiation
 
-### 备份策略
+### Backup Strategy
 
-- Git 同步是对 Canonical Store 的补充备份，不替代 Zotero 数据本身的备份
-- 建议定期将 Git 仓库推送到远程（已内置支持）
-- 首次同步可能时间较长，后续为增量同步
+- Git Sync supplements the Canonical Store as an additional backup; it does not replace backing up the Zotero data itself
+- It is recommended to regularly push the Git repository to the remote (built-in support)
+- The initial sync may take a long time; subsequent syncs are incremental
 
-## 下一步
+## Next Steps
 
-- [Home 仪表板](home) — 查看同步状态面板
-- [Tags 管理](tags) — 管理受控标签词表
-- [偏好设置](../preferences) — 配置 Git 仓库参数
+- [Home Dashboard](home) — View the sync status panel
+- [Tags Management](tags) — Manage the controlled tag vocabulary
+- [Preferences](../preferences) — Configure Git repository parameters

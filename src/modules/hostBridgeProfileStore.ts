@@ -15,6 +15,7 @@ export type HostBridgeWellKnownProfile = {
   schema: "zotero-bridge.profile.v1";
   protocol: typeof HOST_BRIDGE_PROTOCOL_VERSION;
   endpoint: string;
+  connectionMode: "local";
   auth: {
     type: "bearer";
     token: string;
@@ -77,16 +78,16 @@ function resolveLocalAppDataDir() {
 function resolveWellKnownProfileRoot() {
   const platform = resolvePlatform();
   if (platform === "win32") {
-    return joinPath(resolveLocalAppDataDir(), "Zotero-Skills");
+    return joinPath(resolveLocalAppDataDir(), "zotero-agents");
   }
   const home = resolveHomeDir();
   if (platform === "darwin") {
-    return joinPath(home, "Library", "Application Support", "Zotero-Skills");
+    return joinPath(home, "Library", "Application Support", "zotero-agents");
   }
   const xdgDataHome = readEnv("XDG_DATA_HOME");
   return joinPath(
     xdgDataHome || joinPath(home, ".local", "share"),
-    "Zotero-Skills",
+    "zotero-agents",
   );
 }
 
@@ -133,6 +134,7 @@ export async function writeHostBridgeWellKnownProfile(args: {
     schema: "zotero-bridge.profile.v1",
     protocol: HOST_BRIDGE_PROTOCOL_VERSION,
     endpoint,
+    connectionMode: "local",
     auth: {
       type: "bearer",
       token,

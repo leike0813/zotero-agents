@@ -22,7 +22,7 @@
 
 - 任务状态流（SkillRunner）：
   - 提交期：`queued` → `running`
-  - deferred 后：`running | waiting_user | waiting_auth`（由收敛器推进）
+  - 前台执行期：`running | waiting_user | waiting_auth`（由 provider/continuation 推进）
   - 终态：`succeeded | failed | canceled`
 - 队列运行状态：正在运行的任务数、等待队列长度
 
@@ -64,19 +64,19 @@ Job {
 
 - 输入合法性由 Workflow 运行时先完成，队列只接收可执行 request
 - 队列本身不理解 Workflow 业务，也不修改 request
-- 队列负责“提交到后端”阶段；deferred 任务由 `SkillRunnerTaskReconciler` 在后台继续收敛
+- 队列负责调度 provider；SkillRunner 正常单体/sequence 路径由前台 provider 或 continuation 继续推进，`SkillRunnerTaskReconciler` 只处理 recovery-owned settlement
 - 任务终态判断以 SkillRunner 后端状态机为 SSOT
 
 ## 失败模式
 
 - 并发池满：任务进入 `queued`
 - 执行异常：任务标记 `failed` 并记录错误
-- deferred/waiting：不是失败；任务从队列并发占位释放，交由收敛器追踪
+- waiting：不是失败；任务从队列并发占位释放，等待用户 reply/auth 触发前台 continuation
 
 ## 测试点（TDD）
 
 - FIFO 顺序入队/出队
 - provider 驱动的并发策略正确生效
 - 任务状态流转正确（含 `running -> waiting_* -> running -> terminal`）
-- deferred 任务释放队列占位后，后续任务可继续调度
+- waiting 任务释放队列占位后，后续任务可继续调度
 - 与 Provider 联调：后端型 workflow 的多个 request 可并发 dispatch，`pass-through` 保持串行

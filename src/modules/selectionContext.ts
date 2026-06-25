@@ -159,7 +159,7 @@ async function serializeNoteItem(item: Zotero.Item, warnings: string[]) {
 
 function serializeItemBase(item: Zotero.Item) {
   const parentItemID =
-    item.parentItemID === false ? null : item.parentItemID ?? null;
+    item.parentItemID === false ? null : (item.parentItemID ?? null);
   return {
     id: item.id,
     key: item.key,

@@ -1,7 +1,7 @@
 {
   "id": "literature-search-ingest",
   "label": "Literature Search Ingest",
-  "provider": "acp",
+  "provider": "skillrunner",
   "version": "0.1.0",
   "display": {
     "core": true,
@@ -50,17 +50,15 @@
   "request": {
     "kind": "skillrunner.job.v1",
     "create": {
-      "skill_id": "literature-search-ingest"
+      "skill_id": "literature-search-ingest",
+      "mode": "interactive"
     }
   },
   "execution": {
-    "mode": "auto",
     "zoteroHostAccess": {
       "required": true,
       "allowWriteApprovalBypass": true
-    },
-    "skillrunner_mode": "interactive",
-    "timeout_ms": 1200000
+    }
   },
   "result": {
     "fetch": { "type": "result" },

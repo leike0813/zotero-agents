@@ -3,6 +3,7 @@ import {
   ACP_PROMPT_REQUEST_KIND,
   ACP_SKILL_RUN_REQUEST_KIND,
   DEFAULT_BACKEND_TYPE,
+  GENERIC_HTTP_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
   PASS_THROUGH_REQUEST_KIND,
   SKILLRUNNER_SEQUENCE_REQUEST_KIND,
@@ -27,16 +28,26 @@ const PROVIDER_REQUEST_CONTRACTS: Record<
   [SKILLRUNNER_SEQUENCE_REQUEST_KIND]: {
     providerType: ACP_BACKEND_TYPE,
     backendType: ACP_BACKEND_TYPE,
+    compatiblePairs: [
+      {
+        providerType: ACP_BACKEND_TYPE,
+        backendType: ACP_BACKEND_TYPE,
+      },
+      {
+        providerType: DEFAULT_BACKEND_TYPE,
+        backendType: DEFAULT_BACKEND_TYPE,
+      },
+    ],
     validatePayload: validateSkillRunnerSequencePayload,
   },
   "generic-http.request.v1": {
-    providerType: "generic-http",
-    backendType: "generic-http",
+    providerType: GENERIC_HTTP_BACKEND_TYPE,
+    backendType: GENERIC_HTTP_BACKEND_TYPE,
     validatePayload: validateGenericHttpRequestPayload,
   },
   "generic-http.steps.v1": {
-    providerType: "generic-http",
-    backendType: "generic-http",
+    providerType: GENERIC_HTTP_BACKEND_TYPE,
+    backendType: GENERIC_HTTP_BACKEND_TYPE,
     validatePayload: validateGenericHttpStepsPayload,
   },
   [ACP_PROMPT_REQUEST_KIND]: {
@@ -108,6 +119,18 @@ function validateSkillRunnerJobPayload(request: unknown) {
     if (skillSource !== "local-package" && skillSource !== "installed") {
       return "payload.skill_source must be local-package or installed when provided";
     }
+  }
+  const envDetail = validateRuntimeOptionsEnv(request);
+  if (envDetail) {
+    return envDetail;
+  }
+  const workspaceDetail = validateSkillRunnerRuntimeWorkspace(request);
+  if (workspaceDetail) {
+    return workspaceDetail;
+  }
+  const executionModeDetail = validateRuntimeExecutionMode(request);
+  if (executionModeDetail) {
+    return executionModeDetail;
   }
   if (!Object.prototype.hasOwnProperty.call(request, "upload_files")) {
     return null;
@@ -192,6 +215,68 @@ function validateStringMap(value: unknown, label: string) {
   return null;
 }
 
+function validateRuntimeOptionsEnv(request: Record<string, unknown>) {
+  const runtimeOptions = isObject(request.runtime_options)
+    ? request.runtime_options
+    : null;
+  if (typeof runtimeOptions?.env === "undefined") {
+    return null;
+  }
+  return validateStringMap(runtimeOptions.env, "payload.runtime_options.env");
+}
+
+function validateSkillRunnerRuntimeWorkspace(request: Record<string, unknown>) {
+  const runtimeOptions = isObject(request.runtime_options)
+    ? request.runtime_options
+    : null;
+  const workspace = runtimeOptions?.workspace;
+  if (typeof workspace === "undefined") {
+    return null;
+  }
+  if (!isObject(workspace)) {
+    return "payload.runtime_options.workspace must be object when provided";
+  }
+  const mode = String(workspace.mode || "").trim();
+  if (mode !== "reuse") {
+    return "payload.runtime_options.workspace.mode must be reuse";
+  }
+  if (!isNonEmptyString(workspace.request_id)) {
+    return "payload.runtime_options.workspace.request_id must be non-empty string";
+  }
+  return null;
+}
+
+function validateRuntimeExecutionMode(request: Record<string, unknown>) {
+  if (Object.prototype.hasOwnProperty.call(request, "mode")) {
+    return "payload.mode must be normalized to runtime_options.execution_mode before provider dispatch";
+  }
+  const runtimeOptions = isObject(request.runtime_options)
+    ? request.runtime_options
+    : null;
+  const mode = String(runtimeOptions?.execution_mode || "").trim();
+  if (mode !== "auto" && mode !== "interactive") {
+    return "payload.runtime_options.execution_mode must be auto or interactive";
+  }
+  return null;
+}
+
+function validateAcpRuntimeWorkspace(value: unknown, label: string) {
+  if (typeof value === "undefined") {
+    return null;
+  }
+  if (!isObject(value)) {
+    return `${label} must be object when provided`;
+  }
+  const mode = String(value.mode || "").trim();
+  if (mode !== "new" && mode !== "reuse") {
+    return `${label}.mode must be new or reuse`;
+  }
+  if (!isNonEmptyString(value.workflow_run_id)) {
+    return `${label}.workflow_run_id must be non-empty string`;
+  }
+  return null;
+}
+
 function validateSequenceWorkspace(value: unknown, label: string) {
   if (typeof value === "undefined") {
     return null;
@@ -210,38 +295,49 @@ function validateSequenceHandoff(value: unknown, label: string) {
   if (!isObject(value)) {
     return `${label} must be object`;
   }
-  if (
-    typeof value.from_step !== "undefined" &&
-    !isNonEmptyString(value.from_step)
-  ) {
-    return `${label}.from_step must be non-empty string when provided`;
+  if (!Array.isArray(value.bindings) || value.bindings.length === 0) {
+    return `${label}.bindings must be non-empty array`;
   }
-  if (
-    typeof value.required !== "undefined" &&
-    typeof value.required !== "boolean"
-  ) {
-    return `${label}.required must be boolean when provided`;
-  }
-  if (
-    typeof value.pass_through !== "undefined" &&
-    typeof value.pass_through !== "boolean"
-  ) {
-    return `${label}.pass_through must be boolean when provided`;
-  }
-  if (typeof value.input !== "undefined") {
-    const detail = validateStringMap(value.input, `${label}.input`);
-    if (detail) {
-      return detail;
+  for (let index = 0; index < value.bindings.length; index++) {
+    const binding = value.bindings[index];
+    const bindingLabel = `${label}.bindings[${index}]`;
+    if (!isObject(binding)) {
+      return `${bindingLabel} must be object`;
     }
-  }
-  if (typeof value.parameter !== "undefined") {
-    const detail = validateStringMap(value.parameter, `${label}.parameter`);
-    if (detail) {
-      return detail;
+    if (binding.kind !== "value" && binding.kind !== "file") {
+      return `${bindingLabel}.kind must be value or file`;
     }
-  }
-  if (typeof value.defaults !== "undefined" && !isObject(value.defaults)) {
-    return `${label}.defaults must be object when provided`;
+    const target = String(binding.target || "").trim();
+    if (!target) {
+      return `${bindingLabel}.target must be non-empty string`;
+    }
+    if (!target.startsWith("/input/") && !target.startsWith("/parameter/")) {
+      return `${bindingLabel}.target must start with /input/ or /parameter/`;
+    }
+    if (binding.kind === "file") {
+      const parts = target.split("/").filter(Boolean);
+      if (parts.length !== 2 || parts[0] !== "input") {
+        return `${bindingLabel}.target for file handoff must be /input/<key>`;
+      }
+    }
+    if (
+      typeof binding.source !== "undefined" &&
+      !isNonEmptyString(binding.source)
+    ) {
+      return `${bindingLabel}.source must be non-empty string when provided`;
+    }
+    if (
+      typeof binding.step !== "undefined" &&
+      !isNonEmptyString(binding.step)
+    ) {
+      return `${bindingLabel}.step must be non-empty string when provided`;
+    }
+    if (
+      typeof binding.required !== "undefined" &&
+      typeof binding.required !== "boolean"
+    ) {
+      return `${bindingLabel}.required must be boolean when provided`;
+    }
   }
   return null;
 }
@@ -277,6 +373,29 @@ function validateSequenceShortCircuit(value: unknown, label: string) {
   return null;
 }
 
+function validateSequenceStepApplyResult(value: unknown, label: string) {
+  if (typeof value === "undefined") {
+    return null;
+  }
+  if (!isObject(value)) {
+    return `${label} must be object`;
+  }
+  if (
+    typeof value.workflow_id !== "undefined" &&
+    !isNonEmptyString(value.workflow_id)
+  ) {
+    return `${label}.workflow_id must be non-empty string when provided`;
+  }
+  if (
+    typeof value.on_failure !== "undefined" &&
+    value.on_failure !== "continue" &&
+    value.on_failure !== "fail_sequence"
+  ) {
+    return `${label}.on_failure must be continue or fail_sequence when provided`;
+  }
+  return null;
+}
+
 function validateSkillRunnerSequencePayload(request: unknown) {
   if (!isObject(request)) {
     return "payload must be object";
@@ -289,6 +408,10 @@ function validateSkillRunnerSequencePayload(request: unknown) {
   }
   if (!isNonEmptyString(request.final_step_id)) {
     return "payload.final_step_id must be non-empty string";
+  }
+  const envDetail = validateRuntimeOptionsEnv(request);
+  if (envDetail) {
+    return envDetail;
   }
   const seen = new Set<string>();
   for (let i = 0; i < request.steps.length; i++) {
@@ -306,6 +429,10 @@ function validateSkillRunnerSequencePayload(request: unknown) {
     seen.add(id);
     if (!isNonEmptyString(step.skill_id)) {
       return `payload.steps[${i}].skill_id must be non-empty string`;
+    }
+    const stepMode = String(step.mode || "").trim();
+    if (stepMode !== "auto" && stepMode !== "interactive") {
+      return `payload.steps[${i}].mode must be auto or interactive`;
     }
     const workspaceDetail = validateSequenceWorkspace(
       step.workspace,
@@ -328,6 +455,13 @@ function validateSkillRunnerSequencePayload(request: unknown) {
     if (shortCircuitDetail) {
       return shortCircuitDetail;
     }
+    const applyResultDetail = validateSequenceStepApplyResult(
+      step.apply_result,
+      `payload.steps[${i}].apply_result`,
+    );
+    if (applyResultDetail) {
+      return applyResultDetail;
+    }
     if (
       typeof step.fetch_type !== "undefined" &&
       step.fetch_type !== "bundle" &&
@@ -342,9 +476,15 @@ function validateSkillRunnerSequencePayload(request: unknown) {
   for (let i = 0; i < request.steps.length; i++) {
     const step = request.steps[i] as Record<string, unknown>;
     const handoff = isObject(step.handoff) ? step.handoff : null;
-    const fromStep = String(handoff?.from_step || "").trim();
-    if (fromStep && !seen.has(fromStep)) {
-      return `payload.steps[${i}].handoff.from_step must match a declared step id`;
+    const bindings = Array.isArray(handoff?.bindings)
+      ? handoff?.bindings || []
+      : [];
+    for (let j = 0; j < bindings.length; j++) {
+      const binding = isObject(bindings[j]) ? bindings[j] : null;
+      const sourceStep = String(binding?.step || "").trim();
+      if (sourceStep && !seen.has(sourceStep)) {
+        return `payload.steps[${i}].handoff.bindings[${j}].step must match a declared step id`;
+      }
     }
   }
   return null;
@@ -424,18 +564,19 @@ function validateAcpSkillRunPayload(request: unknown) {
   const runtimeOptions = isObject(request.runtime_options)
     ? request.runtime_options
     : null;
-  const workflowWorkspace = runtimeOptions?.workflow_workspace;
-  if (typeof workflowWorkspace !== "undefined") {
-    if (!isObject(workflowWorkspace)) {
-      return "payload.runtime_options.workflow_workspace must be object when provided";
-    }
-    const mode = String(workflowWorkspace.mode || "").trim();
-    if (mode !== "new" && mode !== "reuse") {
-      return "payload.runtime_options.workflow_workspace.mode must be new or reuse";
-    }
-    if (!isNonEmptyString(workflowWorkspace.workflow_run_id)) {
-      return "payload.runtime_options.workflow_workspace.workflow_run_id must be non-empty string";
-    }
+  const workspaceDetail = validateAcpRuntimeWorkspace(
+    runtimeOptions?.workspace,
+    "payload.runtime_options.workspace",
+  );
+  if (workspaceDetail) {
+    return workspaceDetail;
+  }
+  const legacyWorkspaceDetail = validateAcpRuntimeWorkspace(
+    runtimeOptions?.workflow_workspace,
+    "payload.runtime_options.workflow_workspace",
+  );
+  if (legacyWorkspaceDetail) {
+    return legacyWorkspaceDetail;
   }
   if (!isObject(request.input)) {
     return null;

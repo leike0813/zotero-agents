@@ -1,0 +1,63 @@
+# Zotero Agents
+
+에이전트 스킬 실행을 위한 Zotero 플러그인.
+
+<figure class="zs-doc-figure zs-doc-figure--poster"><img src="chrome://zotero-skills/content/help-docs/assets/img/poster.webp" alt="Zotero Agents 연구 워크벤치 포스터" title="Zotero Agents 연구 워크벤치 포스터" loading="lazy" /><figcaption>Zotero Agents 연구 워크벤치 포스터</figcaption></figure>
+
+## Zotero Agents란?
+
+Zotero Agents는 Zotero를 지능형 에이전트 시대의 개인 연구 워크벤치로 변환합니다. 문헌 라이브러리, 에이전트 백엔드, Workflow, 지식 그래프, 외부 도구를 연결하여 문헌 분석을 일회성 질의응답에서 지속 가능하고 감사 가능하며 확장 가능한 연구 프로세스로 전환합니다.
+
+첫 번째 기능 계층은 **플러그 가능한 Workflow**입니다. 연구자는 복잡한 문헌 작업을 재사용 가능한 프로세스로 분해할 수 있습니다. 논문 파싱, 심층 독서, 인용 분석, 태그 정규화, 문헌 검색, 토픽 통합, 리뷰 자료 생성 등입니다. Workflow는 다양한 에이전트나 서비스 백엔드에 연결하여 에이전트의 긴 컨텍스트 이해, 도구 호출, 다단계 추론을 활용하여 반복적인 수동 작업이 필요한 문헌 관리 및 분석 Workflow를 자동화하고, 연구 요구의 변화에 따라 확장할 수 있습니다.
+
+두 번째 계층은 **어시스턴트 사이드바**입니다. 코딩 에이전트 스타일의 대화형 상호작용 경험을 제공하며, ACP 프로토콜을 통해 다양한 에이전트 백엔드에 연결하고 Skill-Runner 백엔드를 통해 특정 Workflow를 실행할 수 있습니다. 현재 항목, 선택한 문헌 또는 전체 라이브러리를 기반으로 에이전트에게 질문하고, 논문을 분석하고, 관련 연구를 검색하고, 참고문헌을 라이브러리에 추가하며, 장시간 실행되는 작업 중 대화, 확인, 수정 및 진행 상황 추적을 계속할 수 있습니다.
+
+세 번째 계층은 **Synthesis Workbench**입니다. 라이브러리 수준의 장기적인 지식 구축을 목표로 하며, 개별 논문 분석에서 생성된 다이제스트, 참고문헌, 인용 의미론, 태그, 개념, 토픽 관계를 통합된 지식 플랫폼으로 통합합니다. 연구자는 여기서 참고문헌 네트워크를 관리하고, 인용 매치를 검토하고, 인용 그래프를 탐색하고, 토픽을 중심으로 문헌을 구성하며, 토픽 통합을 사용하여 연구 분야의 기초 문헌, 최신 연구, 핵심 논거, 방법론적 논쟁, 커버리지 격차 및 미래 방향을 정리할 수 있습니다. 목표는 광범위한 독서를 리뷰, 학위 논문 제안서, 논문 서론 및 연구 로드맵 설계에 적합한 구조화된 자료로 변환하는 것입니다.
+
+네 번째 계층은 **Host Bridge**입니다. `zotero-bridge` CLI 및 MCP 서비스를 통해 외부 에이전트가 Zotero 라이브러리와 직접 상호작용할 수 있습니다. 문헌 컨텍스트 읽기, 항목 검색, 새 참고문헌 추가, 분석 작업 호출, 구조화된 결과 다시 쓰기 등입니다. OpenClaw 및 Hermes와 같은 에이전트 Workflow를 통해 문헌 검색, 필터링, 분석, 요약 및 리뷰 초안 작성을 위임할 수 있으므로 장시간 실행되는 연구 작업이 백그라운드에서 지속적으로 진행될 수 있습니다.
+
+Zotero Agents의 핵심 가치는 Zotero 라이브러리를 에이전트가 진정으로 작업할 수 있는 연구 환경으로 만드는 것입니다. 모든 읽기, 분석, 리뷰 및 쓰기 준비 단계가 다음 연구 단계를 위한 지식으로 축적될 수 있습니다.
+
+> **지원 Zotero 버전**: 이 플러그인은 Zotero 7 및 Zotero 9를 지원합니다. 주요 개발 및 테스트는 Zotero 9에서 이루어집니다. Zotero 8은 이론적으로 완전히 지원됩니다(플러그인 프레임워크는 8/9 간에 변경사항이 없습니다). Zotero 7도 이론적으로 작동해야 하지만 철저하게 테스트되지는 않았습니다. 향후 유지보수는 Zotero 9에 집중될 예정입니다. 문제가 발생하는 Zotero 7 사용자는 [Issues](https://github.com/leike0813/zotero-agents/issues)에 보고해 주세요.
+
+:::tip 팁
+이 플러그인은 **내장된 비즈니스 로직이 없습니다**. 모든 Workflow는 별도의 **공식 Workflow 패키지**를 통해 제공되며, 사용자는 플러그인 설치 후 별도로 다운로드하여 설치해야 합니다. 자세한 내용은 [설치 가이드](#doc/installation)를 참조하세요.
+:::
+
+## 기능
+
+- **⚙️ 백엔드 관리** — ACP, Skill-Runner 및 Generic HTTP 백엔드 유형 지원
+- **🔧 Workflow 시스템** — 다단계 자동화 처리 파이프라인 정의
+- **📊 대시보드** — 작업 상태 모니터링, 기록 탐색 및 로그 검사
+- **🖥️ 사이드바 패널** — 현재 작업 컨텍스트를 떠나지 않고 백엔드와 상호작용
+- **📖 내장 마크다운 리더** — `.md` 첨부를 더블클릭하여 Zotero에서 열기, 아웃라인, 검색, 수학 렌더링 및 코드 하이라이팅 지원
+- **💬 ACP 채팅** — 문헌을 컨텍스트로 하는 AI 대화
+- **🔬 Synthesis Workbench** — 심층 문헌 분석 플랫폼
+- **🏷️ 태그 관리** — 제어된 태그 어휘 및 자동 태깅
+- **📈 인용 그래프** — 인용 관계 시각화 및 분석
+- **📝 토픽 통합** — 자동화된 토픽 분석 및 보고서 생성
+
+## 빠른 링크
+
+- [설치 가이드](#doc/installation) — 플러그인 및 종속성 설치
+- [시작하기](#doc/getting-started) — 첫 번째 백엔드를 구성하고 스킬 실행
+- [백엔드 구성](#doc/backends%2Findex) — 지원되는 세 가지 백엔드 유형 알아보기
+
+## 문서
+
+| 섹션 | 설명 |
+|------|------|
+| [설치 가이드](#doc/installation) | 플러그인 설치, 공식 Workflow 패키지 설치, Skill-Runner 백엔드 배포 |
+| [내장 마크다운 리더](#doc/markdown-reader) | `.md` 파일을 더블클릭하여 Zotero에서 열기, 아웃라인, 검색 및 수학 렌더링 지원 |
+| [백엔드 구성](#doc/backends%2Findex) | ACP, Skill-Runner 및 Generic HTTP 백엔드 구성 가이드 |
+| [Workflow](#doc/workflows%2Findex) | Workflow 소개 및 호출 가이드 |
+| [대시보드](#doc/dashboard) | 중앙 모니터링 패널 사용 가이드 |
+| [사이드바 및 ACP 채팅](#doc/sidebar%2Findex) | 사이드바 패널 및 대화 기능 |
+| [Synthesis Workbench](#doc/synthesis%2Findex) | 통합 워크벤치 사용 가이드 |
+| [환경설정](#doc/preferences) | 플러그인 설정 레퍼런스 |
+
+## 프로젝트 리소스
+
+- [GitHub 저장소](https://github.com/leike0813/zotero-agents)
+- [이슈 트래커](https://github.com/leike0813/zotero-agents/issues)
+- [Gitee 미러](https://gitee.com/leike0813/zotero-agents)

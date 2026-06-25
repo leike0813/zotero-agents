@@ -1,8 +1,11 @@
 ## Purpose
 
 Synthesis MCP tools expose cache views and must not start refresh from read calls.
+
 ## Requirements
+
 ### Requirement: Synthesis MCP registry and graph tools are cache views
+
 Synthesis MCP tools that expose registry, reference, or citation graph data SHALL identify the data as sidecar cache, not Zotero Library truth.
 
 #### Scenario: Paper registry tool is called
@@ -11,6 +14,7 @@ Synthesis MCP tools that expose registry, reference, or citation graph data SHAL
 - **AND** it SHALL NOT imply that Zotero Library has been synchronized.
 
 ### Requirement: Synthesis MCP reads never start refresh
+
 Synthesis MCP read tools SHALL remain side-effect free.
 
 #### Scenario: Cache is missing
@@ -19,6 +23,7 @@ Synthesis MCP read tools SHALL remain side-effect free.
 - **AND** it SHALL NOT start refresh, enqueue work, or write operation rows.
 
 ### Requirement: MCP cache diagnostics do not start work
+
 Synthesis MCP tools SHALL report Reference Sidecar and Citation Graph cache readiness without starting refresh or graph rebuild.
 
 #### Scenario: Graph cache is stale
@@ -32,6 +37,7 @@ Synthesis MCP tools SHALL report Reference Sidecar and Citation Graph cache read
 - **AND** it SHALL NOT read legacy projection state to infer readiness.
 
 ### Requirement: MCP diagnostics expose advanced matching state without starting work
+
 Synthesis MCP diagnostics SHALL report advanced reference matching operations and proposal counts without running the matcher.
 
 #### Scenario: Proposal diagnostics are requested
@@ -76,17 +82,57 @@ Synthesis MCP diagnostics SHALL report advanced reference matching operations an
 
 `topics.get_context` SHALL accept `outputPath` and `output_path` for explicit
 view requests and return a compact file-output envelope instead of inlining the
-full result.
+full result. When invoked through a remote Host Bridge connection mode, the tool
+SHALL use a Host Bridge download bundle instead of writing to the
+caller-provided path.
 
 #### Scenario: Explicit view is written to a file
 - **WHEN** a caller requests `topics.get_context` with a valid explicit `view`
   and `outputPath`
-- **THEN** the full view JSON SHALL be written as UTF-8 pretty JSON
+- **AND** the Host Bridge connection mode is `local`
+- **THEN** the full view JSON SHALL be written as UTF-8 pretty JSON to
+  `outputPath`
+- **AND** the response SHALL include `output.mode: "file"`
 - **AND** the response SHALL include `omitted_inline_result: true` and file
   metadata including mode, path, bytes, and sha256.
+
+#### Scenario: Remote topic context returns a bundle
+- **WHEN** a caller requests `topics.get_context` with a valid explicit `view`
+  and `outputPath`
+- **AND** the Host Bridge connection mode is `remote`
+- **THEN** the service SHALL NOT write to the caller-provided path
+- **AND** the service SHALL create a zip bundle whose entry path is the
+  normalized requested output path
+- **AND** the response SHALL include `output.mode: "bridge-download"`
+- **AND** the response SHALL include `delivery.mode: "bridge-download"`
+- **AND** the response SHALL NOT expose any host-local absolute path.
 
 #### Scenario: Legacy topic context remains compatible
 - **WHEN** a caller requests `topics.get_context` without `view`
 - **THEN** the response SHALL keep the legacy flat shape and legacy include flag
   behavior.
 
+### Requirement: Remote filtered paper artifact export uses bridge-download bundle
+
+`paper_artifacts.export_filtered` SHALL keep local run-root writes and SHALL use
+a Host Bridge download bundle when invoked through a remote Host Bridge
+connection mode.
+
+#### Scenario: Local filtered paper artifact export writes run root
+- **WHEN** `paper_artifacts.export_filtered` is called with `run_root`
+- **AND** the Host Bridge connection mode is `local`
+- **THEN** the service SHALL write
+  `runtime/payloads/paper-artifacts-manifest.json` and content files under the
+  supplied run root
+- **AND** the response SHALL include `manifest_file` as that relative path.
+
+#### Scenario: Remote filtered paper artifact export returns a bundle
+- **WHEN** `paper_artifacts.export_filtered` is called for one or more paper refs
+- **AND** the Host Bridge connection mode is `remote`
+- **THEN** the service SHALL generate the filtered manifest and content files in
+  a host temporary export directory
+- **AND** the service SHALL create a zip bundle preserving the
+  `runtime/payloads/...` relative paths
+- **AND** the response SHALL include `manifest_file` as the path inside the zip
+- **AND** the response SHALL include `delivery.mode: "bridge-download"`
+- **AND** the response SHALL NOT expose the host temporary export directory.

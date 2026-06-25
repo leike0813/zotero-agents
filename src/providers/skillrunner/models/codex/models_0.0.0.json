@@ -7,13 +7,7 @@
       "display_name": "GPT-5 Codex",
       "deprecated": false,
       "notes": "pinned snapshot",
-      "supported_effort": [
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh"
-      ]
+      "supported_effort": ["minimal", "low", "medium", "high", "xhigh"]
     }
   ]
 }

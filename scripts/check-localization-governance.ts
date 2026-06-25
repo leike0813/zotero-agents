@@ -2,7 +2,19 @@ import { readFileSync } from "fs";
 import path from "path";
 
 const ROOT = process.cwd();
-const LOCALES = ["en-US", "zh-CN", "ja-JP", "fr-FR"] as const;
+const LOCALES = [
+  "en-US",
+  "zh-CN",
+  "zh-TW",
+  "ja-JP",
+  "fr-FR",
+  "de",
+  "es-ES",
+  "pt-BR",
+  "ko-KR",
+  "it-IT",
+  "ru-RU",
+] as const;
 const BASE_LOCALE = "en-US" as const;
 const FTL_FILES = ["addon.ftl", "preferences.ftl"] as const;
 const REQUIRED_KEYS_BY_FILE: Record<string, string[]> = {
@@ -344,11 +356,11 @@ function main() {
   );
   for (const file of [
     "addon/content/dashboard/app.js",
-    "addon/content/dashboard/acp-chat.js",
-    "addon/content/dashboard/acp-skill-run.js",
-    "addon/content/dashboard/run-dialog.js",
     "addon/content/dashboard/workflow-settings-dialog.js",
-    "addon/content/dashboard/assistant-transcript-renderer.js",
+    "addon/content/sidebar/acp-chat.js",
+    "addon/content/sidebar/acp-skill-run.js",
+    "addon/content/sidebar/run-dialog.js",
+    "addon/content/shared/assistant/assistant-transcript-renderer.js",
   ]) {
     errors.push(...reportDashboardUiHardcodes(file, readText(file)));
   }

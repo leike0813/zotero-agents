@@ -3,6 +3,10 @@ import type { AcpPendingPermissionRequest } from "./acpTypes";
 import { setAcpConversationHostBridgePermissionRequest } from "./acpConversationHostBridgePermissionRegistry";
 import { isHostBridgeWriteAutoApprovalScope } from "./hostBridgeWriteAutoApprovalRegistry";
 import type { HostBridgeApprovalRequirement } from "./hostBridgeProtocol";
+import {
+  resetSkillRunnerHostBridgePermissionRegistryForTests,
+  setSkillRunnerHostBridgePermissionRequest,
+} from "./skillRunnerHostBridgePermissionRegistry";
 import { getPref } from "../utils/prefs";
 
 const NO_APPROVAL_CAPABILITIES = new Set([
@@ -23,7 +27,13 @@ const NO_APPROVAL_CAPABILITIES = new Set([
 const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
 
 export type HostBridgePermissionScope = {
-  kind: "acp-chat" | "acp-skill-run" | "acp-run" | "global" | string;
+  kind:
+    | "acp-chat"
+    | "acp-skill-run"
+    | "acp-run"
+    | "skillrunner-run"
+    | "global"
+    | string;
   requestId?: string;
   runId?: string;
   autoApproveWrites?: boolean;
@@ -43,12 +53,12 @@ export type HostBridgePermissionDecision =
   | {
       outcome: "approved";
       requestId: string;
-      channel: "acp-chat" | "acp-skill-run" | "global";
+      channel: "acp-chat" | "acp-skill-run" | "skillrunner-run" | "global";
     }
   | {
       outcome: "denied" | "timeout" | "ui_unavailable";
       requestId: string;
-      channel: "acp-chat" | "acp-skill-run" | "global";
+      channel: "acp-chat" | "acp-skill-run" | "skillrunner-run" | "global";
       reason: string;
     };
 
@@ -154,6 +164,14 @@ function acpChatConversationId(scope?: HostBridgePermissionScope | null) {
   return normalizeString(scope?.requestId) || normalizeString(scope?.runId);
 }
 
+function skillRunnerRunRequestId(scope?: HostBridgePermissionScope | null) {
+  const kind = normalizeString(scope?.kind);
+  if (kind !== "skillrunner-run") {
+    return "";
+  }
+  return normalizeString(scope?.requestId) || normalizeString(scope?.runId);
+}
+
 function requestGlobalPermissionWithPrompt(
   request: HostBridgePermissionRequest & { requestId: string },
 ): HostBridgePermissionDecision {
@@ -225,6 +243,67 @@ function requestGlobalPermissionWithPrompt(
     channel: "global",
     reason: "This operation requires approval in Zotero UI.",
   };
+}
+
+async function requestSkillRunnerRunScopedPermission(
+  request: HostBridgePermissionRequest & { requestId: string },
+  runRequestId: string,
+): Promise<HostBridgePermissionDecision> {
+  const outcomePromise = new Promise<HostBridgePermissionDecision>(
+    (resolve) => {
+      const registered = setSkillRunnerHostBridgePermissionRequest(
+        runRequestId,
+        {
+          requestId: request.requestId,
+          sessionId: "host-bridge",
+          toolCallId: request.requestId,
+          toolTitle: request.title,
+          source: request.source || "host-bridge-cli",
+          summary: request.summary,
+          detail: request.detail,
+          requestedAt: new Date().toISOString(),
+          options: permissionOptions(),
+          resolve: (outcome) => {
+            const parsed = parseAcpPermissionOutcome(outcome);
+            resolve(
+              parsed === "approved"
+                ? {
+                    outcome: "approved",
+                    requestId: request.requestId,
+                    channel: "skillrunner-run",
+                  }
+                : {
+                    outcome: "denied",
+                    requestId: request.requestId,
+                    channel: "skillrunner-run",
+                    reason: "User denied the requested Host Bridge operation.",
+                  },
+            );
+          },
+        },
+      );
+      if (!registered) {
+        resolve({
+          outcome: "ui_unavailable",
+          requestId: request.requestId,
+          channel: "skillrunner-run",
+          reason:
+            "SkillRunner approval UI is unavailable for this Host Bridge operation.",
+        });
+      }
+    },
+  );
+
+  return withTimeout({
+    promise: outcomePromise,
+    timeoutMs: request.timeoutMs || DEFAULT_APPROVAL_TIMEOUT_MS,
+    onTimeout: () => ({
+      outcome: "timeout",
+      requestId: request.requestId,
+      channel: "skillrunner-run",
+      reason: "Timed out waiting for SkillRunner approval.",
+    }),
+  });
 }
 
 async function requestAcpRunScopedPermission(
@@ -417,13 +496,19 @@ export async function requestHostBridgePermission(
   };
   const chatConversationId = acpChatConversationId(request.scope);
   const runRequestId = acpRunRequestId(request.scope);
+  const skillRunnerRequestId = skillRunnerRunRequestId(request.scope);
   const decision = chatConversationId
     ? await requestAcpChatScopedPermission(requestWithId, chatConversationId)
     : runRequestId
       ? await requestAcpRunScopedPermission(requestWithId, runRequestId)
-      : await (
-          globalApprovalHandlerForTests || requestGlobalPermissionWithPrompt
-        )(requestWithId);
+      : skillRunnerRequestId
+        ? await requestSkillRunnerRunScopedPermission(
+            requestWithId,
+            skillRunnerRequestId,
+          )
+        : await (
+            globalApprovalHandlerForTests || requestGlobalPermissionWithPrompt
+          )(requestWithId);
   if (decision.outcome !== "approved") {
     throw new HostBridgePermissionError(decision);
   }
@@ -439,4 +524,5 @@ export function configureHostBridgeGlobalApprovalHandlerForTests(
 export function resetHostBridgePermissionManagerForTests() {
   globalApprovalHandlerForTests = null;
   requestSequence = 0;
+  resetSkillRunnerHostBridgePermissionRegistryForTests();
 }

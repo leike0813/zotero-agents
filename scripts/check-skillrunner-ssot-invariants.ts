@@ -41,7 +41,7 @@ const FILES: {
       "INV-PROV-WRITE-NONTERMINAL-EVENTS",
       "INV-PROV-WRITE-TERMINAL-JOBS",
       "INV-PROV-BACKEND-HEALTH-BACKOFF",
-      "INV-PROV-BACKEND-HEALTH-THRESHOLDS",
+      "INV-PROV-BACKEND-REACHABILITY-POLICY",
       "INV-PROV-STREAM-EVENT-RUNNING-ONLY",
       "INV-PROV-STARTUP-RUNNING-ONLY-RECONNECT",
       "INV-PROV-UI-GATING-BACKEND-FLAG",
@@ -49,7 +49,8 @@ const FILES: {
       "INV-PROV-MANAGED-LOCAL-REGISTER-ONLY-AFTER-DEPLOY",
       "INV-PROV-APPLY-OWNER-AUTO",
       "INV-PROV-APPLY-OWNER-INTERACTIVE",
-      "INV-PROV-FOREGROUND-APPLY-SKIP-AUTO",
+      "INV-PROV-FOREGROUND-APPLY-SINGLE",
+      "INV-PROV-RECONCILER-ONE-SHOT-MISSING-CONTEXT",
     ],
   },
   {
@@ -61,6 +62,21 @@ const FILES: {
       "INV-WS-BACKEND-FLAGGED-GROUP-DISABLED",
       "INV-WS-FIRST-FRAME-NO-FORCED-RUNNING",
       "INV-WS-PENDING-EDGE-RULES",
+    ],
+  },
+  {
+    path: "doc/components/skillrunner-run-lifecycle-ssot.invariants.yaml",
+    requiredIds: [
+      "INV-SR-RUNKEY-LOCAL-SSOT",
+      "INV-SR-REQUESTID-ATTACH-NO-REKEY",
+      "INV-SR-RUN-PERSISTED-MINIMAL",
+      "INV-SR-SEQUENCE-STEP-FIRST-CLASS-RUN",
+      "INV-SR-OBSERVER-FAILURE-NONTERMINAL",
+      "INV-SR-BACKEND-TERMINAL-OWNER",
+      "INV-SR-UI-PROJECTION-DERIVED",
+      "INV-SR-UI-SKILL-NAME-CASCADED",
+      "INV-SR-BACKEND-CONFIG-CASCADE",
+      "INV-SR-RECOVERY-RUN-STORE-SSOT",
     ],
   },
 ];
@@ -81,9 +97,7 @@ function parseInvariantFile(relPath: string): InvariantFile {
     return parsed;
   } catch (error) {
     throw new Error(
-      `[ssot-invariants] invalid YAML at ${relPath}: ${String(
-        error,
-      )}`,
+      `[ssot-invariants] invalid YAML at ${relPath}: ${String(error)}`,
     );
   }
 }
@@ -217,9 +231,9 @@ function assertCurrentMatchesFacts(entry: InvariantItem, errors: string[]) {
       key &&
       Object.prototype.hasOwnProperty.call(entry.current_value, key)
     ) {
-      const currentValueByKey = (entry.current_value as Record<string, unknown>)[
-        key
-      ];
+      const currentValueByKey = (
+        entry.current_value as Record<string, unknown>
+      )[key];
       if (!deepEqual(currentValueByKey, only.value)) {
         errors.push(
           `[fact-mismatch] invariant=${entry.id} key=${key} expected=${JSON.stringify(
@@ -247,7 +261,10 @@ function assertCurrentMatchesFacts(entry: InvariantItem, errors: string[]) {
   }
   for (const item of resolved) {
     const key = lastRefSegment(item.ref);
-    if (!key || !Object.prototype.hasOwnProperty.call(entry.current_value, key)) {
+    if (
+      !key ||
+      !Object.prototype.hasOwnProperty.call(entry.current_value, key)
+    ) {
       errors.push(
         `[fact-mismatch] invariant=${entry.id} current_value missing key for code_ref=${item.ref}`,
       );
@@ -271,14 +288,18 @@ function main() {
   for (const fileDef of FILES) {
     const parsed = parseInvariantFile(fileDef.path);
     if (!Array.isArray(parsed.invariants) || parsed.invariants.length === 0) {
-      errors.push(`[shape] file=${fileDef.path} invariants must be non-empty array`);
+      errors.push(
+        `[shape] file=${fileDef.path} invariants must be non-empty array`,
+      );
       continue;
     }
     const localIds = new Set<string>();
     for (const entry of parsed.invariants) {
       assertInvariantShape(fileDef.path, entry, errors);
       if (localIds.has(entry.id)) {
-        errors.push(`[duplicate-id] file=${fileDef.path} duplicate id=${entry.id}`);
+        errors.push(
+          `[duplicate-id] file=${fileDef.path} duplicate id=${entry.id}`,
+        );
       }
       localIds.add(entry.id);
       if (allIds.has(entry.id)) {

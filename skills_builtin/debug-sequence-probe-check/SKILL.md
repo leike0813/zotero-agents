@@ -5,7 +5,7 @@ description: Debug-only ACP sequence probe step that validates handoff and works
 
 # Debug Sequence Probe Check
 
-This skill is only for Zotero Skills debug workflows. Do not write Zotero items,
+This skill is only for Zotero Agents debug workflows. Do not write Zotero items,
 notes, preferences, or external files. Use the current working directory as the
 ACP run workspace.
 
@@ -33,6 +33,11 @@ Rules:
    - If `parameter.expected_sentinel` is `present`, that file must exist under
      the current working directory.
    - If it is `absent`, that file must not exist.
-6. Return `status: "ok"` only if all checks pass. Otherwise return
+6. Check artifact file:
+   - If `parameter.expect_artifact_file` is true, `input.artifact_file` must be
+     a readable file path.
+   - If `parameter.expect_artifact_file` is not true, ignore
+     `input.artifact_file`.
+7. Return `status: "ok"` only if all checks pass. Otherwise return
    `status: "failed"` and include failing checks in `checks` and `diagnostics`.
-7. Return JSON matching `assets/output.schema.json`.
+8. Return JSON matching `assets/output.schema.json`.

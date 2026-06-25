@@ -13,6 +13,7 @@ import {
   rebuildWorkflowActionPopup,
 } from "../../src/modules/workflowMenu";
 import {
+  getDefaultSkillDirForWorkflowDir,
   getEffectiveWorkflowDir,
   getLoadedWorkflowEntries,
   getWorkflowRegistryState,
@@ -27,6 +28,7 @@ import {
 } from "./workflow-test-utils";
 import { isFullTestMode } from "../zotero/testMode";
 import { getPref, setPref } from "../../src/utils/prefs";
+import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 
 type Listener = (event: Record<string, unknown>) => void;
 
@@ -38,8 +40,10 @@ class FakeXULElement {
 
   public style: Record<string, string> = {};
   public value = "";
+  public placeholder = "";
   public textContent = "";
   public checked = false;
+  public disabled = false;
   public parentNode: FakeXULElement | null = null;
   public children: FakeXULElement[] = [];
   public classList = {
@@ -271,48 +275,55 @@ function makeNoValidInputWorkflow(id: string, label: string): LoadedWorkflow {
       id,
       label,
       provider: "pass-through",
+      validateSelection: {
+        require: {
+          counts: {
+            parents: { exact: 2 },
+          },
+        },
+      },
       hooks: {
-        filterInputs: "hooks/filterInputs.js",
         applyResult: "hooks/applyResult.js",
       },
     },
     rootDir: joinPath("workflows", id),
     hooks: {
-      filterInputs: async () => ({}),
       applyResult: async () => ({ ok: true }),
     },
-    buildStrategy: "hook",
+    buildStrategy: "declarative",
   };
 }
 
 function makeCountingNoValidInputWorkflow(
   id: string,
   label: string,
-  counter: { calls: number },
+  _counter: { calls: number },
 ): LoadedWorkflow {
   return {
     manifest: {
       id,
       label,
       provider: "pass-through",
+      validateSelection: {
+        require: {
+          counts: {
+            parents: { exact: 2 },
+          },
+        },
+      },
       hooks: {
-        filterInputs: "hooks/filterInputs.js",
         applyResult: "hooks/applyResult.js",
       },
     },
     rootDir: joinPath("workflows", id),
     hooks: {
-      filterInputs: async () => {
-        counter.calls += 1;
-        return {};
-      },
       applyResult: async () => ({ ok: true }),
     },
-    buildStrategy: "hook",
+    buildStrategy: "declarative",
   };
 }
 
-function makeExplodingFilterWorkflow(
+function makeExplodingBuildRequestWorkflow(
   id: string,
   label: string,
 ): LoadedWorkflow {
@@ -322,15 +333,15 @@ function makeExplodingFilterWorkflow(
       label,
       provider: "pass-through",
       hooks: {
-        filterInputs: "hooks/filterInputs.js",
+        buildRequest: "hooks/buildRequest.js",
         applyResult: "hooks/applyResult.js",
       },
     },
     rootDir: joinPath("workflows", id),
     hooks: {
-      filterInputs: async () => {
+      buildRequest: async () => {
         throw new Error(
-          "filterInputs should not run during multi-select menu build",
+          "buildRequest should not run during workflow menu validation",
         );
       },
       applyResult: async () => ({ ok: true }),
@@ -339,30 +350,46 @@ function makeExplodingFilterWorkflow(
   };
 }
 
-function setWorkflowState(workflows: LoadedWorkflow[]) {
+function buildLoadedWorkflowsForTest(workflows: LoadedWorkflow[]) {
+  return {
+    workflows,
+    manifests: workflows.map((entry) => entry.manifest),
+    warnings: [],
+    errors: [],
+    diagnostics: [],
+  };
+}
+
+function setWorkflowState(
+  workflows: LoadedWorkflow[],
+  sources?: {
+    officialWorkflows?: LoadedWorkflow[];
+    devLocalWorkflows?: LoadedWorkflow[];
+    userWorkflows?: LoadedWorkflow[];
+  },
+) {
+  const officialWorkflows = sources?.officialWorkflows ?? workflows;
+  const devLocalWorkflows = sources?.devLocalWorkflows ?? [];
+  const userWorkflows = sources?.userWorkflows ?? [];
   const runtime = globalThis as {
     addon: {
       data: {
         workflow?: {
           workflowsDir: string;
-          loaded: {
-            workflows: LoadedWorkflow[];
-            manifests: Array<LoadedWorkflow["manifest"]>;
-            warnings: string[];
-            errors: string[];
-          };
+          loaded: ReturnType<typeof buildLoadedWorkflowsForTest>;
+          loadedFromOfficial: ReturnType<typeof buildLoadedWorkflowsForTest>;
+          loadedFromDevLocal: ReturnType<typeof buildLoadedWorkflowsForTest>;
+          loadedFromUser: ReturnType<typeof buildLoadedWorkflowsForTest>;
         };
       };
     };
   };
   runtime.addon.data.workflow = {
     workflowsDir: "test-workflows",
-    loaded: {
-      workflows,
-      manifests: workflows.map((entry) => entry.manifest),
-      warnings: [],
-      errors: [],
-    },
+    loaded: buildLoadedWorkflowsForTest(workflows),
+    loadedFromOfficial: buildLoadedWorkflowsForTest(officialWorkflows),
+    loadedFromDevLocal: buildLoadedWorkflowsForTest(devLocalWorkflows),
+    loadedFromUser: buildLoadedWorkflowsForTest(userWorkflows),
   };
 }
 
@@ -370,6 +397,8 @@ function createPrefsWindow(args?: {
   confirmResults?: boolean[];
   promptResults?: Array<string | null>;
   includeRuntimeDataControls?: boolean;
+  includeHostAccessControls?: boolean;
+  includeContentPackageControls?: boolean;
 }) {
   const document = new FakeDocument();
   const confirmResults = Array.isArray(args?.confirmResults)
@@ -383,21 +412,177 @@ function createPrefsWindow(args?: {
 
   const workflowDirInput = document.createXULElement("input");
   workflowDirInput.id = `zotero-prefpane-${config.addonRef}-workflow-dir`;
+  const skillDirInput = document.createXULElement("input");
+  skillDirInput.id = `zotero-prefpane-${config.addonRef}-skill-dir`;
 
   const workflowBrowseButton = document.createXULElement("button");
   workflowBrowseButton.id = `zotero-prefpane-${config.addonRef}-workflow-browse`;
+  const skillBrowseButton = document.createXULElement("button");
+  skillBrowseButton.id = `zotero-prefpane-${config.addonRef}-skill-browse`;
   const scanButton = document.createXULElement("button");
   scanButton.id = `zotero-prefpane-${config.addonRef}-workflow-scan`;
   const workflowSettingsButton = document.createXULElement("button");
   workflowSettingsButton.id = `zotero-prefpane-${config.addonRef}-workflow-settings`;
   const workflowOpenLogsButton = document.createXULElement("button");
   workflowOpenLogsButton.id = `zotero-prefpane-${config.addonRef}-workflow-open-logs`;
+  const contentPackageStatus = args?.includeContentPackageControls
+    ? document.createXULElement("div")
+    : null;
+  if (contentPackageStatus) {
+    contentPackageStatus.id = `zotero-prefpane-${config.addonRef}-content-package-status`;
+  }
+  const contentPackageChannelSelect = args?.includeContentPackageControls
+    ? document.createXULElement("menulist")
+    : null;
+  const contentPackageChannelPopup = args?.includeContentPackageControls
+    ? document.createXULElement("menupopup")
+    : null;
+  if (contentPackageChannelSelect) {
+    contentPackageChannelSelect.id = `zotero-prefpane-${config.addonRef}-content-package-channel`;
+  }
+  if (contentPackageChannelPopup) {
+    contentPackageChannelPopup.id = `zotero-prefpane-${config.addonRef}-content-package-channel-popup`;
+    contentPackageChannelSelect?.appendChild(contentPackageChannelPopup);
+  }
+  const contentPackageCheckButton = args?.includeContentPackageControls
+    ? document.createXULElement("button")
+    : null;
+  if (contentPackageCheckButton) {
+    contentPackageCheckButton.id = `zotero-prefpane-${config.addonRef}-content-package-check`;
+  }
+  const contentPackageInstallButton = args?.includeContentPackageControls
+    ? document.createXULElement("button")
+    : null;
+  if (contentPackageInstallButton) {
+    contentPackageInstallButton.id = `zotero-prefpane-${config.addonRef}-content-package-install`;
+  }
 
   const backendManageButton = document.createXULElement("button");
   backendManageButton.id = `zotero-prefpane-${config.addonRef}-backend-manage`;
   const hostBridgeDisableWriteApprovalCheckbox =
     document.createXULElement("input");
   hostBridgeDisableWriteApprovalCheckbox.id = `zotero-prefpane-${config.addonRef}-host-bridge-disable-write-approval`;
+  const hostBridgeLanCheckbox = args?.includeHostAccessControls
+    ? document.createXULElement("input")
+    : null;
+  if (hostBridgeLanCheckbox) {
+    hostBridgeLanCheckbox.id = `zotero-prefpane-${config.addonRef}-host-bridge-lan-enabled`;
+  }
+  const mcpServerEnabledCheckbox = args?.includeHostAccessControls
+    ? document.createXULElement("input")
+    : null;
+  if (mcpServerEnabledCheckbox) {
+    mcpServerEnabledCheckbox.id = `zotero-prefpane-${config.addonRef}-mcp-server-enabled`;
+  }
+  const mcpServerStatusText = args?.includeHostAccessControls
+    ? document.createXULElement("description")
+    : null;
+  if (mcpServerStatusText) {
+    mcpServerStatusText.id = `zotero-prefpane-${config.addonRef}-mcp-server-status`;
+    mcpServerStatusText.setAttribute(
+      "data-l10n-id",
+      "pref-mcp-server-status-idle",
+    );
+  }
+  const hostBridgeLed = args?.includeHostAccessControls
+    ? document.createXULElement("span")
+    : null;
+  if (hostBridgeLed) {
+    hostBridgeLed.id = `zotero-prefpane-${config.addonRef}-host-bridge-led`;
+    hostBridgeLed.setAttribute("class", "zs-runtime-led is-gray");
+  }
+  const mcpServerLed = args?.includeHostAccessControls
+    ? document.createXULElement("span")
+    : null;
+  if (mcpServerLed) {
+    mcpServerLed.id = `zotero-prefpane-${config.addonRef}-mcp-server-led`;
+    mcpServerLed.setAttribute("class", "zs-runtime-led is-gray");
+  }
+  const hostBridgePinPortCheckbox = args?.includeHostAccessControls
+    ? document.createXULElement("input")
+    : null;
+  if (hostBridgePinPortCheckbox) {
+    hostBridgePinPortCheckbox.id = `zotero-prefpane-${config.addonRef}-host-bridge-pin-port-enabled`;
+  }
+  const hostBridgePinnedPortInput = args?.includeHostAccessControls
+    ? document.createXULElement("input")
+    : null;
+  if (hostBridgePinnedPortInput) {
+    hostBridgePinnedPortInput.id = `zotero-prefpane-${config.addonRef}-host-bridge-pinned-port`;
+  }
+  const hostBridgeAdvertisedHostInput = args?.includeHostAccessControls
+    ? document.createXULElement("input")
+    : null;
+  if (hostBridgeAdvertisedHostInput) {
+    hostBridgeAdvertisedHostInput.id = `zotero-prefpane-${config.addonRef}-host-bridge-advertised-host`;
+  }
+  const hostBridgeEndpointText = args?.includeHostAccessControls
+    ? document.createXULElement("description")
+    : null;
+  if (hostBridgeEndpointText) {
+    hostBridgeEndpointText.id = `zotero-prefpane-${config.addonRef}-host-bridge-endpoint`;
+  }
+  const hostBridgeStatusText = args?.includeHostAccessControls
+    ? document.createXULElement("description")
+    : null;
+  if (hostBridgeStatusText) {
+    hostBridgeStatusText.id = `zotero-prefpane-${config.addonRef}-host-bridge-status`;
+    hostBridgeStatusText.setAttribute(
+      "data-l10n-id",
+      "pref-host-bridge-status-idle",
+    );
+  }
+  const hostBridgeShowEndpointButton = args?.includeHostAccessControls
+    ? document.createXULElement("button")
+    : null;
+  if (hostBridgeShowEndpointButton) {
+    hostBridgeShowEndpointButton.id = `zotero-prefpane-${config.addonRef}-host-bridge-show-endpoint`;
+  }
+  const hostBridgeRotateMasterTokenButton = args?.includeHostAccessControls
+    ? document.createXULElement("button")
+    : null;
+  if (hostBridgeRotateMasterTokenButton) {
+    hostBridgeRotateMasterTokenButton.id = `zotero-prefpane-${config.addonRef}-host-bridge-rotate-master-token`;
+  }
+  const hostBridgeInstallCliButton = args?.includeHostAccessControls
+    ? document.createXULElement("button")
+    : null;
+  if (hostBridgeInstallCliButton) {
+    hostBridgeInstallCliButton.id = `zotero-prefpane-${config.addonRef}-host-bridge-install-cli`;
+  }
+  const hostBridgeOperationNotice = args?.includeHostAccessControls
+    ? document.createXULElement("div")
+    : null;
+  if (hostBridgeOperationNotice) {
+    hostBridgeOperationNotice.id = `zotero-prefpane-${config.addonRef}-host-bridge-operation-notice`;
+    hostBridgeOperationNotice.setAttribute(
+      "class",
+      "zs-host-access-operation-notice",
+    );
+  }
+  const hostBridgeOperationNoticeText = args?.includeHostAccessControls
+    ? document.createXULElement("span")
+    : null;
+  if (hostBridgeOperationNoticeText) {
+    hostBridgeOperationNoticeText.id = `zotero-prefpane-${config.addonRef}-host-bridge-operation-notice-text`;
+  }
+  const hostBridgeSecurityToggle = args?.includeHostAccessControls
+    ? document.createXULElement("button")
+    : null;
+  if (hostBridgeSecurityToggle) {
+    hostBridgeSecurityToggle.id = `zotero-prefpane-${config.addonRef}-host-bridge-security-toggle`;
+    hostBridgeSecurityToggle.setAttribute("aria-expanded", "false");
+  }
+  const hostBridgeSecurityPanel = args?.includeHostAccessControls
+    ? document.createXULElement("vbox")
+    : null;
+  if (hostBridgeSecurityPanel) {
+    hostBridgeSecurityPanel.id = `zotero-prefpane-${config.addonRef}-host-bridge-security-panel`;
+    hostBridgeSecurityPanel.setAttribute(
+      "class",
+      "zs-host-access-security-panel",
+    );
+  }
   const runtimeDataRoot = args?.includeRuntimeDataControls
     ? document.createXULElement("div")
     : null;
@@ -433,6 +618,42 @@ function createPrefsWindow(args?: {
     : null;
   if (runtimeDataStateDbInfo) {
     runtimeDataStateDbInfo.id = `zotero-prefpane-${config.addonRef}-runtime-data-state-db-info`;
+  }
+  const runtimeDataProgressRow = args?.includeRuntimeDataControls
+    ? document.createXULElement("hbox")
+    : null;
+  const runtimeDataProgressmeterContainer = args?.includeRuntimeDataControls
+    ? document.createXULElement("div")
+    : null;
+  const runtimeDataProgressmeter = args?.includeRuntimeDataControls
+    ? document.createXULElement("div")
+    : null;
+  const runtimeDataProgressText = args?.includeRuntimeDataControls
+    ? document.createXULElement("span")
+    : null;
+  if (runtimeDataProgressRow) {
+    runtimeDataProgressRow.id = `zotero-prefpane-${config.addonRef}-runtime-data-progress-row`;
+  }
+  if (runtimeDataProgressmeterContainer) {
+    runtimeDataProgressmeterContainer.className = "custom-progress-container";
+  }
+  if (runtimeDataProgressmeter) {
+    runtimeDataProgressmeter.id = `zotero-prefpane-${config.addonRef}-runtime-data-progressmeter`;
+    runtimeDataProgressmeter.className = "custom-progress-bar";
+    runtimeDataProgressmeter.style.width = "0%";
+  }
+  if (runtimeDataProgressText) {
+    runtimeDataProgressText.id = `zotero-prefpane-${config.addonRef}-runtime-data-progress-text`;
+  }
+  if (
+    runtimeDataProgressRow &&
+    runtimeDataProgressmeterContainer &&
+    runtimeDataProgressmeter &&
+    runtimeDataProgressText
+  ) {
+    runtimeDataProgressmeterContainer.appendChild(runtimeDataProgressmeter);
+    runtimeDataProgressRow.appendChild(runtimeDataProgressmeterContainer);
+    runtimeDataProgressRow.appendChild(runtimeDataProgressText);
   }
   const runtimeDataRescanButton = args?.includeRuntimeDataControls
     ? document.createXULElement("button")
@@ -540,18 +761,45 @@ function createPrefsWindow(args?: {
       },
     } as unknown as Window,
     workflowDirInput,
+    skillDirInput,
     workflowBrowseButton,
+    skillBrowseButton,
     scanButton,
     workflowSettingsButton,
     workflowOpenLogsButton,
+    contentPackageStatus,
+    contentPackageChannelSelect,
+    contentPackageChannelPopup,
+    contentPackageCheckButton,
+    contentPackageInstallButton,
     backendManageButton,
     hostBridgeDisableWriteApprovalCheckbox,
+    hostBridgeLanCheckbox,
+    mcpServerEnabledCheckbox,
+    mcpServerStatusText,
+    hostBridgeLed,
+    mcpServerLed,
+    hostBridgePinPortCheckbox,
+    hostBridgePinnedPortInput,
+    hostBridgeAdvertisedHostInput,
+    hostBridgeEndpointText,
+    hostBridgeStatusText,
+    hostBridgeShowEndpointButton,
+    hostBridgeRotateMasterTokenButton,
+    hostBridgeInstallCliButton,
+    hostBridgeOperationNotice,
+    hostBridgeOperationNoticeText,
+    hostBridgeSecurityToggle,
+    hostBridgeSecurityPanel,
     runtimeDataRoot,
     runtimeDataSummary,
     runtimeDataCategories,
     runtimeDataIssuesToggleButton,
     runtimeDataIssuesPanel,
     runtimeDataStateDbInfo,
+    runtimeDataProgressRow,
+    runtimeDataProgressmeter,
+    runtimeDataProgressText,
     runtimeDataRescanButton,
     runtimeDataCopyRootButton,
     runtimeDataOpenRootButton,
@@ -610,16 +858,31 @@ function assertMenuLabel(
 const itFullOnly = isFullTestMode() ? it : it.skip;
 
 describe("gui: preference scripts", function () {
-  // eslint-disable-next-line mocha/no-setup-in-describe
   const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
+  const skillDirPrefKey = `${config.prefsPrefix}.skillDir`;
 
   let prevAddon: unknown;
   let prevWorkflowDirPref: unknown;
+  let prevSkillDirPref: unknown;
+  let prevTestWorkflowDirEnv: string | undefined;
+  let prevContentDevRootEnv: string | undefined;
+  let restorePrefs: (() => void) | undefined;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     const runtime = globalThis as { addon?: unknown };
     prevAddon = runtime.addon;
     prevWorkflowDirPref = Zotero.Prefs.get(workflowDirPrefKey, true);
+    prevSkillDirPref = Zotero.Prefs.get(skillDirPrefKey, true);
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    prevTestWorkflowDirEnv = processEnv?.ZOTERO_TEST_WORKFLOW_DIR;
+    prevContentDevRootEnv = processEnv?.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+    if (processEnv) {
+      delete processEnv.ZOTERO_TEST_WORKFLOW_DIR;
+      delete processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+    }
     runtime.addon = {
       data: {
         config,
@@ -630,6 +893,7 @@ describe("gui: preference scripts", function () {
     };
     setDebugModeOverrideForTests(true);
     Zotero.Prefs.clear(workflowDirPrefKey, true);
+    Zotero.Prefs.clear(skillDirPrefKey, true);
     resetManagedLocalRuntimeStateChangeListenersForTests();
   });
 
@@ -639,12 +903,35 @@ describe("gui: preference scripts", function () {
     } else {
       Zotero.Prefs.set(workflowDirPrefKey, prevWorkflowDirPref, true);
     }
+    if (typeof prevSkillDirPref === "undefined") {
+      Zotero.Prefs.clear(skillDirPrefKey, true);
+    } else {
+      Zotero.Prefs.set(skillDirPrefKey, prevSkillDirPref, true);
+    }
+
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    if (processEnv) {
+      if (prevTestWorkflowDirEnv === undefined) {
+        delete processEnv.ZOTERO_TEST_WORKFLOW_DIR;
+      } else {
+        processEnv.ZOTERO_TEST_WORKFLOW_DIR = prevTestWorkflowDirEnv;
+      }
+      if (prevContentDevRootEnv === undefined) {
+        delete processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+      } else {
+        processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = prevContentDevRootEnv;
+      }
+    }
 
     const runtime = globalThis as { addon?: unknown };
     runtime.addon = prevAddon;
     setDebugModeOverrideForTests();
     setPref("hostBridgeDisableWriteApproval", false);
     resetManagedLocalRuntimeStateChangeListenersForTests();
+    restorePrefs?.();
+    restorePrefs = undefined;
   });
 
   it("binds preference inputs and dispatches workflow scan/settings/log-viewer/backend manager commands", async function () {
@@ -664,7 +951,9 @@ describe("gui: preference scripts", function () {
     const {
       window,
       workflowDirInput,
+      skillDirInput,
       workflowBrowseButton,
+      skillBrowseButton,
       scanButton,
       workflowSettingsButton,
       workflowOpenLogsButton,
@@ -677,10 +966,24 @@ describe("gui: preference scripts", function () {
       window,
     });
 
-    assert.isNotEmpty(workflowDirInput.value);
+    const defaultWorkflowDir = getEffectiveWorkflowDir();
+    assert.equal(workflowDirInput.value, "");
     assert.equal(
       Zotero.Prefs.get(workflowDirPrefKey, true),
-      workflowDirInput.value,
+      "",
+      "empty workflowDir pref should keep input empty",
+    );
+    assert.equal(
+      workflowDirInput.placeholder,
+      "<Zotero Data Directory>/content/user/workflows",
+      "workflow default should be shown as input hint",
+    );
+    assert.equal(skillDirInput.value, "");
+    assert.equal(Zotero.Prefs.get(skillDirPrefKey, true), "");
+    assert.equal(
+      skillDirInput.placeholder,
+      "<Zotero Data Directory>/content/user/skills",
+      "skill default should be shown as input hint",
     );
 
     workflowDirInput.value = "D:/tmp/workflows-custom";
@@ -697,15 +1000,31 @@ describe("gui: preference scripts", function () {
       "D:/tmp/workflows-custom",
       "workflowDir pref should persist custom path after input/change",
     );
+    assert.equal(
+      skillDirInput.placeholder,
+      getDefaultSkillDirForWorkflowDir("D:/tmp/workflows-custom"),
+      "skill hint should follow the explicit workflow directory",
+    );
+
+    skillDirInput.value = "D:/tmp/skills-custom";
+    skillDirInput.dispatch("input", { target: skillDirInput });
+    skillDirInput.dispatch("change", { target: skillDirInput });
+    await flushTasks();
+    assert.equal(skillDirInput.value, "D:/tmp/skills-custom");
+    assert.equal(
+      Zotero.Prefs.get(skillDirPrefKey, true),
+      "D:/tmp/skills-custom",
+    );
 
     const runtime = globalThis as { ztoolkit?: unknown };
     const previousZtoolkit = runtime.ztoolkit;
-    let pickerInitialDirectory = "";
+    const pickerInitialDirectoryByTitle = new Map<string, string>();
     try {
       runtime.ztoolkit = {
         FilePicker: class {
+          private readonly title: string;
           constructor(
-            _title: string,
+            title: string,
             _mode: string,
             _filters: [string, string][],
             _suggestion: string,
@@ -713,18 +1032,23 @@ describe("gui: preference scripts", function () {
             _filterMask?: string,
             directory?: string,
           ) {
-            pickerInitialDirectory = String(directory || "");
+            this.title = title;
+            pickerInitialDirectoryByTitle.set(title, String(directory || ""));
           }
           async open() {
-            return "D:/tmp/workflows-picked";
+            return this.title === "pref-skill-dir"
+              ? "D:/tmp/skills-picked"
+              : "D:/tmp/workflows-picked";
           }
         },
       };
       workflowBrowseButton.dispatch("command");
       await flushTasks();
-      if (pickerInitialDirectory) {
+      const workflowPickerInitialDirectory =
+        pickerInitialDirectoryByTitle.get("pref-workflow-dir") || "";
+      if (workflowPickerInitialDirectory) {
         assert.equal(
-          pickerInitialDirectory,
+          workflowPickerInitialDirectory,
           "D:/tmp/workflows-custom",
           "browse picker should start from current workflow dir",
         );
@@ -743,6 +1067,22 @@ describe("gui: preference scripts", function () {
           Zotero.Prefs.get(workflowDirPrefKey, true),
           "D:/tmp/workflows-custom",
           "workflowDir pref should stay unchanged when picker is unavailable",
+        );
+      }
+      skillBrowseButton.dispatch("command");
+      await flushTasks();
+      const skillPickerInitialDirectory =
+        pickerInitialDirectoryByTitle.get("pref-skill-dir") || "";
+      if (skillPickerInitialDirectory) {
+        assert.equal(
+          skillPickerInitialDirectory,
+          "D:/tmp/skills-custom",
+          "skill browse picker should start from current skill dir",
+        );
+        assert.equal(skillDirInput.value, "D:/tmp/skills-picked");
+        assert.equal(
+          Zotero.Prefs.get(skillDirPrefKey, true),
+          "D:/tmp/skills-picked",
         );
       }
     } finally {
@@ -771,11 +1111,8 @@ describe("gui: preference scripts", function () {
       (calls[2].data as { workflowsDir?: string }).workflowsDir,
       undefined,
     );
-    assert.isNotEmpty(workflowDirInput.value);
-    assert.equal(
-      Zotero.Prefs.get(workflowDirPrefKey, true),
-      workflowDirInput.value,
-    );
+    assert.equal(workflowDirInput.value, "");
+    assert.equal(Zotero.Prefs.get(workflowDirPrefKey, true), "");
 
     workflowSettingsButton.dispatch("command");
     assert.lengthOf(calls, 4);
@@ -798,6 +1135,214 @@ describe("gui: preference scripts", function () {
     assert.deepEqual(calls[5].data, {
       window,
     });
+  });
+
+  it("enables official Workflow package install only when missing or an update is available", async function () {
+    const calls: string[] = [];
+    let installed: any = null;
+    let checkResult: any = null;
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      calls.push(type);
+      if (type === "stateContentPackage") {
+        return { channel: "stable", installed };
+      }
+      if (type === "checkContentPackageUpdate") {
+        return checkResult;
+      }
+      return { ok: true, details: {} };
+    };
+
+    const { window, contentPackageInstallButton, contentPackageCheckButton } =
+      createPrefsWindow({ includeContentPackageControls: true });
+    await registerPrefsScripts(window);
+    await flushTasks();
+    assert.equal(
+      contentPackageInstallButton?.getAttribute("disabled"),
+      null,
+      "install should be enabled when no official package is detected",
+    );
+
+    installed = {
+      feed_revision: "rev-1",
+      package: { id: "official-content", version: "1.0.0" },
+    };
+    checkResult = {
+      ok: true,
+      status: { channel: "stable", installed },
+      feed: { revision: "rev-1" },
+      package: { version: "1.0.0" },
+      compatible: true,
+      updateAvailable: false,
+      action: "none",
+    };
+    contentPackageCheckButton?.dispatch("command");
+    await flushTasks();
+    await flushTasks();
+    assert.equal(
+      contentPackageInstallButton?.getAttribute("disabled"),
+      "true",
+      "install should be disabled when installed package is current",
+    );
+
+    checkResult = {
+      ...checkResult,
+      feed: { revision: "rev-2" },
+      package: { version: "1.1.0" },
+      compatible: true,
+      updateAvailable: true,
+      action: "update",
+    };
+    contentPackageCheckButton?.dispatch("command");
+    await flushTasks();
+    await flushTasks();
+    assert.equal(
+      contentPackageInstallButton?.getAttribute("disabled"),
+      null,
+      "install should be enabled when a compatible update is available",
+    );
+
+    checkResult = {
+      ...checkResult,
+      compatible: false,
+      updateAvailable: true,
+      action: "update",
+      incompatibility: { message: "requires newer plugin" },
+    };
+    contentPackageCheckButton?.dispatch("command");
+    await flushTasks();
+    await flushTasks();
+    assert.equal(
+      contentPackageInstallButton?.getAttribute("disabled"),
+      "true",
+      "install should be disabled for incompatible updates",
+    );
+
+    assert.includeMembers(calls, [
+      "stateContentPackage",
+      "checkContentPackageUpdate",
+    ]);
+  });
+
+  it("switches official Workflow package channels and exposes rollback actions", async function () {
+    setDebugModeOverrideForTests(false);
+    setPref("contentFeedChannel", "stable");
+    const calls: string[] = [];
+    const installed = {
+      feed_revision: "rev-2",
+      package: { id: "official-content", version: "2.0.0" },
+    };
+    let statusChannel = "stable";
+    const checkResult: any = {
+      ok: true,
+      status: { channel: "stable", installed },
+      feed: { revision: "rev-1" },
+      package: { version: "1.0.0" },
+      compatible: true,
+      updateAvailable: true,
+      action: "rollback",
+    };
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      calls.push(type);
+      if (type === "stateContentPackage") {
+        return { channel: statusChannel, installed, debugMode: false };
+      }
+      if (type === "checkContentPackageUpdate") {
+        return checkResult;
+      }
+      return { ok: true, details: {} };
+    };
+
+    const {
+      window,
+      contentPackageChannelSelect,
+      contentPackageChannelPopup,
+      contentPackageInstallButton,
+      contentPackageCheckButton,
+      contentPackageStatus,
+    } = createPrefsWindow({ includeContentPackageControls: true });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    assert.deepEqual(
+      (contentPackageChannelPopup?.children || []).map((entry) => entry.value),
+      ["stable", "beta"],
+      "dev channel should stay hidden outside debug mode",
+    );
+    assert.equal(contentPackageChannelSelect?.value, "stable");
+
+    statusChannel = "beta";
+    contentPackageChannelSelect!.value = "beta";
+    contentPackageChannelSelect?.dispatch("command");
+    await flushTasks();
+    assert.equal(getPref("contentFeedChannel"), "beta");
+    assert.equal(contentPackageChannelSelect?.value, "beta");
+    assert.equal(
+      contentPackageInstallButton?.getAttribute("disabled"),
+      "true",
+      "switching channel should not preserve a prior check action",
+    );
+
+    contentPackageCheckButton?.dispatch("command");
+    await flushTasks();
+    await flushTasks();
+    assert.equal(contentPackageInstallButton?.getAttribute("disabled"), null);
+    assert.match(
+      contentPackageInstallButton?.getAttribute("label") || "",
+      /Roll\s?back/i,
+    );
+    assert.include(contentPackageStatus?.textContent || "", "Rollback");
+    assert.includeMembers(calls, [
+      "stateContentPackage",
+      "checkContentPackageUpdate",
+    ]);
+  });
+
+  it("shows dev official Workflow package channel only in debug mode", async function () {
+    setDebugModeOverrideForTests(true);
+    setPref("contentFeedChannel", "dev");
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateContentPackage") {
+        return { channel: "dev", installed: null, debugMode: true };
+      }
+      return { ok: true, details: {} };
+    };
+
+    const { window, contentPackageChannelSelect, contentPackageChannelPopup } =
+      createPrefsWindow({
+        includeContentPackageControls: true,
+      });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    assert.deepEqual(
+      (contentPackageChannelPopup?.children || []).map((entry) => entry.value),
+      ["stable", "beta", "dev"],
+    );
+    assert.equal(contentPackageChannelSelect?.value, "dev");
   });
 
   it("confirms before disabling Host Bridge write approvals", async function () {
@@ -834,6 +1379,348 @@ describe("gui: preference scripts", function () {
 
     assert.lengthOf(accepted.confirmMessages, 1);
     assert.isFalse(getPref("hostBridgeDisableWriteApproval") === true);
+  });
+
+  it("renders Host Bridge and MCP preference status from runtime snapshots", async function () {
+    setPref("hostBridgeLanEnabled", true);
+    setPref("hostBridgePinPortEnabled", true);
+    setPref("hostBridgePinnedPort", 26570);
+    setPref("mcpServer.enabled", true);
+    const prefs = createPrefsWindow({ includeHostAccessControls: true });
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateHostBridge") {
+        return {
+          ok: true,
+          details: {
+            status: "running",
+            bindMode: "lan",
+            lanEnabled: true,
+            pinPortEnabled: true,
+            pinnedPort: 26570,
+            portMode: "pinned",
+            endpoint: "http://127.0.0.1:26570/bridge/v1",
+            remoteEndpoint: "http://192.168.1.10:26570/bridge/v1",
+            tokenMasked: "abc...def",
+          },
+        };
+      }
+      if (type === "stateMcpServer") {
+        return {
+          ok: true,
+          details: {
+            enabled: true,
+            server: {
+              status: "running",
+              endpoint: "http://192.168.1.10:26570/mcp",
+              tokenMasked: "abc...def",
+            },
+          },
+        };
+      }
+      if (type === "showHostBridgeEndpoint") {
+        return {
+          ok: true,
+          message: "Host Bridge endpoint is available.",
+          details: {
+            status: "running",
+            bindMode: "lan",
+            lanEnabled: true,
+            pinPortEnabled: true,
+            pinnedPort: 26570,
+            portMode: "pinned",
+            endpoint: "http://127.0.0.1:26570/bridge/v1",
+            remoteEndpoint: "http://192.168.1.10:26570/bridge/v1",
+          },
+        };
+      }
+      return { ok: true, details: {} };
+    };
+
+    await registerPrefsScripts(prefs.window);
+    await flushTasks();
+
+    assert.match(prefs.hostBridgeLed?.className || "", /is-green/);
+    assert.include(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "Status=Running",
+    );
+    assert.include(prefs.hostBridgeStatusText?.textContent || "", "Bind=lan");
+    assert.include(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "Port=pinned 26570",
+    );
+    assert.isNull(prefs.hostBridgeStatusText?.getAttribute("data-l10n-id"));
+    assert.notInclude(prefs.hostBridgeStatusText?.textContent || "", "token");
+    assert.notInclude(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "abc...def",
+    );
+    assert.include(
+      prefs.hostBridgeEndpointText?.textContent || "",
+      "http://127.0.0.1:26570/bridge/v1",
+    );
+    assert.match(prefs.mcpServerLed?.className || "", /is-green/);
+    assert.include(
+      prefs.mcpServerStatusText?.textContent || "",
+      "Enabled=Enabled",
+    );
+    assert.include(
+      prefs.mcpServerStatusText?.textContent || "",
+      "Status=Running",
+    );
+    assert.isNull(prefs.mcpServerStatusText?.getAttribute("data-l10n-id"));
+    assert.notInclude(prefs.mcpServerStatusText?.textContent || "", "token");
+    assert.notInclude(
+      prefs.mcpServerStatusText?.textContent || "",
+      "abc...def",
+    );
+    assert.include(
+      prefs.mcpServerStatusText?.textContent || "",
+      "http://192.168.1.10:26570/mcp",
+    );
+    assert.isTrue(prefs.hostBridgeLanCheckbox?.checked);
+    assert.isTrue(prefs.hostBridgePinPortCheckbox?.checked);
+    assert.isTrue(prefs.hostBridgePinPortCheckbox?.disabled);
+    assert.isTrue(prefs.mcpServerEnabledCheckbox?.checked);
+    assert.isFalse(
+      prefs.hostBridgeSecurityPanel?.classList.contains("is-visible") || false,
+    );
+    assert.equal(
+      prefs.hostBridgeSecurityToggle?.getAttribute("aria-expanded"),
+      "false",
+    );
+    prefs.hostBridgeSecurityToggle?.dispatch("command");
+    assert.isTrue(
+      prefs.hostBridgeSecurityPanel?.classList.contains("is-visible") || false,
+    );
+    assert.equal(
+      prefs.hostBridgeSecurityToggle?.getAttribute("aria-expanded"),
+      "true",
+    );
+    prefs.hostBridgeShowEndpointButton?.dispatch("command");
+    await flushTasks();
+    assert.isTrue(
+      prefs.hostBridgeOperationNotice?.classList.contains("is-visible") ||
+        false,
+    );
+    assert.include(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      "Host Bridge endpoint is available.",
+    );
+    assert.notInclude(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "Host Bridge endpoint is available.",
+    );
+  });
+
+  it("renders Host Bridge and MCP preference status failures as errors", async function () {
+    setPref("hostBridgeLanEnabled", true);
+    setPref("mcpServer.enabled", true);
+    const prefs = createPrefsWindow({ includeHostAccessControls: true });
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateHostBridge" || type === "stateMcpServer") {
+        throw new Error(`${type} failed`);
+      }
+      return { ok: true, details: {} };
+    };
+
+    await registerPrefsScripts(prefs.window);
+    await flushTasks();
+
+    assert.match(prefs.hostBridgeLed?.className || "", /is-red/);
+    assert.include(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "Status=Error",
+    );
+    assert.include(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "stateHostBridge failed",
+    );
+    assert.match(prefs.mcpServerLed?.className || "", /is-red/);
+    assert.include(
+      prefs.mcpServerStatusText?.textContent || "",
+      "Enabled=Enabled",
+    );
+    assert.include(
+      prefs.mcpServerStatusText?.textContent || "",
+      "Status=Error",
+    );
+    assert.include(
+      prefs.mcpServerStatusText?.textContent || "",
+      "stateMcpServer failed",
+    );
+  });
+
+  it("renders Host Bridge operations in a separate notice area", async function () {
+    const prefs = createPrefsWindow({ includeHostAccessControls: true });
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateHostBridge") {
+        return {
+          ok: true,
+          details: {
+            status: "running",
+            bindMode: "loopback",
+            portMode: "random",
+            port: 26571,
+            endpoint: "http://127.0.0.1:26571/bridge/v1",
+          },
+        };
+      }
+      if (type === "stateMcpServer") {
+        return {
+          ok: true,
+          details: {
+            enabled: true,
+            server: {
+              status: "running",
+              endpoint: "http://127.0.0.1:26571/mcp",
+            },
+          },
+        };
+      }
+      if (type === "installHostBridgeCli") {
+        return {
+          ok: false,
+          message:
+            "Failed to install zotero-bridge CLI binary at C:\\Users\\me\\secret\\zotero-bridge.exe with Bearer abc.def",
+          details: {},
+        };
+      }
+      if (type === "rotateHostBridgeMasterToken") {
+        return {
+          ok: true,
+          message: "Host Bridge master token rotated.",
+          details: {
+            server: {
+              status: "running",
+              bindMode: "loopback",
+              portMode: "random",
+              port: 26571,
+              endpoint: "http://127.0.0.1:26571/bridge/v1",
+            },
+          },
+        };
+      }
+      return { ok: true, details: {} };
+    };
+
+    await registerPrefsScripts(prefs.window);
+    await flushTasks();
+
+    prefs.hostBridgeInstallCliButton?.dispatch("command");
+    await flushTasks();
+    assert.isTrue(
+      prefs.hostBridgeOperationNotice?.classList.contains("is-visible") ||
+        false,
+    );
+    assert.isTrue(
+      prefs.hostBridgeOperationNotice?.classList.contains("is-error") || false,
+    );
+    assert.include(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      "Failed to install zotero-bridge CLI binary",
+    );
+    assert.notInclude(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      "C:\\Users\\me",
+    );
+    assert.notInclude(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      "abc.def",
+    );
+    assert.notInclude(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "Failed to install",
+    );
+
+    prefs.hostBridgeRotateMasterTokenButton?.dispatch("command");
+    await flushTasks();
+    assert.isFalse(
+      prefs.hostBridgeOperationNotice?.classList.contains("is-error") || false,
+    );
+    assert.include(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      "Host Bridge master token rotated.",
+    );
+    assert.notInclude(
+      prefs.hostBridgeStatusText?.textContent || "",
+      "master token rotated",
+    );
+  });
+
+  it("renders disabled MCP preference status without exposing tokens", async function () {
+    setPref("mcpServer.enabled", false);
+    const prefs = createPrefsWindow({ includeHostAccessControls: true });
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      if (type === "stateHostBridge") {
+        return { ok: true, details: { status: "idle" } };
+      }
+      if (type === "stateMcpServer") {
+        return {
+          ok: true,
+          details: {
+            enabled: false,
+            server: {
+              status: "running",
+              endpoint: "http://127.0.0.1:26455/mcp",
+              tokenMasked: "abc...def",
+            },
+          },
+        };
+      }
+      return { ok: true, details: {} };
+    };
+
+    await registerPrefsScripts(prefs.window);
+    await flushTasks();
+
+    assert.match(prefs.mcpServerLed?.className || "", /is-gray/);
+    assert.include(
+      prefs.mcpServerStatusText?.textContent || "",
+      "Enabled=Disabled",
+    );
+    assert.include(
+      prefs.mcpServerStatusText?.textContent || "",
+      "Status=Disabled",
+    );
+    assert.notInclude(prefs.mcpServerStatusText?.textContent || "", "token");
+    assert.notInclude(
+      prefs.mcpServerStatusText?.textContent || "",
+      "abc...def",
+    );
+    assert.isFalse(prefs.mcpServerEnabledCheckbox?.checked);
   });
 
   it("renders persistence governance data and dispatches issue cleanup", async function () {
@@ -967,12 +1854,13 @@ describe("gui: preference scripts", function () {
     assert.equal(runtimeDataRoot?.textContent, "C:\\RuntimeRoot");
     assert.include(String(runtimeDataSummary?.textContent || ""), "2.00 KB");
     assert.include(String(runtimeDataSummary?.textContent || ""), "1");
-    assert.lengthOf(runtimeDataCategories?.children || [], 18);
+    assert.lengthOf(runtimeDataCategories?.children || [], 21);
     const categoryText = (runtimeDataCategories?.children || [])
       .map((entry) => entry.textContent)
       .join("\n");
     assert.include(categoryText, "Runtime logs");
     assert.include(categoryText, "SkillRunner local ledger");
+    assert.include(categoryText, "Workflow products");
     assert.include(categoryText, "2");
     assert.notInclude(categoryText, "Protected durable data");
     assert.notInclude(categoryText, "State database");
@@ -1067,6 +1955,13 @@ describe("gui: preference scripts", function () {
       calls.push({ type, data });
       if (type === "scanPersistenceGovernance") {
         scanCalls += 1;
+        data.onProgress?.({
+          stage: "usage:logs",
+          label: "Runtime logs",
+          current: 2,
+          total: 14,
+          percent: 14,
+        });
         if (scanCalls > 1) {
           return {
             usage: {
@@ -1121,6 +2016,10 @@ describe("gui: preference scripts", function () {
       window,
       runtimeDataSummary,
       runtimeDataCategories,
+      runtimeDataProgressRow,
+      runtimeDataProgressmeter,
+      runtimeDataProgressText,
+      runtimeDataRescanButton,
       confirmMessages,
     } = createPrefsWindow({
       includeRuntimeDataControls: true,
@@ -1128,8 +2027,35 @@ describe("gui: preference scripts", function () {
     });
     await registerPrefsScripts(window);
 
-    assert.lengthOf(runtimeDataCategories?.children || [], 18);
-    assert.include(String(runtimeDataSummary?.textContent || ""), "1/6");
+    assert.lengthOf(runtimeDataCategories?.children || [], 21);
+    assert.notInclude(
+      String(runtimeDataSummary?.textContent || ""),
+      "pref-runtime-data-scanning",
+    );
+    assert.include(
+      String(runtimeDataSummary?.textContent || ""),
+      "pref-runtime-data-summary-idle",
+    );
+    assert.match(String(runtimeDataProgressRow?.className || ""), /is-visible/);
+    assert.equal(runtimeDataProgressmeter?.style.width, "14%");
+    assert.include(
+      String(runtimeDataProgressText?.textContent || ""),
+      "pref-runtime-data-scanning",
+    );
+    assert.include(String(runtimeDataProgressText?.textContent || ""), "2/14");
+    assert.notInclude(String(runtimeDataSummary?.textContent || ""), "1/7");
+    assert.notInclude(
+      (runtimeDataCategories?.children || [])
+        .map((entry) => entry.textContent)
+        .join("\n"),
+      "pref-runtime-data-scanning",
+    );
+    assert.notInclude(
+      (runtimeDataCategories?.children || [])
+        .map((entry) => entry.textContent)
+        .join("\n"),
+      "1/7",
+    );
     assert.include(
       (runtimeDataCategories?.children || [])
         .map((entry) => entry.textContent)
@@ -1140,6 +2066,9 @@ describe("gui: preference scripts", function () {
       runtimeDataCategories?.children[2]?.getAttribute("disabled"),
       "true",
     );
+    runtimeDataRescanButton?.dispatch("command");
+    await flushTasks();
+    assert.equal(scanCalls, 1);
 
     resolveScan?.({
       usage: {
@@ -1161,6 +2090,12 @@ describe("gui: preference scripts", function () {
     });
     await flushTasks();
 
+    assert.notMatch(
+      String(runtimeDataProgressRow?.className || ""),
+      /is-visible/,
+    );
+    assert.equal(runtimeDataProgressmeter?.style.width, "0%");
+
     assert.notEqual(
       runtimeDataCategories?.children[2]?.getAttribute("disabled"),
       "true",
@@ -1181,6 +2116,126 @@ describe("gui: preference scripts", function () {
       },
     );
     assert.lengthOf(confirmMessages, 1);
+  });
+
+  it("disables all persistence cleanup buttons while a category cleanup is running", async function () {
+    let cleanupResolve:
+      | ((value: { usage: Record<string, unknown> }) => void)
+      | null = null;
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: any) => Promise<any>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      if (type === "scanPersistenceGovernance") {
+        return {
+          usage: {
+            root: "C:\\RuntimeRoot",
+            scannedAt: "2026-04-28T00:00:00.000Z",
+            totalBytes: 3072,
+            categories: [
+              {
+                category: "logs",
+                label: "Runtime logs",
+                path: "C:\\RuntimeRoot\\logs",
+                bytes: 1024,
+                exists: true,
+                cleanable: true,
+              },
+              {
+                category: "skillrunner-ledger",
+                label: "SkillRunner local ledger",
+                path: "C:\\RuntimeRoot\\state\\zotero-agents.db",
+                bytes: 2048,
+                exists: true,
+                cleanable: true,
+              },
+            ],
+          },
+          integrity: {
+            root: "C:\\RuntimeRoot",
+            issueCount: 1,
+            issues: [
+              {
+                id: "expired_runtime_asset:1",
+                type: "expired_runtime_asset",
+                severity: "info",
+                relativePath: "runtime/tmp/old.json",
+                eligibleForCleanup: true,
+              },
+            ],
+          },
+        };
+      }
+      if (type === "cleanupRuntimePersistenceCategory") {
+        return new Promise((resolve) => {
+          cleanupResolve = resolve;
+        });
+      }
+      return {};
+    };
+
+    const {
+      window,
+      runtimeDataCategories,
+      runtimeDataIssuesToggleButton,
+      runtimeDataIssuesPanel,
+    } = createPrefsWindow({
+      includeRuntimeDataControls: true,
+      confirmResults: [true],
+    });
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    runtimeDataIssuesToggleButton?.dispatch("command");
+    await flushTasks();
+
+    assert.notEqual(
+      runtimeDataCategories?.children[2]?.getAttribute("disabled"),
+      "true",
+    );
+    assert.notEqual(
+      runtimeDataCategories?.children[5]?.getAttribute("disabled"),
+      "true",
+    );
+    assert.notEqual(
+      runtimeDataIssuesPanel?.children[0]?.children[2]?.getAttribute(
+        "disabled",
+      ),
+      "true",
+    );
+
+    runtimeDataCategories?.children[2]?.dispatch("click");
+    await flushTasks();
+
+    assert.equal(
+      runtimeDataCategories?.children[2]?.getAttribute("disabled"),
+      "true",
+    );
+    assert.equal(
+      runtimeDataCategories?.children[5]?.getAttribute("disabled"),
+      "true",
+    );
+    assert.equal(
+      runtimeDataIssuesPanel?.children[0]?.children[2]?.getAttribute(
+        "disabled",
+      ),
+      "true",
+    );
+
+    cleanupResolve?.({
+      usage: {
+        root: "C:\\RuntimeRoot",
+        scannedAt: "2026-04-28T00:01:00.000Z",
+        totalBytes: 0,
+        categories: [],
+      },
+    });
+    await flushTasks();
   });
 
   it("hides legacy runtime data from persistence categories when debug mode is disabled", async function () {
@@ -1231,7 +2286,7 @@ describe("gui: preference scripts", function () {
     await registerPrefsScripts(window);
     await flushTasks();
 
-    assert.lengthOf(runtimeDataCategories?.children || [], 18);
+    assert.lengthOf(runtimeDataCategories?.children || [], 21);
     assert.notInclude(
       (runtimeDataCategories?.children || [])
         .map((entry) => entry.textContent)
@@ -1253,29 +2308,50 @@ describe("gui: preference scripts", function () {
     assert.include(xhtml, "runtime-data-toggle-issues");
     assert.include(xhtml, "runtime-data-issues-panel");
     assert.include(xhtml, "runtime-data-state-db-info");
+    assert.include(xhtml, "runtime-data-progress-row");
+    assert.include(xhtml, "runtime-data-progressmeter");
+    assert.include(xhtml, "host-bridge-led");
+    assert.include(xhtml, "mcp-server-led");
+    assert.include(xhtml, "host-bridge-operation-notice");
+    assert.include(xhtml, "host-bridge-operation-notice-text");
+    assert.include(xhtml, "host-bridge-security-toggle");
+    assert.include(xhtml, "host-bridge-security-panel");
     assert.include(xhtml, "host-bridge-disable-write-approval");
     assert.include(xhtml, "zs-host-bridge-write-approval-danger");
+    assert.include(xhtml, "skill-dir");
+    assert.include(xhtml, "skill-browse");
+    assert.notInclude(xhtml, "pref-workflow-dir-help");
     assert.include(enLocale, "pref-runtime-data-show-issues");
     assert.include(enLocale, "pref-runtime-data-hide-issues");
     assert.include(enLocale, "pref-runtime-data-category-cleanup-confirm");
+    assert.include(enLocale, "pref-runtime-data-cleaning-target");
+    assert.include(enLocale, "pref-runtime-data-category-logs");
+    assert.include(enLocale, "pref-runtime-data-category-workflow-products");
+    assert.include(enLocale, "pref-runtime-data-category-tmp");
     assert.include(enLocale, "pref-runtime-data-state-db-idle");
     assert.include(enLocale, "pref-synthesis-db-reset-confirm-message");
     assert.include(enLocale, "pref-host-bridge-disable-write-approval");
-    assert.include(
-      enLocale,
-      "pref-host-bridge-disable-write-approval-confirm",
-    );
+    assert.include(enLocale, "pref-host-bridge-disable-write-approval-confirm");
+    assert.include(enLocale, "pref-host-bridge-security-show");
+    assert.include(enLocale, "pref-host-bridge-operation-notice");
+    assert.include(enLocale, "pref-host-access-status-running");
+    assert.include(enLocale, "pref-skill-dir");
     assert.include(enLocale, "RESET SYNTHESIS DATABASE");
     assert.include(zhLocale, "pref-runtime-data-show-issues");
     assert.include(zhLocale, "pref-runtime-data-hide-issues");
     assert.include(zhLocale, "pref-runtime-data-category-cleanup-confirm");
+    assert.include(zhLocale, "pref-runtime-data-cleaning-target");
+    assert.include(zhLocale, "pref-runtime-data-category-logs");
+    assert.include(zhLocale, "pref-runtime-data-category-workflow-products");
+    assert.include(zhLocale, "pref-runtime-data-category-tmp");
     assert.include(zhLocale, "pref-runtime-data-state-db-idle");
     assert.include(zhLocale, "pref-synthesis-db-reset-confirm-message");
     assert.include(zhLocale, "pref-host-bridge-disable-write-approval");
-    assert.include(
-      zhLocale,
-      "pref-host-bridge-disable-write-approval-confirm",
-    );
+    assert.include(zhLocale, "pref-host-bridge-disable-write-approval-confirm");
+    assert.include(zhLocale, "pref-host-bridge-security-show");
+    assert.include(zhLocale, "pref-host-bridge-operation-notice");
+    assert.include(zhLocale, "pref-host-access-status-running");
+    assert.include(zhLocale, "pref-skill-dir");
     assert.include(zhLocale, "RESET SYNTHESIS DATABASE");
   });
 
@@ -2025,14 +3101,16 @@ describe("gui: preference scripts", function () {
   });
 });
 
-// eslint-disable-next-line mocha/max-top-level-suites
 describe("gui: workflow runtime scan", function () {
-  // eslint-disable-next-line mocha/no-setup-in-describe
   const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
+  const skillDirPrefKey = `${config.prefsPrefix}.skillDir`;
   let prevAddon: unknown;
   let prevWorkflowDirPref: unknown;
+  let prevSkillDirPref: unknown;
+  let restorePrefs: (() => void) | undefined;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     const runtime = globalThis as { addon?: unknown };
     prevAddon = runtime.addon;
     runtime.addon = {
@@ -2041,7 +3119,9 @@ describe("gui: workflow runtime scan", function () {
       },
     };
     prevWorkflowDirPref = Zotero.Prefs.get(workflowDirPrefKey, true);
+    prevSkillDirPref = Zotero.Prefs.get(skillDirPrefKey, true);
     Zotero.Prefs.clear(workflowDirPrefKey, true);
+    Zotero.Prefs.clear(skillDirPrefKey, true);
   });
 
   afterEach(function () {
@@ -2050,13 +3130,42 @@ describe("gui: workflow runtime scan", function () {
     } else {
       Zotero.Prefs.set(workflowDirPrefKey, prevWorkflowDirPref, true);
     }
+    if (typeof prevSkillDirPref === "undefined") {
+      Zotero.Prefs.clear(skillDirPrefKey, true);
+    } else {
+      Zotero.Prefs.set(skillDirPrefKey, prevSkillDirPref, true);
+    }
     const runtime = globalThis as { addon?: unknown };
     runtime.addon = prevAddon;
+    restorePrefs?.();
+    restorePrefs = undefined;
   });
 
   it("rescans workflow registry and exposes loaded entries", async function () {
     const root = await mkTempDir("zotero-skills-gui-scan");
     const workflowRoot = joinPath(root, "gui-scan-workflow");
+    const skillRoot = joinPath(root, "skills");
+    setPref("skillDir", skillRoot);
+    await writeUtf8(
+      joinPath(skillRoot, "gui-scan-workflow", "SKILL.md"),
+      "---\nname: gui-scan-workflow\n---\n\n# gui-scan-workflow\n",
+    );
+    await writeUtf8(
+      joinPath(skillRoot, "gui-scan-workflow", "assets", "output.schema.json"),
+      `${JSON.stringify({ type: "object" }, null, 2)}\n`,
+    );
+    await writeUtf8(
+      joinPath(skillRoot, "gui-scan-workflow", "assets", "runner.json"),
+      `${JSON.stringify(
+        {
+          id: "gui-scan-workflow",
+          execution_modes: ["auto"],
+          schemas: { output: "assets/output.schema.json" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
     await writeUtf8(
       joinPath(workflowRoot, "workflow.json"),
       JSON.stringify(
@@ -2064,9 +3173,12 @@ describe("gui: workflow runtime scan", function () {
           id: "gui-scan-workflow",
           label: "GUI Scan Workflow",
           provider: "skillrunner",
-          request: { kind: "skillrunner.job.v1" },
-          execution: {
-            skillrunner_mode: "auto",
+          request: {
+            kind: "skillrunner.job.v1",
+            create: {
+              skill_id: "gui-scan-workflow",
+              mode: "auto",
+            },
           },
           hooks: { applyResult: "hooks/applyResult.js" },
         },
@@ -2098,9 +3210,8 @@ describe("gui: workflow runtime scan", function () {
     assert.equal(getWorkflowRegistryState().workflowsDir, root);
   });
 
-  // eslint-disable-next-line mocha/no-setup-in-describe
   itFullOnly(
-    "falls back to default workflow dir when preference is empty",
+    "resolves the default workflow dir without persisting it when preference is empty",
     function () {
       const processEnv = (
         globalThis as { process?: { env?: Record<string, string | undefined> } }
@@ -2115,7 +3226,7 @@ describe("gui: workflow runtime scan", function () {
           /[\\/]workflows_builtin$/.test(effectiveDir),
           `effectiveDir=${effectiveDir}`,
         );
-        assert.equal(Zotero.Prefs.get(workflowDirPrefKey, true), effectiveDir);
+        assert.isUndefined(Zotero.Prefs.get(workflowDirPrefKey, true));
       } finally {
         if (processEnv) {
           if (typeof previousOverride === "undefined") {
@@ -2131,8 +3242,10 @@ describe("gui: workflow runtime scan", function () {
 
 describe("gui: workflow context menu", function () {
   let prevAddon: unknown;
+  let restorePrefs: (() => void) | undefined;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     const runtime = globalThis as { addon?: unknown };
     prevAddon = runtime.addon;
     runtime.addon = {
@@ -2157,6 +3270,8 @@ describe("gui: workflow context menu", function () {
   afterEach(function () {
     const runtime = globalThis as { addon?: unknown };
     runtime.addon = prevAddon;
+    restorePrefs?.();
+    restorePrefs = undefined;
   });
 
   it("adds workflows root menu and shows empty state when registry is empty", async function () {
@@ -2176,13 +3291,10 @@ describe("gui: workflow context menu", function () {
     popup!.dispatch("popupshowing");
     await flushTasks();
 
-    assert.lengthOf(popup!.children, 4);
+    assert.lengthOf(popup!.children, 6);
     assertMenuLabel(
       popup!.children[0].getAttribute("label"),
-      [
-        "Open Dashboard / Synthesis Workspace",
-        "打开 Dashboard/综合工作区",
-      ],
+      ["Open Dashboard / Synthesis Workspace", "打开 Dashboard/综合工作区"],
       "workspace label",
     );
     assertMenuLabel(
@@ -2191,9 +3303,14 @@ describe("gui: workflow context menu", function () {
       "assistant sidebar label",
     );
     assert.equal(popup!.children[2].tagName, "menuseparator");
-    assert.equal(popup!.children[3].getAttribute("disabled"), "true");
+    assert.match(
+      popup!.children[3].getAttribute("label") || "",
+      /📦.*(Install Official Workflow Package|安装官方 Workflow 包|公式 Workflow パッケージ|Installer le package Workflow officiel)/,
+    );
+    assert.equal(popup!.children[4].tagName, "menuseparator");
+    assert.equal(popup!.children[5].getAttribute("disabled"), "true");
     assertMenuLabel(
-      popup!.children[3].getAttribute("label"),
+      popup!.children[5].getAttribute("label"),
       ["No workflows loaded", "未加载任何 Workflow"],
       "root empty label",
     );
@@ -2224,7 +3341,7 @@ describe("gui: workflow context menu", function () {
       {
         label: "keeps requiresSelection=false workflow enabled",
         workflows: [
-          makeLoadedWorkflow("workflow-a", "Workflow A"),
+          makePassThroughWorkflow("workflow-a", "Workflow A"),
           makePassThroughWorkflow(
             "optional-selection-workflow",
             "Optional Selection",
@@ -2233,11 +3350,8 @@ describe("gui: workflow context menu", function () {
             },
           ),
         ],
-        expectedLabels: [
-          /^Workflow A \((no selection|未选择条目)\)$/,
-          /^Optional Selection$/,
-        ],
-        expectedDisabledStates: ["true", null],
+        expectedLabels: [/^Optional Selection$/],
+        expectedDisabledStates: [null],
         expectedLength: 5,
         rebuildOnly: true,
       },
@@ -2294,7 +3408,6 @@ describe("gui: workflow context menu", function () {
     }
   });
 
-  // eslint-disable-next-line mocha/no-setup-in-describe
   itFullOnly(
     "dispatches openDashboard from context-menu dashboard action",
     async function () {
@@ -2327,6 +3440,75 @@ describe("gui: workflow context menu", function () {
     },
   );
 
+  it("shows official workflow package install action before user workflows when official content is missing", async function () {
+    const userWorkflow = makePassThroughWorkflow(
+      "user-only-workflow",
+      "User Only Workflow",
+    );
+    setWorkflowState([userWorkflow], {
+      officialWorkflows: [],
+      userWorkflows: [userWorkflow],
+    });
+    const calls: Array<{ type: string; data: unknown }> = [];
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (
+              type: string,
+              data: unknown,
+            ) => Promise<{ ok: boolean; message?: string }>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      return { ok: true };
+    };
+
+    const win = createMainWindow([]);
+    ensureWorkflowMenuForWindow(win);
+    const popup = win.document.getElementById(
+      `${config.addonRef}-workflows-popup`,
+    ) as FakeXULElement;
+
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeTaskManagerItem: true,
+    });
+
+    const installItem = popup.children.find((entry) =>
+      /📦.*(Install Official Workflow Package|安装官方 Workflow 包|公式 Workflow パッケージ|Installer le package Workflow officiel)/.test(
+        entry.getAttribute("label") || "",
+      ),
+    );
+    assert.isOk(installItem);
+    const installIndex = popup.children.indexOf(installItem!);
+    assert.equal(popup.children[installIndex - 1].tagName, "menuseparator");
+    assert.equal(installItem!.tagName, "menuitem");
+    assert.match(
+      installItem!.getAttribute("label") || "",
+      /📦.*(Install Official Workflow Package|安装官方 Workflow 包|公式 Workflow パッケージ|Installer le package Workflow officiel)/,
+    );
+    assert.equal(installItem!.getAttribute("style"), "font-weight: 700;");
+    assert.equal(popup.children[installIndex + 1].tagName, "menuseparator");
+    const workflowItem = popup.children.find((entry) =>
+      (entry.getAttribute("label") || "").startsWith("User Only Workflow"),
+    );
+    assert.isOk(workflowItem);
+    assert.isAbove(popup.children.indexOf(workflowItem!), installIndex);
+
+    installItem!.dispatch("command");
+    await flushTasks();
+    await flushTasks();
+
+    assert.lengthOf(calls, 1);
+    assert.equal(calls[0].type, "installContentPackage");
+    assert.deepEqual(calls[0].data, {
+      window: win,
+      source: "workflow-menu",
+    });
+  });
+
   it("keeps pass-through workflow menu item enabled without backend profile", async function () {
     const parent = await handlers.item.create({
       itemType: "journalArticle",
@@ -2341,19 +3523,85 @@ describe("gui: workflow context menu", function () {
       `${config.addonRef}-workflows-popup`,
     ) as FakeXULElement;
     popup.dispatch("popupshowing");
+    let workflowItem: FakeXULElement | undefined;
     for (let i = 0; i < 10; i++) {
       await flushTasks();
-      if (popup.children.length > 3) {
+      workflowItem = popup.children.find((entry) =>
+        (entry.getAttribute("label") || "").startsWith("Pass Through GUI"),
+      );
+      if (workflowItem) {
         break;
       }
     }
 
+    assert.isOk(workflowItem);
+    assert.equal(workflowItem!.getAttribute("label"), "Pass Through GUI");
+    assert.equal(workflowItem!.getAttribute("disabled"), null);
+  });
+
+  it("keeps workflow menu item enabled when persisted default backend is incompatible", async function () {
+    setPref(
+      "backendsConfigJson",
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "skillrunner-menu-compatible",
+            displayName: "SkillRunner Menu Compatible",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8030",
+            auth: { kind: "none" },
+          },
+          {
+            id: "generic-menu-incompatible",
+            displayName: "Generic Menu Incompatible",
+            type: "generic-http",
+            baseUrl: "http://127.0.0.1:8031",
+            auth: { kind: "none" },
+          },
+        ],
+      }),
+    );
+    setPref(
+      "workflowSettingsJson",
+      JSON.stringify({
+        schemaVersion: 1,
+        workflows: {
+          "workflow-menu-backend-fallback": {
+            backendId: "generic-menu-incompatible",
+          },
+        },
+      }),
+    );
+
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Backend Menu Fallback Parent" },
+    });
+    const workflow = makeLoadedWorkflow(
+      "workflow-menu-backend-fallback",
+      "Backend Menu Fallback",
+    );
+    workflow.manifest.inputs = { unit: "workflow" };
+    setWorkflowState([workflow]);
+    const win = createMainWindow([parent]);
+    ensureWorkflowMenuForWindow(win);
+    const popup = win.document.getElementById(
+      `${config.addonRef}-workflows-popup`,
+    ) as FakeXULElement;
+
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeSkillRunnerSidebarItem: false,
+      includeTaskManagerItem: false,
+      includeSynthesisWorkbenchItem: false,
+    });
+
     const workflowItem = popup.children.find((entry) =>
-      (entry.getAttribute("label") || "").startsWith("Pass Through GUI"),
+      (entry.getAttribute("label") || "").startsWith("Backend Menu Fallback"),
     );
     assert.isOk(workflowItem);
-    assert.equal(workflowItem.getAttribute("label"), "Pass Through GUI");
-    assert.equal(workflowItem.getAttribute("disabled"), null);
+    assert.equal(workflowItem!.getAttribute("label"), "Backend Menu Fallback");
+    assert.equal(workflowItem!.getAttribute("disabled"), null);
   });
 
   it("hides debug-only workflows when debug mode is disabled and shows them when enabled", async function () {
@@ -2468,7 +3716,7 @@ describe("gui: workflow context menu", function () {
     const workflowItem = popup.children.find((child) =>
       (child.getAttribute("label") || "").startsWith("Workflow A"),
     );
-    assert.equal(counter.calls, 1);
+    assert.equal(counter.calls, 0);
     assert.isOk(workflowItem);
     assert.match(
       workflowItem!.getAttribute("label") || "",
@@ -2482,7 +3730,7 @@ describe("gui: workflow context menu", function () {
       itemType: "journalArticle",
       fields: { title: "Workflow Unit Settings Parent" },
     });
-    const workflow = makeExplodingFilterWorkflow(
+    const workflow = makeExplodingBuildRequestWorkflow(
       "update-topic-synthesis",
       "Update Topic Synthesis",
     );
@@ -2514,6 +3762,42 @@ describe("gui: workflow context menu", function () {
     assert.equal(workflowItem!.getAttribute("disabled"), null);
   });
 
+  it("context menu skips request preflight for workflow-unit workflows without parameters", async function () {
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Workflow Unit No Params Parent" },
+    });
+    const workflow = makeExplodingBuildRequestWorkflow(
+      "debug-apply-single-bundle",
+      "Debug Apply Single Bundle",
+    );
+    workflow.manifest.inputs = { unit: "workflow" };
+    setWorkflowState([workflow]);
+    const win = createMainWindow([parent]);
+    ensureWorkflowMenuForWindow(win);
+    const popup = win.document.getElementById(
+      `${config.addonRef}-workflows-popup`,
+    ) as FakeXULElement;
+
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeSkillRunnerSidebarItem: false,
+      includeTaskManagerItem: false,
+      includeSynthesisWorkbenchItem: false,
+    });
+
+    const workflowItem = popup.children.find((child) =>
+      (child.getAttribute("label") || "").startsWith(
+        "Debug Apply Single Bundle",
+      ),
+    );
+    assert.isOk(workflowItem);
+    assert.equal(
+      workflowItem!.getAttribute("label"),
+      "Debug Apply Single Bundle",
+    );
+    assert.equal(workflowItem!.getAttribute("disabled"), null);
+  });
+
   it("context menu skips workflow request preflight for multiple selected items", async function () {
     const parentA = await handlers.item.create({
       itemType: "journalArticle",
@@ -2523,7 +3807,9 @@ describe("gui: workflow context menu", function () {
       itemType: "journalArticle",
       fields: { title: "Multi Selection Lazy Menu Parent B" },
     });
-    setWorkflowState([makeExplodingFilterWorkflow("workflow-a", "Workflow A")]);
+    setWorkflowState([
+      makeExplodingBuildRequestWorkflow("workflow-a", "Workflow A"),
+    ]);
     const win = createMainWindow([parentA, parentB]);
     ensureWorkflowMenuForWindow(win);
     const popup = win.document.getElementById(

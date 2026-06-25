@@ -127,7 +127,8 @@ export function wrapAcpBackendWithUv(args: {
     return { ...args.backend };
   }
   const backendCommand =
-    normalizeString(args.resolvedCommand) || normalizeString(args.backend.command);
+    normalizeString(args.resolvedCommand) ||
+    normalizeString(args.backend.command);
   const uvArgs = ["run", "--isolated"];
   for (const dependency of dependencies) {
     uvArgs.push("--with", dependency);
@@ -153,9 +154,14 @@ function summarizeProbeText(value: unknown) {
   return compact.length > 300 ? `${compact.slice(0, 297)}...` : compact;
 }
 
-async function drainMozillaPipe(pipe: {
-  readString?: () => Promise<string>;
-} | null | undefined) {
+async function drainMozillaPipe(
+  pipe:
+    | {
+        readString?: () => Promise<string>;
+      }
+    | null
+    | undefined,
+) {
   if (!pipe || typeof pipe.readString !== "function") {
     return "";
   }
@@ -332,7 +338,9 @@ async function runUvProbeWithMozillaSubprocess(args: {
   } catch (error) {
     return {
       ok: false,
-      summary: summarizeProbeText(error instanceof Error ? error.message : error),
+      summary: summarizeProbeText(
+        error instanceof Error ? error.message : error,
+      ),
     };
   }
   let settled = false;
@@ -345,17 +353,20 @@ async function runUvProbeWithMozillaSubprocess(args: {
       clearTimeout(timer);
       resolve(result);
     };
-    const timer = setTimeout(() => {
-      try {
-        proc.kill?.(0);
-      } catch {
-        // ignore
-      }
-      finish({
-        ok: false,
-        summary: `uv dependency probe timed out after ${args.timeoutMs}ms`,
-      });
-    }, Math.max(1000, args.timeoutMs));
+    const timer = setTimeout(
+      () => {
+        try {
+          proc.kill?.(0);
+        } catch {
+          // ignore
+        }
+        finish({
+          ok: false,
+          summary: `uv dependency probe timed out after ${args.timeoutMs}ms`,
+        });
+      },
+      Math.max(1000, args.timeoutMs),
+    );
     void (async () => {
       const code = await waitMozillaProcessExit(proc);
       const output = await Promise.all([
@@ -375,7 +386,9 @@ async function runUvProbeWithMozillaSubprocess(args: {
     })().catch((error) => {
       finish({
         ok: false,
-        summary: summarizeProbeText(error instanceof Error ? error.message : error),
+        summary: summarizeProbeText(
+          error instanceof Error ? error.message : error,
+        ),
       });
     });
   });
@@ -404,23 +417,32 @@ async function runUvProbeWithNodeChildProcess(args: {
       clearTimeout(timer);
       resolve(result);
     };
-    const timer = setTimeout(() => {
-      try {
-        child.kill();
-      } catch {
-        // ignore
-      }
-      finish({
-        ok: false,
-        summary: `uv dependency probe timed out after ${args.timeoutMs}ms`,
-      });
-    }, Math.max(1000, args.timeoutMs));
-    child.stdout?.on("data", (chunk: unknown) => chunks.push(String(chunk || "")));
-    child.stderr?.on("data", (chunk: unknown) => chunks.push(String(chunk || "")));
+    const timer = setTimeout(
+      () => {
+        try {
+          child.kill();
+        } catch {
+          // ignore
+        }
+        finish({
+          ok: false,
+          summary: `uv dependency probe timed out after ${args.timeoutMs}ms`,
+        });
+      },
+      Math.max(1000, args.timeoutMs),
+    );
+    child.stdout?.on("data", (chunk: unknown) =>
+      chunks.push(String(chunk || "")),
+    );
+    child.stderr?.on("data", (chunk: unknown) =>
+      chunks.push(String(chunk || "")),
+    );
     child.once("error", (error: unknown) => {
       finish({
         ok: false,
-        summary: summarizeProbeText(error instanceof Error ? error.message : error),
+        summary: summarizeProbeText(
+          error instanceof Error ? error.message : error,
+        ),
       });
     });
     child.once("close", (code: number) => {
@@ -449,7 +471,9 @@ async function runUvProbeWithZoteroInternalSubprocess(args: {
   } catch (error) {
     return {
       ok: false,
-      summary: summarizeProbeText(error instanceof Error ? error.message : error),
+      summary: summarizeProbeText(
+        error instanceof Error ? error.message : error,
+      ),
     };
   }
 }

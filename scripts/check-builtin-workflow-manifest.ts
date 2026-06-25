@@ -59,7 +59,9 @@ async function main() {
   }
 
   const manifestFiles = Array.isArray(manifest.files)
-    ? manifest.files.map((entry) => normalizeRelativePath(String(entry || ""))).filter(Boolean)
+    ? manifest.files
+        .map((entry) => normalizeRelativePath(String(entry || "")))
+        .filter(Boolean)
     : [];
   if (!manifestFiles.length) {
     throw new Error("workflows_builtin/manifest.json: files is empty");
@@ -71,7 +73,9 @@ async function main() {
     .filter(Boolean);
   const actualFileSet = new Set(actualFiles);
 
-  const missingOnDisk = manifestFiles.filter((entry) => !actualFileSet.has(entry));
+  const missingOnDisk = manifestFiles.filter(
+    (entry) => !actualFileSet.has(entry),
+  );
   const missingInManifest = actualFiles.filter(
     (entry) =>
       !manifestFileSet.has(entry) &&

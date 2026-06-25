@@ -1,5 +1,8 @@
 import { assert } from "chai";
 import { SkillRunnerClient } from "../../src/providers/skillrunner/client";
+import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
+import { createZipFromNamedFiles } from "../../src/providers/skillrunner/zipTransport";
+import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "../../src/modules/skillRunnerInteractiveAutoReply";
 import { fixturePath } from "./workflow-test-utils";
 
 function createJsonResponse(payload: unknown, status = 200): Response {
@@ -10,6 +13,17 @@ function createJsonResponse(payload: unknown, status = 200): Response {
     statusText: status === 200 ? "OK" : "ERROR",
     text: async () => text,
     arrayBuffer: async () => new TextEncoder().encode(text).buffer,
+  } as unknown as Response;
+}
+
+function createBinaryResponse(bytes: Uint8Array, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? "OK" : "ERROR",
+    text: async () => new TextDecoder().decode(bytes),
+    arrayBuffer: async () =>
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
   } as unknown as Response;
 }
 
@@ -36,7 +50,205 @@ function readZipGeneralPurposeFlagFromMultipart(bytes: Uint8Array) {
 }
 
 describe("transport: upload fallback without FormData", function () {
-  it("emits request-created progress right after create step", async function () {
+  let previousContentDevRootEnv: string | undefined;
+
+  beforeEach(function () {
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    previousContentDevRootEnv = processEnv?.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+    if (processEnv) {
+      processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = process.cwd();
+    }
+  });
+
+  afterEach(function () {
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    if (processEnv) {
+      if (previousContentDevRootEnv === undefined) {
+        delete processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+      } else {
+        processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = previousContentDevRootEnv;
+      }
+    }
+    setSkillRunnerInteractiveAutoReplyEnabledForTests();
+  });
+
+  it("aborts a hanging create request after the SkillRunner request timeout", async function () {
+    let abortObserved = false;
+    let createCalls = 0;
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      requestTimeoutMs: 5,
+      fetchImpl: async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/v1/jobs")) {
+          createCalls += 1;
+          return new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal;
+            if (!signal) {
+              reject(new Error("missing abort signal"));
+              return;
+            }
+            signal.addEventListener(
+              "abort",
+              () => {
+                abortObserved = true;
+                const error = new Error("aborted");
+                error.name = "AbortError";
+                reject(error);
+              },
+              { once: true },
+            );
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    let thrown: unknown;
+    try {
+      await client.executeSkillRunnerJob(
+        {
+          kind: "skillrunner.job.v1",
+          skill_id: "tag-regulator",
+          skill_source: "installed",
+          fetch_type: "result",
+        },
+        {
+          engine: "gemini",
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.instanceOf(thrown, Error);
+    assert.match(String((thrown as Error).message), /timed out after 5ms/);
+    assert.equal((thrown as Error).name, "SkillRunnerHttpTimeoutError");
+    assert.equal(createCalls, 1);
+    assert.isTrue(abortObserved);
+  });
+
+  it("parses namespaced result.json from SkillRunner bundle terminal result", async function () {
+    const bundleBytes = createZipFromNamedFiles([
+      {
+        name: "result/literature-analysis.1/result.json",
+        data: new TextEncoder().encode(
+          JSON.stringify({ digest_path: "result/digest.md" }),
+        ),
+      },
+      {
+        name: "result/result.json",
+        data: new TextEncoder().encode(JSON.stringify({ legacy: true })),
+      },
+    ]);
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+    });
+
+    const result = await (client as any).normalizeBundleTerminalResult({
+      requestId: "req-bundle-1",
+      skillId: "literature-analysis",
+      bundleBytes,
+      responseJson: {
+        request_id: "req-bundle-1",
+        status: "succeeded",
+        workspaceDir: "/tmp/workspace",
+      },
+    });
+
+    assert.deepEqual(result.resultJson, {
+      digest_path: "result/digest.md",
+    });
+    assert.equal(
+      result.resultJsonPath,
+      "result/literature-analysis.1/result.json",
+    );
+    assert.equal(result.resultArtifactBasePath, "result/literature-analysis.1");
+    assert.equal(result.workspaceDir, "/tmp/workspace");
+  });
+
+  it("unwraps SkillRunner /result envelopes into provider resultJson", async function () {
+    const resultData = {
+      ok: true,
+      checks: [{ name: "connectivity", ok: true }],
+      failure_code: "",
+    };
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url: string) => {
+        if (url.endsWith("/v1/jobs/req-result-envelope/result")) {
+          return createJsonResponse({
+            request_id: "req-result-envelope",
+            result: {
+              status: "success",
+              data: resultData,
+              success_source: "done_signal_payload",
+              error: null,
+            },
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    const result = await client.fetchRunResultPayload({
+      requestId: "req-result-envelope",
+      stateJson: {
+        request_id: "req-result-envelope",
+        status: "succeeded",
+        workspaceDir: "/tmp/skillrunner-workspace",
+      },
+    });
+
+    assert.deepEqual(result.resultJson, resultData);
+    assert.equal(result.workspaceDir, "/tmp/skillrunner-workspace");
+    assert.deepInclude(result.responseJson as Record<string, unknown>, {
+      provider: "skillrunner",
+      workspaceDir: "/tmp/skillrunner-workspace",
+    });
+    assert.deepEqual(
+      (result.responseJson as { resultResponseJson?: unknown })
+        .resultResponseJson,
+      {
+        request_id: "req-result-envelope",
+        result: {
+          status: "success",
+          data: resultData,
+          success_source: "done_signal_payload",
+          error: null,
+        },
+      },
+    );
+  });
+
+  it("preserves direct SkillRunner result payloads that contain a result field", async function () {
+    const directPayload = {
+      ok: true,
+      result: {
+        label: "business-output",
+      },
+    };
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url: string) => {
+        if (url.endsWith("/v1/jobs/req-direct-result/result")) {
+          return createJsonResponse(directPayload);
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    const result = await client.fetchRunResultPayload({
+      requestId: "req-direct-result",
+    });
+
+    assert.deepEqual(result.resultJson, directPayload);
+  });
+
+  it("emits request-ready progress only after upload succeeds", async function () {
     const progressEvents: Array<{ type: string; requestId?: string }> = [];
     const client = new SkillRunnerClient({
       baseUrl: "http://127.0.0.1:8030",
@@ -99,7 +311,19 @@ describe("transport: upload fallback without FormData", function () {
 
     assert.deepEqual(progressEvents, [
       {
+        type: "request-creating",
+        requestId: "",
+      },
+      {
         type: "request-created",
+        requestId: "req-progress-1",
+      },
+      {
+        type: "request-uploading",
+        requestId: "req-progress-1",
+      },
+      {
+        type: "request-ready",
         requestId: "req-progress-1",
       },
     ]);
@@ -162,6 +386,7 @@ describe("transport: upload fallback without FormData", function () {
     );
 
     assert.equal(result.status, "succeeded");
+    assert.equal(result.fetchType, "result");
     assert.deepEqual(
       (capturedCreateBody as { input?: unknown })?.input,
       {
@@ -412,7 +637,8 @@ describe("transport: upload fallback without FormData", function () {
     }
   });
 
-  it("omits no_cache for interactive execution and keeps interactive options", async function () {
+  it("omits no_cache and auto reply for interactive execution when auto reply is disabled", async function () {
+    setSkillRunnerInteractiveAutoReplyEnabledForTests(false);
     let capturedCreateBody: unknown;
     const client = new SkillRunnerClient({
       baseUrl: "http://127.0.0.1:8030",
@@ -466,6 +692,79 @@ describe("transport: upload fallback without FormData", function () {
         engine: "gemini",
         no_cache: true,
         interactive_auto_reply: true,
+        interactive_reply_timeout_sec: 30,
+        hard_timeout_seconds: 900,
+      },
+    );
+
+    assert.deepEqual(
+      (capturedCreateBody as { runtime_options?: unknown })?.runtime_options,
+      {
+        execution_mode: "interactive",
+        hard_timeout_seconds: 900,
+      },
+      `capturedCreateBody=${JSON.stringify(capturedCreateBody)}`,
+    );
+  });
+
+  it("keeps interactive auto reply when the feature switch is enabled", async function () {
+    setSkillRunnerInteractiveAutoReplyEnabledForTests(true);
+    let capturedCreateBody: unknown;
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/v1/jobs")) {
+          capturedCreateBody = JSON.parse(String(init?.body || "{}"));
+          return createJsonResponse({
+            request_id: "req-merge-options-enabled",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-merge-options-enabled/upload")) {
+          return createJsonResponse({ ok: true });
+        }
+        if (url.endsWith("/v1/jobs/req-merge-options-enabled")) {
+          return createJsonResponse({
+            request_id: "req-merge-options-enabled",
+            status: "succeeded",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-merge-options-enabled/result")) {
+          return createJsonResponse({
+            request_id: "req-merge-options-enabled",
+            result: {
+              status: "success",
+              data: {},
+            },
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    await client.executeSkillRunnerJob(
+      {
+        kind: "skillrunner.job.v1",
+        skill_id: "tag-regulator",
+        skill_source: "installed",
+        input: {
+          source_path: "inputs/source_path/example.md",
+        },
+        upload_files: [
+          {
+            key: "source_path",
+            path: fixturePath("literature-analysis", "example.md"),
+          },
+        ],
+        runtime_options: {
+          execution_mode: "interactive",
+        },
+        fetch_type: "result",
+      },
+      {
+        engine: "gemini",
+        no_cache: true,
+        interactive_auto_reply: true,
+        interactive_reply_timeout_sec: 0,
         hard_timeout_seconds: 900,
       },
     );
@@ -475,6 +774,7 @@ describe("transport: upload fallback without FormData", function () {
       {
         execution_mode: "interactive",
         interactive_auto_reply: true,
+        interactive_reply_timeout_sec: 0,
         hard_timeout_seconds: 900,
       },
       `capturedCreateBody=${JSON.stringify(capturedCreateBody)}`,
@@ -535,6 +835,7 @@ describe("transport: upload fallback without FormData", function () {
         engine: "gemini",
         no_cache: true,
         interactive_auto_reply: true,
+        interactive_reply_timeout_sec: 30,
         hard_timeout_seconds: "1200",
       },
     );
@@ -599,6 +900,7 @@ describe("transport: upload fallback without FormData", function () {
     );
 
     assert.equal(result.status, "succeeded");
+    assert.equal(result.fetchType, "result");
     assert.isFalse(
       uploadCalled,
       "upload step should be skipped for inline-only payload",
@@ -728,7 +1030,8 @@ describe("transport: upload fallback without FormData", function () {
     }
   });
 
-  it("fails fast with diagnostics when poll status is failed", async function () {
+  it("returns terminal failed after upload succeeds and backend fails", async function () {
+    let pollCalled = false;
     const client = new SkillRunnerClient({
       baseUrl: "http://127.0.0.1:8030",
       fetchImpl: async (url: string) => {
@@ -739,6 +1042,7 @@ describe("transport: upload fallback without FormData", function () {
           return createJsonResponse({ ok: true });
         }
         if (url.endsWith("/v1/jobs/req-failed")) {
+          pollCalled = true;
           return createJsonResponse({
             request_id: "req-failed",
             status: "failed",
@@ -749,37 +1053,93 @@ describe("transport: upload fallback without FormData", function () {
       },
     });
 
-    let thrown: unknown = null;
-    try {
-      await client.executeSkillRunnerJob(
-        {
-          kind: "skillrunner.job.v1",
-          skill_id: "tag-regulator",
-          skill_source: "installed",
-          input: {
-            md_path: "inputs/md_path/example.md",
-          },
-          upload_files: [
-            {
-              key: "md_path",
-              path: fixturePath("literature-analysis", "example.md"),
-            },
-          ],
-          fetch_type: "result",
+    const result = await client.executeSkillRunnerJob(
+      {
+        kind: "skillrunner.job.v1",
+        skill_id: "tag-regulator",
+        skill_source: "installed",
+        input: {
+          md_path: "inputs/md_path/example.md",
         },
-        { engine: "gemini" },
-      );
-    } catch (error) {
-      thrown = error;
-    }
+        upload_files: [
+          {
+            key: "md_path",
+            path: fixturePath("literature-analysis", "example.md"),
+          },
+        ],
+        fetch_type: "result",
+      },
+      { engine: "gemini" },
+    );
 
-    assert.isOk(thrown);
-    assert.match(String(thrown), /request_id=req-failed/i);
-    assert.match(String(thrown), /status=failed/i);
-    assert.match(String(thrown), /mock backend failed/i);
+    assert.equal(result.status, "failed");
+    assert.equal(result.error, "mock backend failed");
+    assert.isTrue(pollCalled);
   });
 
-  it("returns deferred status for interactive waiting_user without local timeout failure", async function () {
+  it("waits for backend terminal state instead of enforcing frontend poll timeout", async function () {
+    let pollCount = 0;
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url: string) => {
+        if (url.endsWith("/v1/jobs")) {
+          return createJsonResponse({ request_id: "req-submit-only" });
+        }
+        if (url.endsWith("/v1/jobs/req-submit-only")) {
+          pollCount += 1;
+          return createJsonResponse({
+            request_id: "req-submit-only",
+            status: pollCount >= 3 ? "succeeded" : "queued",
+          });
+        }
+        if (url.endsWith("/v1/jobs/req-submit-only/result")) {
+          return createJsonResponse({
+            result: { status: "success", data: { ok: true } },
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    const result = await client.executeHttpSteps({
+      kind: "http.steps",
+      poll: { interval_ms: 0, timeout_ms: 1 },
+      steps: [
+        {
+          id: "create",
+          request: {
+            method: "POST",
+            path: "/v1/jobs",
+            json: {
+              skill_id: "literature-analysis",
+              engine: "gemini",
+            },
+          },
+          extract: { request_id: "$.request_id" },
+        },
+        {
+          id: "poll",
+          request: {
+            method: "GET",
+            path: "/v1/jobs/{request_id}",
+          },
+        },
+        {
+          id: "result",
+          request: {
+            method: "GET",
+            path: "/v1/jobs/{request_id}/result",
+          },
+        },
+      ],
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(result.resultJson, { ok: true });
+    assert.equal(pollCount, 3);
+  });
+
+  it("detaches foreground interactive waiting_user without result fetch", async function () {
     let pollCount = 0;
     let resultFetchCalled = false;
     const client = new SkillRunnerClient({
@@ -837,17 +1197,20 @@ describe("transport: upload fallback without FormData", function () {
     );
 
     assert.equal(result.status, "deferred");
-    assert.equal(result.requestId, "req-waiting-user");
-    assert.equal(result.fetchType, "result");
-    assert.equal(result.backendStatus, "waiting_user");
-    assert.equal(pollCount, 1);
+    if (result.status === "deferred") {
+      assert.equal(result.backendStatus, "waiting_user");
+      assert.equal(result.detachReason, "waiting");
+      assert.equal(result.continuationOwner, "foreground");
+    }
+    assert.isAtLeast(pollCount, 1);
     assert.isFalse(
       resultFetchCalled,
-      "result fetch should be deferred to backend reconciler",
+      "result fetch should wait for terminal success",
     );
   });
 
-  it("fails fast when poll status is canceled and skips result fetch", async function () {
+  it("returns canceled terminal state without fetching result", async function () {
+    let pollCalled = false;
     let resultFetchCalled = false;
     const client = new SkillRunnerClient({
       baseUrl: "http://127.0.0.1:8030",
@@ -859,6 +1222,7 @@ describe("transport: upload fallback without FormData", function () {
           return createJsonResponse({ ok: true });
         }
         if (url.endsWith("/v1/jobs/req-canceled")) {
+          pollCalled = true;
           return createJsonResponse({
             request_id: "req-canceled",
             status: "canceled",
@@ -870,6 +1234,54 @@ describe("transport: upload fallback without FormData", function () {
           return createJsonResponse({
             request_id: "req-canceled",
             result: { status: "success", data: {} },
+          });
+        }
+        return createJsonResponse({ error: "unexpected route" }, 404);
+      },
+    });
+
+    const result = await client.executeSkillRunnerJob(
+      {
+        kind: "skillrunner.job.v1",
+        skill_id: "tag-regulator",
+        skill_source: "installed",
+        input: {
+          md_path: "inputs/md_path/example.md",
+        },
+        upload_files: [
+          {
+            key: "md_path",
+            path: fixturePath("literature-analysis", "example.md"),
+          },
+        ],
+        fetch_type: "result",
+      },
+      { engine: "gemini" },
+    );
+
+    assert.equal(result.status, "canceled");
+    assert.equal(result.error, "canceled by mock");
+    assert.isTrue(pollCalled);
+    assert.isFalse(resultFetchCalled, "result fetch should be skipped");
+  });
+
+  it("throws structured run-level client error when post-create upload is rejected", async function () {
+    const progressEvents: Array<{ type: string; requestId?: string }> = [];
+    let pollCalled = false;
+    const client = new SkillRunnerClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url: string) => {
+        if (url.endsWith("/v1/jobs")) {
+          return createJsonResponse({ request_id: "req-upload-rejected" });
+        }
+        if (url.endsWith("/v1/jobs/req-upload-rejected/upload")) {
+          return createJsonResponse({ detail: "invalid skill package" }, 422);
+        }
+        if (url.endsWith("/v1/jobs/req-upload-rejected")) {
+          pollCalled = true;
+          return createJsonResponse({
+            request_id: "req-upload-rejected",
+            status: "running",
           });
         }
         return createJsonResponse({ error: "unexpected route" }, 404);
@@ -895,14 +1307,40 @@ describe("transport: upload fallback without FormData", function () {
           fetch_type: "result",
         },
         { engine: "gemini" },
+        {
+          onProgress: (event) => {
+            progressEvents.push({
+              type: String(event.type || ""),
+              requestId: String(
+                (event as { requestId?: unknown }).requestId || "",
+              ),
+            });
+          },
+        },
       );
     } catch (error) {
       thrown = error;
     }
 
-    assert.isOk(thrown);
-    assert.match(String(thrown), /request_id=req-canceled/i);
-    assert.match(String(thrown), /status=canceled/i);
-    assert.isFalse(resultFetchCalled, "result fetch should be skipped");
+    assert.instanceOf(thrown, SkillRunnerHttpError);
+    assert.equal((thrown as SkillRunnerHttpError).status, 422);
+    assert.deepEqual(progressEvents, [
+      {
+        type: "request-creating",
+        requestId: "",
+      },
+      {
+        type: "request-created",
+        requestId: "req-upload-rejected",
+      },
+      {
+        type: "request-uploading",
+        requestId: "req-upload-rejected",
+      },
+    ]);
+    assert.isFalse(
+      pollCalled,
+      "polling should not continue after upload rejection",
+    );
   });
 });

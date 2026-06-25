@@ -12,6 +12,7 @@ import {
 } from "../../src/providers/skillrunner/modelCache";
 import { config } from "../../package.json";
 import { isZoteroRuntime } from "./workflow-test-utils";
+import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 
@@ -43,8 +44,10 @@ function makeContainer(controls: FakeControl[]): HTMLElement {
 describe("workflow settings dialog model", function () {
   const cachePrefKey = `${config.prefsPrefix}.skillRunnerModelCacheJson`;
   let previousPref: unknown;
+  let restorePrefs: (() => void) | undefined;
 
   beforeEach(function () {
+    restorePrefs = installMutablePrefsForTest();
     previousPref = Zotero.Prefs.get(cachePrefKey, true);
     clearSkillRunnerModelCache();
   });
@@ -55,71 +58,85 @@ describe("workflow settings dialog model", function () {
     } else {
       Zotero.Prefs.set(cachePrefKey, previousPref, true);
     }
+    restorePrefs?.();
+    restorePrefs = undefined;
   });
 
-  itNodeOnly("builds deterministic render model without mutating initial state", function () {
-    const initialState = {
-      selectedProfile: "skillrunner-default",
-      persistedWorkflowParams: { bbtPort: 23124, mode: "strict" },
-      persistedProviderOptions: { engine: "openai", model: "gpt-4.1" },
-      runOnceWorkflowParams: { bbtPort: 23124, mode: "strict" },
-      runOnceProviderOptions: { engine: "openai", model: "gpt-4.1" },
-    };
-    const profileItems = [
-      { id: "skillrunner-default", label: "skillrunner-default (http://127.0.0.1:8030)" },
-      { id: "skillrunner-alt", label: "skillrunner-alt (http://127.0.0.1:8031)" },
-    ];
-    const parameters = {
-      bbtPort: {
-        type: "number" as const,
-        title: "BBT HTTP Port",
-        default: 23124,
-      },
-      mode: {
-        type: "string" as const,
-        title: "Matching Mode",
-        enum: ["strict", "fuzzy"],
-        allowCustom: true,
-        default: "strict",
-      },
-    };
+  itNodeOnly(
+    "builds deterministic render model without mutating initial state",
+    function () {
+      const initialState = {
+        selectedProfile: "skillrunner-default",
+        persistedWorkflowParams: { bbtPort: 23124, mode: "strict" },
+        persistedProviderOptions: { engine: "openai", model: "gpt-4.1" },
+        runOnceWorkflowParams: { bbtPort: 23124, mode: "strict" },
+        runOnceProviderOptions: { engine: "openai", model: "gpt-4.1" },
+      };
+      const profileItems = [
+        {
+          id: "skillrunner-default",
+          label: "skillrunner-default (http://127.0.0.1:8030)",
+        },
+        {
+          id: "skillrunner-alt",
+          label: "skillrunner-alt (http://127.0.0.1:8031)",
+        },
+      ];
+      const parameters = {
+        bbtPort: {
+          type: "number" as const,
+          title: "BBT HTTP Port",
+          default: 23124,
+        },
+        mode: {
+          type: "string" as const,
+          title: "Matching Mode",
+          enum: ["strict", "fuzzy"],
+          allowCustom: true,
+          default: "strict",
+        },
+      };
 
-    const a = buildWorkflowSettingsDialogRenderModel({
-      providerId: "skillrunner",
-      profileItems,
-      initialState,
-      workflowParameters: parameters,
-    });
-    const b = buildWorkflowSettingsDialogRenderModel({
-      providerId: "skillrunner",
-      profileItems,
-      initialState,
-      workflowParameters: parameters,
-    });
+      const a = buildWorkflowSettingsDialogRenderModel({
+        providerId: "skillrunner",
+        profileItems,
+        initialState,
+        workflowParameters: parameters,
+      });
+      const b = buildWorkflowSettingsDialogRenderModel({
+        providerId: "skillrunner",
+        profileItems,
+        initialState,
+        workflowParameters: parameters,
+      });
 
-    assert.deepEqual(a, b);
+      assert.deepEqual(a, b);
 
-    (a.persistedWorkflowParams as Record<string, unknown>).bbtPort = 99999;
-    assert.equal(
-      (initialState.persistedWorkflowParams as Record<string, unknown>).bbtPort,
-      23124,
-    );
+      (a.persistedWorkflowParams as Record<string, unknown>).bbtPort = 99999;
+      assert.equal(
+        (initialState.persistedWorkflowParams as Record<string, unknown>)
+          .bbtPort,
+        23124,
+      );
 
-    const c = buildWorkflowSettingsDialogRenderModel({
-      providerId: "skillrunner",
-      profileItems,
-      initialState,
-      workflowParameters: parameters,
-    });
-    assert.equal(
-      (c.persistedWorkflowParams as Record<string, unknown>).bbtPort,
-      23124,
-    );
-    const modeEntry = c.workflowSchemaEntries.find((entry) => entry.key === "mode");
-    assert.isOk(modeEntry);
-    assert.equal(modeEntry?.allowCustom, true);
-    assert.deepEqual(modeEntry?.enumValues || [], ["strict", "fuzzy"]);
-  });
+      const c = buildWorkflowSettingsDialogRenderModel({
+        providerId: "skillrunner",
+        profileItems,
+        initialState,
+        workflowParameters: parameters,
+      });
+      assert.equal(
+        (c.persistedWorkflowParams as Record<string, unknown>).bbtPort,
+        23124,
+      );
+      const modeEntry = c.workflowSchemaEntries.find(
+        (entry) => entry.key === "mode",
+      );
+      assert.isOk(modeEntry);
+      assert.equal(modeEntry?.allowCustom, true);
+      assert.deepEqual(modeEntry?.enumValues || [], ["strict", "fuzzy"]);
+    },
+  );
 
   itNodeOnly("collects schema values with correct coercion", function () {
     const controls: FakeControl[] = [
@@ -168,144 +185,154 @@ describe("workflow settings dialog model", function () {
       port: 23124,
       enabled: true,
       engine: "openai",
+      emptyValue: "",
     });
   });
 
-  itNodeOnly("builds centralized drafts for persistent and run-once payloads", function () {
-    const persistedWorkflow = makeContainer([
-      makeControl(
-        {
-          "data-zs-option-key": "bbtPort",
-          "data-zs-option-type": "number",
-        },
-        { value: "23124" },
-      ),
-    ]);
-    const persistedProvider = makeContainer([
-      makeControl(
-        {
-          "data-zs-option-key": "engine",
-          "data-zs-option-type": "string",
-          "data-zs-choice-control": "1",
-          "data-zs-choice-value": "openai",
-        },
-        {},
-      ),
-    ]);
-    const onceWorkflow = makeContainer([
-      makeControl(
-        {
-          "data-zs-option-key": "bbtPort",
-          "data-zs-option-type": "number",
-        },
-        { value: "25000" },
-      ),
-    ]);
-    const onceProvider = makeContainer([
-      makeControl(
-        {
-          "data-zs-option-key": "model",
-          "data-zs-option-type": "string",
-        },
-        { value: "gpt-4.1-mini" },
-      ),
-    ]);
+  itNodeOnly(
+    "builds centralized drafts for persistent and run-once payloads",
+    function () {
+      const persistedWorkflow = makeContainer([
+        makeControl(
+          {
+            "data-zs-option-key": "bbtPort",
+            "data-zs-option-type": "number",
+          },
+          { value: "23124" },
+        ),
+      ]);
+      const persistedProvider = makeContainer([
+        makeControl(
+          {
+            "data-zs-option-key": "engine",
+            "data-zs-option-type": "string",
+            "data-zs-choice-control": "1",
+            "data-zs-choice-value": "openai",
+          },
+          {},
+        ),
+      ]);
+      const onceWorkflow = makeContainer([
+        makeControl(
+          {
+            "data-zs-option-key": "bbtPort",
+            "data-zs-option-type": "number",
+          },
+          { value: "25000" },
+        ),
+      ]);
+      const onceProvider = makeContainer([
+        makeControl(
+          {
+            "data-zs-option-key": "model",
+            "data-zs-option-type": "string",
+          },
+          { value: "gpt-4.1-mini" },
+        ),
+      ]);
 
-    const draft = buildWorkflowSettingsDialogDraft({
-      persistedProfile: "skillrunner-default",
-      onceProfile: "",
-      persistedWorkflowFields: persistedWorkflow,
-      persistedProviderFields: persistedProvider,
-      onceWorkflowFields: onceWorkflow,
-      onceProviderFields: onceProvider,
-    });
+      const draft = buildWorkflowSettingsDialogDraft({
+        persistedProfile: "skillrunner-default",
+        onceProfile: "",
+        persistedWorkflowFields: persistedWorkflow,
+        persistedProviderFields: persistedProvider,
+        onceWorkflowFields: onceWorkflow,
+        onceProviderFields: onceProvider,
+      });
 
-    assert.deepEqual(draft, {
-      persistent: {
-        backendId: "skillrunner-default",
-        workflowParams: { bbtPort: 23124 },
-        providerOptions: { engine: "openai" },
-      },
-      runOnce: {
-        backendId: undefined,
-        workflowParams: { bbtPort: 25000 },
-        providerOptions: { model: "gpt-4.1-mini" },
-      },
-    });
-  });
+      assert.deepEqual(draft, {
+        persistent: {
+          backendId: "skillrunner-default",
+          workflowParams: { bbtPort: 23124 },
+          providerOptions: { engine: "openai" },
+        },
+        runOnce: {
+          backendId: undefined,
+          workflowParams: { bbtPort: 25000 },
+          providerOptions: { model: "gpt-4.1-mini" },
+        },
+      });
+    },
+  );
 
-  itNodeOnly("collects editable enum value from custom input as final payload", function () {
-    const controls: FakeControl[] = [
-      makeControl(
-        {
-          "data-zs-choice-control": "1",
-          "data-zs-choice-value": "en-US",
-        },
-        {},
-      ),
-      makeControl(
-        {
-          "data-zs-option-key": "language",
-          "data-zs-option-type": "string",
-        },
-        { value: "fr-FR" },
-      ),
-    ];
+  itNodeOnly(
+    "collects editable enum value from custom input as final payload",
+    function () {
+      const controls: FakeControl[] = [
+        makeControl(
+          {
+            "data-zs-choice-control": "1",
+            "data-zs-choice-value": "en-US",
+          },
+          {},
+        ),
+        makeControl(
+          {
+            "data-zs-option-key": "language",
+            "data-zs-option-type": "string",
+          },
+          { value: "fr-FR" },
+        ),
+      ];
 
-    const result = collectSchemaValues(makeContainer(controls));
-    assert.deepEqual(result, {
-      language: "fr-FR",
-    });
-  });
+      const result = collectSchemaValues(makeContainer(controls));
+      assert.deepEqual(result, {
+        language: "fr-FR",
+      });
+    },
+  );
 
-  itNodeOnly("collects opencode provider_id and model from choice controls", function () {
-    const controls: FakeControl[] = [
-      makeControl(
-        {
-          "data-zs-option-key": "engine",
-          "data-zs-option-type": "string",
-          "data-zs-choice-control": "1",
-          "data-zs-choice-value": "opencode",
-        },
-        {},
-      ),
-      makeControl(
-        {
-          "data-zs-option-key": "provider_id",
-          "data-zs-option-type": "string",
-          "data-zs-choice-control": "1",
-          "data-zs-choice-value": "openai",
-        },
-        {},
-      ),
-      makeControl(
-        {
-          "data-zs-option-key": "model",
-          "data-zs-option-type": "string",
-          "data-zs-choice-control": "1",
-          "data-zs-choice-value": "gpt-5",
-        },
-        {},
-      ),
-      makeControl(
-        {
-          "data-zs-option-key": "effort",
-          "data-zs-option-type": "string",
-          "data-zs-choice-control": "1",
-          "data-zs-choice-value": "high",
-        },
-        {},
-      ),
-    ];
+  itNodeOnly(
+    "collects opencode provider_id and model from choice controls",
+    function () {
+      const controls: FakeControl[] = [
+        makeControl(
+          {
+            "data-zs-option-key": "engine",
+            "data-zs-option-type": "string",
+            "data-zs-choice-control": "1",
+            "data-zs-choice-value": "opencode",
+          },
+          {},
+        ),
+        makeControl(
+          {
+            "data-zs-option-key": "provider_id",
+            "data-zs-option-type": "string",
+            "data-zs-choice-control": "1",
+            "data-zs-choice-value": "openai",
+          },
+          {},
+        ),
+        makeControl(
+          {
+            "data-zs-option-key": "model",
+            "data-zs-option-type": "string",
+            "data-zs-choice-control": "1",
+            "data-zs-choice-value": "gpt-5",
+          },
+          {},
+        ),
+        makeControl(
+          {
+            "data-zs-option-key": "effort",
+            "data-zs-option-type": "string",
+            "data-zs-choice-control": "1",
+            "data-zs-choice-value": "high",
+          },
+          {},
+        ),
+      ];
 
-    const result = collectSchemaValues(makeContainer(controls));
-    assert.deepEqual(result, {
-      engine: "opencode",
-      provider_id: "openai",
-      model: "gpt-5",
-      effort: "high",
-    });
-  });
+      const result = collectSchemaValues(makeContainer(controls));
+      assert.deepEqual(result, {
+        engine: "opencode",
+        provider_id: "openai",
+        model: "gpt-5",
+        effort: "high",
+      });
+    },
+  );
 
   it("keeps provider_id field for provider-scoped qwen engine and hides it for gemini", function () {
     upsertSkillRunnerModelCacheEntry({
@@ -567,7 +594,12 @@ describe("workflow settings dialog model", function () {
     assert.include(workflowDialogCss, ".settings-options-column");
     assert.include(workflowDialogCss, "flex-direction: column");
     assert.include(workflowDialogCss, ".settings-card-fill");
-    assert.include(webDialogSource, "dialogWindow.resizeTo(760, 660)");
+    assert.include(webDialogSource, "fitContent: false");
+    assert.include(webDialogSource, "WORKFLOW_SETTINGS_DIALOG_WIDTH = 700");
+    assert.include(
+      webDialogSource,
+      "WORKFLOW_SETTINGS_DIALOG_INITIAL_HEIGHT = 540",
+    );
     assert.include(
       webDialogSource,
       "workflow-settings-dialog.html?ui=20260612-provider-split-v2",

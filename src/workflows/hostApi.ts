@@ -77,7 +77,7 @@ function createWorkflowSynthesisHostApi(): SynthesisService {
 function resolveHostAddonConfig() {
   const addonConfig = resolveRuntimeAddon()?.data?.config || null;
   return {
-    addonName: String(addonConfig?.addonName || "Zotero Skills").trim(),
+    addonName: String(addonConfig?.addonName || "Zotero Agents").trim(),
     addonRef: String(addonConfig?.addonRef || "").trim(),
     prefsPrefix: String(
       addonConfig?.prefsPrefix || "extensions.zotero.zotero-skills",

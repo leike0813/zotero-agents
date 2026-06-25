@@ -39,6 +39,9 @@
 - Provider 可声明可调选项 schema（如 skillrunner 的 `engine/provider_id/model/effort/no_cache/interactive_auto_reply/hard_timeout_seconds`）
 - Provider 可返回动态枚举（如 `model` 随 `engine` 变化）
 - Provider 负责对 runtime options 做 normalize
+- `providerOptions` 是提交时运行期 override。对于同名 runtime option，合法的
+  `providerOptions` 值覆盖 workflow 编译出的 request payload 中已有的
+  `runtime_options` 值。
 - SkillRunner 的 engine/model 枚举来源：
   - backend 实时拉取并按 backend 维度缓存（优先）
   - 静态内置目录（兜底）
@@ -57,17 +60,20 @@
   - `interactive_auto_reply` — 交互模式自动回复
   - `hard_timeout_seconds` — 任务硬超时
 - 执行链分两阶段：
-  - 提交阶段（Provider/Queue）：`POST /v1/jobs` -> `POST /v1/jobs/{request_id}/upload` -> 首轮轮询
-  - 收敛阶段（Reconciler）：对 deferred 任务持续轮询后端状态，直至终态
+  - 提交阶段（Provider/Queue）：`POST /v1/jobs` -> `POST /v1/jobs/{request_id}/upload` -> `request-ready`
+  - 收敛阶段（Reconciler）：观察后端状态、确认终态、获取 `/result` 或 `/bundle`、规范化结果、执行 deferred apply
 - progress 事件：
-  - create 成功后发出 `request-created`（含 `requestId`）
-  - 供 JobQueue 在 running 阶段写回 `job.meta.requestId`，让 Dashboard 立即可见 run 入口
+  - create 成功后发出 `request-created`（含 `requestId`），只用于本地审计和后续 upload 关联
+  - upload/初始化成功后发出 `request-ready`，这是 SkillRunner run 第一次进入可见投影的边界
 - deferred 语义：
-  - 当后端进入 `waiting_user` / `waiting_auth`（或其他非终态）时，Provider 返回 `status=deferred`
-  - 任务后续状态推进由后台收敛器负责，前端不再用本地超时推断终态
+  - Provider 在 `request-ready` 后返回 `status=deferred`
+  - 任务后续状态推进由后台收敛器负责，Provider 不继续等待终态，也不获取 result/bundle
 - 终态处理：
-  - `succeeded`：收敛器触发一次 `applyResult`
+  - `succeeded`：收敛器获取并规范化 result/bundle，写入 result/handoff projection，并触发一次 deferred apply
   - `failed` / `canceled`：收敛器写入终态并停止追踪
+- apply 状态：
+  - run state 与 apply state 分离；terminal success 后仍可能处于 `pending` / `running` / `failed` apply
+  - result 解析、bundle 产物缺失、Host Bridge、apply hook 等 Host 侧异常必须写成可见 failed 或 retry state
 - mixed-input 合同：
   - `parameter` 保持 object
   - `input` 允许任意 JSON（string/array/object）
@@ -86,6 +92,8 @@
 - 插件在 Zotero 对话框内直接加载 `${baseUrl}/ui`，复用后端原生管理 UI。
 - 该能力与 provider 执行链解耦：不影响 `skillrunner.job.v1` 请求与执行语义。
 - Dashboard 内置 SkillRunner 观察页使用 jobs 语义（`/v1/jobs/*`）读取 run/chat/pending 并支持 reply/cancel；management API 仅保留 run 列表与管理视图能力。
+- SkillRunner run workspace 从 `SkillRunnerRunStore` 读取投影；新提交 run 不自动选中，当前 run 切换只由用户动作驱动。
+- UI chat stream 使用每 backend 最多两条 foreground stream 的 MRU warm pool；stream 状态不驱动业务终态。
 - management API 的鉴权使用 backend profile 可选字段 `management_auth`（仅 SkillRunner）：
   - 支持 `none` 与 `basic`
   - 首次访问时可弹窗采集 basic 凭据
@@ -126,16 +134,21 @@
 - 支持 request kind：
   - `acp.prompt.v1`：向 ACP agent 发送单轮 prompt
   - `acp.skill.run.v1`：在 ACP 后端执行 skill run
-  - `skillrunner.sequence.v1`：在 ACP 后端执行多步序列（由 workflow 运行时编排，provider 层不直接处理）
+  - `skillrunner.sequence.v1`：执行多步序列，由 workflow 运行时按目标 backend 编译为 ACP skill run 或 SkillRunner job step，provider 层不直接处理 sequence request
 - `acp.prompt.v1` 语义：
   - 通过 sidecar global chat surface 处理
   - 支持 `hostContext` 传递上下文
 - `acp.skill.run.v1` 语义：
   - 委托给 `executeAcpSkillRunnerJob` 处理
   - 支持 `input`、`parameter`、`runtime_options` 等标准负载字段
-  - 支持 `workflow_workspace` 模式（`"new"` / `"reuse"`）
+  - 支持 `runtime_options.workspace` 模式（`"new"` / `"reuse"`，句柄字段为 `workflow_run_id`）
+  - 读取旧 ACP 请求时仍接受 `runtime_options.workflow_workspace` 作为 legacy fallback
 - `skillrunner.sequence.v1` 语义：
-  - 作为 ACP 兼容工作流编排的序列提供者
+  - 作为 ACP / SkillRunner 兼容工作流编排的序列请求
+  - ACP backend step 使用 `runtime_options.workspace.workflow_run_id`
+  - SkillRunner backend step 使用 `runtime_options.workspace.request_id`
+  - SkillRunner step 0 不带 workspace reuse；step N 复用上一成功 SkillRunner step 的后端 `request_id`
+  - SkillRunner sequence continuation 依赖 step execution、workspace reuse 与 required handoff，不依赖 Host-side apply 成功
   - provider 执行层对此 request kind 抛出错误（必须由 workflow 运行时编排处理）
   - 详细合同见 `doc/skillrunner-sequence-recovery-state-machine.md`
 - Runtime options：
@@ -143,6 +156,13 @@
   - `acpModelId`：ACP 模型选择
   - `acpReasoningEffort`：推理努力度
   - `autoApproveAcpPermissions`：是否自动审批 ACP 权限请求
+  - `hard_timeout_seconds`：ACP SkillRunner-compatible run 的本地硬超时断连保护；仅接受正整数，空值表示使用 runner/default 合成结果
+- ACP SkillRunner-compatible run 的 `hard_timeout_seconds` 覆盖优先级从低到高：
+  1. `runner.json.runtime.default_options.hard_timeout_seconds`
+  2. request payload `runtime_options.hard_timeout_seconds`
+  3. `providerOptions.hard_timeout_seconds`
+  若以上来源都没有合法正整数，则使用内置默认 `1200`。合成结果只用于 ACP
+  本地执行控制，不回写原始 request payload。
 
 ## Backend 兼容性
 

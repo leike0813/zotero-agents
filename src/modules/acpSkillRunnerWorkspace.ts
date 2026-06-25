@@ -2,6 +2,7 @@ import { joinPath } from "../utils/path";
 import {
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
+  listRuntimeChildren,
   statRuntimePath,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
@@ -15,6 +16,16 @@ function safeSegment(value: unknown, fallback: string) {
     .replace(/[^A-Za-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized || fallback;
+}
+
+function baseName(value: string) {
+  return (
+    normalizeString(value)
+      .replace(/\\/g, "/")
+      .split("/")
+      .filter(Boolean)
+      .pop() || ""
+  );
 }
 
 export type AcpSkillRunnerWorkspace = {
@@ -54,6 +65,49 @@ function allocateRunnerFileNamespace(args: {
   return `${skillSegment}.${index}`;
 }
 
+function recordExistingNamespace(args: {
+  name: string;
+  namespaceCountsBySkillId: Map<string, number>;
+}) {
+  const match = /^(.+)\.(\d+)$/.exec(baseName(args.name));
+  if (!match) {
+    return;
+  }
+  const skillSegment = safeSegment(match[1], "skill");
+  const index = Math.floor(Number(match[2]));
+  if (!Number.isFinite(index) || index <= 0) {
+    return;
+  }
+  const current = args.namespaceCountsBySkillId.get(skillSegment) || 0;
+  if (index > current) {
+    args.namespaceCountsBySkillId.set(skillSegment, index);
+  }
+}
+
+async function scanRunnerFileNamespaces(args: { workspaceDir: string }) {
+  const namespaceCountsBySkillId = new Map<string, number>();
+  for (const parent of [
+    joinPath(args.workspaceDir, "result"),
+    joinPath(args.workspaceDir, ".audit"),
+  ]) {
+    const parentStat = await statRuntimePath(parent);
+    if (!parentStat.exists || !parentStat.isDir) {
+      continue;
+    }
+    for (const child of await listRuntimeChildren(parent)) {
+      const childStat = await statRuntimePath(child);
+      if (!childStat.exists || !childStat.isDir) {
+        continue;
+      }
+      recordExistingNamespace({
+        name: child,
+        namespaceCountsBySkillId,
+      });
+    }
+  }
+  return namespaceCountsBySkillId;
+}
+
 function resolveWorkspacePaths(args: {
   workspaceDir: string;
   fileNamespace: string;
@@ -83,6 +137,32 @@ async function assertReusableWorkspace(args: {
   }
 }
 
+export async function registerAcpWorkflowWorkspaceForReuse(args: {
+  workflowRunId: string;
+  workspaceDir: string;
+}) {
+  const workflowRunId = normalizeString(args.workflowRunId);
+  const workspaceDir = normalizeString(args.workspaceDir);
+  if (!workflowRunId) {
+    throw new Error("ACP workflow workspace restore requires workflow_run_id");
+  }
+  if (!workspaceDir) {
+    throw new Error(
+      `ACP workflow workspace restore requires workspaceDir: workflow_run_id=${workflowRunId}`,
+    );
+  }
+  await assertReusableWorkspace({ workflowRunId, workspaceDir });
+  workflowWorkspacesByRunId.set(workflowRunId, {
+    workspaceDir,
+    runtimeDir: joinPath(workspaceDir, ".acp"),
+    namespaceCountsBySkillId: await scanRunnerFileNamespaces({ workspaceDir }),
+  });
+}
+
+export function resetAcpWorkflowWorkspaceRegistryForTests() {
+  workflowWorkspacesByRunId.clear();
+}
+
 export async function createAcpSkillRunnerWorkspace(args: {
   backendId: string;
   skillId: string;
@@ -95,7 +175,8 @@ export async function createAcpSkillRunnerWorkspace(args: {
     .toString(36)
     .slice(2, 8)}`;
   const root =
-    normalizeString(args.rootDir) || getRuntimePersistencePaths().acpSkillRunsDir;
+    normalizeString(args.rootDir) ||
+    getRuntimePersistencePaths().acpSkillRunsDir;
   const workflowRunId = normalizeString(args.workflowWorkspace?.workflowRunId);
   if (args.workflowWorkspace?.mode === "reuse") {
     if (!workflowRunId) {

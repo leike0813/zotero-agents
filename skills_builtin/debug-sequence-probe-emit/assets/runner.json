@@ -1,11 +1,12 @@
 {
   "id": "debug-sequence-probe-emit",
-  "name": "Debug Sequence Probe Emit",
+  "name": "📤 Debug Sequence Probe Emit",
   "description": "Debug-only sequence probe step that emits handoff markers and optionally writes a workspace sentinel.",
   "version": "0.1.0",
   "debug_only": true,
   "execution_modes": ["auto"],
   "schemas": {
+    "parameter": "assets/parameter.schema.json",
     "output": "assets/output.schema.json"
   },
   "entrypoint": {

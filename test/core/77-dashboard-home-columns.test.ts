@@ -90,7 +90,7 @@ describe("dashboard home columns", function () {
     );
     assert.include(activeTasksTs, "function isVisibleDashboardActiveTask");
     assert.include(activeTasksTs, "function isAcpSkillRunTask");
-    assert.include(ts, "listAcpSkillRuns()");
+    assert.include(ts, "listAcpSkillRunSummaries({");
     assert.include(ts, "filterDashboardActiveTasks");
     assert.include(activeTasksTs, "visibleAcpRequestIds.has(requestId)");
     assert.include(activeTasksTs, 'taskId.startsWith("acp-skill-run:")');
@@ -108,20 +108,21 @@ describe("dashboard home columns", function () {
     assert.include(ts, 'reason === "task-update"');
     assert.include(ts, 'reason === "backend-health"');
     assert.include(ts, 'reason === "periodic"');
-    assert.include(ts, "scheduleDeferredDashboardRefresh()");
+    assert.include(ts, "scheduleDeferredDashboardRefresh(reason)");
     assert.include(ts, "clearDeferredDashboardRefresh()");
   });
 
-  it("routes row-click by backend type and handles missing skillrunner requestId", async function () {
+  it("routes row-click by backend type and requires skillrunner runKey", async function () {
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
     assert.include(ts, 'if (action === "open-running-task")');
     assert.include(ts, "requestKind === ACP_SKILL_RUN_REQUEST_KIND");
     assert.include(ts, 'taskId.startsWith("acp-skill-run:")');
     assert.include(ts, 'tab: "acp-skills"');
     assert.include(ts, 'if (backendType === "skillrunner")');
+    assert.include(ts, "if (!runKey)");
+    assert.include(ts, 'tab: "skillrunner"');
     assert.include(ts, 'if (backendType === "generic-http")');
     assert.include(ts, "state.selectedTabKey = toBackendTabKey(backendId);");
-    assert.include(ts, '"task-dashboard-open-run-missing-request-id"');
   });
 
   it("defines missing-request-id prompt in both locales", async function () {

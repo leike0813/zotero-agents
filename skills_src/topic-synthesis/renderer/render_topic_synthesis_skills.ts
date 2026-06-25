@@ -3,6 +3,12 @@ import path from "path";
 import { format as formatWithPrettier } from "prettier";
 import { fileURLToPath } from "url";
 import { parse as parseYaml } from "yaml";
+import {
+  compileSkillJsonSchema,
+  type AcpSkillSchemaKey,
+  validateRunnerManifestShape,
+  validateSkillSchemaAnnotations,
+} from "../../../src/modules/acpSkillSchemaAssets";
 
 type StageContract = {
   id: string;
@@ -113,6 +119,7 @@ function skillQualityGoals(skill: SkillContract): string {
       "topic intent 必须把 seed 转成稳定 topic identity：标题、别名、定义、纳入/排除范围都要能指导 resolver。",
       "duplicate check 只基于 Host topic list 中现有 topic 的 title、description、aliases 和 id，不能把宽泛相关主题误判为同一主题。",
       "resolver proposal 要可复现、边界清楚；runtime 负责执行 `resolvers resolve`、citation metrics 和 filtered artifact export，LLM 不手写 resolver result。",
+      "远程 SkillRunner profile 下 filtered artifact export 可能返回 bridge-download；按 runtime 写出的 `runtime/payloads/paper-artifacts-export-delivery.json` 执行 downloadCommand/unpackHint 后再继续。",
       "paper triage 必须保持 paper-local，为每篇 resolved paper 给出 relevance、quality、core_digest 和 caveats，不提前写跨文献综合。",
     ],
     "update-topic-synthesis-prepare": [
@@ -152,6 +159,7 @@ function llmRuntimeBoundary(skill: SkillContract): {
       runtime: [
         "初始化 SQLite 和 stage state。",
         "执行 resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。",
+        "远程 Host Bridge export 返回 bridge-download 时，写出 `runtime/payloads/paper-artifacts-export-delivery.json` 并要求 agent 执行 downloadCommand/unpackHint。",
         "校验 create topic context、resolver proposal 和 paper triage payload。",
         "生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff。",
       ],
@@ -166,6 +174,7 @@ function llmRuntimeBoundary(skill: SkillContract): {
         "初始化或校验 SQLite 和 stage state。",
         "执行 update preflight：get-context digest/audit、baseline resolver resolve 和 audit report 生成。",
         "校验 resolver proposal 只新增内容，并执行 updated resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。",
+        "远程 Host Bridge export 返回 bridge-download 时，写出 `runtime/payloads/paper-artifacts-export-delivery.json` 并要求 agent 执行 downloadCommand/unpackHint。",
         "校验 paper triage payload，合并已保存 triage 和新增 triage。",
         "生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff。",
       ],
@@ -204,14 +213,12 @@ function llmRuntimeBoundary(skill: SkillContract): {
 function renderStageSequence(stage: StageContract): string[] {
   const lines = ["本 stage 精确执行序列：", ""];
   lines.push(
-    '1. 在 ACP run workspace 中运行 gate：`python scripts/gate.py --db "runtime/topic-synthesis.sqlite"`。',
+    "1. 在运行器提供的 run workspace 中启动 gate；不要 `cd` 到 skill package，不要自行拼接 `runtime/topic-synthesis.sqlite`。",
   );
   lines.push(`2. 确认 gate JSON 的 \`stage\` 是 \`${stage.id}\`。`);
   if (stage.kind === "command") {
     lines.push("3. 确认 `needs_payload` 是 `false`。");
-    lines.push(
-      '4. 复制并执行 gate JSON 的 `command` 字段；等价模板是 `python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action run`。',
-    );
+    lines.push("4. 复制并执行 gate JSON 的 `command` 字段。");
     lines.push("5. command 成功后，立刻重新运行 gate，读取下一条指令。");
     return lines;
   }
@@ -223,9 +230,7 @@ function renderStageSequence(stage: StageContract): string[] {
   lines.push(
     `6. 手写且只手写 \`${stage.payload_path || "<payload_path>"}\`；不要写 runtime-owned 文件。`,
   );
-  lines.push(
-    '7. 复制并执行 gate JSON 的 `submit_command`；等价模板是 `python scripts/gate.py --db "runtime/topic-synthesis.sqlite" --action submit --payload "<payload_path>"`。',
-  );
+  lines.push("7. 复制并执行 gate JSON 的 `submit_command`。");
   lines.push("8. submit 成功后，立刻重新运行 gate，读取下一条指令。");
   return lines;
 }
@@ -285,7 +290,7 @@ function renderOutputContractBody(skill: SkillContract): string {
       "",
       "- 返回对象必须符合 `assets/output.schema.json`。",
       "- 正常 handoff 输出的 handoff manifest path 用来标识本 skill 的持久化输出。",
-      "- canceled 输出必须包含 `status: \"canceled\"`、稳定 `reason` 和用户可读 `message`；workflow sequence 会把该 step output 作为最终结果并停止后续 steps。",
+      '- canceled 输出必须包含 `status: "canceled"`、稳定 `reason` 和用户可读 `message`；workflow sequence 会把该 step output 作为最终结果并停止后续 steps。',
       "- 大段正文和业务状态以 SQLite 与 runtime 文件为真源。",
     ].join("\n");
   }
@@ -293,7 +298,7 @@ function renderOutputContractBody(skill: SkillContract): string {
     "本技能输出一个 `topic_synthesis` JSON 对象，或一个 `topic_synthesis_canceled` JSON 对象。",
     "",
     "- 返回对象必须符合 `assets/output.schema.json`。",
-    "- 成功输出包含 operation、language、topic definition 和 analysis manifest path。",
+    "- 成功输出包含 operation、language、topic definition 和 artifact manifest path。",
     "- 运行器负责把通过校验的结果接受为 `result/result.json`。",
   ].join("\n");
 }
@@ -501,14 +506,34 @@ function stageSchemaNames(skill: SkillContract): string[] {
     .sort();
 }
 
+function runnerDisplayName(skill: SkillContract): string {
+  const emojiBySkillId: Record<string, string> = {
+    "create-topic-synthesis-prepare": "🧩",
+    "update-topic-synthesis-prepare": "🔄",
+    "topic-synthesis-core-enrichment": "🧠",
+    "topic-synthesis-finalize": "✅",
+  };
+  const emoji = emojiBySkillId[skill.id];
+  return emoji ? `${emoji} ${skill.title}` : skill.title;
+}
+
+function runnerHardTimeoutSeconds(skillId: string): number {
+  return skillId.endsWith("-prepare") ? 3600 : 1800;
+}
+
 function runnerJson(skill: SkillContract): Record<string, unknown> {
   return {
     id: skill.id,
-    name: skill.title,
+    name: runnerDisplayName(skill),
     description: skill.description,
     version: "0.1.0",
-    execution_modes: ["interactive"],
+    execution_modes: ["auto"],
     max_attempt: 12,
+    runtime: {
+      default_options: {
+        hard_timeout_seconds: runnerHardTimeoutSeconds(skill.id),
+      },
+    },
     schemas: {
       input: "assets/input.schema.json",
       parameter: "assets/parameter.schema.json",
@@ -593,10 +618,9 @@ function parameterSchemaForSkill(
 function handoffOutputSchema(skill: SkillContract): Record<string, unknown> {
   return {
     $schema: "http://json-schema.org/draft-07/schema#",
-    title: `${skill.title} Result`,
+    type: "object",
     oneOf: [
       {
-        title: "Topic synthesis handoff",
         type: "object",
         additionalProperties: false,
         required: [
@@ -611,8 +635,18 @@ function handoffOutputSchema(skill: SkillContract): Record<string, unknown> {
           kind: { const: "topic_synthesis_handoff" },
           handoff: { const: skill.handoff },
           operation: operationSchemaForSkill(skill),
-          db_path: { const: "runtime/topic-synthesis.sqlite" },
-          handoff_manifest_path: { type: "string", minLength: 1 },
+          db_path: {
+            type: "string",
+            minLength: 1,
+            "x-type": "artifact",
+            "x-role": "runtime-state-db",
+          },
+          handoff_manifest_path: {
+            type: "string",
+            minLength: 1,
+            "x-type": "artifact-manifest",
+            "x-role": "artifact-manifest",
+          },
           next_skill_id: skill.next_skill_id
             ? { const: skill.next_skill_id }
             : { type: "string" },
@@ -625,7 +659,6 @@ function handoffOutputSchema(skill: SkillContract): Record<string, unknown> {
 
 function canceledOutputSchema(): Record<string, unknown> {
   return {
-    title: "Canceled topic synthesis",
     type: "object",
     additionalProperties: false,
     required: ["kind", "status", "reason", "message"],
@@ -644,7 +677,6 @@ function canceledOutputSchema(): Record<string, unknown> {
 function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
   return {
     $schema: "http://json-schema.org/draft-07/schema#",
-    title: `${skill.title} Result`,
     type: "object",
     additionalProperties: true,
     not: {
@@ -652,7 +684,6 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
     },
     oneOf: [
       {
-        title: "Completed create topic synthesis",
         type: "object",
         additionalProperties: false,
         required: [
@@ -660,9 +691,7 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
           "operation",
           "language",
           "topic_definition",
-          "resolver_manifest_path",
-          "analysis_manifest_path",
-          "candidate_output_path",
+          "artifact_manifest_path",
         ],
         properties: {
           kind: { const: "topic_synthesis" },
@@ -676,15 +705,15 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
               title: { type: "string", minLength: 1 },
             },
           },
-          resolver_manifest_path: { type: "string", minLength: 1 },
-          analysis_manifest_path: { type: "string", minLength: 1 },
-          candidate_output_path: {
-            const: "result/final-output.candidate.json",
+          artifact_manifest_path: {
+            type: "string",
+            minLength: 1,
+            "x-type": "artifact-manifest",
+            "x-role": "artifact-manifest",
           },
         },
       },
       {
-        title: "Full update topic synthesis",
         type: "object",
         additionalProperties: false,
         required: [
@@ -693,9 +722,7 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
           "language",
           "topic_definition",
           "base_hashes",
-          "resolver_manifest_path",
-          "analysis_manifest_path",
-          "candidate_output_path",
+          "artifact_manifest_path",
         ],
         properties: {
           kind: { const: "topic_synthesis" },
@@ -718,10 +745,11 @@ function finalOutputSchema(skill: SkillContract): Record<string, unknown> {
               metadata: { type: "string", minLength: 1 },
             },
           },
-          resolver_manifest_path: { type: "string", minLength: 1 },
-          analysis_manifest_path: { type: "string", minLength: 1 },
-          candidate_output_path: {
-            const: "result/final-output.candidate.json",
+          artifact_manifest_path: {
+            type: "string",
+            minLength: 1,
+            "x-type": "artifact-manifest",
+            "x-role": "artifact-manifest",
           },
         },
       },
@@ -736,10 +764,59 @@ function outputSchemaForSkill(skill: SkillContract): Record<string, unknown> {
     : finalOutputSchema(skill);
 }
 
+function assertNoRenderContractErrors(label: string, errors: string[]): void {
+  if (errors.length > 0) {
+    throw new Error(
+      `${label} violates Skill Runner render precondition:\n${errors.join("\n")}`,
+    );
+  }
+}
+
+function validateSchemaAssetBeforeRender(
+  skillId: string,
+  schemaKey: AcpSkillSchemaKey,
+  schema: Record<string, unknown>,
+): void {
+  assertNoRenderContractErrors(`${skillId} ${schemaKey} schema`, [
+    ...compileSkillJsonSchema({ schema, schemaKey }),
+    ...validateSkillSchemaAnnotations({ schema, schemaKey }),
+  ]);
+}
+
+function validateSkillPackageBeforeRender(args: {
+  skill: SkillContract;
+  runner: Record<string, unknown>;
+  schemas: Record<AcpSkillSchemaKey, Record<string, unknown>>;
+}): void {
+  assertNoRenderContractErrors(
+    `${args.skill.id} runner manifest`,
+    validateRunnerManifestShape({
+      runnerJson: args.runner,
+      skillDirName: args.skill.id,
+      skillFrontmatterName: args.skill.id,
+    }),
+  );
+  for (const schemaKey of Object.keys(args.schemas) as AcpSkillSchemaKey[]) {
+    validateSchemaAssetBeforeRender(
+      args.skill.id,
+      schemaKey,
+      args.schemas[schemaKey],
+    );
+  }
+}
+
 async function renderSkillPackage(
   skill: SkillContract,
   outRoot: string,
 ): Promise<void> {
+  const schemas: Record<AcpSkillSchemaKey, Record<string, unknown>> = {
+    input: inputSchemaForSkill(skill),
+    parameter: parameterSchemaForSkill(skill),
+    output: outputSchemaForSkill(skill),
+  };
+  const runner = runnerJson(skill);
+  validateSkillPackageBeforeRender({ skill, runner, schemas });
+
   const targetRoot = path.join(outRoot, skill.id);
   await fs.rm(targetRoot, { recursive: true, force: true });
   await fs.mkdir(path.join(targetRoot, "scripts"), { recursive: true });
@@ -775,15 +852,15 @@ async function renderSkillPackage(
 
   await writeJson(
     path.join(targetRoot, "assets", "output.schema.json"),
-    outputSchemaForSkill(skill),
+    schemas.output,
   );
   await writeJson(
     path.join(targetRoot, "assets", "input.schema.json"),
-    inputSchemaForSkill(skill),
+    schemas.input,
   );
   await writeJson(
     path.join(targetRoot, "assets", "parameter.schema.json"),
-    parameterSchemaForSkill(skill),
+    schemas.parameter,
   );
   await fs.copyFile(
     path.join(SUITE_ROOT, "contracts", "handoff.schema.json"),
@@ -795,10 +872,7 @@ async function renderSkillPackage(
       path.join(targetRoot, "assets", "schemas", schemaName),
     );
   }
-  await writeJson(
-    path.join(targetRoot, "assets", "runner.json"),
-    runnerJson(skill),
-  );
+  await writeJson(path.join(targetRoot, "assets", "runner.json"), runner);
 }
 
 export async function renderTopicSynthesisSkills(

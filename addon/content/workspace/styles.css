@@ -197,6 +197,31 @@ button:disabled:hover {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.docs-link-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.docs-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  white-space: nowrap;
+}
+
+.docs-link-icon {
+  --zs-icon-size: 17px;
+}
+
+.docs-link-label {
+  font-size: 12px;
 }
 
 .theme-switch {
@@ -266,62 +291,8 @@ button:disabled:hover {
 }
 
 .toolbar-icon {
-  display: inline-block;
-  position: relative;
-  width: 17px;
-  height: 17px;
-  border: 1.5px solid currentColor;
-  border-radius: 3px;
-}
-
-.sidebar-icon::before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  right: 4px;
-  width: 1.5px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.sidebar-icon::after {
-  content: "";
-  position: absolute;
-  top: 4px;
-  right: 7px;
-  width: 3px;
-  height: 3px;
-  border-top: 1.5px solid currentColor;
-  border-right: 1.5px solid currentColor;
-  transform: rotate(45deg);
-}
-
-.refresh-icon {
-  border: 0;
-}
-
-.refresh-icon::before,
-.refresh-icon::after {
-  content: "";
-  position: absolute;
-}
-
-.refresh-icon::before {
-  inset: 2px;
-  border: 1.6px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-}
-
-.refresh-icon::after {
-  top: 1px;
-  right: 1px;
-  width: 5px;
-  height: 5px;
-  border-top: 1.6px solid currentColor;
-  border-right: 1.6px solid currentColor;
-  transform: rotate(20deg);
+  --zs-icon-size: 18px;
+  color: currentColor;
 }
 
 .workspace-main {
@@ -381,6 +352,10 @@ button:disabled:hover {
   .segmented,
   .toolbar {
     justify-self: stretch;
+  }
+
+  .toolbar {
+    justify-content: flex-start;
   }
 }
 

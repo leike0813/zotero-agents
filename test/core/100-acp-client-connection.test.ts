@@ -694,7 +694,9 @@ describe("acp client connection", function () {
     try {
       const scriptPath = await createFakeClaudeAcpServerScript(root);
       adapter = await createAcpConnectionAdapter({
-        backend: createClaudeBackend(scriptPath, { UNKNOWN_FAILED_UPDATE: "1" }),
+        backend: createClaudeBackend(scriptPath, {
+          UNKNOWN_FAILED_UPDATE: "1",
+        }),
         agentWorkspaceDir: root,
         sessionCwd: root,
         workspaceDir: root,

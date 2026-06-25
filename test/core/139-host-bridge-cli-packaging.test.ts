@@ -1,7 +1,9 @@
 import { assert } from "chai";
+import { execFile } from "child_process";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
+import { promisify } from "util";
 import {
   resolveHostBridgeCliBinary,
   resolveHostBridgeCliPlatform,
@@ -18,6 +20,8 @@ import {
   writeHostBridgeWellKnownProfile,
 } from "../../src/modules/hostBridgeProfileStore";
 
+const execFileAsync = promisify(execFile);
+
 describe("host bridge cli packaging and install", function () {
   it("documents resolve-resolver with the direct resolver payload contract", async function () {
     const cliArgs = await fs.readFile(
@@ -25,10 +29,7 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     const wrapperSkill = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/SKILL.md",
-      ),
+      path.join(process.cwd(), "skills_builtin/zotero-bridge-cli/SKILL.md"),
       "utf8",
     );
     const wrapperReference = await fs.readFile(
@@ -54,7 +55,10 @@ describe("host bridge cli packaging and install", function () {
     assert.include(cliArgs, "combine");
     assert.include(cliArgs, "direct resolver fields");
     assert.include(cliArgs, "Do not pass a top-level resolver wrapper");
-    assert.include(wrapperReference, "do not wrap them in a top-level `resolver` object");
+    assert.include(
+      wrapperReference,
+      "do not wrap them in a top-level `resolver` object",
+    );
     assert.include(wrapperReference, "Legacy fields are rejected");
     assert.include(wrapperSkill, "references/host-bridge-cli.md");
     assert.notInclude(wrapperReference, 'top-level `"resolver"` field');
@@ -63,10 +67,7 @@ describe("host bridge cli packaging and install", function () {
 
   it("renders wrapper skill discovery from the current semantic CLI surface", async function () {
     const wrapperSkill = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/SKILL.md",
-      ),
+      path.join(process.cwd(), "skills_builtin/zotero-bridge-cli/SKILL.md"),
       "utf8",
     );
     const wrapperReference = await fs.readFile(
@@ -104,10 +105,7 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     const wrapperSkill = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/SKILL.md",
-      ),
+      path.join(process.cwd(), "skills_builtin/zotero-bridge-cli/SKILL.md"),
       "utf8",
     );
     const wrapperReference = await fs.readFile(
@@ -152,41 +150,83 @@ describe("host bridge cli packaging and install", function () {
       path.join(process.cwd(), "doc/host-bridge-cli.md"),
       "utf8",
     );
+    const zhPreferences = await fs.readFile(
+      path.join(process.cwd(), "addon/locale/zh-CN/preferences.ftl"),
+      "utf8",
+    );
 
     assert.include(prefs, "host-bridge-advertised-host");
+    assert.include(prefs, "pref-host-bridge-advertised-host-input");
+    assert.include(prefs, "pref-host-bridge-advertised-host-help");
+    assert.include(zhPreferences, "发送给远程主机的本机 IP");
+    assert.include(zhPreferences, "留空时自动探测");
     assert.include(prefs, "host-bridge-rotate-master-token");
     assert.include(prefs, "host-bridge-copy-master-token");
     assert.include(prefs, "host-bridge-copy-remote-profile");
     assert.include(preferenceScript, "copyHostBridgeRemoteProfile");
     assert.include(preferenceScript, "copyHostBridgeMasterToken");
-    assert.include(preferenceScript, "hostBridgePinPortCheckbox.disabled = lanEnabled");
+    assert.include(
+      preferenceScript,
+      "hostBridgePinPortCheckbox.disabled = lanEnabled",
+    );
     assert.include(docs, "manual-remote");
     assert.include(docs, "master token");
   });
 
   it("uses stable bundled platform directory names", function () {
-    assert.deepEqual(resolveHostBridgeCliPlatform({ platform: "win32" }), {
-      dir: "win32-x64",
-      binary: "zotero-bridge.exe",
-    });
-    assert.deepEqual(
-      resolveHostBridgeCliPlatform({ platform: "darwin", arch: "x64" }),
+    const cases = [
       {
-        dir: "darwin-x64",
-        binary: "zotero-bridge",
+        input: { platform: "win32" },
+        expected: { dir: "win32-x64", binary: "zotero-bridge.exe" },
       },
-    );
-    assert.deepEqual(
-      resolveHostBridgeCliPlatform({ platform: "darwin", arch: "arm64" }),
       {
-        dir: "darwin-arm64",
-        binary: "zotero-bridge",
+        input: { platform: "darwin", arch: "x64" },
+        expected: { dir: "darwin-x64", binary: "zotero-bridge" },
       },
+      {
+        input: { platform: "darwin", arch: "arm64" },
+        expected: { dir: "darwin-arm64", binary: "zotero-bridge" },
+      },
+      {
+        input: { platform: "linux", arch: "ia32" },
+        expected: { dir: "linux-x86", binary: "zotero-bridge" },
+      },
+      {
+        input: { platform: "linux", arch: "x86" },
+        expected: { dir: "linux-x86", binary: "zotero-bridge" },
+      },
+      {
+        input: { platform: "linux", arch: "x64" },
+        expected: { dir: "linux-x64", binary: "zotero-bridge" },
+      },
+      {
+        input: { platform: "linux", arch: "arm" },
+        expected: { dir: "linux-arm", binary: "zotero-bridge" },
+      },
+      {
+        input: { platform: "linux", arch: "arm64" },
+        expected: { dir: "linux-arm64", binary: "zotero-bridge" },
+      },
+      {
+        input: { platform: "linux" },
+        expected: { dir: "linux-x64", binary: "zotero-bridge" },
+      },
+    ];
+    for (const entry of cases) {
+      assert.deepEqual(
+        resolveHostBridgeCliPlatform(entry.input),
+        entry.expected,
+      );
+    }
+  });
+
+  it("packages extensionless POSIX zotero-bridge binaries into the XPI", async function () {
+    const configSource = await fs.readFile(
+      path.join(process.cwd(), "zotero-plugin.config.ts"),
+      "utf8",
     );
-    assert.deepEqual(resolveHostBridgeCliPlatform({ platform: "linux" }), {
-      dir: "linux-x64",
-      binary: "zotero-bridge",
-    });
+
+    assert.include(configSource, "addon/bin/**/zotero-bridge");
   });
 
   it("prefers ZOTERO_BRIDGE_CLI env override when available", async function () {
@@ -384,19 +424,37 @@ describe("host bridge cli packaging and install", function () {
         platform: () => "win32",
         localAppDataDir: () => "C:\\Users\\A\\AppData\\Local",
       }).targetPath,
-      "Zotero-Skills",
+      "zotero-agents",
     );
-    assert.include(
+    assert.strictEqual(
       resolveHostBridgeCliInstallTarget({
         platform: () => "darwin",
         homeDir: () => "/Users/a",
+        pathEnv: () => "/opt/homebrew/bin:/usr/bin",
       }).targetPath,
-      "Library",
+      "/opt/homebrew/bin/zotero-bridge",
+    );
+    assert.strictEqual(
+      resolveHostBridgeCliInstallTarget({
+        platform: () => "darwin",
+        homeDir: () => "/Users/a",
+        pathEnv: () => "/usr/bin",
+      }).targetPath,
+      "/Users/a/bin/zotero-bridge",
     );
     assert.strictEqual(
       resolveHostBridgeCliInstallTarget({
         platform: () => "linux",
         homeDir: () => "/home/a",
+        pathEnv: () => "/home/a/bin:/usr/bin",
+      }).targetPath,
+      "/home/a/bin/zotero-bridge",
+    );
+    assert.strictEqual(
+      resolveHostBridgeCliInstallTarget({
+        platform: () => "linux",
+        homeDir: () => "/home/a",
+        pathEnv: () => "/usr/bin",
       }).targetPath,
       "/home/a/.local/bin/zotero-bridge",
     );
@@ -422,9 +480,10 @@ describe("host bridge cli packaging and install", function () {
     });
 
     assert.isTrue(result.ok);
-    assert.deepEqual(writes.map((entry) => entry.target), [
-      "C:\\Users\\A\\AppData\\Local\\Zotero-Skills\\bin\\zotero-bridge",
-    ]);
+    assert.deepEqual(
+      writes.map((entry) => entry.target),
+      ["C:\\Users\\A\\AppData\\Local\\zotero-agents\\bin\\zotero-bridge"],
+    );
     assert.include(writes[0]?.content || "", "zotero-bridge.exe");
     assert.include(writes[0]?.content || "", "#!/usr/bin/env sh");
     assert.strictEqual(
@@ -456,6 +515,7 @@ describe("host bridge cli packaging and install", function () {
       const profile = JSON.parse(await fs.readFile(profilePath, "utf8"));
       assert.strictEqual(profile.schema, "zotero-bridge.profile.v1");
       assert.strictEqual(profile.endpoint, "http://127.0.0.1:26570/bridge/v1");
+      assert.strictEqual(profile.connectionMode, "local");
       assert.deepInclude(profile.auth, {
         type: "bearer",
         token: "well-known-token",
@@ -669,7 +729,7 @@ describe("host bridge cli packaging and install", function () {
       assert.isAtLeast(calls.length, 1);
       assert.match(calls[0].command, /powershell|pwsh/i);
       assert.include(calls[0].args.join(" "), "SetEnvironmentVariable");
-      assert.include(calls[0].args.join(" "), "Zotero-Skills");
+      assert.include(calls[0].args.join(" "), "zotero-agents");
     } finally {
       if (previousInternal) {
         runtime.Zotero.Utilities = runtime.Zotero.Utilities || {};
@@ -695,16 +755,130 @@ describe("host bridge cli packaging and install", function () {
       "win32-x64",
       "darwin-x64",
       "darwin-arm64",
+      "linux-x86",
       "linux-x64",
+      "linux-arm",
+      "linux-arm64",
     ]) {
       assert.include(workflow, platform);
       const stat = await fs.stat(path.join("addon", "bin", platform));
       assert.isTrue(stat.isDirectory());
     }
+    for (const rustTarget of [
+      "i686-unknown-linux-gnu",
+      "x86_64-unknown-linux-gnu",
+      "armv7-unknown-linux-gnueabihf",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+    ]) {
+      assert.include(workflow, rustTarget);
+    }
+    assert.include(workflow, "cargo install cargo-zigbuild --locked");
+    assert.include(workflow, "mlugg/setup-zig@v2");
     const packageScript = await fs.readFile(
       "scripts/package-zotero-bridge-cli.mjs",
       "utf8",
     );
     assert.include(packageScript, "sha256");
+    assert.include(packageScript, "ZOTERO_BRIDGE_TARGET");
+    const buildScript = await fs.readFile(
+      "scripts/build-zotero-bridge-cli.mjs",
+      "utf8",
+    );
+    assert.include(buildScript, "cargo-zigbuild is required");
+    assert.include(buildScript, "cargo");
+    assert.include(buildScript, "zigbuild");
+    const publishScript = await fs.readFile(
+      "scripts/publish-host-bridge-cli-bundle.ps1",
+      "utf8",
+    );
+    assert.include(publishScript, "assets/profile.template.json");
+    assert.include(publishScript, "install.ps1");
+    assert.include(publishScript, "install.sh");
+    assert.include(publishScript, "installer");
+    assert.include(publishScript, "zotero-agents");
+    assert.include(publishScript, "ZOTERO_BRIDGE_CONNECTION_MODE");
+    assert.include(publishScript, "profileTemplate");
+    const profileTemplate = JSON.parse(
+      await fs.readFile(
+        "skills_builtin/zotero-bridge-cli/assets/profile.template.json",
+        "utf8",
+      ),
+    );
+    assert.strictEqual(profileTemplate.connectionMode, "local");
+    assert.strictEqual(profileTemplate.auth.tokenEnv, "ZOTERO_BRIDGE_TOKEN");
+  });
+
+  it("documents agent-friendly bundle installers without platform override", async function () {
+    const installPs1 = await fs.readFile(
+      "cli/zotero-bridge/scripts/install.ps1",
+      "utf8",
+    );
+    const installSh = await fs.readFile(
+      "cli/zotero-bridge/scripts/install.sh",
+      "utf8",
+    );
+    const wrapperSkill = await fs.readFile(
+      "skills_builtin/zotero-bridge-cli/SKILL.md",
+      "utf8",
+    );
+    const wrapperReference = await fs.readFile(
+      "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+      "utf8",
+    );
+    const docs = await fs.readFile("doc/host-bridge-cli.md", "utf8");
+
+    for (const source of [installPs1, installSh]) {
+      assert.include(source, "zotero-agents");
+      assert.include(source, "ZOTERO_BRIDGE_INSTALL_DIR");
+      assert.include(source, "ZOTERO_BRIDGE_TOKEN");
+      assert.include(source, "Platform override is not supported");
+    }
+    for (const source of [wrapperSkill, wrapperReference, docs]) {
+      assert.include(source, "install.ps1");
+      assert.include(source, "install.sh");
+      assert.include(source, "--yes --json");
+    }
+    assert.include(docs, "zotero-agents");
+    assert.notInclude(wrapperReference, "--platform");
+  });
+
+  it("packages a target-triple release binary into the requested platform directory", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-package-"));
+    try {
+      const binaryDir = path.join(
+        root,
+        "cli",
+        "zotero-bridge",
+        "target",
+        "i686-unknown-linux-gnu",
+        "release",
+      );
+      const binary = path.join(binaryDir, "zotero-bridge");
+      await fs.mkdir(binaryDir, { recursive: true });
+      await fs.writeFile(binary, "linux-x86-binary");
+      await execFileAsync(
+        process.execPath,
+        [
+          path.join(process.cwd(), "scripts/package-zotero-bridge-cli.mjs"),
+          "--platform=linux-x86",
+          "--target=i686-unknown-linux-gnu",
+        ],
+        { cwd: root },
+      );
+      const packaged = await fs.readFile(
+        path.join(root, "addon", "bin", "linux-x86", "zotero-bridge"),
+        "utf8",
+      );
+      const checksum = await fs.readFile(
+        path.join(root, "addon", "bin", "linux-x86", "zotero-bridge.sha256"),
+        "utf8",
+      );
+      assert.strictEqual(packaged, "linux-x86-binary");
+      assert.match(checksum, /^[a-f0-9]{64} {2}zotero-bridge\n$/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 });

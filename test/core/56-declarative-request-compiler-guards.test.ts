@@ -24,6 +24,7 @@ describe("declarative request compiler guards", function () {
           kind: "skillrunner.job.v1",
           create: {
             skill_id: "tag-regulator",
+            mode: "auto",
           },
         },
         hooks: {
@@ -63,6 +64,7 @@ describe("declarative request compiler guards", function () {
           kind: "skillrunner.job.v1",
           create: {
             skill_id: "tag-regulator",
+            mode: "auto",
             skill_source: "installed",
           },
         },
@@ -104,6 +106,7 @@ describe("declarative request compiler guards", function () {
           kind: "skillrunner.job.v1",
           create: {
             skill_id: "tag-regulator",
+            mode: "auto",
           },
           input: {
             inline: {
@@ -186,6 +189,7 @@ describe("declarative request compiler guards", function () {
             kind: "skillrunner.job.v1",
             create: {
               skill_id: "literature-analysis",
+              mode: "auto",
             },
             input: {
               upload: {
@@ -244,6 +248,7 @@ describe("declarative request compiler guards", function () {
             kind: "skillrunner.job.v1",
             create: {
               skill_id: "literature-analysis",
+              mode: "auto",
             },
             input: {
               upload: {
@@ -297,6 +302,7 @@ describe("declarative request compiler guards", function () {
             kind: "skillrunner.job.v1",
             create: {
               skill_id: "literature-analysis",
+              mode: "auto",
             },
             input: {
               upload: {
@@ -401,7 +407,7 @@ describe("declarative request compiler guards", function () {
 
     assert.equal(request.kind, "generic-http.request.v1");
     assert.isUndefined(request.targetParentID);
-    assert.equal(request.taskName, "task");
+    assert.equal(request.taskName, "Workflow: Generic HTTP No Selection");
     assert.deepEqual(request.sourceAttachmentPaths, []);
     assert.deepEqual(request.request, {
       method: "POST",

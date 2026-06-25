@@ -97,26 +97,109 @@ import { fetchRemote } from '../lib/remote.mjs';
 
 **两种格式并存**：loader 同时支持传统单 workflow 目录和多 workflow 包目录。
 
-## 内建/用户目录治理（当前实现）
+## Official / Dev Local / User 目录治理（当前实现）
 
-- 内建目录（启动同步目标）：
-  - `<Zotero.DataDirectory>/zotero-agents/data/workflows_builtin`
-  - 若 `Zotero.DataDirectory` 不可用，按平台回退到系统标准应用数据目录下的 `zotero-agents/data/workflows_builtin`
+- Official 目录（订阅安装目标）：
+  - `<runtimeRoot>/content/official/workflows`
+  - 若 `Zotero.DataDirectory` 不可用，按平台回退到系统标准应用数据目录下的 `zotero-agents/content/official/workflows`
+  - 该目录只接收订阅安装产物；插件启动不再从 XPI 内复制 `workflows_builtin`
+- Dev Local 目录：
+  - 优先使用 `ZOTERO_AGENTS_CONTENT_DEV_ROOT` 下的 `workflows_builtin` 或 `workflows`
+  - 未设置环境变量时使用 `<runtimeRoot>/content/dev-local/workflows`
+  - debug mode 只控制 `debug_only` workflow 是否可见，不控制是否扫描 dev-local
 - 用户目录（`workflowDir`）：
   - 优先使用偏好值 `workflowDir`
-  - 为空时默认 `<Zotero.DataDirectory>/zotero-agents/data/workflows`
+  - 为空时默认 `<runtimeRoot>/content/user/workflows`
+  - 插件启动时会预创建默认用户 workflow 目录，以及同级默认 user skill 目录
 - `.env` 中的 `ZOTERO_PLUGIN_DATA_DIR` 不由插件业务代码直接读取：
   - 该变量由 scaffold 启动器消费
   - 最终体现为运行时的 `Zotero.DataDirectory.dir`
 
-### 启动同步安全约束
+### 订阅安装安全约束
 
-- 同步仅写入“内建目录”，不会写入或清理用户目录。
-- 若内建源目录与目标目录“同路径或互为嵌套路径”，同步必须拒绝执行。
-- 同步采用 staging 目录替换目标目录：
+- 订阅安装仅写入 Official 目录，不会写入或清理 Dev Local 与 User 目录。
+- official Workflow 包有效安装必须同时满足 install state 文件合法、official
+  workflow root 存在，且其中仍能识别 `workflow.json` 或
+  `workflow-package.json`。如果 state 文件存在但 official workflow 文件树缺失，
+  运行时视为未安装，并暴露 stale install-state 诊断。
+- 包内路径必须位于 `content-package.json`、`workflows/` 或 `skills/` 下。
+- 安装采用 staging 目录替换目标目录：
   - 先完整写入 staging；
   - 再替换目标目录；
-  - 若替换失败，保留/回退到上一次可用内建副本。
+  - 若替换失败，保留/回退到上一次可用 official 内容。
+
+## 官方 Workflow 包订阅与版本维护
+
+官方 Workflow 包独立于插件本体发布。插件默认订阅独立发布仓库：
+
+- GitHub：`https://github.com/leike0813/zotero-agents-workflows`
+- Gitee：`https://gitee.com/leike0813/zotero-agents-workflows`
+- Feed 分支：`content-feed`
+- 默认入口：`stable/feed.json`
+
+`content-feed` 分支只保存轻量 feed 元数据，不长期提交 zip 包。zip 包发布为
+Release assets；feed 中的 `artifact.url` 指向 GitHub release asset，
+`artifact.mirrors` 可指向 Gitee release asset。回滚通过修改 feed 指向旧
+Release asset 完成，只要 sha256、size 与兼容性约束通过，即使版本号低于当前
+已安装版本也允许安装。
+
+### 三层版本
+
+- 插件本体版本：`v<x>.<y>.<z>`。`x` 表示插件运行时或内容协议破坏性变化，
+  `y` 表示向后兼容能力新增，`z` 表示 bugfix、UI、安装器或订阅逻辑修复。
+- 官方 Workflow 包版本：独立 semver。仅 Workflow 包升级时只 bump 内容包版本，
+  不 bump 插件版本。
+- 内容运行时协议版本：`content_api`。当前插件支持版本为 `1.0.0`。Workflow
+  包需要新运行时能力时，优先通过 `requires.content_api` 表达。
+
+### Feed 与兼容性字段
+
+每个 feed package 至少声明：
+
+```json
+{
+  "id": "zotero-agents-official-workflows",
+  "version": "0.1.0",
+  "channel": "stable",
+  "debug_content": false,
+  "content_api": "1.0.0",
+  "requires": {
+    "plugin": ">=0.4.0 <0.5.0",
+    "content_api": "^1.0.0",
+    "zotero": ">=7 <10"
+  },
+  "artifact": {
+    "url": "https://github.com/leike0813/zotero-agents-workflows/releases/download/official-workflows-v0.1.0/zotero-agents-official-workflows-0.1.0-stable.zip",
+    "mirrors": [
+      "https://gitee.com/leike0813/zotero-agents-workflows/releases/download/official-workflows-v0.1.0/zotero-agents-official-workflows-0.1.0-stable.zip"
+    ],
+    "sha256": "sha256:...",
+    "size": 12345
+  }
+}
+```
+
+安装器在下载前检查 `requires.plugin`、`requires.content_api` 与
+`requires.zotero`。不兼容的包不会安装；启动自动检查和偏好页会展示原因。
+`artifact.path` 仅作为 dry-run、本地测试或旧 feed 的相对路径兼容入口。
+
+### Channel 规则
+
+- `stable`：默认用户源，排除 `debug_only`。
+- `beta`：可选预览源，排除 `debug_only`。
+- `dev`：开发者源，可包含 `debug_only`，安装仍要求 debug mode。
+
+Prefs 的“官方 Workflow 包”区提供 channel 切换入口。普通模式只显示
+`stable` 与 `beta`；`dev` 只在 debug mode 下显示/可选。若隐藏偏好中残留
+`dev`，但当前未启用 debug mode，运行时有效 channel 回退为 `stable`，避免普通
+用户启动检查或安装 dev feed。
+
+客户端不提供任意 URL、revision 或本地历史版本回滚入口。回滚由发布端管理：
+维护者将目标 channel 的 feed 指向旧 release asset 后，插件会把该 feed
+识别为 rollback/replacement，只要 digest、size 与兼容性约束通过，即可安装。
+
+GitHub/Gitee feed 语义必须一致。镜像校验比较 revision、包 id/version/channel、
+debug flag、requires、sha256 与 size；不因 Release asset URL 不同而失败。
 
 ## Manifest（当前实现）
 
@@ -134,7 +217,7 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
 字段：
 - `id`（必需）：包标识符
 - `version`（必需）：版本号
-- `workflows`（必需）：子 workflow ID 数组
+- `workflows`（必需）：包内 workflow manifest 相对路径数组，例如 `literature-analysis/workflow.json`
 
 ### workflow.json（Workflow 声明）
 
@@ -247,6 +330,7 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
 由 `src/workflows/declarativeRequestCompiler.ts` 编译：
 
 - `skillrunner.job.v1`
+- `skillrunner.sequence.v1`
 - `generic-http.request.v1`
 - `generic-http.steps.v1`
 - `pass-through.run.v1`
@@ -265,6 +349,8 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
 ### skillrunner.job.v1 关键约束
 
 - `request.create.skill_id` 必填
+- `request.create.skill_id` 指向的 skill 必须存在于有效 plugin skill registry，
+  且该 skill 本身通过 registry 校验
 - `request.input.upload.files` 可选（仅 file-input workflow 需要）
 - `files[].from` 当前支持：
   - `selected.markdown`
@@ -273,6 +359,14 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
 - 每个 selector 在当前输入单元必须唯一命中，否则该输入单元报错/跳过
 - 声明式编译会自动把 `files[].key` 写入 create body 的 `input.<key>`，值为 `uploads/` 根下相对路径（例如 `inputs/source_path/example.md`）
 - `upload_files` 仅用于“本地文件路径 -> zip entry”映射；zip entry 与 `input.<key>` 路径必须一致
+
+### skillrunner.sequence.v1 关键约束
+
+- `request.sequence.steps[]` 至少包含 1 个 step
+- 每个 step 必须声明 `id`、`skill_id`、`mode`
+- 每个 step 的 `skill_id` 必须存在于有效 plugin skill registry，且对应 skill
+  本身通过 registry 校验
+- `result.final_step_id` 必须指向其中一个 step
 
 ## 输入筛选策略
 
@@ -314,7 +408,7 @@ Hook 接收的 `runtime` 对象包含：
 - `packageId`：所属包 ID（仅 workflow package）
 - `workflowRootDir`：workflow 根目录绝对路径
 - `packageRootDir`：包根目录绝对路径（仅 workflow package）
-- `workflowSourceKind`：`"builtin" | "user" | ""`
+- `workflowSourceKind`：`"official" | "dev-local" | "user" | ""`
 - `hookName`：当前执行的 hook 名称
 - `fetch` / `Buffer` / `btoa` / `atob` / `TextEncoder` / `TextDecoder` / `FileReader` / `navigator`：浏览器/Node 兼容的全局能力
 
@@ -373,7 +467,7 @@ Hook 接收的 `runtime` 对象包含：
 
 ## deprecated reference note workflows
 
-`reference-matching` 和 `reference-note-editor` 已从 active built-in workflow package 中移除，历史实现归档在 `deprecated/workflows_builtin/literature-workbench-package/`。
+`reference-matching` 和 `reference-note-editor` 已从 official workflow package 中移除，历史实现归档在 `deprecated/workflows_builtin/literature-workbench-package/`。
 
 - active workflow registry 不再加载或展示这两个 workflow；
 - stale workflow settings 不做迁移保真，除非用户自行安装同名 custom workflow，否则会被忽略；

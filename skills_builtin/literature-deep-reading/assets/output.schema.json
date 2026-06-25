@@ -1,65 +1,81 @@
 {
   "type": "object",
-  "properties": {
-    "kind": {
-      "type": "string",
-      "enum": [
-        "literature_deep_reading_bootstrap",
-        "literature_deep_reading_context_ready",
-        "literature_deep_reading_enriched",
-        "literature_deep_reading_translated",
-        "literature_deep_reading_finalized",
-        "literature_deep_reading_error"
-      ]
-    },
-    "status": {
-      "type": "string",
-      "enum": [
-        "bootstrapped",
-        "context_ready",
-        "enriched",
-        "translated",
-        "completed",
-        "failed"
-      ]
-    },
-    "db_path": {
-      "type": "string"
-    },
-    "views": {
+  "oneOf": [
+    {
       "type": "object",
-      "additionalProperties": {
-        "type": "string"
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "status",
+        "diagnostics_path",
+        "final_html_available",
+        "html_path",
+        "artifact_manifest_path",
+        "warnings",
+        "error"
+      ],
+      "properties": {
+        "kind": { "const": "literature_deep_reading_finalized" },
+        "status": { "const": "completed" },
+        "diagnostics_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact",
+          "x-role": "diagnostics"
+        },
+        "final_html_available": { "const": true },
+        "html_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact",
+          "x-role": "deep-reading-html"
+        },
+        "artifact_manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact-manifest",
+          "x-role": "artifact-manifest"
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": true
+        }
       }
     },
-    "diagnostics_path": {
-      "type": "string"
-    },
-    "final_html_available": {
-      "type": "boolean"
-    },
-    "html_path": {
-      "type": "string"
-    },
-    "warnings": {
-      "type": "array",
-      "items": {
-        "type": "string"
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "status",
+        "diagnostics_path",
+        "final_html_available",
+        "warnings",
+        "error"
+      ],
+      "properties": {
+        "kind": { "const": "literature_deep_reading_error" },
+        "status": { "const": "failed" },
+        "db_path": { "type": "string" },
+        "views": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "diagnostics_path": { "type": "string" },
+        "final_html_available": { "type": "boolean" },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "error": {
+          "type": "object",
+          "additionalProperties": true
+        }
       }
-    },
-    "error": {
-      "type": ["object", "null"]
     }
-  },
-  "required": [
-    "kind",
-    "status",
-    "db_path",
-    "views",
-    "diagnostics_path",
-    "final_html_available",
-    "warnings",
-    "error"
-  ],
-  "additionalProperties": false
+  ]
 }

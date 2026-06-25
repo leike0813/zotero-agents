@@ -1,130 +1,227 @@
-# SkillRunner Global Run Workspace Tabs SSOT (Lockdown v4)
+# SkillRunner Run Workspace SSOT
 
-## 1. Scope
+This document defines SkillRunner RunDialog and workspace behavior. The
+workspace renders `SkillRunnerRunStore` projections and owns UI stream sessions;
+it does not own run truth, terminal settlement, or apply.
 
-This document defines run-workspace-side SSOT behavior under provider lockdown rules.
-It governs how the singleton run workspace consumes provider projection and stream outputs.
-
-- Workspace never owns provider truth.
-- Workspace renders unified snapshot + selected-session chat/pending views.
-- Backend reconcile gating is enforced before any interactive run path.
-
-## 2. Data Sources
+## Data Sources
 
 Status source:
 
-- unified request snapshot from provider ledger projection
+- `SkillRunnerRunStore` projection for projectable single runs and sequence
+  steps.
 
 Chat source:
 
-- selected session only via jobs chat history/SSE
+- selected or warm UI `/chat` stream session.
+- explicit chat history catch-up for cursor gaps, stream errors, and refresh
+  actions.
 
 Pending source:
 
-- jobs pending endpoint for selected waiting session
-- on pending refresh failure, keep last-good pending view for current waiting session
+- selected waiting run pending/auth endpoints.
+- last-good pending state for the selected waiting run when a transient refresh
+  fails.
 
-## 3. Invariant Catalog (Workspace)
+Apply source:
 
-### INV-WS-RUN-DIALOG-SINGLETON
+- apply state projected from the owning SkillRunner run record.
 
-- Trigger: opening run dialog from any entry.
-- Allowed: one singleton workspace window/tab context.
-- Forbidden: parallel run-dialog instances competing for session ownership.
-- Observability: open-run routing behavior and active workspace state.
+## Workspace Selection
 
-### INV-WS-CHAT-SSE-SINGLE-OWNER
+Workspace selection is user-driven.
 
-- Trigger: selected session changes or workspace closes.
-- Allowed:
-  - selected session owns chat stream
-  - previous session chat stream disconnects immediately.
-- Forbidden: multiple concurrent chat stream owners.
-- Observability: chat stream lifecycle events per selected session.
+```mermaid
+stateDiagram-v2
+  [*] --> no_selection
+  no_selection --> selected: user opens a visible run
+  selected --> selected: user selects another visible run
+  selected --> no_selection: selected run no longer projectable
+  selected --> no_selection: workspace closes
+```
 
-### INV-WS-STATE-RENDER-FROM-LEDGER
+Rules:
 
-- Trigger: session view render and refresh.
-- Allowed: status label/banner derived from unified snapshot projection.
-- Forbidden: run dialog local speculative status transitions.
-- Observability: state update path `events -> ledger -> dialog subscriber -> snapshot`.
+- Provider progress, `request-created`, `request-ready`, reconciler settlement,
+  and session sync do not select a run.
+- Newly submitted SkillRunner runs do not steal focus.
+- If the selected run remains visible after refresh, it remains selected.
+- If the selected run is gone, the workspace shows no selected run rather than
+  selecting a fallback.
+- The workspace never synthesizes temporary rows for request ids that are not
+  projected by `SkillRunnerRunStore`.
 
-### INV-WS-BACKEND-FLAGGED-GROUP-DISABLED
+Invariant IDs: `INV-WS-STATE-RENDER-FROM-LEDGER`,
+`INV-WS-FIRST-FRAME-NO-FORCED-RUNNING`.
 
-- Trigger: backend `reconcileFlag=true`.
-- Allowed:
-  - backend group marked unavailable
-  - group non-interactive
-  - no task bubbles rendered
-  - open-run blocked with explicit notice.
-- Forbidden: flagged backend task becoming selectable/openable in workspace.
-- Observability: workspace groups snapshot and open-run guard.
+## UI Stream Pool
 
-### INV-WS-FIRST-FRAME-NO-FORCED-RUNNING
-
-- Trigger: open session first frame after switch/restart.
-- Allowed: first frame status uses ledger snapshot.
-- Forbidden: failed refresh forcing waiting/terminal snapshot back to running.
-- Observability: first-frame render and refresh-failure branch.
-
-### INV-WS-PENDING-EDGE-RULES
-
-- Trigger: waiting-edge transitions.
-- Allowed:
-  - non-waiting -> waiting edge triggers pending fetch
-  - waiting -> running/queued/terminal clears pending card
-  - fetch failure retains last-good pending while waiting.
-- Forbidden: immediate pending wipe on transient fetch failure.
-- Observability: pending card rendering state transitions.
-
-## 4. Backend Gating UX (Workspace View)
-
-For backend with `reconcileFlag=true`:
-
-- workspace group is disabled and cannot expand/collapse interactively
-- no task bubbles under that backend
-- attempts to open run dialog are blocked
-
-Consistency with dashboard:
-
-- dashboard home running list hides flagged backend tasks
-- backend tab disabled semantics match workspace disabled semantics
-
-## 5. Restart Replay Contract
-
-After plugin restart:
-
-1. running snapshots are reconnect candidates (backend healthy only)
-2. waiting/terminal snapshots are not auto-streamed
-3. opening waiting session on healthy backend restores waiting status + pending UI
-4. opening session on flagged backend is blocked
-
-## 6. Terminal and Apply Note
-
-- workspace consumes terminal convergence from unified snapshot
-- terminal side effects are reconciler-owned, not workspace-owned
-- when terminal succeeds but context is missing, state converges and apply is skipped with explicit warning
-- when SkillRunner `auto` is foreground-complete but reconciler-owned pending, workspace waits for reconciler terminal convergence and does not own final summary timing
-
-## 7. Sequence (Simplified)
+Each backend has a bounded MRU pool for UI foreground chat streams.
 
 ```mermaid
 sequenceDiagram
-    participant U as User
-    participant WS as Run Workspace
-    participant H as Backend Health
-    participant LD as Ledger Projection
-    participant CH as Chat Stream
+  participant U as User
+  participant WS as Run Workspace
+  participant Pool as Stream Pool
+  participant B as SkillRunner Backend
 
-    U->>WS: open session
-    WS->>LD: render first-frame snapshot
-    WS->>H: check backend reconcileFlag
-    alt backend flagged
-      WS-->>U: unavailable notice (blocked)
-    else backend healthy
-      WS->>CH: chat/history catch-up
-      WS->>CH: chat SSE connect (selected session only)
-      LD-->>WS: state updates
-      CH-->>WS: chat updates
-    end
+  U->>WS: select run A
+  WS->>Pool: focus A
+  Pool->>B: open /chat A
+
+  U->>WS: select run B
+  WS->>Pool: focus B
+  Pool->>B: keep A warm
+  Pool->>B: open /chat B
+
+  U->>WS: select run C
+  WS->>Pool: focus C
+  Pool->>B: evict least-recently focused stream
+  Pool->>B: open /chat C
 ```
+
+Rules:
+
+- One backend may keep at most two active UI foreground chat streams.
+- A request id may own at most one UI foreground chat stream on a backend.
+- The selected running run must have an active or starting stream.
+- The most recently selected previous running run may remain warm.
+- Repeated switching between the same two running runs reuses streams.
+- Selecting a third running run evicts the least-recently focused stream.
+- Warm streams update their own session state and cursor but do not replace the
+  selected transcript.
+
+Invariant IDs: `INV-WS-CHAT-SSE-SINGLE-OWNER`,
+`INV-WS-RUN-DIALOG-SINGLETON`.
+
+## State Boundaries
+
+```mermaid
+stateDiagram-v2
+  [*] --> stream_idle
+  stream_idle --> stream_active: selected running run
+  stream_active --> stream_warm: another running run selected
+  stream_warm --> stream_active: run selected again
+  stream_active --> stream_released: waiting
+  stream_active --> stream_released: terminal
+  stream_active --> stream_released: backend gated
+  stream_active --> stream_released: workspace closes
+  stream_warm --> stream_released: LRU eviction or boundary state
+```
+
+Rules:
+
+- Waiting, terminal, backend-gated, and workspace-close boundaries release or
+  downgrade the owning stream session.
+- Stream disconnect does not mark a backend unreachable.
+- Backend reachability is governed by maintenance health probes.
+- A clean stream close uses lightweight reconnect backoff when the run remains
+  selected and running.
+- Full metadata, pending, and history refresh is reserved for explicit refresh,
+  cursor gaps, stream errors, or waiting-state observation.
+
+Invariant IDs: `INV-WS-BACKEND-FLAGGED-GROUP-DISABLED`,
+`INV-WS-PENDING-EDGE-RULES`, `INV-WS-STREAM-POOL-MRU`.
+
+## Deferred Apply Display
+
+Run terminal state and apply state are separate display axes.
+
+```mermaid
+stateDiagram-v2
+  [*] --> hidden
+  hidden --> visible_running: run is request_ready/queued/running/waiting
+  visible_running --> visible_terminal: backend terminal no pending apply
+  visible_running --> visible_apply: backend terminal with apply pending/running/failed
+  visible_apply --> visible_terminal: apply succeeded or skipped
+  visible_apply --> visible_apply: apply retry pending
+```
+
+Rules:
+
+- A terminal run with apply `pending`, `running`, or `failed` remains visible in
+  task projections.
+- Deferred apply indicators read apply state from the owning run record.
+- Sequence root apply indicators are summaries only; step rows remain the
+  authoritative visible owners.
+- Apply failure never clears the transcript, pending diagnostics, or task row.
+
+Invariant ID: `INV-WS-DEFERRED-APPLY-VISIBLE`.
+
+## Backend Gating
+
+For a backend with health gating active:
+
+- backend group is disabled
+- run opening is blocked
+- UI streams owned by that backend are released
+- stored task projections remain preserved
+- submit selection excludes the gated backend until health recovery
+
+## Debug Connection Audit
+
+Dashboard exposes a debug-only `skillrunner-connection-audit` tab for
+SkillRunner connection governor diagnostics.
+
+Rules:
+
+- The tab exists only when debug mode is enabled.
+- When debug mode is disabled, Dashboard tab normalization rejects the audit
+  tab and snapshot construction does not read governor audit data.
+- The audit tab is read-only. It can copy the already-rendered JSON snapshot,
+  but it does not abort connections, clear buffers, retry runs, or change
+  connection scheduling.
+- The snapshot contains only redacted connection metadata: backend id, lane,
+  request id, operation label, timestamps, timeout, duration, reason, and error
+  name.
+- The audit snapshot is diagnostic data only. It is not a source of run truth,
+  terminal settlement, backend health, or UI stream ownership.
+
+Invariant ID: `INV-WS-CONNECTION-AUDIT-DEBUG-ONLY`.
+
+## Invariant Catalog
+
+### INV-WS-RUN-DIALOG-SINGLETON
+
+There is one SkillRunner run workspace context. It may render different
+selected runs, but parallel workspace instances must not compete for stream
+ownership.
+
+### INV-WS-CHAT-SSE-SINGLE-OWNER
+
+Chat stream ownership is bounded by a per-backend two-stream MRU pool. The ID is
+the stable invariant identifier for workspace chat stream ownership.
+
+### INV-WS-STATE-RENDER-FROM-LEDGER
+
+Workspace render state comes from `SkillRunnerRunStore` projection.
+
+### INV-WS-BACKEND-FLAGGED-GROUP-DISABLED
+
+Backend-gated groups are disabled and release stream sessions while preserving
+stored projections.
+
+### INV-WS-FIRST-FRAME-NO-FORCED-RUNNING
+
+The first frame renders the stored run projection. Refresh failure must not
+force the selected run back to running.
+
+### INV-WS-PENDING-EDGE-RULES
+
+Pending/auth UI is refreshed only for selected waiting runs and keeps last-good
+state on transient refresh failures.
+
+### INV-WS-STREAM-POOL-MRU
+
+UI foreground streams use a per-backend MRU pool with at most two active
+request ids.
+
+### INV-WS-DEFERRED-APPLY-VISIBLE
+
+Terminal runs with pending, running, or failed apply remain visible until apply
+state settles.
+
+### INV-WS-CONNECTION-AUDIT-DEBUG-ONLY
+
+SkillRunner connection audit is available only in debug mode, reads governor
+diagnostic metadata only when selected, and never mutates connection state.

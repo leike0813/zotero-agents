@@ -34,6 +34,8 @@ logs
 .agents/skills/*
 !.agents/skills/synthesis-reference-resolution-harness/
 !.agents/skills/synthesis-reference-resolution-harness/**
+!.agents/skills/host-bridge-release-pipeline/
+!.agents/skills/host-bridge-release-pipeline/**
 
 .pnpmfile.cjs
 
@@ -45,9 +47,11 @@ reference/zotero
 reference/vscode-acp
 
 artifact/test-diagnostics/
+artifact/content-packages/
 artifact/literature-deep-reading-detr-sample/visual-regression/latest/
 
 .zotero-skills-runtime/
+.zotero-agents/
 
 *-safeBackup-*
 .opencode

@@ -3,72 +3,88 @@
   "type": "object",
   "properties": {
     "preface_title": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
     "preface_cards": {
       "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
       "items": {
         "$ref": "#/$defs/titledText"
       }
     },
     "preface_reading_path": {
       "type": "array",
+      "minItems": 1,
       "items": {
-        "type": "string"
+        "type": "string",
+        "minLength": 1
       }
     },
     "preface_goal": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
     "preface_concepts": {
       "type": "array",
       "items": {
-        "type": "string"
+        "type": "string",
+        "minLength": 1
       }
     },
     "preface_warnings": {
       "type": "array",
       "items": {
-        "type": "string"
+        "type": "string",
+        "minLength": 1
       }
     },
     "preface_questions": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "$ref": "#/$defs/questionAnswer"
       }
     },
     "section_notes": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "properties": {
           "section_anchor": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "reading_goal": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "concepts": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           },
           "misread_warnings": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           },
           "questions": {
             "type": "array",
+            "minItems": 1,
             "items": {
               "$ref": "#/$defs/questionAnswer"
             }
           },
           "citation_note_body": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "citation_reference_roles": {
             "type": "array",
@@ -76,21 +92,51 @@
               "type": "object",
               "properties": {
                 "reference_id": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1
                 },
                 "role": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1
                 },
                 "note": {
                   "type": "string"
                 }
               },
-              "required": ["reference_id"],
+              "required": ["reference_id", "role"],
               "additionalProperties": false
             }
           }
         },
-        "required": ["section_anchor"],
+        "required": [
+          "section_anchor",
+          "reading_goal",
+          "misread_warnings",
+          "questions",
+          "citation_note_body",
+          "citation_reference_roles"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "section_roles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "section_anchor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": ["main", "bibliography", "appendix"]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": ["section_anchor", "role"],
         "additionalProperties": false
       }
     },
@@ -100,25 +146,25 @@
         "type": "object",
         "properties": {
           "label": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "aliases": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           },
           "kind": {
             "type": "string"
           },
           "definition": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           }
         },
-        "required": ["label"],
+        "required": ["label", "definition"],
         "additionalProperties": false
       }
     },
@@ -128,19 +174,22 @@
         "type": "object",
         "properties": {
           "reference_id": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "role_in_current_paper": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "why_open": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "note": {
             "type": "string"
           }
         },
-        "required": ["reference_id"],
+        "required": ["reference_id", "role_in_current_paper", "why_open"],
         "additionalProperties": false
       }
     },
@@ -162,10 +211,12 @@
             "type": "string"
           },
           "title": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "body": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "links": {
             "type": "array",
@@ -173,10 +224,12 @@
               "type": "object",
               "properties": {
                 "label": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1
                 },
                 "target": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1
                 }
               },
               "required": ["label", "target"],
@@ -189,16 +242,28 @@
       }
     }
   },
+  "required": [
+    "preface_title",
+    "preface_cards",
+    "preface_reading_path",
+    "preface_goal",
+    "preface_questions",
+    "section_notes",
+    "summary_fallback_enabled",
+    "extensions"
+  ],
   "additionalProperties": false,
   "$defs": {
     "titledText": {
       "type": "object",
       "properties": {
         "title": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "body": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": ["title", "body"],
@@ -208,10 +273,12 @@
       "type": "object",
       "properties": {
         "question": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "answer": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "evidence_kind": {
           "type": "string"

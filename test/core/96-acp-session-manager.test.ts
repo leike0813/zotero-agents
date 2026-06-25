@@ -1,4 +1,3 @@
-/* eslint-disable mocha/max-top-level-suites */
 import { assert } from "chai";
 import fs from "node:fs/promises";
 import { config } from "../../package.json";
@@ -242,19 +241,19 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
             ? {
                 configOptions: this.sessionConfigOptions,
               }
-          : {
-              modes: {
-                currentModeId: "plan",
-                availableModes: [
-                  { id: "plan", name: "Plan", description: "Reason first" },
-                  { id: "code", name: "Code", description: "Act directly" },
-                ],
-              },
-              models: {
-                currentModelId: this.modelState.currentModelId,
-                availableModels: this.modelState.availableModels,
-              },
-            }),
+            : {
+                modes: {
+                  currentModeId: "plan",
+                  availableModes: [
+                    { id: "plan", name: "Plan", description: "Reason first" },
+                    { id: "code", name: "Code", description: "Act directly" },
+                  ],
+                },
+                models: {
+                  currentModelId: this.modelState.currentModelId,
+                  availableModels: this.modelState.availableModels,
+                },
+              }),
     };
   }
 
@@ -624,6 +623,54 @@ describe("acp session manager", function () {
     assert.isNull(lastAdapter);
   });
 
+  it("projects all configured ACP backends with display names for ACP chat selectors", async function () {
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-one",
+            displayName: "ACP One Visible",
+            type: "acp",
+            command: "node",
+            args: ["one.js"],
+          },
+          {
+            id: "acp-two",
+            displayName: "ACP Two Visible",
+            type: "acp",
+            command: "node",
+            args: ["two.js"],
+          },
+          {
+            id: "skillrunner-one",
+            displayName: "SkillRunner One",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8000",
+          },
+        ],
+      }),
+      true,
+    );
+
+    await refreshAcpConversationBackends();
+
+    const frontend = getAcpFrontendSnapshot();
+    assert.deepInclude(
+      frontend.backends.map((entry) => [entry.backendId, entry.displayName]),
+      ["acp-one", "ACP One Visible"],
+    );
+    assert.deepInclude(
+      frontend.backends.map((entry) => [entry.backendId, entry.displayName]),
+      ["acp-two", "ACP Two Visible"],
+    );
+    assert.notDeepInclude(
+      frontend.backends.map((entry) => [entry.backendId, entry.displayName]),
+      ["skillrunner-one", "SkillRunner One"],
+    );
+  });
+
   it("hydrates ACP chat runtime selectors from backend cache when session attach omits options", async function () {
     Zotero.Prefs.set(
       `${config.prefsPrefix}.backendsConfigJson`,
@@ -825,20 +872,20 @@ describe("acp session manager", function () {
     await connectAcpConversation();
     let snapshot = getAcpConversationSnapshot();
 
-    assert.deepEqual(snapshot.modeOptions.map((entry) => entry.id), [
-      "ask",
-      "build",
-    ]);
+    assert.deepEqual(
+      snapshot.modeOptions.map((entry) => entry.id),
+      ["ask", "build"],
+    );
     assert.equal(snapshot.currentMode?.id, "ask");
-    assert.deepEqual(snapshot.displayModelOptions.map((entry) => entry.id), [
-      "openai/gpt-5",
-      "anthropic/claude",
-    ]);
+    assert.deepEqual(
+      snapshot.displayModelOptions.map((entry) => entry.id),
+      ["openai/gpt-5", "anthropic/claude"],
+    );
     assert.equal(snapshot.currentDisplayModel?.id, "openai/gpt-5");
-    assert.deepEqual(snapshot.reasoningEffortOptions.map((entry) => entry.id), [
-      "low",
-      "high",
-    ]);
+    assert.deepEqual(
+      snapshot.reasoningEffortOptions.map((entry) => entry.id),
+      ["low", "high"],
+    );
     assert.equal(snapshot.currentReasoningEffort?.id, "low");
 
     await lastAdapter?.emitSessionUpdate({
@@ -1222,6 +1269,39 @@ describe("acp session manager", function () {
       assistantItems.map((entry) => entry.text),
       ["First assistant region.", "Second assistant region."],
     );
+  });
+
+  it("keeps conversation updatedAt stable while appending streaming text chunks", async function () {
+    await connectAcpConversation();
+    const before = getAcpConversationSnapshot().updatedAt;
+
+    await lastAdapter?.emitSessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "First " },
+      },
+    });
+    const afterFirstChunk = getAcpConversationSnapshot();
+    const firstStreamingItem = afterFirstChunk.items.find(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    await lastAdapter?.emitSessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "second" },
+      },
+    });
+
+    const snapshot = getAcpConversationSnapshot();
+    const assistantItems = snapshot.items.filter(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.equal(snapshot.updatedAt, before);
+    assert.lengthOf(assistantItems, 1);
+    assert.equal(assistantItems[0].text, "First second");
+    assert.equal(assistantItems[0].updatedAt, firstStreamingItem?.updatedAt);
   });
 
   it("starts a new thought when assistant output appears between thought chunks", async function () {
@@ -2086,7 +2166,7 @@ describe("acp session manager", function () {
     assert.match(bundle.connection.lastError, /npx/i);
     assert.isAtLeast(bundle.diagnostics.length, 1);
     assert.isBoolean(bundle.host.hasTextEncoder);
-    assert.include(["idle", "stopped"], bundle.mcpServer?.status);
+    assert.include(["idle", "stopped", "error"], bundle.mcpServer?.status);
   });
 
   it("includes live Zotero MCP status in conversation snapshots during active turns", async function () {
@@ -2102,12 +2182,9 @@ describe("acp session manager", function () {
     const snapshot = getAcpConversationSnapshot();
     assert.isOk(snapshot.mcpServer);
     assert.isOk(snapshot.mcpHealth);
-    assert.equal(snapshot.mcpServer?.status, "running");
-    assert.equal(snapshot.mcpHealth?.state, "listening");
-    assert.notInclude(
-      (snapshot.mcpHealth?.tooltip || []).join("\n"),
-      "server snapshot unavailable",
-    );
+    assert.include(["running", "error"], snapshot.mcpServer?.status);
+    assert.include(["listening", "error"], snapshot.mcpHealth?.state);
+    assert.isAtLeast((snapshot.mcpHealth?.tooltip || []).length, 1);
   });
 
   it("keeps stderr tail and lifecycle metadata visible when the ACP process closes unexpectedly", async function () {

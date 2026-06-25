@@ -1,78 +1,93 @@
-# 交互式文献解读
+# Interactive Literature Explainer
 
-## 用途
+## Purpose
 
-与 AI 进行多轮对话，深入理解文献内容。支持基于文献上下文的自由问答，对话结束后自动生成结构化的对话笔记。
+Engage in multi-turn dialogue with AI to deeply understand literature content. Supports free-form Q&A grounded in the literature context, and automatically generates structured study notes after the conversation ends.
 
-## 适用场景
+:::tip No need to worry about hallucination
+AI responses must pass through a **verification gate**. Answers with uncertainty are explicitly flagged, so you can confidently discuss paper details with the AI.
+:::
 
-- 阅读论文时有不理解的概念或术语
-- 想深入了解论文的某一部分（方法、实验、推导）
-- 与 AI 一起梳理论文的思路和贡献
+## Use Cases
 
-## 输入约束
+- Encountering concepts or terminology you don't understand while reading a paper
+- Wanting to dive deeper into a specific part of the paper (methods, experiments, derivations)
+- Working with AI to trace the paper's reasoning and contributions
 
-| 约束类型 | 说明 |
+## Input Constraints
+
+| Constraint Type | Description |
 |---------|------|
-| 输入单元 | 附件（attachment） |
-| 接受类型 | `text/markdown`、`text/x-markdown`、`text/plain`、`application/pdf` |
-| 每父条目限制 | 最多 1 个附件 |
+| Input Unit | Attachment |
+| Accepted Types | `text/markdown`, `text/x-markdown`, `text/plain`, `application/pdf` |
+| Per-parent limit | At most 1 attachment |
 
-### 触发方式
+### Trigger Methods
 
-- 直接选中一个 PDF 或 Markdown 附件
-- 选中父条目，插件自动展开其第一个符合条件的附件
+- Directly select a PDF or Markdown attachment
+- Select the parent item, and the plugin will automatically expand its first qualifying attachment
 
-## 运行过程
+## Execution Flow
 
 ```
-1. 构建请求
-   └── 上传源文件到 Skill-Runner
-       └── 调用 skill_id: "literature-explainer"
+1. Build Request
+   └── Upload source file to Skill-Runner
+       └── Invoke skill_id: "literature-explainer"
 
-2. Skill-Runner 处理
-   └── 启动 interactive 模式
-       └── 打开 Dashboard 聊天面板
+2. Skill-Runner Processing
+   └── Launch interactive mode
+       └── Open Dashboard chat panel
 
-3. 用户交互
-   └── 在 Task Dashboard 中与 AI 对话
-       └── 可发送消息、查看回复
+3. User Interaction
+   └── Converse with AI in Task Dashboard
+       └── Send messages, view replies
 
-4. 结束对话
-   └── 用户手动关闭或取消
-       └── 生成对话结果
+4. End Conversation
+   └── User manually closes or cancels
+       └── Generate conversation results
 ```
 
-### 交互流程
+### Interaction Flow
 
-1. Workflow 启动后，Task Dashboard 会自动打开聊天面板
-2. 在聊天输入框中输入问题或指令
-3. AI 回复会实时显示在面板中
-4. 对话可以持续进行，直到用户选择结束
-5. 关闭面板时触发结果处理
+1. After the workflow starts, the Task Dashboard automatically opens the chat panel
+2. Type questions or instructions in the chat input
+3. AI replies are displayed in real-time in the panel
+4. The conversation can continue until the user chooses to end it
+5. Closing the panel triggers result processing
 
-## 运行产物
+## Estimated Duration
 
-执行完成后，在父条目下创建 **1 个对话笔记（Conversation Note）**：
+Depends on the number of conversation turns. Literature loading and initialization takes approximately 1-2 minutes, after which the conversation proceeds in real-time.
 
-- 类型：`data-zs-note-kind="conversation"`
-- 内容：对话历史记录（HTML 格式）
-- 更新策略：每次执行会创建新的对话 note（而非覆盖）
+## Model Recommendation
 
-## 参数
+🟡 Models with **web search capability** are recommended. Literature Explainer has a built-in evidence verification mechanism — if the model can search the web to verify citations and facts in the paper, verification quality improves significantly. When web access is unavailable, the verification feature is severely limited, but reasoning and Q&A based on literature content is still possible.
 
-| 参数 | 类型 | 说明 | 默认值 |
+## Outputs
+
+After execution completes, **1 Study Note (Conversation Note)** is created under the parent item:
+
+- Type: `data-zs-note-kind="conversation"`
+- Content: Q&A history (HTML format), which can be kept as study notes
+- Update strategy: Each execution creates a new conversation note (rather than overwriting)
+
+![Literature Explainer Study Note](/img/docs/workflows/literature-explainer_note.png)
+
+## Parameters
+
+| Parameter | Type | Description | Default |
 |------|------|------|--------|
-| `language` | string | 对话语言 | `zh-CN` |
+| `language` | string | Conversation language | `zh-CN` |
 
-可选值：`zh-CN`、`en-US`、`ja-JP`、`ko-KR`、`de-DE`、`fr-FR`、`es-ES`、`ru-RU`，支持自定义输入。
+Available values: `zh-CN`, `en-US`, `ja-JP`, `ko-KR`, `de-DE`, `fr-FR`, `es-ES`, `ru-RU`. Custom input is also supported.
 
-## 依赖
+## Dependencies
 
-- **后端**：Skill-Runner 服务
-- **Backend 配置**：在 Backend Manager 中配置 Skill-Runner 类型的后端
-- **Skill**：Skill-Runner 端需部署 `literature-explainer` skill
+- **Backend**: Skill-Runner service
+- **Backend Configuration**: Configure a Skill-Runner type backend in Backend Manager
+- **Skill**: The `literature-explainer` skill must be deployed on the Skill-Runner
 
-## 相关工作流
+## Related Workflows
 
-- [文献分析](literature-analysis) — 自动生成文献摘要
+- [Literature Analysis](literature-analysis) — Automatically generate literature digests (recommended to run first)
+- [Deep Reading](literature-deep-reading) — Generate a structured deep reading view

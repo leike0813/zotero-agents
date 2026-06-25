@@ -37,7 +37,10 @@ export type HostBridgeErrorCode =
   | "file_unavailable"
   | "invalid_capability_input"
   | "invalid_file_id"
+  | "invalid_workflow_agent_run_request"
+  | "invalid_workflow_describe_request"
   | "invalid_workflow_input"
+  | "invalid_workflow_submit_request"
   | "internal_error"
   | "method_not_allowed"
   | "not_found"
@@ -60,6 +63,8 @@ export type HostBridgeError = {
 
 export type HostBridgeBindMode = "loopback" | "lan";
 
+export type HostBridgeConnectionMode = "local" | "remote";
+
 export type HostBridgeServiceStatus =
   | "idle"
   | "starting"
@@ -69,6 +74,8 @@ export type HostBridgeServiceStatus =
 
 export type HostBridgePortMode = "random" | "pinned" | "fallback";
 
+export type HostBridgeAdvertisedHostSource = "manual" | "auto" | "placeholder";
+
 export type HostBridgeStatusSnapshot = {
   status: HostBridgeServiceStatus;
   protocol: typeof HOST_BRIDGE_PROTOCOL_VERSION;
@@ -77,6 +84,8 @@ export type HostBridgeStatusSnapshot = {
   endpoint: string;
   remoteEndpoint: string;
   advertisedHost: string;
+  advertisedHostSource?: HostBridgeAdvertisedHostSource;
+  advertisedHostDiagnostics?: string[];
   remoteEndpointUsesPlaceholder: boolean;
   bindMode: HostBridgeBindMode;
   lanEnabled: boolean;
@@ -96,6 +105,14 @@ export type HostBridgeStatusSnapshot = {
   lastError: string;
   requestCount: number;
   updatedAt: string;
+  routes?: {
+    hostBridge: string;
+    mcp?: string;
+  };
+  mcp?: {
+    enabled: boolean;
+    endpoint: string;
+  };
 };
 
 export type HostBridgeHealth = {
@@ -104,6 +121,14 @@ export type HostBridgeHealth = {
   bindMode: HostBridgeBindMode;
   lanEnabled: boolean;
   authRequired: true;
+  routes?: {
+    hostBridge: string;
+    mcp?: string;
+  };
+  mcp?: {
+    enabled: boolean;
+    endpoint: string;
+  };
 };
 
 export type HostBridgeApprovalRequirement = "none" | "zotero-ui-required";
@@ -178,6 +203,14 @@ export type HostBridgeManifest = {
     supportsRemoteClients?: boolean;
     arbitraryPathAllowed?: boolean;
     approvalRequired?: boolean;
+  };
+  routes?: {
+    hostBridge: string;
+    mcp?: string;
+  };
+  mcp?: {
+    enabled: boolean;
+    endpoint: string;
   };
   cli: {
     supported: true;

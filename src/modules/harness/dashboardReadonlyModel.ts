@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import type { BackendInstance } from "../../backends/types";
 import {
   ACP_BACKEND_TYPE,
+  DEFAULT_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
 } from "../../config/defaults";
 import { loadWorkflowManifests } from "../../workflows/loader";
@@ -24,6 +26,7 @@ import {
 import { isWorkflowVisible } from "../workflowVisibility";
 import { buildWorkflowSettingsUiDescriptor } from "../workflowSettings";
 import { loadBackendsRegistryReadonly } from "./backendsReadonly";
+import { projectSkillRunnerReadonlyRuns } from "./skillRunnerReadonlyProjection";
 
 export type DashboardReadonlyState = {
   selectedTabKey: string;
@@ -32,6 +35,10 @@ export type DashboardReadonlyState = {
   homeWorkflowDocWorkflowId: string;
   selectedProductId: string;
   selectedProductAssetId: string;
+  selectedProductSection: "products" | "feedback";
+  selectedFeedbackProductId: string;
+  feedbackSkillFilter: string;
+  selectedFeedbackProductIds: Set<string>;
   runtimeLogFilters: Record<string, unknown>;
   runtimeLogSelectedIdSet: Set<string>;
 };
@@ -54,9 +61,72 @@ const TERMINAL_STATES = new Set([
   "completed",
   "done",
 ]);
+const SKILL_RUN_FEEDBACK_KIND = "skill_run_feedback";
+const SKILL_RUN_FEEDBACK_ASSET_ID = "feedback";
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function normalizeDashboardSignatureValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeDashboardSignatureValue(entry));
+  }
+  if (value && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    const normalized: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) {
+      const entry = source[key];
+      if (typeof entry !== "undefined") {
+        normalized[key] = normalizeDashboardSignatureValue(entry);
+      }
+    }
+    return normalized;
+  }
+  return value;
+}
+
+function dashboardSignature(value: unknown) {
+  return JSON.stringify(normalizeDashboardSignatureValue(value));
+}
+
+function dashboardSelectedSurfaceKey(snapshot: Record<string, unknown>) {
+  const tabKey = cleanString(snapshot.selectedTabKey) || "home";
+  return tabKey.startsWith("backend:") ? "backend" : tabKey;
+}
+
+function dashboardSurfaceSignatures(snapshot: Record<string, unknown>) {
+  const selectedSurfaceKey = dashboardSelectedSurfaceKey(snapshot);
+  const selectedSurface =
+    selectedSurfaceKey === "products"
+      ? { selectedSurfaceKey, productStorageView: snapshot.productStorageView }
+      : selectedSurfaceKey === "workflow-options"
+        ? {
+            selectedSurfaceKey,
+            workflowOptionsView: snapshot.workflowOptionsView,
+          }
+        : selectedSurfaceKey === "runtime-logs"
+          ? { selectedSurfaceKey, runtimeLogsView: snapshot.runtimeLogsView }
+          : selectedSurfaceKey === "backend"
+            ? { selectedSurfaceKey, backendView: snapshot.backendView }
+            : {
+                selectedSurfaceKey,
+                summary: snapshot.summary,
+                runningRows: snapshot.runningRows,
+                homeWorkflows: snapshot.homeWorkflows,
+                homeWorkflowDocView: snapshot.homeWorkflowDocView,
+              };
+  return {
+    chrome: dashboardSignature({
+      selectedTabKey: snapshot.selectedTabKey,
+      title: snapshot.title,
+      labels: snapshot.labels,
+      tabs: snapshot.tabs,
+      backendLoadError: snapshot.backendLoadError,
+    }),
+    selectedSurface: dashboardSignature(selectedSurface),
+    selectedSurfaceKey,
+  };
 }
 
 function cleanString(value: unknown) {
@@ -123,6 +193,33 @@ function resolveTaskName(row: PluginStateReadonlyRow) {
   );
 }
 
+function resolveSkillName(row: PluginStateReadonlyRow) {
+  const payload = rowPayload(row);
+  return (
+    cleanString((row as { skillName?: unknown }).skillName) ||
+    cleanString(payload.skillName) ||
+    cleanString(payload.skill_name)
+  );
+}
+
+function resolveSkillLabel(row: PluginStateReadonlyRow) {
+  const payload = rowPayload(row);
+  return (
+    cleanString((row as { skillLabel?: unknown }).skillLabel) ||
+    cleanString(payload.skillLabel) ||
+    cleanString(payload.skill_label)
+  );
+}
+
+function resolveSkillId(row: PluginStateReadonlyRow) {
+  const payload = rowPayload(row);
+  return (
+    cleanString((row as { skillId?: unknown }).skillId) ||
+    cleanString(payload.skillId) ||
+    cleanString(payload.skill_id)
+  );
+}
+
 function normalizeDashboardRow(
   row: PluginStateReadonlyRow,
   backendById: Map<string, BackendInstance>,
@@ -145,15 +242,25 @@ function normalizeDashboardRow(
     cleanString(row.taskId) ||
     cleanString(payload.taskId) ||
     cleanString(row.requestId);
+  const runKey =
+    cleanString(row.runKey) ||
+    cleanString(payload.runKey) ||
+    cleanString(payload.run_key) ||
+    (backendType === DEFAULT_BACKEND_TYPE ? id : "");
+  const requestId = cleanString(row.requestId || payload.requestId);
   return {
     id,
     taskId: id,
+    runKey: runKey || undefined,
     workflowId:
       cleanString(payload.workflowId) ||
       cleanString(payload.workflow_id) ||
       cleanString(row.workflowId),
     workflowLabel: resolveWorkflowLabel(row) || "Unknown workflow",
     workflowName: resolveWorkflowLabel(row) || "Unknown workflow",
+    skillName: resolveSkillName(row),
+    skillLabel: resolveSkillLabel(row),
+    skillId: resolveSkillId(row),
     backendId,
     backendType,
     backendLabel: backendDisplayName(backend) || backendId,
@@ -164,7 +271,7 @@ function normalizeDashboardRow(
     stateSemantics: stateSemantics(state),
     stateLabel: stateLabel(state),
     statusLabel: stateLabel(state),
-    requestId: cleanString(row.requestId || payload.requestId),
+    requestId,
     requestKind,
     engine:
       cleanString(payload.engine) ||
@@ -175,7 +282,10 @@ function normalizeDashboardRow(
     createdAt: cleanString(payload.createdAt || payload.created_at),
     updatedAt: cleanString(row.updatedAt || payload.updatedAt),
     canCancel: false,
-    canOpen: Boolean(cleanString(row.requestId || payload.requestId)),
+    canOpen:
+      backendType === DEFAULT_BACKEND_TYPE
+        ? Boolean(runKey)
+        : Boolean(requestId),
     raw: payload,
   };
 }
@@ -233,6 +343,7 @@ const DASHBOARD_LABELS = {
   runtimeLogsTabTitle: "Runtime Logs",
   runtimeLogsClear: "Clear Logs",
   runtimeLogsCopySelected: "Copy Selected",
+  runtimeLogsCopyDetail: "Copy Log",
   runtimeLogsCopyVisibleNDJSON: "Copy Visible (NDJSON)",
   runtimeLogsCopyIssueSummary: "Copy Issue Summary",
   runtimeLogsCopyDiagnosticBundle: "Copy Diagnostic Bundle",
@@ -271,11 +382,30 @@ const DASHBOARD_LABELS = {
   productsOpenRun: "Open Run",
   productsRemove: "Remove From Products",
   productsPreviewUnavailable: "Select a file to preview.",
+  productsListTitle: "Products",
+  productsListCollapse: "Collapse product list",
+  productsListExpand: "Expand product list",
+  productsListRail: "Products",
+  productsSectionFiles: "Products",
+  productsSectionFeedback: "Skill Feedback",
+  productsViewerWrap: "Wrap",
+  productsViewerCopy: "Copy",
+  productsViewerCopied: "Copied",
+  productsViewerCopyFailed: "Copy failed",
+  feedbackEmpty: "No skill feedback has been collected yet.",
+  feedbackFilterSkill: "Skill",
+  feedbackFilterAllSkills: "All skills",
+  feedbackSelectAll: "Select all",
+  feedbackExportSelected: "Export Selected",
+  feedbackDeleteSelected: "Delete Selected",
+  feedbackDeleteAll: "Delete All",
+  feedbackExportEmpty: "Select at least one feedback record to export.",
+  feedbackExportSuccess: "Skill feedback export file created.",
   homeWorkflowTitle: "Workflows",
   homeWorkflowDocButton: "Description",
   homeWorkflowRunButton: "Run workflow",
   homeWorkflowSettingsButton: "Settings",
-  homeWorkflowBuiltinBadge: "Builtin",
+  homeWorkflowBuiltinBadge: "Official",
   homeWorkflowCoreBadge: "Core",
   homeWorkflowDocMissingReadme: "README.md was not found for this workflow.",
   homeWorkflowDocBack: "Back to Dashboard",
@@ -285,18 +415,18 @@ const DASHBOARD_LABELS = {
 };
 
 type LoadedHarnessWorkflow = LoadedWorkflow & {
-  workflowSourceKind?: "builtin" | "user";
+  workflowSourceKind?: "official" | "dev-local" | "user";
 };
 
 function mergeWorkflows(args: {
-  builtin: LoadedHarnessWorkflow[];
+  official: LoadedHarnessWorkflow[];
   user: LoadedHarnessWorkflow[];
 }) {
   const byId = new Map<string, LoadedHarnessWorkflow>();
-  for (const workflow of args.builtin) {
+  for (const workflow of args.official) {
     byId.set(workflow.manifest.id, {
       ...workflow,
-      workflowSourceKind: "builtin",
+      workflowSourceKind: "official",
     });
   }
   for (const workflow of args.user) {
@@ -318,10 +448,10 @@ async function loadHarnessWorkflows(args: {
   workflowsDir: string;
   builtinWorkflowsDir: string;
 }) {
-  const [builtin, user] = await Promise.all([
+  const [official, user] = await Promise.all([
     args.builtinWorkflowsDir
       ? loadWorkflowManifests(args.builtinWorkflowsDir, {
-          workflowSourceKind: "builtin",
+          workflowSourceKind: "official",
         })
       : Promise.resolve({ workflows: [] }),
     args.workflowsDir
@@ -332,7 +462,7 @@ async function loadHarnessWorkflows(args: {
   ]);
   return filterHarnessVisibleWorkflows(
     mergeWorkflows({
-      builtin: builtin.workflows as LoadedHarnessWorkflow[],
+      official: official.workflows as LoadedHarnessWorkflow[],
       user: user.workflows as LoadedHarnessWorkflow[],
     }),
   );
@@ -369,11 +499,13 @@ async function readWorkflowDoc(workflow: LoadedHarnessWorkflow) {
   const root = workflowRoot(workflow);
   const readme = root ? path.join(root, "README.md") : "";
   if (!readme) {
-    return { html: "", missingReadme: true };
+    return { html: "", markdown: "", baseFileUri: "", missingReadme: true };
   }
   const source = await readFile(readme, "utf8").catch(() => "");
   return {
     html: source ? minimalMarkdownHtml(source) : "",
+    markdown: source,
+    baseFileUri: pathToFileURL(readme).href,
     missingReadme: !source,
   };
 }
@@ -394,8 +526,10 @@ function normalizeProduct(row: PluginStateReadonlyRow) {
     requestId: cleanString(product.requestId || row.requestId),
     runId: cleanString(product.runId),
     storageMode:
-      product.storageMode === "cached-bundle"
-        ? "cached-bundle"
+      product.storageMode === "persistent-cache" ||
+      product.storageMode === "cached-bundle" ||
+      product.storageMode === "local-workspace"
+        ? product.storageMode
         : "local-workspace",
     workspaceDir: cleanString(product.workspaceDir),
     cacheDir: cleanString(product.cacheDir),
@@ -479,6 +613,10 @@ export async function createDashboardReadonlyModel(
     homeWorkflowDocWorkflowId: "",
     selectedProductId: "",
     selectedProductAssetId: "",
+    selectedProductSection: "products",
+    selectedFeedbackProductId: "",
+    feedbackSkillFilter: "",
+    selectedFeedbackProductIds: new Set(),
     runtimeLogFilters: {},
     runtimeLogSelectedIdSet: new Set(),
   };
@@ -516,7 +654,7 @@ export async function createDashboardReadonlyModel(
           workflowLabel: localizeWorkflowLabel(workflow),
           providerId: descriptor.providerId,
           configurable: descriptor.hasConfigurableSettings,
-          builtin: workflow.workflowSourceKind === "builtin",
+          official: workflow.workflowSourceKind === "official",
           core: isCoreWorkflow(workflow),
           quickRunEnabled:
             canWorkflowRunWithoutSelection(workflow.manifest) &&
@@ -582,19 +720,54 @@ export async function createDashboardReadonlyModel(
   }
 
   function allRows() {
-    return store
+    const genericRows = store
       .listTaskRows({ limit: 300 })
+      .filter((row) => row.domain !== DEFAULT_BACKEND_TYPE)
       .map((row) => normalizeDashboardRow(row, backendById));
+    const skillRunnerRows = projectSkillRunnerReadonlyRuns({
+      runRows: store.listSkillRunnerRunRows({ limit: 300 }),
+      sequenceRows: store.listSkillRunnerSequenceStateRows({ limit: 300 }),
+      backendById,
+      workflows,
+    });
+    return [...genericRows, ...skillRunnerRows].sort((left, right) =>
+      cleanString(right.updatedAt).localeCompare(cleanString(left.updatedAt)),
+    );
   }
 
   function productsView() {
-    const products = store
+    const allProducts = store
       .listTaskRows({
         domain: "workflow-products",
         scope: "products",
         limit: 200,
       })
       .map(normalizeProduct);
+    const products = allProducts.filter(
+      (entry) => entry.kind !== SKILL_RUN_FEEDBACK_KIND,
+    );
+    const feedbackAll = allProducts.filter(
+      (entry) => entry.kind === SKILL_RUN_FEEDBACK_KIND,
+    );
+    const feedbackSkillOptions = Array.from(
+      new Set(
+        feedbackAll
+          .map((entry) => cleanString(entry.metadata?.skillId))
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+    if (
+      state.feedbackSkillFilter &&
+      !feedbackSkillOptions.includes(state.feedbackSkillFilter)
+    ) {
+      state.feedbackSkillFilter = "";
+    }
+    const feedbackProducts = state.feedbackSkillFilter
+      ? feedbackAll.filter(
+          (entry) =>
+            cleanString(entry.metadata?.skillId) === state.feedbackSkillFilter,
+        )
+      : feedbackAll;
     const selected =
       products.find((entry) => entry.productId === state.selectedProductId) ||
       products[0];
@@ -604,13 +777,37 @@ export async function createDashboardReadonlyModel(
         (entry: any) => entry.assetId === state.selectedProductAssetId,
       ) || selected?.assets[0];
     state.selectedProductAssetId = selectedAsset?.assetId || "";
+    const selectedFeedback =
+      feedbackProducts.find(
+        (entry) => entry.productId === state.selectedFeedbackProductId,
+      ) || feedbackProducts[0];
+    state.selectedFeedbackProductId = selectedFeedback?.productId || "";
+    for (const id of Array.from(state.selectedFeedbackProductIds)) {
+      if (!feedbackProducts.some((entry) => entry.productId === id)) {
+        state.selectedFeedbackProductIds.delete(id);
+      }
+    }
+    const feedbackAsset =
+      selectedFeedback?.assets.find(
+        (entry: any) => entry.assetId === SKILL_RUN_FEEDBACK_ASSET_ID,
+      ) || selectedFeedback?.assets[0];
     return {
+      section: state.selectedProductSection,
       products,
       selectedProduct: selected,
       selectedAssetId: selectedAsset?.assetId,
       selectedPreview: selected
         ? previewForProductAsset(selected, selectedAsset?.assetId || "")
         : undefined,
+      feedbackProducts,
+      feedbackSkillOptions,
+      feedbackSkillFilter: state.feedbackSkillFilter,
+      selectedFeedbackProduct: selectedFeedback,
+      selectedFeedbackProductIds: Array.from(state.selectedFeedbackProductIds),
+      selectedFeedbackPreview:
+        selectedFeedback && feedbackAsset
+          ? previewForProductAsset(selectedFeedback, feedbackAsset.assetId)
+          : undefined,
     };
   }
 
@@ -710,9 +907,11 @@ export async function createDashboardReadonlyModel(
       },
       runningRows,
       homeWorkflows,
-      backendLoadError: store.tableExists("plugin_task_rows")
-        ? cleanString(backendResult.fatalError)
-        : "Readonly harness could not find Dashboard task tables in the plugin DB.",
+      backendLoadError:
+        store.tableExists("plugin_task_rows") ||
+        store.tableExists("plugin_skillrunner_runs")
+          ? cleanString(backendResult.fatalError)
+          : "Readonly harness could not find Dashboard task tables in the plugin DB.",
     };
     if (state.homeWorkflowDocWorkflowId && state.selectedTabKey === "home") {
       const workflow = workflows.find(
@@ -724,6 +923,8 @@ export async function createDashboardReadonlyModel(
           workflowId: workflow.manifest.id,
           workflowLabel: localizeWorkflowLabel(workflow),
           html: doc.html,
+          markdown: doc.markdown,
+          baseFileUri: doc.baseFileUri,
           missingReadme: doc.missingReadme,
         };
       }
@@ -753,6 +954,8 @@ export async function createDashboardReadonlyModel(
         logRows: [],
       };
     }
+    snapshotPayload.surfaceSignatures =
+      dashboardSurfaceSignatures(snapshotPayload);
     return snapshotPayload;
   }
 
@@ -780,14 +983,54 @@ export async function createDashboardReadonlyModel(
       state.selectedWorkflowOptionsWorkflowId = cleanString(data.workflowId);
     } else if (action === "select-product") {
       state.selectedTabKey = "products";
+      state.selectedProductSection = "products";
       state.selectedProductId = cleanString(data.productId);
       state.selectedProductAssetId = "";
     } else if (action === "select-product-asset") {
+      state.selectedProductSection = "products";
       state.selectedProductAssetId = cleanString(data.assetId);
+    } else if (action === "select-product-section") {
+      state.selectedTabKey = "products";
+      state.selectedProductSection =
+        cleanString(data.section) === "feedback" ? "feedback" : "products";
+    } else if (action === "select-feedback-skill-filter") {
+      state.selectedTabKey = "products";
+      state.selectedProductSection = "feedback";
+      state.feedbackSkillFilter = cleanString(data.skillId);
+      state.selectedFeedbackProductId = "";
+      state.selectedFeedbackProductIds.clear();
+    } else if (action === "select-feedback-product") {
+      state.selectedTabKey = "products";
+      state.selectedProductSection = "feedback";
+      state.selectedFeedbackProductId = cleanString(data.productId);
+    } else if (action === "toggle-feedback-product-selected") {
+      const productId = cleanString(data.productId);
+      if (productId) {
+        if (data.selected === true) {
+          state.selectedFeedbackProductIds.add(productId);
+        } else {
+          state.selectedFeedbackProductIds.delete(productId);
+        }
+      }
+    } else if (action === "export-selected-feedback") {
+      log("dashboard", action, {
+        productIds: Array.from(state.selectedFeedbackProductIds),
+      });
+    } else if (action === "delete-selected-feedback") {
+      log("dashboard", action, {
+        productIds: Array.from(state.selectedFeedbackProductIds),
+      });
+    } else if (action === "delete-all-feedback") {
+      log("dashboard", action, {
+        skillId: state.feedbackSkillFilter,
+      });
     } else if (action === "runtime-logs-set-filters") {
       state.runtimeLogFilters =
         data.filters && typeof data.filters === "object"
-          ? { ...(data.filters as Record<string, unknown>) }
+          ? {
+              ...state.runtimeLogFilters,
+              ...(data.filters as Record<string, unknown>),
+            }
           : {};
     } else if (action === "select-log-entry") {
       const id = cleanString(data.logEntryId);

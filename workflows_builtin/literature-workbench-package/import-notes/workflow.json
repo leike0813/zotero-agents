@@ -3,8 +3,24 @@
   "label": "Import Notes",
   "version": "1.0.0",
   "provider": "pass-through",
+  "inputs": {
+    "unit": "parent"
+  },
+  "validateSelection": {
+    "require": {
+      "allowMixed": false,
+      "counts": {
+        "parents": { "exact": 1 },
+        "attachments": { "exact": 0 },
+        "notes": { "exact": 0 },
+        "children": { "exact": 0 }
+      }
+    },
+    "select": {
+      "policy": "selected-parent"
+    }
+  },
   "hooks": {
-    "filterInputs": "hooks/filterInputs.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }

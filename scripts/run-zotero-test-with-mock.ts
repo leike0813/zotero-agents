@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import path from "path";
 import { pathToFileURL } from "url";
+import { isTruthyDiagnosticFlag } from "../src/modules/diagnosticVerbosity";
 
 type Child = ReturnType<typeof spawn>;
 type SpawnOptions = Parameters<typeof spawn>[2];
@@ -10,6 +11,7 @@ type WrappedTestInvocation = {
   requestedMode: string;
   requestedDomain: string;
   targetTestArgs: string[];
+  verbose: boolean;
 };
 
 const MOCK_PORT = "8030";
@@ -39,9 +41,7 @@ export function parseWrappedTestInvocation(
   env: NodeJS.ProcessEnv = process.env,
 ): WrappedTestInvocation {
   const targetScript =
-    cliArgs[0] ||
-    env.ZOTERO_TEST_TARGET_SCRIPT ||
-    DEFAULT_ZOTERO_TARGET_SCRIPT;
+    cliArgs[0] || env.ZOTERO_TEST_TARGET_SCRIPT || DEFAULT_ZOTERO_TARGET_SCRIPT;
   let modeArg = cliArgs[1];
   let domainArg = cliArgs[2];
   let targetTestArgs = cliArgs.slice(3);
@@ -53,6 +53,7 @@ export function parseWrappedTestInvocation(
     domainArg = undefined;
     targetTestArgs = cliArgs.slice(2);
   }
+  const verboseArgs = consumeWrapperVerboseArgs(targetTestArgs);
   const defaultMode = targetScript.startsWith("test:zotero")
     ? "lite"
     : normalizeTestMode(env.ZOTERO_TEST_MODE || "lite");
@@ -63,8 +64,23 @@ export function parseWrappedTestInvocation(
     targetScript,
     requestedMode: modeArg || env.ZOTERO_TEST_MODE || defaultMode,
     requestedDomain: domainArg || env.ZOTERO_TEST_DOMAIN || defaultDomain,
-    targetTestArgs,
+    targetTestArgs: verboseArgs.args,
+    verbose:
+      verboseArgs.verbose || isTruthyDiagnosticFlag(env.ZOTERO_TEST_VERBOSE),
   };
+}
+
+function consumeWrapperVerboseArgs(args: string[]) {
+  let verbose = false;
+  const forwarded: string[] = [];
+  for (const arg of args) {
+    if (arg === "--verbose" || arg === "-v") {
+      verbose = true;
+      continue;
+    }
+    forwarded.push(arg);
+  }
+  return { args: forwarded, verbose };
 }
 
 export function isZoteroTargetScript(targetScript: string) {
@@ -78,9 +94,7 @@ export function isNodeMochaTargetScript(targetScript: string) {
 export function hasExplicitWatchFlag(args: string[]) {
   return args.some(
     (arg) =>
-      arg === "--watch" ||
-      arg === "--no-watch" ||
-      arg === "--exit-on-finish",
+      arg === "--watch" || arg === "--no-watch" || arg === "--exit-on-finish",
   );
 }
 
@@ -118,6 +132,11 @@ export function buildTestEnvironment(
     ZOTERO_TEST_MODE: testMode,
     ZOTERO_TEST_DOMAIN: testDomain,
   };
+  if (invocation.verbose) {
+    nextEnv.ZOTERO_TEST_VERBOSE = "1";
+  } else {
+    delete nextEnv.ZOTERO_TEST_VERBOSE;
+  }
   if (workflowDir) {
     nextEnv.ZOTERO_TEST_WORKFLOW_DIR = workflowDir;
   } else {
@@ -186,7 +205,10 @@ function waitForMockReady(mock: Child, timeoutMs = 8000) {
   });
 }
 
-function runTargetTests(invocation: WrappedTestInvocation, env: NodeJS.ProcessEnv) {
+function runTargetTests(
+  invocation: WrappedTestInvocation,
+  env: NodeJS.ProcessEnv,
+) {
   return new Promise<number>((resolve) => {
     const args = ["run", invocation.targetScript];
     const forwardedArgs = buildForwardedTestArgs(
@@ -259,15 +281,7 @@ async function main() {
   );
 
   const mock = spawnNpm(
-    [
-      "run",
-      "mock:skillrunner",
-      "--",
-      "--host",
-      MOCK_HOST,
-      "--port",
-      MOCK_PORT,
-    ],
+    ["run", "mock:skillrunner", "--", "--host", MOCK_HOST, "--port", MOCK_PORT],
     {
       stdio: ["ignore", "pipe", "pipe"],
       env: testEnv,
@@ -317,8 +331,7 @@ async function main() {
 }
 
 const shouldRunAsScript =
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (shouldRunAsScript) {
   void main();

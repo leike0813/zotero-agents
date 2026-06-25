@@ -14,6 +14,25 @@ The execution pipeline SHALL be organized into explicit seams for preparation, r
 - **WHEN** provider run results are available
 - **THEN** result application is executed through a dedicated apply seam contract rather than inline queue logic
 
+### Requirement: Sequence step apply SHALL remain an explicit execution seam
+
+The run seam SHALL provide the sequence runtime with an explicit callback for
+applying opt-in sequence step results.
+
+#### Scenario: Run seam resolves step apply workflow
+
+- **GIVEN** a sequence step declares `apply_result.workflow_id`
+- **WHEN** that step succeeds
+- **THEN** the run seam SHALL resolve the target workflow by id
+- **AND** invoke its `applyResult` hook with step-scoped result context.
+
+#### Scenario: Final apply seam skips step-owned final result
+
+- **GIVEN** a completed sequence job whose final step declares `apply_result`
+- **WHEN** the final apply seam processes the job
+- **THEN** it SHALL record a skipped final apply outcome
+- **AND** it SHALL NOT duplicate the final step's workflow apply.
+
 ### Requirement: Seam refactor SHALL preserve observable behavior
 Refactoring into seams SHALL preserve current observable behavior of execution outcomes and user-facing summaries.
 
@@ -438,4 +457,125 @@ boundary.
 - **WHEN** tag-regulator applies accepted or staged suggestions
 - **THEN** it SHALL call Synthesis tag vocabulary APIs
 - **AND** it SHALL NOT branch on tag-manager local/subscription mode.
+
+## ADDED Requirements
+
+### Requirement: SkillRunner terminal success uses foreground apply
+
+Normal SkillRunner terminal success SHALL be applied by the foreground workflow
+apply seam.
+
+#### Scenario: Single job success runs apply in foreground
+
+- **WHEN** a `skillrunner.job.v1` provider result is terminal success
+- **THEN** the apply seam SHALL execute the workflow `applyResult` hook
+- **AND** update the owning SkillRunner run apply state.
+
+#### Scenario: Sequence root success converges apply state
+
+- **WHEN** a `skillrunner.sequence.v1` foreground run completes
+- **THEN** root apply SHALL update the final result request record apply state
+  to `succeeded`, `failed`, or `skipped`
+- **AND** startup recovery SHALL NOT treat that run as unapplied work.
+
+#### Scenario: Recovery-owned pending still registers deferred completion
+
+- **WHEN** a request-ready run crosses a recoverable local or network failure
+  boundary
+- **THEN** startup or backend recovery MAY register an explicit recovery
+  context
+- **AND** the normal apply seam SHALL NOT return reconcile-owned pending jobs.
+
+#### Scenario: SkillRunner apply summary has no reconcile-owned output
+
+- **WHEN** a normal SkillRunner job is waiting or terminal
+- **THEN** the apply summary SHALL only report succeeded, failed, or pending
+  counts and job outcomes
+- **AND** it SHALL NOT expose a reconcile-owned pending jobs collection.
+
+### Requirement: Workflow apply outcome SHALL contribute to main run status
+
+Workflow execution seams SHALL treat a run as user-visible succeeded only when backend execution succeeded and required apply succeeded, was skipped, or was not required.
+
+#### Scenario: Apply failure after backend success
+
+- **WHEN** an ACP Skills or SkillRunner run reaches backend `succeeded`
+- **AND** required `applyResult` fails
+- **THEN** the run's main status SHALL be `failed`
+- **AND** the run's backend status SHALL remain `succeeded`
+- **AND** summaries and task projections SHALL expose the apply failure.
+
+#### Scenario: Apply skipped is successful
+
+- **WHEN** backend execution succeeds
+- **AND** apply is skipped or not required
+- **THEN** the run's main status SHALL be `succeeded`.
+
+### Requirement: SkillRunner run seam MUST be shared by single jobs and sequence steps
+
+Workflow execution MUST route single SkillRunner jobs and sequence SkillRunner steps through the same SkillRunner run lifecycle seam.
+
+#### Scenario: Single job creates run before provider request
+
+- **GIVEN** workflow execution is about to submit a single SkillRunner job
+- **WHEN** execution enters the SkillRunner seam
+- **THEN** the seam MUST create a `SkillRunnerRunRecord` with stable `runKey`
+  before backend request creation.
+
+#### Scenario: Sequence step creates run before provider request
+
+- **GIVEN** sequence orchestration is about to submit a SkillRunner step
+- **WHEN** execution enters the SkillRunner seam
+- **THEN** the seam MUST create a `SkillRunnerRunRecord` with stable `runKey`
+  before backend request creation
+- **AND** it MUST attach sequence association fields to the run record.
+
+#### Scenario: Request progress uses runKey
+
+- **GIVEN** provider progress references a SkillRunner execution
+- **WHEN** workflow execution records the progress
+- **THEN** it MUST update the run identified by `runKey`
+- **AND** it MUST NOT re-key lifecycle state around `requestId`.
+
+### Requirement: Sequence runtime MUST orchestrate without owning SkillRunner lifecycle truth
+
+The sequence runtime MUST maintain sequence order and aggregate sequence state only; per-step SkillRunner lifecycle truth remains in the SkillRunner run store.
+
+#### Scenario: Sequence state reads step run status
+
+- **GIVEN** a sequence workflow contains SkillRunner steps
+- **WHEN** the sequence runtime computes current orchestration state
+- **THEN** it MUST read each step execution state from the SkillRunner run
+  lifecycle projection
+- **AND** it MUST NOT infer terminal step state from a synthetic job record.
+
+#### Scenario: Observer detachment does not terminalize sequence
+
+- **GIVEN** a sequence SkillRunner step has `requestId`
+- **WHEN** local observation detaches after a network, abort, shutdown, or
+  timeout error
+- **THEN** the sequence runtime MUST keep the sequence recoverable
+- **AND** it MUST NOT mark the step or sequence terminal solely from that
+  observer failure.
+
+### Requirement: SkillRunner run model MUST persist only lifecycle recovery execution facts
+
+Workflow seams MUST avoid persisting display and registry-derived fields in the SkillRunner run record.
+
+#### Scenario: Registry facts are resolved outside the run record
+
+- **GIVEN** a SkillRunner run references `backendId`, `workflowId`, and
+  optional `skillId`
+- **WHEN** workflow execution persists the run
+- **THEN** it MUST persist those identifiers
+- **AND** it MUST NOT persist `backendBaseUrl`, `backendType`, `providerId`,
+  `workflowLabel`, `skillName`, or `skillLabel` as lifecycle facts.
+
+#### Scenario: Sequence display facts stay in sequence state
+
+- **GIVEN** a SkillRunner run belongs to a sequence workflow
+- **WHEN** workflow execution persists the run
+- **THEN** it MUST persist sequence association ids when present
+- **AND** it MUST NOT persist `sequenceStepIndex` or `sequenceFinalStepId` as
+  run lifecycle facts.
 

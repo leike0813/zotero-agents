@@ -1,10 +1,7 @@
 import { config } from "../../package.json";
 import { joinPath } from "../utils/path";
 import { resolveAddonRef } from "../utils/runtimeBridge";
-import {
-  readRuntimeTextFile,
-  runtimePathExists,
-} from "./runtimePersistence";
+import { readRuntimeTextFile, runtimePathExists } from "./runtimePersistence";
 
 export type AcpSkillPatchModule =
   | "runtime_enforcement"
@@ -12,6 +9,7 @@ export type AcpSkillPatchModule =
   | "output_format_contract"
   | "output_contract_details"
   | "output_contract_interactive_pending"
+  | "skill_run_feedback"
   | "mode_auto"
   | "mode_interactive"
   | "run_execution_instructions"
@@ -45,6 +43,10 @@ export const ACP_SKILL_PATCH_TEMPLATES = [
   {
     module: "output_contract_interactive_pending",
     filename: "patch_output_contract_interactive_pending.md",
+  },
+  {
+    module: "skill_run_feedback",
+    filename: "patch_skill_run_feedback.md.j2",
   },
   {
     module: "mode_auto",
@@ -117,11 +119,15 @@ export async function loadAcpSkillPatchTemplate(
   template: AcpSkillPatchTemplate,
 ) {
   const content = hasNodeRuntime()
-    ? (await readTemplateFromNode(template)) || (await readTemplateFromChrome(template))
-    : (await readTemplateFromChrome(template)) || (await readTemplateFromNode(template));
+    ? (await readTemplateFromNode(template)) ||
+      (await readTemplateFromChrome(template))
+    : (await readTemplateFromChrome(template)) ||
+      (await readTemplateFromNode(template));
   const trimmed = normalizeString(content);
   if (!trimmed) {
-    throw new Error(`ACP skill patch template is missing or empty: ${template.filename}`);
+    throw new Error(
+      `ACP skill patch template is missing or empty: ${template.filename}`,
+    );
   }
   return trimmed;
 }
@@ -134,7 +140,9 @@ export function renderAcpSkillPatchTemplate(args: {
   let rendered = args.template;
   for (const key of args.requiredPlaceholders || []) {
     if (!rendered.includes(`{${key}}`)) {
-      throw new Error(`ACP skill patch template is missing placeholder: {${key}}`);
+      throw new Error(
+        `ACP skill patch template is missing placeholder: {${key}}`,
+      );
     }
   }
   for (const [key, value] of Object.entries(args.replacements)) {
@@ -142,7 +150,9 @@ export function renderAcpSkillPatchTemplate(args: {
   }
   for (const key of args.requiredPlaceholders || []) {
     if (rendered.includes(`{${key}}`)) {
-      throw new Error(`ACP skill patch template placeholder was not rendered: {${key}}`);
+      throw new Error(
+        `ACP skill patch template placeholder was not rendered: {${key}}`,
+      );
     }
   }
   return rendered.trim();

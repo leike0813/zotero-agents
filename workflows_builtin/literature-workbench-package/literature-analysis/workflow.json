@@ -1,7 +1,7 @@
 {
   "id": "literature-analysis",
   "label": "Literature Analysis",
-  "provider": "acp",
+  "provider": "skillrunner",
   "version": "0.1.0",
   "display": {
     "core": true,
@@ -10,15 +10,73 @@
   "inputs": {
     "unit": "attachment",
     "accepts": {
-      "mime": ["text/markdown", "text/x-markdown", "text/plain", "application/pdf"]
+      "mime": [
+        "text/markdown",
+        "text/x-markdown",
+        "text/plain",
+        "application/pdf"
+      ]
     },
     "per_parent": {
       "min": 1,
       "max": 1
     }
   },
+  "validateSelection": {
+    "select": {
+      "policy": "literature-source"
+    },
+    "exclude": [
+      {
+        "kind": "generated-notes-all",
+        "noteKinds": ["digest", "references", "citation-analysis"]
+      }
+    ]
+  },
   "request": {
-    "kind": "skillrunner.sequence.v1"
+    "kind": "skillrunner.sequence.v1",
+    "sequence": {
+      "steps": [
+        {
+          "id": "digest",
+          "skill_id": "literature-analysis",
+          "mode": "auto",
+          "workspace": "new",
+          "fetch_type": "bundle",
+          "apply_result": {
+            "workflow_id": "literature-analysis",
+            "on_failure": "continue"
+          }
+        },
+        {
+          "id": "tag-regulator",
+          "skill_id": "tag-regulator",
+          "mode": "auto",
+          "workspace": "reuse-workflow",
+          "fetch_type": "result",
+          "apply_result": {
+            "workflow_id": "tag-regulator",
+            "on_failure": "continue"
+          },
+          "handoff": {
+            "bindings": [
+              {
+                "kind": "file",
+                "step": "digest",
+                "source": "digest_path",
+                "target": "/input/digest_markdown",
+                "required": true
+              }
+            ]
+          },
+          "include_if": {
+            "kind": "parameter",
+            "parameter": "auto_tag_regulator",
+            "equals": true
+          }
+        }
+      ]
+    }
   },
   "parameters": {
     "language": {
@@ -53,20 +111,20 @@
     }
   },
   "execution": {
-    "mode": "auto",
-    "skillrunner_mode": "auto",
-    "poll_interval_ms": 2000,
-    "timeout_ms": 1200000
+    "poll_interval_ms": 2000
   },
   "result": {
     "fetch": { "type": "bundle" },
     "expects": {
       "result_json": "result/result.json",
-      "artifacts": ["artifacts/digest.md", "artifacts/references.json", "artifacts/citation_analysis.json"]
+      "artifacts": [
+        "artifacts/digest.md",
+        "artifacts/references.json",
+        "artifacts/citation_analysis.json"
+      ]
     }
   },
   "hooks": {
-    "filterInputs": "hooks/filterInputs.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }

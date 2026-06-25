@@ -6,16 +6,23 @@ import type { LoadedWorkflow } from "../workflows/types";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import { buildWorkflowSettingsUiDescriptor } from "./workflowSettings";
 import type { BackendInstance } from "../backends/types";
-import { ACP_BACKEND_TYPE } from "../config/defaults";
+import { ACP_BACKEND_TYPE, DEFAULT_BACKEND_TYPE } from "../config/defaults";
 import { loadBackendsRegistry } from "../backends/registry";
 import { persistBackendsConfig } from "./backendManager";
 import { probeAcpBackendRuntimeOptions } from "./acpBackendProbe";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
+import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
 import {
   AUTO_APPROVE_ZOTERO_WRITES_PARAM,
   normalizeWorkflowRunOptions,
   type WorkflowRunOptions,
 } from "../workflows/zoteroHostAccessOptions";
+
+const WORKFLOW_SETTINGS_DIALOG_WIDTH = 700;
+const WORKFLOW_SETTINGS_DIALOG_INITIAL_HEIGHT = 540;
+const WORKFLOW_SETTINGS_DIALOG_MIN_HEIGHT = 440;
+const WORKFLOW_SETTINGS_DIALOG_HEIGHT_PADDING = 16;
+const WORKFLOW_SETTINGS_DIALOG_SCREEN_MARGIN = 48;
 
 type WorkflowSettingsDialogSnapshot = {
   title: string;
@@ -37,6 +44,9 @@ type WorkflowSettingsDialogSnapshot = {
     workflowSettingsNumberInvalid: string;
     workflowSettingsPositiveIntegerRequired: string;
     refreshAcpRuntimeCache: string;
+    refreshAcpRuntimeCacheRunning: string;
+    refreshSkillRunnerModelCache: string;
+    refreshSkillRunnerModelCacheRunning: string;
   };
   workflow: {
     id: string;
@@ -63,6 +73,10 @@ type WorkflowSettingsDialogSnapshot = {
       allowCustom?: boolean;
       defaultValue?: unknown;
       disabled?: boolean;
+      visibleIfProviderOption?: {
+        key: string;
+        equals: boolean;
+      };
     }>;
     providerSchemaEntries: Array<{
       key: string;
@@ -78,6 +92,10 @@ type WorkflowSettingsDialogSnapshot = {
       allowCustom?: boolean;
       defaultValue?: unknown;
       disabled?: boolean;
+      visibleIfProviderOption?: {
+        key: string;
+        equals: boolean;
+      };
     }>;
     runSchemaEntries: Array<{
       key: string;
@@ -99,6 +117,7 @@ type WorkflowSettingsDialogSnapshot = {
     runOptions: Record<string, unknown>;
     hasConfigurableSettings: boolean;
     canRefreshAcpRuntimeCache?: boolean;
+    canRefreshSkillRunnerModelCache?: boolean;
   };
   persistChecked: boolean;
 };
@@ -165,6 +184,11 @@ function resolveFrameWindow(frame: Element | null) {
   }
   const candidate = frame as Element & { contentWindow?: Window | null };
   return candidate.contentWindow || null;
+}
+
+function toFiniteNumber(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -294,6 +318,40 @@ function showAcpRuntimeCacheRefreshToast(args: {
   });
 }
 
+function showSkillRunnerModelCacheRefreshToast(args: {
+  ok: boolean;
+  refreshedAt?: string;
+  error?: unknown;
+}) {
+  if (args.ok) {
+    showWorkflowToast({
+      text: localize(
+        "backend-manager-refresh-model-cache-success",
+        "Model cache refreshed. updatedAt={refreshedAt}",
+        {
+          args: {
+            refreshedAt: String(args.refreshedAt || ""),
+          },
+        },
+      ),
+      type: "success",
+    });
+    return;
+  }
+  showWorkflowToast({
+    text: localize(
+      "backend-manager-refresh-model-cache-failed",
+      "Failed to refresh model cache: {error}",
+      {
+        args: {
+          error: resolveErrorText(args.error, "unknown error"),
+        },
+      },
+    ),
+    type: "error",
+  });
+}
+
 export async function openWorkflowSettingsWebDialog(args: {
   workflow: LoadedWorkflow;
   ownerWindow?: _ZoteroTypes.MainWindow;
@@ -325,6 +383,56 @@ export async function openWorkflowSettingsWebDialog(args: {
   let dialog: DialogHelper | undefined;
   let frameWindow: Window | null = null;
   let removeMessageListener: (() => void) | undefined;
+  let lastRequestedDialogHeight = 0;
+
+  const resizeWorkflowSettingsDialogToContent = (contentHeight: unknown) => {
+    const dialogWindow = dialog?.window;
+    if (!dialogWindow || dialogWindow.closed) {
+      return;
+    }
+    const measuredContentHeight = Math.ceil(toFiniteNumber(contentHeight));
+    if (measuredContentHeight <= 0) {
+      return;
+    }
+    const outerWidth =
+      Math.ceil(toFiniteNumber(dialogWindow.outerWidth)) ||
+      WORKFLOW_SETTINGS_DIALOG_WIDTH;
+    const chromeHeight = Math.max(
+      0,
+      Math.ceil(
+        toFiniteNumber(dialogWindow.outerHeight) -
+          toFiniteNumber(dialogWindow.innerHeight),
+      ),
+    );
+    const screenAvailHeight = Math.floor(
+      toFiniteNumber(dialogWindow.screen?.availHeight) || 900,
+    );
+    const maxOuterHeight = Math.max(
+      WORKFLOW_SETTINGS_DIALOG_MIN_HEIGHT,
+      screenAvailHeight - WORKFLOW_SETTINGS_DIALOG_SCREEN_MARGIN,
+    );
+    const targetOuterHeight = Math.min(
+      maxOuterHeight,
+      Math.max(
+        WORKFLOW_SETTINGS_DIALOG_MIN_HEIGHT,
+        measuredContentHeight +
+          chromeHeight +
+          WORKFLOW_SETTINGS_DIALOG_HEIGHT_PADDING,
+      ),
+    );
+    if (
+      Math.abs(targetOuterHeight - lastRequestedDialogHeight) < 8 &&
+      Math.abs(targetOuterHeight - toFiniteNumber(dialogWindow.outerHeight)) < 8
+    ) {
+      return;
+    }
+    lastRequestedDialogHeight = targetOuterHeight;
+    try {
+      dialogWindow.resizeTo(outerWidth, targetOuterHeight);
+    } catch {
+      // ignore resize failures in hosts that disallow window resizing
+    }
+  };
 
   const resolveSelectedBackendForSnapshot = () => {
     const selectedProfile = String(
@@ -408,6 +516,18 @@ export async function openWorkflowSettingsWebDialog(args: {
           "workflow-settings-refresh-acp-runtime-cache",
           "Refresh ACP Config Cache",
         ),
+        refreshAcpRuntimeCacheRunning: localize(
+          "workflow-settings-refresh-acp-runtime-cache-running",
+          "Refreshing ACP Config Cache...",
+        ),
+        refreshSkillRunnerModelCache: localize(
+          "workflow-settings-refresh-skillrunner-model-cache",
+          "Refresh Model Cache",
+        ),
+        refreshSkillRunnerModelCacheRunning: localize(
+          "workflow-settings-refresh-skillrunner-model-cache-running",
+          "Refreshing Model Cache...",
+        ),
       },
       workflow: {
         id: descriptor.workflowId,
@@ -429,6 +549,8 @@ export async function openWorkflowSettingsWebDialog(args: {
         hasConfigurableSettings: descriptor.hasConfigurableSettings,
         canRefreshAcpRuntimeCache:
           resolveSelectedBackendForSnapshot()?.type === ACP_BACKEND_TYPE,
+        canRefreshSkillRunnerModelCache:
+          resolveSelectedBackendForSnapshot()?.type === DEFAULT_BACKEND_TYPE,
       },
       persistChecked,
     };
@@ -512,6 +634,10 @@ export async function openWorkflowSettingsWebDialog(args: {
         pushSnapshot("workflow-settings-dialog:snapshot");
         return;
       }
+      if (action === "resize-to-content") {
+        resizeWorkflowSettingsDialogToContent(envelope.payload?.contentHeight);
+        return;
+      }
       if (action === "refresh-acp-runtime-cache") {
         try {
           const selectedBackendId = String(
@@ -547,6 +673,45 @@ export async function openWorkflowSettingsWebDialog(args: {
         } catch (error) {
           pushSnapshot("workflow-settings-dialog:snapshot");
           showAcpRuntimeCacheRefreshToast({
+            ok: false,
+            error,
+          });
+        }
+        return;
+      }
+      if (action === "refresh-skillrunner-model-cache") {
+        try {
+          const selectedBackendId = String(
+            draft.backendId || descriptor.selectedProfile || "",
+          ).trim();
+          const loaded = await loadBackendsRegistry();
+          const backend = loaded.backends.find(
+            (entry) => String(entry.id || "").trim() === selectedBackendId,
+          );
+          if (!backend) {
+            throw new Error(
+              `Skill Runner backend not found: ${selectedBackendId}`,
+            );
+          }
+          if (String(backend.type || "").trim() !== DEFAULT_BACKEND_TYPE) {
+            throw new Error(
+              `Selected backend is not a Skill Runner backend: ${selectedBackendId}`,
+            );
+          }
+          const refreshed = await refreshSkillRunnerModelCacheForBackend({
+            backend,
+          });
+          candidateBackends = loaded.backends;
+          await refreshDescriptor();
+          pushSnapshot("workflow-settings-dialog:snapshot");
+          showSkillRunnerModelCacheRefreshToast({
+            ok: refreshed.ok,
+            refreshedAt: refreshed.refreshedAt,
+            error: refreshed.error,
+          });
+        } catch (error) {
+          pushSnapshot("workflow-settings-dialog:snapshot");
+          showSkillRunnerModelCacheRefreshToast({
             ok: false,
             error,
           });
@@ -600,11 +765,6 @@ export async function openWorkflowSettingsWebDialog(args: {
         const dialogWindow = dialog?.window;
         if (!doc || !dialogWindow) {
           throw new Error("workflow settings dialog window is unavailable");
-        }
-        try {
-          dialogWindow.resizeTo(760, 660);
-        } catch {
-          // ignore
         }
         const root = doc.getElementById(
           "zs-workflow-settings-dialog-root",
@@ -683,6 +843,13 @@ export async function openWorkflowSettingsWebDialog(args: {
     dialogBuilder.setDialogData(dialogData);
     dialog = dialogBuilder.open(
       localize("workflow-settings-submit-title", "Workflow Settings"),
+      {
+        centerscreen: true,
+        resizable: true,
+        fitContent: false,
+        width: WORKFLOW_SETTINGS_DIALOG_WIDTH,
+        height: WORKFLOW_SETTINGS_DIALOG_INITIAL_HEIGHT,
+      },
     );
   } catch (error) {
     return buildDialogErrorResult({

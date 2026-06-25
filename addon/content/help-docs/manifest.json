@@ -1,0 +1,5320 @@
+{
+  "schema": "zotero-agents.help-docs.v1",
+  "generated_at": "2026-06-25T07:41:59.248Z",
+  "default_doc": "installation",
+  "locales": [
+    "en",
+    "de",
+    "es",
+    "fr",
+    "it",
+    "ja",
+    "ko",
+    "ru",
+    "zh-CN"
+  ],
+  "docs": [
+    {
+      "id": "backends/acp",
+      "locale": "de",
+      "title": "ACP-Backend-Konfiguration",
+      "path": "docs/de/backends/acp.md"
+    },
+    {
+      "id": "backends/backend-manager",
+      "locale": "de",
+      "title": "Backend-Manager",
+      "path": "docs/de/backends/backend-manager.md"
+    },
+    {
+      "id": "backends/generic-http",
+      "locale": "de",
+      "title": "Generisches-HTTP-Backend-Konfiguration",
+      "path": "docs/de/backends/generic-http.md"
+    },
+    {
+      "id": "backends/host-bridge",
+      "locale": "de",
+      "title": "Host Bridge",
+      "path": "docs/de/backends/host-bridge.md"
+    },
+    {
+      "id": "backends/index",
+      "locale": "de",
+      "title": "Backend-Konfigurationsübersicht",
+      "path": "docs/de/backends/index.md"
+    },
+    {
+      "id": "backends/mcp-server",
+      "locale": "de",
+      "title": "MCP-Server",
+      "path": "docs/de/backends/mcp-server.md"
+    },
+    {
+      "id": "backends/skill-runner",
+      "locale": "de",
+      "title": "Skill-Runner-Bereitstellung & -Konfiguration",
+      "path": "docs/de/backends/skill-runner.md"
+    },
+    {
+      "id": "dashboard",
+      "locale": "de",
+      "title": "Dashboard",
+      "path": "docs/de/dashboard.md"
+    },
+    {
+      "id": "getting-started",
+      "locale": "de",
+      "title": "Erste Schritte",
+      "path": "docs/de/getting-started.md"
+    },
+    {
+      "id": "installation",
+      "locale": "de",
+      "title": "Installationsleitfaden",
+      "path": "docs/de/installation.md"
+    },
+    {
+      "id": "intro",
+      "locale": "de",
+      "title": "Zotero Agents",
+      "path": "docs/de/intro.md"
+    },
+    {
+      "id": "markdown-reader",
+      "locale": "de",
+      "title": "Integrierter Markdown-Reader",
+      "path": "docs/de/markdown-reader.md"
+    },
+    {
+      "id": "preferences",
+      "locale": "de",
+      "title": "Einstellungen",
+      "path": "docs/de/preferences.md"
+    },
+    {
+      "id": "sidebar/acp-chat",
+      "locale": "de",
+      "title": "ACP Chat-Nutzung",
+      "path": "docs/de/sidebar/acp-chat.md"
+    },
+    {
+      "id": "sidebar/acp-skills",
+      "locale": "de",
+      "title": "ACP Skills",
+      "path": "docs/de/sidebar/acp-skills.md"
+    },
+    {
+      "id": "sidebar/index",
+      "locale": "de",
+      "title": "Übersicht über die Seitenleiste",
+      "path": "docs/de/sidebar/index.md"
+    },
+    {
+      "id": "sidebar/skillrunner-tab",
+      "locale": "de",
+      "title": "SkillRunner-Tab",
+      "path": "docs/de/sidebar/skillrunner-tab.md"
+    },
+    {
+      "id": "synthesis/concepts",
+      "locale": "de",
+      "title": "Konzept-Wissensbasis",
+      "path": "docs/de/synthesis/concepts.md"
+    },
+    {
+      "id": "synthesis/git-sync",
+      "locale": "de",
+      "title": "Git Sync",
+      "path": "docs/de/synthesis/git-sync.md"
+    },
+    {
+      "id": "synthesis/home",
+      "locale": "de",
+      "title": "Home-Dashboard",
+      "path": "docs/de/synthesis/home.md"
+    },
+    {
+      "id": "synthesis/index",
+      "locale": "de",
+      "title": "Synthesis Workbench – Übersicht",
+      "path": "docs/de/synthesis/index.md"
+    },
+    {
+      "id": "synthesis/index-and-citation",
+      "locale": "de",
+      "title": "Index & Zitationsgraph",
+      "path": "docs/de/synthesis/index-and-citation.md"
+    },
+    {
+      "id": "synthesis/review",
+      "locale": "de",
+      "title": "Review-Zentrale",
+      "path": "docs/de/synthesis/review.md"
+    },
+    {
+      "id": "synthesis/tags",
+      "locale": "de",
+      "title": "Tag-Verwaltung",
+      "path": "docs/de/synthesis/tags.md"
+    },
+    {
+      "id": "synthesis/topic-synthesis",
+      "locale": "de",
+      "title": "Themensynthese erstellen",
+      "path": "docs/de/synthesis/topic-synthesis.md"
+    },
+    {
+      "id": "synthesis/webdav-sync",
+      "locale": "de",
+      "title": "WebDAV Sync",
+      "path": "docs/de/synthesis/webdav-sync.md"
+    },
+    {
+      "id": "workflows/custom/debugging",
+      "locale": "de",
+      "title": "Debugging & Tests",
+      "path": "docs/de/workflows/custom/debugging.md"
+    },
+    {
+      "id": "workflows/custom/hooks",
+      "locale": "de",
+      "title": "Hook-System",
+      "path": "docs/de/workflows/custom/hooks.md"
+    },
+    {
+      "id": "workflows/custom/host-api",
+      "locale": "de",
+      "title": "Host-API-Referenz",
+      "path": "docs/de/workflows/custom/host-api.md"
+    },
+    {
+      "id": "workflows/custom/index",
+      "locale": "de",
+      "title": "Architektur benutzerdefinierter Workflows",
+      "path": "docs/de/workflows/custom/index.md"
+    },
+    {
+      "id": "workflows/custom/localization",
+      "locale": "de",
+      "title": "Lokalisierung",
+      "path": "docs/de/workflows/custom/localization.md"
+    },
+    {
+      "id": "workflows/custom/manifest",
+      "locale": "de",
+      "title": "Workflow-Manifest schreiben",
+      "path": "docs/de/workflows/custom/manifest.md"
+    },
+    {
+      "id": "workflows/custom/packaging",
+      "locale": "de",
+      "title": "Paketierung & Bereitstellung",
+      "path": "docs/de/workflows/custom/packaging.md"
+    },
+    {
+      "id": "workflows/custom/parameters",
+      "locale": "de",
+      "title": "Parametersystem",
+      "path": "docs/de/workflows/custom/parameters.md"
+    },
+    {
+      "id": "workflows/custom/request-kinds",
+      "locale": "de",
+      "title": "Anfragetypen",
+      "path": "docs/de/workflows/custom/request-kinds.md"
+    },
+    {
+      "id": "workflows/custom/selection-context",
+      "locale": "de",
+      "title": "Auswahlkontext",
+      "path": "docs/de/workflows/custom/selection-context.md"
+    },
+    {
+      "id": "workflows/debug-probe",
+      "locale": "de",
+      "title": "Debug Probe",
+      "path": "docs/de/workflows/debug-probe.md"
+    },
+    {
+      "id": "workflows/export-import-notes",
+      "locale": "de",
+      "title": "Export/Import Notes",
+      "path": "docs/de/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/index",
+      "locale": "de",
+      "title": "Workflow-Übersicht",
+      "path": "docs/de/workflows/index.md"
+    },
+    {
+      "id": "workflows/invocation",
+      "locale": "de",
+      "title": "Workflow-Aufruf & -Konfiguration",
+      "path": "docs/de/workflows/invocation.md"
+    },
+    {
+      "id": "workflows/literature-analysis",
+      "locale": "de",
+      "title": "Literature Analysis",
+      "path": "docs/de/workflows/literature-analysis.md"
+    },
+    {
+      "id": "workflows/literature-deep-reading",
+      "locale": "de",
+      "title": "Deep Reading",
+      "path": "docs/de/workflows/literature-deep-reading.md"
+    },
+    {
+      "id": "workflows/literature-explainer",
+      "locale": "de",
+      "title": "Interactive Literature Explainer",
+      "path": "docs/de/workflows/literature-explainer.md"
+    },
+    {
+      "id": "workflows/literature-search-ingest",
+      "locale": "de",
+      "title": "Literature Search & Ingest",
+      "path": "docs/de/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/manuscript-literature-framing",
+      "locale": "de",
+      "title": "Manuscript Literature Framing",
+      "path": "docs/de/workflows/manuscript-literature-framing.md"
+    },
+    {
+      "id": "workflows/mineru",
+      "locale": "de",
+      "title": "MinerU PDF-Parsung",
+      "path": "docs/de/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-bootstrapper",
+      "locale": "de",
+      "title": "Tag Bootstrapper",
+      "path": "docs/de/workflows/tag-bootstrapper.md"
+    },
+    {
+      "id": "workflows/tag-regulator",
+      "locale": "de",
+      "title": "Tag Regulator",
+      "path": "docs/de/workflows/tag-regulator.md"
+    },
+    {
+      "id": "workflows/topic-synthesis",
+      "locale": "de",
+      "title": "Topic Synthesis",
+      "path": "docs/de/workflows/topic-synthesis.md"
+    },
+    {
+      "id": "backends/acp",
+      "locale": "en",
+      "title": "ACP Backend Configuration",
+      "path": "docs/en/backends/acp.md"
+    },
+    {
+      "id": "backends/backend-manager",
+      "locale": "en",
+      "title": "Backend Manager",
+      "path": "docs/en/backends/backend-manager.md"
+    },
+    {
+      "id": "backends/generic-http",
+      "locale": "en",
+      "title": "Generic HTTP Backend Configuration",
+      "path": "docs/en/backends/generic-http.md"
+    },
+    {
+      "id": "backends/host-bridge",
+      "locale": "en",
+      "title": "Host Bridge",
+      "path": "docs/en/backends/host-bridge.md"
+    },
+    {
+      "id": "backends/index",
+      "locale": "en",
+      "title": "Backend Configuration Overview",
+      "path": "docs/en/backends/index.md"
+    },
+    {
+      "id": "backends/mcp-server",
+      "locale": "en",
+      "title": "MCP Server",
+      "path": "docs/en/backends/mcp-server.md"
+    },
+    {
+      "id": "backends/skill-runner",
+      "locale": "en",
+      "title": "Skill-Runner Deployment & Configuration",
+      "path": "docs/en/backends/skill-runner.md"
+    },
+    {
+      "id": "dashboard",
+      "locale": "en",
+      "title": "Dashboard",
+      "path": "docs/en/dashboard.md"
+    },
+    {
+      "id": "getting-started",
+      "locale": "en",
+      "title": "Getting Started",
+      "path": "docs/en/getting-started.md"
+    },
+    {
+      "id": "installation",
+      "locale": "en",
+      "title": "Installation Guide",
+      "path": "docs/en/installation.md"
+    },
+    {
+      "id": "intro",
+      "locale": "en",
+      "title": "Zotero Agents",
+      "path": "docs/en/intro.md"
+    },
+    {
+      "id": "markdown-reader",
+      "locale": "en",
+      "title": "Built-in Markdown Reader",
+      "path": "docs/en/markdown-reader.md"
+    },
+    {
+      "id": "preferences",
+      "locale": "en",
+      "title": "Preferences",
+      "path": "docs/en/preferences.md"
+    },
+    {
+      "id": "sidebar/acp-chat",
+      "locale": "en",
+      "title": "ACP Chat Usage",
+      "path": "docs/en/sidebar/acp-chat.md"
+    },
+    {
+      "id": "sidebar/acp-skills",
+      "locale": "en",
+      "title": "ACP Skills",
+      "path": "docs/en/sidebar/acp-skills.md"
+    },
+    {
+      "id": "sidebar/index",
+      "locale": "en",
+      "title": "Sidebar Overview",
+      "path": "docs/en/sidebar/index.md"
+    },
+    {
+      "id": "sidebar/skillrunner-tab",
+      "locale": "en",
+      "title": "SkillRunner Tab",
+      "path": "docs/en/sidebar/skillrunner-tab.md"
+    },
+    {
+      "id": "synthesis/concepts",
+      "locale": "en",
+      "title": "Concept Knowledge Base",
+      "path": "docs/en/synthesis/concepts.md"
+    },
+    {
+      "id": "synthesis/git-sync",
+      "locale": "en",
+      "title": "Git Sync",
+      "path": "docs/en/synthesis/git-sync.md"
+    },
+    {
+      "id": "synthesis/home",
+      "locale": "en",
+      "title": "Home Dashboard",
+      "path": "docs/en/synthesis/home.md"
+    },
+    {
+      "id": "synthesis/index",
+      "locale": "en",
+      "title": "Synthesis Workbench Overview",
+      "path": "docs/en/synthesis/index.md"
+    },
+    {
+      "id": "synthesis/index-and-citation",
+      "locale": "en",
+      "title": "Index & Citation Graph",
+      "path": "docs/en/synthesis/index-and-citation.md"
+    },
+    {
+      "id": "synthesis/review",
+      "locale": "en",
+      "title": "Review Hub",
+      "path": "docs/en/synthesis/review.md"
+    },
+    {
+      "id": "synthesis/tags",
+      "locale": "en",
+      "title": "Tags Management",
+      "path": "docs/en/synthesis/tags.md"
+    },
+    {
+      "id": "synthesis/topic-synthesis",
+      "locale": "en",
+      "title": "Creating Topic Synthesis",
+      "path": "docs/en/synthesis/topic-synthesis.md"
+    },
+    {
+      "id": "synthesis/webdav-sync",
+      "locale": "en",
+      "title": "WebDAV Sync",
+      "path": "docs/en/synthesis/webdav-sync.md"
+    },
+    {
+      "id": "workflows/custom/debugging",
+      "locale": "en",
+      "title": "Debugging & Testing",
+      "path": "docs/en/workflows/custom/debugging.md"
+    },
+    {
+      "id": "workflows/custom/hooks",
+      "locale": "en",
+      "title": "Hook System",
+      "path": "docs/en/workflows/custom/hooks.md"
+    },
+    {
+      "id": "workflows/custom/host-api",
+      "locale": "en",
+      "title": "Host API Reference",
+      "path": "docs/en/workflows/custom/host-api.md"
+    },
+    {
+      "id": "workflows/custom/index",
+      "locale": "en",
+      "title": "Custom Workflow Architecture Overview",
+      "path": "docs/en/workflows/custom/index.md"
+    },
+    {
+      "id": "workflows/custom/localization",
+      "locale": "en",
+      "title": "Localization",
+      "path": "docs/en/workflows/custom/localization.md"
+    },
+    {
+      "id": "workflows/custom/manifest",
+      "locale": "en",
+      "title": "Writing the Workflow Manifest",
+      "path": "docs/en/workflows/custom/manifest.md"
+    },
+    {
+      "id": "workflows/custom/packaging",
+      "locale": "en",
+      "title": "Packaging & Deployment",
+      "path": "docs/en/workflows/custom/packaging.md"
+    },
+    {
+      "id": "workflows/custom/parameters",
+      "locale": "en",
+      "title": "Parameter System",
+      "path": "docs/en/workflows/custom/parameters.md"
+    },
+    {
+      "id": "workflows/custom/request-kinds",
+      "locale": "en",
+      "title": "Request Kinds",
+      "path": "docs/en/workflows/custom/request-kinds.md"
+    },
+    {
+      "id": "workflows/custom/selection-context",
+      "locale": "en",
+      "title": "Selection Context",
+      "path": "docs/en/workflows/custom/selection-context.md"
+    },
+    {
+      "id": "workflows/debug-probe",
+      "locale": "en",
+      "title": "Debug Probe",
+      "path": "docs/en/workflows/debug-probe.md"
+    },
+    {
+      "id": "workflows/export-import-notes",
+      "locale": "en",
+      "title": "Export/Import Notes",
+      "path": "docs/en/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/index",
+      "locale": "en",
+      "title": "Workflow Overview",
+      "path": "docs/en/workflows/index.md"
+    },
+    {
+      "id": "workflows/invocation",
+      "locale": "en",
+      "title": "Workflow Invocation & Configuration",
+      "path": "docs/en/workflows/invocation.md"
+    },
+    {
+      "id": "workflows/literature-analysis",
+      "locale": "en",
+      "title": "Literature Analysis",
+      "path": "docs/en/workflows/literature-analysis.md"
+    },
+    {
+      "id": "workflows/literature-deep-reading",
+      "locale": "en",
+      "title": "Deep Reading",
+      "path": "docs/en/workflows/literature-deep-reading.md"
+    },
+    {
+      "id": "workflows/literature-explainer",
+      "locale": "en",
+      "title": "Interactive Literature Explainer",
+      "path": "docs/en/workflows/literature-explainer.md"
+    },
+    {
+      "id": "workflows/literature-search-ingest",
+      "locale": "en",
+      "title": "Literature Search & Ingest",
+      "path": "docs/en/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/manuscript-literature-framing",
+      "locale": "en",
+      "title": "Manuscript Literature Framing",
+      "path": "docs/en/workflows/manuscript-literature-framing.md"
+    },
+    {
+      "id": "workflows/mineru",
+      "locale": "en",
+      "title": "MinerU PDF Parsing",
+      "path": "docs/en/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-bootstrapper",
+      "locale": "en",
+      "title": "Tag Bootstrapper",
+      "path": "docs/en/workflows/tag-bootstrapper.md"
+    },
+    {
+      "id": "workflows/tag-regulator",
+      "locale": "en",
+      "title": "Tag Regulator",
+      "path": "docs/en/workflows/tag-regulator.md"
+    },
+    {
+      "id": "workflows/topic-synthesis",
+      "locale": "en",
+      "title": "Topic Synthesis",
+      "path": "docs/en/workflows/topic-synthesis.md"
+    },
+    {
+      "id": "backends/acp",
+      "locale": "es",
+      "title": "Configuración del backend ACP",
+      "path": "docs/es/backends/acp.md"
+    },
+    {
+      "id": "backends/backend-manager",
+      "locale": "es",
+      "title": "Backend Manager",
+      "path": "docs/es/backends/backend-manager.md"
+    },
+    {
+      "id": "backends/generic-http",
+      "locale": "es",
+      "title": "Configuración del backend HTTP genérico",
+      "path": "docs/es/backends/generic-http.md"
+    },
+    {
+      "id": "backends/host-bridge",
+      "locale": "es",
+      "title": "Host Bridge",
+      "path": "docs/es/backends/host-bridge.md"
+    },
+    {
+      "id": "backends/index",
+      "locale": "es",
+      "title": "Descripción general de la configuración de backends",
+      "path": "docs/es/backends/index.md"
+    },
+    {
+      "id": "backends/mcp-server",
+      "locale": "es",
+      "title": "MCP Server",
+      "path": "docs/es/backends/mcp-server.md"
+    },
+    {
+      "id": "backends/skill-runner",
+      "locale": "es",
+      "title": "Despliegue y configuración de Skill-Runner",
+      "path": "docs/es/backends/skill-runner.md"
+    },
+    {
+      "id": "dashboard",
+      "locale": "es",
+      "title": "Dashboard",
+      "path": "docs/es/dashboard.md"
+    },
+    {
+      "id": "getting-started",
+      "locale": "es",
+      "title": "Primeros pasos",
+      "path": "docs/es/getting-started.md"
+    },
+    {
+      "id": "installation",
+      "locale": "es",
+      "title": "Guía de instalación",
+      "path": "docs/es/installation.md"
+    },
+    {
+      "id": "intro",
+      "locale": "es",
+      "title": "Zotero Agents",
+      "path": "docs/es/intro.md"
+    },
+    {
+      "id": "markdown-reader",
+      "locale": "es",
+      "title": "Lector de Markdown integrado",
+      "path": "docs/es/markdown-reader.md"
+    },
+    {
+      "id": "preferences",
+      "locale": "es",
+      "title": "Preferencias",
+      "path": "docs/es/preferences.md"
+    },
+    {
+      "id": "sidebar/acp-chat",
+      "locale": "es",
+      "title": "Uso de ACP Chat",
+      "path": "docs/es/sidebar/acp-chat.md"
+    },
+    {
+      "id": "sidebar/acp-skills",
+      "locale": "es",
+      "title": "ACP Skills",
+      "path": "docs/es/sidebar/acp-skills.md"
+    },
+    {
+      "id": "sidebar/index",
+      "locale": "es",
+      "title": "Descripción general de la barra lateral",
+      "path": "docs/es/sidebar/index.md"
+    },
+    {
+      "id": "sidebar/skillrunner-tab",
+      "locale": "es",
+      "title": "Pestaña SkillRunner",
+      "path": "docs/es/sidebar/skillrunner-tab.md"
+    },
+    {
+      "id": "synthesis/concepts",
+      "locale": "es",
+      "title": "Base de conocimiento de conceptos",
+      "path": "docs/es/synthesis/concepts.md"
+    },
+    {
+      "id": "synthesis/git-sync",
+      "locale": "es",
+      "title": "Git Sync",
+      "path": "docs/es/synthesis/git-sync.md"
+    },
+    {
+      "id": "synthesis/home",
+      "locale": "es",
+      "title": "Panel Home",
+      "path": "docs/es/synthesis/home.md"
+    },
+    {
+      "id": "synthesis/index",
+      "locale": "es",
+      "title": "Descripción general de Synthesis Workbench",
+      "path": "docs/es/synthesis/index.md"
+    },
+    {
+      "id": "synthesis/index-and-citation",
+      "locale": "es",
+      "title": "Índice y Grafo de Citas",
+      "path": "docs/es/synthesis/index-and-citation.md"
+    },
+    {
+      "id": "synthesis/review",
+      "locale": "es",
+      "title": "Centro de revisión",
+      "path": "docs/es/synthesis/review.md"
+    },
+    {
+      "id": "synthesis/tags",
+      "locale": "es",
+      "title": "Gestión de etiquetas",
+      "path": "docs/es/synthesis/tags.md"
+    },
+    {
+      "id": "synthesis/topic-synthesis",
+      "locale": "es",
+      "title": "Crear síntesis de temas",
+      "path": "docs/es/synthesis/topic-synthesis.md"
+    },
+    {
+      "id": "synthesis/webdav-sync",
+      "locale": "es",
+      "title": "WebDAV Sync",
+      "path": "docs/es/synthesis/webdav-sync.md"
+    },
+    {
+      "id": "workflows/custom/debugging",
+      "locale": "es",
+      "title": "Depuración y pruebas",
+      "path": "docs/es/workflows/custom/debugging.md"
+    },
+    {
+      "id": "workflows/custom/hooks",
+      "locale": "es",
+      "title": "Sistema de Hooks",
+      "path": "docs/es/workflows/custom/hooks.md"
+    },
+    {
+      "id": "workflows/custom/host-api",
+      "locale": "es",
+      "title": "Referencia de la API del Host",
+      "path": "docs/es/workflows/custom/host-api.md"
+    },
+    {
+      "id": "workflows/custom/index",
+      "locale": "es",
+      "title": "Visión general de la arquitectura de Workflow personalizado",
+      "path": "docs/es/workflows/custom/index.md"
+    },
+    {
+      "id": "workflows/custom/localization",
+      "locale": "es",
+      "title": "Localización",
+      "path": "docs/es/workflows/custom/localization.md"
+    },
+    {
+      "id": "workflows/custom/manifest",
+      "locale": "es",
+      "title": "Redacción del manifiesto del Workflow",
+      "path": "docs/es/workflows/custom/manifest.md"
+    },
+    {
+      "id": "workflows/custom/packaging",
+      "locale": "es",
+      "title": "Empaquetado y despliegue",
+      "path": "docs/es/workflows/custom/packaging.md"
+    },
+    {
+      "id": "workflows/custom/parameters",
+      "locale": "es",
+      "title": "Sistema de parámetros",
+      "path": "docs/es/workflows/custom/parameters.md"
+    },
+    {
+      "id": "workflows/custom/request-kinds",
+      "locale": "es",
+      "title": "Tipos de solicitud",
+      "path": "docs/es/workflows/custom/request-kinds.md"
+    },
+    {
+      "id": "workflows/custom/selection-context",
+      "locale": "es",
+      "title": "Contexto de selección",
+      "path": "docs/es/workflows/custom/selection-context.md"
+    },
+    {
+      "id": "workflows/debug-probe",
+      "locale": "es",
+      "title": "Debug Probe",
+      "path": "docs/es/workflows/debug-probe.md"
+    },
+    {
+      "id": "workflows/export-import-notes",
+      "locale": "es",
+      "title": "Export/Import Notes",
+      "path": "docs/es/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/index",
+      "locale": "es",
+      "title": "Descripción general de los flujos de trabajo",
+      "path": "docs/es/workflows/index.md"
+    },
+    {
+      "id": "workflows/invocation",
+      "locale": "es",
+      "title": "Invocación y configuración de flujos de trabajo",
+      "path": "docs/es/workflows/invocation.md"
+    },
+    {
+      "id": "workflows/literature-analysis",
+      "locale": "es",
+      "title": "Literature Analysis",
+      "path": "docs/es/workflows/literature-analysis.md"
+    },
+    {
+      "id": "workflows/literature-deep-reading",
+      "locale": "es",
+      "title": "Deep Reading",
+      "path": "docs/es/workflows/literature-deep-reading.md"
+    },
+    {
+      "id": "workflows/literature-explainer",
+      "locale": "es",
+      "title": "Interactive Literature Explainer",
+      "path": "docs/es/workflows/literature-explainer.md"
+    },
+    {
+      "id": "workflows/literature-search-ingest",
+      "locale": "es",
+      "title": "Literature Search & Ingest",
+      "path": "docs/es/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/manuscript-literature-framing",
+      "locale": "es",
+      "title": "Manuscript Literature Framing",
+      "path": "docs/es/workflows/manuscript-literature-framing.md"
+    },
+    {
+      "id": "workflows/mineru",
+      "locale": "es",
+      "title": "MinerU PDF Parsing",
+      "path": "docs/es/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-bootstrapper",
+      "locale": "es",
+      "title": "Tag Bootstrapper",
+      "path": "docs/es/workflows/tag-bootstrapper.md"
+    },
+    {
+      "id": "workflows/tag-regulator",
+      "locale": "es",
+      "title": "Tag Regulator",
+      "path": "docs/es/workflows/tag-regulator.md"
+    },
+    {
+      "id": "workflows/topic-synthesis",
+      "locale": "es",
+      "title": "Topic Synthesis",
+      "path": "docs/es/workflows/topic-synthesis.md"
+    },
+    {
+      "id": "backends/acp",
+      "locale": "fr",
+      "title": "Configuration du backend ACP",
+      "path": "docs/fr/backends/acp.md"
+    },
+    {
+      "id": "backends/backend-manager",
+      "locale": "fr",
+      "title": "Gestionnaire de backends",
+      "path": "docs/fr/backends/backend-manager.md"
+    },
+    {
+      "id": "backends/generic-http",
+      "locale": "fr",
+      "title": "Configuration du backend Generic HTTP",
+      "path": "docs/fr/backends/generic-http.md"
+    },
+    {
+      "id": "backends/host-bridge",
+      "locale": "fr",
+      "title": "Host Bridge",
+      "path": "docs/fr/backends/host-bridge.md"
+    },
+    {
+      "id": "backends/index",
+      "locale": "fr",
+      "title": "Aperçu de la configuration des backends",
+      "path": "docs/fr/backends/index.md"
+    },
+    {
+      "id": "backends/mcp-server",
+      "locale": "fr",
+      "title": "Serveur MCP",
+      "path": "docs/fr/backends/mcp-server.md"
+    },
+    {
+      "id": "backends/skill-runner",
+      "locale": "fr",
+      "title": "Déploiement et configuration du Skill-Runner",
+      "path": "docs/fr/backends/skill-runner.md"
+    },
+    {
+      "id": "dashboard",
+      "locale": "fr",
+      "title": "Tableau de bord",
+      "path": "docs/fr/dashboard.md"
+    },
+    {
+      "id": "getting-started",
+      "locale": "fr",
+      "title": "Premiers pas",
+      "path": "docs/fr/getting-started.md"
+    },
+    {
+      "id": "installation",
+      "locale": "fr",
+      "title": "Guide d'installation",
+      "path": "docs/fr/installation.md"
+    },
+    {
+      "id": "intro",
+      "locale": "fr",
+      "title": "Zotero Agents",
+      "path": "docs/fr/intro.md"
+    },
+    {
+      "id": "markdown-reader",
+      "locale": "fr",
+      "title": "Lecteur Markdown intégré",
+      "path": "docs/fr/markdown-reader.md"
+    },
+    {
+      "id": "preferences",
+      "locale": "fr",
+      "title": "Préférences",
+      "path": "docs/fr/preferences.md"
+    },
+    {
+      "id": "sidebar/acp-chat",
+      "locale": "fr",
+      "title": "Utilisation de ACP Chat",
+      "path": "docs/fr/sidebar/acp-chat.md"
+    },
+    {
+      "id": "sidebar/acp-skills",
+      "locale": "fr",
+      "title": "ACP Skills",
+      "path": "docs/fr/sidebar/acp-skills.md"
+    },
+    {
+      "id": "sidebar/index",
+      "locale": "fr",
+      "title": "Aperçu de la Barre Latérale",
+      "path": "docs/fr/sidebar/index.md"
+    },
+    {
+      "id": "sidebar/skillrunner-tab",
+      "locale": "fr",
+      "title": "Onglet SkillRunner",
+      "path": "docs/fr/sidebar/skillrunner-tab.md"
+    },
+    {
+      "id": "synthesis/concepts",
+      "locale": "fr",
+      "title": "Base de connaissances conceptuelle",
+      "path": "docs/fr/synthesis/concepts.md"
+    },
+    {
+      "id": "synthesis/git-sync",
+      "locale": "fr",
+      "title": "Synchronisation Git",
+      "path": "docs/fr/synthesis/git-sync.md"
+    },
+    {
+      "id": "synthesis/home",
+      "locale": "fr",
+      "title": "Tableau de bord Home",
+      "path": "docs/fr/synthesis/home.md"
+    },
+    {
+      "id": "synthesis/index",
+      "locale": "fr",
+      "title": "Vue d'ensemble du Synthesis Workbench",
+      "path": "docs/fr/synthesis/index.md"
+    },
+    {
+      "id": "synthesis/index-and-citation",
+      "locale": "fr",
+      "title": "Index et graphe de citations",
+      "path": "docs/fr/synthesis/index-and-citation.md"
+    },
+    {
+      "id": "synthesis/review",
+      "locale": "fr",
+      "title": "Centre de révision",
+      "path": "docs/fr/synthesis/review.md"
+    },
+    {
+      "id": "synthesis/tags",
+      "locale": "fr",
+      "title": "Gestion des balises",
+      "path": "docs/fr/synthesis/tags.md"
+    },
+    {
+      "id": "synthesis/topic-synthesis",
+      "locale": "fr",
+      "title": "Créer une synthèse de sujet",
+      "path": "docs/fr/synthesis/topic-synthesis.md"
+    },
+    {
+      "id": "synthesis/webdav-sync",
+      "locale": "fr",
+      "title": "Synchronisation WebDAV",
+      "path": "docs/fr/synthesis/webdav-sync.md"
+    },
+    {
+      "id": "workflows/custom/debugging",
+      "locale": "fr",
+      "title": "Débogage et tests",
+      "path": "docs/fr/workflows/custom/debugging.md"
+    },
+    {
+      "id": "workflows/custom/hooks",
+      "locale": "fr",
+      "title": "Système de Hooks",
+      "path": "docs/fr/workflows/custom/hooks.md"
+    },
+    {
+      "id": "workflows/custom/host-api",
+      "locale": "fr",
+      "title": "Référence de l'API hôte",
+      "path": "docs/fr/workflows/custom/host-api.md"
+    },
+    {
+      "id": "workflows/custom/index",
+      "locale": "fr",
+      "title": "Vue d'ensemble de l'architecture des workflows personnalisés",
+      "path": "docs/fr/workflows/custom/index.md"
+    },
+    {
+      "id": "workflows/custom/localization",
+      "locale": "fr",
+      "title": "Localisation",
+      "path": "docs/fr/workflows/custom/localization.md"
+    },
+    {
+      "id": "workflows/custom/manifest",
+      "locale": "fr",
+      "title": "Rédaction du manifeste de Workflow",
+      "path": "docs/fr/workflows/custom/manifest.md"
+    },
+    {
+      "id": "workflows/custom/packaging",
+      "locale": "fr",
+      "title": "Empaquetage et déploiement",
+      "path": "docs/fr/workflows/custom/packaging.md"
+    },
+    {
+      "id": "workflows/custom/parameters",
+      "locale": "fr",
+      "title": "Système de paramètres",
+      "path": "docs/fr/workflows/custom/parameters.md"
+    },
+    {
+      "id": "workflows/custom/request-kinds",
+      "locale": "fr",
+      "title": "Types de requêtes",
+      "path": "docs/fr/workflows/custom/request-kinds.md"
+    },
+    {
+      "id": "workflows/custom/selection-context",
+      "locale": "fr",
+      "title": "Contexte de sélection",
+      "path": "docs/fr/workflows/custom/selection-context.md"
+    },
+    {
+      "id": "workflows/debug-probe",
+      "locale": "fr",
+      "title": "Debug Probe",
+      "path": "docs/fr/workflows/debug-probe.md"
+    },
+    {
+      "id": "workflows/export-import-notes",
+      "locale": "fr",
+      "title": "Export/Import Notes",
+      "path": "docs/fr/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/index",
+      "locale": "fr",
+      "title": "Aperçu des Workflows",
+      "path": "docs/fr/workflows/index.md"
+    },
+    {
+      "id": "workflows/invocation",
+      "locale": "fr",
+      "title": "Invocation et Configuration des Workflows",
+      "path": "docs/fr/workflows/invocation.md"
+    },
+    {
+      "id": "workflows/literature-analysis",
+      "locale": "fr",
+      "title": "Literature Analysis",
+      "path": "docs/fr/workflows/literature-analysis.md"
+    },
+    {
+      "id": "workflows/literature-deep-reading",
+      "locale": "fr",
+      "title": "Deep Reading",
+      "path": "docs/fr/workflows/literature-deep-reading.md"
+    },
+    {
+      "id": "workflows/literature-explainer",
+      "locale": "fr",
+      "title": "Interactive Literature Explainer",
+      "path": "docs/fr/workflows/literature-explainer.md"
+    },
+    {
+      "id": "workflows/literature-search-ingest",
+      "locale": "fr",
+      "title": "Literature Search & Ingest",
+      "path": "docs/fr/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/manuscript-literature-framing",
+      "locale": "fr",
+      "title": "Manuscript Literature Framing",
+      "path": "docs/fr/workflows/manuscript-literature-framing.md"
+    },
+    {
+      "id": "workflows/mineru",
+      "locale": "fr",
+      "title": "MinerU PDF Parsing",
+      "path": "docs/fr/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-bootstrapper",
+      "locale": "fr",
+      "title": "Tag Bootstrapper",
+      "path": "docs/fr/workflows/tag-bootstrapper.md"
+    },
+    {
+      "id": "workflows/tag-regulator",
+      "locale": "fr",
+      "title": "Tag Regulator",
+      "path": "docs/fr/workflows/tag-regulator.md"
+    },
+    {
+      "id": "workflows/topic-synthesis",
+      "locale": "fr",
+      "title": "Topic Synthesis",
+      "path": "docs/fr/workflows/topic-synthesis.md"
+    },
+    {
+      "id": "backends/acp",
+      "locale": "it",
+      "title": "Configurazione del backend ACP",
+      "path": "docs/it/backends/acp.md"
+    },
+    {
+      "id": "backends/backend-manager",
+      "locale": "it",
+      "title": "Backend Manager",
+      "path": "docs/it/backends/backend-manager.md"
+    },
+    {
+      "id": "backends/generic-http",
+      "locale": "it",
+      "title": "Configurazione del backend Generic HTTP",
+      "path": "docs/it/backends/generic-http.md"
+    },
+    {
+      "id": "backends/host-bridge",
+      "locale": "it",
+      "title": "Host Bridge",
+      "path": "docs/it/backends/host-bridge.md"
+    },
+    {
+      "id": "backends/index",
+      "locale": "it",
+      "title": "Panoramica sulla configurazione dei backend",
+      "path": "docs/it/backends/index.md"
+    },
+    {
+      "id": "backends/mcp-server",
+      "locale": "it",
+      "title": "Server MCP",
+      "path": "docs/it/backends/mcp-server.md"
+    },
+    {
+      "id": "backends/skill-runner",
+      "locale": "it",
+      "title": "Distribuzione e configurazione di Skill-Runner",
+      "path": "docs/it/backends/skill-runner.md"
+    },
+    {
+      "id": "dashboard",
+      "locale": "it",
+      "title": "Dashboard",
+      "path": "docs/it/dashboard.md"
+    },
+    {
+      "id": "getting-started",
+      "locale": "it",
+      "title": "Primi Passi",
+      "path": "docs/it/getting-started.md"
+    },
+    {
+      "id": "installation",
+      "locale": "it",
+      "title": "Guida all'Installazione",
+      "path": "docs/it/installation.md"
+    },
+    {
+      "id": "intro",
+      "locale": "it",
+      "title": "Zotero Agents",
+      "path": "docs/it/intro.md"
+    },
+    {
+      "id": "markdown-reader",
+      "locale": "it",
+      "title": "Lettore Markdown Integrato",
+      "path": "docs/it/markdown-reader.md"
+    },
+    {
+      "id": "preferences",
+      "locale": "it",
+      "title": "Preferenze",
+      "path": "docs/it/preferences.md"
+    },
+    {
+      "id": "sidebar/acp-chat",
+      "locale": "it",
+      "title": "Utilizzo di ACP Chat",
+      "path": "docs/it/sidebar/acp-chat.md"
+    },
+    {
+      "id": "sidebar/acp-skills",
+      "locale": "it",
+      "title": "ACP Skills",
+      "path": "docs/it/sidebar/acp-skills.md"
+    },
+    {
+      "id": "sidebar/index",
+      "locale": "it",
+      "title": "Panoramica della barra laterale",
+      "path": "docs/it/sidebar/index.md"
+    },
+    {
+      "id": "sidebar/skillrunner-tab",
+      "locale": "it",
+      "title": "Scheda SkillRunner",
+      "path": "docs/it/sidebar/skillrunner-tab.md"
+    },
+    {
+      "id": "synthesis/concepts",
+      "locale": "it",
+      "title": "Base di Conoscenza dei Concetti",
+      "path": "docs/it/synthesis/concepts.md"
+    },
+    {
+      "id": "synthesis/git-sync",
+      "locale": "it",
+      "title": "Git Sync",
+      "path": "docs/it/synthesis/git-sync.md"
+    },
+    {
+      "id": "synthesis/home",
+      "locale": "it",
+      "title": "Dashboard Home",
+      "path": "docs/it/synthesis/home.md"
+    },
+    {
+      "id": "synthesis/index",
+      "locale": "it",
+      "title": "Panoramica di Synthesis Workbench",
+      "path": "docs/it/synthesis/index.md"
+    },
+    {
+      "id": "synthesis/index-and-citation",
+      "locale": "it",
+      "title": "Indice e Grafo delle Citazioni",
+      "path": "docs/it/synthesis/index-and-citation.md"
+    },
+    {
+      "id": "synthesis/review",
+      "locale": "it",
+      "title": "Hub di Revisione",
+      "path": "docs/it/synthesis/review.md"
+    },
+    {
+      "id": "synthesis/tags",
+      "locale": "it",
+      "title": "Gestione dei Tag",
+      "path": "docs/it/synthesis/tags.md"
+    },
+    {
+      "id": "synthesis/topic-synthesis",
+      "locale": "it",
+      "title": "Creazione della Sintesi di Argomento",
+      "path": "docs/it/synthesis/topic-synthesis.md"
+    },
+    {
+      "id": "synthesis/webdav-sync",
+      "locale": "it",
+      "title": "WebDAV Sync",
+      "path": "docs/it/synthesis/webdav-sync.md"
+    },
+    {
+      "id": "workflows/custom/debugging",
+      "locale": "it",
+      "title": "Debug e test",
+      "path": "docs/it/workflows/custom/debugging.md"
+    },
+    {
+      "id": "workflows/custom/hooks",
+      "locale": "it",
+      "title": "Sistema Hook",
+      "path": "docs/it/workflows/custom/hooks.md"
+    },
+    {
+      "id": "workflows/custom/host-api",
+      "locale": "it",
+      "title": "Riferimento API host",
+      "path": "docs/it/workflows/custom/host-api.md"
+    },
+    {
+      "id": "workflows/custom/index",
+      "locale": "it",
+      "title": "Panoramica dell'architettura dei Workflow personalizzati",
+      "path": "docs/it/workflows/custom/index.md"
+    },
+    {
+      "id": "workflows/custom/localization",
+      "locale": "it",
+      "title": "Localizzazione",
+      "path": "docs/it/workflows/custom/localization.md"
+    },
+    {
+      "id": "workflows/custom/manifest",
+      "locale": "it",
+      "title": "Redigere il manifesto del Workflow",
+      "path": "docs/it/workflows/custom/manifest.md"
+    },
+    {
+      "id": "workflows/custom/packaging",
+      "locale": "it",
+      "title": "Pacchettizzazione e distribuzione",
+      "path": "docs/it/workflows/custom/packaging.md"
+    },
+    {
+      "id": "workflows/custom/parameters",
+      "locale": "it",
+      "title": "Sistema dei parametri",
+      "path": "docs/it/workflows/custom/parameters.md"
+    },
+    {
+      "id": "workflows/custom/request-kinds",
+      "locale": "it",
+      "title": "Tipi di richiesta",
+      "path": "docs/it/workflows/custom/request-kinds.md"
+    },
+    {
+      "id": "workflows/custom/selection-context",
+      "locale": "it",
+      "title": "Contesto di selezione",
+      "path": "docs/it/workflows/custom/selection-context.md"
+    },
+    {
+      "id": "workflows/debug-probe",
+      "locale": "it",
+      "title": "Debug Probe",
+      "path": "docs/it/workflows/debug-probe.md"
+    },
+    {
+      "id": "workflows/export-import-notes",
+      "locale": "it",
+      "title": "Esporta/Importa note",
+      "path": "docs/it/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/index",
+      "locale": "it",
+      "title": "Panoramica sui Workflow",
+      "path": "docs/it/workflows/index.md"
+    },
+    {
+      "id": "workflows/invocation",
+      "locale": "it",
+      "title": "Invocazione e configurazione dei Workflow",
+      "path": "docs/it/workflows/invocation.md"
+    },
+    {
+      "id": "workflows/literature-analysis",
+      "locale": "it",
+      "title": "Analisi della letteratura",
+      "path": "docs/it/workflows/literature-analysis.md"
+    },
+    {
+      "id": "workflows/literature-deep-reading",
+      "locale": "it",
+      "title": "Lettura approfondita",
+      "path": "docs/it/workflows/literature-deep-reading.md"
+    },
+    {
+      "id": "workflows/literature-explainer",
+      "locale": "it",
+      "title": "Spiegatore interattivo della letteratura",
+      "path": "docs/it/workflows/literature-explainer.md"
+    },
+    {
+      "id": "workflows/literature-search-ingest",
+      "locale": "it",
+      "title": "Ricerca e acquisizione della letteratura",
+      "path": "docs/it/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/manuscript-literature-framing",
+      "locale": "it",
+      "title": "Strutturazione della letteratura per il manoscritto",
+      "path": "docs/it/workflows/manuscript-literature-framing.md"
+    },
+    {
+      "id": "workflows/mineru",
+      "locale": "it",
+      "title": "Analisi PDF MinerU",
+      "path": "docs/it/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-bootstrapper",
+      "locale": "it",
+      "title": "Bootstrapper dei tag",
+      "path": "docs/it/workflows/tag-bootstrapper.md"
+    },
+    {
+      "id": "workflows/tag-regulator",
+      "locale": "it",
+      "title": "Regolatore dei tag",
+      "path": "docs/it/workflows/tag-regulator.md"
+    },
+    {
+      "id": "workflows/topic-synthesis",
+      "locale": "it",
+      "title": "Sintesi dell'argomento",
+      "path": "docs/it/workflows/topic-synthesis.md"
+    },
+    {
+      "id": "backends/acp",
+      "locale": "ja",
+      "title": "ACPバックエンド設定",
+      "path": "docs/ja/backends/acp.md"
+    },
+    {
+      "id": "backends/backend-manager",
+      "locale": "ja",
+      "title": "バックエンドマネージャー",
+      "path": "docs/ja/backends/backend-manager.md"
+    },
+    {
+      "id": "backends/generic-http",
+      "locale": "ja",
+      "title": "Generic HTTPバックエンド設定",
+      "path": "docs/ja/backends/generic-http.md"
+    },
+    {
+      "id": "backends/host-bridge",
+      "locale": "ja",
+      "title": "Host Bridge",
+      "path": "docs/ja/backends/host-bridge.md"
+    },
+    {
+      "id": "backends/index",
+      "locale": "ja",
+      "title": "バックエンド設定の概要",
+      "path": "docs/ja/backends/index.md"
+    },
+    {
+      "id": "backends/mcp-server",
+      "locale": "ja",
+      "title": "MCPサーバー",
+      "path": "docs/ja/backends/mcp-server.md"
+    },
+    {
+      "id": "backends/skill-runner",
+      "locale": "ja",
+      "title": "Skill-Runnerデプロイと設定",
+      "path": "docs/ja/backends/skill-runner.md"
+    },
+    {
+      "id": "dashboard",
+      "locale": "ja",
+      "title": "ダッシュボード",
+      "path": "docs/ja/dashboard.md"
+    },
+    {
+      "id": "getting-started",
+      "locale": "ja",
+      "title": "はじめに",
+      "path": "docs/ja/getting-started.md"
+    },
+    {
+      "id": "installation",
+      "locale": "ja",
+      "title": "インストールガイド",
+      "path": "docs/ja/installation.md"
+    },
+    {
+      "id": "intro",
+      "locale": "ja",
+      "title": "Zotero Agents",
+      "path": "docs/ja/intro.md"
+    },
+    {
+      "id": "markdown-reader",
+      "locale": "ja",
+      "title": "組み込みMarkdownリーダー",
+      "path": "docs/ja/markdown-reader.md"
+    },
+    {
+      "id": "preferences",
+      "locale": "ja",
+      "title": "環境設定",
+      "path": "docs/ja/preferences.md"
+    },
+    {
+      "id": "sidebar/acp-chat",
+      "locale": "ja",
+      "title": "ACP Chatの使い方",
+      "path": "docs/ja/sidebar/acp-chat.md"
+    },
+    {
+      "id": "sidebar/acp-skills",
+      "locale": "ja",
+      "title": "ACP Skills",
+      "path": "docs/ja/sidebar/acp-skills.md"
+    },
+    {
+      "id": "sidebar/index",
+      "locale": "ja",
+      "title": "サイドバー概要",
+      "path": "docs/ja/sidebar/index.md"
+    },
+    {
+      "id": "sidebar/skillrunner-tab",
+      "locale": "ja",
+      "title": "SkillRunnerタブ",
+      "path": "docs/ja/sidebar/skillrunner-tab.md"
+    },
+    {
+      "id": "synthesis/concepts",
+      "locale": "ja",
+      "title": "概念知識ベース",
+      "path": "docs/ja/synthesis/concepts.md"
+    },
+    {
+      "id": "synthesis/git-sync",
+      "locale": "ja",
+      "title": "Git Sync",
+      "path": "docs/ja/synthesis/git-sync.md"
+    },
+    {
+      "id": "synthesis/home",
+      "locale": "ja",
+      "title": "Home ダッシュボード",
+      "path": "docs/ja/synthesis/home.md"
+    },
+    {
+      "id": "synthesis/index",
+      "locale": "ja",
+      "title": "Synthesis Workbench 概要",
+      "path": "docs/ja/synthesis/index.md"
+    },
+    {
+      "id": "synthesis/index-and-citation",
+      "locale": "ja",
+      "title": "インデックスと引用グラフ",
+      "path": "docs/ja/synthesis/index-and-citation.md"
+    },
+    {
+      "id": "synthesis/review",
+      "locale": "ja",
+      "title": "レビューハブ",
+      "path": "docs/ja/synthesis/review.md"
+    },
+    {
+      "id": "synthesis/tags",
+      "locale": "ja",
+      "title": "タグ管理",
+      "path": "docs/ja/synthesis/tags.md"
+    },
+    {
+      "id": "synthesis/topic-synthesis",
+      "locale": "ja",
+      "title": "トピック統合の作成",
+      "path": "docs/ja/synthesis/topic-synthesis.md"
+    },
+    {
+      "id": "synthesis/webdav-sync",
+      "locale": "ja",
+      "title": "WebDAV Sync",
+      "path": "docs/ja/synthesis/webdav-sync.md"
+    },
+    {
+      "id": "workflows/custom/debugging",
+      "locale": "ja",
+      "title": "デバッグとテスト",
+      "path": "docs/ja/workflows/custom/debugging.md"
+    },
+    {
+      "id": "workflows/custom/hooks",
+      "locale": "ja",
+      "title": "フックシステム",
+      "path": "docs/ja/workflows/custom/hooks.md"
+    },
+    {
+      "id": "workflows/custom/host-api",
+      "locale": "ja",
+      "title": "ホスト API リファレンス",
+      "path": "docs/ja/workflows/custom/host-api.md"
+    },
+    {
+      "id": "workflows/custom/index",
+      "locale": "ja",
+      "title": "カスタム Workflow アーキテクチャ概要",
+      "path": "docs/ja/workflows/custom/index.md"
+    },
+    {
+      "id": "workflows/custom/localization",
+      "locale": "ja",
+      "title": "ローカライズ",
+      "path": "docs/ja/workflows/custom/localization.md"
+    },
+    {
+      "id": "workflows/custom/manifest",
+      "locale": "ja",
+      "title": "Workflow マニフェストの作成",
+      "path": "docs/ja/workflows/custom/manifest.md"
+    },
+    {
+      "id": "workflows/custom/packaging",
+      "locale": "ja",
+      "title": "パッケージングとデプロイ",
+      "path": "docs/ja/workflows/custom/packaging.md"
+    },
+    {
+      "id": "workflows/custom/parameters",
+      "locale": "ja",
+      "title": "パラメータシステム",
+      "path": "docs/ja/workflows/custom/parameters.md"
+    },
+    {
+      "id": "workflows/custom/request-kinds",
+      "locale": "ja",
+      "title": "リクエスト種別",
+      "path": "docs/ja/workflows/custom/request-kinds.md"
+    },
+    {
+      "id": "workflows/custom/selection-context",
+      "locale": "ja",
+      "title": "選択コンテキスト",
+      "path": "docs/ja/workflows/custom/selection-context.md"
+    },
+    {
+      "id": "workflows/debug-probe",
+      "locale": "ja",
+      "title": "Debug Probe",
+      "path": "docs/ja/workflows/debug-probe.md"
+    },
+    {
+      "id": "workflows/export-import-notes",
+      "locale": "ja",
+      "title": "Export/Import Notes",
+      "path": "docs/ja/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/index",
+      "locale": "ja",
+      "title": "Workflow概要",
+      "path": "docs/ja/workflows/index.md"
+    },
+    {
+      "id": "workflows/invocation",
+      "locale": "ja",
+      "title": "Workflowの実行と設定",
+      "path": "docs/ja/workflows/invocation.md"
+    },
+    {
+      "id": "workflows/literature-analysis",
+      "locale": "ja",
+      "title": "Literature Analysis",
+      "path": "docs/ja/workflows/literature-analysis.md"
+    },
+    {
+      "id": "workflows/literature-deep-reading",
+      "locale": "ja",
+      "title": "Deep Reading",
+      "path": "docs/ja/workflows/literature-deep-reading.md"
+    },
+    {
+      "id": "workflows/literature-explainer",
+      "locale": "ja",
+      "title": "Interactive Literature Explainer",
+      "path": "docs/ja/workflows/literature-explainer.md"
+    },
+    {
+      "id": "workflows/literature-search-ingest",
+      "locale": "ja",
+      "title": "Literature Search & Ingest",
+      "path": "docs/ja/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/manuscript-literature-framing",
+      "locale": "ja",
+      "title": "Manuscript Literature Framing",
+      "path": "docs/ja/workflows/manuscript-literature-framing.md"
+    },
+    {
+      "id": "workflows/mineru",
+      "locale": "ja",
+      "title": "MinerU PDF解析",
+      "path": "docs/ja/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-bootstrapper",
+      "locale": "ja",
+      "title": "Tag Bootstrapper",
+      "path": "docs/ja/workflows/tag-bootstrapper.md"
+    },
+    {
+      "id": "workflows/tag-regulator",
+      "locale": "ja",
+      "title": "Tag Regulator",
+      "path": "docs/ja/workflows/tag-regulator.md"
+    },
+    {
+      "id": "workflows/topic-synthesis",
+      "locale": "ja",
+      "title": "Topic Synthesis",
+      "path": "docs/ja/workflows/topic-synthesis.md"
+    },
+    {
+      "id": "backends/acp",
+      "locale": "ko",
+      "title": "ACP Backend Configuration",
+      "path": "docs/ko/backends/acp.md"
+    },
+    {
+      "id": "backends/backend-manager",
+      "locale": "ko",
+      "title": "Backend Manager",
+      "path": "docs/ko/backends/backend-manager.md"
+    },
+    {
+      "id": "backends/generic-http",
+      "locale": "ko",
+      "title": "Generic HTTP Backend Configuration",
+      "path": "docs/ko/backends/generic-http.md"
+    },
+    {
+      "id": "backends/host-bridge",
+      "locale": "ko",
+      "title": "Host Bridge",
+      "path": "docs/ko/backends/host-bridge.md"
+    },
+    {
+      "id": "backends/index",
+      "locale": "ko",
+      "title": "Backend Configuration Overview",
+      "path": "docs/ko/backends/index.md"
+    },
+    {
+      "id": "backends/mcp-server",
+      "locale": "ko",
+      "title": "MCP Server",
+      "path": "docs/ko/backends/mcp-server.md"
+    },
+    {
+      "id": "backends/skill-runner",
+      "locale": "ko",
+      "title": "Skill-Runner Deployment & Configuration",
+      "path": "docs/ko/backends/skill-runner.md"
+    },
+    {
+      "id": "dashboard",
+      "locale": "ko",
+      "title": "대시보드",
+      "path": "docs/ko/dashboard.md"
+    },
+    {
+      "id": "getting-started",
+      "locale": "ko",
+      "title": "시작하기",
+      "path": "docs/ko/getting-started.md"
+    },
+    {
+      "id": "installation",
+      "locale": "ko",
+      "title": "설치 가이드",
+      "path": "docs/ko/installation.md"
+    },
+    {
+      "id": "intro",
+      "locale": "ko",
+      "title": "Zotero Agents",
+      "path": "docs/ko/intro.md"
+    },
+    {
+      "id": "markdown-reader",
+      "locale": "ko",
+      "title": "내장 마크다운 리더",
+      "path": "docs/ko/markdown-reader.md"
+    },
+    {
+      "id": "preferences",
+      "locale": "ko",
+      "title": "환경설정",
+      "path": "docs/ko/preferences.md"
+    },
+    {
+      "id": "sidebar/acp-chat",
+      "locale": "ko",
+      "title": "ACP Chat 사용법",
+      "path": "docs/ko/sidebar/acp-chat.md"
+    },
+    {
+      "id": "sidebar/acp-skills",
+      "locale": "ko",
+      "title": "ACP Skills",
+      "path": "docs/ko/sidebar/acp-skills.md"
+    },
+    {
+      "id": "sidebar/index",
+      "locale": "ko",
+      "title": "사이드바 개요",
+      "path": "docs/ko/sidebar/index.md"
+    },
+    {
+      "id": "sidebar/skillrunner-tab",
+      "locale": "ko",
+      "title": "SkillRunner 탭",
+      "path": "docs/ko/sidebar/skillrunner-tab.md"
+    },
+    {
+      "id": "synthesis/concepts",
+      "locale": "ko",
+      "title": "개념 지식 베이스",
+      "path": "docs/ko/synthesis/concepts.md"
+    },
+    {
+      "id": "synthesis/git-sync",
+      "locale": "ko",
+      "title": "Git 동기화",
+      "path": "docs/ko/synthesis/git-sync.md"
+    },
+    {
+      "id": "synthesis/home",
+      "locale": "ko",
+      "title": "홈 대시보드",
+      "path": "docs/ko/synthesis/home.md"
+    },
+    {
+      "id": "synthesis/index",
+      "locale": "ko",
+      "title": "Synthesis Workbench 개요",
+      "path": "docs/ko/synthesis/index.md"
+    },
+    {
+      "id": "synthesis/index-and-citation",
+      "locale": "ko",
+      "title": "인덱스 & 인용 그래프",
+      "path": "docs/ko/synthesis/index-and-citation.md"
+    },
+    {
+      "id": "synthesis/review",
+      "locale": "ko",
+      "title": "리뷰 허브",
+      "path": "docs/ko/synthesis/review.md"
+    },
+    {
+      "id": "synthesis/tags",
+      "locale": "ko",
+      "title": "태그 관리",
+      "path": "docs/ko/synthesis/tags.md"
+    },
+    {
+      "id": "synthesis/topic-synthesis",
+      "locale": "ko",
+      "title": "토픽 통합 생성",
+      "path": "docs/ko/synthesis/topic-synthesis.md"
+    },
+    {
+      "id": "synthesis/webdav-sync",
+      "locale": "ko",
+      "title": "WebDAV 동기화",
+      "path": "docs/ko/synthesis/webdav-sync.md"
+    },
+    {
+      "id": "workflows/custom/debugging",
+      "locale": "ko",
+      "title": "디버깅 및 테스트",
+      "path": "docs/ko/workflows/custom/debugging.md"
+    },
+    {
+      "id": "workflows/custom/hooks",
+      "locale": "ko",
+      "title": "Sistema Hook",
+      "path": "docs/ko/workflows/custom/hooks.md"
+    },
+    {
+      "id": "workflows/custom/host-api",
+      "locale": "ko",
+      "title": "호스트 API 레퍼런스",
+      "path": "docs/ko/workflows/custom/host-api.md"
+    },
+    {
+      "id": "workflows/custom/index",
+      "locale": "ko",
+      "title": "커스텀 Workflow 아키텍처 개요",
+      "path": "docs/ko/workflows/custom/index.md"
+    },
+    {
+      "id": "workflows/custom/localization",
+      "locale": "ko",
+      "title": "로컬라이제이션",
+      "path": "docs/ko/workflows/custom/localization.md"
+    },
+    {
+      "id": "workflows/custom/manifest",
+      "locale": "ko",
+      "title": "Workflow 매니페스트 작성하기",
+      "path": "docs/ko/workflows/custom/manifest.md"
+    },
+    {
+      "id": "workflows/custom/packaging",
+      "locale": "ko",
+      "title": "패키징 및 배포",
+      "path": "docs/ko/workflows/custom/packaging.md"
+    },
+    {
+      "id": "workflows/custom/parameters",
+      "locale": "ko",
+      "title": "파라미터 시스템",
+      "path": "docs/ko/workflows/custom/parameters.md"
+    },
+    {
+      "id": "workflows/custom/request-kinds",
+      "locale": "ko",
+      "title": "요청 종류",
+      "path": "docs/ko/workflows/custom/request-kinds.md"
+    },
+    {
+      "id": "workflows/custom/selection-context",
+      "locale": "ko",
+      "title": "선택 컨텍스트",
+      "path": "docs/ko/workflows/custom/selection-context.md"
+    },
+    {
+      "id": "workflows/debug-probe",
+      "locale": "ko",
+      "title": "Debug Probe",
+      "path": "docs/ko/workflows/debug-probe.md"
+    },
+    {
+      "id": "workflows/export-import-notes",
+      "locale": "ko",
+      "title": "Export/Import Notes",
+      "path": "docs/ko/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/index",
+      "locale": "ko",
+      "title": "Workflow 개요",
+      "path": "docs/ko/workflows/index.md"
+    },
+    {
+      "id": "workflows/invocation",
+      "locale": "ko",
+      "title": "Workflow 호출 및 설정",
+      "path": "docs/ko/workflows/invocation.md"
+    },
+    {
+      "id": "workflows/literature-analysis",
+      "locale": "ko",
+      "title": "Literature Analysis",
+      "path": "docs/ko/workflows/literature-analysis.md"
+    },
+    {
+      "id": "workflows/literature-deep-reading",
+      "locale": "ko",
+      "title": "Deep Reading",
+      "path": "docs/ko/workflows/literature-deep-reading.md"
+    },
+    {
+      "id": "workflows/literature-explainer",
+      "locale": "ko",
+      "title": "Interactive Literature Explainer",
+      "path": "docs/ko/workflows/literature-explainer.md"
+    },
+    {
+      "id": "workflows/literature-search-ingest",
+      "locale": "ko",
+      "title": "Literature Search & Ingest",
+      "path": "docs/ko/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/manuscript-literature-framing",
+      "locale": "ko",
+      "title": "Manuscript Literature Framing",
+      "path": "docs/ko/workflows/manuscript-literature-framing.md"
+    },
+    {
+      "id": "workflows/mineru",
+      "locale": "ko",
+      "title": "MinerU PDF Parsing",
+      "path": "docs/ko/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-bootstrapper",
+      "locale": "ko",
+      "title": "Tag Bootstrapper",
+      "path": "docs/ko/workflows/tag-bootstrapper.md"
+    },
+    {
+      "id": "workflows/tag-regulator",
+      "locale": "ko",
+      "title": "Tag Regulator",
+      "path": "docs/ko/workflows/tag-regulator.md"
+    },
+    {
+      "id": "workflows/topic-synthesis",
+      "locale": "ko",
+      "title": "Topic Synthesis",
+      "path": "docs/ko/workflows/topic-synthesis.md"
+    },
+    {
+      "id": "backends/acp",
+      "locale": "ru",
+      "title": "Конфигурация бэкенда ACP",
+      "path": "docs/ru/backends/acp.md"
+    },
+    {
+      "id": "backends/backend-manager",
+      "locale": "ru",
+      "title": "Менеджер бэкендов",
+      "path": "docs/ru/backends/backend-manager.md"
+    },
+    {
+      "id": "backends/generic-http",
+      "locale": "ru",
+      "title": "Конфигурация бэкенда Generic HTTP",
+      "path": "docs/ru/backends/generic-http.md"
+    },
+    {
+      "id": "backends/host-bridge",
+      "locale": "ru",
+      "title": "Host Bridge",
+      "path": "docs/ru/backends/host-bridge.md"
+    },
+    {
+      "id": "backends/index",
+      "locale": "ru",
+      "title": "Обзор конфигурации бэкендов",
+      "path": "docs/ru/backends/index.md"
+    },
+    {
+      "id": "backends/mcp-server",
+      "locale": "ru",
+      "title": "MCP-сервер",
+      "path": "docs/ru/backends/mcp-server.md"
+    },
+    {
+      "id": "backends/skill-runner",
+      "locale": "ru",
+      "title": "Развёртывание и настройка Skill-Runner",
+      "path": "docs/ru/backends/skill-runner.md"
+    },
+    {
+      "id": "dashboard",
+      "locale": "ru",
+      "title": "Панель мониторинга",
+      "path": "docs/ru/dashboard.md"
+    },
+    {
+      "id": "getting-started",
+      "locale": "ru",
+      "title": "Начало работы",
+      "path": "docs/ru/getting-started.md"
+    },
+    {
+      "id": "installation",
+      "locale": "ru",
+      "title": "Руководство по установке",
+      "path": "docs/ru/installation.md"
+    },
+    {
+      "id": "intro",
+      "locale": "ru",
+      "title": "Zotero Agents",
+      "path": "docs/ru/intro.md"
+    },
+    {
+      "id": "markdown-reader",
+      "locale": "ru",
+      "title": "Встроенный Markdown-ридер",
+      "path": "docs/ru/markdown-reader.md"
+    },
+    {
+      "id": "preferences",
+      "locale": "ru",
+      "title": "Настройки",
+      "path": "docs/ru/preferences.md"
+    },
+    {
+      "id": "sidebar/acp-chat",
+      "locale": "ru",
+      "title": "Использование ACP Чата",
+      "path": "docs/ru/sidebar/acp-chat.md"
+    },
+    {
+      "id": "sidebar/acp-skills",
+      "locale": "ru",
+      "title": "Навыки ACP",
+      "path": "docs/ru/sidebar/acp-skills.md"
+    },
+    {
+      "id": "sidebar/index",
+      "locale": "ru",
+      "title": "Обзор боковой панели",
+      "path": "docs/ru/sidebar/index.md"
+    },
+    {
+      "id": "sidebar/skillrunner-tab",
+      "locale": "ru",
+      "title": "Вкладка SkillRunner",
+      "path": "docs/ru/sidebar/skillrunner-tab.md"
+    },
+    {
+      "id": "synthesis/concepts",
+      "locale": "ru",
+      "title": "База знаний концепций",
+      "path": "docs/ru/synthesis/concepts.md"
+    },
+    {
+      "id": "synthesis/git-sync",
+      "locale": "ru",
+      "title": "Git Sync",
+      "path": "docs/ru/synthesis/git-sync.md"
+    },
+    {
+      "id": "synthesis/home",
+      "locale": "ru",
+      "title": "Главная панель",
+      "path": "docs/ru/synthesis/home.md"
+    },
+    {
+      "id": "synthesis/index",
+      "locale": "ru",
+      "title": "Обзор Synthesis Workbench",
+      "path": "docs/ru/synthesis/index.md"
+    },
+    {
+      "id": "synthesis/index-and-citation",
+      "locale": "ru",
+      "title": "Индекс и граф цитирований",
+      "path": "docs/ru/synthesis/index-and-citation.md"
+    },
+    {
+      "id": "synthesis/review",
+      "locale": "ru",
+      "title": "Центр рецензирования",
+      "path": "docs/ru/synthesis/review.md"
+    },
+    {
+      "id": "synthesis/tags",
+      "locale": "ru",
+      "title": "Управление тегами",
+      "path": "docs/ru/synthesis/tags.md"
+    },
+    {
+      "id": "synthesis/topic-synthesis",
+      "locale": "ru",
+      "title": "Создание синтеза темы",
+      "path": "docs/ru/synthesis/topic-synthesis.md"
+    },
+    {
+      "id": "synthesis/webdav-sync",
+      "locale": "ru",
+      "title": "WebDAV-синхронизация",
+      "path": "docs/ru/synthesis/webdav-sync.md"
+    },
+    {
+      "id": "workflows/custom/debugging",
+      "locale": "ru",
+      "title": "Отладка и тестирование",
+      "path": "docs/ru/workflows/custom/debugging.md"
+    },
+    {
+      "id": "workflows/custom/hooks",
+      "locale": "ru",
+      "title": "Система хуков",
+      "path": "docs/ru/workflows/custom/hooks.md"
+    },
+    {
+      "id": "workflows/custom/host-api",
+      "locale": "ru",
+      "title": "Справочник API хоста",
+      "path": "docs/ru/workflows/custom/host-api.md"
+    },
+    {
+      "id": "workflows/custom/index",
+      "locale": "ru",
+      "title": "Custom Workflow Architecture Overview",
+      "path": "docs/ru/workflows/custom/index.md"
+    },
+    {
+      "id": "workflows/custom/localization",
+      "locale": "ru",
+      "title": "Локализация",
+      "path": "docs/ru/workflows/custom/localization.md"
+    },
+    {
+      "id": "workflows/custom/manifest",
+      "locale": "ru",
+      "title": "Создание манифеста Workflow",
+      "path": "docs/ru/workflows/custom/manifest.md"
+    },
+    {
+      "id": "workflows/custom/packaging",
+      "locale": "ru",
+      "title": "Упаковка и развёртывание",
+      "path": "docs/ru/workflows/custom/packaging.md"
+    },
+    {
+      "id": "workflows/custom/parameters",
+      "locale": "ru",
+      "title": "Система параметров",
+      "path": "docs/ru/workflows/custom/parameters.md"
+    },
+    {
+      "id": "workflows/custom/request-kinds",
+      "locale": "ru",
+      "title": "Типы запросов",
+      "path": "docs/ru/workflows/custom/request-kinds.md"
+    },
+    {
+      "id": "workflows/custom/selection-context",
+      "locale": "ru",
+      "title": "Контекст выделения",
+      "path": "docs/ru/workflows/custom/selection-context.md"
+    },
+    {
+      "id": "workflows/debug-probe",
+      "locale": "ru",
+      "title": "Debug Probe",
+      "path": "docs/ru/workflows/debug-probe.md"
+    },
+    {
+      "id": "workflows/export-import-notes",
+      "locale": "ru",
+      "title": "Экспорт/Импорт заметок",
+      "path": "docs/ru/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/index",
+      "locale": "ru",
+      "title": "Обзор Workflow",
+      "path": "docs/ru/workflows/index.md"
+    },
+    {
+      "id": "workflows/invocation",
+      "locale": "ru",
+      "title": "Вызов и настройка Workflow",
+      "path": "docs/ru/workflows/invocation.md"
+    },
+    {
+      "id": "workflows/literature-analysis",
+      "locale": "ru",
+      "title": "Анализ литературы",
+      "path": "docs/ru/workflows/literature-analysis.md"
+    },
+    {
+      "id": "workflows/literature-deep-reading",
+      "locale": "ru",
+      "title": "Глубокое чтение",
+      "path": "docs/ru/workflows/literature-deep-reading.md"
+    },
+    {
+      "id": "workflows/literature-explainer",
+      "locale": "ru",
+      "title": "Интерактивный пояснитель литературы",
+      "path": "docs/ru/workflows/literature-explainer.md"
+    },
+    {
+      "id": "workflows/literature-search-ingest",
+      "locale": "ru",
+      "title": "Поиск и приём литературы",
+      "path": "docs/ru/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/manuscript-literature-framing",
+      "locale": "ru",
+      "title": "Manuscript Literature Framing",
+      "path": "docs/ru/workflows/manuscript-literature-framing.md"
+    },
+    {
+      "id": "workflows/mineru",
+      "locale": "ru",
+      "title": "Разбор PDF MinerU",
+      "path": "docs/ru/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-bootstrapper",
+      "locale": "ru",
+      "title": "Tag Bootstrapper",
+      "path": "docs/ru/workflows/tag-bootstrapper.md"
+    },
+    {
+      "id": "workflows/tag-regulator",
+      "locale": "ru",
+      "title": "Tag Regulator",
+      "path": "docs/ru/workflows/tag-regulator.md"
+    },
+    {
+      "id": "workflows/topic-synthesis",
+      "locale": "ru",
+      "title": "Topic Synthesis",
+      "path": "docs/ru/workflows/topic-synthesis.md"
+    },
+    {
+      "id": "backends/acp",
+      "locale": "zh-CN",
+      "title": "ACP 后端配置",
+      "path": "docs/zh-CN/backends/acp.md"
+    },
+    {
+      "id": "backends/backend-manager",
+      "locale": "zh-CN",
+      "title": "后端管理器",
+      "path": "docs/zh-CN/backends/backend-manager.md"
+    },
+    {
+      "id": "backends/generic-http",
+      "locale": "zh-CN",
+      "title": "Generic HTTP 后端配置",
+      "path": "docs/zh-CN/backends/generic-http.md"
+    },
+    {
+      "id": "backends/host-bridge",
+      "locale": "zh-CN",
+      "title": "Host Bridge",
+      "path": "docs/zh-CN/backends/host-bridge.md"
+    },
+    {
+      "id": "backends/index",
+      "locale": "zh-CN",
+      "title": "后端配置概览",
+      "path": "docs/zh-CN/backends/index.md"
+    },
+    {
+      "id": "backends/mcp-server",
+      "locale": "zh-CN",
+      "title": "MCP Server",
+      "path": "docs/zh-CN/backends/mcp-server.md"
+    },
+    {
+      "id": "backends/skill-runner",
+      "locale": "zh-CN",
+      "title": "Skill-Runner 部署与配置",
+      "path": "docs/zh-CN/backends/skill-runner.md"
+    },
+    {
+      "id": "dashboard",
+      "locale": "zh-CN",
+      "title": "Dashboard",
+      "path": "docs/zh-CN/dashboard.md"
+    },
+    {
+      "id": "getting-started",
+      "locale": "zh-CN",
+      "title": "快速开始",
+      "path": "docs/zh-CN/getting-started.md"
+    },
+    {
+      "id": "installation",
+      "locale": "zh-CN",
+      "title": "安装指南",
+      "path": "docs/zh-CN/installation.md"
+    },
+    {
+      "id": "intro",
+      "locale": "zh-CN",
+      "title": "Zotero Agents",
+      "path": "docs/zh-CN/intro.md"
+    },
+    {
+      "id": "markdown-reader",
+      "locale": "zh-CN",
+      "title": "内置 Markdown 阅读器",
+      "path": "docs/zh-CN/markdown-reader.md"
+    },
+    {
+      "id": "preferences",
+      "locale": "zh-CN",
+      "title": "偏好设置",
+      "path": "docs/zh-CN/preferences.md"
+    },
+    {
+      "id": "sidebar/acp-chat",
+      "locale": "zh-CN",
+      "title": "ACP Chat 使用",
+      "path": "docs/zh-CN/sidebar/acp-chat.md"
+    },
+    {
+      "id": "sidebar/acp-skills",
+      "locale": "zh-CN",
+      "title": "ACP Skills",
+      "path": "docs/zh-CN/sidebar/acp-skills.md"
+    },
+    {
+      "id": "sidebar/index",
+      "locale": "zh-CN",
+      "title": "侧边栏概览",
+      "path": "docs/zh-CN/sidebar/index.md"
+    },
+    {
+      "id": "sidebar/skillrunner-tab",
+      "locale": "zh-CN",
+      "title": "SkillRunner Tab",
+      "path": "docs/zh-CN/sidebar/skillrunner-tab.md"
+    },
+    {
+      "id": "synthesis/concepts",
+      "locale": "zh-CN",
+      "title": "概念知识库",
+      "path": "docs/zh-CN/synthesis/concepts.md"
+    },
+    {
+      "id": "synthesis/git-sync",
+      "locale": "zh-CN",
+      "title": "Git 同步",
+      "path": "docs/zh-CN/synthesis/git-sync.md"
+    },
+    {
+      "id": "synthesis/home",
+      "locale": "zh-CN",
+      "title": "Home 仪表板",
+      "path": "docs/zh-CN/synthesis/home.md"
+    },
+    {
+      "id": "synthesis/index",
+      "locale": "zh-CN",
+      "title": "Synthesis Workbench 概览",
+      "path": "docs/zh-CN/synthesis/index.md"
+    },
+    {
+      "id": "synthesis/index-and-citation",
+      "locale": "zh-CN",
+      "title": "索引与引文图谱",
+      "path": "docs/zh-CN/synthesis/index-and-citation.md"
+    },
+    {
+      "id": "synthesis/review",
+      "locale": "zh-CN",
+      "title": "审核中心",
+      "path": "docs/zh-CN/synthesis/review.md"
+    },
+    {
+      "id": "synthesis/tags",
+      "locale": "zh-CN",
+      "title": "Tags 管理",
+      "path": "docs/zh-CN/synthesis/tags.md"
+    },
+    {
+      "id": "synthesis/topic-synthesis",
+      "locale": "zh-CN",
+      "title": "创建 Topic 综合",
+      "path": "docs/zh-CN/synthesis/topic-synthesis.md"
+    },
+    {
+      "id": "synthesis/webdav-sync",
+      "locale": "zh-CN",
+      "title": "WebDAV Sync",
+      "path": "docs/zh-CN/synthesis/webdav-sync.md"
+    },
+    {
+      "id": "workflows/custom/debugging",
+      "locale": "zh-CN",
+      "title": "调试与测试",
+      "path": "docs/zh-CN/workflows/custom/debugging.md"
+    },
+    {
+      "id": "workflows/custom/hooks",
+      "locale": "zh-CN",
+      "title": "Hook 系统",
+      "path": "docs/zh-CN/workflows/custom/hooks.md"
+    },
+    {
+      "id": "workflows/custom/host-api",
+      "locale": "zh-CN",
+      "title": "Host API 参考",
+      "path": "docs/zh-CN/workflows/custom/host-api.md"
+    },
+    {
+      "id": "workflows/custom/index",
+      "locale": "zh-CN",
+      "title": "自定义 Workflow 架构总览",
+      "path": "docs/zh-CN/workflows/custom/index.md"
+    },
+    {
+      "id": "workflows/custom/localization",
+      "locale": "zh-CN",
+      "title": "本地化",
+      "path": "docs/zh-CN/workflows/custom/localization.md"
+    },
+    {
+      "id": "workflows/custom/manifest",
+      "locale": "zh-CN",
+      "title": "工作流清单文件编写",
+      "path": "docs/zh-CN/workflows/custom/manifest.md"
+    },
+    {
+      "id": "workflows/custom/packaging",
+      "locale": "zh-CN",
+      "title": "打包与部署",
+      "path": "docs/zh-CN/workflows/custom/packaging.md"
+    },
+    {
+      "id": "workflows/custom/parameters",
+      "locale": "zh-CN",
+      "title": "参数系统",
+      "path": "docs/zh-CN/workflows/custom/parameters.md"
+    },
+    {
+      "id": "workflows/custom/request-kinds",
+      "locale": "zh-CN",
+      "title": "请求种类",
+      "path": "docs/zh-CN/workflows/custom/request-kinds.md"
+    },
+    {
+      "id": "workflows/custom/selection-context",
+      "locale": "zh-CN",
+      "title": "选择上下文",
+      "path": "docs/zh-CN/workflows/custom/selection-context.md"
+    },
+    {
+      "id": "workflows/debug-probe",
+      "locale": "zh-CN",
+      "title": "调试工具",
+      "path": "docs/zh-CN/workflows/debug-probe.md"
+    },
+    {
+      "id": "workflows/export-import-notes",
+      "locale": "zh-CN",
+      "title": "导出/导入笔记",
+      "path": "docs/zh-CN/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/index",
+      "locale": "zh-CN",
+      "title": "Workflow 介绍",
+      "path": "docs/zh-CN/workflows/index.md"
+    },
+    {
+      "id": "workflows/invocation",
+      "locale": "zh-CN",
+      "title": "Workflow 调用与配置",
+      "path": "docs/zh-CN/workflows/invocation.md"
+    },
+    {
+      "id": "workflows/literature-analysis",
+      "locale": "zh-CN",
+      "title": "文献分析",
+      "path": "docs/zh-CN/workflows/literature-analysis.md"
+    },
+    {
+      "id": "workflows/literature-deep-reading",
+      "locale": "zh-CN",
+      "title": "深度阅读",
+      "path": "docs/zh-CN/workflows/literature-deep-reading.md"
+    },
+    {
+      "id": "workflows/literature-explainer",
+      "locale": "zh-CN",
+      "title": "交互式文献解读",
+      "path": "docs/zh-CN/workflows/literature-explainer.md"
+    },
+    {
+      "id": "workflows/literature-search-ingest",
+      "locale": "zh-CN",
+      "title": "文献搜索与入库",
+      "path": "docs/zh-CN/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/manuscript-literature-framing",
+      "locale": "zh-CN",
+      "title": "论文写作框架",
+      "path": "docs/zh-CN/workflows/manuscript-literature-framing.md"
+    },
+    {
+      "id": "workflows/mineru",
+      "locale": "zh-CN",
+      "title": "MinerU PDF 解析",
+      "path": "docs/zh-CN/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-bootstrapper",
+      "locale": "zh-CN",
+      "title": "标签词表初始化",
+      "path": "docs/zh-CN/workflows/tag-bootstrapper.md"
+    },
+    {
+      "id": "workflows/tag-regulator",
+      "locale": "zh-CN",
+      "title": "标签规范化",
+      "path": "docs/zh-CN/workflows/tag-regulator.md"
+    },
+    {
+      "id": "workflows/topic-synthesis",
+      "locale": "zh-CN",
+      "title": "Topic 综合创建",
+      "path": "docs/zh-CN/workflows/topic-synthesis.md"
+    }
+  ],
+  "sidebar": {
+    "en": [
+      {
+        "type": "category",
+        "label": "📖 Guide",
+        "items": [
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
+          {
+            "type": "doc",
+            "id": "installation",
+            "label": "Installation Guide"
+          },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "Getting Started"
+          },
+          {
+            "type": "doc",
+            "id": "markdown-reader",
+            "label": "Built-in Markdown Reader"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "⚙️ Backend Configuration",
+        "items": [
+          {
+            "type": "doc",
+            "id": "backends/index",
+            "label": "Backend Configuration Overview"
+          },
+          {
+            "type": "doc",
+            "id": "backends/backend-manager",
+            "label": "Backend Manager"
+          },
+          {
+            "type": "doc",
+            "id": "backends/acp",
+            "label": "ACP Backend Configuration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/skill-runner",
+            "label": "Skill-Runner Deployment & Configuration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/host-bridge",
+            "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP Server"
+          },
+          {
+            "type": "doc",
+            "id": "backends/generic-http",
+            "label": "Generic HTTP Backend Configuration"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔧 Workflow",
+        "items": [
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Workflow Overview"
+          },
+          {
+            "type": "doc",
+            "id": "workflows/invocation",
+            "label": "Workflow Invocation & Configuration"
+          },
+          {
+            "type": "category",
+            "label": "Official Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/literature-analysis",
+                "label": "Literature Analysis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-explainer",
+                "label": "Interactive Literature Explainer"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-deep-reading",
+                "label": "Deep Reading"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-search-ingest",
+                "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-bootstrapper",
+                "label": "Tag Bootstrapper"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-regulator",
+                "label": "Tag Regulator"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/export-import-notes",
+                "label": "Export/Import Notes"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/mineru",
+                "label": "MinerU PDF Parsing"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/topic-synthesis",
+                "label": "Topic Synthesis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/manuscript-literature-framing",
+                "label": "Manuscript Literature Framing"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/debug-probe",
+                "label": "Debug Probe"
+              }
+            ]
+          },
+          {
+            "type": "category",
+            "label": "Custom Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/custom/index",
+                "label": "Custom Workflow Architecture Overview"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/manifest",
+                "label": "Writing the Workflow Manifest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/hooks",
+                "label": "Hook System"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/parameters",
+                "label": "Parameter System"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/selection-context",
+                "label": "Selection Context"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/host-api",
+                "label": "Host API Reference"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/packaging",
+                "label": "Packaging & Deployment"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/localization",
+                "label": "Localization"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/request-kinds",
+                "label": "Request Kinds"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/debugging",
+                "label": "Debugging & Testing"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
+      {
+        "type": "category",
+        "label": "🖥️ Sidebar & ACP Chat",
+        "items": [
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "Sidebar Overview"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-chat",
+            "label": "ACP Chat Usage"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/skillrunner-tab",
+            "label": "SkillRunner Tab"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔬 Synthesis Workbench",
+        "items": [
+          {
+            "type": "doc",
+            "id": "synthesis/index",
+            "label": "Synthesis Workbench Overview"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Home Dashboard"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "Review Hub"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/concepts",
+            "label": "Concept Knowledge Base"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/git-sync",
+            "label": "Git Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/webdav-sync",
+            "label": "WebDAV Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "Tags Management"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/index-and-citation",
+            "label": "Index & Citation Graph"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/topic-synthesis",
+            "label": "Creating Topic Synthesis"
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
+    ],
+    "de": [
+      {
+        "type": "category",
+        "label": "📖 Guide",
+        "items": [
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
+          {
+            "type": "doc",
+            "id": "installation",
+            "label": "Installationsleitfaden"
+          },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "Erste Schritte"
+          },
+          {
+            "type": "doc",
+            "id": "markdown-reader",
+            "label": "Integrierter Markdown-Reader"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "⚙️ Backend Configuration",
+        "items": [
+          {
+            "type": "doc",
+            "id": "backends/index",
+            "label": "Backend-Konfigurationsübersicht"
+          },
+          {
+            "type": "doc",
+            "id": "backends/backend-manager",
+            "label": "Backend-Manager"
+          },
+          {
+            "type": "doc",
+            "id": "backends/acp",
+            "label": "ACP-Backend-Konfiguration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/skill-runner",
+            "label": "Skill-Runner-Bereitstellung & -Konfiguration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/host-bridge",
+            "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP-Server"
+          },
+          {
+            "type": "doc",
+            "id": "backends/generic-http",
+            "label": "Generisches-HTTP-Backend-Konfiguration"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔧 Workflow",
+        "items": [
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Workflow-Übersicht"
+          },
+          {
+            "type": "doc",
+            "id": "workflows/invocation",
+            "label": "Workflow-Aufruf & -Konfiguration"
+          },
+          {
+            "type": "category",
+            "label": "Official Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/literature-analysis",
+                "label": "Literature Analysis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-explainer",
+                "label": "Interactive Literature Explainer"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-deep-reading",
+                "label": "Deep Reading"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-search-ingest",
+                "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-bootstrapper",
+                "label": "Tag Bootstrapper"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-regulator",
+                "label": "Tag Regulator"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/export-import-notes",
+                "label": "Export/Import Notes"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/mineru",
+                "label": "MinerU PDF-Parsung"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/topic-synthesis",
+                "label": "Topic Synthesis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/manuscript-literature-framing",
+                "label": "Manuscript Literature Framing"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/debug-probe",
+                "label": "Debug Probe"
+              }
+            ]
+          },
+          {
+            "type": "category",
+            "label": "Custom Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/custom/index",
+                "label": "Architektur benutzerdefinierter Workflows"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/manifest",
+                "label": "Workflow-Manifest schreiben"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/hooks",
+                "label": "Hook-System"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/parameters",
+                "label": "Parametersystem"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/selection-context",
+                "label": "Auswahlkontext"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/host-api",
+                "label": "Host-API-Referenz"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/packaging",
+                "label": "Paketierung & Bereitstellung"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/localization",
+                "label": "Lokalisierung"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/request-kinds",
+                "label": "Anfragetypen"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/debugging",
+                "label": "Debugging & Tests"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
+      {
+        "type": "category",
+        "label": "🖥️ Sidebar & ACP Chat",
+        "items": [
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "Übersicht über die Seitenleiste"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-chat",
+            "label": "ACP Chat-Nutzung"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/skillrunner-tab",
+            "label": "SkillRunner-Tab"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔬 Synthesis Workbench",
+        "items": [
+          {
+            "type": "doc",
+            "id": "synthesis/index",
+            "label": "Synthesis Workbench – Übersicht"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Home-Dashboard"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "Review-Zentrale"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/concepts",
+            "label": "Konzept-Wissensbasis"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/git-sync",
+            "label": "Git Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/webdav-sync",
+            "label": "WebDAV Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "Tag-Verwaltung"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/index-and-citation",
+            "label": "Index & Zitationsgraph"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/topic-synthesis",
+            "label": "Themensynthese erstellen"
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
+    ],
+    "es": [
+      {
+        "type": "category",
+        "label": "📖 Guide",
+        "items": [
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
+          {
+            "type": "doc",
+            "id": "installation",
+            "label": "Guía de instalación"
+          },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "Primeros pasos"
+          },
+          {
+            "type": "doc",
+            "id": "markdown-reader",
+            "label": "Lector de Markdown integrado"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "⚙️ Backend Configuration",
+        "items": [
+          {
+            "type": "doc",
+            "id": "backends/index",
+            "label": "Descripción general de la configuración de backends"
+          },
+          {
+            "type": "doc",
+            "id": "backends/backend-manager",
+            "label": "Backend Manager"
+          },
+          {
+            "type": "doc",
+            "id": "backends/acp",
+            "label": "Configuración del backend ACP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/skill-runner",
+            "label": "Despliegue y configuración de Skill-Runner"
+          },
+          {
+            "type": "doc",
+            "id": "backends/host-bridge",
+            "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP Server"
+          },
+          {
+            "type": "doc",
+            "id": "backends/generic-http",
+            "label": "Configuración del backend HTTP genérico"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔧 Workflow",
+        "items": [
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Descripción general de los flujos de trabajo"
+          },
+          {
+            "type": "doc",
+            "id": "workflows/invocation",
+            "label": "Invocación y configuración de flujos de trabajo"
+          },
+          {
+            "type": "category",
+            "label": "Official Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/literature-analysis",
+                "label": "Literature Analysis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-explainer",
+                "label": "Interactive Literature Explainer"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-deep-reading",
+                "label": "Deep Reading"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-search-ingest",
+                "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-bootstrapper",
+                "label": "Tag Bootstrapper"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-regulator",
+                "label": "Tag Regulator"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/export-import-notes",
+                "label": "Export/Import Notes"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/mineru",
+                "label": "MinerU PDF Parsing"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/topic-synthesis",
+                "label": "Topic Synthesis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/manuscript-literature-framing",
+                "label": "Manuscript Literature Framing"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/debug-probe",
+                "label": "Debug Probe"
+              }
+            ]
+          },
+          {
+            "type": "category",
+            "label": "Custom Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/custom/index",
+                "label": "Visión general de la arquitectura de Workflow personalizado"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/manifest",
+                "label": "Redacción del manifiesto del Workflow"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/hooks",
+                "label": "Sistema de Hooks"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/parameters",
+                "label": "Sistema de parámetros"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/selection-context",
+                "label": "Contexto de selección"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/host-api",
+                "label": "Referencia de la API del Host"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/packaging",
+                "label": "Empaquetado y despliegue"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/localization",
+                "label": "Localización"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/request-kinds",
+                "label": "Tipos de solicitud"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/debugging",
+                "label": "Depuración y pruebas"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
+      {
+        "type": "category",
+        "label": "🖥️ Sidebar & ACP Chat",
+        "items": [
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "Descripción general de la barra lateral"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-chat",
+            "label": "Uso de ACP Chat"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/skillrunner-tab",
+            "label": "Pestaña SkillRunner"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔬 Synthesis Workbench",
+        "items": [
+          {
+            "type": "doc",
+            "id": "synthesis/index",
+            "label": "Descripción general de Synthesis Workbench"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Panel Home"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "Centro de revisión"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/concepts",
+            "label": "Base de conocimiento de conceptos"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/git-sync",
+            "label": "Git Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/webdav-sync",
+            "label": "WebDAV Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "Gestión de etiquetas"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/index-and-citation",
+            "label": "Índice y Grafo de Citas"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/topic-synthesis",
+            "label": "Crear síntesis de temas"
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
+    ],
+    "fr": [
+      {
+        "type": "category",
+        "label": "📖 Guide",
+        "items": [
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
+          {
+            "type": "doc",
+            "id": "installation",
+            "label": "Guide d'installation"
+          },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "Premiers pas"
+          },
+          {
+            "type": "doc",
+            "id": "markdown-reader",
+            "label": "Lecteur Markdown intégré"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "⚙️ Backend Configuration",
+        "items": [
+          {
+            "type": "doc",
+            "id": "backends/index",
+            "label": "Aperçu de la configuration des backends"
+          },
+          {
+            "type": "doc",
+            "id": "backends/backend-manager",
+            "label": "Gestionnaire de backends"
+          },
+          {
+            "type": "doc",
+            "id": "backends/acp",
+            "label": "Configuration du backend ACP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/skill-runner",
+            "label": "Déploiement et configuration du Skill-Runner"
+          },
+          {
+            "type": "doc",
+            "id": "backends/host-bridge",
+            "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "Serveur MCP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/generic-http",
+            "label": "Configuration du backend Generic HTTP"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔧 Workflow",
+        "items": [
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Aperçu des Workflows"
+          },
+          {
+            "type": "doc",
+            "id": "workflows/invocation",
+            "label": "Invocation et Configuration des Workflows"
+          },
+          {
+            "type": "category",
+            "label": "Official Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/literature-analysis",
+                "label": "Literature Analysis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-explainer",
+                "label": "Interactive Literature Explainer"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-deep-reading",
+                "label": "Deep Reading"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-search-ingest",
+                "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-bootstrapper",
+                "label": "Tag Bootstrapper"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-regulator",
+                "label": "Tag Regulator"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/export-import-notes",
+                "label": "Export/Import Notes"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/mineru",
+                "label": "MinerU PDF Parsing"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/topic-synthesis",
+                "label": "Topic Synthesis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/manuscript-literature-framing",
+                "label": "Manuscript Literature Framing"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/debug-probe",
+                "label": "Debug Probe"
+              }
+            ]
+          },
+          {
+            "type": "category",
+            "label": "Custom Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/custom/index",
+                "label": "Vue d'ensemble de l'architecture des workflows personnalisés"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/manifest",
+                "label": "Rédaction du manifeste de Workflow"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/hooks",
+                "label": "Système de Hooks"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/parameters",
+                "label": "Système de paramètres"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/selection-context",
+                "label": "Contexte de sélection"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/host-api",
+                "label": "Référence de l'API hôte"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/packaging",
+                "label": "Empaquetage et déploiement"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/localization",
+                "label": "Localisation"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/request-kinds",
+                "label": "Types de requêtes"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/debugging",
+                "label": "Débogage et tests"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
+      {
+        "type": "category",
+        "label": "🖥️ Sidebar & ACP Chat",
+        "items": [
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "Aperçu de la Barre Latérale"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-chat",
+            "label": "Utilisation de ACP Chat"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/skillrunner-tab",
+            "label": "Onglet SkillRunner"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔬 Synthesis Workbench",
+        "items": [
+          {
+            "type": "doc",
+            "id": "synthesis/index",
+            "label": "Vue d'ensemble du Synthesis Workbench"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Tableau de bord Home"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "Centre de révision"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/concepts",
+            "label": "Base de connaissances conceptuelle"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/git-sync",
+            "label": "Synchronisation Git"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/webdav-sync",
+            "label": "Synchronisation WebDAV"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "Gestion des balises"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/index-and-citation",
+            "label": "Index et graphe de citations"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/topic-synthesis",
+            "label": "Créer une synthèse de sujet"
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
+    ],
+    "it": [
+      {
+        "type": "category",
+        "label": "📖 Guide",
+        "items": [
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
+          {
+            "type": "doc",
+            "id": "installation",
+            "label": "Guida all'Installazione"
+          },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "Primi Passi"
+          },
+          {
+            "type": "doc",
+            "id": "markdown-reader",
+            "label": "Lettore Markdown Integrato"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "⚙️ Backend Configuration",
+        "items": [
+          {
+            "type": "doc",
+            "id": "backends/index",
+            "label": "Panoramica sulla configurazione dei backend"
+          },
+          {
+            "type": "doc",
+            "id": "backends/backend-manager",
+            "label": "Backend Manager"
+          },
+          {
+            "type": "doc",
+            "id": "backends/acp",
+            "label": "Configurazione del backend ACP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/skill-runner",
+            "label": "Distribuzione e configurazione di Skill-Runner"
+          },
+          {
+            "type": "doc",
+            "id": "backends/host-bridge",
+            "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "Server MCP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/generic-http",
+            "label": "Configurazione del backend Generic HTTP"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔧 Workflow",
+        "items": [
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Panoramica sui Workflow"
+          },
+          {
+            "type": "doc",
+            "id": "workflows/invocation",
+            "label": "Invocazione e configurazione dei Workflow"
+          },
+          {
+            "type": "category",
+            "label": "Official Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/literature-analysis",
+                "label": "Analisi della letteratura"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-explainer",
+                "label": "Spiegatore interattivo della letteratura"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-deep-reading",
+                "label": "Lettura approfondita"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-search-ingest",
+                "label": "Ricerca e acquisizione della letteratura"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-bootstrapper",
+                "label": "Bootstrapper dei tag"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-regulator",
+                "label": "Regolatore dei tag"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/export-import-notes",
+                "label": "Esporta/Importa note"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/mineru",
+                "label": "Analisi PDF MinerU"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/topic-synthesis",
+                "label": "Sintesi dell'argomento"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/manuscript-literature-framing",
+                "label": "Strutturazione della letteratura per il manoscritto"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/debug-probe",
+                "label": "Debug Probe"
+              }
+            ]
+          },
+          {
+            "type": "category",
+            "label": "Custom Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/custom/index",
+                "label": "Panoramica dell'architettura dei Workflow personalizzati"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/manifest",
+                "label": "Redigere il manifesto del Workflow"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/hooks",
+                "label": "Sistema Hook"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/parameters",
+                "label": "Sistema dei parametri"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/selection-context",
+                "label": "Contesto di selezione"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/host-api",
+                "label": "Riferimento API host"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/packaging",
+                "label": "Pacchettizzazione e distribuzione"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/localization",
+                "label": "Localizzazione"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/request-kinds",
+                "label": "Tipi di richiesta"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/debugging",
+                "label": "Debug e test"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
+      {
+        "type": "category",
+        "label": "🖥️ Sidebar & ACP Chat",
+        "items": [
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "Panoramica della barra laterale"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-chat",
+            "label": "Utilizzo di ACP Chat"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/skillrunner-tab",
+            "label": "Scheda SkillRunner"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔬 Synthesis Workbench",
+        "items": [
+          {
+            "type": "doc",
+            "id": "synthesis/index",
+            "label": "Panoramica di Synthesis Workbench"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Dashboard Home"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "Hub di Revisione"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/concepts",
+            "label": "Base di Conoscenza dei Concetti"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/git-sync",
+            "label": "Git Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/webdav-sync",
+            "label": "WebDAV Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "Gestione dei Tag"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/index-and-citation",
+            "label": "Indice e Grafo delle Citazioni"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/topic-synthesis",
+            "label": "Creazione della Sintesi di Argomento"
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
+    ],
+    "ja": [
+      {
+        "type": "category",
+        "label": "📖 Guide",
+        "items": [
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
+          {
+            "type": "doc",
+            "id": "installation",
+            "label": "インストールガイド"
+          },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "はじめに"
+          },
+          {
+            "type": "doc",
+            "id": "markdown-reader",
+            "label": "組み込みMarkdownリーダー"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "⚙️ Backend Configuration",
+        "items": [
+          {
+            "type": "doc",
+            "id": "backends/index",
+            "label": "バックエンド設定の概要"
+          },
+          {
+            "type": "doc",
+            "id": "backends/backend-manager",
+            "label": "バックエンドマネージャー"
+          },
+          {
+            "type": "doc",
+            "id": "backends/acp",
+            "label": "ACPバックエンド設定"
+          },
+          {
+            "type": "doc",
+            "id": "backends/skill-runner",
+            "label": "Skill-Runnerデプロイと設定"
+          },
+          {
+            "type": "doc",
+            "id": "backends/host-bridge",
+            "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCPサーバー"
+          },
+          {
+            "type": "doc",
+            "id": "backends/generic-http",
+            "label": "Generic HTTPバックエンド設定"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔧 Workflow",
+        "items": [
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Workflow概要"
+          },
+          {
+            "type": "doc",
+            "id": "workflows/invocation",
+            "label": "Workflowの実行と設定"
+          },
+          {
+            "type": "category",
+            "label": "Official Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/literature-analysis",
+                "label": "Literature Analysis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-explainer",
+                "label": "Interactive Literature Explainer"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-deep-reading",
+                "label": "Deep Reading"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-search-ingest",
+                "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-bootstrapper",
+                "label": "Tag Bootstrapper"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-regulator",
+                "label": "Tag Regulator"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/export-import-notes",
+                "label": "Export/Import Notes"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/mineru",
+                "label": "MinerU PDF解析"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/topic-synthesis",
+                "label": "Topic Synthesis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/manuscript-literature-framing",
+                "label": "Manuscript Literature Framing"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/debug-probe",
+                "label": "Debug Probe"
+              }
+            ]
+          },
+          {
+            "type": "category",
+            "label": "Custom Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/custom/index",
+                "label": "カスタム Workflow アーキテクチャ概要"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/manifest",
+                "label": "Workflow マニフェストの作成"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/hooks",
+                "label": "フックシステム"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/parameters",
+                "label": "パラメータシステム"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/selection-context",
+                "label": "選択コンテキスト"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/host-api",
+                "label": "ホスト API リファレンス"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/packaging",
+                "label": "パッケージングとデプロイ"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/localization",
+                "label": "ローカライズ"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/request-kinds",
+                "label": "リクエスト種別"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/debugging",
+                "label": "デバッグとテスト"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
+      {
+        "type": "category",
+        "label": "🖥️ Sidebar & ACP Chat",
+        "items": [
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "サイドバー概要"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-chat",
+            "label": "ACP Chatの使い方"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/skillrunner-tab",
+            "label": "SkillRunnerタブ"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔬 Synthesis Workbench",
+        "items": [
+          {
+            "type": "doc",
+            "id": "synthesis/index",
+            "label": "Synthesis Workbench 概要"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Home ダッシュボード"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "レビューハブ"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/concepts",
+            "label": "概念知識ベース"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/git-sync",
+            "label": "Git Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/webdav-sync",
+            "label": "WebDAV Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "タグ管理"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/index-and-citation",
+            "label": "インデックスと引用グラフ"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/topic-synthesis",
+            "label": "トピック統合の作成"
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
+    ],
+    "ko": [
+      {
+        "type": "category",
+        "label": "📖 Guide",
+        "items": [
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
+          {
+            "type": "doc",
+            "id": "installation",
+            "label": "설치 가이드"
+          },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "시작하기"
+          },
+          {
+            "type": "doc",
+            "id": "markdown-reader",
+            "label": "내장 마크다운 리더"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "⚙️ Backend Configuration",
+        "items": [
+          {
+            "type": "doc",
+            "id": "backends/index",
+            "label": "Backend Configuration Overview"
+          },
+          {
+            "type": "doc",
+            "id": "backends/backend-manager",
+            "label": "Backend Manager"
+          },
+          {
+            "type": "doc",
+            "id": "backends/acp",
+            "label": "ACP Backend Configuration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/skill-runner",
+            "label": "Skill-Runner Deployment & Configuration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/host-bridge",
+            "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP Server"
+          },
+          {
+            "type": "doc",
+            "id": "backends/generic-http",
+            "label": "Generic HTTP Backend Configuration"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔧 Workflow",
+        "items": [
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Workflow 개요"
+          },
+          {
+            "type": "doc",
+            "id": "workflows/invocation",
+            "label": "Workflow 호출 및 설정"
+          },
+          {
+            "type": "category",
+            "label": "Official Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/literature-analysis",
+                "label": "Literature Analysis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-explainer",
+                "label": "Interactive Literature Explainer"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-deep-reading",
+                "label": "Deep Reading"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-search-ingest",
+                "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-bootstrapper",
+                "label": "Tag Bootstrapper"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-regulator",
+                "label": "Tag Regulator"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/export-import-notes",
+                "label": "Export/Import Notes"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/mineru",
+                "label": "MinerU PDF Parsing"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/topic-synthesis",
+                "label": "Topic Synthesis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/manuscript-literature-framing",
+                "label": "Manuscript Literature Framing"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/debug-probe",
+                "label": "Debug Probe"
+              }
+            ]
+          },
+          {
+            "type": "category",
+            "label": "Custom Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/custom/index",
+                "label": "커스텀 Workflow 아키텍처 개요"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/manifest",
+                "label": "Workflow 매니페스트 작성하기"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/hooks",
+                "label": "Sistema Hook"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/parameters",
+                "label": "파라미터 시스템"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/selection-context",
+                "label": "선택 컨텍스트"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/host-api",
+                "label": "호스트 API 레퍼런스"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/packaging",
+                "label": "패키징 및 배포"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/localization",
+                "label": "로컬라이제이션"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/request-kinds",
+                "label": "요청 종류"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/debugging",
+                "label": "디버깅 및 테스트"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
+      {
+        "type": "category",
+        "label": "🖥️ Sidebar & ACP Chat",
+        "items": [
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "사이드바 개요"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-chat",
+            "label": "ACP Chat 사용법"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/skillrunner-tab",
+            "label": "SkillRunner 탭"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔬 Synthesis Workbench",
+        "items": [
+          {
+            "type": "doc",
+            "id": "synthesis/index",
+            "label": "Synthesis Workbench 개요"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "홈 대시보드"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "리뷰 허브"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/concepts",
+            "label": "개념 지식 베이스"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/git-sync",
+            "label": "Git 동기화"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/webdav-sync",
+            "label": "WebDAV 동기화"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "태그 관리"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/index-and-citation",
+            "label": "인덱스 & 인용 그래프"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/topic-synthesis",
+            "label": "토픽 통합 생성"
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
+    ],
+    "ru": [
+      {
+        "type": "category",
+        "label": "📖 Guide",
+        "items": [
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
+          {
+            "type": "doc",
+            "id": "installation",
+            "label": "Руководство по установке"
+          },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "Начало работы"
+          },
+          {
+            "type": "doc",
+            "id": "markdown-reader",
+            "label": "Встроенный Markdown-ридер"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "⚙️ Backend Configuration",
+        "items": [
+          {
+            "type": "doc",
+            "id": "backends/index",
+            "label": "Обзор конфигурации бэкендов"
+          },
+          {
+            "type": "doc",
+            "id": "backends/backend-manager",
+            "label": "Менеджер бэкендов"
+          },
+          {
+            "type": "doc",
+            "id": "backends/acp",
+            "label": "Конфигурация бэкенда ACP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/skill-runner",
+            "label": "Развёртывание и настройка Skill-Runner"
+          },
+          {
+            "type": "doc",
+            "id": "backends/host-bridge",
+            "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP-сервер"
+          },
+          {
+            "type": "doc",
+            "id": "backends/generic-http",
+            "label": "Конфигурация бэкенда Generic HTTP"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔧 Workflow",
+        "items": [
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Обзор Workflow"
+          },
+          {
+            "type": "doc",
+            "id": "workflows/invocation",
+            "label": "Вызов и настройка Workflow"
+          },
+          {
+            "type": "category",
+            "label": "Official Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/literature-analysis",
+                "label": "Анализ литературы"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-explainer",
+                "label": "Интерактивный пояснитель литературы"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-deep-reading",
+                "label": "Глубокое чтение"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-search-ingest",
+                "label": "Поиск и приём литературы"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-bootstrapper",
+                "label": "Tag Bootstrapper"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-regulator",
+                "label": "Tag Regulator"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/export-import-notes",
+                "label": "Экспорт/Импорт заметок"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/mineru",
+                "label": "Разбор PDF MinerU"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/topic-synthesis",
+                "label": "Topic Synthesis"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/manuscript-literature-framing",
+                "label": "Manuscript Literature Framing"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/debug-probe",
+                "label": "Debug Probe"
+              }
+            ]
+          },
+          {
+            "type": "category",
+            "label": "Custom Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/custom/index",
+                "label": "Custom Workflow Architecture Overview"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/manifest",
+                "label": "Создание манифеста Workflow"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/hooks",
+                "label": "Система хуков"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/parameters",
+                "label": "Система параметров"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/selection-context",
+                "label": "Контекст выделения"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/host-api",
+                "label": "Справочник API хоста"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/packaging",
+                "label": "Упаковка и развёртывание"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/localization",
+                "label": "Локализация"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/request-kinds",
+                "label": "Типы запросов"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/debugging",
+                "label": "Отладка и тестирование"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
+      {
+        "type": "category",
+        "label": "🖥️ Sidebar & ACP Chat",
+        "items": [
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "Обзор боковой панели"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-chat",
+            "label": "Использование ACP Чата"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "Навыки ACP"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/skillrunner-tab",
+            "label": "Вкладка SkillRunner"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔬 Synthesis Workbench",
+        "items": [
+          {
+            "type": "doc",
+            "id": "synthesis/index",
+            "label": "Обзор Synthesis Workbench"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Главная панель"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "Центр рецензирования"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/concepts",
+            "label": "База знаний концепций"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/git-sync",
+            "label": "Git Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/webdav-sync",
+            "label": "WebDAV-синхронизация"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "Управление тегами"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/index-and-citation",
+            "label": "Индекс и граф цитирований"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/topic-synthesis",
+            "label": "Создание синтеза темы"
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
+    ],
+    "zh-CN": [
+      {
+        "type": "category",
+        "label": "📖 Guide",
+        "items": [
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
+          {
+            "type": "doc",
+            "id": "installation",
+            "label": "安装指南"
+          },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "快速开始"
+          },
+          {
+            "type": "doc",
+            "id": "markdown-reader",
+            "label": "内置 Markdown 阅读器"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "⚙️ Backend Configuration",
+        "items": [
+          {
+            "type": "doc",
+            "id": "backends/index",
+            "label": "后端配置概览"
+          },
+          {
+            "type": "doc",
+            "id": "backends/backend-manager",
+            "label": "后端管理器"
+          },
+          {
+            "type": "doc",
+            "id": "backends/acp",
+            "label": "ACP 后端配置"
+          },
+          {
+            "type": "doc",
+            "id": "backends/skill-runner",
+            "label": "Skill-Runner 部署与配置"
+          },
+          {
+            "type": "doc",
+            "id": "backends/host-bridge",
+            "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP Server"
+          },
+          {
+            "type": "doc",
+            "id": "backends/generic-http",
+            "label": "Generic HTTP 后端配置"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔧 Workflow",
+        "items": [
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Workflow 介绍"
+          },
+          {
+            "type": "doc",
+            "id": "workflows/invocation",
+            "label": "Workflow 调用与配置"
+          },
+          {
+            "type": "category",
+            "label": "Official Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/literature-analysis",
+                "label": "文献分析"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-explainer",
+                "label": "交互式文献解读"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-deep-reading",
+                "label": "深度阅读"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/literature-search-ingest",
+                "label": "文献搜索与入库"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-bootstrapper",
+                "label": "标签词表初始化"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/tag-regulator",
+                "label": "标签规范化"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/export-import-notes",
+                "label": "导出/导入笔记"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/mineru",
+                "label": "MinerU PDF 解析"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/topic-synthesis",
+                "label": "Topic 综合创建"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/manuscript-literature-framing",
+                "label": "论文写作框架"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/debug-probe",
+                "label": "调试工具"
+              }
+            ]
+          },
+          {
+            "type": "category",
+            "label": "Custom Workflows",
+            "items": [
+              {
+                "type": "doc",
+                "id": "workflows/custom/index",
+                "label": "自定义 Workflow 架构总览"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/manifest",
+                "label": "工作流清单文件编写"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/hooks",
+                "label": "Hook 系统"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/parameters",
+                "label": "参数系统"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/selection-context",
+                "label": "选择上下文"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/host-api",
+                "label": "Host API 参考"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/packaging",
+                "label": "打包与部署"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/localization",
+                "label": "本地化"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/request-kinds",
+                "label": "请求种类"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/custom/debugging",
+                "label": "调试与测试"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
+      {
+        "type": "category",
+        "label": "🖥️ Sidebar & ACP Chat",
+        "items": [
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "侧边栏概览"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-chat",
+            "label": "ACP Chat 使用"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/skillrunner-tab",
+            "label": "SkillRunner Tab"
+          }
+        ]
+      },
+      {
+        "type": "category",
+        "label": "🔬 Synthesis Workbench",
+        "items": [
+          {
+            "type": "doc",
+            "id": "synthesis/index",
+            "label": "Synthesis Workbench 概览"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Home 仪表板"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "审核中心"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/concepts",
+            "label": "概念知识库"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/git-sync",
+            "label": "Git 同步"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/webdav-sync",
+            "label": "WebDAV Sync"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "Tags 管理"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/index-and-citation",
+            "label": "索引与引文图谱"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/topic-synthesis",
+            "label": "创建 Topic 综合"
+          }
+        ]
+      },
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
+    ]
+  },
+  "assets": [
+    "assets/img/docs/backends/backend-manager_ACP.webp",
+    "assets/img/docs/backends/backend-manager_generic-HTTP.webp",
+    "assets/img/docs/backends/backend-manager_skillrunner.webp",
+    "assets/img/docs/dashboard_acp-backend.webp",
+    "assets/img/docs/dashboard_home.webp",
+    "assets/img/docs/dashboard_logs.webp",
+    "assets/img/docs/dashboard_products.webp",
+    "assets/img/docs/dashboard_skill-feedback.webp",
+    "assets/img/docs/dashboard_skillrunner-backend.webp",
+    "assets/img/docs/dashboard_workflow-settings.webp",
+    "assets/img/docs/markdown-reader.webp",
+    "assets/img/docs/preferences_host-bridge_expand.webp",
+    "assets/img/docs/preferences_host-bridge.webp",
+    "assets/img/docs/preferences_official-workflow-contents.webp",
+    "assets/img/docs/preferences_skillrunner-local-backend.webp",
+    "assets/img/docs/preferences_storage-and-persistence.webp",
+    "assets/img/docs/preferences_WebDAV-sync.webp",
+    "assets/img/docs/preferences_workflow.webp",
+    "assets/img/docs/sidebar/acp-chat.webp",
+    "assets/img/docs/sidebar/acp-skills.webp",
+    "assets/img/docs/sidebar/skillrunner-tab.webp",
+    "assets/img/docs/synthesis/citation-graph.webp",
+    "assets/img/docs/synthesis/concepts.webp",
+    "assets/img/docs/synthesis/home.webp",
+    "assets/img/docs/synthesis/index_canonical-revision.webp",
+    "assets/img/docs/synthesis/index.webp",
+    "assets/img/docs/synthesis/review.webp",
+    "assets/img/docs/synthesis/tags.webp",
+    "assets/img/docs/synthesis/topic-graph.webp",
+    "assets/img/docs/workflows/literature-analysis_citation-analysis.webp",
+    "assets/img/docs/workflows/literature-analysis_digest.webp",
+    "assets/img/docs/workflows/literature-analysis_references.webp",
+    "assets/img/docs/workflows/literature-deep-reading_1.webp",
+    "assets/img/docs/workflows/literature-deep-reading_2.webp",
+    "assets/img/docs/workflows/literature-deep-reading_3.webp",
+    "assets/img/docs/workflows/literature-deep-reading_4.webp",
+    "assets/img/docs/workflows/literature-explainer_note.webp",
+    "assets/img/docs/workflows/topic-synthesis_claims.webp",
+    "assets/img/docs/workflows/topic-synthesis_compare.webp",
+    "assets/img/docs/workflows/topic-synthesis_coverage.webp",
+    "assets/img/docs/workflows/topic-synthesis_future-directions.webp",
+    "assets/img/docs/workflows/topic-synthesis_overview.webp",
+    "assets/img/docs/workflows/topic-synthesis_references.webp",
+    "assets/img/docs/workflows/topic-synthesis_report.webp",
+    "assets/img/docs/workflows/topic-synthesis_subgraph.webp",
+    "assets/img/docs/workflows/topic-synthesis_taxonomy.webp",
+    "assets/img/icon_play.webp",
+    "assets/img/icon_sidebar_glow.webp",
+    "assets/img/icon_sidebar.webp",
+    "assets/img/icon_workbench.webp",
+    "assets/img/poster.webp"
+  ]
+}

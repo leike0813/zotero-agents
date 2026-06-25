@@ -5,11 +5,13 @@ import type { BackendInstance } from "../../src/backends/types";
 import { computeAcpBackendConfigFingerprint } from "../../src/modules/acpBackendProbe";
 import {
   createAcpBackendFromPreset,
+  getAcpBackendIsolatedEnvironmentPath,
   listAcpBackendPresets,
   listBuiltinAcpBackends,
 } from "../../src/modules/acpBackendPresets";
 import {
   collectBackendsFromDialog,
+  collectBackendsFromDraftRows,
   getBackendRowActionKindsForType,
   launchSkillRunnerManagementFromRow,
   persistAcpBackendProbeResultFromRow,
@@ -18,11 +20,16 @@ import {
   resolveSkillRunnerManagementLaunchPayloadFromRow,
 } from "../../src/modules/backendManager";
 import { buildSkillRunnerManagementUiUrl } from "../../src/modules/skillRunnerManagementDialog";
+import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 import {
   getSkillRunnerBackendHealthState,
+  isSkillRunnerBackendAvailable,
+  markSkillRunnerBackendHealthFailure,
+  markSkillRunnerBackendHealthSuccess,
   registerSkillRunnerBackendForHealthTracking,
   resetSkillRunnerBackendHealthRegistryForTests,
 } from "../../src/modules/skillRunnerBackendHealthRegistry";
+import { createSkillRunnerBackendToastPayload } from "../../src/modules/skillRunnerBackendToasts";
 
 type FakeControl = {
   value?: string;
@@ -139,27 +146,122 @@ describe("backend manager risk regression", function () {
 
   it("keeps backend manager actions outside the scroll region and guards dirty exits", function () {
     const source = readFileSync("src/modules/backendManager.ts", "utf8");
-    assert.include(source, 'data-zs-backend-scroll-region", "1"');
-    assert.include(source, 'data-zs-backend-action-bar", "1"');
-    assert.include(source, 'root.style.height = "100%"');
-    assert.include(source, 'root.style.maxHeight = "none"');
-    assert.include(source, 'scrollRegion.style.flex = "1 1 0"');
-    assert.include(source, 'actionBar.style.alignItems = "center"');
-    assert.include(source, 'cell.style.whiteSpace = "nowrap"');
-    assert.include(source, '? "300px"');
-    assert.include(source, '"110px"');
-    assert.include(source, '"96px"');
+    const html = readFileSync(
+      "addon/content/dashboard/backend-manager.html",
+      "utf8",
+    );
+    const js = readFileSync(
+      "addon/content/dashboard/backend-manager.js",
+      "utf8",
+    );
+    const css = readFileSync(
+      "addon/content/dashboard/backend-manager.css",
+      "utf8",
+    );
+    assert.include(source, "backend-manager-dialog-frame");
+    assert.include(source, "backend-manager-dialog:init");
+    assert.include(source, "backend-manager-dialog:action");
+    assert.include(source, "collectBackendsFromDraftRows");
+    assert.include(source, "_currentBackendDraftSignature");
     assert.include(source, "fitContent: false");
-    assert.include(source, "width: 1320");
-    assert.include(source, "height: 760");
+    assert.include(source, "width: 1180");
+    assert.include(source, "height: 700");
+    assert.include(source, 'minWidth: "1040px"');
+    assert.include(source, 'minHeight: "620px"');
+    assert.include(source, 'frame.style.display = "block"');
+    assert.include(source, 'frame.style.flex = "1 1 auto"');
+    assert.include(source, "frame.src = resolveBackendManagerPageUrl()");
+    assert.include(source, 'frame.addEventListener("load"');
+    assert.include(source, "const targetWindow = resolveFrameWindow(frame)");
+    assert.include(source, "targetWindow.postMessage");
+    assert.include(
+      source,
+      "const currentFrameWindow = resolveFrameWindow(frame)",
+    );
+    assert.notInclude(
+      source,
+      "root.appendChild(frame);\n      frameWindow = resolveFrameWindow(frame);\n      frame.src",
+    );
+    assert.include(
+      source,
+      'dialogWindow?.addEventListener("message", onMessage)',
+    );
     assert.include(source, "createBackendManagerDraftSignature");
     assert.include(source, "installBackendManagerBeforeUnloadPrompt");
     assert.include(source, "backend-manager-unsaved-exit-confirm");
+    assert.include(html, 'class="backend-manager-page"');
+    assert.include(html, 'id="backend-manager-root"');
+    assert.include(html, "../shared/theme.css");
+    assert.include(html, "../shared/icons.css");
+    assert.include(html, "../components/custom-select.css");
+    assert.include(html, "../components/custom-select.js");
+    assert.include(html, "./backend-manager.css");
+    assert.include(html, "./backend-manager.js");
+    assert.include(js, "backend-manager-dialog:action");
+    assert.include(
+      js,
+      'PROVIDER_ORDER = ["acp", "skillrunner", "generic-http"]',
+    );
+    assert.include(js, "backend-provider-tabs");
+    assert.include(js, "renderAcpPresetSelect");
+    assert.include(
+      js,
+      "function renderProvider(provider) {\n    const l = labels();",
+    );
+    assert.include(js, 'el("p", "backend-empty", l.noProfiles');
+    assert.include(js, "window.createCustomSelect");
+    assert.include(js, "state.acpSelectedPresetId");
+    assert.include(js, "backend-http-grid");
+    assert.include(js, "backend-acp-grid");
+    assert.include(js, 'input.type = "password"');
+    assert.include(js, 'input.autocomplete = "off"');
+    assert.include(js, "state.scrollByProvider");
+    assert.include(js, "state.pendingModelCacheRows");
+    assert.include(js, "state.skillRunnerReachableById");
+    assert.include(js, "syncSkillRunnerReachabilityFromSnapshot");
+    assert.include(js, "showStatusMessage");
+    assert.include(js, "rememberScroll");
+    assert.include(js, "restoreScroll");
+    assert.include(js, "preventDefault");
+    assert.include(js, "providerAddLabel");
+    assert.include(js, "/\\{\\s*\\$provider\\s*\\}/g");
+    assert.include(js, "renderArgEditor");
+    assert.include(js, "renderEnvEditor");
+    assert.include(js, "draft-changed");
+    assert.include(css, ".backend-manager-root");
+    assert.include(css, ".backend-manager-page body");
+    assert.include(css, "height: 100%");
+    assert.include(css, "overflow: hidden");
+    assert.include(css, ".backend-provider-tabs");
+    assert.include(css, ".backend-provider-tab.is-active");
+    assert.include(css, ".backend-preset-select");
+    assert.include(css, ".backend-preset-select .custom-select-menu");
+    assert.include(css, ".backend-manager-body");
+    assert.include(css, ".backend-footer");
+    assert.include(css, ".backend-footer-status");
+    assert.include(css, ".backend-footer-actions");
+    assert.include(css, ".backend-list-editor");
+    assert.include(css, ".backend-http-grid");
+    assert.include(css, ".backend-acp-grid");
+    assert.include(css, ".backend-acp-grid > *");
+    assert.include(css, ".backend-acp-grid > * + *");
+    assert.include(css, "padding: 10px 14px");
+    assert.include(css, "border-left: 1px solid var(--zs-border)");
+    assert.include(css, "background: transparent");
+    assert.include(css, "font-size: 13px");
+    assert.notInclude(js, "backend-token-toggle");
+    assert.notInclude(js, "backend-preset-menu");
+    assert.notInclude(css, "backend-token-toggle");
+    assert.notInclude(css, ".backend-preset-menu");
     assert.notInclude(source, '.addButton(getString("backend-manager-save"');
     assert.notInclude(
       source,
       '"backend-manager-refresh-acp-runtime-cache-success"',
     );
+    assert.include(source, "getSkillRunnerBackendHealthState");
+    assert.include(source, "markSkillRunnerBackendHealthSuccess");
+    assert.include(source, "backend-manager-status-unreachable");
+    assert.include(source, "skillRunnerHealth");
   });
 
   it("rejects duplicated backend internal ids during dialog collection", function () {
@@ -263,11 +365,78 @@ describe("backend manager risk regression", function () {
     });
   });
 
+  it("collects structured ACP args and env while discarding blank draft items", function () {
+    const collected = collectBackendsFromDraftRows([
+      {
+        type: "acp",
+        internalId: "acp-structured",
+        displayName: "Structured ACP",
+        command: "npx",
+        args: ["codex-acp", " ", "--fast"],
+        env: [
+          { key: "PATH", value: "C:\\Tools" },
+          { key: "", value: "" },
+          { key: "EMPTY", value: "" },
+        ],
+      },
+    ]);
+
+    assert.deepEqual(collected.backends, [
+      {
+        id: "acp-structured",
+        displayName: "Structured ACP",
+        type: "acp",
+        baseUrl: "local://acp-structured",
+        command: "npx",
+        args: ["codex-acp", "--fast"],
+        env: {
+          PATH: "C:\\Tools",
+          EMPTY: "",
+        },
+      },
+    ]);
+  });
+
+  it("rejects structured ACP env values without a variable name", function () {
+    let thrown: unknown = null;
+    try {
+      collectBackendsFromDraftRows([
+        {
+          type: "acp",
+          internalId: "acp-bad-env",
+          displayName: "Bad ACP",
+          command: "npx",
+          args: [],
+          env: [{ key: "", value: "secret" }],
+        },
+      ]);
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.isOk(thrown);
+    assert.match(
+      String(thrown),
+      /backend-manager-error-env-key-required|env-key|required/i,
+    );
+  });
+
   it("builds common ACP preset backend profiles with stable command metadata", function () {
     const presets = listAcpBackendPresets();
     assert.sameMembers(
       presets.map((preset) => preset.id),
-      ["opencode", "codex", "claude-code", "gemini-cli", "hermes", "qwen-code"],
+      [
+        "opencode",
+        "codex",
+        "codex-isolated",
+        "claude-code",
+        "claude-code-isolated",
+        "gemini-cli",
+        "gemini-cli-isolated",
+        "hermes",
+        "hermes-isolated",
+        "qwen-code",
+      ],
     );
 
     const codex = createAcpBackendFromPreset("codex");
@@ -314,6 +483,59 @@ describe("backend manager risk regression", function () {
     });
   });
 
+  it("builds isolated ACP preset backend profiles with managed env roots", function () {
+    const expectedRoot = getRuntimePersistencePaths().dataDir;
+    const cases = [
+      {
+        presetId: "codex-isolated",
+        backendId: "acp-codex-isolated",
+        displayName: "Codex ACP (Isolated Environment)",
+        envKey: "CODEX_HOME",
+        agentFamily: "codex",
+      },
+      {
+        presetId: "claude-code-isolated",
+        backendId: "acp-claude-code-isolated",
+        displayName: "Claude Code ACP (Isolated Environment)",
+        envKey: "CLAUDE_CONFIG_DIR",
+        agentFamily: "claude-code",
+      },
+      {
+        presetId: "gemini-cli-isolated",
+        backendId: "acp-gemini-cli-isolated",
+        displayName: "Gemini CLI ACP (Isolated Environment)",
+        envKey: "GEMINI_CLI_HOME",
+        agentFamily: "gemini-cli",
+      },
+      {
+        presetId: "hermes-isolated",
+        backendId: "acp-hermes-isolated",
+        displayName: "Hermes ACP (Isolated Environment)",
+        envKey: "HERMES_HOME",
+        agentFamily: "hermes",
+      },
+    ] as const;
+
+    for (const entry of cases) {
+      const backend = createAcpBackendFromPreset(entry.presetId);
+      const expectedPath = getAcpBackendIsolatedEnvironmentPath(
+        entry.backendId,
+      );
+      assert.equal(backend.id, entry.backendId);
+      assert.equal(backend.displayName, entry.displayName);
+      assert.equal(backend.type, "acp");
+      assert.equal(backend.baseUrl, `local://${entry.backendId}`);
+      assert.equal(backend.auth?.kind, "none");
+      assert.equal(backend.acp?.agentFamily, entry.agentFamily);
+      assert.deepEqual(backend.env, {
+        [entry.envKey]: expectedPath,
+      });
+      assert.include(expectedPath, expectedRoot);
+      assert.include(expectedPath, "acp-backend-environments");
+      assert.include(expectedPath, entry.backendId);
+    }
+  });
+
   it("keeps only OpenCode as the auto-created built-in ACP backend", function () {
     const builtins = listBuiltinAcpBackends();
 
@@ -349,6 +571,42 @@ describe("backend manager risk regression", function () {
         args: ["@qwen-code/qwen-code@latest", "--acp", "--experimental-skills"],
         acp: {
           agentFamily: "qwen-code",
+        },
+      },
+    ]);
+  });
+
+  it("preserves isolated ACP preset env through draft row collection", function () {
+    const preset = createAcpBackendFromPreset("codex-isolated");
+    const collected = collectBackendsFromDraftRows([
+      {
+        type: "acp",
+        internalId: preset.id,
+        displayName: preset.displayName || "",
+        command: preset.command || "",
+        args: preset.args || [],
+        env: Object.entries(preset.env || {}).map(([key, value]) => ({
+          key,
+          value,
+        })),
+        acp: preset.acp,
+      },
+    ]);
+
+    assert.deepEqual(collected.backends, [
+      {
+        id: "acp-codex-isolated",
+        displayName: "Codex ACP (Isolated Environment)",
+        type: "acp",
+        baseUrl: "local://acp-codex-isolated",
+        command: "npx",
+        args: ["@zed-industries/codex-acp@latest"],
+        env: {
+          CODEX_HOME:
+            getAcpBackendIsolatedEnvironmentPath("acp-codex-isolated"),
+        },
+        acp: {
+          agentFamily: "codex",
         },
       },
     ]);
@@ -820,5 +1078,171 @@ describe("backend manager risk regression", function () {
     assert.isNull(
       getSkillRunnerBackendHealthState("backend-skillrunner-removed"),
     );
+  });
+
+  it("does not treat unknown SkillRunner backends as submit-available", function () {
+    assert.isFalse(isSkillRunnerBackendAvailable("unknown-skillrunner"));
+  });
+
+  it("registers SkillRunner backend health as tracked but not confirmed reachable", function () {
+    const state = registerSkillRunnerBackendForHealthTracking(
+      "backend-skillrunner-unconfirmed",
+    );
+
+    assert.isOk(state);
+    assert.isFalse(state?.reachable);
+    assert.equal(state?.status, "unknown");
+    assert.isFalse(
+      isSkillRunnerBackendAvailable("backend-skillrunner-unconfirmed"),
+    );
+    markSkillRunnerBackendHealthSuccess("backend-skillrunner-unconfirmed");
+    assert.isTrue(
+      isSkillRunnerBackendAvailable("backend-skillrunner-unconfirmed"),
+    );
+  });
+
+  it("buffers one SkillRunner health probe failure before gating a reachable backend", function () {
+    registerSkillRunnerBackendForHealthTracking("backend-skillrunner-buffered");
+    markSkillRunnerBackendHealthSuccess("backend-skillrunner-buffered");
+
+    const firstFailure = markSkillRunnerBackendHealthFailure({
+      backendId: "backend-skillrunner-buffered",
+      error: new Error("probe timeout"),
+    });
+
+    assert.equal(firstFailure?.status, "reachable");
+    assert.isTrue(firstFailure?.reachable);
+    assert.equal(firstFailure?.failureStreak, 1);
+    assert.isTrue(
+      isSkillRunnerBackendAvailable("backend-skillrunner-buffered"),
+    );
+
+    const secondFailure = markSkillRunnerBackendHealthFailure({
+      backendId: "backend-skillrunner-buffered",
+      error: new Error("probe timeout"),
+    });
+
+    assert.equal(secondFailure?.status, "unreachable");
+    assert.isFalse(secondFailure?.reachable);
+    assert.equal(secondFailure?.failureStreak, 2);
+    assert.isFalse(
+      isSkillRunnerBackendAvailable("backend-skillrunner-buffered"),
+    );
+  });
+
+  it("tracks SkillRunner backend health immediately when profiles are saved", function () {
+    const prefKey = `${config.prefsPrefix}.backendsConfigJson`;
+    const previous = Zotero.Prefs.get(prefKey, true);
+    try {
+      persistBackendsConfig(
+        [
+          {
+            id: "backend-skillrunner-added",
+            displayName: "Added Backend",
+            type: "skillrunner",
+            baseUrl: "http://127.0.0.1:8030",
+            auth: { kind: "none" },
+          },
+        ],
+        {
+          setPref: ((_: string, value: string) => {
+            Zotero.Prefs.set(prefKey, value, true);
+          }) as any,
+          refreshWorkflowMenus: () => {},
+          refreshModelCache: async () => ({
+            ok: true,
+            backendId: "backend-skillrunner-added",
+            baseUrl: "http://127.0.0.1:8030",
+            refreshedAt: "2026-06-20T00:00:00.000Z",
+          }),
+        },
+      );
+    } finally {
+      if (typeof previous === "undefined") {
+        Zotero.Prefs.clear(prefKey, true);
+      } else {
+        Zotero.Prefs.set(prefKey, previous, true);
+      }
+    }
+
+    const state = getSkillRunnerBackendHealthState("backend-skillrunner-added");
+    assert.isOk(state);
+    assert.isFalse(state?.reachable);
+    assert.equal(state?.status, "unknown");
+    assert.isFalse(isSkillRunnerBackendAvailable("backend-skillrunner-added"));
+  });
+
+  it("persists disabled SkillRunner backend profiles and marks them disabled", function () {
+    const prefKey = `${config.prefsPrefix}.backendsConfigJson`;
+    const previous = Zotero.Prefs.get(prefKey, true);
+    try {
+      const collected = collectBackendsFromDraftRows([
+        {
+          internalId: "backend-skillrunner-disabled",
+          displayName: "Disabled Backend",
+          type: "skillrunner",
+          enabled: false,
+          baseUrl: "http://127.0.0.1:8030",
+          authKind: "none",
+          authToken: "",
+          timeoutMs: "",
+          command: "",
+          args: [],
+          env: [],
+        },
+      ]);
+      assert.equal(collected.backends[0].enabled, false);
+      persistBackendsConfig(collected.backends, {
+        setPref: ((_: string, value: string) => {
+          Zotero.Prefs.set(prefKey, value, true);
+        }) as any,
+        refreshWorkflowMenus: () => {},
+        refreshModelCache: async () => ({
+          ok: true,
+          backendId: "backend-skillrunner-disabled",
+          baseUrl: "http://127.0.0.1:8030",
+          refreshedAt: "2026-06-20T00:00:00.000Z",
+        }),
+      });
+    } finally {
+      if (typeof previous === "undefined") {
+        Zotero.Prefs.clear(prefKey, true);
+      } else {
+        Zotero.Prefs.set(prefKey, previous, true);
+      }
+    }
+
+    const state = getSkillRunnerBackendHealthState(
+      "backend-skillrunner-disabled",
+    );
+    assert.equal(state?.status, "disabled");
+    assert.isFalse(
+      isSkillRunnerBackendAvailable("backend-skillrunner-disabled"),
+    );
+  });
+
+  it("builds auto-disable backend toasts with display names and dedup keys", function () {
+    const payload = createSkillRunnerBackendToastPayload({
+      kind: "auto-disabled",
+      backendId: "backend-skillrunner-remote",
+      displayName: "Remote Runner",
+    });
+
+    assert.isOk(payload);
+    assert.equal(payload?.displayName, "Remote Runner");
+    assert.include(payload?.text || "", "Remote Runner");
+    assert.include(payload?.dedupKey || "", "auto-disabled");
+    assert.include(payload?.dedupKey || "", "backend-skillrunner-remote");
+    assert.isAbove(payload?.dedupWindowMs || 0, 0);
+  });
+
+  it("suppresses generic backend toasts for the managed local backend", function () {
+    const payload = createSkillRunnerBackendToastPayload({
+      kind: "auto-disabled",
+      backendId: "local-skillrunner-backend",
+      displayName: "Local Backend",
+    });
+
+    assert.isNull(payload);
   });
 });

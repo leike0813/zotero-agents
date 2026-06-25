@@ -1,9 +1,8 @@
 import { assert } from "chai";
 import { config } from "../../package.json";
-import hooks, {
-  setSkillRunnerStartupBackendReconcileRunnerForTests,
-} from "../../src/hooks";
+import hooks from "../../src/hooks";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { getSkillRunnerBackendReachabilityCoordinatorRuntimeForTests } from "../../src/modules/skillRunnerBackendReachabilityCoordinator";
 import {
   getRuntimeLogDiagnosticMode,
   resetRuntimeLogAllowedLevels,
@@ -80,7 +79,6 @@ describe("hooks startup template cleanup", function () {
       (usedAddonObject as { hooks?: unknown }).hooks = prevAddonHooks;
     }
     runtime.Localization = prevLocalization;
-    setSkillRunnerStartupBackendReconcileRunnerForTests();
     setDebugModeOverrideForTests();
     resetRuntimeLogAllowedLevels();
     setRuntimeLogDiagnosticMode(false);
@@ -106,15 +104,13 @@ describe("hooks startup template cleanup", function () {
     assert.match(String(calls[0].src || ""), /content\/preferences\.xhtml$/);
   });
 
-  it("triggers startup skillrunner backend ledger reconcile runner", async function () {
-    let calls = 0;
-    setSkillRunnerStartupBackendReconcileRunnerForTests(async () => {
-      calls += 1;
-    });
-
+  it("starts SkillRunner backend reachability coordination on startup", async function () {
     await hooks.onStartup();
 
-    assert.equal(calls, 1);
+    const runtime =
+      getSkillRunnerBackendReachabilityCoordinatorRuntimeForTests();
+    assert.isTrue(runtime.started);
+    assert.isTrue(runtime.timerActive || runtime.pendingProbeTimerCount > 0);
   });
 
   it("enables runtime diagnostic log mode on startup when hardcoded debug mode is on", async function () {

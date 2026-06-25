@@ -124,24 +124,26 @@ function readMainWindow() {
 function resolveRuntimeWindow() {
   const runtimeAddon = resolveRuntimeAddon();
   const globalWindow = readWindowFromGlobalVar();
-  return (
-    (runtimeAddon?.data as
+  return ((
+    runtimeAddon?.data as
       | {
           dialog?: { window?: Window };
           prefs?: { window?: Window };
         }
-      | undefined)?.dialog?.window ||
-    (runtimeAddon?.data as
-      | {
-          dialog?: { window?: Window };
-          prefs?: { window?: Window };
-        }
-      | undefined)?.prefs?.window ||
+      | undefined
+  )?.dialog?.window ||
+    (
+      runtimeAddon?.data as
+        | {
+            dialog?: { window?: Window };
+            prefs?: { window?: Window };
+          }
+        | undefined
+    )?.prefs?.window ||
     globalWindow ||
     readMainWindow() ||
     readHiddenDomWindow() ||
-    undefined
-  ) as RuntimeWindowLike | undefined;
+    undefined) as RuntimeWindowLike | undefined;
 }
 
 function readExternalRuntimeBridgeOverride() {
@@ -389,10 +391,10 @@ export function resolveRuntimeHostCapabilities(): RuntimeHostCapabilities {
     typeof override?.fetch === "function"
       ? override.fetch
       : typeof runtimeGlobal.fetch === "function"
-      ? runtimeGlobal.fetch
-      : typeof runtimeWindow?.fetch === "function"
-        ? runtimeWindow.fetch
-        : null;
+        ? runtimeGlobal.fetch
+        : typeof runtimeWindow?.fetch === "function"
+          ? runtimeWindow.fetch
+          : null;
   const boundFetch =
     typeof fetchImpl === "function"
       ? fetchImpl.bind(
@@ -403,10 +405,10 @@ export function resolveRuntimeHostCapabilities(): RuntimeHostCapabilities {
     typeof override?.btoa === "function"
       ? override.btoa
       : typeof runtimeGlobal.btoa === "function"
-      ? runtimeGlobal.btoa
-      : typeof runtimeWindow?.btoa === "function"
-        ? runtimeWindow.btoa
-        : null;
+        ? runtimeGlobal.btoa
+        : typeof runtimeWindow?.btoa === "function"
+          ? runtimeWindow.btoa
+          : null;
   const boundBtoa =
     typeof btoaImpl === "function"
       ? btoaImpl.bind(
@@ -417,10 +419,10 @@ export function resolveRuntimeHostCapabilities(): RuntimeHostCapabilities {
     typeof override?.atob === "function"
       ? override.atob
       : typeof runtimeGlobal.atob === "function"
-      ? runtimeGlobal.atob
-      : typeof runtimeWindow?.atob === "function"
-        ? runtimeWindow.atob
-        : null;
+        ? runtimeGlobal.atob
+        : typeof runtimeWindow?.atob === "function"
+          ? runtimeWindow.atob
+          : null;
   const boundAtob =
     typeof atobImpl === "function"
       ? atobImpl.bind(
@@ -431,42 +433,52 @@ export function resolveRuntimeHostCapabilities(): RuntimeHostCapabilities {
     zotero: resolveRuntimeZotero(),
     addon: resolveRuntimeAddon(),
     fetch: boundFetch,
-    Buffer: override && "Buffer" in override
-      ? (override.Buffer ?? null)
-      :
-      (runtimeGlobal.Buffer as typeof globalThis.Buffer | undefined) ??
-      (runtimeWindow as
-        | {
-            Buffer?: typeof globalThis.Buffer;
-          }
-        | undefined)?.Buffer ??
-      null,
+    Buffer:
+      override && "Buffer" in override
+        ? (override.Buffer ?? null)
+        : ((runtimeGlobal.Buffer as typeof globalThis.Buffer | undefined) ??
+          (
+            runtimeWindow as
+              | {
+                  Buffer?: typeof globalThis.Buffer;
+                }
+              | undefined
+          )?.Buffer ??
+          null),
     btoa: boundBtoa,
     atob: boundAtob,
-    TextEncoder: override && "TextEncoder" in override
-      ? (override.TextEncoder ?? null)
-      :
-      (runtimeGlobal.TextEncoder as typeof globalThis.TextEncoder | undefined) ??
-      runtimeWindow?.TextEncoder ??
-      null,
-    TextDecoder: override && "TextDecoder" in override
-      ? (override.TextDecoder ?? null)
-      :
-      (runtimeGlobal.TextDecoder as typeof globalThis.TextDecoder | undefined) ??
-      runtimeWindow?.TextDecoder ??
-      null,
-    FileReader: override && "FileReader" in override
-      ? (override.FileReader ?? null)
-      :
-      (runtimeGlobal.FileReader as typeof globalThis.FileReader | undefined) ??
-      runtimeWindow?.FileReader ??
-      null,
-    navigator: override && "navigator" in override
-      ? (override.navigator ?? null)
-      :
-      (runtimeGlobal.navigator as typeof globalThis.navigator | undefined) ??
-      runtimeWindow?.navigator ??
-      null,
+    TextEncoder:
+      override && "TextEncoder" in override
+        ? (override.TextEncoder ?? null)
+        : ((runtimeGlobal.TextEncoder as
+            | typeof globalThis.TextEncoder
+            | undefined) ??
+          runtimeWindow?.TextEncoder ??
+          null),
+    TextDecoder:
+      override && "TextDecoder" in override
+        ? (override.TextDecoder ?? null)
+        : ((runtimeGlobal.TextDecoder as
+            | typeof globalThis.TextDecoder
+            | undefined) ??
+          runtimeWindow?.TextDecoder ??
+          null),
+    FileReader:
+      override && "FileReader" in override
+        ? (override.FileReader ?? null)
+        : ((runtimeGlobal.FileReader as
+            | typeof globalThis.FileReader
+            | undefined) ??
+          runtimeWindow?.FileReader ??
+          null),
+    navigator:
+      override && "navigator" in override
+        ? (override.navigator ?? null)
+        : ((runtimeGlobal.navigator as
+            | typeof globalThis.navigator
+            | undefined) ??
+          runtimeWindow?.navigator ??
+          null),
     console: resolveRuntimeConsole(),
   };
 }
@@ -483,25 +495,33 @@ export function resolveRuntimeToolkit() {
 
 export function resolveToolkitMember<T>(member: string) {
   const toolkit = resolveRuntimeToolkit();
-  const value = toolkit ? (toolkit as Record<string, unknown>)[member] : undefined;
+  const value = toolkit
+    ? (toolkit as Record<string, unknown>)[member]
+    : undefined;
   if (typeof value === "undefined") {
     return undefined;
   }
   return value as T;
 }
 
-export function resolveAddonName(fallback = "Zotero Skills") {
-  const name = String(resolveRuntimeAddon()?.data?.config?.addonName || "").trim();
+export function resolveAddonName(fallback = "Zotero Agents") {
+  const name = String(
+    resolveRuntimeAddon()?.data?.config?.addonName || "",
+  ).trim();
   return name || fallback;
 }
 
 export function resolveAddonRef(fallback = "") {
-  const ref = String(resolveRuntimeAddon()?.data?.config?.addonRef || "").trim();
+  const ref = String(
+    resolveRuntimeAddon()?.data?.config?.addonRef || "",
+  ).trim();
   return ref || fallback;
 }
 
 export function resolveRuntimeAlert(win?: unknown) {
-  const candidate = win as { alert?: ((message?: unknown) => void) | undefined } | undefined;
+  const candidate = win as
+    | { alert?: ((message?: unknown) => void) | undefined }
+    | undefined;
   if (typeof candidate?.alert === "function") {
     return (message: string) => candidate.alert?.(message);
   }
@@ -512,7 +532,8 @@ export function resolveRuntimeAlert(win?: unknown) {
     | undefined;
   const fromToolkit = toolkit?.getGlobal?.("alert");
   if (typeof fromToolkit === "function") {
-    return (message: string) => (fromToolkit as (value: string) => unknown)(message);
+    return (message: string) =>
+      (fromToolkit as (value: string) => unknown)(message);
   }
   const fromGlobal = resolveRuntimeGlobal().alert;
   if (typeof fromGlobal === "function") {

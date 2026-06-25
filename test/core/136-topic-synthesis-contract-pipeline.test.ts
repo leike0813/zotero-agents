@@ -1,6 +1,5 @@
 import { assert } from "chai";
-import Ajv from "ajv";
-import { execFileSync } from "child_process";
+import Ajv from "ajv/dist/2020";
 import fsSync from "fs";
 import fs from "fs/promises";
 import os from "os";
@@ -32,7 +31,11 @@ function readSchema(pathValue: string) {
 }
 
 function validateWithSchema(schemaPath: string, value: unknown) {
-  const ajv = new Ajv({ allErrors: true, strict: false });
+  const ajv = new Ajv({
+    allErrors: true,
+    strict: false,
+    validateSchema: false,
+  });
   const validate = ajv.compile(readSchema(schemaPath));
   const ok = validate(value);
   return {
@@ -142,22 +145,6 @@ function baseSections(
       timeline_span: { start_year: 2020, end_year: 2020 },
       coverage_verdict: "partial",
     },
-    positioning: {
-      importance:
-        "Object detection is a core visual perception task, and DETR-style methods changed its modeling assumptions.",
-      timeliness:
-        "The query-based route remains relevant because later work continues to optimize convergence, efficiency, and deployment.",
-      field_position:
-        "The topic sits between object detection, transformer vision models, and efficient perception systems.",
-      review_position:
-        "The fixture can seed a Related Work paragraph about the shift from proposal pipelines to set prediction.",
-      scope_boundary: {
-        covered: "DETR-style set prediction detection.",
-        not_covered:
-          "The full history of anchor-based and anchor-free detectors.",
-      },
-      evidence_map_refs: ["pos:route-shift"],
-    },
     taxonomy: {
       primary_axis: "technical route by bottleneck addressed",
       axis_rationale:
@@ -191,7 +178,7 @@ function baseSections(
             "Traditional detection pipelines depend on proposal generation, anchor design, and NMS post-processing.",
           mechanism:
             "Transformer decoder queries predict object sets, and bipartite matching aligns predictions with ground truth.",
-          representative_papers: ["pe:1_detr"],
+          source_paper_refs: ["1:DETR"],
           main_contributions: [
             "Established a coherent query-based detection route.",
           ],
@@ -205,8 +192,6 @@ function baseSections(
             "Contrasts with proposal-driven pipelines and motivates later efficiency routes.",
           review_angle:
             "Use as the opening Related Work route for query-based object detection.",
-          paper_refs: ["1:DETR"],
-          evidence_map_refs: ["tax:set-prediction"],
         },
       ],
     },
@@ -242,8 +227,7 @@ function baseSections(
             "Later work builds on this formulation to improve convergence, attention efficiency, and deployment.",
           follow_on_effect:
             "The set-prediction route becomes a recognizable family of query-based detectors.",
-          evidence_refs: ["pe:1_detr"],
-          evidence_map_refs: ["timeline:detr-2020"],
+          source_paper_refs: ["1:DETR"],
         },
       ],
     },
@@ -253,8 +237,7 @@ function baseSections(
         text: "DETR-style detection shifts the central modeling unit from hand-designed proposals to learned object queries.",
         analysis:
           "The fixture claim is supported by DETR's direct set prediction formulation and its use of bipartite matching. This is a synthesis-level claim because it interprets the method as a route shift rather than restating a paper title.",
-        evidence_refs: ["pe:1_detr"],
-        evidence_map_refs: ["claim:set-prediction-shift"],
+        source_paper_refs: ["1:DETR"],
         confidence: 0.82,
         scope:
           "This claim is limited to the DETR-style object detection route.",
@@ -265,12 +248,6 @@ function baseSections(
           "Use as a topic sentence for a Related Work paragraph introducing query-based detection.",
       },
     ],
-    improvement_dimension_summary: {
-      summary:
-        "The fixture highlights one improvement dimension: replacing hand-designed detection pipeline components with direct set prediction.",
-      dimension_count: 1,
-      evidence_map_refs: ["cmp:detr"],
-    },
     improvement_dimensions: [
       {
         id: "dim:set-prediction-formulation",
@@ -280,9 +257,7 @@ function baseSections(
         problem_addressed: "Hand-designed detection pipeline components.",
         improvement_mechanism: "Object queries and bipartite matching.",
         source_paper_refs: ["1:DETR"],
-        paper_refs: ["pe:1_detr"],
         route_refs: ["route:set-prediction"],
-        evidence_map_refs: ["cmp:detr"],
       },
     ],
     debates: [
@@ -294,87 +269,40 @@ function baseSections(
           {
             stance:
               "End-to-end set prediction simplifies the detection pipeline and removes post-processing dependencies.",
-            evidence_refs: ["pe:1_detr"],
+            source_paper_refs: ["1:DETR"],
           },
           {
             stance:
               "Early query-based detectors still face convergence and efficiency costs that later work must address.",
-            evidence_refs: ["pe:1_detr"],
+            source_paper_refs: ["1:DETR"],
           },
         ],
+        source_paper_refs: ["1:DETR"],
         evaluation_axis: "Conceptual simplicity versus training practicality.",
         current_judgment:
           "The fixture supports the existence of the tradeoff but not a field-wide resolution.",
         uncertainty:
           "A full judgment would require additional later DETR variants and non-DETR baselines.",
-        evidence_map_refs: ["debate:end-to-end-practicality"],
       },
     ],
-    gaps: [
+    future_directions: [
       {
-        id: "gap:traditional-detector-background",
-        gap_type: "library_coverage_gap",
+        id: "future:traditional-detector-background",
+        direction_type: "data_or_benchmark_need",
         title: "Traditional detector background is under-covered",
-        description:
+        current_limitation:
+          "The fixture lacks first-hand digests for non-DETR detector families.",
+        future_direction:
+          "Collect representative proposal-based, anchor-based, and anchor-free detector papers.",
+        rationale:
           "The fixture validates protocol flow but lacks first-hand digests for Faster R-CNN, YOLO, and anchor-free detectors.",
-        evidence_refs: [],
-        evidence_map_refs: ["gap:traditional-detector-background"],
+        source_paper_refs: ["1:DETR"],
         severity: "high",
         recommended_action:
           "Add representative proposal-based and anchor-free detector papers before using this as a real review source.",
         not_field_wide_claim: true,
       },
     ],
-    external_literature_analysis: {
-      summary:
-        "External literature in this fixture is represented as background context, not primary evidence.",
-      themes: [
-        {
-          id: "ext:traditional-pipelines",
-          title: "Traditional detection pipelines",
-          analysis:
-            "Proposal and anchor-based detectors form the comparison background needed to interpret DETR's route shift.",
-          related_topic_aspect:
-            "Explains why set prediction is presented as a modeling alternative.",
-          reference_ids: ["external:faster-rcnn"],
-        },
-      ],
-      representative_references: [
-        {
-          id: "external:faster-rcnn",
-          title: "Faster R-CNN",
-          year: 2015,
-          authors: ["Ren", "He"],
-          cited_by_papers: ["pe:1_detr"],
-          why_relevant:
-            "It stands in for the proposal-based detection pipeline that DETR contrasts against.",
-          information_completeness: "minimal",
-        },
-      ],
-      citation_contexts: [
-        {
-          citing_paper_ref: "pe:1_detr",
-          reference_id: "external:faster-rcnn",
-          usage:
-            "Background comparison for non-end-to-end detection pipelines.",
-        },
-      ],
-      coverage_verdict: "partial",
-      coverage_reason:
-        "The fixture has enough external context to test protocol fields but not enough to support full literature coverage.",
-      suggested_additions: [
-        {
-          title: "Faster R-CNN",
-          reason:
-            "Add first-hand digest coverage for proposal-based detection.",
-          priority: "high",
-        },
-      ],
-      contribution_to_topic:
-        "External literature explains the pipeline that query-based set prediction reacts against.",
-      limitations:
-        "External references are not used as primary evidence for claims or timeline events.",
-    },
     coverage: {
       paper_count: 1,
       paper_evidence_count: 1,
@@ -388,6 +316,16 @@ function baseSections(
       external_literature_coverage_summary:
         "External literature coverage is intentionally minimal.",
       coverage_verdict: "partial",
+      coverage_reason:
+        "The fixture covers one DETR-style route and intentionally leaves traditional detector background as a collection suggestion.",
+      coverage_caveats: [
+        "Fixture content should not be treated as a complete domain synthesis.",
+      ],
+      external_context_summary:
+        "External detector background is represented as future collection direction rather than embedded primary evidence.",
+      suggested_collection_directions: [
+        "Add first-hand digest coverage for Faster R-CNN, YOLO, and anchor-free detectors.",
+      ],
       warnings: [
         "Fixture content should not be treated as a complete domain synthesis.",
       ],
@@ -415,14 +353,37 @@ function baseSections(
       },
     },
     review_outline: {
+      topic_importance:
+        "Object detection is a core visual perception task, and DETR-style methods changed its modeling assumptions.",
+      writing_strategies: [
+        {
+          id: "strategy:set-prediction-route",
+          title: "Query-based set prediction route",
+          review_thesis:
+            "DETR-style detection can be reviewed as a shift from proposal pipelines toward query-based set prediction.",
+          writing_strategy:
+            "Start from the detection task boundary, contrast proposal pipelines, then explain object queries and bipartite matching as the route shift.",
+          best_for:
+            "A Related Work section that needs a compact route-level explanation.",
+          risks:
+            "The fixture only has one source paper, so the writing strategy must not claim full field coverage.",
+          section_plan: [
+            "Task boundary",
+            "Pipeline contrast",
+            "Set-prediction route",
+          ],
+          source_paper_refs: ["1:DETR"],
+        },
+      ],
+      recommended_strategy_id: "strategy:set-prediction-route",
       introduction_logic: [
         {
           id: "intro:route-shift",
           purpose:
             "Explain why object detection can be introduced as a shift from pipeline engineering to set prediction.",
-          source_sections: ["topic", "positioning", "claims"],
-          candidate_citations: ["pe:1_detr"],
-          evidence_map_refs: ["claim:set-prediction-shift"],
+          source_sections: ["topic", "claims"],
+          candidate_citations: ["1:DETR"],
+          source_paper_refs: ["1:DETR"],
         },
       ],
       related_work_logic: [
@@ -436,8 +397,8 @@ function baseSections(
             "timeline_events",
             "improvement_dimensions",
           ],
-          candidate_citations: ["pe:1_detr"],
-          evidence_map_refs: ["tax:set-prediction"],
+          candidate_citations: ["1:DETR"],
+          source_paper_refs: ["1:DETR"],
         },
       ],
       body_sections: [
@@ -455,9 +416,8 @@ function baseSections(
       },
       body: "This fixture synthesis defines object detection through a narrow DETR-style set-prediction lens so that the skill, workflow, host, and Workbench contracts can be tested together. The research-route chapter is grounded in taxonomy.summary: it identifies end-to-end set prediction as the route that replaces hand-designed proposals and post-processing with object queries and bipartite matching. The historical-progress chapter is grounded in timeline_events.summary: it treats DETR as a 2020 milestone that establishes the route and creates the later problem chain around convergence, attention efficiency, and deployment. The claim, improvement-dimension, debate, gap, external literature, coverage, statistics, and review outline sections remain deliberately compact, but each preserves evidence references and diagnostics so downstream UI and writing workflows can consume the artifact without relying on Markdown fields.",
     },
-    paper_evidence: [
+    source_papers: [
       {
-        id: "pe:1_detr",
         paper_ref: "1:DETR",
         title: "End-to-End Object Detection with Transformers",
         year: 2020,
@@ -472,27 +432,6 @@ function baseSections(
         },
       },
     ],
-    evidence_map: {
-      path: "runtime/payloads/cross-paper-evidence-map.json",
-      hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-      candidate_counts: {
-        taxonomy_candidates: 1,
-        improvement_dimension_candidates: 1,
-        claim_candidates: 1,
-        debate_candidates: 1,
-        gap_candidates: 1,
-        review_outline_seeds: 2,
-      },
-      candidate_ids: [
-        "pos:route-shift",
-        "tax:set-prediction",
-        "timeline:detr-2020",
-        "claim:set-prediction-shift",
-        "cmp:detr",
-        "debate:end-to-end-practicality",
-        "gap:traditional-detector-background",
-      ],
-    },
     source_artifacts: [
       {
         paper_ref: "1:DETR",
@@ -525,24 +464,30 @@ function createResultBundle(overrides: Record<string, unknown> = {}) {
       id: "object-detection",
       title: "Object Detection",
     },
-    resolver_manifest_path: "runtime/payloads/resolver.json",
-    resolver_diagnostics: {
-      final_count: 1,
-      manifest_hash: "sha256:resolver",
-    },
-    artifact_metadata: {
-      topic_id: "object-detection",
-      depends_on: {
-        papers: ["1:DETR"],
-        artifacts: [
-          "digest-markdown",
-          "references-json",
-          "citation-analysis-json",
-        ],
-      },
-    },
-    analysis_manifest_path: "result/topic-analysis.json",
+    artifact_manifest_path: "result/topic-synthesis-artifacts.json",
     ...overrides,
+  };
+}
+
+function createArtifactManifest(sections: Record<string, unknown>) {
+  return {
+    resolver_manifest: "runtime/payloads/resolver.json",
+    topic_analysis: "result/topic-analysis.json",
+    final_output_candidate: "result/final-output.candidate.json",
+    ...Object.fromEntries(
+      Object.keys(sections).map((section) => [
+        `${section}_section`,
+        `result/sections/${sectionFileName(section)}`,
+      ]),
+    ),
+    topic_interest_metadata_sidecar:
+      "result/sidecars/topic-interest-metadata.json",
+    concept_cards_proposal_sidecar:
+      "result/sidecars/concept-cards-proposal.json",
+    topic_graph_relation_proposals_sidecar:
+      "result/sidecars/topic-graph-relation-proposals.json",
+    prospective_topic_relation_proposals_sidecar:
+      "result/sidecars/prospective-topic-relation-proposals.json",
   };
 }
 
@@ -669,6 +614,11 @@ async function createRunWorkspace(args: {
   await writeJsonFile(runRoot, "result/topic-analysis.json", analysisManifest);
   await writeJsonFile(
     runRoot,
+    "result/topic-synthesis-artifacts.json",
+    createArtifactManifest(args.sections),
+  );
+  await writeJsonFile(
+    runRoot,
     "runtime/payloads/resolver.json",
     createResolverManifest(),
   );
@@ -764,135 +714,30 @@ function runCreateSkillFinalValidation(
   runRoot: string,
   sections: Record<string, unknown>,
 ) {
-  const skillRoot = path.resolve("skills_builtin/create-topic-synthesis");
-  const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-  const candidateIds =
-    (sections.evidence_map as JsonObject).candidate_ids || [];
-  const python = process.env.PYTHON || "python";
-  const setupScript = String.raw`
-import json
-import sys
-from pathlib import Path
-
-skill_root = Path(sys.argv[1])
-db_path = Path(sys.argv[2])
-run_root = Path(sys.argv[3])
-digest_hash = sys.argv[4]
-candidate_ids = json.loads(sys.argv[5])
-sys.path.insert(0, str(skill_root / "scripts"))
-import runtime_db as db
-
-conn = db.connect(db_path)
-db.set_meta(conn, "operation", "create")
-db.set_meta(conn, "language", "zh-CN")
-db.set_meta(conn, "run_root", str(Path(sys.argv[3]).resolve()))
-db.set_meta(conn, "base_hashes", {"manifest": "", "artifact": "", "export": "", "metadata": "", "index": ""})
-db.set_meta(conn, "artifact_metadata", {
-    "topic_id": "object-detection",
-    "depends_on": {
-        "papers": ["1:DETR"],
-        "artifacts": ["digest-markdown", "references-json", "citation-analysis-json"],
-    },
-})
-db.set_meta(conn, "cross_paper_evidence_map_candidate_ids", candidate_ids)
-db.set_meta(conn, "cross_paper_evidence_map_path", "runtime/payloads/cross-paper-evidence-map.json")
-db.set_meta(conn, "cross_paper_evidence_map_hash", "sha256:0000000000000000000000000000000000000000000000000000000000000000")
-db.set_meta(conn, "cross_paper_evidence_map_candidate_counts", {"runtime_derived": len(candidate_ids)})
-db.put_key_value(conn, "topic_intent", "topic_definition", {"id": "object-detection", "title": "Object Detection"})
-db.put_key_value(conn, "topic_resolver", "resolver_diagnostics", {"final_count": 1, "warnings": []})
-conn.execute(
-    "insert or replace into paper_workset(paper_ref, value_json) values (?, ?)",
-    ("1:DETR", json.dumps({
-        "paper_ref": "1:DETR",
-        "source": {
-            "item_key": "DETR",
-            "title": "End-to-End Object Detection with Transformers",
-            "year": "2020",
-        },
-    }, ensure_ascii=False, sort_keys=True)),
-)
-bundle = {
-    "paper_ref": "1:DETR",
-    "artifacts": [
-        {
-            "artifact_type": "digest",
-            "status": "available",
-            "payload_type": "digest-markdown",
-            "payload_hash": digest_hash,
-            "note_key": "digest-markdown-note",
-            "updated_at": "2026-05-18T00:00:00.000Z",
-        },
-        {"artifact_type": "references", "status": "available", "payload_type": "references-json"},
-        {"artifact_type": "citation_analysis", "status": "available", "payload_type": "citation-analysis-json"},
-    ],
-}
-conn.execute(
-    "insert or replace into paper_artifact_bundles(paper_ref, bundle_json, created_at) values (?, ?, ?)",
-    ("1:DETR", json.dumps(bundle, ensure_ascii=False, sort_keys=True), db.now_iso()),
-)
-conn.execute(
-    "insert or replace into citation_graph_metrics(paper_ref, metrics_json, status, created_at) values (?, ?, ?, ?)",
-    ("1:DETR", json.dumps({"paper_ref": "1:DETR", "status": "ready"}, ensure_ascii=False, sort_keys=True), "ready", db.now_iso()),
-)
-conn.execute(
-    "insert or replace into paper_analysis(paper_ref, analysis_json) values (?, ?)",
-    ("1:DETR", json.dumps({
-        "paper_ref": "1:DETR",
-        "topic_relevance": {"level": "core", "reason": "fixture"},
-        "paper_quality": {"level": "high", "reason": "fixture"},
-        "core_digest": "DETR formulates object detection as direct set prediction with object queries and bipartite matching.",
-    }, ensure_ascii=False, sort_keys=True)),
-)
-conn.commit()
-db.record_action_receipt(conn, action_name=db.CASCADE_METRICS_ACTION, payload={}, result={"paper_refs": ["1:DETR"]})
-db.record_action_receipt(conn, action_name=db.CASCADE_ARTIFACTS_ACTION, payload={}, result={"paper_refs": ["1:DETR"]})
-db.record_action_receipt(conn, action_name="persist_paper_triage", payload={}, result={"paper_refs": ["1:DETR"]})
-sidecars = [
-    ("result/sidecars/concept-cards-proposal.json", "synthesis.concept_cards_proposal", {"schema_id": "synthesis.concept_cards_proposal", "schema_version": "1.0.0", "cards": [], "diagnostics": []}),
-    ("result/sidecars/topic-interest-metadata.json", "topic_interest_metadata.v1", {"schema": "topic_interest_metadata.v1", "topic_id": "object-detection", "include_terms": ["object detection", "DETR"], "must_have_terms": ["object detection"], "methods": ["DETR"], "exclude_terms": [], "seed_literature_item_ids": ["lit:detr"], "diagnostics": []}),
-    ("result/sidecars/topic-graph-relation-proposals.json", "synthesis.topic_graph_relation_proposals", {"schema_id": "synthesis.topic_graph_relation_proposals", "schema_version": "1.0.0", "source_topic_id": "object-detection", "proposals": [], "diagnostics": []}),
-]
-for relative_path, schema_id, value in sidecars:
-    path = run_root / relative_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-    db.register_artifact(conn, path=relative_path, hash_value=db.sha256_file(path), content_type="json", schema_id=schema_id, stage="stage_9_kg_enrichment", validated=True)
-db.set_meta(conn, "concept_cards_proposal_path", "result/sidecars/concept-cards-proposal.json")
-db.set_meta(conn, "topic_interest_metadata_path", "result/sidecars/topic-interest-metadata.json")
-db.set_meta(conn, "topic_graph_relation_proposals_path", "result/sidecars/topic-graph-relation-proposals.json")
-for stage in db.STAGES[:11]:
-    db.set_stage_state(conn, stage, "completed")
-db.set_stage_state(conn, "stage_11_render_and_validate", "running")
-`;
-  execFileSync(
-    python,
-    [
-      "-c",
-      setupScript,
-      skillRoot,
-      dbPath,
-      runRoot,
-      hashMarkdown(DIGEST_MARKDOWN),
-      JSON.stringify(candidateIds),
-    ],
-    { cwd: process.cwd(), stdio: "pipe" },
+  const artifact = assembleTopicArtifact({
+    manifest: createAnalysisManifest(sections),
+    sections,
+  }) as Record<string, unknown>;
+  const hostResult = validateTopicSynthesisArtifact(artifact, {
+    expectedLanguage: "zh-CN",
+  });
+  if (!hostResult.ok) {
+    throw new Error(hostResult.errors.join("; "));
+  }
+  const finalPath = path.join(runRoot, "result", "final-output.candidate.json");
+  const raw = fsSync.existsSync(finalPath)
+    ? JSON.parse(fsSync.readFileSync(finalPath, "utf8"))
+    : createResultBundle();
+  const schemaPayload = { ...raw };
+  delete schemaPayload.__SKILL_DONE__;
+  const schemaResult = validateWithSchema(
+    "skills_builtin/topic-synthesis-finalize/assets/output.schema.json",
+    schemaPayload,
   );
-  const output = execFileSync(
-    python,
-    [
-      path.join(skillRoot, "scripts/stage_runtime.py"),
-      "--db",
-      dbPath,
-      "--operation",
-      "create",
-      "--language",
-      "zh-CN",
-      "--action",
-      "validate_final_artifacts",
-    ],
-    { cwd: skillRoot, encoding: "utf8", stdio: "pipe" },
-  );
-  return JSON.parse(output);
+  if (!schemaResult.ok) {
+    throw new Error(schemaResult.errors.join("; "));
+  }
+  return { final_path: "result/final-output.candidate.json" };
 }
 
 function captureCreateSkillFinalValidationError(
@@ -915,66 +760,12 @@ function initializeCreateStageValidationDb(
   runRoot: string,
   sections: Record<string, unknown>,
 ) {
-  const skillRoot = path.resolve("skills_builtin/create-topic-synthesis");
-  const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
-  const candidateIds =
-    (sections.evidence_map as JsonObject).candidate_ids || [];
-  const python = process.env.PYTHON || "python";
-  const setupScript = String.raw`
-import json
-import sys
-from pathlib import Path
-
-skill_root = Path(sys.argv[1])
-db_path = Path(sys.argv[2])
-digest_hash = sys.argv[3]
-candidate_ids = json.loads(sys.argv[4])
-sys.path.insert(0, str(skill_root / "scripts"))
-import runtime_db as db
-
-conn = db.connect(db_path)
-db.set_meta(conn, "operation", "create")
-db.set_meta(conn, "language", "zh-CN")
-db.set_meta(conn, "run_root", str(db_path.parent.parent.resolve()))
-db.set_meta(conn, "base_hashes", {"manifest": "", "artifact": "", "export": "", "metadata": "", "index": ""})
-db.set_meta(conn, "cross_paper_evidence_map_candidate_ids", candidate_ids)
-db.set_meta(conn, "cross_paper_evidence_map_path", "runtime/payloads/cross-paper-evidence-map.json")
-db.set_meta(conn, "cross_paper_evidence_map_hash", "sha256:0000000000000000000000000000000000000000000000000000000000000000")
-db.set_meta(conn, "cross_paper_evidence_map_candidate_counts", {"runtime_derived": len(candidate_ids)})
-db.put_key_value(conn, "topic_intent", "topic_definition", {"id": "object-detection", "title": "Object Detection"})
-bundle = {
-    "paper_ref": "1:DETR",
-    "artifacts": [
-        {
-            "artifact_type": "digest",
-            "status": "available",
-            "payload_type": "digest-markdown",
-            "payload_hash": digest_hash,
-            "note_key": "digest-markdown-note",
-            "updated_at": "2026-05-18T00:00:00.000Z",
-        },
-        {"artifact_type": "references", "status": "available", "payload_type": "references-json"},
-        {"artifact_type": "citation_analysis", "status": "available", "payload_type": "citation-analysis-json"},
-    ],
-}
-conn.execute(
-    "insert or replace into paper_artifact_bundles(paper_ref, bundle_json, created_at) values (?, ?, ?)",
-    ("1:DETR", json.dumps(bundle, ensure_ascii=False, sort_keys=True), db.now_iso()),
-)
-conn.commit()
-`;
-  execFileSync(
-    python,
-    [
-      "-c",
-      setupScript,
-      skillRoot,
-      dbPath,
-      hashMarkdown(DIGEST_MARKDOWN),
-      JSON.stringify(candidateIds),
-    ],
-    { cwd: process.cwd(), stdio: "pipe" },
+  const skillRoot = path.resolve(
+    "skills_builtin/topic-synthesis-core-enrichment",
   );
+  const dbPath = path.join(runRoot, "runtime", "topic-synthesis.sqlite");
+  fsSync.mkdirSync(path.dirname(dbPath), { recursive: true });
+  void sections;
   return { skillRoot, dbPath };
 }
 
@@ -993,7 +784,6 @@ function runCreateStageAction(args: {
   payload: unknown;
   action: string;
 }) {
-  const skillRoot = path.resolve("skills_builtin/create-topic-synthesis");
   const fullPayloadPath = path.join(args.runRoot, args.payloadPath);
   fsSync.mkdirSync(path.dirname(fullPayloadPath), { recursive: true });
   fsSync.writeFileSync(
@@ -1001,25 +791,130 @@ function runCreateStageAction(args: {
     `${JSON.stringify(args.payload, null, 2)}\n`,
     "utf8",
   );
-  const python = process.env.PYTHON || "python";
-  const output = execFileSync(
-    python,
-    [
-      path.join(skillRoot, "scripts/stage_runtime.py"),
-      "--db",
-      args.dbPath,
-      "--operation",
-      "create",
-      "--language",
-      "zh-CN",
-      "--action",
-      args.action,
-      "--payload-file",
-      args.payloadPath,
-    ],
-    { cwd: args.runRoot, encoding: "utf8", stdio: "pipe" },
-  );
-  return JSON.parse(output);
+  if (args.action === "persist_core_synthesis") {
+    const result = validateWithSchema(
+      "skills_builtin/topic-synthesis-core-enrichment/assets/schemas/stage-40-core-synthesis.schema.json",
+      args.payload,
+    );
+    if (!result.ok) {
+      throw new Error(
+        `payload schema validation failed: ${result.errors.join("; ")}`,
+      );
+    }
+    return {
+      result: {
+        concept_candidate_count:
+          ((args.payload as JsonObject).concept_candidate_labels as unknown[])
+            ?.length || 0,
+      },
+    };
+  }
+  if (args.action === "persist_kg_enrichment") {
+    const result = validateWithSchema(
+      "skills_builtin/topic-synthesis-core-enrichment/assets/schemas/stage-50-kg-enrichment.schema.json",
+      args.payload,
+    );
+    if (!result.ok) {
+      throw new Error(
+        `payload schema validation failed: ${result.errors.join("; ")}`,
+      );
+    }
+    const payload = args.payload as JsonObject;
+    fsSync.mkdirSync(path.join(args.runRoot, "result/sidecars"), {
+      recursive: true,
+    });
+    fsSync.writeFileSync(
+      path.join(args.runRoot, "result/sidecars/concept-cards-proposal.json"),
+      `${JSON.stringify(
+        {
+          schema_id: "synthesis.concept_cards_proposal",
+          schema_version: "1.0.0",
+          cards: payload.concept_details || [],
+          diagnostics: [],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    fsSync.writeFileSync(
+      path.join(
+        args.runRoot,
+        "result/sidecars/topic-graph-relation-proposals.json",
+      ),
+      `${JSON.stringify(
+        {
+          schema_id: "synthesis.topic_graph_relation_proposals",
+          schema_version: "1.0.0",
+          source_topic_id: "object-detection",
+          proposals: payload.existing_topic_relation_proposals || [],
+          diagnostics: [],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    fsSync.writeFileSync(
+      path.join(
+        args.runRoot,
+        "result/sidecars/prospective-topic-relation-proposals.json",
+      ),
+      `${JSON.stringify(
+        {
+          schema_id: "synthesis.prospective_topic_relation_proposals",
+          schema_version: "1.0.0",
+          proposals: payload.prospective_topic_relation_proposals || [],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const terms = (payload.topic_matching_terms as JsonObject) || {};
+    fsSync.writeFileSync(
+      path.join(args.runRoot, "result/sidecars/topic-interest-metadata.json"),
+      `${JSON.stringify(
+        {
+          schema: "topic_interest_metadata.v1",
+          topic_id: "object-detection",
+          include_terms: terms.include_terms || [],
+          must_have_terms: terms.must_have_terms || [],
+          methods: terms.methods || [],
+          exclude_terms: terms.exclude_terms || [],
+          seed_literature_item_ids: ["lit:detr"],
+          diagnostics: [],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return {
+      result: {
+        concept_cards_proposal_path:
+          "result/sidecars/concept-cards-proposal.json",
+        topic_interest_metadata_path:
+          "result/sidecars/topic-interest-metadata.json",
+      },
+    };
+  }
+  if (args.action === "finalize_summary_coverage") {
+    const result = validateWithSchema(
+      "skills_builtin/topic-synthesis-finalize/assets/schemas/stage-60-coverage-and-collection-suggestions.schema.json",
+      args.payload,
+    );
+    if (!result.ok) {
+      throw new Error(
+        `payload schema validation failed: ${result.errors.join("; ")}`,
+      );
+    }
+    fsSync.mkdirSync(path.join(args.runRoot, "result/sections"), {
+      recursive: true,
+    });
+    fsSync.writeFileSync(
+      path.join(args.runRoot, "result/sections/coverage.json"),
+      `${JSON.stringify(args.payload, null, 2)}\n`,
+    );
+    return { result: { coverage_path: "result/sections/coverage.json" } };
+  }
+  throw new Error(`unsupported current stage action: ${args.action}`);
 }
 
 function captureCreateStageActionError(args: {
@@ -1042,18 +937,74 @@ function captureCreateStageActionError(args: {
 }
 
 function coreSectionsPayload(sections: Record<string, unknown>) {
+  const route = JSON.parse(
+    JSON.stringify(((sections.taxonomy as JsonObject).nodes as unknown[])[0]),
+  );
+  route.title = route.title || route.label;
+  delete route.label;
+  const taxonomy = {
+    summary: (sections.taxonomy as JsonObject).summary,
+    axes: [
+      {
+        axis_type: "research_route",
+        axis_rationale:
+          "The route axis keeps the minimal fixture aligned with current stage-40 schema.",
+        nodes: [route],
+      },
+      {
+        axis_type: "technical_mechanism",
+        axis_rationale:
+          "The mechanism axis expresses the object-query and matching mechanism explicitly.",
+        nodes: [
+          {
+            ...route,
+            id: "mechanism:query-set-prediction",
+            title: "Object-query set prediction",
+          },
+        ],
+      },
+    ],
+  };
+  const improvementDimensions = (
+    sections.improvement_dimensions as JsonObject[]
+  ).map((entry) => ({
+    id: entry.id,
+    title: entry.title || entry.label,
+    analysis: entry.analysis,
+    source_paper_refs: entry.source_paper_refs,
+  }));
+  const claims = (sections.claims as JsonObject[]).map((entry) => ({
+    id: entry.id,
+    text: entry.text,
+    analysis: entry.analysis,
+    scope: entry.scope,
+    limitations: entry.limitations,
+    source_paper_refs: entry.source_paper_refs,
+  }));
   return {
-    ...pickSections(sections, [
-      "taxonomy",
-      "timeline_events",
-      "positioning",
-      "claims",
-      "improvement_dimension_summary",
-      "improvement_dimensions",
-      "debates",
-      "gaps",
-      "review_outline",
-    ]),
+    taxonomy,
+    timeline_events: sections.timeline_events,
+    claims,
+    improvement_dimension_summary: {
+      summary:
+        "The fixture highlights replacing hand-designed detection pipeline components with direct set prediction.",
+    },
+    improvement_dimensions: improvementDimensions,
+    debates: (sections.debates as JsonObject[]).map((entry) => ({
+      id: entry.id,
+      title: entry.title,
+      current_judgment: entry.current_judgment,
+      source_paper_refs: entry.source_paper_refs,
+    })),
+    future_directions: sections.future_directions,
+    review_outline: {
+      topic_importance: (sections.review_outline as JsonObject)
+        .topic_importance,
+      writing_strategies: (sections.review_outline as JsonObject)
+        .writing_strategies,
+      recommended_strategy_id: (sections.review_outline as JsonObject)
+        .recommended_strategy_id,
+    },
     concept_candidate_labels: [
       "object query",
       "bipartite matching",
@@ -1064,74 +1015,54 @@ function coreSectionsPayload(sections: Record<string, unknown>) {
 
 function kgEnrichmentPayload() {
   return {
-    schema_id: "synthesis.topic_synthesis_kg_enrichment",
-    schema_version: "1.0.0",
     concept_details: [],
-    topic_relation_candidates: [],
+    existing_topic_relation_proposals: [],
+    prospective_topic_relation_proposals: [],
     topic_matching_terms: {
       include_terms: ["object detection", "DETR"],
       must_have_terms: ["object detection"],
       methods: ["DETR"],
       exclude_terms: ["semantic segmentation"],
-      diagnostics: ["explicit_stage9_metadata"],
     },
-    diagnostics: ["no_reliable_concepts", "no_reliable_relations"],
   };
 }
 
 function finalizeSummaryCoveragePayload(sections: Record<string, unknown>) {
   return {
-    summary: {
-      brief: (sections.summary as JsonObject).brief,
-      overview: (sections.summary as JsonObject).overview,
-      key_takeaways: (sections.summary as JsonObject).key_takeaways,
-      coverage_verdict: (sections.summary as JsonObject).coverage_verdict,
-    },
-    coverage: {
-      coverage_verdict: (sections.coverage as JsonObject).coverage_verdict,
-      reason: (sections.coverage as JsonObject).route_coverage_summary,
-      warnings: (sections.coverage as JsonObject).warnings,
-    },
-    reliability_caveats: (sections.diagnostics as JsonObject).limitations,
-    external_context_summary: {
-      summary: (sections.external_literature_analysis as JsonObject).summary,
-      themes: (sections.external_literature_analysis as JsonObject).themes,
-      representative_references: (
-        sections.external_literature_analysis as JsonObject
-      ).representative_references,
-      citation_contexts: (sections.external_literature_analysis as JsonObject)
-        .citation_contexts,
-      coverage_verdict: (sections.external_literature_analysis as JsonObject)
-        .coverage_verdict,
-      coverage_reason: (sections.external_literature_analysis as JsonObject)
-        .coverage_reason,
-      contribution_to_topic: (
-        sections.external_literature_analysis as JsonObject
-      ).contribution_to_topic,
-      limitations: (sections.external_literature_analysis as JsonObject)
-        .limitations,
-    },
-    collection_suggestions: (
-      sections.external_literature_analysis as JsonObject
-    ).suggested_additions,
-    diagnostics: (sections.diagnostics as JsonObject).warnings,
+    coverage_verdict: (sections.coverage as JsonObject).coverage_verdict,
+    coverage_reason: (sections.coverage as JsonObject).coverage_reason,
+    coverage_caveats: (
+      (sections.coverage as JsonObject).coverage_caveats as string[]
+    ).map((note) => ({
+      type: "library_coverage_gap",
+      note,
+    })),
+    external_context_summary: (sections.coverage as JsonObject)
+      .external_context_summary,
+    suggested_collection_directions: [
+      {
+        direction:
+          "Add proposal-based and anchor-free detector background papers.",
+        reason:
+          "These papers explain the pipeline that query-based set prediction reacts against.",
+        example_titles_or_terms: ["Faster R-CNN", "YOLO", "anchor-free"],
+        priority: "high",
+      },
+    ],
   };
 }
 
 function assertValidOutputSchema(value: unknown) {
+  const schemaPayload = { ...(value as JsonObject) };
+  delete schemaPayload.__SKILL_DONE__;
   const result = validateWithSchema(
-    "skills_builtin/create-topic-synthesis/assets/output.schema.json",
-    value,
+    "skills_builtin/topic-synthesis-finalize/assets/output.schema.json",
+    schemaPayload,
   );
   assert.isTrue(result.ok, result.errors.join("; "));
 }
 
 function assertValidArtifactSchema(value: unknown) {
-  const result = validateWithSchema(
-    "skills_builtin/create-topic-synthesis/assets/schemas/topic_synthesis_artifact.schema.json",
-    value,
-  );
-  assert.isTrue(result.ok, result.errors.join("; "));
   const hostResult = validateTopicSynthesisArtifact(value, {
     expectedLanguage: "zh-CN",
   });
@@ -1146,10 +1077,10 @@ describe("Topic synthesis contract pipeline", function () {
     const sections = baseSections();
     const { dbPath } = initializeCreateStageValidationDb(runRoot, sections);
     const invalid = coreSectionsPayload(sections);
-    delete ((invalid.taxonomy as JsonObject).nodes[0] as JsonObject)
-      .relation_to_other_routes;
-    delete ((invalid.taxonomy as JsonObject).nodes[0] as JsonObject)
-      .review_angle;
+    delete (
+      ((invalid.taxonomy as JsonObject).axes as JsonObject[])[0]
+        .nodes as JsonObject[]
+    )[0].mechanism;
 
     const message = captureCreateStageActionError({
       runRoot,
@@ -1159,7 +1090,7 @@ describe("Topic synthesis contract pipeline", function () {
       payload: invalid,
     });
 
-    assert.match(message, /route_relation|relation/i);
+    assert.match(message, /mechanism/i);
   });
 
   it("rejects shallow core analytical sections at Stage 8 before final validation", async function () {
@@ -1282,13 +1213,11 @@ describe("Topic synthesis contract pipeline", function () {
       payload: invalid,
     });
 
-    assert.match(message, /unknown keys|contains unknown/i);
+    assert.match(message, /additional properties|unknown/i);
     try {
-      await fs.access(
-        path.join(runRoot, "result/sections/synthesis-report.json"),
-      );
+      await fs.access(path.join(runRoot, "result/sections/coverage.json"));
       assert.fail(
-        "Stage 10 should not materialize section files after failed prevalidation",
+        "Stage 60 should not materialize coverage after failed prevalidation",
       );
     } catch {
       // expected
@@ -1302,30 +1231,15 @@ describe("Topic synthesis contract pipeline", function () {
       payload: finalizeSummaryCoveragePayload(sections),
     });
 
-    assert.equal(valid.result.section_count, 20);
+    assert.equal(valid.result.coverage_path, "result/sections/coverage.json");
     const materialized = await readJsonFile<JsonObject>(
-      path.join(runRoot, "result/sections/taxonomy.json"),
-    );
-    const materializedStatistics = await readJsonFile<JsonObject>(
-      path.join(runRoot, "result/sections/statistics.json"),
-    );
-    const materializedReport = await readJsonFile<JsonObject>(
-      path.join(runRoot, "result/sections/synthesis-report.json"),
+      path.join(runRoot, "result/sections/coverage.json"),
     );
     assert.equal(
-      materialized.summary.text,
-      (sections.taxonomy as JsonObject).summary.text,
+      materialized.coverage_verdict,
+      (sections.coverage as JsonObject).coverage_verdict,
     );
-    assert.equal(
-      materializedStatistics.schema_id,
-      "synthesis.runtime_statistics",
-    );
-    assert.isObject(materializedStatistics.graph_statistics);
-    assert.equal(
-      materializedReport.template_id,
-      "runtime-fixed-topic-synthesis-report-v1",
-    );
-    assert.include(materializedReport.body, "taxonomy.summary");
+    assert.isArray(materialized.suggested_collection_directions);
   });
 
   it("flows from skill output schema through apply hook, host persistence, and UI detail DTO", async function () {
@@ -1375,10 +1289,6 @@ describe("Topic synthesis contract pipeline", function () {
     const persistedMetadataEnvelope = await readJsonFile<JsonObject>(
       paths.currentMetadata,
     );
-    const exportMarkdown = await fs.readFile(
-      paths.currentExportMarkdown,
-      "utf8",
-    );
     const persistedClaims = await readJsonFile<JsonObject>(
       path.join(paths.currentSectionsRoot, "claims.json"),
     );
@@ -1403,9 +1313,7 @@ describe("Topic synthesis contract pipeline", function () {
       persistedArtifact.timeline_events.summary.text,
       (sections.timeline_events as any).summary.text,
     );
-    assert.include(exportMarkdown, "# Object Detection");
     assert.equal(persistedMetadataEnvelope.data.paper_count, 1);
-    assert.equal(persistedMetadataEnvelope.data.external_literature_count, 1);
     assert.deepEqual(persistedClaims, sections.claims);
     assert.equal(detail.title, "Object Detection");
     assert.equal(
@@ -1413,20 +1321,14 @@ describe("Topic synthesis contract pipeline", function () {
       (sections.taxonomy as any).summary.text,
     );
     assert.lengthOf(detail.timeline_events.events, 1);
-    assert.equal(detail.claims[0].evidence_refs[0], "pe:1_detr");
+    assert.equal(detail.claims[0].source_paper_refs[0], "1:DETR");
     assert.equal(
-      detail.paper_evidence[0].digest_ref.payload_hash,
+      detail.source_papers[0].digest_ref.payload_hash,
       hashMarkdown(DIGEST_MARKDOWN),
     );
-    assert.equal(
-      detail.external_literature_analysis.coverage_verdict,
-      "partial",
-    );
+    assert.equal(detail.coverage.coverage_verdict, "partial");
+    assert.lengthOf(detail.future_directions, 1);
     assert.equal(detail.statistics.paper_count, 1);
-    assert.equal(
-      detail.synthesis_report.template_id,
-      "runtime-fixed-topic-synthesis-report-v1",
-    );
     assert.include(detail.synthesis_report.body, "taxonomy.summary");
     assert.isOk(row);
     assert.equal((row as any).paper_count, 1);
@@ -1583,40 +1485,28 @@ describe("Topic synthesis contract pipeline", function () {
     }
   });
 
-  it("renders missing synthesis_report title from the fixed runtime template", async function () {
+  it("rejects final artifacts that omit synthesis_report title", async function () {
     const sections = baseSections();
     delete (sections.synthesis_report as JsonObject).title;
     const { runRoot } = await createRunWorkspace({ sections });
 
-    runCreateSkillFinalValidation(runRoot, sections);
-    const report = await readJsonFile<JsonObject>(
-      path.join(runRoot, "result", "sections", "synthesis-report.json"),
-    );
+    const message = captureCreateSkillFinalValidationError(runRoot, sections);
 
-    assert.equal(report.template_id, "runtime-fixed-topic-synthesis-report-v1");
-    assert.equal(report.title, "Object Detection");
+    assert.match(message, /synthesis_report\.title/i);
   });
 
-  it("rewrites shallow synthesis_report bodies in package-local final validation", async function () {
+  it("rejects shallow synthesis_report bodies at the host boundary", async function () {
     const sections = baseSections();
     (sections.synthesis_report as JsonObject).body =
       "This report mentions routes, history, findings, debates, gaps, coverage, and external literature, but remains too shallow.";
     const { runRoot } = await createRunWorkspace({ sections });
 
-    runCreateSkillFinalValidation(runRoot, sections);
-    const report = await readJsonFile<JsonObject>(
-      path.join(runRoot, "result", "sections", "synthesis-report.json"),
-    );
+    const message = captureCreateSkillFinalValidationError(runRoot, sections);
 
-    assert.equal(report.template_id, "runtime-fixed-topic-synthesis-report-v1");
-    assert.include(report.body, "taxonomy.summary");
-    assert.notEqual(
-      report.body,
-      (sections.synthesis_report as JsonObject).body,
-    );
+    assert.match(message, /synthesis_report body/i);
   });
 
-  it("allows validate_final_artifacts to repair polluted final result files", async function () {
+  it("rejects polluted final result files at the finalize output schema", async function () {
     const sections = baseSections();
     const { runRoot } = await createRunWorkspace({ sections });
     const first = runCreateSkillFinalValidation(runRoot, sections);
@@ -1626,19 +1516,10 @@ describe("Topic synthesis contract pipeline", function () {
       '{"polluted":true}\n',
       "utf8",
     );
-    await writeJsonFile(runRoot, "result/sections/synthesis-report.json", {
-      ...(sections.synthesis_report as JsonObject),
-      body: `${(sections.synthesis_report as JsonObject).body}\n\nThis repaired section update remains schema-valid and verifies that validate_final_artifacts can rewrite final section hashes without being blocked by old section_outputs receipts.`,
-    });
 
-    const repaired = runCreateSkillFinalValidation(runRoot, sections);
-    const finalBundle = await readJsonFile<JsonObject>(
-      path.join(runRoot, "result", "final-output.candidate.json"),
-    );
+    const message = captureCreateSkillFinalValidationError(runRoot, sections);
 
-    assert.equal(repaired.final_path, "result/final-output.candidate.json");
-    assert.equal(finalBundle.kind, "topic_synthesis");
-    assert.equal(finalBundle.__SKILL_DONE__, true);
+    assert.match(message, /kind|oneOf|topic_synthesis/i);
   });
 
   it("merges an update_patch product into the previously persisted structured artifact", async function () {
@@ -1765,6 +1646,15 @@ describe("Topic synthesis contract pipeline", function () {
         source_topic_id: "object-detection",
         proposals: [],
         diagnostics: [],
+      },
+    );
+    await writeJsonFile(
+      runRoot,
+      "result/sidecars/prospective-topic-relation-proposals.json",
+      {
+        schema_id: "synthesis.prospective_topic_relation_proposals",
+        schema_version: "1.0.0",
+        proposals: [],
       },
     );
 

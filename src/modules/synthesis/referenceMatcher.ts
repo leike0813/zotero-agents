@@ -95,7 +95,11 @@ export type ReferenceCanonicalDedupeTitleCandidate = {
   identifiers?: ReferenceMatcherIdentifier[];
   rawReferenceIds?: string[];
   sourceCanonicalReferenceId?: string;
-  source: "input" | "effective_canonical" | "physical_canonical" | "raw_reference";
+  source:
+    | "input"
+    | "effective_canonical"
+    | "physical_canonical"
+    | "raw_reference";
   frequency?: number;
 };
 
@@ -166,7 +170,10 @@ export type ReferenceCanonicalDedupeCluster = {
   }>;
 };
 
-export type ReferenceCanonicalDedupeEligibility = "eligible" | "weak" | "excluded";
+export type ReferenceCanonicalDedupeEligibility =
+  | "eligible"
+  | "weak"
+  | "excluded";
 
 export type ReferenceCanonicalDedupeClusteredResult = {
   clusters: ReferenceCanonicalDedupeCluster[];
@@ -614,31 +621,29 @@ function tokenDice(left: Set<string>, right: Set<string>) {
   return (2 * overlap) / (left.size + right.size);
 }
 
-const FUZZY_STOP_WORDS = new Set(
-  [
-    "a",
-    "an",
-    "the",
-    "of",
-    "for",
-    "with",
-    "and",
-    "or",
-    "to",
-    "in",
-    "on",
-    "by",
-    "from",
-    "via",
-    "using",
-    "based",
-    "towards",
-    "toward",
-    "end",
-    "real",
-    "time",
-  ],
-);
+const FUZZY_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "of",
+  "for",
+  "with",
+  "and",
+  "or",
+  "to",
+  "in",
+  "on",
+  "by",
+  "from",
+  "via",
+  "using",
+  "based",
+  "towards",
+  "toward",
+  "end",
+  "real",
+  "time",
+]);
 
 function contentTokens(value: string) {
   return normalizeSynthesisLiteratureTitle(value)
@@ -761,7 +766,9 @@ const WEAK_VENUE_MARKERS = new Set([
   "sensing",
 ]);
 
-function bibliographicNoiseProfile(normalizedTitle: string): BibliographicNoiseProfile {
+function bibliographicNoiseProfile(
+  normalizedTitle: string,
+): BibliographicNoiseProfile {
   const tokens = normalizeSynthesisLiteratureTitle(normalizedTitle)
     .split(/\s+/)
     .filter(Boolean);
@@ -769,7 +776,9 @@ function bibliographicNoiseProfile(normalizedTitle: string): BibliographicNoiseP
   const hasDoiOrArxiv =
     /\b(?:arxiv|doi|preprint)\b/u.test(normalizedTitle) ||
     /(?:10\.\d{4,9}\/|doi\s+org)/u.test(normalizedTitle);
-  const hasProceedingsPhrase = /\b(?:in\s+)?proceedings\b/u.test(normalizedTitle);
+  const hasProceedingsPhrase = /\b(?:in\s+)?proceedings\b/u.test(
+    normalizedTitle,
+  );
   const hasPageMarker = /\b(?:pp|pages?|p)\s*\d+\b/u.test(normalizedTitle);
   const hasVolumeIssuePagePattern =
     /\b[a-z][a-z0-9-]*\s+\d{1,4}\s+\d{1,4}\s+\d{1,6}\b/u.test(
@@ -826,12 +835,17 @@ function titleNoisePenalty(normalizedTitle: string) {
   )
     ? 18
     : 0;
-  const authorPrefixPenalty = /^[a-z]+(?:\s+[a-z]\b|\s+[a-z]+,|\s+[a-z]+){2,8}\s+/u.test(
-    normalizedTitle,
-  )
-    ? 12
-    : 0;
-  return fusedTokenPenalty + noise.score * 8 + authorPrefixPenalty + Math.max(0, words - 12) * 3 + Math.max(0, length - 110) / 5;
+  const authorPrefixPenalty =
+    /^[a-z]+(?:\s+[a-z]\b|\s+[a-z]+,|\s+[a-z]+){2,8}\s+/u.test(normalizedTitle)
+      ? 12
+      : 0;
+  return (
+    fusedTokenPenalty +
+    noise.score * 8 +
+    authorPrefixPenalty +
+    Math.max(0, words - 12) * 3 +
+    Math.max(0, length - 110) / 5
+  );
 }
 
 function normalizeTitleCandidate(
@@ -839,7 +853,8 @@ function normalizeTitleCandidate(
 ): ReferenceCanonicalDedupeTitleCandidate | null {
   const title = cleanString(candidate.title);
   const normalizedTitle =
-    cleanString(candidate.normalizedTitle) || normalizeSynthesisLiteratureTitle(title);
+    cleanString(candidate.normalizedTitle) ||
+    normalizeSynthesisLiteratureTitle(title);
   const tokens = contentTokens(normalizedTitle || title);
   if (!title || !normalizedTitle || tokens.length < 2) {
     return null;
@@ -849,25 +864,39 @@ function normalizeTitleCandidate(
     title,
     normalizedTitle,
     year: cleanString(candidate.year),
-    authors: uniqueSorted((candidate.authors || []).map(cleanString).filter(Boolean)),
+    authors: uniqueSorted(
+      (candidate.authors || []).map(cleanString).filter(Boolean),
+    ),
     identifiers: dedupeIdentifiers(
       (candidate.identifiers || [])
-        .map((identifier) => normalizeReferenceIdentifier(identifier.kind, identifier.value))
-        .filter((identifier): identifier is ReferenceMatcherIdentifier => Boolean(identifier)),
+        .map((identifier) =>
+          normalizeReferenceIdentifier(identifier.kind, identifier.value),
+        )
+        .filter((identifier): identifier is ReferenceMatcherIdentifier =>
+          Boolean(identifier),
+        ),
     ),
     rawReferenceIds: uniqueSorted(candidate.rawReferenceIds || []),
-    sourceCanonicalReferenceId: cleanString(candidate.sourceCanonicalReferenceId),
+    sourceCanonicalReferenceId: cleanString(
+      candidate.sourceCanonicalReferenceId,
+    ),
     frequency: Math.max(1, Math.floor(Number(candidate.frequency) || 1)),
   };
 }
 
-function titleCandidateQuality(candidate: ReferenceCanonicalDedupeTitleCandidate) {
+function titleCandidateQuality(
+  candidate: ReferenceCanonicalDedupeTitleCandidate,
+) {
   const normalizedTitle =
     cleanString(candidate.normalizedTitle) ||
     normalizeSynthesisLiteratureTitle(candidate.title);
   const tokens = contentTokens(normalizedTitle);
-  const compactLength = strongCompactSynthesisLiteratureTitle(normalizedTitle).length;
-  const frequencySupport = Math.min(4, Math.log2(Math.max(1, Number(candidate.frequency) || 1) + 1));
+  const compactLength =
+    strongCompactSynthesisLiteratureTitle(normalizedTitle).length;
+  const frequencySupport = Math.min(
+    4,
+    Math.log2(Math.max(1, Number(candidate.frequency) || 1) + 1),
+  );
   return (
     Math.min(tokens.length, 12) * 4 +
     Math.min(compactLength, 90) / 8 +
@@ -899,13 +928,15 @@ function chooseTitleCandidate(
     .filter((candidate): candidate is ReferenceCanonicalDedupeTitleCandidate =>
       Boolean(candidate),
     );
-  return candidates
-    .slice()
-    .sort(
-      (left, right) =>
-        titleCandidateQuality(right) - titleCandidateQuality(left) ||
-        cleanString(left.title).localeCompare(cleanString(right.title)),
-    )[0] || null;
+  return (
+    candidates
+      .slice()
+      .sort(
+        (left, right) =>
+          titleCandidateQuality(right) - titleCandidateQuality(left) ||
+          cleanString(left.title).localeCompare(cleanString(right.title)),
+      )[0] || null
+  );
 }
 
 function canonicalEligibility(args: {
@@ -918,10 +949,19 @@ function canonicalEligibility(args: {
   eligibility: ReferenceCanonicalDedupeEligibility;
   reasons: string[];
 } {
-  const { normalizedTitle, contentTokens: tokens, authors, identifiers, noiseProfile } =
-    args;
+  const {
+    normalizedTitle,
+    contentTokens: tokens,
+    authors,
+    identifiers,
+    noiseProfile,
+  } = args;
   const reasons: string[] = [];
-  if (/^(?:https?\s+)?(?:dx\s+)?doi\s+org\s+|^doi\s+|^10\s+\d{4,9}\s+/u.test(normalizedTitle)) {
+  if (
+    /^(?:https?\s+)?(?:dx\s+)?doi\s+org\s+|^doi\s+|^10\s+\d{4,9}\s+/u.test(
+      normalizedTitle,
+    )
+  ) {
     reasons.push("bare_doi_or_url_title");
   }
   if (/^(?:https?|www)\b/u.test(normalizedTitle)) {
@@ -940,7 +980,10 @@ function canonicalEligibility(args: {
   if (noiseProfile.score >= 8 && tokens.length <= 6) {
     reasons.push("mostly_bibliographic_metadata");
   }
-  if (reasons.some((reason) => reason.startsWith("bare_")) || reasons.includes("too_few_content_tokens")) {
+  if (
+    reasons.some((reason) => reason.startsWith("bare_")) ||
+    reasons.includes("too_few_content_tokens")
+  ) {
     return { eligibility: "excluded", reasons: uniqueSorted(reasons) };
   }
   if (reasons.length || noiseProfile.score >= 6) {
@@ -960,7 +1003,8 @@ function canonicalDedupeRecord(
 ): CanonicalDedupeRecord | null {
   const canonicalReferenceId = cleanString(input.canonicalReferenceId);
   const selectedTitleCandidate = chooseTitleCandidate(input);
-  const title = cleanString(selectedTitleCandidate?.title) || cleanString(input.title);
+  const title =
+    cleanString(selectedTitleCandidate?.title) || cleanString(input.title);
   const normalized =
     cleanString(selectedTitleCandidate?.normalizedTitle) ||
     cleanString(input.normalizedTitle) ||
@@ -989,9 +1033,13 @@ function canonicalDedupeRecord(
   const candidateIdentifiers = titleCandidates.flatMap(
     (candidate) => candidate.identifiers || [],
   );
-  const candidateAuthors = titleCandidates.flatMap((candidate) => candidate.authors || []);
+  const candidateAuthors = titleCandidates.flatMap(
+    (candidate) => candidate.authors || [],
+  );
   const explicitIdentifiers = (input.identifiers || [])
-    .map((identifier) => normalizeReferenceIdentifier(identifier.kind, identifier.value))
+    .map((identifier) =>
+      normalizeReferenceIdentifier(identifier.kind, identifier.value),
+    )
     .filter((identifier): identifier is ReferenceMatcherIdentifier =>
       Boolean(identifier),
     );
@@ -1030,7 +1078,10 @@ function canonicalDedupeRecord(
     identifiers,
     identifierKeys: identifiers.map(identityKey),
     strongIdentifierKeys: identifiers
-      .filter((identifier) => identifier.kind === "doi" || identifier.kind === "arxiv")
+      .filter(
+        (identifier) =>
+          identifier.kind === "doi" || identifier.kind === "arxiv",
+      )
       .map(identityKey),
     contentTokens: tokens,
     tokenSet: new Set(tokens),
@@ -1061,7 +1112,10 @@ function canonicalTitleQuality(record: CanonicalDedupeRecord) {
 }
 
 function representativeQualityScore(record: CanonicalDedupeRecord) {
-  return canonicalTitleQuality(record) - titleNoisePenalty(record.normalizedTitle) * 2;
+  return (
+    canonicalTitleQuality(record) -
+    titleNoisePenalty(record.normalizedTitle) * 2
+  );
 }
 
 function chooseCanonicalRepresentative(records: CanonicalDedupeRecord[]) {
@@ -1069,7 +1123,8 @@ function chooseCanonicalRepresentative(records: CanonicalDedupeRecord[]) {
     .slice()
     .sort(
       (left, right) =>
-        Number(right.stickyRepresentative) - Number(left.stickyRepresentative) ||
+        Number(right.stickyRepresentative) -
+          Number(left.stickyRepresentative) ||
         Number(right.acceptedBinding) - Number(left.acceptedBinding) ||
         representativeQualityScore(right) - representativeQualityScore(left) ||
         right.strongIdentifierKeys.length - left.strongIdentifierKeys.length ||
@@ -1084,7 +1139,10 @@ function strongRetargetAllowed(
   candidate: CanonicalDedupeRecord,
   edges: ReferenceCanonicalDedupeEdge[],
 ) {
-  if (!compatibleYear(sticky, candidate) || identifierConflict([sticky, candidate])) {
+  if (
+    !compatibleYear(sticky, candidate) ||
+    identifierConflict([sticky, candidate])
+  ) {
     return false;
   }
   if (hasKnownDangerSignal(sticky.normalizedTitle, candidate.normalizedTitle)) {
@@ -1146,32 +1204,36 @@ function clusterRepresentativeRanking(
     const shorter = cleanString(edge.evidence.shorter_canonical_reference_id);
     const longer = cleanString(edge.evidence.longer_canonical_reference_id);
     if (shorter) {
-      noiseShorterBoost.set(shorter, (noiseShorterBoost.get(shorter) || 0) + 18);
+      noiseShorterBoost.set(
+        shorter,
+        (noiseShorterBoost.get(shorter) || 0) + 18,
+      );
     }
     if (longer) {
-      noiseLongerPenalty.set(longer, (noiseLongerPenalty.get(longer) || 0) + 20);
+      noiseLongerPenalty.set(
+        longer,
+        (noiseLongerPenalty.get(longer) || 0) + 20,
+      );
     }
   }
-  return records
-    .slice()
-    .sort((left, right) => {
-      const leftScore =
-        representativeQualityScore(left) +
-        (noiseShorterBoost.get(left.canonicalReferenceId) || 0) -
-        (noiseLongerPenalty.get(left.canonicalReferenceId) || 0);
-      const rightScore =
-        representativeQualityScore(right) +
-        (noiseShorterBoost.get(right.canonicalReferenceId) || 0) -
-        (noiseLongerPenalty.get(right.canonicalReferenceId) || 0);
-      return (
-        Number(right.acceptedBinding) - Number(left.acceptedBinding) ||
-        rightScore - leftScore ||
-        right.strongIdentifierKeys.length - left.strongIdentifierKeys.length ||
-        right.authors.length - left.authors.length ||
-        cappedRawSupport(right) - cappedRawSupport(left) ||
-        left.canonicalReferenceId.localeCompare(right.canonicalReferenceId)
-      );
-    });
+  return records.slice().sort((left, right) => {
+    const leftScore =
+      representativeQualityScore(left) +
+      (noiseShorterBoost.get(left.canonicalReferenceId) || 0) -
+      (noiseLongerPenalty.get(left.canonicalReferenceId) || 0);
+    const rightScore =
+      representativeQualityScore(right) +
+      (noiseShorterBoost.get(right.canonicalReferenceId) || 0) -
+      (noiseLongerPenalty.get(right.canonicalReferenceId) || 0);
+    return (
+      Number(right.acceptedBinding) - Number(left.acceptedBinding) ||
+      rightScore - leftScore ||
+      right.strongIdentifierKeys.length - left.strongIdentifierKeys.length ||
+      right.authors.length - left.authors.length ||
+      cappedRawSupport(right) - cappedRawSupport(left) ||
+      left.canonicalReferenceId.localeCompare(right.canonicalReferenceId)
+    );
+  });
 }
 
 function chooseClusterRepresentative(
@@ -1209,17 +1271,16 @@ function representativeRetargetReviewCandidate(
     return null;
   }
   const candidate = clusterRepresentativeRanking(records, edges).find(
-    (record) => record.canonicalReferenceId !== representative.canonicalReferenceId,
+    (record) =>
+      record.canonicalReferenceId !== representative.canonicalReferenceId,
   );
-  if (
-    !candidate ||
-    strongRetargetAllowed(representative, candidate, edges)
-  ) {
+  if (!candidate || strongRetargetAllowed(representative, candidate, edges)) {
     return null;
   }
   const materiallyStronger =
     (candidate.acceptedBinding && !representative.acceptedBinding) ||
-    candidate.strongIdentifierKeys.length > representative.strongIdentifierKeys.length;
+    candidate.strongIdentifierKeys.length >
+      representative.strongIdentifierKeys.length;
   if (!materiallyStronger) {
     return null;
   }
@@ -1240,25 +1301,38 @@ function identifierConflict(records: CanonicalDedupeRecord[]) {
   return Array.from(byKind.values()).some((values) => values.size > 1);
 }
 
-function compatibleYear(left: CanonicalDedupeRecord, right: CanonicalDedupeRecord) {
+function compatibleYear(
+  left: CanonicalDedupeRecord,
+  right: CanonicalDedupeRecord,
+) {
   if (!left.year || !right.year) {
     return true;
   }
   return yearDelta(left.year, right.year) <= 1;
 }
 
-function containedStrongTitle(left: CanonicalDedupeRecord, right: CanonicalDedupeRecord) {
+function containedStrongTitle(
+  left: CanonicalDedupeRecord,
+  right: CanonicalDedupeRecord,
+) {
   const shorter =
     left.strongCompactTitle.length <= right.strongCompactTitle.length
       ? left
       : right;
   const longer = shorter === left ? right : left;
-  if (shorter.contentTokens.length < 4 || shorter.strongCompactTitle.length < 18) {
+  if (
+    shorter.contentTokens.length < 4 ||
+    shorter.strongCompactTitle.length < 18
+  ) {
     return false;
   }
   const ratio =
-    shorter.strongCompactTitle.length / Math.max(1, longer.strongCompactTitle.length);
-  return ratio >= 0.25 && longer.strongCompactTitle.includes(shorter.strongCompactTitle);
+    shorter.strongCompactTitle.length /
+    Math.max(1, longer.strongCompactTitle.length);
+  return (
+    ratio >= 0.25 &&
+    longer.strongCompactTitle.includes(shorter.strongCompactTitle)
+  );
 }
 
 function hasNumericBibliographicSuffix(record: CanonicalDedupeRecord) {
@@ -1276,7 +1350,8 @@ function classifyBibliographicSuffix(args: {
   const extraProfile = bibliographicNoiseProfile(extraText);
   const suffixProfile = bibliographicNoiseProfile(suffixText);
   const numericBibliographicSuffix =
-    args.extraSuffixTokens.length > 0 && hasNumericBibliographicSuffix(args.longer);
+    args.extraSuffixTokens.length > 0 &&
+    hasNumericBibliographicSuffix(args.longer);
   const structural =
     extraProfile.hasDoiOrArxiv ||
     suffixProfile.hasDoiOrArxiv ||
@@ -1297,15 +1372,21 @@ function classifyBibliographicSuffix(args: {
   const bibliographic =
     structural ||
     weakVenueWithStructure ||
-    extraProfile.coreMarkerCount >= Math.ceil(Math.max(1, args.extraTokens.length) * 0.5);
+    extraProfile.coreMarkerCount >=
+      Math.ceil(Math.max(1, args.extraTokens.length) * 0.5);
   return {
     bibliographic,
-    reasons: uniqueSorted([
-      ...extraProfile.reasons,
-      ...suffixProfile.reasons.map((reason) => `suffix_${reason}`),
-      numericBibliographicSuffix ? "numeric_bibliographic_suffix" : "",
-    ].filter(Boolean)),
-    score: extraProfile.score + suffixProfile.score + (numericBibliographicSuffix ? 3 : 0),
+    reasons: uniqueSorted(
+      [
+        ...extraProfile.reasons,
+        ...suffixProfile.reasons.map((reason) => `suffix_${reason}`),
+        numericBibliographicSuffix ? "numeric_bibliographic_suffix" : "",
+      ].filter(Boolean),
+    ),
+    score:
+      extraProfile.score +
+      suffixProfile.score +
+      (numericBibliographicSuffix ? 3 : 0),
   };
 }
 
@@ -1338,7 +1419,10 @@ function clusterStableId(prefix: string, ids: string[]) {
   return `${prefix}:${hashCanonicalJson(uniqueSorted(ids)).slice(0, 16)}`;
 }
 
-function sameYearOrUnknown(left: CanonicalDedupeRecord, right: CanonicalDedupeRecord) {
+function sameYearOrUnknown(
+  left: CanonicalDedupeRecord,
+  right: CanonicalDedupeRecord,
+) {
   return !left.year || !right.year || left.year === right.year;
 }
 
@@ -1349,7 +1433,8 @@ function sameTitleYearGroupSafe(records: CanonicalDedupeRecord[]) {
     !records.some((left) =>
       records.some(
         (right) =>
-          left !== right && hasKnownDangerSignal(left.normalizedTitle, right.normalizedTitle),
+          left !== right &&
+          hasKnownDangerSignal(left.normalizedTitle, right.normalizedTitle),
       ),
     )
   );
@@ -1402,9 +1487,14 @@ function titleCleanlinessReasons(record: CanonicalDedupeRecord) {
   return reasons.length ? reasons : ["stable_id_tiebreaker"];
 }
 
-function containedTitleDetails(left: CanonicalDedupeRecord, right: CanonicalDedupeRecord) {
+function containedTitleDetails(
+  left: CanonicalDedupeRecord,
+  right: CanonicalDedupeRecord,
+) {
   const shorter =
-    left.strongCompactTitle.length <= right.strongCompactTitle.length ? left : right;
+    left.strongCompactTitle.length <= right.strongCompactTitle.length
+      ? left
+      : right;
   const longer = shorter === left ? right : left;
   if (!containedStrongTitle(left, right)) {
     return null;
@@ -1417,22 +1507,23 @@ function containedTitleDetails(left: CanonicalDedupeRecord, right: CanonicalDedu
     start >= 0 ? longTokens.slice(start + shortTokens.length) : [];
   const extraTokens =
     start >= 0
-      ? [
-          ...extraPrefixTokens,
-          ...extraSuffixTokens,
-        ]
+      ? [...extraPrefixTokens, ...extraSuffixTokens]
       : longTokens.filter((token) => !shorter.tokenSet.has(token));
   const authorTokensForPair = new Set([
     ...Array.from(authorTokens(shorter.authors)),
     ...Array.from(authorTokens(longer.authors)),
   ]);
-  const semantic = extraTokens.filter((token) => SEMANTIC_EXTENSION_TOKENS.has(token));
+  const semantic = extraTokens.filter((token) =>
+    SEMANTIC_EXTENSION_TOKENS.has(token),
+  );
   const bibliographic = classifyBibliographicSuffix({
     extraTokens,
     extraSuffixTokens,
     longer,
   });
-  const authorNoise = extraTokens.filter((token) => authorTokensForPair.has(token));
+  const authorNoise = extraTokens.filter((token) =>
+    authorTokensForPair.has(token),
+  );
   const authorPrefixLike =
     extraPrefixTokens.length >= 2 &&
     extraPrefixTokens.length <= 8 &&
@@ -1441,9 +1532,7 @@ function containedTitleDetails(left: CanonicalDedupeRecord, right: CanonicalDedu
   let edgeType: ReferenceCanonicalDedupeClusterEdgeType =
     "contained_bibliographic_noise";
   const riskSignals: string[] = [];
-  if (
-    bibliographic.bibliographic
-  ) {
+  if (bibliographic.bibliographic) {
     edgeType = "contained_bibliographic_noise";
   } else if (authorNoise.length > 0 || authorPrefixLike) {
     edgeType = "contained_author_noise";
@@ -1536,20 +1625,27 @@ function addClusterBlock(
   blocks.get(key)!.add(record.canonicalReferenceId);
 }
 
-function connectedComponents(records: CanonicalDedupeRecord[], edges: ReferenceCanonicalDedupeEdge[]) {
+function connectedComponents(
+  records: CanonicalDedupeRecord[],
+  edges: ReferenceCanonicalDedupeEdge[],
+) {
   const adjacency = new Map<string, Set<string>>();
   for (const record of records) {
     adjacency.set(record.canonicalReferenceId, new Set());
   }
   for (const edge of edges) {
-    adjacency.get(edge.sourceCanonicalReferenceId)?.add(edge.targetCanonicalReferenceId);
-    adjacency.get(edge.targetCanonicalReferenceId)?.add(edge.sourceCanonicalReferenceId);
+    adjacency
+      .get(edge.sourceCanonicalReferenceId)
+      ?.add(edge.targetCanonicalReferenceId);
+    adjacency
+      .get(edge.targetCanonicalReferenceId)
+      ?.add(edge.sourceCanonicalReferenceId);
   }
   const seen = new Set<string>();
   const components: string[][] = [];
   for (const record of records) {
     const id = record.canonicalReferenceId;
-    if (seen.has(id) || !(adjacency.get(id)?.size)) {
+    if (seen.has(id) || !adjacency.get(id)?.size) {
       continue;
     }
     const stack = [id];
@@ -1584,8 +1680,12 @@ function subclustersForComponent(
 ) {
   const adjacency = new Map(componentIds.map((id) => [id, new Set<string>()]));
   for (const edge of edges.filter(deterministicEdge)) {
-    adjacency.get(edge.sourceCanonicalReferenceId)?.add(edge.targetCanonicalReferenceId);
-    adjacency.get(edge.targetCanonicalReferenceId)?.add(edge.sourceCanonicalReferenceId);
+    adjacency
+      .get(edge.sourceCanonicalReferenceId)
+      ?.add(edge.targetCanonicalReferenceId);
+    adjacency
+      .get(edge.targetCanonicalReferenceId)
+      ?.add(edge.sourceCanonicalReferenceId);
   }
   const seen = new Set<string>();
   const subclusters: string[][] = [];
@@ -1606,7 +1706,9 @@ function subclustersForComponent(
         }
       }
     }
-    subclusters.push(subcluster.sort((left, right) => left.localeCompare(right)));
+    subclusters.push(
+      subcluster.sort((left, right) => left.localeCompare(right)),
+    );
   }
   return subclusters;
 }
@@ -1619,18 +1721,23 @@ function reviewSourceForEdge(
 ) {
   const longer = cleanString(edge.evidence.longer_canonical_reference_id);
   if (longer === source.canonicalReferenceId) {
-    if (source.canonicalReferenceId === clusterRepresentative.canonicalReferenceId) {
+    if (
+      source.canonicalReferenceId === clusterRepresentative.canonicalReferenceId
+    ) {
       return target;
     }
     return source;
   }
   if (longer === target.canonicalReferenceId) {
-    if (target.canonicalReferenceId === clusterRepresentative.canonicalReferenceId) {
+    if (
+      target.canonicalReferenceId === clusterRepresentative.canonicalReferenceId
+    ) {
       return source;
     }
     return target;
   }
-  return clusterRepresentative.canonicalReferenceId === source.canonicalReferenceId
+  return clusterRepresentative.canonicalReferenceId ===
+    source.canonicalReferenceId
     ? target
     : source;
 }
@@ -1652,7 +1759,10 @@ export function dedupeCanonicalReferencesClustered(
   inputs: ReferenceCanonicalDedupeInput[],
   options: { maxBlockSize?: number; maxCandidatePairs?: number } = {},
 ): ReferenceCanonicalDedupeClusteredResult {
-  const maxBlockSize = Math.max(2, Math.floor(Number(options.maxBlockSize) || 30));
+  const maxBlockSize = Math.max(
+    2,
+    Math.floor(Number(options.maxBlockSize) || 30),
+  );
   const maxCandidatePairs = Math.max(
     0,
     Math.floor(Number(options.maxCandidatePairs) || 3000),
@@ -1664,8 +1774,12 @@ export function dedupeCanonicalReferencesClustered(
       left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
     );
   const diagnostics: unknown[] = [];
-  const excludedRecords = records.filter((record) => record.eligibility === "excluded");
-  const matchRecords = records.filter((record) => record.eligibility !== "excluded");
+  const excludedRecords = records.filter(
+    (record) => record.eligibility === "excluded",
+  );
+  const matchRecords = records.filter(
+    (record) => record.eligibility !== "excluded",
+  );
   for (const record of excludedRecords) {
     diagnostics.push({
       code: "cluster_dedupe_record_excluded",
@@ -1675,7 +1789,9 @@ export function dedupeCanonicalReferencesClustered(
       reasons: record.eligibilityReasons,
     });
   }
-  const recordById = new Map(matchRecords.map((record) => [record.canonicalReferenceId, record]));
+  const recordById = new Map(
+    matchRecords.map((record) => [record.canonicalReferenceId, record]),
+  );
   const blocks = new Map<string, Set<string>>();
   const addBlock = (key: string, record: CanonicalDedupeRecord) =>
     addClusterBlock(blocks, key, record);
@@ -1708,7 +1824,10 @@ export function dedupeCanonicalReferencesClustered(
         `first:${record.year}:${firstTokens(record.contentTokens, 3)}`,
         record,
       );
-      addBlock(`last:${record.year}:${lastTokens(record.contentTokens, 3)}`, record);
+      addBlock(
+        `last:${record.year}:${lastTokens(record.contentTokens, 3)}`,
+        record,
+      );
     }
   }
 
@@ -1724,14 +1843,17 @@ export function dedupeCanonicalReferencesClustered(
     if (
       !existing ||
       edge.score > existing.score ||
-      (edge.score === existing.score && edge.edgeType.localeCompare(existing.edgeType) < 0)
+      (edge.score === existing.score &&
+        edge.edgeType.localeCompare(existing.edgeType) < 0)
     ) {
       edgesByPair.set(pairKey, edge);
     }
   };
 
   for (const [blockKey, ids] of blocks) {
-    const uniqueIds = Array.from(ids).sort((left, right) => left.localeCompare(right));
+    const uniqueIds = Array.from(ids).sort((left, right) =>
+      left.localeCompare(right),
+    );
     if (uniqueIds.length < 2) {
       continue;
     }
@@ -1764,12 +1886,16 @@ export function dedupeCanonicalReferencesClustered(
           compatibleYear(left, right) &&
           left.normalizedTitle === right.normalizedTitle;
         const sameCompact =
-          compatibleYear(left, right) && left.compactTitle === right.compactTitle;
+          compatibleYear(left, right) &&
+          left.compactTitle === right.compactTitle;
         const sameStrong = left.strongCompactTitle === right.strongCompactTitle;
         const sameIdentifier = left.strongIdentifierKeys.some((key) =>
           right.strongIdentifierKeys.includes(key),
         );
-        const similarity = titleSimilarity(left.normalizedTitle, right.normalizedTitle);
+        const similarity = titleSimilarity(
+          left.normalizedTitle,
+          right.normalizedTitle,
+        );
         const dice = tokenDice(left.tokenSet, right.tokenSet);
         if (sameIdentifier) {
           upsertEdge(
@@ -1831,8 +1957,10 @@ export function dedupeCanonicalReferencesClustered(
               reasons: [`cluster_${contained.edgeType}`],
               riskSignals: contained.riskSignals,
               evidence: {
-                shorter_canonical_reference_id: contained.shorter.canonicalReferenceId,
-                longer_canonical_reference_id: contained.longer.canonicalReferenceId,
+                shorter_canonical_reference_id:
+                  contained.shorter.canonicalReferenceId,
+                longer_canonical_reference_id:
+                  contained.longer.canonicalReferenceId,
                 extra_tokens: contained.extraTokens,
                 extra_prefix_tokens: contained.extraPrefixTokens,
                 extra_suffix_tokens: contained.extraSuffixTokens,
@@ -1854,7 +1982,11 @@ export function dedupeCanonicalReferencesClustered(
               reasons: ["cluster_typo_equivalent_title"],
             }),
           );
-        } else if (compatibleYear(left, right) && similarity >= 0.9 && dice >= 0.72) {
+        } else if (
+          compatibleYear(left, right) &&
+          similarity >= 0.9 &&
+          dice >= 0.72
+        ) {
           upsertEdge(
             canonicalDedupeEdge({
               left,
@@ -1872,14 +2004,24 @@ export function dedupeCanonicalReferencesClustered(
 
   const edges = Array.from(edgesByPair.values()).sort(
     (left, right) =>
-      left.sourceCanonicalReferenceId.localeCompare(right.sourceCanonicalReferenceId) ||
-      left.targetCanonicalReferenceId.localeCompare(right.targetCanonicalReferenceId) ||
+      left.sourceCanonicalReferenceId.localeCompare(
+        right.sourceCanonicalReferenceId,
+      ) ||
+      left.targetCanonicalReferenceId.localeCompare(
+        right.targetCanonicalReferenceId,
+      ) ||
       left.edgeType.localeCompare(right.edgeType),
   );
   const edgesByComponentKey = new Map<string, ReferenceCanonicalDedupeEdge[]>();
   for (const edge of edges) {
-    for (const id of [edge.sourceCanonicalReferenceId, edge.targetCanonicalReferenceId]) {
-      edgesByComponentKey.set(id, [...(edgesByComponentKey.get(id) || []), edge]);
+    for (const id of [
+      edge.sourceCanonicalReferenceId,
+      edge.targetCanonicalReferenceId,
+    ]) {
+      edgesByComponentKey.set(id, [
+        ...(edgesByComponentKey.get(id) || []),
+        edge,
+      ]);
     }
   }
 
@@ -1899,95 +2041,108 @@ export function dedupeCanonicalReferencesClustered(
       componentRecords,
       componentEdges,
     )!;
-    const subclusters = subclustersForComponent(componentIds, componentEdges).map(
-      (subclusterIds) => {
-        const subclusterRecords = subclusterIds
-          .map((id) => recordById.get(id))
-          .filter((record): record is CanonicalDedupeRecord => Boolean(record));
-        const subclusterEdges = componentEdges.filter(
+    const subclusters = subclustersForComponent(
+      componentIds,
+      componentEdges,
+    ).map((subclusterIds) => {
+      const subclusterRecords = subclusterIds
+        .map((id) => recordById.get(id))
+        .filter((record): record is CanonicalDedupeRecord => Boolean(record));
+      const subclusterEdges = componentEdges.filter(
+        (edge) =>
+          subclusterIds.includes(edge.sourceCanonicalReferenceId) &&
+          subclusterIds.includes(edge.targetCanonicalReferenceId),
+      );
+      const representative = chooseClusterRepresentative(
+        subclusterRecords,
+        subclusterEdges,
+      )!;
+      const edgeTypes = uniqueSorted(
+        subclusterEdges.map((edge) => edge.edgeType),
+      );
+      const subclusterId = clusterStableId("subcluster", subclusterIds);
+      for (const record of subclusterRecords) {
+        if (
+          record.canonicalReferenceId ===
+          clusterRepresentative.canonicalReferenceId
+        ) {
+          continue;
+        }
+        const supportingEdges = subclusterEdges.filter(
           (edge) =>
-            subclusterIds.includes(edge.sourceCanonicalReferenceId) &&
-            subclusterIds.includes(edge.targetCanonicalReferenceId),
+            edge.sourceCanonicalReferenceId === record.canonicalReferenceId ||
+            edge.targetCanonicalReferenceId === record.canonicalReferenceId,
         );
-        const representative = chooseClusterRepresentative(
-          subclusterRecords,
-          subclusterEdges,
-        )!;
-        const edgeTypes = uniqueSorted(subclusterEdges.map((edge) => edge.edgeType));
-        const subclusterId = clusterStableId("subcluster", subclusterIds);
-        for (const record of subclusterRecords) {
-          if (record.canonicalReferenceId === clusterRepresentative.canonicalReferenceId) {
-            continue;
-          }
-          const supportingEdges = subclusterEdges.filter(
-            (edge) =>
-              edge.sourceCanonicalReferenceId === record.canonicalReferenceId ||
-              edge.targetCanonicalReferenceId === record.canonicalReferenceId,
-          );
-          const bestEdge = supportingEdges.sort(
-            (left, right) =>
-              right.score - left.score || left.edgeType.localeCompare(right.edgeType),
-          )[0];
-          if (!bestEdge) {
-            continue;
-          }
-          const redirectEligible =
-            record.eligibility === "eligible" &&
-            clusterRepresentative.eligibility === "eligible" &&
-            deterministicEdge(bestEdge) &&
-            sameTitleYearGroupSafe(subclusterRecords) &&
-            bestEdge.edgeType !== "contained_extension_risk" &&
-            subclusterIds.includes(clusterRepresentative.canonicalReferenceId);
-          const target = clusterRepresentative.canonicalReferenceId;
-          actions.push({
-            actionId: `action:${hashCanonicalJson({
-              action: redirectEligible ? "redirect" : "review",
-              source: record.canonicalReferenceId,
-              target,
-              clusterId,
-              subclusterId,
-              edge: bestEdge.edgeId,
-            }).slice(0, 24)}`,
+        const bestEdge = supportingEdges.sort(
+          (left, right) =>
+            right.score - left.score ||
+            left.edgeType.localeCompare(right.edgeType),
+        )[0];
+        if (!bestEdge) {
+          continue;
+        }
+        const redirectEligible =
+          record.eligibility === "eligible" &&
+          clusterRepresentative.eligibility === "eligible" &&
+          deterministicEdge(bestEdge) &&
+          sameTitleYearGroupSafe(subclusterRecords) &&
+          bestEdge.edgeType !== "contained_extension_risk" &&
+          subclusterIds.includes(clusterRepresentative.canonicalReferenceId);
+        const target = clusterRepresentative.canonicalReferenceId;
+        actions.push({
+          actionId: `action:${hashCanonicalJson({
             action: redirectEligible ? "redirect" : "review",
-            sourceCanonicalReferenceId: record.canonicalReferenceId,
-            targetCanonicalReferenceId: target,
+            source: record.canonicalReferenceId,
+            target,
             clusterId,
             subclusterId,
-            edgeType: bestEdge.edgeType,
-            confidence: redirectEligible ? bestEdge.confidence : "review",
-            score: bestEdge.score,
-            reasons: bestEdge.reasons,
-            riskSignals: bestEdge.riskSignals,
-            evidence: {
-              ...bestEdge.evidence,
-              representative_canonical_reference_id:
-                clusterRepresentative.canonicalReferenceId,
-              representative: recordEvidenceSummary(clusterRepresentative),
-              source_record: recordEvidenceSummary(record),
-              subcluster_representative_canonical_reference_id:
-                representative.canonicalReferenceId,
-              representative_rationale: titleCleanlinessReasons(clusterRepresentative),
-              supporting_edge_target_canonical_reference_id:
-                bestEdge.sourceCanonicalReferenceId === record.canonicalReferenceId
-                  ? bestEdge.targetCanonicalReferenceId
-                  : bestEdge.sourceCanonicalReferenceId,
-            },
-          });
-        }
-        return {
+            edge: bestEdge.edgeId,
+          }).slice(0, 24)}`,
+          action: redirectEligible ? "redirect" : "review",
+          sourceCanonicalReferenceId: record.canonicalReferenceId,
+          targetCanonicalReferenceId: target,
+          clusterId,
           subclusterId,
-          canonicalReferenceIds: subclusterIds,
-          representativeCanonicalReferenceId: representative.canonicalReferenceId,
-          edgeTypes,
-          deterministic: subclusterEdges.length > 0 && subclusterEdges.every(deterministicEdge),
-          representativeRationale: titleCleanlinessReasons(representative),
-        };
-      },
-    );
+          edgeType: bestEdge.edgeType,
+          confidence: redirectEligible ? bestEdge.confidence : "review",
+          score: bestEdge.score,
+          reasons: bestEdge.reasons,
+          riskSignals: bestEdge.riskSignals,
+          evidence: {
+            ...bestEdge.evidence,
+            representative_canonical_reference_id:
+              clusterRepresentative.canonicalReferenceId,
+            representative: recordEvidenceSummary(clusterRepresentative),
+            source_record: recordEvidenceSummary(record),
+            subcluster_representative_canonical_reference_id:
+              representative.canonicalReferenceId,
+            representative_rationale: titleCleanlinessReasons(
+              clusterRepresentative,
+            ),
+            supporting_edge_target_canonical_reference_id:
+              bestEdge.sourceCanonicalReferenceId ===
+              record.canonicalReferenceId
+                ? bestEdge.targetCanonicalReferenceId
+                : bestEdge.sourceCanonicalReferenceId,
+          },
+        });
+      }
+      return {
+        subclusterId,
+        canonicalReferenceIds: subclusterIds,
+        representativeCanonicalReferenceId: representative.canonicalReferenceId,
+        edgeTypes,
+        deterministic:
+          subclusterEdges.length > 0 &&
+          subclusterEdges.every(deterministicEdge),
+        representativeRationale: titleCleanlinessReasons(representative),
+      };
+    });
     clusters.push({
       clusterId,
       canonicalReferenceIds: componentIds,
-      representativeCanonicalReferenceId: clusterRepresentative.canonicalReferenceId,
+      representativeCanonicalReferenceId:
+        clusterRepresentative.canonicalReferenceId,
       representativeRationale: titleCleanlinessReasons(clusterRepresentative),
       members: componentRecords.map(recordEvidenceSummary),
       subclusters,
@@ -2013,7 +2168,8 @@ export function dedupeCanonicalReferencesClustered(
           )
           .sort(
             (left, right) =>
-              right.score - left.score || left.edgeType.localeCompare(right.edgeType),
+              right.score - left.score ||
+              left.edgeType.localeCompare(right.edgeType),
           )[0] || componentEdges[0];
       if (retargetEdge) {
         actions.push({
@@ -2026,7 +2182,8 @@ export function dedupeCanonicalReferencesClustered(
             reason: "representative_retarget_review",
           }).slice(0, 24)}`,
           action: "review",
-          sourceCanonicalReferenceId: clusterRepresentative.canonicalReferenceId,
+          sourceCanonicalReferenceId:
+            clusterRepresentative.canonicalReferenceId,
           targetCanonicalReferenceId: retargetCandidate.canonicalReferenceId,
           clusterId,
           subclusterId: clusterStableId("subcluster", [
@@ -2052,13 +2209,17 @@ export function dedupeCanonicalReferencesClustered(
               retargetCandidate.canonicalReferenceId,
             representative: recordEvidenceSummary(clusterRepresentative),
             retarget_candidate: recordEvidenceSummary(retargetCandidate),
-            representative_rationale: titleCleanlinessReasons(clusterRepresentative),
+            representative_rationale: titleCleanlinessReasons(
+              clusterRepresentative,
+            ),
             retarget_rationale: titleCleanlinessReasons(retargetCandidate),
           },
         });
       }
     }
-    for (const edge of componentEdges.filter((edge) => !deterministicEdge(edge))) {
+    for (const edge of componentEdges.filter(
+      (edge) => !deterministicEdge(edge),
+    )) {
       const source = recordById.get(edge.sourceCanonicalReferenceId);
       const target = recordById.get(edge.targetCanonicalReferenceId);
       if (!source || !target) {
@@ -2068,8 +2229,16 @@ export function dedupeCanonicalReferencesClustered(
         [source, target],
         [edge],
       )!;
-      const other = reviewSourceForEdge(edge, clusterRepresentative, source, target);
-      if (other.canonicalReferenceId === clusterRepresentative.canonicalReferenceId) {
+      const other = reviewSourceForEdge(
+        edge,
+        clusterRepresentative,
+        source,
+        target,
+      );
+      if (
+        other.canonicalReferenceId ===
+        clusterRepresentative.canonicalReferenceId
+      ) {
         continue;
       }
       if (
@@ -2113,7 +2282,9 @@ export function dedupeCanonicalReferencesClustered(
           source_record: recordEvidenceSummary(other),
           pair_representative_canonical_reference_id:
             representative.canonicalReferenceId,
-          representative_rationale: titleCleanlinessReasons(clusterRepresentative),
+          representative_rationale: titleCleanlinessReasons(
+            clusterRepresentative,
+          ),
         },
       });
     }
@@ -2134,8 +2305,12 @@ export function dedupeCanonicalReferencesClustered(
   ).sort(
     (left, right) =>
       left.clusterId.localeCompare(right.clusterId) ||
-      left.sourceCanonicalReferenceId.localeCompare(right.sourceCanonicalReferenceId) ||
-      left.targetCanonicalReferenceId.localeCompare(right.targetCanonicalReferenceId),
+      left.sourceCanonicalReferenceId.localeCompare(
+        right.sourceCanonicalReferenceId,
+      ) ||
+      left.targetCanonicalReferenceId.localeCompare(
+        right.targetCanonicalReferenceId,
+      ),
   );
   return {
     clusters,
@@ -2154,15 +2329,18 @@ export function dedupeCanonicalReferencesClustered(
         (total, cluster) => total + cluster.subclusters.length,
         0,
       ),
-      redirect_action_count: uniqueActions.filter((action) => action.action === "redirect")
-        .length,
-      review_action_count: uniqueActions.filter((action) => action.action === "review")
-        .length,
+      redirect_action_count: uniqueActions.filter(
+        (action) => action.action === "redirect",
+      ).length,
+      review_action_count: uniqueActions.filter(
+        (action) => action.action === "review",
+      ).length,
       extension_risk_edge_count: edges.filter(
         (edge) => edge.edgeType === "contained_extension_risk",
       ).length,
-      weak_record_count: records.filter((record) => record.eligibility === "weak")
-        .length,
+      weak_record_count: records.filter(
+        (record) => record.eligibility === "weak",
+      ).length,
       excluded_record_count: excludedRecords.length,
     },
   };

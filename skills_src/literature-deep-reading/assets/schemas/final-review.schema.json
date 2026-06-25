@@ -16,7 +16,8 @@
             "enum": ["info", "warning", "error"]
           },
           "kind": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "block_id": {
             "type": "string"
@@ -25,7 +26,8 @@
             "type": "string"
           },
           "message": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           }
         },
         "required": ["severity", "kind", "message"],

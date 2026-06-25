@@ -1,11 +1,19 @@
 import { joinPath } from "../../utils/path";
+
+/**
+ * @deprecated Git Sync is a retained hidden transport. User-facing sync UI now
+ * exposes WebDAV durable bundle sync; keep this module for historical
+ * diagnostics and future cleanup only.
+ */
 import {
   collectRuntimeFiles,
   ensureRuntimeDirectory,
+  getRuntimePersistencePaths,
   readRuntimeTextFile,
   removeRuntimePath,
   runtimeRelativePath,
   runtimePathExists,
+  statRuntimePath,
   validateManagedRelativePath,
   validateManagedRelativePathSet,
   writeRuntimeTextFile,
@@ -19,6 +27,21 @@ import {
   writeCanonicalEnvelopeTextTransaction,
   type CanonicalTransactionReceipt,
 } from "./foundation";
+import {
+  applySynthesisDurableImport,
+  createSynthesisDurableConflictReport,
+  listSynthesisDurableManifestEntities,
+  previewSynthesisDurableImport,
+  readSynthesisDurableManifest,
+  writeSynthesisDurableExportSnapshot,
+  type SynthesisDurableConflict,
+  type SynthesisDurableSyncDiagnostic,
+} from "./durableSync";
+import {
+  createSynthesisRepository,
+  getSynthesisRepositoryDatabasePath,
+  type SynthesisRepository,
+} from "./repository";
 
 export const SYNTHESIS_GIT_SYNC_MANIFEST_SCHEMA_ID =
   "synthesis.git_sync_manifest";
@@ -64,6 +87,13 @@ export type SynthesisGitSyncConflict = {
   reason: "both_changed" | "adapter_conflict";
 };
 
+export type SynthesisGitSyncConflictAction =
+  | "keep_local"
+  | "use_remote"
+  | "save_remote_copy"
+  | "mark_needs_attention"
+  | "clear_after_manual_edit";
+
 export type SynthesisGitSyncConflictReport = {
   schema_id: "synthesis.git_sync_conflict_report";
   schema_version: string;
@@ -72,6 +102,20 @@ export type SynthesisGitSyncConflictReport = {
   created_at: string;
   updated_at: string;
   conflicts: SynthesisGitSyncConflict[];
+  diagnostics: SynthesisGitSyncDiagnostic[];
+};
+
+export type SynthesisGitSyncConfigStatus =
+  | "disabled"
+  | "incomplete"
+  | "configured"
+  | "invalid";
+
+export type SynthesisGitSyncConnectionTestProjection = {
+  ok: boolean;
+  tested_at: string;
+  config_status: SynthesisGitSyncConfigStatus;
+  remote_branch_state?: "exists" | "missing_initializable" | "unknown";
   diagnostics: SynthesisGitSyncDiagnostic[];
 };
 
@@ -107,11 +151,16 @@ export type SynthesisGitSyncState = {
   worktree_path: string;
   last_run?: SynthesisGitSyncRunReceipt;
   conflict_report?: SynthesisGitSyncConflictReport;
+  conflict_actions?: SynthesisGitSyncConflictAction[];
   diagnostics: SynthesisGitSyncDiagnostic[];
   allowed_actions: string[];
   retry_attempt?: number;
   next_retry_at?: string;
   last_retry_at?: string;
+  config_status?: SynthesisGitSyncConfigStatus;
+  token_masked?: string;
+  token_updated_at?: string;
+  connection_test?: SynthesisGitSyncConnectionTestProjection;
   updated_at: string;
 };
 
@@ -170,12 +219,28 @@ export type SynthesisGitSyncAdapter = {
 
 type ServiceOptions = {
   root: string;
+  persistenceRoot?: string;
+  repository?: SynthesisRepository;
+  allowRepositoryCreateForTests?: boolean;
   now?: () => string;
   adapter?: SynthesisGitSyncAdapter;
   debounceMs?: number;
   lockTtlMs?: number;
   retryDelaysMs?: number[];
   autoRetryEnabled?: boolean;
+  configStatusProvider?: () =>
+    | {
+        config_status?: SynthesisGitSyncConfigStatus;
+        token_masked?: string;
+        token_updated_at?: string;
+        connection_test?: SynthesisGitSyncConnectionTestProjection;
+      }
+    | Promise<{
+        config_status?: SynthesisGitSyncConfigStatus;
+        token_masked?: string;
+        token_updated_at?: string;
+        connection_test?: SynthesisGitSyncConnectionTestProjection;
+      }>;
   progressReporter?: (report: {
     jobName: string;
     runId: string;
@@ -207,21 +272,33 @@ type SynthesisGitSyncLockFile = {
   expires_at: string;
 };
 
-const EXPORT_ROOTS = [
+const LEGACY_IMPORT_ROOTS = [
+  "concept-aliases",
+  "concept-relations",
+  "concept-reviews",
+  "concept-senses",
   "tags",
   "topics",
   "concepts",
   "topic-graph",
-  "citation-graph",
+  "discovery",
+  "references",
+  "related-items",
+  "reviews",
+  "tombstones",
+  "topic-concept-links",
 ];
 
+const BUNDLE_IMPORT_ROOTS = ["bundles"];
 const PROJECTION_TARGETS = [
   "tag-index",
   "topic-graph-index",
   "concept-kb-index",
 ];
 
-const MAX_IMPORT_ASSETS = 5000;
+const MAX_IMPORT_LEGACY_FILES = 50000;
+const MAX_IMPORT_BUNDLES = 2000;
+const MAX_IMPORT_ENTRIES = 100000;
 const MAX_IMPORT_BYTES = 50 * 1024 * 1024;
 const MAX_SINGLE_ASSET_BYTES = 5 * 1024 * 1024;
 
@@ -293,13 +370,37 @@ function diagnostic(args: {
   };
 }
 
+function diagnosticFromDurable(
+  entry: SynthesisDurableSyncDiagnostic,
+): SynthesisGitSyncDiagnostic {
+  return diagnostic({
+    code: entry.code,
+    severity: entry.severity,
+    message: entry.message,
+    assetPath: entry.path,
+    details: entry.details,
+  });
+}
+
+function conflictFromDurable(
+  entry: SynthesisDurableConflict,
+): SynthesisGitSyncConflict {
+  return {
+    asset_path: entry.path,
+    local_hash: entry.local_hash,
+    remote_hash: entry.remote_hash,
+    base_hash: entry.base_hash,
+    reason: "both_changed",
+  };
+}
+
 export function sanitizeGitSyncRemoteUrl(value: unknown) {
   const input = cleanString(value);
   if (!input) {
     return "";
   }
   return input
-    .replace(/^([a-z][a-z0-9+.-]*:\/\/)([^/@\s]+)@/i, "$1[redacted]@")
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)([^/@\s]+)@/gi, "$1[redacted]@")
     .replace(
       /([?&](?:token|password|secret|access_token)=)[^&#]+/gi,
       "$1[redacted]",
@@ -327,6 +428,9 @@ export function normalizeGitSyncAssetPath(value: unknown): {
 }
 
 function isAllowedCanonicalSyncAsset(relativePath: string) {
+  if (relativePath === "manifest.json") {
+    return true;
+  }
   if (relativePath === "sync/sync-manifest.json") {
     return true;
   }
@@ -336,6 +440,8 @@ function isAllowedCanonicalSyncAsset(relativePath: string) {
   if (
     relativePath.startsWith("state/") ||
     relativePath.includes("/state/") ||
+    relativePath.startsWith("sidecar/") ||
+    relativePath.includes("/sidecar/") ||
     relativePath.includes("/tmp/") ||
     relativePath.includes("/temp/") ||
     relativePath.includes("/runtime/") ||
@@ -345,7 +451,20 @@ function isAllowedCanonicalSyncAsset(relativePath: string) {
   ) {
     return false;
   }
-  return EXPORT_ROOTS.some((root) => relativePath.startsWith(`${root}/`));
+  return [...BUNDLE_IMPORT_ROOTS, ...LEGACY_IMPORT_ROOTS].some((root) =>
+    relativePath.startsWith(`${root}/`),
+  );
+}
+
+function isProjectionSyncAsset(relativePath: string) {
+  return (
+    relativePath.startsWith("citation-graph/") ||
+    relativePath.includes("/citation-graph/") ||
+    relativePath.includes("/metrics/") ||
+    relativePath.includes("/layout/") ||
+    relativePath.includes("/cache-basis/") ||
+    relativePath.includes("/operations/")
+  );
 }
 
 function contentLooksSensitive(text: string) {
@@ -368,6 +487,14 @@ function envelopeSchema(input: Record<string, unknown>) {
     schema_id: cleanString(input.schema_id),
     schema_version: cleanString(input.schema_version),
   };
+}
+
+function isDurableAssetSchema(schemaId: unknown) {
+  const value = cleanString(schemaId);
+  return (
+    value.startsWith("synthesis.durable.") ||
+    value === "synthesis.durable_asset_bundle"
+  );
 }
 
 function manifestDataFromEnvelope(input: Record<string, unknown>) {
@@ -446,30 +573,133 @@ async function appendJsonLine(path: string, value: unknown) {
   await writeRuntimeTextFile(path, `${current}${JSON.stringify(value)}\n`);
 }
 
-function parentPath(pathRaw: string) {
-  const path = cleanString(pathRaw);
-  const normalized = path.replace(/\\/g, "/").replace(/\/+$/g, "");
-  const index = normalized.lastIndexOf("/");
-  return index > 0 ? path.slice(0, index) : path;
-}
-
 function syncPaths(root: string) {
-  const kg = buildSynthesisKnowledgeGraphPaths(root);
-  const syncRoot = kg.syncRoot;
-  const normalizedRoot = root.replace(/\\/g, "/").replace(/\/+$/g, "");
-  const rootName = normalizedRoot.split("/").pop();
-  const worktreeRoot =
-    rootName === "data"
-      ? joinPath(parentPath(root), "runtime", "sync-worktree")
-      : joinPath(root, "sync-worktree");
+  const runtimeRoot = getRuntimePersistencePaths(root).runtimeRoot;
+  const syncRoot = joinPath(runtimeRoot, "synthesis", "git-sync");
+  const worktreeRoot = joinPath(runtimeRoot, "synthesis", "git-sync-worktree");
   return {
-    ...kg,
+    syncRoot,
     worktreeRoot,
     statePath: joinPath(syncRoot, "git-sync-state.json"),
     lockPath: joinPath(syncRoot, "git-sync-lock.json"),
     conflictPath: joinPath(syncRoot, "git-sync-conflict.json"),
     receiptsLog: joinPath(syncRoot, "git-sync-receipts.jsonl"),
   };
+}
+
+function normalizedPathForCompare(value: unknown) {
+  return cleanString(value)
+    .replace(/\\/g, "/")
+    .replace(/\/+$/g, "")
+    .toLowerCase();
+}
+
+function runtimeEnvOverrideConfigured() {
+  const runtime = globalThis as {
+    process?: { env?: Record<string, string | undefined> };
+    Services?: { env?: { get?: (name: string) => string } };
+  };
+  const fromProcess = cleanString(
+    runtime.process?.env?.ZOTERO_SKILLS_RUNTIME_ROOT,
+  );
+  if (fromProcess) {
+    return true;
+  }
+  try {
+    return Boolean(
+      cleanString(runtime.Services?.env?.get?.("ZOTERO_SKILLS_RUNTIME_ROOT")),
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function runtimeRootLooksLikeUnsafeCwdFallback(root: string) {
+  const runtime = globalThis as { process?: { cwd?: () => string } };
+  const cwd = cleanString(runtime.process?.cwd?.());
+  if (!cwd || runtimeEnvOverrideConfigured()) {
+    return false;
+  }
+  if (normalizedPathForCompare(root) !== normalizedPathForCompare(cwd)) {
+    return false;
+  }
+  return runtimePathExists(joinPath(root, ".git"));
+}
+
+async function scanPersistenceRootDiagnostics(args: {
+  persistenceRoot: string;
+}) {
+  const diagnostics: SynthesisGitSyncDiagnostic[] = [];
+  const normalizedRoot = normalizedPathForCompare(args.persistenceRoot);
+  const expectedDbPath = getSynthesisRepositoryDatabasePath(
+    args.persistenceRoot,
+  );
+  if (normalizedRoot.endsWith("/data")) {
+    diagnostics.push(
+      diagnostic({
+        code: "git_sync_persistence_root_misaligned",
+        severity: "error",
+        message:
+          "Git Sync persistence root points at an artifact data directory and would create or read a shadow SQLite database.",
+        details: {
+          persistence_root: args.persistenceRoot,
+          expected_db_path: expectedDbPath,
+        },
+      }),
+    );
+  }
+
+  const shadowDbPaths = [
+    joinPath(args.persistenceRoot, "data", "state", "zotero-agents.db"),
+    joinPath(args.persistenceRoot, "data", "state", "synthesis.db"),
+  ];
+  for (const shadowDbPath of shadowDbPaths) {
+    if (
+      normalizedPathForCompare(shadowDbPath) ===
+      normalizedPathForCompare(expectedDbPath)
+    ) {
+      continue;
+    }
+    const stat = await statRuntimePath(shadowDbPath);
+    if (stat.exists) {
+      diagnostics.push(
+        diagnostic({
+          code: "synthesis_root_shadow_database_detected",
+          severity: "warning",
+          message:
+            "A Synthesis shadow SQLite database exists under the artifact data root.",
+          details: {
+            expected_db_path: expectedDbPath,
+            shadow_db_path: shadowDbPath,
+            bytes: stat.size,
+            modified_at: stat.lastModified
+              ? new Date(stat.lastModified).toISOString()
+              : undefined,
+          },
+        }),
+      );
+    }
+  }
+  return diagnostics;
+}
+
+function hasErrorDiagnostic(diagnostics: SynthesisGitSyncDiagnostic[]) {
+  return diagnostics.some((entry) => entry.severity === "error");
+}
+
+function hasPermanentGitSyncDiagnostic(
+  diagnostics: SynthesisGitSyncDiagnostic[],
+) {
+  return diagnostics.some((entry) =>
+    [
+      "git_sync_worktree_unsafe_parent_repo",
+      "git_sync_worktree_sentinel_missing",
+      "git_sync_worktree_sentinel_mismatch",
+      "git_sync_runtime_root_unsafe_cwd_fallback",
+      "git_sync_persistence_root_misaligned",
+      "git_sync_repository_unavailable",
+    ].includes(entry.code),
+  );
 }
 
 function allowedActions(state: {
@@ -480,16 +710,26 @@ function allowedActions(state: {
   if (!state.adapter_configured) {
     return [] as string[];
   }
-  if (state.queue_state === "syncing") {
-    return ["pauseGitSync"];
-  }
   if (state.queue_state === "blocked_conflict") {
     return ["resolveGitSyncConflict", "retryGitSync", "pauseGitSync"];
   }
   if (state.paused) {
     return ["resumeGitSync", "syncNow"];
   }
+  if (state.queue_state === "syncing") {
+    return ["pauseGitSync"];
+  }
   return ["syncNow", "pauseGitSync"];
+}
+
+function conflictActions(state: { queue_state: SynthesisGitSyncQueueState }) {
+  return state.queue_state === "blocked_conflict"
+    ? ([
+        "keep_local",
+        "save_remote_copy",
+        "clear_after_manual_edit",
+      ] satisfies SynthesisGitSyncConflictAction[])
+    : [];
 }
 
 function defaultState(args: {
@@ -560,13 +800,29 @@ function normalizeState(
         : undefined,
     next_retry_at: cleanString(input?.next_retry_at) || undefined,
     last_retry_at: cleanString(input?.last_retry_at) || undefined,
+    config_status: input?.config_status || fallback.config_status,
+    token_masked:
+      cleanString(input?.token_masked || fallback.token_masked) || undefined,
+    token_updated_at:
+      cleanString(input?.token_updated_at || fallback.token_updated_at) ||
+      undefined,
+    connection_test: input?.connection_test || fallback.connection_test,
     updated_at: cleanString(input?.updated_at) || fallback.updated_at,
   };
   if (!normalized.adapter_configured) {
     normalized.queue_state = "disabled";
   }
   normalized.allowed_actions = allowedActions(normalized);
+  normalized.conflict_actions = conflictActions(normalized);
   return normalized;
+}
+
+function isStaleAdapterMissingDiagnostic(entry: SynthesisGitSyncDiagnostic) {
+  return entry.code === "git_sync_adapter_missing";
+}
+
+function isStaleSyncStateDiagnostic(entry: SynthesisGitSyncDiagnostic) {
+  return entry.code === "git_sync_stale_sync_state_recovered";
 }
 
 export function createSynthesisGitSyncService(options: ServiceOptions) {
@@ -574,7 +830,13 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
   if (!root) {
     throw new Error("Synthesis Git Sync requires a storage root");
   }
+  const persistenceRoot = cleanString(options.persistenceRoot) || root;
   const now = options.now || nowIso;
+  const repository =
+    options.repository ||
+    (options.allowRepositoryCreateForTests
+      ? createSynthesisRepository({ runtimeRoot: persistenceRoot, now })
+      : undefined);
   const adapter = options.adapter;
   const debounceMs = Math.max(0, Math.floor(options.debounceMs ?? 250));
   const lockTtlMs = Math.max(1000, Math.floor(options.lockTtlMs ?? 300000));
@@ -584,6 +846,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       : [60000, 300000, 900000, 1800000]
   ).map((value) => Math.max(0, Math.floor(value)));
   const autoRetryEnabled = options.autoRetryEnabled !== false;
+  const configStatusProvider = options.configStatusProvider;
   const owner = `git-sync-${hashCanonicalJson({
     root,
     createdAt: now(),
@@ -625,13 +888,13 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
   async function loadGitSyncState() {
     const timestamp = now();
     const paths = await initializeSynthesisKnowledgeGraphStore(root).then(() =>
-      syncPaths(root),
+      syncPaths(persistenceRoot),
     );
     await ensureRuntimeDirectory(paths.syncRoot);
     const remote = await describeRemote();
     const config = await validateAdapterConfiguration();
     const fallback = defaultState({
-      root,
+      root: persistenceRoot,
       adapterConfigured: Boolean(adapter) && config.ok,
       now: timestamp,
       remoteUrl: remote.remoteUrl,
@@ -641,16 +904,82 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       paths.statePath,
     ).catch(() => null);
     const state = normalizeState(existing, fallback);
+    const configProjection = configStatusProvider
+      ? await configStatusProvider()
+      : {};
     state.remote_url = remote.remoteUrl || state.remote_url;
     state.branch = remote.branch || state.branch;
     state.adapter_configured = Boolean(adapter) && config.ok;
+    state.config_status = configProjection.config_status;
+    state.token_masked =
+      cleanString(configProjection.token_masked) || undefined;
+    state.token_updated_at =
+      cleanString(configProjection.token_updated_at) || undefined;
+    state.connection_test = configProjection.connection_test;
+    const rootDiagnostics = await scanPersistenceRootDiagnostics({
+      persistenceRoot,
+    });
+    if (!repository) {
+      rootDiagnostics.push(
+        diagnostic({
+          code: "git_sync_repository_unavailable",
+          severity: "error",
+          message:
+            "Git Sync requires an injected Synthesis repository and will not create one implicitly.",
+        }),
+      );
+    }
     if (!adapter || !config.ok) {
       state.queue_state = "disabled";
       if (!config.ok) {
         state.diagnostics = [...config.diagnostics, ...state.diagnostics];
       }
+    } else {
+      if (state.queue_state === "disabled") {
+        state.queue_state = "idle";
+      }
+      state.diagnostics = state.diagnostics.filter(
+        (entry) =>
+          !isStaleAdapterMissingDiagnostic(entry) &&
+          entry.code !== "git_sync_repository_unavailable" &&
+          entry.code !== "git_sync_persistence_root_misaligned" &&
+          entry.code !== "synthesis_root_shadow_database_detected",
+      );
+      if (state.queue_state === "syncing") {
+        const lock = await readLockFile();
+        if (!isLockActive(lock, timestamp)) {
+          if (lock) {
+            await removeRuntimePath(paths.lockPath);
+          }
+          state.queue_state = "failed_retryable";
+          state.diagnostics = [
+            diagnostic({
+              code: "git_sync_stale_sync_state_recovered",
+              severity: "warning",
+              message:
+                "Git Sync recovered a stale running state left by a previous Zotero session.",
+              details: {
+                previous_run_id: lock?.run_id,
+                previous_owner: lock?.owner,
+                lock_expires_at: lock?.expires_at,
+              },
+            }),
+            ...state.diagnostics.filter(
+              (entry) => !isStaleSyncStateDiagnostic(entry),
+            ),
+          ];
+          state.updated_at = timestamp;
+        }
+      }
+    }
+    if (rootDiagnostics.length) {
+      state.diagnostics = [...rootDiagnostics, ...state.diagnostics];
+      if (rootDiagnostics.some((entry) => entry.severity === "error")) {
+        state.queue_state = "failed_permanent";
+      }
     }
     state.allowed_actions = allowedActions(state);
+    state.conflict_actions = conflictActions(state);
     await writeJson(paths.statePath, state);
     return state;
   }
@@ -714,7 +1043,8 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       current,
     );
     next.allowed_actions = allowedActions(next);
-    await writeJson(syncPaths(root).statePath, next);
+    next.conflict_actions = conflictActions(next);
+    await writeJson(syncPaths(persistenceRoot).statePath, next);
     scheduleRetryFromState(next);
     return next;
   }
@@ -775,7 +1105,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
 
   async function exportCanonicalSnapshot() {
     const timestamp = now();
-    const paths = syncPaths(root);
+    const paths = syncPaths(persistenceRoot);
     await initializeSynthesisKnowledgeGraphStore(root);
     const exportRoot = joinPath(
       paths.syncRoot,
@@ -783,16 +1113,17 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     );
     await removeRuntimePath(exportRoot);
     await ensureRuntimeDirectory(exportRoot);
-    const listed = await listEligibleCanonicalAssets(paths.synthesisRoot);
+    await writeSynthesisDurableExportSnapshot({
+      root,
+      outputRoot: exportRoot,
+      repository,
+      now: () => timestamp,
+    });
+    const listed = await listEligibleCanonicalAssets(exportRoot);
     const manifest = createManifest({
       assets: listed.assets,
       generatedAt: timestamp,
     });
-    for (const asset of listed.assets) {
-      const source = joinPath(paths.synthesisRoot, asset.path);
-      const target = joinPath(exportRoot, asset.path);
-      await writeRuntimeTextFile(target, await readRuntimeTextFile(source));
-    }
     await writeRuntimeTextFile(
       joinPath(exportRoot, "sync", "sync-manifest.json"),
       canonicalJsonText(
@@ -812,7 +1143,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
   }
 
   async function copySnapshotToWorktree(exportRoot: string) {
-    const paths = syncPaths(root);
+    const paths = syncPaths(persistenceRoot);
     await removeRuntimePath(joinPath(paths.worktreeRoot, "synthesis"));
     await ensureRuntimeDirectory(joinPath(paths.worktreeRoot, "synthesis"));
     for (const file of await collectRuntimeFiles(exportRoot)) {
@@ -837,7 +1168,12 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     const assets: SynthesisGitSyncManifestAsset[] = [];
     let totalBytes = 0;
     let manifest: SynthesisGitSyncManifest | undefined;
+    let durableManifest: Awaited<
+      ReturnType<typeof readSynthesisDurableManifest>
+    > | null = null;
     const seenPaths = new Set<string>();
+    let largestBundleBytes = 0;
+    let largestBundlePath = "";
 
     for (const file of files) {
       const relative = normalizeGitSyncAssetPath(
@@ -857,9 +1193,13 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       if (!isAllowedCanonicalSyncAsset(relative.path)) {
         diagnostics.push(
           diagnostic({
-            code: "asset_not_allowlisted",
+            code: isProjectionSyncAsset(relative.path)
+              ? "projection_asset_rejected"
+              : "asset_not_allowlisted",
             severity: "error",
-            message: "Import contains a non-allowlisted asset.",
+            message: isProjectionSyncAsset(relative.path)
+              ? "Import contains a rebuildable projection asset."
+              : "Import contains a non-allowlisted asset.",
             assetPath: relative.path,
           }),
         );
@@ -868,13 +1208,25 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       const text = await readRuntimeTextFile(file);
       const bytes = text.length;
       totalBytes += bytes;
+      if (relative.path.startsWith("bundles/") && bytes > largestBundleBytes) {
+        largestBundleBytes = bytes;
+        largestBundlePath = relative.path;
+      }
       if (bytes > MAX_SINGLE_ASSET_BYTES) {
         diagnostics.push(
           diagnostic({
-            code: "asset_too_large",
+            code: relative.path.startsWith("bundles/")
+              ? "bundle_size_limit_exceeded"
+              : "asset_too_large",
             severity: "error",
-            message: "Import asset exceeds the per-file size limit.",
+            message: relative.path.startsWith("bundles/")
+              ? "Import bundle exceeds the per-file size limit."
+              : "Import asset exceeds the per-file size limit.",
             assetPath: relative.path,
+            details: {
+              bytes,
+              max_bytes: MAX_SINGLE_ASSET_BYTES,
+            },
           }),
         );
       }
@@ -898,6 +1250,26 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
             assetPath: relative.path,
           }),
         );
+        continue;
+      }
+      if (relative.path === "manifest.json") {
+        durableManifest = await readSynthesisDurableManifest(synthesisRoot);
+        if (!durableManifest?.manifest_hash) {
+          diagnostics.push(
+            diagnostic({
+              code: "invalid_durable_manifest",
+              severity: "error",
+              message: "Durable sync manifest is invalid.",
+              assetPath: relative.path,
+            }),
+          );
+        }
+        assets.push({
+          path: relative.path,
+          hash: hashCanonicalJson(text),
+          bytes,
+        });
+        seenPaths.add(relative.path);
         continue;
       }
       const schema = envelopeSchema(envelope);
@@ -936,13 +1308,48 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       }
     }
 
-    if (assets.length > MAX_IMPORT_ASSETS || totalBytes > MAX_IMPORT_BYTES) {
+    const durableEntries = durableManifest
+      ? listSynthesisDurableManifestEntities(durableManifest)
+      : [];
+    const bundleCount = durableManifest
+      ? durableManifest.assets.filter((asset) =>
+          asset.path.startsWith("bundles/"),
+        ).length
+      : assets.filter((asset) => asset.path.startsWith("bundles/")).length;
+    const entryCount = durableEntries.length || assets.length;
+    const legacyFileCount = assets.filter(
+      (asset) =>
+        !asset.path.startsWith("bundles/") &&
+        asset.path !== "manifest.json" &&
+        asset.path !== "sync/sync-manifest.json",
+    ).length;
+    if (
+      bundleCount > MAX_IMPORT_BUNDLES ||
+      entryCount > MAX_IMPORT_ENTRIES ||
+      totalBytes > MAX_IMPORT_BYTES ||
+      legacyFileCount > MAX_IMPORT_LEGACY_FILES
+    ) {
       diagnostics.push(
         diagnostic({
-          code: "import_size_limit_exceeded",
+          code:
+            legacyFileCount > MAX_IMPORT_LEGACY_FILES
+              ? "legacy_small_file_snapshot_too_large"
+              : "import_size_limit_exceeded",
           severity: "error",
-          message: "Import snapshot exceeds configured size or count limits.",
-          details: { asset_count: assets.length, total_bytes: totalBytes },
+          message:
+            "Import snapshot exceeds configured bundle, entry, file, or byte limits.",
+          details: {
+            bundle_count: bundleCount,
+            entry_count: entryCount,
+            legacy_file_count: legacyFileCount,
+            total_bytes: totalBytes,
+            largest_bundle_bytes: largestBundleBytes,
+            largest_bundle_path: largestBundlePath,
+            max_bundles: MAX_IMPORT_BUNDLES,
+            max_entries: MAX_IMPORT_ENTRIES,
+            max_legacy_files: MAX_IMPORT_LEGACY_FILES,
+            max_bytes: MAX_IMPORT_BYTES,
+          },
         }),
       );
     }
@@ -1059,8 +1466,53 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       });
       return { ok: false as const, validation };
     }
+    const durablePreview = await previewSynthesisDurableImport({
+      root,
+      sourceRoot: args.synthesisRoot,
+      repository,
+    });
+    if (!durablePreview.ok) {
+      await writeCanonicalDiagnostic({
+        root,
+        diagnostic: {
+          transaction_id: args.transactionId || "git-sync-import",
+          scope: "sync",
+          code: "git_sync_durable_import_rejected",
+          message: "Git Sync durable-state import failed preview.",
+          details: {
+            conflicts: durablePreview.conflicts,
+            diagnostics: durablePreview.diagnostics,
+          },
+          created_at: timestamp,
+        },
+      });
+      return {
+        ok: false as const,
+        validation: {
+          ...validation,
+          diagnostics: [
+            ...validation.diagnostics,
+            ...durablePreview.diagnostics.map(diagnosticFromDurable),
+            ...durablePreview.conflicts.map((conflict) =>
+              diagnostic({
+                code: "durable_sync_conflict",
+                severity: "warning",
+                message: conflict.reason,
+                assetPath: conflict.path,
+                details: conflict,
+              }),
+            ),
+          ],
+        },
+      };
+    }
+    const canonicalAssets = validation.assets.filter(
+      (asset) =>
+        asset.path !== "manifest.json" &&
+        !isDurableAssetSchema(asset.schema_id),
+    );
     const rawAssets = [
-      ...validation.assets.map((asset) => ({
+      ...canonicalAssets.map((asset) => ({
         relativePath: asset.path,
         envelopeText: readRuntimeTextFile(
           joinPath(args.synthesisRoot, asset.path),
@@ -1088,7 +1540,25 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       now: timestamp,
       onBeforePromoteAsset: args.onBeforePromoteAsset,
     });
-    return { ok: true as const, validation, transaction };
+    const durable = await applySynthesisDurableImport({
+      root,
+      sourceRoot: args.synthesisRoot,
+      repository,
+      runId: args.transactionId,
+    });
+    if (!durable.applied) {
+      return {
+        ok: false as const,
+        validation: {
+          ...validation,
+          diagnostics: [
+            ...validation.diagnostics,
+            ...durable.preview.diagnostics.map(diagnosticFromDurable),
+          ],
+        },
+      };
+    }
+    return { ok: true as const, validation, transaction, durable };
   }
 
   async function writeConflictReport(conflicts: SynthesisGitSyncConflict[]) {
@@ -1116,8 +1586,42 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
         }),
       ],
     };
-    await writeJson(syncPaths(root).conflictPath, report);
+    await writeJson(syncPaths(persistenceRoot).conflictPath, report);
     return report;
+  }
+
+  async function writeDurableConflictReport(
+    conflicts: SynthesisDurableConflict[],
+  ) {
+    const durableReport = createSynthesisDurableConflictReport({
+      conflicts,
+      now: now(),
+    });
+    await writeJson(
+      joinPath(
+        syncPaths(persistenceRoot).syncRoot,
+        "durable-conflict-report.json",
+      ),
+      durableReport,
+    );
+    const report = await writeConflictReport(
+      conflicts.map(conflictFromDurable),
+    );
+    const nextReport: SynthesisGitSyncConflictReport = {
+      ...report,
+      diagnostics: [
+        ...report.diagnostics,
+        diagnostic({
+          code: "durable_sync_conflict",
+          severity: "warning",
+          message:
+            "Durable state import is blocked because local and remote durable facts diverged.",
+          details: durableReport,
+        }),
+      ],
+    };
+    await writeJson(syncPaths(persistenceRoot).conflictPath, nextReport);
+    return nextReport;
   }
 
   function addMs(timestamp: string, ms: number) {
@@ -1139,12 +1643,12 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
   }
 
   async function readLockFile() {
-    if (!(await runtimePathExists(syncPaths(root).lockPath))) {
+    if (!(await runtimePathExists(syncPaths(persistenceRoot).lockPath))) {
       return null;
     }
-    return readJson<SynthesisGitSyncLockFile>(syncPaths(root).lockPath).catch(
-      () => null,
-    );
+    return readJson<SynthesisGitSyncLockFile>(
+      syncPaths(persistenceRoot).lockPath,
+    ).catch(() => null);
   }
 
   async function acquireLock(runId: string) {
@@ -1190,7 +1694,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       acquired_at: timestamp,
       expires_at: addMs(timestamp, lockTtlMs),
     };
-    await writeJson(syncPaths(root).lockPath, lock);
+    await writeJson(syncPaths(persistenceRoot).lockPath, lock);
     return { acquired: true, diagnostics };
   }
 
@@ -1198,7 +1702,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     locked = false;
     const current = await readLockFile();
     if (!current || current.owner === owner) {
-      await removeRuntimePath(syncPaths(root).lockPath);
+      await removeRuntimePath(syncPaths(persistenceRoot).lockPath);
     }
   }
 
@@ -1261,6 +1765,25 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     if (state.queue_state === "blocked_conflict") {
       return state;
     }
+    if (hasPermanentGitSyncDiagnostic(state.diagnostics)) {
+      return persistState({
+        queue_state: "failed_permanent",
+        diagnostics: state.diagnostics,
+      });
+    }
+    if (await runtimeRootLooksLikeUnsafeCwdFallback(persistenceRoot)) {
+      const unsafeDiagnostic = diagnostic({
+        code: "git_sync_runtime_root_unsafe_cwd_fallback",
+        severity: "error",
+        message:
+          "Git Sync runtime root resolved to the current project repository; sync is blocked.",
+        details: { root: persistenceRoot },
+      });
+      return persistState({
+        queue_state: "failed_permanent",
+        diagnostics: [unsafeDiagnostic],
+      });
+    }
     const acquiredLock = await acquireLock(runId);
     if (!acquiredLock.acquired) {
       return persistState({ queue_state: "queued" });
@@ -1282,22 +1805,28 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       await copySnapshotToWorktree(exported.exportRoot);
       await reportPhase("fetch", 4);
       const fetchResult = await adapter.fetch?.({
-        worktreePath: syncPaths(root).worktreeRoot,
+        worktreePath: syncPaths(persistenceRoot).worktreeRoot,
         remoteUrl: remote.remoteUrl,
         branch: remote.branch,
       });
       if (fetchResult?.diagnostics?.length) {
         diagnostics.push(...fetchResult.diagnostics);
       }
+      if (hasErrorDiagnostic(diagnostics)) {
+        throw new Error("Git Sync fetch failed validation.");
+      }
       await reportPhase("merge", 5);
       const mergeResult = (await adapter.merge?.({
-        worktreePath: syncPaths(root).worktreeRoot,
+        worktreePath: syncPaths(persistenceRoot).worktreeRoot,
         remoteUrl: remote.remoteUrl,
         branch: remote.branch,
         localManifest: exported.manifest,
       })) || { status: "clean" as const };
       if (mergeResult.diagnostics?.length) {
         diagnostics.push(...mergeResult.diagnostics);
+      }
+      if (hasErrorDiagnostic(diagnostics)) {
+        throw new Error("Git Sync merge failed validation.");
       }
       if (mergeResult.status === "conflict") {
         const report = await writeConflictReport(
@@ -1324,7 +1853,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           manifest_hash: exported.manifest.manifest_hash,
           diagnostics: [...diagnostics, ...report.diagnostics],
         };
-        await appendJsonLine(syncPaths(root).receiptsLog, receipt);
+        await appendJsonLine(syncPaths(persistenceRoot).receiptsLog, receipt);
         await reportPhase(
           "merge",
           5,
@@ -1341,7 +1870,10 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           branch: remote.branch,
         });
       }
-      const candidateRoot = joinPath(syncPaths(root).worktreeRoot, "synthesis");
+      const candidateRoot = joinPath(
+        syncPaths(persistenceRoot).worktreeRoot,
+        "synthesis",
+      );
       await reportPhase("validate", 6);
       const validation = await validateGitSyncImportSnapshot(candidateRoot);
       if (!validation.ok) {
@@ -1357,7 +1889,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           manifest_hash: exported.manifest.manifest_hash,
           diagnostics: [...diagnostics, ...validation.diagnostics],
         };
-        await appendJsonLine(syncPaths(root).receiptsLog, receipt);
+        await appendJsonLine(syncPaths(persistenceRoot).receiptsLog, receipt);
         await reportPhase(
           "validate",
           6,
@@ -1373,15 +1905,93 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           branch: remote.branch,
         });
       }
+      const durablePreview = await previewSynthesisDurableImport({
+        root,
+        sourceRoot: candidateRoot,
+        repository,
+      });
+      const durableDiagnostics = durablePreview.diagnostics.map(
+        diagnosticFromDurable,
+      );
+      diagnostics.push(...durableDiagnostics);
+      if (durablePreview.conflicts.length) {
+        const report = await writeDurableConflictReport(
+          durablePreview.conflicts,
+        );
+        const receipt: SynthesisGitSyncRunReceipt = {
+          schema_id: "synthesis.git_sync_run_receipt",
+          schema_version: SYNTHESIS_GIT_SYNC_SCHEMA_VERSION,
+          run_id: runId,
+          status: "blocked_conflict",
+          started_at: startedAt,
+          completed_at: now(),
+          exported_asset_count: exported.manifest.asset_count,
+          imported_asset_count: 0,
+          manifest_hash:
+            validation.manifest?.manifest_hash ||
+            exported.manifest.manifest_hash,
+          diagnostics: [...diagnostics, ...report.diagnostics],
+        };
+        await appendJsonLine(syncPaths(persistenceRoot).receiptsLog, receipt);
+        await reportPhase(
+          "validate",
+          6,
+          "failed_retryable",
+          "Git Sync is blocked by durable-state conflicts.",
+          JSON.stringify(receipt.diagnostics),
+        );
+        return persistState({
+          queue_state: "blocked_conflict",
+          conflict_report: report,
+          last_run: receipt,
+          diagnostics: receipt.diagnostics,
+          remote_url: remote.remoteUrl,
+          branch: remote.branch,
+        });
+      }
+      if (!durablePreview.ok) {
+        const receipt: SynthesisGitSyncRunReceipt = {
+          schema_id: "synthesis.git_sync_run_receipt",
+          schema_version: SYNTHESIS_GIT_SYNC_SCHEMA_VERSION,
+          run_id: runId,
+          status: "failed_permanent",
+          started_at: startedAt,
+          completed_at: now(),
+          exported_asset_count: exported.manifest.asset_count,
+          imported_asset_count: 0,
+          manifest_hash:
+            validation.manifest?.manifest_hash ||
+            exported.manifest.manifest_hash,
+          diagnostics,
+        };
+        await appendJsonLine(syncPaths(persistenceRoot).receiptsLog, receipt);
+        await reportPhase(
+          "validate",
+          6,
+          "failed_terminal",
+          "Git Sync durable-state validation failed.",
+          JSON.stringify(receipt.diagnostics),
+        );
+        return persistState({
+          queue_state: "failed_permanent",
+          last_run: receipt,
+          diagnostics: receipt.diagnostics,
+          remote_url: remote.remoteUrl,
+          branch: remote.branch,
+        });
+      }
       await reportPhase("push", 7);
       const pushResult = await adapter.push?.({
-        worktreePath: syncPaths(root).worktreeRoot,
+        worktreePath: syncPaths(persistenceRoot).worktreeRoot,
         remoteUrl: remote.remoteUrl,
         branch: remote.branch,
         manifest: validation.manifest || exported.manifest,
       });
       if (pushResult?.diagnostics?.length) {
         diagnostics.push(...pushResult.diagnostics);
+      }
+      if (hasErrorDiagnostic(diagnostics)) {
+        throw new Error("Git Sync push failed validation.");
       }
       await reportPhase("import", 8);
       const imported = await importCanonicalSnapshot({
@@ -1401,7 +2011,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           manifest_hash: exported.manifest.manifest_hash,
           diagnostics: [...diagnostics, ...imported.validation.diagnostics],
         };
-        await appendJsonLine(syncPaths(root).receiptsLog, receipt);
+        await appendJsonLine(syncPaths(persistenceRoot).receiptsLog, receipt);
         await reportPhase(
           "import",
           8,
@@ -1428,9 +2038,9 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
         diagnostics,
         canonical_receipt: imported.transaction.receipt,
       };
-      await appendJsonLine(syncPaths(root).receiptsLog, receipt);
+      await appendJsonLine(syncPaths(persistenceRoot).receiptsLog, receipt);
       await reportPhase("cleanup", 9, "completed", "Git Sync completed.");
-      await removeRuntimePath(syncPaths(root).conflictPath);
+      await removeRuntimePath(syncPaths(persistenceRoot).conflictPath);
       return persistState({
         queue_state: "idle",
         conflict_report: undefined,
@@ -1446,6 +2056,7 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       const current = await loadGitSyncState();
       const retryAttempt = Math.max(0, Number(current.retry_attempt) || 0) + 1;
       const nextRetryAt = retryTimestamp(retryAttempt);
+      const permanentFailure = hasPermanentGitSyncDiagnostic(diagnostics);
       const failureDiagnostic = diagnostic({
         code: "git_sync_failed",
         severity: "error",
@@ -1456,31 +2067,31 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
         schema_id: "synthesis.git_sync_run_receipt",
         schema_version: SYNTHESIS_GIT_SYNC_SCHEMA_VERSION,
         run_id: runId,
-        status: "failed_retryable",
+        status: permanentFailure ? "failed_permanent" : "failed_retryable",
         started_at: startedAt,
         completed_at: now(),
         exported_asset_count: 0,
         imported_asset_count: 0,
         diagnostics: [...diagnostics, failureDiagnostic],
-        retry_attempt: retryAttempt,
-        next_retry_at: nextRetryAt,
+        retry_attempt: permanentFailure ? undefined : retryAttempt,
+        next_retry_at: permanentFailure ? undefined : nextRetryAt,
         last_retry_at: now(),
       };
-      await appendJsonLine(syncPaths(root).receiptsLog, receipt);
+      await appendJsonLine(syncPaths(persistenceRoot).receiptsLog, receipt);
       await reportPhase(
         phases[Math.max(0, Math.min(phases.length - 1, phaseIndex - 1))] ||
           "sync",
         Math.max(phaseIndex, 1),
-        "failed_retryable",
+        permanentFailure ? "failed_terminal" : "failed_retryable",
         "Git Sync failed.",
         JSON.stringify(receipt.diagnostics),
       );
       return persistState({
-        queue_state: "failed_retryable",
+        queue_state: permanentFailure ? "failed_permanent" : "failed_retryable",
         last_run: receipt,
         diagnostics: receipt.diagnostics,
-        retry_attempt: retryAttempt,
-        next_retry_at: nextRetryAt,
+        retry_attempt: permanentFailure ? undefined : retryAttempt,
+        next_retry_at: permanentFailure ? undefined : nextRetryAt,
         last_retry_at: receipt.last_retry_at,
       });
     } finally {
@@ -1545,33 +2156,154 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     clearRetryTimer();
     const state = await persistState({
       queue_state: "queued",
+      paused: false,
       conflict_report: undefined,
       diagnostics: [],
       retry_attempt: undefined,
       next_retry_at: undefined,
       last_retry_at: undefined,
     });
-    return state.paused ? state : runSync();
+    return runSync();
   }
 
-  async function resolveGitSyncConflict(args: { action: "skip" | "resolved" }) {
-    const current = await loadGitSyncState();
-    const report = current.conflict_report
-      ? {
-          ...current.conflict_report,
-          status:
-            args.action === "resolved"
-              ? ("resolved" as const)
-              : ("skipped" as const),
-          updated_at: now(),
-        }
-      : undefined;
-    if (report) {
-      await writeJson(syncPaths(root).conflictPath, report);
+  async function saveRemoteConflictCopies(
+    report: SynthesisGitSyncConflictReport,
+  ) {
+    const candidateRoot = joinPath(
+      syncPaths(persistenceRoot).worktreeRoot,
+      "synthesis",
+    );
+    const reviewRoot = joinPath(
+      syncPaths(persistenceRoot).syncRoot,
+      "conflict-review",
+      report.conflict_id,
+    );
+    const saved: string[] = [];
+    for (const conflict of report.conflicts) {
+      const safe = validateManagedRelativePath(conflict.asset_path);
+      if (!safe.ok) {
+        continue;
+      }
+      const source = joinPath(candidateRoot, safe.normalizedPath);
+      if (!(await runtimePathExists(source))) {
+        continue;
+      }
+      const target = joinPath(reviewRoot, safe.normalizedPath);
+      await writeRuntimeTextFile(target, await readRuntimeTextFile(source));
+      saved.push(safe.normalizedPath);
     }
+    return saved;
+  }
+
+  async function resolveGitSyncConflict(args: {
+    action: SynthesisGitSyncConflictAction | "skip" | "resolved";
+  }) {
+    const current = await loadGitSyncState();
+    const normalizedAction =
+      args.action === "resolved"
+        ? "keep_local"
+        : args.action === "skip"
+          ? "save_remote_copy"
+          : args.action;
+    if (!current.conflict_report) {
+      return persistState({
+        diagnostics: [
+          ...current.diagnostics,
+          diagnostic({
+            code: "git_sync_conflict_missing",
+            severity: "warning",
+            message: "No Git Sync conflict report is available.",
+          }),
+        ],
+      });
+    }
+    if (normalizedAction === "keep_local") {
+      const report = {
+        ...current.conflict_report,
+        status: "resolved" as const,
+        updated_at: now(),
+      };
+      await writeJson(syncPaths(persistenceRoot).conflictPath, report);
+      return persistState({
+        queue_state: "queued",
+        conflict_report: report,
+      });
+    }
+    if (normalizedAction === "save_remote_copy") {
+      const saved = await saveRemoteConflictCopies(current.conflict_report);
+      const report = {
+        ...current.conflict_report,
+        updated_at: now(),
+      };
+      await writeJson(syncPaths(persistenceRoot).conflictPath, report);
+      return persistState({
+        queue_state: "blocked_conflict",
+        conflict_report: report,
+        diagnostics: [
+          ...current.diagnostics,
+          diagnostic({
+            code: "git_sync_remote_conflict_copy_saved",
+            severity: saved.length ? "info" : "warning",
+            message: saved.length
+              ? "Remote conflict assets were copied for manual review."
+              : "No remote conflict asset could be copied for manual review.",
+            details: { saved },
+          }),
+        ],
+      });
+    }
+    if (normalizedAction === "clear_after_manual_edit") {
+      const candidateRoot = joinPath(
+        syncPaths(persistenceRoot).worktreeRoot,
+        "synthesis",
+      );
+      const validation = await validateGitSyncImportSnapshot(candidateRoot);
+      const preview = validation.ok
+        ? await previewSynthesisDurableImport({
+            root,
+            sourceRoot: candidateRoot,
+            repository,
+          })
+        : undefined;
+      if (validation.ok && preview?.ok) {
+        const report = {
+          ...current.conflict_report,
+          status: "resolved" as const,
+          updated_at: now(),
+        };
+        await writeJson(syncPaths(persistenceRoot).conflictPath, report);
+        return persistState({
+          queue_state: "queued",
+          conflict_report: report,
+          diagnostics: current.diagnostics,
+        });
+      }
+      return persistState({
+        queue_state: "blocked_conflict",
+        diagnostics: [
+          ...current.diagnostics,
+          ...validation.diagnostics,
+          ...(preview?.diagnostics.map(diagnosticFromDurable) || []),
+          ...(preview?.conflicts || []).map((conflict) =>
+            diagnostic({
+              code: "git_sync_conflict_still_blocked",
+              severity: "warning",
+              message: conflict.reason,
+              assetPath: conflict.path,
+              details: conflict,
+            }),
+          ),
+        ],
+      });
+    }
+    const rejection = diagnostic({
+      code: "git_sync_conflict_action_unsupported",
+      severity: "warning",
+      message: `Git Sync conflict action is not safely supported in v1: ${normalizedAction}`,
+    });
     return persistState({
-      queue_state: args.action === "resolved" ? "queued" : "idle",
-      conflict_report: report,
+      queue_state: "blocked_conflict",
+      diagnostics: [...current.diagnostics, rejection],
     });
   }
 

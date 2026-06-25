@@ -35,7 +35,9 @@ let modelCacheRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let modelCacheRefreshClearTimer: typeof clearInterval = clearInterval;
 
 function normalizeBaseUrl(baseUrl: unknown) {
-  return String(baseUrl || "").trim().replace(/\/+$/, "");
+  return String(baseUrl || "")
+    .trim()
+    .replace(/\/+$/, "");
 }
 
 function toIsoNow() {
@@ -74,11 +76,7 @@ function normalizeSupportedEffort(raw: unknown) {
     return undefined;
   }
   const normalized = Array.from(
-    new Set(
-      raw
-        .map((entry) => String(entry || "").trim())
-        .filter(Boolean),
-    ),
+    new Set(raw.map((entry) => String(entry || "").trim()).filter(Boolean)),
   );
   return normalized.length > 0 ? normalized : undefined;
 }
@@ -112,9 +110,7 @@ function parseModelCacheEntry(raw: unknown): SkillRunnerModelCacheEntry | null {
   const enginesRaw = Array.isArray(raw.engines) ? raw.engines : [];
   const engines = Array.from(
     new Set(
-      enginesRaw
-        .map((engine) => String(engine || "").trim())
-        .filter(Boolean),
+      enginesRaw.map((engine) => String(engine || "").trim()).filter(Boolean),
     ),
   );
   const modelsByEngineRaw = isObjectRecord(raw.modelsByEngine)
@@ -135,17 +131,23 @@ function parseModelCacheEntry(raw: unknown): SkillRunnerModelCacheEntry | null {
       const providerIdRaw = String(modelRaw.provider_id || "").trim();
       const providerRaw = String(modelRaw.provider || "").trim();
       const modelRawValue = String(modelRaw.model || "").trim();
-      const providerId = providerIdRaw || providerRaw || parsedFromId?.provider || "";
-      const provider = providerRaw || providerId || parsedFromId?.provider || "";
+      const providerId =
+        providerIdRaw || providerRaw || parsedFromId?.provider || "";
+      const provider =
+        providerRaw || providerId || parsedFromId?.provider || "";
       const model = modelRawValue || parsedFromId?.model || "";
-      const supportedEffort = normalizeSupportedEffort(modelRaw.supported_effort);
+      const supportedEffort = normalizeSupportedEffort(
+        modelRaw.supported_effort,
+      );
       const id =
         String(modelRaw.id || "").trim() ||
         (providerId && model ? `${providerId}/${model}` : "");
       if (!id) {
         continue;
       }
-      const displayName = String(modelRaw.display_name || modelRaw.displayName || "").trim();
+      const displayName = String(
+        modelRaw.display_name || modelRaw.displayName || "",
+      ).trim();
       normalizedModels.push({
         id,
         display_name: displayName || id,
@@ -189,9 +191,7 @@ function readModelCacheDocument(): SkillRunnerModelCacheDocument {
         entries: [],
       };
     }
-    const rows = Array.isArray(parsed.entries)
-      ? parsed.entries
-      : [];
+    const rows = Array.isArray(parsed.entries) ? parsed.entries : [];
     const entries = rows
       .map((entry) => parseModelCacheEntry(entry))
       .filter(Boolean) as SkillRunnerModelCacheEntry[];
@@ -269,17 +269,21 @@ function parseEngineModelsPayload(payload: unknown) {
     const providerIdRaw = String(row.provider_id || "").trim();
     const providerRaw = String(row.provider || "").trim();
     const modelRawValue = String(row.model || "").trim();
-    const providerId = providerIdRaw || providerRaw || parsedFromId?.provider || "";
+    const providerId =
+      providerIdRaw || providerRaw || parsedFromId?.provider || "";
     const provider = providerRaw || providerId || parsedFromId?.provider || "";
     const model = modelRawValue || parsedFromId?.model || "";
     const supportedEffort = normalizeSupportedEffort(row.supported_effort);
-    const normalizedId = id || (providerId && model ? `${providerId}/${model}` : "");
+    const normalizedId =
+      id || (providerId && model ? `${providerId}/${model}` : "");
     if (!normalizedId) {
       continue;
     }
     models.push({
       id: normalizedId,
-      display_name: String(row.display_name || row.displayName || "").trim() || normalizedId,
+      display_name:
+        String(row.display_name || row.displayName || "").trim() ||
+        normalizedId,
       deprecated: row.deprecated === true,
       ...(providerId ? { provider_id: providerId } : {}),
       ...(provider ? { provider } : {}),
@@ -394,7 +398,8 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
     };
   }
   const fetchImpl =
-    args.fetchImpl || ((globalThis as { fetch?: FetchLike }).fetch as FetchLike);
+    args.fetchImpl ||
+    ((globalThis as { fetch?: FetchLike }).fetch as FetchLike);
   if (typeof fetchImpl !== "function") {
     return {
       ok: false,
@@ -409,7 +414,10 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
       method: "GET",
       headers,
     });
-    const enginesPayload = await readJsonOrThrow(enginesResponse, "/v1/engines");
+    const enginesPayload = await readJsonOrThrow(
+      enginesResponse,
+      "/v1/engines",
+    );
     const engines = parseEnginesPayload(enginesPayload);
     const modelsByEngine: Record<string, SkillRunnerModelCacheModel[]> = {};
     for (const engine of engines) {
@@ -524,7 +532,8 @@ export function startSkillRunnerModelCacheAutoRefresh(args?: {
   if (modelCacheRefreshTimer) {
     return;
   }
-  const refreshAll = args?.refreshAll || (() => refreshAllSkillRunnerModelCaches());
+  const refreshAll =
+    args?.refreshAll || (() => refreshAllSkillRunnerModelCaches());
   const intervalMs = Math.max(
     1,
     Number(args?.intervalMs || SKILLRUNNER_MODEL_CACHE_REFRESH_INTERVAL_MS),

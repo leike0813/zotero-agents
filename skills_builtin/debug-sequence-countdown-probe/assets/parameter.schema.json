@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "step_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier for this step in the countdown sequence (e.g. alpha, bravo, charlie)."
+    },
+    "countdown_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 120,
+      "description": "Duration of the countdown timer in seconds. Injected from the workflow-level parameter."
+    }
+  },
+  "required": ["step_id"],
+  "additionalProperties": true
+}

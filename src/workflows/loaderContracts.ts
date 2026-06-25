@@ -13,7 +13,8 @@ export type LoaderDiagnosticCategory =
   | "hook_import_error"
   | "hook_export_error"
   | "scan_path_error"
-  | "scan_runtime_warning";
+  | "scan_runtime_warning"
+  | "skill_dependency_missing";
 
 export type LoaderDiagnostic = {
   level: LoaderDiagnosticLevel;
@@ -61,9 +62,8 @@ const ajvLogger = {
 };
 let validateWorkflowManifestSchema: ValidateFunction<WorkflowManifest> | null =
   null;
-let validateWorkflowPackageManifestSchema:
-  | ValidateFunction<WorkflowPackageManifest>
-  | null = null;
+let validateWorkflowPackageManifestSchema: ValidateFunction<WorkflowPackageManifest> | null =
+  null;
 
 function getWorkflowManifestValidator() {
   if (!validateWorkflowManifestSchema) {
@@ -73,8 +73,9 @@ function getWorkflowManifestValidator() {
       $data: true,
       logger: ajvLogger,
     });
-    validateWorkflowManifestSchema =
-      ajv.compile<WorkflowManifest>(workflowManifestSchema);
+    validateWorkflowManifestSchema = ajv.compile<WorkflowManifest>(
+      workflowManifestSchema,
+    );
   }
   return validateWorkflowManifestSchema;
 }
@@ -112,7 +113,10 @@ function formatManifestValidationError(
 }
 
 function describeManifestValidationErrors(
-  errors: ErrorObject<string, Record<string, unknown>, unknown>[] | null | undefined,
+  errors:
+    | ErrorObject<string, Record<string, unknown>, unknown>[]
+    | null
+    | undefined,
 ) {
   if (!errors || errors.length === 0) {
     return "manifest schema mismatch";
@@ -121,18 +125,21 @@ function describeManifestValidationErrors(
 }
 
 function validateSequenceManifestSemantics(manifest: WorkflowManifest) {
-  if (String(manifest.request?.kind || "").trim() !== "skillrunner.sequence.v1") {
-    return "";
-  }
-  if (manifest.hooks.buildRequest) {
+  if (
+    String(manifest.request?.kind || "").trim() !== "skillrunner.sequence.v1"
+  ) {
     return "";
   }
   const steps = manifest.request?.sequence?.steps || [];
+  const hasBuildRequest = !!String(manifest.hooks?.buildRequest || "").trim();
   if (!Array.isArray(steps) || steps.length === 0) {
+    if (hasBuildRequest) {
+      return "";
+    }
     return "/request/sequence/steps must be non-empty";
   }
   const finalStepId = String(manifest.result?.final_step_id || "").trim();
-  if (!finalStepId) {
+  if (!hasBuildRequest && !finalStepId) {
     return "/result/final_step_id is required for skillrunner.sequence.v1";
   }
   const seen = new Set<string>();
@@ -147,13 +154,18 @@ function validateSequenceManifestSemantics(manifest: WorkflowManifest) {
     }
     seen.add(id);
   }
-  if (!seen.has(finalStepId)) {
+  if (finalStepId && !seen.has(finalStepId)) {
     return "/result/final_step_id must match a declared sequence step";
   }
   for (let index = 0; index < steps.length; index++) {
-    const fromStep = String(steps[index]?.handoff?.from_step || "").trim();
-    if (fromStep && !seen.has(fromStep)) {
-      return `/request/sequence/steps/${index}/handoff/from_step must match a declared sequence step`;
+    const bindings = Array.isArray(steps[index]?.handoff?.bindings)
+      ? steps[index]?.handoff?.bindings || []
+      : [];
+    for (let bindingIndex = 0; bindingIndex < bindings.length; bindingIndex++) {
+      const fromStep = String(bindings[bindingIndex]?.step || "").trim();
+      if (fromStep && !seen.has(fromStep)) {
+        return `/request/sequence/steps/${index}/handoff/bindings/${bindingIndex}/step must match a declared sequence step`;
+      }
     }
     const shortCircuit = steps[index]?.short_circuit;
     if (shortCircuit !== undefined) {
@@ -173,6 +185,24 @@ export function normalizeManifestProvider(manifest: WorkflowManifest) {
   const declared = String(manifest.provider || "").trim();
   if (declared) {
     manifest.provider = declared;
+  }
+  return manifest;
+}
+
+export function normalizeManifestInputTriggerDefaults(
+  manifest: WorkflowManifest,
+) {
+  if (
+    manifest.inputs?.unit === "workflow" &&
+    manifest.trigger?.requiresSelection === undefined
+  ) {
+    manifest.trigger = {
+      ...(manifest.trigger || {}),
+      requiresSelection: false,
+    };
+  }
+  if (manifest.trigger?.requiresSelection === false && !manifest.inputs) {
+    manifest.inputs = { unit: "workflow" };
   }
   return manifest;
 }
@@ -238,7 +268,9 @@ export function parseWorkflowManifestFromText(args: {
     };
   }
   return {
-    manifest: normalizeManifestProvider(parsed),
+    manifest: normalizeManifestInputTriggerDefaults(
+      normalizeManifestProvider(parsed),
+    ),
     diagnostic: null,
   };
 }

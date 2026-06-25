@@ -28,3 +28,55 @@
   --ifm-color-primary-lightest: #4fddbf;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
+
+.theme-doc-markdown p > img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 6px;
+}
+
+.theme-doc-markdown p > img[src*="icon_"],
+.theme-doc-markdown p > img[src*="favicon"] {
+  width: 8rem;
+  max-width: 40vw;
+  border: 0;
+}
+
+.theme-doc-markdown p > img[src*="poster.png"] {
+  width: min(100%, 380px);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.zs-doc-figure {
+  margin: 1.25rem 0;
+}
+
+.zs-doc-figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 6px;
+}
+
+.zs-doc-figure--icon img {
+  width: 8rem;
+  max-width: 40vw;
+  border: 0;
+}
+
+.zs-doc-figure img[src*="poster.png"] {
+  width: min(100%, 380px);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.zs-doc-figure figcaption {
+  margin-top: 0.4rem;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}

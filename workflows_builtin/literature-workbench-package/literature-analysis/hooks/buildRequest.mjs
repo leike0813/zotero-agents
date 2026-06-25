@@ -49,8 +49,13 @@ async function buildRequestImpl({ selectionContext, executionOptions, runtime })
   const digestStep = {
     id: "digest",
     skill_id: "literature-analysis",
+    mode: "auto",
     workspace: "new",
     fetch_type: "bundle",
+    apply_result: {
+      workflow_id: "literature-analysis",
+      on_failure: "continue",
+    },
     input: {
       source_path: sourcePath,
     },
@@ -70,20 +75,28 @@ async function buildRequestImpl({ selectionContext, executionOptions, runtime })
     steps.push({
       id: "tag-regulator",
       skill_id: "tag-regulator",
+      mode: "auto",
       workspace: "reuse-workflow",
       fetch_type: "result",
+      apply_result: {
+        workflow_id: "tag-regulator",
+        on_failure: "continue",
+      },
       input: tagInput.input,
       parameter: resolveTagRegulatorParameters(executionOptions, {
         tagNoteLanguage: params.language,
         inferTag: params.autoTagInferTag,
       }),
       handoff: {
-        from_step: "digest",
-        required: true,
-        pass_through: false,
-        input: {
-          digest_markdown: "digest_path",
-        },
+        bindings: [
+          {
+            kind: "file",
+            step: "digest",
+            source: "digest_path",
+            target: "/input/digest_markdown",
+            required: true,
+          },
+        ],
       },
     });
     finalStepId = "tag-regulator";

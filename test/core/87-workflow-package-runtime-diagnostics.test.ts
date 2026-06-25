@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { setDiagnosticVerboseOverrideForTests } from "../../src/modules/diagnosticVerbosity";
 import {
   clearRuntimeLogs,
   getRuntimeLogDiagnosticMode,
@@ -25,6 +26,7 @@ describe("workflow package runtime diagnostics", function () {
     resetRuntimeLogAllowedLevels();
     setRuntimeLogDiagnosticMode(false);
     setDebugModeOverrideForTests();
+    setDiagnosticVerboseOverrideForTests(false);
     consoleCalls = 0;
     zoteroCalls = 0;
     originalConsoleDebug = console.debug;
@@ -56,6 +58,7 @@ describe("workflow package runtime diagnostics", function () {
     resetRuntimeLogAllowedLevels();
     setRuntimeLogDiagnosticMode(false);
     setDebugModeOverrideForTests();
+    setDiagnosticVerboseOverrideForTests();
   });
 
   it("stays silent when debug mode is disabled", function () {
@@ -69,7 +72,7 @@ describe("workflow package runtime diagnostics", function () {
     assert.equal(zoteroCalls, 0);
   });
 
-  it("emits runtime log and console diagnostics when debug mode is enabled", function () {
+  it("records runtime logs without console diagnostics by default", function () {
     setDebugModeOverrideForTests(true);
     enableWorkflowPackageDiagnosticsForDebugMode();
 
@@ -95,6 +98,25 @@ describe("workflow package runtime diagnostics", function () {
       entries.find((entry) => entry.stage === "workflow-package-debug-test"),
     );
     assert.isTrue(getRuntimeLogDiagnosticMode());
+    assert.equal(consoleCalls, 0);
+    assert.equal(zoteroCalls, 0);
+  });
+
+  it("emits console diagnostics when verbose diagnostics are enabled", function () {
+    setDebugModeOverrideForTests(true);
+    setDiagnosticVerboseOverrideForTests(true);
+    enableWorkflowPackageDiagnosticsForDebugMode();
+
+    emitWorkflowPackageDiagnostic({
+      level: "debug",
+      scope: "system",
+      workflowId: "tag-regulator",
+      packageId: "literature-workbench-package",
+      hook: "applyResult",
+      stage: "workflow-package-debug-test",
+      message: "diagnostic message",
+    });
+
     assert.isAtLeast(consoleCalls, 1);
     assert.isAtLeast(zoteroCalls, 1);
   });

@@ -17,22 +17,12 @@ async function createPassThroughWorkflowRoot() {
         label: "Pass Through Local Test",
         provider: "pass-through",
         hooks: {
-          filterInputs: "hooks/filterInputs.js",
           applyResult: "hooks/applyResult.js",
         },
       },
       null,
       2,
     ),
-  );
-  await writeUtf8(
-    joinPath(workflowRoot, "hooks", "filterInputs.js"),
-    [
-      "export function filterInputs({ selectionContext }) {",
-      "  return selectionContext;",
-      "}",
-      "",
-    ].join("\n"),
   );
   await writeUtf8(
     joinPath(workflowRoot, "hooks", "applyResult.js"),
@@ -52,6 +42,84 @@ async function createPassThroughWorkflowRoot() {
 }
 
 describe("pass-through provider", function () {
+  it("rejects legacy filterInputs hook declarations at manifest load time", async function () {
+    const root = await mkTempDir("zotero-skills-filterinputs-rejected");
+    const workflowRoot = joinPath(root, "legacy-filterinputs");
+    await writeUtf8(
+      joinPath(workflowRoot, "workflow.json"),
+      JSON.stringify(
+        {
+          id: "legacy-filterinputs",
+          label: "Legacy Filter Inputs",
+          provider: "pass-through",
+          hooks: {
+            filterInputs: "hooks/filterInputs.js",
+            applyResult: "hooks/applyResult.js",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeUtf8(
+      joinPath(workflowRoot, "hooks", "applyResult.js"),
+      "export async function applyResult(){ return { ok: true }; }",
+    );
+
+    const loaded = await loadWorkflowManifests(root);
+
+    assert.lengthOf(loaded.workflows, 0);
+    assert.isTrue(
+      (loaded.diagnostics || []).some(
+        (entry) =>
+          entry.category === "manifest_validation_error" &&
+          String(entry.reason || "").includes("filterInputs"),
+      ),
+      `diagnostics=${JSON.stringify(loaded.diagnostics)}`,
+    );
+  });
+
+  it("rejects unknown validateSelection policies at manifest load time", async function () {
+    const root = await mkTempDir("zotero-skills-selection-policy-rejected");
+    const workflowRoot = joinPath(root, "unknown-selection-policy");
+    await writeUtf8(
+      joinPath(workflowRoot, "workflow.json"),
+      JSON.stringify(
+        {
+          id: "unknown-selection-policy",
+          label: "Unknown Selection Policy",
+          provider: "pass-through",
+          validateSelection: {
+            select: {
+              policy: "arbitrary-js-expression",
+            },
+          },
+          hooks: {
+            applyResult: "hooks/applyResult.js",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeUtf8(
+      joinPath(workflowRoot, "hooks", "applyResult.js"),
+      "export async function applyResult(){ return { ok: true }; }",
+    );
+
+    const loaded = await loadWorkflowManifests(root);
+
+    assert.lengthOf(loaded.workflows, 0);
+    assert.isTrue(
+      (loaded.diagnostics || []).some(
+        (entry) =>
+          entry.category === "manifest_validation_error" &&
+          String(entry.reason || "").includes("validateSelection"),
+      ),
+      `diagnostics=${JSON.stringify(loaded.diagnostics)}`,
+    );
+  });
+
   it("builds pass-through request without buildRequest/request declarations", async function () {
     const root = await createPassThroughWorkflowRoot();
     const loaded = await loadWorkflowManifests(root);
@@ -119,7 +187,7 @@ describe("pass-through provider", function () {
     assert.match(newest.getNote(), /parent|mixed|child|attachment|note/);
   });
 
-  it("emits trigger-start and per-job toast notifications during execution", async function () {
+  it("emits trigger-start and completion toast notifications during execution", async function () {
     const root = await createPassThroughWorkflowRoot();
     const loaded = await loadWorkflowManifests(root);
     const workflow = loaded.workflows.find(
@@ -184,12 +252,12 @@ describe("pass-through provider", function () {
       `missing start toast in: ${JSON.stringify(toasts)}`,
     );
     assert.isTrue(
-      toasts.some((entry) => /job 1\/1 succeeded/i.test(entry)),
-      `missing per-job toast in: ${JSON.stringify(toasts)}`,
-    );
-    assert.isFalse(
-      toasts.some((entry) => /succeeded=1, failed=0/i.test(entry)),
-      `single-job success should not also emit summary toast: ${JSON.stringify(toasts)}`,
+      toasts.some(
+        (entry) =>
+          /job 1\/1 succeeded/i.test(entry) ||
+          /succeeded=1, failed=0/i.test(entry),
+      ),
+      `missing completion toast in: ${JSON.stringify(toasts)}`,
     );
   });
 
@@ -225,7 +293,7 @@ describe("pass-through provider", function () {
     runtime.addon.data = runtime.addon.data || {};
     runtime.addon.data.config = runtime.addon.data.config || {};
     if (!runtime.addon.data.config.addonName) {
-      runtime.addon.data.config.addonName = "Zotero Skills";
+      runtime.addon.data.config.addonName = "Zotero Agents";
     }
     runtime.addon.data.ztoolkit = runtime.addon.data.ztoolkit || {};
     const originalProgressWindow = runtime.addon.data.ztoolkit.ProgressWindow;
@@ -291,18 +359,12 @@ describe("pass-through provider", function () {
         (entry) =>
           /job 1\/1 succeeded/i.test(entry) ||
           /任务 1\/1 成功/.test(entry) ||
-          /workflow-execute-toast-job-success/i.test(entry),
-      ),
-      `missing per-job toast in fallback mode: ${JSON.stringify(toasts)}`,
-    );
-    assert.isFalse(
-      toasts.some(
-        (entry) =>
+          /workflow-execute-toast-job-success/i.test(entry) ||
           /succeeded=1, failed=0/i.test(entry) ||
           /成功=1，失败=0/.test(entry) ||
           /workflow-execute-summary/i.test(entry),
       ),
-      `single-job fallback should not also emit summary toast: ${JSON.stringify(toasts)}`,
+      `missing completion toast in fallback mode: ${JSON.stringify(toasts)}`,
     );
   });
 });

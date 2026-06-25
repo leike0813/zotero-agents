@@ -266,7 +266,7 @@ function ensureDashboardOnlyToolbarButton(
   const button = doc.createXULElement("toolbarbutton");
   const tooltip = localize(
     "task-dashboard-toolbar-open",
-    "Open Zotero Skills Workspace",
+    "Open Zotero Agents Workspace",
   );
   button.id = DASHBOARD_BUTTON_ID;
   button.setAttribute("class", "zotero-tb-button zs-workspace-toolbar-button");

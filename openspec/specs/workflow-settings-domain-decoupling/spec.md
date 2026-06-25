@@ -1,56 +1,44 @@
 # workflow-settings-domain-decoupling Specification
 
 ## Purpose
-TBD - created by archiving change decouple-workflow-settings-domain. Update Purpose after archive.
+Defines the workflow settings domain's versioned document contract and single domain parser for settings normalization.
+
 ## Requirements
-### Requirement: Workflow settings domain SHALL be isolated from dialog rendering
-Settings persistence, normalization, and execution-merge logic MUST be exposed via domain contracts independent of UI/dialog rendering code.
 
-#### Scenario: Dialog initializes from domain snapshot
-- **WHEN** a workflow settings dialog is opened
-- **THEN** initial persistent and run-once values are produced by domain APIs
-- **AND** dialog code does not duplicate domain merge/normalization rules
+### Requirement: Workflow settings persistence MUST use a versioned domain document
 
-### Requirement: Run-once defaults SHALL reset from persisted settings on each open
-The system MUST keep existing behavior where run-once defaults are re-initialized from latest persisted settings whenever dialog opens.
+Workflow settings persistence MUST support a versioned document contract owned by the workflow settings domain.
 
-#### Scenario: Persisted update affects next dialog open
-- **WHEN** user saves new persistent settings
-- **AND** later reopens the same workflow settings dialog
-- **THEN** run-once defaults reflect latest persisted values
+#### Scenario: New settings writes use versioned document
 
-### Requirement: Execution settings resolution SHALL remain behavior-equivalent
-Execution context consumed by workflow runtime MUST be resolved by merging persisted settings with an optional submit-time override.
+- **WHEN** workflow settings are saved by the domain settings writer
+- **THEN** the persisted `workflowSettingsJson` payload SHALL contain a schema version
+- **AND** workflow-specific settings SHALL be stored under a workflow-id keyed document field.
 
-#### Scenario: Submit override merged with persisted settings
-- **WHEN** submit-time execution options override is provided for a workflow execution
-- **THEN** produced execution settings SHALL merge override onto persisted values for `backendId`, `workflowParams`, and `providerOptions`
-- **AND** persisted settings SHALL NOT be mutated unless explicitly saved
+#### Scenario: Existing unversioned settings remain readable
 
-#### Scenario: Persisted-only resolution remains stable
-- **WHEN** no submit-time override is provided
-- **THEN** execution settings SHALL be resolved from persisted settings only
-- **AND** existing normalization fallback behavior SHALL remain unchanged
+- **WHEN** `workflowSettingsJson` contains the existing unversioned workflow-id keyed record
+- **THEN** the workflow settings domain SHALL parse it as valid settings
+- **AND** execution settings resolution SHALL remain behavior-equivalent.
 
-### Requirement: Settings domain SHALL be independently testable
-Domain contracts MUST support regression testing without requiring dialog rendering.
+#### Scenario: Malformed settings fail closed
 
-#### Scenario: Domain-level parity test
-- **WHEN** tests call settings-domain APIs directly
-- **THEN** they can verify normalization, merge precedence, and reset-on-open semantics without opening dialog UI
+- **WHEN** `workflowSettingsJson` contains malformed JSON or a non-object payload
+- **THEN** the workflow settings domain SHALL treat it as an empty settings record
+- **AND** workflow execution SHALL not receive partially parsed settings.
 
-### Requirement: Workflow parameter normalization SHALL support enum-as-recommendation when allowCustom is enabled
-Workflow settings domain normalization MUST preserve custom string inputs for enum-backed parameters when the manifest explicitly enables `allowCustom`.
+### Requirement: Workflow settings normalization MUST have a single domain parser
 
-#### Scenario: Custom string survives enum normalization with allowCustom=true
-- **WHEN** workflow parameter schema is `type=string`, `enum=[...]`, and `allowCustom=true`
-- **AND** user-provided value is a non-empty string outside enum
-- **THEN** normalized workflow params SHALL keep the provided value
-- **AND** value SHALL still pass string-type normalization path
+Workflow settings normalization MUST route persisted, run-once, and hook-returned settings patches through shared domain parsing helpers rather than duplicate local parsers.
 
-#### Scenario: Strict enum remains default
-- **WHEN** workflow parameter schema is `type=string`, `enum=[...]`, and `allowCustom` is missing or false
-- **AND** user-provided value is outside enum
-- **THEN** normalization SHALL reject the out-of-enum value
-- **AND** fallback behavior SHALL remain unchanged (default value or omission)
+#### Scenario: NormalizeSettings hook returns a partial patch
 
+- **WHEN** a workflow `normalizeSettings` hook returns a partial settings patch
+- **THEN** the patch SHALL be interpreted by the shared workflow settings domain parser
+- **AND** merge precedence between persisted settings and incoming override SHALL remain unchanged.
+
+#### Scenario: Backend id remap updates versioned settings
+
+- **WHEN** backend registry maintenance remaps or removes a backend id referenced by workflow settings
+- **THEN** the remap operation SHALL support the versioned settings document
+- **AND** the resulting persisted settings SHALL remain readable by the workflow settings domain.

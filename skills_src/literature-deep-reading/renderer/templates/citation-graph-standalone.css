@@ -1,79 +1,94 @@
-.zs-cg-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: start;
-  margin-bottom: 12px;
+.zs-cg-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
 }
-.zs-cg-header h2 {
-  margin: 0 0 6px;
-  font-size: 22px;
-}
-.zs-cg-header p {
-  margin: 0;
-  color: var(--muted, #5d6b72);
-  font-size: 13px;
-}
-.zs-cg-badges,
-.zs-cg-toolbar,
+
 .zs-cg-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
   align-items: center;
-}
-.zs-cg-badges span {
-  border: 1px solid #cbded9;
-  background: var(--soft, #eef6f3);
-  color: #17433f;
-  border-radius: 999px;
-  padding: 4px 8px;
+  gap: 8px 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line, #d6dee8);
+  border-radius: 6px 6px 0 0;
+  background: var(--paper, #ffffff);
+  color: var(--ink, #172033);
   font-size: 12px;
+  line-height: 1.35;
 }
-.zs-cg-toolbar {
-  margin: 12px 0;
-}
-.zs-cg-toolbar input {
-  flex: 1 1 220px;
-  min-height: 34px;
-  border: 1px solid var(--line, #d7d0c3);
-  border-radius: 6px;
-  padding: 6px 9px;
-  background: #fffdf8;
-}
-.zs-cg-toolbar button {
-  min-height: 34px;
-  border: 1px solid var(--line, #d7d0c3);
-  border-radius: 6px;
-  background: #fffaf1;
-  color: var(--ink, #17242b);
-  padding: 6px 10px;
-}
-.zs-cg-legend {
-  margin: 0 0 12px;
-  color: var(--muted, #5d6b72);
+
+.zs-cg-legend strong {
   font-size: 12px;
+  font-weight: 700;
 }
-.zs-cg-legend i {
-  width: 24px;
+
+.zs-cg-legend strong:not(:first-child) {
+  margin-left: 4px;
+}
+
+.zs-cg-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.zs-cg-edge-swatch {
+  position: relative;
+  display: inline-block;
+  width: 28px;
   height: 3px;
   border-radius: 999px;
-  display: inline-block;
-  margin-right: 5px;
-  vertical-align: middle;
+  background: currentColor;
 }
+
+.zs-cg-edge-swatch::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid currentColor;
+  transform: translateY(-50%);
+}
+
+.zs-cg-edge-swatch.is-incoming {
+  color: #d97706;
+}
+
+.zs-cg-edge-swatch.is-outgoing {
+  color: #7c3aed;
+}
+
+.zs-cg-node-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .zs-cg-node-size i {
+  display: inline-block;
   width: 9px;
   height: 9px;
   border-radius: 999px;
   background: #2563eb;
-  display: inline-block;
-  margin-right: 3px;
+  flex: 0 0 auto;
 }
+
 .zs-cg-node-size i + i {
   width: 15px;
   height: 15px;
 }
+
 .zs-cg-node-size i.is-halo {
   width: 15px;
   height: 15px;
@@ -81,70 +96,136 @@
     0 0 0 2px rgba(37, 99, 235, 0.52),
     0 0 0 5px rgba(37, 99, 235, 0.22);
 }
-.zs-cg-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  gap: 14px;
-  min-width: 0;
+
+.zs-cg-node-size i.is-current-paper {
+  width: 15px;
+  height: 15px;
+  background: #dc2626;
+  box-shadow:
+    0 0 0 2px rgba(220, 38, 38, 0.62),
+    0 0 0 5px rgba(220, 38, 38, 0.2);
 }
+
 .zs-cg-stage {
-  min-height: 500px;
-  height: 500px;
-  min-width: min(620px, 100%);
-  border: 1px solid var(--line, #d7d0c3);
-  border-radius: 8px;
-  background: #fbfaf5;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 520px;
+  min-height: 520px;
+  border: 1px solid var(--line, #d6dee8);
+  border-top: 0;
+  border-radius: 0 0 6px 6px;
+  background: var(--soft, #f8fafc);
   overflow: hidden;
 }
-.zs-cg-detail {
-  border: 1px solid var(--line, #d7d0c3);
-  border-radius: 8px;
-  background: #fbf8f1;
-  padding: 13px;
-  min-width: 0;
+
+.zs-cg-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
-.zs-cg-detail h3 {
-  margin: 0 0 8px;
-  font-size: 15px;
+
+.zs-cg-scope-badge,
+.zs-cg-status-badge {
+  position: absolute;
+  z-index: 2;
+  max-width: calc(100% - 32px);
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink, #172033);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  pointer-events: none;
 }
-.zs-cg-detail dl {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 6px 8px;
-  margin: 0;
+
+.zs-cg-scope-badge {
+  top: 12px;
+  left: 50%;
+  padding: 5px 11px;
   font-size: 12px;
+  font-weight: 650;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.zs-cg-detail dt {
+
+.zs-cg-status-badge {
+  right: 14px;
+  bottom: 14px;
+  padding: 4px 9px;
   color: var(--muted, #5d6b72);
-  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0;
 }
-.zs-cg-detail dd {
-  margin: 0;
-  overflow-wrap: anywhere;
+
+.graph-edge {
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    stroke-width 120ms ease;
 }
+
+.graph-edge.is-active {
+  filter: drop-shadow(0 0 2px rgba(15, 23, 42, 0.18));
+}
+
+.graph-node {
+  cursor: default;
+  stroke: var(--paper, #ffffff);
+  stroke-width: 1.5;
+  transition:
+    opacity 120ms ease,
+    stroke-width 120ms ease;
+}
+
+.graph-node.is-active {
+  stroke: #111827;
+  stroke-width: 2;
+}
+
+.graph-node.is-current-paper {
+  stroke: #991b1b;
+  stroke-width: 2;
+}
+
+.graph-node-label {
+  fill: var(--ink, #172033);
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--paper, #ffffff);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.graph-node-halo {
+  pointer-events: none;
+}
+
 .zs-cg-empty {
-  border: 1px solid var(--line, #d7d0c3);
+  border: 1px solid var(--line, #d6dee8);
   border-radius: 8px;
-  background: #fbf8f1;
+  background: var(--paper, #ffffff);
   padding: 18px;
 }
+
 .zs-cg-empty h2 {
   margin: 0 0 8px;
 }
-@media (max-width: 1100px) {
-  .zs-cg-layout {
-    display: block;
-  }
-  .zs-cg-stage {
-    min-width: 0;
-  }
-  .zs-cg-detail {
-    margin-top: 12px;
-  }
-}
+
 @media (max-width: 760px) {
+  .zs-cg-legend {
+    gap: 7px 10px;
+    padding: 8px;
+  }
+
   .zs-cg-stage {
-    height: 360px;
-    min-height: 360px;
+    height: 380px;
+    min-height: 380px;
+  }
+
+  .zs-cg-scope-badge {
+    max-width: calc(100% - 72px);
   }
 }

@@ -1,177 +1,194 @@
-# ACP Chat 使用
+# ACP Chat Usage
 
-## 功能说明
+## Functionality
 
-ACP Chat 允许您与配置好的 ACP 后端进行对话，对话上下文来自您当前正在查看的 Zotero 条目或阅读器中的文献。
+ACP Chat allows you to converse with a configured ACP backend, with conversation context drawn from the Zotero item you are currently viewing or the paper in the reader.
 
-## 使用场景
+## Use Cases
 
-- **文献问答**：对当前阅读的论文提问，获取解释和总结
-- **写作辅助**：在写作过程中获取建议
-- **快速查询**：快速获取某篇文献的关键信息
-- **批量处理**：对文献列表中的多个条目进行批量分析
+- **Literature Q&A**: Ask questions about the paper you are currently reading, get explanations and summaries
+- **Writing Assistance**: Get suggestions during the writing process
+- **Quick Lookup**: Quickly retrieve key information about a specific paper
+- **Batch Processing**: Perform batch analysis on multiple items in a literature list
 
-## 界面布局
+## Interface Layout
 
-ACP Chat 面板包含以下区域：
+The ACP Chat panel contains the following areas:
+
+![ACP Chat Panel](/img/docs/sidebar/acp-chat.png)
 
 ```
 ┌──────────────────────────────────────────┐
 │  Banner                                  │
-│  后端选择 ▼  |  会话选择 ▼  | [连接] [＋] │
-│  状态指示: ● 连接 | ● MCP | ● HostBridge  │
+│  Backend ▼  |  Session ▼  | [Connect] [＋] │
+│  Status:   ● Connection | ● MCP | ● HostBridge  │
 ├──────────────────────────────────────────┤
-│  ← 会话抽屉  │  转写视图      │  详情 →  │
-│               │  [切换 Plain/Bubble]    │
-│  Backend A    │  对话消息...             │
-│  ├─ 会话 1    │  计划组件               │
-│  └─ 会话 2    │  提示组件               │
-│  Backend B    │  回复区                 │
-│  └─ 会话 3    │  文本输入 + 发送/取消    │
-│               │  模式 ▼ | 模型 ▼ | 推理 ▼│
-│               │  ⭕ 使用量 12.3k/200k   │
+│  ← Session Drawer  │  Transcript View  │  Details →  │
+│                    │  [Toggle Plain/Bubble]    │
+│  Backend A         │  Conversation messages... │
+│  ├─ Session 1      │  Plan Component           │
+│  └─ Session 2      │  Prompt Component         │
+│  Backend B         │  Reply Area               │
+│  └─ Session 3      │  Text input + Send/Cancel │
+│                    │  Mode ▼ | Model ▼ | Reasoning ▼│
+│                    │  ⭕ Usage 12.3k/200k   │
 └──────────────────────────────────────────┘
 ```
 
 ## Banner
 
-Banner 位于面板顶部，提供核心控制功能：
+The Banner is at the top of the panel, providing core control functions:
 
-### 后端选择
+### Backend Selection
 
-下拉菜单列出所有已配置的后端，每个后端显示状态后缀（连接中/已连接/已断开）。切换后端会自动切换到该后端对应的会话。
+A dropdown lists all configured backends, each showing a status suffix (Connecting/Connected/Disconnected). Switching backends automatically switches to that backend's session.
 
-### 会话选择
+### Session Selection
 
-下拉菜单显示最近 8 个会话（按时间排序），选择即切换到该会话。超过 8 个时底部显示"显示更多..."，点击后打开会话抽屉查看完整列表。
+A dropdown shows the most recent 8 sessions (sorted by time); selecting one switches to that session. When there are more than 8, "Show more..." appears at the bottom; clicking it opens the session drawer to view the full list.
 
-### 连接控制
+### Connection Controls
 
-- **连接/断开按钮**：手动管理当前后端的连接状态
-- **认证按钮**：当后端需要认证时显示
-- **新建会话（＋）**：在当前后端创建新会话
+- **Connect/Disconnect Button**: Manually manage the current backend's connection state
+- **Auth Button**: Shown when the backend requires authentication
+- **New Session (＋)**: Create a new session on the current backend
 
-### 状态指示
+### Status Indicators
 
-Banner 右侧显示三个状态指示灯：
+The right side of the Banner shows three status indicator lights:
 
-| 指示 | 说明 |
-|------|------|
-| ● 连接 | 与 ACP 后端的连接状态（绿色=已连接/灰色=已断开/黄色=连接中） |
-| ● MCP | MCP 服务可用性 |
-| ● Host Bridge | Zotero Host Bridge 连接状态 |
+| Indicator | Description |
+|-----------|-------------|
+| ● Connection | Connection status with the ACP backend (green=Connected/gray=Disconnected/yellow=Connecting) |
+| ● MCP | MCP service availability |
+| ● Host Bridge | Zotero Host Bridge connection status (see below) |
 
-## 会话抽屉（左侧）
+### Host Bridge Status
 
-左侧抽屉以 backend 分组展示所有历史会话。每个会话条目显示标题和最后活跃时间。
+Host Bridge is an internal bridge channel between the Zotero plugin and the backend. It is responsible for passing the current Zotero context (selected items, paper in the reader, library data, etc.) to the backend, enabling the AI to operate based on your actual Zotero data.
 
-- **切换会话**：点击列表中的会话即可加载
-- **新建会话**：在抽屉顶部或 Banner 中操作
+Host Bridge communicates through the `zotero-bridge` CLI tool; the plugin manages its lifecycle automatically in the background.
 
-## 转写视图
+| Status | Meaning |
+|--------|---------|
+| Green ● | Host Bridge is connected; the backend can access Zotero context |
+| Yellow ● | Connecting or reconnecting |
+| Gray ● | Host Bridge is unavailable (not installed or not started); the backend cannot obtain Zotero context |
+| Hidden | Host Bridge is not needed currently (e.g., backend doesn't support it or context features are not enabled) |
 
-### 对话消息
+When Host Bridge is unavailable, ACP Chat can still function normally, but the AI cannot access information about the paper you are currently viewing as context.
 
-对话消息支持 Markdown 格式渲染，包括：
+## Session Drawer (Left)
 
-- **代码块**：带语法高亮和复制按钮
-- **数学公式**：KaTeX 渲染的 LaTeX 公式
-- **列表、表格、链接**等标准 Markdown 元素
+The left drawer displays all historical sessions grouped by backend. Each session entry shows a title and last active time.
 
-### 工具调用
+- **Switch Session**: Click a session in the list to load it
+- **New Session**: Operate from the top of the drawer or the Banner
 
-当 AI 调用工具时，转写中会显示工具调用条目：
+## Transcript View
 
-- 工具名称徽章
-- 输入参数摘要
-- 执行状态 LED（等待/进行中/完成/失败）
-- 在 Bubble 模式下，连续的工具调用会自动折叠为"工具活动组"
+### Conversation Messages
 
-### 思考过程
+Conversation messages support Markdown rendering, including:
 
-AI 的推理过程以独立的"思考中"块显示，区别于正式回复。
+- **Code Blocks**: With syntax highlighting and a copy button
+- **Math Formulas**: LaTeX formulas rendered with KaTeX
+- **Lists, Tables, Links**, and other standard Markdown elements
 
-### 显示模式切换
+### Tool Calls
 
-右上角的切换按钮可以在两种模式间切换：
+When the AI invokes a tool, a tool call entry is displayed in the transcript:
 
-| 模式 | 说明 |
-|------|------|
-| **Plain** | 消息按角色着色左边框，适合浏览长对话 |
-| **Bubble** | 消息以气泡样式显示，连续工具调用自动分组，适合阅读 |
+- Tool name badge
+- Input parameter summary
+- Execution status LED (waiting/in-progress/completed/failed)
+- In Bubble mode, consecutive tool calls are automatically collapsed into a "tool activity group"
 
-### 计划组件
+### Thinking Process
 
-当对话包含多步骤计划时，转写上方显示计划进度条，标注已完成、进行中和待处理的步骤。
+The AI's reasoning process is displayed as a separate "Thinking" block, distinct from the formal reply.
 
-### 提示组件
+### Display Mode Toggle
 
-提示组件在需要用户交互时显示：
+The toggle button in the top-right corner lets you switch between two modes:
 
-- **权限请求**：后端需要 Zotero 访问权限时，显示请求详情和审批按钮
-- **连接提示**：断开连接时显示重连建议
-- **错误提示**：显示错误信息和恢复操作
+| Mode | Description |
+|------|-------------|
+| **Plain** | Messages are colored by role on the left border, suitable for browsing long conversations |
+| **Bubble** | Messages are displayed in bubble style, consecutive tool calls are automatically grouped, suitable for reading |
 
-## 回复区
+### Plan Component
 
-### 文本输入
+When a conversation includes a multi-step plan, a plan progress bar is displayed above the transcript, marking completed, in-progress, and pending steps.
 
-- **多行文本框**：支持长文本输入
-- **Enter 发送**：按 Enter 发送消息
-- **Shift+Enter 换行**：插入换行
-- **回复历史**：按上/下箭头键浏览已发送的消息
+### Prompt Component
 
-### 运行模式
+The prompt component is displayed when user interaction is required:
 
-在回复区上方可以选择：
+- **Permission Requests**: When the backend needs Zotero access permissions, shows request details and approval buttons
+- **Connection Prompt**: When disconnected, shows a reconnection suggestion
+- **Error Prompt**: Shows error information and recovery actions
 
-| 选项 | 说明 | 可选值 |
-|------|------|--------|
-| **模式** | 运行模式 | 由后端定义 |
-| **模型** | AI 模型 | 后端支持的模型列表 |
-| **Reasoning Effort** | 推理努力程度 | 低/中/高（如后端支持） |
+## Reply Area
 
-### 使用量仪表
+### Text Input
 
-回复区右下角显示环形使用量仪表：
+- **Multi-line Text Box**: Supports long text input
+- **Enter to Send**: Press Enter to send a message
+- **Shift+Enter for Newline**: Insert a line break
+- **Reply History**: Press up/down arrow keys to browse sent messages
 
-- **外环**：当前会话 token 使用量占限制的百分比
-- **文字**：`已用量k / 限制量k`
-- 颜色随使用量变化（正常 → 警告 → 危险）
+### Run Mode
 
-### 快捷键提示
+Above the reply area you can select:
 
-输入框内显示键盘快捷键提示。
+| Option | Description | Available Values |
+|--------|-------------|-----------------|
+| **Mode** | Run mode | Defined by the backend |
+| **Model** | AI model | List of models supported by the backend |
+| **Reasoning Effort** | Reasoning effort level | Low/Medium/High (if supported by the backend) |
 
-## 详情抽屉（右侧）
+### Usage Meter
 
-右侧抽屉显示当前会话的详细信息：
+A circular usage meter is shown in the bottom-right corner of the reply area:
 
-| 区域 | 内容 |
-|------|------|
-| **会话信息** | 会话 ID、创建时间、最后活跃时间 |
-| **后端信息** | 后端类型、地址、模型 |
-| **工作区路径** | 会话工作区文件路径 |
-| **诊断信息** | 调试和诊断数据 |
+- **Outer Ring**: Percentage of current session token usage against the limit
+- **Text**: `Used k / Limit k`
+- Color changes with usage level (Normal → Warning → Critical)
 
-## Library 上下文 vs Reader 上下文
+### Keyboard Shortcut Hints
 
-ACP Chat 支持两种上下文模式，插件自动检测当前上下文类型并传递给后端：
+Keyboard shortcut hints are displayed inside the input box.
 
-| 模式 | 说明 | 适用场景 |
-|------|------|---------|
-| **Library 上下文** | 基于当前在 Zotero 条目列表中选中的条目 | 浏览文库时快速查阅 |
-| **Reader 上下文** | 基于当前在 Zotero Reader 中打开的文献全文 | 深入阅读时需要上下文理解 |
+## Details Drawer (Right)
 
-## 会话管理
+The right drawer displays detailed information about the current session:
 
-- 对话历史自动持久化存储
-- 每个后端的多个会话独立管理
-- 可在 Dashboard 或侧边栏中查看历史会话
-- 支持按后端分组的会话列表
+| Area | Content |
+|------|---------|
+| **Session Info** | Session ID, creation time, last active time |
+| **Backend Info** | Backend type, address, model |
+| **Workspace Path** | Session workspace file path |
+| **Diagnostics** | Debug and diagnostic data |
 
-## 注意事项
+## Library Context vs Reader Context
 
-- 需要先 [配置 ACP 后端](../backends/acp)
-- 不同 ACP 后端的对话互不干扰
-- 对话与 Zotero 条目关联，方便后续查阅
+ACP Chat supports two context modes; the plugin automatically detects the current context type and passes it to the backend:
+
+| Mode | Description | Use Cases |
+|------|-------------|-----------| 
+| **Library Context** | Based on items currently selected in the Zotero item list | Quick reference while browsing the library |
+| **Reader Context** | Based on the full text of the paper currently open in Zotero Reader | Contextual understanding needed during deep reading |
+
+## Session Management
+
+- Conversation history is automatically persisted
+- Multiple sessions per backend are managed independently
+- Historical sessions can be viewed in the Dashboard or sidebar
+- Backend-grouped session list is supported
+
+## Notes
+
+- An [ACP backend](../backends/acp) must be configured first
+- Conversations on different ACP backends do not interfere with each other
+- Conversations are associated with Zotero items for easy later reference

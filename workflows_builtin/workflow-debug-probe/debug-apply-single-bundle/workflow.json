@@ -1,0 +1,31 @@
+{
+  "id": "debug-apply-single-bundle",
+  "label": "Debug: Apply Single Bundle",
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "unit": "workflow"
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "mode": "auto"
+    }
+  },
+  "execution": {
+    "feedback": {
+      "showNotifications": true
+    }
+  },
+  "result": {
+    "fetch": { "type": "bundle" }
+  },
+  "hooks": {
+    "buildRequest": "../hooks/buildDebugApplyContractRequest.mjs",
+    "applyResult": "../hooks/applyDebugApplyContractResult.mjs"
+  }
+}

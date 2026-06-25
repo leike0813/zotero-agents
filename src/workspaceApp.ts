@@ -22,8 +22,12 @@ type WorkspaceShellLabels = {
   themeSystem: string;
   themeLight: string;
   themeDark: string;
+  help: string;
+  onlineDocs: string;
   refresh: string;
   toggleSidebar: string;
+  openSidebar: string;
+  closeSidebar: string;
 };
 
 type WorkspaceBridge = {
@@ -36,11 +40,12 @@ type WorkspaceBridge = {
 type WorkspaceSnapshot = {
   selectedView: WorkspaceView;
   waitingCount: number;
+  sidebarOpen?: boolean;
   labels: WorkspaceShellLabels;
 };
 
 const DEFAULT_WORKSPACE_LABELS: WorkspaceShellLabels = {
-  tabTitle: "Zotero Skills",
+  tabTitle: "Zotero Agents",
   brandSubtitle: "Dashboard and Synthesis workspace",
   viewsAriaLabel: "Workspace views",
   dashboard: "Dashboard",
@@ -49,8 +54,12 @@ const DEFAULT_WORKSPACE_LABELS: WorkspaceShellLabels = {
   themeSystem: "System",
   themeLight: "Light",
   themeDark: "Dark",
+  help: "Help",
+  onlineDocs: "Online Docs",
   refresh: "Refresh",
   toggleSidebar: "Toggle sidebar",
+  openSidebar: "Open sidebar",
+  closeSidebar: "Close sidebar",
 };
 
 const state: {
@@ -80,7 +89,9 @@ function normalizeWorkspaceLabels(value: unknown): WorkspaceShellLabels {
   }
   const source = value as Partial<Record<WorkspaceLabelKey, unknown>>;
   const labels = { ...DEFAULT_WORKSPACE_LABELS };
-  for (const key of Object.keys(DEFAULT_WORKSPACE_LABELS) as WorkspaceLabelKey[]) {
+  for (const key of Object.keys(
+    DEFAULT_WORKSPACE_LABELS,
+  ) as WorkspaceLabelKey[]) {
     const candidate = source[key];
     if (typeof candidate === "string" && candidate.trim()) {
       labels[key] = candidate;
@@ -196,6 +207,35 @@ function renderThemeSwitch() {
   return group;
 }
 
+function renderDocsButton(
+  labelKey: "help" | "onlineDocs",
+  action: "open-help" | "open-online-docs",
+  iconClass: string,
+) {
+  const label = workspaceLabel(labelKey);
+  const node = button(label, action, {}, "docs-link-button");
+  node.setAttribute("aria-label", label);
+  node.setAttribute("title", label);
+  node.dataset.workspaceIconLabel = labelKey;
+  node.textContent = "";
+  const icon = el("span", `zs-icon ${iconClass} docs-link-icon`);
+  icon.setAttribute("aria-hidden", "true");
+  const text = el("span", "docs-link-label", label);
+  text.dataset.workspaceLabel = labelKey;
+  node.appendChild(icon);
+  node.appendChild(text);
+  return node;
+}
+
+function renderDocsButtons() {
+  const group = el("div", "docs-link-group");
+  group.appendChild(renderDocsButton("help", "open-help", "zs-icon-help"));
+  group.appendChild(
+    renderDocsButton("onlineDocs", "open-online-docs", "zs-icon-description"),
+  );
+  return group;
+}
+
 function updateThemeSwitchState() {
   const group = document.querySelector<HTMLElement>(".theme-switch");
   if (!group) {
@@ -259,11 +299,26 @@ function updateWorkspaceSidebarAttention() {
   );
 }
 
+function updateWorkspaceSidebarToggleState() {
+  const button = document.querySelector<HTMLButtonElement>(".sidebar-toggle");
+  const icon = button?.querySelector<HTMLElement>(".sidebar-icon");
+  if (!button || !icon) {
+    return;
+  }
+  const isOpen = state.snapshot.sidebarOpen === true;
+  const label = workspaceLabel(isOpen ? "closeSidebar" : "openSidebar");
+  button.setAttribute("aria-label", label);
+  button.setAttribute("title", label);
+  button.setAttribute("aria-pressed", isOpen ? "true" : "false");
+  icon.classList.toggle("zs-icon-right-panel-open", !isOpen);
+  icon.classList.toggle("zs-icon-right-panel-close", isOpen);
+}
+
 function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   state.theme = getThemeChoice();
   const header = el("header", "workspace-header");
   const brand = el("div", "brand");
-  brand.appendChild(el("strong", "", "Zotero Skills"));
+  brand.appendChild(el("strong", "", "Zotero Agents"));
   const subtitle = el("span", "muted", workspaceLabel("brandSubtitle"));
   subtitle.dataset.workspaceLabel = "brandSubtitle";
   brand.appendChild(subtitle);
@@ -301,6 +356,7 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   header.appendChild(segmented);
 
   const toolbar = el("div", "toolbar");
+  toolbar.appendChild(renderDocsButtons());
   toolbar.appendChild(renderThemeSwitch());
   toolbar.appendChild(
     iconButton(
@@ -308,17 +364,20 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
       "refresh",
       {},
       "icon-button refresh-toggle",
-      "toolbar-icon refresh-icon",
+      "zs-icon toolbar-icon refresh-icon zs-icon-refresh",
     ),
   );
-  toolbar.lastElementChild?.setAttribute("data-workspace-icon-label", "refresh");
+  toolbar.lastElementChild?.setAttribute(
+    "data-workspace-icon-label",
+    "refresh",
+  );
   toolbar.appendChild(
     iconButton(
       workspaceLabel("toggleSidebar"),
       "toggle-sidebar",
       {},
       "icon-button sidebar-toggle",
-      "toolbar-icon sidebar-icon",
+      "zs-icon toolbar-icon sidebar-icon zs-icon-right-panel-open",
     ),
   );
   toolbar.lastElementChild?.setAttribute(
@@ -329,6 +388,7 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   root.appendChild(header);
   updateWorkspaceLocalizedText();
   updateWorkspaceSidebarAttention();
+  updateWorkspaceSidebarToggleState();
 }
 
 function renderWorkspacePanel(snapshot: WorkspaceSnapshot) {
@@ -401,6 +461,7 @@ function updateWorkspaceVisibility(snapshot: WorkspaceSnapshot) {
   switcher?.classList.toggle("is-dashboard", selected === "dashboard");
   switcher?.classList.toggle("is-synthesis", selected === "synthesis");
   updateWorkspaceSidebarAttention();
+  updateWorkspaceSidebarToggleState();
 }
 
 function render() {
@@ -434,6 +495,7 @@ window.addEventListener("message", (event: MessageEvent) => {
       selectedView:
         payload.selectedView === "synthesis" ? "synthesis" : "dashboard",
       waitingCount: normalizeWaitingCount(payload.waitingCount),
+      sidebarOpen: payload.sidebarOpen === true,
       labels: normalizeWorkspaceLabels(payload.labels),
     } satisfies WorkspaceSnapshot;
     const viewChanged =
@@ -444,6 +506,7 @@ window.addEventListener("message", (event: MessageEvent) => {
     } else {
       updateWorkspaceLocalizedText();
       updateWorkspaceSidebarAttention();
+      updateWorkspaceSidebarToggleState();
     }
     return;
   }
@@ -457,6 +520,7 @@ window.addEventListener("message", (event: MessageEvent) => {
       waitingCount: normalizeWaitingCount(payload.waitingCount),
     };
     updateWorkspaceSidebarAttention();
+    updateWorkspaceSidebarToggleState();
   }
 });
 

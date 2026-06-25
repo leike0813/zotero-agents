@@ -70,14 +70,24 @@ export function encodeBasicAuthHeader(args: {
   password: string;
 }) {
   const source = `${args.username}:${args.password}`;
-  const runtime = globalThis as { Buffer?: { from: (value: string, encoding?: string) => { toString: (encoding: string) => string } } };
-  const token = typeof btoa === "function"
-    ? btoa(source)
-    : runtime.Buffer
-      ? runtime.Buffer.from(source, "utf-8").toString("base64")
-      : "";
+  const runtime = globalThis as {
+    Buffer?: {
+      from: (
+        value: string,
+        encoding?: string,
+      ) => { toString: (encoding: string) => string };
+    };
+  };
+  const token =
+    typeof btoa === "function"
+      ? btoa(source)
+      : runtime.Buffer
+        ? runtime.Buffer.from(source, "utf-8").toString("base64")
+        : "";
   if (!token) {
-    throw new Error("basic auth base64 encoding is unavailable in current runtime");
+    throw new Error(
+      "basic auth base64 encoding is unavailable in current runtime",
+    );
   }
   return `Basic ${token}`;
 }
@@ -143,7 +153,9 @@ export function updateBackendManagementAuth(args: {
 
   setPref(
     BACKENDS_CONFIG_PREF_KEY,
-    JSON.stringify(createBackendsPrefsDocument(nextEntries as BackendInstance[])),
+    JSON.stringify(
+      createBackendsPrefsDocument(nextEntries as BackendInstance[]),
+    ),
   );
   return normalizedAuth;
 }

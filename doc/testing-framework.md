@@ -186,15 +186,42 @@ Zotero 环境测试中禁止引入会真实打开以下 UI 的测试：
 
 ### 当前实现
 
+Zotero runner 不直接把 `test/core`、`test/ui` 或 `test/workflow-*`
+目录交给 scaffold 打包。`zotero-plugin.config.ts` 只指向
+`test/zotero/<domain>/<mode>` 下的显式入口文件，由这些入口 import
+当前可在 Zotero/Firefox bundle 中运行的测试。Node-only、脚本工具、`.agents`
+工具链和顶层依赖 Node 内建模块的测试继续由 Node/Mocha runner 覆盖。
+
 lite 模式下：
 
-- 下列套件为 full-only：
+- 当前 Zotero lite 入口保留：
+  - `test/core/00-startup.test.ts`
+  - `test/core/11-selection-context-rebuild.test.ts`
+  - `test/core/42-hooks-startup-template-cleanup.test.ts`
+  - `test/core/47-workflow-log-instrumentation.test.ts`
+  - `test/core/52-runtime-bridge.test.ts`
+  - `test/core/87-workflow-package-runtime-diagnostics.test.ts`
+  - `test/core/88-workflow-runtime-scope-diagnostics.test.ts`
+  - `test/ui/35-workflow-settings-execution.test.ts`
+  - `test/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts`
+  - `test/workflow-mineru/39-workflow-mineru.test.ts`
+- 下列套件不进入 Zotero lite：
   - `test/core/10-selection-context-schema.test.ts`
   - `test/core/12-handlers.test.ts`
   - `test/core/32-job-queue-transport-integration.test.ts`
   - `test/core/34-generic-http-provider-e2e.test.ts`
+  - `test/core/41-workflow-scan-registration.test.ts`
+  - `test/core/45-runtime-log-manager.test.ts`
+  - `test/core/89-workflow-debug-probe.test.ts`
+  - `test/ui/01-startup-workflow-menu-init.test.ts`
+  - `test/ui/40-gui-preferences-menu-scan.test.ts`
+  - `test/ui/50-workflow-settings-dialog-model.test.ts`
+  - `test/workflow-literature-analysis/21-workflow-literature-analysis.test.ts`
   - `test/workflow-literature-analysis/23-workflow-literature-analysis-fixtures.test.ts`
   - `test/workflow-literature-analysis/50-workflow-literature-analysis-mock-e2e.test.ts`
+  - `test/workflow-literature-explainer/21-workflow-literature-explainer.test.ts`
+  - `test/workflow-tag-regulator/64a-workflow-tag-regulator-request-building.test.ts`
+  - `test/workflow-tag-regulator/64b-workflow-tag-regulator-apply-intake.test.ts`
 - `test/core/11-selection-context-rebuild.test.ts` 仅运行 `selection-context-mix-all-top3-parents` 子夹具
 - 在 workflow/ui 的高复杂度测试文件内，部分边界/兼容性用例通过 `itFullOnly` 下沉到 `full`
   - 代表性文件：`test/workflow-literature-analysis/21-workflow-literature-analysis.test.ts`、`test/workflow-mineru/39-workflow-mineru.test.ts`、`test/ui/40-gui-preferences-menu-scan.test.ts`

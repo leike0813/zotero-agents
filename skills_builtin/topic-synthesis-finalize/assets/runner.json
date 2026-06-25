@@ -1,10 +1,15 @@
 {
   "id": "topic-synthesis-finalize",
-  "name": "主题综合收尾",
-  "description": "评估文库覆盖和证据可靠性，提出 collection 补充方向，并生成最终面向用户的 summary；需要可通过 `zotero-bridge` 访问 Zotero 文库。",
+  "name": "✅ 主题综合收尾",
+  "description": "Assess library coverage & evidence reliability, propose collection supplementation, and generate the final summary of a topic. Use this skill after topic-synthesis-core-enrichment. DO NOT invoke this skill directly.",
   "version": "0.1.0",
-  "execution_modes": ["interactive"],
+  "execution_modes": ["auto"],
   "max_attempt": 12,
+  "runtime": {
+    "default_options": {
+      "hard_timeout_seconds": 1800
+    }
+  },
   "schemas": {
     "input": "assets/input.schema.json",
     "parameter": "assets/parameter.schema.json",

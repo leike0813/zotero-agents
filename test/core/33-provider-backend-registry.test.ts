@@ -4,6 +4,7 @@ import {
   listBackendsForWorkflow,
   loadBackendsRegistry,
   resolveBackendForWorkflow,
+  syncBackendReferenceState,
 } from "../../src/backends/registry";
 import {
   executeWithProvider,
@@ -20,6 +21,8 @@ import { workflowsPath } from "./workflow-test-utils";
 import {
   ACP_PROMPT_REQUEST_KIND,
   ACP_SKILL_RUN_REQUEST_KIND,
+  GENERIC_HTTP_BACKEND_TYPE,
+  PASS_THROUGH_BACKEND_TYPE,
   PASS_THROUGH_REQUEST_KIND,
 } from "../../src/config/defaults";
 import { resolveWorkflowExecutionContext } from "../../src/modules/workflowSettings";
@@ -52,8 +55,10 @@ function buildWorkflow(args: {
 describe("provider/backend registry", function () {
   const backendsConfigPrefKey = `${config.prefsPrefix}.backendsConfigJson`;
   const endpointPrefKey = `${config.prefsPrefix}.skillRunnerEndpoint`;
+  const workflowSettingsPrefKey = `${config.prefsPrefix}.workflowSettingsJson`;
   let prevBackendsConfigPref: unknown;
   let prevEndpointPref: unknown;
+  let prevWorkflowSettingsPref: unknown;
 
   function setBackendsConfig(configValue: unknown) {
     Zotero.Prefs.set(backendsConfigPrefKey, JSON.stringify(configValue), true);
@@ -71,6 +76,7 @@ describe("provider/backend registry", function () {
   beforeEach(function () {
     prevBackendsConfigPref = Zotero.Prefs.get(backendsConfigPrefKey, true);
     prevEndpointPref = Zotero.Prefs.get(endpointPrefKey, true);
+    prevWorkflowSettingsPref = Zotero.Prefs.get(workflowSettingsPrefKey, true);
 
     setBackendsConfig({
       schemaVersion: 2,
@@ -110,6 +116,11 @@ describe("provider/backend registry", function () {
       Zotero.Prefs.clear(endpointPrefKey, true);
     } else {
       Zotero.Prefs.set(endpointPrefKey, prevEndpointPref, true);
+    }
+    if (typeof prevWorkflowSettingsPref === "undefined") {
+      Zotero.Prefs.clear(workflowSettingsPrefKey, true);
+    } else {
+      Zotero.Prefs.set(workflowSettingsPrefKey, prevWorkflowSettingsPref, true);
     }
   });
 
@@ -155,6 +166,61 @@ describe("provider/backend registry", function () {
       username: "admin",
       password: "secret",
     });
+  });
+
+  it("loads governed backend types and rejects unknown backend type entries", async function () {
+    setBackendsConfig({
+      schemaVersion: 2,
+      backends: [
+        {
+          id: "skillrunner-primary",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:8030",
+          auth: { kind: "none" },
+        },
+        {
+          id: "generic-http-local",
+          type: GENERIC_HTTP_BACKEND_TYPE,
+          baseUrl: "http://127.0.0.1:18030",
+          auth: { kind: "none" },
+        },
+        {
+          id: "acp-local",
+          type: "acp",
+          command: "npx",
+          args: ["codex", "acp"],
+        },
+        {
+          id: "pass-through-local",
+          type: PASS_THROUGH_BACKEND_TYPE,
+          baseUrl: "local://pass-through",
+          auth: { kind: "none" },
+        },
+        {
+          id: "typo-backend",
+          type: "skill-runner",
+          baseUrl: "http://127.0.0.1:9999",
+          auth: { kind: "none" },
+        },
+      ],
+    });
+
+    const loaded = await loadBackendsRegistry();
+    assert.isUndefined(loaded.fatalError);
+    assert.includeMembers(
+      loaded.backends.map((entry) => entry.id),
+      [
+        "skillrunner-primary",
+        "generic-http-local",
+        "acp-local",
+        "pass-through-local",
+      ],
+    );
+    assert.notInclude(
+      loaded.backends.map((entry) => entry.id),
+      "typo-backend",
+    );
+    assert.match(loaded.invalidBackends["typo-backend"], /type/i);
   });
 
   it("accepts acp backend entries without http baseUrl and normalizes local launch metadata", async function () {
@@ -272,6 +338,60 @@ describe("provider/backend registry", function () {
     assert.equal(provider.id, "skillrunner");
   });
 
+  it("resolves providers for all governed backend type pairs", function () {
+    const cases = [
+      {
+        requestKind: "skillrunner.job.v1",
+        providerId: "skillrunner",
+        backend: {
+          id: "skillrunner-primary",
+          type: "skillrunner" as const,
+          baseUrl: "http://127.0.0.1:8030",
+          auth: { kind: "none" as const },
+        },
+      },
+      {
+        requestKind: ACP_PROMPT_REQUEST_KIND,
+        providerId: "acp",
+        backend: {
+          id: "acp-local",
+          type: "acp" as const,
+          baseUrl: "local://acp-local",
+          command: "npx",
+          args: ["codex", "acp"],
+        },
+      },
+      {
+        requestKind: "generic-http.request.v1",
+        providerId: GENERIC_HTTP_BACKEND_TYPE,
+        backend: {
+          id: "generic-http-local",
+          type: GENERIC_HTTP_BACKEND_TYPE,
+          baseUrl: "http://127.0.0.1:18030",
+          auth: { kind: "none" as const },
+        },
+      },
+      {
+        requestKind: PASS_THROUGH_REQUEST_KIND,
+        providerId: PASS_THROUGH_BACKEND_TYPE,
+        backend: {
+          id: "pass-through-local",
+          type: PASS_THROUGH_BACKEND_TYPE,
+          baseUrl: "local://pass-through",
+          auth: { kind: "none" as const },
+        },
+      },
+    ];
+
+    for (const entry of cases) {
+      const provider = resolveProvider({
+        requestKind: entry.requestKind,
+        backend: entry.backend,
+      });
+      assert.equal(provider.id, entry.providerId);
+    }
+  });
+
   it("throws when no provider supports request kind for backend", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(
@@ -309,6 +429,46 @@ describe("provider/backend registry", function () {
     const typed = thrown as ProviderRequestContractError;
     assert.equal(typed.category, "provider_backend_mismatch");
     assert.equal(typed.reason, "backend_type_mismatch");
+  });
+
+  it("remaps backend references inside versioned workflow settings document", function () {
+    Zotero.Prefs.set(
+      workflowSettingsPrefKey,
+      JSON.stringify({
+        schemaVersion: 1,
+        workflows: {
+          "literature-analysis": {
+            backendId: "old-backend",
+            workflowParams: { language: "zh-CN" },
+            providerOptions: { engine: "codex" },
+          },
+          "tag-regulator": {
+            backendId: "removed-backend",
+            workflowParams: { language: "en-US" },
+          },
+        },
+      }),
+      true,
+    );
+
+    const changed = syncBackendReferenceState({
+      idMapping: new Map([["old-backend", "new-backend"]]),
+      removedIds: ["removed-backend"],
+    });
+
+    assert.isTrue(changed);
+    const persisted = JSON.parse(
+      String(Zotero.Prefs.get(workflowSettingsPrefKey, true) || "{}"),
+    ) as {
+      schemaVersion?: number;
+      workflows?: Record<string, { backendId?: string }>;
+    };
+    assert.equal(persisted.schemaVersion, 1);
+    assert.equal(
+      persisted.workflows?.["literature-analysis"]?.backendId,
+      "new-backend",
+    );
+    assert.isUndefined(persisted.workflows?.["tag-regulator"]?.backendId);
   });
 
   it("validates request payload contract before provider dispatch", async function () {
@@ -561,6 +721,7 @@ describe("provider/backend registry", function () {
         request: {
           kind: "skillrunner.job.v1",
           skill_id: "tag-regulator",
+          runtime_options: { execution_mode: "auto" },
           upload_files: [{ key: "md_path", path: "D:/fixtures/example.md" }],
           parameter: { language: "zh-CN" },
           input: {
@@ -616,6 +777,7 @@ describe("provider/backend registry", function () {
         request: {
           kind: "skillrunner.job.v1",
           skill_id: "tag-regulator",
+          runtime_options: { execution_mode: "auto" },
           skill_source: "local-package",
         },
       });
@@ -625,6 +787,7 @@ describe("provider/backend registry", function () {
         request: {
           kind: "skillrunner.job.v1",
           skill_id: "tag-regulator",
+          runtime_options: { execution_mode: "auto" },
           skill_source: "installed",
         },
       });
@@ -640,6 +803,7 @@ describe("provider/backend registry", function () {
           request: {
             kind: "skillrunner.job.v1",
             skill_id: "tag-regulator",
+            runtime_options: { execution_mode: "auto" },
             skill_source: "backend",
           },
         });
@@ -689,6 +853,7 @@ describe("provider/backend registry", function () {
       const baseRequest = {
         kind: "skillrunner.job.v1" as const,
         skill_id: "tag-regulator",
+        runtime_options: { execution_mode: "auto" },
       };
       const stringResult = await executeWithProvider({
         requestKind: "skillrunner.job.v1",
@@ -730,6 +895,7 @@ describe("provider/backend registry", function () {
         request: {
           kind: "skillrunner.job.v1",
           skill_id: "tag-regulator",
+          runtime_options: { execution_mode: "auto" },
           input: {
             metadata: { itemKey: "AAA111" },
           },
@@ -895,6 +1061,73 @@ describe("provider/backend registry", function () {
     assert.match(String(thrown), /incompatible backendId/);
   });
 
+  it("lets ACP-provider sequence workflows run through ACP or SkillRunner backends", async function () {
+    setBackendsConfig({
+      schemaVersion: 2,
+      backends: [
+        {
+          id: "skillrunner-primary",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:8030",
+          auth: { kind: "none" },
+        },
+        {
+          id: "acp-local",
+          type: "acp",
+          baseUrl: "local://acp-local",
+          command: "npx",
+          args: ["codex", "acp"],
+          auth: { kind: "none" },
+        },
+      ],
+    });
+    const workflow = buildWorkflow({
+      id: "acp-sequence-compatible",
+      provider: "acp",
+      requestKind: "skillrunner.sequence.v1",
+    });
+
+    const backends = await listBackendsForWorkflow(workflow);
+    assert.sameMembers(
+      Array.from(new Set(backends.map((entry) => entry.type))),
+      ["acp", "skillrunner"],
+    );
+    const backendIds = backends.map((entry) => entry.id);
+    assert.includeMembers(backendIds, ["acp-local", "skillrunner-primary"]);
+    assert.isBelow(
+      backendIds.indexOf("acp-local"),
+      backendIds.indexOf("skillrunner-primary"),
+    );
+
+    const skillrunnerBackend = await resolveBackendForWorkflow(workflow, {
+      preferredBackendId: "skillrunner-primary",
+    });
+    assert.equal(skillrunnerBackend.type, "skillrunner");
+    const skillrunnerContext = await resolveWorkflowExecutionContext({
+      workflow,
+      executionOptionsOverride: {
+        backendId: "skillrunner-primary",
+      },
+    });
+    assert.equal(skillrunnerContext.backend.id, "skillrunner-primary");
+    assert.equal(skillrunnerContext.providerId, "skillrunner");
+    assert.equal(skillrunnerContext.requestKind, "skillrunner.sequence.v1");
+
+    const acpBackend = await resolveBackendForWorkflow(workflow, {
+      preferredBackendId: "acp-local",
+    });
+    assert.equal(acpBackend.type, "acp");
+    const acpContext = await resolveWorkflowExecutionContext({
+      workflow,
+      executionOptionsOverride: {
+        backendId: "acp-local",
+      },
+    });
+    assert.equal(acpContext.backend.id, "acp-local");
+    assert.equal(acpContext.providerId, "acp");
+    assert.equal(acpContext.requestKind, "skillrunner.sequence.v1");
+  });
+
   it("lets SkillRunner-provider workflows run through SkillRunner or ACP backends", async function () {
     setBackendsConfig({
       schemaVersion: 2,
@@ -938,6 +1171,42 @@ describe("provider/backend registry", function () {
     assert.equal(acpBackend.type, "acp");
   });
 
+  it("prefers SkillRunner backend for SkillRunner-provider workflows by default", async function () {
+    setBackendsConfig({
+      schemaVersion: 2,
+      backends: [
+        {
+          id: "acp-local",
+          type: "acp",
+          baseUrl: "local://acp-local",
+          command: "npx",
+          args: ["codex", "acp"],
+          auth: { kind: "none" },
+        },
+        {
+          id: "skillrunner-primary",
+          type: "skillrunner",
+          baseUrl: "http://127.0.0.1:8030",
+          auth: { kind: "none" },
+        },
+      ],
+    });
+    const workflow = buildWorkflow({
+      id: "skillrunner-default-preferred",
+      provider: "skillrunner",
+      requestKind: "skillrunner.job.v1",
+    });
+
+    const backends = await listBackendsForWorkflow(workflow);
+    assert.deepEqual(backends.map((entry) => entry.id).slice(0, 2), [
+      "skillrunner-primary",
+      "acp-local",
+    ]);
+
+    const backend = await resolveBackendForWorkflow(workflow);
+    assert.equal(backend.id, "skillrunner-primary");
+  });
+
   it("does not infer backend compatibility from request.kind when provider is missing", async function () {
     const workflow = buildWorkflow({
       id: "missing-provider-skillrunner-request",
@@ -977,12 +1246,11 @@ describe("provider/backend registry", function () {
           kind: "skillrunner.job.v1",
           create: {
             skill_id: "legacy-supported-backends",
+            mode: "interactive",
           },
         },
         execution: {
-          mode: "auto",
           supportedBackends: ["acp"],
-          skillrunner_mode: "interactive",
         },
         hooks: {
           applyResult: "hooks/applyResult.js",

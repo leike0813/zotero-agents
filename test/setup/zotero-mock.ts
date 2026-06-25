@@ -34,7 +34,10 @@ type ZoteroMock = {
   Item: typeof MockItem;
   Items: {
     get: (id: number) => MockItem | undefined;
-    getByLibraryAndKey: (libraryID: number, key: string) => MockItem | undefined;
+    getByLibraryAndKey: (
+      libraryID: number,
+      key: string,
+    ) => MockItem | undefined;
     getAll?: (libraryID: number) => Promise<MockItem[]>;
     getAsync?: (id: number) => Promise<MockItem | undefined>;
     trashTx?: (ids: number[]) => Promise<void>;
@@ -119,7 +122,8 @@ const ZOTERO_MOCK_PARITY: MockParityDescriptor = {
       scope: "Search API",
       risk: "medium",
       status: "waived",
-      summary: "Search.search() is currently a stub that always returns empty array.",
+      summary:
+        "Search.search() is currently a stub that always returns empty array.",
       closureCriteria:
         "Implement real query semantics once workflows depend on Search behavior.",
     },
@@ -174,6 +178,7 @@ function initializeZoteroMockState() {
   collectionsByKey.clear();
   prefsStore.clear();
   prefsStore.set(`${config.prefsPrefix}.workflowDir`, "");
+  prefsStore.set(`${config.prefsPrefix}.skillDir`, "");
   notifierCounter = 0;
 }
 
@@ -349,9 +354,7 @@ class MockItem {
   }
 
   toJSON() {
-    const parent = this.parentItemID
-      ? itemsById.get(this.parentItemID)
-      : null;
+    const parent = this.parentItemID ? itemsById.get(this.parentItemID) : null;
     const data: Record<string, unknown> = {
       key: this.key,
       version: 0,
@@ -419,7 +422,9 @@ class MockItem {
         if (this.itemType === "note") {
           parent.notes = parent.notes.filter((id) => id !== this.id);
         } else if (this.itemType === "attachment") {
-          parent.attachments = parent.attachments.filter((id) => id !== this.id);
+          parent.attachments = parent.attachments.filter(
+            (id) => id !== this.id,
+          );
         } else {
           parent.children = parent.children.filter((id) => id !== this.id);
         }
@@ -624,42 +629,143 @@ const fieldIdByName = new Map<string, number>([
 const validFieldsByType = new Map<number, Set<number>>([
   [1, new Set([1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])],
   [2, new Set([1, 13, 14])],
-  [3, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25])],
+  [
+    3,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24,
+      25,
+    ]),
+  ],
   [4, new Set([1, 2, 6, 7, 8, 13, 14, 15, 16, 26, 28, 29, 30, 31, 33, 34, 35])],
   [5, new Set([1, 2, 6, 7, 8, 13, 14, 15, 16, 36, 38])],
-  [6, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 23, 25, 40, 41, 42, 43])],
-  [7, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 23, 25, 32, 40, 41, 42, 44])],
+  [
+    6,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 23, 25, 40, 41,
+      42, 43,
+    ]),
+  ],
+  [
+    7,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 23, 25, 32, 40,
+      41, 42, 44,
+    ]),
+  ],
   [8, new Set([2, 7, 8, 13, 14, 15, 16, 35, 45, 46, 47, 48, 49, 50, 51])],
-  [9, new Set([1, 2, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 21, 25, 52, 53, 54, 55])],
-  [10, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 21, 23, 25, 32, 40, 56, 57, 58])],
-  [11, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 23, 25, 32, 40, 41, 42, 59])],
+  [
+    9,
+    new Set([
+      1, 2, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 21, 25, 52, 53, 54, 55,
+    ]),
+  ],
+  [
+    10,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 21, 23, 25, 32, 40, 56,
+      57, 58,
+    ]),
+  ],
+  [
+    11,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 23, 25, 32, 40,
+      41, 42, 59,
+    ]),
+  ],
   [12, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 23])],
   [13, new Set([2, 6, 7, 8, 13, 14, 15, 16, 60])],
-  [14, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 23, 25, 32, 40, 41, 42, 61])],
+  [
+    14,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 23, 25, 32, 40,
+      41, 42, 61,
+    ]),
+  ],
   [15, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 24, 62, 63, 64])],
   [16, new Set([1, 2, 6, 7, 8, 13, 14, 15, 16, 65, 66])],
-  [17, new Set([1, 2, 6, 7, 8, 13, 14, 15, 16, 20, 21, 23, 32, 33, 34, 35, 67, 68])],
+  [
+    17,
+    new Set([
+      1, 2, 6, 7, 8, 13, 14, 15, 16, 20, 21, 23, 32, 33, 34, 35, 67, 68,
+    ]),
+  ],
   [18, new Set([1, 2, 6, 7, 8, 13, 14, 15, 16])],
   [19, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 69])],
-  [20, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 32, 37, 40, 58, 70, 71, 72, 73])],
+  [
+    20,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 32, 37, 40, 58, 70,
+      71, 72, 73,
+    ]),
+  ],
   [21, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 74])],
-  [22, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 32, 37, 70, 73])],
+  [
+    22,
+    new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 19, 32, 37, 70, 73]),
+  ],
   [23, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21, 43, 75])],
-  [24, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 21, 23, 25, 42, 76, 77])],
-  [25, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21, 30, 32, 37, 42, 73])],
+  [
+    24,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 21, 23, 25, 42, 76, 77,
+    ]),
+  ],
+  [
+    25,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21, 30, 32, 37, 42, 73,
+    ]),
+  ],
   [26, new Set([])],
-  [27, new Set([1, 2, 7, 8, 13, 14, 15, 16, 21, 32, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87])],
+  [
+    27,
+    new Set([
+      1, 2, 7, 8, 13, 14, 15, 16, 21, 32, 78, 79, 80, 81, 82, 83, 84, 85, 86,
+      87,
+    ]),
+  ],
   [28, new Set([1, 2, 7, 8, 13, 14, 15, 16, 18, 24, 88, 89])],
   [29, new Set([1, 2, 6, 7, 8, 13, 14, 15, 16, 21, 90, 91])],
-  [30, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 24, 88, 92, 93])],
-  [31, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 21, 32, 94, 95, 96])],
+  [
+    30,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 21, 24, 88, 92, 93,
+    ]),
+  ],
+  [
+    31,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 21, 32, 94, 95, 96,
+    ]),
+  ],
   [32, new Set([2, 7, 8, 13, 14, 15, 16, 28, 30, 32, 34, 35, 97, 98, 99, 100])],
-  [33, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21, 43, 101, 102])],
-  [34, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21, 24, 64, 88, 92, 93])],
-  [35, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 24, 25, 64, 103])],
+  [
+    33,
+    new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21, 43, 101, 102]),
+  ],
+  [
+    34,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21, 24, 64, 88, 92, 93,
+    ]),
+  ],
+  [
+    35,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 24, 25, 64,
+      103,
+    ]),
+  ],
   [36, new Set([1, 2, 6, 7, 8, 13, 14, 15, 16, 38, 104])],
   [37, new Set([])],
-  [38, new Set([1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21, 40, 41, 58, 63, 105, 106, 107])],
+  [
+    38,
+    new Set([
+      1, 2, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21, 40, 41, 58, 63, 105,
+      106, 107,
+    ]),
+  ],
 ]);
 
 const baseFieldByTypeAndField = new Map<number, Map<number, number>>([
@@ -2315,7 +2421,8 @@ function createZoteroMock(): ZoteroMock {
         blob: Blob;
         parentItemID?: number | null;
       }) => {
-        const contentType = String(blob?.type || "image/png").trim() || "image/png";
+        const contentType =
+          String(blob?.type || "image/png").trim() || "image/png";
         const extension = contentType.includes("jpeg")
           ? "jpg"
           : contentType.includes("png")
@@ -2363,7 +2470,11 @@ function createZoteroMock(): ZoteroMock {
         attachment.setField("url", url);
         attachment.setField("contentType", contentType || "application/pdf");
         attachment.setFilePath(
-          path.join(os.tmpdir(), "zotero-url-attachments", encodeURIComponent(url)),
+          path.join(
+            os.tmpdir(),
+            "zotero-url-attachments",
+            encodeURIComponent(url),
+          ),
         );
         await attachment.saveTx();
         return attachment;
@@ -2371,10 +2482,7 @@ function createZoteroMock(): ZoteroMock {
       resolveRelativePath: (dataPath: string) => {
         return dataPath.replace(/^attachments:/, "");
       },
-      getStorageDirectoryByLibraryAndKey: (
-        _libraryID: number,
-        key: string,
-      ) => {
+      getStorageDirectoryByLibraryAndKey: (_libraryID: number, key: string) => {
         return new MockFile(path.join(os.tmpdir(), "zotero-storage", key));
       },
     },

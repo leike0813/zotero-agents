@@ -4,8 +4,64 @@ import {
   isAbortErrorLike,
   type SkillRunnerManagementSseFrame,
 } from "../../src/providers/skillrunner/managementClient";
+import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
+import { resolveSkillRunnerManagementResponseSemantic } from "../../src/modules/skillRunnerRunSettlement";
 
 describe("skillrunner management client", function () {
+  it("classifies accepted=false terminal cancel responses as terminal reconciliation", function () {
+    const semantic = resolveSkillRunnerManagementResponseSemantic({
+      response: {
+        request_id: "req-1",
+        status: "SUCCEEDED",
+        accepted: false,
+        message: "already in terminal state",
+      },
+      fallbackStatus: "running",
+    });
+
+    assert.equal(semantic.accepted, false);
+    assert.equal(semantic.status, "succeeded");
+    assert.equal(semantic.terminalStatus, "succeeded");
+    assert.isUndefined(semantic.nonTerminalStatus);
+    assert.equal(semantic.shouldClearPending, true);
+    assert.equal(semantic.message, "already in terminal state");
+  });
+
+  it("keeps accepted=false non-terminal cancel responses non-terminal", function () {
+    const semantic = resolveSkillRunnerManagementResponseSemantic({
+      response: {
+        request_id: "req-2",
+        status: "running",
+        accepted: false,
+        reason: "run is not cancelable",
+      },
+      fallbackStatus: "waiting_user",
+    });
+
+    assert.equal(semantic.accepted, false);
+    assert.equal(semantic.status, "running");
+    assert.equal(semantic.nonTerminalStatus, "running");
+    assert.isUndefined(semantic.terminalStatus);
+    assert.equal(semantic.shouldClearPending, true);
+    assert.equal(semantic.message, "run is not cancelable");
+  });
+
+  it("classifies pending=null with a non-waiting status as stale pending", function () {
+    const semantic = resolveSkillRunnerManagementResponseSemantic({
+      response: {
+        request_id: "req-3",
+        status: "queued",
+        pending: null,
+      },
+      fallbackStatus: "waiting_user",
+    });
+
+    assert.equal(semantic.status, "queued");
+    assert.equal(semantic.hasPendingField, true);
+    assert.equal(semantic.hasPendingPayload, false);
+    assert.equal(semantic.shouldClearPending, true);
+  });
+
   it("retries once with prompted basic auth on 401", async function () {
     const calls: Array<{ url: string; auth?: string | null }> = [];
     let count = 0;
@@ -63,6 +119,50 @@ describe("skillrunner management client", function () {
     });
   });
 
+  it("uses HEAD-only reachability probe by default and releases successful response bodies", async function () {
+    const methods: string[] = [];
+    let canceled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("ok"));
+      },
+      cancel() {
+        canceled = true;
+      },
+    });
+    const client = new SkillRunnerManagementClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (_url, init) => {
+        methods.push(String(init?.method || "GET"));
+        return new Response(stream, { status: 200 });
+      },
+    });
+
+    await client.probeReachability();
+
+    assert.deepEqual(methods, ["HEAD"]);
+    assert.isTrue(canceled);
+  });
+
+  it("uses GET reachability fallback only when explicitly allowed", async function () {
+    const methods: string[] = [];
+    const client = new SkillRunnerManagementClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (_url, init) => {
+        const method = String(init?.method || "GET");
+        methods.push(method);
+        if (method === "HEAD") {
+          return new Response("no head", { status: 405 });
+        }
+        return new Response("ok", { status: 200 });
+      },
+    });
+
+    await client.probeReachability({ allowGetFallback: true });
+
+    assert.deepEqual(methods, ["HEAD", "GET"]);
+  });
+
   it("parses SSE chat frames", async function () {
     const frames: SkillRunnerManagementSseFrame[] = [];
     const urls: string[] = [];
@@ -104,10 +204,46 @@ describe("skillrunner management client", function () {
       seq: 1,
       text: "hello",
     });
-    assert.equal(
-      urls[0],
-      "http://127.0.0.1:8030/v1/jobs/req-1/chat?cursor=0",
-    );
+    assert.equal(urls[0], "http://127.0.0.1:8030/v1/jobs/req-1/chat?cursor=0");
+  });
+
+  it("parses CRLF-delimited SSE chat frames", async function () {
+    const frames: SkillRunnerManagementSseFrame[] = [];
+    const payload =
+      "event: snapshot\r\n" +
+      'data: {"status":"running","cursor":0}\r\n\r\n' +
+      "event: chat_event\r\n" +
+      'data: {"seq":2,"text":"hello crlf"}\r\n\r\n';
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(payload));
+        controller.close();
+      },
+    });
+    const client = new SkillRunnerManagementClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async () =>
+        new Response(stream, {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+          },
+        }),
+    });
+
+    await client.streamRunChat({
+      requestId: "req-1",
+      onFrame: (frame) => {
+        frames.push(frame);
+      },
+    });
+
+    assert.lengthOf(frames, 2);
+    assert.equal(frames[1].event, "chat_event");
+    assert.deepEqual(frames[1].data, {
+      seq: 2,
+      text: "hello crlf",
+    });
   });
 
   it("parses SSE event frames from jobs events endpoint", async function () {
@@ -196,7 +332,8 @@ describe("skillrunner management client", function () {
     } catch (error) {
       rejected = error;
     }
-    assert.equal(requests[0]?.signal, controller.signal);
+    assert.instanceOf(requests[0]?.signal, AbortSignal);
+    assert.isTrue(requests[0]?.signal?.aborted);
     assert.equal(
       requests[0]?.url,
       "http://127.0.0.1:8030/v1/jobs/req-1/chat?cursor=0",
@@ -280,6 +417,31 @@ describe("skillrunner management client", function () {
         "GET http://127.0.0.1:8030/v1/jobs/req-2/events/history?from_seq=3",
       ],
     );
+  });
+
+  it("throws structured HTTP errors with status for run endpoints", async function () {
+    const client = new SkillRunnerManagementClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ detail: "missing" }), {
+          status: 404,
+          statusText: "Not Found",
+          headers: {
+            "content-type": "application/json",
+          },
+        }),
+    });
+
+    let thrown: unknown = null;
+    try {
+      await client.getRun({ requestId: "req-missing" });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.instanceOf(thrown, SkillRunnerHttpError);
+    assert.equal((thrown as SkillRunnerHttpError).status, 404);
+    assert.equal((thrown as SkillRunnerHttpError).path, "/v1/jobs/req-missing");
   });
 
   it("passes assistant_revision rows through chat history without reshaping", async function () {
@@ -390,10 +552,7 @@ describe("skillrunner management client", function () {
       interaction_id: 3,
       response: "ok",
     });
-    assert.equal(
-      requests[1].url,
-      "http://127.0.0.1:8030/v1/jobs/req-1/cancel",
-    );
+    assert.equal(requests[1].url, "http://127.0.0.1:8030/v1/jobs/req-1/cancel");
     assert.equal(requests[1].method, "POST");
     assert.equal(requests[1].body, "{}");
   });

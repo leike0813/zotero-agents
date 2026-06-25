@@ -159,10 +159,10 @@ function renderYamlTagList(tags) {
 async function resolveTempDirectoryPath(runtime) {
   const tempPath = requireHostApi(runtime).file?.getTempDirectoryPath?.();
   if (typeof tempPath === "string" && tempPath.trim()) {
-    return joinPath(tempPath, "zotero-skills", "tag-regulator");
+    return joinPath(tempPath, "zotero-agents", "tag-regulator");
   }
   const os = await dynamicImport("os");
-  return joinPath(os.tmpdir(), "zotero-skills", "tag-regulator");
+  return joinPath(os.tmpdir(), "zotero-agents", "tag-regulator");
 }
 
 export async function materializeValidTagsYaml(tags, parentId, runtime) {
@@ -376,6 +376,7 @@ export async function buildTagRegulatorStandaloneRequest(args) {
   return {
     kind: "skillrunner.job.v1",
     skill_id: "tag-regulator",
+    mode: "auto",
     targetParentID: parentItem.id,
     input,
     parameter: resolveRequestParameters(args.executionOptions),

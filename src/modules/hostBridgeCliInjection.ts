@@ -143,6 +143,7 @@ function buildProfileJson(args: {
     schema: "zotero-bridge.profile.v1",
     protocol: HOST_BRIDGE_PROTOCOL_VERSION,
     endpoint: args.endpoint,
+    connectionMode: "local",
     auth: {
       type: "bearer",
       tokenEnv: "ZOTERO_BRIDGE_TOKEN",

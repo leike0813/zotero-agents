@@ -4,11 +4,41 @@ pref("workflowSettingsJson", "");
 pref("skillRunnerModelCacheJson", "");
 pref("skillRunnerDeferredTasksJson", "");
 pref("skillRunnerRequestLedgerJson", "");
-pref("skillRunnerLocalRuntimeVersion", "v0.6.1");
+pref("skillRunnerSkillDisplayRegistryJson", "");
+pref("skillRunnerLocalRuntimeVersion", "v0.7.2");
 pref("skillRunnerLocalRuntimeStateJson", "");
 pref("tagVocabularyStagedJson", "");
+pref("collectSkillRunFeedbackEnabled", false);
+pref("markdownReaderEnabled", true);
 pref("workflowDir", "");
+pref("skillDir", "");
+pref("contentFeedChannel", "stable");
+pref(
+  "contentStableFeedUrl",
+  "https://raw.githubusercontent.com/leike0813/zotero-agents-workflows/content-feed/stable/feed.json",
+);
+pref(
+  "contentStableFeedMirrorUrl",
+  "https://gitee.com/leike0813/zotero-agents-workflows/raw/content-feed/stable/feed.json",
+);
+pref(
+  "contentBetaFeedUrl",
+  "https://raw.githubusercontent.com/leike0813/zotero-agents-workflows/content-feed/beta/feed.json",
+);
+pref(
+  "contentBetaFeedMirrorUrl",
+  "https://gitee.com/leike0813/zotero-agents-workflows/raw/content-feed/beta/feed.json",
+);
+pref(
+  "contentDevFeedUrl",
+  "https://raw.githubusercontent.com/leike0813/zotero-agents-workflows/content-feed/dev/feed.json",
+);
+pref(
+  "contentDevFeedMirrorUrl",
+  "https://gitee.com/leike0813/zotero-agents-workflows/raw/content-feed/dev/feed.json",
+);
 pref("sampleOutputDir", "");
+pref("runtimeRoot", "");
 pref("hostBridgeLanEnabled", false);
 pref("hostBridgePinPortEnabled", false);
 pref("hostBridgePinnedPort", 26570);
@@ -22,11 +52,25 @@ pref("hostBridgeMasterTokenUpdatedAt", "");
 pref("hostBridgeMasterTokenKeyMaterial", "");
 pref("hostBridgeDisableWriteApproval", false);
 pref("mcpServer.enabled", true);
+// Deprecated hidden transport: Git Sync prefs are retained for existing
+// runtime state and service-level diagnostics, but no user-facing UI exposes
+// Git Sync configuration.
 pref("synthesisGitSyncEnabled", false);
 pref("synthesisGitSyncRemoteUrl", "");
 pref("synthesisGitSyncBranch", "main");
-pref("synthesisGitSyncGitCommand", "git");
 pref("synthesisGitSyncTokenEncryptedJson", "");
 pref("synthesisGitSyncTokenMasked", "");
 pref("synthesisGitSyncTokenUpdatedAt", "");
-pref("synthesisGitSyncAutoRetryEnabled", true);
+pref("synthesisGitSyncAutoSyncEnabled", false);
+pref("synthesisGitSyncAutoRetryEnabled", false);
+pref("synthesisGitSyncConnectionTestJson", "");
+pref("synthesisWebDavSyncEnabled", false);
+pref("synthesisWebDavSyncBaseUrl", "");
+pref("synthesisWebDavSyncRemotePath", "zotero-agents");
+pref("synthesisWebDavSyncUsername", "");
+pref("synthesisWebDavSyncCredentialEncryptedJson", "");
+pref("synthesisWebDavSyncCredentialMasked", "");
+pref("synthesisWebDavSyncCredentialUpdatedAt", "");
+pref("synthesisWebDavSyncAutoSyncEnabled", false);
+pref("synthesisWebDavSyncAutoRetryEnabled", false);
+pref("synthesisWebDavSyncConnectionTestJson", "");

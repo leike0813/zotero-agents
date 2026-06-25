@@ -1,7 +1,19 @@
 (function () {
   "use strict";
 
-  const supportedLocales = ["en-US", "zh-CN", "ja-JP", "fr-FR"];
+  const supportedLocales = [
+    "en-US",
+    "zh-CN",
+    "zh-TW",
+    "ja-JP",
+    "fr-FR",
+    "de",
+    "es-ES",
+    "pt-BR",
+    "ko-KR",
+    "it-IT",
+    "ru-RU",
+  ];
 
   const state = {
     frames: Object.create(null),
@@ -35,6 +47,12 @@
     if (language === "zh") return "zh-CN";
     if (language === "ja") return "ja-JP";
     if (language === "fr") return "fr-FR";
+    if (language === "de") return "de";
+    if (language === "es") return "es-ES";
+    if (language === "pt") return "pt-BR";
+    if (language === "ko") return "ko-KR";
+    if (language === "it") return "it-IT";
+    if (language === "ru") return "ru-RU";
     if (language === "en") return "en-US";
     return "";
   }

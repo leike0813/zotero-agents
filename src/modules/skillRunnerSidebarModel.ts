@@ -11,12 +11,28 @@ export type SkillRunnerSidebarTaskItem = {
   backendId: string;
   backendDisplayName: string;
   requestId?: string;
+  skillName?: string;
+  skillLabel?: string;
+  skillId?: string;
   workflowLabel?: string;
   status: string;
   stateLabel: string;
+  applyState?: string;
+  applyAttempt?: number;
+  applyMaxAttempt?: number;
+  applyNextRetryAt?: string;
+  applyError?: string;
+  applyUpdatedAt?: string;
   updatedAt: string;
   title: string;
   selectable: boolean;
+  requestAssigned?: boolean;
+  backendInteractive?: boolean;
+  canOpenStream?: boolean;
+  canCancelBackendRun?: boolean;
+  canReply?: boolean;
+  canArchiveLocalRun?: boolean;
+  skillRunnerLifecycleState?: string;
   terminal: boolean;
   attention?: "warning" | "";
   attentionLabel?: string;
@@ -25,7 +41,9 @@ export type SkillRunnerSidebarTaskItem = {
   relationState?: SkillRunnerSidebarRelationState;
 };
 
-export type SkillRunnerSidebarGroup<TTask extends SkillRunnerSidebarTaskItem = SkillRunnerSidebarTaskItem> = {
+export type SkillRunnerSidebarGroup<
+  TTask extends SkillRunnerSidebarTaskItem = SkillRunnerSidebarTaskItem,
+> = {
   backendId: string;
   backendDisplayName: string;
   disabled: boolean;
@@ -37,7 +55,9 @@ export type SkillRunnerSidebarGroup<TTask extends SkillRunnerSidebarTaskItem = S
   latestUpdatedAt: string;
 };
 
-export type SkillRunnerSidebarSection<TTask extends SkillRunnerSidebarTaskItem = SkillRunnerSidebarTaskItem> = {
+export type SkillRunnerSidebarSection<
+  TTask extends SkillRunnerSidebarTaskItem = SkillRunnerSidebarTaskItem,
+> = {
   id: "running" | "completed";
   title: string;
   collapsed: boolean;
@@ -45,7 +65,9 @@ export type SkillRunnerSidebarSection<TTask extends SkillRunnerSidebarTaskItem =
 };
 
 function normalizeIdentity(value: unknown) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
 function isFinitePositiveInt(value: unknown) {
@@ -75,19 +97,20 @@ function resolveRelatedParentItemIds(
   return normalizeParentItemIds(context?.relatedParentItemIds || []);
 }
 
-function hasSelectableRequestId(task: SkillRunnerSidebarTaskItem) {
-  return task.selectable && String(task.requestId || "").trim().length > 0;
+function isDeferredApplyVisibleRunning(task: SkillRunnerSidebarTaskItem) {
+  const state = normalizeIdentity(task.applyState);
+  return state === "pending" || state === "running";
 }
 
 function isVisibleSidebarRunningTask(task: SkillRunnerSidebarTaskItem) {
-  return hasSelectableRequestId(task) && !task.terminal;
+  return (
+    task.selectable && (!task.terminal || isDeferredApplyVisibleRunning(task))
+  );
 }
 
 function isVisibleSidebarCompletedTask(task: SkillRunnerSidebarTaskItem) {
   return (
-    hasSelectableRequestId(task) &&
-    task.terminal &&
-    normalizeIdentity(task.status) === "succeeded"
+    task.selectable && task.terminal && !isDeferredApplyVisibleRunning(task)
   );
 }
 
@@ -129,7 +152,9 @@ export function pickSkillRunnerSidebarFocusedTaskKey<
   if (relatedParentItemIds.length === 0) {
     return currentTaskKey;
   }
-  const primaryParentItemId = isFinitePositiveInt(args.context?.primaryParentItemId)
+  const primaryParentItemId = isFinitePositiveInt(
+    args.context?.primaryParentItemId,
+  )
     ? Math.floor(args.context?.primaryParentItemId as number)
     : undefined;
 
@@ -189,7 +214,8 @@ export function buildSkillRunnerSidebarSections<
     if (group.disabled) {
       continue;
     }
-    const runningTasks = group.activeTasks
+    const allTasks = [...group.activeTasks, ...group.finishedTasks];
+    const runningTasks = allTasks
       .filter((task) => isVisibleSidebarRunningTask(task))
       .map((task) => ({
         ...task,
@@ -207,11 +233,11 @@ export function buildSkillRunnerSidebarSections<
           task.key === selectedTaskKey
             ? "focused"
             : isSkillRunnerTaskRelatedToContext({
-                targetParentID: task.targetParentID,
-                context: args.context,
-              })
-            ? "related"
-            : "default",
+                  targetParentID: task.targetParentID,
+                  context: args.context,
+                })
+              ? "related"
+              : "default",
       }));
     if (runningTasks.length > 0) {
       runningGroups.push({
@@ -222,7 +248,7 @@ export function buildSkillRunnerSidebarSections<
       });
     }
 
-    const completedTasks = group.finishedTasks.filter((task) =>
+    const completedTasks = allTasks.filter((task) =>
       isVisibleSidebarCompletedTask(task),
     );
     if (completedTasks.length > 0) {
@@ -258,10 +284,7 @@ export function countWaitingSkillRunnerTasks<
   for (const group of groups) {
     for (const task of group.activeTasks) {
       const normalized = normalizeIdentity(task.status);
-      if (
-        normalized === "waiting_user" ||
-        normalized === "waiting_auth"
-      ) {
+      if (normalized === "waiting_user" || normalized === "waiting_auth") {
         total += 1;
       }
     }

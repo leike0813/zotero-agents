@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Tag Bootstrapper Result",
+  "type": "object",
+  "required": ["add_tags", "warnings", "error", "provenance"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "description": "Optional stable result discriminator. Recommended value: tag_bootstrapper_result."
+    },
+    "status": {
+      "type": "string",
+      "description": "Optional result status.",
+      "enum": ["success", "empty", "failed"]
+    },
+    "add_tags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tag", "note"],
+        "properties": {
+          "tag": { "type": "string", "minLength": 1 },
+          "facet": { "type": "string" },
+          "note": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "generated_at": {
+          "type": "string"
+        },
+        "input_hash": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "library_index": {
+          "type": "object",
+          "description": "Optional audit data describing whether Host Bridge library index context was used.",
+          "properties": {
+            "used": {
+              "type": "boolean"
+            },
+            "pages_read": {
+              "type": "number"
+            },
+            "total_papers": {
+              "type": "number"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

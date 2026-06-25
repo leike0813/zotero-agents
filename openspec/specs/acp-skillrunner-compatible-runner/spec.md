@@ -129,7 +129,9 @@ ACP Skills task drawer rows MUST indicate tasks requiring user action.
 
 ACP skill execution SHALL use `acp.skill.run.v1` as its provider-facing request
 contract. The runner MUST reject `skillrunner.job.v1` at its public dispatch
-boundary.
+boundary. The runner MUST synthesize effective runtime options from the skill
+runner manifest defaults, request payload runtime options, and submit-time
+provider runtime options without mutating the submitted request payload.
 
 #### Scenario: Input manifest uses local paths
 
@@ -137,6 +139,103 @@ boundary.
 - **THEN** the run input manifest SHALL contain local absolute file paths
 - **AND** it SHALL NOT expose `inputs/<key>/...` upload-relative paths to the
   agent.
+
+#### Scenario: Runtime defaults are synthesized for ACP execution
+
+- **GIVEN** an ACP skill run request omits `runtime_options.hard_timeout_seconds`
+- **AND** the skill runner manifest declares `runtime.default_options.hard_timeout_seconds`
+- **WHEN** ACP execution starts
+- **THEN** the effective runtime options SHALL use the manifest timeout value
+- **AND** the submitted request runtime options SHALL remain unchanged.
+
+#### Scenario: Request runtime options override manifest defaults
+
+- **GIVEN** an ACP skill run request declares `runtime_options.hard_timeout_seconds`
+- **AND** the skill runner manifest also declares a hard timeout default
+- **WHEN** ACP execution starts
+- **THEN** the effective runtime options SHALL use the request timeout value.
+
+#### Scenario: Submit-time provider runtime options override request payload
+
+- **GIVEN** an ACP skill run request declares `runtime_options.hard_timeout_seconds`
+- **AND** the selected workflow execution context declares provider option
+  `hard_timeout_seconds`
+- **WHEN** ACP execution starts
+- **THEN** the effective runtime options SHALL use the provider option timeout
+  value.
+
+#### Scenario: Missing timeout falls back to 1200 seconds
+
+- **GIVEN** neither the request nor the skill runner manifest declares a valid hard timeout
+- **WHEN** ACP execution starts
+- **THEN** the effective runtime options SHALL use `1200` seconds.
+
+### Requirement: ACP skill runner MUST disconnect recoverably on hard timeout
+
+ACP skill execution SHALL apply `hard_timeout_seconds` as a local ACP connection
+guard. Timeout expiry MUST disconnect the local ACP connection through existing
+recoverable disconnect semantics, MUST NOT introduce a new terminal run state,
+and MUST NOT mark the run as `failed` or `canceled`.
+
+#### Scenario: Initial session setup is not counted as agent execution time
+
+- **GIVEN** an ACP skill run is creating or configuring an ACP session
+- **WHEN** session setup has not yet reached the first ACP prompt call
+- **THEN** hard timeout monitoring SHALL NOT start
+- **AND** the first timeout window SHALL start only after the prompt turn is
+  ready to be sent to the ACP session.
+
+#### Scenario: Auto run timeout disconnects without failing the run
+
+- **GIVEN** an auto ACP skill run has an active prompt turn
+- **WHEN** the effective hard timeout expires
+- **THEN** the runner SHALL record a `hard-timeout-disconnect-requested` event
+- **AND** it SHALL attempt to cancel the active ACP prompt
+- **AND** it SHALL drain already-arrived transcript updates for a bounded local
+  window
+- **AND** it SHALL close any open streaming transcript item before appending the
+  timeout notice
+- **AND** it SHALL append a localized system status transcript item explaining
+  the timeout disconnect
+- **AND** it SHALL close the local ACP connection
+- **AND** the run SHALL remain recoverable
+- **AND** the run status SHALL NOT become `failed` or `canceled`.
+
+#### Scenario: Timeout notice follows drained transcript content
+
+- **GIVEN** transcript text has already arrived locally when hard timeout
+  disconnect starts
+- **WHEN** the runner completes the hard timeout disconnect transcript handling
+- **THEN** visible transcript content SHALL be finalized before the timeout
+  status item is appended
+- **AND** the timeout status item SHALL appear after the drained agent
+  transcript content.
+
+#### Scenario: Interactive waiting clears timeout monitoring
+
+- **GIVEN** an interactive ACP skill run reaches `waiting_user`
+- **WHEN** the run waits for a user reply
+- **THEN** hard timeout monitoring SHALL be stopped for that waiting period
+- **AND** a later user reply SHALL start a fresh hard timeout window for the
+  next agent turn.
+
+#### Scenario: Permission waiting pauses timeout monitoring
+
+- **GIVEN** an ACP skill run has an active prompt turn
+- **WHEN** the ACP backend requests user permission
+- **THEN** hard timeout monitoring SHALL be paused while the permission request
+  is pending
+- **AND** resolving, cancelling, or auto-approving the permission request SHALL
+  restart a fresh hard timeout window for the still active agent turn
+- **AND** this SHALL NOT introduce a new run status or change the remote ACP
+  session lifecycle.
+
+#### Scenario: Recovered session reapplies timeout monitoring
+
+- **GIVEN** an ACP skill run is reconnected through session recovery
+- **WHEN** a recovered agent turn starts
+- **THEN** the runner SHALL recompute effective runtime options
+- **AND** it SHALL apply hard timeout monitoring to that recovered turn.
 ### Requirement: ACP Skills transcript signal governance
 
 
@@ -573,6 +672,25 @@ as detached recoverable runs, not as active prompt turns.
   final apply, and sequence continuation SHALL follow the existing recovered
   continuation behavior.
 
+#### Scenario: Explicit connect resumes reusable workflow workspace
+
+- **GIVEN** a detached recoverable ACP Skills run is a non-final sequence step
+- **AND** the original workflow workspace still exists
+- **WHEN** explicit connect produces final recovered output
+- **THEN** downstream ACP sequence steps SHALL reuse the original workflow
+  workspace
+- **AND** runner-owned result and audit paths SHALL use fresh namespaces.
+
+#### Scenario: Explicit connect foregrounds downstream ACP sequence steps
+
+- **GIVEN** a detached recoverable ACP Skills run is a non-final sequence step
+- **AND** explicit connect produces final recovered output
+- **WHEN** Host launches downstream ACP sequence steps
+- **THEN** each started downstream ACP step SHALL become the selected ACP Skills
+  run
+- **AND** interactive downstream ACP steps SHALL request the ACP Skills panel as
+  the foreground surface.
+
 #### Scenario: Pending interaction waits after connect
 
 - **GIVEN** a detached recoverable ACP Skills run has a pending user interaction
@@ -590,3 +708,77 @@ as detached recoverable runs, not as active prompt turns.
 - **THEN** Host SHALL stop the active ACP prompt call
 - **AND** the ACP session controller SHALL remain attached
 - **AND** the run SHALL remain non-terminal and recoverable for later prompts.
+
+### Requirement: Run-local feedback patch
+
+
+ACP/SkillRunner-compatible materialization SHALL inject a run-local feedback patch when `runtime_options.collect_skill_run_feedback` is true.
+
+#### Scenario: Feedback collection disabled
+
+- **WHEN** the runtime option is absent or false
+- **THEN** the materialized skill does not include the feedback patch
+
+#### Scenario: Feedback collection enabled
+
+- **WHEN** the runtime option is true
+- **THEN** the materialized skill includes instructions to write `_skill_run_feedback.md` in the same result subspace as `result.json`
+- **AND** the source skill package remains unchanged
+
+### Requirement: Feedback sidecar convention
+
+
+ACP and SkillRunner-compatible runs SHALL treat `result/<skillId>.<n>/_skill_run_feedback.md` as a default sidecar convention.
+
+#### Scenario: Skill completes successfully
+
+- **WHEN** the original skill task completes according to its normal successful flow
+- **THEN** the agent may write free-form Markdown feedback to `_skill_run_feedback.md`
+- **AND** the file is not declared in the output schema or result JSON
+
+#### Scenario: Skill does not complete successfully
+
+- **WHEN** the skill task fails, is canceled, or requires pending user continuation
+- **THEN** the agent does not create the feedback sidecar
+
+### Requirement: Bundle outputs SHALL declare artifact manifests with schema roles
+
+Bundle-producing SkillRunner-compatible outputs SHALL identify a flat artifact manifest path with `x-type: "artifact"` and `x-role: "artifact-manifest"` when the output needs multiple downstream artifact files.
+
+#### Scenario: Artifact manifest role is discovered from output schema
+
+- **WHEN** a successful bundle result validates against an output schema
+- **AND** a top-level string field is annotated with `x-type: "artifact"` and `x-role: "artifact-manifest"`
+- **THEN** a SkillRunner backend MAY treat that field value as the run's artifact manifest path
+- **AND** it SHALL include the manifest file and every file listed in the manifest in the returned bundle.
+
+#### Scenario: Flat artifact manifest is valid
+
+- **WHEN** the backend reads an artifact manifest
+- **THEN** the manifest SHALL be a flat JSON object
+- **AND** each value SHALL be a non-empty workspace-relative path string
+- **AND** values SHALL NOT be absolute paths or contain path traversal.
+
+#### Scenario: Invalid artifact manifest blocks bundle assembly
+
+- **WHEN** the manifest path is missing, unreadable, non-object, nested, contains arrays, contains empty values, or contains unsafe paths
+- **THEN** bundle assembly SHALL fail with a deterministic diagnostic naming the invalid manifest entry.
+
+### Requirement: Output Artifact Manifest Identity Uses X-Type
+
+Bundle-producing SkillRunner-compatible outputs SHALL identify artifact manifest
+fields with `x-type: "artifact-manifest"`.
+
+#### Scenario: Artifact manifest x-type is discovered from output schema
+
+- **GIVEN** a successful result validates against an output schema
+- **AND** a top-level string field is annotated with `x-type: "artifact-manifest"`
+- **THEN** the plugin SHALL treat that field value as an artifact manifest path
+- **AND** it SHALL NOT require `x-role` to equal any specific value.
+
+#### Scenario: Artifact role string does not define manifest identity
+
+- **GIVEN** a top-level string field is annotated with `x-type: "artifact"`
+- **AND** `x-role` is `artifact-manifest`
+- **THEN** the plugin SHALL treat the field as a single artifact path
+- **AND** it SHALL NOT expand the field value as an artifact manifest.

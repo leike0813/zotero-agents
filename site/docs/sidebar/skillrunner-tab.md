@@ -1,109 +1,111 @@
 # SkillRunner Tab
 
-SkillRunner Tab 用于查看和交互通过 Skill-Runner 后端执行的运行。与 ACP Skills 面向一次性技能执行不同，SkillRunner Tab 更侧重于交互式会话的管理。
+The SkillRunner tab is used to view and interact with runs executed through the Skill-Runner backend. Unlike ACP Skills which focuses on one-off skill execution, the SkillRunner tab emphasizes management of interactive sessions.
 
-## 界面概览
+## Interface Overview
+
+![SkillRunner Panel](/img/docs/sidebar/skillrunner-tab.png)
 
 ```
 ┌─────────────────────────────────────┐
-│  Banner：标题 / requestId / 状态    │
+│  Banner: Title / requestId / Status    │
 ├─────────────────────────────────────┤
-│  ← 任务抽屉  │  主内容区   │  详情 → │
-│               │  转写视图            │
-│  Running      │  计划组件            │
-│  └─ backend1  │  提示组件            │
-│     └─ task A │  回复区              │
-│  Completed    │                     │
-│  └─ backend1  │                     │
-│     └─ task B │                     │
+│  ← Task Drawer  │  Main Content Area   │  Details → │
+│               │  Transcript View            │
+│  Running      │  Plan Component             │
+│  └─ backend1  │  Prompt Component           │
+│     └─ task A │  Reply Area                 │
+│  Completed    │                             │
+│  └─ backend1  │                             │
+│     └─ task B │                             │
 └─────────────────────────────────────┘
 ```
 
 ## Banner
 
-Banner 显示当前选中任务的信息：
+The Banner displays information about the currently selected task:
 
-- **标题**：任务的名称或 skill 标识
-- **Request ID**：任务的唯一请求标识
-- **Status**：运行状态（running / waiting_user / waiting_auth / completed / failed）
-- **Backend**：后端信息
-- **Engine**：使用的引擎（如 gemini、claude 等）
-- **Model**：使用的模型
-- **Updated**：最后更新时间
-- **取消任务按钮**
+- **Title**: Task name or skill identifier
+- **Request ID**: Unique request identifier for the task
+- **Status**: Run status (running / waiting_user / waiting_auth / completed / failed)
+- **Backend**: Backend information
+- **Engine**: The engine in use (e.g., gemini, claude, etc.)
+- **Model**: The model in use
+- **Updated**: Last update time
+- **Cancel Task Button**
 
-## 任务抽屉（左侧）
+## Task Drawer (Left)
 
-左侧抽屉显示所有 SkillRunner 任务，分为 Running 和 Completed 两组。每个任务条目显示简要信息、状态指示和归档操作。点击条目切换到该任务的详情视图。
+The left drawer displays all SkillRunner tasks, divided into Running and Completed groups. Each task entry shows summary information, a status indicator, and an archive action. Click an entry to switch to that task's detail view.
 
-## 主内容区
+## Main Content Area
 
-### 转写视图
+### Transcript View
 
-SkillRunner 的转写视图使用 **Thinking 聊天模型**，能够智能处理连续的推理过程：
+The SkillRunner transcript view uses a **Thinking chat model** that intelligently handles continuous reasoning:
 
-- **thinking 块**：AI 的推理过程以独立的 thinking 块显示
-- **工具调用**：显示工具名称、输入摘要和执行状态
-- **消息**：助手和用户的对话消息
-- **revision**：输出版本变更记录
+- **Thinking Blocks**: The AI's reasoning process is displayed as separate thinking blocks
+- **Tool Calls**: Shows tool name, input summary, and execution status
+- **Messages**: Assistant and user conversation messages
+- **Revision**: Output version change records
 
-同样支持 **Plain / Bubble** 两种显示模式。
+Also supports **Plain / Bubble** display modes.
 
-### 认证工作流
+### Authentication Workflow
 
-SkillRunner Tab 支持认证工作流，可以在不离开面板的情况下完成后端认证：
+The SkillRunner tab supports authentication workflows, allowing backend authentication to be completed without leaving the panel:
 
-**认证触发方式：**
+**Authentication Triggers:**
 
-- 执行需要认证的 skill 时自动触发
-- 提示组件显示认证请求
+- Automatically triggered when running a skill that requires authentication
+- The prompt component displays an authentication request
 
-**支持的认证方式：**
+**Supported Authentication Methods:**
 
-| 方式 | 说明 | 适用场景 |
+| Method | Description | Use Cases |
 |------|------|---------|
-| **OAuth 代理** | 通过浏览器完成 OAuth 流程 | 推荐方式，适用于支持 OAuth 的引擎 |
-| **认证码输入** | 手动输入认证码或 URL | 引擎生成了认证链接时 |
-| **文件导入** | 导入凭证文件 | 已有凭证文件时 |
-| **内联 TUI** | 在面板中直接启动终端 | 需要交互式登录时 |
+| **OAuth Proxy** | Complete the OAuth flow via browser | Recommended method, for engines that support OAuth |
+| **Auth Code Input** | Manually enter an authentication code or URL | When the engine has generated an authentication link |
+| **File Import** | Import a credentials file | When a credentials file is already available |
+| **Inline TUI** | Launch a terminal directly in the panel | When interactive login is required |
 
-**认证流程示例（OAuth）：**
+**Authentication Flow Example (OAuth):**
 
-1. 运行检测到需要认证
-2. 提示组件显示"需要认证"及可用认证方式
-3. 用户选择 OAuth 代理
-4. 浏览器打开 OAuth 页面
-5. 用户完成认证
-6. 运行自动恢复执行
+1. Run detects that authentication is required
+2. Prompt component shows "Authentication required" and available authentication methods
+3. User selects OAuth proxy
+4. Browser opens the OAuth page
+5. User completes authentication
+6. Run automatically resumes execution
 
-### 提示组件
+### Prompt Component
 
-| 状态 | 显示内容 |
+| Status | Display Content |
 |------|---------|
-| `waiting_user` | 等待用户输入，显示上下文说明和快速选项（如有） |
-| `waiting_auth` | 等待认证，显示认证方式选择和输入 |
-| `running` | 运行中进度指示 |
-| `completed` | 完成状态确认 |
-| `error` | 错误信息和排查建议 |
+| `waiting_user` | Awaiting user input; shows context description and quick options (if available) |
+| `waiting_auth` | Awaiting authentication; shows authentication method selection and input |
+| `running` | In-progress indicator |
+| `completed` | Completion status confirmation |
+| `error` | Error information and troubleshooting suggestions |
 
-### 回复区
+### Reply Area
 
-- **文本输入框**：输入回复内容
-- **发送/取消按钮**
+- **Text Input Box**: Enter reply content
+- **Send/Cancel Button**
 
-与 ACP Skills 不同，SkillRunner Tab 的回复区没有 mode/model/reasoning 选择器（这些在后端配置中设定）。
+Unlike ACP Skills, the SkillRunner tab's reply area does not have mode/model/reasoning selectors (these are configured in the backend settings).
 
-## 详情抽屉（右侧）
+## Details Drawer (Right)
 
-| 区域 | 内容 |
+| Area | Content |
 |------|------|
-| **运行元数据** | 标题、requestId、taskKey、状态、terminal/waiting 标记 |
-| **后端信息** | backend、engine、model |
-| **更新时间** | 最后活跃时间 |
-| **交互信息** | 当前等待的交互信息（如有） |
-| **会话摘要** | 历史会话摘要 |
-| **版本摘要** | 输出版本变更记录 |
+| **Run Metadata** | Title, requestId, taskKey, status, terminal/waiting flags |
+| **Backend Info** | backend, engine, model |
+| **Updated Time** | Last active time |
+| **Interaction Info** | Current pending interaction information (if any) |
+| **Session Summary** | Historical session summary |
+| **Revision Summary** | Output version change records |
 
-## 相关配置
+## Related Configuration
 
-使用 SkillRunner Tab 前需要先配置 [Skill-Runner 后端](../backends/skill-runner)。
+Before using the SkillRunner tab, a [Skill-Runner backend](../backends/skill-runner) must be configured.

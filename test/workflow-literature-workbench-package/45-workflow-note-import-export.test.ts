@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import { getSelectedImportCandidateForKind } from "../../workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs";
 import { handlers } from "../../src/handlers";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { installWorkflowEditorSessionOverrideForTests } from "../../src/modules/workflowEditorHost";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
@@ -248,8 +249,31 @@ const itZoteroFullOrNode =
 
 describe("workflow: literature-workbench import/export notes", function () {
   this.timeout(30000);
+  let previousContentDevRootEnv: string | undefined;
+
+  beforeEach(function () {
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    previousContentDevRootEnv = processEnv?.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+    if (processEnv) {
+      processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = process.cwd();
+    }
+    setDebugModeOverrideForTests(true);
+  });
 
   afterEach(function () {
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    if (processEnv) {
+      if (previousContentDevRootEnv === undefined) {
+        delete processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+      } else {
+        processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = previousContentDevRootEnv;
+      }
+    }
+    setDebugModeOverrideForTests();
     installWorkflowEditorSessionOverrideForTests(null);
   });
 
@@ -297,8 +321,7 @@ describe("workflow: literature-workbench import/export notes", function () {
       );
       assert.isOk(
         loaded.workflows.find(
-          (entry) =>
-            entry.manifest.id === "add-digest-representative-image",
+          (entry) => entry.manifest.id === "add-digest-representative-image",
         ),
       );
     },
@@ -404,7 +427,11 @@ describe("workflow: literature-workbench import/export notes", function () {
       bundleReader: { readText: async () => "" },
     })) as {
       summary?: { migratedCount?: number };
-      notes?: Array<{ status?: string; payloadType?: string; anchorStatus?: string }>;
+      notes?: Array<{
+        status?: string;
+        payloadType?: string;
+        anchorStatus?: string;
+      }>;
     };
 
     const migratedNote = Zotero.Items.get(conversationNote.id)!;
@@ -417,7 +444,8 @@ describe("workflow: literature-workbench import/export notes", function () {
       'data-zs-payload-anchor="conversation-note-markdown"',
     );
     assert.equal(
-      (await parseStoredPayload(migratedNote, "conversation-note-markdown")).content,
+      (await parseStoredPayload(migratedNote, "conversation-note-markdown"))
+        .content,
       "# Conversation\n\nVisible chat.",
     );
   });
@@ -502,7 +530,10 @@ describe("workflow: literature-workbench import/export notes", function () {
         } as any,
         hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
       },
-    })) as { status?: string; representative_image?: { attachmentKey?: string } };
+    })) as {
+      status?: string;
+      representative_image?: { attachmentKey?: string };
+    };
 
     const updatedDigest = Zotero.Items.get(digestNote.id)!;
     assert.equal(applied.status, "embedded");
@@ -1317,8 +1348,11 @@ describe("workflow: literature-workbench import/export notes", function () {
         itemType: "journalArticle",
         fields: { title: "Import Apply Parent" },
       });
+      const hostModule = await import("../../src/workflows/hostApi");
+      const baseHostApi = hostModule.createWorkflowHostApi();
+      const sidecarCalls: any[] = [];
 
-      installWorkflowEditorSessionOverrideForTests(async () => ({
+      const editorResult = {
         saved: true,
         result: {
           digest: {
@@ -1344,12 +1378,36 @@ describe("workflow: literature-workbench import/export notes", function () {
             },
           },
         },
-      }));
+      };
+      installWorkflowEditorSessionOverrideForTests(async () => editorResult);
 
       await executeApplyResult({
         workflow,
         parent,
         bundleReader: { readText: async () => "" },
+        runtime: {
+          hostApi: {
+            ...baseHostApi,
+            editor: {
+              ...baseHostApi.editor,
+              async openSession() {
+                return editorResult;
+              },
+            },
+            synthesis: {
+              ...baseHostApi.synthesis,
+              async applyLiteratureDigestSidecar(args: any) {
+                sidecarCalls.push(args);
+                return {
+                  ok: true,
+                  status: "sidecar_applied",
+                  source_ref: "1:IMPORT",
+                };
+              },
+            },
+          } as any,
+          hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+        },
       });
 
       const noteIds = parent.getNotes();
@@ -1381,6 +1439,154 @@ describe("workflow: literature-workbench import/export notes", function () {
         ...buildCitationPayloadWrapper(),
         entry: "D:/imports/citation_analysis.json",
       });
+      assert.lengthOf(sidecarCalls, 1);
+      assert.equal(sidecarCalls[0].source.workflow, "import-notes");
+      assert.equal(sidecarCalls[0].digest.noteKey, digest!.key);
+      assert.equal(sidecarCalls[0].digest.content, "# Imported Digest\n\nBody");
+      assert.equal(sidecarCalls[0].references.noteKey, references!.key);
+      assert.deepEqual(
+        sidecarCalls[0].references.references,
+        buildNativeReferencesArtifact(),
+      );
+      assert.equal(sidecarCalls[0].citationAnalysis.noteKey, citation!.key);
+      assert.deepEqual(
+        sidecarCalls[0].citationAnalysis.payload,
+        importedCitationPayload,
+      );
+    });
+
+    it("refreshes sidecar for references-only import without fabricated sibling artifacts", async function () {
+      const workflow = await getWorkflow("import-notes");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Import References Sidecar Parent" },
+      });
+      const hostModule = await import("../../src/workflows/hostApi");
+      const baseHostApi = hostModule.createWorkflowHostApi();
+      const sidecarCalls: any[] = [];
+
+      const editorResult = {
+        saved: true,
+        result: {
+          references: {
+            sourcePath: "D:/imports/references-only.json",
+            payload: {
+              version: 1,
+              entry: "D:/imports/references-only.json",
+              format: "json",
+              references: buildNativeReferencesArtifact(),
+            },
+          },
+        },
+      };
+      installWorkflowEditorSessionOverrideForTests(async () => editorResult);
+
+      const applied = (await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader: { readText: async () => "" },
+        runtime: {
+          hostApi: {
+            ...baseHostApi,
+            editor: {
+              ...baseHostApi.editor,
+              async openSession() {
+                return editorResult;
+              },
+            },
+            synthesis: {
+              ...baseHostApi.synthesis,
+              async applyLiteratureDigestSidecar(args: any) {
+                sidecarCalls.push(args);
+                return {
+                  ok: true,
+                  status: "sidecar_applied",
+                  source_ref: "1:IMPORTREFS",
+                };
+              },
+            },
+          } as any,
+          hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+        },
+      })) as { imported?: number; sidecar_apply?: { status?: string } };
+
+      assert.equal(applied.imported, 1);
+      assert.equal(applied.sidecar_apply?.status, "sidecar_applied");
+      assert.lengthOf(sidecarCalls, 1);
+      assert.isUndefined(sidecarCalls[0].digest);
+      assert.isUndefined(sidecarCalls[0].citationAnalysis);
+      assert.equal(sidecarCalls[0].source.workflow, "import-notes");
+      assert.equal(
+        sidecarCalls[0].references.references[0].title,
+        "Structured Reference",
+      );
+      assert.equal(
+        sidecarCalls[0].source.references_entry,
+        "D:/imports/references-only.json",
+      );
+    });
+
+    it("does not refresh sidecar for custom-only import", async function () {
+      const workflow = await getWorkflow("import-notes");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Import Custom Only Parent" },
+      });
+      const hostModule = await import("../../src/workflows/hostApi");
+      const baseHostApi = hostModule.createWorkflowHostApi();
+      let sidecarCallCount = 0;
+
+      const editorResult = {
+        saved: true,
+        result: {
+          customNotes: [
+            {
+              sourcePath: "D:/imports/custom-note.md",
+              fileName: "custom-note",
+            },
+          ],
+        },
+      };
+      installWorkflowEditorSessionOverrideForTests(async () => editorResult);
+
+      const applied = (await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader: { readText: async () => "" },
+        runtime: {
+          hostApi: {
+            ...baseHostApi,
+            editor: {
+              ...baseHostApi.editor,
+              async openSession() {
+                return editorResult;
+              },
+            },
+            file: {
+              ...baseHostApi.file,
+              async readText(path: string) {
+                assert.equal(path, "D:/imports/custom-note.md");
+                return "# Custom Note\n\nBody";
+              },
+            },
+            synthesis: {
+              ...baseHostApi.synthesis,
+              async applyLiteratureDigestSidecar() {
+                sidecarCallCount += 1;
+                return {
+                  ok: true,
+                  status: "sidecar_applied",
+                };
+              },
+            },
+          } as any,
+          hostApiVersion: hostModule.WORKFLOW_HOST_API_VERSION,
+        },
+      })) as { imported?: number; sidecar_apply?: unknown };
+
+      assert.equal(applied.imported, 1);
+      assert.isUndefined(applied.sidecar_apply);
+      assert.equal(sidecarCallCount, 0);
     });
 
     it("imports digest representative image marker as embedded note image", async function () {

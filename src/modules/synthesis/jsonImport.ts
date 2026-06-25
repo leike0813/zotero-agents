@@ -8,6 +8,7 @@ import {
 import {
   buildSynthesisKnowledgeGraphPaths,
   initializeSynthesisKnowledgeGraphStore,
+  resolveSynthesisPersistenceRoot,
 } from "./foundation";
 import {
   createSynthesisConceptKbService,
@@ -180,7 +181,11 @@ async function collectCanonicalEnvelopes(root: string) {
     const relativePath = normalizeRelativePath(
       runtimeRelativePath(paths.synthesisRoot, file),
     );
-    if (relativePath.startsWith("state/") || relativePath.startsWith("sync/")) {
+    if (
+      relativePath.startsWith("sidecar/") ||
+      relativePath.startsWith("state/") ||
+      relativePath.startsWith("sync/")
+    ) {
       continue;
     }
     if (!relativePath.endsWith(".json")) {
@@ -355,7 +360,7 @@ async function readProjectionFallbacks(root: string, data: JsonImportData) {
   const paths = buildSynthesisKnowledgeGraphPaths(root);
   if (!hasCanonicalTopicGraph(data)) {
     const projection = await readJsonFile(
-      joinPath(paths.stateRoot, "topic-graph-index.json"),
+      joinPath(paths.sidecarRoot, "topic-graph-index.json"),
     ).catch(() => null);
     if (isRecord(projection)) {
       data.topicGraph.nodes = Array.isArray(projection.nodes)
@@ -377,7 +382,7 @@ async function readProjectionFallbacks(root: string, data: JsonImportData) {
   }
   if (!hasCanonicalConceptKb(data)) {
     const projection = await readJsonFile(
-      joinPath(paths.stateRoot, "concept-kb-index.json"),
+      joinPath(paths.sidecarRoot, "concept-kb-index.json"),
     ).catch(() => null);
     if (isRecord(projection)) {
       data.conceptKb.concepts = Array.isArray(projection.concepts)
@@ -402,7 +407,7 @@ async function readProjectionFallbacks(root: string, data: JsonImportData) {
   }
   if (!hasCanonicalTags(data)) {
     const projection = await readJsonFile(
-      joinPath(paths.stateRoot, "tag-index.json"),
+      joinPath(paths.sidecarRoot, "tag-index.json"),
     ).catch(() => null);
     if (isRecord(projection)) {
       data.tagVocabulary.entries = Array.isArray(projection.tags)
@@ -508,7 +513,7 @@ export function createSynthesisJsonImportService(options: ServiceOptions) {
   const repository =
     options.repository ||
     createSynthesisRepository({
-      runtimeRoot: root,
+      runtimeRoot: resolveSynthesisPersistenceRoot(root),
       now: options.now,
     });
   const topicGraph = createSynthesisTopicGraphService({
