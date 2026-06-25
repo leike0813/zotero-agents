@@ -17,11 +17,6 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
-env:
-  GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
-  GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-  REPO_NAME: zotero-agents
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -53,26 +48,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-      - name: Push to Gitee Pages branch
-        if: ${{ env.GITEE_TOKEN != '' }}
-        run: |
-          DIST="site/build"
-          TEMP_DIR=$(mktemp -d)
-          cp -r "$DIST/"* "$TEMP_DIR/"
-          cd "$TEMP_DIR"
-          git init -b gh-pages
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add -A
-          git commit -m "deploy: user docs from ${{ github.sha }}"
-          git remote add origin "https://${{ env.GITEE_USERNAME }}:${{ env.GITEE_TOKEN }}@gitee.com/${{ env.GITEE_USERNAME }}/${{ env.REPO_NAME }}.git"
-          git push origin gh-pages --force
-
-      - name: Trigger Gitee Pages rebuild
-        if: ${{ env.GITEE_TOKEN != '' }}
-        run: |
-          curl -X POST \
-            "https://gitee.com/api/v5/repos/${{ env.GITEE_USERNAME }}/${{ env.REPO_NAME }}/pages/builds" \
-            -H "Content-Type: application/json" \
-            -d "{\"access_token\":\"${{ env.GITEE_TOKEN }}\"}"

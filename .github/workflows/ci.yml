@@ -12,7 +12,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     env:
-      GITHUB_TOKEN: ${{ secrets.GitHub_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
@@ -22,7 +22,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      GITHUB_TOKEN: ${{ secrets.GitHub_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
@@ -65,7 +65,7 @@ jobs:
       contents: write
     env:
       CONTENT_FEED_GITHUB_REPO: leike0813/zotero-agents-workflows
-      GITHUB_TOKEN: ${{ secrets.GitHub_TOKEN }}
+      RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
       GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
     steps:
       - name: Setup JS
@@ -77,10 +77,15 @@ jobs:
         with:
           name: content-packages
           path: artifact/content-packages
+      - name: Check content feed publish token
+        run: |
+          if [ -z "${RELEASE_PAT}" ]; then
+            echo "RELEASE_PAT secret is required to publish zotero-agents-workflows from this repository." >&2
+            exit 1
+          fi
       - name: Publish GitHub release assets
-        if: env.GITHUB_TOKEN != ''
         env:
-          GH_TOKEN: ${{ env.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ env.RELEASE_PAT }}
         run: |
           VERSION="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('content-package.version.json','utf8')); console.log(process.env.CONTENT_PACKAGE_VERSION || d.version)")"
           TAG="official-workflows-v${VERSION}"
@@ -89,12 +94,11 @@ jobs:
           fi
           gh release upload "${TAG}" artifact/content-packages/*/packages/*.zip artifact/content-packages/*/packages/*.zip.sha256 --repo "${CONTENT_FEED_GITHUB_REPO}" --clobber
       - name: Publish content-feed branch to GitHub content repo
-        if: env.GITHUB_TOKEN != ''
         run: |
           rm -rf content-feed-publish
           mkdir content-feed-publish
           git -C content-feed-publish init
-          git -C content-feed-publish remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${CONTENT_FEED_GITHUB_REPO}.git"
+          git -C content-feed-publish remote add origin "https://x-access-token:${RELEASE_PAT}@github.com/${CONTENT_FEED_GITHUB_REPO}.git"
           git -C content-feed-publish fetch origin content-feed || true
           if git -C content-feed-publish rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
             git -C content-feed-publish checkout -B content-feed FETCH_HEAD

@@ -72,7 +72,11 @@ jobs:
         run: node scripts/build-zotero-bridge-cli.mjs --platform=${{ matrix.platform }} --target=${{ matrix.rust-target }}
 
       - name: Check help output
+        if: matrix.platform != 'linux-arm' && matrix.platform != 'linux-arm64'
         run: cli/zotero-bridge/target/${{ matrix.rust-target }}/release/${{ matrix.binary }} --help
+
+      - name: Check packaged CLI
+        run: node -e "const fs=require('fs'); const p='addon/bin/${{ matrix.platform }}/${{ matrix.binary }}'; if (!fs.existsSync(p)) { console.error(`missing packaged CLI: ${p}`); process.exit(1); }"
 
       - name: Upload packaged CLI
         uses: actions/upload-artifact@v4
