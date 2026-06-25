@@ -71,22 +71,39 @@ jobs:
       - name: Release plugin
         run: npm run release
 
+      - name: Push release refs to Gitee
+        if: env.GITEE_TOKEN != ''
+        run: |
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          git remote remove gitee 2>/dev/null || true
+          git remote add gitee "https://leike0813:${GITEE_TOKEN}@gitee.com/leike0813/zotero-agents.git"
+          git push gitee "HEAD:refs/heads/main" "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+
       - name: Sync plugin release to Gitee
         if: env.GITEE_TOKEN != ''
         run: |
           VERSION="$(node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json','utf8')); console.log(pkg.version)")"
           TAG="v${VERSION}"
+          RELEASE_NAME="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json name --jq .name)"
+          RELEASE_BODY="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json body --jq .body)"
+          RELEASE_PRERELEASE="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json isPrerelease --jq .isPrerelease)"
+          METADATA_NAME="$(gh release view release --repo "${GITHUB_REPOSITORY}" --json name --jq .name)"
+          METADATA_BODY="$(gh release view release --repo "${GITHUB_REPOSITORY}" --json body --jq .body)"
+          METADATA_PRERELEASE="$(gh release view release --repo "${GITHUB_REPOSITORY}" --json isPrerelease --jq .isPrerelease)"
           node --import tsx scripts/sync-gitee-release.ts \
             --repo leike0813/zotero-agents \
             --tag "${TAG}" \
-            --name "${TAG}" \
-            --body "Zotero Agents ${TAG}." \
+            --name "${RELEASE_NAME}" \
+            --body "${RELEASE_BODY}" \
+            --prerelease "${RELEASE_PRERELEASE}" \
+            --target "${GITHUB_SHA}" \
             .scaffold/build/*.xpi
           node --import tsx scripts/sync-gitee-release.ts \
             --repo leike0813/zotero-agents \
             --tag release \
-            --name "Update metadata" \
-            --body "This release hosts Zotero Agents update metadata." \
-            --prerelease true \
+            --name "${METADATA_NAME}" \
+            --body "${METADATA_BODY}" \
+            --prerelease "${METADATA_PRERELEASE}" \
+            --target "${GITHUB_SHA}" \
             .scaffold/build/update.json \
             .scaffold/build/update-beta.json
