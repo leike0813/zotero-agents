@@ -593,12 +593,26 @@ function resolveItem(runtime: RuntimeLike, ref: unknown) {
   }
 }
 
+function isRegularItem(item: Zotero.Item | null): item is Zotero.Item {
+  try {
+    if (typeof item?.isRegularItem === "function") {
+      return item.isRegularItem();
+    }
+  } catch {
+    return false;
+  }
+  return !!item && typeof item.getNotes === "function";
+}
+
 async function collectParentGeneratedNoteKinds(
   parentId: number,
   runtime: RuntimeLike,
 ) {
   const kinds = new Set<string>();
   const parentItem = resolveItem(runtime, parentId);
+  if (!isRegularItem(parentItem)) {
+    return kinds;
+  }
   const noteIds = parentItem?.getNotes?.() || [];
   for (const noteRef of noteIds) {
     const noteItem = resolveItem(runtime, noteRef);
@@ -897,7 +911,7 @@ async function selectGeneratedNoteCandidates(
       continue;
     }
     const parentItem = resolveItem(runtime, parentId);
-    if (!parentItem) {
+    if (!isRegularItem(parentItem)) {
       continue;
     }
     for (const noteRef of parentItem?.getNotes?.() || []) {
@@ -993,7 +1007,7 @@ async function selectDigestRepresentativeImage(
   if (parents.length === 1) {
     const parentId = parents[0].item?.id;
     const parentItem = parentId ? resolveItem(runtime, parentId) : null;
-    if (!parentItem) {
+    if (!isRegularItem(parentItem)) {
       return { contexts: [], totalUnits: 1 };
     }
     const digestNotes: Zotero.Item[] = [];

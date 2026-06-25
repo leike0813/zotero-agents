@@ -809,7 +809,12 @@ async function resolveRepresentativeImageExportFile(args) {
       args.noteItem.libraryID,
       descriptor.attachmentKey,
     );
-    if (!attachment || attachment.parentID !== args.noteItem.id) {
+    const allowedParentIds = new Set(
+      [args.noteItem.id, args.noteItem.parentItemID].filter(
+        (value) => typeof value === "number" && value > 0,
+      ),
+    );
+    if (!attachment || !allowedParentIds.has(attachment.parentID)) {
       return null;
     }
     const sourcePath = String(

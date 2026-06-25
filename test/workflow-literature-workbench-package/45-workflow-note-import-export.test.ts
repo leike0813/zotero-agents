@@ -900,7 +900,7 @@ describe("workflow: literature-workbench import/export notes", function () {
 
     const parsed = parsePseudoEmbeddedPayloadBytesForDebug(bytes, {
       TextDecoder,
-      Buffer,
+      Buffer: typeof Buffer !== "undefined" ? Buffer : null,
     });
     assert.equal(parsed?.payloadType, "digest-markdown");
     assert.equal(parsed?.noteKind, "digest");
@@ -1044,7 +1044,7 @@ describe("workflow: literature-workbench import/export notes", function () {
     const imageBytes = new Uint8Array([1, 2, 3, 4, 5]);
     await writeBytes(sourceImagePath, imageBytes);
     const attachment = await handlers.attachment.createFromPath({
-      parent: digestNote,
+      parent,
       path: sourceImagePath,
       title: "representative_image.jpg",
       mimeType: "image/jpeg",
