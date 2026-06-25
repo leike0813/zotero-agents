@@ -107,7 +107,10 @@ function dirnamePath(targetPath: string) {
   const normalized = targetPath.replace(/\\/g, "/");
   const parts = normalized.split("/").filter(Boolean);
   if (parts.length <= 1) {
-    return "";
+    return normalized.startsWith("/") ? "/" : "";
+  }
+  if (normalized.startsWith("/")) {
+    return joinPath("/", ...parts.slice(0, -1));
   }
   return joinPath(...parts.slice(0, -1));
 }
