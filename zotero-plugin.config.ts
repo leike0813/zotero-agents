@@ -61,6 +61,7 @@ const TEST_MODE = normalizeTestMode(process.env.ZOTERO_TEST_MODE);
 const TEST_DOMAIN = normalizeTestDomain(process.env.ZOTERO_TEST_DOMAIN);
 const TEST_ENTRIES = resolveTestEntries(TEST_DOMAIN, TEST_MODE);
 const RELEASE_REPO = "leike0813/zotero-agents";
+const RELEASE_UPLOAD_REPO = process.env.GITHUB_REPOSITORY || RELEASE_REPO;
 
 export default defineConfig({
   source: ["src", "addon"],
@@ -74,6 +75,12 @@ export default defineConfig({
     pkg.version.includes("-") ? "update-beta.json" : "update.json"
   }`,
   xpiDownloadLink: `https://github.com/${RELEASE_REPO}/releases/download/v{{version}}/{{xpiName}}.xpi`,
+
+  release: {
+    github: {
+      repository: RELEASE_UPLOAD_REPO,
+    },
+  },
 
   build: {
     assets: ["addon/**/*.*", "addon/bin/**/zotero-bridge"],

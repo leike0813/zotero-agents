@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { format } from "prettier";
 import sharp from "sharp";
 
 type Locale = string;
@@ -308,7 +309,11 @@ function outputAssetPath(relativeImagePath: string) {
 function imageFigureClass(relativeImagePath: string) {
   const normalized = `/${relativeImagePath}`;
   const classes = ["zs-doc-figure"];
-  if (/(^|\/)(icon_[^/]+|favicon)([-.][^/]*)?\.(?:png|jpe?g|webp|svg)$/i.test(normalized)) {
+  if (
+    /(^|\/)(icon_[^/]+|favicon)([-.][^/]*)?\.(?:png|jpe?g|webp|svg)$/i.test(
+      normalized,
+    )
+  ) {
     classes.push("zs-doc-figure--icon");
   }
   if (/(^|\/)poster\.(?:png|jpe?g|webp|svg)$/i.test(normalized)) {
@@ -317,7 +322,11 @@ function imageFigureClass(relativeImagePath: string) {
   return classes.join(" ");
 }
 
-function renderImageFigure(label: string, assetUrl: string, sourceRelative: string) {
+function renderImageFigure(
+  label: string,
+  assetUrl: string,
+  sourceRelative: string,
+) {
   const alt = escapeHtmlAttribute(label);
   const className = imageFigureClass(sourceRelative);
   const caption = label.trim()
@@ -343,7 +352,11 @@ function rewriteMarkdown(
         const assetPath = outputAssetPath(imageRef);
         referencedImages.set(imageRef, assetPath);
         const assetUrl = `${chromeAssetRoot}${encodeAssetPath(assetPath)}`;
-        return renderImageFigure(label, `${assetUrl}${target.suffix}`, imageRef);
+        return renderImageFigure(
+          label,
+          `${assetUrl}${target.suffix}`,
+          imageRef,
+        );
       }
       const resolvedDocHref = resolveDocId(target.href, doc, docIdsByLocale);
       if (!resolvedDocHref) {
@@ -380,7 +393,10 @@ async function writeGeneratedDocs(
   return referencedImages;
 }
 
-async function copyOrCompressAsset(sourceRelative: string, outputRelative: string) {
+async function copyOrCompressAsset(
+  sourceRelative: string,
+  outputRelative: string,
+) {
   const sourcePath = path.join(staticImgRoot, sourceRelative);
   const outputPath = path.join(assetsOutputRoot, outputRelative);
   await mkdir(path.dirname(outputPath), { recursive: true });
@@ -520,7 +536,11 @@ async function validateOutput() {
       `Built-in help docs exceed size budget: ${totalBytes} > ${maxOutputBytes}`,
     );
   }
-  return { docs: manifest.docs.length, assets: manifest.assets.length, totalBytes };
+  return {
+    docs: manifest.docs.length,
+    assets: manifest.assets.length,
+    totalBytes,
+  };
 }
 
 async function build() {
@@ -552,13 +572,18 @@ async function build() {
         title: doc.title,
         path: `docs/${doc.locale}/${toPosix(doc.relativePath)}`,
       }))
-      .sort((a, b) => `${a.locale}/${a.id}`.localeCompare(`${b.locale}/${b.id}`)),
+      .sort((a, b) =>
+        `${a.locale}/${a.id}`.localeCompare(`${b.locale}/${b.id}`),
+      ),
     sidebar,
     assets,
   };
+  const formattedManifest = await format(JSON.stringify(manifest), {
+    parser: "json",
+  });
   await writeFile(
     path.join(outputRoot, "manifest.json"),
-    `${JSON.stringify(manifest, null, 2)}\n`,
+    formattedManifest,
     "utf8",
   );
   return validateOutput();

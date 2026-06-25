@@ -453,7 +453,9 @@
       }
 
       function preferredLocale() {
-        return resolveSupportedLocale(query().get("locale") || navigator.language);
+        return resolveSupportedLocale(
+          query().get("locale") || navigator.language,
+        );
       }
 
       function postHostAction(action, payload) {
@@ -529,7 +531,10 @@
         }
         nav.appendChild(list);
         for (const button of nav.querySelectorAll(".help-doc-link")) {
-          button.classList.toggle("active", button.dataset.docId === state.docId);
+          button.classList.toggle(
+            "active",
+            button.dataset.docId === state.docId,
+          );
         }
         const select = $("help-locale-select");
         if (select && select.value !== state.locale) {

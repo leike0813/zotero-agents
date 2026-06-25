@@ -15,7 +15,10 @@ describe("bundled help center packaging", function () {
     const script = await readProjectFile("scripts/build-help-docs.ts");
 
     assert.include(pkg.scripts.build, "npm run build:help-docs");
-    assert.equal(pkg.scripts["build:help-docs"], "tsx scripts/build-help-docs.ts");
+    assert.equal(
+      pkg.scripts["build:help-docs"],
+      "tsx scripts/build-help-docs.ts",
+    );
     assert.equal(
       pkg.scripts["check:help-docs"],
       "tsx scripts/build-help-docs.ts --check",
@@ -109,7 +112,9 @@ describe("bundled help center packaging", function () {
       ),
     );
     for (const doc of manifest.docs.slice(0, 10)) {
-      await access(path.join(process.cwd(), "addon/content/help-docs", doc.path));
+      await access(
+        path.join(process.cwd(), "addon/content/help-docs", doc.path),
+      );
     }
     for (const asset of manifest.assets.slice(0, 10)) {
       await access(path.join(process.cwd(), "addon/content/help-docs", asset));

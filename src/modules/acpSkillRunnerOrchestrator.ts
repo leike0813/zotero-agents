@@ -1031,11 +1031,10 @@ function wrapAcpSkillRunPermissionRequestForTimeoutPause(args: {
       try {
         args.request.resolve(outcome);
       } finally {
-        if (resolved) {
-          return;
+        if (!resolved) {
+          resolved = true;
+          args.resume(permissionRequestId);
         }
-        resolved = true;
-        args.resume(permissionRequestId);
       }
     },
   };

@@ -832,8 +832,7 @@ describe("separated ACP and SkillRunner run stores", function () {
       run!.runKey,
     );
     assert.equal(
-      listWorkflowTasks().find((entry) => entry.runKey === run!.runKey)
-        ?.state,
+      listWorkflowTasks().find((entry) => entry.runKey === run!.runKey)?.state,
       "succeeded",
     );
   });

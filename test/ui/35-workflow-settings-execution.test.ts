@@ -349,8 +349,9 @@ describe("workflow settings execution", function () {
         },
       });
 
-      const snapshot =
-        await resetRunOnceOverridesForSettingsOpen("literature-explainer");
+      const snapshot = await resetRunOnceOverridesForSettingsOpen(
+        "literature-explainer",
+      );
       assert.notProperty(snapshot.providerOptions, "hard_timeout_seconds");
 
       const loaded = await loadWorkflowManifests(workflowsPath());

@@ -112,6 +112,20 @@ function dirnamePath(targetPath: string) {
   return joinPath(...parts.slice(0, -1));
 }
 
+function isAbsolutePath(targetPath: string) {
+  return (
+    targetPath.startsWith("/") ||
+    targetPath.startsWith("\\\\") ||
+    /^[A-Za-z]:[\\/]/.test(targetPath)
+  );
+}
+
+function resolveRuntimeTempDir(tempDir: string) {
+  return isAbsolutePath(tempDir)
+    ? tempDir
+    : joinPath(getProjectRoot(), tempDir);
+}
+
 export async function mkTempDir(prefix: string) {
   if (isZoteroRuntime()) {
     const runtime = globalThis as {
@@ -124,7 +138,7 @@ export async function mkTempDir(prefix: string) {
       };
     };
     const dir = joinPath(
-      runtime.PathUtils.tempDir,
+      resolveRuntimeTempDir(runtime.PathUtils.tempDir),
       `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     );
     await runtime.IOUtils.makeDirectory(dir, { createAncestors: true });

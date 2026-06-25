@@ -174,7 +174,8 @@ function installDirectHelpCenterBridge(runtime: HelpCenterRuntime) {
 }
 
 function clearDirectHelpCenterBridge(runtime: HelpCenterRuntime) {
-  const frameWindow = (runtime.frameWindow || resolveFrameWindow(runtime.frame)) as
+  const frameWindow = (runtime.frameWindow ||
+    resolveFrameWindow(runtime.frame)) as
     | (HelpCenterBridgeWindow & Record<string, unknown>)
     | null;
   if (!frameWindow) {
