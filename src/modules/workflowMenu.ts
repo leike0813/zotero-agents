@@ -102,6 +102,30 @@ function appendAssistantSidebarItem(
   popup.appendChild(item);
 }
 
+function appendHelpItem(win: _ZoteroTypes.MainWindow, popup: XULElement) {
+  const item = win.document.createXULElement("menuitem");
+  item.setAttribute(
+    "label",
+    getMenuLabel("menu-workflows-open-help", "Open Help"),
+  );
+  item.addEventListener("command", () => {
+    void addon.hooks.onPrefsEvent("openHelpCenter", { window: win });
+  });
+  popup.appendChild(item);
+}
+
+function appendOnlineDocsItem(win: _ZoteroTypes.MainWindow, popup: XULElement) {
+  const item = win.document.createXULElement("menuitem");
+  item.setAttribute(
+    "label",
+    getMenuLabel("menu-workflows-open-online-docs", "Open Online Docs"),
+  );
+  item.addEventListener("command", () => {
+    void addon.hooks.onPrefsEvent("openOnlineDocs", { window: win });
+  });
+  popup.appendChild(item);
+}
+
 function appendMenuSeparator(win: _ZoteroTypes.MainWindow, popup: XULElement) {
   const separator = win.document.createXULElement("menuseparator");
   popup.appendChild(separator);
@@ -259,6 +283,10 @@ export async function rebuildWorkflowActionPopup(
   }
   if (includeSkillRunnerSidebarItem) {
     appendAssistantSidebarItem(win, popup);
+  }
+  if (includeWorkspaceItem || includeSkillRunnerSidebarItem) {
+    appendHelpItem(win, popup);
+    appendOnlineDocsItem(win, popup);
   }
   if (includeWorkspaceItem || includeSkillRunnerSidebarItem) {
     appendMenuSeparator(win, popup);

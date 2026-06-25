@@ -3476,20 +3476,28 @@ describe("gui: workflow context menu", function () {
       includeTaskManagerItem: true,
     });
 
-    assert.equal(popup.children[2].tagName, "menuseparator");
-    assert.equal(popup.children[3].tagName, "menuitem");
+    const installItem = popup.children.find((entry) =>
+      /📦.*(Install Official Workflow Package|安装官方 Workflow 包|公式 Workflow パッケージ|Installer le package Workflow officiel)/.test(
+        entry.getAttribute("label") || "",
+      ),
+    );
+    assert.isOk(installItem);
+    const installIndex = popup.children.indexOf(installItem!);
+    assert.equal(popup.children[installIndex - 1].tagName, "menuseparator");
+    assert.equal(installItem!.tagName, "menuitem");
     assert.match(
-      popup.children[3].getAttribute("label") || "",
+      installItem!.getAttribute("label") || "",
       /📦.*(Install Official Workflow Package|安装官方 Workflow 包|公式 Workflow パッケージ|Installer le package Workflow officiel)/,
     );
-    assert.equal(popup.children[3].getAttribute("style"), "font-weight: 700;");
-    assert.equal(popup.children[4].tagName, "menuseparator");
-    assert.match(
-      popup.children[5].getAttribute("label") || "",
-      /^User Only Workflow/,
+    assert.equal(installItem!.getAttribute("style"), "font-weight: 700;");
+    assert.equal(popup.children[installIndex + 1].tagName, "menuseparator");
+    const workflowItem = popup.children.find((entry) =>
+      (entry.getAttribute("label") || "").startsWith("User Only Workflow"),
     );
+    assert.isOk(workflowItem);
+    assert.isAbove(popup.children.indexOf(workflowItem!), installIndex);
 
-    popup.children[3].dispatch("command");
+    installItem!.dispatch("command");
     await flushTasks();
     await flushTasks();
 
@@ -3515,19 +3523,20 @@ describe("gui: workflow context menu", function () {
       `${config.addonRef}-workflows-popup`,
     ) as FakeXULElement;
     popup.dispatch("popupshowing");
+    let workflowItem: FakeXULElement | undefined;
     for (let i = 0; i < 10; i++) {
       await flushTasks();
-      if (popup.children.length > 3) {
+      workflowItem = popup.children.find((entry) =>
+        (entry.getAttribute("label") || "").startsWith("Pass Through GUI"),
+      );
+      if (workflowItem) {
         break;
       }
     }
 
-    const workflowItem = popup.children.find((entry) =>
-      (entry.getAttribute("label") || "").startsWith("Pass Through GUI"),
-    );
     assert.isOk(workflowItem);
-    assert.equal(workflowItem.getAttribute("label"), "Pass Through GUI");
-    assert.equal(workflowItem.getAttribute("disabled"), null);
+    assert.equal(workflowItem!.getAttribute("label"), "Pass Through GUI");
+    assert.equal(workflowItem!.getAttribute("disabled"), null);
   });
 
   it("keeps workflow menu item enabled when persisted default backend is incompatible", async function () {

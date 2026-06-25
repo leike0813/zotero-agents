@@ -43,10 +43,12 @@ describe("bundled help center packaging", function () {
     assert.include(helpTab, "openOnlineDocs");
     assert.include(helpTab, "wrappedJSObject");
     assert.include(helpTab, "scheduleHelpCenterBridge");
+    assert.include(helpTab, "resolveWindowZoteroTabs");
     assert.include(hooks, 'case "openHelpCenter"');
     assert.include(hooks, 'case "openOnlineDocs"');
     assert.include(prefs, "open-help");
     assert.include(prefs, "open-online-docs");
+    assert.include(prefs, "bindXulButtonActivation");
     assert.include(workspace, 'action === "open-help"');
     assert.include(workspace, 'action === "open-online-docs"');
     assert.include(html, "ZoteroSkillsMarkdownRenderer.renderInto");

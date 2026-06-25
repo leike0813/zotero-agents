@@ -22,6 +22,26 @@ export async function registerPrefsScripts(window: Window) {
   bindPrefEvents();
 }
 
+function bindXulButtonActivation(
+  button: XUL.Button | null,
+  handler: () => void,
+) {
+  if (!button) {
+    return;
+  }
+  let lastActivation = 0;
+  const onActivate = () => {
+    const now = Date.now();
+    if (now - lastActivation < 100) {
+      return;
+    }
+    lastActivation = now;
+    handler();
+  };
+  button.addEventListener("command", onActivate);
+  button.addEventListener("click", onActivate);
+}
+
 function bindPrefEvents() {
   const doc = addon.data.prefs?.window.document;
   if (!doc) {
@@ -2628,21 +2648,17 @@ function bindPrefEvents() {
     });
   }
 
-  if (openHelpButton) {
-    openHelpButton.addEventListener("command", () => {
-      void addon.hooks.onPrefsEvent("openHelpCenter", {
-        window: addon.data.prefs?.window,
-      });
+  bindXulButtonActivation(openHelpButton, () => {
+    void addon.hooks.onPrefsEvent("openHelpCenter", {
+      window: addon.data.prefs?.window,
     });
-  }
+  });
 
-  if (openOnlineDocsButton) {
-    openOnlineDocsButton.addEventListener("command", () => {
-      void addon.hooks.onPrefsEvent("openOnlineDocs", {
-        window: addon.data.prefs?.window,
-      });
+  bindXulButtonActivation(openOnlineDocsButton, () => {
+    void addon.hooks.onPrefsEvent("openOnlineDocs", {
+      window: addon.data.prefs?.window,
     });
-  }
+  });
 
   if (hostBridgeSecurityToggle) {
     hostBridgeSecurityToggle.addEventListener("command", () => {

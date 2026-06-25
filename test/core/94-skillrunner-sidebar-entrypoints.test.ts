@@ -28,6 +28,10 @@ describe("skillrunner sidebar entrypoints", function () {
 
     assert.include(workflowMenu, "menu-workflows-open-assistant-sidebar");
     assert.include(workflowMenu, 'onPrefsEvent("openSkillRunnerSidebar"');
+    assert.include(workflowMenu, "menu-workflows-open-help");
+    assert.include(workflowMenu, "menu-workflows-open-online-docs");
+    assert.include(workflowMenu, 'onPrefsEvent("openHelpCenter"');
+    assert.include(workflowMenu, 'onPrefsEvent("openOnlineDocs"');
     assert.include(hooks, "openAssistantWorkspaceSidebar");
     assert.include(hooks, 'case "openSkillRunnerSidebar":');
     assert.include(hooks, 'tab: "skillrunner"');
@@ -57,6 +61,10 @@ describe("skillrunner sidebar entrypoints", function () {
     assert.include(zh, "task-dashboard-sidebar-skillrunner = Skill-Runner");
     assert.include(en, "menu-workflows-open-assistant-sidebar = Open Sidebar");
     assert.include(zh, "menu-workflows-open-assistant-sidebar = 打开侧边栏");
+    assert.include(en, "menu-workflows-open-help = Open Help");
+    assert.include(zh, "menu-workflows-open-help = 打开帮助");
+    assert.include(en, "menu-workflows-open-online-docs = Open Online Docs");
+    assert.include(zh, "menu-workflows-open-online-docs = 打开在线文档");
   });
 
   it("keeps the current child pages behind the unified Assistant workspace", async function () {

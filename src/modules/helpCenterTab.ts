@@ -44,18 +44,24 @@ const HELP_CENTER_BRIDGE_MAX_ATTEMPTS = 30;
 
 let helpCenterRuntime: HelpCenterRuntime | undefined;
 
+function resolveWindowZoteroTabs(win: _ZoteroTypes.MainWindow | undefined) {
+  return (win as unknown as { Zotero_Tabs?: ZoteroTabs } | undefined)
+    ?.Zotero_Tabs;
+}
+
 function resolveHostWindow(argsWindow?: _ZoteroTypes.MainWindow) {
-  return (
-    argsWindow ||
-    ((globalThis as any).Zotero?.getMainWindow?.() as
-      | _ZoteroTypes.MainWindow
-      | undefined)
-  );
+  const argsWindowTabs = resolveWindowZoteroTabs(argsWindow);
+  if (argsWindow?.document && argsWindowTabs?.add && argsWindowTabs.select) {
+    return argsWindow;
+  }
+  return (globalThis as any).Zotero?.getMainWindow?.() as
+    | _ZoteroTypes.MainWindow
+    | undefined;
 }
 
 function resolveZoteroTabs(win: _ZoteroTypes.MainWindow | undefined) {
   return (
-    (win as unknown as { Zotero_Tabs?: ZoteroTabs } | undefined)?.Zotero_Tabs ||
+    resolveWindowZoteroTabs(win) ||
     ((globalThis as any).Zotero_Tabs as ZoteroTabs | undefined)
   );
 }

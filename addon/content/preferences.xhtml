@@ -82,6 +82,9 @@
     .zs-user-content-dir-input { flex: 1 1 360px; min-width: 320px; }
     .zs-content-package-channel { min-width: 140px; } .zs-content-package-status
     { font-size: 12px; color: #334155; }
+    .zs-pref-about-actions { display: flex; gap: 8px; justify-content: center; }
+    .zs-pref-about-button { min-width: 120px; text-align: center;
+    -moz-box-pack: center; justify-content: center; }
   </html:style>
   <vbox class="zs-pref-root">
     <vbox class="zs-pref-card">
@@ -685,13 +688,15 @@
         >https://github.com/leike0813/zotero-agents</html:a
       >
     </hbox>
-    <hbox align="center">
+    <hbox align="center" class="zs-pref-about-actions">
       <button
         id="zotero-prefpane-__addonRef__-open-help"
+        class="zs-pref-about-button"
         data-l10n-id="pref-about-help"
       ></button>
       <button
         id="zotero-prefpane-__addonRef__-open-online-docs"
+        class="zs-pref-about-button"
         data-l10n-id="pref-about-online-docs"
       ></button>
     </hbox>
