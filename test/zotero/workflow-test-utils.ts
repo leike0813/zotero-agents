@@ -162,10 +162,7 @@ function getRuntimeZoteroTempDir() {
 }
 
 function getRuntimeRelativeTempFallback(tempDir: string) {
-  const runtime = globalThis as {
-    Zotero?: { isWin?: boolean };
-  };
-  return runtime.Zotero?.isWin === false ? joinPath("/", tempDir) : tempDir;
+  return getPathSeparator() === "/" ? joinPath("/", tempDir) : tempDir;
 }
 
 function resolveRuntimeTempDir(tempDir: string) {
