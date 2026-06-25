@@ -1656,11 +1656,8 @@
         }
         setFieldError("");
         if (validation.remove) {
-          changed = Object.prototype.hasOwnProperty.call(
-            args.values,
-            args.entry.key,
-          );
-          delete args.values[args.entry.key];
+          changed = args.values[args.entry.key] !== null;
+          args.values[args.entry.key] = null;
         } else {
           changed = args.values[args.entry.key] !== validation.value;
           args.values[args.entry.key] = validation.value;

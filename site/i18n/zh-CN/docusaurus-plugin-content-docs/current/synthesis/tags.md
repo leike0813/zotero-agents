@@ -32,6 +32,8 @@ Tag Vocabulary（受控标签词表）是一个规范化的标签体系，用于
 - **导入 JSON**：从 JSON 文件导入标签词表（支持预览后再确认）
 - **导出 JSON**：将当前词表导出为 JSON 文件
 
+![Synthesis Tags 页面](/img/docs/synthesis/tags.png)
+
 标签状态：
 - `active`：活动中
 - `deprecated`：已弃用（有替代标签）

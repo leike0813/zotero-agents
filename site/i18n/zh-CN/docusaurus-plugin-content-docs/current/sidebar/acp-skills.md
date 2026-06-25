@@ -6,6 +6,8 @@ ACP Skills Tab 用于监控和管理通过 ACP 后端执行的技能运行（Ski
 
 ACP Skills 面板分为以下几个主要区域：
 
+![ACP Skills 面板](/img/docs/sidebar/acp-skills.png)
+
 ```
 ┌─────────────────────────────────────┐
 │  Banner：任务标题 / 状态 / backend   │

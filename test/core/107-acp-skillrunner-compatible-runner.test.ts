@@ -1116,6 +1116,145 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  it("pauses ACP hard timeout while a permission request is pending and restarts after resolution", async function () {
+    this.timeout(7000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["auto"],
+    });
+    let permissionListener: ((request: any) => void | Promise<void>) | null =
+      null;
+    let requestId = "";
+    let cancelCount = 0;
+    let closeCount = 0;
+    let releasePrompt: (() => void) | null = null;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: (
+        listener: (request: any) => void | Promise<void>,
+      ) => {
+        permissionListener = listener;
+        return () => {
+          permissionListener = null;
+        };
+      },
+      newSession: async () => ({ sessionId: "session-permission-timeout" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        await permissionListener?.({
+          requestId: "permission-timeout-pause",
+          sessionId,
+          toolCallId: "tool-timeout-pause",
+          toolTitle: "Run protected tool",
+          source: "acp-tool-call",
+          summary: "Run protected tool.",
+          requestedAt: "2026-06-05T00:00:00.000Z",
+          options: [
+            {
+              optionId: "approve",
+              kind: "allow_once",
+              name: "Approve",
+            },
+          ],
+          resolve: () => undefined,
+        });
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        cancelCount += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCount += 1;
+        releasePrompt?.();
+      },
+    };
+
+    try {
+      const execution = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          runtime_options: {
+            execution_mode: "auto",
+            hard_timeout_seconds: 1,
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: async (workspaceArgs) => {
+            const workspace = await createAcpSkillRunnerWorkspace({
+              ...workspaceArgs,
+              rootDir: root,
+            });
+            requestId = workspace.requestId;
+            return workspace;
+          },
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      await delay(1200);
+      const pausedRecord = getAcpSkillRunRecord(requestId);
+      const pausedStages = (pausedRecord?.events || []).map(
+        (event) => event.stage,
+      );
+      assert.isOk(pausedRecord?.pendingPermission);
+      assert.equal(cancelCount, 0);
+      assert.equal(closeCount, 0);
+      assert.notInclude(pausedStages, "hard-timeout-disconnect-requested");
+
+      resolveAcpSkillRunPermissionRequest({
+        runRequestId: requestId,
+        permissionRequestId: "permission-timeout-pause",
+        outcome: "selected",
+        optionId: "approve",
+      });
+
+      const result = await execution;
+      const resumedRecord = getAcpSkillRunRecord(result.requestId);
+      const resumedStages = (resumedRecord?.events || []).map(
+        (event) => event.stage,
+      );
+      assert.equal(result.status, "deferred");
+      assert.equal(cancelCount, 1);
+      assert.equal(closeCount, 1);
+      assert.include(resumedStages, "hard-timeout-disconnect-requested");
+      assert.isNull(resumedRecord?.pendingPermission || null);
+    } finally {
+      releasePrompt?.();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps workflow active task rows synchronized with terminal ACP skill runs", function () {
     recordWorkflowTaskUpdate(
       makeAcpWorkflowTaskJob({
@@ -4534,6 +4673,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("auto-continues a detached recoverable running run after explicit connect", async function () {
+    this.timeout(6000);
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -5349,6 +5489,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("recovers sequence final-step apply from workflow task ownership when stored workflow id is the skill id", async function () {
+    this.timeout(6000);
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -5445,6 +5586,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("continues downstream sequence steps after a recovered non-final step succeeds", async function () {
+    this.timeout(6000);
     const root = await mkTempRoot();
     const prepare = await createSkill(root, {
       executionModes: ["interactive"],

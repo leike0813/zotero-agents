@@ -15,9 +15,13 @@ Zotero Agents 的设置位于 **Zotero → 设置 → Zotero Agents**（Windows/
 - **路径**：自定义 Skill 包存放目录
 - **扫描**：点击按钮扫描目录加载 Skills
 
+![Workflow 设置页面](/img/docs/preferences_workflow.png)
+
 ### 内建 Workflow 目录
 
 内建 Workflow 存放在 `<Zotero Data>/zotero-agents/data/workflows_builtin`。
+
+![官方 Workflow 包内容](/img/docs/preferences_official-workflow-contents.png)
 
 ### 运行时设置
 
@@ -36,6 +40,8 @@ Zotero Agents 的设置位于 **Zotero → 设置 → Zotero Agents**（Windows/
 | **端口号** | number | 固定端口值（默认 26570） |
 | **LAN IP** | string | 手动指定通告 IP（留空自动探测） |
 
+![Host Bridge 设置页面](/img/docs/preferences_host-bridge.png)
+
 操作按钮：
 
 - **启动/显示端点**：启动服务并显示端点 URL
@@ -44,6 +50,8 @@ Zotero Agents 的设置位于 **Zotero → 设置 → Zotero Agents**（Windows/
 - **复制 Master Token**：复制到剪贴板
 - **复制远程 CLI Profile**：获取远程连接配置
 - **安装 CLI**：一键安装 `zotero-bridge`
+
+![Host Bridge 危险操作区展开状态](/img/docs/preferences_host-bridge_expand.png)
 
 ## SkillRunner Local Backend
 
@@ -59,6 +67,8 @@ Zotero Agents 的设置位于 **Zotero → 设置 → Zotero Agents**（Windows/
 | **打开技能文件夹** | 打开技能文件的存放目录 |
 | **刷新模型缓存** | 更新后端的模型列表缓存 |
 | **打开调试控制台** | 查看后端日志输出 |
+
+![SkillRunner Local Backend 设置页面](/img/docs/preferences_skillrunner-local-backend.png)
 
 ## Backend Manager
 
@@ -84,6 +94,8 @@ Synthesis Workbench 的跨设备同步方案，替代已弃用的 Git Sync。详
 
 操作按钮：Save Settings、Save Credential、Test Connection。
 
+![WebDAV Sync 设置页面](/img/docs/preferences_WebDAV-sync.png)
+
 ## Runtime Data
 
 展示持久化根目录、运行时用量和完整性诊断：
@@ -94,6 +106,8 @@ Synthesis Workbench 的跨设备同步方案，替代已弃用的 Git Sync。详
 - **诊断面板**：检测文件系统问题（如 WAL 文件未清理）
 
 注意：Synthesis Canonical Store 和状态数据库仅诊断，不在此处清理。
+
+![Runtime Data 与持久化管理页面](/img/docs/preferences_storage-and-persistence.png)
 
 ## 其他通用选项
 

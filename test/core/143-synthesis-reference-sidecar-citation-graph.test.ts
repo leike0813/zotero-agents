@@ -16,6 +16,7 @@ import {
   readSynthesisJobProfilerSnapshotForTests,
   resetSynthesisJobProfilerForTests,
 } from "../../src/modules/synthesis/jobProfiler";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-sidecar-cache-"));
@@ -1080,43 +1081,48 @@ describe("Synthesis sidecar cache hard cut", function () {
   it("profiles reference sidecar and citation graph rebuild phases", async function () {
     const root = await makeRuntimeRoot();
     resetSynthesisJobProfilerForTests(root);
-    const { service } = makeService({
-      root,
-      registryInputs: null,
-      citationGraphPapers: [
-        {
-          libraryId: 1,
-          itemKey: "AAA",
-          title: "Attention Paper",
-          references: [{ title: "Detection Transformer" }],
-        },
-      ],
-    });
+    setDebugModeOverrideForTests(true);
+    try {
+      const { service } = makeService({
+        root,
+        registryInputs: null,
+        citationGraphPapers: [
+          {
+            libraryId: 1,
+            itemKey: "AAA",
+            title: "Attention Paper",
+            references: [{ title: "Detection Transformer" }],
+          },
+        ],
+      });
 
-    await service.refreshReferenceSidecarNow();
-    await service.rebuildCitationGraphCacheNow();
+      await service.refreshReferenceSidecarNow();
+      await service.rebuildCitationGraphCacheNow();
 
-    const snapshot = await readSynthesisJobProfilerSnapshotForTests(root);
-    const runNames = snapshot.runs.map((run) => run.job_name);
-    assert.include(runNames, "synthesis:reference-sidecar");
-    assert.include(runNames, "synthesis:citation-graph-cache");
+      const snapshot = await readSynthesisJobProfilerSnapshotForTests(root);
+      const runNames = snapshot.runs.map((run) => run.job_name);
+      assert.include(runNames, "synthesis:reference-sidecar");
+      assert.include(runNames, "synthesis:citation-graph-cache");
 
-    const graphRun = snapshot.runs.find(
-      (run) => run.job_name === "synthesis:citation-graph-cache",
-    );
-    assert.equal(graphRun?.status, "completed");
-    assert.includeMembers(
-      snapshot.phases
-        .filter((phase) => phase.run_id === graphRun?.run_id)
-        .map((phase) => phase.phase_name),
-      [
-        "load_sidecar_inputs",
-        "load_source_metadata",
-        "build_graph_records",
-        "replace_graph_cache",
-        "hash_and_commit",
-      ],
-    );
+      const graphRun = snapshot.runs.find(
+        (run) => run.job_name === "synthesis:citation-graph-cache",
+      );
+      assert.equal(graphRun?.status, "completed");
+      assert.includeMembers(
+        snapshot.phases
+          .filter((phase) => phase.run_id === graphRun?.run_id)
+          .map((phase) => phase.phase_name),
+        [
+          "load_sidecar_inputs",
+          "load_source_metadata",
+          "build_graph_records",
+          "replace_graph_cache",
+          "hash_and_commit",
+        ],
+      );
+    } finally {
+      setDebugModeOverrideForTests();
+    }
   });
 
   it("does not surface stale failed sidecar operations after a ready cache basis", async function () {

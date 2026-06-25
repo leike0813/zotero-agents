@@ -185,6 +185,7 @@ describe("workflow settings dialog model", function () {
       port: 23124,
       enabled: true,
       engine: "openai",
+      emptyValue: "",
     });
   });
 

@@ -43,6 +43,34 @@ describe("workflow settings domain", function () {
     assert.equal(merged.providerOptions?.model, "");
   });
 
+  it("treats null and undefined option overrides as explicit clears", function () {
+    const base: WorkflowExecutionOptions = {
+      workflowParams: {
+        language: "zh-CN",
+        keep: "base",
+      },
+      providerOptions: {
+        hard_timeout_seconds: 5,
+        model: "gemini-2.5-flash",
+      },
+    };
+    const override: WorkflowExecutionOptions = {
+      workflowParams: {
+        language: null,
+      },
+      providerOptions: {
+        hard_timeout_seconds: null,
+        model: undefined,
+      },
+    };
+
+    const merged = mergeExecutionOptions(base, override);
+    assert.notProperty(merged.workflowParams, "language");
+    assert.equal(merged.workflowParams?.keep, "base");
+    assert.notProperty(merged.providerOptions, "hard_timeout_seconds");
+    assert.notProperty(merged.providerOptions, "model");
+  });
+
   it("keeps persisted normalization workflow-agnostic in domain layer", function () {
     const previous: WorkflowExecutionOptions = {
       workflowParams: {

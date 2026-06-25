@@ -1,10 +1,16 @@
 :root {
   color-scheme: light dark;
   --zs-theme-mode: system;
-  --zs-font-sans: "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  --zs-font-mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --zs-font-sans:
+    "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --zs-font-mono:
+    "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --zs-bg: var(--material-background, #f4f7fb);
-  --zs-bg-gradient: linear-gradient(180deg, var(--material-background, #f8fafd) 0%, var(--material-background, #eef3fa) 100%);
+  --zs-bg-gradient: linear-gradient(
+    180deg,
+    var(--material-background, #f8fafd) 0%,
+    var(--material-background, #eef3fa) 100%
+  );
   --zs-panel: var(--material-background, #ffffff);
   --zs-panel-alt: var(--material-background, #f7fafc);
   --zs-panel-raised: var(--material-background, #ffffff);
@@ -54,7 +60,11 @@
   color-scheme: dark;
   --zs-theme-mode: dark;
   --zs-bg: var(--material-background, #111827);
-  --zs-bg-gradient: linear-gradient(180deg, var(--material-background, #111827) 0%, var(--material-background, #0f172a) 100%);
+  --zs-bg-gradient: linear-gradient(
+    180deg,
+    var(--material-background, #111827) 0%,
+    var(--material-background, #0f172a) 100%
+  );
   --zs-panel: var(--material-background, #1f2937);
   --zs-panel-alt: var(--material-background, #17212f);
   --zs-panel-raised: var(--material-background, #263244);
@@ -96,7 +106,11 @@
     color-scheme: dark;
     --zs-theme-mode: dark;
     --zs-bg: var(--material-background, #111827);
-    --zs-bg-gradient: linear-gradient(180deg, var(--material-background, #111827) 0%, var(--material-background, #0f172a) 100%);
+    --zs-bg-gradient: linear-gradient(
+      180deg,
+      var(--material-background, #111827) 0%,
+      var(--material-background, #0f172a) 100%
+    );
     --zs-panel: var(--material-background, #1f2937);
     --zs-panel-alt: var(--material-background, #17212f);
     --zs-panel-raised: var(--material-background, #263244);

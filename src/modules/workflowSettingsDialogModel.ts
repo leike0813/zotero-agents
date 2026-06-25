@@ -244,6 +244,11 @@ export function collectSchemaValues(container: HTMLElement) {
 
     const raw = getElementValue(control);
     if (!raw) {
+      if (type === "number") {
+        result[key] = null;
+      } else if (type === "string") {
+        result[key] = "";
+      }
       continue;
     }
     if (type === "number") {

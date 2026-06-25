@@ -2,6 +2,8 @@
 
 Review 表面是集中处理 Synthesis 系统中各类待审核事项的地方。包含三个子标签页：**引用匹配**、**概念** 和 **主题图**。
 
+![Synthesis Review 审核中心](/img/docs/synthesis/review.png)
+
 ## 引用匹配审核
 
 当系统自动匹配参考文献与 Zotero 条目时，无法确定性判定的匹配会作为提案进入审核队列。

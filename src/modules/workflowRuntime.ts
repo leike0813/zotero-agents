@@ -627,6 +627,7 @@ export async function rescanWorkflowRegistry(args?: { workflowsDir?: string }) {
     devLocalWorkflowsDir,
   });
   const skillRegistry = await scanPluginSkillRegistry({
+    devLocalRoot: await getDevLocalSkillDir(),
     userRoot: getEffectiveSkillDirForWorkflowDir(workflowsDir),
   });
   const effectiveSkillIds = new Set(

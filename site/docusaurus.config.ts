@@ -19,8 +19,9 @@ const config: Config = {
   onBrokenLinks: "throw",
 
   clientModules: [
-  "./src/clientModules/localePersistence",
-],
+    "./src/clientModules/localePersistence",
+    "./src/clientModules/imageCaptions",
+  ],
 
   i18n: {
     defaultLocale: "en",

@@ -2,6 +2,8 @@
 
 Home 是打开 Synthesis Workbench 时首先看到的页面。它提供了文献库的综合概览、同步状态以及热门主题入口。
 
+![Synthesis Home 仪表板](/img/docs/synthesis/home.png)
+
 ## 库洞察卡片
 
 页面顶部显示一系列统计卡片，展示当前 Synthesis 系统的运行状态：

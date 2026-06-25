@@ -14,10 +14,11 @@
 - preferences_workflow.png: 插件设置页面——Workflow选项
 - preferences_official-workflow-contents.png: 插件设置页面——官方Workflow包
 - preferences_host-bridge.png: 插件设置页面——Host Bridge选项
-- preferences_host-bridge——expand.png: 插件设置页面——Host Bridge选项（展开危险操作区）
+- preferences_host-bridge_expand.png: 插件设置页面——Host Bridge选项（展开危险操作区）
 - preferences_storage-and-persistence.png: 插件设置页面——存储与持久化管理
 - preferences_WebDAV-sync.png: 插件设置页面——WebDAV同步选项
 - preferences_skillrunner-local-backend.png: 插件设置页面——本地SkillRunner后端管理
+- markdown-reader.png: 内建Markdown阅读器页面
 - docs:
   * backends:
     - backend-manager_ACP.png: 后端管理器——ACP后端页面
@@ -47,6 +48,7 @@
     - topic-synthesis_compare.png: `主题综合`产物（`比较`页面）
     - topic-synthesis_future-directions.png: `主题综合`产物（`未来方向`页面）
     - topic-synthesis_coverage.png: `主题综合`产物（`覆盖`页面）
+    - topic-synthesis_references.png: `主题综合`产物（`参考文献`页面）
     - topic-synthesis_report.png: `主题综合`产物（`报告`页面）
     - topic-synthesis_subgraph.png: `主题综合`产物（跳转查看当前主题的文献子图）
     - literature-analysis_digest.png: `文献分析`产物——文献摘要Note

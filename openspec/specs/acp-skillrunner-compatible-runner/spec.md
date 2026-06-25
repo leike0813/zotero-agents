@@ -219,6 +219,17 @@ and MUST NOT mark the run as `failed` or `canceled`.
 - **AND** a later user reply SHALL start a fresh hard timeout window for the
   next agent turn.
 
+#### Scenario: Permission waiting pauses timeout monitoring
+
+- **GIVEN** an ACP skill run has an active prompt turn
+- **WHEN** the ACP backend requests user permission
+- **THEN** hard timeout monitoring SHALL be paused while the permission request
+  is pending
+- **AND** resolving, cancelling, or auto-approving the permission request SHALL
+  restart a fresh hard timeout window for the still active agent turn
+- **AND** this SHALL NOT introduce a new run status or change the remote ACP
+  session lifecycle.
+
 #### Scenario: Recovered session reapplies timeout monitoring
 
 - **GIVEN** an ACP skill run is reconnected through session recovery

@@ -37,6 +37,8 @@
 - **搜索**：按名称搜索概念
 - **视图切换**：紧凑/舒适密度
 
+![Synthesis Concepts 页面](/img/docs/synthesis/concepts.png)
+
 ### 概念详情
 
 选中一个概念后，可以查看和编辑：

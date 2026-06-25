@@ -13,6 +13,7 @@ import { resetWorkflowHostApiForTests } from "../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
+import { getPref, setPref } from "../../src/utils/prefs";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import { createLocalizedMessageFormatter } from "../../src/modules/workflowExecution/messageFormatter";
 import { runWorkflowPreparationSeam } from "../../src/modules/workflowExecution/preparationSeam";
@@ -43,7 +44,7 @@ import {
 } from "../../src/modules/acpSkillRunStore";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { createZipFromNamedFiles } from "../../src/providers/skillrunner/zipTransport";
-import { workflowsPath } from "./workflow-test-utils";
+import { joinPath, workflowsPath } from "./workflow-test-utils";
 
 const SINGLE_RESULT_WORKFLOW_ID = "debug-apply-single-result";
 const SINGLE_BUNDLE_WORKFLOW_ID = "debug-apply-single-bundle";
@@ -595,15 +596,18 @@ function seedRequestReadySkillRunnerRun(requestId: string) {
 describe("workflow single-result behavior integration", function () {
   this.timeout(10000);
   let previousContentDevRootEnv: string | undefined;
+  let previousSkillDirPref = "";
 
   beforeEach(async function () {
     const processEnv = (
       globalThis as { process?: { env?: Record<string, string | undefined> } }
     ).process?.env;
     previousContentDevRootEnv = processEnv?.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+    previousSkillDirPref = String(getPref("skillDir") || "");
     if (processEnv) {
       processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = process.cwd();
     }
+    setPref("skillDir", joinPath(process.cwd(), "skills_builtin"));
     clearRuntimeLogs();
     resetWorkflowTasks();
     resetTaskDashboardHistory();
@@ -633,6 +637,7 @@ describe("workflow single-result behavior integration", function () {
     resetAcpSkillRunsForTests();
     resetPluginStateStoreForTests();
     resetWorkflowHostApiForTests();
+    setPref("skillDir", previousSkillDirPref);
     setDebugModeOverrideForTests();
   });
 

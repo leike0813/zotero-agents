@@ -1524,17 +1524,17 @@ describe("acp ui smoke", function () {
       sharedPanelCss,
       ".assistant-transcript.plain-mode .assistant-transcript-row.is-tool",
     );
-    assert.include(
+    assert.match(
       sharedPanelCss,
-      ".assistant-transcript.plain-mode .assistant-transcript-row.is-workspace-activity",
+      /\.assistant-transcript\.plain-mode\s+\.assistant-transcript-row\.is-workspace-activity/,
     );
-    assert.include(
+    assert.match(
       sharedPanelCss,
-      ".assistant-transcript.plain-mode .assistant-transcript-row.is-tool .assistant-transcript-meta",
+      /\.assistant-transcript\.plain-mode\s+\.assistant-transcript-row\.is-tool\s+\.assistant-transcript-meta/,
     );
-    assert.include(
+    assert.match(
       sharedPanelCss,
-      ".assistant-transcript.plain-mode .assistant-transcript-row.is-workspace-activity .assistant-transcript-meta",
+      /\.assistant-transcript\.plain-mode\s+\.assistant-transcript-row\.is-workspace-activity\s+\.assistant-transcript-meta/,
     );
     assert.include(sharedPanelCss, "border-left-width: 0;");
     assert.include(sharedPanelCss, "display: none;");
@@ -1777,21 +1777,21 @@ describe("acp ui smoke", function () {
       assistantPanelRendererJs,
       "function isAssistantPlanWorking(panel)",
     );
-    assert.include(
+    assert.match(
       assistantPanelRendererJs,
-      'container.setAttribute("data-assistant-plan-working"',
+      /container\.setAttribute\(\s*"data-assistant-plan-working"/,
     );
-    assert.include(
+    assert.match(
       assistantPanelRendererJs,
-      'toneClass === "is-running" && planWorking',
+      /toneClass === "is-running" && planWorking/,
     );
-    assert.include(
+    assert.match(
       sharedPanelCss,
-      '.assistant-panel-plan[data-assistant-plan-working="false"] .assistant-panel-plan-spinner',
+      /\.assistant-panel-plan\[data-assistant-plan-working="false"\]\s+\.assistant-panel-plan-spinner/,
     );
-    assert.include(
+    assert.match(
       assistantPanelRendererJs,
-      'toneClass === "is-completed" ? "✓" : "•"',
+      /toneClass === "is-completed"\s*\?\s*"✓"\s*:\s*"•"/,
     );
     assert.include(assistantPanelRendererJs, "renderAssistantHint");
     assert.include(
@@ -1875,9 +1875,9 @@ describe("acp ui smoke", function () {
       "payload[payloadKey] = select.value",
     );
     assert.include(assistantPanelRendererJs, "managedRegions");
-    assert.include(
+    assert.match(
       assistantPanelRendererJs,
-      'markRegion(regions.conversation, "assistant-panel-conversation", "conversation",',
+      /markRegion\(\s*regions\.conversation,\s*"assistant-panel-conversation",\s*"conversation",/,
     );
     assert.include(assistantPanelRendererJs, "managed: false");
     assert.include(
@@ -1922,7 +1922,7 @@ describe("acp ui smoke", function () {
     assert.include(sharedPanelCss, ".assistant-panel-usage-gauge");
     assert.include(sharedPanelCss, ".assistant-panel-usage-ring");
     assert.include(sharedPanelCss, ".assistant-panel-usage-label");
-    assert.include(sharedPanelCss, "radial-gradient(circle at center");
+    assert.match(sharedPanelCss, /radial-gradient\(\s*circle at center/);
     assert.include(
       sharedPanelCss,
       ".assistant-panel-usage-gauge.is-unavailable",
@@ -1989,21 +1989,21 @@ describe("acp ui smoke", function () {
       assistantPanelRendererJs,
       'return String(rounded).replace(/\\.0$/, "") + "k";',
     );
-    assert.include(
+    assert.match(
       assistantPanelRendererJs,
-      "source.used || source.totalTokens",
+      /source\.used \|\|\s*source\.totalTokens/,
     );
-    assert.include(
+    assert.match(
       assistantPanelRendererJs,
-      "source.size || source.contextWindow",
+      /source\.size \|\|\s*source\.contextWindow/,
     );
-    assert.include(
+    assert.match(
       assistantPanelRendererJs,
-      'const centerLabel = unavailable ? labelOf(panel, "usage.unavailable", "N/A")',
+      /const centerLabel = unavailable\s*\?\s*labelOf\(panel, "usage\.unavailable", "N\/A"\)/,
     );
-    assert.include(
+    assert.match(
       assistantPanelRendererJs,
-      'ring.appendChild(el("span", "assistant-panel-usage-label", centerLabel));',
+      /ring\.appendChild\(\s*el\("span", "assistant-panel-usage-label", centerLabel\),?\s*\);/,
     );
     assert.include(
       assistantPanelRendererJs,
@@ -3911,9 +3911,9 @@ describe("acp ui smoke", function () {
       "data-assistant-workspace-drawer-signature",
     );
     assert.include(assistantPanelRendererJs, "data-assistant-task-key");
-    assert.include(
+    assert.match(
       assistantPanelRendererJs,
-      'safeText(panel.drawers && panel.drawers.layout) === "workspace-task-drawer"',
+      /safeText\(panel\.drawers && panel\.drawers\.layout\)\s*===\s*"workspace-task-drawer"/,
     );
     assert.include(sharedPanelCss, ".assistant-panel-context-entry.is-group");
     assert.include(sharedPanelCss, ".assistant-panel-context-entry.is-active");

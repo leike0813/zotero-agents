@@ -50,27 +50,12 @@ npm run build
 - 有新版本时弹出更新确认对话框
 - 更新后自动重新加载 Workflow 列表
 
-### 官方 Workflow 包仓库
-
-- GitHub：[leike0813/zotero-agents-workflows](https://github.com/leike0813/zotero-agents-workflows)
-- Gitee 镜像：[leike0813/zotero-agents-workflows](https://gitee.com/leike0813/zotero-agents-workflows)
-
-## 安装 Skill-Runner 后端
-
-技能由 Skill-Runner 后端执行。您可以使用：
-
-- **本地 Skill-Runner** — 在您自己的机器上运行，需要 Python 3.10+
-- **远程 Skill-Runner** — 连接到共享或云托管的实例
-
-### 快速安装（本地）
-
-请参考 [Skill-Runner 仓库](https://github.com/leike0813/skill-runner) 中的说明来搭建本地后端。
+官方 Workflow 包仓库：[GitHub](https://github.com/leike0813/zotero-agents-workflows) · [Gitee 镜像](https://gitee.com/leike0813/zotero-agents-workflows)
 
 ## 验证安装
 
-安装完成后：
-
 1. 重启 Zotero
-2. 您应该能在 Zotero 工具栏中看到新的 **Zotero Agents** 区域
-3. 打开 **工具 → [后端管理器](backends/backend-manager)** 来配置后端连接
-4. 在对话框中切换 Tab 查看可用的 provider 类型（ACP / SkillRunner / Generic HTTP）
+2. 在 Zotero 工具栏中应该能看到 **Zotero Agents** 图标
+3. 右键任意条目，菜单中应出现 **Zotero Agents** 子菜单（内含可用的 Workflow）
+
+如果右键菜单中只有一个 **📦 安装官方 Workflow 包** 选项，说明官方包尚未安装——按照上方的指引安装即可。安装成功后，前往 [快速开始](/getting-started) 配置后端并运行你的第一个 Workflow。

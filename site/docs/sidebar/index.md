@@ -10,6 +10,10 @@
 - **菜单**：**工具 → 打开侧边栏**
 - **Dashboard 操作**：在 Dashboard 中点击"打开/关闭侧边栏"
 
+![侧边栏工具栏按钮](/img/icon_sidebar.png)
+
+![侧边栏待回复提示状态](/img/icon_sidebar_glow.png)
+
 ## 架构说明
 
 侧边栏采用 **iframe 架构**：三个 Tab 各自加载独立的 HTML 页面作为子 iframe，通过 postMessage 与插件主进程通信。这种设计确保 Tab 之间互不干扰，每个面板有独立的渲染上下文。

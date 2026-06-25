@@ -59,6 +59,8 @@
 - 内容：对话历史记录（HTML 格式）
 - 更新策略：每次执行会创建新的对话 note（而非覆盖）
 
+![文献解释器学习笔记](/img/docs/workflows/literature-explainer_note.png)
+
 ## 参数
 
 | 参数 | 类型 | 说明 | 默认值 |

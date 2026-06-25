@@ -673,23 +673,14 @@ function createAcpHardTimeoutMonitor(args: {
   let timeoutPromise: Promise<"timeout"> | null = null;
   let resolveTimeout: (() => void) | null = null;
   let triggered = false;
+  let paused = false;
 
-  const clear = () => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
+  const armTimer = () => {
+    if (timer || paused || triggered || !timeoutPromise) {
+      return;
     }
-    timeoutPromise = null;
-    resolveTimeout = null;
-    triggered = false;
-  };
-
-  const start = () => {
-    clear();
-    timeoutPromise = new Promise<"timeout">((resolve) => {
-      resolveTimeout = () => resolve("timeout");
-    });
     timer = setTimeout(() => {
+      timer = null;
       if (triggered) {
         return;
       }
@@ -718,6 +709,44 @@ function createAcpHardTimeoutMonitor(args: {
           resolve?.();
         });
     }, args.seconds * 1000);
+  };
+
+  const clear = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    timeoutPromise = null;
+    resolveTimeout = null;
+    triggered = false;
+    paused = false;
+  };
+
+  const start = () => {
+    clear();
+    timeoutPromise = new Promise<"timeout">((resolve) => {
+      resolveTimeout = () => resolve("timeout");
+    });
+    armTimer();
+  };
+
+  const pause = () => {
+    if (!timeoutPromise || triggered) {
+      return;
+    }
+    paused = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const resume = () => {
+    if (!timeoutPromise || triggered) {
+      return;
+    }
+    paused = false;
+    armTimer();
   };
 
   const race = async <T>(
@@ -749,6 +778,8 @@ function createAcpHardTimeoutMonitor(args: {
   return {
     start,
     clear,
+    pause,
+    resume,
     race,
     isTriggered: () => triggered,
   };
@@ -979,6 +1010,35 @@ function handleAcpSkillRunPermissionRequest(args: {
     outcome: "selected",
     optionId,
   });
+}
+
+function wrapAcpSkillRunPermissionRequestForTimeoutPause(args: {
+  request: PermissionRequestWithResolver;
+  pause: (requestId: string) => void;
+  resume: (requestId: string) => void;
+}) {
+  const permissionRequestId = normalizeString(args.request.requestId);
+  if (!permissionRequestId) {
+    return args.request;
+  }
+  args.pause(permissionRequestId);
+  let resolved = false;
+  return {
+    ...args.request,
+    resolve: (
+      outcome: Parameters<PermissionRequestWithResolver["resolve"]>[0],
+    ) => {
+      try {
+        args.request.resolve(outcome);
+      } finally {
+        if (resolved) {
+          return;
+        }
+        resolved = true;
+        args.resume(permissionRequestId);
+      }
+    },
+  };
 }
 
 function rememberAcpSkillRunRuntimeOptions(args: {
@@ -2080,6 +2140,7 @@ export async function recoverAcpSkillRunConversation(args: {
   let recoveredHardTimeoutMonitor: ReturnType<
     typeof createAcpHardTimeoutMonitor
   > | null = null;
+  const pendingPermissionPauseIds = new Set<string>();
   const detach = async (
     state: "closed" | "ended" | "error" = "closed",
     error?: string,
@@ -2619,9 +2680,22 @@ export async function recoverAcpSkillRunConversation(args: {
     }
   };
   unsubscribePermission = adapter.onPermissionRequest((request) => {
+    const wrappedRequest = wrapAcpSkillRunPermissionRequestForTimeoutPause({
+      request,
+      pause: (permissionRequestId) => {
+        pendingPermissionPauseIds.add(permissionRequestId);
+        recoveredHardTimeoutMonitor?.pause();
+      },
+      resume: (permissionRequestId) => {
+        pendingPermissionPauseIds.delete(permissionRequestId);
+        if (pendingPermissionPauseIds.size === 0) {
+          recoveredHardTimeoutMonitor?.resume();
+        }
+      },
+    });
     handleAcpSkillRunPermissionRequest({
       requestId,
-      request,
+      request: wrappedRequest,
       runtimeOptions: recoveredRuntimeOptions,
     });
   });
@@ -3281,6 +3355,7 @@ export async function executeAcpSkillRunnerJob(args: {
   let hardTimeoutMonitor: ReturnType<
     typeof createAcpHardTimeoutMonitor
   > | null = null;
+  const pendingPermissionPauseIds = new Set<string>();
   let autoHardTimeoutStarted = false;
   let activePromptTimeoutDrain: Promise<unknown> | null = null;
   const cleanupLiveSession = async (options?: {
@@ -3779,9 +3854,22 @@ export async function executeAcpSkillRunnerJob(args: {
       true,
   });
   unsubscribePermission = adapter.onPermissionRequest((request) => {
+    const wrappedRequest = wrapAcpSkillRunPermissionRequestForTimeoutPause({
+      request,
+      pause: (permissionRequestId) => {
+        pendingPermissionPauseIds.add(permissionRequestId);
+        hardTimeoutMonitor?.pause();
+      },
+      resume: (permissionRequestId) => {
+        pendingPermissionPauseIds.delete(permissionRequestId);
+        if (pendingPermissionPauseIds.size === 0) {
+          hardTimeoutMonitor?.resume();
+        }
+      },
+    });
     handleAcpSkillRunPermissionRequest({
       requestId: workspace.requestId,
-      request,
+      request: wrappedRequest,
       runtimeOptions: frozenRuntimeOptions,
     });
   });

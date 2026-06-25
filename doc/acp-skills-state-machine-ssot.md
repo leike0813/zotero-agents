@@ -277,6 +277,11 @@ new state axis.
 - Auto execution uses one continuous prompt execution window. Interactive
   execution uses one window per agent turn; entering `waiting_user` clears the
   timer, and a later user reply starts a fresh window.
+- Pending ACP permission requests pause the local hard timeout guard for both
+  auto and interactive runs. Approval, denial, cancellation, or auto-approval
+  resumes timeout monitoring with a fresh full timeout window for the still
+  active agent turn. This does not change `status`, `pendingPermission`, the
+  remote session, or the permission UI protocol.
 - Recovered sessions recompute effective timeout options and apply the same
   prompt-ready/per-turn timing rules.
 - On expiry, the runner records `hard-timeout-disconnect-requested`, attempts

@@ -1,23 +1,137 @@
-/**
- * CSS files with the .module.css suffix will be treated as CSS modules
- * and scoped locally.
- */
-
-.heroBanner {
-  padding: 4rem 0;
-  text-align: center;
-  position: relative;
+.home {
   overflow: hidden;
 }
 
-@media screen and (max-width: 996px) {
-  .heroBanner {
-    padding: 2rem;
-  }
+.hero {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 5rem 1.5rem 2.5rem;
+}
+
+.heroCopy {
+  max-width: 900px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  color: var(--ifm-color-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  margin: 0;
+  color: var(--ifm-heading-color);
+  font-size: clamp(3rem, 8vw, 5.8rem);
+  line-height: 0.98;
+}
+
+.tagline {
+  max-width: 760px;
+  margin: 1.3rem auto 0;
+  color: var(--ifm-color-emphasis-800);
+  font-size: clamp(1.35rem, 3vw, 2rem);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.intro {
+  max-width: 820px;
+  margin: 1.25rem auto 0;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 1.08rem;
+  line-height: 1.85;
 }
 
 .buttons {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.pillars {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 1.5rem 2rem;
+}
+
+.pillar {
+  min-height: 11rem;
+  border: 1px solid color-mix(in srgb, var(--ifm-color-emphasis-300), transparent 58%);
+  border-radius: 0.75rem;
+  padding: 1.15rem;
+  background: color-mix(in srgb, var(--ifm-background-surface-color), transparent 8%);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 7%);
+}
+
+.pillar h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.02rem;
+  line-height: 1.35;
+}
+
+.pillar p {
+  margin: 0;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+.cta {
+  max-width: 920px;
+  margin: 2rem auto 5rem;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+}
+
+.cta h2 {
+  max-width: 760px;
+  margin: 0 auto;
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  line-height: 1.15;
+}
+
+.cta p {
+  max-width: 720px;
+  margin: 1rem auto 0;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 1.05rem;
+  line-height: 1.8;
+}
+
+@media screen and (max-width: 996px) {
+  .hero {
+    padding-top: 3.75rem;
+  }
+
+  .pillars {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media screen and (max-width: 640px) {
+  .hero {
+    padding-top: 3rem;
+  }
+
+  .pillars {
+    grid-template-columns: 1fr;
+  }
+
+  .pillar {
+    min-height: auto;
+  }
+
+  .buttons {
+    flex-direction: column;
+  }
 }

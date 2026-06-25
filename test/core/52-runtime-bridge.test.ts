@@ -94,28 +94,34 @@ describe("runtime bridge", function () {
   });
 
   it("prefers the most complete Zotero candidate by shape", function () {
-    const previousZotero = (globalThis as Record<string, unknown>).Zotero;
+    const runtime = globalThis as Record<string, unknown>;
+    const previousZotero = Object.getOwnPropertyDescriptor(runtime, "Zotero");
+    const zoteroCandidate = {
+      Items: {
+        get() {
+          return null;
+        },
+      },
+      Prefs: {
+        get() {
+          return "";
+        },
+        set() {
+          return undefined;
+        },
+      },
+      File: {
+        pathToFile(path: string) {
+          return path;
+        },
+      },
+    };
     try {
-      (globalThis as Record<string, unknown>).Zotero = {
-        Items: {
-          get() {
-            return null;
-          },
-        },
-        Prefs: {
-          get() {
-            return "";
-          },
-          set() {
-            return undefined;
-          },
-        },
-        File: {
-          pathToFile(path: string) {
-            return path;
-          },
-        },
-      };
+      Object.defineProperty(runtime, "Zotero", {
+        configurable: true,
+        writable: true,
+        value: zoteroCandidate,
+      });
       installRuntimeBridgeOverrideForTests({
         zotero: {
           File: {
@@ -130,9 +136,13 @@ describe("runtime bridge", function () {
       assert.equal(details.source, "global-var");
       assert.equal(details.shape.hasItems, true);
       assert.equal(details.shape.hasPrefs, true);
-      assert.strictEqual(resolveRuntimeZotero(), (globalThis as any).Zotero);
+      assert.strictEqual(resolveRuntimeZotero(), zoteroCandidate);
     } finally {
-      (globalThis as Record<string, unknown>).Zotero = previousZotero;
+      if (previousZotero) {
+        Object.defineProperty(runtime, "Zotero", previousZotero);
+      } else {
+        delete runtime.Zotero;
+      }
     }
   });
 

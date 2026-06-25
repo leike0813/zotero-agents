@@ -2,6 +2,8 @@
 
 Synthesis Workbench（综合工作台）是 Zotero Agents 提供的深度文献分析平台。它将您的文献库转化为结构化的知识网络，支持主题综合、引文分析、概念管理和受控词表管理。
 
+![Synthesis Workbench 首页](/img/docs/synthesis/home.png)
+
 ## 打开方式
 
 1. 通过 **工具栏按钮** 或 **菜单** 打开 Dashboard / Synthesis Workspace

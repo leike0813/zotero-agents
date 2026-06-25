@@ -29,6 +29,7 @@ import {
   listRuntimeLogs,
 } from "../../src/modules/runtimeLogManager";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
   attachSkillRunnerRequestId,
   createSkillRunnerRun,
@@ -50,9 +51,12 @@ import {
   initializeSequenceRunState,
   recordSequenceStepRequestCreated,
 } from "../../src/modules/workflowExecution/sequenceStateStore";
-import { setPref } from "../../src/utils/prefs";
+import { getPref, setPref } from "../../src/utils/prefs";
 import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
-import { workflowsPath } from "../workflow-literature-explainer/workflow-test-utils";
+import {
+  joinPath,
+  workflowsPath,
+} from "../workflow-literature-explainer/workflow-test-utils";
 
 const TEST_SKILLRUNNER_BACKEND_ID = "remote-skillrunner";
 const TEST_SKILLRUNNER_BASE_URL = "http://127.0.0.1:8031";
@@ -241,6 +245,8 @@ function installFetchRouter(
 function setupSkillRunnerTaskReconcilerSuite() {
   const originalFetch = (globalThis as { fetch?: typeof fetch }).fetch;
   const trackedReconcilers: SkillRunnerTaskReconciler[] = [];
+  let previousContentDevRootEnv: string | undefined;
+  let previousSkillDirPref = "";
 
   function createTrackedReconciler() {
     const reconciler = new SkillRunnerTaskReconciler();
@@ -249,6 +255,16 @@ function setupSkillRunnerTaskReconcilerSuite() {
   }
 
   beforeEach(async function () {
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    previousContentDevRootEnv = processEnv?.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+    previousSkillDirPref = String(getPref("skillDir") || "");
+    if (processEnv) {
+      processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = process.cwd();
+    }
+    setPref("skillDir", joinPath(process.cwd(), "skills_builtin"));
+    setDebugModeOverrideForTests(true);
     setPref(
       "backendsConfigJson",
       JSON.stringify({
@@ -293,6 +309,18 @@ function setupSkillRunnerTaskReconcilerSuite() {
     await resetSkillRunnerSessionSyncForTests();
     setSkillRunnerBackendReconcileFailureToastEmitterForTests();
     setSkillRunnerTaskLifecycleToastEmitterForTests();
+    setPref("skillDir", previousSkillDirPref);
+    setDebugModeOverrideForTests();
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    if (processEnv) {
+      if (previousContentDevRootEnv === undefined) {
+        delete processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+      } else {
+        processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = previousContentDevRootEnv;
+      }
+    }
   });
 
   return { createTrackedReconciler };

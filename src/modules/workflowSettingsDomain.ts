@@ -204,16 +204,34 @@ export function mergeExecutionOptions(
   return {
     backendId:
       String(override?.backendId || base?.backendId || "").trim() || undefined,
-    workflowParams: {
-      ...(base?.workflowParams || {}),
-      ...(override?.workflowParams || {}),
-    },
-    providerOptions: {
-      ...(base?.providerOptions || {}),
-      ...(override?.providerOptions || {}),
-    },
+    workflowParams: mergeOptionRecord(
+      base?.workflowParams,
+      override?.workflowParams,
+    ),
+    providerOptions: mergeOptionRecord(
+      base?.providerOptions,
+      override?.providerOptions,
+    ),
     runOptions: normalizeWorkflowRunOptions(override?.runOptions),
   };
+}
+
+function mergeOptionRecord(
+  base: Record<string, unknown> | undefined,
+  override: Record<string, unknown> | undefined,
+) {
+  const merged: Record<string, unknown> = { ...(base || {}) };
+  if (!isObject(override)) {
+    return merged;
+  }
+  for (const [key, value] of Object.entries(override)) {
+    if (value === null || typeof value === "undefined") {
+      delete merged[key];
+      continue;
+    }
+    merged[key] = value;
+  }
+  return merged;
 }
 
 export function normalizeSavedWorkflowSettings(args: {

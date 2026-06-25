@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import { getSelectedImportCandidateForKind } from "../../workflows_builtin/literature-workbench-package/import-notes/hooks/applyResult.mjs";
 import { handlers } from "../../src/handlers";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { installWorkflowEditorSessionOverrideForTests } from "../../src/modules/workflowEditorHost";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
@@ -248,8 +249,31 @@ const itZoteroFullOrNode =
 
 describe("workflow: literature-workbench import/export notes", function () {
   this.timeout(30000);
+  let previousContentDevRootEnv: string | undefined;
+
+  beforeEach(function () {
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    previousContentDevRootEnv = processEnv?.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+    if (processEnv) {
+      processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = process.cwd();
+    }
+    setDebugModeOverrideForTests(true);
+  });
 
   afterEach(function () {
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    if (processEnv) {
+      if (previousContentDevRootEnv === undefined) {
+        delete processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT;
+      } else {
+        processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = previousContentDevRootEnv;
+      }
+    }
+    setDebugModeOverrideForTests();
     installWorkflowEditorSessionOverrideForTests(null);
   });
 

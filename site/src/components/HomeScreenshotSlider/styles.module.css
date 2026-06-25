@@ -1,0 +1,229 @@
+.section {
+  padding: 4.5rem 0 3rem;
+}
+
+.header {
+  max-width: 1120px;
+  margin: 0 auto 1.5rem;
+  padding: 0 1.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.6rem;
+  color: var(--ifm-color-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.title {
+  max-width: 760px;
+  margin: 0;
+  color: var(--ifm-heading-color);
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  line-height: 1.12;
+}
+
+.subtitle {
+  max-width: 720px;
+  margin: 1rem 0 0;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 1.05rem;
+  line-height: 1.8;
+}
+
+.sliderShell {
+  position: relative;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.navButton {
+  position: absolute;
+  top: 45%;
+  z-index: 2;
+  width: 3rem;
+  height: 4.5rem;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--ifm-font-color-base), transparent 18%);
+  cursor: pointer;
+  font-size: 3.4rem;
+  line-height: 1;
+  transition:
+    transform 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease;
+}
+
+.navButtonPrev {
+  left: 0.2rem;
+}
+
+.navButtonNext {
+  right: 0.2rem;
+}
+
+.navButton:hover {
+  color: var(--ifm-color-primary);
+  transform: translateY(-50%) scale(1.08);
+}
+
+.navButton:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 0.25rem;
+}
+
+.track {
+  display: flex;
+  gap: 1.25rem;
+  overflow-x: auto;
+  padding: 1rem 4rem 2rem;
+  scroll-padding-inline: 4rem;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.track::-webkit-scrollbar {
+  display: none;
+}
+
+.card {
+  flex: 0 0 min(86vw, 900px);
+  scroll-snap-align: center;
+  border: 1px solid color-mix(in srgb, var(--ifm-color-emphasis-400), transparent 74%);
+  border-radius: 1.5rem;
+  padding: 0.8rem;
+  background: color-mix(in srgb, var(--ifm-background-surface-color), transparent 18%);
+  box-shadow:
+    0 26px 70px rgb(0 0 0 / 15%),
+    inset 0 1px 0 rgb(255 255 255 / 34%);
+  backdrop-filter: blur(22px);
+}
+
+.imageFrame {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--ifm-color-emphasis-300), transparent 60%);
+  border-radius: 1.05rem;
+  aspect-ratio: 16 / 9;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--ifm-background-color), white 6%),
+      color-mix(in srgb, var(--ifm-background-color), black 3%)
+    );
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.imageTriptych {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 0.55rem;
+  height: 100%;
+  padding: 0.55rem;
+}
+
+.imageTriptych img {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--ifm-color-emphasis-300), transparent 72%);
+  border-radius: 0.75rem;
+  object-fit: contain;
+  background: var(--ifm-background-color);
+}
+
+.caption {
+  padding: 1rem 0.35rem 0.25rem;
+  text-align: left;
+}
+
+.badge {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid color-mix(in srgb, var(--ifm-color-primary), transparent 72%);
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  background: color-mix(in srgb, var(--ifm-color-primary), transparent 92%);
+  color: var(--ifm-color-primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.caption h3 {
+  margin: 0.5rem 0 0.35rem;
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.caption p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--ifm-color-emphasis-700);
+  line-height: 1.7;
+}
+
+@media screen and (max-width: 996px) {
+  .section {
+    padding: 3.25rem 0 2rem;
+  }
+
+  .card {
+    flex-basis: 88vw;
+    border-radius: 1.25rem;
+    padding: 0.65rem;
+  }
+
+  .track {
+    padding-inline: 3.25rem;
+    scroll-padding-inline: 3.25rem;
+  }
+
+  .navButton {
+    width: 2.5rem;
+    font-size: 3rem;
+  }
+}
+
+@media screen and (max-width: 640px) {
+  .title {
+    font-size: 2rem;
+  }
+
+  .imageFrame {
+    aspect-ratio: 4 / 3;
+  }
+
+  .imageTriptych {
+    gap: 0.35rem;
+    padding: 0.35rem;
+  }
+
+  .track {
+    padding-inline: 2.5rem;
+    scroll-padding-inline: 2.5rem;
+  }
+
+  .navButton {
+    width: 2rem;
+    font-size: 2.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track {
+    scroll-behavior: auto;
+  }
+
+  .navButton {
+    transition: none;
+  }
+}

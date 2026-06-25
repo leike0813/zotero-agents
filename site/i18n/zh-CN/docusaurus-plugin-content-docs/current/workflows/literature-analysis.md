@@ -60,17 +60,23 @@
 - 内容：HTML 渲染的文献摘要，包含研究背景、方法、结果和结论
 - 更新策略：每次执行会更新同名 note（若已存在则覆盖）
 
+![文献分析摘要笔记](/img/docs/workflows/literature-analysis_digest.png)
+
 ### 2. 参考文献笔记（References Note）
 
 - 类型：`data-zs-note-kind="references"`
 - 内容：参考文献 HTML 表格（#、Year、Title、Authors、Source、Locator）
 - 更新策略：每次执行会更新同名 note
 
+![文献分析参考文献笔记](/img/docs/workflows/literature-analysis_references.png)
+
 ### 3. 引文分析笔记（Citation Analysis Note）
 
 - 类型：`data-zs-note-kind="citation-analysis"`
 - 内容：引文分析报告，包含引用上下文和引用意图分类
 - 更新策略：每次执行会更新同名 note
+
+![文献分析引文分析笔记](/img/docs/workflows/literature-analysis_citation-analysis.png)
 
 ## 参数
 

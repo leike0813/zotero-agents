@@ -454,6 +454,85 @@ describe("workflow scan + registry integration", function () {
     );
   });
 
+  it("keeps dev-local skills available when workflow dependency filtering runs", async function () {
+    const root = await mkTempDir("workflow-dev-local-skills");
+    const devRoot = joinPath(root, "dev-source");
+    const devWorkflows = joinPath(devRoot, "workflows_builtin");
+    const devSkills = joinPath(devRoot, "skills_builtin");
+    const userWorkflows = joinPath(root, "user-workflows");
+    const workflowId = "dev-local-skillrunner-workflow";
+    const skillId = "dev-local-debug-skill";
+
+    await writeUtf8(
+      joinPath(devWorkflows, workflowId, "workflow.json"),
+      `${JSON.stringify(
+        {
+          id: workflowId,
+          label: "Dev Local Skillrunner Workflow",
+          provider: "skillrunner",
+          debug_only: true,
+          request: {
+            kind: "skillrunner.job.v1",
+            create: {
+              skill_id: skillId,
+              mode: "auto",
+            },
+          },
+          hooks: { applyResult: "hooks/applyResult.js" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await writeUtf8(
+      joinPath(devWorkflows, workflowId, "hooks", "applyResult.js"),
+      "export async function applyResult(){ return { ok: true }; }\n",
+    );
+    await writeUtf8(
+      joinPath(devSkills, skillId, "SKILL.md"),
+      ["---", `name: ${skillId}`, "---", "", `# ${skillId}`, ""].join("\n"),
+    );
+    await writeUtf8(
+      joinPath(devSkills, skillId, "assets", "output.schema.json"),
+      `${JSON.stringify({ type: "object" }, null, 2)}\n`,
+    );
+    await writeUtf8(
+      joinPath(devSkills, skillId, "assets", "runner.json"),
+      `${JSON.stringify(
+        {
+          id: skillId,
+          debug_only: true,
+          execution_modes: ["auto"],
+          schemas: { output: "assets/output.schema.json" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const processEnv = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env;
+    if (processEnv) {
+      processEnv.ZOTERO_AGENTS_CONTENT_DEV_ROOT = devRoot;
+    }
+
+    setDebugModeOverrideForTests(true);
+    const state = await rescanWorkflowRegistry({
+      workflowsDir: userWorkflows,
+    });
+
+    assert.equal(state.devLocalWorkflowsDir, devWorkflows);
+    assert.equal(state.workflowSourceById[workflowId], "dev-local");
+    assert.isFalse(
+      (state.loaded.diagnostics || []).some(
+        (entry) =>
+          entry.category === "skill_dependency_missing" &&
+          entry.workflowId === workflowId,
+      ),
+    );
+  });
+
   it("scans default dev-local content root when env root is not set", async function () {
     const devWorkflows = joinPath(
       getRuntimePersistencePaths().root,

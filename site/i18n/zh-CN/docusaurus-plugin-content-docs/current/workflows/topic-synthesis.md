@@ -61,6 +61,24 @@
 - **Coverage**：文献覆盖度分析
 - **Report**：综合分析报告
 
+![主题综合概览页面](/img/docs/workflows/topic-synthesis_overview.png)
+
+![主题综合分类页面](/img/docs/workflows/topic-synthesis_taxonomy.png)
+
+![主题综合论点页面](/img/docs/workflows/topic-synthesis_claims.png)
+
+![主题综合比较页面](/img/docs/workflows/topic-synthesis_compare.png)
+
+![主题综合未来方向页面](/img/docs/workflows/topic-synthesis_future-directions.png)
+
+![主题综合覆盖页面](/img/docs/workflows/topic-synthesis_coverage.png)
+
+![主题综合报告页面](/img/docs/workflows/topic-synthesis_report.png)
+
+![主题综合参考文献页面](/img/docs/workflows/topic-synthesis_references.png)
+
+![主题综合文献子图](/img/docs/workflows/topic-synthesis_subgraph.png)
+
 ## 参数
 
 | 参数 | 类型 | 说明 | 默认值 |

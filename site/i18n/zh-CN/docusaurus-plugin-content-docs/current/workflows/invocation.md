@@ -2,6 +2,8 @@
 
 ## 调用方式
 
+![执行 Workflow 工具栏按钮](/img/icon_play.png)
+
 ### 通过右键菜单
 
 1. 在 Zotero 条目列表中选中一个或多个条目

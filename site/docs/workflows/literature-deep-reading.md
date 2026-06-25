@@ -73,6 +73,14 @@
 - **内容**：包含原文结构、章节说明、概念分析、参考文献、双语翻译等完整精读视图
 - **生命周期**：每次执行覆盖更新
 
+![深度阅读开篇导读](/img/docs/workflows/literature-deep-reading_1.png)
+
+![深度阅读双语动态阅读](/img/docs/workflows/literature-deep-reading_2.png)
+
+![深度阅读参考文献摘要阅读](/img/docs/workflows/literature-deep-reading_3.png)
+
+![深度阅读参考文献 2 跳子图](/img/docs/workflows/literature-deep-reading_4.png)
+
 ## 参数
 
 | 参数 | 类型 | 说明 | 默认值 |

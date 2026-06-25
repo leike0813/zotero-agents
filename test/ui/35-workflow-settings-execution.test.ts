@@ -300,6 +300,73 @@ describe("workflow settings execution", function () {
   );
 
   itNodeOnly(
+    "treats a blank run-once job timeout as clearing the saved timeout override",
+    async function () {
+      updateWorkflowSettings("literature-explainer", {
+        backendId: "skillrunner-alt",
+        providerOptions: {
+          engine: "gemini",
+          hard_timeout_seconds: 5,
+        },
+      });
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-explainer",
+      );
+      assert.isOk(workflow);
+
+      const saved = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.equal(saved.providerOptions.hard_timeout_seconds, 5);
+
+      const cleared = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+        executionOptionsOverride: {
+          providerOptions: {
+            hard_timeout_seconds: null,
+          },
+        },
+      });
+      assert.notProperty(cleared.providerOptions, "hard_timeout_seconds");
+    },
+  );
+
+  itNodeOnly(
+    "clears a persisted job timeout when the settings payload sends an explicit blank",
+    async function () {
+      updateWorkflowSettings("literature-explainer", {
+        backendId: "skillrunner-alt",
+        providerOptions: {
+          engine: "gemini",
+          hard_timeout_seconds: 5,
+        },
+      });
+      updateWorkflowSettings("literature-explainer", {
+        providerOptions: {
+          hard_timeout_seconds: null,
+        },
+      });
+
+      const snapshot =
+        await resetRunOnceOverridesForSettingsOpen("literature-explainer");
+      assert.notProperty(snapshot.providerOptions, "hard_timeout_seconds");
+
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-explainer",
+      );
+      assert.isOk(workflow);
+
+      const context = await resolveWorkflowExecutionContext({
+        workflow: workflow!,
+      });
+      assert.notProperty(context.providerOptions, "hard_timeout_seconds");
+    },
+  );
+
+  itNodeOnly(
     "keeps interactive auto reply only when the feature switch is enabled",
     async function () {
       setSkillRunnerInteractiveAutoReplyEnabledForTests(true);

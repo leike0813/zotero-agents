@@ -24,7 +24,7 @@ Docker 部署的 Skill Runner 独立于 Zotero 运行，支持多用户共享、
 
 仅适合**完全不了解如何安装配置 Agent 工具、也不会使用 Docker** 的用户。一键部署会随插件自动启停——关闭 Zotero 即终止所有任务，无法后台执行。如果你具备安装 Agent 或 Docker 的能力，请优先选择上述两种方案。
 
-→ [Skill-Runner 部署与配置：托管本地模式](./skill-runner#托管本地模式推荐)
+→ [Skill-Runner 部署与配置](./skill-runner)
 
 ### Generic HTTP
 

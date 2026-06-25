@@ -599,16 +599,12 @@ export function updateWorkflowSettings(
     merged,
     incoming: next,
   });
-  const workflow = resolveLoadedWorkflowById(normalizedWorkflowId);
   record[normalizedWorkflowId] = {
     ...normalized,
     runOptions: undefined,
-    providerOptions: constrainSkillRunnerProviderOptionsByMode({
-      workflow,
-      options: isObject(normalized.providerOptions)
-        ? normalized.providerOptions
-        : {},
-    }),
+    providerOptions: isObject(normalized.providerOptions)
+      ? { ...normalized.providerOptions }
+      : {},
   };
   writeSettingsRecord(record);
 }

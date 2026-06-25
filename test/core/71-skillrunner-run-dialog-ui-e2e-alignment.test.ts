@@ -130,17 +130,17 @@ describe("skillrunner run dialog managed ui alignment", function () {
       rendererJs,
       'sectionId === "completed" ? " is-completed" : " is-running"',
     );
-    assert.include(
+    assert.match(
       rendererJs,
-      'toggle.setAttribute("aria-expanded", sectionCollapsed ? "false" : "true")',
+      /toggle\.setAttribute\(\s*"aria-expanded",\s*sectionCollapsed\s*\?\s*"false"\s*:\s*"true",?\s*\)/,
     );
     assert.include(
       rendererJs,
       'emit(options, "toggle-drawer-section", { sectionId: "completed" })',
     );
-    assert.include(
+    assert.match(
       rendererJs,
-      'emit(options, item.action || "select-task", item.payload || { taskKey })',
+      /emit\(\s*options,\s*item\.action \|\| "select-task",\s*item\.payload \|\| \{ taskKey \},?\s*\)/,
     );
     assert.include(rendererJs, 'emit(options, "close-context-drawer", {})');
     assert.include(rendererJs, 'emit(options, "auth-import-run"');
@@ -272,9 +272,9 @@ describe("skillrunner run dialog managed ui alignment", function () {
       js,
       "item.displayText || item.display_text || item.text || item.summary",
     );
-    assert.include(
+    assert.match(
       thinkingCoreJs,
-      "const displayText = safeText(event && (event.displayText || event.display_text));",
+      /const displayText = safeText\(\s*event && \(event\.displayText \|\| event\.display_text\),?\s*\);/,
     );
     assert.include(
       thinkingCoreJs,

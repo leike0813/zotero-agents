@@ -15,6 +15,8 @@ ACP Chat 允许您与配置好的 ACP 后端进行对话，对话上下文来自
 
 ACP Chat 面板包含以下区域：
 
+![ACP Chat 面板](/img/docs/sidebar/acp-chat.png)
+
 ```
 ┌──────────────────────────────────────────┐
 │  Banner                                  │
