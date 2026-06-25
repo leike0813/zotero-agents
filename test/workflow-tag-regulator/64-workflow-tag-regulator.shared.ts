@@ -1208,9 +1208,6 @@ function registerTagRegulatorApplyIntakeSegment(
   itNodeOnly: typeof it,
   itZoteroFullOrNode: typeof it,
 ) {
-  const itSaveTxLoadProbe =
-    isZoteroRuntime() && isTagRegulatorSaveTxLoadProbeEnabled() ? it : it.skip;
-
   if (isTagRegulatorSaveTxLoadProbeEnabled() && isZoteroRuntime()) {
     after(async function () {
       await flushSaveTxLoadProbeReport();
@@ -1314,11 +1311,10 @@ function registerTagRegulatorApplyIntakeSegment(
     },
   );
 
-  for (const mode of ["create-only", "create-and-update"] as const) {
-    for (const count of [0, 20, 50, 100]) {
-      itSaveTxLoadProbe(
-        `diagnostic saveTx load probe mode=${mode} count=${count}`,
-        async function () {
+  if (isZoteroRuntime() && isTagRegulatorSaveTxLoadProbeEnabled()) {
+    for (const mode of ["create-only", "create-and-update"] as const) {
+      for (const count of [0, 20, 50, 100]) {
+        it(`diagnostic saveTx load probe mode=${mode} count=${count}`, async function () {
           this.timeout(120000);
           const title = `mode=${mode};count=${count};test=${this.test?.title || ""}`;
           const startedAt = new Date().toISOString();
@@ -1351,19 +1347,26 @@ function registerTagRegulatorApplyIntakeSegment(
             startedAt,
             finishedAt: new Date().toISOString(),
           });
-        },
-      );
+        });
+      }
     }
-  }
 
-  for (const probeCase of [
-    { mode: "create-only" as const, count: 100, idleEvery: 10, idleMs: 50 },
-    { mode: "create-and-update" as const, count: 20, idleEvery: 5, idleMs: 50 },
-    { mode: "create-and-update" as const, count: 50, idleEvery: 5, idleMs: 50 },
-  ]) {
-    itSaveTxLoadProbe(
-      `diagnostic saveTx idle control mode=${probeCase.mode} count=${probeCase.count} every=${probeCase.idleEvery} idleMs=${probeCase.idleMs}`,
-      async function () {
+    for (const probeCase of [
+      { mode: "create-only" as const, count: 100, idleEvery: 10, idleMs: 50 },
+      {
+        mode: "create-and-update" as const,
+        count: 20,
+        idleEvery: 5,
+        idleMs: 50,
+      },
+      {
+        mode: "create-and-update" as const,
+        count: 50,
+        idleEvery: 5,
+        idleMs: 50,
+      },
+    ]) {
+      it(`diagnostic saveTx idle control mode=${probeCase.mode} count=${probeCase.count} every=${probeCase.idleEvery} idleMs=${probeCase.idleMs}`, async function () {
         this.timeout(180000);
         const idlePolicy = `every-${probeCase.idleEvery}x${probeCase.idleMs}ms`;
         const title = `mode=${probeCase.mode};count=${probeCase.count};idle=${idlePolicy};test=${this.test?.title || ""}`;
@@ -1411,8 +1414,8 @@ function registerTagRegulatorApplyIntakeSegment(
           startedAt,
           finishedAt: new Date().toISOString(),
         });
-      },
-    );
+      });
+    }
   }
 
   itNodeOnly(

@@ -1,4 +1,5 @@
 import { appendRuntimeLog } from "../modules/runtimeLogManager";
+import { emitVerboseConsole } from "../modules/diagnosticVerbosity";
 import {
   normalizeStatusWithGuard,
   validateTransition,
@@ -625,12 +626,7 @@ export class JobQueueManager {
       Zotero?: { logError?: (err: unknown) => void };
     };
     try {
-      if (
-        typeof console !== "undefined" &&
-        typeof console.error === "function"
-      ) {
-        console.error(label, error);
-      }
+      emitVerboseConsole("error", label, error);
     } catch {
       // ignore logging failures
     }

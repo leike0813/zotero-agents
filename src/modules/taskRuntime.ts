@@ -752,6 +752,90 @@ function mergeSkillRunnerProjection(
   pruneStaleSkillRunnerLocalRows(records, projection, projection.id);
 }
 
+function syncExistingSkillRunnerProjection(
+  records: Map<string, WorkflowTaskRecord>,
+  projection: WorkflowTaskRecord,
+) {
+  const runKey = skillRunnerRunKeyProjectionKey(projection);
+  if (runKey) {
+    for (const [id, existing] of records.entries()) {
+      if (skillRunnerRunKeyProjectionKey(existing) !== runKey) {
+        continue;
+      }
+      applySkillRunnerProjectionMerge({
+        records,
+        id,
+        existing,
+        projection,
+        preserveRuntimeIds: false,
+      });
+      return true;
+    }
+  }
+  const projectionKey = skillRunnerRequestProjectionKey(projection);
+  if (projectionKey) {
+    for (const [id, existing] of records.entries()) {
+      if (skillRunnerRequestProjectionKey(existing) !== projectionKey) {
+        continue;
+      }
+      applySkillRunnerProjectionMerge({
+        records,
+        id,
+        existing,
+        projection,
+        preserveRuntimeIds: true,
+      });
+      return true;
+    }
+    for (const [id, existing] of records.entries()) {
+      if (
+        String(existing.requestId || "").trim() ||
+        !hasSharedSkillRunnerLocalIdentity(existing, projection)
+      ) {
+        continue;
+      }
+      applySkillRunnerProjectionMerge({
+        records,
+        id,
+        existing,
+        projection,
+        preserveRuntimeIds: true,
+      });
+      return true;
+    }
+  }
+  return false;
+}
+
+export function syncWorkflowTaskFromSkillRunnerProjection(
+  projection: WorkflowTaskRecord,
+) {
+  if (!isSkillRunnerWorkflowTaskRecord(projection)) {
+    return false;
+  }
+  const updatedExisting = syncExistingSkillRunnerProjection(
+    taskRecords,
+    projection,
+  );
+  if (!updatedExisting && !isActive(projection.state)) {
+    return false;
+  }
+  if (!updatedExisting) {
+    taskRecords.set(projection.id, projection);
+    syncTaskRecordActiveIndex(projection.id, projection);
+    pruneStaleSkillRunnerLocalRows(taskRecords, projection, projection.id);
+  }
+  persistTaskRecordsToStore();
+  emitTasksChanged({
+    taskId: projection.id,
+    requestId: projection.requestId,
+    backendId: projection.backendId,
+    state: projection.state,
+    reason: "record-updated",
+  });
+  return true;
+}
+
 export function recordWorkflowTaskUpdate(job: JobRecord) {
   const record = buildWorkflowTaskRecordFromJob(job);
   if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {

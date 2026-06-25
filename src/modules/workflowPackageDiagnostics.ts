@@ -1,4 +1,5 @@
 import { isDebugModeEnabled } from "./debugMode";
+import { isDiagnosticVerboseEnabled } from "./diagnosticVerbosity";
 import {
   appendRuntimeLog,
   setRuntimeLogAllowedLevels,
@@ -91,6 +92,9 @@ function emitToConsole(args: {
   payload: Record<string, unknown>;
   runtime?: DiagnosticRuntimeLike | null;
 }) {
+  if (!isDiagnosticVerboseEnabled()) {
+    return;
+  }
   const label = `[workflow-package-debug] ${args.message}`;
   const method = resolveConsoleMethod(args.level);
   if (method) {

@@ -19,6 +19,7 @@ import {
   getGuardedSqliteConnection,
   resetGuardedSqliteForTests,
 } from "./guardedSqlite";
+import { isDiagnosticVerboseEnabled } from "./diagnosticVerbosity";
 
 type SqlPrimitive = string | number | null;
 type SqlParams = Record<string, SqlPrimitive>;
@@ -195,6 +196,9 @@ function buildStorageExecutionError(args: {
 }
 
 function logInfo(message: string, payload?: unknown) {
+  if (!isDiagnosticVerboseEnabled()) {
+    return;
+  }
   const runtime = globalThis as {
     console?: {
       info?: (message?: unknown, ...optionalParams: unknown[]) => void;

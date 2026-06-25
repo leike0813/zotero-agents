@@ -30,7 +30,10 @@ import {
 import { isNonRecoverableSkillRunnerFailure } from "./skillRunnerRecoverableState";
 import { buildSkillRunnerRunRecordRequestPayload } from "./skillRunnerInteractiveAutoReply";
 import { isWaiting } from "./skillRunnerProviderStateMachine";
-import { type WorkflowTaskRecord } from "./taskRuntime";
+import {
+  syncWorkflowTaskFromSkillRunnerProjection,
+  type WorkflowTaskRecord,
+} from "./taskRuntime";
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 import {
   buildTempBundlePath,
@@ -252,7 +255,7 @@ function setRequestState(args: {
   source: string;
 }) {
   const updatedAt = nowIso();
-  updateSkillRunnerRunStateByRunKey({
+  const updated = updateSkillRunnerRunStateByRunKey({
     runKey: args.record.runKey,
     state: args.state,
     error: args.error,
@@ -268,6 +271,11 @@ function setRequestState(args: {
       state: args.state,
     },
   });
+  if (updated) {
+    syncWorkflowTaskFromSkillRunnerProjection(
+      projectSkillRunnerRun({ run: updated }),
+    );
+  }
 }
 
 async function createBundleReaderForRunResult(args: {

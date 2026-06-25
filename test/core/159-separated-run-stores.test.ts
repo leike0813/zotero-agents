@@ -23,6 +23,7 @@ import {
   recordWorkflowTaskUpdate,
   resetWorkflowTasks,
   subscribeWorkflowTaskChanges,
+  syncWorkflowTaskFromSkillRunnerProjection,
 } from "../../src/modules/taskRuntime";
 import {
   listTaskDashboardHistory,
@@ -36,6 +37,7 @@ import {
   listSkillRunnerRunProjectionSummaries,
   listSkillRunnerRunProjections,
   listSkillRunnerRunRecords,
+  projectSkillRunnerRun,
   recordSkillRunnerObserverFailure,
   recordSkillRunnerProgress,
   registerSkillRunnerSkillDisplaySnapshot,
@@ -782,6 +784,58 @@ describe("separated ACP and SkillRunner run stores", function () {
     assert.equal(task?.canOpenStream, false);
     assert.equal(task?.canCancelBackendRun, false);
     assert.equal(task?.canReply, false);
+  });
+
+  it("clears stale active task index after a targeted SkillRunner terminal projection sync", function () {
+    const run = createSkillRunnerRun({
+      backendId: "remote-skillrunner-active-sync",
+      workflowId: "workflow-debug-probe",
+      workflowRunId: "workflow-run-active-sync",
+      jobId: "job-1",
+      taskName: "debug-host-bridge-connectivity-probe",
+      skillId: "debug-host-bridge-connectivity-probe",
+      fetchType: "result",
+      executionMode: "interactive",
+      createdAt: "2026-06-18T00:00:00.000Z",
+      updatedAt: "2026-06-18T00:00:00.000Z",
+    });
+    assert.isOk(run);
+
+    const initialRows = listWorkflowTasks();
+    assert.equal(initialRows[0]?.runKey, run!.runKey);
+    assert.equal(initialRows[0]?.state, "queued");
+    assert.include(
+      listActiveWorkflowTaskSummaries().map((entry) => entry.runKey),
+      run!.runKey,
+    );
+
+    const updated = updateSkillRunnerRunStateByRunKey({
+      runKey: run!.runKey,
+      state: "succeeded",
+      backendStatus: "succeeded",
+      updatedAt: "2026-06-18T00:00:01.000Z",
+      eventType: "backend.terminal",
+    });
+    assert.isOk(updated);
+
+    assert.include(
+      listActiveWorkflowTaskSummaries().map((entry) => entry.runKey),
+      run!.runKey,
+    );
+
+    syncWorkflowTaskFromSkillRunnerProjection(
+      projectSkillRunnerRun({ run: updated! }),
+    );
+
+    assert.notInclude(
+      listActiveWorkflowTaskSummaries().map((entry) => entry.runKey),
+      run!.runKey,
+    );
+    assert.equal(
+      listWorkflowTasks().find((entry) => entry.runKey === run!.runKey)
+        ?.state,
+      "succeeded",
+    );
   });
 
   it("derives SkillRunner skillName from the persisted display registry snapshot", function () {

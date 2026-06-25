@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import path from "path";
 import { pathToFileURL } from "url";
+import { isTruthyDiagnosticFlag } from "../src/modules/diagnosticVerbosity";
 
 type Child = ReturnType<typeof spawn>;
 type SpawnOptions = Parameters<typeof spawn>[2];
@@ -10,6 +11,7 @@ type WrappedTestInvocation = {
   requestedMode: string;
   requestedDomain: string;
   targetTestArgs: string[];
+  verbose: boolean;
 };
 
 const MOCK_PORT = "8030";
@@ -51,6 +53,7 @@ export function parseWrappedTestInvocation(
     domainArg = undefined;
     targetTestArgs = cliArgs.slice(2);
   }
+  const verboseArgs = consumeWrapperVerboseArgs(targetTestArgs);
   const defaultMode = targetScript.startsWith("test:zotero")
     ? "lite"
     : normalizeTestMode(env.ZOTERO_TEST_MODE || "lite");
@@ -61,8 +64,23 @@ export function parseWrappedTestInvocation(
     targetScript,
     requestedMode: modeArg || env.ZOTERO_TEST_MODE || defaultMode,
     requestedDomain: domainArg || env.ZOTERO_TEST_DOMAIN || defaultDomain,
-    targetTestArgs,
+    targetTestArgs: verboseArgs.args,
+    verbose:
+      verboseArgs.verbose || isTruthyDiagnosticFlag(env.ZOTERO_TEST_VERBOSE),
   };
+}
+
+function consumeWrapperVerboseArgs(args: string[]) {
+  let verbose = false;
+  const forwarded: string[] = [];
+  for (const arg of args) {
+    if (arg === "--verbose" || arg === "-v") {
+      verbose = true;
+      continue;
+    }
+    forwarded.push(arg);
+  }
+  return { args: forwarded, verbose };
 }
 
 export function isZoteroTargetScript(targetScript: string) {
@@ -114,6 +132,11 @@ export function buildTestEnvironment(
     ZOTERO_TEST_MODE: testMode,
     ZOTERO_TEST_DOMAIN: testDomain,
   };
+  if (invocation.verbose) {
+    nextEnv.ZOTERO_TEST_VERBOSE = "1";
+  } else {
+    delete nextEnv.ZOTERO_TEST_VERBOSE;
+  }
   if (workflowDir) {
     nextEnv.ZOTERO_TEST_WORKFLOW_DIR = workflowDir;
   } else {

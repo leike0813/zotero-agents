@@ -4,8 +4,11 @@ import os from "os";
 import path from "path";
 import {
   buildForwardedTestArgs,
+  buildTestEnvironment,
   parseWrappedTestInvocation,
 } from "../../../scripts/run-zotero-test-with-mock";
+import { setDiagnosticVerboseOverrideForTests } from "../../../src/modules/diagnosticVerbosity";
+import { createZToolkit } from "../../../src/utils/ztoolkit";
 import {
   patchGeneratedZoteroTestRunner,
   patchZoteroTestRunnerHtml,
@@ -139,6 +142,77 @@ describe("zotero test infrastructure helpers", function () {
       assert.equal(invocation.requestedMode, "lite");
       assert.equal(invocation.requestedDomain, "workflow");
       assert.deepEqual(invocation.targetTestArgs, ["--watch"]);
+      assert.isFalse(invocation.verbose);
+    });
+
+    it("consumes wrapper verbose flags into the test environment", function () {
+      const invocation = parseWrappedTestInvocation(
+        ["test:node:raw:core", "lite", "core", "--verbose", "--grep", "demo"],
+        {},
+      );
+      const env = buildTestEnvironment(invocation, {});
+
+      assert.isTrue(invocation.verbose);
+      assert.deepEqual(invocation.targetTestArgs, ["--grep", "demo"]);
+      assert.equal(env.ZOTERO_TEST_VERBOSE, "1");
+      assert.isFalse(
+        buildForwardedTestArgs(
+          invocation.targetScript,
+          invocation.targetTestArgs,
+        ).includes("--verbose"),
+      );
+    });
+  });
+
+  describe("toolkit diagnostics", function () {
+    it("suppresses third-party patch traces unless verbose diagnostics are enabled", function () {
+      const originalGroup = console.group;
+      const originalGroupCollapsed = console.groupCollapsed;
+      const originalGroupEnd = console.groupEnd;
+      const originalTrace = console.trace;
+      const runtime = globalThis as {
+        Zotero?: { Utilities?: { randomString?: () => string } };
+      };
+      const originalUtilities = runtime.Zotero?.Utilities;
+      let groupCalls = 0;
+      let traceCalls = 0;
+      console.group = (() => {
+        groupCalls += 1;
+      }) as typeof console.group;
+      console.groupCollapsed = (() => {
+        groupCalls += 1;
+      }) as typeof console.groupCollapsed;
+      console.groupEnd = (() => undefined) as typeof console.groupEnd;
+      console.trace = (() => {
+        traceCalls += 1;
+      }) as typeof console.trace;
+      setDiagnosticVerboseOverrideForTests(false);
+      if (runtime.Zotero) {
+        runtime.Zotero.Utilities = {
+          ...runtime.Zotero.Utilities,
+          randomString: () => "mock-random-string",
+        };
+      }
+      try {
+        try {
+          createZToolkit();
+        } catch {
+          // The node mock does not implement every window-manager API that the
+          // full toolkit initializes; this test only covers constructor logging.
+        }
+      } finally {
+        setDiagnosticVerboseOverrideForTests();
+        if (runtime.Zotero) {
+          runtime.Zotero.Utilities = originalUtilities;
+        }
+        console.group = originalGroup;
+        console.groupCollapsed = originalGroupCollapsed;
+        console.groupEnd = originalGroupEnd;
+        console.trace = originalTrace;
+      }
+
+      assert.equal(groupCalls, 0);
+      assert.equal(traceCalls, 0);
     });
   });
 

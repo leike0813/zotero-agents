@@ -20,6 +20,7 @@ import { buildSkillRunnerManagementUiUrl } from "./skillRunnerManagementDialog";
 import { openZoteroSkillsWorkspaceTab } from "./workspaceTab";
 import type { BackendInstance } from "../backends/types";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
+import { emitVerboseConsole } from "./diagnosticVerbosity";
 import {
   generateBackendInternalId,
   isManagedLocalBackendId,
@@ -1977,8 +1978,9 @@ function triggerSilentModelCacheRefreshForAddedSkillRunnerBackends(args: {
     void args
       .refreshModelCache({ backend })
       .then((result) => {
-        if (!result?.ok && typeof console !== "undefined") {
-          console.warn(
+        if (!result?.ok) {
+          emitVerboseConsole(
+            "warn",
             `[backend-manager] silent model cache refresh failed for backend=${backend.id}: ${String(
               result?.error || "unknown error",
             )}`,
@@ -1986,11 +1988,10 @@ function triggerSilentModelCacheRefreshForAddedSkillRunnerBackends(args: {
         }
       })
       .catch((error) => {
-        if (typeof console !== "undefined") {
-          console.warn(
-            `[backend-manager] silent model cache refresh threw for backend=${backend.id}: ${String(error)}`,
-          );
-        }
+        emitVerboseConsole(
+          "warn",
+          `[backend-manager] silent model cache refresh threw for backend=${backend.id}: ${String(error)}`,
+        );
       });
   }
 }

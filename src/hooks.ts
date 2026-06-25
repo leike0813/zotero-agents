@@ -63,6 +63,7 @@ import { loadBackendsRegistry } from "./backends/registry";
 import { refreshSkillRunnerModelCacheForBackend } from "./providers/skillrunner/modelCache";
 import { MANAGED_LOCAL_BACKEND_ID } from "./modules/skillRunnerLocalRuntimeConstants";
 import { isDebugModeEnabled } from "./modules/debugMode";
+import { emitVerboseConsole } from "./modules/diagnosticVerbosity";
 import { untrackSkillRunnerBackendHealth } from "./modules/skillRunnerBackendHealthRegistry";
 import {
   startSkillRunnerBackendReachabilityCoordinator,
@@ -508,9 +509,7 @@ async function onStartup() {
   startHostBridgeSupervisor();
   if (getPref("mcpServer.enabled") !== false) {
     void ensureZoteroMcpServer().catch((error) => {
-      if (typeof console !== "undefined") {
-        console.warn("[zotero-mcp] startup failed", error);
-      }
+      emitVerboseConsole("warn", "[zotero-mcp] startup failed", error);
     });
   }
 
@@ -681,16 +680,16 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       if (state.loaded.warnings.length > 0) {
         messageLines.push(`First warning: ${state.loaded.warnings[0]}`);
       }
-      if (typeof console !== "undefined") {
-        if (state.loaded.errors.length > 0) {
-          console.error(
-            `[workflow-scan] dir=${state.workflowsDir} errors=${JSON.stringify(state.loaded.errors)} warnings=${JSON.stringify(state.loaded.warnings)}`,
-          );
-        } else {
-          console.info(
-            `[workflow-scan] dir=${state.workflowsDir} loaded=${state.loaded.workflows.length} warnings=${state.loaded.warnings.length}`,
-          );
-        }
+      if (state.loaded.errors.length > 0) {
+        emitVerboseConsole(
+          "error",
+          `[workflow-scan] dir=${state.workflowsDir} errors=${JSON.stringify(state.loaded.errors)} warnings=${JSON.stringify(state.loaded.warnings)}`,
+        );
+      } else {
+        emitVerboseConsole(
+          "info",
+          `[workflow-scan] dir=${state.workflowsDir} loaded=${state.loaded.workflows.length} warnings=${state.loaded.warnings.length}`,
+        );
       }
       const message = messageLines.join("\n");
       data.window?.alert?.(message);

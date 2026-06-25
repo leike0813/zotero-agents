@@ -1,5 +1,6 @@
 import { ZoteroToolkit } from "zotero-plugin-toolkit";
 import { config } from "../../package.json";
+import { isDiagnosticVerboseEnabled } from "../modules/diagnosticVerbosity";
 import { resolveAddonRuntimeEnv } from "./env";
 
 export { createZToolkit, copyText, resolveClipboardCtor };
@@ -52,7 +53,7 @@ function copyText(text: string) {
 }
 
 function createZToolkit() {
-  const _ztoolkit = new ZoteroToolkit();
+  const _ztoolkit = createToolkitWithQuietPatchLogs();
   /**
    * Alternatively, import toolkit modules you use to minify the plugin size.
    * You can add the modules under the `MyToolkit` class below and uncomment the following line.
@@ -60,6 +61,46 @@ function createZToolkit() {
   // const _ztoolkit = new MyToolkit();
   initZToolkit(_ztoolkit);
   return _ztoolkit;
+}
+
+function createToolkitWithQuietPatchLogs() {
+  if (isDiagnosticVerboseEnabled()) {
+    return new ZoteroToolkit();
+  }
+  return withQuietToolkitPatchConsole(() => new ZoteroToolkit());
+}
+
+function withQuietToolkitPatchConsole<T>(factory: () => T) {
+  const runtimeConsole = globalThis.console as
+    | (Console & {
+        group?: (...data: unknown[]) => void;
+        groupCollapsed?: (...data: unknown[]) => void;
+        groupEnd?: () => void;
+        trace?: (...data: unknown[]) => void;
+      })
+    | undefined;
+  if (!runtimeConsole) {
+    return factory();
+  }
+  const previous = {
+    group: runtimeConsole.group,
+    groupCollapsed: runtimeConsole.groupCollapsed,
+    groupEnd: runtimeConsole.groupEnd,
+    trace: runtimeConsole.trace,
+  };
+  const noop = () => undefined;
+  runtimeConsole.group = noop;
+  runtimeConsole.groupCollapsed = noop;
+  runtimeConsole.groupEnd = noop;
+  runtimeConsole.trace = noop;
+  try {
+    return factory();
+  } finally {
+    runtimeConsole.group = previous.group;
+    runtimeConsole.groupCollapsed = previous.groupCollapsed;
+    runtimeConsole.groupEnd = previous.groupEnd;
+    runtimeConsole.trace = previous.trace;
+  }
 }
 
 function initZToolkit(_ztoolkit: ReturnType<typeof createZToolkit>) {

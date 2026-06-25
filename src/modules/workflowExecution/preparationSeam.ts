@@ -1,5 +1,6 @@
 import { appendRuntimeLog } from "../runtimeLogManager";
 import { buildSelectionContext } from "../selectionContext";
+import { emitVerboseConsole } from "../diagnosticVerbosity";
 import {
   buildWorkflowFinishMessage,
   normalizeErrorMessage,
@@ -480,11 +481,10 @@ export async function runWorkflowPreparationSeam(
         details: { skippedUnits },
         error,
       });
-      if (typeof console !== "undefined") {
-        console.info(
-          `[workflow-execute] skipped workflow=${args.workflow.manifest.id} reason=no-valid-input-units`,
-        );
-      }
+      emitVerboseConsole(
+        "info",
+        `[workflow-execute] skipped workflow=${args.workflow.manifest.id} reason=no-valid-input-units`,
+      );
       if (
         !args.suppressUiFeedback &&
         shouldShowWorkflowNotifications(args.workflow.manifest)

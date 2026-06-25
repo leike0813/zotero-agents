@@ -710,14 +710,22 @@ describe("UI readonly harness", function () {
   it("builds Synthesis readonly harness i18n envelopes from locale FTL files", function () {
     assert.equal(resolveHarnessSynthesisLocale("zh-CN,zh;q=0.9"), "zh-CN");
     assert.equal(resolveHarnessSynthesisLocale("fr-FR,fr;q=0.9"), "fr-FR");
-    assert.equal(resolveHarnessSynthesisLocale("es-ES,es;q=0.9"), "en-US");
+    assert.equal(resolveHarnessSynthesisLocale("es-ES,es;q=0.9"), "es-ES");
+    assert.equal(resolveHarnessSynthesisLocale("nl-NL,nl;q=0.9"), "en-US");
 
     const zh = buildHarnessSynthesisI18nEnvelope("zh-CN");
     assert.equal(zh.locale, "zh-CN");
     assert.equal(zh.messages["synthesis-page-title"], "Synthesis 工作台");
     assert.equal(zh.messages["synthesis-action-clear"], "清除");
 
-    const unknown = buildHarnessSynthesisI18nEnvelope("es-ES");
+    const es = buildHarnessSynthesisI18nEnvelope("es-ES");
+    assert.equal(es.locale, "es-ES");
+    assert.equal(
+      es.messages["synthesis-page-title"],
+      "Banco de trabajo de Synthesis",
+    );
+
+    const unknown = buildHarnessSynthesisI18nEnvelope("nl-NL");
     assert.equal(unknown.locale, "en-US");
     assert.equal(
       unknown.messages["synthesis-page-title"],

@@ -9,6 +9,7 @@ import {
   getGuardedSqliteConnection,
   resetGuardedSqliteForTests,
 } from "../../src/modules/guardedSqlite";
+import { setDiagnosticVerboseOverrideForTests } from "../../src/modules/diagnosticVerbosity";
 import { getPref, setPref } from "../../src/utils/prefs";
 
 describe("plugin state store bootstrap", function () {
@@ -17,6 +18,7 @@ describe("plugin state store bootstrap", function () {
     setPref("skillRunnerDeferredTasksJson", "");
     setPref("taskDashboardHistoryJson", "");
     resetPluginStateStoreForTests();
+    setDiagnosticVerboseOverrideForTests(false);
   });
 
   afterEach(function () {
@@ -25,11 +27,42 @@ describe("plugin state store bootstrap", function () {
     setPref("taskDashboardHistoryJson", "");
     resetPluginStateStoreForTests();
     resetGuardedSqliteForTests();
+    setDiagnosticVerboseOverrideForTests();
   });
 
   it("writes migration status in plugin_meta during initialization", function () {
     const status = getPluginStateMigrationStatus();
     assert.equal(status, "done");
+  });
+
+  it("keeps migration trace output silent by default", function () {
+    const originalConsoleInfo = console.info;
+    let infoCalls = 0;
+    console.info = (() => {
+      infoCalls += 1;
+    }) as typeof console.info;
+    try {
+      assert.equal(getPluginStateMigrationStatus(), "done");
+    } finally {
+      console.info = originalConsoleInfo;
+    }
+    assert.equal(infoCalls, 0);
+  });
+
+  it("emits migration trace output when diagnostics are verbose", function () {
+    const originalConsoleInfo = console.info;
+    const messages: string[] = [];
+    setDiagnosticVerboseOverrideForTests(true);
+    console.info = ((message?: unknown) => {
+      messages.push(String(message || ""));
+    }) as typeof console.info;
+    try {
+      assert.equal(getPluginStateMigrationStatus(), "done");
+    } finally {
+      console.info = originalConsoleInfo;
+      setDiagnosticVerboseOverrideForTests();
+    }
+    assert.isTrue(messages.some((message) => message.includes("migration")));
   });
 
   it("drops legacy SkillRunner prefs instead of migrating old local rows", function () {
