@@ -20,7 +20,7 @@
   <a href="README.md">English</a> · <a href="README-zhCN.md">简体中文</a> · <a href="README-zhTW.md">繁體中文</a> · <strong>日本語</strong> · <a href="README-frFR.md">Français</a> · <a href="README-de.md">Deutsch</a> · <a href="README-esES.md">Español</a> · <a href="README-ptBR.md">Português</a> · <a href="README-koKR.md">한국어</a> · <a href="README-itIT.md">Italiano</a> · <a href="README-ruRU.md">Русский</a> · <a href="https://leike0813.github.io/zotero-agents/">📖 ドキュメント</a> · <a href="https://github.com/leike0813/zotero-agents">GitHub</a> · <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 v0.5.0 より、本プラグインは **Zotero Skills** から **Zotero Agents** に名称変更されました。
+> **リポジトリ履歴:** Zotero Agents は以前 **Zotero Skills** という名称でした。旧リポジトリは履歴リリースと移行記録のため https://github.com/leike0813/Zotero-Skills に残しています。
 
 ---
 

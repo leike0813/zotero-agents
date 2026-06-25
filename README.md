@@ -33,7 +33,7 @@
   <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 Starting from v0.5.0, this plugin has been renamed from **Zotero Skills** to **Zotero Agents**.
+> **Repository history:** Zotero Agents was formerly named **Zotero Skills**. The old repository is kept at https://github.com/leike0813/Zotero-Skills for historical releases and migration records.
 
 ---
 

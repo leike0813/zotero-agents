@@ -33,7 +33,7 @@
   <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 v0.5.0부터 본 플러그인의 이름이 **Zotero Skills**에서 **Zotero Agents**로 변경되었습니다.
+> **저장소 이력:** Zotero Agents의 이전 이름은 **Zotero Skills**입니다. 이전 저장소는 과거 릴리스와 마이그레이션 기록을 위해 https://github.com/leike0813/Zotero-Skills 에 보존되어 있습니다.
 
 ---
 

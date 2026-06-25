@@ -33,7 +33,7 @@
   <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 自 v0.5.0 起，本插件由 **Zotero Skills** 更名为 **Zotero Agents**。
+> **仓库历史**：Zotero Agents 原名 **Zotero Skills**。旧仓库保留在 https://github.com/leike0813/Zotero-Skills，仅用于历史版本和迁移记录。
 
 ---
 

@@ -33,7 +33,7 @@
   <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 Начиная с версии v0.5.0, плагин переименован из **Zotero Skills** в **Zotero Agents**.
+> **История репозитория:** Zotero Agents раньше назывался **Zotero Skills**. Старый репозиторий сохранен по адресу https://github.com/leike0813/Zotero-Skills для исторических релизов и записей о миграции.
 
 ---
 
