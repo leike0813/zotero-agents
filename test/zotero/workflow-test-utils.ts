@@ -122,6 +122,9 @@ function isAbsolutePath(targetPath: string) {
 
 function getRuntimeSystemTempDir() {
   const runtime = globalThis as {
+    Zotero?: {
+      getTempDirectory?: () => { path?: string };
+    };
     Services?: {
       dirsvc?: {
         get?: (key: string, iface: unknown) => { path?: string };
@@ -142,15 +145,42 @@ function getRuntimeSystemTempDir() {
   }
 }
 
+function getRuntimeZoteroTempDir() {
+  const runtime = globalThis as {
+    Zotero?: {
+      getTempDirectory?: () => { path?: string };
+    };
+  };
+  try {
+    const tempDir = runtime.Zotero?.getTempDirectory?.();
+    return tempDir?.path && isAbsolutePath(tempDir.path)
+      ? tempDir.path
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getRuntimeRelativeTempFallback(tempDir: string) {
+  const runtime = globalThis as {
+    Zotero?: { isWin?: boolean };
+  };
+  return runtime.Zotero?.isWin === false ? joinPath("/", tempDir) : tempDir;
+}
+
 function resolveRuntimeTempDir(tempDir: string) {
   if (isAbsolutePath(tempDir)) {
     return tempDir;
   }
-  const systemTempDir = getRuntimeSystemTempDir();
+  const systemTempDir = getRuntimeSystemTempDir() || getRuntimeZoteroTempDir();
   if (systemTempDir) {
     return systemTempDir;
   }
-  return joinPath(getProjectRoot(), tempDir);
+  const projectRoot = getProjectRoot();
+  if (isAbsolutePath(projectRoot)) {
+    return joinPath(projectRoot, tempDir);
+  }
+  return getRuntimeRelativeTempFallback(tempDir);
 }
 
 export async function mkTempDir(prefix: string) {
