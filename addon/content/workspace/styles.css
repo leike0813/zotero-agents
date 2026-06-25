@@ -201,6 +201,13 @@ button:disabled:hover {
   flex-wrap: wrap;
 }
 
+.docs-link-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .docs-link-button {
   display: inline-flex;
   align-items: center;

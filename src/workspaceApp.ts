@@ -22,7 +22,8 @@ type WorkspaceShellLabels = {
   themeSystem: string;
   themeLight: string;
   themeDark: string;
-  docs: string;
+  help: string;
+  onlineDocs: string;
   refresh: string;
   toggleSidebar: string;
   openSidebar: string;
@@ -53,7 +54,8 @@ const DEFAULT_WORKSPACE_LABELS: WorkspaceShellLabels = {
   themeSystem: "System",
   themeLight: "Light",
   themeDark: "Dark",
-  docs: "Docs",
+  help: "Help",
+  onlineDocs: "Online Docs",
   refresh: "Refresh",
   toggleSidebar: "Toggle sidebar",
   openSidebar: "Open sidebar",
@@ -205,20 +207,33 @@ function renderThemeSwitch() {
   return group;
 }
 
-function renderDocsButton() {
-  const label = workspaceLabel("docs");
-  const node = button(label, "open-docs", {}, "docs-link-button");
+function renderDocsButton(
+  labelKey: "help" | "onlineDocs",
+  action: "open-help" | "open-online-docs",
+  iconClass: string,
+) {
+  const label = workspaceLabel(labelKey);
+  const node = button(label, action, {}, "docs-link-button");
   node.setAttribute("aria-label", label);
   node.setAttribute("title", label);
-  node.dataset.workspaceIconLabel = "docs";
+  node.dataset.workspaceIconLabel = labelKey;
   node.textContent = "";
-  const icon = el("span", "zs-icon zs-icon-description docs-link-icon");
+  const icon = el("span", `zs-icon ${iconClass} docs-link-icon`);
   icon.setAttribute("aria-hidden", "true");
   const text = el("span", "docs-link-label", label);
-  text.dataset.workspaceLabel = "docs";
+  text.dataset.workspaceLabel = labelKey;
   node.appendChild(icon);
   node.appendChild(text);
   return node;
+}
+
+function renderDocsButtons() {
+  const group = el("div", "docs-link-group");
+  group.appendChild(renderDocsButton("help", "open-help", "zs-icon-help"));
+  group.appendChild(
+    renderDocsButton("onlineDocs", "open-online-docs", "zs-icon-description"),
+  );
+  return group;
 }
 
 function updateThemeSwitchState() {
@@ -341,7 +356,7 @@ function renderHeader(root: HTMLElement, snapshot: WorkspaceSnapshot) {
   header.appendChild(segmented);
 
   const toolbar = el("div", "toolbar");
-  toolbar.appendChild(renderDocsButton());
+  toolbar.appendChild(renderDocsButtons());
   toolbar.appendChild(renderThemeSwitch());
   toolbar.appendChild(
     iconButton(

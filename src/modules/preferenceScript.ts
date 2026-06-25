@@ -6,7 +6,6 @@ import {
   getEffectiveWorkflowDir,
 } from "./workflowRuntime";
 import { getString, getStringOrFallback } from "../utils/locale";
-import { getDocsUrl } from "../utils/docsUrl";
 import { isDebugModeEnabled } from "./debugMode";
 import { subscribeManagedLocalRuntimeStateChange } from "./skillRunnerLocalRuntimeManager";
 import { runtimeFileExists } from "../utils/runtimeCompatibility";
@@ -219,8 +218,11 @@ function bindPrefEvents() {
   const synthesisDbResetStatus = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-synthesis-db-reset-status`,
   ) as HTMLElement | null;
-  const openDocsButton = doc.querySelector(
-    `#zotero-prefpane-${config.addonRef}-open-docs`,
+  const openHelpButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-open-help`,
+  ) as XUL.Button | null;
+  const openOnlineDocsButton = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-open-online-docs`,
   ) as XUL.Button | null;
 
   const localRuntimeDeployButton = doc.querySelector(
@@ -2626,11 +2628,19 @@ function bindPrefEvents() {
     });
   }
 
-  if (openDocsButton) {
-    openDocsButton.addEventListener("command", () => {
-      const zotero =
-        (globalThis as any).Zotero || (addon.data.prefs?.window as any)?.Zotero;
-      zotero?.launchURL?.(getDocsUrl());
+  if (openHelpButton) {
+    openHelpButton.addEventListener("command", () => {
+      void addon.hooks.onPrefsEvent("openHelpCenter", {
+        window: addon.data.prefs?.window,
+      });
+    });
+  }
+
+  if (openOnlineDocsButton) {
+    openOnlineDocsButton.addEventListener("command", () => {
+      void addon.hooks.onPrefsEvent("openOnlineDocs", {
+        window: addon.data.prefs?.window,
+      });
     });
   }
 

@@ -26,6 +26,8 @@ import {
   prewarmSynthesisWorkbenchSurfaces,
 } from "./modules/synthesisWorkbenchTab";
 import { openZoteroSkillsWorkspaceTab } from "./modules/workspaceTab";
+import { openHelpCenterTab } from "./modules/helpCenterTab";
+import { getDocsUrl } from "./utils/docsUrl";
 import { installWorkflowEditorHostBridge } from "./modules/workflowEditorHost";
 import { installWorkflowRuntimeBridge } from "./modules/workflowRuntimeBridge";
 import { enableWorkflowPackageDiagnosticsForDebugMode } from "./modules/workflowPackageDiagnostics";
@@ -735,6 +737,16 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         window: data.window,
       });
       break;
+    case "openHelpCenter":
+      await openHelpCenterTab({
+        window: data.window,
+      });
+      break;
+    case "openOnlineDocs": {
+      const zotero = (globalThis as any).Zotero || (data.window as any)?.Zotero;
+      zotero?.launchURL?.(getDocsUrl());
+      break;
+    }
     case "listDashboardActiveTasksForPopover": {
       const limitRaw =
         typeof data.limit === "number" && Number.isFinite(data.limit)

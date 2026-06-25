@@ -1,0 +1,95 @@
+# 概念知识库
+
+概念知识库（Concept KB）是 Synthesis 系统的可选知识层，对文献中涉及的核心概念进行结构化管理。概念可以叠加到主题图和阅读器上，为主题综合提供更丰富的上下文。
+
+## 什么是概念？
+
+在 Synthesis 系统中，**概念** 是研究领域中具有独立含义的术语或实体。不同于标签（Tags）的扁平化分类，概念可以有多层结构，包括义项、别名和关系。
+
+### 概念的四层结构
+
+```
+概念 (Concept)           — 如 "Transformer"
+  └── 义项 (Sense)       — 如 "Transformer (machine learning architecture)"
+       ├── 别名 (Alias)  — 如 "Transformer model", "Transformer network"
+       └── 关系 (Relation) — broader_than "Attention Mechanism"
+```
+
+### 概念类型
+
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| `method` | 研究方法 | 深度学习、强化学习 |
+| `model` | 模型或架构 | Transformer、ResNet |
+| `dataset` | 数据集 | ImageNet、COCO |
+| `metric` | 评估指标 | BLEU、F1-score |
+| `field` | 研究领域 | 计算机视觉、自然语言处理 |
+| `task` | 任务 | 图像分类、机器翻译 |
+| `tool` | 工具 | PyTorch、TensorFlow |
+
+## Concepts 表面功能
+
+### 概念列表
+
+在 Synthesis Workbench → Concepts 页面，可以浏览所有已收录的概念：
+
+- **筛选**：按类型（method/model/dataset 等）、状态、关联主题筛选
+- **搜索**：按名称搜索概念
+- **视图切换**：紧凑/舒适密度
+
+<figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/synthesis/concepts.webp" alt="Synthesis Concepts 页面" title="Synthesis Concepts 页面" loading="lazy" /><figcaption>Synthesis Concepts 页面</figcaption></figure>
+
+### 概念详情
+
+选中一个概念后，可以查看和编辑：
+
+| 信息 | 说明 |
+|------|------|
+| **标识** | 概念 ID、名称、类型 |
+| **状态** | active / deprecated / pending |
+| **定义** | 概念的定义描述 |
+| **义项（Senses）** | 该概念在不同上下文中的具体含义 |
+| **别名（Aliases）** | 同一概念的其他名称 |
+| **关系** | 与其他概念的关联（broader/narrower/related） |
+| **关联主题** | 引用该概念的 Topic |
+
+### 义项管理
+
+同一个概念在不同学科中可能有不同含义。义项机制允许：
+
+- 为概念添加多个义项，每个义项有独立的定义
+- 标注义项的使用上下文或领域
+- 将特定义项与文献或主题关联
+
+### 别名管理
+
+- 记录同一概念的不同命名方式（如全称、缩写、替代术语）
+- 别名会用于引用匹配和概念识别
+
+### 叠加功能
+
+概念信息可以叠加到其他表面：
+
+- **叠加到主题图**：在 Topic Graph 中显示与该主题相关的概念
+- **叠加到阅读器**：在 Topic Detail 页面中显示概念卡片
+
+## 审核
+
+概念知识库的变更建议（新概念、新义项、新关系）会出现在 [审核中心](#doc/synthesis%2Freview) 的概念审核标签页中。您可以审核并决定是否接受这些建议。
+
+## 与标签的关系
+
+概念和标签是互补的两种知识组织方式：
+
+| 维度 | 标签（Tags） | 概念（Concepts） |
+|------|-------------|-----------------|
+| 结构 | 扁平化，facet:value | 多层结构（义项 + 别名 + 关系） |
+| 用途 | 文献分类和过滤 | 知识管理和关联分析 |
+| 来源 | 受控词表 + AI 推断 | 从文献自动提取 + 用户管理 |
+| 范围 | 覆盖所有文献 | 深度覆盖选定的核心术语 |
+
+## 下一步
+
+- [审核中心](#doc/synthesis%2Freview) — 审核概念建议
+- [Tags 管理](#doc/synthesis%2Ftags) — 管理受控标签词表
+- [Topic 综合](#doc/synthesis%2Ftopic-synthesis) — 创建主题综合时利用概念知识

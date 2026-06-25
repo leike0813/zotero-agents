@@ -4,7 +4,6 @@ const GITHUB_ORG = "leike0813";
 const REPO_NAME = "zotero-agents";
 
 const GITHUB_PAGES_URL = `https://${GITHUB_ORG}.github.io/${REPO_NAME}/`;
-const GITEE_PAGES_URL = `https://${GITHUB_ORG}.gitee.io/${REPO_NAME}/`;
 const LOCAL_DOCS_URL = `http://localhost:3000/${REPO_NAME}/`;
 
 const ZH_CN_LOCALE = "zh-CN";
@@ -57,15 +56,14 @@ function joinDocsUrl(base: string, path: string): string {
  * Resolve the user-facing documentation base URL based on the user's locale.
  *
  * Debug mode → local Docusaurus server
- * zh-CN      → Gitee Pages (accessible within mainland China)
- * All others → GitHub Pages
+ * Production → GitHub Pages
  */
 export function getDocsBaseUrl(): string {
   if (isDebugModeEnabled()) {
     return LOCAL_DOCS_URL;
   }
 
-  return isZhCnLocale(getUserLocale()) ? GITEE_PAGES_URL : GITHUB_PAGES_URL;
+  return GITHUB_PAGES_URL;
 }
 
 /**

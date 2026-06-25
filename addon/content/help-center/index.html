@@ -1,0 +1,673 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Zotero Agents Help</title>
+    <link rel="stylesheet" href="../shared/vendor/katex/katex.min.css" />
+    <link
+      rel="stylesheet"
+      href="../shared/vendor/highlight/styles/github.min.css"
+    />
+    <link rel="stylesheet" href="../shared/markdown-renderer.css" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        --help-border: color-mix(in srgb, CanvasText 16%, Canvas);
+        --help-muted: color-mix(in srgb, CanvasText 62%, Canvas);
+        --help-soft: color-mix(in srgb, CanvasText 5%, Canvas);
+        --help-accent: #2563eb;
+        --help-accent-soft: color-mix(in srgb, #2563eb 12%, Canvas);
+        --help-sidebar-width: 292px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        height: 100%;
+        overflow: hidden;
+      }
+
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: Canvas;
+        color: CanvasText;
+      }
+
+      button {
+        font: inherit;
+        color: inherit;
+      }
+
+      .help-shell {
+        display: grid;
+        grid-template-columns: var(--help-sidebar-width) minmax(0, 1fr);
+        height: 100%;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .help-sidebar {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-width: 0;
+        min-height: 0;
+        border-right: 1px solid var(--help-border);
+        background: color-mix(in srgb, Canvas 96%, CanvasText 4%);
+      }
+
+      .help-sidebar-header {
+        display: grid;
+        gap: 8px;
+        padding: 14px;
+        border-bottom: 1px solid var(--help-border);
+      }
+
+      .help-sidebar-header strong {
+        min-width: 0;
+        font-size: 15px;
+        overflow-wrap: anywhere;
+      }
+
+      .help-sidebar-actions {
+        display: grid;
+        min-width: 0;
+      }
+
+      .help-locale-select {
+        width: 100%;
+        max-width: 100%;
+        min-height: 30px;
+        padding: 4px 28px 4px 8px;
+        border: 1px solid var(--help-border);
+        border-radius: 6px;
+        background: Canvas;
+        color: CanvasText;
+        font: inherit;
+      }
+
+      .help-locale-select:hover,
+      .help-locale-select:focus-visible {
+        border-color: var(--help-accent);
+        background: var(--help-accent-soft);
+        outline: none;
+      }
+
+      .help-nav {
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        padding: 10px;
+        overscroll-behavior: contain;
+      }
+
+      .help-nav-list,
+      .help-nav-list ul {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .help-nav-list ul {
+        margin: 2px 0 8px 12px;
+      }
+
+      .help-category {
+        margin: 10px 6px 3px;
+        color: var(--help-muted);
+        font-size: 12px;
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+
+      .help-doc-link {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        padding: 6px 8px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        text-align: left;
+        line-height: 1.3;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        cursor: pointer;
+      }
+
+      .help-doc-link:hover,
+      .help-doc-link:focus-visible {
+        background: var(--help-accent-soft);
+        outline: none;
+      }
+
+      .help-doc-link.active {
+        color: var(--help-accent);
+        background: var(--help-accent-soft);
+        font-weight: 600;
+      }
+
+      .help-main {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .help-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--help-border);
+        background: Canvas;
+      }
+
+      .help-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 600;
+      }
+
+      .help-online-link {
+        border: 1px solid var(--help-border);
+        border-radius: 6px;
+        background: Canvas;
+        padding: 5px 10px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .help-online-link:hover {
+        border-color: var(--help-accent);
+        background: var(--help-accent-soft);
+      }
+
+      .help-content-scroll {
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+      }
+
+      .help-content {
+        min-width: 0;
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 28px 34px 64px;
+      }
+
+      .help-content p > img,
+      .help-content figure img {
+        display: block;
+        width: min(100%, 760px);
+        max-width: 100%;
+        height: auto;
+        margin: 1rem auto;
+        border: 1px solid var(--help-border);
+        border-radius: 6px;
+      }
+
+      .help-content .zs-doc-figure {
+        margin: 1.25rem 0;
+      }
+
+      .help-content p > img[src*="/icon_"],
+      .help-content p > img[src*="/favicon"],
+      .help-content figure img[src*="/icon_"],
+      .help-content figure img[src*="/favicon"],
+      .help-content .zs-doc-figure--icon img {
+        width: 8rem;
+        max-width: 40vw;
+        border: 0;
+      }
+
+      .help-content p > img[src*="/poster"],
+      .help-content figure img[src*="/poster"],
+      .help-content .zs-doc-figure--poster img {
+        width: min(100%, 380px);
+      }
+
+      .help-content .zs-doc-figure figcaption {
+        margin-top: 0.4rem;
+        color: var(--help-muted);
+        font-size: 0.875rem;
+        line-height: 1.4;
+        text-align: center;
+      }
+
+      .help-status {
+        color: var(--help-muted);
+      }
+
+      @media (max-width: 760px) {
+        .help-shell {
+          grid-template-columns: 1fr;
+          grid-template-rows: auto minmax(0, 1fr);
+        }
+
+        .help-sidebar {
+          max-height: 42vh;
+          min-height: 0;
+          border-right: 0;
+          border-bottom: 1px solid var(--help-border);
+        }
+
+        .help-content {
+          padding: 22px 18px 52px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="help-shell">
+      <aside class="help-sidebar">
+        <div class="help-sidebar-header">
+          <strong id="help-brand-title">Zotero Agents Help</strong>
+          <div class="help-sidebar-actions">
+            <select
+              id="help-locale-select"
+              class="help-locale-select"
+              aria-label="Help language"
+            ></select>
+          </div>
+        </div>
+        <nav id="help-nav" class="help-nav" aria-label="Help navigation"></nav>
+      </aside>
+      <main class="help-main">
+        <div class="help-toolbar">
+          <div id="help-title" class="help-title">Zotero Agents Help</div>
+          <button id="help-online" class="help-online-link" type="button">
+            Online Docs
+          </button>
+        </div>
+        <div class="help-content-scroll">
+          <article id="help-content" class="help-content markdown-body">
+            <p class="help-status">Loading help...</p>
+          </article>
+        </div>
+      </main>
+    </div>
+
+    <script src="../shared/vendor/markdown-it/markdown-it.min.js"></script>
+    <script src="../shared/vendor/katex/katex.min.js"></script>
+    <script src="../shared/vendor/markdown-it-texmath/texmath.min.js"></script>
+    <script src="../shared/vendor/highlight/highlight.min.js"></script>
+    <script src="../shared/markdown-renderer.js"></script>
+    <script>
+      const state = {
+        manifest: null,
+        locale: "en",
+        docId: "",
+        docsByLocale: new Map(),
+      };
+
+      const messages = {
+        de: {
+          title: "Zotero Agents Hilfe",
+          onlineDocs: "Online-Dokumentation",
+          language: "Sprache der Hilfe",
+          loading: "Hilfe wird geladen...",
+          unavailable: "Hilfedokument ist nicht verfügbar.",
+          failed: "Gebündelte Hilfe konnte nicht geladen werden.",
+        },
+        en: {
+          title: "Zotero Agents Help",
+          onlineDocs: "Online Docs",
+          language: "Help language",
+          loading: "Loading help...",
+          unavailable: "Help document is unavailable.",
+          failed: "Failed to load bundled help.",
+        },
+        es: {
+          title: "Ayuda de Zotero Agents",
+          onlineDocs: "Documentación en línea",
+          language: "Idioma de ayuda",
+          loading: "Cargando ayuda...",
+          unavailable: "El documento de ayuda no está disponible.",
+          failed: "No se pudo cargar la ayuda integrada.",
+        },
+        fr: {
+          title: "Aide Zotero Agents",
+          onlineDocs: "Documentation en ligne",
+          language: "Langue de l'aide",
+          loading: "Chargement de l'aide...",
+          unavailable: "Le document d'aide est indisponible.",
+          failed: "Echec du chargement de l'aide integree.",
+        },
+        it: {
+          title: "Aiuto di Zotero Agents",
+          onlineDocs: "Documentazione online",
+          language: "Lingua della guida",
+          loading: "Caricamento della guida...",
+          unavailable: "Il documento di aiuto non e disponibile.",
+          failed: "Impossibile caricare la guida integrata.",
+        },
+        ja: {
+          title: "Zotero Agents ヘルプ",
+          onlineDocs: "オンラインドキュメント",
+          language: "ヘルプの言語",
+          loading: "ヘルプを読み込んでいます...",
+          unavailable: "ヘルプ文書を利用できません。",
+          failed: "内蔵ヘルプを読み込めませんでした。",
+        },
+        ko: {
+          title: "Zotero Agents 도움말",
+          onlineDocs: "온라인 문서",
+          language: "도움말 언어",
+          loading: "도움말을 불러오는 중...",
+          unavailable: "도움말 문서를 사용할 수 없습니다.",
+          failed: "내장 도움말을 불러오지 못했습니다.",
+        },
+        ru: {
+          title: "Справка Zotero Agents",
+          onlineDocs: "Онлайн-документация",
+          language: "Язык справки",
+          loading: "Загрузка справки...",
+          unavailable: "Документ справки недоступен.",
+          failed: "Не удалось загрузить встроенную справку.",
+        },
+        "zh-CN": {
+          title: "Zotero Agents 帮助",
+          onlineDocs: "在线文档",
+          language: "帮助语言",
+          loading: "正在加载帮助...",
+          unavailable: "帮助文档不可用。",
+          failed: "内置帮助加载失败。",
+        },
+      };
+
+      function $(id) {
+        return document.getElementById(id);
+      }
+
+      function query() {
+        return new URLSearchParams(window.location.search || "");
+      }
+
+      function localeLabel(locale) {
+        return (
+          {
+            de: "DE",
+            en: "EN",
+            es: "ES",
+            fr: "FR",
+            it: "IT",
+            ja: "日本語",
+            ko: "한국어",
+            ru: "RU",
+            "zh-CN": "中文",
+          }[locale] || locale
+        );
+      }
+
+      function text(key) {
+        return (messages[state.locale] || messages.en)[key] || messages.en[key];
+      }
+
+      function applyMessages() {
+        $("help-brand-title").textContent = text("title");
+        $("help-online").textContent = text("onlineDocs");
+        $("help-online").setAttribute("aria-label", text("onlineDocs"));
+        $("help-online").setAttribute("title", text("onlineDocs"));
+        $("help-locale-select").setAttribute("aria-label", text("language"));
+        if (!$("help-title").dataset.docTitle) {
+          $("help-title").textContent = text("title");
+        }
+      }
+
+      function resolveSupportedLocale(rawLocale) {
+        const locales = state.manifest?.locales || ["en"];
+        const fallback = locales.includes("en") ? "en" : locales[0];
+        const raw = String(rawLocale || "").trim();
+        if (!raw) {
+          return fallback;
+        }
+        const lower = raw.toLowerCase();
+        const exact = locales.find((locale) => locale.toLowerCase() === lower);
+        if (exact) {
+          return exact;
+        }
+        const language = lower.split("-")[0];
+        return (
+          locales.find(
+            (locale) => locale.toLowerCase().split("-")[0] === language,
+          ) || fallback
+        );
+      }
+
+      function preferredLocale() {
+        return resolveSupportedLocale(query().get("locale") || navigator.language);
+      }
+
+      function postHostAction(action, payload) {
+        const direct = window.__zoteroAgentsHelpCenterBridge;
+        if (direct) {
+          if (
+            action === "open-online-docs" &&
+            typeof direct.openOnlineDocs === "function"
+          ) {
+            direct.openOnlineDocs();
+            return;
+          }
+          if (action === "open-url" && typeof direct.openUrl === "function") {
+            direct.openUrl(String(payload?.url || ""));
+            return;
+          }
+        }
+        const message = {
+          type: "zotero-agents-help-center",
+          action,
+          payload: payload || {},
+        };
+        try {
+          window.parent?.postMessage(message, "*");
+          window.top?.postMessage(message, "*");
+          window.opener?.postMessage(message, "*");
+        } catch {
+          // Host actions are best-effort; the bundled help remains readable.
+        }
+      }
+
+      function docMap(locale) {
+        return state.docsByLocale.get(locale) || new Map();
+      }
+
+      function setStatus(message) {
+        $("help-content").innerHTML = `<p class="help-status">${message}</p>`;
+      }
+
+      function renderNavItem(item, parent) {
+        const li = document.createElement("li");
+        if (item.type === "category") {
+          const label = document.createElement("div");
+          label.className = "help-category";
+          label.textContent = item.label;
+          li.appendChild(label);
+          const childList = document.createElement("ul");
+          for (const child of item.items || []) {
+            renderNavItem(child, childList);
+          }
+          li.appendChild(childList);
+        } else {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "help-doc-link";
+          button.dataset.docId = item.id;
+          button.textContent = item.label;
+          button.addEventListener("click", () => {
+            void loadDoc(item.id, true);
+          });
+          li.appendChild(button);
+        }
+        parent.appendChild(li);
+      }
+
+      function renderNav() {
+        const nav = $("help-nav");
+        nav.textContent = "";
+        const list = document.createElement("ul");
+        list.className = "help-nav-list";
+        for (const item of state.manifest.sidebar[state.locale] || []) {
+          renderNavItem(item, list);
+        }
+        nav.appendChild(list);
+        for (const button of nav.querySelectorAll(".help-doc-link")) {
+          button.classList.toggle("active", button.dataset.docId === state.docId);
+        }
+        const select = $("help-locale-select");
+        if (select && select.value !== state.locale) {
+          select.value = state.locale;
+        }
+      }
+
+      function renderLocaleSelector() {
+        const select = $("help-locale-select");
+        select.textContent = "";
+        for (const locale of state.manifest.locales || []) {
+          const option = document.createElement("option");
+          option.value = locale;
+          option.textContent = localeLabel(locale);
+          select.appendChild(option);
+        }
+        select.addEventListener("change", () => setLocale(select.value));
+      }
+
+      function updateTitle(doc) {
+        const title = doc?.title || text("title");
+        document.title = title;
+        $("help-title").dataset.docTitle = doc?.title || "";
+        $("help-title").textContent = title;
+      }
+
+      async function loadDoc(docId, updateHash) {
+        const docs = docMap(state.locale);
+        const doc = docs.get(docId) || docs.get(state.manifest.default_doc);
+        if (!doc) {
+          setStatus(text("unavailable"));
+          return;
+        }
+        state.docId = doc.id;
+        applyMessages();
+        updateTitle(doc);
+        renderNav();
+        const response = await fetch(`../help-docs/${doc.path}`);
+        if (!response.ok) {
+          throw new Error(`Cannot load ${doc.path}`);
+        }
+        const markdown = await response.text();
+        window.ZoteroSkillsMarkdownRenderer.renderInto(
+          $("help-content"),
+          markdown,
+          {
+            profile: "document",
+            allowHtml: true,
+            baseFileUri: "../help-docs/",
+            headingIdPrefix: `help-${state.locale}-${doc.id}`,
+          },
+        );
+        $("help-content").parentElement.scrollTop = 0;
+        if (updateHash) {
+          history.replaceState(null, "", `#doc/${encodeURIComponent(doc.id)}`);
+        }
+      }
+
+      function loadHashDoc() {
+        const match = /^#doc\/(.+)$/.exec(window.location.hash || "");
+        if (!match) {
+          return "";
+        }
+        try {
+          return decodeURIComponent(match[1]);
+        } catch {
+          return match[1];
+        }
+      }
+
+      function bindArticleLinks() {
+        $("help-content").addEventListener("click", (event) => {
+          const target = event.target;
+          const anchor =
+            target instanceof Element ? target.closest("a[href]") : null;
+          if (!anchor) {
+            return;
+          }
+          const href = anchor.getAttribute("href") || "";
+          if (href.startsWith("#doc/")) {
+            event.preventDefault();
+            let docId = href.slice("#doc/".length).split("#")[0].split("?")[0];
+            try {
+              docId = decodeURIComponent(docId);
+            } catch {
+              // Keep raw value.
+            }
+            void loadDoc(docId, true);
+            return;
+          }
+          if (/^https?:\/\//i.test(href)) {
+            event.preventDefault();
+            postHostAction("open-url", { url: href });
+          }
+        });
+      }
+
+      function setLocale(locale) {
+        state.locale = resolveSupportedLocale(locale);
+        applyMessages();
+        const nextDoc = docMap(state.locale).has(state.docId)
+          ? state.docId
+          : state.manifest.default_doc;
+        void loadDoc(nextDoc, true);
+      }
+
+      async function boot() {
+        bindArticleLinks();
+        setStatus(text("loading"));
+        $("help-online").addEventListener("click", () => {
+          postHostAction("open-online-docs", { locale: state.locale });
+        });
+        const response = await fetch("../help-docs/manifest.json");
+        if (!response.ok) {
+          throw new Error("Cannot load help manifest.");
+        }
+        state.manifest = await response.json();
+        for (const locale of state.manifest.locales || []) {
+          state.docsByLocale.set(
+            locale,
+            new Map(
+              state.manifest.docs
+                .filter((doc) => doc.locale === locale)
+                .map((doc) => [doc.id, doc]),
+            ),
+          );
+        }
+        renderLocaleSelector();
+        state.locale = preferredLocale();
+        applyMessages();
+        const requestedDoc = query().get("doc") || loadHashDoc();
+        await loadDoc(requestedDoc || state.manifest.default_doc, false);
+      }
+
+      boot().catch((error) => {
+        console.error(error);
+        setStatus(text("failed"));
+      });
+    </script>
+  </body>
+</html>

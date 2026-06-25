@@ -271,5 +271,7 @@ pref-section-about = Informazioni
 pref-about-author = Autore: Ghost in the bucket (leike0813@gmail.com)
 pref-about-github-label = GitHub:
 pref-about-docs = Documentazione
+pref-about-help = Aiuto
+pref-about-online-docs = Documentazione online
 pref-about-welcome = Sei invitato a inviare problemi e pull request.
 pref-help = { $name } Build { $version } { $time }

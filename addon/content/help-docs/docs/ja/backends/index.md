@@ -1,0 +1,51 @@
+# バックエンド設定の概要
+
+Zotero Agentsは3つのバックエンドタイプをサポートし、それぞれ異なるユースケースに適している。
+
+## 選び方
+
+### 🥇 第一選択：ACPバックエンド
+
+マシンにACP対応のエージェントツール（Codex、Claude Code、OpenCode、Hermes Agent、OpenClaw、Qwen Codeなど）がすでにインストールされていれば、ACPバックエンドを直接使用できる。**追加の設定負担はゼロ**である。バックエンドマネージャーのプリセットリストから対応するエージェントを選択するだけで、プラグインがプロセスライフサイクル管理を自動的に処理する。
+
+エージェントによっては（OpenCodeやCodexなど）、環境変数を通じて設定ディレクトリとセッション永続化ディレクトリを分離でき、複数の作業コンテキストを簡単に管理できる。
+
+→ [ACPバックエンド設定](#doc/backends%2Facp)
+
+### 🥈 第二選択：DockerデプロイのSkill-Runner
+
+**永続的なバックグラウンド実行**（Zoteroを閉じた後もタスクが実行を継続し、次回起動時に再開または結果を取得できる）が必要である場合、またはローカルネットワークにサーバーを設置できる場合は、Skill-RunnerをDockerで永続サービスとしてデプロイすることを推奨する。
+
+DockerデプロイのSkill RunnerはZoteroとは独立して動作し、マルチユーザー共有、Web管理UI、エンジン管理などをサポートする。
+
+→ [Skill-Runnerデプロイと設定](#doc/backends%2Fskill-runner)
+
+### 🥉 緊急時のみ：ワンクリックローカルSkill-Runnerデプロイ
+
+これは**エージェントツールのインストールや設定の知識がなく、Dockerも使用できない**ユーザーにのみ適している。ワンクリックデプロイはプラグインの開始/停止とともに起動・停止する。Zoteroを閉じるとすべてのタスクが終了し、バックグラウンド実行はない。エージェントのインストールやDockerの使用が可能であれば、上記の2つの選択肢を優先されたい。
+
+→ [Skill-Runnerデプロイと設定](#doc/backends%2Fskill-runner)
+
+### Generic HTTP
+
+AIモデルの実行を伴わない特定のHTTP API（MinerUドキュメント解析サービスなど）を呼び出すために使用する。必要に応じて設定する。
+
+→ [Generic HTTPバックエンド設定](#doc/backends%2Fgeneric-http)
+
+## バックエンドタイプの比較
+
+| タイプ | プロトコル | 実行モード | 推奨度 | ユースケース |
+|------|----------|---------------|----------------|----------|
+| **ACPバックエンド** | Agent Client Protocol | ローカルサブプロセス | 🥇 第一選択 | ACPエージェントツールがある。設定負担ゼロ |
+| **Skill-Runner（Docker）** | HTTP API | 永続サービス | 🥈 推奨 | 永続的なバックグラウンド実行、LAN共有が必要 |
+| **Skill-Runner（ワンクリック）** | HTTP API | プラグインとともに開始/停止 | 🥉 緊急時 | エージェント / Dockerのインストールが全くできない |
+| **Generic HTTP** | HTTP | リモートサービス | 必要に応じて | 特定のHTTP APIの呼び出し（MinerUなど） |
+
+すべてのバックエンドは **[ツール → バックエンドマネージャー](#doc/backends%2Fbackend-manager)** を通じて設定される。
+
+## 次のステップ
+
+- [ACPバックエンド設定](#doc/backends%2Facp)
+- [Skill-Runnerデプロイと設定](#doc/backends%2Fskill-runner)
+- [Generic HTTPバックエンド設定](#doc/backends%2Fgeneric-http)
+- [バックエンドマネージャーの使用方法](#doc/backends%2Fbackend-manager)

@@ -155,7 +155,8 @@ describe("workspace toolbar running tasks popover", function () {
       "workspace-shell-theme-system",
       "workspace-shell-theme-light",
       "workspace-shell-theme-dark",
-      "workspace-shell-docs",
+      "workspace-shell-help",
+      "workspace-shell-online-docs",
       "workspace-shell-refresh",
       "workspace-shell-toggle-sidebar",
     ];
@@ -167,10 +168,13 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(workspaceApp, "updateWorkspaceLocalizedText");
     assert.include(workspaceApp, "data-workspace-label");
     assert.include(workspaceApp, "data-workspace-icon-label");
-    assert.include(workspaceApp, "renderDocsButton");
+    assert.include(workspaceApp, "renderDocsButtons");
+    assert.include(workspaceApp, "zs-icon-help");
     assert.include(workspaceApp, "zs-icon-description");
+    assert.include(workspace, "openHelpCenterTab");
     assert.include(workspace, "getDocsUrl");
-    assert.include(workspace, 'action === "open-docs"');
+    assert.include(workspace, 'action === "open-help"');
+    assert.include(workspace, 'action === "open-online-docs"');
     for (const key of keys) {
       assert.include(workspace, key);
       assert.include(en, `${key} =`);

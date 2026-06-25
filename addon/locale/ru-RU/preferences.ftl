@@ -271,5 +271,7 @@ pref-section-about = О расширении
 pref-about-author = Автор: Ghost in the bucket (leike0813@gmail.com)
 pref-about-github-label = GitHub:
 pref-about-docs = Документация
+pref-about-help = Справка
+pref-about-online-docs = Онлайн-документация
 pref-about-welcome = Приветствуем отправлять вопросы и pull requests.
 pref-help = { $name } Сборка { $version } { $time }

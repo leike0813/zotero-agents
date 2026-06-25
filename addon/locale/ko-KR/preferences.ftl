@@ -271,5 +271,7 @@ pref-section-about = 정보
 pref-about-author = 작성자: Ghost in the bucket (leike0813@gmail.com)
 pref-about-github-label = GitHub:
 pref-about-docs = 문서
+pref-about-help = 도움말
+pref-about-online-docs = 온라인 문서
 pref-about-welcome = 이슈 및 Pull Request를 환영합니다.
 pref-help = { $name } 빌드 { $version } { $time }

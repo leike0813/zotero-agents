@@ -1,0 +1,100 @@
+# 深度阅读
+
+## 用途
+
+对文献进行深度精读，生成结构化、多视角的阅读理解分析视图。自动提取章节结构、核心概念、参考文献，并支持逐段翻译，最终输出为独立的 HTML 阅读文档。
+
+## 适用场景
+
+- 需要系统性地精读一篇重要论文
+- 希望获得包含章节说明、关键概念、扩展阅读的综合分析
+- 需要双语对照阅读（原文 + 目标语言翻译）
+
+## 输入约束
+
+| 约束类型 | 说明 |
+|---------|------|
+| 输入单元 | 附件（attachment） |
+| 接受类型 | `text/markdown`、`text/x-markdown`、`text/plain`、`application/pdf` |
+| 每父条目限制 | 最多 1 个附件 |
+
+### 触发方式
+
+- 直接选中一个 PDF 或 Markdown 附件
+- 选中父条目，插件自动展开其第一个符合条件的附件
+
+## 运行过程
+
+深度阅读 workflow 是一个**全自动**的多阶段处理流水线，无需用户干预：
+
+## 预估耗时
+
+| 文件规模 | 预估耗时 |
+|---------|---------|
+| 短论文（≤10 页） | 8-12 分钟 |
+| 常规（10-30 页） | 12-18 分钟 |
+| 长论文（30+ 页） | 18-25 分钟 |
+
+此 workflow 涉及多阶段处理（引导 → 富化 → 翻译 → 整理 → 渲染），是耗时最长的单篇分析 workflow。
+
+## 模型建议
+
+🟡 建议使用**强文本理解能力**的模型。此 workflow 需要对论文进行多层深度分析（结构、概念、论证逻辑），对模型的语义理解要求较高。如果有 subagent 委派能力，各阶段可以并行执行，显著缩短总耗时。
+
+## 运行产物
+
+```
+1. 准备阶段
+   └── 上传源文件，生成 source_bundle.zip
+       └── 包含原文、图片、已有参考资料
+
+2. 引导与上下文收集
+   └── 分析原文结构和元数据
+       └── 通过 Host Bridge 收集相关上下文
+
+3. 阅读富化
+   └── 生成章节说明、关键概念、参考文献分析
+       └── 总结和扩展阅读视图
+
+4. 逐块翻译
+   └── 按稳定区块进行规范化翻译
+       └── 生成双语对照翻译视图
+
+5. 最终渲染
+   └── 整合所有分析视图
+       └── 渲染为独立的 HTML 文件
+```
+
+## 运行产物
+
+执行完成后，在父条目下创建链接附件指向生成的 HTML 文件：
+
+- **格式**：独立的 HTML 文件（可在浏览器中打开）
+- **内容**：包含原文结构、章节说明、概念分析、参考文献、双语翻译等完整精读视图
+- **生命周期**：每次执行覆盖更新
+
+<figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/workflows/literature-deep-reading_1.webp" alt="深度阅读开篇导读" title="深度阅读开篇导读" loading="lazy" /><figcaption>深度阅读开篇导读</figcaption></figure>
+
+<figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/workflows/literature-deep-reading_2.webp" alt="深度阅读双语动态阅读" title="深度阅读双语动态阅读" loading="lazy" /><figcaption>深度阅读双语动态阅读</figcaption></figure>
+
+<figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/workflows/literature-deep-reading_3.webp" alt="深度阅读参考文献摘要阅读" title="深度阅读参考文献摘要阅读" loading="lazy" /><figcaption>深度阅读参考文献摘要阅读</figcaption></figure>
+
+<figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/workflows/literature-deep-reading_4.webp" alt="深度阅读参考文献 2 跳子图" title="深度阅读参考文献 2 跳子图" loading="lazy" /><figcaption>深度阅读参考文献 2 跳子图</figcaption></figure>
+
+## 参数
+
+| 参数 | 类型 | 说明 | 默认值 |
+|------|------|------|--------|
+| `target_language` | string | 目标语言 | `zh-CN` |
+
+可选值：`zh-CN`、`en-US`、`ja-JP`、`ko-KR`、`de-DE`、`fr-FR`、`es-ES`、`ru-RU`，支持自定义输入。
+
+## 依赖
+
+- **后端**：ACP 后端（需要 ACP 协议支持）
+- **Backend 配置**：在 Backend Manager 中配置 ACP 类型的后端
+
+## 相关工作流
+
+- [文献分析](#doc/workflows%2Fliterature-analysis) — 自动生成文献摘要和引用分析
+- [交互式文献解读](#doc/workflows%2Fliterature-explainer) — 与 AI 对话深入理解文献

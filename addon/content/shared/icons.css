@@ -58,6 +58,11 @@
   mask-image: url("../icons/material-symbols/description.svg");
 }
 
+.zs-icon-help {
+  -webkit-mask-image: url("../icons/material-symbols/article.svg");
+  mask-image: url("../icons/material-symbols/article.svg");
+}
+
 .zs-icon-settings {
   -webkit-mask-image: url("../icons/material-symbols/settings.svg");
   mask-image: url("../icons/material-symbols/settings.svg");

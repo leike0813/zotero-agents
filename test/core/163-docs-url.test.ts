@@ -33,14 +33,14 @@ describe("docs URL routing", function () {
     assert.equal(getDocsUrl(), "http://localhost:3000/zotero-agents/");
   });
 
-  it("routes zh-CN production documentation links to Gitee", function () {
+  it("routes zh-CN production documentation links to GitHub Pages", function () {
     setDebugModeOverrideForTests(false);
     setZoteroLocale("zh-CN");
 
-    assert.equal(getDocsUrl(), "https://leike0813.gitee.io/zotero-agents/");
+    assert.equal(getDocsUrl(), "https://leike0813.github.io/zotero-agents/");
     assert.equal(
       getDocsUrl("workflows/custom"),
-      "https://leike0813.gitee.io/zotero-agents/zh-CN/workflows/custom",
+      "https://leike0813.github.io/zotero-agents/zh-CN/workflows/custom",
     );
   });
 

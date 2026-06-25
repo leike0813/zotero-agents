@@ -271,5 +271,7 @@ pref-section-about = 關於
 pref-about-author = 作者：Ghost in the bucket (leike0813@gmail.com)
 pref-about-github-label = GitHub：
 pref-about-docs = 說明文件
+pref-about-help = 說明
+pref-about-online-docs = 線上文件
 pref-about-welcome = 歡迎提交議題和合併請求。
 pref-help = { $name } Build { $version } { $time }

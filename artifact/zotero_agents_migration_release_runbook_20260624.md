@@ -1,6 +1,7 @@
 # Zotero Agents 迁移发布操作手册
 
-生成日期：2026-06-24
+生成日期：2026-06-24  
+更新日期：2026-06-25
 
 ## 1. 目标
 
@@ -21,8 +22,10 @@ Gitee： https://gitee.com/leike0813/zotero-agents
 - 旧用户通过旧仓最后一版无痛升级。
 - 插件内部 ID、prefs、addon namespace 等兼容契约不变。
 - 旧仓 final release 的 README 指向新仓。
-- 旧仓 final release 的外链全部指向新仓、新文档站和新内容包源。
+- 旧仓 final release 的外链全部指向新仓、GitHub Pages 文档站和新内容包源。
 - 新仓 README 不保留“迁移提示横幅”，只保留旧名称 / 旧仓库的历史说明。
+- Gitee Pages 已下线，不再作为文档站或插件内文档按钮目标。
+- 插件内置精简帮助中心作为中文/国内/离线文档兜底，随 XPI 发布。
 
 ## 2. 当前静态检查结论
 
@@ -49,8 +52,14 @@ content-package.version.json
 - 文档站配置使用 `zotero-agents`。
 - 插件内文档 URL helper 使用：
   - GitHub Pages：`https://leike0813.github.io/zotero-agents/`
-  - Gitee Pages：`https://leike0813.gitee.io/zotero-agents/`
   - debug：`http://localhost:3000/zotero-agents/`
+- 生产环境不再按 locale 路由到 Gitee Pages；Online Docs 统一打开 GitHub Pages 根页面。
+- 插件已新增内置 Help Center：
+  - 源：`site/docs/**` 与 `site/i18n/*/docusaurus-plugin-content-docs/current/**`
+  - 产物：`addon/content/help-docs/**`
+  - 构建命令：`npm run build:help-docs`
+  - 校验命令：`npm run check:help-docs`
+- Dashboard/Synthesis top bar 和 prefs About 区同时提供 `Help` 与 `Online Docs` 两个入口。
 - 偏好页 About 区仓库链接已指向 `https://github.com/leike0813/zotero-agents`。
 
 需要特别注意：
@@ -68,8 +77,8 @@ content-package.version.json
 - 准备旧仓 README 迁移提示文本。
 - 准备新仓 README 的旧名称 / 旧仓库历史说明文本。
 - 扫描旧名、旧链接、旧 feed 地址残留。
-- 构建 XPI、生成 content feed、构建文档站。
-- 检查 XPI 内 `manifest.json`、release `update.json`、content feed JSON。
+- 构建 XPI、生成内置帮助文档、生成 content feed、构建线上文档站。
+- 检查 XPI 内 `manifest.json`、`addon/content/help-docs/manifest.json`、release `update.json`、content feed JSON。
 - 准备 release notes。
 - 在你明确授权后执行 git staging、tag、push、release 相关命令。
 
@@ -82,10 +91,11 @@ content-package.version.json
 - 准备 GitHub / Gitee token：
   - `GITHUB_TOKEN`
   - `GITEE_TOKEN`
-  - `GITEE_USERNAME`，用于 docs deploy。
+  - `GITEE_USERNAME` 不再用于文档站部署；仅在其它镜像脚本明确需要时保留。
 - 在 GitHub Actions secrets 中配置所需 token。
-- 在 Gitee 上启用 Pages。
+- 不再需要在 Gitee 上启用 Pages。
 - 在真实 Zotero profile 或隔离 profile 中验证旧用户升级链路。
+- 在真实 Zotero profile 或隔离 profile 中验证内置 Help、Online Docs、官方 Workflow 包安装。
 - 最终确认是否归档旧仓，以及何时归档。
 
 ## 4. 发布前阻塞项
@@ -145,6 +155,43 @@ https://gitee.com/leike0813/zotero-agents-workflows/releases/download/official-w
 
 如果迁移版本号为 `0.5.0` 或更高，必须先更新 `content-package.version.json` 并重新发布 content feed。
 
+### 4.4 内置帮助中心产物
+
+迁移版本必须包含内置帮助中心，作为 Gitee Pages 下线后的国内/离线文档兜底。
+
+必须满足：
+
+```text
+addon/content/help-center/index.html
+addon/content/help-docs/manifest.json
+addon/content/help-docs/docs/{locale}/**/*.md
+addon/content/help-docs/assets/img/**
+```
+
+构建与校验：
+
+```powershell
+npm run build:help-docs
+npm run check:help-docs
+```
+
+当前约定：
+
+- `build` 会先运行 `build:help-docs`，确保 XPI 打包最新帮助产物。
+- 首版打包所有 Docusaurus docs locale，而不只打包 `en` / `zh-CN`。
+- 图片在构建期用 `sharp` 压缩；Markdown 中图片会导出为带 `zs-doc-figure` class 的安全 figure HTML。
+- `check:help-docs` 校验 manifest、内部 doc link、图片引用与总大小预算。
+- 当前预算：`addon/content/help-docs` 不超过 6 MB。
+
+需要在真实 Zotero 中抽查：
+
+- Help 能在 Zotero 内部 tab 打开。
+- 左侧导航和右侧阅读区都可滚动。
+- 文档图片尺寸接近线上 Docusaurus，不出现超大截图。
+- 切换 locale 后 shell 文案与文档内容同步变化。
+- Help 内部链接不打开外部浏览器。
+- 外部链接和 Online Docs 通过系统浏览器打开。
+
 ## 5. 推荐发布总顺序
 
 ```text
@@ -152,7 +199,7 @@ Phase 0  冻结变更与确定版本
 Phase 1  补齐发布配置能力
 Phase 2  准备新 GitHub / Gitee 仓库
 Phase 3  发布官方 workflow 内容包
-Phase 4  部署文档站
+Phase 4  构建内置帮助并部署 GitHub 文档站
 Phase 5  发布新仓迁移版本
 Phase 6  发布旧仓 final release
 Phase 7  验证旧用户升级链路
@@ -229,9 +276,9 @@ npm run build
 3. 开启 Actions。
 4. 开启 Pages。
 5. 配置 secrets：
-   - `GitHub_TOKEN` 或迁移为统一的 `GITHUB_TOKEN`。
+   - `GITHUB_TOKEN`，用于主仓 release。
    - `GITEE_TOKEN`
-   - `GITEE_USERNAME`
+   - 不再需要用于文档 Pages 的 `GITEE_USERNAME`。
 6. 确认 release workflow 有 `contents: write` 权限。
 
 我可以：
@@ -245,12 +292,12 @@ npm run build
 你需要：
 
 1. 创建 `https://gitee.com/leike0813/zotero-agents`。
-2. 启用 Pages。
-3. 确认 token 可 push `gh-pages`。
+2. 不启用 Pages；Gitee 主仓只作为代码镜像或国内仓库入口。
+3. 确认 token 可按需要 push mirror ref。
 
 我可以：
 
-- 检查 deploy workflow。
+- 检查镜像 workflow。
 - 在你授权后推送 mirror ref。
 
 ### 8.3 内容包仓库
@@ -305,7 +352,42 @@ https://gitee.com/leike0813/zotero-agents-workflows/releases/tag/official-workfl
 - feed 中 zip 的 sha256 与实际下载文件一致。
 - 插件可从 prefs 安装官方 Workflow 包。
 
-## 10. Phase 4：部署文档站
+## 10. Phase 4：构建内置帮助并部署 GitHub 文档站
+
+### 10.1 内置帮助中心
+
+构建检查：
+
+```powershell
+npm run build:help-docs
+npm run check:help-docs
+```
+
+检查 manifest：
+
+```powershell
+Get-Content addon/content/help-docs/manifest.json
+```
+
+验收标准：
+
+- `manifest.schema` 为 `zotero-agents.help-docs.v1`。
+- `locales` 覆盖 `site/docs` 和 `site/i18n/**/current` 中存在的文档 locale。
+- `default_doc` 为 `installation`。
+- 所有 `docs[].path` 均存在。
+- 所有 `assets[]` 均存在。
+- 总大小不超过 6 MB。
+
+XPI 构建后还需抽查压缩包内存在：
+
+```text
+addon/content/help-center/index.html
+addon/content/help-docs/manifest.json
+addon/content/help-docs/docs/en/installation.md
+addon/content/help-docs/assets/img/
+```
+
+### 10.2 线上文档站
 
 构建检查：
 
@@ -317,21 +399,21 @@ npm run docs:build
 
 ```text
 GitHub Pages: https://leike0813.github.io/zotero-agents/
-Gitee Pages:  https://leike0813.gitee.io/zotero-agents/
 ```
 
-插件内文档按钮当前会按 locale 路由：
+插件内文档入口当前约定：
 
-- debug mode：`http://localhost:3000/zotero-agents/`
-- `zh-CN`：Gitee Pages
-- 其他 locale：GitHub Pages
+- `Help`：打开插件内置帮助中心，不依赖网络。
+- `Online Docs`：生产环境打开 GitHub Pages 根页面。
+- debug mode 下 `Online Docs`：`http://localhost:3000/zotero-agents/`
 
 验收标准：
 
 - GitHub Pages 根路径可访问。
-- Gitee Pages 根路径可访问。
-- 中文用户能访问中文文档。
-- 插件内文档按钮打开根页面，不打开 `intro` 或 `installation`。
+- GitHub Pages 的 locale 路由可访问。
+- 插件内 Help 在没有外部网络时仍可打开 bundled docs。
+- 插件内 Online Docs 打开根页面，不打开 `intro` 或 `installation`。
+- 不再把 Gitee Pages 作为文档站目标或中文默认路由。
 
 ## 11. Phase 5：发布新仓迁移版本
 
@@ -356,6 +438,8 @@ Zotero Agents was formerly developed as Zotero-Skills. The historical repository
 3. 跑最小验证：
 
 ```powershell
+npm run build:help-docs
+npm run check:help-docs
 npm run check:localization-governance
 npm run check:host-bridge-doc-sync
 npm run build
@@ -374,6 +458,8 @@ npm run build:content-feed -- --channels stable,beta,dev --out artifact/content-
 manifest id: zotero-skills@leike0813@gmail.com
 manifest name: Zotero Agents
 manifest update_url: https://github.com/leike0813/zotero-agents/releases/download/release/update.json
+contains: addon/content/help-center/index.html
+contains: addon/content/help-docs/manifest.json
 ```
 
 ## 12. Phase 6：发布旧仓 final release
@@ -411,7 +497,8 @@ manifest update_url: https://github.com/leike0813/zotero-agents/releases/downloa
 - README release 链接：`https://github.com/leike0813/zotero-agents/releases`
 - package homepage：`https://github.com/leike0813/zotero-agents#readme`
 - issue 链接：`https://github.com/leike0813/zotero-agents/issues`
-- 文档站：`https://leike0813.github.io/zotero-agents/` 或 `https://leike0813.gitee.io/zotero-agents/`
+- 线上文档站：`https://leike0813.github.io/zotero-agents/`
+- 插件内 Help：随 XPI 打包的 `addon/content/help-docs/**`
 - workflow feed：`leike0813/zotero-agents-workflows`
 - XPI manifest update_url：新仓 update.json
 
@@ -457,7 +544,9 @@ ZOTERO_DOWNLOAD_REPO=leike0813/zotero-agents 或 leike0813/Zotero-Skills
    - prefs 保留。
    - 显示名称为 `Zotero Agents`。
    - 后续 update URL 指向新仓。
-   - 文档按钮打开新文档站。
+   - `Help` 打开插件内置帮助中心。
+   - `Online Docs` 打开 GitHub Pages 根页面。
+   - debug mode 下 `Online Docs` 打开 `http://localhost:3000/zotero-agents/`。
    - 官方 Workflow 包安装入口可见。
    - 官方 Workflow 包可从新 content feed 安装。
 7. 如可能，再发布或模拟一个新仓后续版本，确认迁移版能从新仓继续升级。
@@ -476,7 +565,9 @@ ZOTERO_DOWNLOAD_REPO=leike0813/zotero-agents 或 leike0813/Zotero-Skills
 
 - README 不保留“本仓已迁移”提示横幅。
 - 保留旧名称 / 旧仓库历史说明。
-- 所有文档、release、issue、workflow feed 都以新仓为主。
+- release、issue、workflow feed 都以新仓为主。
+- 线上文档站以 GitHub Pages 为主。
+- 插件内置 Help 作为国内/离线访问兜底，随 XPI 版本更新。
 
 内容仓：
 
@@ -492,14 +583,20 @@ ZOTERO_DOWNLOAD_REPO=leike0813/zotero-agents 或 leike0813/Zotero-Skills
 - [ ] Gitee 主仓 `zotero-agents` 已创建。
 - [ ] GitHub 内容仓 `zotero-agents-workflows` 已创建。
 - [ ] Gitee 内容仓 `zotero-agents-workflows` 已创建。
-- [ ] `GITHUB_TOKEN` / `GITEE_TOKEN` / `GITEE_USERNAME` 已配置。
+- [ ] `GITHUB_TOKEN` 已配置，可写主仓 release。
+- [ ] `GITEE_TOKEN` 已配置，可写内容仓 mirror/feed/Release assets。
+- [ ] `GITEE_USERNAME` 不再作为文档部署必需 secret。
 - [ ] content feed stable/beta/dev 已发布。
 - [ ] Gitee content feed mirror 和 Release assets 可访问。
-- [ ] 文档站 GitHub/Gitee Pages 可访问。
+- [ ] `npm run build:help-docs` 已通过。
+- [ ] `npm run check:help-docs` 已通过。
+- [ ] XPI 内包含 `addon/content/help-center/index.html` 与 `addon/content/help-docs/manifest.json`。
+- [ ] 文档站 GitHub Pages 可访问。
+- [ ] 插件内 Help 可在真实或隔离 Zotero profile 中打开。
+- [ ] 插件内 Online Docs 可打开 GitHub Pages 根页面。
 - [ ] 新仓 README 无迁移提示横幅。
 - [ ] 新仓 README 有旧名称 / 旧仓库历史说明。
 - [ ] 旧仓 README 有迁移提示。
 - [ ] 旧仓 final release XPI 的 `update_url` 指向新仓。
 - [ ] 旧仓 final release `update.json` 可被旧版本发现。
 - [ ] 旧用户升级链路已用真实或隔离 Zotero profile 验证。
-

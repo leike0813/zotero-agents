@@ -2,6 +2,7 @@ import { config } from "../../package.json";
 import { getDocsUrl } from "../utils/docsUrl";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import { getStringOrFallback } from "../utils/locale";
+import { openHelpCenterTab } from "./helpCenterTab";
 import {
   mountSynthesisWorkbenchRuntime,
   type MountedSynthesisWorkbenchRuntime,
@@ -43,7 +44,8 @@ type WorkspaceShellLabels = {
   themeSystem: string;
   themeLight: string;
   themeDark: string;
-  docs: string;
+  help: string;
+  onlineDocs: string;
   refresh: string;
   toggleSidebar: string;
   openSidebar: string;
@@ -142,7 +144,11 @@ function buildWorkspaceShellLabels(): WorkspaceShellLabels {
       "workspace-shell-theme-dark",
       "Dark",
     ),
-    docs: localizeWorkspaceShellLabel("workspace-shell-docs", "Docs"),
+    help: localizeWorkspaceShellLabel("workspace-shell-help", "Help"),
+    onlineDocs: localizeWorkspaceShellLabel(
+      "workspace-shell-online-docs",
+      "Online Docs",
+    ),
     refresh: localizeWorkspaceShellLabel("workspace-shell-refresh", "Refresh"),
     toggleSidebar: localizeWorkspaceShellLabel(
       "workspace-shell-toggle-sidebar",
@@ -732,7 +738,13 @@ async function handleAction(
     await mountSynthesisRuntimeIfReady(runtime);
     return;
   }
-  if (action === "open-docs") {
+  if (action === "open-help") {
+    await openHelpCenterTab({
+      window: runtime.window,
+    });
+    return;
+  }
+  if (action === "open-online-docs" || action === "open-docs") {
     const zotero = (globalThis as any).Zotero || (runtime.window as any).Zotero;
     zotero?.launchURL?.(getDocsUrl());
     return;
