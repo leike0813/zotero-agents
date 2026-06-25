@@ -120,10 +120,37 @@ function isAbsolutePath(targetPath: string) {
   );
 }
 
+function getRuntimeSystemTempDir() {
+  const runtime = globalThis as {
+    Services?: {
+      dirsvc?: {
+        get?: (key: string, iface: unknown) => { path?: string };
+      };
+    };
+    Ci?: { nsIFile?: unknown };
+  };
+  if (!runtime.Services?.dirsvc?.get || !runtime.Ci?.nsIFile) {
+    return undefined;
+  }
+  try {
+    const tempDir = runtime.Services.dirsvc.get("TmpD", runtime.Ci.nsIFile);
+    return tempDir?.path && isAbsolutePath(tempDir.path)
+      ? tempDir.path
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function resolveRuntimeTempDir(tempDir: string) {
-  return isAbsolutePath(tempDir)
-    ? tempDir
-    : joinPath(getProjectRoot(), tempDir);
+  if (isAbsolutePath(tempDir)) {
+    return tempDir;
+  }
+  const systemTempDir = getRuntimeSystemTempDir();
+  if (systemTempDir) {
+    return systemTempDir;
+  }
+  return joinPath(getProjectRoot(), tempDir);
 }
 
 export async function mkTempDir(prefix: string) {
