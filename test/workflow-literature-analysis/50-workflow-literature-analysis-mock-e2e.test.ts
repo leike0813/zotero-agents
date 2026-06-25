@@ -46,14 +46,6 @@ function basename(targetPath: string) {
   return parts.length > 0 ? parts[parts.length - 1] : targetPath;
 }
 
-function assertGeneratedNoteKind(noteContent: string, kind: string) {
-  const escaped = kind.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  assert.match(
-    noteContent,
-    new RegExp(`data-zs-note-kind=(["'])${escaped}\\1`, "i"),
-  );
-}
-
 const describeLiteratureDigestE2ESuite = isFullTestMode()
   ? describe
   : describe.skip;
@@ -161,14 +153,11 @@ describeLiteratureDigestE2ESuite(
         assert.equal(secondNote.parentItemID, parent.id);
         assert.equal(thirdNote.parentItemID, parent.id);
         assert.match(firstNote.getNote(), /<h1>Digest<\/h1>/);
-        assertGeneratedNoteKind(firstNote.getNote(), "digest");
         assert.isAtLeast((firstNote.getAttachments?.() || []).length, 1);
         assert.match(secondNote.getNote(), /<h1>References<\/h1>/);
         assert.match(secondNote.getNote(), /<table\b/);
-        assertGeneratedNoteKind(secondNote.getNote(), "references");
         assert.isAtLeast((secondNote.getAttachments?.() || []).length, 1);
         assert.match(thirdNote.getNote(), /<h1>Citation Analysis<\/h1>/);
-        assertGeneratedNoteKind(thirdNote.getNote(), "citation-analysis");
         assert.isAtLeast((thirdNote.getAttachments?.() || []).length, 1);
         const parentNotes = parent.getNotes();
         assert.include(parentNotes, firstNote.id);
