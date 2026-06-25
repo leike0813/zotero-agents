@@ -10,7 +10,7 @@
 <h1 align="center">Zotero Agents</h1>
 
 <p align="center">
-  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0--alpha-orange?style=flat-square" alt="v0.5.0-alpha" /></a>
+  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
   <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -33,7 +33,7 @@
   <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 A partir de v0.5.0-alpha, este complemento ha pasado de llamarse **Zotero Skills** a **Zotero Agents**.
+> 💡 A partir de v0.5.0, este complemento ha pasado de llamarse **Zotero Skills** a **Zotero Agents**.
 
 ---
 
@@ -539,7 +539,7 @@ Para más detalles de arquitectura, consulte el [sitio de documentación: Flujos
 
 ## Nota sobre la versión de transición
 
-> **v0.5.0-alpha es el primer hito importante tras el cambio de nombre a «Zotero Agents».** En comparación con v0.4.0 (frontal puro de Skill-Runner), v0.5.0 completa la transformación hacia un marco de ejecución de agentes universal — se añaden capacidades fundamentales como el backend ACP, el Synthesis Workbench, el grafo de citas, la base de conocimiento conceptual, el Host Bridge y el servidor MCP, y ya puede utilizarse de forma estable en la investigación cotidiana.
+> **v0.5.0 es el primer hito importante tras el cambio de nombre a «Zotero Agents».** En comparación con v0.4.0 (frontal puro de Skill-Runner), v0.5.0 completa la transformación hacia un marco de ejecución de agentes universal — se añaden capacidades fundamentales como el backend ACP, el Synthesis Workbench, el grafo de citas, la base de conocimiento conceptual, el Host Bridge y el servidor MCP, y ya puede utilizarse de forma estable en la investigación cotidiana.
 
 ### ⚠️ Limitaciones conocidas
 

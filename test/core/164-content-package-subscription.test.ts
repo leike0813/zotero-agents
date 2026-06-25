@@ -281,18 +281,18 @@ describe("content package subscription", function () {
   it("accepts mirror feeds with different artifact URLs when package semantics match", async function () {
     const zip = makePackageZip({
       contentApi: "1.0.0",
-      requires: { plugin: ">=0.4.0 <0.5.0", content_api: "^1.0.0" },
+      requires: { plugin: ">=0.5.0", content_api: "^1.0.0" },
     });
     const primaryFeed = makeFeed({
       zip,
       contentApi: "1.0.0",
-      requires: { plugin: ">=0.4.0 <0.5.0", content_api: "^1.0.0" },
+      requires: { plugin: ">=0.5.0", content_api: "^1.0.0" },
       artifactUrl: "https://github.example/releases/official-content.zip",
     });
     const mirrorFeed = makeFeed({
       zip,
       contentApi: "1.0.0",
-      requires: { plugin: ">=0.4.0 <0.5.0", content_api: "^1.0.0" },
+      requires: { plugin: ">=0.5.0", content_api: "^1.0.0" },
       artifactUrl: "https://gitee.example/releases/official-content.zip",
     });
     globalThis.fetch = (async (url: RequestInfo | URL) => {
@@ -347,7 +347,7 @@ describe("content package subscription", function () {
   });
 
   it("rejects packages that require an unsupported content API", async function () {
-    const requires = { plugin: ">=0.4.0 <0.5.0", content_api: "^99.0.0" };
+    const requires = { plugin: ">=0.5.0", content_api: "^99.0.0" };
     const zip = makePackageZip({ contentApi: "99.0.0", requires });
     const feed = makeFeed({ zip, contentApi: "99.0.0", requires });
     globalThis.fetch = (async (url: RequestInfo | URL) => {
@@ -366,7 +366,7 @@ describe("content package subscription", function () {
   });
 
   it("rejects packages that require an unsupported Zotero version", async function () {
-    const requires = { plugin: ">=0.4.0 <0.5.0", zotero: ">=99" };
+    const requires = { plugin: ">=0.5.0", zotero: ">=99" };
     const zip = makePackageZip({ requires });
     const feed = makeFeed({ zip, requires });
     globalThis.fetch = (async (url: RequestInfo | URL) => {
@@ -451,13 +451,13 @@ describe("content package subscription", function () {
     const feed1 = makeFeed({ zip: zip1, version: "1.0.0", revision: "rev-1" });
     const zip2 = makePackageZip({
       version: "1.0.0",
-      requires: { plugin: ">=0.4.0 <0.5.0" },
+      requires: { plugin: ">=0.5.0" },
     });
     const feed2 = makeFeed({
       zip: zip2,
       version: "1.0.0",
       revision: "rev-2",
-      requires: { plugin: ">=0.4.0 <0.5.0" },
+      requires: { plugin: ">=0.5.0" },
     });
     let activeFeed = feed1;
     let activeZip = zip1;
@@ -672,8 +672,8 @@ describe("content package subscription", function () {
           incompatibility: {
             code: "plugin_version_unsupported",
             requirement: ">=99.0.0",
-            actual: "0.4.0",
-            message: "Plugin version 0.4.0 does not satisfy >=99.0.0",
+            actual: "0.5.0",
+            message: "Plugin version 0.5.0 does not satisfy >=99.0.0",
           },
           selectedFeedUrl: "https://primary.example/stable/feed.json",
           failures: [],

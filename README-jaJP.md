@@ -10,7 +10,7 @@
 <h1 align="center">Zotero Agents</h1>
 
 <p align="center">
-  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0--alpha-orange?style=flat-square" alt="v0.5.0-alpha" /></a>
+  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
   <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -20,7 +20,7 @@
   <a href="README.md">English</a> · <a href="README-zhCN.md">简体中文</a> · <a href="README-zhTW.md">繁體中文</a> · <strong>日本語</strong> · <a href="README-frFR.md">Français</a> · <a href="README-de.md">Deutsch</a> · <a href="README-esES.md">Español</a> · <a href="README-ptBR.md">Português</a> · <a href="README-koKR.md">한국어</a> · <a href="README-itIT.md">Italiano</a> · <a href="README-ruRU.md">Русский</a> · <a href="https://leike0813.github.io/zotero-agents/">📖 ドキュメント</a> · <a href="https://github.com/leike0813/zotero-agents">GitHub</a> · <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 v0.5.0-alpha より、本プラグインは **Zotero Skills** から **Zotero Agents** に名称変更されました。
+> 💡 v0.5.0 より、本プラグインは **Zotero Skills** から **Zotero Agents** に名称変更されました。
 
 ---
 
@@ -526,7 +526,7 @@ flowchart TD
 
 ## 移行バージョンについて
 
-> **v0.5.0-alpha は「Zotero Agents」への名称変更後初の重要なマイルストーンです。** v0.4.0（純粋な Skill-Runner フロントエンド）から、v0.5.0 では汎用 Agent 実行フレームワークへの全面的な移行を達成 — ACP バックエンド、文献統合ワークベンチ、引用グラフ、概念ナレッジベース、Host Bridge、MCP Server などの主要機能を追加し、日常の研究で安定して使用できる段階にあります。
+> **v0.5.0 は「Zotero Agents」への名称変更後初の重要なマイルストーンです。** v0.4.0（純粋な Skill-Runner フロントエンド）から、v0.5.0 では汎用 Agent 実行フレームワークへの全面的な移行を達成 — ACP バックエンド、文献統合ワークベンチ、引用グラフ、概念ナレッジベース、Host Bridge、MCP Server などの主要機能を追加し、日常の研究で安定して使用できる段階にあります。
 
 ### ⚠️ 既知の制限
 

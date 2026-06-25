@@ -10,7 +10,7 @@
 <h1 align="center">Zotero Agents</h1>
 
 <p align="center">
-  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0--alpha-orange?style=flat-square" alt="v0.5.0-alpha" /></a>
+  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
   <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -33,7 +33,7 @@
   <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 v0.5.0-alpha부터 본 플러그인의 이름이 **Zotero Skills**에서 **Zotero Agents**로 변경되었습니다.
+> 💡 v0.5.0부터 본 플러그인의 이름이 **Zotero Skills**에서 **Zotero Agents**로 변경되었습니다.
 
 ---
 
@@ -539,7 +539,7 @@ flowchart TD
 
 ## 전환 버전 안내
 
-> **v0.5.0-alpha는 'Zotero Agents'로 개명 후 첫 번째 중요한 마일스톤입니다.** v0.4.0(순수 Skill-Runner 프론트엔드)에 비해, v0.5.0은 범용 에이전트 실행 프레임워크로의 전면적 전환을 완성했습니다 — ACP 백엔드 지원, 문헌 종합 워크벤치, 인용 그래프, 개념 지식 베이스, Host Bridge, MCP 서버 등 핵심 기능이 추가되었으며, 일상 연구에서 안정적으로 사용할 수 있습니다.
+> **v0.5.0는 'Zotero Agents'로 개명 후 첫 번째 중요한 마일스톤입니다.** v0.4.0(순수 Skill-Runner 프론트엔드)에 비해, v0.5.0은 범용 에이전트 실행 프레임워크로의 전면적 전환을 완성했습니다 — ACP 백엔드 지원, 문헌 종합 워크벤치, 인용 그래프, 개념 지식 베이스, Host Bridge, MCP 서버 등 핵심 기능이 추가되었으며, 일상 연구에서 안정적으로 사용할 수 있습니다.
 
 ### ⚠️ 알려진 제한 사항
 

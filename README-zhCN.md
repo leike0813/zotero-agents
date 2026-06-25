@@ -10,7 +10,7 @@
 <h1 align="center">Zotero Agents</h1>
 
 <p align="center">
-  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0--alpha-orange?style=flat-square" alt="v0.5.0-alpha" /></a>
+  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
   <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -33,7 +33,7 @@
   <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 自 v0.5.0-alpha 起，本插件由 **Zotero Skills** 更名为 **Zotero Agents**。
+> 💡 自 v0.5.0 起，本插件由 **Zotero Skills** 更名为 **Zotero Agents**。
 
 ---
 
@@ -539,7 +539,7 @@ flowchart TD
 
 ## 过渡版本说明
 
-> **v0.5.0-alpha 是更名为"Zotero Agents"后的首个重要里程碑。** 相比 v0.4.0（纯 Skill-Runner 前端），v0.5.0 完成了向通用 Agent 执行框架的全面转型 — 新增 ACP 后端支持、文献综合工作台、引文图谱、概念知识库、Host Bridge、MCP Server 等核心能力，已可在日常研究中稳定使用。
+> **v0.5.0 是更名为"Zotero Agents"后的首个重要里程碑。** 相比 v0.4.0（纯 Skill-Runner 前端），v0.5.0 完成了向通用 Agent 执行框架的全面转型 — 新增 ACP 后端支持、文献综合工作台、引文图谱、概念知识库、Host Bridge、MCP Server 等核心能力，已可在日常研究中稳定使用。
 
 ### ⚠️ 已知限制
 

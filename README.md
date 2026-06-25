@@ -10,7 +10,7 @@
 <h1 align="center">Zotero Agents</h1>
 
 <p align="center">
-  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0--alpha-orange?style=flat-square" alt="v0.5.0-alpha" /></a>
+  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
   <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -33,7 +33,7 @@
   <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 Starting from v0.5.0-alpha, this plugin has been renamed from **Zotero Skills** to **Zotero Agents**.
+> 💡 Starting from v0.5.0, this plugin has been renamed from **Zotero Skills** to **Zotero Agents**.
 
 ---
 
@@ -539,7 +539,7 @@ For more architecture details, see [Documentation Site: Custom Workflows](https:
 
 ## Transition Release Notes
 
-> **v0.5.0-alpha is the first major milestone after renaming to "Zotero Agents."** Compared to v0.4.0 (pure Skill-Runner frontend), v0.5.0 completes the full transformation into a general-purpose Agent execution framework — adding ACP backend support, Synthesis Workbench, citation graph, concept knowledge base, Host Bridge, MCP Server, and other core capabilities, and is now stable enough for daily research use.
+> **v0.5.0 is the first major milestone after renaming to "Zotero Agents."** Compared to v0.4.0 (pure Skill-Runner frontend), v0.5.0 completes the full transformation into a general-purpose Agent execution framework — adding ACP backend support, Synthesis Workbench, citation graph, concept knowledge base, Host Bridge, MCP Server, and other core capabilities, and is now stable enough for daily research use.
 
 ### ⚠️ Known Limitations
 

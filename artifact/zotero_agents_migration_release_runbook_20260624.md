@@ -65,9 +65,9 @@ content-package.version.json
 
 需要特别注意：
 
-- `zotero-plugin.config.ts` 的 `updateURL` 和 `xpiDownloadLink` 仍使用 `{{owner}}/{{repo}}` 模板。
-- 如果直接在旧仓构建 final release，XPI 内的 `update_url` 很可能仍指向旧仓。
-- 因此发布前必须先支持显式覆盖 update repo / download repo，或在发布产物中做强制校验与修正。
+- `zotero-plugin.config.ts` 的 `updateURL` 和 `xpiDownloadLink` 已固定指向 `https://github.com/leike0813/zotero-agents`。
+- 因此即使从旧仓构建 final release，XPI 内的 `update_url` 也会指向新仓。
+- 发布前仍需要抽查 XPI 内 `manifest.json` 和 release `update.json`，确认没有被 release 工具链改回旧仓地址。
 
 ## 3. 职责分工
 
@@ -101,9 +101,9 @@ content-package.version.json
 
 ## 4. 发布前阻塞项
 
-### 4.1 update_url 覆盖能力
+### 4.1 update_url 新仓固定指向
 
-必须在发布前完成。
+已经在源码中固定。
 
 目标行为：
 
@@ -118,14 +118,11 @@ content-package.version.json
   XPI download -> 可指向旧仓或新仓；推荐旧仓附同一 XPI 作为保底，新仓也发布同版本
 ```
 
-建议实现：
+当前实现：
 
-```text
-ZOTERO_UPDATE_REPO=leike0813/zotero-agents
-ZOTERO_DOWNLOAD_REPO=leike0813/zotero-agents
-```
-
-`zotero-plugin.config.ts` 根据这些变量生成 `updateURL` 和 `xpiDownloadLink`。默认值仍可使用 `{{owner}}/{{repo}}`，但迁移发布必须显式指定。
+- `updateURL` 固定为 `https://github.com/leike0813/zotero-agents/releases/download/release/update.json` 或 beta 对应文件。
+- `xpiDownloadLink` 固定为 `https://github.com/leike0813/zotero-agents/releases/download/v{{version}}/{{xpiName}}.xpi`。
+- 不再依赖 `{{owner}}/{{repo}}` 模板，也不需要发布时设置额外环境变量。
 
 ### 4.2 Gitee 内容包 Release assets
 
@@ -148,13 +145,13 @@ https://gitee.com/leike0813/zotero-agents-workflows/releases/download/official-w
 
 ```json
 {
-  "plugin": ">=0.4.0 <0.5.0",
+  "plugin": ">=0.5.0",
   "content_api": "^1.0.0",
   "zotero": ">=7 <10"
 }
 ```
 
-如果迁移版本号为 `0.5.0` 或更高，必须先更新 `content-package.version.json` 并重新发布 content feed。
+本次迁移发布版本已定为 `v0.5.0`；内容包最低插件版本同步为 `0.5.0`，暂不设置最高插件版本上限。发布前必须重新生成并发布 content feed。
 
 ### 4.4 内置帮助中心产物
 
@@ -216,9 +213,10 @@ Phase 8  收尾与旧仓冻结
 - 旧仓 final release 是否使用同一个 tag 名。
 - 旧仓 final release 的 XPI 下载地址是否指向旧仓、还是新仓。
 
-推荐默认：
+本次发布约定：
 
-- 使用 `<0.5.0` 的 patch 版本，避免当前内容包兼容范围失效。
+- 使用 `v0.5.0` 作为插件 release tag，代码中的语义版本写 `0.5.0`。
+- 官方 Workflow 内容包要求插件版本 `>=0.5.0`，不设置最高版本上限。
 - 暂不自动安装官方 Workflow 包，保留右键菜单和 prefs 安装入口。
 - 新仓和旧仓发布同版本号。
 - 新仓作为后续 update source；旧仓 final release 保留同一 XPI 作为迁移窗口保底。
@@ -422,7 +420,7 @@ GitHub Pages: https://leike0813.github.io/zotero-agents/
 
 - content feed 已发布。
 - docs 已部署。
-- release config 已支持 update repo 覆盖。
+- release config 已固定指向新仓 release。
 - 新仓 README 不带旧仓迁移提示横幅。
 - 新仓 README 可保留一段历史说明，例如：
 
@@ -503,24 +501,17 @@ contains: addon/content/help-docs/manifest.json
 - workflow feed：`leike0813/zotero-agents-workflows`
 - XPI manifest update_url：新仓 update.json
 
-当前静态检查显示这些外链基本已经满足；唯一必须特别处理的是 release config 的 `update_url` 模板。
+当前静态检查显示这些外链基本已经满足；release config 已固定指向新仓。
 
 ### 12.3 发布步骤
 
 1. 切到旧仓 final release 工作区或 legacy remote 工作区。
 2. 应用旧仓 README 迁移提示。
 3. 确认代码内容与新仓迁移版本一致，除了旧仓 README 迁移提示。
-4. 使用显式 release 配置：
-
-```text
-ZOTERO_UPDATE_REPO=leike0813/zotero-agents
-ZOTERO_DOWNLOAD_REPO=leike0813/zotero-agents 或 leike0813/Zotero-Skills
-```
-
-5. 构建 XPI。
-6. 检查 XPI manifest。
-7. 发布旧仓 final release。
-8. 检查旧仓 `release/update.json` 能被旧版本发现。
+4. 构建 XPI。
+5. 检查 XPI manifest，确认 `update_url` 指向新仓。
+6. 发布旧仓 final release。
+7. 检查旧仓 `release/update.json` 能被旧版本发现。
 
 旧仓 release note 必须说明：
 

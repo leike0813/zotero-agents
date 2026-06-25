@@ -10,7 +10,7 @@
 <h1 align="center">Zotero Agents</h1>
 
 <p align="center">
-  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0--alpha-orange?style=flat-square" alt="v0.5.0-alpha" /></a>
+  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
   <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -33,7 +33,7 @@
   <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 A partire da v0.5.0-alpha, questo plugin è stato rinominato da **Zotero Skills** a **Zotero Agents**.
+> 💡 A partire da v0.5.0, questo plugin è stato rinominato da **Zotero Skills** a **Zotero Agents**.
 
 ---
 
@@ -539,7 +539,7 @@ Per maggiori dettagli sull'architettura, consulta [Documentazione utente: Flusso
 
 ## Note sulla versione di transizione
 
-> **v0.5.0-alpha è la prima tappa importante dopo la rinominazione in "Zotero Agents".** Rispetto a v0.4.0 (puramente frontend Skill-Runner), v0.5.0 ha completato la trasformazione completa verso un framework di esecuzione Agent universale — aggiungendo supporto backend ACP, Workbench di sintesi della letteratura, grafo delle citazioni, base di conoscenza concettuale, Host Bridge, MCP Server e altre capacità fondamentali, già utilizzabile in modo stabile nella ricerca quotidiana.
+> **v0.5.0 è la prima tappa importante dopo la rinominazione in "Zotero Agents".** Rispetto a v0.4.0 (puramente frontend Skill-Runner), v0.5.0 ha completato la trasformazione completa verso un framework di esecuzione Agent universale — aggiungendo supporto backend ACP, Workbench di sintesi della letteratura, grafo delle citazioni, base di conoscenza concettuale, Host Bridge, MCP Server e altre capacità fondamentali, già utilizzabile in modo stabile nella ricerca quotidiana.
 
 ### ⚠️ Limitazioni note
 

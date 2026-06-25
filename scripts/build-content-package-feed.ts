@@ -94,7 +94,7 @@ async function readContentVersionDescriptor() {
     version: pkg.version,
     content_api: CONTENT_API_VERSION,
     requires: {
-      plugin: `>=${pkg.version} <0.5.0`,
+      plugin: `>=${pkg.version}`,
       content_api: `^${CONTENT_API_VERSION}`,
       zotero: ">=7 <10",
     },

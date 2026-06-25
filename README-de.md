@@ -10,7 +10,7 @@
 <h1 align="center">Zotero Agents</h1>
 
 <p align="center">
-  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0--alpha-orange?style=flat-square" alt="v0.5.0-alpha" /></a>
+  <a href="https://github.com/leike0813/zotero-agents/releases"><img src="https://img.shields.io/badge/version-v0.5.0-blue?style=flat-square" alt="v0.5.0" /></a>
   <img src="https://img.shields.io/badge/Zotero-7|9-CC2936?style=flat-square&logo=zotero&logoColor=white" alt="Zotero 7/9" />
   <a href="https://github.com/leike0813/zotero-agents/blob/main/LICENSE"><img src="https://img.shields.io/github/license/leike0813/zotero-agents?style=flat-square" alt="AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/TypeScript-4.0+-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
@@ -20,7 +20,7 @@
   <a href="README.md">English</a> · <a href="README-zhCN.md">简体中文</a> · <a href="README-zhTW.md">繁體中文</a> · <a href="README-jaJP.md">日本語</a> · <a href="README-frFR.md">Français</a> · <strong>Deutsch</strong> · <a href="README-esES.md">Español</a> · <a href="README-ptBR.md">Português</a> · <a href="README-koKR.md">한국어</a> · <a href="README-itIT.md">Italiano</a> · <a href="README-ruRU.md">Русский</a> · <a href="https://leike0813.github.io/zotero-agents/">📖 Dokumentation</a> · <a href="https://github.com/leike0813/zotero-agents">GitHub</a> · <a href="https://gitee.com/leike0813/zotero-agents">Gitee</a>
 </p>
 
-> 💡 Seit v0.5.0-alpha wurde dieses Plugin von **Zotero Skills** in **Zotero Agents** umbenannt.
+> 💡 Seit v0.5.0 wurde dieses Plugin von **Zotero Skills** in **Zotero Agents** umbenannt.
 
 ---
 
@@ -526,7 +526,7 @@ Weitere ArchitekturDetails finden Sie auf der [Dokumentationswebsite: Benutzerde
 
 ## Hinweis zur Übergangsversion
 
-> **v0.5.0-alpha ist der erste wichtige Meilenstein nach der Umbenennung in „Zotero Agents".** Ausgehend von v0.4.0 (reines Skill-Runner-Frontend) hat v0.5.0 die vollständige Transformation zu einem universellen Agent-Ausführungsframework vollzogen — mit ACP-Backend-Unterstützung, Literatur-Synthese-Workbench, Zitationsgraph, Konzept-Wissensbasis, Host Bridge, MCP-Server und weiteren Kernfunktionen, die bereits im täglichen Forschungseinsatz stabil laufen.
+> **v0.5.0 ist der erste wichtige Meilenstein nach der Umbenennung in „Zotero Agents".** Ausgehend von v0.4.0 (reines Skill-Runner-Frontend) hat v0.5.0 die vollständige Transformation zu einem universellen Agent-Ausführungsframework vollzogen — mit ACP-Backend-Unterstützung, Literatur-Synthese-Workbench, Zitationsgraph, Konzept-Wissensbasis, Host Bridge, MCP-Server und weiteren Kernfunktionen, die bereits im täglichen Forschungseinsatz stabil laufen.
 
 ### ⚠️ Bekannte Einschränkungen
 

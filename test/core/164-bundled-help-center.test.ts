@@ -61,6 +61,21 @@ describe("bundled help center packaging", function () {
     assert.include(html, "zs-doc-figure--poster");
   });
 
+  it("pins plugin release update metadata to the migrated repository", async function () {
+    const config = await readProjectFile("zotero-plugin.config.ts");
+
+    assert.include(config, 'RELEASE_REPO = "leike0813/zotero-agents"');
+    assert.include(
+      config,
+      "https://github.com/${RELEASE_REPO}/releases/download/release/",
+    );
+    assert.include(
+      config,
+      "https://github.com/${RELEASE_REPO}/releases/download/v{{version}}/{{xpiName}}.xpi",
+    );
+    assert.notInclude(config, "github.com/{{owner}}/{{repo}}");
+  });
+
   it("commits generated help docs with resolvable manifest paths", async function () {
     const manifestPath = path.join(
       process.cwd(),
