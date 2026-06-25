@@ -109,7 +109,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: zotero-bridge-*
-          merge-multiple: true
+          path: .scaffold/host-bridge-cli-artifacts
+
+      - name: Restore addon bin layout
+        run: |
+          mkdir -p addon/bin
+          for artifact in .scaffold/host-bridge-cli-artifacts/zotero-bridge-*; do
+            platform="${artifact##*/zotero-bridge-}"
+            mkdir -p "addon/bin/${platform}"
+            cp "${artifact}"/* "addon/bin/${platform}/"
+          done
 
       - name: Verify Host Bridge CLI prebuilds
         run: |
