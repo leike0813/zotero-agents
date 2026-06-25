@@ -76,7 +76,8 @@ jobs:
         run: cli/zotero-bridge/target/${{ matrix.rust-target }}/release/${{ matrix.binary }} --help
 
       - name: Check packaged CLI
-        run: node -e "const fs=require('fs'); const p='addon/bin/${{ matrix.platform }}/${{ matrix.binary }}'; if (!fs.existsSync(p)) { console.error(`missing packaged CLI: ${p}`); process.exit(1); }"
+        run: |
+          node -e "const fs=require('fs'); const p=process.argv[1]; if (!fs.existsSync(p)) { console.error('missing packaged CLI: ' + p); process.exit(1); }" "addon/bin/${{ matrix.platform }}/${{ matrix.binary }}"
 
       - name: Upload packaged CLI
         uses: actions/upload-artifact@v4
