@@ -57,7 +57,7 @@ jobs:
         run: npm run test:gate:release
 
   publish-content-feed:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'leike0813/zotero-agents'
     runs-on: ubuntu-latest
     needs:
       - test-full
