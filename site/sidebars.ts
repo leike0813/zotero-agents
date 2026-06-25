@@ -4,12 +4,12 @@ const sidebars: SidebarsConfig = {
   docsSidebar: [
     {
       type: "category",
-      label: "📖 指南",
+      label: "📖 Guide",
       items: ["intro", "installation", "getting-started", "markdown-reader"],
     },
     {
       type: "category",
-      label: "⚙️ 后端配置",
+      label: "⚙️ Backend Configuration",
       items: [
         "backends/index",
         "backends/backend-manager",
@@ -28,7 +28,7 @@ const sidebars: SidebarsConfig = {
         "workflows/invocation",
         {
           type: "category",
-          label: "官方 Workflow",
+          label: "Official Workflows",
           items: [
             "workflows/literature-analysis",
             "workflows/literature-explainer",
@@ -45,7 +45,7 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "category",
-          label: "自定义 Workflow",
+          label: "Custom Workflows",
           items: [
             "workflows/custom/index",
             "workflows/custom/manifest",
@@ -68,7 +68,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
-      label: "🖥️ 侧边栏与 ACP Chat",
+      label: "🖥️ Sidebar & ACP Chat",
       items: ["sidebar/index", "sidebar/acp-chat", "sidebar/acp-skills", "sidebar/skillrunner-tab"],
     },
     {
@@ -88,7 +88,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "doc",
-      label: "⚙️ 偏好设置",
+      label: "⚙️ Preferences",
       id: "preferences",
     },
   ],

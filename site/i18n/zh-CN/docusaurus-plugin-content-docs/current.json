@@ -3,29 +3,29 @@
     "message": "Next",
     "description": "The label for version current"
   },
-  "sidebar.docsSidebar.category.📖 指南": {
+  "sidebar.docsSidebar.category.📖 Guide": {
     "message": "📖 指南",
-    "description": "The label for category '📖 指南' in sidebar 'docsSidebar'"
+    "description": "The label for category '📖 Guide' in sidebar 'docsSidebar'"
   },
-  "sidebar.docsSidebar.category.⚙️ 后端配置": {
+  "sidebar.docsSidebar.category.⚙️ Backend Configuration": {
     "message": "⚙️ 后端配置",
-    "description": "The label for category '⚙️ 后端配置' in sidebar 'docsSidebar'"
+    "description": "The label for category '⚙️ Backend Configuration' in sidebar 'docsSidebar'"
   },
   "sidebar.docsSidebar.category.🔧 Workflow": {
     "message": "🔧 Workflow",
     "description": "The label for category '🔧 Workflow' in sidebar 'docsSidebar'"
   },
-  "sidebar.docsSidebar.category.内建 Workflow": {
-    "message": "内建 Workflow",
-    "description": "The label for category '内建 Workflow' in sidebar 'docsSidebar'"
+  "sidebar.docsSidebar.category.Official Workflows": {
+    "message": "官方 Workflow",
+    "description": "The label for category 'Official Workflows' in sidebar 'docsSidebar'"
   },
-  "sidebar.docsSidebar.category.自定义 Workflow": {
+  "sidebar.docsSidebar.category.Custom Workflows": {
     "message": "自定义 Workflow",
-    "description": "The label for category '自定义 Workflow' in sidebar 'docsSidebar'"
+    "description": "The label for category 'Custom Workflows' in sidebar 'docsSidebar'"
   },
-  "sidebar.docsSidebar.category.🖥️ 侧边栏与 ACP Chat": {
+  "sidebar.docsSidebar.category.🖥️ Sidebar & ACP Chat": {
     "message": "🖥️ 侧边栏与 ACP Chat",
-    "description": "The label for category '🖥️ 侧边栏与 ACP Chat' in sidebar 'docsSidebar'"
+    "description": "The label for category '🖥️ Sidebar & ACP Chat' in sidebar 'docsSidebar'"
   },
   "sidebar.docsSidebar.category.🔬 Synthesis Workbench": {
     "message": "🔬 Synthesis Workbench",
@@ -35,8 +35,8 @@
     "message": "📊 Dashboard",
     "description": "The label for the doc item '📊 Dashboard' in sidebar 'docsSidebar', linking to the doc dashboard"
   },
-  "sidebar.docsSidebar.doc.⚙️ 偏好设置": {
+  "sidebar.docsSidebar.doc.⚙️ Preferences": {
     "message": "⚙️ 偏好设置",
-    "description": "The label for the doc item '⚙️ 偏好设置' in sidebar 'docsSidebar', linking to the doc preferences"
+    "description": "The label for the doc item '⚙️ Preferences' in sidebar 'docsSidebar', linking to the doc preferences"
   }
 }

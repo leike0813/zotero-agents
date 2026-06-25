@@ -1,0 +1,42 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.docsSidebar.category.📖 Guide": {
+    "message": "📖 가이드",
+    "description": "The label for category '📖 Guide' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.⚙️ Backend Configuration": {
+    "message": "⚙️ 백엔드 설정",
+    "description": "The label for category '⚙️ Backend Configuration' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.🔧 Workflow": {
+    "message": "🔧 Workflow",
+    "description": "The label for category '🔧 Workflow' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Official Workflows": {
+    "message": "공식 Workflow",
+    "description": "The label for category 'Official Workflows' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Custom Workflows": {
+    "message": "사용자 정의 Workflow",
+    "description": "The label for category 'Custom Workflows' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.🖥️ Sidebar & ACP Chat": {
+    "message": "🖥️ 사이드바 & ACP Chat",
+    "description": "The label for category '🖥️ Sidebar & ACP Chat' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.🔬 Synthesis Workbench": {
+    "message": "🔬 Synthesis Workbench",
+    "description": "The label for category '🔬 Synthesis Workbench' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.doc.📊 Dashboard": {
+    "message": "📊 대시보드",
+    "description": "The label for the doc item '📊 Dashboard' in sidebar 'docsSidebar', linking to the doc dashboard"
+  },
+  "sidebar.docsSidebar.doc.⚙️ Preferences": {
+    "message": "⚙️ 환경설정",
+    "description": "The label for the doc item '⚙️ Preferences' in sidebar 'docsSidebar', linking to the doc preferences"
+  }
+}

@@ -7,7 +7,7 @@ const repoName = "zotero-agents";
 
 const config: Config = {
   title: "Zotero Agents",
-  tagline: "一个用于执行 Agent 技能的 Zotero 插件",
+  tagline: "A Zotero plugin for executing agent skills",
   favicon: "img/favicon.png",
 
   url: `https://${orgName}.github.io`,
@@ -25,10 +25,17 @@ const config: Config = {
 
   i18n: {
     defaultLocale: "en",
-    locales: ["zh-CN", "en"],
+    locales: ["en", "zh-CN", "fr", "ja", "de", "es", "it", "ko", "ru"],
     localeConfigs: {
       en: { label: "English" },
       "zh-CN": { label: "简体中文" },
+      fr: { label: "Français" },
+      ja: { label: "日本語" },
+      de: { label: "Deutsch" },
+      es: { label: "Español" },
+      it: { label: "Italiano" },
+      ko: { label: "한국어" },
+      ru: { label: "Русский" },
     },
   },
 
@@ -65,7 +72,7 @@ const config: Config = {
           type: "docSidebar",
           sidebarId: "docsSidebar",
           position: "left",
-          label: "文档",
+          label: "Docs",
         },
         {
           type: "localeDropdown",
@@ -82,15 +89,15 @@ const config: Config = {
       style: "dark",
       links: [
         {
-          title: "文档",
+          title: "Docs",
           items: [
-            { label: "首页", to: "/intro" },
-            { label: "安装", to: "/installation" },
-            { label: "快速开始", to: "/getting-started" },
+            { label: "Home", to: "/intro" },
+            { label: "Installation", to: "/installation" },
+            { label: "Quick Start", to: "/getting-started" },
           ],
         },
         {
-          title: "更多",
+          title: "More",
           items: [
             {
               label: "GitHub",

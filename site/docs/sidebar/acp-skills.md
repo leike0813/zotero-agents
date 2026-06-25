@@ -1,122 +1,122 @@
 # ACP Skills
 
-ACP Skills Tab 用于监控和管理通过 ACP 后端执行的技能运行（Skill Run）。与 ACP Chat 的持续对话不同，ACP Skills 面向一次性或周期性执行的技能任务。
+The ACP Skills tab is used to monitor and manage skill runs executed through the ACP backend. Unlike ACP Chat's continuous dialogue, ACP Skills is designed for one-off or periodically executed skill tasks.
 
-## 界面概览
+## Interface Overview
 
-ACP Skills 面板分为以下几个主要区域：
+The ACP Skills panel is divided into the following main areas:
 
-![ACP Skills 面板](/img/docs/sidebar/acp-skills.png)
+![ACP Skills Panel](/img/docs/sidebar/acp-skills.png)
 
 ```
 ┌─────────────────────────────────────┐
-│  Banner：任务标题 / 状态 / backend   │
+│  Banner: Task Title / Status / Backend   │
 ├─────────────────────────────────────┤
-│  ← 运行抽屉  │  主内容区  │  详情 → │
-│               │  转写视图            │
-│  Running      │  计划组件            │
-│  └─ backend1  │  提示组件            │
-│     ├─ run A  │  回复区              │
-│     └─ run B  │                     │
-│  Completed    │                     │
-│  └─ backend1  │                     │
-│     └─ run C  │                     │
+│  ← Run Drawer  │  Main Content Area  │  Details → │
+│               │  Transcript View            │
+│  Running      │  Plan Component             │
+│  └─ backend1  │  Prompt Component           │
+│     ├─ run A  │  Reply Area                 │
+│     └─ run B  │                             │
+│  Completed    │                             │
+│  └─ backend1  │                             │
+│     └─ run C  │                             │
 └─────────────────────────────────────┘
 ```
 
 ## Banner
 
-Banner 区域显示当前选中运行的元信息和操作按钮：
+The Banner area displays meta-information and action buttons for the currently selected run:
 
-- **任务标题**：运行的 skill 名称
-- **Status**：运行状态指示（running / completed / failed / canceled 等）
-- **Backend**：执行该运行的 ACP 后端
-- **操作按钮**：连接/断开、取消任务
+- **Task Title**: The skill name of the run
+- **Status**: Run status indicator (running / completed / failed / canceled, etc.)
+- **Backend**: The ACP backend executing the run
+- **Action Buttons**: Connect/Disconnect, Cancel Task
 
-## 运行抽屉（左侧）
+## Run Drawer (Left)
 
-左侧抽屉以树状结构组织所有 ACP Skill Run：
+The left drawer organizes all ACP Skill Runs in a tree structure:
 
-### 分组
+### Grouping
 
-| 分组 | 说明 |
+| Group | Description |
 |------|------|
-| **Running** | 正在运行中的任务，按 backend 分组 |
-| **Completed** | 已完成的任务，按 backend 分组 |
+| **Running** | Currently running tasks, grouped by backend |
+| **Completed** | Finished tasks, grouped by backend |
 
-每个任务条目显示简要信息（skill ID、状态、时间），并有注意力指示器（LED）标识状态变化。点击任意任务条目即可切换到该运行的详情视图。
+Each task entry displays summary information (skill ID, status, time) and has an attention indicator (LED) to mark status changes. Click any task entry to switch to the detail view of that run.
 
-### 归档
+### Archiving
 
-已完成的任务可以通过归档按钮从列表中移除（归档仅在当前会话隐藏，不影响运行记录）。
+Completed tasks can be removed from the list via the archive button (archiving only hides them in the current session and does not affect run records).
 
-## 主内容区
+## Main Content Area
 
-### 转写视图
+### Transcript View
 
-选中一个运行后，主内容区显示该运行的完整转写（transcript），包含：
+After selecting a run, the main content area displays the full transcript of that run, including:
 
-- **消息**：助手和用户的对话内容
-- **工具调用**：AI 调用的工具及其结果，显示工具名称、输入摘要和状态 LED
-- **思考过程**：AI 的推理过程（如可用）
-- **状态事件**：运行中的状态变更
+- **Messages**: Assistant and user dialogue content
+- **Tool Calls**: Tools invoked by the AI and their results, showing tool name, input summary, and status LED
+- **Thinking Process**: The AI's reasoning process (if available)
+- **Status Events**: State changes during the run
 
-转写支持 **Plain 模式**（消息按角色着色左边框）和 **Bubble 模式**（消息以气泡样式显示，连续工具调用自动折叠为分组），通过右上角的切换按钮切换。
+The transcript supports **Plain mode** (messages colored by role on the left border) and **Bubble mode** (messages in bubble style, consecutive tool calls automatically collapsed into groups), toggled via the button in the top-right corner.
 
-### 计划组件
+### Plan Component
 
-当运行包含多步骤计划时，计划组件显示当前进度、已完成步骤和待处理步骤，每个步骤有状态图标（进行中/完成/失败）。
+When a run includes a multi-step plan, the plan component displays current progress, completed steps, and pending steps, with each step having a status icon (in-progress/completed/failed).
 
-### 提示组件
+### Prompt Component
 
-提示组件根据运行状态显示不同的交互提示：
+The prompt component displays different interactive prompts based on run status:
 
-| 状态 | 显示内容 |
+| Status | Display Content |
 |------|---------|
-| `waiting_user` | 等待用户回复的提示，含上下文说明和快速回复选项 |
-| `permission` | 权限请求提示，含命令预览和审批/拒绝按钮 |
-| `disconnected` | 断线重连提示，可点击连接 |
-| `running` | 运行中的进度指示 |
-| `completed` | 完成状态确认 |
-| `error` | 错误信息和排查建议 |
+| `waiting_user` | Prompt awaiting user reply, with context description and quick reply options |
+| `permission` | Permission request prompt, with command preview and approve/reject buttons |
+| `disconnected` | Reconnection prompt; click to connect |
+| `running` | In-progress indicator |
+| `completed` | Completion status confirmation |
+| `error` | Error information and troubleshooting suggestions |
 
-### 回复区
+### Reply Area
 
-底部的回复区包含：
+The reply area at the bottom contains:
 
-- **文本输入框**：输入回复内容
-- **模式选择**（可选）：运行模式切换
-- **模型选择**（可选）：AI 模型切换
-- **Reasoning Effort**（可选）：推理努力程度
-- **发送/取消按钮**
-- **使用量仪表**：环形图显示 token 使用量（已用/限制）
-- **快捷键提示**：发送回复的键盘快捷键
+- **Text Input Box**: Enter reply content
+- **Mode Selection** (optional): Run mode toggle
+- **Model Selection** (optional): AI model toggle
+- **Reasoning Effort** (optional): Reasoning effort level
+- **Send/Cancel Button**
+- **Usage Meter**: Circular chart showing token usage (used/limit)
+- **Keyboard Shortcut Hint**: Keyboard shortcut for sending replies
 
-回复草稿按 request 保存——切换运行后切回，未发送的内容仍然保留。
+Reply drafts are saved per request — switching runs and switching back preserves unsent content.
 
-## 详情抽屉（右侧）
+## Details Drawer (Right)
 
-右侧抽屉显示选中运行的详细信息，包含以下可折叠区域：
+The right drawer displays detailed information about the selected run, with the following collapsible areas:
 
-| 区域 | 内容 |
+| Area | Content |
 |------|------|
-| **运行路径** | 工作区目录、结果文件路径 |
-| **Runner 信息** | backends、agent、mode、model、reasoning、skill、session |
-| **校验信息** | 校验状态、修复次数、错误详情 |
-| **运行时依赖** | 运行时环境依赖列表 |
-| **输出版本** | 输出的 revision 历史 |
-| **运行时日志** | 运行过程中的日志条目 |
-| **结果 JSON** | 最终的结构化输出（可展开查看） |
+| **Run Path** | Workspace directory, result file paths |
+| **Runner Info** | backends, agent, mode, model, reasoning, skill, session |
+| **Validation Info** | Validation status, fix count, error details |
+| **Runtime Dependencies** | List of runtime environment dependencies |
+| **Output Revision** | Output revision history |
+| **Runtime Log** | Log entries during the run |
+| **Result JSON** | Final structured output (expandable) |
 
-## 权限处理
+## Permission Handling
 
-当运行需要 Zotero 写权限或 ACP 工具调用权限时，提示组件会显示权限请求：
+When a run requires Zotero write permissions or ACP tool call permissions, the prompt component displays a permission request:
 
-- **命令预览**：展示请求执行的操作
-- **来源信息**：谁发起的请求
-- **操作按钮**：批准 / 拒绝
-- 展开后可查看完整请求详情
+- **Command Preview**: Shows the operation being requested
+- **Source Info**: Who initiated the request
+- **Action Buttons**: Approve / Reject
+- Expand to view full request details
 
-## 相关配置
+## Related Configuration
 
-ACP Skills 面板需要先配置 [ACP 后端](../backends/acp)才能使用。
+The ACP Skills panel requires an [ACP backend](../backends/acp) to be configured before use.

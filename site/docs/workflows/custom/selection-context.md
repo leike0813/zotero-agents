@@ -1,30 +1,30 @@
-# 选择上下文
+# Selection Context
 
-当用户在 Zotero 中选中条目后，插件会构建一个结构化的**选择上下文（SelectionContext）**，描述用户选择了什么、选中的条目各属于哪种类型。这个上下文是 `filterInputs` 和 `buildRequest` Hook 的输入基础。
+When a user selects items in Zotero, the plugin builds a structured **Selection Context (SelectionContext)** that describes what the user selected and what type each selected item belongs to. This context serves as the input basis for the `buildRequest` Hook.
 
-## 选择类型
+## Selection Types
 
-根据用户选中的条目类型组合，`selectionContext.selectionType` 返回以下值之一：
+Based on the combination of selected item types, `selectionContext.selectionType` returns one of the following values:
 
-| 类型 | 说明 |
-|------|------|
-| `"parent"` | 选中的都是父条目（顶层条目） |
-| `"child"` | 选中的都是子条目（非顶层条目） |
-| `"attachment"` | 选中的都是附件 |
-| `"note"` | 选中的都是笔记 |
-| `"mixed"` | 选中的混合了多种类型 |
-| `"none"` | 没有选中任何条目 |
+| Type | Description |
+|------|-------------|
+| `"parent"` | All selected items are parent items (top-level items) |
+| `"child"` | All selected items are child items (non-top-level items) |
+| `"attachment"` | All selected items are attachments |
+| `"note"` | All selected items are notes |
+| `"mixed"` | Selected items are a mix of multiple types |
+| `"none"` | No items are selected |
 
-## 上下文结构
+## Context Structure
 
 ```ts
 selectionContext = {
-  selectionType: "parent",       // 选择类型
+  selectionType: "parent",       // Selection type
   items: {
-    parents: [ /* 父条目列表 */ ],
-    children: [ /* 子条目列表 */ ],
-    attachments: [ /* 附件列表 */ ],
-    notes: [ /* 笔记列表 */ ],
+    parents: [ /* List of parent items */ ],
+    children: [ /* List of child items */ ],
+    attachments: [ /* List of attachments */ ],
+    notes: [ /* List of notes */ ],
   },
   summary: {
     parentCount: 2,
@@ -32,49 +32,49 @@ selectionContext = {
     attachmentCount: 0,
     noteCount: 0,
   },
-  warnings: [],                  // 警告信息
-  sampledAt: "2026-01-15T...",   // 上下文创建时间
+  warnings: [],                  // Warning messages
+  sampledAt: "2026-01-15T...",   // Context creation time
 }
 ```
 
-每个类型条目都包含丰富的上下文信息。
+Each type of item contains rich contextual information.
 
-### 父条目（ParentContext）
+### Parent Item (ParentContext)
 
-父条目是 Zotero 库中的顶层条目（如期刊论文、书籍、网页等）。每个父条目上下文包含：
+A parent item is a top-level item in the Zotero library (e.g., journal article, book, web page, etc.). Each parent item context contains:
 
 ```ts
 {
-  item: Zotero.Item,         // 条目对象
-  id: number,                // 条目 ID
-  title: string,             // 标题
-  attachments: [             // 该条目下的子附件
+  item: Zotero.Item,         // Item object
+  id: number,                // Item ID
+  title: string,             // Title
+  attachments: [             // Child attachments under this item
     { type, filePath, mimeType, dateAdded, ... }
   ],
-  notes: [                   // 该条目下的子笔记
+  notes: [                   // Child notes under this item
     { id, content, ... }
   ],
-  tags: string[],            // 标签列表
-  collections: string[],     // 所属合集
-  children: [                // 其他子条目
+  tags: string[],            // Tag list
+  collections: string[],     // Containing collections
+  children: [                // Other child items
     { id, type, ... }
   ],
 }
 ```
 
-### 附件（AttachmentContext）
+### Attachment (AttachmentContext)
 
-附件是条目的文件附件（PDF、Markdown 等）。每个附件上下文包含：
+An attachment is a file attachment of an item (PDF, Markdown, etc.). Each attachment context contains:
 
 ```ts
 {
-  item: Zotero.Item,         // 附件条目对象
-  id: number,                // 条目 ID
-  filePath: string,          // 本地文件路径
-  fileName: string,          // 文件名
-  mimeType: string,          // MIME 类型（如 "application/pdf"）
-  dateAdded: Date,           // 添加日期
-  parentItem: {              // 所属父条目
+  item: Zotero.Item,         // Attachment item object
+  id: number,                // Item ID
+  filePath: string,          // Local file path
+  fileName: string,          // Filename
+  mimeType: string,          // MIME type (e.g., "application/pdf")
+  dateAdded: Date,           // Date added
+  parentItem: {              // Owning parent item
     id: number,
     key: string,
     libraryID: number,
@@ -84,21 +84,21 @@ selectionContext = {
 }
 ```
 
-### 笔记（NoteContext）
+### Note (NoteContext)
 
 ```ts
 {
   item: Zotero.Item,
   id: number,
-  content: string,           // 笔记内容（HTML）
+  content: string,           // Note content (HTML)
   parentItem: { id, key, libraryID },
   tags: string[],
 }
 ```
 
-## 在 Hook 中使用选择上下文
+## Using Selection Context in Hooks
 
-### 获取选中的附件
+### Getting Selected Attachments
 
 ```js
 export function filterInputs({ selectionContext, runtime }) {
@@ -107,14 +107,14 @@ export function filterInputs({ selectionContext, runtime }) {
   for (const attachment of attachments) {
     const filePath = runtime.helpers.getAttachmentFilePath(attachment);
     const fileName = runtime.helpers.getAttachmentFileName(attachment);
-    // 处理附件
+    // Process attachment
   }
 
   return selectionContext;
 }
 ```
 
-### 获取选中的父条目及其子内容
+### Getting Selected Parent Items and Their Child Content
 
 ```js
 export function buildRequest({ selectionContext, runtime }) {
@@ -122,70 +122,70 @@ export function buildRequest({ selectionContext, runtime }) {
 
   for (const parent of parents) {
     const title = parent.item.getField("title");
-    const attachments = parent.attachments;  // 该父条目下的附件
-    const notes = parent.notes;              // 该父条目下的笔记
+    const attachments = parent.attachments;  // Attachments under this parent item
+    const notes = parent.notes;              // Notes under this parent item
   }
 
   // ...
 }
 ```
 
-### 检查选择类型决定行为
+### Checking Selection Type to Determine Behavior
 
 ```js
 export function filterInputs({ selectionContext, runtime }) {
   const { selectionType } = selectionContext;
 
   if (selectionType === "none") {
-    // 没有选中任何条目，跳过
+    // No items selected, skip
     return null;
   }
 
   if (selectionType === "attachment") {
-    // 用户选中的都是附件，走附件处理逻辑
+    // User selected only attachments, use attachment processing logic
   } else if (selectionType === "parent") {
-    // 用户选中的都是父条目，展开第一个符合条件的附件
+    // User selected only parent items, expand the first qualifying attachment
   }
 
   return selectionContext;
 }
 ```
 
-### 过滤附件
+### Filtering Attachments
 
-使用 `helpers.withFilteredAttachments` 在处理后更新选择上下文：
+Use `helpers.withFilteredAttachments` to update the selection context after processing:
 
 ```js
 export function filterInputs({ selectionContext, runtime }) {
   const { helpers } = runtime;
 
-  // 只保留 PDF 附件
+  // Keep only PDF attachments
   const pdfs = selectionContext.items.attachments.filter(
     a => helpers.isPdfAttachment(a)
   );
 
-  // 从所有条目中只保留有 PDF 附件的父条目
+  // Keep only parent items that have PDF attachments from all items
   const matched = selectionContext.items.parents.filter(parent => {
     return parent.attachments.some(
       a => helpers.isPdfAttachment(a)
     );
   });
 
-  // 如果没有任何匹配，跳过执行
+  // If no matches, skip execution
   if (matched.length === 0) return null;
 
-  // 用过滤后的结果更新上下文
+  // Update context with the filtered result
   return helpers.withFilteredAttachments(selectionContext, matched);
 }
 ```
 
-### 选中无条目时的 workflow
+### Workflows When No Items Are Selected
 
-当 `inputs.unit: "workflow"` 且 `trigger.requiresSelection: false` 时，workflow 可以在不选中任何条目的情况下触发。此时 `selectionContext.selectionType` 为 `"none"`，`items` 中所有数组为空。这种模式适合创建全局操作（如"创建 Topic 综合"）。
+When `inputs.unit: "workflow"` and `trigger.requiresSelection: false`, the workflow can be triggered without any items selected. In this case, `selectionContext.selectionType` is `"none"`, and all arrays in `items` are empty. This mode is suitable for creating global operations (e.g., "Create Topic Synthesis").
 
-## 声明式选择验证
+## Declarative Selection Validation
 
-如果你的 workflow 只需要**跳过已有结果的条目**或**过滤特定类型的输入**，可以使用声明式 `validateSelection` 字段，无需编写 `filterInputs` Hook。
+If your workflow only needs to **skip items that already have results** or **filter specific types of input**, you can use the declarative `validateSelection` field without writing a `filterInputs` Hook.
 
 ```json
 {
@@ -198,11 +198,11 @@ export function filterInputs({ selectionContext, runtime }) {
 }
 ```
 
-参见 [清单文件编写](manifest#选择验证validateselection) 中的完整说明。
+See the full documentation in [Writing the Manifest](manifest#selection-validation).
 
-> **选择指南：** 声明式 `validateSelection` 能覆盖的场景就用声明式（零 JS 代码、零维护成本）。只有需要复杂判断逻辑时才使用 `filterInputs` Hook。
+> **Selection Guide:** Use declarative `validateSelection` whenever possible — it requires zero JavaScript and zero maintenance. Complex selection logic can be implemented in the `buildRequest` Hook.
 
-## 下一步
+## Next Steps
 
-- [Host API 参考](host-api) — 在 hook 中操作 Zotero 数据的完整 API
-- [清单文件编写](manifest) — 定义 workflow 的输入单元类型
+- [Host API Reference](host-api) — Complete API for manipulating Zotero data in hooks
+- [Writing the Manifest](manifest) — Define the workflow's input unit types

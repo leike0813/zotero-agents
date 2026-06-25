@@ -1,4 +1,4 @@
-# Workflow 清单文件编写
+# 工作流清单文件编写
 
 `workflow.json` 是 workflow 的清单文件（Manifest），定义了 workflow 的全部元数据和行为。Workflow Manager 通过此文件发现和加载 workflow。
 
@@ -92,6 +92,95 @@
 
 当 `unit: "workflow"` 时，不需要用户选中任何条目即可触发（如"创建 Topic 综合"）。
 
+### validateSelection — 选择验证
+
+`validateSelection` 是声明式的选择验证，覆盖常见的"跳过已有结果的条目"或"只接受特定类型的选择"等场景——无需编写任何 JavaScript。
+
+```json
+{
+  "validateSelection": {
+    "select": {
+      "policy": "literature-source"
+    },
+    "require": {
+      "counts": {
+        "parents": 1
+      },
+      "allowMixed": false
+    },
+    "exclude": [
+      {
+        "kind": "generated-notes-all",
+        "noteKinds": ["digest", "references", "citation-analysis"]
+      }
+    ]
+  }
+}
+```
+
+### `select` — 选择策略
+
+| 字段 | 类型 | 说明 |
+|-------|------|-------------|
+| `select.policy` | string | 选择策略。支持以下值 |
+| `select.unit` | string | 覆盖选择验证的输入单元类型：`"attachment"` / `"parent"` / `"note"` / `"workflow"` |
+
+**支持的 `select.policy` 值：**
+
+| 策略 | 说明 |
+|--------|-------------|
+| `input-unit` | 接受与输入单元匹配的条目 |
+| `literature-source` | 接受文献来源（附件或可展开附件的父条目） |
+| `pdf-attachment` | 仅接受 PDF 附件 |
+| `selected-parent` | 接受选中条目中的父条目 |
+| `generated-note-candidates` | 接受生成笔记的候选条目 |
+| `digest-representative-image` | 代表图提取的目标条目 |
+
+### `require` — 选择要求
+
+| 字段 | 类型 | 说明 |
+|-------|------|-------------|
+| `require.counts.parents` | number | 最少要求的父条目数 |
+| `require.counts.attachments` | number | 最少要求的附件数 |
+| `require.counts.notes` | number | 最少要求的笔记数 |
+| `require.counts.children` | number | 最少要求的子条目数 |
+| `require.counts.total` | number | 最少要求的总条目数 |
+| `require.allowMixed` | boolean | 是否允许混合选择不同类型的条目 |
+
+### `exclude` — 排除规则
+
+| 字段 | 类型 | 说明 |
+|-------|------|-------------|
+| `exclude[]` | array | 排除规则列表。命中任一规则则跳过当前条目 |
+
+**支持的 `exclude.kind` 值：**
+
+| kind | 说明 | 附加参数 |
+|------|-------------|----------------------|
+| `generated-notes-all` | 条目下已有指定类型的生成笔记 | `noteKinds`：笔记类型列表，如 `["digest", "references", "citation-analysis"]` |
+| `artifact-exists` | 条目下已有指定产物（避免重复执行） | `target`：`"deep-reading-html"` / `"translator-markdown"` / `"mineru-markdown"`；`parameter`：用于产物匹配的可选语言参数 |
+
+### `derive` — 派生选择
+
+| 字段 | 类型 | 说明 |
+|-------|------|-------------|
+| `derive[]` | array | 派生选择操作。`"exportCandidates"` — 派生笔记导出候选；`"digestRepresentativeImageTarget"` — 从摘要笔记派生代表图目标 |
+
+**示例：**
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "literature-source" },
+    "exclude": [
+      { "kind": "artifact-exists", "target": "deep-reading-html" }
+    ]
+  }
+}
+```
+
+> 此例中，已有深度阅读 HTML 产物的条目会被自动跳过，无需用户手动筛选。
+
 ### 触发控制
 
 ```json
@@ -111,10 +200,11 @@
 ```json
 {
   "execution": {
-    "mode": "auto",
-    "skillrunner_mode": "auto",
     "timeout_ms": 600000,
     "poll_interval_ms": 2000,
+    "mcp": {
+      "requiredTools": ["search_items", "get_item_detail"]
+    },
     "zoteroHostAccess": {
       "required": false,
       "allowWriteApprovalBypass": false
@@ -127,14 +217,15 @@
 ```
 
 | 字段 | 说明 |
-|------|------|
-| `mode` | 执行模式。`"auto"`（自动）、`"sync"`（同步）、`"async"`（异步） |
-| `skillrunner_mode` | SkillRunner 交互模式。`"auto"`（非交互）、`"interactive"`（交互，需要用户输入） |
-| `timeout_ms` | 超时时间（毫秒） |
+|-------|-------------|
+| `timeout_ms` | 超时时间（毫秒，仅对 Generic HTTP 后端有效） |
 | `poll_interval_ms` | 轮询间隔（毫秒），控制进度检查频率 |
+| `mcp.requiredTools` | 此 workflow 所需的 MCP 工具列表（工具名称字符串数组） |
 | `zoteroHostAccess.required` | 是否需要 Zotero 主机访问权限（读写库数据） |
 | `zoteroHostAccess.allowWriteApprovalBypass` | 是否允许绕过写操作审批 |
 | `feedback.showNotifications` | 是否显示执行通知。默认 `true`，设为 `false` 可静默执行 |
+
+> **执行模式**（`auto` / `interactive`）已移至 `request.create.mode`——参见 [请求种类](request-kinds)。
 
 ### 结果获取
 
@@ -195,7 +286,6 @@
 ```json
 {
   "hooks": {
-    "filterInputs": "hooks/filterInputs.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "normalizeSettings": "hooks/normalizeSettings.mjs",
     "applyResult": "hooks/applyResult.mjs"
@@ -206,9 +296,10 @@
 | 字段 | 必需 | 说明 |
 |------|------|------|
 | `applyResult` | ✅ | **必需**。执行后处理结果的脚本路径 |
-| `filterInputs` | | 可选。预处理用户的输入选择，过滤/筛选条目 |
 | `buildRequest` | | 可选。构建发送给后端的请求。与 `request` 字段互斥 |
 | `normalizeSettings` | | 可选。规范化用户设置参数 |
+
+> **输入过滤**已被声明式 `validateSelection` 机制替代——参见 [选择验证](#selection-validation) 章节。
 
 路径是相对于 `workflow.json` 所在目录的。
 
@@ -254,8 +345,6 @@
     }
   },
   "execution": {
-    "mode": "auto",
-    "skillrunner_mode": "auto",
     "timeout_ms": 600000
   },
   "request": {

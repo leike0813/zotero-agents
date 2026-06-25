@@ -2,60 +2,22 @@
 
 ## 什么是 Skill-Runner？
 
-Skill-Runner 是一个独立的 Agent 技能执行服务。Zotero Agents 通过 HTTP API 与 Skill-Runner 通信，提交技能请求并获取结果。它本身是一个可以独立部署的 Docker 镜像或本地服务，支持多种 AI Agent CLI 作为后端引擎。
+Skill-Runner 是一个独立的 Agent 技能执行服务。Zotero Agents 通过 HTTP API 与 Skill-Runner 通信，提交技能请求并获取结果。它支持多种 AI Agent CLI 作为后端引擎，可以部署为独立的 Docker 容器或本地服务。
+
+> **🏆 推荐优先级**：如果你的本机已有支持 ACP 协议的 Agent 工具（Codex、OpenCode、Claude Code 等），请优先使用 [ACP 后端](./acp)，零额外配置。Skill-Runner 适合需要后台常驻服务或局域网共享的场景。
 
 ## 部署模式
 
-### 托管本地模式（推荐）
+### 推荐：Docker 常驻部署
 
-Zotero 插件提供一键部署/启动/停止功能，自动管理 Skill-Runner 的生命周期。
+Docker 部署的 Skill-Runner 作为独立常驻服务运行，**不受 Zotero 启停影响**——关闭 Zotero 后任务继续后台执行，下次启动 Zotero 时可以恢复或直接获取已完成的结果。
 
-**部署步骤：**
+适合：
+- 需要长时间运行的任务（Topic Synthesis、批量文献分析等）
+- 局域网内多设备共享同一个 Skill-Runner 实例
+- 有 Docker 使用经验的用户
 
-1. 打开 **Zotero → 设置 → Zotero Agents**
-2. 找到 **SkillRunner Local Backend** 区域
-3. 点击 **一键部署**（如果尚未安装）
-   - 插件自动从 GitHub Release 下载最新版本
-   - 安装到插件数据目录
-   - 完成后状态变为"已安装"
-4. 点击 **启动**
-   - 默认地址：`http://127.0.0.1:29813`
-   - 如果端口被占用，自动尝试后续 10 个端口
-
-**操作按钮说明：**
-
-| 按钮 | 功能 |
-|------|------|
-| 部署 | 下载并安装 Skill-Runner 运行时 |
-| 启动 | 启动本地 Skill-Runner 进程 |
-| 停止 | 停止正在运行的 Skill-Runner 进程 |
-| 卸载 | 移除已安装的运行时文件 |
-| 打开管理 UI | 在侧边栏中打开 Skill-Runner 内置 Web 管理界面 |
-| 打开技能文件夹 | 打开存放技能文件的目录 |
-| 刷新模型缓存 | 刷新后端模型列表缓存 |
-| 打开调试控制台 | 查看后端日志输出 |
-
-### 远程模式
-
-连接到远程或云托管的 Skill-Runner 实例。
-
-**配置步骤：**
-
-1. 打开 **工具 → [后端管理器](backend-manager)**
-2. 切换到 **SkillRunner** Tab
-3. 点击 **添加 SkillRunner**
-4. 填写：
-   - **显示名称**：友好的名称
-   - **Base URL**：远程实例地址（如 `https://skill-runner.example.com`）
-   - **认证方式**：选择 `bearer` 并填写 **认证令牌**（如果后端需要认证）
-   - **超时时间**：请求超时（可选）
-5. 点击右下角 **保存**
-
-## Docker 部署
-
-Skill-Runner 可以独立部署为 Docker 容器，适合自托管或团队共享。
-
-### docker compose（推荐）
+#### docker compose（推荐）
 
 ```yaml
 version: "3"
@@ -86,7 +48,7 @@ docker compose up -d --build
 - **API 服务**：`http://localhost:9813/v1`
 - **管理 UI**：`http://localhost:9813/ui`
 
-### Docker 直接运行
+#### Docker 直接运行
 
 ```bash
 docker run --rm -p 9813:9813 -p 17681:17681 \
@@ -103,7 +65,7 @@ docker run --rm -p 9813:9813 -p 17681:17681 \
 | `9813` | HTTP API + 管理 UI |
 | `17681` | 浏览器内联引擎终端（需 ttyd） |
 
-### 生产环境配置
+#### 生产环境配置
 
 对于公开部署，建议启用 UI Basic Auth：
 
@@ -117,6 +79,55 @@ docker run --rm -p 9813:9813 \
 ```
 
 建议配合 HTTPS 反向代理（如 Nginx）使用。
+
+### 应急：一键部署本地模式
+
+> ⚠️ 此模式仅适合**完全不了解如何安装 Agent 工具、也不会使用 Docker** 的用户。如果你具备安装 Agent CLI 或 Docker 的能力，请优先选择 [ACP 后端](./acp) 或上方的 Docker 部署。
+
+一键部署的 Skill-Runner 随 Zotero 插件自动启停——**关闭 Zotero 即终止所有正在执行的任务**，无法后台运行。任务中断后需要重新提交。
+
+**部署步骤：**
+
+1. 打开 **Zotero → 设置 → Zotero Agents**
+2. 找到 **SkillRunner Local Backend** 区域
+3. 点击 **一键部署**（如果尚未安装）
+   - 插件自动从 GitHub Release 下载最新版本
+   - 安装到插件数据目录
+   - 完成后状态变为"已安装"
+4. 点击 **启动**
+   - 默认地址：`http://127.0.0.1:29813`
+   - 如果端口被占用，自动尝试后续 10 个端口
+
+**操作按钮说明：**
+
+| 按钮 | 功能 |
+|------|------|
+| 部署 | 下载并安装 Skill-Runner 运行时 |
+| 启动 | 启动本地 Skill-Runner 进程 |
+| 停止 | 停止正在运行的 Skill-Runner 进程 |
+| 卸载 | 移除已安装的运行时文件 |
+| 打开管理 UI | 在侧边栏中打开 Skill-Runner 内置 Web 管理界面 |
+| 打开技能文件夹 | 打开存放技能文件的目录 |
+| 刷新模型缓存 | 刷新后端模型列表缓存 |
+| 打开调试控制台 | 查看后端日志输出 |
+
+### 远程模式
+
+连接到远程或云托管的 Skill-Runner 实例。
+
+> ⚠️ **安全提示**：当前版本未对远程连接做额外的安全保护（如 TLS、API 密钥验证等），仅依赖 Bearer Token 认证。**不推荐在非局域网环境中开放远程连接**。局域网内部署时建议配合防火墙限制访问来源。
+
+**配置步骤：**
+
+1. 打开 **工具 → [后端管理器](backend-manager)**
+2. 切换到 **SkillRunner** Tab
+3. 点击 **添加 SkillRunner**
+4. 填写：
+   - **显示名称**：友好的名称
+   - **Base URL**：远程实例地址（如 `http://192.168.1.100:9813`）
+   - **认证方式**：选择 `bearer` 并填写 **认证令牌**（如果后端需要认证）
+   - **超时时间**：请求超时（可选）
+5. 点击右下角 **保存**
 
 ## 本地部署（无 Docker）
 
@@ -394,6 +405,6 @@ data/
 
 ## 下一步
 
-- [了解 Workflow](../workflows/) — Skill-Runner 是执行 Workflow 的主要后端
+- [了解 Workflow](../workflows/) — Skill-Runner 是执行 Workflow 的主要后端之一
 - [Dashboard 介绍](../dashboard) — 监控任务运行状态
 - [SkillRunner Tab](../sidebar/skillrunner-tab) — 在侧边栏中查看和交互 SkillRunner 运行

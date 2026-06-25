@@ -1,10 +1,10 @@
-# 打包与部署
+# Packaging & Deployment
 
-Workflow 支持两种形式：**单 workflow** 和 **多 workflow 包**。单 workflow 适合简单场景，多 workflow 包适合有共享代码的工作流集合。
+Workflows support two forms: **single workflow** and **multi-workflow package**. Single workflows suit simple scenarios, while multi-workflow packages suit collections of workflows with shared code.
 
-## 单 Workflow
+## Single Workflow
 
-最简单的形式，一个目录包含一个 `workflow.json` 及其 Hook 脚本：
+The simplest form: a directory containing a `workflow.json` and its Hook scripts:
 
 ```
 my-workflow/
@@ -14,16 +14,16 @@ my-workflow/
     └── applyResult.mjs
 ```
 
-单 workflow 没有 `packageId`，Hook 脚本之间不能通过相对导入共享代码。
+A single workflow has no `packageId`, and Hook scripts cannot share code via relative imports.
 
-## 多 Workflow 包
+## Multi-Workflow Package
 
-当多个 workflow 共享逻辑时，可以组织为 package：
+When multiple workflows share logic, they can be organized as a package:
 
 ```
 my-package/
-├── workflow-package.json       # 包清单
-├── lib/                        # 共享代码
+├── workflow-package.json       # Package manifest
+├── lib/                        # Shared code
 │   └── runtime.mjs
 │   └── util.mjs
 ├── workflow-a/
@@ -35,7 +35,7 @@ my-package/
 │   ├── workflow.json
 │   └── hooks/
 │       └── applyResult.mjs
-└── locales/                    # 包级本地化文件
+└── locales/                    # Package-level localization files
     ├── zh-CN.json
     └── ja-JP.json
 ```
@@ -60,9 +60,9 @@ my-package/
 }
 ```
 
-### 包内共享代码
+### Shared Code Within a Package
 
-Package 中的 Hook 脚本可以通过相对路径导入 `lib/` 中的共享模块：
+Hook scripts in a package can import shared modules from `lib/` via relative paths:
 
 ```js
 // workflow-a/hooks/applyResult.mjs
@@ -76,45 +76,45 @@ export async function applyResult({ parent, bundleReader, runtime }) {
 ```js
 // lib/util.mjs
 export function processResult({ parent, bundleReader, runtime }) {
-  // 共享的处理逻辑
+  // Shared processing logic
 }
 ```
 
-注意：Hook 脚本以 ES Module 方式执行，支持 `import` 语句，但导入路径必须相对于 Hook 文件本身。
+Note: Hook scripts are executed as ES Modules, supporting `import` statements, but import paths must be relative to the Hook file itself.
 
-## 部署方式
+## Deployment Methods
 
-### 用户 workflow 目录
+### User Workflow Directory
 
-将 workflow 目录放到 Zotero 偏好设置中配置的 **Workflow Directory** 下。Workflow Manager 会自动扫描该目录（包括子目录），发现所有 `workflow.json`。
+Place the workflow directory under the **Workflow Directory** configured in Zotero Preferences. The Workflow Manager automatically scans this directory (including subdirectories) and discovers all `workflow.json` files.
 
-配置位置：Zotero → 设置 → Zotero Agents → Workflow Directory。
+Configuration location: Zotero → Settings → Zotero Agents → Workflow Directory.
 
-### 目录扫描规则
+### Directory Scanning Rules
 
-- Workflow Manager 会**递归扫描** workflow 目录及其子目录
-- 找到 `workflow.json` 即注册为一个 workflow
-- 如果在 package 目录内找到 `workflow-package.json`，则按 package 的方式加载子 workflow
-- 如果 workflow 目录不存在或没有有效 workflow，Workflow Manager 会报告警告但不影响插件运行
+- The Workflow Manager **recursively scans** the workflow directory and its subdirectories
+- Finding a `workflow.json` registers it as a workflow
+- If `workflow-package.json` is found within a package directory, sub-workflows are loaded in package mode
+- If the workflow directory does not exist or contains no valid workflows, the Workflow Manager reports a warning but does not affect plugin operation
 
-### 与其他 format 的兼容
+### Compatibility with Other Formats
 
-| 存放位置 | 可见性 | 说明 |
-|---------|--------|------|
-| 官方 Workflow 包 `content/official/workflows/` | 所有用户 | 通过 Content Feed 独立安装，用户不可直接修改 |
-| 用户 Workflow Directory | 当前用户 | 可自由添加/修改/删除 |
-| 官方 + 用户目录 | 合并显示 | 两处 workflow 在 Dashboard 中并列显示 |
+| Storage Location | Visibility | Description |
+|-----------------|------------|-------------|
+| Official Workflow Package `content/official/workflows/` | All users | Installed independently via Content Feed; not directly modifiable by users |
+| User Workflow Directory | Current user | Can be freely added/modified/deleted |
+| Official + User directories | Combined display | Workflows from both locations are displayed side by side in the Dashboard |
 
-## 验证
+## Validation
 
-将 workflow 部署到用户目录后：
+After deploying a workflow to the user directory:
 
-1. **重新打开 Dashboard**，在 Home 页的 workflow 列表中应出现新 workflow
-2. 选中匹配的条目后右键 → Zotero Agents，应出现新 workflow
-3. 运行 workflow 前检查设置对话框中的参数是否正确
+1. **Reopen the Dashboard**; the new workflow should appear in the Home page's workflow list
+2. After selecting matching items, right-click → Zotero Agents; the new workflow should appear
+3. Before running the workflow, check that parameters in the settings dialog are correct
 
-## 下一步
+## Next Steps
 
-- [本地化](localization) — 为 workflow 添加多语言支持
-- [请求种类](request-kinds) — 选择合适的执行后端和请求类型
-- [调试与测试](debugging) — 验证 workflow 的正确性
+- [Localization](localization) — Add multi-language support to workflows
+- [Request Kinds](request-kinds) — Choose the appropriate execution backend and request type
+- [Debugging & Testing](debugging) — Verify workflow correctness

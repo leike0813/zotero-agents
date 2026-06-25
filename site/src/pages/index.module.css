@@ -55,6 +55,24 @@
   margin-top: 2rem;
 }
 
+.posterFrame {
+  max-width: 420px;
+  margin: 2.75rem auto 0;
+  border: 1px solid color-mix(in srgb, var(--ifm-color-emphasis-300), transparent 52%);
+  border-radius: 1rem;
+  padding: 0.65rem;
+  background: color-mix(in srgb, var(--ifm-background-surface-color), transparent 16%);
+  box-shadow: 0 28px 80px rgb(0 0 0 / 12%);
+  backdrop-filter: blur(18px);
+}
+
+.poster {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 0.65rem;
+}
+
 .pillars {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -121,6 +139,16 @@
 @media screen and (max-width: 640px) {
   .hero {
     padding-top: 3rem;
+  }
+
+  .posterFrame {
+    margin-top: 2rem;
+    padding: 0.4rem;
+    border-radius: 0.75rem;
+  }
+
+  .poster {
+    border-radius: 0.5rem;
   }
 
   .pillars {

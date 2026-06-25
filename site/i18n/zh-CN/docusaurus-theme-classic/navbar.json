@@ -7,9 +7,9 @@
     "message": "Zotero Agents",
     "description": "The alt text of navbar logo"
   },
-  "item.label.文档": {
+  "item.label.Docs": {
     "message": "文档",
-    "description": "Navbar item with label 文档"
+    "description": "Navbar item with label Docs"
   },
   "item.label.GitHub": {
     "message": "GitHub",

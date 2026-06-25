@@ -1,24 +1,24 @@
-# 本地化
+# Localization
 
-Workflow 系统支持多语言本地化，允许同一个 workflow 在不同语言的 Zotero 界面中显示对应的名称和描述。
+The workflow system supports multi-language localization, allowing the same workflow to display corresponding names and descriptions in different language Zotero interfaces.
 
-## 本地化层级
+## Localization Hierarchy
 
-Workflow 的本地化按以下优先级回退：
+Workflow localization falls back in the following priority order:
 
 ```
-内联消息（manifest.i18n.messages）  ← 最高优先级
+Inline messages (manifest.i18n.messages)  ← Highest priority
         ↓
-包级 locale 文件（workflow-package 的 locales/）
+Package-level locale files (workflow-package's locales/)
         ↓
-原始清单字段（label / description 等英文默认值）
+Raw manifest fields (label / description etc. English defaults)
         ↓
-Key 回退（如 "workflows.my-id.label"）
+Key fallback (e.g., "workflows.my-id.label")
 ```
 
-## 内联本地化（单 workflow）
+## Inline Localization (Single Workflow)
 
-直接在 `workflow.json` 中定义：
+Defined directly in `workflow.json`:
 
 ```json
 {
@@ -28,7 +28,7 @@ Key 回退（如 "workflows.my-id.label"）
     "defaultLocale": "en-US",
     "messages": {
       "zh-CN": {
-        "label": "我的工作流",
+        "label": "我的 Workflow",
         "taskNameTemplate": "处理中: {query}",
         "parameters.language.title": "语言",
         "parameters.language.description": "选择输出内容的语言"
@@ -42,20 +42,20 @@ Key 回退（如 "workflows.my-id.label"）
 }
 ```
 
-原始清单中的 `label`、`taskNameTemplate` 等字段作为默认值（通常是英文），`i18n.messages` 中的翻译会覆盖对应语言下的显示文本。
+Fields like `label` and `taskNameTemplate` in the raw manifest serve as defaults (usually English), and translations in `i18n.messages` override the display text for the corresponding language.
 
-### 键命名规范
+### Key Naming Conventions
 
 ```
-label                                    — workflow 名称
-taskNameTemplate                         — 任务名称模板
-parameters.<paramKey>.title              — 参数标题
-parameters.<paramKey>.description         — 参数描述
+label                                    — Workflow name
+taskNameTemplate                         — Task name template
+parameters.<paramKey>.title              — Parameter title
+parameters.<paramKey>.description         — Parameter description
 ```
 
-## 包级本地化（多 workflow 包）
+## Package-Level Localization (Multi-Workflow Package)
 
-在 `workflow-package.json` 中声明 locale 文件：
+Declare locale files in `workflow-package.json`:
 
 ```json
 {
@@ -70,7 +70,7 @@ parameters.<paramKey>.description         — 参数描述
 }
 ```
 
-`locales/zh-CN.json` 文件内容：
+Contents of `locales/zh-CN.json`:
 
 ```json
 {
@@ -81,43 +81,43 @@ parameters.<paramKey>.description         — 参数描述
 }
 ```
 
-包级 locale 文件的键使用完全限定格式：`workflows.<workflowId>.<field>`。
+Keys in package-level locale files use the fully qualified format: `workflows.<workflowId>.<field>`.
 
-### 混合使用
+### Mixed Usage
 
-包级和 workflow 内联消息可以共存，内联消息的优先级更高。最佳实践是：
+Package-level and workflow inline messages can coexist, with inline messages having higher priority. Best practices:
 
-- 默认语言（如英文）保留在 workflow.json 的字段中
-- 翻译放在包级 locale 文件中，便于统一管理
-- 如果某个翻译非常特定于某个 workflow，也可以放在 workflow 的内联消息中
+- Keep the default language (e.g., English) in the workflow.json fields
+- Place translations in package-level locale files for unified management
+- If a translation is very specific to a particular workflow, it can also be placed in the workflow's inline messages
 
-## 语言匹配逻辑
+## Language Matching Logic
 
-系统会按以下顺序尝试匹配用户的语言设置：
+The system attempts to match the user's language settings in the following order:
 
-1. **精确匹配**：用户的 locale 为 `"zh-CN"`，查找 `"zh-CN"` 的消息
-2. **语言子标签匹配**：用户的 locale 为 `"zh-Hans-CN"`，找不到精确匹配时尝试匹配 `"zh"`
-3. **defaultLocale 回退**：使用 `i18n.defaultLocale` 指定的语言
-4. **字段原始值回退**：使用 `workflow.json` 中字段的原始值（如 `label`）
-5. **Key 回退**：显示键名本身
+1. **Exact Match**: User's locale is `"zh-CN"`, look up `"zh-CN"` messages
+2. **Language Subtag Match**: User's locale is `"zh-Hans-CN"`, if no exact match is found, try matching `"zh"`
+3. **defaultLocale Fallback**: Use the language specified by `i18n.defaultLocale`
+4. **Raw Field Value Fallback**: Use the raw field values in `workflow.json` (e.g., `label`)
+5. **Key Fallback**: Display the key name itself
 
-## 参数值枚举的本地化
+## Localization of Parameter Value Enums
 
-如果参数有枚举值，枚举值的显示文本目前使用参数的 `title` 和 `description` 字段。对于需要本地化枚举值自身的复杂场景，建议在 workflow 的 `label` 或描述中说明。
+If a parameter has enum values, the display text for enum values currently uses the parameter's `title` and `description` fields. For complex scenarios requiring localization of the enum values themselves, it is recommended to explain this in the workflow's `label` or description.
 
-## 为 Workflow 添加新语言
+## Adding a New Language to a Workflow
 
-1. 在 package 的 `locales/` 目录下新建 `<locale>.json` 文件
-2. 参考已有的 locale 文件（如 `zh-CN.json`），翻译所有键
-3. 在 `workflow-package.json` 的 `i18n.locales` 中添加新语言条目
-4. 重新加载插件后即可生效
+1. Create a new `<locale>.json` file in the package's `locales/` directory
+2. Refer to existing locale files (e.g., `zh-CN.json`) and translate all keys
+3. Add the new language entry in `workflow-package.json`'s `i18n.locales`
+4. Reload the plugin to take effect
 
-## 参考
+## Reference
 
-- 官方 locale 文件示例：`content/official/workflows/literature-workbench-package/locales/zh-CN.json`
-- 包级 i18n 声明示例：`content/official/workflows/literature-workbench-package/workflow-package.json`
+- Official locale file example: `content/official/workflows/literature-workbench-package/locales/zh-CN.json`
+- Package-level i18n declaration example: `content/official/workflows/literature-workbench-package/workflow-package.json`
 
-## 下一步
+## Next Steps
 
-- [请求种类](request-kinds) — 选择执行后端和请求类型
-- [打包与部署](packaging) — 发布带有本地化的 workflow 包
+- [Request Kinds](request-kinds) — Choose execution backend and request type
+- [Packaging & Deployment](packaging) — Publish workflow packages with localization

@@ -127,7 +127,6 @@ await hostApi.mutations.execute({
 
 ```ts
 hostApi.notes = {
-  // ... 底层笔记 handler 的所有方法
   importEmbeddedImage: (noteRef, image) => Promise<{
     attachmentKey: string;
     attachmentItem: Zotero.Item;
@@ -216,7 +215,6 @@ const dir = await hostApi.file.pickDirectory({
   title: "选择导出目录",
 });
 if (dir) {
-  // 用户选择了目录
   await hostApi.file.writeText(`${dir}/result.md`, content);
 }
 ```
@@ -278,6 +276,54 @@ hostApi.addon = {
   getConfig: () => ({ addonName, addonRef, prefsPrefix }),
 }
 ```
+
+## API 版本（hostApi.version）
+
+```ts
+hostApi.version: number
+```
+
+当前 Host API 版本号。可用于编写跨版本兼容的 hook 时的版本校验。
+
+## 父条目操作（hostApi.parents）
+
+```ts
+hostApi.parents = {
+  // 底层父条目 handler 操作
+}
+```
+
+提供父条目管理的底层访问。除非需要更底层的 handler 接口，否则优先使用 `hostApi.library` 和 `hostApi.mutations`。
+
+## 命令操作（hostApi.command）
+
+```ts
+hostApi.command = {
+  // 底层命令 handler 操作
+}
+```
+
+命令执行的底层接口。通常不需要在 workflow hook 中使用。
+
+## 编辑器操作（hostApi.editor）
+
+```ts
+hostApi.editor = {
+  openSession: (args) => ReturnType<typeof openWorkflowEditorSession>,
+  registerRenderer: (rendererId, renderer) => void,
+  unregisterRenderer: (rendererId) => void,
+}
+```
+
+管理工作流编辑器会话。`registerRenderer` 和 `unregisterRenderer` 允许为工作流特定的输出格式注册自定义渲染器。
+
+## Synthesis 操作（hostApi.synthesis）
+
+```ts
+hostApi.synthesis?: SynthesisService
+```
+
+提供对 Synthesis Workbench 服务的访问（主题、概念、标签、引文图谱等）。仅在 Synthesis 系统已初始化时可用。
 
 ## 完整示例
 

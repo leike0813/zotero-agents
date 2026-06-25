@@ -2,17 +2,19 @@
 
 Hook 是 workflow 的可扩展点——在 workflow 执行的不同阶段，插件的 Workflow Runtime 会调用对应的 Hook 脚本，让你能以 JavaScript 干预和控制执行流程。
 
-一个 workflow 最多可以包含 **4 个 Hook**，其中 `applyResult` 是唯一必需的。
+一个 workflow 最多可以包含 **3 个 Hook**，其中 `applyResult` 是唯一必需的。
+
+> **关于输入过滤**：旧的 `filterInputs` Hook 已被声明式 `validateSelection` 机制替代。建议使用 `workflow.json` 中的 `validateSelection` 定义输入约束，无需编写 JavaScript。详见 [工作流清单文件编写](manifest#selection-validation)。
 
 ## Hook 脚本结构
 
 每个 Hook 脚本都是 `.mjs`（ES Module）文件，导出命名函数：
 
 ```js
-// hooks/filterInputs.mjs
-export function filterInputs({ selectionContext, runtime }) {
+// hooks/buildRequest.mjs
+export function buildRequest({ selectionContext, manifest, executionOptions, runtime }) {
   // 实现逻辑
-  return result;
+  return requestSpec;
 }
 ```
 
@@ -30,68 +32,28 @@ runtime = {
 
   workflowId,       // 当前 workflow ID
   workflowRootDir,  // workflow.json 所在目录的绝对路径
-  workflowSourceKind, // "builtin" 或 "user"
+  workflowSourceKind, // "official" | "dev-local" | "user" | ""
   packageId,        // 所属 package ID（仅在工作流包中可用）
   packageRootDir,   // package 根目录的绝对路径
 
+  hostApiVersion,   // Host API 版本号
+  hookName,         // 当前 Hook 名称: "buildRequest" | "applyResult" | ""
   debugMode,        // 是否处于调试模式
+
   fetch,            // 全局 fetch（如果可用）
   Buffer,           // Node.js Buffer（如果可用）
+  btoa,             // Base64 编码（如果可用）
+  atob,             // Base64 解码（如果可用）
+  TextEncoder,      // 文本编码器（如果可用）
+  TextDecoder,      // 文本解码器（如果可用）
+  FileReader,       // 文件读取器（如果可用）
+  navigator,        // Navigator 对象（如果可用）
 }
 ```
 
 **最佳实践：** 优先使用 `runtime.hostApi`（高级 API），只在 `hostApi` 不满足需求时使用 `runtime.handlers` 或 `runtime.zotero`。
 
-## 1. filterInputs — 过滤输入选择
-
-用户在 Zotero 中选中条目后，`filterInputs` 可以对选择进行预处理，决定哪些条目真正进入 workflow。
-
-**签名：**
-
-```ts
-function filterInputs({
-  selectionContext,  // 当前 Zotero 选择上下文
-  manifest,         // workflow.json 的完整内容
-  executionOptions, // 执行选项（参数、provider 选项）
-  runtime,          // 运行时上下文
-}): unknown
-```
-
-**用途：**
-
-- 跳过已经处理过的条目（避免重复执行）
-- 验证输入条目是否满足特定条件
-- 对附件进行二次筛选
-
-**返回值：**
-
-- 返回修改后的 `selectionContext`：继续执行
-- 返回 `null` 或 `undefined`：跳过此次执行
-
-**示例：跳过已存在笔记的条目**
-
-```js
-export function filterInputs({ selectionContext, runtime }) {
-  const { helpers } = runtime;
-  const maxAttachmentsPerParent = 1;
-  const matched = [];
-
-  for (const parent of selectionContext.items.parents) {
-    const id = helpers.getAttachmentParentId(parent);
-    if (id && parent.item) {
-      const notes = parent.item.getNotes();
-      const hasDigest = notes.some(n => n.note.includes("data-zs-note-kind=\"digest\""));
-      if (!hasDigest) {
-        matched.push(parent);
-      }
-    }
-  }
-
-  return helpers.withFilteredAttachments(selectionContext, matched);
-}
-```
-
-## 2. buildRequest — 构建请求
+## 1. buildRequest — 构建请求
 
 当 `workflow.json` 中的声明式 `request` 不足以描述复杂请求时，使用 `buildRequest` 动态构建请求负载。
 
@@ -134,16 +96,24 @@ export async function buildRequest({ selectionContext, executionOptions, runtime
         {
           id: "step1",
           skill_id: "my-analysis-skill",
+          mode: "auto",
           workspace: "new",
           parameter: { language, source_path: sourcePath },
         },
         {
           id: "step2",
           skill_id: "my-enrichment-skill",
+          mode: "auto",
           workspace: "reuse-workflow",
           handoff: {
-            from_step: "step1",
-            pass_through: true,
+            bindings: [
+              {
+                kind: "value",
+                source: "output_field_name",
+                target: "/input/field_name",
+                step: "step1",
+              },
+            ],
           },
         },
       ],
@@ -152,7 +122,7 @@ export async function buildRequest({ selectionContext, executionOptions, runtime
 }
 ```
 
-## 3. normalizeSettings — 规范化参数
+## 2. normalizeSettings — 规范化参数
 
 在设置持久化之前或执行之前对参数进行规范化。
 
@@ -183,7 +153,7 @@ function normalizeSettings(args: {
 - 参数降级处理（如旧版参数迁移到新版）
 - 执行前清理非法值
 
-## 4. applyResult — 处理结果（必需）
+## 3. applyResult — 处理结果（必需）
 
 这是 workflow **唯一必需的 Hook**，负责将后端的执行结果写入 Zotero。
 
@@ -194,12 +164,23 @@ function applyResult({
   parent,           // 父 Zotero 条目
   bundleReader,     // 结果包读取器
   resultContext,    // 结构化结果上下文
+  sequenceStep,     // 序列步骤元数据（sequence 执行中存在）
   productStorage,   // 产物存储 API
   request,          // 发出的原始请求
   runResult,        // 运行结果元数据
   manifest,         // workflow.json
   runtime,          // 运行时上下文
 }): unknown
+
+// sequenceStep 结构：
+// {
+//   id: string;           // 步骤 ID
+//   index: number;        // 序列中的零基索引
+//   workflowId: string;   // 此步骤的子 workflow ID
+//   skillId: string;      // 此步骤执行的 skill ID
+//   finalStep: boolean;   // 是否是最后一步
+//   phase: "sequence-step";
+// }
 ```
 
 **bundleReader 的用法：**
@@ -241,13 +222,9 @@ export async function applyResult({ parent, bundleReader, runtime }) {
   const extractedDir = await bundleReader.getExtractedDir();
   const { file } = runtime.hostApi;
 
-  // 读取产物目录中的文件
   const mdContent = await bundleReader.readText("full.md");
-  const targetPath = `/path/to/output.md";
+  const targetPath = `/path/to/output.md`;
   await file.writeText(targetPath, mdContent);
-
-  // 也可以在 extractedDir 中操作解压出来的目录结构
-  // const fullPath = path.join(extractedDir, "full.md");
 
   return { applied: true, output_path: targetPath };
 }
@@ -263,6 +240,8 @@ export async function applyResult({ parent, bundleReader, runtime }) {
 | `getAttachmentFilePath(entry)` | 获取附件的本地文件路径 |
 | `getAttachmentFileName(entry)` | 获取附件文件名 |
 | `getAttachmentFileStem(entry)` | 获取附件文件名（无扩展名） |
+| `getAttachmentDateAdded(entry)` | 获取附件的 `dateAdded` 时间戳 |
+| `basenameOrFallback(path, fallback)` | 提取基名或返回回退字符串 |
 | `isMarkdownAttachment(entry)` | 判断是否为 Markdown 附件 |
 | `isPdfAttachment(entry)` | 判断是否为 PDF 附件 |
 | `pickEarliestPdfAttachment(entries)` | 从附件列表中选最早的 PDF |
@@ -271,6 +250,13 @@ export async function applyResult({ parent, bundleReader, runtime }) {
 | `resolveItemRef(ref)` | 将条目引用解析为 Zotero.Item |
 | `toHtmlNote(title, body)` | 将 Markdown 转换为 HTML 笔记内容 |
 | `normalizeReferenceAuthors(value)` | 规范化参考文献作者列表 |
+| `normalizeReferenceEntry(entry, index)` | 规范化单条参考文献条目 |
+| `normalizeReferencesArray(value)` | 规范化参考文献数组 |
+| `normalizeReferencesPayload(payload)` | 规范化参考文献 payload 对象 |
+| `replacePayloadReferences(payload, refs)` | 替换 payload 中的参考文献 |
+| `resolveReferenceSource(entry)` | 解析参考文献的来源字段 |
+| `renderReferenceLocator(entry)` | 渲染卷/期/页码的定位字符串 |
+| `renderReferencesTable(references)` | 将参考文献渲染为 HTML 表格 |
 
 ## 下一步
 

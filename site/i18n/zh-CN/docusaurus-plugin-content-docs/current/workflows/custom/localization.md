@@ -114,8 +114,8 @@ parameters.<paramKey>.description         — 参数描述
 
 ## 参考
 
-- 内建 locale 文件示例：`workflows_builtin/literature-workbench-package/locales/zh-CN.json`
-- 包级 i18n 声明示例：`workflows_builtin/literature-workbench-package/workflow-package.json`
+- 官方 locale 文件示例：`content/official/workflows/literature-workbench-package/locales/zh-CN.json`
+- 包级 i18n 声明示例：`content/official/workflows/literature-workbench-package/workflow-package.json`
 
 ## 下一步
 

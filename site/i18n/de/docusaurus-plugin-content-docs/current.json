@@ -1,0 +1,42 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.docsSidebar.category.📖 Guide": {
+    "message": "📖 Anleitung",
+    "description": "The label for category '📖 Guide' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.⚙️ Backend Configuration": {
+    "message": "⚙️ Backend-Konfiguration",
+    "description": "The label for category '⚙️ Backend Configuration' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.🔧 Workflow": {
+    "message": "🔧 Workflow",
+    "description": "The label for category '🔧 Workflow' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Official Workflows": {
+    "message": "Offizielle Workflows",
+    "description": "The label for category 'Official Workflows' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Custom Workflows": {
+    "message": "Eigene Workflows",
+    "description": "The label for category 'Custom Workflows' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.🖥️ Sidebar & ACP Chat": {
+    "message": "🖥️ Seitenleiste & ACP Chat",
+    "description": "The label for category '🖥️ Sidebar & ACP Chat' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.🔬 Synthesis Workbench": {
+    "message": "🔬 Synthesis Workbench",
+    "description": "The label for category '🔬 Synthesis Workbench' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.doc.📊 Dashboard": {
+    "message": "📊 Dashboard",
+    "description": "The label for the doc item '📊 Dashboard' in sidebar 'docsSidebar', linking to the doc dashboard"
+  },
+  "sidebar.docsSidebar.doc.⚙️ Preferences": {
+    "message": "⚙️ Einstellungen",
+    "description": "The label for the doc item '⚙️ Preferences' in sidebar 'docsSidebar', linking to the doc preferences"
+  }
+}

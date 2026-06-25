@@ -1,66 +1,66 @@
-# Workflow 调用与配置
+# Workflow Invocation & Configuration
 
-## 调用方式
+## Invocation Methods
 
-![执行 Workflow 工具栏按钮](/img/icon_play.png)
+![Run Workflow toolbar button](/img/icon_play.png)
 
-### 通过右键菜单
+### Via Context Menu
 
-1. 在 Zotero 条目列表中选中一个或多个条目
-2. 右键点击，选择 **Zotero Agents** 子菜单
-3. 从列表中选择一个 workflow
-4. 如有配置弹窗，填写参数后点击运行
+1. Select one or more items in the Zotero item list
+2. Right-click and select the **Zotero Agents** submenu
+3. Choose a workflow from the list
+4. If a configuration dialog appears, fill in the parameters and click Run
 
-### 通过 Dashboard
+### Via Dashboard
 
-1. 打开 **Dashboard**（工具栏按钮或菜单）
-2. 在 Home 页面的 workflow 列表中找到目标 workflow
-3. 点击 **运行** 按钮
-4. 如有配置弹窗，填写参数后提交
+1. Open the **Dashboard** (toolbar button or menu)
+2. Find the target workflow in the workflow list on the Home page
+3. Click the **Run** button
+4. If a configuration dialog appears, fill in the parameters and submit
 
-## Workflow Settings 对话框
+## Workflow Settings Dialog
 
-运行 workflow 前可能会弹出设置对话框，包含以下配置项：
+Before running a workflow, a settings dialog may appear with the following configuration options:
 
-### 参数设置
+### Parameter Settings
 
-显示 workflow 声明的所有可配置参数，根据 workflow 的定义不同而不同。
+Displays all configurable parameters declared by the workflow, varying depending on the workflow definition.
 
-### Provider 选项
+### Provider Options
 
-| 选项 | 说明 |
+| Option | Description |
 |------|------|
-| 后端选择 | 选择执行该 workflow 的后端实例 |
-| 模型选择 | 使用的 AI 模型（由后端提供） |
-| 模式设置 | 运行模式配置 |
-| Reasoning Effort | 推理努力程度（如果后端支持） |
+| Backend selection | Choose the backend instance to execute this workflow |
+| Model selection | The AI model to use (provided by the backend) |
+| Mode settings | Run mode configuration |
+| Reasoning Effort | Reasoning effort level (if supported by the backend) |
 
-### 执行模式
+### Execution Modes
 
-| 模式 | 说明 |
+| Mode | Description |
 |------|------|
-| `auto` | 自动执行，无需用户干预 |
-| `sync` | 同步执行，等待结果 |
-| `async` | 异步执行，后台运行 |
+| `auto` | Automatic execution, no user intervention required |
+| `sync` | Synchronous execution, wait for results |
+| `async` | Asynchronous execution, runs in the background |
 
-### SkillRunner 模式
+### SkillRunner Modes
 
-对于 Skill-Runner 后端：
+For Skill-Runner backends:
 
-| 模式 | 说明 |
+| Mode | Description |
 |------|------|
-| `auto` | 非交互式执行，适合不需要用户输入的 skill |
-| `interactive` | 交互式执行，在执行过程中可能需要用户输入 |
+| `auto` | Non-interactive execution, suitable for skills that don't require user input |
+| `interactive` | Interactive execution, may require user input during execution |
 
-## 执行与监控
+## Execution & Monitoring
 
-- 工作提交后，可以在 Dashboard 中查看执行进度
-- 实时状态更新（queued → running → succeeded/failed/canceled）
-- 对于交互式 workflow，可以在侧边栏中回复等待输入的任务
-- 执行完成后，结果会通过 hook 脚本应用到 Zotero
+- After a task is submitted, you can view execution progress in the Dashboard
+- Real-time status updates (queued → running → succeeded/failed/canceled)
+- For interactive workflows, you can reply to tasks awaiting input in the sidebar
+- Once execution completes, results are applied to Zotero via hook scripts
 
-## 注意事项
+## Notes
 
-- 首次运行 workflow 可能需要配置后端
-- 部分 workflow 可能有特定的输入要求（如必须选中附件）
-- 交互式 workflow 需要保持 Zotero 运行以处理用户输入
+- Running a workflow for the first time may require backend configuration
+- Some workflows may have specific input requirements (e.g., attachments must be selected)
+- Interactive workflows require Zotero to remain running to handle user input

@@ -33,6 +33,10 @@ Home 是打开 Synthesis Workbench 时首先看到的页面。它提供了文献
 
 关于 WebDAV 同步的详细配置和用法，参见 [WebDAV 同步](webdav-sync)。
 
+:::warning 自动同步提示
+WebDAV 同步的自动同步功能尚未经过充分测试。建议当前阶段**仅使用手动同步**，待后续版本完善后再开启自动同步。
+:::
+
 ### Git 同步（已弃用）
 
 参见 [Git 同步](git-sync) 获取历史参考。

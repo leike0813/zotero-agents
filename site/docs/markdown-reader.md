@@ -1,61 +1,61 @@
-# 内置 Markdown 阅读器
+# Built-in Markdown Reader
 
-## 概述
+## Overview
 
-插件内置了一个轻量级 Markdown 阅读器。当你在 Zotero 中**双击任意 `.md` 附件**时，会自动在内置阅读器中打开，无需跳转到外部应用。
+The plugin includes a lightweight Markdown reader. When you **double-click any `.md` attachment** in Zotero, it automatically opens in the built-in reader, eliminating the need to switch to an external application.
 
-![内置 Markdown 阅读器页面](/img/docs/markdown-reader.png)
+![Built-in Markdown Reader Page](/img/docs/markdown-reader.png)
 
-阅读器默认开启。如需关闭（改回系统默认打开方式），可在 **偏好设置 → 通用** 中取消勾选。
+The reader is enabled by default. To disable it (reverting to the system default opener), uncheck the option in **Preferences → General**.
 
-## 功能
+## Features
 
-### 大纲导航
+### Outline Navigation
 
-左侧边栏自动解析文档中的标题层级（h1-h4），点击可快速跳转到对应章节。
+The left sidebar automatically parses heading levels (h1–h4) from the document. Click any heading to quickly jump to the corresponding section.
 
-### 全文搜索
+### Full-text Search
 
-工具栏中的搜索框支持关键词搜索，命中处会高亮标记。
+The search box in the toolbar supports keyword search with hit highlighting.
 
-### Markdown 渲染
+### Markdown Rendering
 
-- **代码块**：highlight.js 语法高亮，支持主流编程语言
-- **数学公式**：KaTeX 渲染 LaTeX 公式，支持行内和块级
-- **表格、列表、引用**：标准 Markdown 语法完整支持
-- **图片**：相对路径图片自动加载
+- **Code Blocks**: highlight.js syntax highlighting for major programming languages
+- **Math Formulas**: KaTeX rendering for LaTeX formulas, supporting both inline and block-level display
+- **Tables, Lists, Blockquotes**: Full support for standard Markdown syntax
+- **Images**: Relative-path images are loaded automatically
 
-### 字号与宽度
+### Font Size & Width
 
-- **字号调节**：12px-24px 可调，点击工具栏 +/- 按钮逐步调整
-- **阅读宽度**：支持窄栏（860px）和宽栏（1160px）两种模式，适合不同屏幕
+- **Font Size Adjustment**: Adjustable from 12px to 24px; click the +/- buttons in the toolbar to adjust incrementally
+- **Reading Width**: Supports narrow (860px) and wide (1160px) modes for different screen sizes
 
-### 工具栏操作
+### Toolbar Actions
 
-| 按钮 | 功能 |
-|------|------|
-| 搜索框 | 全文关键词搜索 |
-| 刷新 | 重新读取文件并渲染 |
-| 复制 Markdown | 将原始 Markdown 内容复制到剪贴板 |
-| 复制路径 | 将文件路径复制到剪贴板 |
-| 字号- | 缩小字号 |
-| 字号+ | 放大字号 |
-| 宽度切换 | 切换窄栏/宽栏阅读模式 |
-| 回到顶部 | 平滑滚动到文档顶部 |
-| 系统打开 | 使用系统默认应用打开该文件 |
+| Button | Function |
+|--------|----------|
+| Search Box | Full-text keyword search |
+| Refresh | Re-read the file and re-render |
+| Copy Markdown | Copy the raw Markdown content to the clipboard |
+| Copy Path | Copy the file path to the clipboard |
+| Font Size - | Decrease font size |
+| Font Size + | Increase font size |
+| Width Toggle | Switch between narrow/wide reading mode |
+| Back to Top | Smooth scroll to the top of the document |
+| Open Externally | Open the file with the system default application |
 
-### 自动主题
+### Automatic Theming
 
-阅读器自动适配 Zotero 的亮色/暗色主题，无需手动切换。
+The reader automatically adapts to Zotero's light/dark theme without manual switching.
 
-## 偏好设置
+## Preferences
 
-在 **Zotero → 设置 → Zotero Agents → 通用** 中：
+In **Zotero → Settings → Zotero Agents → General**:
 
-- **启用内置 Markdown 阅读器**：勾选后双击 `.md` 附件在内置阅读器中打开；取消勾选后恢复系统默认打开方式。
+- **Enable Built-in Markdown Reader**: When checked, double-clicking `.md` attachments opens them in the built-in reader; when unchecked, the system default opener is restored.
 
-## 技术说明
+## Technical Notes
 
-- 渲染引擎：`markdown-it` + KaTeX + highlight.js
-- 安全：内建 HTML 净化，剥离 script/style/iframe 等不安全标签和事件处理器
-- 支持文件类型：`.md`、`.markdown`（通过扩展名和 MIME type 双重检测）
+- Rendering engine: `markdown-it` + KaTeX + highlight.js
+- Security: Built-in HTML sanitization strips unsafe tags and event handlers such as script/style/iframe
+- Supported file types: `.md`, `.markdown` (detected by both file extension and MIME type)

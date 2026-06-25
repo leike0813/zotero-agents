@@ -101,9 +101,9 @@ export function processResult({ parent, bundleReader, runtime }) {
 
 | 存放位置 | 可见性 | 说明 |
 |---------|--------|------|
-| 内建 `workflows_builtin/` | 所有用户 | 随插件发布，只读 |
+| 官方 Workflow 包 `content/official/workflows/` | 所有用户 | 通过 Content Feed 独立安装，用户不可直接修改 |
 | 用户 Workflow Directory | 当前用户 | 可自由添加/修改/删除 |
-| 内建目录 + 用户目录 | 合并显示 | 两处 workflow 在 Dashboard 中并列显示 |
+| 官方 + 用户目录 | 合并显示 | 两处 workflow 在 Dashboard 中并列显示 |
 
 ## 验证
 

@@ -1,13 +1,13 @@
-# Workflow 清单文件编写
+# Writing the Workflow Manifest
 
-`workflow.json` 是 workflow 的清单文件（Manifest），定义了 workflow 的全部元数据和行为。Workflow Manager 通过此文件发现和加载 workflow。
+`workflow.json` is the manifest file for a workflow, defining all its metadata and behavior. The Workflow Manager discovers and loads workflows through this file.
 
-## 基本结构
+## Basic Structure
 
 ```json
 {
   "id": "my-workflow",
-  "label": "我的 Workflow",
+  "label": "My Workflow",
   "version": "1.0.0",
   "provider": "pass-through",
   "display": {
@@ -24,29 +24,29 @@
 }
 ```
 
-## 字段详解
+## Field Reference
 
-### 基本标识
+### Basic Identification
 
-| 字段 | 必需 | 类型 | 说明 |
-|------|------|------|------|
-| `id` | ✅ | string | 唯一标识符，不可重复。推荐使用 kebab-case |
-| `label` | ✅ | string | 用户可见的显示名称 |
-| `version` | | string | 语义版本号，如 `"1.0.0"` |
-| `provider` | ✅ | string | 后端类型。可选值见下文 |
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `id` | ✅ | string | Unique identifier; must not be duplicated. kebab-case recommended |
+| `label` | ✅ | string | User-visible display name |
+| `version` | | string | Semantic version number, e.g., `"1.0.0"` |
+| `provider` | ✅ | string | Backend type. See below for available values |
 
-### provider 可选值
+### Provider Values
 
-| 值 | 说明 |
-|------|------|
-| `"pass-through"` | 纯本地执行，无需后端。适用于文件操作、导出等 |
-| `"skillrunner"` | 通过 Skill-Runner 后端执行 skill |
-| `"acp"` | 通过 ACP 后端执行 skill |
-| `"generic-http"` | 通过 Generic HTTP 后端调用 API |
+| Value | Description |
+|-------|-------------|
+| `"pass-through"` | Pure local execution, no backend needed. Suitable for file operations, exports, etc. |
+| `"skillrunner"` | Execute skills via the Skill-Runner backend |
+| `"acp"` | Execute skills via the ACP backend |
+| `"generic-http"` | Call APIs via the Generic HTTP backend |
 
-`provider` 决定 workflow 与哪种类型的后端兼容，也决定了 Dashboard 中显示哪些后端可执行。
+`provider` determines which backend types the workflow is compatible with, and also determines which backends are shown as executable in the Dashboard.
 
-### 显示控制
+### Display Control
 
 ```json
 {
@@ -59,14 +59,14 @@
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `display.core` | boolean | 是否标记为核心 workflow（在 Dashboard 中优先展示、加 core 徽章） |
-| `display.emoji` | string | 显示名前缀图标，如 `"📖"` |
-| `taskNameTemplate` | string | 任务名称模板，用 `{参数名}` 占位，执行时将替换为实际值 |
-| `debug_only` | boolean | `true` 时仅在调试模式下可见 |
+| Field | Type | Description |
+|-------|------|-------------|
+| `display.core` | boolean | Whether to mark as a core workflow (prioritized display in Dashboard, with a core badge) |
+| `display.emoji` | string | Display name prefix icon, e.g., `"📖"` |
+| `taskNameTemplate` | string | Task name template using `{parameter name}` placeholders, replaced with actual values at execution time |
+| `debug_only` | boolean | When `true`, only visible in debug mode |
 
-### 输入定义
+### Input Definition
 
 ```json
 {
@@ -83,26 +83,30 @@
 }
 ```
 
-| 字段 | 说明 |
-|------|------|
-| `unit` | **输入单元类型**。`"attachment"`（附件）、`"parent"`（父条目）、`"note"`（笔记）、`"workflow"`（无需选择条目，从 Dashboard 直接触发） |
-| `accepts.mime` | 接受的 MIME 类型（仅 `unit: "attachment"` 时适用）。不指定则接受所有类型 |
-| `per_parent.min` | 每个父条目最小附件数 |
-| `per_parent.max` | 每个父条目最大附件数 |
+| Field | Description |
+|-------|-------------|
+| `unit` | **Input unit type**. `"attachment"` (attachment), `"parent"` (parent item), `"note"` (note), `"workflow"` (no item selection needed, triggered directly from Dashboard) |
+| `accepts.mime` | Accepted MIME types (only applicable when `unit: "attachment"`). If not specified, all types are accepted |
+| `per_parent.min` | Minimum number of attachments per parent item |
+| `per_parent.max` | Maximum number of attachments per parent item |
 
-当 `unit: "workflow"` 时，不需要用户选中任何条目即可触发（如"创建 Topic 综合"）。
+When `unit: "workflow"`, no user-selected items are required to trigger (e.g., "Create Topic Synthesis").
 
-### 选择验证（validateSelection）
+### <a id="selection-validation"></a>validateSelection — Selection Validation
 
-`validateSelection` 是声明式的选择验证——无需编写 `filterInputs` Hook。用于常见的"跳过已有结果的条目"、"只接受特定类型的选择"等场景。
-
-**与 `filterInputs` 的关系：** 这两个字段**互斥**。声明式 `validateSelection` 能覆盖的场景不需要写 JS 代码；复杂逻辑才用 `filterInputs`。
+`validateSelection` is declarative selection validation. It covers common scenarios like "skip items that already have results" or "only accept selections of specific types" — without writing any JavaScript.
 
 ```json
 {
   "validateSelection": {
     "select": {
       "policy": "literature-source"
+    },
+    "require": {
+      "counts": {
+        "parents": 1
+      },
+      "allowMixed": false
     },
     "exclude": [
       {
@@ -114,19 +118,55 @@
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `select.policy` | string | 选择策略。`"literature-source"` 接受文献来源（附件或可展开附件的父条目） |
-| `exclude[]` | array | 排除规则列表。命中任一规则则跳过当前条目 |
+### `select` — Selection Policy
 
-**支持的 `exclude.kind`：**
+| Field | Type | Description |
+|-------|------|-------------|
+| `select.policy` | string | Selection policy. Supported values below |
+| `select.unit` | string | Override the input unit for selection validation. `"attachment"` / `"parent"` / `"note"` / `"workflow"` |
 
-| kind | 说明 | 附加参数 |
-|------|------|---------|
-| `generated-notes-all` | 条目下已有指定类型的生成笔记 | `noteKinds`：笔记类型列表，如 `["digest", "references", "citation-analysis"]` |
-| `artifact-exists` | 条目下已有指定产物（避免重复执行） | `target`：产物标识，如 `"deep-reading-html"` |
+**Supported `select.policy` values:**
 
-**示例：**
+| Policy | Description |
+|--------|-------------|
+| `input-unit` | Accept items matching the input unit |
+| `literature-source` | Accept literature sources (attachments or parent items with expandable attachments) |
+| `pdf-attachment` | Accept only PDF attachments |
+| `selected-parent` | Accept parent items from the selection |
+| `generated-note-candidates` | Accept candidate items for generated notes |
+| `digest-representative-image` | Target items for representative image extraction |
+
+### `require` — Selection Requirements
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `require.counts.parents` | number | Minimum required parent items |
+| `require.counts.attachments` | number | Minimum required attachment items |
+| `require.counts.notes` | number | Minimum required note items |
+| `require.counts.children` | number | Minimum required child items |
+| `require.counts.total` | number | Minimum total required items |
+| `require.allowMixed` | boolean | Whether mixing different item types in selection is allowed |
+
+### `exclude` — Exclusion Rules
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `exclude[]` | array | List of exclusion rules. If any rule matches, the current item is skipped |
+
+**Supported `exclude.kind` values:**
+
+| kind | Description | Additional Parameters |
+|------|-------------|----------------------|
+| `generated-notes-all` | The item already has generated notes of the specified type | `noteKinds`: list of note types, e.g., `["digest", "references", "citation-analysis"]` |
+| `artifact-exists` | The item already has the specified artifact (to avoid redundant execution) | `target`: `"deep-reading-html"` / `"translator-markdown"` / `"mineru-markdown"`; `parameter`: optional language parameter for artifact matching |
+
+### `derive` — Derived Selections
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `derive[]` | array | Derived selection operations. `"exportCandidates"` — derive candidates for note export; `"digestRepresentativeImageTarget"` — derive representative image targets from digest notes |
+
+**Example:**
 
 ```json
 {
@@ -139,9 +179,9 @@
 }
 ```
 
-> 此例中，已有深度阅读 HTML 产物的条目会被自动跳过，无需用户手动筛选。
+> In this example, items that already have the deep reading HTML artifact are automatically skipped, without requiring manual filtering by the user.
 
-### 触发控制
+### Trigger Control
 
 ```json
 {
@@ -151,19 +191,20 @@
 }
 ```
 
-| 字段 | 说明 |
-|------|------|
-| `requiresSelection` | 是否需要用户选中条目才能触发。默认 `true`。设为 `false` 后不需要选条目即可从 Dashboard 运行。当 `inputs.unit: "workflow"` 时通常设为 `false` |
+| Field | Description |
+|-------|-------------|
+| `requiresSelection` | Whether user-selected items are required to trigger. Defaults to `true`. When set to `false`, the workflow can be run from the Dashboard without selecting any items. Usually set to `false` when `inputs.unit: "workflow"` |
 
-### 执行控制
+### Execution Control
 
 ```json
 {
   "execution": {
-    "mode": "auto",
-    "skillrunner_mode": "auto",
     "timeout_ms": 600000,
     "poll_interval_ms": 2000,
+    "mcp": {
+      "requiredTools": ["search_items", "get_item_detail"]
+    },
     "zoteroHostAccess": {
       "required": false,
       "allowWriteApprovalBypass": false
@@ -175,17 +216,18 @@
 }
 ```
 
-| 字段 | 说明 |
-|------|------|
-| `mode` | 执行模式。`"auto"`（自动）、`"sync"`（同步）、`"async"`（异步） |
-| `skillrunner_mode` | SkillRunner 交互模式。`"auto"`（非交互）、`"interactive"`（交互，需要用户输入） |
-| `timeout_ms` | 超时时间（毫秒） |
-| `poll_interval_ms` | 轮询间隔（毫秒），控制进度检查频率 |
-| `zoteroHostAccess.required` | 是否需要 Zotero 主机访问权限（读写库数据） |
-| `zoteroHostAccess.allowWriteApprovalBypass` | 是否允许绕过写操作审批 |
-| `feedback.showNotifications` | 是否显示执行通知。默认 `true`，设为 `false` 可静默执行 |
+| Field | Description |
+|-------|-------------|
+| `timeout_ms` | Timeout in milliseconds (only effective for Generic HTTP backends) |
+| `poll_interval_ms` | Polling interval in milliseconds, controls progress check frequency |
+| `mcp.requiredTools` | MCP tools required by this workflow (array of tool name strings) |
+| `zoteroHostAccess.required` | Whether Zotero host access is required (to read/write library data) |
+| `zoteroHostAccess.allowWriteApprovalBypass` | Whether write operation approval bypass is allowed |
+| `feedback.showNotifications` | Whether to show execution notifications. Defaults to `true`; set to `false` to run silently |
 
-### 结果获取
+> **Execution mode** (`auto` / `interactive`) has been moved to `request.create.mode` — see [Request Kinds](request-kinds).
+
+### Result Retrieval
 
 ```json
 {
@@ -203,16 +245,16 @@
 }
 ```
 
-| 字段 | 说明 |
-|------|------|
-| `fetch.type` | 获取方式。`"bundle"`（下载 zip 包）、`"result"`（仅获取结果 JSON） |
-| `final_step_id` | 对于 sequence 工作流，指定最后一步的 id，用于确定最终结果 |
-| `expects.result_json` | 期望的结果 JSON 文件路径（相对于运行时工作区） |
-| `expects.artifacts` | 期望的产物文件路径列表 |
+| Field | Description |
+|-------|-------------|
+| `fetch.type` | Retrieval method. `"bundle"` (download zip bundle), `"result"` (only retrieve result JSON) |
+| `final_step_id` | For sequence workflows, specifies the id of the final step, used to determine the final result |
+| `expects.result_json` | Expected result JSON file path (relative to the runtime workspace) |
+| `expects.artifacts` | List of expected artifact file paths |
 
-### 请求定义
+### Request Definition
 
-声明式请求定义，与 `hooks.buildRequest` **互斥**（如果同时存在，`hooks.buildRequest` 优先）。
+Declarative request definition, **mutually exclusive** with `hooks.buildRequest` (if both exist, `hooks.buildRequest` takes priority).
 
 ```json
 {
@@ -237,14 +279,13 @@
 }
 ```
 
-有关各 `kind` 的详细说明，参见[请求种类](request-kinds)。
+For detailed information on each `kind`, see [Request Kinds](request-kinds).
 
-### Hook 声明
+### Hook Declaration
 
 ```json
 {
   "hooks": {
-    "filterInputs": "hooks/filterInputs.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "normalizeSettings": "hooks/normalizeSettings.mjs",
     "applyResult": "hooks/applyResult.mjs"
@@ -252,16 +293,17 @@
 }
 ```
 
-| 字段 | 必需 | 说明 |
-|------|------|------|
-| `applyResult` | ✅ | **必需**。执行后处理结果的脚本路径 |
-| `filterInputs` | | 可选。预处理用户的输入选择，过滤/筛选条目 |
-| `buildRequest` | | 可选。构建发送给后端的请求。与 `request` 字段互斥 |
-| `normalizeSettings` | | 可选。规范化用户设置参数 |
+| Field | Required | Description |
+|-------|----------|-------------|
+| `applyResult` | ✅ | **Required**. Script path for post-execution result handling |
+| `buildRequest` | | Optional. Build the request to be sent to the backend. Mutually exclusive with the `request` field |
+| `normalizeSettings` | | Optional. Normalize user-set parameters |
 
-路径是相对于 `workflow.json` 所在目录的。
+> **Input filtering** has been replaced by the declarative `validateSelection` mechanism — see [Selection Validation](#selection-validation) below.
 
-### 本地化
+Paths are relative to the directory containing `workflow.json`.
+
+### Localization
 
 ```json
 {
@@ -269,22 +311,22 @@
     "defaultLocale": "en-US",
     "messages": {
       "zh-CN": {
-        "label": "我的工作流",
-        "parameters.language.title": "语言"
+        "label": "My Workflow",
+        "parameters.language.title": "Language"
       }
     }
   }
 }
 ```
 
-参见[本地化](localization)页面获取详细说明。
+See the [Localization](localization) page for detailed information.
 
-### 完整示例：一个带参数的文献分析 workflow
+### Complete Example: A Literature Analysis Workflow with Parameters
 
 ```json
 {
   "id": "my-literature-analysis",
-  "label": "我的文献分析",
+  "label": "My Literature Analysis",
   "version": "1.0.0",
   "provider": "skillrunner",
   "display": { "emoji": "📄" },
@@ -296,9 +338,9 @@
   "parameters": {
     "language": {
       "type": "string",
-      "title": "输出语言",
-      "default": "zh-CN",
-      "enum": ["zh-CN", "en-US"],
+      "title": "Output Language",
+      "default": "en-US",
+      "enum": ["en-US", "zh-CN", "ja-JP"],
       "allowCustom": true
     }
   },
@@ -323,8 +365,8 @@
 }
 ```
 
-## 下一步
+## Next Steps
 
-- [Hook 系统](hooks) — 了解各 Hook 的 API 签名和编写方法
-- [参数系统](parameters) — 参数类型、枚举值、动态选项源
-- [选择和上下文](selection-context) — 如何获取用户选择的条目信息
+- [Hook System](hooks) — Learn the API signatures and writing methods for each Hook
+- [Parameter System](parameters) — Parameter types, enum values, dynamic option sources
+- [Selection & Context](selection-context) — How to obtain information about user-selected items

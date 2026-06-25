@@ -11,8 +11,15 @@ import {
 const SUPPORTED_SYNTHESIS_HARNESS_LOCALES = [
   "en-US",
   "zh-CN",
+  "zh-TW",
   "ja-JP",
   "fr-FR",
+  "de",
+  "es-ES",
+  "pt-BR",
+  "ko-KR",
+  "it-IT",
+  "ru-RU",
 ] as const;
 
 type SupportedSynthesisHarnessLocale =

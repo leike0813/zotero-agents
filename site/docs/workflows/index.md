@@ -1,88 +1,88 @@
-# Workflow 介绍
+# Workflow Overview
 
-## 什么是 Workflow？
+## What is a Workflow?
 
-Workflow（工作流）是 Zotero Agents 的核心功能，它允许您将多个技能步骤组合成自动化的处理流水线。一个 Workflow 定义了一个完整的任务：从接收输入、处理数据、到输出结果。
+Workflows are the core feature of Zotero Agents, allowing you to combine multiple skill steps into automated processing pipelines. A Workflow defines a complete task: from receiving input, processing data, to producing output.
 
-## Workflow 的结构
+## Workflow Structure
 
 ```
-workflow.json（清单文件）
-├── manifest：声明元数据、版本、名称
-├── parameters：定义可配置的参数
-├── inputs：定义输入类型（附件、条目、笔记等）
-├── hooks：JavaScript 钩子脚本（过滤输入、构建请求、应用结果）
-└── provider：指定需要的后端类型
+workflow.json (manifest file)
+├── manifest: declares metadata, version, name
+├── parameters: defines configurable parameters
+├── inputs: defines input types (attachments, items, notes, etc.)
+├── hooks: JavaScript hook scripts (filter inputs, build requests, apply results)
+└── provider: specifies the required backend type
 ```
 
-### 输入单元类型
+### Input Unit Types
 
-| 类型 | 说明 |
+| Type | Description |
 |------|------|
-| `attachment` | 条目的附件文件 |
-| `parent` | 选中条目的父条目 |
-| `note` | 笔记条目 |
-| `workflow` | 批量作用域 |
+| `attachment` | Attachment files of an item |
+| `parent` | Parent item of the selected item |
+| `note` | Note item |
+| `workflow` | Batch scope |
 
-### 钩子系统（Hooks）
+### Hook System
 
-Workflow 可以在执行的各个阶段运行自定义 JavaScript 脚本：
+Workflows can run custom JavaScript scripts at various stages of execution:
 
-- **filterInputs**：对输入进行过滤和筛选
-- **buildRequest**：构建发送给后端的请求内容
-- **normalizeSettings**：规范化用户设置
-- **applyResult**：将后端返回的结果应用到 Zotero
+- **filterInputs**: Filter and select inputs
+- **buildRequest**: Build the request content sent to the backend
+- **normalizeSettings**: Normalize user settings
+- **applyResult**: Apply the results returned by the backend to Zotero
 
-## 三种执行方式
+## Three Execution Backends
 
-Workflow 可以通过三种后端类型执行：
+Workflows can be executed through three backend types:
 
-| 后端 | 请求类型 | 适用场景 |
-|------|---------|---------|
-| **Skill-Runner** | `skill.run.v1` | 通用技能执行，支持交互模式 |
-| **ACP** | `acp.skill.run.v1` | ACP 后端的技能执行 |
-| **Generic HTTP** | `generic-http.request.v1` | HTTP API 调用 |
+| Backend | Request Type | Use Case |
+|---------|-------------|---------|
+| **Skill-Runner** | `skill.run.v1` | General skill execution, supports interactive mode |
+| **ACP** | `acp.skill.run.v1` | Skill execution via ACP backend |
+| **Generic HTTP** | `generic-http.request.v1` | HTTP API calls |
 
-## 官方 Workflow 包
+## Official Workflow Package
 
-官方 Workflow 以**独立包**的形式发布和安装，与插件本体解耦。安装方式：
+Official Workflows are published and installed as **standalone packages**, decoupled from the plugin itself. Installation methods:
 
-- 右键菜单 → **Zotero Agents** → **📦 安装官方 Workflow 包**
-- 偏好设置中点击 **安装官方 Workflow 包**
+- Right-click menu → **Zotero Agents** → **📦 Install Official Workflow Package**
+- Click **Install Official Workflow Package** in Preferences
 
-官方包支持 stable / beta / dev 三个更新频道，插件启动时自动检查更新。
+Official packages support three update channels: stable / beta / dev. The plugin automatically checks for updates on startup.
 
-## 官方 Workflows
+## Official Workflows
 
-插件附带了一系列官方 workflow，按功能分组：
+The plugin includes a series of official workflows, grouped by function:
 
-### 📚 文献分析工具包
+### 📚 Literature Analysis Toolkit
 
-| Workflow | 用途 | 输入 | 后端 | 文档 |
+| Workflow | Purpose | Input | Backend | Docs |
 |---------|------|------|------|------|
-| **文献分析** ⭐ | 从 PDF/MD 生成摘要、参考文献、引文分析。可级联标签规范化 | 附件 | Skill-Runner | [详情](literature-analysis) |
-| **交互式文献解读** | 与 AI 多轮对话深入理解文献，答案经验证门禁防幻觉 | 附件 | Skill-Runner | [详情](literature-explainer) |
-| **深度阅读** | 生成结构化精读 HTML 视图，支持翻译 | 附件 | ACP | [详情](literature-deep-reading) |
-| **文献搜索与入库** | 让 Agent 搜索学术文献并直接入库到 Zotero | workflow | ACP | [详情](literature-search-ingest) |
-| **标签词表初始化** | 与 AI 交互创建研究领域的受控标签词表 | workflow | Skill-Runner | [详情](tag-bootstrapper) |
-| **标签规范化** | 基于受控词表规范化标签，推断新标签 | 父条目 | Skill-Runner | [详情](tag-regulator) |
-| **导出/导入笔记** | 导出或导入分析笔记，支持编辑后重新导入 | 父条目 | 无需后端 | [详情](export-import-notes) |
+| **Literature Analysis** ⭐ | Generate digest, references, citation analysis from PDF/MD. Can cascade into tag regulation | Attachment | Skill-Runner | [Details](literature-analysis) |
+| **Interactive Literature Explainer** | Multi-turn dialogue with AI for deep literature understanding, with verified answers to prevent hallucination | Attachment | Skill-Runner | [Details](literature-explainer) |
+| **Deep Reading** | Generate structured deep reading HTML view with translation support | Attachment | ACP | [Details](literature-deep-reading) |
+| **Literature Search & Ingest** | Let the Agent search academic literature and ingest directly into Zotero | workflow | ACP | [Details](literature-search-ingest) |
+| **Tag Bootstrapper** | Interactively create a controlled tag vocabulary for a research domain | workflow | Skill-Runner | [Details](tag-bootstrapper) |
+| **Tag Regulator** | Normalize tags based on a controlled vocabulary and infer new tags | Parent item | Skill-Runner | [Details](tag-regulator) |
+| **Export/Import Notes** | Export or import analysis notes with support for editing and re-importing | Parent item | No backend required | [Details](export-import-notes) |
 
-### 🛠️ 实用工具
+### 🛠️ Utilities
 
-| Workflow | 用途 | 输入 | 后端 | 文档 |
+| Workflow | Purpose | Input | Backend | Docs |
 |---------|------|------|------|------|
-| **MinerU PDF 解析** | 调用 MinerU 服务解析 PDF 为 Markdown | 附件 | Generic HTTP | [详情](mineru) |
-| **Topic 综合创建** | 三步流水线创建主题综合分析与报告 | workflow | ACP | [详情](topic-synthesis) |
-| **论文写作框架** | 生成 Introduction / Related Work LaTeX 草稿 | workflow | ACP | [详情](manuscript-literature-framing) |
+| **MinerU PDF Parsing** | Call MinerU service to parse PDF into Markdown | Attachment | Generic HTTP | [Details](mineru) |
+| **Topic Synthesis** | Three-step pipeline to create topic synthesis analysis and reports | workflow | ACP | [Details](topic-synthesis) |
+| **Manuscript Literature Framing** | Generate Introduction / Related Work LaTeX drafts | workflow | ACP | [Details](manuscript-literature-framing) |
 
-### 🔧 调试工具
+### 🔧 Debug Tools
 
-| Workflow | 用途 | 后端 | 文档 |
+| Workflow | Purpose | Backend | Docs |
 |---------|------|------|------|
-| **调试工具包** | Workflow 系统开发测试和诊断 | Skill-Runner | [详情](debug-probe) |
+| **Debug Probe** | Workflow system development testing and diagnostics | Skill-Runner | [Details](debug-probe) |
 
-## 下一步
+## Next Steps
 
-- [Workflow 调用与配置](invocation)
-- [后端配置](../backends/) — 配置后端的详细说明
+- [Workflow Invocation & Configuration](invocation)
+- [Backend Configuration](../backends/) — Detailed instructions for configuring backends

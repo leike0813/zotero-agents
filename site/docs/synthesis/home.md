@@ -1,72 +1,72 @@
-# Home 仪表板
+# Home Dashboard
 
-Home 是打开 Synthesis Workbench 时首先看到的页面。它提供了文献库的综合概览、同步状态以及热门主题入口。
+Home is the first page you see when opening Synthesis Workbench. It provides a comprehensive overview of your library, sync status, and quick access to trending topics.
 
-![Synthesis Home 仪表板](/img/docs/synthesis/home.png)
+![Synthesis Home Dashboard](/img/docs/synthesis/home.png)
 
-## 库洞察卡片
+## Library Insights Cards
 
-页面顶部显示一系列统计卡片，展示当前 Synthesis 系统的运行状态：
+The top of the page displays a set of statistics cards showing the current state of the Synthesis system:
 
-| 指标 | 说明 |
-|------|------|
-| **已注册论文** | 已纳入 Canonical Reference Index 的论文总数 |
-| **主题数** | 已创建的 Topic 综合数量 |
-| **图谱节点** | 引文图谱中的节点总数（库内论文 + 外部引用） |
-| **图谱边** | 引文图谱中的引用关系总数 |
-| **同步状态** | WebDAV/Git 同步的运行状态 |
+| Metric | Description |
+|--------|-------------|
+| **Registered Papers** | Total number of papers included in the Canonical Reference Index |
+| **Topic Count** | Number of topic syntheses created |
+| **Graph Nodes** | Total number of nodes in the citation graph (library papers + external references) |
+| **Graph Edges** | Total number of citation relationships in the citation graph |
+| **Sync Status** | Running status of WebDAV/Git sync |
 
-这些指标帮助您快速了解文献库的结构化程度和综合进度。
+These metrics help you quickly understand the structuring level and synthesis progress of your library.
 
-## 同步面板
+## Sync Panel
 
-如果配置了 [WebDAV 同步](webdav-sync)（推荐）或 [Git 同步](git-sync)（已弃用），Home 页面会显示同步状态面板：
+If [WebDAV Sync](webdav-sync) (recommended) or [Git Sync](git-sync) (deprecated) is configured, the Home page displays a sync status panel:
 
-### WebDAV 同步
+### WebDAV Sync
 
-- **同步状态**：idle / queued / syncing / blocked_conflict / failed
-- **最后同步时间**
-- **远程 HEAD 标识**
-- **操作按钮**：手动同步、暂停/恢复、重试
+- **Sync Status**: idle / queued / syncing / blocked_conflict / failed
+- **Last Sync Time**
+- **Remote HEAD Identifier**
+- **Action Buttons**: Manual sync, pause/resume, retry
 
-冲突时面板显示冲突详情和操作选项（`keep_local`、`clear_after_manual_edit`）。
+When conflicts occur, the panel displays conflict details and action options (`keep_local`, `clear_after_manual_edit`).
 
-关于 WebDAV 同步的详细配置和用法，参见 [WebDAV 同步](webdav-sync)。
+For detailed configuration and usage of WebDAV sync, see [WebDAV Sync](webdav-sync).
 
-:::warning 自动同步提示
-WebDAV 同步的自动同步功能尚未经过充分测试。建议当前阶段**仅使用手动同步**，待后续版本完善后再开启自动同步。
+:::warning Auto-Sync Notice
+The auto-sync feature of WebDAV sync has not been thoroughly tested. It is recommended to **use manual sync only** at this stage, and enable auto-sync after it is improved in a future release.
 :::
 
-### Git 同步（已弃用）
+### Git Sync (Deprecated)
 
-参见 [Git 同步](git-sync) 获取历史参考。
+See [Git Sync](git-sync) for historical reference.
 
-## Review Items 面板
+## Review Items Panel
 
-Home 页面可显示 Review 待审核项的快速预览：
+The Home page can display a quick preview of pending review items:
 
-| 审核类别 | 说明 |
-|---------|------|
-| **引用匹配** | 待审核的引用-条目绑定提案 |
-| **概念** | 待审核的概念、义项、别名建议 |
-| **主题图关系** | 待审核的主题间关系 |
-| **标签建议** | AI 建议的待审批标签 |
+| Review Category | Description |
+|-----------------|-------------|
+| **Citation Matches** | Pending citation-item binding proposals |
+| **Concepts** | Pending concept, sense, and alias suggestions |
+| **Topic Graph Relationships** | Pending inter-topic relationships |
+| **Tag Suggestions** | AI-suggested tags awaiting approval |
 
-每个类别显示待处理数量徽章，点击跳转到 [审核中心](review) 对应子标签页。
+Each category displays a badge with the number of pending items. Click to navigate to the corresponding sub-tab in the [Review Hub](review).
 
-## 热门主题
+## Trending Topics
 
-页面下方展示热门主题卡片列表，按关联论文数量排序。每张卡片包含：
+The lower section of the page displays a card list of trending topics, sorted by the number of associated papers. Each card contains:
 
-- **主题名称** — 点击可进入该主题的详情页面
-- **论文数量** — 该主题涵盖的论文数
-- **摘要预览** — 主题描述摘要
-- **操作按钮** — 打开主题、更新主题
+- **Topic Name** — Click to enter the topic detail page
+- **Paper Count** — Number of papers covered by the topic
+- **Summary Preview** — Topic description excerpt
+- **Action Buttons** — Open topic, update topic
 
-当有多个活跃主题时，可通过"查看全部"链接进入 Topics 页面浏览完整列表。
+When there are multiple active topics, use the "View All" link to browse the complete list on the Topics page.
 
-## 下一步
+## Next Steps
 
-- [WebDAV 同步](webdav-sync) — 配置 Synthesis 数据的跨设备同步
-- [审核中心](review) — 处理引用匹配、概念和主题图的审核项
-- [索引与引文图谱](index-and-citation) — 管理 Canonical Reference Index
+- [WebDAV Sync](webdav-sync) — Configure cross-device sync for Synthesis data
+- [Review Hub](review) — Handle citation match, concept, and topic graph review items
+- [Index & Citation Graph](index-and-citation) — Manage the Canonical Reference Index

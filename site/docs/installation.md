@@ -1,23 +1,23 @@
-# 安装指南
+# Installation Guide
 
-## 系统要求
+## System Requirements
 
-- **Zotero**：7.0 或更高版本（推荐 Zotero 9）
-- **平台**：Windows 10+、macOS 12+、Linux（x86_64 / x86 / ARM64 / ARM）
+- **Zotero**: 7.0 or later (Zotero 9 recommended)
+- **Platform**: Windows 10+, macOS 12+, Linux (x86_64 / x86 / ARM64 / ARM)
 
-> **关于 Zotero 版本**：本插件在 Zotero 9 上开发与测试。Zotero 8 理论上可完整支持（Zotero 8/9 的插件框架没有明显改变）；Zotero 7 理论上也能支持，但受精力所限未进行深入测试，未来的维护重点将放在 Zotero 9 上。如果在 Zotero 7 使用过程中遇到问题，请在 [Issues](https://github.com/leike0813/zotero-agents/issues) 反馈。
+> **About Zotero Versions**: This plugin is developed and tested on Zotero 9. Zotero 8 is theoretically fully supported (the plugin framework has no significant changes between Zotero 8/9); Zotero 7 should also be supported in theory but has not been thoroughly tested due to limited resources. Future maintenance will focus on Zotero 9. If you encounter issues on Zotero 7, please report them on [Issues](https://github.com/leike0813/zotero-agents/issues).
 
-## 安装插件
+## Installing the Plugin
 
-### 从 GitHub/Gitee Release 安装（推荐）
+### From GitHub/Gitee Release (Recommended)
 
-1. 访问 [GitHub Releases](https://github.com/leike0813/zotero-agents/releases) 或 [Gitee Releases 镜像](https://gitee.com/leike0813/zotero-agents/releases)
-2. 下载最新的 `.xpi` 文件
-3. 在 Zotero 中，打开 **工具 → 附加组件**
-4. 点击齿轮图标，选择 **从文件安装附加组件...**
-5. 选择下载的 `.xpi` 文件
+1. Visit [GitHub Releases](https://github.com/leike0813/zotero-agents/releases) or [Gitee Releases Mirror](https://gitee.com/leike0813/zotero-agents/releases)
+2. Download the latest `.xpi` file
+3. In Zotero, open **Tools → Add-ons**
+4. Click the gear icon and select **Install Add-on From File...**
+5. Select the downloaded `.xpi` file
 
-### 从源码构建
+### Building from Source
 
 ```bash
 git clone https://github.com/leike0813/zotero-agents.git
@@ -26,36 +26,36 @@ npm install
 npm run build
 ```
 
-构建产物位于 `.scaffold/build/` 目录。
+The build output is located in the `.scaffold/build/` directory.
 
-## 安装官方 Workflow 包
+## Installing Official Workflow Packages
 
-插件安装后**不含任何业务逻辑**，所有 Workflow 均通过独立的官方 Workflow 包提供。
+The plugin ships with **no built-in business logic**. All workflows are provided through separate official workflow packages.
 
-### 方法一：菜单安装（推荐）
+### Method 1: Menu Installation (Recommended)
 
-1. 重启 Zotero 后，在任意条目上右键 → **Zotero Agents** → **📦 安装官方 Workflow 包**
-2. 插件自动从 GitHub / Gitee 下载最新的官方包
-3. 安装完成后弹出成功提示，Dashboard 中即可看到所有官方 Workflow
+1. After restarting Zotero, right-click any item → **Zotero Agents** → **📦 Install Official Workflow Packages**
+2. The plugin automatically downloads the latest official packages from GitHub / Gitee
+3. A success notification appears upon completion; all official workflows will then be visible in the Dashboard
 
-### 方法二：偏好设置中安装
+### Method 2: Install from Preferences
 
-1. 打开 **Zotero → 设置 → Zotero Agents**
-2. 在 **Workflow 设置** 区域点击 **安装官方 Workflow 包**
-3. 也可以在此处切换更新频道（stable / beta / dev）后检查更新
+1. Open **Zotero → Settings → Zotero Agents**
+2. In the **Workflow Settings** section, click **Install Official Workflow Packages**
+3. You can also switch the update channel (stable / beta / dev) here and check for updates
 
-### 更新机制
+### Update Mechanism
 
-- 插件启动时自动检测官方包是否有新版本
-- 有新版本时弹出更新确认对话框
-- 更新后自动重新加载 Workflow 列表
+- The plugin automatically checks for new versions of official packages on startup
+- A confirmation dialog appears when a new version is available
+- The workflow list is automatically reloaded after updating
 
-官方 Workflow 包仓库：[GitHub](https://github.com/leike0813/zotero-agents-workflows) · [Gitee 镜像](https://gitee.com/leike0813/zotero-agents-workflows)
+Official Workflow Package Repository: [GitHub](https://github.com/leike0813/zotero-agents-workflows) · [Gitee Mirror](https://gitee.com/leike0813/zotero-agents-workflows)
 
-## 验证安装
+## Verifying the Installation
 
-1. 重启 Zotero
-2. 在 Zotero 工具栏中应该能看到 **Zotero Agents** 图标
-3. 右键任意条目，菜单中应出现 **Zotero Agents** 子菜单（内含可用的 Workflow）
+1. Restart Zotero
+2. You should see the **Zotero Agents** icon in the Zotero toolbar
+3. Right-click any item — the **Zotero Agents** submenu should appear (with available workflows)
 
-如果右键菜单中只有一个 **📦 安装官方 Workflow 包** 选项，说明官方包尚未安装——按照上方的指引安装即可。安装成功后，前往 [快速开始](/getting-started) 配置后端并运行你的第一个 Workflow。
+If the right-click menu only shows a **📦 Install Official Workflow Packages** option, the official packages have not been installed yet — follow the instructions above to install them. After successful installation, proceed to [Getting Started](/getting-started) to configure a backend and run your first workflow.

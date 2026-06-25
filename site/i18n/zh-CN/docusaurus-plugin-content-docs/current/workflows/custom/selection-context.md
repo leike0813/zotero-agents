@@ -1,6 +1,6 @@
 # 选择上下文
 
-当用户在 Zotero 中选中条目后，插件会构建一个结构化的**选择上下文（SelectionContext）**，描述用户选择了什么、选中的条目各属于哪种类型。这个上下文是 `filterInputs` 和 `buildRequest` Hook 的输入基础。
+当用户在 Zotero 中选中条目后，插件会构建一个结构化的**选择上下文（SelectionContext）**，描述用户选择了什么、选中的条目各属于哪种类型。这个上下文是 `buildRequest` Hook 的输入基础。
 
 ## 选择类型
 
@@ -101,7 +101,7 @@ selectionContext = {
 ### 获取选中的附件
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function buildRequest({ selectionContext, runtime }) {
   const attachments = selectionContext.items.attachments;
 
   for (const attachment of attachments) {
@@ -110,7 +110,7 @@ export function filterInputs({ selectionContext, runtime }) {
     // 处理附件
   }
 
-  return selectionContext;
+  // ...
 }
 ```
 
@@ -133,12 +133,11 @@ export function buildRequest({ selectionContext, runtime }) {
 ### 检查选择类型决定行为
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function buildRequest({ selectionContext, runtime }) {
   const { selectionType } = selectionContext;
 
   if (selectionType === "none") {
-    // 没有选中任何条目，跳过
-    return null;
+    // 没有选中任何条目
   }
 
   if (selectionType === "attachment") {
@@ -147,7 +146,7 @@ export function filterInputs({ selectionContext, runtime }) {
     // 用户选中的都是父条目，展开第一个符合条件的附件
   }
 
-  return selectionContext;
+  // ...
 }
 ```
 
@@ -156,7 +155,7 @@ export function filterInputs({ selectionContext, runtime }) {
 使用 `helpers.withFilteredAttachments` 在处理后更新选择上下文：
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function buildRequest({ selectionContext, runtime }) {
   const { helpers } = runtime;
 
   // 只保留 PDF 附件
@@ -182,6 +181,25 @@ export function filterInputs({ selectionContext, runtime }) {
 ### 选中无条目时的 workflow
 
 当 `inputs.unit: "workflow"` 且 `trigger.requiresSelection: false` 时，workflow 可以在不选中任何条目的情况下触发。此时 `selectionContext.selectionType` 为 `"none"`，`items` 中所有数组为空。这种模式适合创建全局操作（如"创建 Topic 综合"）。
+
+## 声明式选择验证
+
+如果你的 workflow 只需要**跳过已有结果的条目**或**过滤特定类型的输入**，可以使用声明式 `validateSelection` 字段，无需在 Hook 中手动筛选。
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "literature-source" },
+    "exclude": [
+      { "kind": "generated-notes-all", "noteKinds": ["digest"] }
+    ]
+  }
+}
+```
+
+详见[清单文件编写](manifest#selection-validation)中的完整说明。
+
+> **选择指南：** 声明式 `validateSelection` 能覆盖的场景就用声明式（零 JS 代码、零维护成本）。复杂的筛选逻辑可以在 `buildRequest` Hook 中实现。
 
 ## 下一步
 

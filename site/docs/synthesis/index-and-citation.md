@@ -1,170 +1,170 @@
-# 索引与引文图谱
+# Index & Citation Graph
 
-## Index 表面
+## Index Surface
 
-在 Synthesis Workbench → Index 页面，可以管理 Canonical Reference Index。Index 表面包含 **两个子视图**：
+On the Synthesis Workbench → Index page, you can manage the Canonical Reference Index. The Index surface contains **two sub-views**:
 
-### 注册表视图（Registry View）
+### Registry View
 
-显示库中所有已跟踪论文的列表，每行展示一篇论文及其覆盖状态：
+Displays a list of all tracked papers in the library, with each row showing a paper and its coverage status:
 
-- **论文信息**：标题、作者、年份
-- **覆盖度**：完整/部分/缺失（摘要、参考文献、引文分析三类产物的覆盖状态）
-- **展开行**：展开后显示该论文的参考文献列表，每条引用标记其绑定状态（未绑定/候选/已接受/已拒绝）
-- **筛选**：按范围（全部/库内/被引用）、覆盖度、搜索筛选
+- **Paper Information**: Title, author, year
+- **Coverage**: Complete / Partial / Missing (coverage status of the three artifact types: digest, references, citation analysis)
+- **Expand Row**: When expanded, shows the paper's reference list, with each citation marked by its binding status (unbound / candidate / accepted / rejected)
+- **Filter**: Filter by scope (all / library / cited), coverage, or search
 
-![Synthesis Index 注册表视图](/img/docs/synthesis/index.png)
+![Synthesis Index Registry View](/img/docs/synthesis/index.png)
 
-### 规范参考视图（Canonical Reference View）
+### Canonical Reference View
 
-当活动索引工具切换为"修订规范"时显示：
+Displayed when the active indexing tool is switched to "Revise Canonical":
 
-- **规范引用列表**：去重后的规范引用记录
-- **搜索与筛选**：按绑定状态、图谱可见性、重定向状态、是否有重复候选筛选
-- **操作**：元数据编辑、合并重复引用、创建重定向、查看审核项
+- **Canonical Reference List**: Deduplicated canonical reference records
+- **Search & Filter**: Filter by binding status, graph visibility, redirect status, or whether duplicate candidates exist
+- **Actions**: Metadata editing, merge duplicate references, create redirects, view review items
 
-![Synthesis Index 修订规范引用视图](/img/docs/synthesis/index_canonical-revision.png)
+![Synthesis Index Canonical Reference Revision View](/img/docs/synthesis/index_canonical-revision.png)
 
-## Canonical Reference Index（规范参考文献索引）
+## Canonical Reference Index
 
-Canonical Reference Index 是 Synthesis 系统的核心索引，对文献库中所有论文的参考文献进行去重和规范化管理。它从 Reference Sidecar（参见[概览](/synthesis)中的"Reference Sidecar"章节）获取原始引用数据，经过提取、规范化和匹配绑定后形成。
+The Canonical Reference Index is the core index of the Synthesis system, performing deduplication and canonicalization of all references from papers in the library. It obtains raw citation data from the Reference Sidecar (see the "Reference Sidecar" section in [Overview](/synthesis)) and forms the index through extraction, canonicalization, and match binding.
 
-### 功能
+### Features
 
-- **全文搜索**：在所有规范化引用中搜索
-- **元数据编辑**：修改引用记录的元数据
-- **合并**：将重复的引用记录合并（自动创建重定向）
-- **重定向**：将一个引用指向另一个规范记录
-- **审校**：查看引用匹配的质量审核项
-- **去重**：发现可能的重复引用
+- **Full-text Search**: Search across all canonicalized references
+- **Metadata Editing**: Modify citation record metadata
+- **Merge**: Merge duplicate reference records (automatically creates redirects)
+- **Redirect**: Point one reference to another canonical record
+- **Review**: View quality review items for citation matching
+- **Deduplication**: Discover potential duplicate references
 
-### 引用记录类型
+### Reference Record Types
 
-| 类型 | 说明 |
-|------|------|
-| **已绑定**（bound） | 已与 Zotero 库中的条目关联 |
-| **外部引用**（external） | 知道该文献但不在当前 Zotero 库中 |
-| **未解析**（unresolved） | 从参考文献中提取但尚未识别 |
+| Type | Description |
+|------|-------------|
+| **Bound** | Associated with an item in the Zotero library |
+| **External** | Known literature not in the current Zotero library |
+| **Unresolved** | Extracted from references but not yet identified |
 
-## Reference Matching Pipeline（引用匹配流水线）
+## Reference Matching Pipeline
 
-引用匹配是自动将论文中提取的参考文献与 Zotero 文献库条目建立关联的过程。系统采用**两阶段模型**，兼顾性能与精度。
+Reference matching is the process of automatically establishing associations between references extracted from papers and items in the Zotero library. The system uses a **two-stage model** to balance performance and accuracy.
 
-### 两阶段模型
+### Two-Stage Model
 
-#### 第一阶段：轻量级 Sidecar 刷新
+#### Stage 1: Lightweight Sidecar Refresh
 
-在常规操作中运行（如摘要应用后），扫描 Sidecar 状态，对比引用产物哈希，仅处理有变更的引用。**不运行高级去重或索引构建**，仅执行轻量级的规范分配和绑定。
+Runs during regular operations (e.g., after digest application), scans sidecar status, compares citation artifact hashes, and only processes references that have changed. **Does not run advanced deduplication or index building**, only performs lightweight canonical assignment and binding.
 
-- 触发时机：Workflow 执行完成并写入产物后、显式刷新操作
-- 处理范围：增量（仅变更的引用）
-- 算法：简单标识符匹配（DOI、arXiv、ISBN）
+- Trigger: After workflow execution completes and writes artifacts, or via explicit refresh operation
+- Scope: Incremental (only changed references)
+- Algorithm: Simple identifier matching (DOI, arXiv, ISBN)
 
-#### 第二阶段：高级引用匹配
+#### Stage 2: Advanced Citation Matching
 
-显式触发的深度匹配操作。构建一个完整的引用匹配索引，运行全面的匹配和去重算法。
+An explicitly triggered deep matching operation. Builds a complete citation match index and runs comprehensive matching and deduplication algorithms.
 
-- 触发时机：用户手动触发、定期维护
-- 处理范围：全量
-- 算法：多策略匹配 + 聚类去重
+- Trigger: Manual trigger by user, periodic maintenance
+- Scope: Full
+- Algorithm: Multi-strategy matching + clustering deduplication
 
-:::caution 性能提示
-高级引用匹配、刷新索引、重建 Citation Graph 等操作计算量较大。由于 Zotero 采用单一宿主进程架构，这些操作在执行期间可能导致 UI 短暂卡顿，请耐心等待。此问题计划在后续版本的架构重构中解决。
+:::caution Performance Note
+Advanced citation matching, refreshing the index, and rebuilding the Citation Graph are computationally intensive. Since Zotero uses a single host process architecture, these operations may cause brief UI stutters during execution. Please be patient. This issue is planned to be addressed in a future architectural refactoring.
 :::
 
-### 匹配策略
+### Matching Strategies
 
-| 策略 | 匹配依据 | 置信度 | 说明 |
-|------|---------|--------|------|
-| DOI 匹配 | DOI 标识符 | 确定性 | 精确匹配，自动接受 |
-| arXiv 匹配 | arXiv ID | 确定性 | 精确匹配，自动接受 |
-| ISBN 匹配 | ISBN 号 | 确定性 | 精确匹配，自动接受 |
-| 标题相似度 | 模糊标题匹配 | 高/中/低 | 使用标准化标题、紧凑标题进行相似度计算 |
-| 作者+年份 | 作者名和发表年份 | 中/低 | 结合作者规范化和年份范围进行匹配 |
+| Strategy | Match Basis | Confidence | Description |
+|----------|-------------|------------|-------------|
+| DOI Matching | DOI identifier | Deterministic | Exact match, auto-accepted |
+| arXiv Matching | arXiv ID | Deterministic | Exact match, auto-accepted |
+| ISBN Matching | ISBN number | Deterministic | Exact match, auto-accepted |
+| Title Similarity | Fuzzy title matching | High / Medium / Low | Uses standardized titles and compact titles for similarity calculation |
+| Author + Year | Author names and publication year | Medium / Low | Combines author normalization and year range for matching |
 
-### 置信度级别
+### Confidence Levels
 
-| 级别 | 说明 | 操作建议 |
-|------|------|---------|
-| `deterministic` | 确定性匹配 | 自动接受 |
-| `high` | 高置信度 | 可接受 |
-| `medium` | 中等置信度 | 建议审核 |
-| `low` | 低置信度 | 需要审核 |
-| `review` | 需要人工判断 | 必须审核 |
+| Level | Description | Recommended Action |
+|-------|-------------|-------------------|
+| `deterministic` | Deterministic match | Auto-accept |
+| `high` | High confidence | Acceptable |
+| `medium` | Medium confidence | Recommend review |
+| `low` | Low confidence | Requires review |
+| `review` | Requires human judgment | Must review |
 
-### 聚类去重
+### Clustering Deduplication
 
-高级匹配阶段会对规范引用进行聚类去重，算法流程：
+The advanced matching stage performs clustering deduplication on canonical references. The algorithm process:
 
-1. 为每个规范引用构建去重记录（含资格过滤和书目噪声分析）
-2. 成对比较产生聚类边（标识符精确匹配、标题规范匹配、模糊标题匹配等）
-3. 边聚合成集群和子集群
-4. 生成自动重定向或建议审核的去重提案
+1. Build a deduplication record for each canonical reference (including eligibility filtering and bibliographic noise analysis)
+2. Pairwise comparison produces cluster edges (identifier exact match, title canonical match, fuzzy title match, etc.)
+3. Edges are aggregated into clusters and sub-clusters
+4. Generates automatic redirects or review proposals for deduplication
 
-安全约束：低置信度的匹配（如 `contained_extension_risk`）从不触发自动重定向，需要用户审核。
+Safety constraint: Low-confidence matches (e.g., `contained_extension_risk`) never trigger automatic redirects and require user review.
 
-### Review 表面
+### Review Surface
 
-在 [审核中心](review) 中，可以查看和处理引用匹配提案，逐条进行接受或拒绝操作。
+In the [Review Hub](review), you can view and process citation match proposals, accepting or rejecting them one by one.
 
-## Citation Graph（引文图谱）
+## Citation Graph
 
-引文图谱将文献库中的论文及其参考文献可视化为网络图。图谱数据以 SQLite 投影的形式构建，可容忍一定的数据过期（非实时镜像）。
+The Citation Graph visualizes the papers in the library and their references as a network graph. The graph data is built as a SQLite projection and can tolerate a certain degree of data staleness (not a real-time mirror).
 
-![Synthesis Citation Graph 引文图谱](/img/docs/synthesis/citation-graph.png)
+![Synthesis Citation Graph](/img/docs/synthesis/citation-graph.png)
 
-### 节点类型
+### Node Types
 
-| 节点 | 颜色 | 说明 |
-|------|------|------|
-| `library_paper` | 蓝色 | Zotero 库中已有的论文 |
-| `external_reference` | 绿色 | 已知但不在库中的引用 |
-| `unresolved_reference` | 灰色 | 提取但未识别的引用 |
+| Node | Color | Description |
+|------|-------|-------------|
+| `library_paper` | Blue | Papers already in the Zotero library |
+| `external_reference` | Green | Known references not in the library |
+| `unresolved_reference` | Gray | Extracted but unidentified references |
 
-### 边信息
+### Edge Information
 
-每条引文边包含：
+Each citation edge contains:
 
-- **mention_count**：被引次数
-- **primary_role**：主要引用角色（如 background、comparison、support、contrast）
-- **aux_roles**：辅助角色列表
-- **role_evidence**：角色判断依据
+- **mention_count**: Number of times cited
+- **primary_role**: Primary citation role (e.g., background, comparison, support, contrast)
+- **aux_roles**: List of auxiliary roles
+- **role_evidence**: Basis for role determination
 
-### 图谱指标
+### Graph Metrics
 
-引文图谱可以计算出多项指标，帮助识别核心论文和有影响力的工作：
+The citation graph can calculate various metrics to help identify core papers and influential works:
 
-| 指标 | 说明 |
-|------|------|
-| **被引次数** | 论文被引用的总次数 |
-| **PageRank** | 基于图结构的节点重要性评分 |
-| **Foundation 分数** | 作为领域基础工作的程度 |
-| **Frontier 分数** | 作为前沿工作的程度 |
+| Metric | Description |
+|--------|-------------|
+| **Citation Count** | Total number of times a paper is cited |
+| **PageRank** | Node importance score based on graph structure |
+| **Foundation Score** | Degree to which it serves as foundational work in the field |
+| **Frontier Score** | Degree to which it represents frontier work |
 
-### 可视化布局
+### Visualization Layouts
 
-| 布局 | 说明 | 适用场景 |
-|------|------|---------|
-| **Force（力导向）** | d3-force 力导向布局 | 探索整体结构 |
-| **Radial（径向）** | 以选定节点为中心展开 | 分析某篇论文的引用网络 |
-| **Components** | 按连通组件分组 | 发现独立的引用集群 |
+| Layout | Description | Use Case |
+|--------|-------------|----------|
+| **Force (Force-Directed)** | d3-force layout | Explore overall structure |
+| **Radial** | Expand around a selected node | Analyze a paper's citation network |
+| **Components** | Group by connected components | Discover independent citation clusters |
 
-### 交互操作
+### Interactive Operations
 
-- **缩放/平移**：自由浏览图谱
-- **悬停**：查看节点标签和基本信息
-- **点击节点**：在 Zotero 中打开对应的论文条目
-- **筛选**：按角色、主题、节点类型筛选显示的引文
-- **切换低信号引用**：显示/隐藏低引用次数的边
-- **深度滑块**：控制引文网络的展开深度
+- **Zoom / Pan**: Freely browse the graph
+- **Hover**: View node labels and basic information
+- **Click Node**: Open the corresponding paper item in Zotero
+- **Filter**: Filter displayed citations by role, topic, or node type
+- **Toggle Low-Signal Citations**: Show/hide low-citation-count edges
+- **Depth Slider**: Control the expansion depth of the citation network
 
-### 主题过滤
+### Topic Filtering
 
-可以按 Topic 过滤引文图谱，只显示与特定主题相关的论文和引用关系。主题范围在图谱中以不同的颜色和分组展示。
+You can filter the citation graph by topic to show only papers and citation relationships related to specific topics. Topic scopes are displayed in the graph with different colors and groupings.
 
-## 下一步
+## Next Steps
 
-- [审核中心](review) — 审核引用匹配和去重提案
-- [创建 Topic 综合](topic-synthesis) — 基于引文网络创建主题分析
-- [Home 仪表板](home) — 查看库洞察指标
-- [WebDAV 同步](webdav-sync) — 跨设备同步引文绑定数据
+- [Review Hub](review) — Review citation match and deduplication proposals
+- [Create Topic Synthesis](topic-synthesis) — Create topic analyses based on citation networks
+- [Home Dashboard](home) — View library insight metrics
+- [WebDAV Sync](webdav-sync) — Sync citation binding data across devices

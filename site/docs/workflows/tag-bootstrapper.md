@@ -1,75 +1,75 @@
-# 标签词表初始化
+# Tag Bootstrapper
 
-## 用途
+## Purpose
 
-与 AI 交互式创建研究领域的受控标签词表。建议在首次执行[文献分析](literature-analysis)之前运行，为后续的自动标签规范化建立基础。
+Interactively create a controlled tag vocabulary for a research domain with AI. Recommended to run before your first [Literature Analysis](literature-analysis) to establish a foundation for subsequent automatic tag regulation.
 
-## 适用场景
+## Use Cases
 
-- 开始一个新的研究方向，需要建立标签体系
-- 当前 Zotero 库中还没有受控标签词表
-- 想要让 AI 帮助设计领域标签分类
+- Starting a new research direction and needing to establish a tag system
+- No controlled tag vocabulary yet exists in the current Zotero library
+- Wanting AI to help design a domain-specific tag classification
 
-## 输入约束
+## Input Constraints
 
-| 约束类型 | 说明 |
+| Constraint Type | Description |
 |---------|------|
-| 输入单元 | workflow（无需选中条目） |
-| 触发方式 | Dashboard 中运行 |
+| Input Unit | workflow (no items need to be selected) |
+| Trigger Method | Run from Dashboard |
 
-## 运行过程
+## Execution Flow
 
 ```
-1. 启动交互
-   └── 在 Dashboard 中与 AI 对话
+1. Start Interaction
+   └── Converse with AI in Dashboard
 
-2. 定义领域
-   └── 描述你的研究领域和关注方向
-       └── AI 提议标签分类体系
+2. Define Domain
+   └── Describe your research field and areas of interest
+       └── AI proposes a tag classification system
 
-3. 迭代优化
-   └── 审核 AI 建议的标签
-       └── 调整、增删、重命名
+3. Iterative Refinement
+   └── Review AI-suggested tags
+       └── Adjust, add, remove, rename
 
-4. 确认写入
-   └── 将最终标签词表写入 Synthesis 系统
+4. Confirm and Write
+   └── Write the final tag vocabulary to the Synthesis system
 ```
 
-### 交互说明
+### Interaction Details
 
-- Workflow 为**交互式**执行，在 Dashboard 中与 AI 对话
-- 对话过程中可以随时调整方向
+- The workflow runs in **interactive** mode, conversing with AI in the Dashboard
+- You can adjust the direction at any point during the conversation
 
-## 预估耗时
+## Estimated Duration
 
-| 场景 | 预估耗时 |
+| Scenario | Estimated Time |
 |------|---------|
-| 初次创建词表 | 3-8 分钟 |
-| 追加标签 | 3-5 分钟 |
+| Initial vocabulary creation | 3-8 minutes |
+| Adding tags | 3-5 minutes |
 
-## 模型建议
+## Model Recommendation
 
-🟢 中等能力的模型即可胜任，无需最强模型。
+🟢 A mid-capability model is sufficient; the strongest model is not needed.
 
-## 运行产物
+## Outputs
 
-执行完成后，受控标签词表会写入 Synthesis 系统，可在 Synthesis Workbench 的 Tags 页面查看和管理。
+After execution completes, the controlled tag vocabulary is written to the Synthesis system and can be viewed and managed on the Tags page of the Synthesis Workbench.
 
-## 参数
+## Parameters
 
-| 参数 | 类型 | 说明 | 默认值 |
+| Parameter | Type | Description | Default |
 |------|------|------|--------|
-| `tag_note_language` | string | 标签笔记语言 | `zh-CN` |
+| `tag_note_language` | string | Tag note language | `zh-CN` |
 
-可选值：`zh-CN`、`en-US`、`ja-JP`、`ko-KR`、`de-DE`、`fr-FR`、`es-ES`、`ru-RU`，支持自定义输入。
+Available values: `zh-CN`, `en-US`, `ja-JP`, `ko-KR`, `de-DE`, `fr-FR`, `es-ES`, `ru-RU`. Custom input is also supported.
 
-## 依赖
+## Dependencies
 
-- **后端**：Skill-Runner 服务
-- **Backend 配置**：在 Backend Manager 中配置 Skill-Runner 类型的后端
-- **Skill**：Skill-Runner 端需部署 `tag-bootstrapper` skill
+- **Backend**: Skill-Runner service
+- **Backend Configuration**: Configure a Skill-Runner type backend in Backend Manager
+- **Skill**: The `tag-bootstrapper` skill must be deployed on the Skill-Runner
 
-## 相关工作流
+## Related Workflows
 
-- [文献分析](literature-analysis) — 分析时可自动级联执行标签规范化
-- [标签规范化](tag-regulator) — 对已有文献执行标签规整
+- [Literature Analysis](literature-analysis) — Can automatically cascade tag regulation during analysis
+- [Tag Regulator](tag-regulator) — Run tag regulation on existing literature

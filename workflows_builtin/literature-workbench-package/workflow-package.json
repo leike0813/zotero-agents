@@ -5,8 +5,15 @@
     "defaultLocale": "en-US",
     "locales": {
       "zh-CN": "locales/zh-CN.json",
+      "zh-TW": "locales/zh-TW.json",
       "fr-FR": "locales/fr-FR.json",
-      "ja-JP": "locales/ja-JP.json"
+      "ja-JP": "locales/ja-JP.json",
+      "de": "locales/de.json",
+      "es-ES": "locales/es-ES.json",
+      "pt-BR": "locales/pt-BR.json",
+      "ko-KR": "locales/ko-KR.json",
+      "it-IT": "locales/it-IT.json",
+      "ru-RU": "locales/ru-RU.json"
     }
   },
   "workflows": [

@@ -1,3 +1,4 @@
+- poster.png: 插件海报
 - favicon.png: 插件小图标
 - icon_full.png: 插件大图标
 - icon_play.png: 工具栏`执行Workflow`快捷按钮

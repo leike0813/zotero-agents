@@ -44,6 +44,12 @@
   border: 0;
 }
 
+.theme-doc-markdown p > img[src*="poster.png"] {
+  width: min(100%, 380px);
+  margin-right: auto;
+  margin-left: auto;
+}
+
 .zs-doc-figure {
   margin: 1.25rem 0;
 }
@@ -60,6 +66,12 @@
   width: 8rem;
   max-width: 40vw;
   border: 0;
+}
+
+.zs-doc-figure img[src*="poster.png"] {
+  width: min(100%, 380px);
+  margin-right: auto;
+  margin-left: auto;
 }
 
 .zs-doc-figure figcaption {

@@ -50,6 +50,10 @@
 - 用户可以在对话中调整方向
 - 可在 Dashboard 中查看进度
 
+## 预估耗时
+
+取决于对话轮数和文献库规模。AI 分析阶段约 5-10 分钟，加上各阶段的用户确认时间。
+
 ## 运行产物
 
 执行完成后，产物可通过 Apply Result 钩子写入 Zotero（作为笔记）或下载：
@@ -63,6 +67,10 @@
 | `evidence-inventory.json` | JSON | 证据/引用清单 |
 | `citation-map.json` | JSON | 引用映射关系 |
 | `intent-brief.json` | JSON | 论文定位摘要 |
+
+:::tip 产物获取
+生成的 LaTeX 草稿等产物可在 **Dashboard 的产物区**找到。你可以直接将产物放入你的 LaTeX 文稿，或导出后进一步加工。
+:::
 
 ## 参数
 
@@ -86,6 +94,19 @@
 - **后端**：ACP 后端
 - **Zotero 库**：需要库内有相关文献条目
 
+:::tip 推荐工作流程
+要获得最佳效果，建议在运行此 workflow 前完成以下准备：
+1. 收集并入库足够的相关文献
+2. 对所有文献执行 [文献分析](literature-analysis) + [标签规范化](tag-regulator)
+3. 在 Synthesis Workbench 中执行 Advance Matching 并处理审批项
+4. 创建几个相关的 [Topic 综合](topic-synthesis)
+:::
+
+## 模型建议
+
+🟡 建议使用**长上下文**模型。撰写 Introduction 和 Related Work 需要整合大量文献的摘要、引文分析和 Topic 综合结果，对上下文窗口有较高要求。
+
 ## 相关工作流
 
+- [文献分析](literature-analysis) — 为文献建立结构化知识基础
 - [Topic 综合创建](topic-synthesis) — 先创建主题综合，再基于分析结果撰写论文

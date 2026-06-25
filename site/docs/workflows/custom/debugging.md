@@ -1,120 +1,120 @@
-# 调试与测试
+# Debugging & Testing
 
-编写自定义 workflow 后，可以使用以下方法来验证和调试。
+After writing a custom workflow, you can use the following methods to validate and debug it.
 
-## 启用调试模式
+## Enable Debug Mode
 
-在偏好设置中启用调试模式，可以解锁额外的调试工具和信息显示：
+Enable debug mode in preferences to unlock additional debugging tools and information displays:
 
-Zotero → 设置 → Zotero Agents → 启用调试模式
+Zotero → Settings → Zotero Agents → Enable Debug Mode
 
-调试模式开启后：
+When debug mode is enabled:
 
-- Dashboard 中会显示调试相关的 workflow
-- 运行时日志会更加详细
-- 部分诊断工具变为可用
+- Debug-related workflows are displayed in the Dashboard
+- Runtime logs become more detailed
+- Some diagnostic tools become available
 
-## 使用 Debug Probe 工具包
+## Using the Debug Probe Toolkit
 
-插件内置了 `workflow-debug-probe` 调试工具包，包含多个诊断 workflow：
+The plugin includes a built-in `workflow-debug-probe` debugging toolkit, containing several diagnostic workflows:
 
-| Workflow | 用途 |
-|---------|------|
-| **Workflow Debug Probe** | 检查 workflow 预执行状态，打开诊断面板 |
-| **Debug Sequence Linear Probe** | 验证串行执行和默认 handoff 传递 |
-| **Debug Sequence Workspace Reuse Probe** | 验证跨步骤的工作区复用 |
-| **Debug Sequence Context Isolation Probe** | 验证显式 handoff 过滤和隔离工作区 |
+| Workflow | Purpose |
+|----------|---------|
+| **Workflow Debug Probe** | Inspect workflow pre-execution state, open diagnostic panel |
+| **Debug Sequence Linear Probe** | Validate sequential execution and default handoff passing |
+| **Debug Sequence Workspace Reuse Probe** | Validate cross-step workspace reuse |
+| **Debug Sequence Context Isolation Probe** | Validate explicit handoff filtering and isolated workspaces |
 
-这些 workflow 在 Dashboard 的 workflow 列表中可见（调试模式下），可以直接运行来验证序列执行机制。
+These workflows are visible in the Dashboard's workflow list (in debug mode) and can be run directly to validate sequence execution mechanisms.
 
-## 日志查看
+## Log Viewing
 
 ### Runtime Logs
 
-Workflow 执行期间会产生运行时日志，在 Dashboard 中可以查看：
+Workflows generate runtime logs during execution, viewable in the Dashboard:
 
-1. 打开 Dashboard
-2. 找到正在运行或已完成的任务
-3. 点击"查看日志"展开日志面板
+1. Open the Dashboard
+2. Find a running or completed task
+3. Click "View Logs" to expand the log panel
 
-### 在 Hook 中写入日志
+### Writing Logs in Hooks
 
 ```js
 export function applyResult({ parent, bundleReader, runtime }) {
-  // 写入运行时日志
+  // Write to runtime log
   runtime.hostApi.logging.appendRuntimeLog({
     level: "info",
     message: `Processing parent: ${parent}`,
     workflowId: runtime.workflowId,
   });
 
-  // 对于复杂的调试信息，可以使用 console
+  // For complex debug information, you can use console
   console.log("Debug:", { parent, workflowId: runtime.workflowId });
 }
 ```
 
-## 常见问题排查
+## Troubleshooting Common Issues
 
-### Workflow 未出现在 Dashboard 中
+### Workflow Not Appearing in Dashboard
 
-1. 检查 `workflow.json` 是否放置在正确的目录下
-2. 确认 `workflow.json` 格式正确（JSON 语法）
-3. 检查 `id` 是否唯一，不与官方 workflow 冲突
-4. 确认 `applyResult` 脚本路径正确
-5. 查看插件错误日志（Zotero → 帮助 → 故障排除 → 查看日志文件）
+1. Check if `workflow.json` is placed in the correct directory
+2. Confirm that `workflow.json` is correctly formatted (JSON syntax)
+3. Check that `id` is unique and does not conflict with official workflows
+4. Confirm that the `applyResult` script path is correct
+5. Check the plugin error log (Zotero → Help → Troubleshooting → View Log File)
 
-### filterInputs 返回 null
+### filterInputs Returns null
 
-如果 `filterInputs` 返回 `null`，表示没有符合条件的选择，workflow 不会执行。检查过滤逻辑是否正确。
+If `filterInputs` returns `null`, it means no qualifying selection was found, and the workflow will not execute. Check whether the filtering logic is correct.
 
-### buildRequest 与声明式 request 冲突
+### Conflict Between buildRequest and Declarative Request
 
-`buildRequest` hook 和 `workflow.json` 中的 `request` 字段**互斥**。如果两者同时存在，`buildRequest` 优先。如果发现请求行为不符合预期，检查是否无意中同时定义了二者。
+The `buildRequest` hook and the `request` field in `workflow.json` are **mutually exclusive**. If both exist, `buildRequest` takes priority. If request behavior is not as expected, check whether both were inadvertently defined simultaneously.
 
-### Hook 脚本执行失败
+### Hook Script Execution Failure
 
-- 确认 Hook 脚本是 `.mjs`（ES Module）格式
-- 确认导出了正确的函数名：`filterInputs`、`buildRequest`、`applyResult`
-- 确认函数签名正确接收了 `{ parent, bundleReader, runtime }` 等参数
-- 检查相对导入路径是否正确
+- Confirm that the Hook script is in `.mjs` (ES Module) format
+- Confirm that the correct function names are exported: `filterInputs`, `buildRequest`, `applyResult`
+- Confirm that the function signature correctly receives parameters like `{ parent, bundleReader, runtime }`
+- Check whether relative import paths are correct
 
-### 结果未写入 Zotero
+### Result Not Written to Zotero
 
-`applyResult` 中使用了 `hostApi.mutations.execute()` 但未生效，可能原因：
+If `applyResult` uses `hostApi.mutations.execute()` but it does not take effect, possible causes:
 
-- 写操作需要用户审批，但审批弹窗被忽略或超时
-- 在 `execution.zoteroHostAccess.required` 未设 `true` 时尝试了写操作
-- `allowWriteApprovalBypass` 需要与插件权限配置配合使用
+- Write operations require user approval, but the approval popup was ignored or timed out
+- Attempted a write operation when `execution.zoteroHostAccess.required` was not set to `true`
+- `allowWriteApprovalBypass` needs to be used in conjunction with plugin permission configuration
 
-## 开发建议
+## Development Suggestions
 
-### 从简单开始
+### Start Simple
 
-1. 先用 `pass-through` provider 和最小的 `applyResult` 验证 workflow 加载成功
-2. 逐步添加 `filterInputs` 和 `buildRequest`
-3. 最后接入实际后端
+1. First use the `pass-through` provider with a minimal `applyResult` to verify that the workflow loads successfully
+2. Gradually add `filterInputs` and `buildRequest`
+3. Finally connect to the actual backend
 
-### 使用 notifications.toast 快速反馈
+### Use notifications.toast for Quick Feedback
 
 ```js
 hostApi.notifications.toast({
-  text: `filterInputs 收到 ${selectionContext.items.parents.length} 个父条目`,
+  text: `filterInputs received ${selectionContext.items.parents.length} parent items`,
   type: "default",
 });
 ```
 
-这是快速的调试手段，无需查看日志即可看到执行效果。
+This is a quick debugging technique that lets you see execution results without checking logs.
 
-### 参考官方 Workflow
+### Reference Official Workflows
 
-官方 workflow 是最好的学习参考。安装官方包后可以在 `<Zotero Data>/zotero-agents/content/official/workflows/` 目录下查看源代码：
+Official workflows are the best learning reference. After installing the official package, you can view the source code in the `<Zotero Data>/zotero-agents/content/official/workflows/` directory:
 
-- `literature-workbench-package/literature-analysis/` — 完整的 skillrunner.job.v1 示例
-- `content/official/workflows/literature-workbench-package/export-notes/` — 简单的 pass-through 示例
-- `content/official/workflows/mineru/` — 带 buildRequest + 文件处理的示例
-- `content/official/workflows/literature-workbench-package/literature-search-ingest/` — 交互模式示例
+- `literature-workbench-package/literature-analysis/` — Complete skillrunner.job.v1 example
+- `content/official/workflows/literature-workbench-package/export-notes/` — Simple pass-through example
+- `content/official/workflows/mineru/` — Example with buildRequest + file handling
+- `content/official/workflows/literature-workbench-package/literature-search-ingest/` — Interactive mode example
 
-## 下一步
+## Next Steps
 
-- [完整 Workflow 清单参考](manifest) — workflow.json 所有字段
-- [Host API 参考](host-api) — 在 hook 中可用的全部 API
+- [Complete Workflow Manifest Reference](manifest) — All fields in workflow.json
+- [Host API Reference](host-api) — All APIs available in hooks

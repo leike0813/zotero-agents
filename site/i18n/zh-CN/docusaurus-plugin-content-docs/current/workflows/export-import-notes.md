@@ -4,6 +4,10 @@
 
 导出和导入 `literature-analysis` 生成的三种结构化笔记（摘要、参考文献、引文分析），方便在 Zotero 实例之间迁移。
 
+:::info 编辑分析结果
+[文献分析](literature-analysis)生成的笔记内容是从后台数据**渲染**出来的，直接修改笔记内容不会改变后台数据。如果你需要修改分析结果，正确的做法是：**导出笔记** → 修改导出的文件 → 使用**导入笔记**重新导入。
+:::
+
 ## export-notes（导出笔记）
 
 ### 适用场景
@@ -31,6 +35,10 @@
 | `representative_image.jpg` | 代表图（如 digest note 含 embedded-image 时） |
 
 代表图以 `zs:representative-image:v1` Markdown 注释块插入 `digest.md`，使用同目录相对路径引用。图片导出失败不会阻塞文本与 JSON 产物的导出。
+
+## 预估耗时
+
+秒级完成（纯本地文件操作，无需后端）。
 
 ## import-notes（导入笔记）
 
