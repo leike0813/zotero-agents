@@ -1025,29 +1025,29 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
   );
 
   itNodeOnly(
-    "fails with deterministic diagnostics when controlled vocabulary is missing",
+    "builds pure inference request when controlled vocabulary is empty",
     async function () {
+      saveTagVocabularyState([]);
+
       const parent = await handlers.item.create({
         itemType: "journalArticle",
-        fields: { title: "Tag Regulator Missing Vocabulary Parent" },
+        fields: { title: "Tag Regulator Empty Vocabulary Parent" },
       });
       await handlers.tag.add(parent, ["topic:legacy"]);
 
       const workflow = await getTagRegulatorWorkflow();
       const selectionContext = await buildSelectionContext([parent]);
+      const requests = (await executeBuildRequests({
+        workflow,
+        selectionContext,
+      })) as TagRegulatorRequest[];
 
-      let thrown: unknown = null;
-      try {
-        await executeBuildRequests({
-          workflow,
-          selectionContext,
-        });
-      } catch (error) {
-        thrown = error;
-      }
-
-      assert.isOk(thrown, "expected build request to fail");
-      assert.match(String(thrown), /synthesis vocabulary/i);
+      assert.lengthOf(requests, 1);
+      assert.equal(requests[0].input?.valid_tags, "");
+      assert.isUndefined(
+        requests[0].upload_files?.find((entry) => entry.key === "valid_tags"),
+      );
+      assert.deepEqual(requests[0].input?.input_tags, ["topic:legacy"]);
     },
   );
 

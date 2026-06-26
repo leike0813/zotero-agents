@@ -1,3 +1,7 @@
+import {
+  appendSkillDiagnosticsToResult,
+  collectSkillOutputDiagnostics,
+} from "../../lib/resultOutput.mjs";
 import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
 
 const SOURCE = "tag-bootstrapper";
@@ -8,12 +12,6 @@ function isObject(value) {
 
 function asString(value) {
   return String(value || "").trim();
-}
-
-function normalizeWarnings(value) {
-  return Array.isArray(value)
-    ? value.map((entry) => asString(entry)).filter(Boolean)
-    : [];
 }
 
 function facetFromTag(tag) {
@@ -119,14 +117,7 @@ async function applyResultImpl({ resultContext, runResult, runtime }) {
       warnings: [],
     };
   }
-  const warnings = normalizeWarnings(output.warnings);
-  if (typeof output.error !== "undefined" && output.error !== null) {
-    throw new Error(
-      `tag-bootstrapper skill error: ${asString(
-        output.error?.message || output.error || "unknown error",
-      )}`,
-    );
-  }
+  const skillOutputDiagnostics = collectSkillOutputDiagnostics(output);
   const normalized = normalizeAddTagEntries(output.add_tags);
   if (!normalized.ok) {
     throw new Error(`tag-bootstrapper output malformed: ${normalized.reason}`);
@@ -160,13 +151,15 @@ async function applyResultImpl({ resultContext, runResult, runtime }) {
       transactionId: `tag-bootstrapper-${Date.now()}`,
     });
   }
-  return {
-    applied: additions.length > 0,
-    skipped: additions.length === 0,
-    added: additions.map((entry) => entry.tag),
-    skipped_existing: skippedExisting,
-    warnings,
-  };
+  return appendSkillDiagnosticsToResult(
+    {
+      applied: additions.length > 0,
+      skipped: additions.length === 0,
+      added: additions.map((entry) => entry.tag),
+      skipped_existing: skippedExisting,
+    },
+    skillOutputDiagnostics,
+  );
 }
 
 export async function applyResult(args) {

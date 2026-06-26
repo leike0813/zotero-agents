@@ -2459,6 +2459,30 @@ describe("skillrunner.sequence.v1 runtime", function () {
         },
       ],
     });
+
+    const emptyVocabularyRuntime = {
+      ...runtime,
+      hostApi: {
+        ...runtime.hostApi,
+        synthesis: {
+          exportTagVocabularyForRegulator: async () => [],
+        },
+      },
+    };
+    const withPureInferenceTag = (await buildLiteratureDigestRequest({
+      selectionContext,
+      executionOptions: {
+        workflowParams: {
+          language: "fr-FR",
+          auto_tag_regulator: true,
+        },
+      },
+      runtime: emptyVocabularyRuntime,
+    })) as any;
+    const pureInferenceTagStep = withPureInferenceTag.steps[1];
+    assert.equal(withPureInferenceTag.final_step_id, "tag-regulator");
+    assert.equal(pureInferenceTagStep.input.valid_tags, "");
+    assert.equal(pureInferenceTagStep.parameter.tag_note_language, "fr-FR");
   });
 
   it("reuses ACP workflow workspace while preserving independent request ids", async function () {

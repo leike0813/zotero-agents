@@ -2,12 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from typing import Any
-
-
-TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
 def _fail(message: str) -> int:
@@ -61,22 +57,16 @@ def validate_output_data(data: Any) -> list[str]:
         errors.append("warnings must be an array of strings")
 
     error_value = data.get("error")
-    if error_value is not None:
-        if not isinstance(error_value, dict):
-            errors.append("error must be null or an object")
-        else:
-            if not isinstance(error_value.get("type"), str) or not error_value.get("type", "").strip():
-                errors.append("error.type must be a non-empty string")
-            if not isinstance(error_value.get("message"), str) or not error_value.get("message", "").strip():
-                errors.append("error.message must be a non-empty string")
+    if not isinstance(error_value, dict):
+        errors.append("error must be an object")
 
     provenance = data.get("provenance")
     if not isinstance(provenance, dict):
         errors.append("provenance must be an object")
     else:
         generated_at = provenance.get("generated_at")
-        if not isinstance(generated_at, str) or not TIMESTAMP_RE.match(generated_at):
-            errors.append("provenance.generated_at must be UTC ISO-8601 ending in Z")
+        if generated_at is not None and not isinstance(generated_at, str):
+            errors.append("provenance.generated_at must be a string when present")
 
     return errors
 

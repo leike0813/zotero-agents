@@ -139,9 +139,6 @@ export async function loadSynthesisVocabularyTagsOrThrow(runtime) {
     } else if (exported && typeof exported === "object") {
       tags = normalizeVocabularyTags(exported.entries || exported.tags || []);
     }
-    if (tags.length === 0) {
-      throw new Error("tag-regulator synthesis vocabulary missing usable tags");
-    }
     return tags;
   } catch (error) {
     throw new Error(
@@ -326,19 +323,24 @@ export async function buildTagRegulatorInputFromParent(args) {
   const metadata = collectMetadataFromParent(parentItem);
   const inputTags = collectInputTagsFromParent(parentItem);
   const controlledTags = await loadSynthesisVocabularyTagsOrThrow(args.runtime);
-  const validTagsPath = await materializeValidTagsYaml(
-    controlledTags,
-    parentItem.id,
-    args.runtime,
-  );
+  const validTagsPath =
+    controlledTags.length > 0
+      ? await materializeValidTagsYaml(
+          controlledTags,
+          parentItem.id,
+          args.runtime,
+        )
+      : "";
   return {
     parentItem,
     input: {
       metadata,
       input_tags: inputTags,
-      valid_tags: args.useAbsoluteValidTagsPath
-        ? validTagsPath
-        : buildValidTagsUploadRelativePath(),
+      valid_tags: validTagsPath
+        ? args.useAbsoluteValidTagsPath
+          ? validTagsPath
+          : buildValidTagsUploadRelativePath()
+        : "",
     },
     validTagsPath,
   };
@@ -351,12 +353,14 @@ export async function buildTagRegulatorStandaloneRequest(args) {
       runtime: args.runtime,
       useAbsoluteValidTagsPath: false,
     });
-  const uploadFiles = [
-    {
-      key: "valid_tags",
-      path: validTagsPath,
-    },
-  ];
+  const uploadFiles = validTagsPath
+    ? [
+        {
+          key: "valid_tags",
+          path: validTagsPath,
+        },
+      ]
+    : [];
   const digestMarkdown = await resolveDigestMarkdownForParent(
     parentItem,
     args.runtime,

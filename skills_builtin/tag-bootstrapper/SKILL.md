@@ -123,7 +123,7 @@ When uncertain, omit the tag and add a warning. Do not pad the result with specu
 - Validate output JSON structure.
 - Deduplicate and sort `add_tags`.
 - Normalize `facet` from the tag prefix when omitted.
-- Preserve stable warning arrays and `provenance.generated_at`.
+- Preserve stable warning arrays and provenance fields.
 
 ### Forbidden
 
@@ -178,7 +178,7 @@ Failure shape keeps the same top-level keys:
 }
 ```
 
-`kind`, `status`, `provenance.input_hash`, and `provenance.model` are audit fields. Include them when known. `assets/output.schema.json` keeps these audit fields extensible for structured-output renderers; `scripts/validate_output.py` is the stricter final gate.
+`kind`, `status`, `provenance.input_hash`, and `provenance.model` are audit fields. Include them when known. `assets/output.schema.json` keeps these audit fields extensible for structured-output renderers; `scripts/validate_output.py` applies the same output shape plus deterministic `add_tags` duplicate checks.
 
 When Host Bridge library index context was attempted, include optional audit data under `provenance.library_index`, for example `{"used": true, "pages_read": 2, "total_papers": 318}` or `{"used": false, "reason": "cli_unavailable"}`. Do not put tokens, endpoint URLs, local paths, or raw command output in provenance.
 
@@ -242,7 +242,7 @@ Before stdout, verify:
 - no tag duplicates an existing tag case-insensitively;
 - no tag duplicates another result tag case-insensitively;
 - `warnings` is an array of strings;
-- `error` is `{}` for success or an object with `code` and `message`;
-- `provenance.generated_at` is UTC ISO-8601 ending in `Z`;
+- `error` is an object; use `{}` for success and include fields such as `code` and `message` when reporting a failure;
+- `provenance.generated_at`, when present, is a string;
 - audit fields do not replace `add_tags`, `warnings`, `error`, or `provenance`;
 - stdout contains only the JSON object.

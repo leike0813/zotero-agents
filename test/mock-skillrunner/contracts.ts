@@ -40,9 +40,10 @@ export function validateCreatePayload(payload: unknown) {
   }
   if (body.skill_id === "tag-regulator") {
     const validTags = String(input?.valid_tags || "").trim();
-    if (!validTags) {
-      errors.push("input.valid_tags is required for tag-regulator");
-    } else if (isAbsolutePath(validTags) || validTags.startsWith("uploads/")) {
+    if (
+      validTags &&
+      (isAbsolutePath(validTags) || validTags.startsWith("uploads/"))
+    ) {
       errors.push(
         "input.valid_tags must be uploads-root relative path without uploads/ prefix",
       );

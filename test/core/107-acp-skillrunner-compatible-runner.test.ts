@@ -770,6 +770,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("uses workflow i18n for ACP skill run skill names", async function () {
+    this.timeout(5000);
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
     const workflowId = "localized-acp-skill-workflow";

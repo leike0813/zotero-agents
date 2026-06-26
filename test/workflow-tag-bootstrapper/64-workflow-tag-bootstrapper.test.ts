@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { spawn } from "child_process";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
@@ -25,6 +26,53 @@ async function makeRuntime() {
         synthesis: service,
       },
     },
+  };
+}
+
+async function validateBootstrapperOutput(payload: Record<string, unknown>) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "zs-tb-validate-"));
+  const outputPath = path.join(tempDir, "output.json");
+  await fs.writeFile(outputPath, JSON.stringify(payload), "utf8");
+  return new Promise<{
+    exitCode: number | null;
+    stdout: string;
+    stderr: string;
+  }>((resolve) => {
+    const child = spawn("uv", [
+      "run",
+      "--project",
+      path.join(os.homedir(), ".ar"),
+      "--locked",
+      "--",
+      "python",
+      "skills_builtin/tag-bootstrapper/scripts/validate_output.py",
+      "--output",
+      outputPath,
+    ]);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      resolve({ exitCode: 1, stdout, stderr: String(error.message || error) });
+    });
+    child.on("close", (exitCode) => {
+      resolve({ exitCode, stdout, stderr });
+    });
+  });
+}
+
+function validBootstrapperOutput(overrides: Record<string, unknown> = {}) {
+  return {
+    add_tags: [{ tag: "method:survey", note: "Survey study" }],
+    warnings: [],
+    error: {},
+    provenance: {},
+    ...overrides,
   };
 }
 
@@ -98,6 +146,59 @@ describe("workflow: tag-bootstrapper", function () {
       "tag-bootstrapper",
     );
     assert.equal(workflow?.manifest.request?.create?.mode, "interactive");
+  });
+
+  it("validates tag-bootstrapper output against schema-aligned error and provenance rules", async function () {
+    assert.equal(
+      (await validateBootstrapperOutput(validBootstrapperOutput())).exitCode,
+      0,
+    );
+    assert.equal(
+      (
+        await validateBootstrapperOutput(
+          validBootstrapperOutput({
+            error: { message: "user canceled" },
+          }),
+        )
+      ).exitCode,
+      0,
+    );
+    assert.equal(
+      (
+        await validateBootstrapperOutput(
+          validBootstrapperOutput({
+            provenance: { generated_at: "not-an-iso-timestamp" },
+          }),
+        )
+      ).exitCode,
+      0,
+    );
+
+    const nullError = await validateBootstrapperOutput(
+      validBootstrapperOutput({ error: null }),
+    );
+    assert.notEqual(nullError.exitCode, 0);
+    assert.include(nullError.stderr, "error must be an object");
+
+    const nonStringGeneratedAt = await validateBootstrapperOutput(
+      validBootstrapperOutput({ provenance: { generated_at: 123 } }),
+    );
+    assert.notEqual(nonStringGeneratedAt.exitCode, 0);
+    assert.include(
+      nonStringGeneratedAt.stderr,
+      "provenance.generated_at must be a string when present",
+    );
+
+    const duplicateTag = await validateBootstrapperOutput(
+      validBootstrapperOutput({
+        add_tags: [
+          { tag: "method:survey", note: "Survey study" },
+          { tag: "METHOD:SURVEY", note: "Duplicate" },
+        ],
+      }),
+    );
+    assert.notEqual(duplicateTag.exitCode, 0);
+    assert.include(duplicateTag.stderr, "duplicate add_tags tag");
   });
 
   it("builds an interactive request from current vocabulary state", async function () {
@@ -185,7 +286,7 @@ describe("workflow: tag-bootstrapper", function () {
     assert.deepEqual(result.skipped_existing, ["field:cs/ai"]);
   });
 
-  it("does not write vocabulary when skill output reports an error", async function () {
+  it("applies valid additions when skill output includes a non-null error diagnostic", async function () {
     const { runtime, service } = await makeRuntime();
     await service.saveTagVocabulary({
       entries: [
@@ -196,31 +297,71 @@ describe("workflow: tag-bootstrapper", function () {
       ],
     });
 
-    try {
-      await applyResult({
-        parent: null,
-        bundleReader: { readText: async () => "" },
-        manifest: {} as never,
-        runtime: runtime as never,
-        runResult: {
-          resultJson: {
-            data: {
-              add_tags: [{ tag: "method:survey", facet: "method" }],
-              warnings: [],
-              error: { message: "user canceled" },
-            },
+    const applied = (await applyResult({
+      parent: null,
+      bundleReader: { readText: async () => "" },
+      manifest: {} as never,
+      runtime: runtime as never,
+      runResult: {
+        resultJson: {
+          data: {
+            add_tags: [
+              {
+                tag: "method:survey",
+                facet: "method",
+                note: "Survey method",
+              },
+            ],
+            warnings: ["diagnostic warning"],
+            status: "failed",
+            error: { message: "model reported a recoverable issue" },
           },
         },
-      });
-      assert.fail("expected skill error to reject");
-    } catch (error) {
-      assert.match(String((error as Error).message), /user canceled/);
-    }
+      },
+    })) as Record<string, any>;
 
     const snapshot = await service.loadTagVocabulary();
     assert.deepEqual(
       snapshot.entries.map((entry) => entry.tag),
-      ["field:CS/AI"],
+      ["field:CS/AI", "method:survey"],
+    );
+    assert.deepEqual(applied.added, ["method:survey"]);
+    assert.deepEqual(applied.warnings, ["diagnostic warning"]);
+    assert.equal(applied.skill_diagnostics?.status, "failed");
+    assert.equal(
+      applied.skill_diagnostics?.error?.message,
+      "model reported a recoverable issue",
+    );
+  });
+
+  it("skips empty additions while preserving non-null error diagnostics", async function () {
+    const { runtime, service } = await makeRuntime();
+    await service.saveTagVocabulary({ entries: [] });
+
+    const applied = (await applyResult({
+      parent: null,
+      bundleReader: { readText: async () => "" },
+      manifest: {} as never,
+      runtime: runtime as never,
+      runResult: {
+        resultJson: {
+          data: {
+            add_tags: [],
+            warnings: [],
+            error: { message: "no additions suggested" },
+          },
+        },
+      },
+    })) as Record<string, any>;
+
+    const snapshot = await service.loadTagVocabulary();
+    assert.deepEqual(snapshot.entries, []);
+    assert.equal(applied.applied, false);
+    assert.equal(applied.skipped, true);
+    assert.deepEqual(applied.added, []);
+    assert.equal(
+      applied.skill_diagnostics?.error?.message,
+      "no additions suggested",
     );
   });
 
