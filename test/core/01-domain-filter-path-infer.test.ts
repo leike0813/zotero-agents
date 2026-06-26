@@ -74,6 +74,26 @@ describe("domain filter path inference", function () {
     );
   });
 
+  it("allows runtime platform service smoke coverage in Zotero lite", function () {
+    assert.equal(
+      isZoteroRoutineAllowedFile(
+        "test/core/165-runtime-platform-services.zotero.test.ts",
+        "lite",
+      ),
+      true,
+    );
+    assert.equal(
+      isZoteroRoutineAllowedTitle({
+        selectedDomain: "core",
+        testDomain: "all",
+        fullTitle:
+          "runtime platform services in Zotero preserves cross-platform path contracts in the real Zotero runtime",
+        mode: "lite",
+      }),
+      true,
+    );
+  });
+
   it("allows full-only core parity files only in Zotero full", function () {
     assert.equal(
       isZoteroRoutineAllowedFile(

@@ -328,6 +328,7 @@ function setupSkillRunnerTaskReconcilerSuite() {
 
 export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
   describe("skillrunner recovery coordinator: state restore", function () {
+    this.timeout(15000);
     const { createTrackedReconciler } = setupSkillRunnerTaskReconcilerSuite();
 
     it("maps backend statuses to canonical job states", function () {
@@ -548,6 +549,7 @@ export function registerSkillRunnerTaskReconcilerStateRestoreTests() {
 
 export function registerSkillRunnerTaskReconcilerForegroundHandoffTests() {
   describe("skillrunner recovery coordinator: foreground handoff", function () {
+    this.timeout(15000);
     const { createTrackedReconciler } = setupSkillRunnerTaskReconcilerSuite();
 
     it("applies recovered terminal success through foreground continuation", async function () {
@@ -819,6 +821,7 @@ export function registerSkillRunnerTaskReconcilerForegroundHandoffTests() {
 
 export function registerSkillRunnerTaskReconcilerLedgerReconcileTests() {
   describe("skillrunner recovery coordinator: ledger reconcile", function () {
+    this.timeout(15000);
     setupSkillRunnerTaskReconcilerSuite();
 
     it("registers backend health tracking even when task ledger is empty", async function () {

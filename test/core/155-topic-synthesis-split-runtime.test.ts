@@ -532,7 +532,14 @@ if (command === "topics get-context") {
     `@echo off\r\nnode "%~dp0fake-zotero-bridge.mjs" %*\r\n`,
     "utf8",
   );
-  return bridgeCmd;
+  const bridgePosix = path.join(binDir, "zotero-bridge");
+  await fs.writeFile(
+    bridgePosix,
+    '#!/usr/bin/env sh\nexec node "$(dirname "$0")/fake-zotero-bridge.mjs" "$@"\n',
+    "utf8",
+  );
+  await fs.chmod(bridgePosix, 0o755);
+  return process.platform === "win32" ? bridgeCmd : bridgePosix;
 }
 
 describe("topic synthesis split skill runtime", function () {

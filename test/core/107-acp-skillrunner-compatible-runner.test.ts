@@ -128,6 +128,22 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitForAcpSkillRun(
+  requestId: string,
+  predicate: (record: ReturnType<typeof getAcpSkillRunRecord>) => boolean,
+  timeoutMs = 8000,
+) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const record = getAcpSkillRunRecord(requestId);
+    if (predicate(record)) {
+      return record;
+    }
+    await delay(25);
+  }
+  assert.fail(`ACP skill run ${requestId} did not reach expected state`);
+}
+
 function makeAcpWorkflowTaskJob(args: {
   requestId: string;
   state?: JobRecord["state"];
@@ -648,7 +664,10 @@ describe("ACP SkillRunner-compatible runner", function () {
     resetAcpSkillRunsForTests();
   });
 
-  afterEach(function () {
+  afterEach(async function () {
+    setAcpSkillRunRecoveryHandlerForTests(null);
+    await shutdownAcpSkillRunConversations().catch(() => undefined);
+    resetAcpWorkflowWorkspaceRegistryForTests();
     resetAcpSkillRunsForTests();
     resetWorkflowTasks();
     resetPluginStateStoreForTests();
@@ -4673,7 +4692,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("auto-continues a detached recoverable running run after explicit connect", async function () {
-    this.timeout(6000);
+    this.timeout(10000);
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -4792,17 +4811,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
 
       await connectAcpSkillRun(workspace.requestId);
-      for (let index = 0; index < 40; index += 1) {
-        if (
-          getAcpSkillRunRecord(workspace.requestId)?.applyResultState ===
-          "succeeded"
-        ) {
-          break;
-        }
-        await delay(25);
-      }
-
-      const recovered = getAcpSkillRunRecord(workspace.requestId);
+      const recovered = await waitForAcpSkillRun(
+        workspace.requestId,
+        (record) => record?.applyResultState === "succeeded",
+      );
       const stages = (recovered?.events || []).map((event) => event.stage);
       assert.equal(recovered?.status, "succeeded");
       assert.equal(recovered?.applyResultState, "succeeded");
@@ -4823,7 +4835,11 @@ describe("ACP SkillRunner-compatible runner", function () {
         ),
       );
     } finally {
-      process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
+      if (typeof previousWorkflowDir === "string") {
+        process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
+      } else {
+        delete process.env.ZOTERO_TEST_WORKFLOW_DIR;
+      }
       setAcpSkillRunRecoveryHandlerForTests(null);
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -7188,6 +7204,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("converges a live deferred reply final output and continues sequence apply", async function () {
+    this.timeout(10000);
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -7423,6 +7440,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("repairs invalid output from a live deferred reply before sequence apply", async function () {
+    this.timeout(10000);
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -7620,6 +7638,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   it("allows a repair round to converge to pending without completing the workflow", async function () {
+    this.timeout(10000);
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],

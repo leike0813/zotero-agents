@@ -67,12 +67,19 @@ function withTemporaryLocalAppData<T>(run: (root: string) => Promise<T>) {
     path.join(os.tmpdir(), "zs-host-bridge-profile-"),
   );
   const previousLocalAppData = process.env.LOCALAPPDATA;
+  const previousXdgDataHome = process.env.XDG_DATA_HOME;
   process.env.LOCALAPPDATA = root;
+  process.env.XDG_DATA_HOME = root;
   return run(root).finally(() => {
     if (typeof previousLocalAppData === "string") {
       process.env.LOCALAPPDATA = previousLocalAppData;
     } else {
       delete process.env.LOCALAPPDATA;
+    }
+    if (typeof previousXdgDataHome === "string") {
+      process.env.XDG_DATA_HOME = previousXdgDataHome;
+    } else {
+      delete process.env.XDG_DATA_HOME;
     }
   });
 }

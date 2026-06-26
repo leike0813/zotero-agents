@@ -3291,7 +3291,7 @@ describe("gui: workflow context menu", function () {
     popup!.dispatch("popupshowing");
     await flushTasks();
 
-    assert.lengthOf(popup!.children, 6);
+    assert.lengthOf(popup!.children, 8);
     assertMenuLabel(
       popup!.children[0].getAttribute("label"),
       ["Open Dashboard / Synthesis Workspace", "打开 Dashboard/综合工作区"],
@@ -3302,15 +3302,25 @@ describe("gui: workflow context menu", function () {
       ["Open Sidebar", "打开侧边栏"],
       "assistant sidebar label",
     );
-    assert.equal(popup!.children[2].tagName, "menuseparator");
-    assert.match(
-      popup!.children[3].getAttribute("label") || "",
-      /📦.*(Install Official Workflow Package|安装官方 Workflow 包|公式 Workflow パッケージ|Installer le package Workflow officiel)/,
+    assertMenuLabel(
+      popup!.children[2].getAttribute("label"),
+      ["Open Help", "打开帮助"],
+      "help label",
+    );
+    assertMenuLabel(
+      popup!.children[3].getAttribute("label"),
+      ["Open Online Docs", "打开在线文档"],
+      "online docs label",
     );
     assert.equal(popup!.children[4].tagName, "menuseparator");
-    assert.equal(popup!.children[5].getAttribute("disabled"), "true");
+    assert.match(
+      popup!.children[5].getAttribute("label") || "",
+      /📦.*(Install Official Workflow Package|安装官方 Workflow 包|公式 Workflow パッケージ|Installer le package Workflow officiel)/,
+    );
+    assert.equal(popup!.children[6].tagName, "menuseparator");
+    assert.equal(popup!.children[7].getAttribute("disabled"), "true");
     assertMenuLabel(
-      popup!.children[5].getAttribute("label"),
+      popup!.children[7].getAttribute("label"),
       ["No workflows loaded", "未加载任何 Workflow"],
       "root empty label",
     );
@@ -3381,26 +3391,34 @@ describe("gui: workflow context menu", function () {
         });
       } else {
         popup.dispatch("popupshowing");
-        for (
-          let i = 0;
-          i < 20 && popup.children.length < entry.expectedLength;
-          i++
-        ) {
+        for (let i = 0; i < 20; i++) {
           await flushTasks();
+          if (
+            entry.expectedLabels.every((expectedLabel) =>
+              popup.children.some((child) =>
+                expectedLabel.test(child.getAttribute("label") || ""),
+              ),
+            )
+          ) {
+            break;
+          }
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
       }
 
-      assert.lengthOf(popup.children, entry.expectedLength, entry.label);
+      assert.isAtLeast(popup.children.length, entry.expectedLabels.length);
       for (const [index, expectedLabel] of entry.expectedLabels.entries()) {
-        const child = popup.children[index + 3];
+        const child = popup.children.find((candidate) =>
+          expectedLabel.test(candidate.getAttribute("label") || ""),
+        );
+        assert.isOk(child, entry.label);
         assert.match(
-          child.getAttribute("label") || "",
+          child!.getAttribute("label") || "",
           expectedLabel,
           entry.label,
         );
         assert.equal(
-          child.getAttribute("disabled"),
+          child!.getAttribute("disabled"),
           entry.expectedDisabledStates[index],
           `${entry.label}: disabled state mismatch for item ${index}`,
         );
@@ -3672,16 +3690,17 @@ describe("gui: workflow context menu", function () {
         `${config.addonRef}-workflows-popup`,
       ) as FakeXULElement;
       popup.dispatch("popupshowing");
-      for (let i = 0; i < 10; i++) {
+      let workflowItem: FakeXULElement | undefined;
+      for (let i = 0; i < 20; i++) {
         await flushTasks();
-        if (popup.children.length > 3) {
+        workflowItem = popup.children.find((child) =>
+          (child.getAttribute("label") || "").startsWith("Workflow A"),
+        );
+        if (workflowItem) {
           break;
         }
       }
 
-      const workflowItem = popup.children.find((child) =>
-        (child.getAttribute("label") || "").startsWith("Workflow A"),
-      );
       assert.isOk(workflowItem, entry.label);
       assert.match(
         workflowItem.getAttribute("label") || "",

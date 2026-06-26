@@ -941,6 +941,11 @@ function toWindowsExtendedPath(pathValue: string) {
   return "";
 }
 
+function isWindowsAbsoluteFsPath(pathValue: string) {
+  const normalized = normalizeString(pathValue);
+  return /^[A-Za-z]:[\\/]/.test(normalized) || /^\\\\/.test(normalized);
+}
+
 function toPowerShellSingleQuotedLiteral(raw: string) {
   const normalized = String(raw || "");
   return `'${normalized.replace(/'/g, "''")}'`;
@@ -1155,7 +1160,9 @@ async function removePathRecursive(
       ) => Promise<void>;
     };
   };
-  const maxRetries = detectWindows() ? 3 : 0;
+  const usesWindowsPathSemantics =
+    detectWindows() || isWindowsAbsoluteFsPath(normalized);
+  const maxRetries = usesWindowsPathSemantics ? 3 : 0;
   const runWithRetry = async (operation: () => Promise<void>) => {
     let attempt = 0;
     while (true) {
@@ -1167,7 +1174,7 @@ async function removePathRecursive(
         diagnostics.lastErrorMessage =
           getDeleteErrorMessage(error) || "unknown error";
         const shouldRetry =
-          detectWindows() &&
+          usesWindowsPathSemantics &&
           attempt < maxRetries &&
           isRetriableDeleteError(error);
         if (!shouldRetry) {

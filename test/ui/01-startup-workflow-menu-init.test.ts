@@ -262,7 +262,7 @@ describe("startup workflow scan + menu init", function () {
 
     popup!.dispatch("popupshowing");
     await flushTasks();
-    assert.lengthOf(popup!.children, 6);
+    assert.lengthOf(popup!.children, 8);
     assertMenuLabel(
       popup!.children[0].getAttribute("label"),
       ["Open Dashboard / Synthesis Workspace", "打开 Dashboard/综合工作区"],
@@ -274,16 +274,26 @@ describe("startup workflow scan + menu init", function () {
       "assistant sidebar label",
     );
     assert.equal(popup!.children[1].getAttribute("disabled"), null);
-    assert.equal(popup!.children[2].getAttribute("label"), null);
+    assertMenuLabel(
+      popup!.children[2].getAttribute("label"),
+      ["Open Help", "打开帮助"],
+      "help label",
+    );
     assertMenuLabel(
       popup!.children[3].getAttribute("label"),
+      ["Open Online Docs", "打开在线文档"],
+      "online docs label",
+    );
+    assert.equal(popup!.children[4].getAttribute("label"), null);
+    assertMenuLabel(
+      popup!.children[5].getAttribute("label"),
       ["📦 Install Official Workflow Package", "📦 安装官方 Workflow 包"],
       "install official package label",
     );
-    assert.equal(popup!.children[4].getAttribute("label"), null);
-    assert.equal(popup!.children[5].getAttribute("disabled"), "true");
+    assert.equal(popup!.children[6].getAttribute("label"), null);
+    assert.equal(popup!.children[7].getAttribute("disabled"), "true");
     assertMenuLabel(
-      popup!.children[5].getAttribute("label"),
+      popup!.children[7].getAttribute("label"),
       ["No workflows loaded", "未加载任何 Workflow"],
       "empty label",
     );

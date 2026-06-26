@@ -791,9 +791,6 @@ export async function runtimePathExists(pathRaw: string) {
   if (!path) {
     return false;
   }
-  if (isNonNativeAbsolutePath(path)) {
-    return false;
-  }
   const runtime = globalThis as {
     IOUtils?: { exists?: (path: string) => Promise<boolean> };
     OS?: { File?: { exists?: (path: string) => Promise<boolean> } };
@@ -811,6 +808,9 @@ export async function runtimePathExists(pathRaw: string) {
     } catch {
       return false;
     }
+  }
+  if (isNonNativeAbsolutePath(path)) {
+    return false;
   }
   const fs = await tryNodeFs();
   if (fs) {
@@ -998,7 +998,6 @@ function toUint8Array(value: Uint8Array | ArrayBuffer) {
 
 export async function readRuntimeBytes(pathRaw: string) {
   const path = normalizeString(pathRaw);
-  assertNativeRuntimeFsPath(path, "read binary runtime file");
   if (!path || !(await runtimePathExists(path))) {
     throw new Error("binary file path does not exist");
   }
@@ -1012,6 +1011,7 @@ export async function readRuntimeBytes(pathRaw: string) {
   if (typeof runtime.OS?.File?.read === "function") {
     return runtime.OS.File.read(path);
   }
+  assertNativeRuntimeFsPath(path, "read binary runtime file");
   const fs = await tryNodeFs();
   if (fs?.readFile) {
     return new Uint8Array(await fs.readFile(path));
@@ -1072,7 +1072,6 @@ function parentPath(pathRaw: string) {
 
 export async function readRuntimeTextFile(pathRaw: string) {
   const path = normalizeString(pathRaw);
-  assertNativeRuntimeFsPath(path, "read text runtime file");
   if (!path || !(await runtimePathExists(path))) {
     return "";
   }
@@ -1095,6 +1094,7 @@ export async function readRuntimeTextFile(pathRaw: string) {
     const Decoder = runtime.TextDecoder || TextDecoder;
     return new Decoder("utf-8").decode(bytes);
   }
+  assertNativeRuntimeFsPath(path, "read text runtime file");
   const fs = await tryNodeFs();
   if (fs) {
     return fs.readFile(path, "utf8");
@@ -1151,9 +1151,6 @@ export async function statRuntimePath(pathRaw: string): Promise<{
   if (!path) {
     return { exists: false, isDir: false, size: 0 };
   }
-  if (isNonNativeAbsolutePath(path)) {
-    return { exists: false, isDir: false, size: 0 };
-  }
   const runtime = globalThis as {
     IOUtils?: {
       stat?: (path: string) => Promise<{
@@ -1180,6 +1177,9 @@ export async function statRuntimePath(pathRaw: string): Promise<{
     } catch {
       return { exists: false, isDir: false, size: 0 };
     }
+  }
+  if (isNonNativeAbsolutePath(path)) {
+    return { exists: false, isDir: false, size: 0 };
   }
   const fs = await tryNodeFs();
   if (fs) {

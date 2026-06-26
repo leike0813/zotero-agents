@@ -85,6 +85,13 @@ async function createFakeZoteroBridge(runRoot: string) {
     '@echo off\r\nnode "%~dp0\\fake-zotero-bridge.cjs" %*\r\n',
     "utf8",
   );
+  const posixShim = path.join(binDir, "zotero-bridge");
+  await fs.writeFile(
+    posixShim,
+    '#!/usr/bin/env sh\nexec node "$(dirname "$0")/fake-zotero-bridge.cjs" "$@"\n',
+    "utf8",
+  );
+  await fs.chmod(posixShim, 0o755);
 }
 
 function validateWithSchema(schemaText: string, value: unknown) {

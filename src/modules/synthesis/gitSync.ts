@@ -900,9 +900,12 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       remoteUrl: remote.remoteUrl,
       branch: remote.branch,
     });
-    const existing = await readJson<Partial<SynthesisGitSyncState>>(
-      paths.statePath,
-    ).catch(() => null);
+    const existingText = await readRuntimeTextFile(paths.statePath).catch(
+      () => "",
+    );
+    const existing = existingText.trim()
+      ? (JSON.parse(existingText) as Partial<SynthesisGitSyncState>)
+      : null;
     const state = normalizeState(existing, fallback);
     const configProjection = configStatusProvider
       ? await configStatusProvider()
@@ -945,9 +948,14 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
           entry.code !== "git_sync_persistence_root_misaligned" &&
           entry.code !== "synthesis_root_shadow_database_detected",
       );
-      if (state.queue_state === "syncing") {
+      if (state.queue_state === "syncing" && !locked) {
         const lock = await readLockFile();
-        if (!isLockActive(lock, timestamp)) {
+        const stateUpdatedAt = Date.parse(state.updated_at);
+        const syncingStateIsStale = lock
+          ? !isLockActive(lock, timestamp)
+          : !Number.isFinite(stateUpdatedAt) ||
+            Date.parse(timestamp) - stateUpdatedAt >= lockTtlMs;
+        if (syncingStateIsStale) {
           if (lock) {
             await removeRuntimePath(paths.lockPath);
           }
@@ -980,6 +988,21 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     }
     state.allowed_actions = allowedActions(state);
     state.conflict_actions = conflictActions(state);
+    if (state.queue_state === "syncing") {
+      return state;
+    }
+    const latestText = await readRuntimeTextFile(paths.statePath).catch(
+      () => "",
+    );
+    if (latestText !== existingText) {
+      const latest = latestText.trim()
+        ? (JSON.parse(latestText) as Partial<SynthesisGitSyncState>)
+        : null;
+      const latestState = normalizeState(latest, fallback);
+      latestState.allowed_actions = allowedActions(latestState);
+      latestState.conflict_actions = conflictActions(latestState);
+      return latestState;
+    }
     await writeJson(paths.statePath, state);
     return state;
   }
@@ -1045,7 +1068,9 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
     next.allowed_actions = allowedActions(next);
     next.conflict_actions = conflictActions(next);
     await writeJson(syncPaths(persistenceRoot).statePath, next);
-    scheduleRetryFromState(next);
+    if (!locked) {
+      scheduleRetryFromState(next);
+    }
     return next;
   }
 
@@ -2096,6 +2121,10 @@ export function createSynthesisGitSyncService(options: ServiceOptions) {
       });
     } finally {
       await releaseLock();
+      const latest = await loadGitSyncState().catch(() => null);
+      if (latest) {
+        scheduleRetryFromState(latest);
+      }
     }
   }
 

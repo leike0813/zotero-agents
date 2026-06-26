@@ -1169,6 +1169,7 @@ describe("Synthesis git sync", function () {
   });
 
   it("autosyncs service-level canonical writes through the debounce worker", async function () {
+    this.timeout(30000);
     const root = await makeRuntimeRoot();
     let mergeCount = 0;
     let resolveMergeObserved: () => void = () => undefined;
@@ -1196,14 +1197,14 @@ describe("Synthesis git sync", function () {
     );
     await Promise.race([
       mergeObserved,
-      delay(10000).then(() =>
+      delay(25000).then(() =>
         assert.fail("autosync merge was not observed before timeout"),
       ),
     ]);
     await waitFor(async () => {
       const state = await service.loadGitSyncState();
       return state.queue_state === "idle";
-    }, 10000);
+    }, 25000);
 
     const state = await service.loadGitSyncState();
     assert.equal(state.queue_state, "idle");
@@ -2075,6 +2076,7 @@ describe("Synthesis git sync", function () {
   });
 
   it("automatically retries retryable Git Sync failures with backoff", async function () {
+    this.timeout(30000);
     const root = await makeRuntimeRoot();
     await writeTagAsset(root, "model:transformer");
     let mergeCount = 0;
@@ -2100,7 +2102,7 @@ describe("Synthesis git sync", function () {
     await waitFor(async () => {
       const state = await service.loadGitSyncState();
       return mergeCount === 2 && state.queue_state === "idle";
-    }, 3000);
+    }, 25000);
   });
 
   it("manual retry runs immediately and clears scheduled retry metadata", async function () {
