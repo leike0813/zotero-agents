@@ -1,0 +1,18 @@
+{
+  "command": "python \"D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\skills_builtin\\create-topic-synthesis-prepare\\scripts\\gate.py\" --db \"runtime/topic-synthesis.sqlite\" --action run",
+  "db_path": "runtime/topic-synthesis.sqlite",
+  "needs_payload": true,
+  "operation": "create",
+  "payload_path": "runtime/payloads/prepare-analysis-context.json",
+  "payload_schema": "assets/schemas/stage-30-prepare-analysis-context.schema.json",
+  "required_reads": [
+    "runtime/views/filtered-paper-artifacts/"
+  ],
+  "schema_id": "synthesis.topic_synthesis_gate_instruction",
+  "schema_version": "1.0.0",
+  "skill_id": "create-topic-synthesis-prepare",
+  "stage": "stage_30_prepare_analysis_context",
+  "stage_kind": "payload",
+  "submit_command": "python \"D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\skills_builtin\\create-topic-synthesis-prepare\\scripts\\gate.py\" --db \"runtime/topic-synthesis.sqlite\" --action submit --payload \"runtime/payloads/prepare-analysis-context.json\"",
+  "task": "为已解析的文献工作集编写轻量 paper triage 判断。"
+}

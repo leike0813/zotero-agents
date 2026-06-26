@@ -163,6 +163,8 @@ machine-readable error output.
 
 The system SHALL make `zotero-bridge` available to ACP agent runs without
 requiring user-level CLI installation.
+ACP run Host Bridge CLI injection SHALL use shared platform path and environment
+services for shim materialization and PATH injection.
 
 #### Scenario: ACP run is materialized
 
@@ -182,6 +184,20 @@ requiring user-level CLI installation.
 - **THEN** it SHALL NOT append Host Bridge CLI command guidance directly
 - **AND** the run-local skill roots or shared catalog SHALL expose the
   `zotero-bridge-cli` wrapper skill when Zotero host access is enabled.
+
+#### Scenario: Windows ACP run receives CLI shims
+
+- **WHEN** the plugin materializes Host Bridge CLI shims for a Windows ACP run
+- **THEN** `zotero-bridge.cmd`, the extensionless shim, PATH entries, and
+  profile paths SHALL keep the existing Windows-compatible behavior.
+
+#### Scenario: POSIX ACP run receives CLI shims
+
+- **WHEN** the plugin materializes Host Bridge CLI shims for Linux or macOS
+- **THEN** PATH entries SHALL use POSIX delimiters
+- **AND** the extensionless shim SHALL target the resolved bundled or installed
+  CLI binary.
+
 ### Requirement: Host Bridge CLI approvals route by ACP scope
 
 

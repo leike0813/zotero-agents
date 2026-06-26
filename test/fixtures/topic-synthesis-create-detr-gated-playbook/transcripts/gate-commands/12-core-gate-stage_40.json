@@ -1,0 +1,20 @@
+{
+  "command": "python \"D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\skills_builtin\\topic-synthesis-core-enrichment\\scripts\\gate.py\" --db \"runtime/topic-synthesis.sqlite\" --action run",
+  "db_path": "runtime/topic-synthesis.sqlite",
+  "needs_payload": true,
+  "operation": "create",
+  "payload_path": "runtime/payloads/core-synthesis.json",
+  "payload_schema": "assets/schemas/stage-40-core-synthesis.schema.json",
+  "required_reads": [
+    "runtime/handoff/prepare-analysis-context.json",
+    "runtime/views/cross-paper-context.md",
+    "runtime/views/source-paper-evidence-index.json"
+  ],
+  "schema_id": "synthesis.topic_synthesis_gate_instruction",
+  "schema_version": "1.0.0",
+  "skill_id": "topic-synthesis-core-enrichment",
+  "stage": "stage_40_core_synthesis",
+  "stage_kind": "payload",
+  "submit_command": "python \"D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\skills_builtin\\topic-synthesis-core-enrichment\\scripts\\gate.py\" --db \"runtime/topic-synthesis.sqlite\" --action submit --payload \"runtime/payloads/core-synthesis.json\"",
+  "task": "编写 taxonomy、timeline、positioning、claims、dimensions、debates、gaps、outline 和 concept labels。"
+}

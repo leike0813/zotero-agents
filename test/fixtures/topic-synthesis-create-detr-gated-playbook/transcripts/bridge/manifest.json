@@ -1,0 +1,385 @@
+{
+  "data": {
+    "capabilities": [
+      {
+        "approval": "none",
+        "category": "context",
+        "input": {
+          "required": false,
+          "type": "none"
+        },
+        "name": "context.get_current_view"
+      },
+      {
+        "approval": "none",
+        "category": "context",
+        "input": {
+          "required": false,
+          "type": "none"
+        },
+        "name": "context.get_selected_items"
+      },
+      {
+        "approval": "none",
+        "category": "library",
+        "input": {
+          "required": true,
+          "type": "object"
+        },
+        "name": "library.search_items"
+      },
+      {
+        "approval": "none",
+        "category": "library",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "library.list_items"
+      },
+      {
+        "approval": "none",
+        "category": "library",
+        "input": {
+          "required": true,
+          "type": "item-ref"
+        },
+        "name": "library.get_item_detail"
+      },
+      {
+        "approval": "none",
+        "category": "library",
+        "input": {
+          "required": true,
+          "type": "object"
+        },
+        "name": "library.get_item_notes"
+      },
+      {
+        "approval": "none",
+        "category": "library",
+        "input": {
+          "required": true,
+          "type": "object"
+        },
+        "name": "library.get_note_detail"
+      },
+      {
+        "approval": "none",
+        "category": "library",
+        "input": {
+          "required": true,
+          "type": "item-ref"
+        },
+        "name": "library.list_note_payloads"
+      },
+      {
+        "approval": "none",
+        "category": "library",
+        "input": {
+          "required": true,
+          "type": "object"
+        },
+        "name": "library.get_note_payload"
+      },
+      {
+        "approval": "none",
+        "category": "library",
+        "input": {
+          "required": true,
+          "type": "item-ref"
+        },
+        "name": "library.get_item_attachments"
+      },
+      {
+        "approval": "none",
+        "category": "mutation",
+        "input": {
+          "required": true,
+          "type": "mutation-preview"
+        },
+        "name": "mutation.preview"
+      },
+      {
+        "approval": "zotero-ui-required",
+        "category": "mutation",
+        "input": {
+          "required": true,
+          "type": "mutation-preview"
+        },
+        "name": "mutation.execute"
+      },
+      {
+        "approval": "none",
+        "category": "diagnostic",
+        "input": {
+          "required": false,
+          "type": "none"
+        },
+        "name": "diagnostic.get_status"
+      },
+      {
+        "approval": "none",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.status"
+      },
+      {
+        "approval": "none",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.persistence.snapshot"
+      },
+      {
+        "approval": "none",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.tasks.snapshot"
+      },
+      {
+        "approval": "none",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.acpSkillRun.reapplyResult"
+      },
+      {
+        "approval": "zotero-ui-required",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.zotero.eval"
+      },
+      {
+        "approval": "none",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.synthesis.snapshot"
+      },
+      {
+        "approval": "none",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.synthesis.operations.list"
+      },
+      {
+        "approval": "none",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.synthesis.profiler.list"
+      },
+      {
+        "approval": "none",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.synthesis.paper.inspect"
+      },
+      {
+        "approval": "none",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.synthesis.topic.inspect"
+      },
+      {
+        "approval": "none",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.synthesis.diff"
+      },
+      {
+        "approval": "none",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.synthesis.cache.list"
+      },
+      {
+        "approval": "zotero-ui-required",
+        "category": "debug",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "debug.synthesis.cleanInstallReset"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.list_topics"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.get_topic_context"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.get_schemas"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.query_concept_kb"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.query_citation_graph_cluster"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.get_library_index"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.resolve_resolver"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.get_reference_sidecar_index"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.get_citation_graph_slice"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.get_citation_graph_metrics"
+      },
+      {
+        "approval": "zotero-ui-required",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.refresh_citation_graph_metrics"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.get_paper_artifact_manifest"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.export_filtered_paper_artifacts"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.resolve_topic_paper_digest"
+      },
+      {
+        "approval": "none",
+        "category": "synthesis",
+        "input": {
+          "required": false,
+          "type": "object"
+        },
+        "name": "synthesis.get_review_input"
+      }
+    ],
+    "cli": {
+      "schema": "zotero-bridge.cli.v1",
+      "supported": true
+    },
+    "protocol": "host-bridge.v1"
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  },
+  "ok": true
+}

@@ -8,7 +8,14 @@ import {
   resolveWindowsCommandFromPowerShell,
   resolveWindowsCommandFromUserLocalBin,
 } from "./windowsCommandResolution";
-import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
+import {
+  getMozillaSubprocessModule as getCompatMozillaSubprocessModule,
+  runtimeFileExists,
+} from "../utils/runtimeCompatibility";
+import { buildNonInteractiveCommandCandidates } from "../platform/command";
+import { readRuntimeEnv } from "../platform/env";
+import { isAbsolutePathLike } from "../platform/path";
+import { detectRuntimePlatform } from "../platform/runtimePlatform";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -112,11 +119,7 @@ function detectWindowsPlatform(platform?: string) {
 
 function isPathLikeCommand(commandRaw: string) {
   const command = normalizeString(commandRaw);
-  return (
-    /[\\/]/.test(command) ||
-    /^[A-Za-z]:[\\/]/.test(command) ||
-    command.startsWith("/")
-  );
+  return /[\\/]/.test(command) || isAbsolutePathLike(command);
 }
 
 function quoteShellToken(value: string) {
@@ -380,11 +383,7 @@ async function resolveMozillaCommand(
   if (!command) {
     throw new Error("ACP backend command is required");
   }
-  const isPathLike =
-    /[\\/]/.test(command) ||
-    /^[A-Za-z]:[\\/]/.test(command) ||
-    command.startsWith("/");
-  if (isPathLike) {
+  if (isPathLikeCommand(command)) {
     return command;
   }
   const resolvedFromPathSearch = await resolveTrustedPathSearchResult({
@@ -415,6 +414,23 @@ async function resolveMozillaCommand(
       await resolveWindowsCommandFromNodeInstallRoot(command);
     if (resolvedFromNodeInstall.length > 0) {
       return normalizeString(resolvedFromNodeInstall[0]);
+    }
+  } else {
+    const checked: string[] = [];
+    for (const candidate of buildNonInteractiveCommandCandidates({
+      command,
+      platform: detectRuntimePlatform(),
+      homeDir: readRuntimeEnv("HOME"),
+    })) {
+      checked.push(candidate);
+      if (await runtimeFileExists(candidate)) {
+        return candidate;
+      }
+    }
+    if (checked.length > 0) {
+      throw new Error(
+        `Command "${command}" was not found in PATH; checked non-interactive candidates: ${checked.join(", ")}`,
+      );
     }
   }
   throw new Error(`Command "${command}" was not found in PATH`);
@@ -489,10 +505,7 @@ async function resolveNodeCommand(commandRaw: string) {
   const isWindows =
     String(processModule.platform || "").toLowerCase() === "win32";
   const accessModes = fs.constants?.X_OK ?? 0;
-  const isPathLike =
-    /[\\/]/.test(command) ||
-    /^[A-Za-z]:[\\/]/.test(command) ||
-    command.startsWith("/");
+  const isPathLike = /[\\/]/.test(command) || isAbsolutePathLike(command);
   const checkOne = (candidate: string) => {
     try {
       if (typeof fs.accessSync === "function") {
@@ -534,6 +547,24 @@ async function resolveNodeCommand(commandRaw: string) {
       if (checkOne(candidate)) {
         return candidate;
       }
+    }
+  }
+  if (!isWindows) {
+    const checked: string[] = [];
+    for (const candidate of buildNonInteractiveCommandCandidates({
+      command,
+      platform: String(processModule.platform || ""),
+      homeDir: String(processModule.env?.HOME || ""),
+    })) {
+      checked.push(candidate);
+      if (checkOne(candidate)) {
+        return candidate;
+      }
+    }
+    if (checked.length > 0) {
+      throw new Error(
+        `Command "${command}" was not found in PATH; checked non-interactive candidates: ${checked.join(", ")}`,
+      );
     }
   }
   throw new Error(`Command "${command}" was not found in PATH`);

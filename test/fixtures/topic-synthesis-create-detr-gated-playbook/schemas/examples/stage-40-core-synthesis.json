@@ -1,0 +1,219 @@
+{
+  "taxonomy": {
+    "summary": {
+      "text": "DETR-style object detection can be organized by research route and technical mechanism: the route starts from query-based set prediction, then branches into convergence, multi-scale attention, 3D extension, and real-time deployment concerns."
+    },
+    "axes": [
+      {
+        "axis_type": "research_route",
+        "axis_rationale": "The playbook workset is small, so the route axis keeps only the DETR-family route that is directly supported by source papers.",
+        "nodes": [
+          {
+            "id": "route:detr-family",
+            "title": "DETR-family set prediction detectors",
+            "definition": "Object detection methods derived from DETR that use queries and set prediction instead of anchor/NMS-centered pipelines.",
+            "core_problem": "Reduce hand-designed detection pipeline components while preserving detection accuracy and deployability.",
+            "mechanism": "Transformer object queries, bipartite matching, sparse attention, denoising, and deployment-oriented architecture choices.",
+            "strengths": [
+              "Unified end-to-end formulation",
+              "Clear route for query and matching improvements"
+            ],
+            "limitations": [
+              "Original DETR converges slowly",
+              "The bounded playbook omits many DETR variants"
+            ],
+            "maturity": "established research family with active efficiency and deployment work",
+            "representative_papers": [
+              "1:EIMSDEU3",
+              "1:5HBHAWIV",
+              "1:HPLZ65Z2",
+              "1:3JUY9GBQ",
+              "1:SZ3GNWT9"
+            ],
+            "source_paper_refs": [
+              "1:EIMSDEU3",
+              "1:5HBHAWIV",
+              "1:HPLZ65Z2",
+              "1:3JUY9GBQ",
+              "1:SZ3GNWT9"
+            ]
+          }
+        ]
+      },
+      {
+        "axis_type": "technical_mechanism",
+        "axis_rationale": "The mechanism axis separates set prediction, sparse attention, denoising, 3D queries, and real-time constraints.",
+        "nodes": [
+          {
+            "id": "mechanism:query-set-prediction",
+            "title": "Query-based set prediction",
+            "definition": "A detector mechanism that predicts object sets through learned queries and matching.",
+            "core_problem": "Replace proposal generation and post-processing with a direct prediction objective.",
+            "mechanism": "Object queries interact with image features and are matched to targets with Hungarian matching.",
+            "strengths": [
+              "Conceptually simple",
+              "Supports end-to-end training"
+            ],
+            "limitations": [
+              "Requires later work for fast convergence and multi-scale detail"
+            ],
+            "maturity": "foundational mechanism for the DETR family",
+            "representative_papers": [
+              "1:EIMSDEU3",
+              "1:5HBHAWIV",
+              "1:HPLZ65Z2"
+            ],
+            "source_paper_refs": [
+              "1:EIMSDEU3",
+              "1:5HBHAWIV",
+              "1:HPLZ65Z2"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "timeline_events": {
+    "summary": {
+      "text": "The bounded workset presents a compact timeline: original DETR defines the paradigm, Deformable DETR and DINO improve training and multi-scale behavior, DETR3D extends the idea to 3D detection, and RF-DETR represents recent real-time deployment pressure."
+    },
+    "events": [
+      {
+        "id": "event:detr",
+        "label": "DETR introduces set prediction detection",
+        "year": 2020,
+        "description": "DETR formulates object detection as direct set prediction with object queries and Hungarian matching.",
+        "phase": "paradigm_definition",
+        "source_paper_refs": [
+          "1:EIMSDEU3"
+        ]
+      },
+      {
+        "id": "event:deformable-dino",
+        "label": "Convergence and query training improvements",
+        "description": "Deformable DETR and DINO address convergence, attention sparsity, and query/anchor training stability.",
+        "phase": "optimization",
+        "source_paper_refs": [
+          "1:5HBHAWIV",
+          "1:HPLZ65Z2"
+        ]
+      },
+      {
+        "id": "event:extension-deployment",
+        "label": "3D extension and real-time deployment pressure",
+        "description": "DETR3D and RF-DETR show the paradigm moving beyond 2D COCO-style detection into 3D and deployment-oriented settings.",
+        "phase": "extension",
+        "source_paper_refs": [
+          "1:3JUY9GBQ",
+          "1:SZ3GNWT9"
+        ]
+      }
+    ]
+  },
+  "claims": [
+    {
+      "id": "claim:set-prediction",
+      "text": "DETR reframes object detection as set prediction and reduces reliance on anchor/NMS style hand-designed components.",
+      "analysis": "The original DETR paper supplies the paradigm-defining evidence through object queries and Hungarian matching.",
+      "scope": "Bounded to the DETR-family workset in this playbook.",
+      "source_paper_refs": [
+        "1:EIMSDEU3"
+      ]
+    },
+    {
+      "id": "claim:optimization",
+      "text": "Representative follow-up work focuses on convergence, multi-scale attention, and query/anchor training stability.",
+      "analysis": "Deformable DETR and DINO provide direct evidence for this optimization route.",
+      "scope": "Bounded to the selected playbook papers.",
+      "source_paper_refs": [
+        "1:5HBHAWIV",
+        "1:HPLZ65Z2"
+      ]
+    }
+  ],
+  "improvement_dimension_summary": {
+    "summary": "The current workset supports convergence, multi-scale attention, query training, 3D extension, and real-time deployment as improvement dimensions."
+  },
+  "improvement_dimensions": [
+    {
+      "id": "dim:convergence",
+      "title": "Convergence and multi-scale attention",
+      "analysis": "Deformable attention and DINO-style denoising address the slow convergence and small-object limitations of early DETR.",
+      "source_paper_refs": [
+        "1:5HBHAWIV",
+        "1:HPLZ65Z2"
+      ]
+    },
+    {
+      "id": "dim:deployment",
+      "title": "3D and real-time deployment extension",
+      "analysis": "DETR3D and RF-DETR show the query/set-prediction idea moving into 3D perception and real-time detector constraints.",
+      "source_paper_refs": [
+        "1:3JUY9GBQ",
+        "1:SZ3GNWT9"
+      ]
+    }
+  ],
+  "concept_candidate_labels": [
+    "DETR",
+    "object queries",
+    "Hungarian matching",
+    "deformable attention",
+    "denoising training",
+    "real-time detection transformer"
+  ],
+  "debates": [
+    {
+      "id": "debate:real-time",
+      "title": "Whether end-to-end set prediction can meet real-time detector constraints",
+      "current_judgment": "The playbook evidence shows active movement toward real-time constraints, but the bounded workset is insufficient for a field-wide conclusion.",
+      "source_paper_refs": [
+        "1:SZ3GNWT9"
+      ]
+    }
+  ],
+  "future_directions": [
+    {
+      "id": "future:complete-detr-family",
+      "title": "Complete DETR-family coverage",
+      "direction_type": "data_or_benchmark_need",
+      "current_limitation": "The bounded playbook workset omits many DETR variants and review papers.",
+      "future_direction": "Collect RT-DETR, DN-DETR, Conditional DETR, and survey papers before treating the synthesis as complete.",
+      "rationale": "A full topic synthesis should not infer the whole DETR-family landscape from five representative papers.",
+      "source_paper_refs": [
+        "1:EIMSDEU3",
+        "1:5HBHAWIV",
+        "1:HPLZ65Z2",
+        "1:3JUY9GBQ",
+        "1:SZ3GNWT9"
+      ]
+    }
+  ],
+  "review_outline": {
+    "topic_importance": "DETR-style object detection is a useful topic because it illustrates how set prediction reshapes detector design and follow-up optimization.",
+    "writing_strategies": [
+      {
+        "id": "strategy:route-first",
+        "title": "Route-first DETR review",
+        "review_thesis": "Use original DETR as the route definition, then organize follow-up work by convergence, multi-scale attention, extension, and deployment pressure.",
+        "writing_strategy": "Start with the modeling shift, then map each representative paper to a specific bottleneck or extension.",
+        "section_plan": [
+          "Paradigm definition",
+          "Optimization route",
+          "Extension and deployment",
+          "Coverage caveats"
+        ],
+        "best_for": "A compact related-work section about DETR-family detection.",
+        "risks": "The bounded playbook does not cover the full DETR-family literature.",
+        "source_paper_refs": [
+          "1:EIMSDEU3",
+          "1:5HBHAWIV",
+          "1:HPLZ65Z2",
+          "1:3JUY9GBQ",
+          "1:SZ3GNWT9"
+        ]
+      }
+    ],
+    "recommended_strategy_id": "strategy:route-first"
+  }
+}

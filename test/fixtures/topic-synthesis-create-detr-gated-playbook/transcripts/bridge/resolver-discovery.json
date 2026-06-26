@@ -1,0 +1,212 @@
+{
+  "data": {
+    "approval": "none",
+    "capability": "synthesis.resolve_resolver",
+    "data": {
+      "cursor": "0",
+      "diagnostics": {
+        "final_count": 22,
+        "rejected": false,
+        "total_candidates": 65
+      },
+      "errors": [],
+      "has_more": false,
+      "limit": 100,
+      "next_cursor": "",
+      "normalized_resolver": {
+        "mode": "tag_query",
+        "query": {
+          "and": [
+            "model:DL/DETR"
+          ]
+        }
+      },
+      "ok": true,
+      "papers": [
+        {
+          "item_key": "29IBKEUR",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:29IBKEUR",
+          "title": "Sparse DETR: efficient end-to-end object detection with learnable sparsity"
+        },
+        {
+          "item_key": "3JUY9GBQ",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:3JUY9GBQ",
+          "title": "DETR3D: 3D object detection from multi-view images via 3D-to-2D queries"
+        },
+        {
+          "item_key": "3YG8UNCI",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:3YG8UNCI",
+          "title": "Rank-DETR for high quality object detection"
+        },
+        {
+          "item_key": "5HBHAWIV",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:5HBHAWIV",
+          "title": "Deformable DETR: deformable transformers for end-to-end object detection"
+        },
+        {
+          "item_key": "7AERRYC7",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:7AERRYC7",
+          "title": "DETRs with collaborative hybrid assignments training"
+        },
+        {
+          "item_key": "8838AH6P",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:8838AH6P",
+          "title": "LW-DETR: a transformer replacement to YOLO for real-time detection"
+        },
+        {
+          "item_key": "8PP8HQMY",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:8PP8HQMY",
+          "title": "RT-DETRv2: Improved Baseline with Bag-of-Freebies for Real-Time Detection Transformer"
+        },
+        {
+          "item_key": "CBJWE4JX",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:CBJWE4JX",
+          "title": "DETRs beat YOLOs on real-time object detection"
+        },
+        {
+          "item_key": "CGJBFE6C",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:CGJBFE6C",
+          "title": "Enhancing DETRs variants through improved content query and similar query aggregation"
+        },
+        {
+          "item_key": "D6BUKS9Q",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:D6BUKS9Q",
+          "title": "DETRs with Hybrid Matching"
+        },
+        {
+          "item_key": "DBYQ4LWE",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:DBYQ4LWE",
+          "title": "Group DETR: Fast DETR Training with Group-Wise One-to-Many Assignment"
+        },
+        {
+          "item_key": "EIMSDEU3",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:EIMSDEU3",
+          "title": "End-to-end object detection with transformers"
+        },
+        {
+          "item_key": "GHWYS7AF",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:GHWYS7AF",
+          "title": "RT-DETRv3: real-time end-to-end object detection with hierarchical dense positive supervision"
+        },
+        {
+          "item_key": "HPLZ65Z2",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:HPLZ65Z2",
+          "title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection"
+        },
+        {
+          "item_key": "I4ZU2PCY",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:I4ZU2PCY",
+          "title": "DETR for crowd pedestrian detection"
+        },
+        {
+          "item_key": "IY3FMWQM",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:IY3FMWQM",
+          "title": "DAB-DETR: dynamic anchor boxes are better queries for DETR"
+        },
+        {
+          "item_key": "NXLIGKF5",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:NXLIGKF5",
+          "title": "DN-DETR: accelerate DETR training by introducing query DeNoising"
+        },
+        {
+          "item_key": "P5NLH47E",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:P5NLH47E",
+          "title": "UP-DETR: Unsupervised Pre-Training for Object Detection With Transformers"
+        },
+        {
+          "item_key": "S86GB385",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:S86GB385",
+          "title": "Accelerating DETR convergence via semantic-aligned matching"
+        },
+        {
+          "item_key": "SZ3GNWT9",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:SZ3GNWT9",
+          "title": "RF-DETR: neural architecture search for real-time detection transformers"
+        },
+        {
+          "item_key": "VHBU3NI6",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:VHBU3NI6",
+          "title": "Efficient DETR: improving end-to-end object detector with dense prior"
+        },
+        {
+          "item_key": "W4CDLU28",
+          "match_reasons": [
+            "tag_query"
+          ],
+          "paper_ref": "1:W4CDLU28",
+          "title": "Conditional DETR for fast training convergence"
+        }
+      ],
+      "returned": 22,
+      "total": 22
+    }
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  },
+  "ok": true
+}

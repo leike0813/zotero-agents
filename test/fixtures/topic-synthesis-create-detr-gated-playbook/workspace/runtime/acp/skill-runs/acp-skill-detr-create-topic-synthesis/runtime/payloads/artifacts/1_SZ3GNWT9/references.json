@@ -1,0 +1,358 @@
+{
+  "references": [
+    {
+      "id": "ref-1",
+      "year": "2023",
+      "authors": "Lucas Beyer; Pavel Izmailov; et al.",
+      "title": "Flexivit: One model for all patch sizes. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp"
+    },
+    {
+      "id": "ref-2",
+      "year": "2019",
+      "authors": "Daniel Bolya; Chong Zhou; et al.",
+      "title": "Yolact: Real-time instance segmentation. In Proceedings of the IEEE/CVF international conference on computer vision, pp"
+    },
+    {
+      "id": "ref-3",
+      "year": "2018",
+      "authors": "Han Cai; Tianyao Chen; et al.",
+      "title": "Efficient architecture search by network transformation"
+    },
+    {
+      "id": "ref-4",
+      "year": "2018",
+      "authors": "Han Cai; Ligeng Zhu,; et al.",
+      "title": "Proxylessnas: Direct neural architecture search on target task and hardware"
+    },
+    {
+      "id": "ref-5",
+      "year": "2019",
+      "authors": "Han Cai; Chuang Gan; et al.",
+      "title": "Once-for-all: Train one network and specialize it for efficient deployment"
+    },
+    {
+      "id": "ref-6",
+      "year": "2020",
+      "authors": "Nicolas Carion; Francisco Massa; et al.",
+      "title": "End-to-end object detection with transformers. In European conference on computer vision, pp. 213–229"
+    },
+    {
+      "id": "ref-7",
+      "year": "2019",
+      "authors": "Kai Chen; Jiangmiao Pang; et al.",
+      "title": "Hybrid task cascade for instance segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp"
+    },
+    {
+      "id": "ref-8",
+      "year": "2024",
+      "authors": "Qiang Chen; Xiangbo Su; et al.",
+      "title": "Lw-detr: A transformer replacement to yolo for real-time detection"
+    },
+    {
+      "id": "ref-9",
+      "year": "2024",
+      "authors": "Qiang Chen; Xiangbo Su; et al.",
+      "title": "Lw-detr: a transformer replacement to yolo for real-time detection"
+    },
+    {
+      "id": "ref-10",
+      "year": "2024",
+      "authors": "Tianheng Cheng; Lin Song; et al.",
+      "title": "Yolo-world: Real-time open-vocabulary object detection. In Proc. IEEE Conf"
+    },
+    {
+      "id": "ref-11",
+      "year": "2015",
+      "authors": "M",
+      "title": "Everingham, S. M. A. Eslami, L. Van Gool, C. K. I. Williams, J. Winn, and A. Zisserman. The pascal visual object classes challenge: A retrospective"
+    },
+    {
+      "id": "ref-12",
+      "year": "2009",
+      "authors": "Pedro F Felzenszwalb; Ross B Girshick; et al.",
+      "title": "Object detection with discriminatively trained part-based models"
+    },
+    {
+      "id": "ref-13",
+      "year": "2025",
+      "authors": "Shenghao Fu; Qize Yang; et al.",
+      "title": "Llmdet: Learning strong open-vocabulary object detectors under the supervision of large language models. In Proceedings of the Computer Vision and Pattern Recognition Conference, pp"
+    },
+    {
+      "id": "ref-14",
+      "year": "2019",
+      "authors": "Golnaz Ghiasi; Tsung-Yi Lin,; et al.",
+      "title": "Nas-fpn: Learning scalable feature pyramid architecture for object detection. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp"
+    },
+    {
+      "id": "ref-15",
+      "year": "2023",
+      "authors": "Junjie He; Pengyu Li; et al.",
+      "title": "Fastinst: A simple query-based model for real-time instance segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp"
+    },
+    {
+      "id": "ref-16",
+      "year": "2017",
+      "authors": "Kaiming He; Georgia Gkioxari; et al.",
+      "title": "Mask r-cnn. In ´ Proceedings of the IEEE international conference on computer vision, pp"
+    },
+    {
+      "id": "ref-17",
+      "year": "",
+      "authors": "",
+      "title": "Glenn Jocher, Jing Qiu, and Ayush Chaurasia."
+    },
+    {
+      "id": "ref-18",
+      "year": "2023",
+      "authors": "Ultralytics YOLO, January 2023",
+      "title": "Ultralytics YOLO, January 2023. URL https: //docs.ultralytics.com/models/yolov8."
+    },
+    {
+      "id": "ref-19",
+      "year": "",
+      "authors": "",
+      "title": "Glenn Jocher, Jing Qiu, and Ayush Chaurasia."
+    },
+    {
+      "id": "ref-20",
+      "year": "2024",
+      "authors": "Ultralytics YOLO, January 2024",
+      "title": "URL docs"
+    },
+    {
+      "id": "ref-21",
+      "year": "2024",
+      "authors": "Mehar Khurana; Neehar Peri; et al.",
+      "title": "Shelf-supervised multi-modal pretraining for 3d object detection"
+    },
+    {
+      "id": "ref-22",
+      "year": "2023",
+      "authors": "Feng Li; Hao Zhang; et al.",
+      "title": "Mask dino: Towards a unified transformer-based framework for object detection and segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp"
+    },
+    {
+      "id": "ref-23",
+      "year": "2022",
+      "authors": "Liunian Harold Li; Pengchuan Zhang; et al.",
+      "title": "Grounded language-image pre-training. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp"
+    },
+    {
+      "id": "ref-24",
+      "year": "2014",
+      "authors": "Tsung-Yi Lin, Michael Maire, Serge J",
+      "title": "Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollar, and C. Lawrence Zitnick. Microsoft COCO: common objects in context"
+    },
+    {
+      "id": "ref-25",
+      "year": "2022",
+      "authors": "Shilong Liu; Feng Li; et al.",
+      "title": "Dab-detr: Dynamic anchor boxes are better queries for detr"
+    },
+    {
+      "id": "ref-26",
+      "year": "2023",
+      "authors": "Shilong Liu; Zhaoyang Zeng; et al.",
+      "title": "Grounding dino: Marrying dino with grounded pre-training for open-set object detection"
+    },
+    {
+      "id": "ref-27",
+      "year": "2016",
+      "authors": "Wei Liu; Dragomir Anguelov; et al.",
+      "title": "Ssd: Single shot multibox detector"
+    },
+    {
+      "id": "ref-28",
+      "year": "2023",
+      "authors": "Yechi Ma; Neehar Peri; et al.",
+      "title": "Longtailed 3d detection via 2d late fusion"
+    },
+    {
+      "id": "ref-29",
+      "year": "2021",
+      "authors": "Depu Meng; Xiaokang Chen; et al.",
+      "title": "Conditional detr for fast training convergence. In Proceedings of the IEEE/CVF international conference on computer vision, pp"
+    },
+    {
+      "id": "ref-30",
+      "year": "2023",
+      "authors": "Maxime Oquab; Timothee Darcet; et al.",
+      "title": "Dinov2: Learning robust visual features without supervision"
+    },
+    {
+      "id": "ref-31",
+      "year": "2024",
+      "authors": "Aljosa Osep; Tim Meinhardt; et al.",
+      "title": "Better call sal: Towards learning to segment anything in lidar"
+    },
+    {
+      "id": "ref-32",
+      "year": "2024",
+      "authors": "Yansong Peng; Hebei Li; et al.",
+      "title": "D-fine: Redefine regression task in detrs as fine-grained distribution refinement"
+    },
+    {
+      "id": "ref-33",
+      "year": "2023",
+      "authors": "Neehar Peri; Achal Dave; et al.",
+      "title": "Towards long-tailed 3d detection"
+    },
+    {
+      "id": "ref-34",
+      "year": "2024",
+      "authors": "Nikhila Ravi; Valentin Gabeur; et al.",
+      "title": "Sam 2: Segment anything in images and videos. arXiv preprint arXiv:2408.00714, 2024"
+    },
+    {
+      "id": "ref-35",
+      "year": "2019",
+      "authors": "Esteban Real; Alok Aggarwal; et al.",
+      "title": "Regularized evolution for image classifier architecture search. In Proceedings of the aaai conference on artificial intelligence, volume 33, pp"
+    },
+    {
+      "id": "ref-36",
+      "year": "2016",
+      "authors": "Joseph Redmon; Santosh Divvala; et al.",
+      "title": "You only look once: Unified, real-time object detection. In Proceedings of the IEEE conference on computer vision and pattern recognition, pp"
+    },
+    {
+      "id": "ref-37",
+      "year": "2015",
+      "authors": "Shaoqing Ren; Kaiming He; et al.",
+      "title": "Faster r-cnn: Towards real-time object detection with region proposal networks"
+    },
+    {
+      "id": "ref-38",
+      "year": "2025",
+      "authors": "Peter Robicheaux; Matvei Popov; et al.",
+      "title": "Roboflow100-vl: A multi-domain object detection benchmark for visionlanguage models"
+    },
+    {
+      "id": "ref-39",
+      "year": "2015",
+      "authors": "Olga Russakovsky; Jia Deng; et al.",
+      "title": "Imagenet large scale visual recognition challenge"
+    },
+    {
+      "id": "ref-40",
+      "year": "",
+      "authors": "Shuai Shao; Zeming Li; et al.",
+      "title": "Shuai Shao, Zeming Li, Tianyuan Zhang, Chao Peng, Gang Yu, Xiangyu Zhang, Jing Li, and Jian Sun. Obj"
+    },
+    {
+      "id": "ref-41",
+      "year": "2019",
+      "authors": "In 2019 IEEE/CVF International Conference on Computer Vision (ICCV), pp",
+      "title": "8429–8438, 2019. doi: 10.1109/ICCV"
+    },
+    {
+      "id": "ref-42",
+      "year": "2025",
+      "authors": "Oriane Simeoni; Huy V Vo; et al.",
+      "title": "Dinov3"
+    },
+    {
+      "id": "ref-43",
+      "year": "2014",
+      "authors": "Nitish Srivastava, Geoffrey E",
+      "title": "Hinton, Alex Krizhevsky, Ilya Sutskever, and Ruslan Salakhutdinov. Dropout: a simple way to prevent neural networks from overfitting. J. Mach. Learn"
+    },
+    {
+      "id": "ref-44",
+      "year": "2025",
+      "authors": "Ayca Takmaz; Cristiano Saltori; et al.",
+      "title": "Towards Learning to Complete Anything in Lidar"
+    },
+    {
+      "id": "ref-45",
+      "year": "2019",
+      "authors": "Mingxing Tan; Quoc Le",
+      "title": "Efficientnet: Rethinking model scaling for convolutional neural networks. In International conference on machine learning, pp. 6105–6114"
+    },
+    {
+      "id": "ref-46",
+      "year": "2019",
+      "authors": "Mingxing Tan; Bo Chen; et al.",
+      "title": "Mnasnet: Platform-aware neural architecture search for mobile. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp"
+    },
+    {
+      "id": "ref-47",
+      "year": "2020",
+      "authors": "Mingxing Tan; Ruoming Pang,; et al.",
+      "title": "Efficientdet: Scalable and efficient object detection. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp"
+    },
+    {
+      "id": "ref-48",
+      "year": "2023",
+      "authors": "Chien-Yao Wang; Alexey Bochkovskiy,; et al.",
+      "title": "Yolov7: Trainable bag-offreebies sets new state-of-the-art for real-time object detectors. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp"
+    },
+    {
+      "id": "ref-49",
+      "year": "2024",
+      "authors": "Chien-Yao Wang; I-Hau Yeh,; et al.",
+      "title": "Yolov9: Learning what you want to learn using programmable gradient information. In European conference on computer vision, pp. 1–21"
+    },
+    {
+      "id": "ref-50",
+      "year": "2019",
+      "authors": "Bichen Wu; Xiaoliang Dai; et al.",
+      "title": "Fbnet: Hardware-aware efficient convnet design via differentiable neural architecture search. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp"
+    },
+    {
+      "id": "ref-51",
+      "year": "2024",
+      "authors": "Yifan Xu; Mengdan Zhang; et al.",
+      "title": "Multi-modal queried object detection in the wild"
+    },
+    {
+      "id": "ref-52",
+      "year": "2023",
+      "authors": "Xiaoju Ye",
+      "title": "calflops: a flops and params calculate tool for neural networks in pytorch framework, 2023"
+    },
+    {
+      "id": "ref-53",
+      "year": "2022",
+      "authors": "Hao Zhang; Feng Li; et al.",
+      "title": "Dino: Detr with improved denoising anchor boxes for end-to-end object detection"
+    },
+    {
+      "id": "ref-54",
+      "year": "2022",
+      "authors": "Xinyu Zhang; Jiahui Chen; et al.",
+      "title": "Cae v2: Context autoencoder with clip target"
+    },
+    {
+      "id": "ref-55",
+      "year": "2024",
+      "authors": "Yian Zhao; Wenyu Lv; et al.",
+      "title": "Detrs beat yolos on real-time object detection. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pp"
+    },
+    {
+      "id": "ref-56",
+      "year": "2022",
+      "authors": "Xingyi Zhou; Rohit Girdhar; et al.",
+      "title": "Detecting ¨ twenty-thousand classes using image-level supervision. In European Conference on Computer Vision, pp. 350–368"
+    },
+    {
+      "id": "ref-57",
+      "year": "2020",
+      "authors": "Xizhou Zhu; Weijie Su; et al.",
+      "title": "Deformable detr: Deformable transformers for end-to-end object detection"
+    },
+    {
+      "id": "ref-58",
+      "year": "2016",
+      "authors": "Barret Zoph; Quoc V Le",
+      "title": "Neural architecture search with reinforcement learning"
+    },
+    {
+      "id": "ref-59",
+      "year": "2018",
+      "authors": "Barret Zoph; Vijay Vasudevan; et al.",
+      "title": "Learning transferable architectures for scalable image recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition, pp"
+    }
+  ]
+}

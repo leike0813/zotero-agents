@@ -1,0 +1,14 @@
+{
+  "examples": {
+    "final-output.candidate.json": "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/result/final-output.candidate.json",
+    "handoff-core-enrichment.json": "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/handoff/core-enrichment.json",
+    "handoff-prepare-analysis-context.json": "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/handoff/prepare-analysis-context.json",
+    "stage-10-create-topic-context.json": "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/payloads/create-topic-context.json",
+    "stage-20-resolver-and-workset.json": "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/payloads/resolver-and-workset.json",
+    "stage-30-prepare-analysis-context.json": "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/payloads/prepare-analysis-context.json",
+    "stage-40-core-synthesis.json": "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/payloads/core-synthesis.json",
+    "stage-50-kg-enrichment.json": "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/payloads/kg-enrichment.json",
+    "stage-60-coverage-and-collection-suggestions.json": "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/payloads/coverage-and-collection-suggestions.json",
+    "stage-70-summary.json": "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/payloads/summary.json"
+  }
+}

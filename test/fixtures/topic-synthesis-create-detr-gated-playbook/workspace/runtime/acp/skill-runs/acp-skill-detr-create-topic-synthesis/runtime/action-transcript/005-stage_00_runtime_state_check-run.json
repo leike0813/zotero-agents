@@ -1,0 +1,7 @@
+{
+  "action": "run",
+  "result": {
+    "checked": "runtime/handoff/prepare-analysis-context.json"
+  },
+  "stage": "stage_00_runtime_state_check"
+}

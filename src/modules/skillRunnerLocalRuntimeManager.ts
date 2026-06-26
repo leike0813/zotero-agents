@@ -18,6 +18,7 @@ import {
   appendSkillRunnerLocalDeployDebugLog,
   resetSkillRunnerLocalDeployDebugSession,
 } from "./skillRunnerLocalDeployDebugStore";
+import { isAbsolutePathLike } from "../platform/path";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import {
   markSkillRunnerBackendHealthSuccess,
@@ -3993,14 +3994,7 @@ function getParentPath(pathValue: string) {
 }
 
 function isAbsoluteFsPath(pathValue: string) {
-  const normalized = normalizeString(pathValue);
-  if (!normalized) {
-    return false;
-  }
-  if (detectWindows()) {
-    return /^[A-Za-z]:[\\/]/.test(normalized) || /^\\\\/.test(normalized);
-  }
-  return normalized.startsWith("/");
+  return isAbsolutePathLike(pathValue);
 }
 
 function normalizePathForCompare(pathValue: string) {

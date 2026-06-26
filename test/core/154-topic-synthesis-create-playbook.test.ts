@@ -5,7 +5,8 @@ import fs from "fs/promises";
 import path from "path";
 
 const playbookRoot = path.join(
-  "artifact",
+  "test",
+  "fixtures",
   "topic-synthesis-create-detr-gated-playbook",
 );
 const runRoot = path.join(

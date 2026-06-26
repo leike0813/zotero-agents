@@ -1,0 +1,25 @@
+{
+  "action": "submit",
+  "result": {
+    "analyzed_count": 5,
+    "handoff": {
+      "__SKILL_DONE__": true,
+      "db_path": "runtime/topic-synthesis.sqlite",
+      "diagnostics": [],
+      "handoff": "prepare_analysis_context",
+      "handoff_manifest_hash": "sha256:419c75d8a9deffbeede31a1f5ef1b46067ed05aaabec3898c55899f621f289bb",
+      "handoff_manifest_path": "runtime/handoff/prepare-analysis-context.json",
+      "kind": "topic_synthesis_handoff",
+      "next_skill_id": "topic-synthesis-core-enrichment",
+      "operation": "create"
+    },
+    "paper_refs": [
+      "1:EIMSDEU3",
+      "1:5HBHAWIV",
+      "1:HPLZ65Z2",
+      "1:3JUY9GBQ",
+      "1:SZ3GNWT9"
+    ]
+  },
+  "stage": "stage_30_prepare_analysis_context"
+}

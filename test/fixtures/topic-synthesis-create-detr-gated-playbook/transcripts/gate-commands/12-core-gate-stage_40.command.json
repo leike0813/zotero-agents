@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "<redacted-local-path>",
+    "<redacted-local-path>",
+    "--db",
+    "runtime/topic-synthesis.sqlite"
+  ],
+  "cwd": "<redacted-local-path>",
+  "name": "12-core-gate-stage_40",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"command\": \"python \\\"<redacted-local-path>\" --db \\\"runtime/topic-synthesis.sqlite\\\" --action run\", \"db_path\": \"runtime/topic-synthesis.sqlite\", \"needs_payload\": true, \"operation\": \"create\", \"payload_path\": \"runtime/payloads/core-synthesis.json\", \"payload_schema\": \"assets/schemas/stage-40-core-synthesis.schema.json\", \"required_reads\": [\"runtime/handoff/prepare-analysis-context.json\", \"runtime/views/cross-paper-context.md\", \"runtime/views/source-paper-evidence-index.json\"], \"schema_id\": \"synthesis.topic_synthesis_gate_instruction\", \"schema_version\": \"1.0.0\", \"skill_id\": \"topic-synthesis-core-enrichment\", \"stage\": \"stage_40_core_synthesis\", \"stage_kind\": \"payload\", \"submit_command\": \"python \\\"<redacted-local-path>\" --db \\\"runtime/topic-synthesis.sqlite\\\" --action submit --payload \\\"runtime/payloads/core-synthesis.json\\\"\", \"task\": \"编写 taxonomy、timeline、positioning、claims、dimensions、debates、gaps、outline 和 concept labels。\"}\r\n",
+  "timestamp": "2026-06-06T08:11:54.259121+00:00"
+}

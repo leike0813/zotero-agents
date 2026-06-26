@@ -1,4 +1,5 @@
 import { joinPath } from "../utils/path";
+import { isNonNativeAbsolutePath } from "../platform/path";
 import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
 
 type DynamicImport = (specifier: string) => Promise<any>;
@@ -333,6 +334,15 @@ function isAbsolutePathLike(path: string) {
     /^[A-Za-z]:/.test(path) ||
     /^[A-Za-z]:$/.test(path) ||
     /^\/\//.test(path)
+  );
+}
+
+function assertNativeRuntimeFsPath(path: string, operation: string) {
+  if (!isNonNativeAbsolutePath(path)) {
+    return;
+  }
+  throw new Error(
+    `Refusing to ${operation} non-native absolute path on this platform: ${path}`,
   );
 }
 
@@ -781,6 +791,9 @@ export async function runtimePathExists(pathRaw: string) {
   if (!path) {
     return false;
   }
+  if (isNonNativeAbsolutePath(path)) {
+    return false;
+  }
   const runtime = globalThis as {
     IOUtils?: { exists?: (path: string) => Promise<boolean> };
     OS?: { File?: { exists?: (path: string) => Promise<boolean> } };
@@ -816,6 +829,7 @@ export async function ensureRuntimeDirectory(pathRaw: string) {
   if (!path) {
     return;
   }
+  assertNativeRuntimeFsPath(path, "create runtime directory");
   const nodeFs = await tryNodeFs();
   if (nodeFs) {
     await nodeFs.mkdir(path, { recursive: true });
@@ -877,6 +891,8 @@ export async function copyRuntimeFileIfMissing(args: {
 }) {
   const sourcePath = normalizeString(args.sourcePath);
   const targetPath = normalizeString(args.targetPath);
+  assertNativeRuntimeFsPath(sourcePath, "copy from runtime file");
+  assertNativeRuntimeFsPath(targetPath, "copy to runtime file");
   if (!sourcePath || !targetPath || sourcePath === targetPath) {
     return false;
   }
@@ -899,6 +915,8 @@ export async function copyRuntimeFile(args: {
   if (!sourcePath || !targetPath) {
     throw new Error("sourcePath and targetPath are required to copy a file");
   }
+  assertNativeRuntimeFsPath(sourcePath, "copy from runtime file");
+  assertNativeRuntimeFsPath(targetPath, "copy to runtime file");
   if (sourcePath === targetPath) {
     return false;
   }
@@ -980,6 +998,7 @@ function toUint8Array(value: Uint8Array | ArrayBuffer) {
 
 export async function readRuntimeBytes(pathRaw: string) {
   const path = normalizeString(pathRaw);
+  assertNativeRuntimeFsPath(path, "read binary runtime file");
   if (!path || !(await runtimePathExists(path))) {
     throw new Error("binary file path does not exist");
   }
@@ -1008,6 +1027,7 @@ export async function writeRuntimeBytes(
   if (!path) {
     throw new Error("binary file path is missing");
   }
+  assertNativeRuntimeFsPath(path, "write binary runtime file");
   const data = toUint8Array(bytes);
   await ensureRuntimeDirectory(parentPath(path));
   const runtime = globalThis as {
@@ -1052,6 +1072,7 @@ function parentPath(pathRaw: string) {
 
 export async function readRuntimeTextFile(pathRaw: string) {
   const path = normalizeString(pathRaw);
+  assertNativeRuntimeFsPath(path, "read text runtime file");
   if (!path || !(await runtimePathExists(path))) {
     return "";
   }
@@ -1086,6 +1107,7 @@ export async function writeRuntimeTextFile(pathRaw: string, content: string) {
   if (!path) {
     return;
   }
+  assertNativeRuntimeFsPath(path, "write text runtime file");
   await ensureRuntimeDirectory(parentPath(path));
   const runtime = globalThis as {
     IOUtils?: {
@@ -1127,6 +1149,9 @@ export async function statRuntimePath(pathRaw: string): Promise<{
 }> {
   const path = normalizeString(pathRaw);
   if (!path) {
+    return { exists: false, isDir: false, size: 0 };
+  }
+  if (isNonNativeAbsolutePath(path)) {
     return { exists: false, isDir: false, size: 0 };
   }
   const runtime = globalThis as {

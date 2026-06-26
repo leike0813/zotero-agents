@@ -1,5 +1,10 @@
 import type { BackendInstance } from "../backends/types";
 import { joinPath } from "../utils/path";
+import {
+  mergePathEntries as mergePlatformPathEntries,
+  readRuntimePathEnv,
+  splitPathEntries as splitPlatformPathEntries,
+} from "../platform/env";
 import { getHostBridgeToken, redactHostBridgeToken } from "./hostBridgeAuth";
 import { ensureHostBridgeServer } from "./hostBridgeServer";
 import {
@@ -46,65 +51,19 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
-function pathDelimiter() {
-  const runtime = globalThis as {
-    Zotero?: { isWin?: boolean };
-    process?: { platform?: string };
-  };
-  return runtime.Zotero?.isWin || runtime.process?.platform === "win32"
-    ? ";"
-    : ":";
-}
-
 function resolveRuntimePathEnv() {
-  const runtime = globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-    Services?: { env?: { get?: (name: string) => string } };
-  };
-  const processEnv = runtime.process?.env || {};
-  const processPath = normalizeString(
-    processEnv.PATH || processEnv.Path || processEnv.path,
-  );
-  if (processPath) {
-    return processPath;
-  }
-  for (const name of ["PATH", "Path", "path"]) {
-    try {
-      const value = normalizeString(runtime.Services?.env?.get?.(name));
-      if (value) {
-        return value;
-      }
-    } catch {
-      // Continue with the next case variant.
-    }
-  }
-  return "";
+  return readRuntimePathEnv();
 }
 
 function splitPathEntries(pathValue: string | undefined) {
-  const delimiter = pathDelimiter();
-  return String(pathValue || "")
-    .split(delimiter)
-    .map((part) => normalizeString(part))
-    .filter(Boolean);
+  return splitPlatformPathEntries(pathValue);
 }
 
 function mergePathEntries(
   pathValue: string | undefined,
   entriesRaw: Array<string | undefined>,
 ) {
-  const delimiter = pathDelimiter();
-  const parts = splitPathEntries(pathValue);
-  for (const entry of entriesRaw
-    .map(normalizeString)
-    .filter(Boolean)
-    .reverse()) {
-    if (parts.some((part) => part.toLowerCase() === entry.toLowerCase())) {
-      continue;
-    }
-    parts.unshift(entry);
-  }
-  return parts.join(delimiter);
+  return mergePlatformPathEntries(pathValue, entriesRaw);
 }
 
 function prependPath(pathValue: string | undefined, entryRaw: string) {

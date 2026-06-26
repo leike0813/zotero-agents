@@ -8,6 +8,12 @@ import { copyPackagedBinaryAsset } from "./packagedAssetResolver";
 import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import { getWindowsPowerShellAbsoluteCandidates } from "./windowsCommandResolution";
 import {
+  readRuntimeEnv,
+  readRuntimePathEnv,
+  splitPathEntries,
+} from "../platform/env";
+import { detectRuntimePlatform } from "../platform/runtimePlatform";
+import {
   resolveHostBridgeCliBinary,
   resolveHostBridgeCliPlatform,
   type HostBridgeCliResolution,
@@ -126,20 +132,7 @@ function resolveWindowsShellShimPath(target: {
 }
 
 function resolvePlatform() {
-  const runtime = globalThis as {
-    process?: { platform?: string };
-    Zotero?: { isWin?: boolean; isMac?: boolean; isLinux?: boolean };
-  };
-  if (runtime.Zotero?.isWin || runtime.process?.platform === "win32") {
-    return "win32";
-  }
-  if (runtime.Zotero?.isMac || runtime.process?.platform === "darwin") {
-    return "darwin";
-  }
-  if (runtime.Zotero?.isLinux || runtime.process?.platform === "linux") {
-    return "linux";
-  }
-  return normalizeString(runtime.process?.platform) || "unknown";
+  return detectRuntimePlatform();
 }
 
 function resolveArch() {
@@ -150,19 +143,7 @@ function resolveArch() {
 }
 
 function readEnv(name: string) {
-  const runtime = globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-    Services?: { env?: { get?: (name: string) => string } };
-  };
-  const processValue = normalizeString(runtime.process?.env?.[name]);
-  if (processValue) {
-    return processValue;
-  }
-  try {
-    return normalizeString(runtime.Services?.env?.get?.(name));
-  } catch {
-    return "";
-  }
+  return readRuntimeEnv(name);
 }
 
 function resolveHomeDir() {
@@ -223,7 +204,7 @@ export function resolveHostBridgeCliInstallTarget(
     const targetDir = resolvePreferredPosixInstallDir({
       platform,
       home,
-      pathEnv: deps.pathEnv?.() || resolvePathEnv(),
+      pathEnv: deps.pathEnv ? deps.pathEnv() : resolvePathEnv(),
       candidates: ["bin", ".local/bin", "/usr/local/bin", "/opt/homebrew/bin"],
     });
     return {
@@ -235,7 +216,7 @@ export function resolveHostBridgeCliInstallTarget(
   const targetDir = resolvePreferredPosixInstallDir({
     platform,
     home,
-    pathEnv: deps.pathEnv?.() || resolvePathEnv(),
+    pathEnv: deps.pathEnv ? deps.pathEnv() : resolvePathEnv(),
     candidates: [".local/bin", "bin", "/usr/local/bin"],
   });
   return {
@@ -257,8 +238,7 @@ function resolvePreferredPosixInstallDir(args: {
       : joinForInstallPlatform(args.platform, args.home, candidate),
   );
   const pathEntries = new Set(
-    normalizeString(args.pathEnv)
-      .split(":")
+    splitPathEntries(args.pathEnv)
       .map((entry) => formatPortablePath(entry).replace(/\/+$/, ""))
       .filter(Boolean),
   );
@@ -269,18 +249,12 @@ function resolvePreferredPosixInstallDir(args: {
   );
 }
 
-function pathDelimiter() {
-  return resolvePlatform() === "win32" ? ";" : ":";
-}
-
 function defaultPathIncludes(dirRaw: string) {
   const dir = normalizeString(dirRaw).toLowerCase();
   if (!dir) {
     return false;
   }
-  const delimiter = pathDelimiter();
-  return readEnv("PATH")
-    .split(delimiter)
+  return splitPathEntries(readRuntimePathEnv(), dirRaw)
     .map((entry) => normalizeString(entry).toLowerCase())
     .some((entry) => entry === dir);
 }

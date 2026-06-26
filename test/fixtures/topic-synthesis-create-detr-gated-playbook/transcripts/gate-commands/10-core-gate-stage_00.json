@@ -1,0 +1,12 @@
+{
+  "command": "python \"D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\skills_builtin\\topic-synthesis-core-enrichment\\scripts\\gate.py\" --db \"runtime/topic-synthesis.sqlite\" --action run",
+  "db_path": "runtime/topic-synthesis.sqlite",
+  "needs_payload": false,
+  "operation": "create",
+  "schema_id": "synthesis.topic_synthesis_gate_instruction",
+  "schema_version": "1.0.0",
+  "skill_id": "topic-synthesis-core-enrichment",
+  "stage": "stage_00_runtime_state_check",
+  "stage_kind": "command",
+  "task": "校验既有 DB、prepare handoff 和必需的上下文 artifacts。"
+}

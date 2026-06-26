@@ -1,0 +1,16 @@
+{
+  "argv": [
+    "<redacted-local-path>",
+    "<redacted-local-path>",
+    "--db",
+    "runtime/topic-synthesis.sqlite",
+    "--input",
+    "runtime/input.json"
+  ],
+  "cwd": "<redacted-local-path>",
+  "name": "01-prepare-gate-stage_00",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"command\": \"python \\\"<redacted-local-path>\" --db \\\"runtime/topic-synthesis.sqlite\\\" --action run\", \"db_path\": \"runtime/topic-synthesis.sqlite\", \"needs_payload\": false, \"operation\": \"create\", \"schema_id\": \"synthesis.topic_synthesis_gate_instruction\", \"schema_version\": \"1.0.0\", \"skill_id\": \"create-topic-synthesis-prepare\", \"stage\": \"stage_00_runtime_setup\", \"stage_kind\": \"command\", \"task\": \"初始化或校验新建运行的本地 SQLite 状态。\"}\r\n",
+  "timestamp": "2026-06-06T08:11:51.803205+00:00"
+}

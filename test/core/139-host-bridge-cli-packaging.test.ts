@@ -254,8 +254,12 @@ describe("host bridge cli packaging and install", function () {
 
   it("resolves bundled CLI from plugin rootPath before process cwd", async function () {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-root-"));
-    const binaryDir = path.join(root, "bin", "win32-x64");
-    const binary = path.join(binaryDir, "zotero-bridge.exe");
+    const platform = resolveHostBridgeCliPlatform({
+      platform: process.platform,
+      arch: process.arch,
+    });
+    const binaryDir = path.join(root, "bin", platform.dir);
+    const binary = path.join(binaryDir, platform.binary);
     await fs.mkdir(binaryDir, { recursive: true });
     await fs.writeFile(binary, "binary");
     const previousCli = process.env.ZOTERO_BRIDGE_CLI;
@@ -552,6 +556,7 @@ describe("host bridge cli packaging and install", function () {
       }),
       platform: () => "linux",
       homeDir: () => "/home/a",
+      pathEnv: () => "",
       pathIncludes: () => true,
       copyFile: async (source, target) => {
         copied.push([source, target]);
@@ -608,6 +613,7 @@ describe("host bridge cli packaging and install", function () {
         platform: () => process.platform,
         homeDir: () => root,
         localAppDataDir: () => root,
+        pathEnv: () => "",
         pathIncludes: () => true,
         chmodExecutable: async () => undefined,
       });

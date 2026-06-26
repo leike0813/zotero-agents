@@ -1,0 +1,12 @@
+{
+  "command": "python \"D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\skills_builtin\\create-topic-synthesis-prepare\\scripts\\gate.py\" --db \"runtime/topic-synthesis.sqlite\" --action run",
+  "db_path": "runtime/topic-synthesis.sqlite",
+  "needs_payload": false,
+  "operation": "create",
+  "schema_id": "synthesis.topic_synthesis_gate_instruction",
+  "schema_version": "1.0.0",
+  "skill_id": "create-topic-synthesis-prepare",
+  "stage": "stage_00_runtime_setup",
+  "stage_kind": "command",
+  "task": "初始化或校验新建运行的本地 SQLite 状态。"
+}

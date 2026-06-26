@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "<redacted-local-path>",
+    "<redacted-local-path>",
+    "--db",
+    "runtime/topic-synthesis.sqlite"
+  ],
+  "cwd": "<redacted-local-path>",
+  "name": "16-core-gate-completed",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"needs_payload\": false, \"operation\": \"create\", \"output\": {\"__SKILL_DONE__\": true, \"db_path\": \"runtime/topic-synthesis.sqlite\", \"diagnostics\": [], \"handoff\": \"core_enrichment\", \"handoff_manifest_hash\": \"sha256:7c7779be4a3efb7ef81ddaf20d7c5bb2cf4407e34e2b97cfcabb8f25f699a8de\", \"handoff_manifest_path\": \"runtime/handoff/core-enrichment.json\", \"kind\": \"topic_synthesis_handoff\", \"next_skill_id\": \"topic-synthesis-finalize\", \"operation\": \"create\"}, \"schema_id\": \"synthesis.topic_synthesis_gate_instruction\", \"schema_version\": \"1.0.0\", \"skill_id\": \"topic-synthesis-core-enrichment\", \"stage\": \"completed\", \"status\": \"completed\", \"task\": \"本 skill 已完成。\"}\r\n",
+  "timestamp": "2026-06-06T08:11:54.786331+00:00"
+}

@@ -1,0 +1,9 @@
+{
+  "artifacts": "runtime/handoff/prepare-analysis-context.artifacts.json",
+  "db_path": "runtime/topic-synthesis.sqlite",
+  "diagnostics": "[]",
+  "handoff": "prepare_analysis_context",
+  "schema_id": "synthesis.skill_handoff",
+  "schema_version": "1.0.0",
+  "stage": "stage_30_prepare_analysis_context"
+}

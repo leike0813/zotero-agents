@@ -95,7 +95,7 @@ describe("skillrunner ctl bridge", function () {
 
     assert.isTrue(result.ok);
     assert.equal(commands.length, 1);
-    const commandScript = commands[0].args[commands[0].args.length - 1] || "";
+    const commandScript = commands[0].args.join(" ");
     assert.include(commandScript, "bootstrap");
     assert.include(commandScript, "--json");
   });
@@ -119,7 +119,7 @@ describe("skillrunner ctl bridge", function () {
 
     assert.isTrue(result.ok);
     assert.equal(commands.length, 1);
-    const commandScript = commands[0].args[commands[0].args.length - 1] || "";
+    const commandScript = commands[0].args.join(" ");
     assert.include(commandScript, "scripts/agent_manager.py");
     assert.include(commandScript, "SKILL_RUNNER_DATA_DIR");
     assert.include(
@@ -186,7 +186,7 @@ describe("skillrunner ctl bridge", function () {
 
     assert.isTrue(result.ok);
     assert.equal(commands.length, 1);
-    const commandScript = commands[0].args[commands[0].args.length - 1] || "";
+    const commandScript = commands[0].args.join(" ");
     assert.include(commandScript, "preflight");
     assert.include(commandScript, "--host");
     assert.include(commandScript, "127.0.0.1");
@@ -335,7 +335,7 @@ describe("skillrunner ctl bridge", function () {
 
     assert.isTrue(result.ok);
     assert.equal(commands.length, 1);
-    const commandScript = commands[0].args[commands[0].args.length - 1] || "";
+    const commandScript = commands[0].args.join(" ");
     assert.include(commandScript, "--port-fallback-span");
     assert.include(commandScript, "10");
   });

@@ -24,7 +24,7 @@ import {
   writeAcpSkillRunnerInputManifest,
 } from "../../src/modules/acpSkillRunnerWorkspace";
 import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
-import { normalizeNativeLocalPath } from "../../src/utils/path";
+import { joinPath, normalizeNativeLocalPath } from "../../src/utils/path";
 import {
   getAcpSkillRunRecord,
   markAcpSkillRunApplyResult,
@@ -1275,7 +1275,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
 
   it("materializes file handoff for ACP as native local input path", async function () {
     const tempRoot = await mkTempDir("zotero-skills-acp-file-handoff");
-    const digestPath = `${tempRoot}\\digest.md`;
+    const digestPath = joinPath(tempRoot, "digest.md");
     await fs.writeFile(digestPath, "# Digest\n", "utf8");
     const launched: Array<Record<string, unknown>> = [];
 

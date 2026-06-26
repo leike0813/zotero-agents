@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "result": {
+    "checked": "runtime/handoff/prepare-analysis-context.json"
+  },
+  "skill_id": "topic-synthesis-core-enrichment",
+  "stage": "stage_00_runtime_state_check"
+}

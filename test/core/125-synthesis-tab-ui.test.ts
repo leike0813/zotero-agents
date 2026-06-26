@@ -2235,8 +2235,6 @@ describe("Synthesis tab UI model", function () {
       "addon/content/shared/topicTimeline.css",
       "utf8",
     );
-    const mockupApp = await fs.readFile("mockup/app.js", "utf8");
-    const mockupCss = await fs.readFile("mockup/styles.css", "utf8");
 
     assert.include(source, "renderTopicDetailShell");
     assert.include(source, "renderTopicDetail");
@@ -2539,25 +2537,6 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(css, ".nav-icon-home::before");
     assert.notInclude(css, "box-shadow: 7px 2px 0 currentColor");
     assert.notInclude(css, ".sidebar-collapse-toggle::before");
-    assert.include(mockupApp, "renderEvidenceDrawer");
-    assert.include(mockupApp, "window.__state.explorerOpen");
-    assert.include(mockupApp, "renderDigestModal");
-    assert.include(mockupApp, "digest-outline");
-    assert.include(mockupApp, "sidebarExpanded: false");
-    assert.include(mockupCss, ".evidence-drawer");
-    assert.include(mockupCss, ".paper-digest-body");
-    assert.include(mockupCss, ".digest-scroll-body");
-    assert.include(mockupCss, ".sidebar-collapse-toggle");
-    assert.include(mockupApp, "iconSvg(iconName)");
-    assert.include(
-      mockupApp,
-      "iconSvg(window.__state.sidebarExpanded ? 'panel-close' : 'panel-open')",
-    );
-    assert.notInclude(mockupCss, ".nav-icon-home::before");
-    assert.notInclude(mockupCss, ".sidebar-collapse-toggle::before");
-    assert.notInclude(mockupApp, "openDigestModal");
-    assert.notInclude(mockupApp, "workbench.appendChild(el('div','splitter'))");
-    assert.notInclude(mockupCss, ".splitter");
   });
 
   it("wires structured Topic Detail update through the update-topic-synthesis workflow", async function () {

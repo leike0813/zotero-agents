@@ -10,6 +10,9 @@ The system SHALL allow `skillrunner.job.v1` workflow requests to execute through
 an ACP backend without changing the workflow-facing request contract, when the
 workflow's provider-derived backend compatibility allows an ACP backend.
 `request.kind` alone SHALL NOT make ACP or SkillRunner backends compatible.
+The ACP execution path SHALL use shared platform command and path services when
+preparing local workspaces, Host Bridge CLI injection, dependency wrappers, and
+backend launch commands.
 
 #### Scenario: ACP backend dispatches skillrunner job
 
@@ -27,6 +30,22 @@ workflow's provider-derived backend compatibility allows an ACP backend.
 - **WHEN** backend compatibility is resolved
 - **THEN** ACP backend profiles SHALL NOT be considered compatible solely
   because of the request kind.
+
+#### Scenario: ACP backend command runs on Windows
+
+- **GIVEN** a Windows ACP backend command currently resolves through `npx.cmd`,
+  PowerShell, cmd, or a user-local executable
+- **WHEN** the platform services migration is applied
+- **THEN** the command line, arguments, and PATH injection behavior SHALL remain
+  equivalent.
+
+#### Scenario: ACP backend command runs from a GUI Linux runtime
+
+- **GIVEN** Zotero is launched without a login-shell PATH
+- **WHEN** ACP execution launches a backend command such as `npx`
+- **THEN** the command resolver SHALL use shared non-interactive lookup
+  candidates before reporting failure.
+
 ### Requirement: ACP runner SHALL materialize skills into agent-specific roots
 
 

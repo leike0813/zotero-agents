@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "<redacted-local-path>",
+    "<redacted-local-path>",
+    "--db",
+    "runtime/topic-synthesis.sqlite"
+  ],
+  "cwd": "<redacted-local-path>",
+  "name": "21-finalize-gate-stage_70",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"command\": \"python \\\"<redacted-local-path>\" --db \\\"runtime/topic-synthesis.sqlite\\\" --action run\", \"db_path\": \"runtime/topic-synthesis.sqlite\", \"needs_payload\": true, \"operation\": \"create\", \"payload_path\": \"runtime/payloads/summary.json\", \"payload_schema\": \"assets/schemas/stage-70-summary.schema.json\", \"required_reads\": [\"runtime/views/synthesis-report.md\", \"runtime/views/synthesis-report.manifest.json\"], \"schema_id\": \"synthesis.topic_synthesis_gate_instruction\", \"schema_version\": \"1.0.0\", \"skill_id\": \"topic-synthesis-finalize\", \"stage\": \"stage_70_summary\", \"stage_kind\": \"payload\", \"submit_command\": \"python \\\"<redacted-local-path>\" --db \\\"runtime/topic-synthesis.sqlite\\\" --action submit --payload \\\"runtime/payloads/summary.json\\\"\", \"task\": \"基于已渲染的 synthesis report 编写最终 summary。\"}\r\n",
+  "timestamp": "2026-06-06T08:11:55.347286+00:00"
+}

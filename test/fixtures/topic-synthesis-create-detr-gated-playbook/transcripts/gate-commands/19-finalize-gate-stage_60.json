@@ -1,0 +1,19 @@
+{
+  "command": "python \"D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\skills_builtin\\topic-synthesis-finalize\\scripts\\gate.py\" --db \"runtime/topic-synthesis.sqlite\" --action run",
+  "db_path": "runtime/topic-synthesis.sqlite",
+  "needs_payload": true,
+  "operation": "create",
+  "payload_path": "runtime/payloads/coverage-and-collection-suggestions.json",
+  "payload_schema": "assets/schemas/stage-60-coverage-and-collection-suggestions.schema.json",
+  "required_reads": [
+    "runtime/views/external-literature-context.md",
+    "runtime/views/finalize-context.manifest.json"
+  ],
+  "schema_id": "synthesis.topic_synthesis_gate_instruction",
+  "schema_version": "1.0.0",
+  "skill_id": "topic-synthesis-finalize",
+  "stage": "stage_60_coverage_and_collection_suggestions",
+  "stage_kind": "payload",
+  "submit_command": "python \"D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\skills_builtin\\topic-synthesis-finalize\\scripts\\gate.py\" --db \"runtime/topic-synthesis.sqlite\" --action submit --payload \"runtime/payloads/coverage-and-collection-suggestions.json\"",
+  "task": "编写 coverage verdict、reliability interpretation、external context summary 和 collection suggestions。"
+}

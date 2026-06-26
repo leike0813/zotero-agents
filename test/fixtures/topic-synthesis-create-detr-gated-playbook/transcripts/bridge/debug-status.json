@@ -1,0 +1,31 @@
+{
+  "data": {
+    "approval": "none",
+    "capability": "debug.status",
+    "data": {
+      "debugMode": true,
+      "generatedAt": "2026-06-06T08:11:49.274Z",
+      "hostBridge": {
+        "authRequired": true,
+        "bindMode": "lan",
+        "lanEnabled": true,
+        "status": "running"
+      },
+      "limits": {
+        "includeLocalPaths": false,
+        "includeRawRows": false,
+        "limit": 100
+      },
+      "runtimePersistence": {
+        "acpSkillRunsDir": "<redacted-local-path>",
+        "runtimeRoot": "<redacted-local-path>"
+      },
+      "schema": "host_bridge.debug.status.v1"
+    }
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  },
+  "ok": true
+}

@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "result": {
+    "operation": "create",
+    "run_root": "D:\\Workspace\\Artifact\\Zotero-Skills\\Zotero_data\\zotero-agents\\runtime\\acp\\skill-runs\\acp-skill-detr-create-topic-synthesis"
+  },
+  "skill_id": "create-topic-synthesis-prepare",
+  "stage": "stage_00_runtime_setup"
+}

@@ -1,0 +1,72 @@
+{
+  "version": "1.0.0",
+  "updated_at": "2026-04-17T00:35:22.636Z",
+  "facets": [
+    "field",
+    "topic",
+    "method",
+    "model",
+    "ai_task",
+    "data",
+    "tool",
+    "status"
+  ],
+  "tags": [
+    {
+      "tag": "ai_task:NER",
+      "facet": "ai_task",
+      "source": "llm-interactive",
+      "note": "命名实体识别",
+      "deprecated": false
+    },
+    {
+      "tag": "data:LiDAR",
+      "facet": "data",
+      "source": "llm-interactive",
+      "note": "激光雷达",
+      "deprecated": false
+    },
+    {
+      "tag": "model:DL/CNN",
+      "facet": "model",
+      "source": "llm-interactive",
+      "note": "卷积神经网络",
+      "deprecated": false
+    },
+    {
+      "tag": "method:DEM",
+      "facet": "method",
+      "source": "llm-interactive",
+      "note": "离散元方法",
+      "deprecated": false
+    },
+    {
+      "tag": "topic:object-detection",
+      "facet": "topic",
+      "source": "llm-interactive",
+      "note": "目标检测",
+      "deprecated": false
+    },
+    {
+      "tag": "tool:HuggingFace",
+      "facet": "tool",
+      "source": "llm-interactive",
+      "note": "Hugging Face",
+      "deprecated": false
+    },
+    {
+      "tag": "status:1-triaged",
+      "facet": "status",
+      "source": "llm-interactive",
+      "note": "已初筛",
+      "deprecated": false
+    }
+  ],
+  "abbrevs": {
+    "cnn": "CNN",
+    "dem": "DEM",
+    "dl": "DL",
+    "lidar": "LiDAR"
+  },
+  "tag_count": 7
+}

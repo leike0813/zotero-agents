@@ -1,0 +1,12 @@
+{
+  "concepts": [
+    "DETR",
+    "object queries",
+    "Hungarian matching",
+    "deformable attention",
+    "denoising training",
+    "real-time detection transformer"
+  ],
+  "schema_id": "synthesis.concept_candidate_context",
+  "schema_version": "1.0.0"
+}

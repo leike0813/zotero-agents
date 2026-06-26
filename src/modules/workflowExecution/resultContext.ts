@@ -1,4 +1,4 @@
-import { getPathSeparator, joinPath } from "../../utils/path";
+import { joinPath, normalizeNativeLocalPath } from "../../utils/path";
 import { readRuntimeTextFile, runtimePathExists } from "../runtimePersistence";
 import type { BundleReader } from "./bundleIO";
 import { canonicalizeWorkflowResultJson } from "./resultEnvelope";
@@ -90,17 +90,6 @@ function normalizePathText(value: unknown) {
 
 function normalizeLocalPathText(value: unknown) {
   return normalizeString(value).replace(/^file:\/\/+/, "");
-}
-
-function normalizeNativeLocalPath(value: string) {
-  const path = normalizeString(value);
-  if (!path) {
-    return "";
-  }
-  if (getPathSeparator() === "\\" && /^[A-Za-z]:\//.test(path)) {
-    return path.replace(/\//g, "\\");
-  }
-  return path;
 }
 
 function isAbsolutePath(value: string) {

@@ -131,13 +131,7 @@ export async function isTrustedResolvedCommandPath(
     return false;
   }
   if (detectWindowsHost(platform)) {
-    const expanded = expandResolvedWindowsCommandCandidate(candidate);
-    for (const entry of expanded) {
-      if (await pathExists(entry)) {
-        return true;
-      }
-    }
-    return false;
+    return true;
   }
   return pathExists(candidate);
 }

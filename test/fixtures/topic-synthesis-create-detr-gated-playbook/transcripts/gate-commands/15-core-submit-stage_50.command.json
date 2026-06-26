@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "<redacted-local-path>",
+    "<redacted-local-path>",
+    "--db",
+    "runtime/topic-synthesis.sqlite",
+    "--action",
+    "submit",
+    "--payload",
+    "runtime/payloads/kg-enrichment.json"
+  ],
+  "cwd": "<redacted-local-path>",
+  "name": "15-core-submit-stage_50",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"ok\": true, \"result\": {\"handoff\": {\"__SKILL_DONE__\": true, \"db_path\": \"runtime/topic-synthesis.sqlite\", \"diagnostics\": [], \"handoff\": \"core_enrichment\", \"handoff_manifest_hash\": \"sha256:7c7779be4a3efb7ef81ddaf20d7c5bb2cf4407e34e2b97cfcabb8f25f699a8de\", \"handoff_manifest_path\": \"runtime/handoff/core-enrichment.json\", \"kind\": \"topic_synthesis_handoff\", \"next_skill_id\": \"topic-synthesis-finalize\", \"operation\": \"create\"}}, \"skill_id\": \"topic-synthesis-core-enrichment\", \"stage\": \"stage_50_kg_enrichment\"}\r\n",
+  "timestamp": "2026-06-06T08:11:54.686010+00:00"
+}

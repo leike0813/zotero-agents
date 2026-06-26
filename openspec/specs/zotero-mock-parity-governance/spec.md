@@ -26,10 +26,25 @@ TBD - created by archiving change govern-zotero-mock-parity. Update Purpose afte
 ### Requirement: Mock 变更必须带 parity 测试证据
 
 系统 MUST 要求 mock 行为变更附带 drift/parity 测试证据，防止未验证差异进入主干。
+Node Zotero mock path behavior MUST be explicit about the target runtime path
+semantics it simulates.
 
 #### Scenario: 提交 mock 行为变更
 
 - **WHEN** 变更涉及 `test/setup/zotero-mock.ts` 或相关 mock helper
 - **THEN** 提交 MUST 同步包含对应 parity 测试更新
 - **AND** 测试必须覆盖高风险语义（如路径解析、deleted/只读字段、关键运行时调用）
+
+#### Scenario: 测试模拟 Windows 路径
+
+- **WHEN** a Node test uses Windows drive or UNC path fixtures
+- **THEN** the mock SHALL preserve Windows path semantics independent of the
+  host OS running the test
+- **AND** the test SHALL state that the fixture is a Windows path case.
+
+#### Scenario: 测试模拟 POSIX 路径
+
+- **WHEN** a Node test uses POSIX path fixtures
+- **THEN** the mock SHALL preserve POSIX path semantics independent of Windows
+  fixture tests.
 

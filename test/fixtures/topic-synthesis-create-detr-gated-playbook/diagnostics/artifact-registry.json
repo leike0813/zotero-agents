@@ -1,0 +1,172 @@
+{
+  "artifacts": [
+    {
+      "artifact_key": "citation_graph_metrics_batch_1",
+      "hash": "sha256:2d8f26abac33fd44d8492556f77c4f9084966adf007f2e0147e94736e0b1de52",
+      "path": "runtime/payloads/citation-graph-metrics-batch-1.json",
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_20_resolver_and_workset"
+    },
+    {
+      "artifact_key": "concept_candidate_context",
+      "hash": "sha256:6d11bf67a709dae638a2821017e7408babfa428b3e8126af1bc89df562c75751",
+      "path": "runtime/views/concept-candidate-context.json",
+      "skill_id": "topic-synthesis-core-enrichment",
+      "stage_id": "stage_40_core_synthesis"
+    },
+    {
+      "artifact_key": "concept_cards_proposal",
+      "hash": "sha256:df4158039a67f857a5ac33f95a9d96b02a9735fda75a0a7a16da801996b0a4c3",
+      "path": "result/sidecars/concept-cards-proposal.json",
+      "skill_id": "topic-synthesis-core-enrichment",
+      "stage_id": "stage_50_kg_enrichment"
+    },
+    {
+      "artifact_key": "coverage_section",
+      "hash": "sha256:dcf01c4c87cac60cd86e48c979d5e5d3a9bb6f3ab7619885b3f8336e0c2c714d",
+      "path": "result/sections/coverage.json",
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_60_coverage_and_collection_suggestions"
+    },
+    {
+      "artifact_key": "cross_paper_context",
+      "hash": "sha256:ed6eab878874ed4033cdc57ba43c90a1b27166f00ffc5751eb5624767cfe5a4e",
+      "path": "runtime/views/cross-paper-context.md",
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_30_prepare_analysis_context"
+    },
+    {
+      "artifact_key": "external_literature_context",
+      "hash": "sha256:e54042557fcf0558a4517f08fddb792a9b667fc5d6a0d619d7ee97d2c40048c3",
+      "path": "runtime/views/external-literature-context.md",
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_30_prepare_analysis_context"
+    },
+    {
+      "artifact_key": "final_candidate",
+      "hash": "sha256:9ab7100d43780d430b935475f1dfbca19cf500dececd5a3bfcf7b278e214b412",
+      "path": "result/final-output.candidate.json",
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_70_summary"
+    },
+    {
+      "artifact_key": "finalize_context_manifest",
+      "hash": "sha256:eda7e04567299e16184d9d759f33cf21a43955e3aba16890d4374bed2b74aa01",
+      "path": "runtime/views/finalize-context.manifest.json",
+      "skill_id": "topic-synthesis-core-enrichment",
+      "stage_id": "stage_50_kg_enrichment"
+    },
+    {
+      "artifact_key": "paper_artifacts_manifest_batch_1",
+      "hash": "sha256:d7ba6c82e17a8d3f74cfa4ca77f9b64c86c227052f3ab69168d8ab616e6ce760",
+      "path": "runtime/payloads/paper-artifacts-manifest-batch-1.json",
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_20_resolver_and_workset"
+    },
+    {
+      "artifact_key": "resolver_manifest",
+      "hash": "sha256:0e6b6992e0f0ac45ca5f4da3fb4ed5e52f30e7f4a10443bb0a403021ccf63837",
+      "path": "runtime/payloads/resolver.json",
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_20_resolver_and_workset"
+    },
+    {
+      "artifact_key": "source_paper_evidence_index",
+      "hash": "sha256:e8321f5b4f74959ae3cb011e23e5f6b7bfab7e909b8a8ff53f83532f0b53aa52",
+      "path": "runtime/views/source-paper-evidence-index.json",
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_30_prepare_analysis_context"
+    },
+    {
+      "artifact_key": "stage_10_create_topic_context_payload",
+      "hash": "sha256:0c742ca77ea5cb400e6f5ec62aa2a408d25002c3de7384e430afa451e8b4424a",
+      "path": "runtime/payloads/create-topic-context.json",
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_10_create_topic_context"
+    },
+    {
+      "artifact_key": "stage_20_resolver_and_workset_payload",
+      "hash": "sha256:11b466320467faad482d0c5bf03166db698dd9ad316dca0cde1caa50b3f81fe1",
+      "path": "runtime/payloads/resolver-and-workset.json",
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_20_resolver_and_workset"
+    },
+    {
+      "artifact_key": "stage_30_prepare_analysis_context_payload",
+      "hash": "sha256:8678c4ff989a5f7fba1bfef13f8028d6bc86c905edb54f92253cc4492314835a",
+      "path": "runtime/payloads/prepare-analysis-context.json",
+      "skill_id": "create-topic-synthesis-prepare",
+      "stage_id": "stage_30_prepare_analysis_context"
+    },
+    {
+      "artifact_key": "stage_40_core_synthesis_payload",
+      "hash": "sha256:75ad0005e504511054be5de784b1e8f38feff986fd67cee62d5ec333cd25925a",
+      "path": "runtime/payloads/core-synthesis.json",
+      "skill_id": "topic-synthesis-core-enrichment",
+      "stage_id": "stage_40_core_synthesis"
+    },
+    {
+      "artifact_key": "stage_50_kg_enrichment_payload",
+      "hash": "sha256:9e48c83ea41501848ee5d4fa044466feef37e0dc9a1bfcfd0d7f8f3268e213aa",
+      "path": "runtime/payloads/kg-enrichment.json",
+      "skill_id": "topic-synthesis-core-enrichment",
+      "stage_id": "stage_50_kg_enrichment"
+    },
+    {
+      "artifact_key": "stage_60_coverage_and_collection_suggestions_payload",
+      "hash": "sha256:f659023bc5a38640f4e6c6c84a4e9bb20795bc8a70f5076d217f78a8c652bcac",
+      "path": "runtime/payloads/coverage-and-collection-suggestions.json",
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_60_coverage_and_collection_suggestions"
+    },
+    {
+      "artifact_key": "stage_70_summary_payload",
+      "hash": "sha256:44a3e10e0b5a34817943b815875f20c3bf745ab68776f786775c3ea7b5bb3db4",
+      "path": "runtime/payloads/summary.json",
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_70_summary"
+    },
+    {
+      "artifact_key": "summary_section",
+      "hash": "sha256:ea31043c21434bc661db9bf507f1d78fe06906abd0c58f07d42dab24a2f92467",
+      "path": "result/sections/summary.json",
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_70_summary"
+    },
+    {
+      "artifact_key": "synthesis_report",
+      "hash": "sha256:6f141ea40e83401e9be6cc609c2341cf0a5bafaef469206c0506703fd69d7bbd",
+      "path": "runtime/views/synthesis-report.md",
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_60_coverage_and_collection_suggestions"
+    },
+    {
+      "artifact_key": "synthesis_report_manifest",
+      "hash": "sha256:d7567db9fd73becde43b76ae78ab4c88c4fce12b6beb6d15b342e419b59643c3",
+      "path": "runtime/views/synthesis-report.manifest.json",
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_60_coverage_and_collection_suggestions"
+    },
+    {
+      "artifact_key": "topic_analysis_manifest",
+      "hash": "sha256:5e00c80dfdd8629b78c43ef0eb99df75a86c079c9c8465ba0fb71b7442c547a4",
+      "path": "result/topic-analysis.json",
+      "skill_id": "topic-synthesis-finalize",
+      "stage_id": "stage_70_summary"
+    },
+    {
+      "artifact_key": "topic_graph_relation_proposals",
+      "hash": "sha256:698dc71ace473593c5fcb5c7e83e87dcb8c2d7761133de6c088903c949168dbd",
+      "path": "result/sidecars/topic-graph-relation-proposals.json",
+      "skill_id": "topic-synthesis-core-enrichment",
+      "stage_id": "stage_50_kg_enrichment"
+    },
+    {
+      "artifact_key": "topic_interest_metadata",
+      "hash": "sha256:f6c70f747668ce28a46da8d3b613a291bf05c234e3998cc615806b92532c6f48",
+      "path": "result/sidecars/topic-interest-metadata.json",
+      "skill_id": "topic-synthesis-core-enrichment",
+      "stage_id": "stage_50_kg_enrichment"
+    }
+  ]
+}

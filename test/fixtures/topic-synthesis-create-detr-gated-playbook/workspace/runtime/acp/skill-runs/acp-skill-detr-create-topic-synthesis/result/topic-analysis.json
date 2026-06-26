@@ -1,0 +1,32 @@
+{
+  "diagnostics": [],
+  "language": "zh-CN",
+  "operation": "create",
+  "schema_id": "synthesis.topic_analysis_manifest",
+  "schema_version": "1.0.0",
+  "sections": {
+    "coverage": {
+      "hash": "sha256:42761737ddc165e3bd6fa7745d1ed8f25455d20bb81d2095245407d486491e06",
+      "path": "result/sections/coverage.json"
+    },
+    "summary": {
+      "hash": "sha256:9941ca413f251a4173fe97faeb36f171eee15ee2b56c9fb1a54a736fc33ba2e9",
+      "path": "result/sections/summary.json"
+    }
+  },
+  "sidecars": {
+    "concept_cards_proposal": {
+      "hash": "sha256:951d05e3466a6536e0fa931f503200c6dc227b01cd6bf592cc1b32a78beb9899",
+      "path": "result/sidecars/concept-cards-proposal.json"
+    },
+    "topic_graph_relation_proposals": {
+      "hash": "sha256:4d9b79357c2f9cd64ed981a8c6ee64e02ad17b3a0669acf8ca5dbda7bd660fb0",
+      "path": "result/sidecars/topic-graph-relation-proposals.json"
+    },
+    "topic_interest_metadata": {
+      "hash": "sha256:82836d656181550d765bd774a5a7ee01f4451b74c772f90fe57e8ddc235583f4",
+      "path": "result/sidecars/topic-interest-metadata.json"
+    }
+  },
+  "topic_id": "detr-style-object-detection"
+}

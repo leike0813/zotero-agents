@@ -1,4 +1,7 @@
 import { assert } from "chai";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
   createSynthesisSqlAdapterForPath,
   createSynthesisRepository,
@@ -898,8 +901,11 @@ describe("Synthesis repository foundation", function () {
     const repository = createSynthesisRepository({
       now: () => "2026-05-26T00:00:00.000Z",
     });
+    const serviceRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-topic-discovery-cascade-"),
+    );
     const service = createSynthesisService({
-      root: "C:/zs-topic-discovery-cascade",
+      root: serviceRoot,
       libraryId: 1,
       synthesisRepository: repository,
       now: () => "2026-05-26T00:00:00.000Z",
@@ -1005,26 +1011,33 @@ describe("Synthesis repository foundation", function () {
       status: "open",
     });
 
-    const snapshot = await service.getSynthesisSnapshot();
-    const rows = Object.fromEntries(
-      snapshot.artifacts.rows.map((row) => [row.id, row]),
-    );
+    try {
+      const snapshot = await service.getSynthesisSnapshot();
+      const rows = Object.fromEntries(
+        snapshot.artifacts.rows.map((row) => [row.id, row]),
+      );
 
-    assert.equal(rows["topic:parent"]?.candidate_count, 2);
-    assert.equal(rows["topic:child"]?.candidate_count, 2);
-    assert.equal(rows["topic:grandchild"]?.candidate_count, 1);
-    assert.equal(rows["topic:suggested"]?.candidate_count, 1);
-    assert.equal(rows["topic:rejected"]?.candidate_count, 1);
-    assert.equal(rows["topic:parent"]?.discovery_status, "candidates");
-    assert.notEqual(rows["topic:parent"]?.updateIntent?.blocked, true);
+      assert.equal(rows["topic:parent"]?.candidate_count, 2);
+      assert.equal(rows["topic:child"]?.candidate_count, 2);
+      assert.equal(rows["topic:grandchild"]?.candidate_count, 1);
+      assert.equal(rows["topic:suggested"]?.candidate_count, 1);
+      assert.equal(rows["topic:rejected"]?.candidate_count, 1);
+      assert.equal(rows["topic:parent"]?.discovery_status, "candidates");
+      assert.notEqual(rows["topic:parent"]?.updateIntent?.blocked, true);
+    } finally {
+      await fs.rm(serviceRoot, { recursive: true, force: true });
+    }
   });
 
   it("rejects and restores topic discovery hints without accept actions", async function () {
     const repository = createSynthesisRepository({
       now: () => "2026-05-26T00:00:00.000Z",
     });
+    const serviceRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-topic-discovery-hints-"),
+    );
     const service = createSynthesisService({
-      root: "C:/zs-topic-discovery-hints",
+      root: serviceRoot,
       libraryId: 1,
       synthesisRepository: repository,
       now: () => "2026-05-26T00:00:00.000Z",
@@ -1038,12 +1051,18 @@ describe("Synthesis repository foundation", function () {
       createdAt: "2026-05-25T00:00:00.000Z",
     });
 
-    const rejected = await service.rejectTopicDiscoveryHint({
-      hintId: "hint:reject-restore",
-    });
-    const restored = await service.restoreTopicDiscoveryHint({
-      hintId: "hint:reject-restore",
-    });
+    let rejected;
+    let restored;
+    try {
+      rejected = await service.rejectTopicDiscoveryHint({
+        hintId: "hint:reject-restore",
+      });
+      restored = await service.restoreTopicDiscoveryHint({
+        hintId: "hint:reject-restore",
+      });
+    } finally {
+      await fs.rm(serviceRoot, { recursive: true, force: true });
+    }
     const rejectCommand = applySynthesisUiAction(
       createDefaultSynthesisUiState(),
       {

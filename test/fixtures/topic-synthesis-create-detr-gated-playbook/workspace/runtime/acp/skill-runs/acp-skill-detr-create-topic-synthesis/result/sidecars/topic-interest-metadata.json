@@ -1,0 +1,9 @@
+{
+  "paper_count": 5,
+  "schema_id": "synthesis.topic_interest_metadata",
+  "schema_version": "1.0.0",
+  "topic_definition": {
+    "id": "detr-style-object-detection",
+    "title": "DETR-style Object Detection"
+  }
+}

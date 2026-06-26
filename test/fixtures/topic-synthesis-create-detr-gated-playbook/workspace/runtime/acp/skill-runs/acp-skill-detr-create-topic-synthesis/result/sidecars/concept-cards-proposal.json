@@ -1,0 +1,27 @@
+{
+  "cards": [
+    {
+      "description": "End-to-end object detection with transformers.",
+      "kind": "topic_root",
+      "label": "DETR"
+    },
+    {
+      "description": "Decoder queries representing predicted objects.",
+      "kind": "method_concept",
+      "label": "object queries"
+    },
+    {
+      "description": "Sparse multi-scale attention used by Deformable DETR.",
+      "kind": "method_concept",
+      "label": "deformable attention"
+    },
+    {
+      "description": "DINO-style auxiliary denoising to stabilize DETR training.",
+      "kind": "training_strategy",
+      "label": "denoising training"
+    }
+  ],
+  "diagnostics": [],
+  "schema_id": "synthesis.concept_cards_proposal",
+  "schema_version": "1.0.0"
+}

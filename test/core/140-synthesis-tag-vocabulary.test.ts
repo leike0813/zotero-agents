@@ -385,13 +385,16 @@ describe("Synthesis tag vocabulary", function () {
     const service = createSynthesisTagVocabularyService({ root });
     const tagVocabPayload = JSON.parse(
       await fs.readFile(
-        path.join(process.cwd(), "reference/Zotero_TagVocab/tags/tags.json"),
+        path.join(
+          process.cwd(),
+          "test/fixtures/synthesis-tag-vocabulary/zotero-tagvocab-sample.json",
+        ),
         "utf8",
       ),
     );
 
     const preview = await service.previewImport(tagVocabPayload);
-    assert.isAbove(preview.additions.length, 200);
+    assert.equal(preview.additions.length, tagVocabPayload.tags.length);
     assert.include(
       preview.additions.map((entry) => entry.tag),
       "ai_task:NER",
@@ -409,6 +412,11 @@ describe("Synthesis tag vocabulary", function () {
     const snapshot = await service.loadTagVocabulary();
     assert.equal(snapshot.entries.length, tagVocabPayload.tags.length);
     assert.equal(snapshot.abbrev.lidar, "LiDAR");
+    assert.equal(snapshot.abbrev.cnn, "CNN");
+    assert.include(
+      snapshot.entries.map((entry) => entry.tag),
+      "data:LiDAR",
+    );
     assert.include(
       await service.exportTagVocabularyForRegulator(),
       "ai_task:NER",

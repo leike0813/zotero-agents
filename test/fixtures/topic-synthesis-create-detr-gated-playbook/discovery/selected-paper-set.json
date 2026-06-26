@@ -1,0 +1,57 @@
+{
+  "papers": [
+    {
+      "item_key": "EIMSDEU3",
+      "match_reasons": [
+        "tag_query"
+      ],
+      "paper_ref": "1:EIMSDEU3",
+      "selection_reason": "DETR 原始论文，定义 query-based set prediction 与端到端检测基线。",
+      "title": "End-to-end object detection with transformers"
+    },
+    {
+      "item_key": "5HBHAWIV",
+      "match_reasons": [
+        "tag_query"
+      ],
+      "paper_ref": "1:5HBHAWIV",
+      "selection_reason": "代表性改进，针对 DETR 收敛慢和多尺度小目标问题引入 deformable attention。",
+      "title": "Deformable DETR: deformable transformers for end-to-end object detection"
+    },
+    {
+      "item_key": "HPLZ65Z2",
+      "match_reasons": [
+        "tag_query"
+      ],
+      "paper_ref": "1:HPLZ65Z2",
+      "selection_reason": "训练/收敛问题代表，通过 denoising 与 anchor query 改善 DETR 训练稳定性。",
+      "title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection"
+    },
+    {
+      "item_key": "3JUY9GBQ",
+      "match_reasons": [
+        "tag_query"
+      ],
+      "paper_ref": "1:3JUY9GBQ",
+      "selection_reason": "检测范式扩展，把 DETR 查询机制推进到多视角 3D 检测。",
+      "title": "DETR3D: 3D object detection from multi-view images via 3D-to-2D queries"
+    },
+    {
+      "item_key": "SZ3GNWT9",
+      "match_reasons": [
+        "tag_query"
+      ],
+      "paper_ref": "1:SZ3GNWT9",
+      "selection_reason": "近期高相关变体，面向 real-time detection transformers 和架构搜索。",
+      "title": "RF-DETR: neural architecture search for real-time detection transformers"
+    }
+  ],
+  "resolver_returned": 22,
+  "resolver_total": 22,
+  "schema_id": "synthesis.topic_synthesis_selected_paper_set",
+  "schema_version": "1.0.0",
+  "selected_count": 5,
+  "selection_policy": "从真实 model:DL/DETR resolver 结果中确定性选择 5 篇：原始 DETR、代表性改进、训练/收敛、范式扩展、近期高相关变体。",
+  "topic_seed": "DETR",
+  "unused_resolver_paper_count": 17
+}

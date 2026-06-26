@@ -1,5 +1,7 @@
 import { assert } from "chai";
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { config } from "../../package.json";
 import {
   ACP_OPENCODE_BACKEND_ID,
@@ -65,6 +67,7 @@ import type {
   RequestPermissionOutcome,
   SessionNotification,
 } from "../../src/modules/acpProtocol";
+import { joinPath } from "../../src/utils/path";
 
 class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   readonly updates = new Set<AcpConnectionUpdateListener>();
@@ -577,10 +580,14 @@ describe("acp session manager", function () {
   let lastAdapter: FakeAcpConnectionAdapter | null;
   let lastFactoryArgs: AcpConnectionAdapterFactoryArgs | null;
   let previousBackendsPref: unknown;
+  let previousDataDirectory: unknown;
 
   beforeEach(function () {
     lastAdapter = null;
     lastFactoryArgs = null;
+    previousDataDirectory = (
+      Zotero as typeof Zotero & { DataDirectory?: unknown }
+    ).DataDirectory;
     previousBackendsPref = Zotero.Prefs.get(
       `${config.prefsPrefix}.backendsConfigJson`,
       true,
@@ -600,6 +607,8 @@ describe("acp session manager", function () {
     setAcpConnectionAdapterFactoryForTests();
     resetAcpSessionManagerForTests();
     resetPluginStateStoreForTests();
+    (Zotero as typeof Zotero & { DataDirectory?: unknown }).DataDirectory =
+      previousDataDirectory as typeof Zotero.DataDirectory;
     if (typeof previousBackendsPref === "undefined") {
       Zotero.Prefs.clear(`${config.prefsPrefix}.backendsConfigJson`, true);
     } else {
@@ -1431,168 +1440,193 @@ describe("acp session manager", function () {
   });
 
   it("creates an ACP session on demand, merges streamed assistant chunks, and persists transcript state", async function () {
+    const dataDirectory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-data-"),
+    );
     (
       Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }
     ).DataDirectory = {
-      dir: "D:\\ZoteroData",
+      dir: dataDirectory,
     };
-    await sendAcpConversationPrompt({
-      message: "Hello ACP",
-      hostContext: {
-        target: "library",
-        selectionEmpty: true,
-      },
-    });
+    try {
+      await sendAcpConversationPrompt({
+        message: "Hello ACP",
+        hostContext: {
+          target: "library",
+          selectionEmpty: true,
+        },
+      });
 
-    const snapshot = getAcpConversationSnapshot();
-    assert.equal(snapshot.backendId, ACP_OPENCODE_BACKEND_ID);
-    assert.equal(snapshot.status, "connected");
-    assert.equal(snapshot.commandLabel, "npx opencode-ai@latest acp");
-    assert.equal(snapshot.commandLine, "npx opencode-ai@latest acp");
-    assert.equal(snapshot.agentLabel, "OpenCode");
-    assert.equal(snapshot.agentVersion, "1.2.3");
-    const expectedStoragePaths = resolveAcpChatRuntimePaths(
-      ACP_OPENCODE_BACKEND_ID,
-      snapshot.conversationId,
-    );
-    assert.equal(
-      snapshot.agentWorkspaceDir,
-      expectedStoragePaths.agentWorkspaceDir,
-    );
-    assert.equal(
-      snapshot.conversationStorageDir,
-      expectedStoragePaths.conversationStorageDir,
-    );
-    assert.equal(snapshot.sessionCwd, expectedStoragePaths.agentWorkspaceDir);
-    assert.equal(snapshot.workspaceDir, expectedStoragePaths.agentWorkspaceDir);
-    assert.equal(snapshot.lastLifecycleEvent, "prompt_finished");
-    assert.equal(snapshot.sessionId, "session-1");
-    assert.equal(snapshot.remoteSessionId, "session-1");
-    assert.equal(snapshot.sessionTitle, "OpenCode session");
-    assert.equal(snapshot.sessionUpdatedAt, "2026-04-22T01:23:45.000Z");
-    assert.equal(snapshot.lastStopReason, "end_turn");
-    assert.deepEqual(snapshot.currentMode, {
-      id: "code",
-      label: "Code",
-      description: "Act directly",
-    });
-    assert.deepEqual(snapshot.currentModel, {
-      id: "gpt-5.4",
-      label: "GPT-5.4",
-      description: "Default model",
-    });
-    assert.lengthOf(snapshot.availableCommands, 1);
-    assert.deepEqual(snapshot.usage, {
-      used: 1200,
-      size: 8000,
-    });
-    assert.isAtLeast(snapshot.items.length, 5);
-    assert.deepInclude(
-      snapshot.items.find(
-        (entry) => entry.kind === "message" && entry.role === "user",
-      ) || {},
-      {
-        role: "user",
-        text: "Hello ACP",
-      },
-    );
-    assert.deepInclude(
-      snapshot.items.find((entry) => entry.kind === "thought") || {},
-      {
-        text: "Checking the workspace and planning the next step.",
-      },
-    );
-    assert.deepInclude(
-      snapshot.items.find((entry) => entry.kind === "tool_call") || {},
-      {
-        title: "Inspect notes",
-        state: "completed",
-      },
-    );
-    const plan = snapshot.items.find((entry) => entry.kind === "plan") as
-      | { entries?: Array<{ status?: string }> }
-      | undefined;
-    assert.deepEqual(
-      plan?.entries?.map((entry) => entry.status),
-      ["completed", "skipped"],
-    );
-    assert.deepInclude(
-      snapshot.items.find(
-        (entry) => entry.kind === "message" && entry.role === "assistant",
-      ) || {},
-      {
-        role: "assistant",
-        text: "Echo: Hello ACP",
-      },
-    );
-    assert.isAtLeast(snapshot.diagnostics.length, 4);
-    assert.isOk(lastAdapter);
-    assert.isOk(lastFactoryArgs);
-    assert.equal(lastAdapter?.initializeCalls, 1);
-    assert.deepEqual(lastAdapter?.sessionIds, ["session-1"]);
-    assert.equal(lastAdapter?.prompts.length, 1);
-    assert.include(lastAdapter?.prompts[0] || "", "Hello ACP");
-    assert.notInclude(
-      lastAdapter?.prompts[0] || "",
-      "[Zotero Host Bridge CLI]",
-    );
-    const chatWrapperSkill = await fs.readFile(
-      `${expectedStoragePaths.agentWorkspaceDir}/.agents/skills/zotero-bridge-cli/SKILL.md`,
-      "utf8",
-    );
-    assert.include(chatWrapperSkill, "Zotero Bridge CLI");
-    assert.isOk(
-      snapshot.diagnostics.find(
-        (entry) => entry.kind === "host_bridge_cli_wrapper_skill_ready",
-      ),
-    );
-    assert.isString(lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE);
-    assert.include(
-      lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE || "",
-      ".zotero-bridge",
-    );
-    assert.equal(
-      lastFactoryArgs?.agentWorkspaceDir,
-      expectedStoragePaths.agentWorkspaceDir,
-    );
-    assert.equal(
-      lastFactoryArgs?.sessionCwd,
-      expectedStoragePaths.agentWorkspaceDir,
-    );
-    assert.equal(
-      lastFactoryArgs?.workspaceDir,
-      expectedStoragePaths.agentWorkspaceDir,
-    );
-    assert.equal(lastFactoryArgs?.runtimeDir, expectedStoragePaths.runtimeDir);
+      const snapshot = getAcpConversationSnapshot();
+      assert.equal(snapshot.backendId, ACP_OPENCODE_BACKEND_ID);
+      assert.equal(snapshot.status, "connected");
+      assert.equal(snapshot.commandLabel, "npx opencode-ai@latest acp");
+      assert.equal(snapshot.commandLine, "npx opencode-ai@latest acp");
+      assert.equal(snapshot.agentLabel, "OpenCode");
+      assert.equal(snapshot.agentVersion, "1.2.3");
+      const expectedStoragePaths = resolveAcpChatRuntimePaths(
+        ACP_OPENCODE_BACKEND_ID,
+        snapshot.conversationId,
+      );
+      assert.equal(
+        snapshot.agentWorkspaceDir,
+        expectedStoragePaths.agentWorkspaceDir,
+      );
+      assert.equal(
+        snapshot.conversationStorageDir,
+        expectedStoragePaths.conversationStorageDir,
+      );
+      assert.equal(snapshot.sessionCwd, expectedStoragePaths.agentWorkspaceDir);
+      assert.equal(
+        snapshot.workspaceDir,
+        expectedStoragePaths.agentWorkspaceDir,
+      );
+      assert.equal(snapshot.lastLifecycleEvent, "prompt_finished");
+      assert.equal(snapshot.sessionId, "session-1");
+      assert.equal(snapshot.remoteSessionId, "session-1");
+      assert.equal(snapshot.sessionTitle, "OpenCode session");
+      assert.equal(snapshot.sessionUpdatedAt, "2026-04-22T01:23:45.000Z");
+      assert.equal(snapshot.lastStopReason, "end_turn");
+      assert.deepEqual(snapshot.currentMode, {
+        id: "code",
+        label: "Code",
+        description: "Act directly",
+      });
+      assert.deepEqual(snapshot.currentModel, {
+        id: "gpt-5.4",
+        label: "GPT-5.4",
+        description: "Default model",
+      });
+      assert.lengthOf(snapshot.availableCommands, 1);
+      assert.deepEqual(snapshot.usage, {
+        used: 1200,
+        size: 8000,
+      });
+      assert.isAtLeast(snapshot.items.length, 5);
+      assert.deepInclude(
+        snapshot.items.find(
+          (entry) => entry.kind === "message" && entry.role === "user",
+        ) || {},
+        {
+          role: "user",
+          text: "Hello ACP",
+        },
+      );
+      assert.deepInclude(
+        snapshot.items.find((entry) => entry.kind === "thought") || {},
+        {
+          text: "Checking the workspace and planning the next step.",
+        },
+      );
+      assert.deepInclude(
+        snapshot.items.find((entry) => entry.kind === "tool_call") || {},
+        {
+          title: "Inspect notes",
+          state: "completed",
+        },
+      );
+      const plan = snapshot.items.find((entry) => entry.kind === "plan") as
+        | { entries?: Array<{ status?: string }> }
+        | undefined;
+      assert.deepEqual(
+        plan?.entries?.map((entry) => entry.status),
+        ["completed", "skipped"],
+      );
+      assert.deepInclude(
+        snapshot.items.find(
+          (entry) => entry.kind === "message" && entry.role === "assistant",
+        ) || {},
+        {
+          role: "assistant",
+          text: "Echo: Hello ACP",
+        },
+      );
+      assert.isAtLeast(snapshot.diagnostics.length, 4);
+      assert.isOk(lastAdapter);
+      assert.isOk(lastFactoryArgs);
+      assert.equal(lastAdapter?.initializeCalls, 1);
+      assert.deepEqual(lastAdapter?.sessionIds, ["session-1"]);
+      assert.equal(lastAdapter?.prompts.length, 1);
+      assert.include(lastAdapter?.prompts[0] || "", "Hello ACP");
+      assert.notInclude(
+        lastAdapter?.prompts[0] || "",
+        "[Zotero Host Bridge CLI]",
+      );
+      const chatWrapperSkill = await fs.readFile(
+        joinPath(
+          expectedStoragePaths.agentWorkspaceDir,
+          ".agents",
+          "skills",
+          "zotero-bridge-cli",
+          "SKILL.md",
+        ),
+        "utf8",
+      );
+      assert.include(chatWrapperSkill, "Zotero Bridge CLI");
+      assert.isOk(
+        snapshot.diagnostics.find(
+          (entry) => entry.kind === "host_bridge_cli_wrapper_skill_ready",
+        ),
+      );
+      assert.isString(lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE);
+      assert.include(
+        lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE || "",
+        ".zotero-bridge",
+      );
+      assert.equal(
+        lastFactoryArgs?.agentWorkspaceDir,
+        expectedStoragePaths.agentWorkspaceDir,
+      );
+      assert.equal(
+        lastFactoryArgs?.sessionCwd,
+        expectedStoragePaths.agentWorkspaceDir,
+      );
+      assert.equal(
+        lastFactoryArgs?.workspaceDir,
+        expectedStoragePaths.agentWorkspaceDir,
+      );
+      assert.equal(
+        lastFactoryArgs?.runtimeDir,
+        expectedStoragePaths.runtimeDir,
+      );
 
-    const persisted = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
-    assert.equal(persisted.snapshot.sessionId, "");
-    assert.equal(persisted.snapshot.remoteSessionId, "session-1");
-    assert.equal(persisted.snapshot.commandLabel, "npx opencode-ai@latest acp");
-    assert.equal(persisted.snapshot.commandLine, "npx opencode-ai@latest acp");
-    assert.equal(persisted.snapshot.agentLabel, "OpenCode");
-    assert.equal(persisted.snapshot.currentMode?.id, "code");
-    assert.equal(persisted.snapshot.currentModel?.id, "gpt-5.4");
-    assert.equal(persisted.snapshot.lastStopReason, "end_turn");
-    assert.equal(
-      persisted.snapshot.agentWorkspaceDir,
-      expectedStoragePaths.agentWorkspaceDir,
-    );
-    assert.equal(
-      persisted.snapshot.conversationStorageDir,
-      expectedStoragePaths.conversationStorageDir,
-    );
-    assert.equal(
-      persisted.snapshot.sessionCwd,
-      expectedStoragePaths.agentWorkspaceDir,
-    );
-    assert.isAtLeast(persisted.items.length, 5);
-    assert.equal(
-      persisted.items.find(
-        (entry) => entry.kind === "message" && entry.role === "assistant",
-      )?.text,
-      "Echo: Hello ACP",
-    );
+      const persisted = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
+      assert.equal(persisted.snapshot.sessionId, "");
+      assert.equal(persisted.snapshot.remoteSessionId, "session-1");
+      assert.equal(
+        persisted.snapshot.commandLabel,
+        "npx opencode-ai@latest acp",
+      );
+      assert.equal(
+        persisted.snapshot.commandLine,
+        "npx opencode-ai@latest acp",
+      );
+      assert.equal(persisted.snapshot.agentLabel, "OpenCode");
+      assert.equal(persisted.snapshot.currentMode?.id, "code");
+      assert.equal(persisted.snapshot.currentModel?.id, "gpt-5.4");
+      assert.equal(persisted.snapshot.lastStopReason, "end_turn");
+      assert.equal(
+        persisted.snapshot.agentWorkspaceDir,
+        expectedStoragePaths.agentWorkspaceDir,
+      );
+      assert.equal(
+        persisted.snapshot.conversationStorageDir,
+        expectedStoragePaths.conversationStorageDir,
+      );
+      assert.equal(
+        persisted.snapshot.sessionCwd,
+        expectedStoragePaths.agentWorkspaceDir,
+      );
+      assert.isAtLeast(persisted.items.length, 5);
+      assert.equal(
+        persisted.items.find(
+          (entry) => entry.kind === "message" && entry.role === "assistant",
+        )?.text,
+        "Echo: Hello ACP",
+      );
+    } finally {
+      await fs.rm(dataDirectory, { recursive: true, force: true });
+    }
   });
 
   it("keeps parallel ACP backend slots isolated and routes actions to the active backend", async function () {

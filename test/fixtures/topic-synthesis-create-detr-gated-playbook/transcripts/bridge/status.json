@@ -1,0 +1,14 @@
+{
+  "data": {
+    "authRequired": true,
+    "bindMode": "lan",
+    "lanEnabled": true,
+    "protocol": "host-bridge.v1",
+    "status": "running"
+  },
+  "meta": {
+    "cli": "zotero-bridge",
+    "schema": "zotero-bridge.cli.v1"
+  },
+  "ok": true
+}

@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "<redacted-local-path>",
+    "<redacted-local-path>",
+    "--db",
+    "runtime/topic-synthesis.sqlite"
+  ],
+  "cwd": "<redacted-local-path>",
+  "name": "23-finalize-gate-completed",
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"needs_payload\": false, \"operation\": \"create\", \"output\": {\"__SKILL_DONE__\": true, \"analysis_manifest_path\": \"result/topic-analysis.json\", \"artifact_metadata\": {\"runtime\": \"split-skill\"}, \"candidate_output_path\": \"result/final-output.candidate.json\", \"diagnostics\": [], \"kind\": \"topic_synthesis\", \"language\": \"zh-CN\", \"operation\": \"create\", \"resolver_diagnostics\": {\"final_count\": 5, \"warnings\": []}, \"resolver_manifest_path\": \"runtime/payloads/resolver.json\", \"topic_definition\": {\"id\": \"detr-style-object-detection\", \"title\": \"DETR-style Object Detection\"}}, \"schema_id\": \"synthesis.topic_synthesis_gate_instruction\", \"schema_version\": \"1.0.0\", \"skill_id\": \"topic-synthesis-finalize\", \"stage\": \"completed\", \"status\": \"completed\", \"task\": \"本 skill 已完成。\"}\r\n",
+  "timestamp": "2026-06-06T08:11:55.627097+00:00"
+}

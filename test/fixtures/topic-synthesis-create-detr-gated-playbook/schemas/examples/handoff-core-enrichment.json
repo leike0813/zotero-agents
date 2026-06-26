@@ -1,0 +1,34 @@
+{
+  "artifacts": {
+    "concept_cards_proposal": {
+      "hash": "sha256:951d05e3466a6536e0fa931f503200c6dc227b01cd6bf592cc1b32a78beb9899",
+      "path": "result/sidecars/concept-cards-proposal.json"
+    },
+    "finalize_context_manifest": {
+      "hash": "sha256:08fca7dc3af6fc0dbe72cc4edeea95de2a9192f5e4ffe3fe4478b806666504f3",
+      "path": "runtime/views/finalize-context.manifest.json"
+    },
+    "stage_40_core_synthesis_payload": {
+      "hash": "sha256:c75c99325174fedcfa86a66b681365b2f80e82a20f100fa515a26fd7e1638608",
+      "path": "runtime/payloads/core-synthesis.json"
+    },
+    "stage_50_kg_enrichment_payload": {
+      "hash": "sha256:c9510936d396616eb32a24df8b100e934ddd3566353a3a66a116c9531f3908f9",
+      "path": "runtime/payloads/kg-enrichment.json"
+    },
+    "topic_graph_relation_proposals": {
+      "hash": "sha256:4d9b79357c2f9cd64ed981a8c6ee64e02ad17b3a0669acf8ca5dbda7bd660fb0",
+      "path": "result/sidecars/topic-graph-relation-proposals.json"
+    },
+    "topic_interest_metadata": {
+      "hash": "sha256:82836d656181550d765bd774a5a7ee01f4451b74c772f90fe57e8ddc235583f4",
+      "path": "result/sidecars/topic-interest-metadata.json"
+    }
+  },
+  "db_path": "runtime/topic-synthesis.sqlite",
+  "diagnostics": [],
+  "handoff": "core_enrichment",
+  "schema_id": "synthesis.skill_handoff",
+  "schema_version": "1.0.0",
+  "stage": "stage_50_kg_enrichment"
+}

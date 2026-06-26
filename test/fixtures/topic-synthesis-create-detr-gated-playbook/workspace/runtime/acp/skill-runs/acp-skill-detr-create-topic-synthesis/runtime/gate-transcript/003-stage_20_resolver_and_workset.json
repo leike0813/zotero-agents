@@ -1,0 +1,18 @@
+{
+  "command": "python \"D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\skills_builtin\\create-topic-synthesis-prepare\\scripts\\gate.py\" --db \"runtime/topic-synthesis.sqlite\" --action run",
+  "db_path": "runtime/topic-synthesis.sqlite",
+  "needs_payload": true,
+  "operation": "create",
+  "payload_path": "runtime/payloads/resolver-and-workset.json",
+  "payload_schema": "assets/schemas/stage-20-resolver-and-workset.schema.json",
+  "required_reads": [
+    "zotero-bridge synthesis get-library-index --input '{\"cursor\":0,\"limit\":200}'"
+  ],
+  "schema_id": "synthesis.topic_synthesis_gate_instruction",
+  "schema_version": "1.0.0",
+  "skill_id": "create-topic-synthesis-prepare",
+  "stage": "stage_20_resolver_and_workset",
+  "stage_kind": "payload",
+  "submit_command": "python \"D:\\Workspace\\Code\\JavaScript\\Zotero-Skills\\skills_builtin\\create-topic-synthesis-prepare\\scripts\\gate.py\" --db \"runtime/topic-synthesis.sqlite\" --action submit --payload \"runtime/payloads/resolver-and-workset.json\"",
+  "task": "编写 resolver proposal；runtime 会执行 resolver、图谱指标和 artifact export。"
+}

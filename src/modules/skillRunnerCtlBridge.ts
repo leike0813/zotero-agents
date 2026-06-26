@@ -7,6 +7,11 @@ import {
   resolveWindowsCommandFromPowerShell,
 } from "./windowsCommandResolution";
 import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
+import {
+  getParentPath,
+  isAbsolutePathLike,
+  joinNativePath,
+} from "../platform/path";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -147,72 +152,15 @@ function resolveTempRoot() {
 }
 
 function joinFsPath(...segments: string[]) {
-  const separator = detectWindows() ? "\\" : "/";
-  const normalizedSegments = segments
-    .map((entry) => String(entry || "").trim())
-    .filter(Boolean);
-  if (normalizedSegments.length === 0) {
-    return "";
-  }
-  const first = normalizedSegments[0];
-  const isPosixAbsolute = first.startsWith("/");
-  const driveMatch = first.match(/^([A-Za-z]:)[\\/]?/);
-  const drivePrefix = driveMatch?.[1] || "";
-  const flattened = normalizedSegments
-    .flatMap((entry) => entry.split(/[\\/]+/))
-    .filter(Boolean);
-  if (
-    drivePrefix &&
-    flattened[0]?.toLowerCase() === drivePrefix.toLowerCase()
-  ) {
-    flattened.shift();
-  }
-  const joined = flattened.join(separator);
-  if (drivePrefix) {
-    return `${drivePrefix}${separator}${joined}`;
-  }
-  if (isPosixAbsolute) {
-    return `${separator}${joined}`;
-  }
-  return joined;
+  return joinNativePath(...segments);
 }
 
 function getParentFsPath(pathValue: string) {
-  const normalized = normalizeString(pathValue).replace(/[\\/]+$/g, "");
-  if (!normalized) {
-    return "";
-  }
-  if (normalized === "/" || normalized === "\\") {
-    return normalized;
-  }
-  if (/^[A-Za-z]:$/i.test(normalized)) {
-    return `${normalized}\\`;
-  }
-  const lastSlashIndex = Math.max(
-    normalized.lastIndexOf("/"),
-    normalized.lastIndexOf("\\"),
-  );
-  if (lastSlashIndex < 0) {
-    return "";
-  }
-  if (lastSlashIndex === 0) {
-    return normalized[0];
-  }
-  if (lastSlashIndex === 2 && /^[A-Za-z]:/.test(normalized)) {
-    return `${normalized.slice(0, 2)}\\`;
-  }
-  return normalized.slice(0, lastSlashIndex);
+  return getParentPath(pathValue);
 }
 
 function isAbsoluteFsPath(pathValue: string) {
-  const normalized = normalizeString(pathValue);
-  if (!normalized) {
-    return false;
-  }
-  if (detectWindows()) {
-    return /^[A-Za-z]:[\\/]/.test(normalized) || /^\\\\/.test(normalized);
-  }
-  return normalized.startsWith("/");
+  return isAbsolutePathLike(pathValue);
 }
 
 function toPosixSingleQuotedLiteral(raw: string) {

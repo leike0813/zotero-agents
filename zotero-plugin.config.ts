@@ -83,7 +83,7 @@ export default defineConfig({
   },
 
   build: {
-    assets: ["addon/**/*.*", "addon/bin/**/*"],
+    assets: ["addon/**/*.*", "addon/bin/**/*", "addon/bin/**/zotero-bridge"],
     define: {
       ...pkg.config,
       author: pkg.author,

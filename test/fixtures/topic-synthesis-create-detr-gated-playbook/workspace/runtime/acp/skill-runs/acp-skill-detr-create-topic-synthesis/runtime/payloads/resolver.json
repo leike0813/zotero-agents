@@ -1,0 +1,98 @@
+{
+  "diagnostics": [
+    {
+      "code": "bounded_playbook_workset",
+      "message": "为构建可维护的全仿真 playbook，paper triage 与 cross-paper context 限定为 5 篇代表论文。",
+      "resolver_total": 22,
+      "selected_count": 5
+    }
+  ],
+  "operation_intent": "create",
+  "paper_refs": [
+    "1:3JUY9GBQ",
+    "1:5HBHAWIV",
+    "1:EIMSDEU3",
+    "1:HPLZ65Z2",
+    "1:SZ3GNWT9"
+  ],
+  "resolution_result": {
+    "cursor": "0",
+    "diagnostics": {
+      "final_count": 5,
+      "rejected": false,
+      "total_candidates": 65
+    },
+    "errors": [],
+    "has_more": false,
+    "limit": 100,
+    "next_cursor": "",
+    "normalized_resolver": {
+      "mode": "explicit",
+      "paper_refs": [
+        "1:EIMSDEU3",
+        "1:5HBHAWIV",
+        "1:HPLZ65Z2",
+        "1:3JUY9GBQ",
+        "1:SZ3GNWT9"
+      ]
+    },
+    "ok": true,
+    "papers": [
+      {
+        "item_key": "3JUY9GBQ",
+        "match_reasons": [
+          "explicit"
+        ],
+        "paper_ref": "1:3JUY9GBQ",
+        "title": "DETR3D: 3D object detection from multi-view images via 3D-to-2D queries"
+      },
+      {
+        "item_key": "5HBHAWIV",
+        "match_reasons": [
+          "explicit"
+        ],
+        "paper_ref": "1:5HBHAWIV",
+        "title": "Deformable DETR: deformable transformers for end-to-end object detection"
+      },
+      {
+        "item_key": "EIMSDEU3",
+        "match_reasons": [
+          "explicit"
+        ],
+        "paper_ref": "1:EIMSDEU3",
+        "title": "End-to-end object detection with transformers"
+      },
+      {
+        "item_key": "HPLZ65Z2",
+        "match_reasons": [
+          "explicit"
+        ],
+        "paper_ref": "1:HPLZ65Z2",
+        "title": "DINO: DETR with improved DeNoising anchor boxes for end-to-end object detection"
+      },
+      {
+        "item_key": "SZ3GNWT9",
+        "match_reasons": [
+          "explicit"
+        ],
+        "paper_ref": "1:SZ3GNWT9",
+        "title": "RF-DETR: neural architecture search for real-time detection transformers"
+      }
+    ],
+    "returned": 5,
+    "total": 5
+  },
+  "resolver": {
+    "mode": "explicit",
+    "paper_refs": [
+      "1:EIMSDEU3",
+      "1:5HBHAWIV",
+      "1:HPLZ65Z2",
+      "1:3JUY9GBQ",
+      "1:SZ3GNWT9"
+    ]
+  },
+  "resolver_reasoning": "先用真实 `model:DL/DETR` tag_query resolver 获得 22 篇候选；正式 gated run 只纳入 5 篇代表论文，覆盖原始 DETR、Deformable/DINO 收敛改进、DETR3D 范式扩展和 RF-DETR 近期实时变体。",
+  "schema_id": "synthesis.topic_synthesis_resolver_manifest",
+  "schema_version": "1.0.0"
+}

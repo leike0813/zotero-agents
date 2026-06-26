@@ -5,11 +5,17 @@ import { pathToFileURL } from "url";
 import { chromium, type Browser, type Page } from "playwright";
 
 const sampleRoot = path.resolve(
-  "artifact",
+  "test",
+  "fixtures",
   "literature-deep-reading-detr-sample",
 );
 const sampleHtml = path.join(sampleRoot, "result", "deep-reading.html");
-const screenshotRoot = path.join(sampleRoot, "visual-regression", "latest");
+const screenshotRoot = path.resolve(
+  "artifact",
+  "test-diagnostics",
+  "literature-deep-reading-detr-visual",
+  "latest",
+);
 
 type BrowserDiagnostics = {
   consoleErrors: string[];

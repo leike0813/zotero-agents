@@ -1,4 +1,10 @@
 import { joinPath } from "../utils/path";
+import {
+  readRuntimeEnv,
+  readRuntimePathEnv,
+  splitPathEntries,
+} from "../platform/env";
+import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import { runtimePathExists } from "./runtimePersistence";
 
 export type HostBridgeCliResolution =
@@ -26,63 +32,27 @@ function dirname(pathRaw: string) {
 }
 
 function resolveRuntimeEnv(name: string) {
-  const runtime = globalThis as {
-    process?: { env?: Record<string, string | undefined>; platform?: string };
-    Services?: { env?: { get?: (name: string) => string } };
-    Zotero?: { isWin?: boolean; isMac?: boolean; isLinux?: boolean };
-  };
-  const processValue = normalizeString(runtime.process?.env?.[name]);
-  if (processValue) {
-    return processValue;
-  }
-  try {
-    return normalizeString(runtime.Services?.env?.get?.(name));
-  } catch {
-    return "";
-  }
+  return readRuntimeEnv(name);
 }
 
 function resolveRuntimePathEnv() {
-  return (
-    resolveRuntimeEnv("PATH") ||
-    resolveRuntimeEnv("Path") ||
-    resolveRuntimeEnv("path")
-  );
-}
-
-function pathDelimiter() {
-  const runtime = globalThis as {
-    process?: { platform?: string };
-    Zotero?: { isWin?: boolean };
-  };
-  return runtime.Zotero?.isWin || runtime.process?.platform === "win32"
-    ? ";"
-    : ":";
+  return readRuntimePathEnv();
 }
 
 function buildPathCandidates(args: { pathValue: string; binary: string }) {
   return uniqueStrings(
-    normalizeString(args.pathValue)
-      .split(pathDelimiter())
-      .map((entry) => normalizeString(entry))
-      .filter(Boolean)
-      .map((entry) => joinPath(entry, args.binary)),
+    splitPathEntries(args.pathValue).map((entry) =>
+      joinPath(entry, args.binary),
+    ),
   );
 }
 
 function resolveRuntimePlatform() {
   const runtime = globalThis as {
-    process?: { platform?: string; arch?: string };
-    Zotero?: { isWin?: boolean; isMac?: boolean; isLinux?: boolean };
+    process?: { arch?: string };
   };
   return resolveHostBridgeCliPlatform({
-    platform: runtime.Zotero?.isWin
-      ? "win32"
-      : runtime.Zotero?.isMac
-        ? "darwin"
-        : runtime.Zotero?.isLinux
-          ? "linux"
-          : runtime.process?.platform,
+    platform: detectRuntimePlatform(),
     arch: runtime.process?.arch,
   });
 }
