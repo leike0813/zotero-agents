@@ -1,13 +1,13 @@
 import type { BackendInstance } from "../backends/types";
 import { buildAcpLaunchPlanForTests } from "./acpTransport";
-import {
-  resolveTrustedPathSearchResult,
-  resolveWindowsCommandFromGlobalNpmRoot,
-  resolveWindowsCommandFromNodeInstallRoot,
-  resolveWindowsCommandFromPowerShell,
-  resolveWindowsCommandFromUserLocalBin,
-} from "./windowsCommandResolution";
 import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
+import {
+  getCachedRuntimeCommand,
+  getPrimaryPythonCommand,
+  getRuntimeCommandRegistrySnapshot,
+  resolveRuntimeCommandForLaunch,
+  type RuntimeCommandResolution,
+} from "../platform/command";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -47,6 +47,7 @@ export type AcpRuntimeDependencyPlan = {
     level: "info" | "warning" | "error";
     code: string;
     message: string;
+    details?: Record<string, unknown>;
   };
 };
 
@@ -57,33 +58,21 @@ export type AcpRuntimeDependencyProbe = (args: {
   cwd: string;
   env: Record<string, string>;
   timeoutMs: number;
-}) => Promise<{ ok: boolean; summary?: string }>;
+}) => Promise<{
+  ok: boolean;
+  summary?: string;
+  readiness?:
+    | "uv_dependency_environment_ready"
+    | "uv_dependency_resolution_failed"
+    | "system_python_dependencies_ready"
+    | "system_python_dependencies_missing"
+    | "runtime_dependency_strategy_unavailable";
+  strategy?: "uv" | "system-python" | "unavailable";
+  details?: Record<string, unknown>;
+}>;
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
-}
-
-function detectWindowsPlatform(platform?: string) {
-  const runtime = globalThis as {
-    Zotero?: { isWin?: boolean };
-    process?: { platform?: string };
-  };
-  if (typeof platform === "string" && platform.trim()) {
-    return platform.trim().toLowerCase() === "win32";
-  }
-  if (typeof runtime.Zotero?.isWin === "boolean") {
-    return runtime.Zotero.isWin;
-  }
-  return String(runtime.process?.platform || "").toLowerCase() === "win32";
-}
-
-function isPathLikeCommand(commandRaw: string) {
-  const command = normalizeString(commandRaw);
-  return (
-    /[\\/]/.test(command) ||
-    /^[A-Za-z]:[\\/]/.test(command) ||
-    command.startsWith("/")
-  );
 }
 
 function getMozillaSubprocessModule() {
@@ -219,86 +208,8 @@ async function waitMozillaProcessExit(proc: {
   return extractExitCode(proc) ?? 0;
 }
 
-async function resolveMozillaProbeCommand(
-  subprocess: MozillaSubprocessModule,
-  commandRaw: string,
-) {
-  const command = normalizeString(commandRaw);
-  if (!command) {
-    throw new Error("ACP runtime dependency probe command is required");
-  }
-  if (isPathLikeCommand(command)) {
-    return command;
-  }
-  const platform = detectWindowsPlatform() ? "win32" : undefined;
-  const resolvedFromPathSearch = await resolveTrustedPathSearchResult({
-    command,
-    pathSearch: subprocess.pathSearch,
-    platform,
-  });
-  if (resolvedFromPathSearch) {
-    return resolvedFromPathSearch;
-  }
-  if (detectWindowsPlatform()) {
-    const resolvedFromPowerShell =
-      await resolveWindowsCommandFromPowerShell(command);
-    if (resolvedFromPowerShell.length > 0) {
-      return normalizeString(resolvedFromPowerShell[0]);
-    }
-    const resolvedFromUserLocalBin =
-      await resolveWindowsCommandFromUserLocalBin(command);
-    if (resolvedFromUserLocalBin.length > 0) {
-      return normalizeString(resolvedFromUserLocalBin[0]);
-    }
-    const resolvedFromGlobalNpm =
-      await resolveWindowsCommandFromGlobalNpmRoot(command);
-    if (resolvedFromGlobalNpm.length > 0) {
-      return normalizeString(resolvedFromGlobalNpm[0]);
-    }
-    const resolvedFromNodeInstall =
-      await resolveWindowsCommandFromNodeInstallRoot(command);
-    if (resolvedFromNodeInstall.length > 0) {
-      return normalizeString(resolvedFromNodeInstall[0]);
-    }
-  }
-  throw new Error(
-    `Command "${command}" was not found in PATH for ACP runtime dependency probe`,
-  );
-}
-
-async function resolveZoteroInternalUvCommand() {
-  return resolveWindowsCommandForUvWrapper("uv");
-}
-
-async function resolveWindowsCommandForUvWrapper(commandRaw: string) {
-  const command = normalizeString(commandRaw);
-  if (!command || !detectWindowsPlatform() || isPathLikeCommand(command)) {
-    return command;
-  }
-  const resolvedFromPowerShell =
-    await resolveWindowsCommandFromPowerShell(command);
-  if (resolvedFromPowerShell.length > 0) {
-    return normalizeString(resolvedFromPowerShell[0]);
-  }
-  const resolvedFromUserLocalBin =
-    await resolveWindowsCommandFromUserLocalBin(command);
-  if (resolvedFromUserLocalBin.length > 0) {
-    return normalizeString(resolvedFromUserLocalBin[0]);
-  }
-  const resolvedFromGlobalNpm =
-    await resolveWindowsCommandFromGlobalNpmRoot(command);
-  if (resolvedFromGlobalNpm.length > 0) {
-    return normalizeString(resolvedFromGlobalNpm[0]);
-  }
-  const resolvedFromNodeInstall =
-    await resolveWindowsCommandFromNodeInstallRoot(command);
-  if (resolvedFromNodeInstall.length > 0) {
-    return normalizeString(resolvedFromNodeInstall[0]);
-  }
-  return command;
-}
-
 async function runUvProbeWithMozillaSubprocess(args: {
+  uvCommand: string;
   uvArgs: string[];
   cwd: string;
   env: Record<string, string>;
@@ -312,15 +223,11 @@ async function runUvProbeWithMozillaSubprocess(args: {
     };
   }
   let proc: Awaited<ReturnType<NonNullable<MozillaSubprocessModule["call"]>>>;
-  let commandLine = "uv " + args.uvArgs.join(" ");
+  let commandLine = args.uvCommand + " " + args.uvArgs.join(" ");
   try {
-    const resolvedUvCommand = await resolveMozillaProbeCommand(
-      args.subprocess,
-      "uv",
-    );
     const launchPlan = buildAcpLaunchPlanForTests({
       command: "uv",
-      resolvedCommand: resolvedUvCommand,
+      resolvedCommand: args.uvCommand,
       args: args.uvArgs,
       comspec: normalizeString(args.env.ComSpec || args.env.COMSPEC),
     });
@@ -395,6 +302,7 @@ async function runUvProbeWithMozillaSubprocess(args: {
 }
 
 async function runUvProbeWithNodeChildProcess(args: {
+  uvCommand: string;
   uvArgs: string[];
   cwd: string;
   env: Record<string, string>;
@@ -403,7 +311,7 @@ async function runUvProbeWithNodeChildProcess(args: {
   const childProcess = await dynamicImport("node:child_process");
   return await new Promise((resolve) => {
     let settled = false;
-    const child = childProcess.spawn("uv", args.uvArgs, {
+    const child = childProcess.spawn(args.uvCommand, args.uvArgs, {
       cwd: args.cwd,
       env: { ...(process.env as Record<string, string>), ...args.env },
       stdio: ["ignore", "pipe", "pipe"],
@@ -461,12 +369,12 @@ async function runUvProbeWithNodeChildProcess(args: {
 }
 
 async function runUvProbeWithZoteroInternalSubprocess(args: {
+  uvCommand: string;
   uvArgs: string[];
   subprocess: (command: string, args?: string[]) => Promise<string>;
 }): Promise<{ ok: boolean; summary?: string }> {
   try {
-    const command = await resolveZoteroInternalUvCommand();
-    await args.subprocess(command, args.uvArgs);
+    await args.subprocess(args.uvCommand, args.uvArgs);
     return { ok: true };
   } catch (error) {
     return {
@@ -483,15 +391,77 @@ export async function defaultAcpRuntimeDependencyProbe(args: {
   cwd: string;
   env: Record<string, string>;
   timeoutMs: number;
+}): ReturnType<AcpRuntimeDependencyProbe> {
+  const uvCommand = getCachedRuntimeCommand("uv");
+  if (uvCommand?.available && uvCommand.resolvedPath) {
+    const result = await probeDependenciesWithUv({
+      ...args,
+      uvCommand,
+    });
+    return {
+      ...result,
+      readiness: result.ok
+        ? "uv_dependency_environment_ready"
+        : "uv_dependency_resolution_failed",
+      strategy: "uv",
+      details: {
+        uv: uvCommand,
+      },
+    };
+  }
+  const pythonCommand = getPrimaryPythonCommand();
+  if (pythonCommand?.available && pythonCommand.resolvedPath) {
+    const result = await probeDependenciesWithSystemPython({
+      ...args,
+      pythonCommand,
+    });
+    return {
+      ...result,
+      readiness: result.ok
+        ? "system_python_dependencies_ready"
+        : "system_python_dependencies_missing",
+      strategy: "system-python",
+      details: {
+        uv: uvCommand,
+        python: pythonCommand,
+      },
+    };
+  }
+  return {
+    ok: false,
+    readiness: "runtime_dependency_strategy_unavailable",
+    strategy: "unavailable",
+    summary: buildRuntimeDependencyUnavailableMessage(args.dependencies),
+    details: {
+      uv: uvCommand,
+      python: getRuntimeCommandRegistrySnapshot().primaryPython,
+    },
+  };
+}
+
+async function probeDependenciesWithUv(args: {
+  dependencies: string[];
+  cwd: string;
+  env: Record<string, string>;
+  timeoutMs: number;
+  uvCommand: RuntimeCommandResolution;
 }): Promise<{ ok: boolean; summary?: string }> {
   const uvArgs = ["run", "--isolated"];
   for (const dependency of args.dependencies) {
     uvArgs.push("--with", dependency);
   }
   uvArgs.push("--", "python", "--version");
+  const uvCommand = normalizeString(args.uvCommand.resolvedPath);
+  if (!uvCommand) {
+    return {
+      ok: false,
+      summary: "uv command is unavailable for ACP runtime dependency probe",
+    };
+  }
   const zoteroSubprocess = getZoteroInternalSubprocess();
   if (zoteroSubprocess) {
     return runUvProbeWithZoteroInternalSubprocess({
+      uvCommand,
       uvArgs,
       subprocess: zoteroSubprocess,
     });
@@ -499,6 +469,7 @@ export async function defaultAcpRuntimeDependencyProbe(args: {
   const subprocess = getMozillaSubprocessModule();
   if (subprocess) {
     return runUvProbeWithMozillaSubprocess({
+      uvCommand,
       uvArgs,
       cwd: args.cwd,
       env: args.env,
@@ -507,11 +478,289 @@ export async function defaultAcpRuntimeDependencyProbe(args: {
     });
   }
   return runUvProbeWithNodeChildProcess({
+    uvCommand,
     uvArgs,
     cwd: args.cwd,
     env: args.env,
     timeoutMs: args.timeoutMs,
   });
+}
+
+function buildPythonDependencyProbeScript(dependencies: string[]) {
+  return [
+    "import importlib.metadata as m",
+    "import importlib.util as u",
+    `deps=${JSON.stringify(dependencies)}`,
+    "missing=[]",
+    "try:",
+    "    from packaging.requirements import Requirement",
+    "except Exception:",
+    "    Requirement=None",
+    "def fallback_name(raw):",
+    "    import re",
+    "    match=re.match(r'^([A-Za-z0-9_.-]+)', raw.strip())",
+    "    return match.group(1) if match else ''",
+    "for raw in deps:",
+    "    dep=raw.strip()",
+    "    name=fallback_name(dep)",
+    "    spec=None",
+    "    if Requirement is not None:",
+    "        try:",
+    "            req=Requirement(dep)",
+    "            name=req.name",
+    "            spec=req.specifier",
+    "        except Exception:",
+    "            missing.append(dep)",
+    "            continue",
+    "    elif any(token in dep for token in ['<','>','=','!','~','[',';']):",
+    "        missing.append(dep+' (packaging is required to verify this requirement)')",
+    "        continue",
+    "    ok=True",
+    "    try:",
+    "        version=m.version(name)",
+    "        if spec is not None and str(spec) and version not in spec:",
+    "            ok=False",
+    "    except Exception:",
+    "        ok=u.find_spec(name.replace('-', '_')) is not None",
+    "    if not ok:",
+    "        missing.append(dep)",
+    "if missing:",
+    "    raise SystemExit('missing runtime dependencies: '+', '.join(missing))",
+  ].join("\n");
+}
+
+async function runPythonProbeWithMozillaSubprocess(args: {
+  pythonCommand: string;
+  pythonArgs: string[];
+  cwd: string;
+  env: Record<string, string>;
+  timeoutMs: number;
+  subprocess: MozillaSubprocessModule;
+}): Promise<{ ok: boolean; summary?: string }> {
+  if (typeof args.subprocess.call !== "function") {
+    return {
+      ok: false,
+      summary:
+        "Zotero Subprocess.call is unavailable for Python dependency probe",
+    };
+  }
+  let proc: Awaited<ReturnType<NonNullable<MozillaSubprocessModule["call"]>>>;
+  let commandLine = args.pythonCommand + " " + args.pythonArgs.join(" ");
+  try {
+    const launchPlan = buildAcpLaunchPlanForTests({
+      command: "python",
+      resolvedCommand: args.pythonCommand,
+      args: args.pythonArgs,
+      comspec: normalizeString(args.env.ComSpec || args.env.COMSPEC),
+    });
+    commandLine = launchPlan.commandLine;
+    proc = await args.subprocess.call({
+      command: launchPlan.command,
+      arguments: launchPlan.args,
+      environment: {
+        ...(launchPlan.environment || {}),
+        ...args.env,
+      },
+      environmentAppend: true,
+      workdir: args.cwd,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      summary: summarizeProbeText(
+        error instanceof Error ? error.message : error,
+      ),
+    };
+  }
+  let settled = false;
+  return await new Promise((resolve) => {
+    const finish = (result: { ok: boolean; summary?: string }) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(
+      () => {
+        try {
+          proc.kill?.(0);
+        } catch {
+          // ignore
+        }
+        finish({
+          ok: false,
+          summary: `Python dependency probe timed out after ${args.timeoutMs}ms`,
+        });
+      },
+      Math.max(1000, args.timeoutMs),
+    );
+    void (async () => {
+      const code = await waitMozillaProcessExit(proc);
+      const output = await Promise.all([
+        drainMozillaPipe(proc.stdout),
+        drainMozillaPipe(proc.stderr),
+      ]);
+      if (code === 0) {
+        finish({ ok: true });
+        return;
+      }
+      finish({
+        ok: false,
+        summary: summarizeProbeText(
+          `Python dependency probe exited ${code}: command=${commandLine}; stdout=${output[0]}; stderr=${output[1]}`,
+        ),
+      });
+    })().catch((error) => {
+      finish({
+        ok: false,
+        summary: summarizeProbeText(
+          error instanceof Error ? error.message : error,
+        ),
+      });
+    });
+  });
+}
+
+async function runPythonProbeWithNodeChildProcess(args: {
+  pythonCommand: string;
+  pythonArgs: string[];
+  cwd: string;
+  env: Record<string, string>;
+  timeoutMs: number;
+}): Promise<{ ok: boolean; summary?: string }> {
+  const childProcess = await dynamicImport("node:child_process");
+  return await new Promise((resolve) => {
+    let settled = false;
+    const child = childProcess.spawn(args.pythonCommand, args.pythonArgs, {
+      cwd: args.cwd,
+      env: { ...(process.env as Record<string, string>), ...args.env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const chunks: string[] = [];
+    const finish = (result: { ok: boolean; summary?: string }) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(
+      () => {
+        try {
+          child.kill();
+        } catch {
+          // ignore
+        }
+        finish({
+          ok: false,
+          summary: `Python dependency probe timed out after ${args.timeoutMs}ms`,
+        });
+      },
+      Math.max(1000, args.timeoutMs),
+    );
+    child.stdout?.on("data", (chunk: unknown) =>
+      chunks.push(String(chunk || "")),
+    );
+    child.stderr?.on("data", (chunk: unknown) =>
+      chunks.push(String(chunk || "")),
+    );
+    child.once("error", (error: unknown) => {
+      finish({
+        ok: false,
+        summary: summarizeProbeText(
+          error instanceof Error ? error.message : error,
+        ),
+      });
+    });
+    child.once("close", (code: number) => {
+      if (code === 0) {
+        finish({ ok: true });
+        return;
+      }
+      finish({
+        ok: false,
+        summary: summarizeProbeText(
+          `Python dependency probe exited ${code}: ${chunks.join(" ")}`,
+        ),
+      });
+    });
+  });
+}
+
+async function probeDependenciesWithSystemPython(args: {
+  dependencies: string[];
+  cwd: string;
+  env: Record<string, string>;
+  timeoutMs: number;
+  pythonCommand: RuntimeCommandResolution;
+}): Promise<{ ok: boolean; summary?: string }> {
+  const pythonCommand = normalizeString(args.pythonCommand.resolvedPath);
+  if (!pythonCommand) {
+    return {
+      ok: false,
+      summary: "Python command is unavailable for runtime dependency probe",
+    };
+  }
+  const pythonArgs = ["-c", buildPythonDependencyProbeScript(args.dependencies)];
+  const zoteroSubprocess = getZoteroInternalSubprocess();
+  if (zoteroSubprocess) {
+    try {
+      await zoteroSubprocess(pythonCommand, pythonArgs);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        summary: summarizeProbeText(
+          error instanceof Error ? error.message : error,
+        ),
+      };
+    }
+  }
+  const subprocess = getMozillaSubprocessModule();
+  if (subprocess) {
+    return runPythonProbeWithMozillaSubprocess({
+      pythonCommand,
+      pythonArgs,
+      cwd: args.cwd,
+      env: args.env,
+      timeoutMs: args.timeoutMs,
+      subprocess,
+    });
+  }
+  return runPythonProbeWithNodeChildProcess({
+    pythonCommand,
+    pythonArgs,
+    cwd: args.cwd,
+    env: args.env,
+    timeoutMs: args.timeoutMs,
+  });
+}
+
+function buildRuntimeDependencyUnavailableMessage(dependencies: string[]) {
+  return [
+    `Runtime dependencies are required but no supported dependency strategy is available: ${dependencies.join(", ")}`,
+    "Install uv or install the dependencies into the detected Python environment.",
+    'Windows uv install: powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"',
+  ].join(" ");
+}
+
+function buildRuntimeDependencyFailureMessage(args: {
+  dependencies: string[];
+  result: Awaited<ReturnType<AcpRuntimeDependencyProbe>>;
+}) {
+  if (args.result.summary) {
+    return args.result.summary;
+  }
+  if (args.result.readiness === "uv_dependency_resolution_failed") {
+    return `uv could not prepare runtime.dependencies: ${args.dependencies.join(", ")}`;
+  }
+  if (args.result.readiness === "system_python_dependencies_missing") {
+    return `The detected Python environment is missing runtime.dependencies: ${args.dependencies.join(", ")}`;
+  }
+  return buildRuntimeDependencyUnavailableMessage(args.dependencies);
 }
 
 export async function buildAcpRuntimeDependencyPlan(args: {
@@ -563,9 +812,34 @@ export async function buildAcpRuntimeDependencyPlan(args: {
       diagnostic: {
         level: "error",
         code: "runtime_dependencies_injection_failed",
-        message:
-          result.summary ||
-          `Failed to inject runtime.dependencies with uv: ${dependencies.join(", ")}`,
+        message: buildRuntimeDependencyFailureMessage({
+          dependencies,
+          result,
+        }),
+        details: {
+          readiness: result.readiness,
+          strategy: result.strategy,
+          ...(result.details || {}),
+        },
+      },
+    };
+  }
+  if (result.strategy === "system-python") {
+    return {
+      dependencies,
+      probeRequired: true,
+      wrapperMode,
+      wrappedBackend: { ...args.backend },
+      diagnostic: {
+        level: "info",
+        code: "runtime_dependencies_system_python_ready",
+        message: `ACP workflow launch will use the configured backend; detected Python already provides ${dependencies.length} runtime dependencies`,
+        details: {
+          readiness:
+            result.readiness || "system_python_dependencies_ready",
+          strategy: "system-python",
+          ...(result.details || {}),
+        },
       },
     };
   }
@@ -576,7 +850,7 @@ export async function buildAcpRuntimeDependencyPlan(args: {
     wrappedBackend: wrapAcpBackendWithUv({
       backend: args.backend,
       dependencies,
-      resolvedCommand: await resolveWindowsCommandForUvWrapper(
+      resolvedCommand: await resolveRuntimeCommandForLaunch(
         normalizeString(args.backend.command),
       ),
     }),
@@ -584,6 +858,11 @@ export async function buildAcpRuntimeDependencyPlan(args: {
       level: "info",
       code: "runtime_dependencies_injection_ready",
       message: `ACP workflow launch will use uv for ${dependencies.length} runtime dependencies`,
+      details: {
+        readiness: result.readiness || "uv_dependency_environment_ready",
+        strategy: "uv",
+        ...(result.details || {}),
+      },
     },
   };
 }

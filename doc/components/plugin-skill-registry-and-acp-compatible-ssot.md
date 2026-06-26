@@ -80,7 +80,7 @@ Backend profiles may declare `acp.agentFamily` or `acp.skillRoots` to override i
 
 ## Runtime Dependency Injection
 
-If a skill declares `runtime.dependencies`, the ACP-compatible runner probes `uv run --with ... -- python -c ...`. On success, only that workflow run launches ACP through `uv run --with ... -- <backend command> <backend args>`. On failure, the run fails with `runtime_dependencies_injection_failed`; the runner must not silently execute in an environment missing declared dependencies.
+At plugin startup, the shared platform layer resolves `uv`, Python, `node`, `npm`, and `npx` once and keeps the result in memory for the current Zotero lifecycle. If a skill declares `runtime.dependencies`, the ACP-compatible runner uses that startup result to choose a dependency strategy. When `uv` is available, the runner probes `uv run --isolated --with ... -- python --version`; on success, only that workflow run launches ACP through `uv run --with ... -- <backend command> <backend args>`. If `uv` is unavailable but Python is available, the runner verifies the declared dependencies are already available in that Python environment and then launches the configured backend unchanged. The runner must not silently execute in an environment missing declared dependencies; failures remain `runtime_dependencies_injection_failed` with diagnostics distinguishing uv dependency preparation failures from system Python missing-package failures.
 
 File-flow optimizations are allowed inside the compatibility layer. ACP execution may pass local file paths via an internal manifest and may read result directories directly through an internal bundle reader, but it must not change the workflow-facing `upload_files`, `input`, `parameter`, or `fetch_type` fields.
 

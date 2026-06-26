@@ -79,6 +79,10 @@ import {
   createAcpSkillRunnerWorkspace,
   resetAcpWorkflowWorkspaceRegistryForTests,
 } from "../../src/modules/acpSkillRunnerWorkspace";
+import {
+  resetRuntimeCommandRegistryForTests,
+  seedRuntimeCommandRegistryForTests,
+} from "../../src/platform/command";
 import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
 import { RequestError } from "../../src/modules/acpProtocol";
@@ -662,6 +666,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     resetPluginStateStoreForTests();
     resetWorkflowTasks();
     resetAcpSkillRunsForTests();
+    resetRuntimeCommandRegistryForTests();
   });
 
   afterEach(async function () {
@@ -671,6 +676,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     resetAcpSkillRunsForTests();
     resetWorkflowTasks();
     resetPluginStateStoreForTests();
+    resetRuntimeCommandRegistryForTests();
   });
 
   it("resolves agent family from backend metadata and builds skill roots", async function () {
@@ -3417,6 +3423,261 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(plan.wrappedBackend.command, "npx");
   });
 
+  it("does not probe runtime command strategy when dependencies are absent", async function () {
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      commands: {
+        uv: {
+          command: "uv",
+          available: false,
+          checkedCandidates: ["missing-uv"],
+          diagnostic: "uv unavailable",
+        },
+      },
+    });
+    let probeCalled = false;
+    const plan = await buildAcpRuntimeDependencyPlan({
+      backend: createBackend(),
+      cwd: await mkTempRoot(),
+      mode: "probe-and-wrap",
+      runnerJson: {
+        runtime: {
+          dependencies: [],
+        },
+      },
+      probe: async () => {
+        probeCalled = true;
+        return { ok: false };
+      },
+    });
+    assert.isFalse(probeCalled);
+    assert.equal(plan.probeRequired, false);
+    assert.equal(plan.wrappedBackend.command, "npx");
+  });
+
+  it("falls back to unchanged backend when uv is unavailable and system Python has dependencies", async function () {
+    const root = await mkTempRoot();
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      commands: {
+        uv: {
+          command: "uv",
+          available: false,
+          checkedCandidates: ["missing-uv"],
+          diagnostic: "uv unavailable",
+        },
+        python: {
+          command: "python",
+          available: true,
+          resolvedPath: "C:\\Python313\\python.exe",
+          source: "path",
+          checkedCandidates: ["C:\\Python313\\python.exe"],
+        },
+      },
+      primaryPython: {
+        command: "python",
+        available: true,
+        resolvedPath: "C:\\Python313\\python.exe",
+        source: "path",
+        checkedCandidates: ["C:\\Python313\\python.exe"],
+      },
+    });
+    const calls: Array<{ command: string; args?: string[] }> = [];
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      Utilities: {
+        Internal: {
+          subprocess: async (command: string, args?: string[]) => {
+            calls.push({ command, args });
+            return "";
+          },
+        },
+      },
+    });
+    try {
+      const plan = await buildAcpRuntimeDependencyPlan({
+        backend: createBackend(),
+        cwd: root,
+        mode: "probe-and-wrap",
+        runnerJson: {
+          runtime: {
+            dependencies: ["pandas"],
+          },
+        },
+      });
+      assert.equal(plan.wrappedBackend.command, "npx");
+      assert.equal(
+        plan.diagnostic?.details?.readiness,
+        "system_python_dependencies_ready",
+      );
+      assert.equal(plan.diagnostic?.details?.strategy, "system-python");
+      assert.equal(calls[0]?.command, "C:\\Python313\\python.exe");
+      assert.deepEqual(calls[0]?.args?.slice(0, 1), ["-c"]);
+    } finally {
+      restoreGlobalProperty("Zotero", previousZotero);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails with system_python_dependencies_missing when Python lacks declared dependencies", async function () {
+    const root = await mkTempRoot();
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      commands: {
+        uv: {
+          command: "uv",
+          available: false,
+          checkedCandidates: ["missing-uv"],
+          diagnostic: "uv unavailable",
+        },
+        python: {
+          command: "python",
+          available: true,
+          resolvedPath: "python",
+          source: "path",
+          checkedCandidates: ["python"],
+        },
+      },
+      primaryPython: {
+        command: "python",
+        available: true,
+        resolvedPath: "python",
+        source: "path",
+        checkedCandidates: ["python"],
+      },
+    });
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      Utilities: {
+        Internal: {
+          subprocess: async () => {
+            throw new Error("missing runtime dependencies: pandas");
+          },
+        },
+      },
+    });
+    try {
+      const plan = await buildAcpRuntimeDependencyPlan({
+        backend: createBackend(),
+        cwd: root,
+        mode: "probe-and-wrap",
+        runnerJson: {
+          runtime: {
+            dependencies: ["pandas"],
+          },
+        },
+      });
+      assert.equal(
+        plan.diagnostic?.code,
+        "runtime_dependencies_injection_failed",
+      );
+      assert.equal(
+        plan.diagnostic?.details?.readiness,
+        "system_python_dependencies_missing",
+      );
+      assert.equal(plan.wrappedBackend.command, "npx");
+    } finally {
+      restoreGlobalProperty("Zotero", previousZotero);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails with runtime_dependency_strategy_unavailable when uv and Python are unavailable", async function () {
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      commands: {
+        uv: {
+          command: "uv",
+          available: false,
+          checkedCandidates: ["missing-uv"],
+          diagnostic: "uv unavailable",
+        },
+        python: {
+          command: "python",
+          available: false,
+          checkedCandidates: ["missing-python"],
+          diagnostic: "python unavailable",
+        },
+      },
+    });
+    const plan = await buildAcpRuntimeDependencyPlan({
+      backend: createBackend(),
+      cwd: await mkTempRoot(),
+      mode: "probe-and-wrap",
+      runnerJson: {
+        runtime: {
+          dependencies: ["pandas"],
+        },
+      },
+    });
+    assert.equal(plan.diagnostic?.code, "runtime_dependencies_injection_failed");
+    assert.equal(
+      plan.diagnostic?.details?.readiness,
+      "runtime_dependency_strategy_unavailable",
+    );
+    assert.include(plan.diagnostic?.message || "", "Install uv");
+  });
+
+  it("does not fall back to Python when uv is available but dependency preparation fails", async function () {
+    const root = await mkTempRoot();
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      commands: {
+        uv: {
+          command: "uv",
+          available: true,
+          resolvedPath: "uv",
+          source: "path",
+          checkedCandidates: ["uv"],
+        },
+        python: {
+          command: "python",
+          available: true,
+          resolvedPath: "python",
+          source: "path",
+          checkedCandidates: ["python"],
+        },
+      },
+      primaryPython: {
+        command: "python",
+        available: true,
+        resolvedPath: "python",
+        source: "path",
+        checkedCandidates: ["python"],
+      },
+    });
+    const calls: Array<{ command: string; args?: string[] }> = [];
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      Utilities: {
+        Internal: {
+          subprocess: async (command: string, args?: string[]) => {
+            calls.push({ command, args });
+            throw new Error("No matching distribution found");
+          },
+        },
+      },
+    });
+    try {
+      const plan = await buildAcpRuntimeDependencyPlan({
+        backend: createBackend(),
+        cwd: root,
+        mode: "probe-and-wrap",
+        runnerJson: {
+          runtime: {
+            dependencies: ["missing-lib"],
+          },
+        },
+      });
+      assert.equal(
+        plan.diagnostic?.details?.readiness,
+        "uv_dependency_resolution_failed",
+      );
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].command, "uv");
+    } finally {
+      restoreGlobalProperty("Zotero", previousZotero);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("wraps dependency plan only in explicit uv probe-and-wrap mode", async function () {
     const plan = await buildAcpRuntimeDependencyPlan({
       backend: createBackend(),
@@ -3486,6 +3747,18 @@ describe("ACP SkillRunner-compatible runner", function () {
       process.platform === "win32" ? "uv.cmd" : "uv",
     );
     await fs.writeFile(resolvedUvPath, "", "utf8");
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      commands: {
+        uv: {
+          command: "uv",
+          available: true,
+          resolvedPath: resolvedUvPath,
+          source: "pathSearch",
+          checkedCandidates: [`pathSearch:${resolvedUvPath}`],
+        },
+      },
+    });
     const calls: Array<{
       command: string;
       arguments?: string[];
@@ -3556,6 +3829,18 @@ describe("ACP SkillRunner-compatible runner", function () {
     const root = await mkTempRoot();
     const previousUserProfile = process.env.USERPROFILE;
     process.env.USERPROFILE = "C:\\Users\\tester";
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      commands: {
+        uv: {
+          command: "uv",
+          available: true,
+          resolvedPath: "C:\\Users\\tester\\.local\\bin\\uv.exe",
+          source: "windows-user-local",
+          checkedCandidates: ["C:\\Users\\tester\\.local\\bin\\uv.exe"],
+        },
+      },
+    });
     const calls: Array<{ command: string; args?: string[] }> = [];
     const previousZotero = redefineGlobalProperty("Zotero", {
       isWin: true,

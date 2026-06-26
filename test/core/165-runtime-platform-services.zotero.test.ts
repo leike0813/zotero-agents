@@ -7,7 +7,12 @@ import {
 } from "../../src/platform/path";
 import { detectRuntimePlatform } from "../../src/platform/runtimePlatform";
 import { mergePathEntries, splitPathEntries } from "../../src/platform/env";
-import { buildNonInteractiveCommandCandidates } from "../../src/platform/command";
+import {
+  buildNonInteractiveCommandCandidates,
+  getRuntimeCommandRegistrySnapshot,
+  preflightRuntimeCommandsOnStartup,
+  resetRuntimeCommandRegistryForTests,
+} from "../../src/platform/command";
 import {
   runtimePathExists,
   writeRuntimeTextFile,
@@ -47,6 +52,10 @@ describe("runtime platform services in Zotero", function () {
     if (!hasRealZoteroRuntime()) {
       this.skip();
     }
+  });
+
+  afterEach(function () {
+    resetRuntimeCommandRegistryForTests();
   });
 
   it("preserves cross-platform path contracts in the real Zotero runtime", function () {
@@ -121,5 +130,19 @@ describe("runtime platform services in Zotero", function () {
     );
     await writeRuntimeTextFile(target, "ok");
     assert.isTrue(await runtimePathExists(target));
+  });
+
+  it("initializes the startup command registry without requiring every command", async function () {
+    this.timeout(120000);
+    const snapshot = await preflightRuntimeCommandsOnStartup();
+    assert.equal(snapshot.initialized, true);
+    for (const command of ["uv", "python", "python3", "py", "node", "npm", "npx"]) {
+      assert.property(snapshot.commands, command);
+      assert.isArray((snapshot.commands as any)[command].checkedCandidates);
+    }
+    assert.deepEqual(
+      getRuntimeCommandRegistrySnapshot().commands.uv?.checkedCandidates,
+      snapshot.commands.uv?.checkedCandidates,
+    );
   });
 });

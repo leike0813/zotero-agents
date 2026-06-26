@@ -1,21 +1,12 @@
 import type { BackendInstance } from "../backends/types";
 import {
-  getWindowsShellCommandCandidates,
-  isTrustedResolvedCommandPath,
-  resolveTrustedPathSearchResult,
-  resolveWindowsCommandFromGlobalNpmRoot,
-  resolveWindowsCommandFromNodeInstallRoot,
-  resolveWindowsCommandFromPowerShell,
-  resolveWindowsCommandFromUserLocalBin,
-} from "./windowsCommandResolution";
-import {
   getMozillaSubprocessModule as getCompatMozillaSubprocessModule,
-  runtimeFileExists,
 } from "../utils/runtimeCompatibility";
-import { buildNonInteractiveCommandCandidates } from "../platform/command";
-import { readRuntimeEnv } from "../platform/env";
+import {
+  getWindowsShellCommandForLaunch,
+  resolveRuntimeCommand,
+} from "../platform/command";
 import { isAbsolutePathLike } from "../platform/path";
-import { detectRuntimePlatform } from "../platform/runtimePlatform";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -161,8 +152,7 @@ function prependPathEntry(pathValue: string | undefined, entryRaw: string) {
 }
 
 function resolveWindowsShellCommand(commandRaw: string, platform?: string) {
-  const candidates = getWindowsShellCommandCandidates(commandRaw, platform);
-  return normalizeString(candidates[0]) || normalizeString(commandRaw);
+  return getWindowsShellCommandForLaunch(commandRaw, platform);
 }
 
 function shouldWrapWindowsLaunch(args: {
@@ -383,57 +373,13 @@ async function resolveMozillaCommand(
   if (!command) {
     throw new Error("ACP backend command is required");
   }
-  if (isPathLikeCommand(command)) {
-    return command;
-  }
-  const resolvedFromPathSearch = await resolveTrustedPathSearchResult({
-    command,
+  const resolved = await resolveRuntimeCommand(command, {
     pathSearch: subprocess.pathSearch,
-    platform: detectWindowsPlatform() ? "win32" : undefined,
   });
-  if (resolvedFromPathSearch) {
-    return resolvedFromPathSearch;
+  if (resolved.available && resolved.resolvedPath) {
+    return resolved.resolvedPath;
   }
-  if (detectWindowsPlatform()) {
-    const resolvedFromPowerShell =
-      await resolveWindowsCommandFromPowerShell(command);
-    if (resolvedFromPowerShell.length > 0) {
-      return normalizeString(resolvedFromPowerShell[0]);
-    }
-    const resolvedFromUserLocalBin =
-      await resolveWindowsCommandFromUserLocalBin(command);
-    if (resolvedFromUserLocalBin.length > 0) {
-      return normalizeString(resolvedFromUserLocalBin[0]);
-    }
-    const resolvedFromGlobalNpm =
-      await resolveWindowsCommandFromGlobalNpmRoot(command);
-    if (resolvedFromGlobalNpm.length > 0) {
-      return normalizeString(resolvedFromGlobalNpm[0]);
-    }
-    const resolvedFromNodeInstall =
-      await resolveWindowsCommandFromNodeInstallRoot(command);
-    if (resolvedFromNodeInstall.length > 0) {
-      return normalizeString(resolvedFromNodeInstall[0]);
-    }
-  } else {
-    const checked: string[] = [];
-    for (const candidate of buildNonInteractiveCommandCandidates({
-      command,
-      platform: detectRuntimePlatform(),
-      homeDir: readRuntimeEnv("HOME"),
-    })) {
-      checked.push(candidate);
-      if (await runtimeFileExists(candidate)) {
-        return candidate;
-      }
-    }
-    if (checked.length > 0) {
-      throw new Error(
-        `Command "${command}" was not found in PATH; checked non-interactive candidates: ${checked.join(", ")}`,
-      );
-    }
-  }
-  throw new Error(`Command "${command}" was not found in PATH`);
+  throw new Error(resolved.diagnostic || `Command "${command}" was not found`);
 }
 
 async function launchMozillaAcpTransport(
@@ -499,75 +445,11 @@ async function resolveNodeCommand(commandRaw: string) {
   if (!command) {
     throw new Error("ACP backend command is required");
   }
-  const pathModule = await dynamicImport("node:path");
-  const fs = await dynamicImport("node:fs");
-  const processModule = await dynamicImport("node:process");
-  const isWindows =
-    String(processModule.platform || "").toLowerCase() === "win32";
-  const accessModes = fs.constants?.X_OK ?? 0;
-  const isPathLike = /[\\/]/.test(command) || isAbsolutePathLike(command);
-  const checkOne = (candidate: string) => {
-    try {
-      if (typeof fs.accessSync === "function") {
-        fs.accessSync(candidate, accessModes);
-      }
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  if (isPathLike) {
-    if (!checkOne(command)) {
-      throw new Error(`Command "${command}" is not executable`);
-    }
-    return command;
+  const resolved = await resolveRuntimeCommand(command);
+  if (resolved.available && resolved.resolvedPath) {
+    return resolved.resolvedPath;
   }
-  const pathValue = String(processModule.env?.PATH || "");
-  const entries = pathValue
-    .split(pathModule.delimiter)
-    .map((entry: string) => String(entry || "").trim())
-    .filter(Boolean);
-  const extCandidates = isWindows
-    ? (() => {
-        const configured = String(processModule.env?.PATHEXT || "")
-          .split(";")
-          .map((entry: string) => String(entry || "").trim())
-          .filter(Boolean);
-        if (/\.[A-Za-z0-9]+$/.test(command)) {
-          return [""];
-        }
-        return configured.length > 0
-          ? configured
-          : [".EXE", ".CMD", ".BAT", ".COM"];
-      })()
-    : [""];
-  for (const dir of entries) {
-    for (const ext of extCandidates) {
-      const candidate = pathModule.join(dir, `${command}${ext}`);
-      if (checkOne(candidate)) {
-        return candidate;
-      }
-    }
-  }
-  if (!isWindows) {
-    const checked: string[] = [];
-    for (const candidate of buildNonInteractiveCommandCandidates({
-      command,
-      platform: String(processModule.platform || ""),
-      homeDir: String(processModule.env?.HOME || ""),
-    })) {
-      checked.push(candidate);
-      if (checkOne(candidate)) {
-        return candidate;
-      }
-    }
-    if (checked.length > 0) {
-      throw new Error(
-        `Command "${command}" was not found in PATH; checked non-interactive candidates: ${checked.join(", ")}`,
-      );
-    }
-  }
-  throw new Error(`Command "${command}" was not found in PATH`);
+  throw new Error(resolved.diagnostic || `Command "${command}" was not found`);
 }
 
 async function launchNodeAcpTransport(

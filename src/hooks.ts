@@ -138,6 +138,7 @@ import {
 } from "./modules/synthesis/itemObserver";
 import { reconcileWorkflowTaskProjectionsOnStartup } from "./modules/taskRuntime";
 import { closeVisibleWorkflowToasts } from "./modules/workflowExecution/feedbackSeam";
+import { preflightRuntimeCommandsOnStartup } from "./platform/command";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
@@ -489,6 +490,7 @@ async function onStartup() {
 
   const runtimeRootURI = resolveRuntimeRootURI();
   setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
+  await preflightRuntimeCommandsOnStartup();
 
   await ensureDefaultWorkflowDirExistsOnStartup();
   await rescanWorkflowRegistry();

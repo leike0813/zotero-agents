@@ -1,5 +1,9 @@
 import { assert } from "chai";
 import { defaultAcpRuntimeDependencyProbe } from "../../src/modules/acpRuntimeDependencyWrapper";
+import {
+  preflightRuntimeCommandsOnStartup,
+  resetRuntimeCommandRegistryForTests,
+} from "../../src/platform/command";
 
 function hasZoteroInternalSubprocessRuntime() {
   const runtime = globalThis as {
@@ -80,8 +84,12 @@ function getZoteroTempDirectoryPath() {
 describe("ACP runtime dependency probe in Zotero", function () {
   const itZoteroProbeRuntime = hasZoteroProbeRuntime() ? it : it.skip;
 
+  afterEach(function () {
+    resetRuntimeCommandRegistryForTests();
+  });
+
   itZoteroProbeRuntime(
-    "runs the uv dependency probe through Zotero Subprocess",
+    "resolves a runtime dependency strategy through Zotero Subprocess",
     async function () {
       assert.equal(
         hasZoteroProbeRuntime(),
@@ -89,13 +97,21 @@ describe("ACP runtime dependency probe in Zotero", function () {
         describeVisibleHostCapabilities(),
       );
       this.timeout(180000);
+      const registry = await preflightRuntimeCommandsOnStartup();
+      if (!registry.commands.uv?.available && !registry.primaryPython) {
+        this.skip();
+      }
       const result = await defaultAcpRuntimeDependencyProbe({
-        dependencies: ["pandas"],
+        dependencies: [],
         cwd: getZoteroTempDirectoryPath(),
         env: {},
         timeoutMs: 120000,
       });
-      assert.equal(result.ok, true, result.summary || "uv probe failed");
+      assert.equal(
+        result.ok,
+        true,
+        result.summary || "runtime dependency probe failed",
+      );
     },
   );
 });

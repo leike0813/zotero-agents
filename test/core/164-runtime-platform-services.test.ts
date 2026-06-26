@@ -6,13 +6,28 @@ import {
   normalizeNativeLocalPath,
 } from "../../src/platform/path";
 import { mergePathEntries, splitPathEntries } from "../../src/platform/env";
-import { buildNonInteractiveCommandCandidates } from "../../src/platform/command";
+import {
+  buildNonInteractiveCommandCandidates,
+  getCachedRuntimeCommand,
+  getRuntimeCommandRegistrySnapshot,
+  preflightRuntimeCommandsOnStartup,
+  resetRuntimeCommandRegistryForTests,
+  resolveRuntimeCommand,
+} from "../../src/platform/command";
 import {
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
 
 describe("runtime platform services", function () {
+  beforeEach(function () {
+    resetRuntimeCommandRegistryForTests();
+  });
+
+  afterEach(function () {
+    resetRuntimeCommandRegistryForTests();
+  });
+
   it("preserves Windows path style when joining from a Windows root", function () {
     assert.equal(
       joinNativePath("D:\\ZoteroSkillsRuntime", "acp", "runs"),
@@ -87,5 +102,55 @@ describe("runtime platform services", function () {
       }),
       [],
     );
+  });
+
+  it("resolves commands through PATH and POSIX non-interactive candidates", async function () {
+    const checked: string[] = [];
+    const resolved = await resolveRuntimeCommand("npx", {
+      platform: "linux",
+      pathValue: "/usr/bin",
+      homeDir: "/home/leike",
+      exists: async (candidate) => {
+        checked.push(candidate);
+        return candidate === "/home/leike/.local/bin/npx";
+      },
+    });
+    assert.equal(resolved.available, true);
+    assert.equal(resolved.resolvedPath, "/home/leike/.local/bin/npx");
+    assert.equal(resolved.source, "posix-non-interactive");
+    assert.include(checked, "/usr/bin/npx");
+    assert.include(checked, "/home/leike/.local/bin/npx");
+  });
+
+  it("preflights startup commands once and reuses the in-memory snapshot", async function () {
+    let calls = 0;
+    const snapshot = await preflightRuntimeCommandsOnStartup({
+      commands: ["uv", "python", "npx"],
+      resolver: async (command) => {
+        calls += 1;
+        return {
+          command,
+          available: command !== "uv",
+          resolvedPath: command === "uv" ? undefined : `/bin/${command}`,
+          source: command === "uv" ? undefined : "path",
+          checkedCandidates: [`checked:${command}`],
+          diagnostic: command === "uv" ? "uv unavailable" : undefined,
+        };
+      },
+    });
+
+    assert.equal(calls, 3);
+    assert.equal(snapshot.initialized, true);
+    assert.equal(snapshot.commands.uv?.available, false);
+    assert.equal(snapshot.primaryPython?.resolvedPath, "/bin/python");
+
+    const cachedNpx = getCachedRuntimeCommand("npx");
+    assert.equal(cachedNpx?.resolvedPath, "/bin/npx");
+    cachedNpx!.checkedCandidates.push("mutated");
+    assert.notInclude(
+      getRuntimeCommandRegistrySnapshot().commands.npx?.checkedCandidates || [],
+      "mutated",
+    );
+    assert.equal(calls, 3);
   });
 });
