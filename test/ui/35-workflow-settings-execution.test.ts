@@ -919,8 +919,8 @@ describe("workflow settings execution", function () {
         displayName: "OpenCode ACP",
         type: "acp",
         baseUrl: "local://acp-opencode",
-        command: "npx",
-        args: ["opencode-ai@latest", "acp"],
+        command: "opencode",
+        args: ["acp"],
       };
       Zotero.Prefs.set(
         backendsConfigPrefKey,

@@ -18,9 +18,9 @@ export const ACP_OPENCODE_BACKEND_ID = "acp-opencode";
 
 export const ACP_OPENCODE_DISPLAY_NAME = "OpenCode ACP";
 
-export const ACP_OPENCODE_COMMAND = "npx";
+export const ACP_OPENCODE_COMMAND = "opencode";
 
-export const ACP_OPENCODE_ARGS = ["opencode-ai@latest", "acp"];
+export const ACP_OPENCODE_ARGS = ["acp"];
 
 export const PASS_THROUGH_BACKEND_TYPE = "pass-through";
 

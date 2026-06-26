@@ -15,137 +15,140 @@ import {
 export type AcpBackendPresetId =
   | "opencode"
   | "codex"
-  | "codex-isolated"
   | "claude-code"
-  | "claude-code-isolated"
   | "gemini-cli"
-  | "gemini-cli-isolated"
   | "hermes"
-  | "hermes-isolated"
   | "qwen-code";
+
+export type AcpBackendPresetOptions = {
+  useNpx?: boolean;
+  isolated?: boolean;
+};
+
+export type AcpBackendPresetIsolation = {
+  envKey: string;
+};
+
+type AcpBackendPresetAgentFamily = NonNullable<
+  NonNullable<BackendInstance["acp"]>["agentFamily"]
+>;
 
 export type AcpBackendPreset = {
   id: AcpBackendPresetId;
-  backendId: string;
   displayName: string;
-  command: string;
-  args: string[];
-  agentFamily: NonNullable<BackendInstance["acp"]>["agentFamily"];
+  bareCommand: string;
+  bareArgs: string[];
+  npxPackage?: string;
+  npxArgs?: string[];
+  defaultUseNpx: boolean;
+  supportsNpx: boolean;
+  agentFamily: AcpBackendPresetAgentFamily;
   builtIn?: boolean;
-};
-
-type AcpBackendIsolationEnvSpec = {
-  backendId: string;
-  envKey: string;
+  isolation?: AcpBackendPresetIsolation;
 };
 
 const ACP_ISOLATED_ENV_ROOT = "acp-backend-environments";
 
-const ACP_ISOLATED_ENV_BY_BACKEND_ID: Record<
-  string,
-  AcpBackendIsolationEnvSpec
-> = {
-  "acp-codex-isolated": {
-    backendId: "acp-codex-isolated",
-    envKey: "CODEX_HOME",
-  },
-  "acp-claude-code-isolated": {
-    backendId: "acp-claude-code-isolated",
-    envKey: "CLAUDE_CONFIG_DIR",
-  },
-  "acp-gemini-cli-isolated": {
-    backendId: "acp-gemini-cli-isolated",
-    envKey: "GEMINI_CLI_HOME",
-  },
-  "acp-hermes-isolated": {
-    backendId: "acp-hermes-isolated",
-    envKey: "HERMES_HOME",
-  },
-};
-
 export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
   {
     id: "opencode",
-    backendId: ACP_OPENCODE_BACKEND_ID,
     displayName: ACP_OPENCODE_DISPLAY_NAME,
-    command: ACP_OPENCODE_COMMAND,
-    args: [...ACP_OPENCODE_ARGS],
+    bareCommand: ACP_OPENCODE_COMMAND,
+    bareArgs: [...ACP_OPENCODE_ARGS],
+    npxPackage: "opencode-ai@latest",
+    npxArgs: ["acp"],
+    defaultUseNpx: false,
+    supportsNpx: true,
     agentFamily: "opencode",
     builtIn: true,
+    isolation: {
+      envKey: "OPENCODE_CONFIG",
+    },
   },
   {
     id: "codex",
-    backendId: "acp-codex",
     displayName: "Codex ACP",
-    command: "npx",
-    args: ["@zed-industries/codex-acp@latest"],
+    bareCommand: "codex-acp",
+    bareArgs: [],
+    npxPackage: "@zed-industries/codex-acp@latest",
+    npxArgs: [],
+    defaultUseNpx: true,
+    supportsNpx: true,
     agentFamily: "codex",
-  },
-  {
-    id: "codex-isolated",
-    backendId: "acp-codex-isolated",
-    displayName: "Codex ACP (Isolated Environment)",
-    command: "npx",
-    args: ["@zed-industries/codex-acp@latest"],
-    agentFamily: "codex",
+    isolation: {
+      envKey: "CODEX_HOME",
+    },
   },
   {
     id: "claude-code",
-    backendId: "acp-claude-code",
     displayName: "Claude Code ACP",
-    command: "npx",
-    args: ["@agentclientprotocol/claude-agent-acp@latest"],
+    bareCommand: "claude-agent-acp",
+    bareArgs: [],
+    npxPackage: "@agentclientprotocol/claude-agent-acp@latest",
+    npxArgs: [],
+    defaultUseNpx: true,
+    supportsNpx: true,
     agentFamily: "claude-code",
-  },
-  {
-    id: "claude-code-isolated",
-    backendId: "acp-claude-code-isolated",
-    displayName: "Claude Code ACP (Isolated Environment)",
-    command: "npx",
-    args: ["@agentclientprotocol/claude-agent-acp@latest"],
-    agentFamily: "claude-code",
+    isolation: {
+      envKey: "CLAUDE_CONFIG_DIR",
+    },
   },
   {
     id: "gemini-cli",
-    backendId: "acp-gemini-cli",
     displayName: "Gemini CLI ACP",
-    command: "npx",
-    args: ["@google/gemini-cli@latest", "--experimental-acp"],
+    bareCommand: "gemini",
+    bareArgs: ["--experimental-acp"],
+    npxPackage: "@google/gemini-cli@latest",
+    npxArgs: ["--experimental-acp"],
+    defaultUseNpx: false,
+    supportsNpx: true,
     agentFamily: "gemini-cli",
-  },
-  {
-    id: "gemini-cli-isolated",
-    backendId: "acp-gemini-cli-isolated",
-    displayName: "Gemini CLI ACP (Isolated Environment)",
-    command: "npx",
-    args: ["@google/gemini-cli@latest", "--experimental-acp"],
-    agentFamily: "gemini-cli",
+    isolation: {
+      envKey: "GEMINI_CLI_HOME",
+    },
   },
   {
     id: "hermes",
-    backendId: "acp-hermes",
     displayName: "Hermes ACP",
-    command: "hermes",
-    args: ["acp"],
+    bareCommand: "hermes",
+    bareArgs: ["acp"],
+    npxPackage: "hermes@latest",
+    npxArgs: ["acp"],
+    defaultUseNpx: false,
+    supportsNpx: true,
     agentFamily: "hermes",
-  },
-  {
-    id: "hermes-isolated",
-    backendId: "acp-hermes-isolated",
-    displayName: "Hermes ACP (Isolated Environment)",
-    command: "hermes",
-    args: ["acp"],
-    agentFamily: "hermes",
+    isolation: {
+      envKey: "HERMES_HOME",
+    },
   },
   {
     id: "qwen-code",
-    backendId: "acp-qwen-code",
     displayName: "Qwen Code ACP",
-    command: "npx",
-    args: ["@qwen-code/qwen-code@latest", "--acp", "--experimental-skills"],
+    bareCommand: "qwen",
+    bareArgs: ["--acp", "--experimental-skills"],
+    npxPackage: "@qwen-code/qwen-code@latest",
+    npxArgs: ["--acp", "--experimental-skills"],
+    defaultUseNpx: false,
+    supportsNpx: true,
     agentFamily: "qwen-code",
   },
 ];
+
+function normalizePresetOptions(
+  preset: AcpBackendPreset,
+  options: AcpBackendPresetOptions = {},
+) {
+  const useNpx =
+    options.useNpx === undefined
+      ? preset.defaultUseNpx
+      : options.useNpx === true;
+  const isolated =
+    options.isolated === true && typeof preset.isolation?.envKey === "string";
+  return {
+    useNpx: useNpx && preset.supportsNpx,
+    isolated,
+  };
+}
 
 export function listAcpBackendPresets() {
   return [...ACP_BACKEND_PRESETS];
@@ -156,26 +159,36 @@ export function findAcpBackendPreset(id: string) {
   return ACP_BACKEND_PRESETS.find((preset) => preset.id === normalized);
 }
 
-export function getAcpBackendIsolatedEnvironmentPath(backendId: string) {
-  return joinPath(
-    getRuntimePersistencePaths().dataDir,
-    ACP_ISOLATED_ENV_ROOT,
-    backendId,
-  );
-}
-
-function getAcpBackendPresetEnv(preset: AcpBackendPreset) {
-  const spec = ACP_ISOLATED_ENV_BY_BACKEND_ID[preset.backendId];
-  if (!spec) {
-    return {};
+export function buildAcpBackendPresetProfileId(
+  presetOrId: AcpBackendPreset | string,
+  options: AcpBackendPresetOptions = {},
+) {
+  const preset =
+    typeof presetOrId === "string"
+      ? findAcpBackendPreset(presetOrId)
+      : presetOrId;
+  if (!preset) {
+    throw new Error(`Unknown ACP backend preset: ${String(presetOrId)}`);
   }
-  return {
-    [spec.envKey]: getAcpBackendIsolatedEnvironmentPath(preset.backendId),
-  };
+  const normalized = normalizePresetOptions(preset, options);
+  const suffixes = [
+    normalized.useNpx ? "npx" : "",
+    normalized.isolated ? "isolated" : "",
+  ].filter(Boolean);
+  return `acp-${preset.id}${suffixes.length > 0 ? `-${suffixes.join("-")}` : ""}`;
 }
 
-export function createAcpBackendFromPreset(
-  presetOrId: AcpBackendPreset | AcpBackendPresetId,
+export function getAcpBackendIsolatedEnvironmentPath(backendId: string) {
+  return joinPath(getAcpBackendIsolatedEnvironmentRoot(), backendId);
+}
+
+export function getAcpBackendIsolatedEnvironmentRoot() {
+  return joinPath(getRuntimePersistencePaths().dataDir, ACP_ISOLATED_ENV_ROOT);
+}
+
+export function createAcpBackendFromPresetOptions(
+  presetOrId: AcpBackendPreset | string,
+  options: AcpBackendPresetOptions = {},
 ): BackendInstance {
   const preset =
     typeof presetOrId === "string"
@@ -184,14 +197,25 @@ export function createAcpBackendFromPreset(
   if (!preset) {
     throw new Error(`Unknown ACP backend preset: ${String(presetOrId)}`);
   }
-  const env = getAcpBackendPresetEnv(preset);
+  const normalized = normalizePresetOptions(preset, options);
+  const id = buildAcpBackendPresetProfileId(preset, normalized);
+  const env =
+    normalized.isolated && preset.isolation
+      ? {
+          [preset.isolation.envKey]: getAcpBackendIsolatedEnvironmentPath(id),
+        }
+      : {};
   return {
-    id: preset.backendId,
+    id,
     displayName: preset.displayName,
     type: ACP_BACKEND_TYPE,
-    baseUrl: `local://${preset.backendId}`,
-    command: preset.command,
-    args: [...preset.args],
+    baseUrl: `local://${id}`,
+    command: normalized.useNpx ? "npx" : preset.bareCommand,
+    args: normalized.useNpx
+      ? [String(preset.npxPackage || ""), ...(preset.npxArgs || [])].filter(
+          Boolean,
+        )
+      : [...preset.bareArgs],
     auth: {
       kind: "none",
     },
@@ -202,16 +226,26 @@ export function createAcpBackendFromPreset(
   };
 }
 
+export function createAcpBackendFromPreset(
+  presetOrId: AcpBackendPreset | string,
+): BackendInstance {
+  return createAcpBackendFromPresetOptions(presetOrId);
+}
+
 export async function ensureManagedAcpBackendEnvironmentDirectories(
   backends: BackendInstance[],
 ) {
   for (const backend of backends) {
-    const spec = ACP_ISOLATED_ENV_BY_BACKEND_ID[backend.id];
-    if (!spec) {
+    const preset = ACP_BACKEND_PRESETS.find(
+      (entry) =>
+        entry.isolation?.envKey && backend.id.startsWith(`acp-${entry.id}`),
+    );
+    const envKey = preset?.isolation?.envKey;
+    if (!envKey) {
       continue;
     }
-    const expectedPath = getAcpBackendIsolatedEnvironmentPath(spec.backendId);
-    if (backend.env?.[spec.envKey] === expectedPath) {
+    const expectedPath = getAcpBackendIsolatedEnvironmentPath(backend.id);
+    if (backend.env?.[envKey] === expectedPath) {
       await ensureRuntimeDirectory(expectedPath);
     }
   }
@@ -219,6 +253,13 @@ export async function ensureManagedAcpBackendEnvironmentDirectories(
 
 export function listBuiltinAcpBackends() {
   return ACP_BACKEND_PRESETS.filter((preset) => preset.builtIn).map((preset) =>
-    createAcpBackendFromPreset(preset),
+    createAcpBackendFromPresetOptions(preset, {
+      useNpx: false,
+      isolated: false,
+    }),
   );
 }
+
+export const acpBackendPresetInternalsForTests = {
+  normalizePresetOptions,
+};

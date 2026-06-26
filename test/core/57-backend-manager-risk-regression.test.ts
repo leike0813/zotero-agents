@@ -5,6 +5,7 @@ import type { BackendInstance } from "../../src/backends/types";
 import { computeAcpBackendConfigFingerprint } from "../../src/modules/acpBackendProbe";
 import {
   createAcpBackendFromPreset,
+  createAcpBackendFromPresetOptions,
   getAcpBackendIsolatedEnvironmentPath,
   listAcpBackendPresets,
   listBuiltinAcpBackends,
@@ -189,6 +190,10 @@ describe("backend manager risk regression", function () {
     assert.include(source, "createBackendManagerDraftSignature");
     assert.include(source, "installBackendManagerBeforeUnloadPrompt");
     assert.include(source, "backend-manager-unsaved-exit-confirm");
+    assert.include(source, 'if (action === "add-acp-preset")');
+    assert.include(source, "editableRowFromAcpBackendPresetOptions");
+    assert.include(source, "existingIds.has(draftRow.internalId)");
+    assert.include(source, "backend-manager-acp-preset-exists");
     assert.include(html, 'class="backend-manager-page"');
     assert.include(html, 'id="backend-manager-root"');
     assert.include(html, "../shared/theme.css");
@@ -203,14 +208,20 @@ describe("backend manager risk regression", function () {
       'PROVIDER_ORDER = ["acp", "skillrunner", "generic-http"]',
     );
     assert.include(js, "backend-provider-tabs");
-    assert.include(js, "renderAcpPresetSelect");
+    assert.include(js, "renderAcpPresetDialog");
     assert.include(
       js,
       "function renderProvider(provider) {\n    const l = labels();",
     );
     assert.include(js, 'el("p", "backend-empty", l.noProfiles');
-    assert.include(js, "window.createCustomSelect");
-    assert.include(js, "state.acpSelectedPresetId");
+    assert.include(js, "state.acpPresetDialog");
+    assert.include(js, "backend-preset-modal");
+    assert.include(js, "backend-preset-preview");
+    assert.include(js, "acpPresetUseNpx");
+    assert.include(js, "acpPresetIsolationWarning");
+    assert.include(js, "https://nodejs.org/");
+    assert.notInclude(js, "renderAcpPresetSelect");
+    assert.notInclude(js, "state.acpSelectedPresetId");
     assert.include(js, "backend-http-grid");
     assert.include(js, "backend-acp-grid");
     assert.include(js, 'input.type = "password"');
@@ -234,8 +245,10 @@ describe("backend manager risk regression", function () {
     assert.include(css, "overflow: hidden");
     assert.include(css, ".backend-provider-tabs");
     assert.include(css, ".backend-provider-tab.is-active");
-    assert.include(css, ".backend-preset-select");
-    assert.include(css, ".backend-preset-select .custom-select-menu");
+    assert.include(css, ".backend-preset-modal");
+    assert.include(css, ".backend-preset-selector");
+    assert.include(css, ".backend-preset-preview");
+    assert.notInclude(css, ".backend-preset-select {");
     assert.include(css, ".backend-manager-body");
     assert.include(css, ".backend-footer");
     assert.include(css, ".backend-footer-status");
@@ -425,26 +438,15 @@ describe("backend manager risk regression", function () {
     const presets = listAcpBackendPresets();
     assert.sameMembers(
       presets.map((preset) => preset.id),
-      [
-        "opencode",
-        "codex",
-        "codex-isolated",
-        "claude-code",
-        "claude-code-isolated",
-        "gemini-cli",
-        "gemini-cli-isolated",
-        "hermes",
-        "hermes-isolated",
-        "qwen-code",
-      ],
+      ["opencode", "codex", "claude-code", "gemini-cli", "hermes", "qwen-code"],
     );
 
     const codex = createAcpBackendFromPreset("codex");
     assert.deepEqual(codex, {
-      id: "acp-codex",
+      id: "acp-codex-npx",
       displayName: "Codex ACP",
       type: "acp",
-      baseUrl: "local://acp-codex",
+      baseUrl: "local://acp-codex-npx",
       command: "npx",
       args: ["@zed-industries/codex-acp@latest"],
       auth: { kind: "none" },
@@ -454,14 +456,13 @@ describe("backend manager risk regression", function () {
     });
 
     const gemini = createAcpBackendFromPreset("gemini-cli");
-    assert.equal(gemini.command, "npx");
-    assert.deepEqual(gemini.args, [
-      "@google/gemini-cli@latest",
-      "--experimental-acp",
-    ]);
+    assert.equal(gemini.id, "acp-gemini-cli");
+    assert.equal(gemini.command, "gemini");
+    assert.deepEqual(gemini.args, ["--experimental-acp"]);
     assert.equal(gemini.acp?.agentFamily, "gemini-cli");
 
     const claude = createAcpBackendFromPreset("claude-code");
+    assert.equal(claude.id, "acp-claude-code-npx");
     assert.equal(claude.command, "npx");
     assert.deepEqual(claude.args, [
       "@agentclientprotocol/claude-agent-acp@latest",
@@ -487,37 +488,39 @@ describe("backend manager risk regression", function () {
     const expectedRoot = getRuntimePersistencePaths().dataDir;
     const cases = [
       {
-        presetId: "codex-isolated",
-        backendId: "acp-codex-isolated",
-        displayName: "Codex ACP (Isolated Environment)",
+        presetId: "codex",
+        backendId: "acp-codex-npx-isolated",
+        displayName: "Codex ACP",
         envKey: "CODEX_HOME",
         agentFamily: "codex",
       },
       {
-        presetId: "claude-code-isolated",
-        backendId: "acp-claude-code-isolated",
-        displayName: "Claude Code ACP (Isolated Environment)",
+        presetId: "claude-code",
+        backendId: "acp-claude-code-npx-isolated",
+        displayName: "Claude Code ACP",
         envKey: "CLAUDE_CONFIG_DIR",
         agentFamily: "claude-code",
       },
       {
-        presetId: "gemini-cli-isolated",
+        presetId: "gemini-cli",
         backendId: "acp-gemini-cli-isolated",
-        displayName: "Gemini CLI ACP (Isolated Environment)",
+        displayName: "Gemini CLI ACP",
         envKey: "GEMINI_CLI_HOME",
         agentFamily: "gemini-cli",
       },
       {
-        presetId: "hermes-isolated",
+        presetId: "hermes",
         backendId: "acp-hermes-isolated",
-        displayName: "Hermes ACP (Isolated Environment)",
+        displayName: "Hermes ACP",
         envKey: "HERMES_HOME",
         agentFamily: "hermes",
       },
     ] as const;
 
     for (const entry of cases) {
-      const backend = createAcpBackendFromPreset(entry.presetId);
+      const backend = createAcpBackendFromPresetOptions(entry.presetId, {
+        isolated: true,
+      });
       const expectedPath = getAcpBackendIsolatedEnvironmentPath(
         entry.backendId,
       );
@@ -541,8 +544,8 @@ describe("backend manager risk regression", function () {
 
     assert.lengthOf(builtins, 1);
     assert.equal(builtins[0].id, "acp-opencode");
-    assert.equal(builtins[0].command, "npx");
-    assert.deepEqual(builtins[0].args, ["opencode-ai@latest", "acp"]);
+    assert.equal(builtins[0].command, "opencode");
+    assert.deepEqual(builtins[0].args, ["acp"]);
     assert.equal(builtins[0].acp?.agentFamily, "opencode");
   });
 
@@ -567,8 +570,8 @@ describe("backend manager risk regression", function () {
         displayName: "Qwen Code ACP",
         type: "acp",
         baseUrl: "local://acp-qwen-code",
-        command: "npx",
-        args: ["@qwen-code/qwen-code@latest", "--acp", "--experimental-skills"],
+        command: "qwen",
+        args: ["--acp", "--experimental-skills"],
         acp: {
           agentFamily: "qwen-code",
         },
@@ -577,7 +580,9 @@ describe("backend manager risk regression", function () {
   });
 
   it("preserves isolated ACP preset env through draft row collection", function () {
-    const preset = createAcpBackendFromPreset("codex-isolated");
+    const preset = createAcpBackendFromPresetOptions("codex", {
+      isolated: true,
+    });
     const collected = collectBackendsFromDraftRows([
       {
         type: "acp",
@@ -595,15 +600,16 @@ describe("backend manager risk regression", function () {
 
     assert.deepEqual(collected.backends, [
       {
-        id: "acp-codex-isolated",
-        displayName: "Codex ACP (Isolated Environment)",
+        id: "acp-codex-npx-isolated",
+        displayName: "Codex ACP",
         type: "acp",
-        baseUrl: "local://acp-codex-isolated",
+        baseUrl: "local://acp-codex-npx-isolated",
         command: "npx",
         args: ["@zed-industries/codex-acp@latest"],
         env: {
-          CODEX_HOME:
-            getAcpBackendIsolatedEnvironmentPath("acp-codex-isolated"),
+          CODEX_HOME: getAcpBackendIsolatedEnvironmentPath(
+            "acp-codex-npx-isolated",
+          ),
         },
         acp: {
           agentFamily: "codex",

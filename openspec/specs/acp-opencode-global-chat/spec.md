@@ -3,14 +3,21 @@
 ## Purpose
 TBD - created by archiving change add-acp-opencode-global-chat-foundation. Update Purpose after archive.
 ## Requirements
-### Requirement: OpenCode ACP backend profile uses the reference `npx` command metadata
+### Requirement: OpenCode ACP backend profile uses the bare OpenCode command
 
-The system SHALL expose a built-in OpenCode ACP backend profile that launches OpenCode through the same `npx` command line used by `reference/vscode-acp`.
+The system SHALL expose a built-in OpenCode ACP backend profile that launches
+the locally installed OpenCode CLI directly.
 
 #### Scenario: Normalize the built-in ACP backend
 - **WHEN** the plugin loads backend profiles
-- **THEN** the built-in ACP backend MUST use `command="npx"` and `args=["opencode-ai@latest", "acp"]`
-- **THEN** it MUST remain compatible with existing backend consumers via a stable local `baseUrl`
+- **THEN** the built-in ACP backend MUST use `command="opencode"` and `args=["acp"]`
+- **AND** it MUST remain compatible with existing backend consumers via a stable local `baseUrl`.
+
+#### Scenario: Rewrite the old automatic OpenCode npx profile
+- **GIVEN** the persisted `acp-opencode` backend still matches the old automatic `npx opencode-ai@latest acp` profile
+- **WHEN** the plugin loads backend profiles
+- **THEN** the profile SHALL be rewritten to `opencode acp`
+- **AND** user-customized `acp-opencode` profiles SHALL NOT be overwritten.
 ### Requirement: ACP command availability and lifecycle are observable
 
 The system SHALL surface ACP backend launch and connection lifecycle states to the sidebar.

@@ -43,9 +43,10 @@ import {
   probeAcpBackendRuntimeOptions,
 } from "./acpBackendProbe";
 import {
-  createAcpBackendFromPreset,
+  createAcpBackendFromPresetOptions,
   ensureManagedAcpBackendEnvironmentDirectories,
   findAcpBackendPreset,
+  getAcpBackendIsolatedEnvironmentRoot,
   listAcpBackendPresets,
 } from "./acpBackendPresets";
 
@@ -135,7 +136,21 @@ type BackendManagerSnapshot = {
       lastError?: string;
     }
   >;
-  acpPresets: Array<{ id: string; label: string }>;
+  acpPresets: Array<{
+    id: string;
+    label: string;
+    bareCommand: string;
+    bareArgs: string[];
+    npxPackage?: string;
+    npxArgs?: string[];
+    defaultUseNpx: boolean;
+    supportsNpx: boolean;
+    agentFamily: string;
+    isolation?: {
+      envKey: string;
+    };
+  }>;
+  acpPresetIsolationRoot: string;
 };
 
 type BackendManagerActionEnvelope = {
@@ -1241,12 +1256,17 @@ function hasBackendRowInternalId(doc: Document, internalId: string) {
   return rows.some((row) => readRowInternalId(row) === expected);
 }
 
-function editableRowFromAcpBackendPreset(presetId: string): EditableBackendRow {
-  const preset = findAcpBackendPreset(presetId);
-  if (!preset) {
-    throw new Error(`Unknown ACP backend preset: ${presetId}`);
-  }
-  return normalizeRowFromBackend(createAcpBackendFromPreset(preset));
+function editableRowFromAcpBackendPresetOptions(args: {
+  presetId: string;
+  useNpx?: boolean;
+  isolated?: boolean;
+}): EditableBackendRow {
+  return normalizeRowFromBackend(
+    createAcpBackendFromPresetOptions(args.presetId, {
+      useNpx: args.useNpx,
+      isolated: args.isolated,
+    }),
+  );
 }
 
 export function resolveSkillRunnerManagementLaunchPayloadFromRow(
@@ -2261,6 +2281,39 @@ function buildBackendManagerLabels() {
     remove: localizeBackendManager("backend-manager-remove", "Remove"),
     save: localizeBackendManager("backend-manager-save", "Save"),
     cancel: localizeBackendManager("backend-manager-cancel", "Cancel"),
+    confirm: localizeBackendManager("backend-manager-confirm", "Confirm"),
+    profileId: localizeBackendManager(
+      "backend-manager-profile-id",
+      "Profile ID",
+    ),
+    agentFamily: localizeBackendManager(
+      "backend-manager-agent-family",
+      "Agent Family",
+    ),
+    acpPresetDialogTitle: localizeBackendManager(
+      "backend-manager-acp-preset-dialog-title",
+      "Add ACP Profile from Preset",
+    ),
+    acpPresetUseNpx: localizeBackendManager(
+      "backend-manager-acp-preset-use-npx",
+      "Use npx",
+    ),
+    acpPresetIsolated: localizeBackendManager(
+      "backend-manager-acp-preset-isolated",
+      "Isolated environment",
+    ),
+    acpPresetNpxWarning: localizeBackendManager(
+      "backend-manager-acp-preset-npx-warning",
+      "Requires Node.js and npm.",
+    ),
+    acpPresetNodeLink: localizeBackendManager(
+      "backend-manager-acp-preset-node-link",
+      "Node.js",
+    ),
+    acpPresetIsolationWarning: localizeBackendManager(
+      "backend-manager-acp-preset-isolation-warning",
+      "Using an isolated environment requires configuring and authenticating the agent in { $path }. Do not enable this if you are unsure.",
+    ),
     openManagement: localizeBackendManager(
       "backend-manager-open-management",
       "Open Management",
@@ -2379,7 +2432,20 @@ function buildBackendManagerSnapshot(
     acpPresets: listAcpBackendPresets().map((preset) => ({
       id: preset.id,
       label: preset.displayName,
+      bareCommand: preset.bareCommand,
+      bareArgs: [...preset.bareArgs],
+      npxPackage: preset.npxPackage,
+      npxArgs: preset.npxArgs ? [...preset.npxArgs] : undefined,
+      defaultUseNpx: preset.defaultUseNpx,
+      supportsNpx: preset.supportsNpx,
+      agentFamily: preset.agentFamily,
+      isolation: preset.isolation
+        ? {
+            envKey: preset.isolation.envKey,
+          }
+        : undefined,
     })),
+    acpPresetIsolationRoot: getAcpBackendIsolatedEnvironmentRoot(),
     skillRunnerHealth: buildSkillRunnerHealthSnapshot(rows),
   };
 }
@@ -2639,16 +2705,27 @@ export async function openBackendManagerDialog(
         if (action === "add-acp-preset") {
           try {
             const presetId = String(payload.presetId || "").trim();
+            const useNpx =
+              typeof payload.useNpx === "boolean" ? payload.useNpx : undefined;
+            const isolated =
+              typeof payload.isolated === "boolean"
+                ? payload.isolated
+                : undefined;
             const preset = findAcpBackendPreset(presetId);
             if (!preset) {
               throw new Error(`Unknown ACP backend preset: ${presetId}`);
             }
+            const draftRow = editableRowFromAcpBackendPresetOptions({
+              presetId,
+              useNpx,
+              isolated,
+            });
             const existingIds = new Set(
               normalizeDraftRows(payload.rows || currentDraftRows)
                 .map((row) => row.internalId)
                 .filter(Boolean),
             );
-            if (existingIds.has(preset.backendId)) {
+            if (existingIds.has(draftRow.internalId)) {
               throw new Error(
                 getString("backend-manager-acp-preset-exists" as any, {
                   args: { name: preset.displayName },
@@ -2657,9 +2734,7 @@ export async function openBackendManagerDialog(
             }
             postToFrame("backend-manager-dialog:action-result", {
               action,
-              row: editableRowToDraft(
-                editableRowFromAcpBackendPreset(presetId),
-              ),
+              row: editableRowToDraft(draftRow),
             });
           } catch (error) {
             alertWindow?.alert?.(String(error));

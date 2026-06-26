@@ -13,7 +13,7 @@
     statusMessage: null,
     statusTimer: null,
     scrollByProvider: {},
-    acpSelectedPresetId: "",
+    acpPresetDialog: null,
   };
 
   function post(action, payload) {
@@ -256,11 +256,236 @@
     const input = el("input", "");
     input.type = "checkbox";
     input.checked = args.checked !== false;
+    input.disabled = !!args.disabled;
     input.addEventListener("change", function () {
       args.onChange(input.checked);
     });
     field.append(input, document.createTextNode(args.label || ""));
     return field;
+  }
+
+  function acpPresetList() {
+    return (state.snapshot && state.snapshot.acpPresets) || [];
+  }
+
+  function findAcpPreset(presetId) {
+    return acpPresetList().find(function (preset) {
+      return preset.id === presetId;
+    });
+  }
+
+  function defaultAcpPresetDialogState(preset) {
+    return {
+      selectedPresetId: preset ? preset.id : "",
+      useNpx: !!(preset && preset.defaultUseNpx && preset.supportsNpx),
+      isolated: false,
+    };
+  }
+
+  function openAcpPresetDialog() {
+    const preset = acpPresetList()[0] || null;
+    state.acpPresetDialog = defaultAcpPresetDialogState(preset);
+    renderWithScroll();
+  }
+
+  function closeAcpPresetDialog() {
+    state.acpPresetDialog = null;
+    renderWithScroll();
+  }
+
+  function inferPathSeparator(pathValue) {
+    return String(pathValue || "").indexOf("\\") >= 0 ? "\\" : "/";
+  }
+
+  function joinPreviewPath(root, child) {
+    const base = String(root || "").replace(/[\\/]+$/g, "");
+    if (!base) return String(child || "");
+    return base + inferPathSeparator(base) + String(child || "");
+  }
+
+  function buildAcpPresetProfileId(preset, useNpx, isolated) {
+    const suffixes = [];
+    if (useNpx) suffixes.push("npx");
+    if (isolated) suffixes.push("isolated");
+    return (
+      "acp-" + preset.id + (suffixes.length ? "-" + suffixes.join("-") : "")
+    );
+  }
+
+  function buildAcpPresetPreview() {
+    const dialog = state.acpPresetDialog || {};
+    const preset = findAcpPreset(dialog.selectedPresetId) || acpPresetList()[0];
+    if (!preset) return null;
+    const useNpx = !!(dialog.useNpx && preset.supportsNpx);
+    const isolated = !!(dialog.isolated && preset.isolation);
+    const internalId = buildAcpPresetProfileId(preset, useNpx, isolated);
+    const env = isolated
+      ? [
+          {
+            key: preset.isolation.envKey,
+            value: joinPreviewPath(
+              state.snapshot && state.snapshot.acpPresetIsolationRoot,
+              internalId,
+            ),
+          },
+        ]
+      : [];
+    return {
+      preset: preset,
+      internalId: internalId,
+      displayName: preset.label,
+      command: useNpx ? "npx" : preset.bareCommand,
+      args: useNpx
+        ? [preset.npxPackage].concat(preset.npxArgs || []).filter(Boolean)
+        : (preset.bareArgs || []).slice(),
+      env: env,
+      agentFamily: preset.agentFamily,
+      useNpx: useNpx,
+      isolated: isolated,
+    };
+  }
+
+  function previewValue(label, value) {
+    const row = el("div", "backend-preset-preview-row");
+    row.append(
+      el("span", "backend-preset-preview-label", label),
+      el("code", "backend-preset-preview-value", value || "-"),
+    );
+    return row;
+  }
+
+  function renderAcpPresetPreview(preview) {
+    const l = labels();
+    const box = el("div", "backend-preset-preview");
+    box.setAttribute("aria-readonly", "true");
+    box.append(
+      previewValue(l.profileId || "Profile ID", preview.internalId),
+      previewValue(l.displayName || "Display Name", preview.displayName),
+      previewValue(l.command || "Command", preview.command),
+      previewValue(
+        l.args || "Args",
+        preview.args.length ? preview.args.join(" ") : "-",
+      ),
+      previewValue(
+        l.env || "Env",
+        preview.env.length
+          ? preview.env
+              .map(function (entry) {
+                return entry.key + "=" + entry.value;
+              })
+              .join("\n")
+          : "-",
+      ),
+      previewValue(l.agentFamily || "Agent Family", preview.agentFamily),
+    );
+    return box;
+  }
+
+  function renderAcpPresetDialog() {
+    if (!state.acpPresetDialog) return document.createDocumentFragment();
+    const l = labels();
+    const preview = buildAcpPresetPreview();
+    const overlay = el("div", "backend-preset-modal");
+    const panel = el("section", "backend-preset-panel");
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute(
+      "aria-label",
+      l.acpPresetDialogTitle || "Add ACP Profile from Preset",
+    );
+    const header = el("header", "backend-preset-panel-header");
+    header.appendChild(
+      el(
+        "h2",
+        "backend-preset-panel-title",
+        l.acpPresetDialogTitle || "Add ACP Profile from Preset",
+      ),
+    );
+    const body = el("div", "backend-preset-panel-body");
+    const selector = el("nav", "backend-preset-selector");
+    acpPresetList().forEach(function (preset) {
+      const item = button(preset.label, "backend-preset-selector-item");
+      const selected =
+        preview && preset.id === state.acpPresetDialog.selectedPresetId;
+      item.classList.toggle("is-active", selected);
+      item.setAttribute("aria-pressed", selected ? "true" : "false");
+      item.addEventListener("click", function () {
+        state.acpPresetDialog = defaultAcpPresetDialogState(preset);
+        renderWithScroll();
+      });
+      selector.appendChild(item);
+    });
+    const detail = el("div", "backend-preset-detail");
+    if (preview) {
+      const npxField = checkboxField({
+        label: l.acpPresetUseNpx || "Use npx",
+        checked: preview.useNpx,
+        disabled: !preview.preset.supportsNpx,
+        onChange: function (checked) {
+          state.acpPresetDialog.useNpx = checked;
+          renderWithScroll();
+        },
+      });
+      const isolationField = checkboxField({
+        label: l.acpPresetIsolated || "Isolated environment",
+        checked: preview.isolated,
+        disabled: !preview.preset.isolation,
+        onChange: function (checked) {
+          state.acpPresetDialog.isolated = checked;
+          renderWithScroll();
+        },
+      });
+      detail.append(npxField, isolationField);
+      if (preview.useNpx) {
+        const note = el(
+          "p",
+          "backend-preset-note",
+          l.acpPresetNpxWarning || "Requires Node.js and npm.",
+        );
+        const link = el(
+          "a",
+          "backend-preset-note-link",
+          l.acpPresetNodeLink || "Node.js",
+        );
+        link.href = "https://nodejs.org/";
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        note.append(" ", link);
+        detail.appendChild(note);
+      }
+      if (preview.isolated && preview.env[0]) {
+        detail.appendChild(
+          el(
+            "p",
+            "backend-preset-note warning",
+            String(
+              l.acpPresetIsolationWarning ||
+                "Using an isolated environment requires configuring and authenticating the agent in { $path }. Do not enable this if you are unsure.",
+            ).replace(/\{\s*\$path\s*\}/g, preview.env[0].value),
+          ),
+        );
+      }
+      detail.appendChild(renderAcpPresetPreview(preview));
+    }
+    body.append(selector, detail);
+    const footer = el("footer", "backend-preset-panel-footer");
+    const cancel = button(l.cancel || "Cancel");
+    cancel.addEventListener("click", closeAcpPresetDialog);
+    const confirm = button(l.confirm || "Confirm", "primary");
+    confirm.disabled = !preview;
+    confirm.addEventListener("click", function () {
+      if (!preview) return;
+      post("add-acp-preset", {
+        presetId: preview.preset.id,
+        useNpx: preview.useNpx,
+        isolated: preview.isolated,
+        rows: state.rows,
+      });
+    });
+    footer.append(cancel, confirm);
+    panel.append(header, body, footer);
+    overlay.appendChild(panel);
+    return overlay;
   }
 
   function tokenField(args) {
@@ -590,48 +815,6 @@
     return tabs;
   }
 
-  function renderAcpPresetSelect() {
-    const presets = (state.snapshot && state.snapshot.acpPresets) || [];
-    const options = presets.map(function (preset) {
-      return {
-        value: preset.id,
-        label: preset.label,
-      };
-    });
-    const current = options.some(function (option) {
-      return option.value === state.acpSelectedPresetId;
-    })
-      ? state.acpSelectedPresetId
-      : options[0]
-        ? options[0].value
-        : "";
-    state.acpSelectedPresetId = current;
-
-    if (typeof window.createCustomSelect === "function") {
-      const custom = window.createCustomSelect(
-        options,
-        current,
-        function (value) {
-          state.acpSelectedPresetId = String(value || "");
-        },
-      );
-      custom.element.classList.add("backend-preset-select");
-      return custom.element;
-    }
-
-    const select = el("select", "backend-select backend-preset-select");
-    options.forEach(function (option) {
-      const node = el("option", "", option.label);
-      node.value = option.value;
-      select.appendChild(node);
-    });
-    select.value = current;
-    select.addEventListener("change", function () {
-      state.acpSelectedPresetId = select.value;
-    });
-    return select;
-  }
-
   function renderProvider(provider) {
     const l = labels();
     const section = el("section", "backend-provider-section");
@@ -645,14 +828,10 @@
     );
     const actions = el("div", "backend-provider-actions");
     if (provider.type === "acp") {
-      actions.appendChild(renderAcpPresetSelect());
       const addPreset = button(labels().addAcpPreset || "Add ACP Preset");
       addPreset.addEventListener("click", function () {
         rememberScroll();
-        post("add-acp-preset", {
-          presetId: state.acpSelectedPresetId,
-          rows: state.rows,
-        });
+        openAcpPresetDialog();
       });
       actions.appendChild(addPreset);
     }
@@ -733,7 +912,7 @@
     });
     footerActions.append(cancel, save);
     footer.append(status, footerActions);
-    root.append(header, body, footer);
+    root.append(header, body, footer, renderAcpPresetDialog());
     if (preserveScroll) {
       requestAnimationFrame(restoreScroll);
     }
@@ -767,6 +946,7 @@
       const payload = data.payload || {};
       if (payload.action === "add-acp-preset" && payload.row) {
         state.rows.push(cleanRow(payload.row));
+        state.acpPresetDialog = null;
         emitDraftChanged();
         renderWithScroll();
         return;

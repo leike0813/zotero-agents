@@ -18,7 +18,7 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 1. 确保本机已安装至少一个支持 ACP 的 Agent CLI 工具
 2. 打开 **工具 → [后端管理器](backend-manager)**
 3. 切换到 **ACP** Tab
-4. 从 **Add from Preset** 下拉菜单选择你的 Agent 工具，或点击 **添加 ACP** 手动配置
+4. 点击 **从预设中添加** 选择你的 Agent 工具，或点击 **添加 ACP** 手动配置
 5. 填写以下字段：
    - **显示名称**：一个友好的名称（如"我的 OpenCode"）
    - **命令**：启动 ACP 后端的命令（预设自动填充，也可手动修改）
@@ -38,16 +38,20 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 
 ## 支持的 Agent 预设
 
-插件提供了多个内建预设，可以直接从 **Add from Preset** 下拉菜单选择：
+插件提供了多个内建预设。点击 **从预设中添加** 后，在左侧选择 Agent 工具，右侧会显示启动选项和只读配置预览。
 
-| 预设 | 命令 | 说明 |
+预设窗口中的 **用 npx 启动** 会把命令切换为 `npx <package>` 形式，并提示需要安装 Node.js 和 npm。Codex 和 Claude Code 默认启用 npx，因为它们依赖 ACP adapter；其它 Agent 默认使用裸命令。
+
+**隔离环境** 仅对支持隔离的 Agent 可用。启用后，插件会在预览中加入隔离目录环境变量，并提示需要在该目录中自行管理 Agent 选项配置和鉴权。
+
+| 预设 | 默认命令 | 说明 |
 |------|------|------|
-| **Codex** | `npx codex acp` | OpenAI 官方 Coding Agent |
-| **Claude Code** | `npx @anthropic-ai/claude-code acp` | Anthropic 官方 CLI |
-| **OpenCode** | `npx opencode-ai@latest acp` | 通用 Agent 框架，支持环境变量隔离 |
-| **Gemini CLI** | `npx @google/gemini-cli acp` | Google Gemini |
-| **Hermes** | `npx hermes acp` | Hermes Agent |
-| **Qwen Code** | `qwen-code acp` | 通义千问 Code |
+| **Codex** | `npx @zed-industries/codex-acp@latest` | OpenAI 官方 Coding Agent |
+| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Anthropic 官方 CLI |
+| **OpenCode** | `opencode acp` | 通用 Agent 框架，支持环境变量隔离 |
+| **Gemini CLI** | `gemini --experimental-acp` | Google Gemini |
+| **Hermes** | `hermes acp` | Hermes Agent |
+| **Qwen Code** | `qwen --acp --experimental-skills` | 通义千问 Code |
 
 选择预设后仍可手动修改任何字段。
 
@@ -58,8 +62,10 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 | 环境变量 | Agent | 用途 |
 |---------|-------|------|
 | `OPENCODE_CONFIG` | OpenCode | 指定独立配置目录 |
-| `OPENCODE_SESSION_DIR` | OpenCode | 指定 session 持久化目录 |
-| `CODEX_CONFIG_DIR` | Codex | 指定独立配置目录 |
+| `CODEX_HOME` | Codex | 指定独立配置目录 |
+| `CLAUDE_CONFIG_DIR` | Claude Code | 指定独立配置目录 |
+| `GEMINI_CLI_HOME` | Gemini CLI | 指定独立配置目录 |
+| `HERMES_HOME` | Hermes | 指定独立配置目录 |
 
 ## 请求类型
 

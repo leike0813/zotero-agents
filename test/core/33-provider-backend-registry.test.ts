@@ -309,6 +309,39 @@ describe("provider/backend registry", function () {
     });
   });
 
+  it("migrates the legacy automatic OpenCode ACP profile to the bare command", async function () {
+    setBackendsConfig({
+      schemaVersion: 2,
+      backends: [
+        {
+          id: "acp-opencode",
+          displayName: "OpenCode ACP",
+          type: "acp",
+          baseUrl: "local://acp-opencode",
+          command: "npx",
+          args: ["opencode-ai@latest", "acp"],
+          auth: { kind: "none" },
+          acp: {
+            agentFamily: "opencode",
+          },
+        },
+      ],
+    });
+
+    const loaded = await loadBackendsRegistry();
+
+    assert.isUndefined(loaded.fatalError);
+    assert.lengthOf(loaded.backends, 1);
+    assert.equal(loaded.backends[0].id, "acp-opencode");
+    assert.equal(loaded.backends[0].command, "opencode");
+    assert.deepEqual(loaded.backends[0].args, ["acp"]);
+
+    const persisted = readPersistedBackendsConfig();
+    assert.equal(persisted.backends?.[0]?.id, "acp-opencode");
+    assert.equal(persisted.backends?.[0]?.command, "opencode");
+    assert.deepEqual(persisted.backends?.[0]?.args, ["acp"]);
+  });
+
   it("resolves first provider-compatible backend when no preferred profile is set", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(
@@ -1330,18 +1363,15 @@ describe("provider/backend registry", function () {
     assert.lengthOf(loaded.backends, 1);
     assert.equal(loaded.backends[0].id, "acp-opencode");
     assert.equal(loaded.backends[0].type, "acp");
-    assert.equal(loaded.backends[0].command, "npx");
-    assert.deepEqual(loaded.backends[0].args, ["opencode-ai@latest", "acp"]);
+    assert.equal(loaded.backends[0].command, "opencode");
+    assert.deepEqual(loaded.backends[0].args, ["acp"]);
 
     const persisted = readPersistedBackendsConfig();
     assert.equal(persisted.schemaVersion, 2);
     assert.lengthOf(persisted.backends || [], 1);
     assert.equal(persisted.backends?.[0]?.id, "acp-opencode");
-    assert.equal(persisted.backends?.[0]?.command, "npx");
-    assert.deepEqual(persisted.backends?.[0]?.args, [
-      "opencode-ai@latest",
-      "acp",
-    ]);
+    assert.equal(persisted.backends?.[0]?.command, "opencode");
+    assert.deepEqual(persisted.backends?.[0]?.args, ["acp"]);
   });
 
   it("rejects ACP workflows from workflow execution context resolution", async function () {

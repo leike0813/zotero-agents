@@ -1,5 +1,6 @@
 import {
   ACP_BACKEND_TYPE,
+  ACP_OPENCODE_BACKEND_ID,
   BACKEND_TYPES,
   GENERIC_HTTP_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
@@ -197,11 +198,30 @@ function upsertBuiltinBackends(backends: BackendInstance[]) {
       changed = true;
       continue;
     }
+    if (isLegacyAutomaticOpenCodeBackend(next[existingIndex])) {
+      next[existingIndex] = builtin;
+      changed = true;
+    }
   }
   return {
     backends: next,
     changed,
   };
+}
+
+function isLegacyAutomaticOpenCodeBackend(backend: BackendInstance) {
+  return (
+    backend.id === ACP_OPENCODE_BACKEND_ID &&
+    backend.type === ACP_BACKEND_TYPE &&
+    backend.enabled !== false &&
+    (!backend.displayName || backend.displayName === "OpenCode ACP") &&
+    backend.baseUrl === `local://${ACP_OPENCODE_BACKEND_ID}` &&
+    backend.command === "npx" &&
+    JSON.stringify(backend.args || []) ===
+      JSON.stringify(["opencode-ai@latest", "acp"]) &&
+    (!backend.env || Object.keys(backend.env).length === 0) &&
+    (!backend.acp?.agentFamily || backend.acp.agentFamily === "opencode")
+  );
 }
 
 function normalizeBackendsSchemaVersion(value: unknown) {
