@@ -74,19 +74,36 @@
 
 ### Пресеты ACP
 
-В верхней части вкладки ACP есть выпадающий список **Добавить из пресета**. После выбора пресета плагин автоматически заполняет команду и общие параметры.
+В верхней части вкладки ACP находится кнопка **Добавить из пресета**. При нажатии открывается окно конфигурации пресета: слева вы выбираете агента, справа отображаются параметры запуска и предварительный просмотр конфигурации только для чтения. При нажатии **Подтвердить** плагин добавляет обычную строку конфигурации ACP на основе предварительного просмотра; при нажатии **Отмена** текущая конфигурация не изменяется.
 
-Встроенные пресеты:
+- **Запустить через npx**: после активации команда переключается на формат `npx <package>` и отображается уведомление о необходимости установки Node.js и npm со ссылкой на сайт Node.js. Codex и Claude Code включены по умолчанию, так как зависят от ACP-адаптера; остальные агенты — нет.
+- **Изолированная среда**: доступно только для агентов, поддерживающих изоляцию. После активации соответствующие переменные окружения добавляются в предварительный просмотр и отображается уведомление о том, что параметры агента и аутентификацию необходимо управлять самостоятельно в этом изолированном каталоге.
 
-| Пресет | Команда |
-|--------|---------|
-| **OpenCode** | `npx opencode-ai@latest acp` |
-| **Codex** | `npx codex acp` |
-| **Claude Code** | `npx @anthropic-ai/claude-code acp` |
-| **Gemini CLI** | `npx @google/gemini-cli acp` |
-| **Qwen Code** | `qwen-code acp` |
+<figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/backends/backend-manager_ACP-preset.webp" alt="Диалог пресетов ACP" title="Диалог пресетов ACP" loading="lazy" /><figcaption>Диалог пресетов ACP</figcaption></figure>
 
-Вы всё ещё можете вручную изменить любое поле после выбора пресета.
+Область предварительного просмотра доступна только для чтения и содержит ID профиля, отображаемое имя, команду, параметры, переменные окружения и семейство агентов. Добавленную строку конфигурации можно продолжать редактировать как обычный ACP-бэкенд.
+
+Команды по умолчанию встроенных пресетов:
+
+| Пресет | Команда по умолчанию | Описание |
+|------|------|------|
+| **OpenCode** | `opencode acp` | ACP-бэкенд OpenCode; поддерживает изоляцию каталога конфигурации через `OPENCODE_CONFIG_DIR` |
+| **Codex** | `npx @zed-industries/codex-acp@latest` | ACP-адаптер для OpenAI Codex |
+| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | ACP-адаптер для Claude Code |
+| **Gemini CLI** | `gemini --experimental-acp` | Режим ACP Gemini CLI |
+| **Hermes** | `hermes acp` | ACP-бэкенд Hermes Agent |
+| **Qwen Code** | `qwen --acp --experimental-skills` | Режим ACP Qwen Code |
+| **GitHub Copilot** | `copilot --acp --stdio` | Режим ACP GitHub Copilot CLI |
+| **Qoder CLI** | `qodercli --acp` | Режим ACP Qoder CLI; поддерживает изоляцию каталога конфигурации через `QODER_CONFIG_DIR` |
+| **Cursor Agent ACP** | `cursor-agent-acp` | ACP-адаптер Cursor Agent; поддерживает изоляцию каталога сессии через `--session-dir` |
+| **DeepAgents** | `deepagents-acp` | ACP-адаптер DeepAgents |
+| **Auggie** | `auggie --acp` | Режим ACP Auggie |
+| **Kilo** | `kilo acp` | Режим ACP Kilo Code |
+| **Cline** | `cline --acp` | Режим ACP Cline |
+| **CodeBuddy** | `codebuddy --acp` | Режим ACP CodeBuddy |
+| **Grok** | `grok agent stdio` | Режим stdio Grok Agent |
+
+Протестированы только OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code и Hermes Agent. Доступность других ACP-бэкендов зависит от их реализации; этот плагин не даёт никаких гарантий.
 
 ### Кнопки действий
 

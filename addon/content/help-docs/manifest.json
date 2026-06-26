@@ -1,6 +1,6 @@
 {
   "schema": "zotero-agents.help-docs.v1",
-  "generated_at": "2026-06-25T09:28:34.746Z",
+  "generated_at": "2026-06-26T08:27:37.019Z",
   "default_doc": "installation",
   "locales": ["en", "de", "es", "fr", "it", "ja", "ko", "ru", "zh-CN"],
   "docs": [
@@ -4899,6 +4899,7 @@
     ]
   },
   "assets": [
+    "assets/img/docs/backends/backend-manager_ACP-preset.webp",
     "assets/img/docs/backends/backend-manager_ACP.webp",
     "assets/img/docs/backends/backend-manager_generic-HTTP.webp",
     "assets/img/docs/backends/backend-manager_skillrunner.webp",

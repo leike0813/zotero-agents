@@ -74,19 +74,36 @@ I backend ACP sono sottoprocessi agent in esecuzione locale. La configurazione s
 
 ### Preset ACP
 
-Nella parte superiore della scheda ACP c'è un menu a tendina **Aggiungi da preset**. Dopo aver selezionato un preset, il plugin compila automaticamente il comando e i parametri comuni.
+Nella parte superiore della scheda ACP c'è un pulsante **Aggiungi da preset**. Facendo clic si apre la finestra di configurazione del preset: a sinistra selezioni l'agent, a destra vengono mostrate le opzioni di avvio e un'anteprima di configurazione in sola lettura. Facendo clic su **Conferma**, il plugin aggiunge una riga di configurazione ACP normale in base all'anteprima; facendo clic su **Annulla** la configurazione corrente non viene modificata.
 
-Preset integrati:
+- **Usa npx**: una volta attivato, il comando passa al formato `npx <package>` e viene mostrato un avviso sulla necessità di installare Node.js e npm, con un link al sito di Node.js. Codex e Claude Code lo hanno attivato per impostazione predefinita, poiché dipendono dall'adapter ACP; gli altri agent no.
+- **Ambiente isolato**: disponibile solo per gli agent che supportano l'isolamento. Una volta attivato, le variabili d'ambiente corrispondenti vengono iniettate nell'anteprima e viene mostrato un avviso che le opzioni dell'agent e l'autenticazione devono essere gestite manualmente in quella directory isolata.
 
-| Preset | Comando |
-|--------|---------|
-| **OpenCode** | `npx opencode-ai@latest acp` |
-| **Codex** | `npx codex acp` |
-| **Claude Code** | `npx @anthropic-ai/claude-code acp` |
-| **Gemini CLI** | `npx @google/gemini-cli acp` |
-| **Qwen Code** | `qwen-code acp` |
+![Finestra di dialogo preset ACP](/img/docs/backends/backend-manager_ACP-preset.png)
 
-Puoi comunque modificare manualmente qualsiasi campo dopo aver selezionato un preset.
+L'area di anteprima è in sola lettura e include ID profilo, nome visualizzato, comando, parametri, variabili d'ambiente e famiglia agent. La riga di configurazione aggiunta può comunque essere modificata come un normale backend ACP.
+
+Comandi predefiniti dei preset integrati:
+
+| Preset | Comando predefinito | Descrizione |
+|------|------|------|
+| **OpenCode** | `opencode acp` | Backend ACP OpenCode; supporta l'isolamento della directory di configurazione tramite `OPENCODE_CONFIG_DIR` |
+| **Codex** | `npx @zed-industries/codex-acp@latest` | Adapter ACP per OpenAI Codex |
+| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Adapter ACP per Claude Code |
+| **Gemini CLI** | `gemini --experimental-acp` | Modalità ACP di Gemini CLI |
+| **Hermes** | `hermes acp` | Backend ACP Hermes Agent |
+| **Qwen Code** | `qwen --acp --experimental-skills` | Modalità ACP di Qwen Code |
+| **GitHub Copilot** | `copilot --acp --stdio` | Modalità ACP di GitHub Copilot CLI |
+| **Qoder CLI** | `qodercli --acp` | Modalità ACP di Qoder CLI; supporta l'isolamento della directory di configurazione tramite `QODER_CONFIG_DIR` |
+| **Cursor Agent ACP** | `cursor-agent-acp` | Adapter ACP Cursor Agent; supporta l'isolamento della directory di sessione tramite `--session-dir` |
+| **DeepAgents** | `deepagents-acp` | Adapter ACP DeepAgents |
+| **Auggie** | `auggie --acp` | Modalità ACP Auggie |
+| **Kilo** | `kilo acp` | Modalità ACP Kilo Code |
+| **Cline** | `cline --acp` | Modalità ACP Cline |
+| **CodeBuddy** | `codebuddy --acp` | Modalità ACP CodeBuddy |
+| **Grok** | `grok agent stdio` | Modalità stdio Grok Agent |
+
+Sono stati testati solo OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code e Hermes Agent. La disponibilità di altri backend ACP dipende dalle loro implementazioni; questo plugin non offre alcuna garanzia al riguardo.
 
 ### Pulsanti azione
 

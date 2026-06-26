@@ -51,7 +51,10 @@ label                                    — Workflow 이름
 taskNameTemplate                         — 작업 이름 템플릿
 parameters.<paramKey>.title              — 파라미터 제목
 parameters.<paramKey>.description         — 파라미터 설명
+skills.<skillId>.name                    — 현재 workflow의 skill 표시 이름
 ```
+
+`skills.<skillId>.name`은 UI의 표시 이름에만 영향을 미칩니다. Skill 패키지의 `runner.json.name`은 skill의 기본 이름으로 유지되며, workflow에 해당 번역이 선언되지 않으면 인터페이스가 `runner.json.name`을 폴백으로 표시합니다.
 
 ## 패키지 레벨 로컬라이제이션 (다중 Workflow 패키지)
 
@@ -76,6 +79,7 @@ parameters.<paramKey>.description         — 파라미터 설명
 {
   "workflows.my-workflow.label": "我的工作流",
   "workflows.my-workflow.taskNameTemplate": "处理中: {query}",
+  "workflows.my-workflow.skills.my-skill.name": "我的技能",
   "workflows.my-workflow.parameters.language.title": "语言",
   "workflows.another-workflow.label": "另一个工作流"
 }

@@ -51,7 +51,10 @@ label                                    — Workflow name
 taskNameTemplate                         — Task name template
 parameters.<paramKey>.title              — Parameter title
 parameters.<paramKey>.description         — Parameter description
+skills.<skillId>.name                    — 現在の workflow での skill 表示名
 ```
+
+`skills.<skillId>.name` は UI 上の表示名にのみ影響する。Skill パッケージの `runner.json.name` は skill のデフォルト名のままであり、workflow に対応する翻訳が宣言されていない場合、インターフェースは `runner.json.name` をフォールバックとして表示する。
 
 ## パッケージレベルのローカライズ（マルチ Workflow パッケージ）
 
@@ -76,6 +79,7 @@ parameters.<paramKey>.description         — Parameter description
 {
   "workflows.my-workflow.label": "我的工作流",
   "workflows.my-workflow.taskNameTemplate": "处理中: {query}",
+  "workflows.my-workflow.skills.my-skill.name": "我的技能",
   "workflows.my-workflow.parameters.language.title": "语言",
   "workflows.another-workflow.label": "另一个工作流"
 }

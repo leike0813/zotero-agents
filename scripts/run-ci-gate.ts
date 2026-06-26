@@ -54,6 +54,18 @@ async function main() {
     process.exit(ssotInvariantCode);
     return;
   }
+  if (gate === "release") {
+    const contentPackageReleaseCode = await runNpmScript(
+      "check:content-package-release",
+    );
+    if (contentPackageReleaseCode !== 0) {
+      console.error(
+        `[ci-gate] gate=${gate} result=failed stage=check-content-package-release exitCode=${contentPackageReleaseCode} blocking=true`,
+      );
+      process.exit(contentPackageReleaseCode);
+      return;
+    }
+  }
   const exitCode = await runNpmScript(suiteCommand);
   if (exitCode !== 0) {
     console.error(

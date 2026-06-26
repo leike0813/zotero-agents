@@ -447,13 +447,29 @@ describe("backend manager risk regression", function () {
     const presets = listAcpBackendPresets();
     assert.sameMembers(
       presets.map((preset) => preset.id),
-      ["opencode", "codex", "claude-code", "gemini-cli", "hermes", "qwen-code"],
+      [
+        "opencode",
+        "codex",
+        "claude-code",
+        "gemini-cli",
+        "hermes",
+        "qwen-code",
+        "github-copilot",
+        "qoder-cli",
+        "cursor-agent-acp",
+        "deepagents",
+        "auggie",
+        "kilo",
+        "cline",
+        "codebuddy",
+        "grok",
+      ],
     );
 
     const codex = createAcpBackendFromPreset("codex");
     assert.deepEqual(codex, {
       id: "acp-codex-npx",
-      displayName: "Codex ACP",
+      displayName: "Codex ACP (npm)",
       type: "acp",
       baseUrl: "local://acp-codex-npx",
       command: "npx",
@@ -501,38 +517,125 @@ describe("backend manager risk regression", function () {
     assert.isFalse(
       presets.find((preset) => preset.id === "hermes")?.supportsNpx,
     );
+
+    const githubCopilot = createAcpBackendFromPreset("github-copilot");
+    assert.equal(githubCopilot.id, "acp-github-copilot");
+    assert.equal(githubCopilot.command, "copilot");
+    assert.deepEqual(githubCopilot.args, ["--acp", "--stdio"]);
+    assert.equal(githubCopilot.acp?.agentFamily, "unknown");
+
+    const qoder = createAcpBackendFromPreset("qoder-cli");
+    assert.equal(qoder.id, "acp-qoder-cli");
+    assert.equal(qoder.command, "qodercli");
+    assert.deepEqual(qoder.args, ["--acp"]);
+
+    const cursor = createAcpBackendFromPreset("cursor-agent-acp");
+    assert.equal(cursor.id, "acp-cursor-agent-acp");
+    assert.equal(cursor.command, "cursor-agent-acp");
+    assert.deepEqual(cursor.args, []);
+
+    const deepagents = createAcpBackendFromPreset("deepagents");
+    assert.equal(deepagents.id, "acp-deepagents");
+    assert.equal(deepagents.command, "deepagents-acp");
+    assert.deepEqual(deepagents.args, []);
+
+    const auggie = createAcpBackendFromPreset("auggie");
+    assert.equal(auggie.id, "acp-auggie");
+    assert.equal(auggie.command, "auggie");
+    assert.deepEqual(auggie.args, ["--acp"]);
+
+    const kilo = createAcpBackendFromPreset("kilo");
+    assert.equal(kilo.id, "acp-kilo");
+    assert.equal(kilo.command, "kilo");
+    assert.deepEqual(kilo.args, ["acp"]);
+    assert.isFalse(presets.find((preset) => preset.id === "kilo")?.supportsNpx);
+
+    const cline = createAcpBackendFromPreset("cline");
+    assert.equal(cline.id, "acp-cline");
+    assert.equal(cline.command, "cline");
+    assert.deepEqual(cline.args, ["--acp"]);
+
+    const codebuddy = createAcpBackendFromPreset("codebuddy");
+    assert.equal(codebuddy.id, "acp-codebuddy");
+    assert.equal(codebuddy.command, "codebuddy");
+    assert.deepEqual(codebuddy.args, ["--acp"]);
+
+    const grok = createAcpBackendFromPreset("grok");
+    assert.equal(grok.id, "acp-grok");
+    assert.equal(grok.command, "grok");
+    assert.deepEqual(grok.args, ["agent", "stdio"]);
+  });
+
+  it("adds ACP preset display name suffixes for npm and isolated profiles", function () {
+    assert.equal(
+      createAcpBackendFromPreset("opencode").displayName,
+      "OpenCode ACP",
+    );
+    assert.equal(
+      createAcpBackendFromPresetOptions("opencode", {
+        useNpx: true,
+      }).displayName,
+      "OpenCode ACP (npm)",
+    );
+    assert.equal(
+      createAcpBackendFromPresetOptions("opencode", {
+        isolated: true,
+      }).displayName,
+      "OpenCode ACP (Isolated)",
+    );
+    assert.equal(
+      createAcpBackendFromPresetOptions("opencode", {
+        useNpx: true,
+        isolated: true,
+      }).displayName,
+      "OpenCode ACP (npm)(Isolated)",
+    );
   });
 
   it("builds isolated ACP preset backend profiles with managed env roots", function () {
     const expectedRoot = getRuntimePersistencePaths().dataDir;
     const cases = [
       {
+        presetId: "opencode",
+        backendId: "acp-opencode-isolated",
+        displayName: "OpenCode ACP (Isolated)",
+        envKey: "OPENCODE_CONFIG_DIR",
+        agentFamily: "opencode",
+      },
+      {
         presetId: "codex",
         backendId: "acp-codex-npx-isolated",
-        displayName: "Codex ACP",
+        displayName: "Codex ACP (npm)(Isolated)",
         envKey: "CODEX_HOME",
         agentFamily: "codex",
       },
       {
         presetId: "claude-code",
         backendId: "acp-claude-code-npx-isolated",
-        displayName: "Claude Code ACP",
+        displayName: "Claude Code ACP (npm)(Isolated)",
         envKey: "CLAUDE_CONFIG_DIR",
         agentFamily: "claude-code",
       },
       {
         presetId: "gemini-cli",
         backendId: "acp-gemini-cli-isolated",
-        displayName: "Gemini CLI ACP",
+        displayName: "Gemini CLI ACP (Isolated)",
         envKey: "GEMINI_CLI_HOME",
         agentFamily: "gemini-cli",
       },
       {
         presetId: "hermes",
         backendId: "acp-hermes-isolated",
-        displayName: "Hermes ACP",
+        displayName: "Hermes ACP (Isolated)",
         envKey: "HERMES_HOME",
         agentFamily: "hermes",
+      },
+      {
+        presetId: "qoder-cli",
+        backendId: "acp-qoder-cli-isolated",
+        displayName: "Qoder CLI ACP (Isolated)",
+        envKey: "QODER_CONFIG_DIR",
+        agentFamily: "unknown",
       },
     ] as const;
 
@@ -556,6 +659,22 @@ describe("backend manager risk regression", function () {
       assert.include(expectedPath, "acp-backend-environments");
       assert.include(expectedPath, entry.backendId);
     }
+  });
+
+  it("builds isolated ACP preset backend profiles with managed session args", function () {
+    const backend = createAcpBackendFromPresetOptions("cursor-agent-acp", {
+      isolated: true,
+    });
+    const expectedPath = getAcpBackendIsolatedEnvironmentPath(
+      "acp-cursor-agent-acp-isolated",
+    );
+
+    assert.equal(backend.id, "acp-cursor-agent-acp-isolated");
+    assert.equal(backend.displayName, "Cursor Agent ACP (Isolated)");
+    assert.equal(backend.command, "cursor-agent-acp");
+    assert.deepEqual(backend.args, ["--session-dir", expectedPath]);
+    assert.isUndefined(backend.env);
+    assert.equal(backend.acp?.agentFamily, "unknown");
   });
 
   it("keeps only OpenCode as the auto-created built-in ACP backend", function () {
@@ -620,7 +739,7 @@ describe("backend manager risk regression", function () {
     assert.deepEqual(collected.backends, [
       {
         id: "acp-codex-npx-isolated",
-        displayName: "Codex ACP",
+        displayName: "Codex ACP (npm)(Isolated)",
         type: "acp",
         baseUrl: "local://acp-codex-npx-isolated",
         command: "npx",

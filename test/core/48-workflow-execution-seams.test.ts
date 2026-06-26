@@ -165,6 +165,15 @@ describe("workflow execution seams", function () {
       manifest: {
         id: "seam-prepare-skill-display",
         label: "Seam Prepare Skill Display",
+        i18n: {
+          defaultLocale: "zh-CN",
+          messages: {
+            "zh-CN": {
+              "skills.literature-analysis.name": "文献分析",
+              "skills.tag-regulator.name": "标签规范器",
+            },
+          },
+        },
         hooks: {
           applyResult: "hooks/applyResult.js",
         },
@@ -242,11 +251,11 @@ describe("workflow execution seams", function () {
     assert.deepEqual(result.prepared.skillDisplayById, {
       "literature-analysis": {
         skillId: "literature-analysis",
-        skillName: "Literature Analysis",
+        skillName: "文献分析",
       },
       "tag-regulator": {
         skillId: "tag-regulator",
-        skillName: "Tag Regulator",
+        skillName: "标签规范器",
       },
     });
   });

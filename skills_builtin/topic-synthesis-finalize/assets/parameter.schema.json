@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "主题综合收尾 Parameter",
+  "title": "Topic Synthesis Finalization Parameter",
   "type": "object",
   "additionalProperties": false,
   "properties": {

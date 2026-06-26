@@ -51,7 +51,10 @@ label                                    — Workflow name
 taskNameTemplate                         — Task name template
 parameters.<paramKey>.title              — Parameter title
 parameters.<paramKey>.description         — Parameter description
+skills.<skillId>.name                    — skill display name under the current workflow
 ```
+
+`skills.<skillId>.name` only affects the display name in the UI. The Skill package's `runner.json.name` remains the skill's default name; if the workflow does not declare a corresponding translation, the interface falls back to displaying `runner.json.name`.
 
 ## Package-Level Localization (Multi-Workflow Package)
 
@@ -76,6 +79,7 @@ Contents of `locales/zh-CN.json`:
 {
   "workflows.my-workflow.label": "我的工作流",
   "workflows.my-workflow.taskNameTemplate": "处理中: {query}",
+  "workflows.my-workflow.skills.my-skill.name": "我的技能",
   "workflows.my-workflow.parameters.language.title": "语言",
   "workflows.another-workflow.label": "另一个工作流"
 }

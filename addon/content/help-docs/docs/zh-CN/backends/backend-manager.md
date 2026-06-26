@@ -68,25 +68,46 @@ ACP 后端是本地运行的 Agent 子进程。配置中指定启动命令，插
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | **显示名称** | 是 | 后端的显示名称，用于在 Dashboard 和侧边栏中标识此后端 |
-| **命令** | 是 | 启动 ACP 后端的命令（如 `npx opencode-ai@latest acp`） |
+| **命令** | 是 | 启动 ACP 后端的命令（如 `opencode acp`） |
 | **参数** | 否 | 命令的附加参数，通过参数编辑器逐条添加 |
 | **环境变量** | 否 | 额外的环境变量，通过环境变量编辑器逐条添加（键值对） |
 
-### ACP 预置（Preset）
+### ACP 预设
 
-ACP Tab 上方有一个 **Add from Preset** 下拉菜单。选择一个预置后，插件自动填充命令和常用参数。
+ACP Tab 上方有一个 **从预设中添加** 按钮。点击后会打开预设配置窗口：左侧选择 Agent 工具，右侧显示启动选项、提示信息和只读配置预览。点击 **确认** 后，插件按预览内容添加一个普通 ACP 配置行；点击 **取消** 不会修改当前配置。
 
-内建预置：
+预设窗口提供两个选项：
 
-| 预置 | 命令 |
-|------|------|
-| **OpenCode** | `npx opencode-ai@latest acp` |
-| **Codex** | `npx codex acp` |
-| **Claude Code** | `npx @anthropic-ai/claude-code acp` |
-| **Gemini CLI** | `npx @google/gemini-cli acp` |
-| **Qwen Code** | `qwen-code acp` |
+- **用 npx 启动**：勾选后使用 `npx <package>` 形式启动，并显示"需要安装 Node.js 和 npm"的提示及 Node.js 官网链接。Codex 和 Claude Code 默认勾选，因为它们依赖 ACP adapter；其它 Agent 默认不勾选。启用 npx 后，Profile 显示名称会追加 `(npm)` 标识。
+- **隔离环境**：仅对支持隔离的 Agent 可用。勾选后会在预览中加入对应环境变量或 session 目录参数，并提示需要在该隔离目录中自行管理 Agent 选项配置和鉴权。启用隔离后，Profile 显示名称会追加 `(Isolated)` 标识。
 
-选择预置后仍可手动修改任何字段。
+<figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/backends/backend-manager_ACP-preset.webp" alt="ACP 预设对话框" title="ACP 预设对话框" loading="lazy" /><figcaption>ACP 预设对话框</figcaption></figure>
+
+预览区只读，包含 Profile ID、显示名称、命令、参数、环境变量和 Agent Family。添加后的配置行仍可按普通 ACP 后端继续编辑。
+
+内建预设的默认命令：
+
+| 预设 | 默认命令 | 说明 |
+|------|------|------|
+| **OpenCode** | `opencode acp` | OpenCode ACP 后端，支持通过 `OPENCODE_CONFIG_DIR` 隔离配置目录 |
+| **Codex** | `npx @zed-industries/codex-acp@latest` | 面向 OpenAI Codex 的 ACP adapter |
+| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | 面向 Claude Code 的 ACP adapter |
+| **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP 模式 |
+| **Hermes** | `hermes acp` | Hermes Agent ACP 后端 |
+| **Qwen Code** | `qwen --acp --experimental-skills` | Qwen Code ACP 模式 |
+| **GitHub Copilot** | `copilot --acp --stdio` | GitHub Copilot CLI ACP 模式 |
+| **Qoder CLI** | `qodercli --acp` | Qoder CLI ACP 模式，支持通过 `QODER_CONFIG_DIR` 隔离配置目录 |
+| **Cursor Agent ACP** | `cursor-agent-acp` | Cursor Agent ACP adapter，支持通过 `--session-dir` 隔离 session 目录 |
+| **DeepAgents** | `deepagents-acp` | DeepAgents ACP adapter |
+| **Auggie** | `auggie --acp` | Auggie ACP 模式 |
+| **Kilo** | `kilo acp` | Kilo Code ACP 模式 |
+| **Cline** | `cline --acp` | Cline ACP 模式 |
+| **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP 模式 |
+| **Grok** | `grok agent stdio` | Grok agent stdio 模式 |
+
+仅OpenCode、Codex、Claude Code、Gemini CLI、Qwen Code和Hermes Agent经过测试，其余ACP后端的可用性取决于后端实现，本插件不做保证；若遇到问题可以自行调整命令参数及环境变量尝试，以ACP协议和后端官方文档为准。
+
+选择预设后仍可手动修改任何字段。
 
 ### 操作按钮
 

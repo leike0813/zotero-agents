@@ -266,6 +266,25 @@ export function localizeWorkflowTaskNameTemplate(
   });
 }
 
+export function localizeWorkflowSkillName(args: {
+  workflow: LoadedWorkflow;
+  skillId: string;
+  rawFallback?: string;
+  localeInput?: string;
+}) {
+  const skillId = String(args.skillId || "").trim();
+  if (!skillId) {
+    return String(args.rawFallback || "").trim();
+  }
+  return localizeWorkflowDisplayText({
+    workflow: args.workflow,
+    key: `skills.${skillId}.name`,
+    rawFallback: args.rawFallback,
+    keyFallback: skillId,
+    localeInput: args.localeInput,
+  });
+}
+
 export function localizeWorkflowParameterSchema(args: {
   workflow: LoadedWorkflow;
   parameterKey: string;

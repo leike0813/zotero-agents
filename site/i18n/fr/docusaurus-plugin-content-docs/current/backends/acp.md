@@ -38,16 +38,33 @@ Si la détection échoue, vérifiez que le CLI de l'agent est correctement insta
 
 ## Préréglages d'agents pris en charge
 
-Le plugin fournit plusieurs préréglages intégrés que vous pouvez sélectionner directement depuis le menu déroulant **Ajouter depuis un préréglage** :
+Le plugin fournit plusieurs préréglages intégrés. Après avoir cliqué sur **Ajouter depuis un préréglage**, sélectionnez un agent à gauche ; la partie droite affiche les options de lancement et un aperçu de configuration en lecture seule.
 
-| Préréglage | Commande | Description |
-|------------|----------|-------------|
-| **Codex** | `npx codex acp` | Agent de codage officiel d'OpenAI |
-| **Claude Code** | `npx @anthropic-ai/claude-code acp` | CLI officiel d'Anthropic |
-| **OpenCode** | `npx opencode-ai@latest acp` | Framework d'agent polyvalent avec prise en charge de l'isolation par variables d'environnement |
-| **Gemini CLI** | `npx @google/gemini-cli acp` | Google Gemini |
-| **Hermes** | `npx hermes acp` | Hermes Agent |
-| **Qwen Code** | `qwen-code acp` | Qwen Code |
+**Utiliser npx** bascule la commande au format `npx <package>` et affiche un message indiquant que Node.js et npm doivent être installés. Codex et Claude Code utilisent npx par défaut, car ils dépendent de l'adaptateur ACP ; les autres agents utilisent la commande brute par défaut. L'activation de npx ajoute le suffixe `(npm)` au nom du profil.
+
+**Environnement isolé** n'est disponible que pour les agents prenant en charge l'isolation. Une fois activé, le plugin injecte les variables d'environnement d'isolation documentées ou les arguments de répertoire de session dans l'aperçu, et affiche un message indiquant que les options de l'agent et l'authentification doivent être gérées manuellement dans ce répertoire. L'activation de l'isolation ajoute le suffixe `(Isolated)` au nom du profil.
+
+![Boîte de dialogue des préréglages ACP](/img/docs/backends/backend-manager_ACP-preset.png)
+
+| Préréglage | Commande par défaut | Description |
+|------|------|------|
+| **OpenCode** | `opencode acp` | Backend ACP OpenCode ; prend en charge l'isolation du répertoire de configuration via `OPENCODE_CONFIG_DIR` |
+| **Codex** | `npx @zed-industries/codex-acp@latest` | Adaptateur ACP pour OpenAI Codex |
+| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Adaptateur ACP pour Claude Code |
+| **Gemini CLI** | `gemini --experimental-acp` | Mode ACP de Gemini CLI |
+| **Hermes** | `hermes acp` | Backend ACP Hermes Agent |
+| **Qwen Code** | `qwen --acp --experimental-skills` | Mode ACP de Qwen Code |
+| **GitHub Copilot** | `copilot --acp --stdio` | Mode ACP de GitHub Copilot CLI |
+| **Qoder CLI** | `qodercli --acp` | Mode ACP de Qoder CLI ; prend en charge l'isolation du répertoire de configuration via `QODER_CONFIG_DIR` |
+| **Cursor Agent ACP** | `cursor-agent-acp` | Adaptateur ACP Cursor Agent ; prend en charge l'isolation du répertoire de session via `--session-dir` |
+| **DeepAgents** | `deepagents-acp` | Adaptateur ACP DeepAgents |
+| **Auggie** | `auggie --acp` | Mode ACP Auggie |
+| **Kilo** | `kilo acp` | Mode ACP Kilo Code |
+| **Cline** | `cline --acp` | Mode ACP Cline |
+| **CodeBuddy** | `codebuddy --acp` | Mode ACP CodeBuddy |
+| **Grok** | `grok agent stdio` | Mode stdio Grok Agent |
+
+Seuls OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code et Hermes Agent ont été testés. La disponibilité des autres backends ACP dépend de leurs implémentations et ce plugin ne la garantit pas. En cas de problème, vous pouvez ajuster vous-même les arguments de commande et les variables d'environnement ; le protocole ACP et la documentation officielle du backend font foi.
 
 Vous pouvez toujours modifier manuellement n'importe quel champ après avoir sélectionné un préréglage.
 

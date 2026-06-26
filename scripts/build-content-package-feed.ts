@@ -335,6 +335,7 @@ async function writeChannel(args: {
   outRoot: string;
   channel: Channel;
   revision: string;
+  generatedAt: string;
   descriptor: Awaited<ReturnType<typeof readContentVersionDescriptor>>;
 }) {
   const includeDebug = DEBUG_CHANNELS.has(args.channel);
@@ -346,7 +347,7 @@ async function writeChannel(args: {
     debug_content: includeDebug,
     content_api: args.descriptor.content_api,
     requires: args.descriptor.requires,
-    generated_at: new Date().toISOString(),
+    generated_at: args.generatedAt,
     revision: args.revision,
   };
   const encoder = new TextEncoder();
@@ -415,10 +416,13 @@ async function writeChannel(args: {
 async function main() {
   const outRoot = argValue("--out") || "artifact/content-packages";
   const revision = await readGitRevision();
+  const generatedAt =
+    String(process.env.CONTENT_PACKAGE_GENERATED_AT || "").trim() ||
+    new Date().toISOString();
   const descriptor = await readContentVersionDescriptor();
   await fs.rm(outRoot, { recursive: true, force: true });
   for (const channel of resolveChannels()) {
-    await writeChannel({ outRoot, channel, revision, descriptor });
+    await writeChannel({ outRoot, channel, revision, generatedAt, descriptor });
   }
 }
 

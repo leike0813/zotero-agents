@@ -1,7 +1,7 @@
 contract_version: "0.1.0"
 skills:
   - id: create-topic-synthesis-prepare
-    title: 创建主题综合准备
+    title: Create Topic Synthesis Preparation
     description: Prepare the context for create topic synthesis workflow. Use this skill when user wants to create a new topic. DO NOT invoke unless you can access to the Zotero library through zotero-bridge CLI.
     operation: create
     output_kind: topic_synthesis_handoff
@@ -38,7 +38,7 @@ skills:
           - runtime/payloads/paper-artifacts-manifest-batch-1.json
           - runtime/payloads/artifacts/
   - id: update-topic-synthesis-prepare
-    title: 更新主题综合准备
+    title: Update Topic Synthesis Preparation
     description: Prepare the context for update topic synthesis workflow. Use this skill when user wants to update an existing topic. DO NOT invoke unless you can access to the Zotero library through zotero-bridge CLI.
     operation: update_full
     output_kind: topic_synthesis_handoff
@@ -69,7 +69,7 @@ skills:
           - runtime/payloads/paper-artifacts-manifest-batch-1.json
           - runtime/payloads/artifacts/
   - id: topic-synthesis-core-enrichment
-    title: 主题综合核心分析与知识图谱补全
+    title: Topic Synthesis Core Enrichment
     description: Draft the topic-level core synthesis and knowledge graph completion based on the analysis context from the prepare phase. Use this skill after create/update-topic-synthesis-prepare. DO NOT invoke this skill directly.
     operation: create
     output_kind: topic_synthesis_handoff
@@ -100,7 +100,7 @@ skills:
         required_reads:
           - runtime/views/concept-candidate-context.json
   - id: topic-synthesis-finalize
-    title: 主题综合收尾
+    title: Topic Synthesis Finalization
     description: Assess library coverage & evidence reliability, propose collection supplementation, and generate the final summary of a topic. Use this skill after topic-synthesis-core-enrichment. DO NOT invoke this skill directly.
     operation: create
     output_kind: topic_synthesis

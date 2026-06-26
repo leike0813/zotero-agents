@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "更新主题综合准备 Parameter",
+  "title": "Update Topic Synthesis Preparation Parameter",
   "type": "object",
   "additionalProperties": false,
   "properties": { "topicId": { "type": "string", "minLength": 1 } },

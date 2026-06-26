@@ -148,7 +148,11 @@ type BackendManagerSnapshot = {
     supportsNpx: boolean;
     agentFamily: string;
     isolation?: {
-      envKey: string;
+      envKey?: string;
+      args?: Array<{
+        flag: string;
+        pathSuffix?: string;
+      }>;
     };
   }>;
   acpPresetIsolationRoot: string;
@@ -2463,6 +2467,12 @@ function buildBackendManagerSnapshot(
       isolation: preset.isolation
         ? {
             envKey: preset.isolation.envKey,
+            args: preset.isolation.args
+              ? preset.isolation.args.map((entry) => ({
+                  flag: entry.flag,
+                  pathSuffix: entry.pathSuffix,
+                }))
+              : undefined,
           }
         : undefined,
     })),

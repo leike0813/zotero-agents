@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "创建主题综合准备 Parameter",
+  "title": "Create Topic Synthesis Preparation Parameter",
   "type": "object",
   "additionalProperties": false,
   "properties": {

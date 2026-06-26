@@ -5,7 +5,7 @@ description: Prepare the context for create topic synthesis workflow. Use this s
 
 <!-- 本文件由 skills_src/topic-synthesis 生成，请勿手工修改。 -->
 
-# 创建主题综合准备
+# Create Topic Synthesis Preparation
 
 ## 范围
 

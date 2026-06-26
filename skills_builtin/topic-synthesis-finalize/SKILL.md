@@ -5,7 +5,7 @@ description: Assess library coverage & evidence reliability, propose collection 
 
 <!-- 本文件由 skills_src/topic-synthesis 生成，请勿手工修改。 -->
 
-# 主题综合收尾
+# Topic Synthesis Finalization
 
 ## 范围
 

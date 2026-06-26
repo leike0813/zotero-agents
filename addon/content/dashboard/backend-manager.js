@@ -324,6 +324,39 @@
     );
   }
 
+  function buildAcpPresetDisplayName(preset, useNpx, isolated) {
+    let displayName = String((preset && preset.label) || "");
+    if (useNpx) displayName += " (npm)";
+    if (isolated) displayName += useNpx ? "(Isolated)" : " (Isolated)";
+    return displayName;
+  }
+
+  function hasAcpPresetIsolation(preset) {
+    return !!(
+      preset &&
+      preset.isolation &&
+      (preset.isolation.envKey ||
+        (Array.isArray(preset.isolation.args) && preset.isolation.args.length))
+    );
+  }
+
+  function buildAcpPresetIsolationArgs(preset, isolatedPath) {
+    if (!preset || !preset.isolation || !Array.isArray(preset.isolation.args)) {
+      return [];
+    }
+    return preset.isolation.args.reduce(function (entries, rule) {
+      const flag = String((rule && rule.flag) || "").trim();
+      if (!flag) return entries;
+      entries.push(
+        flag,
+        rule.pathSuffix
+          ? joinPreviewPath(isolatedPath, rule.pathSuffix)
+          : isolatedPath,
+      );
+      return entries;
+    }, []);
+  }
+
   function buildAcpPresetPreview() {
     const dialog = state.acpPresetDialog || {};
     const preset = findAcpPreset(dialog.selectedPresetId) || acpPresetList()[0];
@@ -333,31 +366,42 @@
       preset.supportsNpx &&
       !isNpxUnavailable()
     );
-    const isolated = !!(dialog.isolated && preset.isolation);
+    const isolated = !!(dialog.isolated && hasAcpPresetIsolation(preset));
     const internalId = buildAcpPresetProfileId(preset, useNpx, isolated);
+    const isolatedPath = isolated
+      ? joinPreviewPath(
+          state.snapshot && state.snapshot.acpPresetIsolationRoot,
+          internalId,
+        )
+      : "";
     const env = isolated
       ? [
-          {
-            key: preset.isolation.envKey,
-            value: joinPreviewPath(
-              state.snapshot && state.snapshot.acpPresetIsolationRoot,
-              internalId,
-            ),
-          },
-        ]
+          preset.isolation.envKey
+            ? {
+                key: preset.isolation.envKey,
+                value: isolatedPath,
+              }
+            : null,
+        ].filter(Boolean)
+      : [];
+    const isolationArgs = isolated
+      ? buildAcpPresetIsolationArgs(preset, isolatedPath)
       : [];
     return {
       preset: preset,
       internalId: internalId,
-      displayName: preset.label,
+      displayName: buildAcpPresetDisplayName(preset, useNpx, isolated),
       command: useNpx ? "npx" : preset.bareCommand,
       args: useNpx
-        ? [preset.npxPackage].concat(preset.npxArgs || []).filter(Boolean)
-        : (preset.bareArgs || []).slice(),
+        ? [preset.npxPackage]
+            .concat(preset.npxArgs || [], isolationArgs)
+            .filter(Boolean)
+        : (preset.bareArgs || []).concat(isolationArgs),
       env: env,
       agentFamily: preset.agentFamily,
       useNpx: useNpx,
       isolated: isolated,
+      isolatedPath: isolatedPath,
     };
   }
 
@@ -447,7 +491,7 @@
       const isolationField = checkboxField({
         label: l.acpPresetIsolated || "Isolated environment",
         checked: preview.isolated,
-        disabled: !preview.preset.isolation,
+        disabled: !hasAcpPresetIsolation(preview.preset),
         onChange: function (checked) {
           state.acpPresetDialog.isolated = checked;
           renderWithScroll();
@@ -477,7 +521,7 @@
         note.append(" ", link);
         detail.appendChild(note);
       }
-      if (preview.isolated && preview.env[0]) {
+      if (preview.isolated && preview.isolatedPath) {
         detail.appendChild(
           el(
             "p",
@@ -485,7 +529,7 @@
             String(
               l.acpPresetIsolationWarning ||
                 "Using an isolated environment requires configuring and authenticating the agent in { $path }. Do not enable this if you are unsure.",
-            ).replace(/\{\s*\$path\s*\}/g, preview.env[0].value),
+            ).replace(/\{\s*\$path\s*\}/g, preview.isolatedPath),
           ),
         );
       }

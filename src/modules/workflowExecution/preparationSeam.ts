@@ -35,7 +35,10 @@ import {
   stripZoteroHostAccessRuntimeOptionFromRequest,
   workflowDeclaresRequiredZoteroHostAccess,
 } from "../../workflows/zoteroHostAccessOptions";
-import { localizeWorkflowLabel } from "../../workflows/localization";
+import {
+  localizeWorkflowLabel,
+  localizeWorkflowSkillName,
+} from "../../workflows/localization";
 import {
   buildSkillRunnerHostBridgeRuntimeEnv,
   buildSkillRunnerHostBridgeScopeEnv,
@@ -236,6 +239,7 @@ function collectSkillRunnerSkillIdsFromRequests(requests: unknown[]) {
 }
 
 function buildSkillDisplayMap(args: {
+  workflow: LoadedWorkflow;
   skillIds: string[];
   registry: PluginSkillRegistrySnapshot;
 }) {
@@ -244,7 +248,11 @@ function buildSkillDisplayMap(args: {
     const skill = args.registry.entriesById[skillId];
     result[skillId] = {
       skillId,
-      skillName: skill?.skillName || undefined,
+      skillName: localizeWorkflowSkillName({
+        workflow: args.workflow,
+        skillId,
+        rawFallback: skill?.skillName,
+      }),
     };
   }
   return result;
@@ -269,7 +277,11 @@ async function resolveSkillRunnerSkillDisplayById(args: {
   }
   try {
     const registry = await args.scanPluginSkillRegistry();
-    return buildSkillDisplayMap({ skillIds, registry });
+    return buildSkillDisplayMap({
+      workflow: args.workflow,
+      skillIds,
+      registry,
+    });
   } catch (error) {
     args.appendRuntimeLog({
       level: "warn",

@@ -51,7 +51,10 @@ label                                    — workflow 名称
 taskNameTemplate                         — 任务名称模板
 parameters.<paramKey>.title              — 参数标题
 parameters.<paramKey>.description         — 参数描述
+skills.<skillId>.name                    — 当前 workflow 下的 skill 显示名
 ```
+
+`skills.<skillId>.name` 只影响 UI 中的显示名。Skill 包的 `runner.json.name` 仍是该 skill 的默认名称；如果 workflow 没有声明对应翻译，界面会回退显示 `runner.json.name`。
 
 ## 包级本地化（多 workflow 包）
 
@@ -76,6 +79,7 @@ parameters.<paramKey>.description         — 参数描述
 {
   "workflows.my-workflow.label": "我的工作流",
   "workflows.my-workflow.taskNameTemplate": "处理中: {query}",
+  "workflows.my-workflow.skills.my-skill.name": "我的技能",
   "workflows.my-workflow.parameters.language.title": "语言",
   "workflows.another-workflow.label": "另一个工作流"
 }

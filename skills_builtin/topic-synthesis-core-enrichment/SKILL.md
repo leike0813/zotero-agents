@@ -5,7 +5,7 @@ description: Draft the topic-level core synthesis and knowledge graph completion
 
 <!-- 本文件由 skills_src/topic-synthesis 生成，请勿手工修改。 -->
 
-# 主题综合核心分析与知识图谱补全
+# Topic Synthesis Core Enrichment
 
 ## 范围
 

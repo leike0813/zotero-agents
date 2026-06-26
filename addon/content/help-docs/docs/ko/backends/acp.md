@@ -36,20 +36,37 @@ After saving, the plugin automatically detects the backend's capabilities:
 
 If detection fails, verify that the agent CLI is installed correctly and the command format is correct.
 
-## Supported Agent Presets
+## 지원되는 Agent 프리셋
 
-The plugin provides several built-in presets that you can select directly from the **Add from Preset** dropdown:
+이 플러그인은 여러 내장 프리셋을 제공합니다. **프리셋에서 추가**를 클릭하면 왼쪽에서 Agent를 선택하고 오른쪽에 시작 옵션과 읽기 전용 구성 미리보기가 표시됩니다.
 
-| Preset | Command | Description |
-|--------|---------|-------------|
-| **Codex** | `npx codex acp` | OpenAI's official Coding Agent |
-| **Claude Code** | `npx @anthropic-ai/claude-code acp` | Anthropic's official CLI |
-| **OpenCode** | `npx opencode-ai@latest acp` | General-purpose agent framework with environment variable isolation support |
-| **Gemini CLI** | `npx @google/gemini-cli acp` | Google Gemini |
-| **Hermes** | `npx hermes acp` | Hermes Agent |
-| **Qwen Code** | `qwen-code acp` | Qwen Code |
+**npx로 시작**을 활성화하면 명령이 `npx <package>` 형식으로 전환되고 Node.js 및 npm 설치가 필요하다는 안내가 표시됩니다. Codex와 Claude Code는 ACP 어댑터에 의존하므로 기본적으로 npx가 활성화되어 있으며, 다른 Agent는 기본적으로 원시 명령을 사용합니다. npx를 활성화하면 프로필 표시 이름에 `(npm)` 접미사가 추가됩니다.
 
-You can still manually modify any field after selecting a preset.
+**격리 환경**은 격리를 지원하는 Agent에서만 사용할 수 있습니다. 활성화하면 플러그인이 미리보기에 문서화된 격리 환경 변수 또는 세션 디렉토리 인자를 주입하고, 해당 디렉토리에서 Agent 옵션과 인증을 직접 관리해야 한다는 안내를 표시합니다. 격리를 활성화하면 프로필 표시 이름에 `(Isolated)` 접미사가 추가됩니다.
+
+<figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/backends/backend-manager_ACP-preset.webp" alt="ACP 프리셋 대화상자" title="ACP 프리셋 대화상자" loading="lazy" /><figcaption>ACP 프리셋 대화상자</figcaption></figure>
+
+| 프리셋 | 기본 명령 | 설명 |
+|------|------|------|
+| **OpenCode** | `opencode acp` | OpenCode ACP 백엔드; `OPENCODE_CONFIG_DIR`를 통한 구성 디렉토리 격리 지원 |
+| **Codex** | `npx @zed-industries/codex-acp@latest` | OpenAI Codex용 ACP 어댑터 |
+| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Claude Code용 ACP 어댑터 |
+| **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP 모드 |
+| **Hermes** | `hermes acp` | Hermes Agent ACP 백엔드 |
+| **Qwen Code** | `qwen --acp --experimental-skills` | Qwen Code ACP 모드 |
+| **GitHub Copilot** | `copilot --acp --stdio` | GitHub Copilot CLI ACP 모드 |
+| **Qoder CLI** | `qodercli --acp` | Qoder CLI ACP 모드; `QODER_CONFIG_DIR`를 통한 구성 디렉토리 격리 지원 |
+| **Cursor Agent ACP** | `cursor-agent-acp` | Cursor Agent ACP 어댑터; `--session-dir`를 통한 세션 디렉토리 격리 지원 |
+| **DeepAgents** | `deepagents-acp` | DeepAgents ACP 어댑터 |
+| **Auggie** | `auggie --acp` | Auggie ACP 모드 |
+| **Kilo** | `kilo acp` | Kilo Code ACP 모드 |
+| **Cline** | `cline --acp` | Cline ACP 모드 |
+| **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP 모드 |
+| **Grok** | `grok agent stdio` | Grok agent stdio 모드 |
+
+OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code 및 Hermes Agent만 테스트되었습니다. 다른 ACP 백엔드의 사용 가능성은 백엔드 구현에 따라 다르며, 이 플러그인은 보장하지 않습니다. 문제가 발생하면 명령 인수 및 환경 변수를 직접 조정해 볼 수 있으며, ACP 프로토콜과 각 백엔드의 공식 문서를 기준으로 합니다.
+
+프리셋 선택 후에도 모든 필드를 수동으로 수정할 수 있습니다.
 
 ## Environment Variable Configuration Recommendations
 

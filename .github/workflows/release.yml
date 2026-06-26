@@ -65,6 +65,9 @@ jobs:
           }
           NODE
 
+      - name: Run release gate
+        run: npm run test:gate:release
+
       - name: Build plugin
         run: npm run build
 

@@ -23,6 +23,7 @@
 - docs:
   * backends:
     - backend-manager_ACP.png: 后端管理器——ACP后端页面
+    - backend-manager_ACP-preset.png: 后端管理器——从预设添加ACP Profile
     - backend-manager_skillrunner.png: 后端管理器——SkillRunner后端页面
     - backend-manager_generic-HTTP.png: 后端管理器——一般HTTP后端页面
   * sidebar:

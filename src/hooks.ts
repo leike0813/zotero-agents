@@ -1,4 +1,5 @@
 import { getString, initLocale } from "./utils/locale";
+import { alertWindow } from "./modules/workflowExecution/feedbackSeam";
 import { registerPrefsScripts } from "./modules/preferenceScript";
 import { getPref, setPref } from "./utils/prefs";
 import { createZToolkit } from "./utils/ztoolkit";
@@ -304,6 +305,13 @@ export async function promptOfficialWorkflowPackageUpdateOnStartup(args: {
       await rescanWorkflowRegistry();
       refreshWorkflowMenus();
     }
+    alertWindow(
+      args.win,
+      localizedMessage(
+        "menu-workflows-install-official-success",
+        "Official workflow package installed.",
+      ),
+    );
     return {
       prompted: true,
       installed: true,

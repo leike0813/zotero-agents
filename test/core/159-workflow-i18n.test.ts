@@ -5,6 +5,7 @@ import {
   isCoreWorkflow,
   localizeWorkflowLabel,
   localizeWorkflowParameters,
+  localizeWorkflowSkillName,
   resolveWorkflowDisplayLocale,
 } from "../../src/workflows/localization";
 import { buildWorkflowSettingsUiDescriptor } from "../../src/modules/workflowSettings";
@@ -117,6 +118,60 @@ describe("workflow i18n display projection", function () {
     });
 
     assert.equal(localizeWorkflowLabel(entry, "zh-CN"), "内联 Demo");
+  });
+
+  it("localizes workflow-owned skill names with runner name fallback", function () {
+    const entry = workflow({
+      manifest: {
+        i18n: {
+          messages: {
+            "zh-CN": {
+              "skills.demo-skill.name": "内联技能名",
+            },
+          },
+        },
+      },
+      localization: {
+        packageDefaultLocale: "en-US",
+        packageMessages: {
+          "en-US": {
+            "workflows.demo-workflow.skills.demo-skill.name":
+              "Default Skill Name",
+          },
+          "zh-CN": {
+            "workflows.demo-workflow.skills.demo-skill.name": "包级技能名",
+          },
+        },
+      },
+    });
+
+    assert.equal(
+      localizeWorkflowSkillName({
+        workflow: entry,
+        skillId: "demo-skill",
+        rawFallback: "Runner Skill Name",
+        localeInput: "zh-CN",
+      }),
+      "内联技能名",
+    );
+    assert.equal(
+      localizeWorkflowSkillName({
+        workflow: entry,
+        skillId: "demo-skill",
+        rawFallback: "Runner Skill Name",
+        localeInput: "fr-FR",
+      }),
+      "Default Skill Name",
+    );
+    assert.equal(
+      localizeWorkflowSkillName({
+        workflow: workflow(),
+        skillId: "demo-skill",
+        rawFallback: "Runner Skill Name",
+        localeInput: "zh-CN",
+      }),
+      "Runner Skill Name",
+    );
   });
 
   it("prefixes workflow emoji only in user-visible labels", function () {

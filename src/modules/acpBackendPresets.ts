@@ -18,7 +18,16 @@ export type AcpBackendPresetId =
   | "claude-code"
   | "gemini-cli"
   | "hermes"
-  | "qwen-code";
+  | "qwen-code"
+  | "github-copilot"
+  | "qoder-cli"
+  | "cursor-agent-acp"
+  | "deepagents"
+  | "auggie"
+  | "kilo"
+  | "cline"
+  | "codebuddy"
+  | "grok";
 
 export type AcpBackendPresetOptions = {
   useNpx?: boolean;
@@ -26,7 +35,11 @@ export type AcpBackendPresetOptions = {
 };
 
 export type AcpBackendPresetIsolation = {
-  envKey: string;
+  envKey?: string;
+  args?: Array<{
+    flag: string;
+    pathSuffix?: string;
+  }>;
 };
 
 type AcpBackendPresetAgentFamily = NonNullable<
@@ -62,7 +75,7 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     agentFamily: "opencode",
     builtIn: true,
     isolation: {
-      envKey: "OPENCODE_CONFIG",
+      envKey: "OPENCODE_CONFIG_DIR",
     },
   },
   {
@@ -130,7 +143,117 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     supportsNpx: true,
     agentFamily: "qwen-code",
   },
+  {
+    id: "github-copilot",
+    displayName: "GitHub Copilot ACP",
+    bareCommand: "copilot",
+    bareArgs: ["--acp", "--stdio"],
+    npxPackage: "@github/copilot@latest",
+    npxArgs: ["--acp", "--stdio"],
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "unknown",
+  },
+  {
+    id: "qoder-cli",
+    displayName: "Qoder CLI ACP",
+    bareCommand: "qodercli",
+    bareArgs: ["--acp"],
+    npxPackage: "@qoder-ai/qodercli@latest",
+    npxArgs: ["--acp"],
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "unknown",
+    isolation: {
+      envKey: "QODER_CONFIG_DIR",
+    },
+  },
+  {
+    id: "cursor-agent-acp",
+    displayName: "Cursor Agent ACP",
+    bareCommand: "cursor-agent-acp",
+    bareArgs: [],
+    npxPackage: "@blowmage/cursor-agent-acp@latest",
+    npxArgs: [],
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "unknown",
+    isolation: {
+      args: [{ flag: "--session-dir" }],
+    },
+  },
+  {
+    id: "deepagents",
+    displayName: "DeepAgents ACP",
+    bareCommand: "deepagents-acp",
+    bareArgs: [],
+    npxPackage: "deepagents-acp@latest",
+    npxArgs: [],
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "unknown",
+  },
+  {
+    id: "auggie",
+    displayName: "Auggie ACP",
+    bareCommand: "auggie",
+    bareArgs: ["--acp"],
+    npxPackage: "@augmentcode/auggie@latest",
+    npxArgs: ["--acp"],
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "unknown",
+  },
+  {
+    id: "kilo",
+    displayName: "Kilo ACP",
+    bareCommand: "kilo",
+    bareArgs: ["acp"],
+    defaultUseNpx: false,
+    supportsNpx: false,
+    agentFamily: "unknown",
+  },
+  {
+    id: "cline",
+    displayName: "Cline ACP",
+    bareCommand: "cline",
+    bareArgs: ["--acp"],
+    npxPackage: "cline@latest",
+    npxArgs: ["--acp"],
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "unknown",
+  },
+  {
+    id: "codebuddy",
+    displayName: "CodeBuddy ACP",
+    bareCommand: "codebuddy",
+    bareArgs: ["--acp"],
+    npxPackage: "@tencent-ai/codebuddy-code@latest",
+    npxArgs: ["--acp"],
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "unknown",
+  },
+  {
+    id: "grok",
+    displayName: "Grok ACP",
+    bareCommand: "grok",
+    bareArgs: ["agent", "stdio"],
+    npxPackage: "@xai-official/grok@latest",
+    npxArgs: ["agent", "stdio"],
+    defaultUseNpx: false,
+    supportsNpx: true,
+    agentFamily: "unknown",
+  },
 ];
+
+function hasIsolationRule(preset: AcpBackendPreset) {
+  return (
+    typeof preset.isolation?.envKey === "string" ||
+    (Array.isArray(preset.isolation?.args) && preset.isolation.args.length > 0)
+  );
+}
 
 function normalizePresetOptions(
   preset: AcpBackendPreset,
@@ -140,8 +263,7 @@ function normalizePresetOptions(
     options.useNpx === undefined
       ? preset.defaultUseNpx
       : options.useNpx === true;
-  const isolated =
-    options.isolated === true && typeof preset.isolation?.envKey === "string";
+  const isolated = options.isolated === true && hasIsolationRule(preset);
   return {
     useNpx: useNpx && preset.supportsNpx,
     isolated,
@@ -176,12 +298,66 @@ export function buildAcpBackendPresetProfileId(
   return `acp-${preset.id}${suffixes.length > 0 ? `-${suffixes.join("-")}` : ""}`;
 }
 
+export function buildAcpBackendPresetDisplayName(
+  presetOrId: AcpBackendPreset | string,
+  options: AcpBackendPresetOptions = {},
+) {
+  const preset =
+    typeof presetOrId === "string"
+      ? findAcpBackendPreset(presetOrId)
+      : presetOrId;
+  if (!preset) {
+    throw new Error(`Unknown ACP backend preset: ${String(presetOrId)}`);
+  }
+  const normalized = normalizePresetOptions(preset, options);
+  let displayName = preset.displayName;
+  if (normalized.useNpx) {
+    displayName += " (npm)";
+  }
+  if (normalized.isolated) {
+    displayName += normalized.useNpx ? "(Isolated)" : " (Isolated)";
+  }
+  return displayName;
+}
+
 export function getAcpBackendIsolatedEnvironmentPath(backendId: string) {
   return joinPath(getAcpBackendIsolatedEnvironmentRoot(), backendId);
 }
 
 export function getAcpBackendIsolatedEnvironmentRoot() {
   return joinPath(getRuntimePersistencePaths().dataDir, ACP_ISOLATED_ENV_ROOT);
+}
+
+function buildAcpBackendPresetIsolationEnv(
+  preset: AcpBackendPreset,
+  backendId: string,
+  isolated: boolean,
+) {
+  if (!isolated || !preset.isolation?.envKey) {
+    return {};
+  }
+  return {
+    [preset.isolation.envKey]: getAcpBackendIsolatedEnvironmentPath(backendId),
+  };
+}
+
+function buildAcpBackendPresetIsolationArgs(
+  preset: AcpBackendPreset,
+  backendId: string,
+  isolated: boolean,
+) {
+  if (!isolated || !Array.isArray(preset.isolation?.args)) {
+    return [];
+  }
+  const root = getAcpBackendIsolatedEnvironmentPath(backendId);
+  return preset.isolation.args.flatMap((entry) => {
+    const flag = String(entry.flag || "").trim();
+    if (!flag) {
+      return [];
+    }
+    const path = entry.pathSuffix ? joinPath(root, entry.pathSuffix) : root;
+    return [flag, path];
+  });
 }
 
 export function createAcpBackendFromPresetOptions(
@@ -197,23 +373,30 @@ export function createAcpBackendFromPresetOptions(
   }
   const normalized = normalizePresetOptions(preset, options);
   const id = buildAcpBackendPresetProfileId(preset, normalized);
-  const env =
-    normalized.isolated && preset.isolation
-      ? {
-          [preset.isolation.envKey]: getAcpBackendIsolatedEnvironmentPath(id),
-        }
-      : {};
+  const env = buildAcpBackendPresetIsolationEnv(
+    preset,
+    id,
+    normalized.isolated,
+  );
+  const isolationArgs = buildAcpBackendPresetIsolationArgs(
+    preset,
+    id,
+    normalized.isolated,
+  );
+  const args = normalized.useNpx
+    ? [
+        String(preset.npxPackage || ""),
+        ...(preset.npxArgs || []),
+        ...isolationArgs,
+      ].filter(Boolean)
+    : [...preset.bareArgs, ...isolationArgs];
   return {
     id,
-    displayName: preset.displayName,
+    displayName: buildAcpBackendPresetDisplayName(preset, normalized),
     type: ACP_BACKEND_TYPE,
     baseUrl: `local://${id}`,
     command: normalized.useNpx ? "npx" : preset.bareCommand,
-    args: normalized.useNpx
-      ? [String(preset.npxPackage || ""), ...(preset.npxArgs || [])].filter(
-          Boolean,
-        )
-      : [...preset.bareArgs],
+    args,
     auth: {
       kind: "none",
     },
@@ -236,14 +419,16 @@ export async function ensureManagedAcpBackendEnvironmentDirectories(
   for (const backend of backends) {
     const preset = ACP_BACKEND_PRESETS.find(
       (entry) =>
-        entry.isolation?.envKey && backend.id.startsWith(`acp-${entry.id}`),
+        hasIsolationRule(entry) && backend.id.startsWith(`acp-${entry.id}`),
     );
-    const envKey = preset?.isolation?.envKey;
-    if (!envKey) {
+    if (!preset) {
       continue;
     }
     const expectedPath = getAcpBackendIsolatedEnvironmentPath(backend.id);
-    if (backend.env?.[envKey] === expectedPath) {
+    const envKey = preset.isolation?.envKey;
+    const hasExpectedEnv = !!envKey && backend.env?.[envKey] === expectedPath;
+    const hasExpectedArg = (backend.args || []).includes(expectedPath);
+    if (hasExpectedEnv || hasExpectedArg) {
       await ensureRuntimeDirectory(expectedPath);
     }
   }

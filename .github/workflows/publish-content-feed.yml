@@ -1,16 +1,6 @@
 name: Publish Content Feed
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "workflows_builtin/**"
-      - "skills_builtin/**"
-      - "skills_src/**"
-      - "content-package.version.json"
-      - "scripts/build-content-package-feed.ts"
-      - ".github/workflows/publish-content-feed.yml"
   workflow_dispatch:
 
 permissions:

@@ -74,19 +74,36 @@ ACP-Backends sind lokal ausgeführte Agent-Unterprozesse. Die Konfiguration gibt
 
 ### ACP-Voreinstellungen
 
-Oben auf der ACP-Registerkarte befindet sich ein Dropdown-Menü **Aus Voreinstellung hinzufügen**. Nach Auswahl einer Voreinstellung füllt das Plugin automatisch den Befehl und die gängigen Parameter aus.
+Oben auf der ACP-Registerkarte befindet sich eine Schaltfläche **Aus Preset hinzufügen**. Nach dem Klick öffnet sich ein Preset-Konfigurationsfenster: links wählst du den Agent, rechts werden Startoptionen und eine schreibgeschützte Konfigurationsvorschau angezeigt. Nach Klick auf **Bestätigen** fügt das Plugin eine normale ACP-Konfigurationszeile basierend auf der Vorschau hinzu; **Abbrechen** verwirft die Änderung.
 
-Eingebaute Voreinstellungen:
+- **Mit npx starten**: Nach dem Aktivieren wird der Befehl in die Form `npx <package>` umgeschaltet und ein Hinweis auf die benötigte Installation von Node.js und npm sowie ein Link zur Node.js-Website angezeigt. Codex und Claude Code haben diese Option standardmäßig aktiviert, da sie auf den ACP-Adapter angewiesen sind; andere Agents standardmäßig nicht.
+- **Isolierte Umgebung**: nur für Agents verfügbar, die Isolierung unterstützen. Nach dem Aktivieren werden die entsprechenden Umgebungsvariablen in die Vorschau eingefügt und ein Hinweis angezeigt, dass Agent-Optionen und Authentifizierung in diesem isolierten Verzeichnis selbst verwaltet werden müssen.
 
-| Voreinstellung | Befehl |
-|--------|---------|
-| **OpenCode** | `npx opencode-ai@latest acp` |
-| **Codex** | `npx codex acp` |
-| **Claude Code** | `npx @anthropic-ai/claude-code acp` |
-| **Gemini CLI** | `npx @google/gemini-cli acp` |
-| **Qwen Code** | `qwen-code acp` |
+<figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/backends/backend-manager_ACP-preset.webp" alt="ACP-Preset-Dialog" title="ACP-Preset-Dialog" loading="lazy" /><figcaption>ACP-Preset-Dialog</figcaption></figure>
 
-Sie können nach Auswahl einer Voreinstellung weiterhin jedes Feld manuell bearbeiten.
+Der Vorschaubereich ist schreibgeschützt und enthält Profil-ID, Anzeigename, Befehl, Parameter, Umgebungsvariablen und Agent Family. Die hinzugefügte Konfigurationszeile kann weiterhin als normales ACP-Backend bearbeitet werden.
+
+Standardbefehle der integrierten Presets:
+
+| Voreinstellung | Standardbefehl | Beschreibung |
+|------|------|------|
+| **OpenCode** | `opencode acp` | OpenCode-ACP-Backend; unterstützt isoliertes Konfigurationsverzeichnis über `OPENCODE_CONFIG_DIR` |
+| **Codex** | `npx @zed-industries/codex-acp@latest` | ACP-Adapter für OpenAI Codex |
+| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | ACP-Adapter für Claude Code |
+| **Gemini CLI** | `gemini --experimental-acp` | Gemini-CLI-ACP-Modus |
+| **Hermes** | `hermes acp` | Hermes-Agent-ACP-Backend |
+| **Qwen Code** | `qwen --acp --experimental-skills` | Qwen-Code-ACP-Modus |
+| **GitHub Copilot** | `copilot --acp --stdio` | GitHub-Copilot-CLI-ACP-Modus |
+| **Qoder CLI** | `qodercli --acp` | Qoder-CLI-ACP-Modus; unterstützt isoliertes Konfigurationsverzeichnis über `QODER_CONFIG_DIR` |
+| **Cursor Agent ACP** | `cursor-agent-acp` | Cursor-Agent-ACP-Adapter; unterstützt isoliertes Session-Verzeichnis über `--session-dir` |
+| **DeepAgents** | `deepagents-acp` | DeepAgents-ACP-Adapter |
+| **Auggie** | `auggie --acp` | Auggie-ACP-Modus |
+| **Kilo** | `kilo acp` | Kilo-Code-ACP-Modus |
+| **Cline** | `cline --acp` | Cline-ACP-Modus |
+| **CodeBuddy** | `codebuddy --acp` | CodeBuddy-ACP-Modus |
+| **Grok** | `grok agent stdio` | Grok-Agent-Stdio-Modus |
+
+Nur OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code und Hermes Agent wurden getestet. Die Verfügbarkeit anderer ACP-Backends hängt von deren Implementierungen ab; dieses Plugin gibt hierzu keine Garantie.
 
 ### Aktionsschaltflächen
 

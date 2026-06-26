@@ -6,6 +6,7 @@ import type {
   ProviderExecutionResult,
 } from "../providers/contracts";
 import { executeApplyResult } from "../workflows/runtime";
+import { localizeWorkflowSkillName } from "../workflows/localization";
 import { canWorkflowRunWithoutSelection } from "../workflows/triggerPolicy";
 import {
   getLoadedWorkflowEntries,
@@ -1244,6 +1245,29 @@ async function resolveWorkflowById(workflowId: string) {
     (entry) => entry.manifest.id === normalized,
   );
   return workflow || null;
+}
+
+function resolveWorkflowSkillName(args: {
+  workflowId?: string;
+  skillId: string;
+  rawFallback?: string;
+}) {
+  const workflowId = normalizeString(args.workflowId);
+  const workflow = workflowId
+    ? getLoadedWorkflowEntries().find(
+        (entry) => entry.manifest.id === workflowId,
+      )
+    : undefined;
+  if (!workflow) {
+    return normalizeString(args.rawFallback) || undefined;
+  }
+  return (
+    localizeWorkflowSkillName({
+      workflow,
+      skillId: args.skillId,
+      rawFallback: args.rawFallback,
+    }) || undefined
+  );
 }
 
 function resolveRecoveredWorkflowId(
@@ -3069,7 +3093,11 @@ export async function executeAcpSkillRunnerJob(args: {
   });
   upsertAcpSkillRun({
     requestId: workspace.requestId,
-    skillName: skill.skillName,
+    skillName: resolveWorkflowSkillName({
+      workflowId,
+      skillId: skill.skillId,
+      rawFallback: skill.skillName,
+    }),
     agentFamily: injectionPlan.family,
     skillRoots: injectionPlan.skillRoots,
     event: {

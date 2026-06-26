@@ -38,18 +38,35 @@ Si la detección falla, verifica que el CLI del agente esté instalado correctam
 
 ## Preajustes de agente admitidos
 
-El complemento proporciona varios preajustes incorporados que puedes seleccionar directamente en el desplegable **Añadir desde preajuste**:
+El complemento proporciona varios preajustes integrados. Tras hacer clic en **Añadir desde preajuste**, selecciona un agente a la izquierda; a la derecha se muestran las opciones de inicio y una vista previa de configuración de solo lectura.
 
-| Preajuste | Comando | Descripción |
-|-----------|---------|-------------|
-| **Codex** | `npx codex acp` | Agente de codificación oficial de OpenAI |
-| **Claude Code** | `npx @anthropic-ai/claude-code acp` | CLI oficial de Anthropic |
-| **OpenCode** | `npx opencode-ai@latest acp` | Framework de agente de propósito general con soporte para aislamiento mediante variables de entorno |
-| **Gemini CLI** | `npx @google/gemini-cli acp` | Google Gemini |
-| **Hermes** | `npx hermes acp` | Hermes Agent |
-| **Qwen Code** | `qwen-code acp` | Qwen Code |
+**Usar npx** cambia el comando al formato `npx <package>` y muestra un aviso sobre la necesidad de instalar Node.js y npm. Codex y Claude Code usan npx por defecto, ya que dependen del adaptador ACP; los demás agentes usan el comando directo por defecto. Al activar npx, se añade el sufijo `(npm)` al nombre del perfil.
 
-Puedes seguir modificando manualmente cualquier campo después de seleccionar un preajuste.
+**Entorno aislado** solo está disponible para agentes que admiten aislamiento. Al activarlo, el complemento inyecta las variables de entorno de aislamiento documentadas o los argumentos de directorio de sesión en la vista previa, y muestra un aviso de que las opciones del agente y la autenticación deben gestionarse manualmente en ese directorio. Al activar el aislamiento, se añade el sufijo `(Isolated)` al nombre del perfil.
+
+![Diálogo de preajustes ACP](/img/docs/backends/backend-manager_ACP-preset.png)
+
+| Preajuste | Comando predeterminado | Descripción |
+|------|------|------|
+| **OpenCode** | `opencode acp` | Backend ACP de OpenCode; admite aislamiento del directorio de configuración mediante `OPENCODE_CONFIG_DIR` |
+| **Codex** | `npx @zed-industries/codex-acp@latest` | Adaptador ACP para OpenAI Codex |
+| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Adaptador ACP para Claude Code |
+| **Gemini CLI** | `gemini --experimental-acp` | Modo ACP de Gemini CLI |
+| **Hermes** | `hermes acp` | Backend ACP de Hermes Agent |
+| **Qwen Code** | `qwen --acp --experimental-skills` | Modo ACP de Qwen Code |
+| **GitHub Copilot** | `copilot --acp --stdio` | Modo ACP de GitHub Copilot CLI |
+| **Qoder CLI** | `qodercli --acp` | Modo ACP de Qoder CLI; admite aislamiento del directorio de configuración mediante `QODER_CONFIG_DIR` |
+| **Cursor Agent ACP** | `cursor-agent-acp` | Adaptador ACP de Cursor Agent; admite aislamiento del directorio de sesión mediante `--session-dir` |
+| **DeepAgents** | `deepagents-acp` | Adaptador ACP de DeepAgents |
+| **Auggie** | `auggie --acp` | Modo ACP de Auggie |
+| **Kilo** | `kilo acp` | Modo ACP de Kilo Code |
+| **Cline** | `cline --acp` | Modo ACP de Cline |
+| **CodeBuddy** | `codebuddy --acp` | Modo ACP de CodeBuddy |
+| **Grok** | `grok agent stdio` | Modo stdio de Grok Agent |
+
+Solo se han probado OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code y Hermes Agent. La disponibilidad de otros backends ACP depende de sus implementaciones y este complemento no la garantiza. Si encuentras problemas, puedes ajustar manualmente los argumentos del comando y las variables de entorno; consulta el protocolo ACP y la documentación oficial del backend como referencia.
+
+Tras seleccionar un preajuste, puedes seguir modificando manualmente cualquier campo.
 
 ## Recomendaciones de configuración de variables de entorno
 

@@ -38,18 +38,35 @@ Se il rilevamento fallisce, verifica che l'agent CLI sia installato correttament
 
 ## Preset agent supportati
 
-Il plugin fornisce diversi preset integrati che puoi selezionare direttamente dal menu a tendina **Aggiungi da preset**:
+Il plugin fornisce diversi preset integrati. Dopo aver cliccato **Aggiungi da preset**, seleziona un agent a sinistra; a destra vengono mostrate le opzioni di avvio e un'anteprima di configurazione in sola lettura.
 
-| Preset | Comando | Descrizione |
-|--------|---------|-------------|
-| **Codex** | `npx codex acp` | Agent di codifica ufficiale di OpenAI |
-| **Claude Code** | `npx @anthropic-ai/claude-code acp` | CLI ufficiale di Anthropic |
-| **OpenCode** | `npx opencode-ai@latest acp` | Framework agent generico con supporto per l'isolamento tramite variabili d'ambiente |
-| **Gemini CLI** | `npx @google/gemini-cli acp` | Google Gemini |
-| **Hermes** | `npx hermes acp` | Hermes Agent |
-| **Qwen Code** | `qwen-code acp` | Qwen Code |
+**Usa npx** passa il comando al formato `npx <package>` e mostra un avviso sulla necessità di installare Node.js e npm. Codex e Claude Code usano npx per impostazione predefinita, poiché dipendono dall'adapter ACP; gli altri agent usano il comando diretto per impostazione predefinita. L'attivazione di npx aggiunge il suffisso `(npm)` al nome del profilo.
 
-Puoi comunque modificare manualmente qualsiasi campo dopo aver selezionato un preset.
+**Ambiente isolato** è disponibile solo per gli agent che supportano l'isolamento. Una volta attivato, il plugin inietta nell'anteprima le variabili d'ambiente di isolamento documentate o gli argomenti della directory di sessione, e mostra un avviso che le opzioni dell'agent e l'autenticazione devono essere gestite manualmente in quella directory. L'attivazione dell'isolamento aggiunge il suffisso `(Isolated)` al nome del profilo.
+
+<figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/backends/backend-manager_ACP-preset.webp" alt="Finestra di dialogo preset ACP" title="Finestra di dialogo preset ACP" loading="lazy" /><figcaption>Finestra di dialogo preset ACP</figcaption></figure>
+
+| Preset | Comando predefinito | Descrizione |
+|------|------|------|
+| **OpenCode** | `opencode acp` | Backend ACP OpenCode; supporta l'isolamento della directory di configurazione tramite `OPENCODE_CONFIG_DIR` |
+| **Codex** | `npx @zed-industries/codex-acp@latest` | Adapter ACP per OpenAI Codex |
+| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Adapter ACP per Claude Code |
+| **Gemini CLI** | `gemini --experimental-acp` | Modalità ACP di Gemini CLI |
+| **Hermes** | `hermes acp` | Backend ACP Hermes Agent |
+| **Qwen Code** | `qwen --acp --experimental-skills` | Modalità ACP di Qwen Code |
+| **GitHub Copilot** | `copilot --acp --stdio` | Modalità ACP di GitHub Copilot CLI |
+| **Qoder CLI** | `qodercli --acp` | Modalità ACP di Qoder CLI; supporta l'isolamento della directory di configurazione tramite `QODER_CONFIG_DIR` |
+| **Cursor Agent ACP** | `cursor-agent-acp` | Adapter ACP Cursor Agent; supporta l'isolamento della directory di sessione tramite `--session-dir` |
+| **DeepAgents** | `deepagents-acp` | Adapter ACP DeepAgents |
+| **Auggie** | `auggie --acp` | Modalità ACP Auggie |
+| **Kilo** | `kilo acp` | Modalità ACP Kilo Code |
+| **Cline** | `cline --acp` | Modalità ACP Cline |
+| **CodeBuddy** | `codebuddy --acp` | Modalità ACP CodeBuddy |
+| **Grok** | `grok agent stdio` | Modalità stdio Grok Agent |
+
+Sono stati testati solo OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code e Hermes Agent. La disponibilità di altri backend ACP dipende dalle loro implementazioni e questo plugin non la garantisce. In caso di problemi, puoi modificare manualmente gli argomenti del comando e le variabili d'ambiente; fai riferimento al protocollo ACP e alla documentazione ufficiale del backend.
+
+Dopo aver selezionato un preset, puoi comunque modificare manualmente qualsiasi campo.
 
 ## Raccomandazioni sulla configurazione delle variabili d'ambiente
 

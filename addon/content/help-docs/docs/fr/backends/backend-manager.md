@@ -74,19 +74,36 @@ Les backends ACP sont des sous-processus d'agents exécutés localement. La conf
 
 ### Préréglages ACP
 
-Il y a un menu déroulant **Ajouter depuis un préréglage** en haut de l'onglet ACP. Après avoir sélectionné un préréglage, le plugin remplit automatiquement la commande et les paramètres courants.
+En haut de l'onglet ACP se trouve un bouton **Ajouter depuis un préréglage**. Un clic ouvre la fenêtre de configuration du préréglage : à gauche vous sélectionnez l'agent, à droite s'affichent les options de lancement et un aperçu de configuration en lecture seule. Un clic sur **Confirmer** ajoute une ligne de configuration ACP ordinaire selon l'aperçu ; un clic sur **Annuler** ne modifie pas la configuration actuelle.
 
-Préréglages intégrés :
+- **Utiliser npx** : une fois activé, la commande bascule au format `npx <package>` et un message s'affiche indiquant que Node.js et npm doivent être installés, avec un lien vers le site de Node.js. Codex et Claude Code l'ont activé par défaut, car ils dépendent de l'adaptateur ACP ; pas les autres agents.
+- **Environnement isolé** : disponible uniquement pour les agents prenant en charge l'isolation. Une fois activé, les variables d'environnement correspondantes sont injectées dans l'aperçu et un message indique que les options de l'agent et l'authentification doivent être gérées manuellement dans ce répertoire isolé.
 
-| Préréglage | Commande |
-|------------|----------|
-| **OpenCode** | `npx opencode-ai@latest acp` |
-| **Codex** | `npx codex acp` |
-| **Claude Code** | `npx @anthropic-ai/claude-code acp` |
-| **Gemini CLI** | `npx @google/gemini-cli acp` |
-| **Qwen Code** | `qwen-code acp` |
+<figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/backends/backend-manager_ACP-preset.webp" alt="Boîte de dialogue des préréglages ACP" title="Boîte de dialogue des préréglages ACP" loading="lazy" /><figcaption>Boîte de dialogue des préréglages ACP</figcaption></figure>
 
-Vous pouvez toujours modifier manuellement n'importe quel champ après avoir sélectionné un préréglage.
+La zone d'aperçu est en lecture seule et inclut l'ID du profil, le nom d'affichage, la commande, les paramètres, les variables d'environnement et la famille d'agent. La ligne de configuration ajoutée peut toujours être modifiée comme un backend ACP ordinaire.
+
+Commandes par défaut des préréglages intégrés :
+
+| Préréglage | Commande par défaut | Description |
+|------|------|------|
+| **OpenCode** | `opencode acp` | Backend ACP OpenCode ; prend en charge l'isolation du répertoire de configuration via `OPENCODE_CONFIG_DIR` |
+| **Codex** | `npx @zed-industries/codex-acp@latest` | Adaptateur ACP pour OpenAI Codex |
+| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Adaptateur ACP pour Claude Code |
+| **Gemini CLI** | `gemini --experimental-acp` | Mode ACP de Gemini CLI |
+| **Hermes** | `hermes acp` | Backend ACP Hermes Agent |
+| **Qwen Code** | `qwen --acp --experimental-skills` | Mode ACP de Qwen Code |
+| **GitHub Copilot** | `copilot --acp --stdio` | Mode ACP de GitHub Copilot CLI |
+| **Qoder CLI** | `qodercli --acp` | Mode ACP de Qoder CLI ; prend en charge l'isolation du répertoire de configuration via `QODER_CONFIG_DIR` |
+| **Cursor Agent ACP** | `cursor-agent-acp` | Adaptateur ACP Cursor Agent ; prend en charge l'isolation du répertoire de session via `--session-dir` |
+| **DeepAgents** | `deepagents-acp` | Adaptateur ACP DeepAgents |
+| **Auggie** | `auggie --acp` | Mode ACP Auggie |
+| **Kilo** | `kilo acp` | Mode ACP Kilo Code |
+| **Cline** | `cline --acp` | Mode ACP Cline |
+| **CodeBuddy** | `codebuddy --acp` | Mode ACP CodeBuddy |
+| **Grok** | `grok agent stdio` | Mode stdio Grok Agent |
+
+Seuls OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code et Hermes Agent ont été testés. La disponibilité des autres backends ACP dépend de leurs implémentations ; ce plugin ne fournit aucune garantie à cet égard.
 
 ### Boutons d'action
 

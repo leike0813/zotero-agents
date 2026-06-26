@@ -4,6 +4,7 @@ import {
   launchAcpTransport,
   type AcpLaunchPlan,
 } from "../../src/modules/acpTransport";
+import { resetRuntimeCommandRegistryForTests } from "../../src/platform/command";
 import { resolveWindowsCommandFromPowerShell } from "../../src/modules/windowsCommandResolution";
 import type { BackendInstance } from "../../src/backends/types";
 
@@ -42,7 +43,41 @@ function restoreGlobalProperty(key: string, descriptor?: PropertyDescriptor) {
   Object.defineProperty(runtime, key, descriptor);
 }
 
+function snapshotProcessEnv(keys: string[]) {
+  return Object.fromEntries(
+    keys.map((key) => [key, process.env[key]] as const),
+  ) as Record<string, string | undefined>;
+}
+
+function restoreProcessEnv(snapshot: Record<string, string | undefined>) {
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (typeof value === "string") {
+      process.env[key] = value;
+    } else {
+      delete process.env[key];
+    }
+  }
+}
+
+const PATH_ENV_KEYS = ["PATH", "Path", "path"];
+
+function clearPathEnvForCommandResolution() {
+  const snapshot = snapshotProcessEnv(PATH_ENV_KEYS);
+  for (const key of PATH_ENV_KEYS) {
+    process.env[key] = "";
+  }
+  return snapshot;
+}
+
 describe("acp transport", function () {
+  beforeEach(function () {
+    resetRuntimeCommandRegistryForTests();
+  });
+
+  afterEach(function () {
+    resetRuntimeCommandRegistryForTests();
+  });
+
   it("wraps host-global Windows commands through cmd.exe", function () {
     const plan = buildAcpLaunchPlanForTests({
       command: "npx",
@@ -207,6 +242,7 @@ describe("acp transport", function () {
   it("resolves npx via PowerShell when Zotero pathSearch misses the npm shim", async function () {
     const callInvocations: SubprocessCallInvocation[] = [];
     const powerShellCalls: Array<{ command: string; args: string[] }> = [];
+    const previousPathEnv = clearPathEnvForCommandResolution();
     const previousZotero = redefineGlobalProperty("Zotero", {
       isWin: true,
       Utilities: {
@@ -290,6 +326,7 @@ describe("acp transport", function () {
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
       restoreGlobalProperty("Zotero", previousZotero);
+      restoreProcessEnv(previousPathEnv);
     }
   });
 
@@ -323,6 +360,7 @@ describe("acp transport", function () {
   it("ignores bare pathSearch results and still resolves npx through Windows fallbacks", async function () {
     const callInvocations: SubprocessCallInvocation[] = [];
     const powerShellCalls: Array<{ command: string; args: string[] }> = [];
+    const previousPathEnv = clearPathEnvForCommandResolution();
     const previousZotero = redefineGlobalProperty("Zotero", {
       isWin: true,
       Utilities: {
@@ -405,12 +443,14 @@ describe("acp transport", function () {
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
       restoreGlobalProperty("Zotero", previousZotero);
+      restoreProcessEnv(previousPathEnv);
     }
   });
 
   it("continues Windows fallback resolution when mozilla pathSearch throws executable-not-found", async function () {
     const callInvocations: SubprocessCallInvocation[] = [];
     const powerShellCalls: Array<{ command: string; args: string[] }> = [];
+    const previousPathEnv = clearPathEnvForCommandResolution();
     const previousZotero = redefineGlobalProperty("Zotero", {
       isWin: true,
       Utilities: {
@@ -495,11 +535,13 @@ describe("acp transport", function () {
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
       restoreGlobalProperty("Zotero", previousZotero);
+      restoreProcessEnv(previousPathEnv);
     }
   });
 
   it("falls back to the host global npm directory when PATH and Get-Command both miss npx", async function () {
     const callInvocations: SubprocessCallInvocation[] = [];
+    const previousPathEnv = clearPathEnvForCommandResolution();
     const previousAppData = process.env.APPDATA;
     const previousLocalAppData = process.env.LOCALAPPDATA;
     const previousNpmPrefix = process.env.NPM_CONFIG_PREFIX;
@@ -591,6 +633,7 @@ describe("acp transport", function () {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
       restoreGlobalProperty("Zotero", previousZotero);
       restoreGlobalProperty("IOUtils", previousIOUtils);
+      restoreProcessEnv(previousPathEnv);
       if (typeof previousAppData === "string") {
         process.env.APPDATA = previousAppData;
       } else {
@@ -616,6 +659,7 @@ describe("acp transport", function () {
 
   it("falls back to the Node.js install directory when PATH, Get-Command, and global npm roots all miss npx", async function () {
     const callInvocations: SubprocessCallInvocation[] = [];
+    const previousPathEnv = clearPathEnvForCommandResolution();
     const previousAppData = process.env.APPDATA;
     const previousLocalAppData = process.env.LOCALAPPDATA;
     const previousNpmPrefix = process.env.NPM_CONFIG_PREFIX;
@@ -711,6 +755,7 @@ describe("acp transport", function () {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
       restoreGlobalProperty("Zotero", previousZotero);
       restoreGlobalProperty("IOUtils", previousIOUtils);
+      restoreProcessEnv(previousPathEnv);
       if (typeof previousAppData === "string") {
         process.env.APPDATA = previousAppData;
       } else {
@@ -746,6 +791,7 @@ describe("acp transport", function () {
 
   it("resolves npx through Windows fallbacks even when mozilla pathSearch is unavailable", async function () {
     const callInvocations: SubprocessCallInvocation[] = [];
+    const previousPathEnv = clearPathEnvForCommandResolution();
     const previousProgramFiles = process.env.ProgramFiles;
     const previousProgramFilesX86 = process.env["ProgramFiles(x86)"];
     process.env.ProgramFiles = "C:\\Program Files";
@@ -825,6 +871,7 @@ describe("acp transport", function () {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
       restoreGlobalProperty("Zotero", previousZotero);
       restoreGlobalProperty("IOUtils", previousIOUtils);
+      restoreProcessEnv(previousPathEnv);
       if (typeof previousProgramFiles === "string") {
         process.env.ProgramFiles = previousProgramFiles;
       } else {

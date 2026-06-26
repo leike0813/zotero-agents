@@ -769,6 +769,86 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.deepEqual(setModelCalls, ["alibaba-coding-plan:qwen3.6-plus"]);
   });
 
+  it("uses workflow i18n for ACP skill run skill names", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const workflowId = "localized-acp-skill-workflow";
+    const workflowRoot = path.join(root, "workflows", workflowId);
+    await fs.mkdir(path.join(workflowRoot, "hooks"), { recursive: true });
+    await fs.writeFile(
+      path.join(workflowRoot, "workflow.json"),
+      JSON.stringify({
+        id: workflowId,
+        label: "Localized ACP Skill Workflow",
+        provider: "acp",
+        request: {
+          kind: "skillrunner.job.v1",
+          create: {
+            skill_id: "demo-skill",
+            mode: "auto",
+          },
+        },
+        i18n: {
+          defaultLocale: "zh-CN",
+          messages: {
+            "zh-CN": {
+              "skills.demo-skill.name": "本地化 ACP 技能",
+            },
+          },
+        },
+        hooks: {
+          applyResult: "hooks/applyResult.mjs",
+        },
+      }),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workflowRoot, "hooks", "applyResult.mjs"),
+      "export async function applyResult() { return { ok: true }; }\n",
+      "utf8",
+    );
+
+    try {
+      await rescanWorkflowRegistry({
+        workflowsDir: path.join(root, "workflows"),
+      });
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          parameter: {
+            workflowId,
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [{ ...entry, skillName: "Runner Demo Skill" }],
+            entriesById: {
+              "demo-skill": { ...entry, skillName: "Runner Demo Skill" },
+            },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          createAdapter: async () => createFinalOutputAdapter({ ok: true }),
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      assert.equal(result.status, "succeeded");
+      assert.equal(
+        getAcpSkillRunRecord(result.requestId)?.skillName,
+        "本地化 ACP 技能",
+      );
+    } finally {
+      await rescanWorkflowRegistry();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("synthesizes ACP effective runtime hard timeout like SkillRunner", function () {
     const request = {
       kind: ACP_SKILL_RUN_REQUEST_KIND,
