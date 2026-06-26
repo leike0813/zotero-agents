@@ -387,6 +387,11 @@ Environment variables override the template at runtime:
 
     git -C $Worktree add -A 2>&1 | Out-Null
     git -C $Worktree update-index --chmod=+x install.sh 2>&1 | Out-Null
+    foreach ($entry in $platformEntries) {
+        if ($entry.platform -notlike 'win32-*') {
+            git -C $Worktree update-index --chmod=+x $entry.binaryPath 2>&1 | Out-Null
+        }
+    }
     $pending = git -C $Worktree status --porcelain
     if ($pending) {
         git -C $Worktree commit -m "publish(host-bridge-cli): sync bundle from $sourceShortCommit" 2>&1 | Out-Null

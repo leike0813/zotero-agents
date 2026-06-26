@@ -890,10 +890,9 @@ describe("acp transport", function () {
         thrown = error;
       }
       assert.instanceOf(thrown, Error);
-      assert.match(
-        String((thrown as Error).message || ""),
-        /Command "npx" was not found in PATH/,
-      );
+      const message = String((thrown as Error).message || "");
+      assert.match(message, /Command "npx" was not found/);
+      assert.match(message, /checked candidates/);
       assert.deepEqual(callInvocations, []);
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
@@ -957,10 +956,9 @@ describe("acp transport", function () {
         thrown = error;
       }
       assert.instanceOf(thrown, Error);
-      assert.match(
-        String((thrown as Error).message || ""),
-        /Command "npx" was not found in PATH/,
-      );
+      const message = String((thrown as Error).message || "");
+      assert.match(message, /Command "npx" was not found/);
+      assert.match(message, /checked candidates/);
       assert.deepEqual(callInvocations, []);
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);

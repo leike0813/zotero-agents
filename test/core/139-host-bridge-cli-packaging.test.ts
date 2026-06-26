@@ -229,6 +229,44 @@ describe("host bridge cli packaging and install", function () {
     assert.include(configSource, "addon/bin/**/zotero-bridge");
   });
 
+  it("preserves executable bits for packaged POSIX binaries and installers", async function () {
+    const packageScript = await fs.readFile(
+      path.join(process.cwd(), "scripts/package-zotero-bridge-cli.mjs"),
+      "utf8",
+    );
+    const publishScript = await fs.readFile(
+      path.join(process.cwd(), "scripts/publish-host-bridge-cli-bundle.ps1"),
+      "utf8",
+    );
+
+    assert.include(packageScript, "chmod(target, 0o755)");
+    assert.include(publishScript, "update-index --chmod=+x install.sh");
+    assert.include(publishScript, "$entry.platform -notlike 'win32-*'");
+    assert.include(publishScript, "update-index --chmod=+x $entry.binaryPath");
+  });
+
+  it("keeps tracked POSIX Host Bridge artifacts executable", async function () {
+    if (process.platform === "win32") {
+      this.skip();
+    }
+    const executablePaths = [
+      "cli/zotero-bridge/scripts/install.sh",
+      "addon/bin/linux-x86/zotero-bridge",
+      "addon/bin/linux-x64/zotero-bridge",
+      "addon/bin/linux-arm/zotero-bridge",
+      "addon/bin/linux-arm64/zotero-bridge",
+    ];
+
+    for (const relativePath of executablePaths) {
+      const stat = await fs.stat(path.join(process.cwd(), relativePath));
+      assert.notEqual(
+        stat.mode & 0o111,
+        0,
+        `${relativePath} must be executable`,
+      );
+    }
+  });
+
   it("prefers ZOTERO_BRIDGE_CLI env override when available", async function () {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-resolver-"));
     const binary = path.join(root, "zotero-bridge.exe");

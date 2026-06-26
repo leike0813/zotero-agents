@@ -1,4 +1,4 @@
-import { copyFile, mkdir, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -49,6 +49,9 @@ const target = path.join(targetDir, binaryName);
 await stat(source);
 await mkdir(targetDir, { recursive: true });
 await copyFile(source, target);
+if (!targetPlatform.startsWith("win32")) {
+  await chmod(target, 0o755);
+}
 
 const bytes = await readFile(target);
 const sha256 = createHash("sha256").update(bytes).digest("hex");

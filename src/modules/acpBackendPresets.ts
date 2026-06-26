@@ -112,10 +112,8 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     displayName: "Hermes ACP",
     bareCommand: "hermes",
     bareArgs: ["acp"],
-    npxPackage: "hermes@latest",
-    npxArgs: ["acp"],
     defaultUseNpx: false,
-    supportsNpx: true,
+    supportsNpx: false,
     agentFamily: "hermes",
     isolation: {
       envKey: "HERMES_HOME",

@@ -190,6 +190,10 @@ describe("backend manager risk regression", function () {
     assert.include(source, "createBackendManagerDraftSignature");
     assert.include(source, "installBackendManagerBeforeUnloadPrompt");
     assert.include(source, "backend-manager-unsaved-exit-confirm");
+    assert.include(source, "getRuntimeCommandRegistrySnapshot");
+    assert.include(source, "runtimeCommands.initialized");
+    assert.include(source, 'if (action === "open-nodejs-download")');
+    assert.include(source, "launchURL");
     assert.include(source, 'if (action === "add-acp-preset")');
     assert.include(source, "editableRowFromAcpBackendPresetOptions");
     assert.include(source, "existingIds.has(draftRow.internalId)");
@@ -217,8 +221,12 @@ describe("backend manager risk regression", function () {
     assert.include(js, "state.acpPresetDialog");
     assert.include(js, "backend-preset-modal");
     assert.include(js, "backend-preset-preview");
+    assert.include(js, "isNpxUnavailable");
+    assert.include(js, "runtimeCommands.npx");
     assert.include(js, "acpPresetUseNpx");
     assert.include(js, "acpPresetIsolationWarning");
+    assert.include(js, "open-nodejs-download");
+    assert.include(js, "Get Node.js");
     assert.include(js, "https://nodejs.org/");
     assert.notInclude(js, "renderAcpPresetSelect");
     assert.notInclude(js, "state.acpSelectedPresetId");
@@ -246,6 +254,7 @@ describe("backend manager risk regression", function () {
     assert.include(css, ".backend-provider-tabs");
     assert.include(css, ".backend-provider-tab.is-active");
     assert.include(css, ".backend-preset-modal");
+    assert.include(css, ".backend-preset-options");
     assert.include(css, ".backend-preset-selector");
     assert.include(css, ".backend-preset-preview");
     assert.notInclude(css, ".backend-preset-select {");
@@ -482,6 +491,16 @@ describe("backend manager risk regression", function () {
         agentFamily: "hermes",
       },
     });
+
+    const hermesRequestedNpx = createAcpBackendFromPresetOptions("hermes", {
+      useNpx: true,
+    });
+    assert.equal(hermesRequestedNpx.id, "acp-hermes");
+    assert.equal(hermesRequestedNpx.command, "hermes");
+    assert.deepEqual(hermesRequestedNpx.args, ["acp"]);
+    assert.isFalse(
+      presets.find((preset) => preset.id === "hermes")?.supportsNpx,
+    );
   });
 
   it("builds isolated ACP preset backend profiles with managed env roots", function () {

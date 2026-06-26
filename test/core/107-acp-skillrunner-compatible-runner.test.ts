@@ -3608,7 +3608,10 @@ describe("ACP SkillRunner-compatible runner", function () {
         },
       },
     });
-    assert.equal(plan.diagnostic?.code, "runtime_dependencies_injection_failed");
+    assert.equal(
+      plan.diagnostic?.code,
+      "runtime_dependencies_injection_failed",
+    );
     assert.equal(
       plan.diagnostic?.details?.readiness,
       "runtime_dependency_strategy_unavailable",
@@ -6822,7 +6825,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     ]);
     assert.match(
       String(launchedBackend?.args?.[5] || ""),
-      /(?:^npx$|[\\/]npx\.(cmd|exe|bat)$)/i,
+      /(?:^npx$|[\\/]npx(?:\.(cmd|exe|bat))?$)/i,
     );
     assert.deepEqual(launchedBackend?.args?.slice(6), ["codex", "acp"]);
     const response = result.responseJson as {

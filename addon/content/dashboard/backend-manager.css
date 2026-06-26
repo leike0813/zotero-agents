@@ -196,6 +196,13 @@
   overflow: auto;
 }
 
+.backend-preset-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+
 .backend-preset-note {
   margin: 0;
   padding: 8px 10px;
@@ -295,12 +302,19 @@
 
 .backend-checkbox-field {
   display: inline-flex;
+  width: fit-content;
   min-height: 30px;
   align-items: center;
   gap: 6px;
   color: var(--zs-muted);
   font-size: 12px;
   font-weight: 700;
+  line-height: 1;
+}
+
+.backend-checkbox-field input[type="checkbox"] {
+  margin: 0;
+  flex: 0 0 auto;
 }
 
 .backend-acp-grid {

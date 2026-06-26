@@ -274,10 +274,22 @@
     });
   }
 
+  function isNpxUnavailable() {
+    const runtimeCommands =
+      (state.snapshot && state.snapshot.runtimeCommands) || {};
+    const npx = runtimeCommands.npx || {};
+    return npx.available === false;
+  }
+
   function defaultAcpPresetDialogState(preset) {
     return {
       selectedPresetId: preset ? preset.id : "",
-      useNpx: !!(preset && preset.defaultUseNpx && preset.supportsNpx),
+      useNpx: !!(
+        preset &&
+        preset.defaultUseNpx &&
+        preset.supportsNpx &&
+        !isNpxUnavailable()
+      ),
       isolated: false,
     };
   }
@@ -316,7 +328,11 @@
     const dialog = state.acpPresetDialog || {};
     const preset = findAcpPreset(dialog.selectedPresetId) || acpPresetList()[0];
     if (!preset) return null;
-    const useNpx = !!(dialog.useNpx && preset.supportsNpx);
+    const useNpx = !!(
+      dialog.useNpx &&
+      preset.supportsNpx &&
+      !isNpxUnavailable()
+    );
     const isolated = !!(dialog.isolated && preset.isolation);
     const internalId = buildAcpPresetProfileId(preset, useNpx, isolated);
     const env = isolated
@@ -417,10 +433,12 @@
     });
     const detail = el("div", "backend-preset-detail");
     if (preview) {
+      const npxUnavailable = isNpxUnavailable();
+      const options = el("div", "backend-preset-options");
       const npxField = checkboxField({
         label: l.acpPresetUseNpx || "Use npx",
         checked: preview.useNpx,
-        disabled: !preview.preset.supportsNpx,
+        disabled: !preview.preset.supportsNpx || npxUnavailable,
         onChange: function (checked) {
           state.acpPresetDialog.useNpx = checked;
           renderWithScroll();
@@ -435,8 +453,9 @@
           renderWithScroll();
         },
       });
-      detail.append(npxField, isolationField);
-      if (preview.useNpx) {
+      options.append(npxField, isolationField);
+      detail.appendChild(options);
+      if (preview.useNpx || npxUnavailable) {
         const note = el(
           "p",
           "backend-preset-note",
@@ -445,11 +464,16 @@
         const link = el(
           "a",
           "backend-preset-note-link",
-          l.acpPresetNodeLink || "Node.js",
+          l.acpPresetNodeLink || "Get Node.js",
         );
         link.href = "https://nodejs.org/";
         link.target = "_blank";
         link.rel = "noopener noreferrer";
+        link.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          post("open-nodejs-download");
+        });
         note.append(" ", link);
         detail.appendChild(note);
       }

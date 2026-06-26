@@ -49,6 +49,7 @@ import {
   getAcpBackendIsolatedEnvironmentRoot,
   listAcpBackendPresets,
 } from "./acpBackendPresets";
+import { getRuntimeCommandRegistrySnapshot } from "../platform/command";
 
 const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 const PROVIDER_SECTIONS = [
@@ -151,6 +152,12 @@ type BackendManagerSnapshot = {
     };
   }>;
   acpPresetIsolationRoot: string;
+  runtimeCommands: {
+    npx: {
+      available?: boolean;
+      diagnostic?: string;
+    };
+  };
 };
 
 type BackendManagerActionEnvelope = {
@@ -2402,10 +2409,24 @@ function buildSkillRunnerHealthSnapshot(rows: BackendManagerDraftRow[]) {
   return healthById;
 }
 
+function getBackendManagerNpxRuntimeStatus() {
+  const runtimeCommands = getRuntimeCommandRegistrySnapshot();
+  const npxResolution = runtimeCommands.commands.npx;
+  return {
+    ...(runtimeCommands.initialized && npxResolution
+      ? { available: npxResolution.available }
+      : {}),
+    ...(npxResolution?.diagnostic
+      ? { diagnostic: npxResolution.diagnostic }
+      : {}),
+  };
+}
+
 function buildBackendManagerSnapshot(
   rows: BackendManagerDraftRow[],
   args?: { initialProviderType?: string },
 ): BackendManagerSnapshot {
+  const npxRuntimeStatus = getBackendManagerNpxRuntimeStatus();
   return {
     title: localizeBackendManager("backend-manager-title", "Backend Manager"),
     help: localizeBackendManager(
@@ -2446,6 +2467,9 @@ function buildBackendManagerSnapshot(
         : undefined,
     })),
     acpPresetIsolationRoot: getAcpBackendIsolatedEnvironmentRoot(),
+    runtimeCommands: {
+      npx: npxRuntimeStatus,
+    },
     skillRunnerHealth: buildSkillRunnerHealthSnapshot(rows),
   };
 }
@@ -2702,11 +2726,22 @@ export async function openBackendManagerDialog(
             });
           return;
         }
+        if (action === "open-nodejs-download") {
+          const zotero = (
+            globalThis as { Zotero?: { launchURL?: (url: string) => void } }
+          ).Zotero;
+          zotero?.launchURL?.("https://nodejs.org/");
+          return;
+        }
         if (action === "add-acp-preset") {
           try {
             const presetId = String(payload.presetId || "").trim();
-            const useNpx =
+            const requestedUseNpx =
               typeof payload.useNpx === "boolean" ? payload.useNpx : undefined;
+            const useNpx =
+              getBackendManagerNpxRuntimeStatus().available === false
+                ? false
+                : requestedUseNpx;
             const isolated =
               typeof payload.isolated === "boolean"
                 ? payload.isolated
