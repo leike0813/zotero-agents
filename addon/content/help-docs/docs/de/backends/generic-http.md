@@ -24,7 +24,7 @@ MinerU ist ein Dokumentparse-Dienst, der PDF-Dateien in das Markdown-Format umwa
 | Basis-URL | `https://mineru.net` |
 | Authentifizierung | `bearer` |
 | Auth-Token | Fügen Sie Ihr API-Token ein |
-| Zeitlimit | `60000` (60 Sekunden) |
+| Zeitlimit | `600000` (10 Minuten) |
 
 6. Klicken Sie auf **Speichern** in der unteren rechten Ecke
 

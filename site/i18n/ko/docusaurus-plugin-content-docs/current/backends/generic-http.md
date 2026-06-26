@@ -24,7 +24,7 @@ MinerU is a document parsing service that converts PDF files to Markdown format.
 | Base URL | `https://mineru.net` |
 | Authentication | `bearer` |
 | Auth Token | Paste your API Token |
-| Timeout | `60000` (60 seconds) |
+| Timeout | `600000` (10 minutes) |
 
 6. Click **Save** in the bottom-right corner
 

@@ -33,7 +33,7 @@ MinerU est un outil d'analyse PDF basé sur l'apprentissage profond qui extrait 
 | URL de Base | `https://mineru.net` |
 | Méthode d'Authentification | `bearer` |
 | Jeton d'Authentification | Collez le Jeton API obtenu à l'étape précédente |
-| Délai d'Attente | `60000` (60 secondes) |
+| Délai d'Attente | `600000` (10 minutes) |
 
 5. Cliquez sur **Enregistrer** dans le coin inférieur droit
 

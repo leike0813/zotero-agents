@@ -15,8 +15,8 @@ MinerU is a document parsing service that converts PDF files to Markdown format.
 1. Visit [mineru.net](https://mineru.net) to register an account, and obtain an API Token from the **API → API Management** page
 2. Open **Tools → [Backend Manager](#doc/backends%2Fbackend-manager)**
 3. Switch to the **Generic HTTP** tab
-4. Click **Add Generic HTTP**
-5. Fill in:
+4. Click **Add Generic HTTP Profile from Preset**
+5. Choose `MinerU Official`, then replace the token placeholder with your API Token:
 
 | Field | Value |
 |-------|-------|
@@ -24,7 +24,7 @@ MinerU is a document parsing service that converts PDF files to Markdown format.
 | Base URL | `https://mineru.net` |
 | Authentication | `bearer` |
 | Auth Token | Paste your API Token |
-| Timeout | `60000` (60 seconds) |
+| Timeout | `600000` (10 minutes) |
 
 6. Click **Save** in the bottom-right corner
 

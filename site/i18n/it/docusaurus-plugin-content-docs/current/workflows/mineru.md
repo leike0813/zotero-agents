@@ -33,7 +33,7 @@ MinerU è uno strumento di analisi PDF basato sul deep learning che estrae testo
 | URL di base | `https://mineru.net` |
 | Metodo di autenticazione | `bearer` |
 | Token di autenticazione | Incolla il Token API ottenuto nel passaggio precedente |
-| Timeout | `60000` (60 secondi) |
+| Timeout | `600000` (10 minuti) |
 
 5. Fai clic su **Salva** nell'angolo in basso a destra
 

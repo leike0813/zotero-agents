@@ -49,6 +49,11 @@ import {
   getAcpBackendIsolatedEnvironmentRoot,
   listAcpBackendPresets,
 } from "./acpBackendPresets";
+import {
+  createGenericHttpBackendDraftFromPreset,
+  findGenericHttpBackendPreset,
+  listGenericHttpBackendPresets,
+} from "./genericHttpBackendPresets";
 import { getRuntimeCommandRegistrySnapshot } from "../platform/command";
 
 const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
@@ -83,6 +88,7 @@ type EditableBackendRow = {
   baseUrl: string;
   authKind: "none" | "bearer";
   authToken: string;
+  authTokenPlaceholder?: string;
   timeoutMs: string;
   command: string;
   argsText: string;
@@ -111,6 +117,7 @@ type BackendManagerDraftRow = {
   baseUrl: string;
   authKind: "none" | "bearer";
   authToken: string;
+  authTokenPlaceholder?: string;
   timeoutMs: string;
   command: string;
   args: string[];
@@ -153,6 +160,19 @@ type BackendManagerSnapshot = {
         flag: string;
         pathSuffix?: string;
       }>;
+    };
+  }>;
+  genericHttpPresets: Array<{
+    id: string;
+    displayName: string;
+    baseUrl: string;
+    authKind: "none" | "bearer";
+    authTokenPlaceholder?: string;
+    timeoutMs?: string;
+    note?: {
+      text: string;
+      linkText: string;
+      linkUrl: string;
     };
   }>;
   acpPresetIsolationRoot: string;
@@ -522,6 +542,7 @@ function buildFallbackBackendRow(): EditableBackendRow {
     ).trim(),
     authKind: "none",
     authToken: "",
+    authTokenPlaceholder: "",
     timeoutMs: "600000",
     command: "",
     argsText: "",
@@ -539,6 +560,7 @@ function normalizeRowFromBackend(backend: BackendInstance): EditableBackendRow {
     baseUrl: backend.baseUrl,
     authKind: backend.auth?.kind === "bearer" ? "bearer" : "none",
     authToken: backend.auth?.kind === "bearer" ? backend.auth.token || "" : "",
+    authTokenPlaceholder: "",
     timeoutMs:
       typeof backend.defaults?.timeout_ms === "number"
         ? String(backend.defaults.timeout_ms)
@@ -574,6 +596,7 @@ function editableRowToDraft(row: EditableBackendRow): BackendManagerDraftRow {
     baseUrl: row.baseUrl,
     authKind: row.authKind,
     authToken: row.authToken,
+    authTokenPlaceholder: row.authTokenPlaceholder || "",
     timeoutMs: row.timeoutMs,
     command: row.command,
     args: parseBackendArgsText(row.argsText),
@@ -618,6 +641,7 @@ function normalizeDraftRows(raw: unknown): BackendManagerDraftRow[] {
         baseUrl: String(row.baseUrl || ""),
         authKind,
         authToken: String(row.authToken || ""),
+        authTokenPlaceholder: String(row.authTokenPlaceholder || ""),
         timeoutMs: String(row.timeoutMs || ""),
         command: String(row.command || ""),
         args,
@@ -2234,6 +2258,7 @@ function createBackendManagerDraftSignature(rows: BackendManagerDraftRow[]) {
       baseUrl: row.baseUrl,
       authKind: row.authKind,
       authToken: row.authToken,
+      authTokenPlaceholder: row.authTokenPlaceholder || "",
       timeoutMs: row.timeoutMs,
       command: row.command,
       args: normalizeDraftArgs(row.args),
@@ -2257,6 +2282,10 @@ function buildBackendManagerLabels() {
     addAcpPreset: localizeBackendManager(
       "backend-manager-acp-preset-add",
       "Add ACP Preset",
+    ),
+    addGenericHttpPreset: localizeBackendManager(
+      "backend-manager-generic-http-preset-add",
+      "Add Generic HTTP Profile from Preset",
     ),
     customAcp: localizeBackendManager(
       "backend-manager-acp-preset-custom",
@@ -2304,6 +2333,10 @@ function buildBackendManagerLabels() {
     acpPresetDialogTitle: localizeBackendManager(
       "backend-manager-acp-preset-dialog-title",
       "Add ACP Profile from Preset",
+    ),
+    genericHttpPresetDialogTitle: localizeBackendManager(
+      "backend-manager-generic-http-preset-dialog-title",
+      "Add Generic HTTP Profile from Preset",
     ),
     acpPresetUseNpx: localizeBackendManager(
       "backend-manager-acp-preset-use-npx",
@@ -2413,6 +2446,37 @@ function buildSkillRunnerHealthSnapshot(rows: BackendManagerDraftRow[]) {
   return healthById;
 }
 
+function buildGenericHttpPresetSnapshot(): BackendManagerSnapshot["genericHttpPresets"] {
+  return listGenericHttpBackendPresets().map((preset) => ({
+    id: preset.id,
+    displayName: preset.displayName,
+    baseUrl: preset.baseUrl,
+    authKind: preset.authKind,
+    authTokenPlaceholder: preset.authTokenPlaceholder,
+    timeoutMs: preset.timeoutMs,
+    note: preset.note
+      ? {
+          text: localizeBackendManager(
+            preset.note.textKey,
+            preset.note.textFallback,
+          ),
+          linkText: localizeBackendManager(
+            preset.note.linkTextKey,
+            preset.note.linkTextFallback,
+          ),
+          linkUrl: preset.note.linkUrl,
+        }
+      : undefined,
+  }));
+}
+
+function isKnownGenericHttpPresetLink(url: string) {
+  const normalized = String(url || "").trim();
+  return listGenericHttpBackendPresets().some(
+    (preset) => preset.note?.linkUrl === normalized,
+  );
+}
+
 function getBackendManagerNpxRuntimeStatus() {
   const runtimeCommands = getRuntimeCommandRegistrySnapshot();
   const npxResolution = runtimeCommands.commands.npx;
@@ -2476,6 +2540,7 @@ function buildBackendManagerSnapshot(
           }
         : undefined,
     })),
+    genericHttpPresets: buildGenericHttpPresetSnapshot(),
     acpPresetIsolationRoot: getAcpBackendIsolatedEnvironmentRoot(),
     runtimeCommands: {
       npx: npxRuntimeStatus,
@@ -2743,6 +2808,16 @@ export async function openBackendManagerDialog(
           zotero?.launchURL?.("https://nodejs.org/");
           return;
         }
+        if (action === "open-preset-link") {
+          const url = String(payload.url || "").trim();
+          if (url && isKnownGenericHttpPresetLink(url)) {
+            const zotero = (
+              globalThis as { Zotero?: { launchURL?: (url: string) => void } }
+            ).Zotero;
+            zotero?.launchURL?.(url);
+          }
+          return;
+        }
         if (action === "add-acp-preset") {
           try {
             const presetId = String(payload.presetId || "").trim();
@@ -2780,6 +2855,34 @@ export async function openBackendManagerDialog(
             postToFrame("backend-manager-dialog:action-result", {
               action,
               row: editableRowToDraft(draftRow),
+            });
+          } catch (error) {
+            alertWindow?.alert?.(String(error));
+          }
+        }
+        if (action === "add-generic-http-preset") {
+          try {
+            const presetId = String(payload.presetId || "").trim();
+            const preset = findGenericHttpBackendPreset(presetId);
+            if (!preset) {
+              throw new Error(`Unknown Generic HTTP backend preset: ${presetId}`);
+            }
+            const draftRow = createGenericHttpBackendDraftFromPreset(preset);
+            const existingIds = new Set(
+              normalizeDraftRows(payload.rows || currentDraftRows)
+                .map((row) => row.internalId)
+                .filter(Boolean),
+            );
+            if (existingIds.has(draftRow.internalId)) {
+              throw new Error(
+                getString("backend-manager-generic-http-preset-exists" as any, {
+                  args: { name: preset.displayName },
+                }),
+              );
+            }
+            postToFrame("backend-manager-dialog:action-result", {
+              action,
+              row: draftRow,
             });
           } catch (error) {
             alertWindow?.alert?.(String(error));

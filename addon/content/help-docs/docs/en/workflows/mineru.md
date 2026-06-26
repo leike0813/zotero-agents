@@ -24,18 +24,19 @@ MinerU is a deep learning-based PDF parsing tool that extracts high-quality text
 
 1. Open **Tools → [Backend Manager](#doc/backends%2Fbackend-manager)**
 2. Switch to the **Generic HTTP** tab
-3. Click **Add Generic HTTP**
-4. Fill in the following fields:
+3. Click **Add Generic HTTP Profile from Preset**
+4. Choose `MinerU Official`, then confirm the preset
+5. Replace the token placeholder with the API Token obtained in the previous step:
 
 | Field | Value |
 |------|-----|
-| Display Name | `MinerU Official` (or any name you prefer) |
+| Display Name | `MinerU Official` |
 | Base URL | `https://mineru.net` |
 | Auth Method | `bearer` |
 | Auth Token | Paste the API Token obtained in the previous step |
-| Timeout | `60000` (60 seconds) |
+| Timeout | `600000` (10 minutes) |
 
-5. Click **Save** in the bottom-right corner
+6. Click **Save** in the bottom-right corner
 
 ## Input Constraints
 

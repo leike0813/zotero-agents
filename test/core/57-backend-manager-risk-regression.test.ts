@@ -21,6 +21,10 @@ import {
   resolveSkillRunnerManagementLaunchPayloadFromRow,
 } from "../../src/modules/backendManager";
 import { buildSkillRunnerManagementUiUrl } from "../../src/modules/skillRunnerManagementDialog";
+import {
+  createGenericHttpBackendDraftFromPreset,
+  listGenericHttpBackendPresets,
+} from "../../src/modules/genericHttpBackendPresets";
 import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 import {
   getSkillRunnerBackendHealthState,
@@ -195,6 +199,10 @@ describe("backend manager risk regression", function () {
     assert.include(source, 'if (action === "open-nodejs-download")');
     assert.include(source, "launchURL");
     assert.include(source, 'if (action === "add-acp-preset")');
+    assert.include(source, 'if (action === "add-generic-http-preset")');
+    assert.include(source, 'if (action === "open-preset-link")');
+    assert.include(source, "genericHttpPresets: buildGenericHttpPresetSnapshot()");
+    assert.include(source, "backend-manager-generic-http-preset-exists");
     assert.include(source, "editableRowFromAcpBackendPresetOptions");
     assert.include(source, "existingIds.has(draftRow.internalId)");
     assert.include(source, "backend-manager-acp-preset-exists");
@@ -213,6 +221,12 @@ describe("backend manager risk regression", function () {
     );
     assert.include(js, "backend-provider-tabs");
     assert.include(js, "renderAcpPresetDialog");
+    assert.include(js, "renderGenericHttpPresetDialog");
+    assert.include(js, "state.genericHttpPresetDialog");
+    assert.include(js, "genericHttpPresetList");
+    assert.include(js, "add-generic-http-preset");
+    assert.include(js, "open-preset-link");
+    assert.include(js, "authTokenPlaceholder");
     assert.include(
       js,
       "function renderProvider(provider) {\n    const l = labels();",
@@ -564,6 +578,74 @@ describe("backend manager risk regression", function () {
     assert.equal(grok.id, "acp-grok");
     assert.equal(grok.command, "grok");
     assert.deepEqual(grok.args, ["agent", "stdio"]);
+  });
+
+  it("builds the MinerU Official Generic HTTP preset draft without persisting placeholder as token", function () {
+    const presets = listGenericHttpBackendPresets();
+    assert.deepEqual(presets, [
+      {
+        id: "mineru-official",
+        displayName: "MinerU Official",
+        baseUrl: "https://mineru.net",
+        authKind: "bearer",
+        authTokenPlaceholder: "fill-your-mineru-api-key-here",
+        timeoutMs: "600000",
+        note: {
+          textKey: "backend-manager-generic-http-preset-mineru-note",
+          textFallback: "Visit MinerU to get an API Key.",
+          linkTextKey: "backend-manager-generic-http-preset-mineru-link",
+          linkTextFallback: "https://mineru.net",
+          linkUrl: "https://mineru.net",
+        },
+      },
+    ]);
+
+    const draft = createGenericHttpBackendDraftFromPreset("mineru-official");
+    assert.deepEqual(draft, {
+      internalId: "mineru-official",
+      displayName: "MinerU Official",
+      type: "generic-http",
+      enabled: true,
+      baseUrl: "https://mineru.net",
+      authKind: "bearer",
+      authToken: "",
+      authTokenPlaceholder: "fill-your-mineru-api-key-here",
+      timeoutMs: "600000",
+      command: "",
+      args: [],
+      env: [],
+    });
+
+    const collected = collectBackendsFromDraftRows([
+      {
+        ...draft,
+        authToken: "real-token",
+      },
+    ]);
+    assert.deepEqual(collected.backends, [
+      {
+        id: "mineru-official",
+        displayName: "MinerU Official",
+        type: "generic-http",
+        baseUrl: "https://mineru.net",
+        auth: {
+          kind: "bearer",
+          token: "real-token",
+        },
+        defaults: {
+          timeout_ms: 600000,
+        },
+      },
+    ]);
+
+    let thrown: unknown = null;
+    try {
+      collectBackendsFromDraftRows([draft]);
+    } catch (error) {
+      thrown = error;
+    }
+    assert.isOk(thrown);
+    assert.match(String(thrown), /bearer|required|必填/i);
   });
 
   it("adds ACP preset display name suffixes for npm and isolated profiles", function () {

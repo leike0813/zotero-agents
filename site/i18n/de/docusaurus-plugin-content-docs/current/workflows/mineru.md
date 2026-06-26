@@ -33,7 +33,7 @@ MinerU ist ein auf Deep Learning basierendes PDF-Parsungswerkzeug, das qualitati
 | Base URL | `https://mineru.net` |
 | Auth Method | `bearer` |
 | Auth Token | Den im vorherigen Schritt erhaltenen API-Token einfügen |
-| Timeout | `60000` (60 Sekunden) |
+| Timeout | `600000` (10 Minuten) |
 
 5. Klicken Sie auf **Speichern** in der unteren rechten Ecke
 

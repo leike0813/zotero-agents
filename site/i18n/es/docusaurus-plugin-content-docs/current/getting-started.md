@@ -40,7 +40,7 @@ El flujo de trabajo MineRU puede convertir PDFs a Markdown, convirtiéndolo en e
 1. Visita [mineru.net](https://mineru.net) para registrar una cuenta y obtener un API Token desde **API → API Management**
 2. Abre **Tools → [Backend Manager](backends/backend-manager)**
 3. Cambia a la pestaña **Generic HTTP**, haz clic en **Add Generic HTTP**
-4. Completa: Display Name `MinerU Official` · Base URL `https://mineru.net` · Authentication `bearer` · Auth Token: pega tu API Token · Timeout `60000`
+4. Completa: Display Name `MinerU Official` · Base URL `https://mineru.net` · Authentication `bearer` · Auth Token: pega tu API Token · Timeout `600000`
 5. Haz clic en **Save** en la esquina inferior derecha
 
 → Consulta la [Guía de uso de MineRU](workflows/mineru) para más detalles

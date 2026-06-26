@@ -14,6 +14,7 @@
     statusTimer: null,
     scrollByProvider: {},
     acpPresetDialog: null,
+    genericHttpPresetDialog: null,
   };
 
   function post(action, payload) {
@@ -43,6 +44,9 @@
           ? "bearer"
           : "none",
       authToken: String(row && row.authToken ? row.authToken : ""),
+      authTokenPlaceholder: String(
+        row && row.authTokenPlaceholder ? row.authTokenPlaceholder : "",
+      ),
       timeoutMs: String(row && row.timeoutMs ? row.timeoutMs : ""),
       command: String(row && row.command ? row.command : ""),
       args: Array.isArray(row && row.args) ? row.args.map(String) : [],
@@ -268,8 +272,18 @@
     return (state.snapshot && state.snapshot.acpPresets) || [];
   }
 
+  function genericHttpPresetList() {
+    return (state.snapshot && state.snapshot.genericHttpPresets) || [];
+  }
+
   function findAcpPreset(presetId) {
     return acpPresetList().find(function (preset) {
+      return preset.id === presetId;
+    });
+  }
+
+  function findGenericHttpPreset(presetId) {
+    return genericHttpPresetList().find(function (preset) {
       return preset.id === presetId;
     });
   }
@@ -302,6 +316,24 @@
 
   function closeAcpPresetDialog() {
     state.acpPresetDialog = null;
+    renderWithScroll();
+  }
+
+  function defaultGenericHttpPresetDialogState(preset) {
+    return {
+      selectedPresetId: preset ? preset.id : "",
+    };
+  }
+
+  function openGenericHttpPresetDialog() {
+    const preset = genericHttpPresetList()[0] || null;
+    state.genericHttpPresetDialog =
+      defaultGenericHttpPresetDialogState(preset);
+    renderWithScroll();
+  }
+
+  function closeGenericHttpPresetDialog() {
+    state.genericHttpPresetDialog = null;
     renderWithScroll();
   }
 
@@ -412,6 +444,42 @@
       el("code", "backend-preset-preview-value", value || "-"),
     );
     return row;
+  }
+
+  function buildGenericHttpPresetPreview() {
+    const dialog = state.genericHttpPresetDialog || {};
+    const preset =
+      findGenericHttpPreset(dialog.selectedPresetId) ||
+      genericHttpPresetList()[0];
+    if (!preset) return null;
+    return {
+      preset: preset,
+      internalId: preset.id,
+      displayName: preset.displayName,
+      baseUrl: preset.baseUrl,
+      authKind: preset.authKind || "none",
+      authTokenPlaceholder: preset.authTokenPlaceholder || "",
+      timeoutMs: preset.timeoutMs || "",
+      note: preset.note || null,
+    };
+  }
+
+  function renderGenericHttpPresetPreview(preview) {
+    const l = labels();
+    const box = el("div", "backend-preset-preview");
+    box.setAttribute("aria-readonly", "true");
+    box.append(
+      previewValue(l.profileId || "Profile ID", preview.internalId),
+      previewValue(l.displayName || "Display Name", preview.displayName),
+      previewValue(l.baseUrl || "Base URL", preview.baseUrl),
+      previewValue(l.auth || "Auth", preview.authKind),
+      previewValue(
+        l.token || "Token",
+        preview.authTokenPlaceholder || "-",
+      ),
+      previewValue(l.timeoutMs || "Timeout(ms)", preview.timeoutMs || "-"),
+    );
+    return box;
   }
 
   function renderAcpPresetPreview(preview) {
@@ -556,6 +624,87 @@
     return overlay;
   }
 
+  function renderGenericHttpPresetDialog() {
+    if (!state.genericHttpPresetDialog) {
+      return document.createDocumentFragment();
+    }
+    const l = labels();
+    const preview = buildGenericHttpPresetPreview();
+    const overlay = el("div", "backend-preset-modal");
+    const panel = el("section", "backend-preset-panel");
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute(
+      "aria-label",
+      l.genericHttpPresetDialogTitle || "Add Generic HTTP Profile from Preset",
+    );
+    const header = el("header", "backend-preset-panel-header");
+    header.appendChild(
+      el(
+        "h2",
+        "backend-preset-panel-title",
+        l.genericHttpPresetDialogTitle ||
+          "Add Generic HTTP Profile from Preset",
+      ),
+    );
+    const body = el("div", "backend-preset-panel-body");
+    const selector = el("nav", "backend-preset-selector");
+    genericHttpPresetList().forEach(function (preset) {
+      const item = button(preset.displayName, "backend-preset-selector-item");
+      const selected =
+        preview && preset.id === state.genericHttpPresetDialog.selectedPresetId;
+      item.classList.toggle("is-active", selected);
+      item.setAttribute("aria-pressed", selected ? "true" : "false");
+      item.addEventListener("click", function () {
+        state.genericHttpPresetDialog =
+          defaultGenericHttpPresetDialogState(preset);
+        renderWithScroll();
+      });
+      selector.appendChild(item);
+    });
+    const detail = el("div", "backend-preset-detail");
+    if (preview) {
+      if (preview.note && preview.note.text) {
+        const note = el("p", "backend-preset-note", preview.note.text);
+        if (preview.note.linkUrl) {
+          const link = el(
+            "a",
+            "backend-preset-note-link",
+            preview.note.linkText || preview.note.linkUrl,
+          );
+          link.href = preview.note.linkUrl;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.addEventListener("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            post("open-preset-link", { url: preview.note.linkUrl });
+          });
+          note.append(" ", link);
+        }
+        detail.appendChild(note);
+      }
+      detail.appendChild(renderGenericHttpPresetPreview(preview));
+    }
+    body.append(selector, detail);
+    const footer = el("footer", "backend-preset-panel-footer");
+    const cancel = button(l.cancel || "Cancel");
+    cancel.addEventListener("click", closeGenericHttpPresetDialog);
+    const confirm = button(l.confirm || "Confirm", "primary");
+    confirm.disabled = !preview;
+    confirm.addEventListener("click", function () {
+      if (!preview) return;
+      post("add-generic-http-preset", {
+        presetId: preview.preset.id,
+        rows: state.rows,
+      });
+    });
+    footer.append(cancel, confirm);
+    panel.append(header, body, footer);
+    overlay.appendChild(panel);
+    return overlay;
+  }
+
   function tokenField(args) {
     const field = el("div", "backend-field backend-token-field");
     const label = el("label", "", args.label || "");
@@ -563,6 +712,7 @@
     input.type = "password";
     input.autocomplete = "off";
     input.value = args.value || "";
+    input.placeholder = args.placeholder || "";
     input.addEventListener("input", function () {
       args.onInput(input.value);
     });
@@ -820,6 +970,7 @@
         index,
         label: l.token || "Token",
         value: row.authToken,
+        placeholder: row.authTokenPlaceholder || "",
         onInput: function (value) {
           updateRow(index, { authToken: value });
         },
@@ -903,6 +1054,16 @@
       });
       actions.appendChild(addPreset);
     }
+    if (provider.type === "generic-http" && genericHttpPresetList().length) {
+      const addPreset = button(
+        labels().addGenericHttpPreset || "Add Generic HTTP Preset",
+      );
+      addPreset.addEventListener("click", function () {
+        rememberScroll();
+        openGenericHttpPresetDialog();
+      });
+      actions.appendChild(addPreset);
+    }
     const add = button(providerAddLabel(provider));
     add.addEventListener("click", function () {
       state.rows.push(emptyRow(provider.type));
@@ -980,7 +1141,13 @@
     });
     footerActions.append(cancel, save);
     footer.append(status, footerActions);
-    root.append(header, body, footer, renderAcpPresetDialog());
+    root.append(
+      header,
+      body,
+      footer,
+      renderAcpPresetDialog(),
+      renderGenericHttpPresetDialog(),
+    );
     if (preserveScroll) {
       requestAnimationFrame(restoreScroll);
     }
@@ -1015,6 +1182,13 @@
       if (payload.action === "add-acp-preset" && payload.row) {
         state.rows.push(cleanRow(payload.row));
         state.acpPresetDialog = null;
+        emitDraftChanged();
+        renderWithScroll();
+        return;
+      }
+      if (payload.action === "add-generic-http-preset" && payload.row) {
+        state.rows.push(cleanRow(payload.row));
+        state.genericHttpPresetDialog = null;
         emitDraftChanged();
         renderWithScroll();
         return;

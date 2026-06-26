@@ -40,7 +40,7 @@ MinerU WorkflowはPDFをMarkdownに変換でき、後続のすべての文献分
 1. [mineru.net](https://mineru.net)にアクセスしてアカウントを登録し、**API → API管理**からAPIトークンを取得
 2. **ツール → [バックエンドマネージャー](#doc/backends%2Fbackend-manager)**を開く
 3. **Generic HTTP**タブに切り替え、**Generic HTTPを追加**をクリック
-4. 以下を入力：表示名 `MinerU Official` · Base URL `https://mineru.net` · 認証 `bearer` · 認証トークン：APIトークンを貼り付け · タイムアウト `60000`
+4. 以下を入力：表示名 `MinerU Official` · Base URL `https://mineru.net` · 認証 `bearer` · 認証トークン：APIトークンを貼り付け · タイムアウト `600000`
 5. 右下の**保存**をクリック
 
 → 詳細は[MinerU使用ガイド](#doc/workflows%2Fmineru)を参照

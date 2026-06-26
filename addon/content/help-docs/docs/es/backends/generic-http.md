@@ -24,7 +24,7 @@ MinerU es un servicio de análisis de documentos que convierte archivos PDF a fo
 | URL base | `https://mineru.net` |
 | Autenticación | `bearer` |
 | Token de autenticación | Pega tu API Token |
-| Tiempo de espera | `60000` (60 segundos) |
+| Tiempo de espera | `600000` (10 minutos) |
 
 6. Haz clic en **Guardar** en la esquina inferior derecha
 

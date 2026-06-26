@@ -24,7 +24,7 @@ MinerU è un servizio di analisi documenti che converte file PDF in formato Mark
 | URL di base | `https://mineru.net` |
 | Autenticazione | `bearer` |
 | Token di autenticazione | Incolla il tuo Token API |
-| Timeout | `60000` (60 secondi) |
+| Timeout | `600000` (10 minuti) |
 
 6. Fai clic su **Salva** nell'angolo in basso a destra
 
