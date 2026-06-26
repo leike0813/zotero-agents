@@ -1,6 +1,11 @@
 import { config } from "../../package.json";
 import { getPref, setPref } from "../utils/prefs";
 import {
+  isAssistantStreamingRenderEnabled,
+  setAssistantStreamingRenderEnabled,
+  subscribeAssistantStreamingRenderPreference,
+} from "./assistantStreamingRenderPreference";
+import {
   getDefaultSkillDirForWorkflowDir,
   getDefaultWorkflowDir,
   getEffectiveWorkflowDir,
@@ -93,6 +98,9 @@ function bindPrefEvents() {
   ) as HTMLInputElement | null;
   const markdownReaderEnabledCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-markdown-reader-enabled`,
+  ) as HTMLInputElement | null;
+  const assistantStreamingRenderEnabledCheckbox = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-assistant-streaming-render-enabled`,
   ) as HTMLInputElement | null;
   const backendManageButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-backend-manage`,
@@ -2247,6 +2255,22 @@ function bindPrefEvents() {
       setPref(
         "markdownReaderEnabled",
         markdownReaderEnabledCheckbox.checked === true,
+      );
+    });
+  }
+
+  if (assistantStreamingRenderEnabledCheckbox) {
+    assistantStreamingRenderEnabledCheckbox.checked =
+      isAssistantStreamingRenderEnabled();
+    const unsubscribe = subscribeAssistantStreamingRenderPreference(
+      (enabled) => {
+        assistantStreamingRenderEnabledCheckbox.checked = enabled;
+      },
+    );
+    window.addEventListener("unload", unsubscribe, { once: true });
+    assistantStreamingRenderEnabledCheckbox.addEventListener("change", () => {
+      setAssistantStreamingRenderEnabled(
+        assistantStreamingRenderEnabledCheckbox.checked === true,
       );
     });
   }

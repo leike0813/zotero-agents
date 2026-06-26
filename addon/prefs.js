@@ -10,6 +10,7 @@ pref("skillRunnerLocalRuntimeStateJson", "");
 pref("tagVocabularyStagedJson", "");
 pref("collectSkillRunFeedbackEnabled", false);
 pref("markdownReaderEnabled", true);
+pref("assistantStreamingRenderEnabled", true);
 pref("workflowDir", "");
 pref("skillDir", "");
 pref("contentFeedChannel", "stable");

@@ -20,6 +20,10 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-action-manage-backends",
         "Manage Backends",
       ),
+      streamingRender: l(
+        "assistant-panel-action-streaming-render",
+        "Streaming",
+      ),
       copyId: l("assistant-panel-action-copy-id", "Copy ID"),
       copyDiagnostics: l(
         "assistant-panel-action-copy-diagnostics",

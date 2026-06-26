@@ -15,6 +15,7 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   tagVocabularyStagedJson: string;
   collectSkillRunFeedbackEnabled: boolean;
   markdownReaderEnabled: boolean;
+  assistantStreamingRenderEnabled: boolean;
   workflowDir: string;
   skillDir: string;
   contentFeedChannel: string;

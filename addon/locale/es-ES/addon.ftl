@@ -587,6 +587,7 @@ assistant-panel-action-details = Detalles
 assistant-panel-action-runs = Ejecuciones
 assistant-panel-action-sessions = Sesiones
 assistant-panel-action-manage-backends = Gestionar backends
+assistant-panel-action-streaming-render = Renderizado progresivo
 assistant-panel-action-copy-id = Copiar ID
 assistant-panel-action-copy-diagnostics = Copiar diagnósticos
 assistant-panel-action-open-workspace = Abrir espacio de trabajo

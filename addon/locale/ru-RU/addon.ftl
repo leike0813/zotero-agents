@@ -587,6 +587,7 @@ assistant-panel-action-details = Детали
 assistant-panel-action-runs = Запуски
 assistant-panel-action-sessions = Сессии
 assistant-panel-action-manage-backends = Управление бэкендами
+assistant-panel-action-streaming-render = Потоковая отрисовка
 assistant-panel-action-copy-id = Копировать ID
 assistant-panel-action-copy-diagnostics = Копировать диагностику
 assistant-panel-action-open-workspace = Открыть рабочую область

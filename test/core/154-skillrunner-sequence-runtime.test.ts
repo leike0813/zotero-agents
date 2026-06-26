@@ -2481,7 +2481,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     })) as any;
     const pureInferenceTagStep = withPureInferenceTag.steps[1];
     assert.equal(withPureInferenceTag.final_step_id, "tag-regulator");
-    assert.equal(pureInferenceTagStep.input.valid_tags, "");
+    assert.notProperty(pureInferenceTagStep.input, "valid_tags");
     assert.equal(pureInferenceTagStep.parameter.tag_note_language, "fr-FR");
   });
 

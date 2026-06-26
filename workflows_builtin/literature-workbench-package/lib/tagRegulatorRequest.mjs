@@ -331,17 +331,18 @@ export async function buildTagRegulatorInputFromParent(args) {
           args.runtime,
         )
       : "";
+  const input = {
+    metadata,
+    input_tags: inputTags,
+  };
+  if (validTagsPath) {
+    input.valid_tags = args.useAbsoluteValidTagsPath
+      ? validTagsPath
+      : buildValidTagsUploadRelativePath();
+  }
   return {
     parentItem,
-    input: {
-      metadata,
-      input_tags: inputTags,
-      valid_tags: validTagsPath
-        ? args.useAbsoluteValidTagsPath
-          ? validTagsPath
-          : buildValidTagsUploadRelativePath()
-        : "",
-    },
+    input,
     validTagsPath,
   };
 }
@@ -384,7 +385,7 @@ export async function buildTagRegulatorStandaloneRequest(args) {
     targetParentID: parentItem.id,
     input,
     parameter: resolveRequestParameters(args.executionOptions),
-    upload_files: uploadFiles,
+    ...(uploadFiles.length > 0 ? { upload_files: uploadFiles } : {}),
     fetch_type: "result",
   };
 }

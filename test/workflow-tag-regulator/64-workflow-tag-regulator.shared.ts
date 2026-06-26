@@ -1043,7 +1043,7 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
       })) as TagRegulatorRequest[];
 
       assert.lengthOf(requests, 1);
-      assert.equal(requests[0].input?.valid_tags, "");
+      assert.notProperty(requests[0].input || {}, "valid_tags");
       assert.isUndefined(
         requests[0].upload_files?.find((entry) => entry.key === "valid_tags"),
       );

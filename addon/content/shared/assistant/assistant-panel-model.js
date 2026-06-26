@@ -533,6 +533,21 @@
     return safeText(cursor) || fallback;
   }
 
+  function buildStreamingRenderToggleAction(source) {
+    const enabled =
+      !source ||
+      !Object.prototype.hasOwnProperty.call(source, "streamingRenderEnabled") ||
+      source.streamingRenderEnabled !== false;
+    return {
+      kind: "switch",
+      align: "end",
+      action: "set-streaming-render-enabled",
+      label: labelFrom(source, "actions.streamingRender", "Streaming"),
+      checked: enabled,
+      payload: { enabled: !enabled },
+    };
+  }
+
   function detailEntry(label, value, kind) {
     const text = safeText(value);
     if (!text) return null;
@@ -2716,6 +2731,7 @@
               labels.manageBackends ||
               labelFrom(snap, "actions.manageBackends", "Manage"),
           },
+          buildStreamingRenderToggleAction(snap),
         ],
         context: [],
         details: [
@@ -3358,6 +3374,7 @@
               "Manage Backends",
             ),
           },
+          buildStreamingRenderToggleAction(panel),
         ],
         context: [],
         details: [

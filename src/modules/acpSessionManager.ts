@@ -2,6 +2,7 @@ import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
 import { ACP_BACKEND_TYPE, ACP_OPENCODE_BACKEND_ID } from "../config/defaults";
 import { joinPath } from "../utils/path";
+import { isAssistantStreamingRenderEnabled } from "./assistantStreamingRenderPreference";
 import {
   AcpAuthRequiredError,
   createAcpConnectionAdapter,
@@ -105,6 +106,7 @@ type AcpEmitOptions = {
   throttleUi?: boolean;
   throttlePersist?: boolean;
   touchUpdatedAt?: boolean;
+  notifyUi?: boolean;
 };
 
 let adapterFactory: (
@@ -494,10 +496,12 @@ function emitSlotSnapshot(slot: AcpSessionSlot, options: AcpEmitOptions = {}) {
       flushPendingPersistence(slot);
     }
   }
-  if (options.throttleUi) {
-    scheduleUiEmit(slot);
-  } else {
-    flushPendingUiEmit(slot);
+  if (options.notifyUi !== false) {
+    if (options.throttleUi) {
+      scheduleUiEmit(slot);
+    } else {
+      flushPendingUiEmit(slot);
+    }
   }
 }
 
@@ -1494,10 +1498,12 @@ function handleSessionUpdate(
       }
       target.text += chunk;
       target.state = "streaming";
+      const renderStreaming = isAssistantStreamingRenderEnabled();
       emitSlotSnapshot(slot, {
-        throttleUi: true,
+        throttleUi: renderStreaming,
         throttlePersist: true,
         touchUpdatedAt: false,
+        notifyUi: renderStreaming,
       });
       return;
     }
@@ -1529,10 +1535,12 @@ function handleSessionUpdate(
       }
       target.text += chunk;
       target.state = "streaming";
+      const renderStreaming = isAssistantStreamingRenderEnabled();
       emitSlotSnapshot(slot, {
-        throttleUi: true,
+        throttleUi: renderStreaming,
         throttlePersist: true,
         touchUpdatedAt: false,
+        notifyUi: renderStreaming,
       });
       return;
     }

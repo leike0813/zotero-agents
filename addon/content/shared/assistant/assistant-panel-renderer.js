@@ -472,7 +472,45 @@
     container.appendChild(label);
   }
 
+  function renderActionSwitch(container, action, options) {
+    const checked = action.checked === true || action.value === true;
+    const button = el(
+      "button",
+      "assistant-panel-switch-action assistant-panel-action assistant-panel-action-" +
+        safeText(action.action || "unknown"),
+    );
+    button.type = "button";
+    button.disabled = action.enabled === false || action.disabled === true;
+    button.setAttribute("role", "switch");
+    button.setAttribute("aria-checked", checked ? "true" : "false");
+    button.setAttribute(
+      "aria-label",
+      action.label || action.action || "Switch",
+    );
+    button.setAttribute("data-assistant-switch-state", checked ? "on" : "off");
+    if (safeText(action.align) === "end") {
+      button.setAttribute("data-assistant-action-align", "end");
+    }
+    const label = el(
+      "span",
+      "assistant-panel-switch-label",
+      action.label || action.action || "Switch",
+    );
+    const track = el("span", "assistant-panel-switch-track");
+    track.appendChild(el("span", "assistant-panel-switch-thumb"));
+    button.appendChild(label);
+    button.appendChild(track);
+    button.addEventListener("click", function () {
+      emit(options, action.action, action.payload || { enabled: !checked });
+    });
+    container.appendChild(button);
+  }
+
   function renderActionButton(container, action, options) {
+    if (safeText(action.kind) === "switch") {
+      renderActionSwitch(container, action, options || {});
+      return;
+    }
     const button = el(
       "button",
       "asst-button-compact assistant-panel-action assistant-panel-action-" +
@@ -481,6 +519,9 @@
     );
     button.type = "button";
     button.disabled = action.enabled === false || action.disabled === true;
+    if (safeText(action.align) === "end") {
+      button.setAttribute("data-assistant-action-align", "end");
+    }
     if (action.tone)
       button.setAttribute("data-assistant-action-tone", safeText(action.tone));
     button.addEventListener("click", function () {

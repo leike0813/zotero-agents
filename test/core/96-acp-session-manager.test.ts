@@ -68,6 +68,7 @@ import type {
   SessionNotification,
 } from "../../src/modules/acpProtocol";
 import { joinPath } from "../../src/utils/path";
+import { setAssistantStreamingRenderEnabled } from "../../src/modules/assistantStreamingRenderPreference";
 
 class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   readonly updates = new Set<AcpConnectionUpdateListener>();
@@ -604,6 +605,7 @@ describe("acp session manager", function () {
   });
 
   afterEach(function () {
+    setAssistantStreamingRenderEnabled(true);
     setAcpConnectionAdapterFactoryForTests();
     resetAcpSessionManagerForTests();
     resetPluginStateStoreForTests();
@@ -2011,6 +2013,52 @@ describe("acp session manager", function () {
     );
     assert.equal(assistant?.text.length, 100);
     assert.isBelow(snapshotCount, 40);
+    const persisted = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
+    assert.equal(
+      persisted.items.find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      )?.text.length,
+      100,
+    );
+  });
+
+  it("suppresses ACP chat text chunk UI notifications when streaming render is disabled", async function () {
+    setAssistantStreamingRenderEnabled(false);
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.streamingChunkCount = 100;
+      return lastAdapter;
+    });
+    let snapshotCount = 0;
+    let streamingAssistantSnapshotCount = 0;
+    const unsubscribe = subscribeAcpConversationSnapshots((snapshot) => {
+      snapshotCount += 1;
+      if (
+        snapshot.items.some(
+          (entry) =>
+            entry.kind === "message" &&
+            entry.role === "assistant" &&
+            entry.state === "streaming",
+        )
+      ) {
+        streamingAssistantSnapshotCount += 1;
+      }
+    });
+
+    await sendAcpConversationPrompt({
+      message: "stream many chunks without rendering each chunk",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    unsubscribe();
+
+    const snapshot = getAcpConversationSnapshot();
+    const assistant = snapshot.items.find(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.equal(assistant?.text.length, 100);
+    assert.equal(assistant?.state, "complete");
+    assert.equal(streamingAssistantSnapshotCount, 0);
+    assert.isBelow(snapshotCount, 20);
     const persisted = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
     assert.equal(
       persisted.items.find(

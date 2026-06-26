@@ -16,6 +16,7 @@ import {
 } from "./runtimePersistence";
 import { listRuntimeLogs } from "./runtimeLogManager";
 import { buildAssistantPanelLabels } from "./assistantPanelLabels";
+import { isAssistantStreamingRenderEnabled } from "./assistantStreamingRenderPreference";
 import {
   listActiveWorkflowTaskSummaries,
   listWorkflowTasks,
@@ -2418,6 +2419,9 @@ export function recordAcpSkillRunSessionUpdate(
     }
   }
   setAcpSkillRunRecord(next);
+  if (isTextChunkUpdate && !isAssistantStreamingRenderEnabled()) {
+    return;
+  }
   persistRun(next);
   scheduleChangedEmit();
 }

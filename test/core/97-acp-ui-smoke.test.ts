@@ -4037,6 +4037,59 @@ describe("acp ui smoke", function () {
     assert.strictEqual(fakeDocument.activeElement, input);
   });
 
+  it("renders toolbar switch actions and emits the toggled payload", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const toolbarRegion = fakeDocument.createElement("div");
+    const actions: Array<{ action: string; data: Record<string, unknown> }> =
+      [];
+
+    renderer.renderAssistantPanelSnapshot(
+      {
+        kind: "acp-chat",
+        actions: {
+          toolbar: [
+            { action: "openDetails", label: "Details" },
+            {
+              kind: "switch",
+              align: "end",
+              action: "set-streaming-render-enabled",
+              label: "Streaming",
+              checked: false,
+              payload: { enabled: true },
+            },
+          ],
+        },
+      },
+      {
+        managed: true,
+        managedRegions: { toolbar: true },
+        regions: { toolbar: toolbarRegion },
+        onAction: (action: string, data: Record<string, unknown>) => {
+          actions.push({ action, data });
+        },
+      },
+    );
+
+    const switchButton = toolbarRegion.querySelector(
+      ".assistant-panel-switch-action",
+    );
+    assert.ok(switchButton);
+    assert.equal(switchButton?.getAttribute("role"), "switch");
+    assert.equal(switchButton?.getAttribute("aria-checked"), "false");
+    assert.equal(
+      switchButton?.getAttribute("data-assistant-action-align"),
+      "end",
+    );
+    switchButton?.click();
+    assert.deepEqual(actions, [
+      {
+        action: "set-streaming-render-enabled",
+        data: { enabled: true },
+      },
+    ]);
+  });
+
   it("renders waiting_user choice options as clickable reply buttons", async function () {
     const model = await loadAssistantPanelModelForSmoke();
     const fakeDocument = createFakeDocumentForAssistantPanel();

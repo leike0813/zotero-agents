@@ -6,6 +6,11 @@ import { resolveAddonRef } from "../utils/runtimeBridge";
 import { copyText } from "../utils/ztoolkit";
 import { openFolderInSystemFileManager } from "../utils/fileSystem";
 import {
+  isAssistantStreamingRenderEnabled,
+  setAssistantStreamingRenderEnabled,
+  subscribeAssistantStreamingRenderPreference,
+} from "./assistantStreamingRenderPreference";
+import {
   SKILLRUNNER_ICON_URI,
   applyToolbarButtonStyling,
   syncToolbarButtonIconFill,
@@ -111,6 +116,7 @@ type AssistantWorkspaceHostRuntime = {
   removeAcpSnapshotSubscription?: () => void;
   removeAcpSkillRunSubscription?: () => void;
   removeTaskSubscription?: () => void;
+  removeStreamingRenderPreferenceSubscription?: () => void;
   postSnapshotTimer?: ReturnType<typeof setTimeout> | null;
   skillRunnerRefreshTimer?: ReturnType<typeof setTimeout> | null;
   skillRunnerRefreshGeneration: number;
@@ -596,11 +602,14 @@ function postChildSnapshot(
 }
 
 function buildAcpSnapshot(target: AcpSidebarTarget) {
-  return buildAcpSidebarViewSnapshot({
-    target,
-    snapshot: getAcpConversationSnapshot(),
-    frontendSnapshot: getAcpFrontendSnapshot(),
-  }) as unknown as Record<string, unknown>;
+  return {
+    ...(buildAcpSidebarViewSnapshot({
+      target,
+      snapshot: getAcpConversationSnapshot(),
+      frontendSnapshot: getAcpFrontendSnapshot(),
+    }) as unknown as Record<string, unknown>),
+    streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
+  };
 }
 
 function postAcpChatSnapshot(
@@ -617,13 +626,10 @@ function postAcpSkillRunSnapshot(
   pane: MountedSidebarPane,
   phase: "init" | "snapshot" = "snapshot",
 ) {
-  postChildSnapshot(
-    host,
-    pane,
-    "acp-skills",
-    phase,
-    buildAcpSkillRunPanelSnapshot() as unknown as Record<string, unknown>,
-  );
+  postChildSnapshot(host, pane, "acp-skills", phase, {
+    ...(buildAcpSkillRunPanelSnapshot() as unknown as Record<string, unknown>),
+    streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
+  });
 }
 
 async function postFreshAcpChatSnapshot(
@@ -985,6 +991,11 @@ async function handleAcpSkillRunAction(
     if (action === "ready") {
       return;
     }
+    if (action === "set-streaming-render-enabled") {
+      setAssistantStreamingRenderEnabled(payload.enabled === true);
+      schedulePostSnapshot(host);
+      return;
+    }
     if (action === "select-run") {
       selectAcpSkillRun(String(payload.requestId || "").trim());
       return;
@@ -1094,6 +1105,11 @@ async function handleAcpChatAction(
 ) {
   try {
     if (action === "ready") {
+      return;
+    }
+    if (action === "set-streaming-render-enabled") {
+      setAssistantStreamingRenderEnabled(payload.enabled === true);
+      schedulePostSnapshot(host);
       return;
     }
     if (action === "set-active-backend") {
@@ -1485,6 +1501,10 @@ export function installAssistantWorkspaceSidebarShell(
   host.removeTaskSubscription = subscribeWorkflowTaskChanges(() => {
     updateAssistantAttentionIndicator(host);
   });
+  host.removeStreamingRenderPreferenceSubscription =
+    subscribeAssistantStreamingRenderPreference(() => {
+      schedulePostSnapshot(host);
+    });
   updateAssistantAttentionIndicator(host);
   hosts.set(win, host);
   return host;
@@ -1500,6 +1520,7 @@ export function removeAssistantWorkspaceSidebarShell(
   host.removeAcpSnapshotSubscription?.();
   host.removeAcpSkillRunSubscription?.();
   host.removeTaskSubscription?.();
+  host.removeStreamingRenderPreferenceSubscription?.();
   detachSkillRunnerSidebarHost({ hostWindow: win as Window });
   if (host.postSnapshotTimer) {
     clearTimeout(host.postSnapshotTimer);

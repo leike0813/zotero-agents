@@ -86,6 +86,7 @@ import {
 import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
 import { RequestError } from "../../src/modules/acpProtocol";
+import { setAssistantStreamingRenderEnabled } from "../../src/modules/assistantStreamingRenderPreference";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import {
   SKILL_RUN_FEEDBACK_ASSET_ID,
@@ -670,6 +671,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   afterEach(async function () {
+    setAssistantStreamingRenderEnabled(true);
     setAcpSkillRunRecoveryHandlerForTests(null);
     await shutdownAcpSkillRunConversations().catch(() => undefined);
     resetAcpWorkflowWorkspaceRegistryForTests();
@@ -4808,6 +4810,66 @@ describe("ACP SkillRunner-compatible runner", function () {
       if (thought?.kind === "thought") {
         assert.equal(thought.text, "ABC");
       }
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("suppresses ACP Skills text chunk notifications until a boundary when streaming render is disabled", async function () {
+    resetAcpSkillRunsForTests();
+    setAssistantStreamingRenderEnabled(false);
+    upsertAcpSkillRun({
+      requestId: "run-streaming-render-disabled",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+    });
+    let notifications = 0;
+    const unsubscribe = subscribeAcpSkillRunSnapshots(() => {
+      notifications += 1;
+    });
+    try {
+      recordAcpSkillRunSessionUpdate("run-streaming-render-disabled", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "A" },
+        },
+      } as any);
+      recordAcpSkillRunSessionUpdate("run-streaming-render-disabled", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "B" },
+        },
+      } as any);
+      await delay(120);
+      assert.equal(notifications, 0);
+
+      recordAcpSkillRunSessionUpdate("run-streaming-render-disabled", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "tool-1",
+          title: "Read",
+          status: "pending",
+        },
+      } as any);
+      await delay(120);
+      assert.equal(notifications, 1);
+
+      const record = getAcpSkillRunRecord("run-streaming-render-disabled");
+      const message = record?.transcriptItems.find(
+        (item) => item.kind === "message" && item.role === "assistant",
+      );
+      assert.equal(message?.kind, "message");
+      if (message?.kind === "message") {
+        assert.equal(message.text, "AB");
+        assert.equal(message.state, "complete");
+      }
+      assert.isTrue(
+        record?.transcriptItems.some((item) => item.kind === "tool_call"),
+      );
     } finally {
       unsubscribe();
     }
