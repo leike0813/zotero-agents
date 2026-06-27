@@ -22,6 +22,7 @@ import {
   getRuntimePersistencePaths,
 } from "./runtimePersistence";
 import { joinPath } from "../utils/path";
+import { appendRuntimeLog } from "./runtimeLogManager";
 
 export type AcpBackendProbeResult = {
   ok: boolean;
@@ -199,6 +200,45 @@ function preserveExistingRuntimeOptionsCache(backend: BackendInstance) {
     : undefined;
 }
 
+function summarizeAcpRuntimeOptionsCache(
+  cache: NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"],
+) {
+  return {
+    modes: Array.isArray(cache?.modes) ? cache.modes.length : 0,
+    rawModels: Array.isArray(cache?.rawModels) ? cache.rawModels.length : 0,
+    displayModels: Array.isArray(cache?.displayModels)
+      ? cache.displayModels.length
+      : 0,
+    reasoningEfforts: Array.isArray(cache?.reasoningEfforts)
+      ? cache.reasoningEfforts.length
+      : 0,
+    refreshedAt: normalizeString(cache?.refreshedAt),
+  };
+}
+
+function appendAcpProbeLog(args: {
+  backend: BackendInstance;
+  level: "info" | "warn" | "error";
+  stage: string;
+  message: string;
+  details?: Record<string, unknown>;
+  error?: unknown;
+}) {
+  appendRuntimeLog({
+    level: args.level,
+    scope: "provider",
+    backendId: normalizeString(args.backend.id),
+    backendType: normalizeString(args.backend.type) || "acp",
+    providerId: "acp",
+    component: "acp-backend-probe",
+    operation: "probe-acp-runtime-options",
+    stage: args.stage,
+    message: args.message,
+    details: args.details,
+    error: args.error,
+  });
+}
+
 export async function probeAcpBackendRuntimeOptions(args: {
   backend: BackendInstance;
   createAdapter?: typeof createAcpConnectionAdapter;
@@ -220,6 +260,20 @@ export async function probeAcpBackendRuntimeOptions(args: {
   const workspaceDir = joinPath(root, "workspace");
   const runtimeDir = joinPath(root, "runtime");
   let adapter: AcpConnectionAdapter | null = null;
+  appendAcpProbeLog({
+    backend: args.backend,
+    level: "info",
+    stage: "acp-runtime-options-probe-started",
+    message: "ACP backend runtime options probe started",
+    details: {
+      command: normalizeString(args.backend.command),
+      argCount: normalizeStringArray(args.backend.args).length,
+      envKeys: Object.keys(normalizeStringMap(args.backend.env)).sort(),
+      workspaceDir,
+      runtimeDir,
+      configFingerprint: fingerprint,
+    },
+  });
   try {
     await ensureRuntimeDirectory(root);
     await ensureRuntimeDirectory(workspaceDir);
@@ -239,6 +293,23 @@ export async function probeAcpBackendRuntimeOptions(args: {
       models: session.models,
       refreshedAt: timestamp,
     });
+    const selectedCache = selectRuntimeOptionsCache({
+      backend: args.backend,
+      cache,
+    });
+    appendAcpProbeLog({
+      backend: args.backend,
+      level: "info",
+      stage: "acp-runtime-options-probe-ok",
+      message: "ACP backend runtime options cache refreshed",
+      details: {
+        sessionId: session.sessionId,
+        workspaceDir,
+        runtimeDir,
+        configFingerprint: fingerprint,
+        cache: summarizeAcpRuntimeOptionsCache(selectedCache),
+      },
+    });
     return {
       ok: true,
       backend: {
@@ -250,16 +321,25 @@ export async function probeAcpBackendRuntimeOptions(args: {
             testedAt: timestamp,
             configFingerprint: fingerprint,
           },
-          runtimeOptionsCache: selectRuntimeOptionsCache({
-            backend: args.backend,
-            cache,
-          }),
+          runtimeOptionsCache: selectedCache,
         },
       },
     };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
+    appendAcpProbeLog({
+      backend: args.backend,
+      level: "warn",
+      stage: "acp-runtime-options-probe-failed",
+      message,
+      details: {
+        workspaceDir,
+        runtimeDir,
+        configFingerprint: fingerprint,
+      },
+      error,
+    });
     return {
       ok: false,
       error: message,

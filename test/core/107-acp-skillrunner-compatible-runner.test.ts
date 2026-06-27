@@ -79,6 +79,7 @@ import {
   createAcpSkillRunnerWorkspace,
   resetAcpWorkflowWorkspaceRegistryForTests,
 } from "../../src/modules/acpSkillRunnerWorkspace";
+import { flushAcpSkillRunAuditTrailWritesForTests } from "../../src/modules/acpSkillRunAuditTrail";
 import {
   resetRuntimeCommandRegistryForTests,
   seedRuntimeCommandRegistryForTests,
@@ -107,6 +108,30 @@ async function mkTempRoot() {
 
 function formatPortablePathForTest(value: string) {
   return value.replace(/\\/g, "/");
+}
+
+async function waitForTextFile(filePath: string, pattern?: RegExp) {
+  let latest = "";
+  for (let index = 0; index < 40; index += 1) {
+    try {
+      latest = await fs.readFile(filePath, "utf8");
+      if (!pattern || pattern.test(latest)) {
+        return latest;
+      }
+    } catch {
+      latest = "";
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return latest;
+}
+
+function parseNdjson(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
 }
 
 function redefineGlobalProperty(key: string, value: unknown) {
@@ -671,6 +696,7 @@ describe("ACP SkillRunner-compatible runner", function () {
   });
 
   afterEach(async function () {
+    await flushAcpSkillRunAuditTrailWritesForTests();
     setAssistantStreamingRenderEnabled(true);
     setAcpSkillRunRecoveryHandlerForTests(null);
     await shutdownAcpSkillRunConversations().catch(() => undefined);
@@ -679,6 +705,167 @@ describe("ACP SkillRunner-compatible runner", function () {
     resetWorkflowTasks();
     resetPluginStateStoreForTests();
     resetRuntimeCommandRegistryForTests();
+  });
+
+  it("writes developer audit files under .acp for ACP skill runs", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter } = createPromptStopAdapter({
+      updates: [
+        {
+          sessionUpdate: "tool_call",
+          toolCallId: "tool-1",
+          name: "demo.tool",
+          status: "pending",
+          rawInput: {
+            authorization: "Bearer audit-tool-token",
+            query: "find papers",
+          },
+        },
+        {
+          sessionUpdate: "usage_update",
+          used: 12,
+          size: 100,
+        },
+      ],
+      assistantText: JSON.stringify({
+        __SKILL_DONE__: true,
+        ok: true,
+      }),
+    });
+
+    try {
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend({
+          env: {
+            API_KEY: "backend-secret-key",
+          },
+        }),
+        providerOptions: {
+          apiKey: "provider-secret-key",
+        },
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+          input: {
+            authorization: "Bearer audit-prompt-token",
+            normal: "visible",
+          },
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (workspaceArgs) =>
+            createAcpSkillRunnerWorkspace({
+              ...workspaceArgs,
+              rootDir: root,
+            }),
+          createAdapter: async () => adapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      await flushAcpSkillRunAuditTrailWritesForTests();
+      const record = getAcpSkillRunRecord(result.requestId);
+      assert.equal(result.status, "succeeded");
+      assert.equal(record?.auditTrail?.initialized, true);
+      const files = record?.auditTrail?.files || {};
+      assert.isString(files.readme);
+      assert.isString(files.run);
+      assert.isString(files.prompt);
+
+      const runJson = JSON.parse(await waitForTextFile(files.run));
+      assert.equal(runJson.schema, "zotero-skills.acp.run-audit.v1");
+      assert.equal(runJson.requestId, result.requestId);
+      assert.equal(runJson.providerOptions.apiKey, "<redacted>");
+
+      const prompt = await waitForTextFile(files.prompt, /visible/);
+      assert.include(prompt, "visible");
+      assert.notInclude(prompt, "audit-prompt-token");
+      assert.include(prompt, "<redacted>");
+
+      const updatesText = await waitForTextFile(files.acpUpdates, /tool_call/);
+      assert.notInclude(updatesText, "audit-tool-token");
+      const updates = parseNdjson(updatesText);
+      assert.isOk(updates.find((entry) => entry.updateKind === "tool_call"));
+      assert.isOk(updates.find((entry) => entry.updateKind === "usage_update"));
+
+      const timelineText = await waitForTextFile(files.timeline, /succeeded/);
+      const timeline = parseNdjson(timelineText);
+      assert.isOk(
+        timeline.find((entry) => entry.stage === "workspace-created"),
+      );
+      assert.isOk(timeline.find((entry) => entry.stage === "succeeded"));
+
+      const finalState = JSON.parse(
+        await waitForTextFile(files.finalState, /succeeded/),
+      );
+      assert.equal(finalState.schema, "zotero-skills.acp.final-state.v1");
+      assert.equal(finalState.status, "succeeded");
+
+      const runtimeLogs = await waitForTextFile(
+        files.runtimeLogs,
+        /acp-skillrunner-start/,
+      );
+      assert.include(runtimeLogs, result.requestId);
+    } finally {
+      await flushAcpSkillRunAuditTrailWritesForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not fail ACP skill runs when .acp audit files cannot be written", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const runtimeFile = path.join(root, "runtime-file");
+    await fs.writeFile(runtimeFile, "not a directory", "utf8");
+
+    try {
+      const result = await executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: async (workspaceArgs) => {
+            const workspace = await createAcpSkillRunnerWorkspace({
+              ...workspaceArgs,
+              rootDir: root,
+            });
+            return {
+              ...workspace,
+              runtimeDir: runtimeFile,
+            };
+          },
+          createAdapter: async () => createFinalOutputAdapter({ ok: true }),
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+
+      const record = getAcpSkillRunRecord(result.requestId);
+      assert.equal(result.status, "succeeded");
+      assert.equal(record?.auditTrail?.initialized, false);
+      assert.match(
+        record?.auditTrail?.lastError || "",
+        /directory|file|exist/i,
+      );
+    } finally {
+      await flushAcpSkillRunAuditTrailWritesForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("resolves agent family from backend metadata and builds skill roots", async function () {

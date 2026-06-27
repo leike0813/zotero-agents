@@ -9,6 +9,10 @@ import {
   upsertSkillRunnerModelCacheEntry,
 } from "../../src/providers/skillrunner/modelCache";
 import type { BackendInstance } from "../../src/backends/types";
+import {
+  clearRuntimeLogs,
+  listRuntimeLogs,
+} from "../../src/modules/runtimeLogManager";
 
 function createJsonResponse(payload: unknown, status = 200): Response {
   const text = JSON.stringify(payload);
@@ -36,6 +40,7 @@ describe("skillrunner model cache refresh", function () {
     stopSkillRunnerModelCacheAutoRefresh();
     previousPref = Zotero.Prefs.get(cachePrefKey, true);
     clearSkillRunnerModelCache();
+    clearRuntimeLogs();
   });
 
   afterEach(function () {
@@ -45,6 +50,7 @@ describe("skillrunner model cache refresh", function () {
     } else {
       Zotero.Prefs.set(cachePrefKey, previousPref, true);
     }
+    clearRuntimeLogs();
   });
 
   it("writes backend-scoped cache on successful refresh", async function () {
@@ -80,6 +86,19 @@ describe("skillrunner model cache refresh", function () {
     assert.isOk(cached);
     assert.deepEqual(cached?.engines, ["gemini"]);
     assert.equal(cached?.modelsByEngine.gemini?.[0]?.id, "gemini-2.5-pro");
+    const refreshLogs = listRuntimeLogs({
+      backendId: "skillrunner-local",
+      operation: "refresh-skillrunner-model-cache",
+    });
+    assert.deepEqual(
+      refreshLogs.map((entry) => entry.stage),
+      [
+        "skillrunner-model-cache-refresh-started",
+        "skillrunner-model-cache-refresh-ok",
+      ],
+    );
+    assert.equal((refreshLogs[1].details as any).engines, 1);
+    assert.equal((refreshLogs[1].details as any).models, 1);
   });
 
   it("preserves previous cache when refresh fails", async function () {
@@ -105,6 +124,13 @@ describe("skillrunner model cache refresh", function () {
     });
 
     assert.isFalse(result.ok);
+    assert.include(
+      listRuntimeLogs({
+        backendId: "skillrunner-local",
+        operation: "refresh-skillrunner-model-cache",
+      }).map((entry) => entry.stage),
+      "skillrunner-model-cache-refresh-failed",
+    );
     const cached = getSkillRunnerModelCacheEntry({
       backendId: "skillrunner-local",
       baseUrl: "http://127.0.0.1:8030",

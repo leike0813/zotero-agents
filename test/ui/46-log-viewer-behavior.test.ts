@@ -26,10 +26,10 @@ function makeEntry(args: {
 }
 
 describe("log viewer behavior", function () {
-  it("defaults to all-level visibility", function () {
+  it("defaults to non-debug level visibility", function () {
     const filter = createDefaultLogViewerLevelFilter();
     assert.deepEqual(filter, {
-      debug: true,
+      debug: false,
       info: true,
       warn: true,
       error: true,

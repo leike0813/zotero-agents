@@ -4,6 +4,10 @@ import * as path from "path";
 import * as os from "os";
 import { probeAcpBackendRuntimeOptions } from "../../src/modules/acpBackendProbe";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
+import {
+  clearRuntimeLogs,
+  listRuntimeLogs,
+} from "../../src/modules/runtimeLogManager";
 
 function makeProbeAdapter(
   overrides: Partial<AcpConnectionAdapter> = {},
@@ -47,6 +51,7 @@ describe("ACP backend probe", function () {
     previousRuntimeRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-probe-"));
     process.env.ZOTERO_SKILLS_RUNTIME_ROOT = tempRoot;
+    clearRuntimeLogs();
   });
 
   afterEach(async function () {
@@ -55,6 +60,7 @@ describe("ACP backend probe", function () {
     } else {
       process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRuntimeRoot;
     }
+    clearRuntimeLogs();
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
 
@@ -142,6 +148,15 @@ describe("ACP backend probe", function () {
       ),
       ["model-1"],
     );
+    const probeLogs = listRuntimeLogs({
+      backendId: "acp-test",
+      operation: "probe-acp-runtime-options",
+    });
+    assert.deepEqual(
+      probeLogs.map((entry) => entry.stage),
+      ["acp-runtime-options-probe-started", "acp-runtime-options-probe-ok"],
+    );
+    assert.equal((probeLogs[1].details as any).cache.displayModels, 1);
   });
 
   it("derives runtime options cache from ACP config options", async function () {
@@ -259,6 +274,13 @@ describe("ACP backend probe", function () {
     });
 
     assert.isFalse(failed.ok);
+    assert.include(
+      listRuntimeLogs({
+        backendId: "acp-preserve-cache",
+        operation: "probe-acp-runtime-options",
+      }).map((entry) => entry.stage),
+      "acp-runtime-options-probe-failed",
+    );
     assert.equal(
       failed.backend.acp?.runtimeOptionsCache?.currentDisplayModelId,
       "openai/gpt-5",

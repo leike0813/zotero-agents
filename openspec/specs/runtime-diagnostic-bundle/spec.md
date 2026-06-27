@@ -4,12 +4,13 @@
 TBD - created by archiving change upgrade-runtime-log-diagnostics-for-issue-and-agent-debugging. Update Purpose after archive.
 ## Requirements
 ### Requirement: Diagnostic Bundle Export SHALL Follow RuntimeDiagnosticBundleV1 Schema
-The system SHALL export diagnostics as a single JSON document `RuntimeDiagnosticBundleV1`.
+The system SHALL keep exporting developer diagnostics as a single JSON document `RuntimeDiagnosticBundleV1` for raw retained-log debugging.
 
-#### Scenario: Export bundle baseline structure
-- **WHEN** diagnostic bundle export is requested
+#### Scenario: Export developer bundle baseline structure
+- **WHEN** developer/raw diagnostic export is requested
 - **THEN** the output JSON SHALL include `schemaVersion`, `meta`, `filters`, `timeline`, `incidents`, and `entries`
 - **AND** `entries` SHALL preserve sanitized raw log rows for machine processing
+- **AND** this raw retained-log export SHALL NOT be the default user-facing issue diagnostic bundle.
 
 ### Requirement: Diagnostic Bundle Export SHALL Include Environment Fingerprint by Default
 The bundle SHALL include non-sensitive environment fingerprint data for reproducibility.

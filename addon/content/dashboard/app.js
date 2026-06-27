@@ -509,13 +509,31 @@
     }, 3000);
   }
 
-  function renderStatusBadge(stateValue, label) {
+  function renderStatusBadge(stateValue, label, extraClassName) {
     const status = el(
       "span",
-      `status ${String(stateValue || "").toLowerCase()}`,
+      `status ${String(stateValue || "").toLowerCase()}${extraClassName ? ` ${extraClassName}` : ""}`,
       label,
     );
     return status;
+  }
+
+  function normalizeLogLevelBadgeClass(level) {
+    const normalized = String(level || "")
+      .trim()
+      .toLowerCase();
+    if (["debug", "info", "warn", "error"].indexOf(normalized) !== -1) {
+      return normalized;
+    }
+    return "unknown";
+  }
+
+  function renderLogLevelBadge(level) {
+    return renderStatusBadge(
+      level,
+      String(level || "").toUpperCase(),
+      `log-level-badge log-level-badge--${normalizeLogLevelBadgeClass(level)}`,
+    );
   }
 
   function renderTaskTable(args) {
@@ -688,9 +706,7 @@
           tr.appendChild(timeCell);
 
           const levelCell = document.createElement("td");
-          levelCell.appendChild(
-            renderStatusBadge(row.level, String(row.level || "").toUpperCase()),
-          );
+          levelCell.appendChild(renderLogLevelBadge(row.level));
           tr.appendChild(levelCell);
 
           const stageCell = document.createElement("td");
@@ -2798,7 +2814,7 @@
     // Level Filters
     const levelWrap = el("div", "logs-filter-levels");
     const levels = ["Debug", "Info", "Warn", "Error"];
-    const currentLevels = filters.levels || ["debug", "info", "warn", "error"];
+    const currentLevels = filters.levels || ["info", "warn", "error"];
     levels.forEach(function (levelTitle) {
       const level = String(levelTitle).toLowerCase();
       const labelNode = el("label", "logs-filter-checkbox-label");
@@ -3140,9 +3156,8 @@
       [
         { node: el("td", "mono", formatMillis(row.ts)) },
         {
-          node: el("td", "", "").appendChild(
-            renderStatusBadge(row.level, String(row.level || "").toUpperCase()),
-          ).parentNode,
+          node: el("td", "", "").appendChild(renderLogLevelBadge(row.level))
+            .parentNode,
         },
         { node: el("td", "", row.stage || "-") },
         { node: el("td", "", row.scope || "-") },

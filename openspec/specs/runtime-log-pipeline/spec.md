@@ -32,7 +32,7 @@ Runtime log 管道 MUST 为 Dashboard 与诊断导出提供可按 request/job/ru
 - **THEN** 系统 MUST 记录可关联到 request/job 的边界日志（dispatch/transport/retry/terminal）
 
 ### Requirement: Runtime Log Pipeline SHALL Default to Recording info/warn/error and Not Record debug by Default
-The default runtime write policy SHALL record `info`, `warn`, and `error` levels while excluding `debug` unless explicitly enabled in future extension.
+The default runtime write policy SHALL record `info`, `warn`, and `error` levels while excluding `debug` unless diagnostic collection is explicitly enabled.
 
 #### Scenario: Debug entry under default policy
 - **WHEN** a debug-level write is attempted under default settings
@@ -115,4 +115,18 @@ The runtime log pipeline MUST use runtime persistence files as the durable stora
 - **WHEN** runtime logs have been flushed to runtime persistence files
 - **THEN** log listing and diagnostic bundle creation SHALL read the retained in-memory or file-backed log state
 - **AND** they SHALL NOT require `runtimeLogsJson` to contain the retained entries.
+
+### Requirement: Runtime Log Pipeline SHALL Cover Backend Cache Refresh Diagnostics
+
+The runtime log pipeline SHALL record high-signal backend cache refresh events for issue diagnostics.
+
+#### Scenario: ACP runtime options refresh
+
+- **WHEN** an ACP backend runtime options refresh starts, succeeds, or fails
+- **THEN** the system SHALL append structured runtime logs with backend identity, operation, stage, workspace/runtime path summaries, cache counts when available, and sanitized error details.
+
+#### Scenario: SkillRunner model cache refresh
+
+- **WHEN** a SkillRunner model cache refresh starts, succeeds, or fails
+- **THEN** the system SHALL append structured runtime logs with backend identity, operation, request path summaries, engine/model counts when available, duration when available, and sanitized error details.
 

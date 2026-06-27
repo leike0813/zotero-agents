@@ -31,7 +31,7 @@ export function createDefaultLogViewerLevelFilter(): Record<
   boolean
 > {
   return {
-    debug: true,
+    debug: false,
     info: true,
     warn: true,
     error: true,
@@ -221,6 +221,75 @@ export type RuntimeDiagnosticBundleV1 = {
   timeline: RuntimeDiagnosticTimelineEvent[];
   incidents: RuntimeDiagnosticIncident[];
   entries: Array<Record<string, unknown>>;
+};
+
+export type RuntimeIssueDiagnosticEvidenceGap = {
+  code:
+    | "no_retained_runtime_logs"
+    | "missing_request_context"
+    | "missing_acp_backend_probe"
+    | "missing_skillrunner_model_cache_refresh"
+    | "retention_evicted_entries";
+  message: string;
+  backendId?: string;
+  backendType?: string;
+  requestId?: string;
+};
+
+export type RuntimeIssueDiagnosticBundleV1 = {
+  schemaVersion: "runtime-issue-diagnostic-bundle/v1";
+  generatedAt: string;
+  environment: {
+    pluginVersion: string;
+    runtimeVersion: string;
+    platform: string;
+    locale: string;
+    retentionMode: RuntimeLogRetentionMode;
+    diagnosticMode: boolean;
+    retentionBudget: {
+      maxEntries: number;
+      maxBytes: number;
+      estimatedBytes: number;
+      droppedEntries: number;
+      droppedByReason: RuntimeLogDropReasonCounter;
+    };
+  };
+  context: {
+    filters: RuntimeDiagnosticBundleFilters;
+    backendIds: string[];
+    backendTypes: string[];
+    workflowIds: string[];
+    runIds: string[];
+    requestIds: string[];
+    jobIds: string[];
+  };
+  backendHealth: {
+    acpRuntimeOptions: RuntimeIssueBackendOperationHealth[];
+    skillRunnerModelCache: RuntimeIssueBackendOperationHealth[];
+  };
+  incidents: RuntimeDiagnosticIncident[];
+  timeline: RuntimeDiagnosticTimelineEvent[];
+  evidenceGaps: RuntimeIssueDiagnosticEvidenceGap[];
+  redaction: {
+    redactedPlaceholder: string;
+    stringLimit: number;
+    textPreviewLimit: number;
+    includesDebug: boolean;
+    includesRawEntries: boolean;
+  };
+  developerRawEntries?: Array<Record<string, unknown>>;
+};
+
+export type RuntimeIssueBackendOperationHealth = {
+  backendId?: string;
+  backendType?: string;
+  operation: string;
+  status: "started" | "ok" | "failed" | "unknown";
+  lastStage?: string;
+  lastMessage?: string;
+  lastTs?: string;
+  eventCount: number;
+  summary?: unknown;
 };
 
 type RuntimeLogDocument = {
@@ -1196,11 +1265,34 @@ function resolveRuntimeLocale() {
 
 function resolveRuntimePlatform() {
   const runtime = globalThis as {
+    Zotero?: {
+      isWin?: boolean;
+      isMac?: boolean;
+      isLinux?: boolean;
+    };
     navigator?: {
       platform?: string;
       userAgent?: string;
     };
+    process?: {
+      platform?: string;
+      arch?: string;
+    };
   };
+  if (runtime.Zotero?.isWin === true) {
+    return "win32";
+  }
+  if (runtime.Zotero?.isMac === true) {
+    return "darwin";
+  }
+  if (runtime.Zotero?.isLinux === true) {
+    return "linux";
+  }
+  const processPlatform = String(runtime.process?.platform || "").trim();
+  if (processPlatform) {
+    const arch = String(runtime.process?.arch || "").trim();
+    return arch ? `${processPlatform}/${arch}` : processPlatform;
+  }
   return (
     String(runtime.navigator?.platform || "").trim() ||
     String(runtime.navigator?.userAgent || "").trim() ||
@@ -1363,6 +1455,213 @@ function buildIncidentsFromTimeline(
   return Array.from(map.values());
 }
 
+function toTimelineEvent(
+  entry: RuntimeLogEntry,
+): RuntimeDiagnosticTimelineEvent {
+  return {
+    id: entry.id,
+    ts: entry.ts,
+    level: entry.level,
+    scope: entry.scope,
+    stage: entry.stage,
+    message: entry.message,
+    workflowId: entry.workflowId,
+    backendId: entry.backendId,
+    backendType: entry.backendType,
+    providerId: entry.providerId,
+    runId: entry.runId,
+    jobId: entry.jobId,
+    requestId: entry.requestId,
+    interactionId: entry.interactionId,
+    component: entry.component,
+    operation: entry.operation,
+    phase: entry.phase,
+    attempt: entry.attempt,
+    transport: entry.transport ? { ...entry.transport } : undefined,
+    category: entry.error?.category,
+  };
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => normalizeId(value))
+        .filter((value): value is string => !!value),
+    ),
+  ).sort();
+}
+
+function issueDiagnosticLevels(args: {
+  filters: RuntimeLogListFilters;
+  includeDebug?: boolean;
+}) {
+  const requested = Array.isArray(args.filters.levels)
+    ? args.filters.levels.filter((level) => level !== "debug")
+    : (["info", "warn", "error"] as RuntimeLogLevel[]);
+  if (args.includeDebug === true) {
+    return Array.isArray(args.filters.levels)
+      ? args.filters.levels
+      : (["debug", "info", "warn", "error"] as RuntimeLogLevel[]);
+  }
+  return requested.length > 0
+    ? requested
+    : (["info", "warn", "error"] as RuntimeLogLevel[]);
+}
+
+function isHighSignalIssueEvent(entry: RuntimeLogEntry) {
+  if (entry.level === "warn" || entry.level === "error") {
+    return true;
+  }
+  const stage = entry.stage.toLowerCase();
+  const operation = String(entry.operation || "").toLowerCase();
+  if (
+    operation === "probe-acp-runtime-options" ||
+    operation === "refresh-skillrunner-model-cache" ||
+    operation === "refresh-managed-model-cache-silent"
+  ) {
+    return true;
+  }
+  return (
+    stage.includes("failed") ||
+    stage.includes("failure") ||
+    stage.includes("error") ||
+    stage.includes("complete") ||
+    stage.includes("succeed") ||
+    stage.includes("terminal") ||
+    stage.includes("cache-refresh") ||
+    stage.includes("probe")
+  );
+}
+
+function summarizeBackendOperationHealth(
+  entriesToSummarize: RuntimeLogEntry[],
+  operation: string,
+) {
+  const grouped = new Map<string, RuntimeLogEntry[]>();
+  for (const entry of entriesToSummarize) {
+    if (entry.operation !== operation) {
+      continue;
+    }
+    const key = `${entry.backendType || "unknown"}:${entry.backendId || "unknown"}`;
+    grouped.set(key, [...(grouped.get(key) || []), entry]);
+  }
+  return Array.from(grouped.values()).map((group) => {
+    const last = group[group.length - 1];
+    const failed = group.find(
+      (entry) =>
+        entry.level === "error" ||
+        entry.level === "warn" ||
+        entry.stage.toLowerCase().includes("failed"),
+    );
+    const ok = group.find((entry) => entry.stage.toLowerCase().includes("ok"));
+    const status: RuntimeIssueBackendOperationHealth["status"] = failed
+      ? "failed"
+      : ok
+        ? "ok"
+        : "started";
+    return {
+      backendId: last?.backendId,
+      backendType: last?.backendType,
+      operation,
+      status,
+      lastStage: last?.stage,
+      lastMessage: last?.message,
+      lastTs: last?.ts,
+      eventCount: group.length,
+      summary: last?.details,
+    };
+  });
+}
+
+function hasBackendOperation(
+  entriesToCheck: RuntimeLogEntry[],
+  backendId: string | undefined,
+  operation: string,
+) {
+  const normalizedBackendId = normalizeId(backendId);
+  return entriesToCheck.some(
+    (entry) =>
+      entry.operation === operation &&
+      (!normalizedBackendId || entry.backendId === normalizedBackendId),
+  );
+}
+
+function buildIssueDiagnosticEvidenceGaps(args: {
+  entries: RuntimeLogEntry[];
+  filters: RuntimeLogListFilters;
+  snapshot: RuntimeLogSnapshot;
+}): RuntimeIssueDiagnosticEvidenceGap[] {
+  const gaps: RuntimeIssueDiagnosticEvidenceGap[] = [];
+  const backendId = Array.isArray(args.filters.backendId)
+    ? normalizeId(args.filters.backendId[0])
+    : normalizeId(args.filters.backendId);
+  const backendType = normalizeId(args.filters.backendType);
+  const requestId = normalizeId(args.filters.requestId);
+
+  if (args.entries.length === 0) {
+    gaps.push({
+      code: "no_retained_runtime_logs",
+      message: "No retained runtime logs matched the selected issue context.",
+      backendId,
+      backendType,
+      requestId,
+    });
+  }
+  if (
+    requestId &&
+    !args.entries.some((entry) => entry.requestId === requestId)
+  ) {
+    gaps.push({
+      code: "missing_request_context",
+      message: "No retained runtime log entry carries the selected requestId.",
+      backendId,
+      backendType,
+      requestId,
+    });
+  }
+  if (
+    backendType === "acp" &&
+    !hasBackendOperation(args.entries, backendId, "probe-acp-runtime-options")
+  ) {
+    gaps.push({
+      code: "missing_acp_backend_probe",
+      message:
+        "No retained ACP backend probe/runtime options cache refresh event was found.",
+      backendId,
+      backendType,
+      requestId,
+    });
+  }
+  if (
+    backendType === "skillrunner" &&
+    !hasBackendOperation(
+      args.entries,
+      backendId,
+      "refresh-skillrunner-model-cache",
+    )
+  ) {
+    gaps.push({
+      code: "missing_skillrunner_model_cache_refresh",
+      message: "No retained SkillRunner model cache refresh event was found.",
+      backendId,
+      backendType,
+      requestId,
+    });
+  }
+  if (args.snapshot.droppedEntries > 0) {
+    gaps.push({
+      code: "retention_evicted_entries",
+      message:
+        "Some runtime logs were evicted before this issue diagnostic bundle was generated.",
+      backendId,
+      backendType,
+      requestId,
+    });
+  }
+  return gaps;
+}
+
 export function buildRuntimeDiagnosticBundle(
   args: {
     filters?: RuntimeLogListFilters;
@@ -1374,30 +1673,8 @@ export function buildRuntimeDiagnosticBundle(
     ...filters,
     order: "asc",
   });
-  const timeline: RuntimeDiagnosticTimelineEvent[] = timelineEntries.map(
-    (entry) => ({
-      id: entry.id,
-      ts: entry.ts,
-      level: entry.level,
-      scope: entry.scope,
-      stage: entry.stage,
-      message: entry.message,
-      workflowId: entry.workflowId,
-      backendId: entry.backendId,
-      backendType: entry.backendType,
-      providerId: entry.providerId,
-      runId: entry.runId,
-      jobId: entry.jobId,
-      requestId: entry.requestId,
-      interactionId: entry.interactionId,
-      component: entry.component,
-      operation: entry.operation,
-      phase: entry.phase,
-      attempt: entry.attempt,
-      transport: entry.transport ? { ...entry.transport } : undefined,
-      category: entry.error?.category,
-    }),
-  );
+  const timeline: RuntimeDiagnosticTimelineEvent[] =
+    timelineEntries.map(toTimelineEvent);
   const incidents = buildIncidentsFromTimeline(timeline);
   const budget = resolveActiveRetentionBudget();
   return {
@@ -1432,6 +1709,93 @@ export function buildRuntimeDiagnosticBundle(
     incidents,
     entries: timelineEntries.map((entry) => toDiagnosticExportEntry(entry)),
   };
+}
+
+export function buildRuntimeIssueDiagnosticBundle(
+  args: {
+    filters?: RuntimeLogListFilters;
+    includeDebug?: boolean;
+    includeRawEntries?: boolean;
+  } = {},
+): RuntimeIssueDiagnosticBundleV1 {
+  flushRuntimeLogsPersistenceNow();
+  const filters = args.filters || {};
+  const levels = issueDiagnosticLevels({
+    filters,
+    includeDebug: args.includeDebug,
+  });
+  const effectiveFilters = {
+    ...filters,
+    levels,
+    order: "asc" as const,
+  };
+  const issueEntries = listRuntimeLogs(effectiveFilters);
+  const snapshot = snapshotRuntimeLogsInternal();
+  const timeline = issueEntries
+    .filter(isHighSignalIssueEvent)
+    .map(toTimelineEvent);
+  const incidents = buildIncidentsFromTimeline(timeline);
+  const budget = resolveActiveRetentionBudget();
+  const bundle: RuntimeIssueDiagnosticBundleV1 = {
+    schemaVersion: "runtime-issue-diagnostic-bundle/v1",
+    generatedAt: new Date().toISOString(),
+    environment: {
+      pluginVersion: String(version || "unknown"),
+      runtimeVersion: resolveRuntimeVersion(),
+      platform: resolveRuntimePlatform(),
+      locale: resolveRuntimeLocale(),
+      retentionMode: budget.mode,
+      diagnosticMode,
+      retentionBudget: {
+        maxEntries: budget.maxEntries,
+        maxBytes: budget.maxBytes,
+        estimatedBytes,
+        droppedEntries,
+        droppedByReason: { ...droppedByReason },
+      },
+    },
+    context: {
+      filters: { ...filters },
+      backendIds: uniqueStrings(issueEntries.map((entry) => entry.backendId)),
+      backendTypes: uniqueStrings(
+        issueEntries.map((entry) => entry.backendType),
+      ),
+      workflowIds: uniqueStrings(issueEntries.map((entry) => entry.workflowId)),
+      runIds: uniqueStrings(issueEntries.map((entry) => entry.runId)),
+      requestIds: uniqueStrings(issueEntries.map((entry) => entry.requestId)),
+      jobIds: uniqueStrings(issueEntries.map((entry) => entry.jobId)),
+    },
+    backendHealth: {
+      acpRuntimeOptions: summarizeBackendOperationHealth(
+        issueEntries,
+        "probe-acp-runtime-options",
+      ),
+      skillRunnerModelCache: summarizeBackendOperationHealth(
+        issueEntries,
+        "refresh-skillrunner-model-cache",
+      ),
+    },
+    incidents,
+    timeline,
+    evidenceGaps: buildIssueDiagnosticEvidenceGaps({
+      entries: issueEntries,
+      filters,
+      snapshot,
+    }),
+    redaction: {
+      redactedPlaceholder: REDACTED,
+      stringLimit: MAX_STRING_LENGTH,
+      textPreviewLimit: DIAGNOSTIC_TEXT_PREVIEW_LIMIT,
+      includesDebug: args.includeDebug === true,
+      includesRawEntries: args.includeRawEntries === true,
+    },
+  };
+  if (args.includeRawEntries === true) {
+    bundle.developerRawEntries = issueEntries.map((entry) =>
+      toDiagnosticExportEntry(entry),
+    );
+  }
+  return bundle;
 }
 
 export function buildRuntimeIssueSummary(
