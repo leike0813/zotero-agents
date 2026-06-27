@@ -201,7 +201,10 @@ describe("backend manager risk regression", function () {
     assert.include(source, 'if (action === "add-acp-preset")');
     assert.include(source, 'if (action === "add-generic-http-preset")');
     assert.include(source, 'if (action === "open-preset-link")');
-    assert.include(source, "genericHttpPresets: buildGenericHttpPresetSnapshot()");
+    assert.include(
+      source,
+      "genericHttpPresets: buildGenericHttpPresetSnapshot()",
+    );
     assert.include(source, "backend-manager-generic-http-preset-exists");
     assert.include(source, "editableRowFromAcpBackendPresetOptions");
     assert.include(source, "existingIds.has(draftRow.internalId)");

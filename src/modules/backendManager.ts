@@ -2865,7 +2865,9 @@ export async function openBackendManagerDialog(
             const presetId = String(payload.presetId || "").trim();
             const preset = findGenericHttpBackendPreset(presetId);
             if (!preset) {
-              throw new Error(`Unknown Generic HTTP backend preset: ${presetId}`);
+              throw new Error(
+                `Unknown Generic HTTP backend preset: ${presetId}`,
+              );
             }
             const draftRow = createGenericHttpBackendDraftFromPreset(preset);
             const existingIds = new Set(

@@ -327,8 +327,7 @@
 
   function openGenericHttpPresetDialog() {
     const preset = genericHttpPresetList()[0] || null;
-    state.genericHttpPresetDialog =
-      defaultGenericHttpPresetDialogState(preset);
+    state.genericHttpPresetDialog = defaultGenericHttpPresetDialogState(preset);
     renderWithScroll();
   }
 
@@ -473,10 +472,7 @@
       previewValue(l.displayName || "Display Name", preview.displayName),
       previewValue(l.baseUrl || "Base URL", preview.baseUrl),
       previewValue(l.auth || "Auth", preview.authKind),
-      previewValue(
-        l.token || "Token",
-        preview.authTokenPlaceholder || "-",
-      ),
+      previewValue(l.token || "Token", preview.authTokenPlaceholder || "-"),
       previewValue(l.timeoutMs || "Timeout(ms)", preview.timeoutMs || "-"),
     );
     return box;

@@ -43,7 +43,9 @@ export function listGenericHttpBackendPresets() {
 
 export function findGenericHttpBackendPreset(id: string) {
   const normalized = String(id || "").trim();
-  return GENERIC_HTTP_BACKEND_PRESETS.find((preset) => preset.id === normalized);
+  return GENERIC_HTTP_BACKEND_PRESETS.find(
+    (preset) => preset.id === normalized,
+  );
 }
 
 export function createGenericHttpBackendDraftFromPreset(
@@ -54,7 +56,9 @@ export function createGenericHttpBackendDraftFromPreset(
       ? findGenericHttpBackendPreset(presetOrId)
       : presetOrId;
   if (!preset) {
-    throw new Error(`Unknown Generic HTTP backend preset: ${String(presetOrId)}`);
+    throw new Error(
+      `Unknown Generic HTTP backend preset: ${String(presetOrId)}`,
+    );
   }
   return {
     internalId: preset.id,

@@ -224,7 +224,10 @@ if ($DryRun) {
     exit 0
 }
 
-$TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "zotero-bridge-bundle-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
+# Create temp dir on the same drive as the repo to avoid cross-drive relative
+# path resolution failures in git worktree (Windows).
+$devDriveRoot = (Get-Item -LiteralPath $DevRoot).PSDrive.Root
+$TempDir = Join-Path $devDriveRoot ".tmp-zotero-bridge-bundle-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
 $Worktree = Join-Path $TempDir 'worktree'
 $TempBranch = "publish-host-bridge-cli-bundle-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
 
@@ -235,6 +238,13 @@ try {
     if ($LASTEXITCODE -ne 0) {
         Log-Error "Failed to create temporary worktree from $publishBaseRef"
     }
+    # The main repo may have core.worktree set as a relative path. Worktrees
+    # inherit that config and resolve it from their own location, which breaks
+    # when the worktree lives outside the main repo directory tree. Override
+    # with an explicit GIT_WORK_TREE so git commands in the worktree work
+    # regardless of where the temp dir is.
+    $prevGitWorkTree = $env:GIT_WORK_TREE
+    $env:GIT_WORK_TREE = $Worktree
 
     if ($useOrphanPublish) {
         git -C $Worktree checkout --orphan "$TempBranch" 2>&1 | Out-Null
@@ -426,6 +436,7 @@ Environment variables override the template at runtime:
     Log-Info "Published $Branch at $commit"
 }
 finally {
+    $env:GIT_WORK_TREE = $prevGitWorkTree
     if (Test-Path -LiteralPath $Worktree) {
         git -C $DevRoot worktree remove --force "$Worktree" 2>$null | Out-Null
     }

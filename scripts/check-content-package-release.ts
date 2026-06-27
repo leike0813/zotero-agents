@@ -212,7 +212,6 @@ export async function verifyContentPackageRelease(args?: {
   githubFeedBase?: string;
   giteeFeedBase?: string;
   versionFile?: string;
-  giteeToken?: string;
   keepOutRoot?: boolean;
 }) {
   const channels = args?.channels || DEFAULT_CHANNELS;
@@ -220,14 +219,6 @@ export async function verifyContentPackageRelease(args?: {
     args?.fetchImpl || (globalThis.fetch as unknown as FetchLike);
   if (typeof fetchImpl !== "function") {
     throw new Error("fetch is unavailable");
-  }
-  const giteeToken = String(
-    args?.giteeToken ?? process.env.GITEE_TOKEN ?? "",
-  ).trim();
-  if (!giteeToken) {
-    throw new Error(
-      "GITEE_TOKEN is required for content package release verification",
-    );
   }
 
   const descriptor = await readJsonFile<{ version?: unknown }>(

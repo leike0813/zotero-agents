@@ -1,7 +1,5 @@
 import type { BackendInstance } from "../backends/types";
-import {
-  getMozillaSubprocessModule as getCompatMozillaSubprocessModule,
-} from "../utils/runtimeCompatibility";
+import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import {
   getWindowsShellCommandForLaunch,
   resolveRuntimeCommand,

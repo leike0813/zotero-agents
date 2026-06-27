@@ -136,7 +136,15 @@ describe("runtime platform services in Zotero", function () {
     this.timeout(120000);
     const snapshot = await preflightRuntimeCommandsOnStartup();
     assert.equal(snapshot.initialized, true);
-    for (const command of ["uv", "python", "python3", "py", "node", "npm", "npx"]) {
+    for (const command of [
+      "uv",
+      "python",
+      "python3",
+      "py",
+      "node",
+      "npm",
+      "npx",
+    ]) {
       assert.property(snapshot.commands, command);
       assert.isArray((snapshot.commands as any)[command].checkedCandidates);
     }

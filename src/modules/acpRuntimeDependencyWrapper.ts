@@ -704,7 +704,10 @@ async function probeDependenciesWithSystemPython(args: {
       summary: "Python command is unavailable for runtime dependency probe",
     };
   }
-  const pythonArgs = ["-c", buildPythonDependencyProbeScript(args.dependencies)];
+  const pythonArgs = [
+    "-c",
+    buildPythonDependencyProbeScript(args.dependencies),
+  ];
   const zoteroSubprocess = getZoteroInternalSubprocess();
   if (zoteroSubprocess) {
     try {
@@ -835,8 +838,7 @@ export async function buildAcpRuntimeDependencyPlan(args: {
         code: "runtime_dependencies_system_python_ready",
         message: `ACP workflow launch will use the configured backend; detected Python already provides ${dependencies.length} runtime dependencies`,
         details: {
-          readiness:
-            result.readiness || "system_python_dependencies_ready",
+          readiness: result.readiness || "system_python_dependencies_ready",
           strategy: "system-python",
           ...(result.details || {}),
         },

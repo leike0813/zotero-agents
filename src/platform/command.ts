@@ -156,7 +156,8 @@ export async function resolveRuntimeCommand(
     return cached;
   }
   const checkedCandidates: string[] = [];
-  const platform = normalizeString(options?.platform) || detectRuntimePlatform();
+  const platform =
+    normalizeString(options?.platform) || detectRuntimePlatform();
   const exists = options?.exists || defaultPathExists;
   if (!command) {
     return {
@@ -235,7 +236,8 @@ export async function resolveRuntimeCommand(
       },
       {
         source: "windows-global-npm",
-        resolve: () => resolveWindowsCommandFromGlobalNpmRoot(command, platform),
+        resolve: () =>
+          resolveWindowsCommandFromGlobalNpmRoot(command, platform),
       },
       {
         source: "windows-node-install",
@@ -294,9 +296,7 @@ function cloneResolution(value: RuntimeCommandResolution) {
 
 export async function preflightRuntimeCommandsOnStartup(options?: {
   commands?: RuntimeCommandName[];
-  resolver?: (
-    command: RuntimeCommandName,
-  ) => Promise<RuntimeCommandResolution>;
+  resolver?: (command: RuntimeCommandName) => Promise<RuntimeCommandResolution>;
 }) {
   const commands = options?.commands || STARTUP_COMMANDS;
   const entries = await Promise.all(

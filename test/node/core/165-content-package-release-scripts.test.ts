@@ -335,7 +335,6 @@ describe("content package release scripts", function () {
       channels: [channel],
       outRoot: tempRoot,
       versionFile,
-      giteeToken: "token",
       fetchImpl,
       buildContentFeeds: async () => {},
     });
@@ -357,7 +356,6 @@ describe("content package release scripts", function () {
         channels: [channel],
         outRoot: tempRoot,
         versionFile,
-        giteeToken: "token",
         fetchImpl: (async () => response("missing", 404)) as typeof fetch,
         buildContentFeeds: async () => {},
       }),
@@ -385,7 +383,6 @@ describe("content package release scripts", function () {
         channels: [channel],
         outRoot: tempRoot,
         versionFile,
-        giteeToken: "token",
         fetchImpl: (async (url: string) =>
           url.endsWith("/stable/feed.json")
             ? response(remote.feed)
@@ -416,7 +413,6 @@ describe("content package release scripts", function () {
         channels: [channel],
         outRoot: tempRoot,
         versionFile,
-        giteeToken: "token",
         fetchImpl: (async (url: string) =>
           url.includes("gitee")
             ? response(gitee.feed)
@@ -427,7 +423,7 @@ describe("content package release scripts", function () {
     );
   });
 
-  it("fails when Gitee verification token is unavailable", async function () {
+  it("verifies public Gitee feeds without requiring a token", async function () {
     const channel = "stable" as const;
     const built = makeFeed({ channel });
     await fs.mkdir(path.join(tempRoot, channel), { recursive: true });
@@ -438,16 +434,28 @@ describe("content package release scripts", function () {
     const versionFile = path.join(tempRoot, "content-package.version.json");
     await fs.writeFile(versionFile, JSON.stringify({ version: "1.2.3" }));
 
-    await expectRejects(
-      verifyContentPackageRelease({
-        channels: [channel],
-        outRoot: tempRoot,
-        versionFile,
-        giteeToken: "",
-        fetchImpl: (async () => response(built.feed)) as typeof fetch,
-        buildContentFeeds: async () => {},
-      }),
-      /GITEE_TOKEN is required/,
-    );
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/stable/feed.json")) {
+        return response(built.feed);
+      }
+      if (url === built.feed.packages[0].artifact.url) {
+        return response(built.bytes);
+      }
+      if (url === built.feed.packages[0].artifact.mirrors[0]) {
+        return response(built.bytes);
+      }
+      if (url.endsWith(".zip.sha256")) {
+        return response(`${built.digest}  ${built.fileName}\n`);
+      }
+      return response("missing", 404);
+    }) as typeof fetch;
+
+    await verifyContentPackageRelease({
+      channels: [channel],
+      outRoot: tempRoot,
+      versionFile,
+      fetchImpl,
+      buildContentFeeds: async () => {},
+    });
   });
 });
